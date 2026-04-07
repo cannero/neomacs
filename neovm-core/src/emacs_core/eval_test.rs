@@ -3245,6 +3245,79 @@ fn bignum_round_trips_through_print_and_parse() {
     );
 }
 
+/// Regression for audit Phase B: file primitives must dispatch
+/// through `file-name-handler-alist`. Mirrors GNU's `Ffind_file_name_handler`
+/// pattern (`src/fileio.c:371`) — every file builtin checks the alist
+/// before doing native I/O. We install a fake handler that records the
+/// `(operation . args)` it was invoked with and returns a sentinel,
+/// then call several primitives over a synthetic filename and verify
+/// the handler ran.
+#[test]
+fn file_name_handler_dispatch_invokes_handler_for_matching_filenames() {
+    crate::test_utils::init_test_tracing();
+    // Use a raw lambda on the alist instead of a `defun`-defined
+    // symbol — `Context::new()` is the bare-metal evaluator and
+    // doesn't include the higher-level `defun` macro. The raw
+    // lambda value is what `find-file-name-handler` returns and
+    // what `funcall` invokes, mirroring the same dispatch path
+    // a real handler symbol would take.
+    let results = eval_all(
+        r#"
+        (setq my-handler-log nil)
+        (setq file-name-handler-alist
+              (cons (cons "\\`/fake:"
+                          (lambda (op &rest args)
+                            (setq my-handler-log
+                                  (cons (cons op args) my-handler-log))
+                            'sentinel))
+                    nil))
+        (file-exists-p "/fake:foo")
+        (file-directory-p "/fake:bar")
+        (file-readable-p "/fake:baz")
+        (file-symlink-p "/fake:link")
+        (expand-file-name "/fake:abs")
+        (length my-handler-log)
+        ;; The log is built via `cons`, so the most recent call is
+        ;; at the head and the first call (file-exists-p) is at
+        ;; the tail. nth 4 reaches the 5th element which is the
+        ;; first call.
+        (eq (car (nth 4 my-handler-log)) 'file-exists-p)
+        ;; And nth 0 should be the last call (expand-file-name).
+        (eq (car (nth 0 my-handler-log)) 'expand-file-name)
+        "#,
+    );
+    // Skip the two setq forms; assertions start at index 2.
+    let answers: Vec<&String> = results.iter().skip(2).collect();
+    assert_eq!(answers[0], "OK sentinel"); // file-exists-p
+    assert_eq!(answers[1], "OK sentinel"); // file-directory-p
+    assert_eq!(answers[2], "OK sentinel"); // file-readable-p
+    assert_eq!(answers[3], "OK sentinel"); // file-symlink-p
+    assert_eq!(answers[4], "OK sentinel"); // expand-file-name (lambda returns sentinel uniformly)
+    assert_eq!(answers[5], "OK 5"); // 5 calls logged
+    assert_eq!(answers[6], "OK t"); // first call was file-exists-p
+    assert_eq!(answers[7], "OK t"); // last call was expand-file-name
+
+    // A non-matching filename must not invoke the handler — verifies
+    // we don't dispatch indiscriminately. /tmp doesn't start with /fake:.
+    let no_match = eval_all(
+        r#"
+        (setq my-handler-log nil)
+        (setq file-name-handler-alist
+              (cons (cons "\\`/fake:"
+                          (lambda (op &rest args)
+                            (setq my-handler-log (cons op my-handler-log))
+                            'never-called))
+                    nil))
+        (file-exists-p "/tmp")
+        my-handler-log
+        "#,
+    );
+    // Result of file-exists-p depends on /tmp existing — we only
+    // care that the handler did NOT log anything.
+    assert!(no_match[2].starts_with("OK "));
+    assert_eq!(no_match[3], "OK nil");
+}
+
 #[test]
 fn substring_accepts_vectors_like_gnu_emacs() {
     crate::test_utils::init_test_tracing();

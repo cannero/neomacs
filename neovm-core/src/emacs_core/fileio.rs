@@ -1165,6 +1165,9 @@ pub(crate) fn builtin_expand_file_name_impl(
 }
 
 pub(crate) fn builtin_expand_file_name(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "expand-file-name", &args)? {
+        return Ok(result);
+    }
     builtin_expand_file_name_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1294,11 +1297,17 @@ pub(crate) fn builtin_file_truename_impl(
 }
 
 pub(crate) fn builtin_file_truename(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-truename", &args)? {
+        return Ok(result);
+    }
     builtin_file_truename_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-name-directory FILENAME) -> string or nil
-pub(crate) fn builtin_file_name_directory(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_name_directory(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-name-directory", &args)? {
+        return Ok(result);
+    }
     expect_args("file-name-directory", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
     match file_name_directory(&filename) {
@@ -1308,14 +1317,20 @@ pub(crate) fn builtin_file_name_directory(args: Vec<Value>) -> EvalResult {
 }
 
 /// (file-name-nondirectory FILENAME) -> string
-pub(crate) fn builtin_file_name_nondirectory(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_name_nondirectory(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-name-nondirectory", &args)? {
+        return Ok(result);
+    }
     expect_args("file-name-nondirectory", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
     Ok(Value::string(file_name_nondirectory(&filename)))
 }
 
 /// (file-name-as-directory FILENAME) -> string
-pub(crate) fn builtin_file_name_as_directory(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_name_as_directory(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-name-as-directory", &args)? {
+        return Ok(result);
+    }
     expect_args("file-name-as-directory", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
     // Preserve multibyte flag of input
@@ -1327,7 +1342,10 @@ pub(crate) fn builtin_file_name_as_directory(args: Vec<Value>) -> EvalResult {
 }
 
 /// (directory-file-name FILENAME) -> string
-pub(crate) fn builtin_directory_file_name(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_directory_file_name(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "directory-file-name", &args)? {
+        return Ok(result);
+    }
     expect_args("directory-file-name", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
     if args[0].string_is_multibyte() {
@@ -1379,7 +1397,10 @@ pub(crate) fn builtin_directory_name_p(args: Vec<Value>) -> EvalResult {
 }
 
 /// (substitute-in-file-name FILENAME) -> string
-pub(crate) fn builtin_substitute_in_file_name(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_substitute_in_file_name(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "substitute-in-file-name", &args)? {
+        return Ok(result);
+    }
     expect_args("substitute-in-file-name", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
     Ok(Value::string(substitute_in_file_name(&filename)))
@@ -1560,6 +1581,9 @@ pub(crate) fn builtin_access_file_impl(
 }
 
 pub(crate) fn builtin_access_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "access-file", &args)? {
+        return Ok(result);
+    }
     builtin_access_file_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1578,6 +1602,9 @@ pub(crate) fn builtin_file_exists_p_impl(
 }
 
 pub(crate) fn builtin_file_exists_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-exists-p", &args)? {
+        return Ok(result);
+    }
     builtin_file_exists_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1596,6 +1623,9 @@ pub(crate) fn builtin_file_readable_p_impl(
 }
 
 pub(crate) fn builtin_file_readable_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-readable-p", &args)? {
+        return Ok(result);
+    }
     builtin_file_readable_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1614,6 +1644,9 @@ pub(crate) fn builtin_file_writable_p_impl(
 }
 
 pub(crate) fn builtin_file_writable_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-writable-p", &args)? {
+        return Ok(result);
+    }
     builtin_file_writable_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1635,6 +1668,9 @@ pub(crate) fn builtin_file_accessible_directory_p(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-accessible-directory-p", &args)? {
+        return Ok(result);
+    }
     builtin_file_accessible_directory_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1653,6 +1689,9 @@ pub(crate) fn builtin_file_executable_p_impl(
 }
 
 pub(crate) fn builtin_file_executable_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-executable-p", &args)? {
+        return Ok(result);
+    }
     builtin_file_executable_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1670,6 +1709,9 @@ pub(crate) fn builtin_file_acl_impl(
 
 /// Context-aware variant of `file-acl`.
 pub(crate) fn builtin_file_acl(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-acl", &args)? {
+        return Ok(result);
+    }
     builtin_file_acl_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1696,6 +1738,9 @@ pub(crate) fn builtin_file_locked_p_impl(
 }
 
 pub(crate) fn builtin_file_locked_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-locked-p", &args)? {
+        return Ok(result);
+    }
     builtin_file_locked_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1718,6 +1763,9 @@ pub(crate) fn builtin_file_selinux_context_impl(
 
 /// Context-aware variant of `file-selinux-context`.
 pub(crate) fn builtin_file_selinux_context(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-selinux-context", &args)? {
+        return Ok(result);
+    }
     builtin_file_selinux_context_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1749,6 +1797,9 @@ pub(crate) fn builtin_file_system_info_impl(
 }
 
 pub(crate) fn builtin_file_system_info(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-system-info", &args)? {
+        return Ok(result);
+    }
     builtin_file_system_info_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1767,6 +1818,9 @@ pub(crate) fn builtin_file_directory_p_impl(
 }
 
 pub(crate) fn builtin_file_directory_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-directory-p", &args)? {
+        return Ok(result);
+    }
     builtin_file_directory_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1785,6 +1839,9 @@ pub(crate) fn builtin_file_regular_p_impl(
 }
 
 pub(crate) fn builtin_file_regular_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-regular-p", &args)? {
+        return Ok(result);
+    }
     builtin_file_regular_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1813,6 +1870,9 @@ pub(crate) fn builtin_file_symlink_p_impl(
 }
 
 pub(crate) fn builtin_file_symlink_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-symlink-p", &args)? {
+        return Ok(result);
+    }
     builtin_file_symlink_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1834,6 +1894,9 @@ pub(crate) fn builtin_file_name_case_insensitive_p(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-name-case-insensitive-p", &args)? {
+        return Ok(result);
+    }
     builtin_file_name_case_insensitive_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1854,6 +1917,9 @@ pub(crate) fn builtin_file_newer_than_file_p_impl(
 }
 
 pub(crate) fn builtin_file_newer_than_file_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler_two_arg(eval, "file-newer-than-file-p", &args)? {
+        return Ok(result);
+    }
     builtin_file_newer_than_file_p_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1884,6 +1950,9 @@ pub(crate) fn builtin_file_modes_impl(
 /// Context-aware variant of `file-modes` that resolves relative paths
 /// against dynamic/default `default-directory`.
 pub(crate) fn builtin_file_modes(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-modes", &args)? {
+        return Ok(result);
+    }
     builtin_file_modes_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1929,6 +1998,9 @@ pub(crate) fn builtin_set_file_modes_impl(
 /// Context-aware variant of `set-file-modes` that resolves relative paths
 /// against dynamic/default `default-directory`.
 pub(crate) fn builtin_set_file_modes(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "set-file-modes", &args)? {
+        return Ok(result);
+    }
     builtin_set_file_modes_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -1963,6 +2035,9 @@ pub(crate) fn builtin_set_file_times_impl(
 /// Context-aware variant of `set-file-times` that resolves relative paths
 /// against dynamic/default `default-directory`.
 pub(crate) fn builtin_set_file_times(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "set-file-times", &args)? {
+        return Ok(result);
+    }
     builtin_set_file_times_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -2095,6 +2170,9 @@ pub(crate) fn builtin_default_file_modes(args: Vec<Value>) -> EvalResult {
 /// Context-aware variant of `delete-file` that resolves relative paths
 /// against dynamic/default `default-directory`.
 pub(crate) fn builtin_delete_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "delete-file", &args)? {
+        return Ok(result);
+    }
     expect_min_args("delete-file", &args, 1)?;
     if args.len() > 2 {
         return Err(signal(
@@ -2127,6 +2205,9 @@ pub(crate) fn builtin_delete_file_internal_impl(
 }
 
 pub(crate) fn builtin_delete_file_internal(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "delete-file", &args)? {
+        return Ok(result);
+    }
     builtin_delete_file_internal_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -2156,6 +2237,9 @@ pub(crate) fn builtin_delete_directory_internal(
 /// Context-aware variant of `delete-directory` that resolves relative paths
 /// against dynamic/default `default-directory`.
 pub(crate) fn builtin_delete_directory(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "delete-directory", &args)? {
+        return Ok(result);
+    }
     expect_min_args("delete-directory", &args, 1)?;
     if args.len() > 3 {
         return Err(signal(
@@ -2226,6 +2310,9 @@ pub(crate) fn builtin_make_symbolic_link_impl(
 }
 
 pub(crate) fn builtin_make_symbolic_link(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler_two_arg(eval, "make-symbolic-link", &args)? {
+        return Ok(result);
+    }
     builtin_make_symbolic_link_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -2271,6 +2358,9 @@ pub(crate) fn builtin_rename_file_impl(
 }
 
 pub(crate) fn builtin_rename_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler_two_arg(eval, "rename-file", &args)? {
+        return Ok(result);
+    }
     builtin_rename_file_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -2309,6 +2399,9 @@ pub(crate) fn builtin_copy_file_impl(
 }
 
 pub(crate) fn builtin_copy_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler_two_arg(eval, "copy-file", &args)? {
+        return Ok(result);
+    }
     builtin_copy_file_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -2345,6 +2438,9 @@ pub(crate) fn builtin_add_name_to_file_impl(
 }
 
 pub(crate) fn builtin_add_name_to_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler_two_arg(eval, "add-name-to-file", &args)? {
+        return Ok(result);
+    }
     builtin_add_name_to_file_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -2364,25 +2460,214 @@ pub(crate) fn builtin_make_directory_internal_impl(
 }
 
 pub(crate) fn builtin_make_directory_internal(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    // make-directory-internal is the primitive that the elisp
+    // make-directory wrapper calls; GNU dispatches the handler at
+    // the make-directory level via Qmake_directory. Mirror that
+    // here so internal callers also see the handler.
+    if let Some(result) = dispatch_file_handler(eval, "make-directory", &args)? {
+        return Ok(result);
+    }
     builtin_make_directory_internal_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 pub(crate) fn builtin_find_file_name_handler_impl(
     obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
+    _dynamic: &[OrderedRuntimeBindingMap],
+    _buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("find-file-name-handler", &args, 2)?;
     let filename = expect_string_strict(&args[0])?;
-    let _filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    let _operation = &args[1];
-    Ok(Value::NIL)
+    let operation = args[1];
+    Ok(find_file_name_handler(obarray, &filename, operation))
 }
 
 /// Context-aware variant of `find-file-name-handler`.
 pub(crate) fn builtin_find_file_name_handler(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_find_file_name_handler_impl(&eval.obarray, &[], &eval.buffers, args)
+}
+
+/// Walk `file-name-handler-alist` looking for a handler matching FILENAME
+/// for OPERATION. Mirrors GNU `Ffind_file_name_handler`
+/// (`src/fileio.c:371`).
+///
+/// The alist is a list of `(REGEXP . HANDLER)` cons cells. For each
+/// matching entry the highest match position wins (using `>` not `>=`,
+/// so the *first* match at any given position is preferred). When
+/// `OPERATION` equals `inhibit-file-name-operation`, handlers listed
+/// in `inhibit-file-name-handlers` are skipped — that is how a handler
+/// can call standard primitives without recursing into itself.
+///
+/// If a handler symbol carries a non-nil `'operations` property, the
+/// handler is only used when `OPERATION` is in that list. This lets
+/// handlers declare a restricted operation set without writing
+/// trampolines for everything else.
+pub(crate) fn find_file_name_handler(
+    obarray: &Obarray,
+    filename: &str,
+    operation: Value,
+) -> Value {
+    // Read the alist. If unbound or non-list, no handlers apply.
+    let alist = match obarray.symbol_value("file-name-handler-alist") {
+        Some(v) if v.is_cons() => *v,
+        _ => return Value::NIL,
+    };
+
+    // Compute the inhibit list lazily — only consulted when operation
+    // matches inhibit-file-name-operation.
+    let mut inhibited: Option<Value> = None;
+    if let Some(inh_op) = obarray.symbol_value("inhibit-file-name-operation").copied() {
+        if !inh_op.is_nil() && super::value::eq_value(&inh_op, &operation) {
+            inhibited = obarray
+                .symbol_value("inhibit-file-name-handlers")
+                .copied();
+        }
+    }
+
+    // Walk the alist exactly like GNU's loop, picking the entry with
+    // the strictly-greatest match position.
+    let mut best: Value = Value::NIL;
+    let mut best_pos: i64 = -1;
+    let mut cursor = alist;
+    while cursor.is_cons() {
+        let entry = cursor.cons_car();
+        cursor = cursor.cons_cdr();
+        if !entry.is_cons() {
+            continue;
+        }
+        let regexp_val = entry.cons_car();
+        let handler = entry.cons_cdr();
+        let Some(regexp) = regexp_val.as_str() else {
+            continue;
+        };
+
+        // If the handler is a symbol with a non-nil `operations`
+        // property, restrict to listed operations. Mirrors GNU's
+        // `Fget (handler, Qoperations)` check at fileio.c:409.
+        if let Some(handler_sym) = handler.as_symbol_id() {
+            let ops_sym = super::intern::intern("operations");
+            if let Some(ops) = obarray
+                .get_property_id(handler_sym, ops_sym)
+                .copied()
+                .filter(|v| !v.is_nil())
+            {
+                let mut op_cursor = ops;
+                let mut found = false;
+                while op_cursor.is_cons() {
+                    if super::value::eq_value(&op_cursor.cons_car(), &operation) {
+                        found = true;
+                        break;
+                    }
+                    op_cursor = op_cursor.cons_cdr();
+                }
+                if !found {
+                    continue;
+                }
+            }
+        }
+
+        // Match the regexp against the filename.
+        let mut match_data: Option<crate::emacs_core::regex::MatchData> = None;
+        let match_pos =
+            match super::regex::string_match_full(regexp, filename, 0, &mut match_data) {
+                Ok(Some(pos)) => pos as i64,
+                _ => continue,
+            };
+
+        if match_pos > best_pos {
+            // Skip if this handler is inhibited for the current operation.
+            if let Some(inh) = inhibited {
+                let mut inh_cursor = inh;
+                let mut skip = false;
+                while inh_cursor.is_cons() {
+                    if super::value::eq_value(&inh_cursor.cons_car(), &handler) {
+                        skip = true;
+                        break;
+                    }
+                    inh_cursor = inh_cursor.cons_cdr();
+                }
+                if skip {
+                    continue;
+                }
+            }
+            best = handler;
+            best_pos = match_pos;
+        }
+    }
+    best
+}
+
+/// Convenience for builtins that have an `eval` context. Looks up a
+/// handler for `(filename, operation)` and, if one is installed,
+/// invokes it as `(funcall handler operation arg1 arg2 ...)` and
+/// returns the result wrapped in `Some`. Returns `None` if no handler
+/// matched, in which case the caller should fall back to its native
+/// implementation.
+///
+/// `operation_name` is the symbol the handler will receive as its
+/// first argument (e.g. `"file-exists-p"`). It must match the GNU
+/// operation symbol exactly.
+pub(crate) fn dispatch_file_handler(
+    eval: &mut Context,
+    operation_name: &str,
+    args: &[Value],
+) -> Result<Option<Value>, super::error::Flow> {
+    // Every operation we wire up takes the filename in args[0]. Two-
+    // argument file ops (copy-file, rename-file, add-name-to-file,
+    // make-symbolic-link) need to consult the handler for *both*
+    // names; those have a separate helper below.
+    let Some(first) = args.first() else {
+        return Ok(None);
+    };
+    let Some(filename) = first.as_str() else {
+        return Ok(None);
+    };
+    let operation_sym = Value::symbol(operation_name);
+    let handler = find_file_name_handler(&eval.obarray, filename, operation_sym);
+    if handler.is_nil() {
+        return Ok(None);
+    }
+    // Build (operation arg1 arg2 ...) and funcall the handler.
+    let mut call_args = Vec::with_capacity(args.len() + 1);
+    call_args.push(operation_sym);
+    call_args.extend_from_slice(args);
+    let result = eval.funcall_general(handler, call_args)?;
+    Ok(Some(result))
+}
+
+/// Two-argument variant for builtins like `copy-file` and `rename-file`.
+/// Mirrors GNU's pattern of consulting the handler for the source
+/// first and falling back to the destination.
+pub(crate) fn dispatch_file_handler_two_arg(
+    eval: &mut Context,
+    operation_name: &str,
+    args: &[Value],
+) -> Result<Option<Value>, super::error::Flow> {
+    if args.len() < 2 {
+        return Ok(None);
+    }
+    let operation_sym = Value::symbol(operation_name);
+    // Source file first.
+    if let Some(src) = args[0].as_str() {
+        let handler = find_file_name_handler(&eval.obarray, src, operation_sym);
+        if !handler.is_nil() {
+            let mut call_args = Vec::with_capacity(args.len() + 1);
+            call_args.push(operation_sym);
+            call_args.extend_from_slice(args);
+            return Ok(Some(eval.funcall_general(handler, call_args)?));
+        }
+    }
+    // Destination file second.
+    if let Some(dst) = args[1].as_str() {
+        let handler = find_file_name_handler(&eval.obarray, dst, operation_sym);
+        if !handler.is_nil() {
+            let mut call_args = Vec::with_capacity(args.len() + 1);
+            call_args.push(operation_sym);
+            call_args.extend_from_slice(args);
+            return Ok(Some(eval.funcall_general(handler, call_args)?));
+        }
+    }
+    Ok(None)
 }
 
 /// Context-aware variant of `directory-files` that resolves relative DIR
@@ -2436,6 +2721,9 @@ pub(crate) fn builtin_directory_files_impl(
 }
 
 pub(crate) fn builtin_directory_files(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "directory-files", &args)? {
+        return Ok(result);
+    }
     builtin_directory_files_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
@@ -2764,6 +3052,9 @@ pub(crate) fn builtin_insert_file_contents(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "insert-file-contents", &args)? {
+        return Ok(result);
+    }
     let coding_val = eval.visible_variable_value_or_nil("coding-system-for-read");
     let coding_system_for_read = match coding_val.kind() {
         ValueKind::Nil => None,
@@ -3105,6 +3396,21 @@ pub(crate) fn builtin_write_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    // The filename is at args[2], not args[0]. Mirrors GNU
+    // `Fwrite_region`'s `Ffind_file_name_handler (filename, Qwrite_region)`
+    // dispatch (`src/fileio.c`).
+    if let Some(filename_val) = args.get(2) {
+        if let Some(filename) = filename_val.as_str() {
+            let op = Value::symbol("write-region");
+            let handler = find_file_name_handler(&eval.obarray, filename, op);
+            if !handler.is_nil() {
+                let mut call_args = Vec::with_capacity(args.len() + 1);
+                call_args.push(op);
+                call_args.extend_from_slice(&args);
+                return eval.funcall_general(handler, call_args);
+            }
+        }
+    }
     let (value, used_coding) =
         builtin_write_region_impl(&eval.obarray, &[], &mut eval.buffers, args)?;
     eval.set_variable("last-coding-system-used", Value::symbol(&used_coding));

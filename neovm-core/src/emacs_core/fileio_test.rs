@@ -1605,16 +1605,19 @@ fn test_builtin_copy_file_eval_optional_arg_semantics() {
 #[test]
 fn test_builtin_file_name_ops() {
     crate::test_utils::init_test_tracing();
-    let result = builtin_file_name_directory(vec![Value::string("/home/user/test.el")]);
+    let mut ev = Context::new();
+    let result =
+        builtin_file_name_directory(&mut ev, vec![Value::string("/home/user/test.el")]);
     assert_eq!(result.unwrap().as_str(), Some("/home/user/"));
 
-    let result = builtin_file_name_nondirectory(vec![Value::string("/home/user/test.el")]);
+    let result =
+        builtin_file_name_nondirectory(&mut ev, vec![Value::string("/home/user/test.el")]);
     assert_eq!(result.unwrap().as_str(), Some("test.el"));
 
-    let result = builtin_file_name_as_directory(vec![Value::string("/home/user")]);
+    let result = builtin_file_name_as_directory(&mut ev, vec![Value::string("/home/user")]);
     assert_eq!(result.unwrap().as_str(), Some("/home/user/"));
 
-    let result = builtin_directory_file_name(vec![Value::string("/home/user/")]);
+    let result = builtin_directory_file_name(&mut ev, vec![Value::string("/home/user/")]);
     assert_eq!(result.unwrap().as_str(), Some("/home/user"));
 
     let result = builtin_file_name_concat(vec![
@@ -1629,10 +1632,11 @@ fn test_builtin_file_name_ops() {
 #[test]
 fn test_builtin_file_name_ops_strict_types() {
     crate::test_utils::init_test_tracing();
-    assert!(builtin_file_name_directory(vec![Value::symbol("x")]).is_err());
-    assert!(builtin_file_name_nondirectory(vec![Value::symbol("x")]).is_err());
-    assert!(builtin_file_name_as_directory(vec![Value::symbol("x")]).is_err());
-    assert!(builtin_directory_file_name(vec![Value::symbol("x")]).is_err());
+    let mut ev = Context::new();
+    assert!(builtin_file_name_directory(&mut ev, vec![Value::symbol("x")]).is_err());
+    assert!(builtin_file_name_nondirectory(&mut ev, vec![Value::symbol("x")]).is_err());
+    assert!(builtin_file_name_as_directory(&mut ev, vec![Value::symbol("x")]).is_err());
+    assert!(builtin_directory_file_name(&mut ev, vec![Value::symbol("x")]).is_err());
 }
 
 #[test]
@@ -2166,14 +2170,17 @@ fn test_default_file_modes_argument_errors() {
 fn test_builtin_substitute_in_file_name() {
     crate::test_utils::init_test_tracing();
     let home = std::env::var("HOME").unwrap_or_default();
-    let result = builtin_substitute_in_file_name(vec![Value::string("$HOME/foo")]).unwrap();
+    let mut ev = Context::new();
+    let result =
+        builtin_substitute_in_file_name(&mut ev, vec![Value::string("$HOME/foo")]).unwrap();
     assert_eq!(result.as_str(), Some(format!("{home}/foo").as_str()));
 }
 
 #[test]
 fn test_builtin_substitute_in_file_name_strict_type() {
     crate::test_utils::init_test_tracing();
-    let result = builtin_substitute_in_file_name(vec![Value::symbol("foo")]);
+    let mut ev = Context::new();
+    let result = builtin_substitute_in_file_name(&mut ev, vec![Value::symbol("foo")]);
     assert!(result.is_err());
 }
 

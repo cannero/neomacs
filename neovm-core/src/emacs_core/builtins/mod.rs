@@ -4189,25 +4189,25 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "file-name-directory",
-        |_ctx, args| super::fileio::builtin_file_name_directory(args),
+        |ctx, args| super::fileio::builtin_file_name_directory(ctx, args),
         0,
         None,
     );
     ctx.defsubr(
         "file-name-nondirectory",
-        |_ctx, args| super::fileio::builtin_file_name_nondirectory(args),
+        |ctx, args| super::fileio::builtin_file_name_nondirectory(ctx, args),
         0,
         None,
     );
     ctx.defsubr(
         "file-name-as-directory",
-        |_ctx, args| super::fileio::builtin_file_name_as_directory(args),
+        |ctx, args| super::fileio::builtin_file_name_as_directory(ctx, args),
         1,
         Some(1),
     );
     ctx.defsubr(
         "directory-file-name",
-        |_ctx, args| super::fileio::builtin_directory_file_name(args),
+        |ctx, args| super::fileio::builtin_directory_file_name(ctx, args),
         1,
         Some(1),
     );
@@ -4231,7 +4231,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "substitute-in-file-name",
-        |_ctx, args| super::fileio::builtin_substitute_in_file_name(args),
+        |ctx, args| super::fileio::builtin_substitute_in_file_name(ctx, args),
         0,
         None,
     );
