@@ -1005,7 +1005,9 @@ fn validate_file_truename_counter(counter: &Value) -> Result<(), Flow> {
     }
     if counter.is_cons() {
         let first = counter.cons_car();
-        if !(first.is_fixnum() || first.is_float() || first.as_char().is_some()) {
+        // Mirrors GNU `NUMBERP` which accepts bignums in addition
+        // to fixnums and floats.
+        if !(first.is_number() || first.as_char().is_some()) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("number-or-marker-p"), first],

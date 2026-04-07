@@ -24,11 +24,19 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
 }
 
 /// Extract a numeric argument as `f64` with `numberp` contract semantics.
+///
+/// Mirrors GNU `extract_float` (`floatfns.c:81`) which accepts any
+/// `NUMBERP` value: fixnum, bignum, or float. Bignums are converted
+/// to `f64` via `mpz_get_d`, matching GNU's `XFLOATINT` semantics
+/// (precision loss is the caller's contract — `logb`, `frexp`, etc.
+/// are inherently float operations).
 fn extract_number(val: &Value) -> Result<f64, Flow> {
+    use crate::emacs_core::value::VecLikeType;
     match val.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
         ValueKind::Float => Ok(val.xfloat()),
-        other => Err(signal(
+        ValueKind::Veclike(VecLikeType::Bignum) => Ok(val.as_bignum().unwrap().to_f64()),
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *val],
         )),

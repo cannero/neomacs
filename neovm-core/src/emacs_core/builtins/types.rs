@@ -153,16 +153,19 @@ pub(crate) fn builtin_string_or_null_p(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_integer_or_marker_p(args: Vec<Value>) -> EvalResult {
     expect_args("integer-or-marker-p", &args, 1)?;
+    // Mirrors GNU `INTEGERP || MARKERP` (data.c). `INTEGERP`
+    // covers both fixnums and bignums.
     let is_integer_or_marker =
-        args[0].is_fixnum() || args[0].is_char() || super::marker::is_marker(&args[0]);
+        args[0].is_integer() || args[0].is_char() || super::marker::is_marker(&args[0]);
     Ok(Value::bool_val(is_integer_or_marker))
 }
 
 pub(crate) fn builtin_number_or_marker_p(args: Vec<Value>) -> EvalResult {
     expect_args("number-or-marker-p", &args, 1)?;
+    // Mirrors GNU `NUMBERP || MARKERP` (data.c). `NUMBERP`
+    // covers fixnums, bignums, and floats.
     let is_number_or_marker =
-        (args[0].is_fixnum() || args[0].is_float() || args[0].as_char().is_some())
-            || super::marker::is_marker(&args[0]);
+        args[0].is_number() || args[0].as_char().is_some() || super::marker::is_marker(&args[0]);
     Ok(Value::bool_val(is_number_or_marker))
 }
 
