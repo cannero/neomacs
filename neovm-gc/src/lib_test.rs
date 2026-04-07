@@ -11390,6 +11390,13 @@ fn pacer_in_heap_triggers_major_via_allocation_pressure() {
         "expected pacer to observe at least one completed cycle, got {}",
         pacer_stats.observed_cycles
     );
+    // The runtime should also have recorded that the pacer drove
+    // at least one of those majors directly.
+    assert!(
+        pacer_stats.pacer_triggered_majors >= 1,
+        "expected pacer_triggered_majors >= 1, got {}",
+        pacer_stats.pacer_triggered_majors
+    );
 
     // Heap should still be bounded — we capped it at the pacer trigger
     // plus a small bounded slack.
@@ -11550,6 +11557,11 @@ fn pacer_in_heap_triggers_minor_via_nursery_soft_threshold() {
         "expected pacer to observe at least one completed minor cycle, \
          got {}",
         pacer_stats.observed_minor_cycles
+    );
+    assert!(
+        pacer_stats.pacer_triggered_minors >= 1,
+        "expected pacer_triggered_minors >= 1, got {}",
+        pacer_stats.pacer_triggered_minors
     );
 
     // After the last minor the soft counter must have reset to a

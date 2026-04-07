@@ -117,6 +117,15 @@ pub struct PacerStats {
     pub observed_cycles: u64,
     /// Number of completed minor cycles the pacer has observed.
     pub observed_minor_cycles: u64,
+    /// Number of times a pacer decision drove a major collection
+    /// (i.e. the static pressure plan would not have fired one but
+    /// the pacer's `TriggerMajor` decision did). Useful for telling
+    /// pacer-driven work apart from static threshold work.
+    pub pacer_triggered_majors: u64,
+    /// Number of times a pacer decision drove a minor collection
+    /// (the pacer's nursery soft trigger fired before the static
+    /// nursery threshold did).
+    pub pacer_triggered_minors: u64,
     /// Number of times the pacer overshoots its budget
     /// (observed pause exceeded target_pause).
     pub overshoot_count: u64,
@@ -152,6 +161,8 @@ struct PacerState {
     next_major_trigger_bytes: usize,
     observed_cycles: u64,
     observed_minor_cycles: u64,
+    pacer_triggered_majors: u64,
+    pacer_triggered_minors: u64,
     overshoot_count: u64,
     last_cycle_start: Option<Instant>,
     bytes_allocated_since_last_cycle: usize,
@@ -171,6 +182,8 @@ impl Pacer {
             next_major_trigger_bytes: config.min_trigger_bytes,
             observed_cycles: 0,
             observed_minor_cycles: 0,
+            pacer_triggered_majors: 0,
+            pacer_triggered_minors: 0,
             overshoot_count: 0,
             last_cycle_start: None,
             bytes_allocated_since_last_cycle: 0,
@@ -269,6 +282,23 @@ impl Pacer {
         let mut state = self.lock();
         state.bytes_allocated_to_nursery_since_last_minor = 0;
         state.observed_minor_cycles = state.observed_minor_cycles.saturating_add(1);
+    }
+
+    /// Bump the pacer-triggered major counter. Called by the runtime
+    /// when prepare_typed_allocation acts on a `TriggerMajor` decision
+    /// (i.e. the static pressure plan would not have fired).
+    pub fn record_pacer_triggered_major(&self) {
+        let mut state = self.lock();
+        state.pacer_triggered_majors = state.pacer_triggered_majors.saturating_add(1);
+    }
+
+    /// Bump the pacer-triggered minor counter. Called by the runtime
+    /// when prepare_typed_allocation acts on a `TriggerMinor` decision
+    /// (i.e. the nursery soft trigger fired before the static
+    /// nursery threshold).
+    pub fn record_pacer_triggered_minor(&self) {
+        let mut state = self.lock();
+        state.pacer_triggered_minors = state.pacer_triggered_minors.saturating_add(1);
     }
 
     /// Tell the pacer a major collection just completed. Updates the
@@ -385,6 +415,8 @@ impl Pacer {
             nursery_bytes_since_last_minor: state.bytes_allocated_to_nursery_since_last_minor,
             observed_cycles: state.observed_cycles,
             observed_minor_cycles: state.observed_minor_cycles,
+            pacer_triggered_majors: state.pacer_triggered_majors,
+            pacer_triggered_minors: state.pacer_triggered_minors,
             overshoot_count: state.overshoot_count,
         }
     }
