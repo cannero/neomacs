@@ -101,7 +101,7 @@ pub(crate) fn find_sparse_old_block_candidates(
 /// and the pass moves on. Callers get a best-effort compaction.
 #[allow(dead_code)]
 pub(crate) fn compact_sparse_old_blocks(
-    objects: &mut Vec<ObjectRecord>,
+    objects: &mut [ObjectRecord],
     old_gen: &mut OldGenState,
     config: &OldGenConfig,
     density_threshold: f64,
@@ -132,7 +132,9 @@ pub(crate) fn compact_sparse_old_blocks(
     // one. This packs survivors tight instead of creating one
     // new block per evacuated record.
     let mut target_hint: Option<usize> = None;
-    for slot_index in 0..objects.len() {
+    let total = objects.len();
+    #[allow(clippy::needless_range_loop)]
+    for slot_index in 0..total {
         let (is_candidate, object_key) = {
             let object = &objects[slot_index];
             if object.space() != SpaceKind::Old {
