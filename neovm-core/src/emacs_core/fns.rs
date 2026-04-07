@@ -928,14 +928,14 @@ pub(crate) fn builtin_widget_put(args: Vec<Value>) -> EvalResult {
                         cell_car
                     };
                     if equal_value(&key, property, 0) {
-                        // Found it — the next cons cell holds the value
-                        let next = {
-                            let cell_car = cursor.cons_car();
-                            let cell_cdr = cursor.cons_cdr();
-                            cell_cdr
-                        };
+                        // Found the key cons. The *next* cons cell
+                        // holds the value (plist layout: KEY VAL KEY
+                        // VAL ...). Mutate that next cell's car, NOT
+                        // the current key cell — overwriting the key
+                        // would break the plist structure.
+                        let next = cursor.cons_cdr();
                         if next.is_cons() {
-                            cursor.set_car(*value);
+                            next.set_car(*value);
                             return Ok(*value);
                         }
                         break;

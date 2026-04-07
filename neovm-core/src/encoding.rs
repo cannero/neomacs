@@ -812,8 +812,12 @@ pub(crate) fn builtin_decode_coding_string(args: Vec<Value>) -> EvalResult {
 /// `(char-or-string-p OBJ)` -> t or nil
 pub(crate) fn builtin_char_or_string_p(args: Vec<Value>) -> EvalResult {
     expect_args("char-or-string-p", &args, 1)?;
+    // GNU `Fchar_or_string_p` (`src/data.c`) only accepts fixnums in
+    // the valid character code range [0, MAX_CHAR_CODE = 0x3FFFFF].
+    // Negative or out-of-range integers must return nil.
     let is_char_or_string = match args[0].kind() {
-        ValueKind::Fixnum(_) | ValueKind::String => true,
+        ValueKind::Fixnum(n) => (0..=MAX_CHAR_CODE).contains(&n),
+        ValueKind::String => true,
         _ => false,
     };
     Ok(Value::bool_val(is_char_or_string))
