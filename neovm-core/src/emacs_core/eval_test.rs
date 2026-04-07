@@ -3205,6 +3205,76 @@ fn reader_recognizes_bignum_literals() {
     assert_eq!(eval_one("(bignump 1267650600228229401496703205376)"), "OK t");
 }
 
+/// Regression for the symbol-redirect refactor §7.3 (Phase 7).
+/// Mirrors GNU's `let_shadows_buffer_binding_p` invariant: a
+/// `(let ((buffer-local-var ...)) ...)` form in buffer A must NOT
+/// affect any other buffer's value of the same variable, and the
+/// original A binding must be restored after the let unwinds.
+///
+/// This is the riskiest mechanism in the whole symbol-redirect
+/// plan. The test exercises the existing NeoMacs `specbind` /
+/// `unbind_to` dispatch to confirm GNU semantics hold today before
+/// later phases rewire the hot path through the new
+/// `Obarray::set_internal_localized` BLV machinery.
+#[test]
+fn let_buffer_local_does_not_corrupt_other_buffers() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let buf_a = ev.buffers.create_buffer("A");
+    let buf_b = ev.buffers.create_buffer("B");
+    ev.buffers.set_current(buf_a);
+    ev.eval_str("(make-variable-buffer-local 'phase7-x)")
+        .expect("make-variable-buffer-local should succeed");
+    // Seed each buffer with its own per-buffer value via setq.
+    ev.eval_str("(setq phase7-x 1)").expect("setq A");
+    ev.buffers.set_current(buf_b);
+    ev.eval_str("(setq phase7-x 2)").expect("setq B");
+    // Switch back to A and let-bind phase7-x to 999. Inside the
+    // let, switching to B must read B's value (2), NOT 999.
+    // We use save-current-buffer + set-buffer instead of
+    // with-current-buffer because the latter is a macro that may
+    // not be available in Context::new().
+    ev.buffers.set_current(buf_a);
+    let inside = ev.eval_str(
+        "(let ((phase7-x 999))
+           (save-current-buffer
+             (set-buffer (get-buffer \"B\"))
+             phase7-x))",
+    );
+    assert!(
+        inside.is_ok(),
+        "let+set-buffer should not error: {:?}",
+        inside
+    );
+    let inside_val = inside.unwrap();
+    assert_eq!(
+        inside_val.as_int(),
+        Some(2),
+        "with-current-buffer B inside let should read B's local value (2), \
+         got {:?}",
+        inside_val
+    );
+    // After the let unwinds, A's binding must be restored to its
+    // pre-let value (1).
+    ev.buffers.set_current(buf_a);
+    let after_a = ev.eval_str("phase7-x").unwrap();
+    assert_eq!(
+        after_a.as_int(),
+        Some(1),
+        "after let unwinds, buffer A's binding must be restored to 1, got {:?}",
+        after_a
+    );
+    // And B's binding is unchanged.
+    ev.buffers.set_current(buf_b);
+    let after_b = ev.eval_str("phase7-x").unwrap();
+    assert_eq!(
+        after_b.as_int(),
+        Some(2),
+        "buffer B's binding must still be 2, got {:?}",
+        after_b
+    );
+}
+
 /// Regression for the printer side of audit §1.1: bignums must
 /// round-trip through prin1, number-to-string, format %d/%x/%o, and
 /// string-to-number. Mirrors GNU Emacs's bignum print/parse symmetry.
