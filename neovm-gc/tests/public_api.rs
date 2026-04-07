@@ -8391,6 +8391,76 @@ fn public_api_shared_update_pacer_config_works_while_heap_write_locked() {
 }
 
 #[test]
+fn public_api_pacer_drives_minor_collection_via_shared_mutator() {
+    // End-to-end test: configure a SharedHeap with a giant static
+    // nursery (so the static minor pressure path never fires) and a
+    // tiny pacer nursery soft trigger so allocations through the
+    // shared mutator surface drive pacer-only minor cycles.
+    let shared = neovm_gc::SharedHeap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            // Large enough that the static threshold cannot fire
+            // across the test's allocation budget.
+            semispace_bytes: 16 * 1024 * 1024,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        pacer: PacerConfig {
+            // Soft minor trigger after only 4 KiB of nursery
+            // allocation.
+            nursery_soft_trigger_bytes: 4 * 1024,
+            // Disable the major path so the only thing the pacer
+            // can do is fire minors.
+            min_trigger_bytes: usize::MAX,
+            heap_growth_target_ratio: 1.5,
+            ..PacerConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+
+    let baseline_minors = shared
+        .stats()
+        .expect("baseline shared heap stats")
+        .collections
+        .minor_collections;
+
+    // Drive enough nursery allocations to trip the soft trigger
+    // several times.
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for i in 0..1024u64 {
+                let _leaf = mutator
+                    .alloc_auto(&mut scope, Leaf(i))
+                    .expect("alloc auto leaf via shared mutator");
+            }
+        })
+        .expect("allocate via shared mutator");
+
+    // Read the after-state through the lock-free shared status path.
+    let stats = shared.stats().expect("read shared stats after alloc");
+    assert!(
+        stats.collections.minor_collections > baseline_minors,
+        "expected pacer to drive at least one minor collection \
+         through the shared mutator path, got {} (baseline {})",
+        stats.collections.minor_collections,
+        baseline_minors
+    );
+
+    let pacer_stats = shared
+        .pacer_stats()
+        .expect("read pacer stats after alloc");
+    assert!(
+        pacer_stats.observed_minor_cycles >= 1,
+        "expected pacer to observe at least one minor cycle, got {}",
+        pacer_stats.observed_minor_cycles
+    );
+    assert!(
+        pacer_stats.pacer_triggered_minors >= 1,
+        "expected pacer_triggered_minors >= 1, got {}",
+        pacer_stats.pacer_triggered_minors
+    );
+}
+
+#[test]
 fn public_api_shared_pacer_stats_accessor_reads_lock_free() {
     // Build a shared heap with a tight pacer trigger, run some
     // allocations through the shared mutator, and read the pacer
