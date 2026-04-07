@@ -1791,9 +1791,7 @@ impl BackgroundCollector {
         snapshot: &CollectorSharedSnapshot,
     ) -> Option<BackgroundCollectionStatus> {
         let progress = snapshot.major_mark_progress?;
-        if snapshot.active_major_mark_plan.is_none() {
-            return None;
-        }
+        snapshot.active_major_mark_plan.as_ref()?;
         if progress.completed {
             Some(BackgroundCollectionStatus::ReadyToFinish(progress))
         } else {
