@@ -48,6 +48,12 @@ pub const BUFFER_SLOT_READ_ONLY: usize = 2;
 /// Slot index for `enable-multibyte-characters`. Mirrors GNU's
 /// `enable_multibyte_characters_` (`buffer.h:346`).
 pub const BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS: usize = 3;
+/// Slot index for `buffer-file-truename`. Mirrors GNU's
+/// `file_truename_` (`buffer.h:325`).
+pub const BUFFER_SLOT_FILE_TRUENAME: usize = 4;
+/// Slot index for `default-directory`. Mirrors GNU's
+/// `directory_` (`buffer.h:321`).
+pub const BUFFER_SLOT_DEFAULT_DIRECTORY: usize = 5;
 
 // ---------------------------------------------------------------------------
 // BUFFER_SLOT_INFO table — declarative metadata for every BUFFER_OBJFWD
@@ -72,6 +78,11 @@ pub enum SlotDefault {
     LazyUnibyte(&'static str),
     /// Resolve to an interned symbol at install time.
     LazySymbol(&'static str),
+    /// Resolve to the process's current working directory as a
+    /// unibyte string with a trailing slash. Mirrors GNU
+    /// `init_buffer_once`'s setup of `default-directory`
+    /// (`buffer.c:5381`).
+    LazyCwd,
 }
 
 impl SlotDefault {
@@ -85,6 +96,15 @@ impl SlotDefault {
             SlotDefault::LazyString(s) => Value::string(s),
             SlotDefault::LazyUnibyte(s) => Value::unibyte_string(s),
             SlotDefault::LazySymbol(s) => Value::symbol(s),
+            SlotDefault::LazyCwd => {
+                let mut s = std::env::current_dir()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "/".to_string());
+                if !s.ends_with('/') {
+                    s.push('/');
+                }
+                Value::unibyte_string(s)
+            }
         }
     }
 }
@@ -132,6 +152,22 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         offset: BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS,
         default: SlotDefault::Const(crate::emacs_core::value::Value::T),
         predicate: "",
+    },
+    BufferSlotInfo {
+        name: "buffer-file-truename",
+        offset: BUFFER_SLOT_FILE_TRUENAME,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "stringp",
+    },
+    BufferSlotInfo {
+        // GNU buffer.c:5381 — default-directory defaults to the
+        // process cwd resolved at startup. The slot table can't
+        // compute that at const time so we use SlotDefault::LazyCwd
+        // which calls std::env::current_dir() at install time.
+        name: "default-directory",
+        offset: BUFFER_SLOT_DEFAULT_DIRECTORY,
+        default: SlotDefault::LazyCwd,
+        predicate: "stringp",
     },
 ];
 
