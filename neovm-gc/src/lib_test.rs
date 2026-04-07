@@ -1805,6 +1805,27 @@ fn collector_runtime_execute_plan_runs_minor_collection() {
 }
 
 #[test]
+fn collector_runtime_collect_runs_minor_collection() {
+    let mut heap = Heap::new(HeapConfig::default());
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        mutator.alloc(&mut scope, Leaf(9)).expect("alloc leaf");
+    }
+
+    let cycle = heap
+        .collector_runtime()
+        .collect(CollectionKind::Minor)
+        .expect("collect minor through runtime");
+
+    assert_eq!(cycle.minor_collections, 1);
+    assert_eq!(
+        heap.last_completed_plan().map(|plan| plan.kind),
+        Some(CollectionKind::Minor)
+    );
+}
+
+#[test]
 fn collector_runtime_can_create_background_service() {
     let mut heap = Heap::new(HeapConfig::default());
     let mut service = heap
