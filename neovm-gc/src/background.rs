@@ -185,7 +185,12 @@ pub enum SharedHeapAccessError {
     /// Shared heap state was poisoned by another panic.
     LockPoisoned,
     /// Shared heap state is currently locked by another thread.
-    WouldBlock(SharedHeapStatus),
+    /// The captured snapshot is boxed to keep the `Result`'s
+    /// `Err` discriminant small (otherwise the variant would
+    /// pull the entire `SharedHeapStatus` payload — ~800 bytes
+    /// at this writing — into every `Result<_, SharedHeapAccessError>`
+    /// return slot, which clippy flags as `result_large_err`).
+    WouldBlock(Box<SharedHeapStatus>),
 }
 
 /// Shared background service failure modes.
@@ -1010,10 +1015,10 @@ impl SharedHeap {
         match self.try_lock() {
             Ok(mut heap) => Ok(f(&mut heap)),
             Err(TryLockError::Poisoned(_)) => Err(SharedHeapAccessError::LockPoisoned),
-            Err(TryLockError::WouldBlock) => Err(SharedHeapAccessError::WouldBlock(
+            Err(TryLockError::WouldBlock) => Err(SharedHeapAccessError::WouldBlock(Box::new(
                 self.status()
                     .map_err(|_| SharedHeapAccessError::LockPoisoned)?,
-            )),
+            ))),
         }
     }
 
