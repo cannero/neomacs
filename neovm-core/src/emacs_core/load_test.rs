@@ -3247,10 +3247,13 @@ fn find_file_with_suffix_flags() {
 
     let load_path = vec![dir.to_string_lossy().to_string()];
 
-    // NeoVM prefers .el over .elc by default (unless NEOVM_PREFER_ELC is set).
+    // GNU `load-suffixes` is `(".so" ".elc" ".el")` and `find_file_*`
+    // tries them in that order, so .elc is preferred over .el. NeoVM
+    // matches that since .elc loading was enabled (see commit history
+    // for the .elc bootstrap support).
     assert_eq!(
         find_file_in_load_path_with_flags("choice", &load_path, false, false, false),
-        Some(el.clone())
+        Some(elc.clone())
     );
     // no-suffix mode only tries exact name.
     assert_eq!(
@@ -3258,10 +3261,12 @@ fn find_file_with_suffix_flags() {
         Some(plain.clone())
     );
     // must-suffix mode rejects plain file and requires suffixed one.
+    // .elc is preferred over .el (matches GNU load-suffixes order).
     assert_eq!(
         find_file_in_load_path_with_flags("choice", &load_path, false, true, false),
-        Some(el)
+        Some(elc)
     );
+    let _el_unused = el;
     // no-suffix takes precedence if both flags are set.
     assert_eq!(
         find_file_in_load_path_with_flags("choice", &load_path, true, true, false),
@@ -3355,17 +3360,19 @@ fn find_file_prefers_newer_source_when_enabled() {
     fs::write(&el, "source").expect("write source fixture");
 
     let load_path = vec![dir.to_string_lossy().to_string()];
-    // Without NEOVM_PREFER_ELC, .el is always preferred over .elc.
+    // GNU's load order is (.so .elc .el), so .elc is preferred over
+    // .el when both exist and prefer-newer is off.
     assert_eq!(
         find_file_in_load_path_with_flags("choice", &load_path, false, false, false),
-        Some(el.clone())
+        Some(elc.clone())
     );
-    // With prefer_newer=true and no NEOVM_PREFER_ELC, .el is still found
-    // (only .el is searched).
+    // With prefer-newer=t, the newer source (.el here, written 1s
+    // later) wins.
     assert_eq!(
         find_file_in_load_path_with_flags("choice", &load_path, false, false, true),
         Some(el)
     );
+    let _elc_unused = elc;
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -3802,7 +3809,7 @@ fn load_elc_gz_is_rejected() {
 }
 
 #[test]
-fn find_file_surfaces_elc_only_artifact_as_explicit_unsupported_load_target() {
+fn find_file_finds_elc_only_artifact_after_elc_loading_enabled() {
     crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -3815,10 +3822,10 @@ fn find_file_surfaces_elc_only_artifact_as_explicit_unsupported_load_target() {
     fs::write(&compiled, "compiled").expect("write compiled fixture");
 
     let load_path = vec![dir.to_string_lossy().to_string()];
-    // Without NEOVM_PREFER_ELC, .elc-only files are not found (neomacs
-    // prefers .el and doesn't try .elc by default).
+    // With .elc loading enabled, an .elc-only artifact resolves
+    // directly via the GNU `load-suffixes` order ((.so .elc .el)).
     let found = find_file_in_load_path_with_flags("module", &load_path, false, false, false);
-    assert_eq!(found, None);
+    assert_eq!(found, Some(compiled));
 
     let _ = fs::remove_dir_all(&dir);
 }
