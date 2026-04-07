@@ -60,6 +60,16 @@ fn vm_eval_str(src: &str) -> String {
     })
 }
 
+/// Variant of vm_eval_str that uses the cached runtime-startup
+/// evaluator. Required for tests that exercise Lisp-defined
+/// macros (with-temp-buffer, with-current-buffer, dolist,
+/// dotimes, etc.) which only exist after subr.el is loaded.
+fn vm_bootstrap_eval_str(src: &str) -> String {
+    let mut eval = crate::test_utils::runtime_startup_context();
+    let result = eval.eval_str(src);
+    crate::emacs_core::error::format_eval_result(&result)
+}
+
 fn vm_eval_lexical_str(src: &str) -> String {
     with_vm_eval(src, true, |result| {
         crate::emacs_core::error::format_eval_result(&result)
@@ -2188,7 +2198,7 @@ fn vm_frame_selected_window_builtins_use_shared_runtime_state() {
 fn vm_window_state_accessors_use_shared_runtime_state() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        vm_eval_str(
+        vm_bootstrap_eval_str(
             r#"(let ((w (selected-window)))
                  (with-current-buffer (window-buffer w)
                    (erase-buffer)
@@ -2207,7 +2217,7 @@ fn vm_window_state_accessors_use_shared_runtime_state() {
         "OK (7 7 9 t 9 nil nil nil)"
     );
     assert_eq!(
-        vm_eval_str(
+        vm_bootstrap_eval_str(
             r#"(list (condition-case err (window-start 999999) (error err))
                      (condition-case err (window-group-start 999999) (error err))
                      (condition-case err (window-point 999999) (error err))
@@ -2277,7 +2287,7 @@ fn vm_window_scroll_and_history_builtins_use_shared_runtime_state() {
 fn vm_scroll_and_recenter_builtins_use_shared_window_state() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        vm_eval_str(
+        vm_bootstrap_eval_str(
             r#"(let ((w (selected-window)))
                  (with-current-buffer (window-buffer w)
                    (erase-buffer)
@@ -2297,7 +2307,7 @@ fn vm_scroll_and_recenter_builtins_use_shared_window_state() {
 fn vm_window_geometry_builtins_use_shared_runtime_state() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        vm_eval_str(
+        vm_bootstrap_eval_str(
             r#"(let* ((w (selected-window))
                       (m (minibuffer-window)))
                  (with-current-buffer (window-buffer w)
@@ -3582,7 +3592,7 @@ fn vm_buffer_mutation_builtins_use_shared_runtime_state() {
 fn vm_casefiddle_region_builtins_use_shared_runtime_state() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        vm_eval_str(
+        vm_bootstrap_eval_str(
             r#"(progn
                  (insert "heLLo woRLD")
                  (list
@@ -3607,7 +3617,7 @@ fn vm_casefiddle_region_builtins_use_shared_runtime_state() {
 fn vm_casefiddle_word_builtins_use_shared_runtime_state() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        vm_eval_str(
+        vm_bootstrap_eval_str(
             r#"(progn
                  (insert "heLLo woRLD")
                  (list
@@ -4021,7 +4031,7 @@ fn vm_princ_prin1_and_print_callable_targets_stream_gnu_char_callbacks() {
 fn vm_marker_print_targets_insert_and_restore_like_gnu() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        vm_eval_str(
+        vm_bootstrap_eval_str(
             r#"(let* ((orig (current-buffer))
                       (obuf (get-buffer-create "*vm-marker-print*")))
                  (with-current-buffer obuf
@@ -4052,7 +4062,7 @@ fn vm_marker_print_targets_insert_and_restore_like_gnu() {
 fn vm_with_current_buffer_restores_outer_point_like_gnu() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        vm_eval_str(
+        vm_bootstrap_eval_str(
             r#"(let* ((orig (current-buffer))
                       (orig-point (point))
                       (obuf (get-buffer-create "*vm-wcb*")))
@@ -4073,7 +4083,7 @@ fn vm_with_current_buffer_restores_outer_point_like_gnu() {
 fn vm_save_current_buffer_restores_outer_point_like_gnu() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        vm_eval_str(
+        vm_bootstrap_eval_str(
             r#"(let* ((orig (current-buffer))
                       (orig-point (point))
                       (obuf (get-buffer-create "*vm-save-current-buffer*")))
@@ -5774,7 +5784,7 @@ fn vm_base64_region_and_json_buffer_builtins_use_shared_current_buffer_state() {
 fn vm_internal_utility_builtins_use_direct_and_shared_state_paths() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        vm_eval_str(
+        vm_bootstrap_eval_str(
             r#"(with-current-buffer (get-buffer-create " *vm-internal-utils*")
                  (erase-buffer)
                  (insert "abc")
@@ -5873,7 +5883,7 @@ fn vm_category_charset_and_case_table_builtins_use_shared_runtime_state() {
 fn vm_composition_and_compute_motion_builtins_use_direct_dispatch() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        vm_eval_str(
+        vm_bootstrap_eval_str(
             r#"(list
                  (equal (compose-string-internal "abc" 0 2 nil nil) "abc")
                  (null (find-composition-internal 1 nil nil nil))
@@ -8363,7 +8373,7 @@ fn vm_float_arithmetic() {
 fn vm_dotimes() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        vm_eval_str("(let ((sum 0)) (dotimes (i 5) (setq sum (+ sum i))) sum)"),
+        vm_bootstrap_eval_str("(let ((sum 0)) (dotimes (i 5) (setq sum (+ sum i))) sum)"),
         "OK 10"
     );
 }
@@ -8372,7 +8382,7 @@ fn vm_dotimes() {
 fn vm_dolist() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        vm_eval_str(
+        vm_bootstrap_eval_str(
             "(let ((result nil)) (dolist (x '(a b c)) (setq result (cons x result))) result)"
         ),
         "OK (c b a)"

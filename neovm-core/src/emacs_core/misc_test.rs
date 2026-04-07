@@ -664,7 +664,7 @@ fn backtrace_frame_internal_tracks_runtime_funcall_interactively_marker() {
 #[test]
 fn sf_save_current_buffer_restores() {
     crate::test_utils::init_test_tracing();
-    let mut ev = super::super::eval::Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     // Create a buffer and make it current
     let buf_id = ev.buffers.create_buffer("*test*");
     ev.buffers.set_current(buf_id);

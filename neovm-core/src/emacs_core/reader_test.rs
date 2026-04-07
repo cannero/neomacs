@@ -2816,7 +2816,7 @@ fn read_key_sequence_vector_rejects_more_than_six_args() {
 #[test]
 fn with_output_to_string_captures_print_output() {
     crate::test_utils::init_test_tracing();
-    let mut ev = Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     let result = ev.eval_str(r#"(with-output-to-string (princ "a") (prin1 '(1 2)) (print "x"))"#).unwrap();
     assert_eq!(result.as_str(), Some("a(1 2)\n\"x\"\n"));
 }

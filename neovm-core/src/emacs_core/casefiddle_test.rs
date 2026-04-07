@@ -245,7 +245,7 @@ fn upcase_initials_unicode_edge_semantics() {
 #[test]
 fn eval_upcase_region_noncontiguous_uses_live_mark() {
     crate::test_utils::init_test_tracing();
-    let mut ev = super::super::eval::Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     let buffer_id = ev.buffers.current_buffer_id().expect("current buffer");
     ev.buffers.insert_into_buffer(buffer_id, "abc");
     ev.buffers.set_buffer_mark(buffer_id, 1);

@@ -8588,7 +8588,7 @@ fn closure_inside_mapcar_lambda_captures_outer_param() {
     //                 (lambda (vars) case)))
     //         '(a b c))
     // Each inner lambda should capture `case` from the outer lambda.
-    let mut ev = Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     ev.set_lexical_binding(true);
     let result = format_eval_result(&ev.eval_str(r#"(let ((closures
                  (mapcar (lambda (case)
@@ -8605,7 +8605,7 @@ fn closure_inside_backquote_mapcar_captures_outer_param() {
     crate::test_utils::init_test_tracing();
     // More closely matches pcase-compile-patterns:
     // The inner lambda is created inside a backquote, after a function call.
-    let mut ev = Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     ev.set_lexical_binding(true);
     let result = format_eval_result(&ev.eval_str(r#"(let ((closures
                  (mapcar (lambda (case)
@@ -8628,7 +8628,7 @@ fn closure_inside_real_backquote_with_fn_call_captures_outer_param() {
     //         cases)
     // The inner lambda is inside a REAL backquote (macro), after a function call.
     // This requires loading backquote.el.
-    let mut eval = Context::new();
+    let mut eval = crate::test_utils::runtime_startup_context();
     load_minimal_gnu_backquote_runtime(&mut eval);
 
     let result = format_eval_result(&eval.eval_str(r#"(progn
