@@ -148,7 +148,6 @@ impl OldBlock {
     /// this block. Mirrors `OldRegion::live_bytes`. Updated by
     /// [`record_object_accounting`] and reset by
     /// [`clear_live_accounting`].
-    #[allow(dead_code)]
     pub(crate) fn live_bytes(&self) -> usize {
         self.live_bytes
     }
@@ -157,7 +156,7 @@ impl OldBlock {
     /// Mirrors `OldRegion::object_count`. Updated by
     /// [`record_object_accounting`] and reset by
     /// [`clear_live_accounting`].
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn object_count(&self) -> usize {
         self.object_count
     }
@@ -168,17 +167,17 @@ impl OldBlock {
     /// sweep resets the cursor for hole-filling but keeps
     /// `used_bytes` as the upper bound of ever-allocated space
     /// (useful for stats and compaction planning).
-    #[allow(dead_code)]
     pub(crate) fn used_bytes(&self) -> usize {
         self.used_bytes
     }
 
     /// Number of lines currently containing at least one live
+    /// Number of lines currently containing at least one live
     /// object, as tracked by the allocation-time `occupied_lines`
     /// set. Distinct from [`line_marks`]: this reflects what
     /// `record_object_accounting` has recorded, while `line_marks`
     /// is populated only during post-sweep rebuild.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn occupied_line_count(&self) -> usize {
         self.occupied_lines.len()
     }
@@ -191,7 +190,6 @@ impl OldBlock {
     /// `OldRegion::live_bytes` / `object_count` / `occupied_lines`
     /// accounting so `region_stats()` can be migrated to compute
     /// from blocks in step 4 without any behavior change.
-    #[allow(dead_code)]
     pub(crate) fn record_object_accounting(&mut self, offset: usize, size: usize) {
         if size == 0 {
             return;
@@ -217,7 +215,6 @@ impl OldBlock {
     /// `used_bytes` at its current high-water mark — the block's
     /// physical layout does not shrink even after dead objects are
     /// reclaimed.
-    #[allow(dead_code)]
     pub(crate) fn clear_live_accounting(&mut self) {
         self.live_bytes = 0;
         self.object_count = 0;
@@ -547,7 +544,6 @@ impl OldGenState {
     /// Returns `None` only if even the fresh-block path cannot
     /// service the layout (e.g. `layout.size() == 0`). Callers
     /// treat that as "skip this survivor."
-    #[allow(dead_code)]
     pub(crate) fn alloc_for_compaction_into_target(
         &mut self,
         config: &OldGenConfig,
@@ -587,7 +583,6 @@ impl OldGenState {
     /// Returns `None` if the underlying `OldBlock::try_alloc` fails
     /// on the fresh block (e.g. layout overflow); in the normal case
     /// a brand-new block is guaranteed to have room.
-    #[allow(dead_code)]
     pub(crate) fn alloc_in_fresh_block(
         &mut self,
         config: &OldGenConfig,
@@ -610,15 +605,8 @@ impl OldGenState {
     }
 
     /// Number of physical blocks currently in the pool.
-    #[allow(dead_code)]
     pub(crate) fn block_count(&self) -> usize {
         self.blocks.len()
-    }
-
-    /// Borrow the block at `index`.
-    #[allow(dead_code)]
-    pub(crate) fn block(&self, index: usize) -> Option<&OldBlock> {
-        self.blocks.get(index)
     }
 
     /// Iterate over every block in the pool.
@@ -696,7 +684,6 @@ impl OldGenState {
     /// pool. Invoked at the start of the post-sweep rebuild so the
     /// survivor walk can repopulate the counters from the new
     /// layout via `record_block_object_accounting_for_placement`.
-    #[allow(dead_code)]
     pub(crate) fn clear_all_block_live_accounting(&mut self) {
         for block in &mut self.blocks {
             block.clear_live_accounting();
@@ -710,7 +697,6 @@ impl OldGenState {
     /// `mark_block_lines_for_placement`: these three helpers are
     /// called in lockstep by the post-sweep rebuild for every
     /// surviving record.
-    #[allow(dead_code)]
     pub(crate) fn record_block_object_accounting_for_placement(
         &mut self,
         placement: OldBlockPlacement,
@@ -737,41 +723,6 @@ impl OldGenState {
         if let Some(block) = self.blocks.get(placement.block_index) {
             block.mark_lines_for_range(placement.offset_bytes, placement.total_size);
         }
-    }
-
-    /// Drop blocks whose line marks are entirely zero (no surviving objects).
-    /// Returns the number of reclaimed blocks. The remaining blocks are
-    /// renumbered, so the caller is responsible for re-binding any
-    /// `OldBlockPlacement::block_index` values that survive across reclaim
-    /// (the post-sweep rebuild path performs this re-binding before
-    /// committing).
-    #[allow(dead_code)]
-    pub(crate) fn reclaim_empty_blocks(&mut self) -> Vec<usize> {
-        let mut reclaimed = Vec::new();
-        let mut keep_mask = Vec::with_capacity(self.blocks.len());
-        for block in &self.blocks {
-            keep_mask.push(!block.is_empty());
-        }
-        for (index, &keep) in keep_mask.iter().enumerate() {
-            if !keep {
-                reclaimed.push(index);
-            }
-        }
-        if reclaimed.is_empty() {
-            return reclaimed;
-        }
-        let mut next = 0usize;
-        self.blocks.retain(|_| {
-            let keep = keep_mask[next];
-            next += 1;
-            keep
-        });
-        // Reset cursors on the surviving blocks so newly opened holes are
-        // visible to the next allocation cycle.
-        for block in &mut self.blocks {
-            block.reset_cursor();
-        }
-        reclaimed
     }
 
     /// Reset every block's bump cursor without dropping any blocks. This is
@@ -921,7 +872,7 @@ impl OldGenState {
     /// going through the legacy `regions` vec. Intended for
     /// callers and tests that want to observe the physical
     /// block layout directly.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn block_region_stats(&self) -> Vec<OldRegionStats> {
         self.blocks
             .iter()
