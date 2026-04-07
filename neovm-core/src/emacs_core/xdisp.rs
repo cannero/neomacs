@@ -1556,7 +1556,7 @@ fn expand_mode_line_percent_in_state(
     };
     let buf = buffers.current_buffer();
     let buf_name = buf.map(|b| b.name.as_str()).unwrap_or("*scratch*");
-    let file_name = buf.and_then(|b| b.file_name.as_deref()).unwrap_or("");
+    let file_name = buf.and_then(|b| b.get_file_name()).unwrap_or("");
     let modified = buf.map(|b| b.is_modified()).unwrap_or(false);
     let read_only = buf.is_some_and(|b| {
         crate::emacs_core::editfns::buffer_read_only_active_in_state(obarray, dynamic, b)

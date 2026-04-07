@@ -1932,7 +1932,7 @@ pub(crate) fn builtin_set_visited_file_modtime(eval: &mut Context, args: Vec<Val
     let file_name = eval
         .buffers
         .current_buffer()
-        .and_then(|buf| buf.file_name.clone());
+        .and_then(|buf| buf.file_name_owned());
     if file_name.is_none() {
         return Err(signal(
             "wrong-type-argument",
@@ -3116,7 +3116,7 @@ pub(crate) fn builtin_find_file_noselect(
     // Check if there's already a buffer visiting this file
     for buf_id in eval.buffers.buffer_list() {
         if let Some(buf) = eval.buffers.get(buf_id) {
-            if buf.file_name.as_deref() == Some(&abs_path) {
+            if buf.get_file_name() == Some(&abs_path) {
                 return Ok(Value::make_buffer(buf_id));
             }
         }
@@ -3168,7 +3168,7 @@ pub(crate) fn builtin_find_file_noselect(
 /// For non-visited buffers: `#*buffername*#` in the auto-save-list-file-prefix
 /// directory (or temporary-file-directory as fallback).
 fn make_auto_save_file_name_for_buffer(obarray: &Obarray, buf: &crate::buffer::Buffer) -> String {
-    if let Some(ref file_name) = buf.file_name {
+    if let Some(file_name) = buf.get_file_name() {
         // Visited file: #dir/filename# -> dir/#filename#
         let dir = file_name_directory(file_name).unwrap_or_default();
         let base = file_name_nondirectory(file_name);
@@ -3296,7 +3296,7 @@ pub(crate) fn builtin_do_auto_save(
 
             // Determine the auto-save target
             let auto_name = buf.auto_save_file_name.clone();
-            let visit_name = buf.file_name.clone();
+            let visit_name = buf.file_name_owned();
 
             // Get buffer content (entire buffer, not just accessible region)
             let text = buf.text.text_range(0, buf.text.len());

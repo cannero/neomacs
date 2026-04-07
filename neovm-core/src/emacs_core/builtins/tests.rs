@@ -1008,7 +1008,7 @@ fn eval_get_file_buffer_matches_visited_paths() {
     let path = std::env::temp_dir().join(format!("neovm-gfb-{}-{}", std::process::id(), "eval"));
     std::fs::write(&path, b"gfb").expect("write test file");
     let file = path.to_string_lossy().to_string();
-    eval.buffers.get_mut(id).unwrap().file_name = Some(file.clone());
+    eval.buffers.get_mut(id).unwrap().set_file_name_value(Some(file.clone()));
 
     let exact = builtin_get_file_buffer(&mut eval, vec![Value::string(&file)]).unwrap();
     assert_eq!(exact, Value::make_buffer(id));

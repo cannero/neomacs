@@ -191,7 +191,13 @@ pub struct Buffer {
     /// Multi-byte encoding flag.  Always `true` for now.
     pub multibyte: bool,
     /// Associated file path, if any.
-    pub file_name: Option<String>,
+    ///
+    /// **Phase 8b migration note**: renamed from `file_name` to
+    /// `file_name_legacy` so the compiler flags every direct access.
+    /// New code should use [`Self::get_file_name`] /
+    /// [`Self::set_file_name_value`]. A later commit flips the
+    /// storage to [`Self::slots`] and deletes this field.
+    pub file_name_legacy: Option<String>,
     /// Associated auto-save file path, if any.
     pub auto_save_file_name: Option<String>,
     /// GNU-style noncurrent PT/BEGV/ZV markers for buffers that share text.
@@ -252,7 +258,7 @@ impl Buffer {
             inhibit_buffer_hooks: false,
             read_only: false,
             multibyte: true,
-            file_name: None,
+            file_name_legacy: None,
             auto_save_file_name: None,
             state_markers: None,
             locals: BufferLocals::new(),
@@ -273,17 +279,23 @@ impl Buffer {
     // -- backing storage is still the struct fields.
 
     /// Read `buffer-file-name` via the Phase 8b accessor. Currently
-    /// delegates to the legacy [`Self::file_name`] field; Phase 8b.2
-    /// will flip the storage to [`Self::slots`].
+    /// delegates to the legacy [`Self::file_name_legacy`] field;
+    /// Phase 8b.2 will flip the storage to [`Self::slots`].
     pub fn get_file_name(&self) -> Option<&str> {
-        self.file_name.as_deref()
+        self.file_name_legacy.as_deref()
+    }
+
+    /// Clone `buffer-file-name` as an `Option<String>`. Convenience
+    /// for code that needs owned storage.
+    pub fn file_name_owned(&self) -> Option<String> {
+        self.file_name_legacy.clone()
     }
 
     /// Write `buffer-file-name`. Mirrors GNU `bset_filename`
     /// (`buffer.c`). See [`Self::get_file_name`] for the storage
     /// plan.
     pub fn set_file_name_value(&mut self, v: Option<String>) {
-        self.file_name = v;
+        self.file_name_legacy = v;
     }
 
     /// Read `buffer-auto-save-file-name` via the Phase 8b accessor.
@@ -948,10 +960,10 @@ impl Buffer {
 
     pub fn set_buffer_local(&mut self, name: &str, value: Value) {
         if name == "buffer-file-name" {
-            self.file_name = match value.kind() {
+            self.file_name_legacy = match value.kind() {
                 ValueKind::String => value.as_str_owned(),
                 ValueKind::Nil => None,
-                _ => self.file_name.take(),
+                _ => self.file_name_legacy.take(),
             };
         }
         if name == "buffer-auto-save-file-name" {
@@ -973,7 +985,7 @@ impl Buffer {
 
     pub fn set_buffer_local_void(&mut self, name: &str) {
         if name == "buffer-file-name" {
-            self.file_name = None;
+            self.file_name_legacy = None;
         }
         if name == "buffer-auto-save-file-name" {
             self.auto_save_file_name = None;
@@ -1013,7 +1025,7 @@ impl Buffer {
             return Some(RuntimeBindingValue::Bound(self.get_undo_list()));
         }
         if name == "buffer-file-name" {
-            return Some(match &self.file_name {
+            return Some(match &self.file_name_legacy {
                 Some(file_name) => RuntimeBindingValue::Bound(Value::string(file_name)),
                 None => RuntimeBindingValue::Bound(Value::NIL),
             });
@@ -1219,7 +1231,7 @@ impl BufferManager {
         indirect.chars_modified_tick = root.chars_modified_tick;
         indirect.save_modified_tick = root.save_modified_tick;
         indirect.autosave_modified_tick = root.autosave_modified_tick;
-        indirect.file_name = None;
+        indirect.file_name_legacy = None;
         if !clone {
             indirect.overlays = OverlayList::new();
             indirect.mark = None;
@@ -2071,7 +2083,7 @@ impl BufferManager {
 
     pub fn set_buffer_file_name(&mut self, id: BufferId, file_name: Option<String>) -> Option<()> {
         let buf = self.buffers.get_mut(&id)?;
-        buf.file_name = file_name.clone();
+        buf.file_name_legacy = file_name.clone();
         match file_name {
             Some(file_name) => {
                 buf.locals.set_raw_binding(
@@ -2635,7 +2647,7 @@ mod tests {
         assert!(!buf.is_modified());
         assert!(!buf.read_only);
         assert!(buf.multibyte);
-        assert!(buf.file_name.is_none());
+        assert!(buf.file_name_legacy.is_none());
         assert!(buf.mark().is_none());
     }
 
@@ -3247,14 +3259,14 @@ mod tests {
         assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::NIL));
 
         buf.set_buffer_local("buffer-file-name", Value::string("/tmp/demo.txt"));
-        assert_eq!(buf.file_name.as_deref(), Some("/tmp/demo.txt"));
+        assert_eq!(buf.file_name_legacy.as_deref(), Some("/tmp/demo.txt"));
         assert_eq!(
             buf.buffer_local_value("buffer-file-name"),
             Some(Value::string("/tmp/demo.txt"))
         );
 
         buf.set_buffer_local("buffer-file-name", Value::NIL);
-        assert_eq!(buf.file_name, None);
+        assert_eq!(buf.file_name_legacy, None);
         assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::NIL));
     }
 

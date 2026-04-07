@@ -764,7 +764,7 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
         last_window_start: Some(buf.last_window_start),
         read_only: buf.read_only,
         multibyte: buf.multibyte,
-        file_name: buf.file_name.clone(),
+        file_name: buf.file_name_legacy.clone(),
         auto_save_file_name: buf.auto_save_file_name.clone(),
         markers: if is_shared_text_owner {
             buf.text
@@ -2223,7 +2223,7 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         inhibit_buffer_hooks: false,
         read_only: db.read_only,
         multibyte: db.multibyte,
-        file_name: db.file_name.clone(),
+        file_name_legacy: db.file_name.clone(),
         auto_save_file_name: db.auto_save_file_name.clone(),
         state_markers: match (db.state_pt_marker, db.state_begv_marker, db.state_zv_marker) {
             (Some(pt_marker), Some(begv_marker), Some(zv_marker)) => {

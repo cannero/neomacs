@@ -253,7 +253,7 @@ fn modified_flag() {
 
 fn set_current_buffer_file(eval: &mut super::super::eval::Context, path: &str) {
     if let Some(buffer) = eval.buffers.current_buffer_mut() {
-        buffer.file_name = Some(path.to_string());
+        buffer.set_file_name_value(Some(path.to_string()));
     }
 }
 

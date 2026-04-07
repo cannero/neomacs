@@ -2260,7 +2260,7 @@ fn test_insert_file_contents_visit_sets_file_name_and_clears_modified() {
 
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "visited text");
-    assert_eq!(buf.file_name.as_deref(), Some(path_str.as_str()));
+    assert_eq!(buf.get_file_name(), Some(path_str.as_str()));
     assert!(!buf.is_modified());
 
     let _ = fs::remove_dir_all(&dir);
@@ -2624,7 +2624,7 @@ fn test_eval_fileio_relative_paths_respect_default_directory() {
     let buf_id = found.as_buffer_id().unwrap();
     let fbuf = eval_find.buffers.get(buf_id).unwrap();
     assert_eq!(fbuf.buffer_string(), "alpha\n");
-    assert_eq!(fbuf.file_name.as_deref(), Some(alpha_str.as_str()));
+    assert_eq!(fbuf.get_file_name(), Some(alpha_str.as_str()));
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -2706,7 +2706,7 @@ fn test_write_region_visit_sets_file_name_and_clears_modified() {
     .expect("write-region with visit should succeed");
 
     let buf = eval.buffers.current_buffer().expect("current buffer");
-    assert_eq!(buf.file_name.as_deref(), Some(out_str.as_str()));
+    assert_eq!(buf.get_file_name(), Some(out_str.as_str()));
     assert!(!buf.is_modified());
     assert_eq!(read_file_contents(&out_str).unwrap(), "neo");
 
@@ -2749,7 +2749,7 @@ fn test_write_region_string_start_numeric_append_and_visit_string_semantics() {
 
     assert_eq!(read_file_contents(&out_str).unwrap(), "abXYe");
     let buf = eval.buffers.current_buffer().expect("current buffer");
-    assert_eq!(buf.file_name.as_deref(), Some(visit_str.as_str()));
+    assert_eq!(buf.get_file_name(), Some(visit_str.as_str()));
     assert!(!buf.is_modified());
 
     let _ = fs::remove_dir_all(&dir);
@@ -2777,7 +2777,7 @@ fn test_find_file_noselect() {
         ValueKind::Veclike(VecLikeType::Buffer) => {
             let buf = eval.buffers.get(buf_val.as_buffer_id().unwrap()).unwrap();
             assert_eq!(buf.buffer_string(), "file content here");
-            assert!(buf.file_name.is_some());
+            assert!(buf.get_file_name().is_some());
             assert!(!buf.is_modified());
         }
         other => panic!("Expected Buffer, got {:?}", buf_val),
@@ -2815,7 +2815,7 @@ fn test_find_file_noselect_nonexistent() {
                 .unwrap();
             // Buffer should be empty for a nonexistent file
             assert_eq!(buf.buffer_string(), "");
-            assert!(buf.file_name.is_some());
+            assert!(buf.get_file_name().is_some());
         }
         other => panic!("Expected Buffer, got {:?}", nonexistent_buf),
     }

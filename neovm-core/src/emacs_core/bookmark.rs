@@ -340,7 +340,7 @@ pub(crate) fn builtin_bookmark_set(
     let _no_overwrite = args.get(1);
 
     let (position, filename) = match eval.buffers.current_buffer() {
-        Some(buffer) => (buffer.point(), buffer.file_name.clone()),
+        Some(buffer) => (buffer.point(), buffer.file_name_owned()),
         None => (1, None),
     };
 

@@ -331,7 +331,7 @@ pub(crate) fn builtin_get_file_buffer(
         let Some(buf) = eval.buffers.get(id) else {
             continue;
         };
-        let Some(file_name) = &buf.file_name else {
+        let Some(file_name) = buf.get_file_name() else {
             continue;
         };
 
@@ -567,7 +567,7 @@ pub(crate) fn builtin_buffer_file_name(
         expect_buffer_id(&args[0])?
     };
     match buffers.get(id) {
-        Some(buf) => match &buf.file_name {
+        Some(buf) => match buf.get_file_name() {
             Some(f) => Ok(Value::string(f)),
             None => Ok(Value::NIL),
         },
