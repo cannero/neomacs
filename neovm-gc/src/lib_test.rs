@@ -11327,10 +11327,10 @@ fn pacer_record_allocation_returns_trigger_major_when_threshold_exceeded() {
         ..PacerConfig::default()
     });
     // Sub-threshold allocation continues.
-    let decision_a = heap.pacer().record_allocation(64);
+    let decision_a = heap.pacer().record_allocation(64, SpaceKind::Old);
     assert_eq!(decision_a, PacerDecision::Continue);
     // Allocation that pushes the running total past the trigger fires.
-    let decision_b = heap.pacer().record_allocation(2048);
+    let decision_b = heap.pacer().record_allocation(2048, SpaceKind::Old);
     assert_eq!(decision_b, PacerDecision::TriggerMajor);
 }
 
@@ -11396,5 +11396,75 @@ fn pacer_in_heap_triggers_major_via_allocation_pressure() {
         live_bytes < 16 * 1024 * 1024,
         "live bytes ({}) should remain bounded under pacer-driven GC",
         live_bytes
+    );
+}
+
+#[test]
+fn pacer_in_heap_triggers_minor_via_nursery_soft_threshold() {
+    // Configure the heap so pacer-driven minor is the only path that
+    // can fire a minor: a very large static nursery semispace
+    // (so the static pressure plan never fires) and a tiny pacer
+    // soft threshold. The pacer should observe at least one minor
+    // cycle before the static path would have done so.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            // Big enough that the static nursery pressure path
+            // never fires across the test's allocation budget.
+            semispace_bytes: 16 * 1024 * 1024,
+            ..NurseryConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    heap.set_pacer_config(PacerConfig {
+        // Soft minor trigger after only 4 KiB of nursery allocation.
+        nursery_soft_trigger_bytes: 4 * 1024,
+        // Disable the major path so the only thing the pacer can do
+        // is fire minors.
+        min_trigger_bytes: usize::MAX,
+        heap_growth_target_ratio: 1.5,
+        ..PacerConfig::default()
+    });
+
+    let baseline_minors = heap.stats().collections.minor_collections;
+
+    // Allocate enough nursery objects to push past the soft trigger
+    // several times. Each Leaf is small but with header overhead is
+    // well above 1 byte, so 4 KiB of soft threshold trips after a
+    // handful of allocations.
+    let mut mutator = heap.mutator();
+    {
+        let mut scope = mutator.handle_scope();
+        for i in 0..1024 {
+            let _leaf = mutator
+                .alloc_auto(&mut scope, Leaf(i as u64))
+                .expect("alloc auto leaf");
+        }
+    }
+
+    let stats = heap.stats();
+    assert!(
+        stats.collections.minor_collections > baseline_minors,
+        "expected pacer to drive at least one minor collection, \
+         got {}",
+        stats.collections.minor_collections
+    );
+
+    let pacer_stats = heap.pacer_stats();
+    assert!(
+        pacer_stats.observed_minor_cycles >= 1,
+        "expected pacer to observe at least one completed minor cycle, \
+         got {}",
+        pacer_stats.observed_minor_cycles
+    );
+
+    // After the last minor the soft counter must have reset to a
+    // value below the soft threshold.
+    assert!(
+        pacer_stats.nursery_bytes_since_last_minor
+            < heap.pacer().config().nursery_soft_trigger_bytes,
+        "nursery counter ({}) should be below the soft threshold ({}) \
+         after the most recent minor reset",
+        pacer_stats.nursery_bytes_since_last_minor,
+        heap.pacer().config().nursery_soft_trigger_bytes
     );
 }

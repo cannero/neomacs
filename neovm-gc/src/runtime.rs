@@ -158,17 +158,41 @@ impl<'heap> CollectorRuntime<'heap> {
         // Layer the adaptive pacer on top of the static thresholds.
         // The pacer never overrides the static path: if the static
         // pressure plan would already collect, that still wins. The
-        // pacer only forces an additional major collection when its
-        // EWMA model believes the next major is due.
-        let pacer_decision = self.heap.pacer().record_allocation(total_bytes);
+        // pacer only forces an additional collection when its model
+        // believes the next major (or early minor) is due.
+        //
+        // We always advance the pacer's per-allocation accounting
+        // here so its EWMA estimates stay current, then we run the
+        // static plan, then we re-evaluate the pacer's decision.
+        // The re-evaluation matters because the static path may
+        // have completed a minor cycle in the meantime — that
+        // resets the pacer's nursery counter and turns a stale
+        // TriggerMinor back into Continue.
+        self.heap.pacer().record_allocation(total_bytes, space);
         self.service_allocation_pressure(space, total_bytes)?;
-        if matches!(pacer_decision, crate::pacer::PacerDecision::TriggerMajor)
-            && !self.heap.collector_handle().has_active_major_mark()
-            && self.heap.allocation_pressure_plan(space, total_bytes).is_none()
-        {
-            // Static thresholds did not fire; honor the pacer's decision
-            // and run a major collection now.
-            self.collect(CollectionKind::Major)?;
+        let pacer_decision = self.heap.pacer().decision();
+        match pacer_decision {
+            crate::pacer::PacerDecision::TriggerMajor => {
+                if !self.heap.collector_handle().has_active_major_mark()
+                    && self
+                        .heap
+                        .allocation_pressure_plan(space, total_bytes)
+                        .is_none()
+                {
+                    self.collect(CollectionKind::Major)?;
+                }
+            }
+            crate::pacer::PacerDecision::TriggerMinor => {
+                if !self.heap.collector_handle().has_active_major_mark()
+                    && self
+                        .heap
+                        .allocation_pressure_plan(space, total_bytes)
+                        .is_none()
+                {
+                    self.collect(CollectionKind::Minor)?;
+                }
+            }
+            crate::pacer::PacerDecision::Continue => {}
         }
         Ok(())
     }

@@ -567,6 +567,12 @@ impl Heap {
             let live_after = self.storage_stats().total_live_bytes();
             self.pacer.record_completed_cycle(&cycle, live_after);
         }
+        if cycle.minor_collections > 0 {
+            // Reset the pacer's nursery soft-trigger counter so the
+            // next early-minor heuristic measures freshly allocated
+            // bytes only.
+            self.pacer.record_completed_minor_cycle();
+        }
     }
 
     /// Return a snapshot of recent stop-the-world pause statistics (P50/P95/P99

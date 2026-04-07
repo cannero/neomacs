@@ -18,7 +18,33 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::object::SpaceKind;
 use crate::stats::CollectionStats;
+
+/// Allocation-space hint passed to [`Pacer::record_allocation`]. Only
+/// `Nursery` advances the soft minor counter; everything else updates
+/// the major-side counter alone. This mirrors a subset of the crate-
+/// internal `SpaceKind` enum without leaking it through the public
+/// API surface.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PacerAllocationSpace {
+    /// Nursery (young) generation.
+    Nursery,
+    /// Any other space (old, pinned, large, immortal).
+    Other,
+}
+
+impl From<SpaceKind> for PacerAllocationSpace {
+    fn from(space: SpaceKind) -> Self {
+        match space {
+            SpaceKind::Nursery => PacerAllocationSpace::Nursery,
+            SpaceKind::Old
+            | SpaceKind::Pinned
+            | SpaceKind::Large
+            | SpaceKind::Immortal => PacerAllocationSpace::Other,
+        }
+    }
+}
 
 /// Tunable parameters for the adaptive pacer.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -44,6 +70,17 @@ pub struct PacerConfig {
     /// scales below a sane minimum (otherwise tiny early heaps
     /// would trigger GC every allocation). Default: 1 MiB.
     pub min_trigger_bytes: usize,
+    /// Soft byte threshold for pacer-driven minor collections.
+    /// When the bytes the mutator has allocated to the nursery
+    /// since the last completed minor cycle reach this value, the
+    /// pacer asks for a minor GC.
+    ///
+    /// This sits *underneath* the static `nursery.semispace_bytes`
+    /// hard threshold: the static path is the backstop, the pacer
+    /// path is an optional early trigger so the next allocation
+    /// burst does not slam into a full nursery. 0 disables it.
+    /// Default: 0 (disabled — opt-in).
+    pub nursery_soft_trigger_bytes: usize,
 }
 
 impl Default for PacerConfig {
@@ -54,6 +91,7 @@ impl Default for PacerConfig {
             heap_growth_target_ratio: 1.5,
             ewma_alpha: 0.2,
             min_trigger_bytes: 1024 * 1024,
+            nursery_soft_trigger_bytes: 0,
         }
     }
 }
@@ -70,8 +108,15 @@ pub struct PacerStats {
     /// Threshold the pacer will fire the next major at,
     /// in live bytes.
     pub next_major_trigger_bytes: usize,
+    /// Bytes the mutator has allocated to the nursery since the
+    /// last completed minor cycle. The pacer compares this against
+    /// `PacerConfig::nursery_soft_trigger_bytes` to decide whether
+    /// to ask for an early minor.
+    pub nursery_bytes_since_last_minor: usize,
     /// Number of cycles the pacer has observed.
     pub observed_cycles: u64,
+    /// Number of completed minor cycles the pacer has observed.
+    pub observed_minor_cycles: u64,
     /// Number of times the pacer overshoots its budget
     /// (observed pause exceeded target_pause).
     pub overshoot_count: u64,
@@ -104,9 +149,11 @@ struct PacerState {
     last_live_bytes: usize,
     next_major_trigger_bytes: usize,
     observed_cycles: u64,
+    observed_minor_cycles: u64,
     overshoot_count: u64,
     last_cycle_start: Option<Instant>,
     bytes_allocated_since_last_cycle: usize,
+    bytes_allocated_to_nursery_since_last_minor: usize,
 }
 
 impl Pacer {
@@ -120,9 +167,11 @@ impl Pacer {
             last_live_bytes: 0,
             next_major_trigger_bytes: config.min_trigger_bytes,
             observed_cycles: 0,
+            observed_minor_cycles: 0,
             overshoot_count: 0,
             last_cycle_start: None,
             bytes_allocated_since_last_cycle: 0,
+            bytes_allocated_to_nursery_since_last_minor: 0,
         };
         Self {
             config,
@@ -141,21 +190,70 @@ impl Pacer {
             .expect("pacer state should not be poisoned")
     }
 
-    /// Tell the pacer about a fresh allocation. Cheap (just adds to a
-    /// counter). Returns whether GC should be triggered now.
-    pub fn record_allocation(&self, bytes: usize) -> PacerDecision {
+    /// Tell the pacer about a fresh allocation. Cheap (just adds to
+    /// a couple of counters). Returns whether GC should be triggered
+    /// now. The `space` argument lets the pacer keep separate
+    /// nursery accounting for the soft minor trigger.
+    ///
+    /// `space` accepts anything convertible into
+    /// [`PacerAllocationSpace`], so internal callers can pass the
+    /// crate-private `SpaceKind` directly via the blanket `From`
+    /// impl.
+    pub fn record_allocation(
+        &self,
+        bytes: usize,
+        space: impl Into<PacerAllocationSpace>,
+    ) -> PacerDecision {
+        let space = space.into();
         let mut state = self.lock();
         state.bytes_allocated_since_last_cycle = state
             .bytes_allocated_since_last_cycle
             .saturating_add(bytes);
+        if matches!(space, PacerAllocationSpace::Nursery) {
+            state.bytes_allocated_to_nursery_since_last_minor = state
+                .bytes_allocated_to_nursery_since_last_minor
+                .saturating_add(bytes);
+        }
+        Self::compute_decision(&self.config, &state)
+    }
+
+    /// Re-evaluate the current pacer state without advancing it.
+    /// Useful for callers that want to check the decision after a
+    /// nested action that may have completed cycles and reset
+    /// counters in between (e.g. the runtime's
+    /// `prepare_typed_allocation` runs the static pressure plan
+    /// between recording the allocation and acting on the pacer).
+    pub fn decision(&self) -> PacerDecision {
+        let state = self.lock();
+        Self::compute_decision(&self.config, &state)
+    }
+
+    fn compute_decision(config: &PacerConfig, state: &PacerState) -> PacerDecision {
+        // Major check has priority — when both thresholds are
+        // exceeded the bigger collection wins. The minor would only
+        // be wasted work in that case.
         let projected_live = state
             .last_live_bytes
             .saturating_add(state.bytes_allocated_since_last_cycle);
         if projected_live >= state.next_major_trigger_bytes {
-            PacerDecision::TriggerMajor
-        } else {
-            PacerDecision::Continue
+            return PacerDecision::TriggerMajor;
         }
+        if config.nursery_soft_trigger_bytes > 0
+            && state.bytes_allocated_to_nursery_since_last_minor
+                >= config.nursery_soft_trigger_bytes
+        {
+            return PacerDecision::TriggerMinor;
+        }
+        PacerDecision::Continue
+    }
+
+    /// Tell the pacer that a minor cycle just completed. Resets the
+    /// nursery soft-trigger counter and bumps the observed-minor
+    /// counter. Cheap; takes the lock briefly.
+    pub fn record_completed_minor_cycle(&self) {
+        let mut state = self.lock();
+        state.bytes_allocated_to_nursery_since_last_minor = 0;
+        state.observed_minor_cycles = state.observed_minor_cycles.saturating_add(1);
     }
 
     /// Tell the pacer a major collection just completed. Updates the
@@ -266,7 +364,9 @@ impl Pacer {
             mark_rate_bps: state.last_mark_rate_bps as u64,
             last_live_bytes: state.last_live_bytes,
             next_major_trigger_bytes: state.next_major_trigger_bytes,
+            nursery_bytes_since_last_minor: state.bytes_allocated_to_nursery_since_last_minor,
             observed_cycles: state.observed_cycles,
+            observed_minor_cycles: state.observed_minor_cycles,
             overshoot_count: state.overshoot_count,
         }
     }
@@ -500,6 +600,7 @@ mod tests {
             target_pause: Duration::from_secs(1),
             min_trigger_bytes: 1,
             ewma_alpha: 1.0,
+            ..PacerConfig::default()
         });
         let now = Instant::now();
         // First cycle: pause=1ms, live=10_000 → mark_rate = 10_000 / 0.001
@@ -508,8 +609,10 @@ mod tests {
         pacer.record_completed_cycle_at(&cycle, 10_000, now);
 
         // Allocate 5_000 bytes between cycles, then complete the
-        // second cycle 1 second later. alloc_rate = 5_000 bps.
-        pacer.record_allocation(5_000);
+        // second cycle 1 second later. alloc_rate = 5_000 bps. The
+        // space here doesn't matter — the cpu-aware path only reads
+        // the major-side counter.
+        pacer.record_allocation(5_000, SpaceKind::Old);
         pacer.record_completed_cycle_at(&cycle, 10_000, now + Duration::from_secs(1));
 
         let stats = pacer.stats();
@@ -533,11 +636,12 @@ mod tests {
             target_pause: Duration::from_secs(100),
             min_trigger_bytes: 1,
             ewma_alpha: 1.0,
+            ..PacerConfig::default()
         });
         let now = Instant::now();
         let cycle = cycle_with_pause(1_000_000);
         pacer.record_completed_cycle_at(&cycle, 10_000, now);
-        pacer.record_allocation(5_000);
+        pacer.record_allocation(5_000, SpaceKind::Old);
         pacer.record_completed_cycle_at(&cycle, 10_000, now + Duration::from_secs(1));
 
         let stats = pacer.stats();
@@ -558,6 +662,7 @@ mod tests {
             target_pause: Duration::from_secs(100),
             min_trigger_bytes: 1,
             ewma_alpha: 1.0,
+            ..PacerConfig::default()
         });
         let cycle = cycle_with_pause(1_000_000);
         pacer.record_completed_cycle_at(&cycle, 10_000, Instant::now());
@@ -623,7 +728,7 @@ mod tests {
             min_trigger_bytes: 4096,
             ..PacerConfig::default()
         });
-        let decision = pacer.record_allocation(64);
+        let decision = pacer.record_allocation(64, SpaceKind::Old);
         assert_eq!(decision, PacerDecision::Continue);
     }
 
@@ -633,7 +738,118 @@ mod tests {
             min_trigger_bytes: 256,
             ..PacerConfig::default()
         });
-        let decision = pacer.record_allocation(512);
+        let decision = pacer.record_allocation(512, SpaceKind::Old);
         assert_eq!(decision, PacerDecision::TriggerMajor);
+    }
+
+    #[test]
+    fn pacer_minor_disabled_when_soft_threshold_zero() {
+        // The default config has nursery_soft_trigger_bytes=0, so
+        // even very large nursery allocations never produce a
+        // TriggerMinor decision.
+        let pacer = Pacer::new(PacerConfig {
+            min_trigger_bytes: usize::MAX,
+            heap_growth_target_ratio: 1.5,
+            ..PacerConfig::default()
+        });
+        let decision = pacer.record_allocation(1024 * 1024, SpaceKind::Nursery);
+        assert_eq!(decision, PacerDecision::Continue);
+    }
+
+    #[test]
+    fn pacer_record_allocation_returns_trigger_minor_when_nursery_soft_threshold_exceeded() {
+        let pacer = Pacer::new(PacerConfig {
+            nursery_soft_trigger_bytes: 1024,
+            // huge so the major path never fires.
+            min_trigger_bytes: usize::MAX,
+            heap_growth_target_ratio: 1.5,
+            ..PacerConfig::default()
+        });
+        // Below the soft threshold.
+        assert_eq!(
+            pacer.record_allocation(512, SpaceKind::Nursery),
+            PacerDecision::Continue
+        );
+        // Crossing the soft threshold (cumulative 1536 >= 1024).
+        assert_eq!(
+            pacer.record_allocation(1024, SpaceKind::Nursery),
+            PacerDecision::TriggerMinor
+        );
+    }
+
+    #[test]
+    fn pacer_minor_threshold_only_counts_nursery_allocations() {
+        let pacer = Pacer::new(PacerConfig {
+            nursery_soft_trigger_bytes: 1024,
+            min_trigger_bytes: usize::MAX,
+            heap_growth_target_ratio: 1.5,
+            ..PacerConfig::default()
+        });
+        // Old allocations do not advance the nursery soft counter.
+        assert_eq!(
+            pacer.record_allocation(8192, SpaceKind::Old),
+            PacerDecision::Continue
+        );
+        // A small nursery allocation is still well below the
+        // 1024-byte soft threshold.
+        assert_eq!(
+            pacer.record_allocation(64, SpaceKind::Nursery),
+            PacerDecision::Continue
+        );
+    }
+
+    #[test]
+    fn pacer_record_completed_minor_cycle_resets_nursery_counter() {
+        let pacer = Pacer::new(PacerConfig {
+            nursery_soft_trigger_bytes: 1024,
+            min_trigger_bytes: usize::MAX,
+            heap_growth_target_ratio: 1.5,
+            ..PacerConfig::default()
+        });
+        pacer.record_allocation(2048, SpaceKind::Nursery);
+        // Sanity check: counter has accumulated.
+        assert_eq!(pacer.stats().nursery_bytes_since_last_minor, 2048);
+        pacer.record_completed_minor_cycle();
+        // After the reset the counter is empty and a small alloc
+        // returns Continue.
+        let stats = pacer.stats();
+        assert_eq!(stats.nursery_bytes_since_last_minor, 0);
+        assert_eq!(stats.observed_minor_cycles, 1);
+        assert_eq!(
+            pacer.record_allocation(64, SpaceKind::Nursery),
+            PacerDecision::Continue
+        );
+    }
+
+    #[test]
+    fn pacer_major_check_takes_priority_over_minor() {
+        // When both thresholds are exceeded, TriggerMajor wins —
+        // running a minor on top would be wasted work.
+        let pacer = Pacer::new(PacerConfig {
+            nursery_soft_trigger_bytes: 256,
+            min_trigger_bytes: 1024,
+            heap_growth_target_ratio: 1.5,
+            ..PacerConfig::default()
+        });
+        let decision = pacer.record_allocation(2048, SpaceKind::Nursery);
+        assert_eq!(decision, PacerDecision::TriggerMajor);
+    }
+
+    #[test]
+    fn pacer_decision_can_be_re_evaluated_without_advancing_state() {
+        let pacer = Pacer::new(PacerConfig {
+            nursery_soft_trigger_bytes: 1024,
+            min_trigger_bytes: usize::MAX,
+            heap_growth_target_ratio: 1.5,
+            ..PacerConfig::default()
+        });
+        pacer.record_allocation(2048, SpaceKind::Nursery);
+        // First decision call sees the trigger.
+        assert_eq!(pacer.decision(), PacerDecision::TriggerMinor);
+        // A second call without advancing state still sees it.
+        assert_eq!(pacer.decision(), PacerDecision::TriggerMinor);
+        // After a minor cycle resets the counter, decision flips.
+        pacer.record_completed_minor_cycle();
+        assert_eq!(pacer.decision(), PacerDecision::Continue);
     }
 }
