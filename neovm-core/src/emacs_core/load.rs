@@ -2527,6 +2527,28 @@ fn finalize_cached_bootstrap_eval(
         "installation-directory",
         Value::string(format!("{}/", project_root.to_string_lossy())),
     );
+
+    // NeoMacs lambdas are interpreted (not byte-compiled).  cl-generic.el's
+    // defvar at line 694 sets `cl--generic-compiler' to `byte-compile' at
+    // load time (verified by diagnostic test: stored=byte-compile, but
+    // re-evaluating the same defvar form at runtime gives the eval lambda
+    // because compiled-function-p of a lambda returns nil).  The mismatch
+    // is unresolved at the bootstrap level, but its effect is severe:
+    // every cl-defmethod dispatch (e.g., yank → gui-backend-get-selection
+    // in TTY mode) calls byte-compile, which autoloads the entire
+    // bytecomp → compile → comint → ring → ansi-color chain, blocking
+    // the command loop for many seconds.
+    //
+    // Force the eval fallback to match runtime reality, eliminating the
+    // autoload chain on first cl-defmethod dispatch.  This matches the
+    // semantics cl-generic.el WOULD have selected if the defvar had
+    // evaluated correctly (compiled-function-p returns nil → eval branch).
+    let _ = eval.eval_str(
+        "(when (and (boundp 'cl--generic-compiler) \
+                    (eq cl--generic-compiler #'byte-compile)) \
+           (setq cl--generic-compiler (lambda (exp) (eval exp t))))",
+    );
+
     eval.clear_top_level_eval_state();
 
     Ok(())

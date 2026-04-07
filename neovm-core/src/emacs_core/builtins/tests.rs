@@ -8246,25 +8246,36 @@ fn message_nil_returns_nil() {
 }
 
 #[test]
-fn message_eval_triggers_redisplay_with_current_echo_state() {
+fn message_eval_stores_echo_text_without_immediate_redisplay() {
+    // GNU Emacs editfns.c Fmessage → message3 → message3_nolog stores the
+    // echo text but does NOT call redisplay() — the message becomes visible
+    // during the next natural redisplay cycle in read_char().  Verify
+    // NeoMacs matches: message() updates current-message but does not
+    // invoke the redisplay callback.
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
-    let redisplays = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Option<String>>::new()));
-    let redisplays_capture = std::sync::Arc::clone(&redisplays);
+    let redisplay_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let redisplay_count_capture = std::sync::Arc::clone(&redisplay_count);
 
-    eval.redisplay_fn = Some(Box::new(move |ev| {
-        redisplays_capture
-            .lock()
-            .expect("redisplay capture")
-            .push(ev.current_message_text().map(str::to_owned));
+    eval.redisplay_fn = Some(Box::new(move |_ev| {
+        redisplay_count_capture.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }));
 
     builtin_message(&mut eval, vec![Value::string("hello echo")])
         .expect("message eval should store echo text");
+    assert_eq!(
+        eval.current_message_text(),
+        Some("hello echo")
+    );
     builtin_message(&mut eval, vec![Value::NIL]).expect("message eval should clear");
+    assert_eq!(eval.current_message_text(), None);
 
-    let redisplays = redisplays.lock().expect("captured redisplays");
-    assert_eq!(*redisplays, vec![Some("hello echo".to_string()), None]);
+    // GNU semantic: message() must NOT invoke redisplay.
+    assert_eq!(
+        redisplay_count.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "GNU Emacs message() does not call redisplay"
+    );
 }
 
 #[test]

@@ -1648,6 +1648,28 @@ impl LayoutEngine {
         // Auto-adjust window_start when point is above the visible region.
         let window_start = {
             let mut ws = params.window_start.max(params.buffer_begv);
+            // GNU Emacs xdisp.c: if window-start is beyond the buffer content
+            // that can fill the window, scroll back to show meaningful content.
+            // This happens after buffer deletions that shrink the buffer below
+            // the previous window-start.
+            if ws > params.buffer_begv {
+                let remaining_chars = params.buffer_size - ws;
+                if remaining_chars < max_rows as i64 && params.buffer_size > max_rows as i64 {
+                    // Not enough content after ws to fill the window.
+                    // Recenter around point.
+                    let target_rows_above = (max_rows / 2).max(1) as i64;
+                    let mut lines_back: i64 = 0;
+                    let mut scan_pos = params.point.max(params.buffer_begv);
+                    while scan_pos > params.buffer_begv && lines_back < target_rows_above {
+                        scan_pos -= 1;
+                        let bp = buf_access.charpos_to_bytepos(scan_pos);
+                        if buf_access.byte_at(bp) == Some(b'\n') {
+                            lines_back += 1;
+                        }
+                    }
+                    ws = scan_pos.max(params.buffer_begv);
+                }
+            }
             if params.point >= params.buffer_begv && params.point < ws {
                 // Point is above the visible region: scroll backward.
                 // Target: show point about 25% of the way down from the top.
@@ -1775,6 +1797,21 @@ impl LayoutEngine {
         };
 
         if let Some(echo_message) = echo_message {
+            // Begin window in the builder so glyphs get added to the matrix.
+            // The minibuffer echo_message replaces all normal content, so we
+            // begin the window, render the message, then close the window.
+            let max_rows_echo = (text_height / char_h).ceil().max(1.0) as usize;
+            let cols_echo = (text_width / char_w).ceil().max(1.0) as usize;
+            self.matrix_builder.begin_window(
+                params.window_id as u64,
+                max_rows_echo,
+                cols_echo,
+                params.bounds,
+            );
+            let mut builder = std::mem::replace(
+                &mut self.matrix_builder,
+                crate::matrix_builder::GlyphMatrixBuilder::new(),
+            );
             self.render_rust_status_line_plain(
                 text_x,
                 text_y,
@@ -1787,8 +1824,10 @@ impl LayoutEngine {
                 default_resolved,
                 echo_message,
                 StatusLineKind::Minibuffer,
-                None,
+                Some(&mut builder),
             );
+            self.matrix_builder = builder;
+            self.matrix_builder.end_window();
             return;
         }
 
@@ -4221,7 +4260,10 @@ impl LayoutEngine {
         &mut self,
         face: &StatusLineFace,
     ) -> crate::font_metrics::FontMetrics {
-        if self.font_metrics.is_none() {
+        // Only create font metrics service when cosmic metrics are enabled
+        // (GUI mode).  TTY mode uses 1x1 character cells and should not
+        // create pixel-based font metrics here.
+        if self.use_cosmic_metrics && self.font_metrics.is_none() {
             self.font_metrics = Some(FontMetricsService::new());
         }
 
@@ -4350,7 +4392,12 @@ unsafe fn char_advance(
     };
     let min_grid_advance = char_cols as f32 * face_w;
 
-    let svc = font_metrics_svc.get_or_insert_with(FontMetricsService::new);
+    // TTY mode: when no font metrics service exists (use_cosmic_metrics=false),
+    // use char-cell grid advance directly.  Don't auto-create pixel-based metrics.
+    let svc = match font_metrics_svc.as_mut() {
+        Some(svc) => svc,
+        None => return snap_advance_to_pixel_grid(min_grid_advance, min_grid_advance),
+    };
     let font_size_f = if font_size > 0 {
         font_size as f32
     } else {

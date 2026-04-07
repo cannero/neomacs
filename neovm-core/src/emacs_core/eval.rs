@@ -4507,11 +4507,12 @@ impl Context {
                 // Undefined key sequence — reset prefix arg
                 self.assign("prefix-arg", Value::NIL);
                 let desc: Vec<String> = keys.iter().map(|v| format!("{:?}", v)).collect();
-                tracing::debug!("Undefined key sequence: {}", desc.join(" "));
+                tracing::info!("Undefined key sequence: {}", desc.join(" "));
                 continue;
             }
 
             // Set this-command, last-command-event, this-command-keys
+            tracing::info!("command_loop_1: dispatching binding={}", binding);
             self.assign("this-command", binding);
             if let Some(last) = keys.last() {
                 self.assign("last-command-event", *last);

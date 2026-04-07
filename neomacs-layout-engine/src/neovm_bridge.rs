@@ -349,12 +349,16 @@ pub fn window_params_from_neovm(
             if display.left_fringe_width >= 0 {
                 display.left_fringe_width
             } else {
-                frame_parameter_int(frame, "left-fringe", 8) as i32
+                // GNU Emacs: TTY frames have 0 fringes (window-fringes → (0 0 nil nil)).
+                // GUI frames default to 8 pixels.
+                let gui_default = if frame.window_system.is_some() { 8 } else { 0 };
+                frame_parameter_int(frame, "left-fringe", gui_default) as i32
             },
             if display.right_fringe_width >= 0 {
                 display.right_fringe_width
             } else {
-                frame_parameter_int(frame, "right-fringe", 8) as i32
+                let gui_default = if frame.window_system.is_some() { 8 } else { 0 };
+                frame_parameter_int(frame, "right-fringe", gui_default) as i32
             },
         ),
         Window::Internal { .. } => return None,

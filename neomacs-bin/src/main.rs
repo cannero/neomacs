@@ -449,14 +449,10 @@ fn startup_dimensions(frontend: FrontendKind, frame_metrics: BootstrapFrameMetri
             (width.max(200), height.max(100))
         }
         FrontendKind::Tty => {
+            // TTY frames use 1x1 character cells (GNU Emacs frame.c:1184-1185),
+            // so frame dimensions are in character cells, not pixels.
             let (cols, rows) = query_terminal_size_cells().unwrap_or((80, 25));
-            let width = (cols as f32 * frame_metrics.char_width)
-                .round()
-                .max(frame_metrics.char_width) as u32;
-            let height = (rows as f32 * frame_metrics.char_height)
-                .round()
-                .max(frame_metrics.char_height * 2.0) as u32;
-            (width, height)
+            (cols as u32, rows as u32)
         }
     }
 }
@@ -1012,6 +1008,11 @@ pub fn run(mode: RuntimeMode) {
             let (cols, rows) = query_terminal_size_cells().unwrap_or((80, 25));
             let mut tty_rif =
                 neomacs_display_protocol::tty_rif::TtyRif::new(cols as usize, rows as usize);
+            // TTY frames use 1x1 character cell metrics (GNU Emacs frame.c:1184-1185),
+            // not pixel-based cosmic-text font metrics.
+            LAYOUT_ENGINE.with(|engine| {
+                engine.borrow_mut().use_cosmic_metrics = false;
+            });
             evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
                 eval.setup_thread_locals();
                 run_layout(eval);
@@ -1430,8 +1431,21 @@ fn bootstrap_buffers(
             .insert("font-parameter".to_string(), default_font);
         frame.title = "Neomacs".to_string();
         frame.font_pixel_size = frame_metrics.font_pixel_size;
-        frame.char_width = frame_metrics.char_width;
-        frame.char_height = frame_metrics.char_height;
+        if display.frontend == FrontendKind::Tty {
+            // TTY frames use 1x1 character cell metrics
+            // (GNU Emacs frame.c:1184-1185: column_width=1, line_height=1).
+            frame.char_width = 1.0;
+            frame.char_height = 1.0;
+            // The minibuffer was created with a pixel height (16.0) in Frame::new.
+            // For TTY, resize it to 1 row (char_height=1.0) before sync.
+            if let Some(mini) = frame.minibuffer_leaf.as_mut() {
+                let b = *mini.bounds();
+                mini.set_bounds(neovm_core::window::Rect::new(b.x, b.y, b.width, 1.0));
+            }
+        } else {
+            frame.char_width = frame_metrics.char_width;
+            frame.char_height = frame_metrics.char_height;
+        }
         frame.sync_tab_bar_height_from_parameters();
         if let Window::Leaf {
             buffer_id,

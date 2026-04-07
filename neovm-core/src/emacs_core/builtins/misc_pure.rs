@@ -63,13 +63,11 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
     // GNU Emacs: nil or empty string clears the echo area and returns as-is.
     if args[0].is_nil() {
         ctx.clear_current_message();
-        ctx.redisplay();
         return Ok(Value::NIL);
     }
     if args[0].is_string() {
         if args[0].as_str().unwrap().is_empty() {
             ctx.clear_current_message();
-            ctx.redisplay();
             return Ok(args[0]);
         }
     }
@@ -87,7 +85,13 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
     // GNU Emacs message_dolog: log to *Messages* buffer
     message_dolog(ctx, &msg);
     tracing::info!(msg = %msg);
-    ctx.redisplay();
+    // GNU Emacs editfns.c Fmessage → message3 → message3_nolog:
+    // Sets the echo area text but does NOT call redisplay().  The message
+    // becomes visible during the next natural redisplay cycle in read_char().
+    // Calling redisplay() here would cause mid-command screen updates during
+    // autoloading, showing stale buffer state (the real modification hasn't
+    // happened yet).  The M-x prompt is shown via minibuffer buffer text
+    // (minibuf.c:846 Finsert), not through message().
     Ok(Value::string(msg))
 }
 

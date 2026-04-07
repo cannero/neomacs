@@ -3975,7 +3975,10 @@ fn self_insert_command_uses_last_command_event_character() {
 }
 
 #[test]
-fn self_insert_command_non_nil_second_arg_is_noop() {
+fn self_insert_command_non_character_second_arg_beeps() {
+    // GNU Emacs cmds.c: second arg C is the character to insert.
+    // If C is not a character (like `t`), GNU calls bitch_at_user() (beep)
+    // and does not insert anything.  Buffer remains empty.
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let results = eval_all_with(

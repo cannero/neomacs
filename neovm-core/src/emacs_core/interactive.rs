@@ -2854,16 +2854,13 @@ pub(crate) fn resolve_call_interactively_target_and_args_with_vm_fallback(
     })
 }
 
-fn last_command_event_char(eval: &Context) -> Option<char> {
-    let event = dynamic_or_global_symbol_value(eval, "last-command-event")?;
-    match event.kind() {
-        ValueKind::Fixnum(c) => char::from_u32(c as u32),
-        _ => None,
-    }
-}
-
-/// `(self-insert-command N &optional NOAUTOFILL)` -- insert the last typed
-/// character N times.
+/// `(self-insert-command N &optional C)` -- insert character C (or the last
+/// typed character) N times.
+///
+/// Matches GNU Emacs cmds.c `Fself_insert_command`:
+///   - arg 1 (N): repeat count (required, fixnum)
+///   - arg 2 (C): character to insert (optional; nil → use `last-command-event`)
+///     When C is provided and non-nil, `last-command-event` is also set to C.
 pub(crate) fn builtin_self_insert_command(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     if args.is_empty() || args.len() > 2 {
         return Err(signal(
@@ -2874,6 +2871,7 @@ pub(crate) fn builtin_self_insert_command(eval: &mut Context, args: Vec<Value>) 
             ],
         ));
     }
+    // CHECK_FIXNUM (n)
     let repeats = match args[0].kind() {
         ValueKind::Fixnum(n) => n,
         _ => {
@@ -2892,29 +2890,51 @@ pub(crate) fn builtin_self_insert_command(eval: &mut Context, args: Vec<Value>) 
             ))],
         ));
     }
+
+    // GNU: if (NILP (c)) c = last_command_event; else last_command_event = c;
+    let c_arg = args.get(1).copied().unwrap_or(Value::NIL);
+    let c = if c_arg.is_nil() {
+        dynamic_or_global_symbol_value(eval, "last-command-event").unwrap_or(Value::NIL)
+    } else {
+        eval.assign("last-command-event", c_arg);
+        c_arg
+    };
+
     if repeats == 0 {
         return Ok(Value::NIL);
     }
-    if args.get(1).is_some_and(|v| !v.is_nil()) {
-        return Ok(Value::NIL);
-    }
 
-    let Some(ch) = last_command_event_char(eval) else {
-        return Ok(Value::NIL);
+    // Barf if the key that invoked this was not a character.
+    let ch = match c.kind() {
+        ValueKind::Fixnum(code) => {
+            if let Some(ch) = char::from_u32(code as u32) {
+                ch
+            } else {
+                // bitch_at_user — beep/ding
+                tracing::warn!("self-insert-command: not a valid character: {}", code);
+                return Ok(Value::NIL);
+            }
+        }
+        _ => {
+            tracing::warn!("self-insert-command: last-command-event is not a character: {}", c);
+            return Ok(Value::NIL);
+        }
     };
-    let Some(repeat_count) = usize::try_from(repeats).ok() else {
-        return Ok(Value::NIL);
-    };
-    let mut text = String::new();
+
+    let repeat_count = repeats as usize;
+    let mut text = String::with_capacity(repeat_count * ch.len_utf8());
     for _ in 0..repeat_count {
         text.push(ch);
     }
     if let Some(current_id) = eval.buffers.current_buffer_id() {
         let insert_pos = eval.buffers.get(current_id).map(|b| b.pt).unwrap_or(0);
         let text_len = text.len();
+        tracing::info!("self-insert-command: inserting {:?} at pos {} in buffer {:?}", text, insert_pos, current_id);
         super::editfns::signal_before_change(eval, insert_pos, insert_pos)?;
         let _ = eval.buffers.insert_into_buffer(current_id, &text);
         super::editfns::signal_after_change(eval, insert_pos, insert_pos + text_len, 0)?;
+    } else {
+        tracing::warn!("self-insert-command: no current buffer");
     }
     Ok(Value::NIL)
 }
