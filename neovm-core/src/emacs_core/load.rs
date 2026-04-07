@@ -2432,20 +2432,53 @@ fn normalize_bootstrap_runtime_surface(
         }
     }
 
+    // Phase: protect parsed-form Values across the autoload/eval
+    // calls below. The Values stored in `runtime_loaded_state` and
+    // `runtime_loaddefs_state` come from `value_reader::read_all`
+    // which allocates Lisp cells on the tagged heap. Conservative
+    // stack scanning only reaches stack-resident pointers, NOT
+    // pointers stored inside Vec<Value> heap allocations, so
+    // intervening GCs (triggered by builtin_autoload, builtin_put,
+    // etc.) would reclaim the cons cells and leave the Values
+    // dangling. Push them all into temp_roots for the duration of
+    // the call.
+    let saved_temp_roots = eval.save_temp_roots();
     for args in runtime_loaded_state
         .autoload_args
         .iter()
         .chain(runtime_loaddefs_state.autoload_args.iter())
     {
-        super::autoload::builtin_autoload(eval, args.clone()).map_err(map_flow)?;
+        for v in args {
+            eval.push_temp_root(*v);
+        }
     }
     for form in runtime_loaded_state
         .property_forms
         .iter()
         .chain(runtime_loaddefs_state.property_forms.iter())
     {
-        eval_runtime_form(eval, *form)?;
+        eval.push_temp_root(*form);
     }
+
+    let result: Result<(), EvalError> = (|| {
+        for args in runtime_loaded_state
+            .autoload_args
+            .iter()
+            .chain(runtime_loaddefs_state.autoload_args.iter())
+        {
+            super::autoload::builtin_autoload(eval, args.clone()).map_err(map_flow)?;
+        }
+        for form in runtime_loaded_state
+            .property_forms
+            .iter()
+            .chain(runtime_loaddefs_state.property_forms.iter())
+        {
+            eval_runtime_form(eval, *form)?;
+        }
+        Ok(())
+    })();
+    eval.restore_temp_roots(saved_temp_roots);
+    result?;
 
     Ok(())
 }
