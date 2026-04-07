@@ -549,6 +549,7 @@ impl ObjectRecord {
                 layout,
                 header,
                 old_region: None,
+                old_block: None,
                 memory_kind: ObjectMemoryKind::Arena,
             })),
             Err(_winner) => {
