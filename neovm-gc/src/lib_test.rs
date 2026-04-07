@@ -1805,6 +1805,20 @@ fn collector_runtime_execute_plan_runs_minor_collection() {
 }
 
 #[test]
+fn collector_runtime_can_create_background_service() {
+    let mut heap = Heap::new(HeapConfig::default());
+    let mut service = heap
+        .collector_runtime()
+        .background_service(BackgroundCollectorConfig::default());
+
+    assert_eq!(
+        service.tick().expect("tick runtime-backed local service"),
+        BackgroundCollectionStatus::Idle
+    );
+    assert_eq!(service.active_major_mark_plan(), None);
+}
+
+#[test]
 fn heap_advance_major_mark_reports_progress_directly() {
     let mut heap = Heap::new(HeapConfig::default());
     let plan = {

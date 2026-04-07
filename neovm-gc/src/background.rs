@@ -1705,10 +1705,13 @@ impl BackgroundCollector {
 
 impl<'heap> BackgroundService<'heap> {
     /// Create a new background service loop bound to `heap`.
-    pub(crate) fn new(heap: &'heap mut Heap, config: BackgroundCollectorConfig) -> Self {
+    pub(crate) fn from_runtime(
+        runtime: CollectorRuntime<'heap>,
+        config: BackgroundCollectorConfig,
+    ) -> Self {
         Self {
             collector: BackgroundCollector::new(config),
-            runtime: CollectorRuntime::new(heap),
+            runtime,
         }
     }
 

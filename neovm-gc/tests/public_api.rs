@@ -1416,6 +1416,20 @@ fn public_api_collector_runtime_execute_plan_runs_minor_collection() {
 }
 
 #[test]
+fn public_api_collector_runtime_can_create_background_service() {
+    let mut heap = Heap::new(HeapConfig::default());
+    let mut service = heap
+        .collector_runtime()
+        .background_service(neovm_gc::BackgroundCollectorConfig::default());
+
+    assert_eq!(
+        service.tick().expect("tick runtime-backed local service"),
+        neovm_gc::BackgroundCollectionStatus::Idle
+    );
+    assert_eq!(service.active_major_mark_plan(), None);
+}
+
+#[test]
 fn public_api_heap_advance_major_mark_reports_progress_directly() {
     let mut heap = Heap::new(HeapConfig::default());
     let plan = {

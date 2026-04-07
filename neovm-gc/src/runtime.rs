@@ -1,5 +1,5 @@
 use crate::background::{
-    BackgroundCollectionRuntime, BackgroundCollectorConfig, BackgroundWorker,
+    BackgroundCollectionRuntime, BackgroundCollectorConfig, BackgroundService, BackgroundWorker,
     BackgroundWorkerConfig, SharedBackgroundError, SharedBackgroundObservation,
     SharedBackgroundService, SharedBackgroundStatus, SharedBackgroundWaitResult,
     SharedCollectorHandle, SharedHeap, SharedHeapError, SharedHeapStatus, SharedRuntimeHandle,
@@ -12,6 +12,7 @@ use crate::plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress,
     RuntimeWorkStatus,
 };
+use crate::reclaim::{PreparedReclaim, finish_prepared_reclaim_cycle};
 use crate::stats::{CollectionStats, HeapStats};
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
@@ -73,6 +74,11 @@ impl<'heap> CollectorRuntime<'heap> {
     /// Return progress for the active major-mark session, if any.
     pub fn major_mark_progress(&self) -> Option<MajorMarkProgress> {
         self.heap.major_mark_progress()
+    }
+
+    /// Create a background collection service loop bound to this runtime.
+    pub fn background_service(self, config: BackgroundCollectorConfig) -> BackgroundService<'heap> {
+        BackgroundService::from_runtime(self, config)
     }
 
     /// Run one stop-the-world collection cycle.
@@ -163,20 +169,13 @@ impl<'heap> CollectorRuntime<'heap> {
             &self.heap.indexes().object_index,
             |tracer, plan| self.heap.trace_major_ephemerons(tracer, plan),
         );
-        let finished =
-            collector_session::finish_active_collection(state, |plan| match plan.kind {
-                crate::plan::CollectionKind::Major => Ok(self.heap.prepare_major_reclaim(plan)),
-                crate::plan::CollectionKind::Full => self.heap.prepare_full_reclaim(plan),
-                crate::plan::CollectionKind::Minor => Err(AllocError::UnsupportedCollectionKind {
-                    kind: crate::plan::CollectionKind::Minor,
-                }),
-            })?;
+        let finished = collector_session::finish_active_collection(state, |plan| {
+            self.prepare_reclaim_for_plan(plan)
+        })?;
         self.heap
             .collector_handle()
             .push_phase(CollectionPhase::Reclaim);
-        Ok(self
-            .heap
-            .commit_finished_active_collection(finished, before_bytes, pause_start))
+        Ok(self.commit_finished_active_collection(finished, before_bytes, pause_start))
     }
 
     /// Prepare reclaim for the active major collection once mark work is fully drained.
@@ -223,15 +222,7 @@ impl<'heap> CollectorRuntime<'heap> {
         );
         let prepared =
             build_prepared_active_reclaim(&request, mark_steps_delta, mark_rounds_delta, |plan| {
-                match plan.kind {
-                    crate::plan::CollectionKind::Major => Ok(self.heap.prepare_major_reclaim(plan)),
-                    crate::plan::CollectionKind::Full => self.heap.prepare_full_reclaim(plan),
-                    crate::plan::CollectionKind::Minor => {
-                        Err(AllocError::UnsupportedCollectionKind {
-                            kind: crate::plan::CollectionKind::Minor,
-                        })
-                    }
-                }
+                self.prepare_reclaim_for_plan(plan)
             })?;
         let prepared = self
             .heap
@@ -310,8 +301,7 @@ impl<'heap> CollectorRuntime<'heap> {
             self.heap
                 .collector_handle()
                 .push_phase(CollectionPhase::Reclaim);
-            self.heap
-                .commit_finished_active_collection(finished, before_bytes, pause_start)
+            self.commit_finished_active_collection(finished, before_bytes, pause_start)
         }))
     }
 
@@ -335,6 +325,68 @@ impl<'heap> CollectorRuntime<'heap> {
         } else {
             Ok(BackgroundCollectionStatus::Progress(progress))
         }
+    }
+
+    fn prepare_reclaim_for_plan(
+        &mut self,
+        plan: &CollectionPlan,
+    ) -> Result<PreparedReclaim, AllocError> {
+        match plan.kind {
+            CollectionKind::Major => Ok(self.heap.prepare_major_reclaim(plan)),
+            CollectionKind::Full => {
+                let mut phases = Vec::new();
+                let (roots, objects, indexes, old_gen, stats, old_config, nursery_config) =
+                    self.heap.full_reclaim_parts();
+                let prepared = crate::collector_exec::prepare_full_reclaim_for_plan(
+                    plan,
+                    roots,
+                    objects,
+                    indexes,
+                    old_gen,
+                    old_config,
+                    nursery_config,
+                    stats,
+                    |phase| phases.push(phase),
+                )?;
+                self.heap.collector_handle().push_phases(phases);
+                Ok(prepared)
+            }
+            CollectionKind::Minor => Err(AllocError::UnsupportedCollectionKind {
+                kind: CollectionKind::Minor,
+            }),
+        }
+    }
+
+    fn commit_finished_active_collection(
+        &mut self,
+        finished: crate::collector_session::FinishedActiveCollection,
+        before_bytes: usize,
+        pause_start: Instant,
+    ) -> CollectionStats {
+        let runtime_state = self.heap.runtime_state_handle();
+        let (objects, indexes, old_gen, stats) = self.heap.finished_reclaim_commit_parts();
+        let mut cycle = finish_prepared_reclaim_cycle(
+            objects,
+            indexes,
+            old_gen,
+            stats,
+            before_bytes,
+            finished.mark_steps,
+            finished.mark_rounds,
+            finished.reclaim_prepare_nanos,
+            finished.prepared_reclaim,
+            move |object| runtime_state.enqueue_pending_finalizer(object),
+        );
+        cycle.pause_nanos = pause_start.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
+        self.heap.record_collection_stats(cycle);
+        self.heap.collector_handle().record_completed_plan(
+            finished.completed_plan,
+            &self.heap.storage_stats(),
+            self.heap.old_gen(),
+            self.heap.old_config(),
+            |kind| self.heap.plan_for(kind),
+        );
+        cycle
     }
 }
 

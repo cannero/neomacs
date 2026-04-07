@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
 use crate::barrier::{BarrierEvent, BarrierKind};
 use crate::collector_exec::{
-    collect_global_sources, execute_collection_plan, prepare_full_reclaim_for_plan,
-    prepare_major_reclaim_for_plan, trace_major_ephemerons_for_candidates,
+    collect_global_sources, execute_collection_plan, prepare_major_reclaim_for_plan,
+    trace_major_ephemerons_for_candidates,
 };
 use crate::collector_state::{CollectorSharedSnapshot, CollectorStateHandle};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
@@ -17,7 +17,7 @@ use crate::object::{ObjectRecord, SpaceKind, estimated_allocation_size};
 use crate::plan::{
     CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress, RuntimeWorkStatus,
 };
-use crate::reclaim::{PreparedReclaim, finish_prepared_reclaim_cycle};
+use crate::reclaim::PreparedReclaim;
 use crate::root::{HandleScope, Root, RootStack};
 use crate::runtime::CollectorRuntime;
 use crate::runtime_state::RuntimeStateHandle;
@@ -161,6 +161,55 @@ impl Heap {
 
     pub(crate) fn old_config(&self) -> &OldGenConfig {
         &self.config.old
+    }
+
+    pub(crate) fn full_reclaim_parts(
+        &mut self,
+    ) -> (
+        &mut RootStack,
+        &mut Vec<ObjectRecord>,
+        &mut HeapIndexState,
+        &mut OldGenState,
+        &mut HeapStats,
+        &OldGenConfig,
+        &NurseryConfig,
+    ) {
+        let Self {
+            config,
+            stats,
+            roots,
+            objects,
+            indexes,
+            old_gen,
+            ..
+        } = self;
+        (
+            roots,
+            objects,
+            indexes,
+            old_gen,
+            stats,
+            &config.old,
+            &config.nursery,
+        )
+    }
+
+    pub(crate) fn finished_reclaim_commit_parts(
+        &mut self,
+    ) -> (
+        &mut Vec<ObjectRecord>,
+        &mut HeapIndexState,
+        &mut OldGenState,
+        &mut HeapStats,
+    ) {
+        let Self {
+            objects,
+            indexes,
+            old_gen,
+            stats,
+            ..
+        } = self;
+        (objects, indexes, old_gen, stats)
     }
 
     /// Return the heap configuration.
@@ -412,7 +461,7 @@ impl Heap {
         &mut self,
         config: BackgroundCollectorConfig,
     ) -> BackgroundService<'_> {
-        BackgroundService::new(self, config)
+        self.collector_runtime().background_service(config)
     }
 
     /// Convert this heap into a shared synchronized heap wrapper.
@@ -743,12 +792,8 @@ impl Heap {
         }
     }
 
-    fn record_collection_stats(&mut self, cycle: CollectionStats) {
+    pub(crate) fn record_collection_stats(&mut self, cycle: CollectionStats) {
         self.stats.collections.saturating_add_assign(cycle);
-    }
-
-    fn record_phase(&self, phase: CollectionPhase) {
-        self.collector.push_phase(phase);
     }
 
     fn saturating_duration_nanos(duration: Duration) -> u64 {
@@ -815,58 +860,5 @@ impl Heap {
             plan.worker_count.max(1),
             plan.mark_slice_budget,
         )
-    }
-
-    pub(crate) fn prepare_full_reclaim(
-        &mut self,
-        plan: &CollectionPlan,
-    ) -> Result<PreparedReclaim, AllocError> {
-        let mut phases = Vec::new();
-        let prepared = prepare_full_reclaim_for_plan(
-            plan,
-            &mut self.roots,
-            &mut self.objects,
-            &mut self.indexes,
-            &mut self.old_gen,
-            &self.config.old,
-            &self.config.nursery,
-            &mut self.stats,
-            |phase| phases.push(phase),
-        )?;
-        for phase in phases {
-            self.record_phase(phase);
-        }
-        Ok(prepared)
-    }
-
-    pub(crate) fn commit_finished_active_collection(
-        &mut self,
-        finished: crate::collector_session::FinishedActiveCollection,
-        before_bytes: usize,
-        pause_start: Instant,
-    ) -> CollectionStats {
-        let runtime_state = self.runtime_state_handle();
-        let mut cycle = finish_prepared_reclaim_cycle(
-            &mut self.objects,
-            &mut self.indexes,
-            &mut self.old_gen,
-            &mut self.stats,
-            before_bytes,
-            finished.mark_steps,
-            finished.mark_rounds,
-            finished.reclaim_prepare_nanos,
-            finished.prepared_reclaim,
-            move |object| runtime_state.enqueue_pending_finalizer(object),
-        );
-        cycle.pause_nanos = Self::saturating_duration_nanos(pause_start.elapsed());
-        self.record_collection_stats(cycle);
-        self.collector.record_completed_plan(
-            finished.completed_plan,
-            &self.storage_stats(),
-            &self.old_gen,
-            &self.config.old,
-            |kind| self.plan_for(kind),
-        );
-        cycle
     }
 }
