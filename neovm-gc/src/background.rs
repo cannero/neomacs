@@ -2,6 +2,7 @@ use crate::collector_state::{CollectorSharedSnapshot, CollectorState, CollectorS
 use crate::heap::{AllocError, Heap};
 use crate::mutator::Mutator;
 use crate::pacer::PacerStats;
+use crate::pause_stats::PauseHistogram;
 use crate::plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress,
     RuntimeWorkStatus,
@@ -98,6 +99,9 @@ pub struct SharedHeapStatus {
     /// trigger threshold, observed cycles, and overshoot count) as
     /// captured in the latest shared snapshot.
     pub pacer: PacerStats,
+    /// Rolling pause-time histogram (P50/P95/P99 nanoseconds over a
+    /// bounded window) as captured in the latest shared snapshot.
+    pub pauses: PauseHistogram,
     /// Runtime-side follow-up work that remains outside GC commit.
     pub runtime_work: RuntimeWorkStatus,
     /// Scheduler-visible recommended collection plan from the latest shared snapshot.
@@ -191,6 +195,7 @@ pub enum SharedBackgroundError {
 struct SharedHeapSnapshot {
     stats: HeapStats,
     pacer: PacerStats,
+    pauses: PauseHistogram,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -265,6 +270,7 @@ impl SharedHeapSnapshot {
         Self {
             stats: heap.storage_stats(),
             pacer: heap.pacer_stats(),
+            pauses: heap.pause_histogram(),
         }
     }
 }
@@ -764,6 +770,7 @@ fn shared_heap_status_from_parts(
     SharedHeapStatus {
         stats,
         pacer: heap_snapshot.pacer,
+        pauses: heap_snapshot.pauses,
         runtime_work: RuntimeWorkStatus::from_pending_finalizers(
             runtime_snapshot.pending_finalizers,
         ),

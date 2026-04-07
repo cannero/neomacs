@@ -8227,3 +8227,52 @@ fn public_api_shared_status_reports_pacer_telemetry() {
         after.pacer.next_major_trigger_bytes
     );
 }
+
+#[test]
+fn public_api_shared_status_reports_pause_histogram() {
+    // Build a shared heap, run a few collections through the shared
+    // mutator API, and assert the rolling pause histogram is
+    // visible through the lock-free SharedHeapStatus path.
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+
+    let before = shared
+        .status()
+        .expect("read shared status before collections");
+    assert_eq!(before.pauses.sample_count, 0);
+    assert_eq!(before.pauses.total_samples, 0);
+
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            // Allocate a leaf to give the collector something to do.
+            let _leaf = mutator
+                .alloc(&mut scope, Leaf(42))
+                .expect("alloc leaf");
+            mutator.collect(CollectionKind::Major).expect("major");
+            mutator.collect(CollectionKind::Major).expect("major");
+        })
+        .expect("collect via shared mutator");
+
+    let after = shared
+        .status()
+        .expect("read shared status after collections");
+    assert!(
+        after.pauses.total_samples >= 1,
+        "expected pause histogram to record at least one sample, \
+         got {}",
+        after.pauses.total_samples
+    );
+    assert!(
+        after.pauses.sample_count >= 1,
+        "expected pause histogram window to hold at least one sample, \
+         got {}",
+        after.pauses.sample_count
+    );
+    assert!(
+        after.pauses.window_capacity > 0,
+        "expected pause histogram window capacity to be non-zero"
+    );
+    // The histogram aggregates from at least one cycle, so the max
+    // pause must be at least as large as the min pause.
+    assert!(after.pauses.max_nanos >= after.pauses.min_nanos);
+}
