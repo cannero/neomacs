@@ -594,6 +594,73 @@ impl Obarray {
         self.set_symbol_value_id_inner(id, value);
     }
 
+    /// Read a symbol's value via the redirect dispatch. Mirrors GNU
+    /// `find_symbol_value` (`src/data.c:1584-1609`).
+    ///
+    /// Phase 2: this is the primary read entry point used by the
+    /// bytecode VM and tree-walking interpreter. The redirect dispatch
+    /// is in place; PLAINVAL takes the fast path (one tag check + one
+    /// load through the legacy `value` field, since UNBOUND sentinel
+    /// arrives in Phase 4). VARALIAS follows the chain via the legacy
+    /// alias check until Phase 3 cuts it over to `flags.redirect()`.
+    /// LOCALIZED / FORWARDED still defer to the legacy enum until
+    /// Phases 4-8 wire the BLV / BUFFER_OBJFWD machinery.
+    ///
+    /// Returns `None` for unbound (`void-variable` callsite signals).
+    pub fn find_symbol_value(&self, id: SymId) -> Option<Value> {
+        let mut current = id;
+        for _ in 0..50 {
+            let sym = self.slot(current)?;
+            match sym.flags.redirect() {
+                SymbolRedirect::Plainval => {
+                    // Phase 2: read through the legacy `value` field for
+                    // the bound check. The new `val.plain` mirror agrees
+                    // (every internal mutator keeps both in sync). Phase 4
+                    // collapses to `val.plain != Value::UNBOUND`.
+                    match sym.value {
+                        SymbolValue::Plain(v) => return v,
+                        SymbolValue::BufferLocal { default, .. } => return default,
+                        SymbolValue::Alias(target) => {
+                            current = target;
+                            continue;
+                        }
+                        SymbolValue::Forwarded => return None,
+                    }
+                }
+                SymbolRedirect::Varalias => {
+                    // Phase 1 still keeps the legacy `value` field too,
+                    // but we follow the redirect-side chain since it's
+                    // the eventual source of truth.
+                    current = unsafe { sym.val.alias };
+                    continue;
+                }
+                SymbolRedirect::Localized | SymbolRedirect::Forwarded => {
+                    // Not yet wired in Phase 2. Defer to legacy enum.
+                    match sym.value {
+                        SymbolValue::Plain(v) => return v,
+                        SymbolValue::BufferLocal { default, .. } => return default,
+                        SymbolValue::Forwarded => return None,
+                        SymbolValue::Alias(target) => {
+                            current = target;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        None // alias cycle
+    }
+
+    /// Write a symbol's value via the redirect dispatch. Mirrors GNU
+    /// `set_internal` (`src/data.c:1644-1795`).
+    ///
+    /// Phase 2: thin wrapper over `set_symbol_value_id` that exposes
+    /// the GNU name. Phase 5+ adds the LOCALIZED-aware logic and the
+    /// `where`/`bindflag` parameters.
+    pub fn set_internal(&mut self, id: SymId, value: Value) {
+        self.set_symbol_value_id(id, value);
+    }
+
     /// Inner helper: follow aliases and write the value at the resolved target.
     ///
     /// Phase 1: keeps `value: SymbolValue` and `flags + val` in sync. The

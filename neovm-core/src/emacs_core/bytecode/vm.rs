@@ -2066,25 +2066,36 @@ impl<'a> Vm<'a> {
     /// The bytecode constant is already a `Value::Symbol(SymId)`, so
     /// the SymId is available for free at the call site.
     fn lookup_var_id(&mut self, name_id: SymId) -> EvalResult {
-        let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
-            &self.ctx.obarray,
-            name_id,
-        )?;
         // Match GNU eval_sub: lexical environment lookup happens before
         // alias resolution fallback and does not rescan declared-special
         // flags.
         if let Some(val) = self.ctx.lexenv_lookup_cached_in(self.ctx.lexenv, name_id) {
             return Ok(val);
         }
+
+        let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
+            &self.ctx.obarray,
+            name_id,
+        )?;
         if resolved != name_id
             && let Some(val) = self.ctx.lexenv_lookup_cached_in(self.ctx.lexenv, resolved)
         {
             return Ok(val);
         }
 
-        // Current buffer-local binding.  Only resolve the name string
-        // when the buffer actually has a local binding to look up.
-        if crate::emacs_core::builtins::is_canonical_symbol_id(resolved)
+        // Phase 2 of the symbol-redirect refactor: gate the buffer-local
+        // detour on the obarray's buffer-local marker so the String
+        // allocation + HashMap lookup are skipped for the ~99% of symbols
+        // that are NOT buffer-local. The unconditional `resolve_sym +
+        // get_buffer_local_binding` chain on every variable access was
+        // the dominant cost in `lookup_var_id`.
+        let is_local = self.ctx.obarray.is_buffer_local_id(resolved)
+            || self
+                .ctx
+                .custom
+                .is_auto_buffer_local(resolve_sym(resolved));
+        if is_local
+            && crate::emacs_core::builtins::is_canonical_symbol_id(resolved)
             && let Some(buf) = self.ctx.buffers.current_buffer()
         {
             let resolved_name = resolve_sym(resolved);
@@ -2102,9 +2113,9 @@ impl<'a> Vm<'a> {
             }
         }
 
-        // Obarray top-level value.
-        if let Some(val) = self.ctx.obarray.symbol_value_id(resolved) {
-            return Ok(*val);
+        // Obarray top-level value via the new redirect dispatch.
+        if let Some(val) = self.ctx.obarray.find_symbol_value(resolved) {
+            return Ok(val);
         }
 
         Err(signal("void-variable", vec![Value::from_sym_id(name_id)]))
@@ -2141,16 +2152,16 @@ impl<'a> Vm<'a> {
         }
 
         let name_id = intern(name);
+        // Match GNU eval_sub: lexical environment lookup happens before
+        // alias resolution fallback.
+        if let Some(val) = self.ctx.lexenv_lookup_cached_in(self.ctx.lexenv, name_id) {
+            return Ok(val);
+        }
         let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
             &self.ctx.obarray,
             name_id,
         )?;
         let resolved_name = resolve_sym(resolved);
-        // Match GNU eval_sub: lexical environment lookup happens before alias
-        // resolution fallback and does not rescan declared-special flags.
-        if let Some(val) = self.ctx.lexenv_lookup_cached_in(self.ctx.lexenv, name_id) {
-            return Ok(val);
-        }
         if resolved != name_id
             && let Some(val) = self.ctx.lexenv_lookup_cached_in(self.ctx.lexenv, resolved)
         {
@@ -2160,8 +2171,12 @@ impl<'a> Vm<'a> {
         // specbind writes directly to obarray, so dynamic stack lookup is
         // no longer needed — fall through to buffer-local and obarray lookups.
 
-        // Current buffer-local binding.
-        if crate::emacs_core::builtins::is_canonical_symbol_id(resolved)
+        // Phase 2: only consult buffer-local storage if the symbol is
+        // actually marked as buffer-local.
+        let is_local = self.ctx.obarray.is_buffer_local_id(resolved)
+            || self.ctx.custom.is_auto_buffer_local(resolved_name);
+        if is_local
+            && crate::emacs_core::builtins::is_canonical_symbol_id(resolved)
             && let Some(buf) = self.ctx.buffers.current_buffer()
         {
             if let Some(binding) = buf.get_buffer_local_binding(resolved_name) {
@@ -2176,9 +2191,9 @@ impl<'a> Vm<'a> {
             }
         }
 
-        // Obarray
-        if let Some(val) = self.ctx.obarray.symbol_value_id(resolved) {
-            return Ok(*val);
+        // Obarray top-level via the new redirect dispatch.
+        if let Some(val) = self.ctx.obarray.find_symbol_value(resolved) {
+            return Ok(val);
         }
 
         if name == "nil" {
