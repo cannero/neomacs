@@ -411,6 +411,11 @@ neomacs-bin/target/
 neovm-*/target/
 *.rlib
 
+# NeoVM runtime artifacts
+neovm-core/dump.pdmp
+neovm-core/x
+*.pdmp
+
 # Neomacs exceptions
 !neomacs-display/Makefile
 !neomacs-display/src/core/
