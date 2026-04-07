@@ -264,21 +264,16 @@ fn continue_bignum_mul(rest: &[Value], mut acc: rug::Integer) -> EvalResult {
     Ok(Value::make_integer(acc))
 }
 
+/// `/` with bignum support. Mirrors GNU `Fquo` (`src/data.c:3315`).
+///
+/// Truncation toward zero (`tdiv_q` semantics, matching `mpz_tdiv_q`),
+/// promoting `i64::MIN / -1` to bignum since `-i64::MIN` overflows i64.
+/// Float operands divert through float division as before.
 pub(crate) fn builtin_div(args: Vec<Value>) -> EvalResult {
     expect_min_args("/", &args, 1)?;
     // Single argument: return 1 / arg (reciprocal), matching GNU Emacs.
     if args.len() == 1 {
-        if has_float(&args) {
-            let d = expect_number_or_marker_f64(&args[0])?;
-            let result = 1.0 / d;
-            return Ok(Value::make_float(result));
-        } else {
-            let d = expect_integer_or_marker_after_number_check(&args[0])?;
-            if d == 0 {
-                return Err(signal("arith-error", vec![]));
-            }
-            return Ok(Value::fixnum(1i64.checked_div(d).unwrap_or(0)));
-        }
+        return div_one_arg(&args[0]);
     }
     if has_float(&args) {
         let mut acc = expect_number_or_marker_f64(&args[0])?;
@@ -290,71 +285,166 @@ pub(crate) fn builtin_div(args: Vec<Value>) -> EvalResult {
                 acc = f64::from_bits(f64::NAN.to_bits() | (1_u64 << 63));
             }
         }
-        Ok(Value::make_float(acc))
-    } else {
-        let mut acc = expect_integer_or_marker_after_number_check(&args[0])?;
-        for a in &args[1..] {
-            let d = expect_integer_or_marker_after_number_check(a)?;
-            if d == 0 {
+        return Ok(Value::make_float(acc));
+    }
+    // Integer fast path with bignum promotion on overflow.
+    let first = &args[0];
+    // If first is a bignum, start GMP path immediately.
+    if first.is_bignum() {
+        let acc = first.as_bignum().unwrap().clone();
+        return continue_bignum_div(&args[1..], acc);
+    }
+    let mut acc: i64 = expect_integer_or_marker_after_number_check(first)?;
+    for (i, a) in args[1..].iter().enumerate() {
+        if a.is_bignum() {
+            // Promote: convert acc to bignum and divide by this bignum,
+            // then continue.
+            let mut bacc = rug::Integer::from(acc);
+            let big = a.as_bignum().unwrap();
+            if big.is_zero() {
                 return Err(signal("arith-error", vec![]));
             }
-            acc = acc
-                .checked_div(d)
-                .ok_or_else(|| signal("overflow-error", vec![]))?;
+            bacc /= big;
+            return continue_bignum_div(&args[i + 2..], bacc);
         }
-        Ok(Value::fixnum(acc))
+        let d = expect_integer_or_marker_after_number_check(a)?;
+        if d == 0 {
+            return Err(signal("arith-error", vec![]));
+        }
+        match acc.checked_div(d) {
+            Some(q) => acc = q,
+            None => {
+                // Only `i64::MIN / -1` triggers this. Promote.
+                let bacc = rug::Integer::from(acc) / d;
+                return continue_bignum_div(&args[i + 2..], bacc);
+            }
+        }
     }
+    Ok(Value::make_integer(rug::Integer::from(acc)))
 }
 
+fn div_one_arg(arg: &Value) -> EvalResult {
+    if arg.is_float() {
+        let d = arg.xfloat();
+        return Ok(Value::make_float(1.0 / d));
+    }
+    if let Some(big) = arg.as_bignum() {
+        // GNU: dividing 1 by any bignum yields 0 (since |bignum| > MAX_FIXNUM).
+        if big.is_zero() {
+            return Err(signal("arith-error", vec![]));
+        }
+        return Ok(Value::fixnum(0));
+    }
+    let d = expect_integer_or_marker_after_number_check(arg)?;
+    if d == 0 {
+        return Err(signal("arith-error", vec![]));
+    }
+    Ok(Value::fixnum(1 / d))
+}
+
+fn continue_bignum_div(rest: &[Value], mut acc: rug::Integer) -> EvalResult {
+    for a in rest {
+        if let Some(big) = a.as_bignum() {
+            if big.is_zero() {
+                return Err(signal("arith-error", vec![]));
+            }
+            acc /= big;
+            continue;
+        }
+        let d = expect_integer_or_marker_after_number_check(a)?;
+        if d == 0 {
+            return Err(signal("arith-error", vec![]));
+        }
+        acc /= d;
+    }
+    Ok(Value::make_integer(acc))
+}
+
+/// `(% X Y)` — integer remainder, mirrors GNU `Frem` (`src/data.c:3402`).
+///
+/// Result has the same sign as the dividend (`mpz_tdiv_r` semantics).
 pub(crate) fn builtin_percent(args: Vec<Value>) -> EvalResult {
     expect_args("%", &args, 2)?;
-    let a = expect_integer_or_marker(&args[0])?;
-    let b = expect_integer_or_marker(&args[1])?;
+    integer_remainder(&args[0], &args[1], false)
+}
+
+/// `(mod X Y)` — modulo, mirrors GNU `Fmod` (`src/data.c:3412`).
+///
+/// Result has the same sign as the divisor.
+pub(crate) fn builtin_mod(args: Vec<Value>) -> EvalResult {
+    expect_args("mod", &args, 2)?;
+    if args[0].is_float() || args[1].is_float() {
+        // GNU `fmod_float` path — float-modulo. Existing behavior.
+        let a = expect_number_or_marker_f64(&args[0])?;
+        let b = expect_number_or_marker_f64(&args[1])?;
+        let r = a % b;
+        let mut r = if r != 0.0 && (r < 0.0) != (b < 0.0) {
+            r + b
+        } else {
+            r
+        };
+        if r.is_nan() {
+            r = f64::from_bits(f64::NAN.to_bits() | (1_u64 << 63));
+        }
+        return Ok(Value::make_float(r));
+    }
+    integer_remainder(&args[0], &args[1], true)
+}
+
+/// Shared integer remainder for `%` and `mod`. Mirrors GNU
+/// `integer_remainder` (`src/data.c:3351`). When `modulo` is true the
+/// result is fixed up to have the divisor's sign.
+fn integer_remainder(num: &Value, den: &Value, modulo: bool) -> EvalResult {
+    // Bignum slow path if either side is a bignum, or if the i64 fast
+    // path can't represent the operands (markers always fit).
+    if num.is_bignum() || den.is_bignum() {
+        let num_big = bignum_or_int_to_rug(num)?;
+        let den_big = bignum_or_int_to_rug(den)?;
+        if den_big.is_zero() {
+            return Err(signal("arith-error", vec![]));
+        }
+        let mut r = rug::Integer::from(&num_big % &den_big);
+        if modulo {
+            let sgn_r = r.cmp0();
+            let sgn_d = den_big.cmp0();
+            // Wrong sign means r and d have opposite signs.
+            if (sgn_d.is_lt() && sgn_r.is_gt()) || (sgn_d.is_gt() && sgn_r.is_lt()) {
+                r += &den_big;
+            }
+        }
+        return Ok(Value::make_integer(r));
+    }
+    let a = expect_integer_or_marker(num)?;
+    let b = expect_integer_or_marker(den)?;
     if b == 0 {
         return Err(signal("arith-error", vec![]));
     }
-    Ok(Value::fixnum(a % b))
+    // i64::MIN % -1 is 0 mathematically, but checked_rem returns None.
+    let r = match a.checked_rem(b) {
+        Some(r) => r,
+        None => 0,
+    };
+    let r = if modulo && r != 0 && (r < 0) != (b < 0) {
+        r + b
+    } else {
+        r
+    };
+    Ok(Value::make_integer(rug::Integer::from(r)))
 }
 
-pub(crate) fn builtin_mod(args: Vec<Value>) -> EvalResult {
-    expect_args("mod", &args, 2)?;
-    let a_raw = expect_number_or_marker(&args[0])?;
-    let b_raw = expect_number_or_marker(&args[1])?;
-    match (a_raw, b_raw) {
-        (NumberOrMarker::Int(a), NumberOrMarker::Int(b)) => {
-            if b == 0 {
-                return Err(signal("arith-error", vec![]));
-            }
-            // Emacs mod: result has sign of divisor.
-            let r = a % b;
-            let r = if r != 0 && (r < 0) != (b < 0) {
-                r + b
-            } else {
-                r
-            };
-            Ok(Value::fixnum(r))
-        }
-        (a, b) => {
-            let a = match a {
-                NumberOrMarker::Int(n) => n as f64,
-                NumberOrMarker::Float(f) => f,
-            };
-            let b = match b {
-                NumberOrMarker::Int(n) => n as f64,
-                NumberOrMarker::Float(f) => f,
-            };
-            let r = a % b;
-            let mut r = if r != 0.0 && (r < 0.0) != (b < 0.0) {
-                r + b
-            } else {
-                r
-            };
-            if r.is_nan() {
-                // Emacs prints negative-NaN for floating mod-by-zero payloads.
-                r = f64::from_bits(f64::NAN.to_bits() | (1_u64 << 63));
-            }
-            Ok(Value::make_float(r)) // TODO(tagged): remove next_float_id()
-        }
+/// Convert a fixnum / bignum / marker operand to `rug::Integer`. Used
+/// by the integer remainder slow path.
+fn bignum_or_int_to_rug(value: &Value) -> Result<rug::Integer, Flow> {
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(rug::Integer::from(n)),
+        ValueKind::Veclike(VecLikeType::Bignum) => Ok(value.as_bignum().unwrap().clone()),
+        _ if super::marker::is_marker(value) => Ok(rug::Integer::from(
+            super::marker::marker_position_as_int(value)?,
+        )),
+        _ => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("integer-or-marker-p"), *value],
+        )),
     }
 }
 

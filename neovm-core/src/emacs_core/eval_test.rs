@@ -2989,6 +2989,47 @@ fn arithmetic_promotes_to_bignum_on_overflow() {
     assert_eq!(eval_one("(fixnump (1+ most-positive-fixnum))"), "OK nil");
 }
 
+/// Regression for audit §2.4: `/` must not signal `overflow-error` on
+/// `(/ most-negative-fixnum -1)` — that's a valid bignum result.
+/// Mirrors GNU `Fquo` (`src/data.c:3315`) which dispatches through
+/// `arith_driver` and `bignum_arith_driver` for the overflow case.
+#[test]
+fn division_promotes_to_bignum_on_min_div_neg_one() {
+    crate::test_utils::init_test_tracing();
+    // most-negative-fixnum = -2305843009213693952
+    // -most-negative-fixnum = 2305843009213693952 = 1 + most-positive-fixnum
+    assert_eq!(
+        eval_one("(/ most-negative-fixnum -1)"),
+        "OK 2305843009213693952"
+    );
+    // % and mod on this case (both give 0).
+    assert_eq!(eval_one("(% most-negative-fixnum -1)"), "OK 0");
+    assert_eq!(eval_one("(mod most-negative-fixnum -1)"), "OK 0");
+    // / on a bignum dividend.
+    assert_eq!(
+        eval_one("(/ (* most-positive-fixnum 4) 2)"),
+        "OK 4611686018427387902"
+    );
+    // % on a bignum dividend: 9223372036854775804 % 7 = 4.
+    assert_eq!(eval_one("(% (* most-positive-fixnum 4) 7)"), "OK 4");
+    // mod with a negative divisor on a bignum dividend:
+    // r = 4, sign mismatch with -7 → r + (-7) = -3.
+    assert_eq!(eval_one("(mod (* most-positive-fixnum 4) -7)"), "OK -3");
+    // Division by zero still signals.
+    assert_eq!(
+        eval_one("(condition-case e (/ 1 0) (arith-error 'caught))"),
+        "OK caught"
+    );
+    assert_eq!(
+        eval_one("(condition-case e (% 1 0) (arith-error 'caught))"),
+        "OK caught"
+    );
+    assert_eq!(
+        eval_one("(condition-case e (mod 1 0) (arith-error 'caught))"),
+        "OK caught"
+    );
+}
+
 #[test]
 fn substring_accepts_vectors_like_gnu_emacs() {
     crate::test_utils::init_test_tracing();

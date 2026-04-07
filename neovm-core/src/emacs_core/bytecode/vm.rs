@@ -826,7 +826,7 @@ impl<'a> Vm<'a> {
                     )) {
                         stk_push!(result);
                     } else {
-                        stk_push!(vm_try!(arith_rem(&call_args[0], &call_args[1])));
+                        stk_push!(vm_try!(arith_rem(self, &call_args[0], &call_args[1])));
                     }
                 }
                 Op::Add1 => {
@@ -4641,17 +4641,11 @@ fn arith_mul(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
     }
 }
 
+/// 2-arg `/` for the VM. Mirrors GNU `Fquo` truncation semantics with
+/// bignum promotion on `i64::MIN / -1`.
 fn arith_div(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
     match (a.kind(), b.kind()) {
-        (ValueKind::Fixnum(_), ValueKind::Fixnum(0)) => Err(signal(
-            "arith-error",
-            vec![Value::string("Division by zero")],
-        )),
-        (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => {
-            // Integer division — matches GNU Emacs and the interpreter's builtin_div
-            Ok(Value::fixnum(a.checked_div(b).unwrap_or(0)))
-        }
-        _ => {
+        (ValueKind::Float, _) | (_, ValueKind::Float) => {
             let a = number_or_marker_as_f64(vm, a)?;
             let b = number_or_marker_as_f64(vm, b)?;
             if b == 0.0 {
@@ -4662,17 +4656,53 @@ fn arith_div(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
             }
             Ok(Value::make_float(a / b))
         }
+        (ValueKind::Fixnum(_), ValueKind::Fixnum(0)) => Err(signal(
+            "arith-error",
+            vec![Value::string("Division by zero")],
+        )),
+        (ValueKind::Fixnum(x), ValueKind::Fixnum(y)) => match x.checked_div(y) {
+            Some(q) => Ok(Value::make_integer(rug::Integer::from(q))),
+            None => Ok(Value::make_integer(rug::Integer::from(x) / y)),
+        },
+        _ => {
+            let av = rug_from_value_vm(vm, a)?;
+            let bv = rug_from_value_vm(vm, b)?;
+            if bv.is_zero() {
+                return Err(signal(
+                    "arith-error",
+                    vec![Value::string("Division by zero")],
+                ));
+            }
+            Ok(Value::make_integer(av / bv))
+        }
     }
 }
 
-fn arith_rem(a: &Value, b: &Value) -> EvalResult {
+/// 2-arg `%` for the VM. Mirrors GNU `Frem` remainder semantics
+/// (`mpz_tdiv_r`-style: result has the dividend's sign).
+fn arith_rem(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
     match (a.kind(), b.kind()) {
         (ValueKind::Fixnum(_), ValueKind::Fixnum(0)) => Err(signal(
             "arith-error",
             vec![Value::string("Division by zero")],
         )),
-        (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => {
-            Ok(Value::fixnum(a.checked_rem(b).unwrap_or(0)))
+        (ValueKind::Fixnum(x), ValueKind::Fixnum(y)) => {
+            // i64::MIN % -1 is 0 mathematically; checked_rem returns None.
+            let r = x.checked_rem(y).unwrap_or(0);
+            Ok(Value::make_integer(rug::Integer::from(r)))
+        }
+        _ if (a.is_fixnum() || a.is_bignum() || a.is_marker())
+            && (b.is_fixnum() || b.is_bignum() || b.is_marker()) =>
+        {
+            let av = rug_from_value_vm(vm, a)?;
+            let bv = rug_from_value_vm(vm, b)?;
+            if bv.is_zero() {
+                return Err(signal(
+                    "arith-error",
+                    vec![Value::string("Division by zero")],
+                ));
+            }
+            Ok(Value::make_integer(rug::Integer::from(av % bv)))
         }
         _ => Err(signal(
             "wrong-type-argument",
