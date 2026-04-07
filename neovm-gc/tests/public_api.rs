@@ -8391,6 +8391,22 @@ fn public_api_shared_update_pacer_config_works_while_heap_write_locked() {
 }
 
 #[test]
+fn public_api_shared_compaction_stats_reads_lock_free() {
+    // A fresh SharedHeap reports zero compaction work so far.
+    // Reading compaction_stats through the lock-free status
+    // snapshot path must succeed and return the default-zero
+    // counters.
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let stats = shared
+        .compaction_stats()
+        .expect("read compaction stats from shared heap");
+    assert_eq!(stats.cycles, 0);
+    assert_eq!(stats.records_moved, 0);
+    assert_eq!(stats.target_blocks_created, 0);
+    assert_eq!(stats.source_blocks_reclaimed, 0);
+}
+
+#[test]
 fn public_api_shared_compact_old_gen_physical_reports_zero_on_empty_heap() {
     // Smoke test: a brand-new SharedHeap has nothing in the old
     // gen, so SharedHeap::compact_old_gen_physical at any

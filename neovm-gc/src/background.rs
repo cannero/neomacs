@@ -9,7 +9,7 @@ use crate::plan::{
 };
 use crate::runtime::{CollectorRuntime, SharedCollectorRuntime};
 use crate::runtime_state::{RuntimeState, RuntimeStateHandle};
-use crate::stats::{CollectionStats, HeapStats};
+use crate::stats::{CollectionStats, CompactionStats, HeapStats};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{
@@ -107,6 +107,9 @@ pub struct SharedHeapStatus {
     /// Rolling pause-time histogram (P50/P95/P99 nanoseconds over a
     /// bounded window) as captured in the latest shared snapshot.
     pub pauses: PauseHistogram,
+    /// Cumulative physical compaction counters as captured in
+    /// the latest shared snapshot.
+    pub compaction: CompactionStats,
     /// Runtime-side follow-up work that remains outside GC commit.
     pub runtime_work: RuntimeWorkStatus,
     /// Scheduler-visible recommended collection plan from the latest shared snapshot.
@@ -201,6 +204,7 @@ struct SharedHeapSnapshot {
     stats: HeapStats,
     pacer: PacerStats,
     pauses: PauseHistogram,
+    compaction: CompactionStats,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -276,6 +280,7 @@ impl SharedHeapSnapshot {
             stats: heap.storage_stats(),
             pacer: heap.pacer_stats(),
             pauses: heap.pause_histogram(),
+            compaction: heap.compaction_stats(),
         }
     }
 }
@@ -776,6 +781,7 @@ fn shared_heap_status_from_parts(
         stats,
         pacer: heap_snapshot.pacer,
         pauses: heap_snapshot.pauses,
+        compaction: heap_snapshot.compaction,
         runtime_work: RuntimeWorkStatus::from_pending_finalizers(
             runtime_snapshot.pending_finalizers,
         ),
@@ -1168,6 +1174,19 @@ impl SharedHeap {
         self.runtime
             .observe_heap_status()
             .map(|status| status.pauses)
+    }
+
+    /// Return the cumulative physical compaction counters from
+    /// the latest shared snapshot.
+    ///
+    /// Reads from the same lock-free shared snapshot as
+    /// [`SharedHeap::stats`], so this never blocks on the heap
+    /// mutex. Observers can diff two snapshots to attribute
+    /// compaction work to a specific interval.
+    pub fn compaction_stats(&self) -> Result<CompactionStats, SharedHeapError> {
+        self.runtime
+            .observe_heap_status()
+            .map(|status| status.compaction)
     }
 
     /// Return the adaptive pacer's current configuration.
