@@ -2601,11 +2601,15 @@ pub fn apply_runtime_startup_state(eval: &mut super::eval::Context) -> Result<()
     let project_root = runtime_project_root();
     eval_startup_forms(
         eval,
+        // Note: the closing paren count must balance the opens.
+        // GNU loadup.el invokes `initial-major-mode` on `*scratch*`
+        // when it's still in `fundamental-mode`; we replicate that
+        // post-loadup hook here.
         r#"
           (if (get-buffer "*scratch*")
               (with-current-buffer "*scratch*"
                 (if (eq major-mode 'fundamental-mode)
-                    (funcall initial-major-mode)))
+                    (funcall initial-major-mode))))
         "#,
     )?;
 
