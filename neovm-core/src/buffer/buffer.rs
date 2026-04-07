@@ -50,6 +50,124 @@ pub const BUFFER_SLOT_READ_ONLY: usize = 2;
 pub const BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS: usize = 3;
 
 // ---------------------------------------------------------------------------
+// BUFFER_SLOT_INFO table — declarative metadata for every BUFFER_OBJFWD
+// slot. Mirrors GNU's `buffer_local_flags` + `defvar_per_buffer` table
+// in `buffer.c:5056-5500`. Used by Phase 10C dispatch in `set_buffer_local`,
+// `get_buffer_local`, `get_buffer_local_binding`, `ordered_buffer_local_*`
+// and by the install loop in `Context::new` that flips the symbols to
+// `SymbolRedirect::Forwarded`.
+// ---------------------------------------------------------------------------
+
+/// Default-value descriptor. Stored in the const table because
+/// `Value::string` allocates and isn't `const`-friendly. Materialised
+/// once at startup via [`SlotDefault::to_value`].
+#[derive(Copy, Clone, Debug)]
+pub enum SlotDefault {
+    /// Use a const `Value` (NIL, T, fixnum).
+    Const(crate::emacs_core::value::Value),
+    /// Allocate a multibyte Lisp string at install time.
+    LazyString(&'static str),
+    /// Allocate a unibyte Lisp string at install time. Mirrors GNU's
+    /// `make_unibyte_string` for `default-directory` during dump.
+    LazyUnibyte(&'static str),
+    /// Resolve to an interned symbol at install time.
+    LazySymbol(&'static str),
+}
+
+impl SlotDefault {
+    /// Materialise the default into a runtime [`Value`]. Called once at
+    /// startup; the produced Value is GC-rooted by the buffer slot
+    /// table from then on.
+    pub fn to_value(self) -> crate::emacs_core::value::Value {
+        use crate::emacs_core::value::Value;
+        match self {
+            SlotDefault::Const(v) => v,
+            SlotDefault::LazyString(s) => Value::string(s),
+            SlotDefault::LazyUnibyte(s) => Value::unibyte_string(s),
+            SlotDefault::LazySymbol(s) => Value::symbol(s),
+        }
+    }
+}
+
+/// Per-slot metadata. Mirrors a GNU `defvar_per_buffer` entry.
+#[derive(Copy, Clone, Debug)]
+pub struct BufferSlotInfo {
+    /// Lisp variable name (also used as the obarray symbol name).
+    pub name: &'static str,
+    /// Index into [`Buffer::slots`].
+    pub offset: usize,
+    /// Default value installed into every fresh buffer's slot.
+    pub default: SlotDefault,
+    /// Predicate symbol checked by `store_symval_forwarding` on
+    /// write. `""` for "no check" (mirrors GNU's `Qnil` predicate
+    /// slot).
+    pub predicate: &'static str,
+}
+
+/// The complete table of `BUFFER_OBJFWD`-style slots. Phase 10C started
+/// with the four names that Phase 8b moved to slots; subsequent Phase
+/// 10C commits will add more entries as additional always-local
+/// variables migrate from BufferLocals into the slot table.
+pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
+    BufferSlotInfo {
+        name: "buffer-file-name",
+        offset: BUFFER_SLOT_FILE_NAME,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "stringp",
+    },
+    BufferSlotInfo {
+        name: "buffer-auto-save-file-name",
+        offset: BUFFER_SLOT_AUTO_SAVE_FILE_NAME,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "stringp",
+    },
+    BufferSlotInfo {
+        name: "buffer-read-only",
+        offset: BUFFER_SLOT_READ_ONLY,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+    },
+    BufferSlotInfo {
+        name: "enable-multibyte-characters",
+        offset: BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::T),
+        predicate: "",
+    },
+];
+
+/// Look up a [`BufferSlotInfo`] by Lisp variable name. Returns `None`
+/// for non-slot-backed names.
+pub fn lookup_buffer_slot(name: &str) -> Option<&'static BufferSlotInfo> {
+    BUFFER_SLOT_INFO.iter().find(|info| info.name == name)
+}
+
+/// Coerce a write value to fit a slot's predicate. Mirrors GNU's
+/// `store_symval_forwarding` predicate path: stringp slots accept
+/// strings or nil; predicate-less slots (boolean-style) accept any
+/// truthy value as `Value::T` and any nil as `Value::NIL`. Other
+/// predicates fall through to "store as-is" since the assign hot
+/// path will surface a wrong-type-argument later if needed.
+pub(crate) fn coerce_to_slot(
+    info: &BufferSlotInfo,
+    value: crate::emacs_core::value::Value,
+    current: crate::emacs_core::value::Value,
+) -> crate::emacs_core::value::Value {
+    use crate::emacs_core::value::{Value, ValueKind};
+    match info.predicate {
+        "stringp" => match value.kind() {
+            ValueKind::String => value,
+            ValueKind::Nil => Value::NIL,
+            _ => current,
+        },
+        "" => {
+            // No predicate: treat as boolean-ish slot (Value::T / NIL).
+            if value.is_truthy() { Value::T } else { Value::NIL }
+        }
+        _ => value,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // BufferId
 // ---------------------------------------------------------------------------
 
@@ -246,10 +364,13 @@ impl Buffer {
             locals: BufferLocals::new(),
             local_var_alist: crate::emacs_core::value::Value::NIL,
             slots: {
+                // Phase 10C: seed every slot from BUFFER_SLOT_INFO.
+                // Mirrors GNU's `reset_buffer` (`buffer.c:1188`)
+                // copying `buffer_defaults` into a fresh buffer.
                 let mut s = [crate::emacs_core::value::Value::NIL; BUFFER_SLOT_COUNT];
-                // multibyte defaults to t for new buffers, mirroring
-                // GNU's `init_buffer_once` (`buffer.c`).
-                s[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS] = Value::T;
+                for info in BUFFER_SLOT_INFO {
+                    s[info.offset] = info.default.to_value();
+                }
                 s
             },
             overlays: OverlayList::new(),
@@ -964,38 +1085,14 @@ impl Buffer {
     // -- Buffer-local variables ----------------------------------------------
 
     pub fn set_buffer_local(&mut self, name: &str, value: Value) {
-        // Phase 10 sub-phase A: the four BUFFER_OBJFWD-style fields
-        // live in `self.slots` only — write the slot and skip the
-        // BufferLocals dual-write. Mirrors GNU's `set_internal`
-        // routing for SYMBOL_FORWARDED variables.
-        match name {
-            "buffer-file-name" => {
-                self.slots[BUFFER_SLOT_FILE_NAME] = match value.kind() {
-                    ValueKind::String => value,
-                    ValueKind::Nil => Value::NIL,
-                    _ => self.slots[BUFFER_SLOT_FILE_NAME],
-                };
-                return;
-            }
-            "buffer-auto-save-file-name" => {
-                self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME] = match value.kind() {
-                    ValueKind::String => value,
-                    ValueKind::Nil => Value::NIL,
-                    _ => self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME],
-                };
-                return;
-            }
-            "buffer-read-only" => {
-                self.slots[BUFFER_SLOT_READ_ONLY] =
-                    if value.is_truthy() { Value::T } else { Value::NIL };
-                return;
-            }
-            "enable-multibyte-characters" => {
-                self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS] =
-                    if value.is_truthy() { Value::T } else { Value::NIL };
-                return;
-            }
-            _ => {}
+        // Phase 10C: route writes to BUFFER_OBJFWD-style names through
+        // the slot table. Mirrors GNU's `store_symval_forwarding` for
+        // the BUFFER_OBJFWD arm: the slot is written, optionally
+        // gated by the predicate (currently we accept the value as-is
+        // and let the assign hot path handle predicate checks).
+        if let Some(info) = lookup_buffer_slot(name) {
+            self.slots[info.offset] = coerce_to_slot(info, value, self.slots[info.offset]);
+            return;
         }
         if name == "buffer-undo-list" {
             self.undo_state.set_list(value);
@@ -1008,27 +1105,12 @@ impl Buffer {
     }
 
     pub fn set_buffer_local_void(&mut self, name: &str) {
-        // Phase 10 sub-phase A: the four BUFFER_OBJFWD-style fields
-        // never go void — clearing them is equivalent to setting nil
-        // in the slot. Skip the BufferLocals path entirely.
-        match name {
-            "buffer-file-name" => {
-                self.slots[BUFFER_SLOT_FILE_NAME] = Value::NIL;
-                return;
-            }
-            "buffer-auto-save-file-name" => {
-                self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME] = Value::NIL;
-                return;
-            }
-            "buffer-read-only" => {
-                self.slots[BUFFER_SLOT_READ_ONLY] = Value::NIL;
-                return;
-            }
-            "enable-multibyte-characters" => {
-                self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS] = Value::NIL;
-                return;
-            }
-            _ => {}
+        // Phase 10C: BUFFER_OBJFWD slots never go void — clearing
+        // resolves to nil in the slot. Mirrors GNU semantics where
+        // C-side BVAR slots are always live.
+        if let Some(info) = lookup_buffer_slot(name) {
+            self.slots[info.offset] = Value::NIL;
+            return;
         }
         if name == "buffer-undo-list" {
             self.undo_state.set_list(Value::NIL);
@@ -1054,47 +1136,23 @@ impl Buffer {
     }
 
     pub fn get_buffer_local(&self, name: &str) -> Option<&Value> {
-        // The four BUFFER_OBJFWD-style fields live exclusively in
-        // `self.slots` after Phase 8b — return a borrow into the
-        // slot table so consumers don't see a stale BufferLocals
-        // copy. Mirrors GNU's `BVAR(buf, …)` accessor returning a
-        // direct pointer into the C-side struct buffer slot.
-        match name {
-            "buffer-file-name" => Some(&self.slots[BUFFER_SLOT_FILE_NAME]),
-            "buffer-auto-save-file-name" => {
-                Some(&self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME])
-            }
-            "buffer-read-only" => Some(&self.slots[BUFFER_SLOT_READ_ONLY]),
-            "enable-multibyte-characters" => {
-                Some(&self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS])
-            }
-            _ => self.locals.raw_value_ref(name),
+        // Phase 10C: BUFFER_OBJFWD-style names resolve to a borrow
+        // into the slot table so consumers see the live slot
+        // value, not a stale BufferLocals copy. Mirrors GNU's
+        // `BVAR(buf, …)` accessor returning a direct pointer into
+        // the C-side struct buffer slot.
+        if let Some(info) = lookup_buffer_slot(name) {
+            return Some(&self.slots[info.offset]);
         }
+        self.locals.raw_value_ref(name)
     }
 
     pub fn get_buffer_local_binding(&self, name: &str) -> Option<RuntimeBindingValue> {
-        // Phase 10 sub-phase A: the four BUFFER_OBJFWD-style fields
-        // are always live in `self.slots` and bypass the
-        // `has_local` short-circuit. They never go void in GNU
+        // Phase 10C: BUFFER_OBJFWD slots are always live and bypass
+        // the `has_local` short-circuit. They never go void in GNU
         // (a nil slot still resolves as bound-to-nil).
-        match name {
-            "buffer-file-name" => {
-                return Some(RuntimeBindingValue::Bound(self.slots[BUFFER_SLOT_FILE_NAME]));
-            }
-            "buffer-auto-save-file-name" => {
-                return Some(RuntimeBindingValue::Bound(
-                    self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME],
-                ));
-            }
-            "buffer-read-only" => {
-                return Some(RuntimeBindingValue::Bound(self.slots[BUFFER_SLOT_READ_ONLY]));
-            }
-            "enable-multibyte-characters" => {
-                return Some(RuntimeBindingValue::Bound(
-                    self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS],
-                ));
-            }
-            _ => {}
+        if let Some(info) = lookup_buffer_slot(name) {
+            return Some(RuntimeBindingValue::Bound(self.slots[info.offset]));
         }
         if !self.locals.has_local(name) {
             return None;
@@ -1125,28 +1183,19 @@ impl Buffer {
     }
 
     pub fn ordered_buffer_local_bindings(&self) -> Vec<(String, RuntimeBindingValue)> {
-        // Phase 10 sub-phase A: prepend the four BUFFER_OBJFWD-style
-        // entries that no longer live in BufferLocals. Mirrors GNU's
-        // `buffer-local-variables` which always emits the C-side
-        // BVAR slots (e.g. buffer-file-name, buffer-read-only)
-        // regardless of whether the user "made" them buffer-local.
-        let mut out: Vec<(String, RuntimeBindingValue)> = Vec::new();
-        out.push((
-            "buffer-file-name".to_string(),
-            RuntimeBindingValue::Bound(self.slots[BUFFER_SLOT_FILE_NAME]),
-        ));
-        out.push((
-            "buffer-auto-save-file-name".to_string(),
-            RuntimeBindingValue::Bound(self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME]),
-        ));
-        out.push((
-            "buffer-read-only".to_string(),
-            RuntimeBindingValue::Bound(self.slots[BUFFER_SLOT_READ_ONLY]),
-        ));
-        out.push((
-            "enable-multibyte-characters".to_string(),
-            RuntimeBindingValue::Bound(self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS]),
-        ));
+        // Phase 10C: prepend every BUFFER_OBJFWD-style entry from
+        // the slot table. Mirrors GNU's `buffer-local-variables`
+        // which always emits the C-side BVAR slots regardless of
+        // whether the user "made" them buffer-local.
+        let mut out: Vec<(String, RuntimeBindingValue)> = BUFFER_SLOT_INFO
+            .iter()
+            .map(|info| {
+                (
+                    info.name.to_string(),
+                    RuntimeBindingValue::Bound(self.slots[info.offset]),
+                )
+            })
+            .collect();
         out.extend(
             self.locals
                 .ordered_runtime_bindings()
@@ -1163,12 +1212,10 @@ impl Buffer {
     }
 
     pub fn ordered_buffer_local_names(&self) -> Vec<String> {
-        let mut names = vec![
-            "buffer-file-name".to_string(),
-            "buffer-auto-save-file-name".to_string(),
-            "buffer-read-only".to_string(),
-            "enable-multibyte-characters".to_string(),
-        ];
+        let mut names: Vec<String> = BUFFER_SLOT_INFO
+            .iter()
+            .map(|info| info.name.to_string())
+            .collect();
         names.extend(self.locals.ordered_binding_names());
         names
     }
