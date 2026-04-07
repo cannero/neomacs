@@ -198,3 +198,19 @@ fn heap_index_state_prepare_reclaim_state_rebuilds_candidates_and_remembered_edg
     assert_eq!(prepared.remembered_edges.len(), 1);
     assert_eq!(prepared.remembered_owners, vec![objects[3].object_key()]);
 }
+
+#[test]
+fn begin_post_sweep_rebuild_preserves_dead_finalizable_membership() {
+    let finalizable_desc = finalizable_leaf_desc();
+    let object = ObjectRecord::allocate(finalizable_desc, SpaceKind::Pinned, FinalizableLeaf)
+        .expect("allocate finalizable object");
+    let object_key = object.object_key();
+    let mut indexes = HeapIndexState::default();
+    indexes.record_allocated_object(object_key, 0, finalizable_desc);
+
+    let rebuild = indexes.begin_post_sweep_rebuild(4);
+
+    assert!(rebuild.should_enqueue_finalizer(&object));
+    assert!(indexes.object_index.is_empty());
+    assert!(indexes.finalizable_candidates.is_empty());
+}

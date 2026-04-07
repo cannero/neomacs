@@ -233,7 +233,7 @@ impl PreparedHeapStats {
             .saturating_add(self.immortal.live_bytes)
     }
 
-    pub(crate) fn apply_prepared_reclaim(
+    pub(crate) fn apply_space_rebuild(
         self,
         stats: &mut HeapStats,
         old_reserved_bytes: usize,

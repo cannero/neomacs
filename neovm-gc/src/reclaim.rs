@@ -1,4 +1,3 @@
-use crate::descriptor::TypeFlags;
 use crate::heap::AllocError;
 use crate::index_state::{HeapIndexState, PreparedIndexReclaim};
 use crate::object::{ObjectRecord, OldRegionPlacement, SpaceKind};
@@ -209,7 +208,7 @@ pub(crate) fn apply_prepared_reclaim(
     let old_region_stats = old_gen.apply_prepared_reclaim(prepared_old_gen);
     let old_reserved_bytes = old_gen.reserved_bytes();
     indexes.apply_prepared_reclaim(prepared_indexes);
-    let after_bytes = prepared_stats.apply_prepared_reclaim(stats, old_reserved_bytes);
+    let after_bytes = prepared_stats.apply_space_rebuild(stats, old_reserved_bytes);
     ReclaimCommitResult {
         queued_finalizers,
         old_region_stats,
@@ -260,29 +259,16 @@ pub(crate) fn sweep_minor_and_rebuild_post_collection(
     completed_plan: Option<CollectionPlan>,
     mut enqueue_pending_finalizer: impl FnMut(ObjectRecord) -> u64,
 ) -> MinorRebuildResult {
-    stats.nursery.live_bytes = 0;
-    stats.old.live_bytes = 0;
-    stats.pinned.live_bytes = 0;
-    stats.large.live_bytes = 0;
-    stats.large.reserved_bytes = 0;
-    stats.immortal.live_bytes = 0;
-    stats.immortal.reserved_bytes = 0;
-
     let old_objects = core::mem::take(objects);
     let mut old_region_rebuild = old_gen.prepare_rebuild(completed_plan.as_ref());
-    indexes.reset_candidate_indexes(old_objects.len());
+    let post_sweep_indexes = indexes.begin_post_sweep_rebuild(old_objects.len());
+    let mut rebuilt_stats = PreparedHeapStats::default();
 
     let mut rebuilt_objects = Vec::with_capacity(old_objects.len());
     let mut queued_finalizers = 0u64;
     for mut object in old_objects {
         if !keep_object_for_collection(kind, &object) {
-            let should_finalize = object
-                .header()
-                .desc()
-                .flags
-                .contains(TypeFlags::FINALIZABLE)
-                && !object.header().is_moved_out();
-            if should_finalize {
+            if post_sweep_indexes.should_enqueue_finalizer(&object) {
                 queued_finalizers =
                     queued_finalizers.saturating_add(enqueue_pending_finalizer(object));
             }
@@ -304,28 +290,8 @@ pub(crate) fn sweep_minor_and_rebuild_post_collection(
         }
         let index = rebuilt_objects.len();
         rebuilt_objects.push(object);
-        indexes.object_index.insert(object_key, index);
-        indexes.record_descriptor_candidates(object_key, desc);
-        match space {
-            SpaceKind::Nursery => {
-                stats.nursery.live_bytes = stats.nursery.live_bytes.saturating_add(total_size);
-            }
-            SpaceKind::Old => {
-                stats.old.live_bytes = stats.old.live_bytes.saturating_add(total_size);
-            }
-            SpaceKind::Pinned => {
-                stats.pinned.live_bytes = stats.pinned.live_bytes.saturating_add(total_size);
-            }
-            SpaceKind::Large => {
-                stats.large.live_bytes = stats.large.live_bytes.saturating_add(total_size);
-                stats.large.reserved_bytes = stats.large.reserved_bytes.saturating_add(total_size);
-            }
-            SpaceKind::Immortal => {
-                stats.immortal.live_bytes = stats.immortal.live_bytes.saturating_add(total_size);
-                stats.immortal.reserved_bytes =
-                    stats.immortal.reserved_bytes.saturating_add(total_size);
-            }
-        }
+        indexes.record_allocated_object(object_key, index, desc);
+        rebuilt_stats.record_live_object(space, total_size);
     }
 
     *objects = rebuilt_objects;
@@ -334,12 +300,12 @@ pub(crate) fn sweep_minor_and_rebuild_post_collection(
     if let Some(rebuilt_old_regions) = rebuilt_old_regions {
         old_gen.regions = rebuilt_old_regions;
     }
-    stats.old.reserved_bytes = old_gen.reserved_bytes();
+    let after_bytes = rebuilt_stats.apply_space_rebuild(stats, old_gen.reserved_bytes());
     indexes.retain_remembered_edges_for_post_sweep_objects(objects);
     MinorRebuildResult {
         queued_finalizers,
         old_region_stats,
-        after_bytes: stats.total_live_bytes(),
+        after_bytes,
     }
 }
 

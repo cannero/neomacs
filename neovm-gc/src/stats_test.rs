@@ -168,7 +168,7 @@ fn prepared_heap_stats_apply_reclaim_updates_space_live_and_reserved_bytes() {
     assert_eq!(prepared.total_live_bytes(), 39);
 
     let mut stats = HeapStats::default();
-    let after_bytes = prepared.apply_prepared_reclaim(&mut stats, 17);
+    let after_bytes = prepared.apply_space_rebuild(&mut stats, 17);
 
     assert_eq!(after_bytes, 39);
     assert_eq!(stats.nursery.live_bytes, 3);

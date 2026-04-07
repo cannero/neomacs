@@ -36,6 +36,11 @@ pub(crate) struct PreparedIndexReclaim {
     pub(crate) remembered_owners: Vec<ObjectKey>,
 }
 
+#[derive(Debug, Default)]
+pub(crate) struct PostSweepIndexRebuild {
+    finalizable_candidates: HashSet<ObjectKey>,
+}
+
 impl RememberedSetState {
     pub(crate) fn record_edge(&mut self, owner: GcErased, target: GcErased) {
         let owner_key = owner.object_key();
@@ -175,6 +180,14 @@ impl HeapIndexState {
         self.ephemeron_candidates.reserve(capacity);
     }
 
+    pub(crate) fn begin_post_sweep_rebuild(&mut self, capacity: usize) -> PostSweepIndexRebuild {
+        let rebuild = PostSweepIndexRebuild {
+            finalizable_candidates: self.finalizable_candidates.iter().copied().collect(),
+        };
+        self.reset_candidate_indexes(capacity);
+        rebuild
+    }
+
     pub(crate) fn remembered_edges_for_collection(
         &self,
         objects: &[ObjectRecord],
@@ -255,6 +268,12 @@ impl HeapIndexState {
     ) {
         self.remembered
             .retain_for_post_sweep_objects(objects, &self.object_index);
+    }
+}
+
+impl PostSweepIndexRebuild {
+    pub(crate) fn should_enqueue_finalizer(&self, object: &ObjectRecord) -> bool {
+        self.finalizable_candidates.contains(&object.object_key()) && !object.header().is_moved_out()
     }
 }
 
