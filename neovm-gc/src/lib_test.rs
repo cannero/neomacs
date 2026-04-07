@@ -1800,6 +1800,56 @@ fn finish_active_major_collection_prepares_full_reclaim_before_commit() {
 }
 
 #[test]
+fn heap_drop_runs_pending_finalizers_while_arena_buffers_are_alive() {
+    // Regression test for the cross-object drop-order bug surfaced by
+    // the Phase 2 old-gen block allocator: SharedHeap clones
+    // RuntimeStateHandle, so RuntimeState (which owns
+    // pending_finalizers) may outlive the inner Heap. Without the
+    // explicit Heap::drop drain, a block- or arena-backed finalizer
+    // record would try to deref a header in freed buffer memory.
+    MAJOR_FINALIZE_COUNT.store(0, Ordering::SeqCst);
+
+    let shared = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+
+    // Queue a finalizer against the shared heap.
+    shared
+        .with_mutator(|mutator| {
+            {
+                let mut scope = mutator.handle_scope();
+                mutator
+                    .alloc(&mut scope, FinalizableOldLeaf([7; 32]))
+                    .expect("alloc finalizable old leaf");
+            }
+            let cycle = mutator
+                .collect(CollectionKind::Major)
+                .expect("major collect");
+            assert_eq!(cycle.queued_finalizers, 1);
+        })
+        .expect("queue finalizer on shared heap");
+
+    // Dropping the SharedHeap should, transitively through Heap::drop,
+    // drain the pending finalizer queue. After the drop, the finalizer
+    // must have run exactly once.
+    drop(shared);
+    assert_eq!(
+        MAJOR_FINALIZE_COUNT.load(Ordering::SeqCst),
+        1,
+        "Heap::drop must drain pending finalizers before arena buffers free"
+    );
+}
+
+#[test]
 fn pause_histogram_records_samples_from_completed_cycles() {
     let mut heap = Heap::new(HeapConfig::default());
 
