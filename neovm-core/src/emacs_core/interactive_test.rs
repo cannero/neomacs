@@ -85,6 +85,9 @@ fn eval_first_form_after_marker(eval: &mut Context, source: &str, marker: &str) 
 
 /// Install minimal `defun`/`defmacro`/`when`/`unless` shims so a bare
 /// evaluator can evaluate forms extracted from GNU `.el` source files.
+/// Also installs a minimal `with-temp-buffer` that uses
+/// get-buffer-create with a fixed unique name (sufficient for tests
+/// that don't nest with-temp-buffer).
 fn install_bare_elisp_shims(ev: &mut Context) {
     let shims = r#"
 (defalias 'defun (cons 'macro #'(lambda (name arglist &rest body)
@@ -96,6 +99,16 @@ fn install_bare_elisp_shims(ev: &mut Context) {
   (list 'if cond (cons 'progn body)))))
 (defalias 'unless (cons 'macro #'(lambda (cond &rest body)
   (cons 'if (cons cond (cons nil body))))))
+(defalias 'with-temp-buffer (cons 'macro #'(lambda (&rest body)
+  (list 'let
+        (list (list 'vm-temp-buf
+                    (list 'get-buffer-create " *vm-shim-temp*" t)))
+        (list 'unwind-protect
+              (list 'save-current-buffer
+                    (list 'set-buffer 'vm-temp-buf)
+                    (list 'erase-buffer)
+                    (cons 'progn body))
+              (list 'kill-buffer 'vm-temp-buf))))))
 "#;
     ev.eval_str(shims).expect("install bare elisp shims");
 }
