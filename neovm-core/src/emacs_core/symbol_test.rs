@@ -393,7 +393,7 @@ fn localized_returns_default_when_no_buffer_local() {
     ob.make_symbol_localized(id, Value::fixnum(7));
     let buf_value = Value::NIL; // pretend no current buffer
     let alist = Value::NIL; // empty alist
-    let v = ob.find_symbol_value_in_buffer(id, None, buf_value, alist);
+    let v = ob.find_symbol_value_in_buffer(id, None, buf_value, alist, None);
     assert_eq!(v, Some(Value::fixnum(7)));
 }
 
@@ -412,7 +412,7 @@ fn localized_swap_in_reads_buffer_local_value() {
     let cell = Value::cons(Value::from_sym_id(id), Value::fixnum(99));
     let alist = Value::cons(cell, Value::NIL);
     let buf_a = Value::fixnum(1);
-    let v = ob.find_symbol_value_in_buffer(id, None, buf_a, alist);
+    let v = ob.find_symbol_value_in_buffer(id, None, buf_a, alist, None);
     assert_eq!(v, Some(Value::fixnum(99)));
     // The cache now records `where_buf == buf_a` and `found == true`.
     let blv = ob.blv(id).expect("BLV");
@@ -436,13 +436,13 @@ fn localized_blv_cache_invalidated_on_buffer_switch() {
         Value::cons(Value::from_sym_id(id), Value::fixnum(42)),
         Value::NIL,
     );
-    let v_a = ob.find_symbol_value_in_buffer(id, None, buf_a, alist_a);
+    let v_a = ob.find_symbol_value_in_buffer(id, None, buf_a, alist_a, None);
     assert_eq!(v_a, Some(Value::fixnum(42)));
 
     // Buffer B has no binding for this symbol → default.
     let buf_b = Value::fixnum(2);
     let alist_b = Value::NIL;
-    let v_b = ob.find_symbol_value_in_buffer(id, None, buf_b, alist_b);
+    let v_b = ob.find_symbol_value_in_buffer(id, None, buf_b, alist_b, None);
     assert_eq!(v_b, Some(Value::fixnum(0)));
     let blv = ob.blv(id).expect("BLV");
     assert_eq!(blv.where_buf, buf_b);
@@ -479,7 +479,7 @@ fn set_localized_creates_buffer_local_when_local_if_set() {
     assert_eq!(head.cons_car(), Value::from_sym_id(id));
     assert_eq!(head.cons_cdr(), Value::fixnum(42));
     // Read it back via the buffer-aware path.
-    let v = ob.find_symbol_value_in_buffer(id, None, buf, alist);
+    let v = ob.find_symbol_value_in_buffer(id, None, buf, alist, None);
     assert_eq!(v, Some(Value::fixnum(42)));
 }
 
@@ -561,6 +561,63 @@ fn set_localized_bind_never_auto_creates() {
     assert_eq!(new_alist, Value::NIL);
     let blv = ob.blv(id).expect("BLV");
     assert_eq!(blv.defcell.cons_cdr(), Value::fixnum(7));
+}
+
+// Phase 8a — FORWARDED via BUFFER_OBJFWD slot.
+
+/// `install_buffer_objfwd` flips the redirect to `Forwarded` and
+/// stores the descriptor pointer in `val.fwd`. Mirrors GNU
+/// `defvar_per_buffer` (`buffer.c:4990-5012`).
+#[test]
+fn install_buffer_objfwd_flips_redirect() {
+    crate::test_utils::init_test_tracing();
+    use crate::emacs_core::forward::alloc_buffer_objfwd;
+    let mut ob = Obarray::new();
+    let id = intern("phase8-fwd-x");
+    let predicate = intern("phase8-stringp"); // dummy
+    let fwd = alloc_buffer_objfwd(0, -1, predicate, Value::fixnum(42));
+    ob.install_buffer_objfwd(id, fwd);
+    let sym = ob.get_by_id(id).expect("symbol installed");
+    assert_eq!(sym.redirect(), SymbolRedirect::Forwarded);
+    assert!(sym.flags.declared_special());
+    assert!(sym.special);
+}
+
+/// `find_symbol_value_in_buffer` for a FORWARDED `BUFFER_OBJFWD`
+/// reads from `current_buffer.slots[offset]`. Mirrors GNU
+/// `do_symval_forwarding` (`data.c:1330-1352`) for the
+/// `Lisp_Buffer_Objfwd` arm.
+#[test]
+fn find_symbol_value_forwarded_reads_buffer_slot() {
+    crate::test_utils::init_test_tracing();
+    use crate::emacs_core::forward::alloc_buffer_objfwd;
+    let mut ob = Obarray::new();
+    let id = intern("phase8-fwd-slot-x");
+    let predicate = intern("phase8-stringp");
+    let fwd = alloc_buffer_objfwd(3, -1, predicate, Value::fixnum(0));
+    ob.install_buffer_objfwd(id, fwd);
+
+    // Synthetic buffer slot table.
+    let mut slots = vec![Value::NIL; 10];
+    slots[3] = Value::fixnum(99);
+    let v = ob.find_symbol_value_in_buffer(id, None, Value::NIL, Value::NIL, Some(&slots));
+    assert_eq!(v, Some(Value::fixnum(99)));
+}
+
+/// When no current-buffer slot table is provided (e.g. during
+/// startup before any buffer exists), the FORWARDED arm returns
+/// the forwarder's default.
+#[test]
+fn find_symbol_value_forwarded_returns_default_without_buffer() {
+    crate::test_utils::init_test_tracing();
+    use crate::emacs_core::forward::alloc_buffer_objfwd;
+    let mut ob = Obarray::new();
+    let id = intern("phase8-fwd-default-x");
+    let predicate = intern("phase8-stringp");
+    let fwd = alloc_buffer_objfwd(5, -1, predicate, Value::fixnum(7));
+    ob.install_buffer_objfwd(id, fwd);
+    let v = ob.find_symbol_value_in_buffer(id, None, Value::NIL, Value::NIL, None);
+    assert_eq!(v, Some(Value::fixnum(7)));
 }
 
 /// `Obarray::clone` deep-copies the BLV pool and remaps symbol

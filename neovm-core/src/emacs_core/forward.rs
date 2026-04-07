@@ -109,3 +109,38 @@ pub struct LispKboardObjFwd {
     pub ty: LispFwdType,
     pub offset: u16,
 }
+
+// ===========================================================================
+// Phase 8a — BUFFER_OBJFWD allocation and registration
+// ===========================================================================
+
+/// Leak a fresh [`LispBufferObjFwd`] descriptor into a `'static`
+/// pointer. Mirrors GNU's `defvar_per_buffer` (`buffer.c:4990-5012`):
+/// every per-buffer forwarder is allocated once at process init and
+/// lives until exit. NeoMacs uses `Box::leak` instead of static
+/// initialization because the per-process forwarders are constructed
+/// from runtime data (slot index assignments).
+///
+/// `offset` is the index into [`crate::buffer::buffer::Buffer::slots`].
+/// `local_flags_idx` mirrors GNU's `local-flags` index: `-1` means
+/// "always-local in every buffer" (e.g. `buffer-file-name`,
+/// `point`); a positive index points at a bit in
+/// `Buffer::local_flags` (currently unused — Phase 8b will wire it).
+/// `predicate` is a Lisp predicate symbol used by
+/// `store_symval_forwarding` (Phase 8b adds the type-check on write).
+/// `default` is the value copied into every fresh buffer's slot.
+pub fn alloc_buffer_objfwd(
+    offset: u16,
+    local_flags_idx: i16,
+    predicate: super::intern::SymId,
+    default: Value,
+) -> &'static LispBufferObjFwd {
+    let fwd = Box::new(LispBufferObjFwd {
+        ty: LispFwdType::BufferObj,
+        offset,
+        local_flags_idx,
+        predicate,
+        default,
+    });
+    Box::leak(fwd)
+}

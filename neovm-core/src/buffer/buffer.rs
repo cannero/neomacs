@@ -19,6 +19,17 @@ use crate::tagged::gc::with_tagged_heap;
 use crate::window::WindowId;
 
 // ---------------------------------------------------------------------------
+// BUFFER_SLOT_COUNT — sized to mirror GNU's `MAX_PER_BUFFER_VARS = 50`.
+// ---------------------------------------------------------------------------
+
+/// Number of `BUFFER_OBJFWD` slots in [`Buffer::slots`]. Mirrors GNU's
+/// `MAX_PER_BUFFER_VARS = 50` limit on per-buffer C-side variables
+/// (`buffer.c:4719`). Bump this if NeoMacs registers more forwarders
+/// than GNU does, but only after a careful audit — the number bounds
+/// every Buffer's memory footprint.
+pub const BUFFER_SLOT_COUNT: usize = 50;
+
+// ---------------------------------------------------------------------------
 // BufferId
 // ---------------------------------------------------------------------------
 
@@ -175,6 +186,16 @@ pub struct Buffer {
     /// [`Self::locals`] map stays in place during the transition
     /// (Phase 10 deletes it).
     pub local_var_alist: crate::emacs_core::value::Value,
+    /// `BUFFER_OBJFWD` slot table — per-buffer storage for variables
+    /// that are forwarded into the C-side `struct buffer` in GNU.
+    /// Mirrors the union of GNU's `Lisp_Object` slot fields in
+    /// `buffer.h:319-462`. Indexed by [`crate::emacs_core::forward::LispBufferObjFwd::offset`].
+    ///
+    /// Phase 8a of the symbol-redirect refactor adds the slot table.
+    /// Phase 8b will migrate the hardcoded fields ([`Self::file_name`],
+    /// [`Self::auto_save_file_name`], [`Self::read_only`],
+    /// [`Self::multibyte`]) into slots and remove the duplicates.
+    pub slots: [crate::emacs_core::value::Value; BUFFER_SLOT_COUNT],
     /// Overlays attached to the buffer.
     pub overlays: OverlayList,
     /// Syntax table for character classification.
@@ -216,6 +237,7 @@ impl Buffer {
             state_markers: None,
             locals: BufferLocals::new(),
             local_var_alist: crate::emacs_core::value::Value::NIL,
+            slots: [crate::emacs_core::value::Value::NIL; BUFFER_SLOT_COUNT],
             overlays: OverlayList::new(),
             syntax_table: SyntaxTable::new_standard(),
             undo_state: SharedUndoState::new(),

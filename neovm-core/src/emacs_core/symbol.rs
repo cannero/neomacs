@@ -843,6 +843,34 @@ impl Obarray {
         Some(unsafe { &mut *sym.val.blv })
     }
 
+    /// Install a `BUFFER_OBJFWD` forwarder on a symbol. Phase 8a of
+    /// the symbol-redirect refactor. Mirrors GNU `defvar_per_buffer`
+    /// (`src/buffer.c:4990-5012`).
+    ///
+    /// The forwarder is leaked into a `'static` reference (the GNU
+    /// `xmalloc` equivalent — these live until process exit). The
+    /// symbol's redirect flips to `Forwarded` and `val.fwd` points
+    /// at the descriptor. Subsequent reads of the symbol via
+    /// [`Self::find_symbol_value_in_buffer`] will fetch the value
+    /// from `Buffer::slots[offset]`.
+    pub fn install_buffer_objfwd(
+        &mut self,
+        id: SymId,
+        fwd: &'static crate::emacs_core::forward::LispBufferObjFwd,
+    ) {
+        let sym = self.ensure_symbol_id(id);
+        sym.flags.set_redirect(SymbolRedirect::Forwarded);
+        sym.flags.set_declared_special(true);
+        sym.special = true;
+        sym.val = SymbolVal {
+            fwd: fwd as *const crate::emacs_core::forward::LispBufferObjFwd
+                as *const crate::emacs_core::forward::LispFwd,
+        };
+        // Phase 8a keeps the legacy SymbolValue::Forwarded marker in
+        // sync (it's a stub variant in the legacy enum).
+        sym.value = SymbolValue::Forwarded;
+    }
+
     /// Read a symbol's value via the redirect dispatch. Mirrors GNU
     /// `find_symbol_value` (`src/data.c:1584-1609`).
     ///
@@ -914,13 +942,20 @@ impl Obarray {
     ///
     /// For LOCALIZED symbols, swaps the BLV cache to point at
     /// `current_buffer`'s per-buffer binding (if any) before reading.
-    /// For other variants, this is identical to [`Self::find_symbol_value`].
+    /// For FORWARDED symbols, reads through the forwarder descriptor:
+    /// `BUFFER_OBJFWD` returns `current_buffer_slots[offset]`. Other
+    /// variants are identical to [`Self::find_symbol_value`].
+    ///
+    /// `current_buffer_slots` is the current buffer's
+    /// `Buffer::slots` array (or `None` if there's no current
+    /// buffer — Forwarded reads then return the forwarder's default).
     pub fn find_symbol_value_in_buffer(
         &mut self,
         id: SymId,
         current_buffer_id: Option<crate::buffer::BufferId>,
         current_buffer_value: Value,
         local_var_alist: Value,
+        current_buffer_slots: Option<&[Value]>,
     ) -> Option<Value> {
         let mut current = id;
         for _ in 0..50 {
@@ -929,7 +964,7 @@ impl Obarray {
             // walk can stay on a shared reference.
             let redirect = self.slot(current)?.flags.redirect();
             match redirect {
-                SymbolRedirect::Plainval | SymbolRedirect::Forwarded => {
+                SymbolRedirect::Plainval => {
                     return self.find_symbol_value(current);
                 }
                 SymbolRedirect::Varalias => {
@@ -946,6 +981,34 @@ impl Obarray {
                     swap_in_blv(self, current, current_buffer_value, local_var_alist);
                     let blv = self.blv(current)?;
                     return Some(blv.valcell.cons_cdr());
+                }
+                SymbolRedirect::Forwarded => {
+                    // Phase 8a: read through the forwarder descriptor.
+                    // BUFFER_OBJFWD reads from current_buffer.slots
+                    // at the forwarder's offset. Other forwarder
+                    // types (Int / Bool / Obj / KboardObj) land in
+                    // Phase 8b.
+                    let sym = self.slot(current)?;
+                    let fwd = unsafe { &*sym.val.fwd };
+                    use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
+                    match fwd.ty {
+                        LispFwdType::BufferObj => {
+                            let buf_fwd = unsafe {
+                                &*(fwd as *const _ as *const LispBufferObjFwd)
+                            };
+                            let off = buf_fwd.offset as usize;
+                            return Some(match current_buffer_slots {
+                                Some(slots) if off < slots.len() => slots[off],
+                                _ => buf_fwd.default,
+                            });
+                        }
+                        _ => {
+                            // Phase 8a stub: other forwarder types
+                            // not yet implemented. Return the legacy
+                            // PLAINVAL fallback for now.
+                            return self.find_symbol_value(current);
+                        }
+                    }
                 }
             }
         }

@@ -2241,6 +2241,9 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         // doesn't yet round-trip this (Phase 11 bumps the dump
         // version); fresh-load buffers start empty.
         local_var_alist: crate::emacs_core::value::Value::NIL,
+        // Phase 8a: BUFFER_OBJFWD slot table. Same story —
+        // Phase 11 will round-trip slot values through pdump.
+        slots: [crate::emacs_core::value::Value::NIL; crate::buffer::buffer::BUFFER_SLOT_COUNT],
         overlays: OverlayList::from_dump(
             db.overlays
                 .overlays
