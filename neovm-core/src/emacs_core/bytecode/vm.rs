@@ -4792,32 +4792,93 @@ fn arith_negate(vm: &Vm<'_>, a: &Value) -> EvalResult {
     }
 }
 
+/// Numeric equality and ordering for the VM. Mirrors GNU
+/// `arithcompare` (`src/data.c:2682`): exact for any pair of integers
+/// (fixnum and bignum) and exact for bignum-vs-float (rug::Integer
+/// implements `PartialOrd<f64>` correctly across the full range).
 fn num_eq(vm: &Vm<'_>, a: &Value, b: &Value) -> Result<bool, Flow> {
-    match (a.kind(), b.kind()) {
-        (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => Ok(a == b),
-        _ => {
-            let a = number_or_marker_as_f64(vm, a)?;
-            let b = number_or_marker_as_f64(vm, b)?;
-            Ok(a == b)
-        }
-    }
+    Ok(num_compare(vm, a, b)? == std::cmp::Ordering::Equal)
 }
 
 fn num_cmp(vm: &Vm<'_>, a: &Value, b: &Value) -> Result<i32, Flow> {
-    match (a.kind(), b.kind()) {
-        (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => Ok(a.cmp(&b) as i32),
-        _ => {
-            let a = number_or_marker_as_f64(vm, a)?;
-            let b = number_or_marker_as_f64(vm, b)?;
-            Ok(if a < b {
-                -1
-            } else if a > b {
-                1
-            } else {
-                0
-            })
+    Ok(match num_compare(vm, a, b)? {
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    })
+}
+
+fn num_compare(
+    vm: &Vm<'_>,
+    a: &Value,
+    b: &Value,
+) -> Result<std::cmp::Ordering, Flow> {
+    use std::cmp::Ordering;
+    // Float-on-either-side: stay exact when the other side is a bignum.
+    if a.is_float() || b.is_float() {
+        if let Some(big) = a.as_bignum() {
+            let f = number_or_marker_as_f64(vm, b)?;
+            if f.is_nan() {
+                return Ok(Ordering::Equal);
+            }
+            return Ok(big.partial_cmp(&f).unwrap_or(Ordering::Equal));
         }
+        if let Some(big) = b.as_bignum() {
+            let f = number_or_marker_as_f64(vm, a)?;
+            if f.is_nan() {
+                return Ok(Ordering::Equal);
+            }
+            return Ok(big
+                .partial_cmp(&f)
+                .map(|o| o.reverse())
+                .unwrap_or(Ordering::Equal));
+        }
+        let af = number_or_marker_as_f64(vm, a)?;
+        let bf = number_or_marker_as_f64(vm, b)?;
+        return Ok(af.partial_cmp(&bf).unwrap_or(Ordering::Equal));
     }
+    // Both integer-or-marker. Stay on i64 if neither is a bignum.
+    if !a.is_bignum() && !b.is_bignum() {
+        if let (ValueKind::Fixnum(x), ValueKind::Fixnum(y)) = (a.kind(), b.kind()) {
+            return Ok(x.cmp(&y));
+        }
+        // At least one is a marker; coerce both to i64.
+        let xi = match a.kind() {
+            ValueKind::Fixnum(n) => n,
+            _ if a.is_marker() => {
+                crate::emacs_core::marker::marker_position_as_int_with_buffers(
+                    &vm.ctx.buffers,
+                    a,
+                )?
+            }
+            _ => {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("number-or-marker-p"), *a],
+                ));
+            }
+        };
+        let yi = match b.kind() {
+            ValueKind::Fixnum(n) => n,
+            _ if b.is_marker() => {
+                crate::emacs_core::marker::marker_position_as_int_with_buffers(
+                    &vm.ctx.buffers,
+                    b,
+                )?
+            }
+            _ => {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("number-or-marker-p"), *b],
+                ));
+            }
+        };
+        return Ok(xi.cmp(&yi));
+    }
+    // Bignum-aware integer compare.
+    let ai = rug_from_value_vm(vm, a)?;
+    let bi = rug_from_value_vm(vm, b)?;
+    Ok(ai.cmp(&bi))
 }
 
 fn number_or_marker_as_f64(vm: &Vm<'_>, value: &Value) -> Result<f64, Flow> {

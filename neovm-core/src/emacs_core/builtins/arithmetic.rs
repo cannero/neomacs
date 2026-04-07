@@ -743,19 +743,129 @@ pub(crate) fn builtin_ash(args: Vec<Value>) -> EvalResult {
 // ===========================================================================
 // Comparisons
 // ===========================================================================
+//
+// Mirrors GNU `arithcompare` (src/data.c:2682). For two integers
+// (fixnum or bignum) we compare exactly via rug::Integer; for any
+// pair involving a float we compare the float against the integer
+// using rug::Integer::partial_cmp<f64>, which is exact (it accounts
+// for whether the float is integer-valued and how it relates to the
+// bignum). The previous f64-only path lost precision for any bignum
+// outside ±2^53 (audit §1.1 — comparisons part).
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NumCmp {
+    Lt,
+    Le,
+    Eq,
+    Ne,
+    Gt,
+    Ge,
+}
+
+fn arithcompare(
+    eval: &super::super::eval::Context,
+    a: &Value,
+    b: &Value,
+) -> Result<std::cmp::Ordering, Flow> {
+    use std::cmp::Ordering;
+
+    // Float on either side: if the other side is a bignum we still
+    // get an exact answer via rug::Integer::partial_cmp<f64>; for
+    // fixnums and floats, fall back to f64 comparison.
+    if a.is_float() || b.is_float() {
+        if let Some(big) = a.as_bignum() {
+            let f = expect_number_or_marker_f64_eval(eval, b)?;
+            if f.is_nan() {
+                return Ok(Ordering::Equal); // arithcompare with NaN returns Cmp_NONE; treated as != by callers below
+            }
+            return Ok(big.partial_cmp(&f).unwrap_or(Ordering::Equal));
+        }
+        if let Some(big) = b.as_bignum() {
+            let f = expect_number_or_marker_f64_eval(eval, a)?;
+            if f.is_nan() {
+                return Ok(Ordering::Equal);
+            }
+            // Reverse since we asked big.cmp(f).
+            return Ok(big
+                .partial_cmp(&f)
+                .map(|o| o.reverse())
+                .unwrap_or(Ordering::Equal));
+        }
+        let af = expect_number_or_marker_f64_eval(eval, a)?;
+        let bf = expect_number_or_marker_f64_eval(eval, b)?;
+        return Ok(af.partial_cmp(&bf).unwrap_or(Ordering::Equal));
+    }
+
+    // Both operands are integer-or-marker. Stay on i64 if neither is
+    // a bignum.
+    if !a.is_bignum() && !b.is_bignum() {
+        let ai = expect_integer_or_marker_after_number_check_eval(eval, a)?;
+        let bi = expect_integer_or_marker_after_number_check_eval(eval, b)?;
+        return Ok(ai.cmp(&bi));
+    }
+
+    // Bignum-aware integer compare.
+    let ai = match a.kind() {
+        ValueKind::Fixnum(n) => rug::Integer::from(n),
+        ValueKind::Veclike(VecLikeType::Bignum) => a.as_bignum().unwrap().clone(),
+        _ if super::marker::is_marker(a) => rug::Integer::from(
+            super::marker::marker_position_as_int_eval(eval, a)?,
+        ),
+        _ => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("number-or-marker-p"), *a],
+            ));
+        }
+    };
+    let bi = match b.kind() {
+        ValueKind::Fixnum(n) => rug::Integer::from(n),
+        ValueKind::Veclike(VecLikeType::Bignum) => b.as_bignum().unwrap().clone(),
+        _ if super::marker::is_marker(b) => rug::Integer::from(
+            super::marker::marker_position_as_int_eval(eval, b)?,
+        ),
+        _ => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("number-or-marker-p"), *b],
+            ));
+        }
+    };
+    Ok(ai.cmp(&bi))
+}
+
+fn cmp_passes(ord: std::cmp::Ordering, op: NumCmp) -> bool {
+    use std::cmp::Ordering;
+    match op {
+        NumCmp::Lt => ord == Ordering::Less,
+        NumCmp::Le => ord != Ordering::Greater,
+        NumCmp::Eq => ord == Ordering::Equal,
+        NumCmp::Ne => ord != Ordering::Equal,
+        NumCmp::Gt => ord == Ordering::Greater,
+        NumCmp::Ge => ord != Ordering::Less,
+    }
+}
+
+fn arithcompare_chain(
+    eval: &super::super::eval::Context,
+    args: &[Value],
+    op: NumCmp,
+) -> EvalResult {
+    for pair in args.windows(2) {
+        let ord = arithcompare(eval, &pair[0], &pair[1])?;
+        if !cmp_passes(ord, op) {
+            return Ok(Value::NIL);
+        }
+    }
+    Ok(Value::T)
+}
 
 pub(crate) fn builtin_num_eq(
     eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("=", &args, 2)?;
-    let first = expect_number_or_marker_f64_eval(eval, &args[0])?;
-    for a in &args[1..] {
-        if expect_number_or_marker_f64_eval(eval, a)? != first {
-            return Ok(Value::NIL);
-        }
-    }
-    Ok(Value::T)
+    arithcompare_chain(eval, &args, NumCmp::Eq)
 }
 
 pub(crate) fn builtin_num_lt(
@@ -763,14 +873,7 @@ pub(crate) fn builtin_num_lt(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("<", &args, 2)?;
-    for pair in args.windows(2) {
-        if !(expect_number_or_marker_f64_eval(eval, &pair[0])?
-            < expect_number_or_marker_f64_eval(eval, &pair[1])?)
-        {
-            return Ok(Value::NIL);
-        }
-    }
-    Ok(Value::T)
+    arithcompare_chain(eval, &args, NumCmp::Lt)
 }
 
 pub(crate) fn builtin_num_le(
@@ -778,14 +881,7 @@ pub(crate) fn builtin_num_le(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("<=", &args, 2)?;
-    for pair in args.windows(2) {
-        if !(expect_number_or_marker_f64_eval(eval, &pair[0])?
-            <= expect_number_or_marker_f64_eval(eval, &pair[1])?)
-        {
-            return Ok(Value::NIL);
-        }
-    }
-    Ok(Value::T)
+    arithcompare_chain(eval, &args, NumCmp::Le)
 }
 
 pub(crate) fn builtin_num_gt(
@@ -793,14 +889,7 @@ pub(crate) fn builtin_num_gt(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args(">", &args, 2)?;
-    for pair in args.windows(2) {
-        if !(expect_number_or_marker_f64_eval(eval, &pair[0])?
-            > expect_number_or_marker_f64_eval(eval, &pair[1])?)
-        {
-            return Ok(Value::NIL);
-        }
-    }
-    Ok(Value::T)
+    arithcompare_chain(eval, &args, NumCmp::Gt)
 }
 
 pub(crate) fn builtin_num_ge(
@@ -808,14 +897,7 @@ pub(crate) fn builtin_num_ge(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args(">=", &args, 2)?;
-    for pair in args.windows(2) {
-        if !(expect_number_or_marker_f64_eval(eval, &pair[0])?
-            >= expect_number_or_marker_f64_eval(eval, &pair[1])?)
-        {
-            return Ok(Value::NIL);
-        }
-    }
-    Ok(Value::T)
+    arithcompare_chain(eval, &args, NumCmp::Ge)
 }
 
 pub(crate) fn builtin_num_ne(
@@ -823,9 +905,8 @@ pub(crate) fn builtin_num_ne(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("/=", &args, 2)?;
-    let a = expect_number_or_marker_f64_eval(eval, &args[0])?;
-    let b = expect_number_or_marker_f64_eval(eval, &args[1])?;
-    Ok(Value::bool_val(a != b))
+    let ord = arithcompare(eval, &args[0], &args[1])?;
+    Ok(Value::bool_val(cmp_passes(ord, NumCmp::Ne)))
 }
 
 // ===========================================================================

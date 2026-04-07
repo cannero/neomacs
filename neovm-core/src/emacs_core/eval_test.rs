@@ -3120,6 +3120,55 @@ fn expt_abs_and_rounding_promote_to_bignum() {
     );
 }
 
+/// Regression for audit §1.1 (comparisons sub-issue): numeric
+/// comparisons must use exact arithmetic, not f64 coercion. Mirrors
+/// GNU `arithcompare` (`src/data.c:2682`). Two distinct integers
+/// outside ±2^53 (the f64 mantissa limit) used to compare equal under
+/// f64 coercion.
+#[test]
+fn comparisons_are_exact_for_bignums() {
+    crate::test_utils::init_test_tracing();
+    // 2^60 + 1 vs 2^60 — under f64 coercion both round to the same
+    // double; they must compare unequal as integers.
+    assert_eq!(
+        eval_one("(= (1+ (ash 1 60)) (ash 1 60))"),
+        "OK nil"
+    );
+    assert_eq!(
+        eval_one("(< (ash 1 60) (1+ (ash 1 60)))"),
+        "OK t"
+    );
+    // Bignum vs bignum.
+    assert_eq!(
+        eval_one("(< (ash 1 100) (ash 1 101))"),
+        "OK t"
+    );
+    assert_eq!(
+        eval_one("(> (ash 1 101) (ash 1 100))"),
+        "OK t"
+    );
+    assert_eq!(
+        eval_one("(= (ash 1 100) (ash 1 100))"),
+        "OK t"
+    );
+    assert_eq!(
+        eval_one("(/= (ash 1 100) (ash 1 101))"),
+        "OK t"
+    );
+    // Bignum vs fixnum.
+    assert_eq!(eval_one("(< 1 (ash 1 100))"), "OK t");
+    assert_eq!(eval_one("(> (ash 1 100) most-positive-fixnum)"), "OK t");
+    assert_eq!(eval_one("(<= most-positive-fixnum (ash 1 100))"), "OK t");
+    // Bignum vs float — exact even for bignums outside f64 range.
+    assert_eq!(eval_one("(< 1.5 (ash 1 100))"), "OK t");
+    assert_eq!(eval_one("(> (ash 1 100) 1e30)"), "OK t");
+    // Chained.
+    assert_eq!(
+        eval_one("(< 1 (ash 1 60) (ash 1 100) (ash 1 200))"),
+        "OK t"
+    );
+}
+
 #[test]
 fn substring_accepts_vectors_like_gnu_emacs() {
     crate::test_utils::init_test_tracing();
