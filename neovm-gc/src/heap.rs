@@ -260,6 +260,19 @@ impl Heap {
     /// [`Heap::compact_old_gen_aggressive`]. For a cheap
     /// "should I bother?" predicate see
     /// [`Heap::should_compact_old_gen`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use neovm_gc::{Heap, HeapConfig};
+    ///
+    /// // A fresh heap has no old-gen records, so compaction
+    /// // at any threshold is a no-op.
+    /// let mut heap = Heap::new(HeapConfig::default());
+    /// let moved = heap.compact_old_gen_physical(0.5);
+    /// assert_eq!(moved, 0);
+    /// assert_eq!(heap.compaction_stats().cycles, 0);
+    /// ```
     pub fn compact_old_gen_physical(&mut self, density_threshold: f64) -> usize {
         let runtime_state = self.runtime_state.clone();
         let block_count_before = self.old_gen.block_count();
