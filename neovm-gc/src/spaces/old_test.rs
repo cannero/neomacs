@@ -554,6 +554,43 @@ fn compact_old_gen_if_fragmented_skips_when_under_threshold() {
 }
 
 #[test]
+fn clear_compaction_stats_resets_every_counter_to_zero() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        old: OldGenConfig {
+            region_bytes: 1024,
+            line_bytes: 16,
+            concurrent_mark_workers: 1,
+            ..OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+
+    {
+        let mut mutator = heap.mutator();
+        let mut keep = mutator.handle_scope();
+        let _surv = mutator
+            .alloc(&mut keep, OldChunk([3u8; 32]))
+            .expect("alloc");
+        let _ = mutator.compact_old_gen_physical(1.0);
+    }
+
+    let before_clear = heap.compaction_stats();
+    assert!(before_clear.cycles >= 1);
+    assert!(before_clear.records_moved >= 1);
+
+    heap.clear_compaction_stats();
+    let after_clear = heap.compaction_stats();
+    assert_eq!(after_clear.cycles, 0);
+    assert_eq!(after_clear.records_moved, 0);
+    assert_eq!(after_clear.target_blocks_created, 0);
+    assert_eq!(after_clear.source_blocks_reclaimed, 0);
+}
+
+#[test]
 fn compact_old_gen_physical_updates_compaction_stats_counters() {
     // Run a compaction with a live rooted survivor and confirm
     // the Heap::compaction_stats counters reflect the work: one

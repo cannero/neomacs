@@ -305,6 +305,15 @@ impl Heap {
         self.compaction_stats
     }
 
+    /// Reset every counter in [`Heap::compaction_stats`] to
+    /// zero. Useful for callers that want to measure compaction
+    /// work over a specific interval rather than over the
+    /// entire heap lifetime: snapshot, do work, read again, no
+    /// arithmetic needed.
+    pub fn clear_compaction_stats(&mut self) {
+        self.compaction_stats = crate::stats::CompactionStats::default();
+    }
+
     /// Current old-gen fragmentation ratio computed from the
     /// block-side counters. Defined as
     /// `total_hole_bytes / max(total_used_bytes, 1)` where
