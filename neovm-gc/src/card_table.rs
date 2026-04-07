@@ -165,6 +165,7 @@ impl CardTable {
     }
 
     /// Return the address range covered by card `index`.
+    #[allow(dead_code)]
     pub(crate) fn card_range(&self, index: usize) -> (usize, usize) {
         let start = self.base + (index << self.card_shift);
         let end = start + self.card_size;

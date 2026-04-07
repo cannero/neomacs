@@ -61,6 +61,15 @@ pub(crate) struct OldBlock {
     /// edge lives inside the block; the minor GC root scan walks the dirty
     /// cards to find old-gen objects that may reference young targets.
     card_table: CardTable,
+    /// One entry per card in this block. Each entry is the offset (from
+    /// the start of the buffer) of the FIRST object header that lies in
+    /// that card. `None` if no object starts in that card. The minor GC
+    /// dirty-card root scan uses this index to walk dirty cards in
+    /// O(dirty_cards) instead of doing a linear pass over every record
+    /// in `Heap::objects` per dirty card. Subsequent objects in the same
+    /// card are reached by walking forward from the first one via the
+    /// per-object total_size header field.
+    object_starts: Box<[Option<u32>]>,
 }
 
 impl OldBlock {
@@ -79,12 +88,51 @@ impl OldBlock {
         }
         let base_addr = buffer.as_ptr() as usize;
         let card_table = CardTable::with_default_card_size(base_addr, buffer_len);
+        let object_starts = vec![None; card_table.card_count()].into_boxed_slice();
         Self {
             buffer,
             line_marks: marks.into_boxed_slice(),
             line_bytes,
             cursor: 0,
             card_table,
+            object_starts,
+        }
+    }
+
+    /// Read-only view of the per-card object-start index. Each entry is
+    /// the byte offset (relative to the buffer base) of the first object
+    /// header that lies in that card, or `None` if no object starts in
+    /// the card. Used by the minor GC dirty-card scan and by tests.
+    pub(crate) fn object_starts(&self) -> &[Option<u32>] {
+        &self.object_starts
+    }
+
+    /// Reset every per-card object-start entry to `None`. Called from
+    /// the post-sweep rebuild before walking surviving records to repopulate
+    /// the index.
+    pub(crate) fn clear_object_starts(&mut self) {
+        for slot in self.object_starts.iter_mut() {
+            *slot = None;
+        }
+    }
+
+    /// Record an object start at the given buffer offset. The per-card
+    /// object-start entry tracks the SMALLEST offset whose header lies
+    /// in that card; subsequent objects in the same card can be discovered
+    /// by walking forward via the per-object total_size header field.
+    /// We track the smallest offset (rather than the first call to win)
+    /// because the post-sweep rebuild may visit surviving records out of
+    /// allocation order. Out-of-range offsets are silently ignored.
+    pub(crate) fn record_object_start(&mut self, offset: usize) {
+        let card_size = self.card_table.card_size();
+        let card_idx = offset / card_size;
+        let offset_u32 = offset as u32;
+        if let Some(slot) = self.object_starts.get_mut(card_idx) {
+            match slot {
+                None => *slot = Some(offset_u32),
+                Some(existing) if offset_u32 < *existing => *slot = Some(offset_u32),
+                _ => {}
+            }
         }
     }
 
@@ -96,7 +144,6 @@ impl OldBlock {
     }
 
     /// Total backing buffer length in bytes.
-    #[allow(dead_code)]
     pub(crate) fn capacity_bytes(&self) -> usize {
         self.buffer.len()
     }
@@ -107,7 +154,6 @@ impl OldBlock {
     }
 
     /// Bytes per line.
-    #[allow(dead_code)]
     pub(crate) fn line_bytes(&self) -> usize {
         self.line_bytes
     }
@@ -241,6 +287,10 @@ impl OldBlock {
                 }
                 let after_lines = offset + lines_needed * self.line_bytes;
                 self.cursor = after_lines.min(self.buffer.len());
+                // Maintain the per-card object-start index. The first
+                // object in each card stays as the index entry, so we
+                // only update the slot when it is currently empty.
+                self.record_object_start(offset);
                 // SAFETY: offset is in-range; the buffer outlives the block.
                 let raw = unsafe { (self.buffer.as_ptr() as *mut u8).add(offset) };
                 let ptr = core::ptr::NonNull::new(raw)?;
@@ -427,6 +477,27 @@ impl OldGenState {
     pub(crate) fn clear_all_block_line_marks(&self) {
         for block in &self.blocks {
             block.clear_line_marks();
+        }
+    }
+
+    /// Clear every per-card object-start entry across every block. The
+    /// post-sweep rebuild calls this before walking surviving block-
+    /// backed records to repopulate the index from the new layout.
+    pub(crate) fn clear_all_block_object_starts(&mut self) {
+        for block in &mut self.blocks {
+            block.clear_object_starts();
+        }
+    }
+
+    /// Record an object start in the block identified by `placement`.
+    /// Used by the post-sweep rebuild to repopulate the per-card
+    /// object-start index from surviving records.
+    pub(crate) fn record_block_object_start_for_placement(
+        &mut self,
+        placement: OldBlockPlacement,
+    ) {
+        if let Some(block) = self.blocks.get_mut(placement.block_index) {
+            block.record_object_start(placement.offset_bytes);
         }
     }
 

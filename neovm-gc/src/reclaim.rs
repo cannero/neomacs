@@ -205,13 +205,20 @@ pub(crate) fn rebuild_line_marks_and_reclaim_empty_old_blocks(
     // marked even though their owning records are no longer in `objects`.
     let pending_placements = runtime_state.snapshot_pending_finalizer_block_placements();
     old_gen.clear_all_block_line_marks();
+    // Phase 4 perf: also rebuild the per-card object-start index from
+    // surviving block-backed records so the next minor cycle's dirty-card
+    // root scan can iterate dirty cards in O(dirty_cards) instead of doing
+    // a linear pass over every record per dirty card.
+    old_gen.clear_all_block_object_starts();
     for object in objects.iter() {
         if let Some(placement) = object.old_block_placement() {
             old_gen.mark_block_lines_for_placement(placement);
+            old_gen.record_block_object_start_for_placement(placement);
         }
     }
     for placement in &pending_placements {
         old_gen.mark_block_lines_for_placement(*placement);
+        old_gen.record_block_object_start_for_placement(*placement);
     }
 
     let remap = old_gen.drop_unused_blocks_with_remap();

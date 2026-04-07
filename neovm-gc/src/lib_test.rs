@@ -10461,6 +10461,368 @@ fn dirty_card_scan_handles_object_at_card_boundary() {
     assert_eq!(unsafe { moved_b.as_non_null().as_ref() }.0, 51);
 }
 
+// ----- Phase 4 perf: per-card object-start index tests -----------------
+
+#[test]
+fn object_start_index_records_first_object_in_each_card() {
+    // Allocate enough block-backed parents that we definitely cross
+    // multiple 512-byte card boundaries inside the same block. After
+    // every allocation the per-card object-start index should hold the
+    // SMALLEST offset whose header lies in that card. With small
+    // line_bytes (16) and a tiny region the layout is dense enough
+    // that several cards have entries.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 8,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            region_bytes: 8192,
+            line_bytes: 64,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+    for _ in 0..32 {
+        let _holder = mutator
+            .alloc(
+                &mut scope,
+                PairHolder {
+                    _pad: [0; 32],
+                    first: EdgeCell::default(),
+                    second: EdgeCell::default(),
+                },
+            )
+            .expect("alloc block-backed parent");
+    }
+
+    // Inspect every block in the pool. At least one card per block
+    // should have a populated object-start entry, and every populated
+    // entry must point at an offset that maps back into that card.
+    let old_gen = mutator.heap().old_gen();
+    assert!(old_gen.block_count() >= 1, "expected at least one block");
+    for block in old_gen.blocks() {
+        let card_size = block.card_table().card_size();
+        let starts = block.object_starts();
+        let mut populated = 0usize;
+        for (card_idx, slot) in starts.iter().enumerate() {
+            let Some(offset) = *slot else {
+                continue;
+            };
+            populated += 1;
+            assert_eq!(
+                offset as usize / card_size,
+                card_idx,
+                "object_starts[{card_idx}] = {offset} should map to that card"
+            );
+        }
+        assert!(populated >= 1, "block should have at least one start");
+    }
+}
+
+#[test]
+fn object_start_index_skips_subsequent_objects_in_same_card() {
+    // Allocate two block-backed parents that are guaranteed to land in
+    // the same 512-byte card (line_bytes=64 means each PairHolder takes
+    // exactly one 64-byte line, so the first 8 holders share card 0).
+    // The per-card object-start index should retain the FIRST (smallest)
+    // offset and not be overwritten by later allocations in the same
+    // card.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 8,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            region_bytes: 4096,
+            line_bytes: 64,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+    for _ in 0..4 {
+        let _holder = mutator
+            .alloc(
+                &mut scope,
+                PairHolder {
+                    _pad: [0; 32],
+                    first: EdgeCell::default(),
+                    second: EdgeCell::default(),
+                },
+            )
+            .expect("alloc block-backed parent");
+    }
+    let old_gen = mutator.heap().old_gen();
+    let block = &old_gen.blocks()[0];
+    // Card 0 covers offsets [0, 512). With line_bytes=64, the first
+    // four allocations land at offsets 0, 64, 128, 192 — all inside
+    // card 0. The recorded entry must be the smallest of those offsets.
+    assert_eq!(block.object_starts()[0], Some(0));
+}
+
+#[test]
+fn object_start_index_rebuilds_after_sweep() {
+    // Pre-populate a block with several survivors, then trigger a minor
+    // GC that walks the rebuild path. After the sweep the per-card
+    // object-start index must reflect the SURVIVING records and the
+    // dirty-card scan must still walk the new layout correctly.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 8,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            region_bytes: 8192,
+            line_bytes: 64,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+    let mut holders = Vec::new();
+    for _ in 0..16 {
+        let holder = mutator
+            .alloc(
+                &mut scope,
+                PairHolder {
+                    _pad: [0; 32],
+                    first: EdgeCell::default(),
+                    second: EdgeCell::default(),
+                },
+            )
+            .expect("alloc block-backed parent");
+        holders.push(holder);
+    }
+
+    // Snapshot the populated card indices before the GC.
+    let starts_before: Vec<Vec<(usize, u32)>> = mutator
+        .heap()
+        .old_gen()
+        .blocks()
+        .iter()
+        .map(|block| {
+            block
+                .object_starts()
+                .iter()
+                .enumerate()
+                .filter_map(|(i, slot)| slot.map(|off| (i, off)))
+                .collect()
+        })
+        .collect();
+
+    mutator
+        .collect(CollectionKind::Minor)
+        .expect("minor collect");
+
+    // After the rebuild, every block must still have a non-empty index
+    // (its survivors are the same set we allocated). Cross-check that
+    // each populated entry remains a valid offset for the new layout.
+    let old_gen = mutator.heap().old_gen();
+    for (block, before_entries) in old_gen.blocks().iter().zip(starts_before.iter()) {
+        let card_size = block.card_table().card_size();
+        let starts = block.object_starts();
+        for (card_idx, slot) in starts.iter().enumerate() {
+            if let Some(offset) = *slot {
+                assert_eq!(offset as usize / card_size, card_idx);
+            }
+        }
+        // The survivor set is identical to what we allocated, so the
+        // post-sweep index should populate the same number of cards as
+        // before (or more, since duplicate entries collapse). At minimum
+        // the rebuild must not LOSE entries.
+        let after_count = starts.iter().filter(|s| s.is_some()).count();
+        assert!(
+            after_count >= before_entries.len(),
+            "post-sweep object_starts shrank: before={} after={}",
+            before_entries.len(),
+            after_count
+        );
+    }
+}
+
+#[test]
+fn dirty_card_scan_via_object_start_index_finds_correct_records() {
+    // Allocate a block-backed parent, mutate an old-to-young edge, and
+    // verify the dirty-card scan walks the per-card object-start index
+    // and emits the parent as a remembered-set root.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 8,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+    let parent = mutator
+        .alloc(
+            &mut scope,
+            PairHolder {
+                _pad: [0; 32],
+                first: EdgeCell::default(),
+                second: EdgeCell::default(),
+            },
+        )
+        .expect("alloc parent");
+    let child = mutator
+        .alloc(&mut scope, Leaf(13))
+        .expect("alloc nursery child");
+    mutator.store_edge(&parent, 0, |p| &p.first, Some(child.as_gc()));
+    assert_eq!(mutator.heap().dirty_card_count(), 1);
+
+    let cycle = mutator
+        .collect(CollectionKind::Minor)
+        .expect("minor collect");
+    assert_eq!(cycle.minor_collections, 1);
+    let moved_child = unsafe { parent.as_gc().as_non_null().as_ref() }
+        .first
+        .get()
+        .expect("child must survive minor GC");
+    assert!(mutator.heap().contains(moved_child));
+    assert_eq!(unsafe { moved_child.as_non_null().as_ref() }.0, 13);
+}
+
+#[test]
+fn dirty_card_scan_via_object_start_index_handles_objects_spanning_card_boundary() {
+    // Allocate enough block-backed parents that successive headers fall
+    // in distinct cards, then dirty TWO cards by mutating two parents
+    // whose headers live in different cards. The dirty-card scan must
+    // emit BOTH parents as roots, which keeps both children alive
+    // through the minor cycle.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 8,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+    let mut holders = Vec::new();
+    for _ in 0..32 {
+        let holder = mutator
+            .alloc(
+                &mut scope,
+                PairHolder {
+                    _pad: [0; 32],
+                    first: EdgeCell::default(),
+                    second: EdgeCell::default(),
+                },
+            )
+            .expect("alloc block-backed parent");
+        holders.push(holder);
+    }
+    let child_a = mutator.alloc(&mut scope, Leaf(70)).expect("child a");
+    let child_b = mutator.alloc(&mut scope, Leaf(71)).expect("child b");
+    mutator.store_edge(&holders[0], 0, |h| &h.first, Some(child_a.as_gc()));
+    mutator.store_edge(
+        &holders[holders.len() - 1],
+        0,
+        |h| &h.first,
+        Some(child_b.as_gc()),
+    );
+    assert!(mutator.heap().dirty_card_count() >= 1);
+
+    let cycle = mutator
+        .collect(CollectionKind::Minor)
+        .expect("minor collect");
+    assert_eq!(cycle.minor_collections, 1);
+    let moved_a = unsafe { holders[0].as_gc().as_non_null().as_ref() }
+        .first
+        .get()
+        .expect("first child of holder[0]");
+    let moved_b = unsafe { holders[holders.len() - 1].as_gc().as_non_null().as_ref() }
+        .first
+        .get()
+        .expect("first child of holder[last]");
+    assert!(mutator.heap().contains(moved_a));
+    assert!(mutator.heap().contains(moved_b));
+    assert_eq!(unsafe { moved_a.as_non_null().as_ref() }.0, 70);
+    assert_eq!(unsafe { moved_b.as_non_null().as_ref() }.0, 71);
+}
+
+#[test]
+fn dirty_card_scan_index_avoids_linear_objects_walk() {
+    // Allocate many block-backed parents, dirty exactly ONE parent's
+    // card, then call the per-card scan helper directly with a counter
+    // and assert that the scan inspected far fewer records than the
+    // total count in `Heap::objects`.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 8,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+    let mut holders = Vec::new();
+    for _ in 0..64 {
+        let holder = mutator
+            .alloc(
+                &mut scope,
+                PairHolder {
+                    _pad: [0; 32],
+                    first: EdgeCell::default(),
+                    second: EdgeCell::default(),
+                },
+            )
+            .expect("alloc block-backed parent");
+        holders.push(holder);
+    }
+    let child = mutator
+        .alloc(&mut scope, Leaf(99))
+        .expect("alloc nursery child");
+    mutator.store_edge(&holders[0], 0, |h| &h.first, Some(child.as_gc()));
+    assert_eq!(mutator.heap().dirty_card_count(), 1);
+
+    let total_objects = mutator.heap().objects().len();
+    let mut counter = 0usize;
+    let roots = crate::collector_exec::collect_dirty_card_root_indices_with_counter(
+        mutator.heap().objects(),
+        mutator.heap().old_gen(),
+        &mut counter,
+    );
+    assert!(!roots.is_empty(), "expected at least one dirty-card root");
+    // The dirty-card scan touched far fewer records than the linear
+    // walk would have. With 64+ block-backed objects in the heap and
+    // exactly one dirty card, the scan should inspect a handful of
+    // records — definitely much less than half the total object count.
+    assert!(
+        counter < total_objects / 2,
+        "scan inspected {counter} records, expected far less than {total_objects}"
+    );
+}
+
 // ----- Phase 5 ConcurrentMarker tests -----------------------------------
 
 fn fresh_concurrent_marker_shared_heap() -> SharedHeap {

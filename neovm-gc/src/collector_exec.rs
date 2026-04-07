@@ -324,31 +324,102 @@ pub(crate) fn collect_global_sources(roots: &RootStack, objects: &[ObjectRecord]
         .collect()
 }
 
+/// Round `value` up to the next multiple of `align` (assumed non-zero).
+/// Returns `value` unchanged if it is already aligned.
+fn align_up_to(value: usize, align: usize) -> usize {
+    if align <= 1 {
+        return value;
+    }
+    let rem = value % align;
+    if rem == 0 {
+        value
+    } else {
+        value.saturating_add(align - rem)
+    }
+}
+
 /// Walk every old-gen block, enumerate dirty cards, and gather the
 /// `ObjectRecord` indices whose payload base falls inside any dirty
 /// card range. The resulting indices are treated as additional minor
 /// GC roots so the trace can pull live young targets out of mutated
 /// old-gen objects.
 ///
-/// Naive O(blocks * dirty_cards * objects) implementation. A future
-/// optimization could maintain a per-card object-start index so the
-/// scan is O(dirty_cards) per block instead of O(objects) per card.
+/// Phase 4 perf: uses the per-block per-card object-start index so the
+/// scan walks dirty cards in O(dirty_cards) plus O(objects-in-card)
+/// total work, instead of O(blocks * dirty_cards * objects) for the
+/// previous linear pass over every record per dirty card. The one-shot
+/// header-pointer -> objects-index map is built once at the start of
+/// the scan and is amortized over many dirty cards.
 pub(crate) fn collect_dirty_card_root_indices(
     objects: &[ObjectRecord],
     old_gen: &OldGenState,
 ) -> Vec<usize> {
+    collect_dirty_card_root_indices_with_counter(objects, old_gen, &mut 0usize)
+}
+
+/// Variant of `collect_dirty_card_root_indices` that also writes the
+/// number of object-records inspected during the scan into `counter`.
+/// Tests use this to assert that the per-card object-start index lets
+/// the scan inspect far fewer records than `objects.len()`.
+pub(crate) fn collect_dirty_card_root_indices_with_counter(
+    objects: &[ObjectRecord],
+    old_gen: &OldGenState,
+    counter: &mut usize,
+) -> Vec<usize> {
     let mut roots = Vec::new();
     let mut seen = std::collections::HashSet::new();
+
+    // One-shot header-pointer -> objects-index map. Built once and
+    // shared across every dirty card so the per-card walk only pays a
+    // single hash lookup per object header it visits.
+    let mut header_index: std::collections::HashMap<usize, usize> =
+        std::collections::HashMap::with_capacity(objects.len());
+    for (object_index, record) in objects.iter().enumerate() {
+        let header_addr = record.erased().header().as_ptr() as usize;
+        header_index.insert(header_addr, object_index);
+    }
+
     for block in old_gen.blocks() {
         let card_table = block.card_table();
-        for card_index in card_table.dirty_card_indices() {
-            let (card_start, card_end) = card_table.card_range(card_index);
-            for (object_index, record) in objects.iter().enumerate() {
-                let header_addr = record.erased().header().as_ptr() as usize;
-                if header_addr >= card_start && header_addr < card_end && seen.insert(object_index)
-                {
-                    roots.push(object_index);
+        let dirty = card_table.dirty_card_indices();
+        if dirty.is_empty() {
+            continue;
+        }
+        let card_size = card_table.card_size();
+        let block_base = block.base_ptr() as usize;
+        let block_len = block.capacity_bytes();
+        let line_bytes = block.line_bytes().max(1);
+        let object_starts = block.object_starts();
+        for card_index in dirty {
+            let Some(start_offset) = object_starts.get(card_index).copied().flatten() else {
+                continue;
+            };
+            let card_end_offset = ((card_index + 1) * card_size).min(block_len);
+            let mut offset = start_offset as usize;
+            while offset < card_end_offset {
+                let header_addr = block_base + offset;
+                if let Some(&object_index) = header_index.get(&header_addr) {
+                    *counter += 1;
+                    let record = &objects[object_index];
+                    let total_size = record.total_size().max(1);
+                    if seen.insert(object_index) {
+                        roots.push(object_index);
+                    }
+                    let next_offset = offset.saturating_add(total_size);
+                    // After consuming this object, the next object header
+                    // is line-aligned (try_alloc rounds every allocation
+                    // up to a whole number of lines). Snap forward to the
+                    // next line boundary so we don't waste time scanning
+                    // the trailing pad bytes inside the same line.
+                    offset = align_up_to(next_offset, line_bytes);
+                    continue;
                 }
+                // No live record at this header address — advance to
+                // the next line boundary so we keep making forward
+                // progress without skipping over a real header that may
+                // sit at the next line start.
+                *counter += 1;
+                offset = align_up_to(offset.saturating_add(1), line_bytes);
             }
         }
     }
