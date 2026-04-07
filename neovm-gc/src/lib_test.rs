@@ -246,6 +246,24 @@ unsafe impl Trace for ThreadRecordingLeaf {
     fn relocate(&self, _relocator: &mut dyn Relocator) {}
 }
 
+/// Holder that owns a `Vec<Gc<ThreadRecordingLeaf>>` and traces each child.
+/// Used by the Phase 3 work-stealing tests to build a graph where a single
+/// initial root transitively reaches many child objects.
+#[derive(Debug)]
+struct RecordingLeafHolder {
+    children: Vec<crate::Gc<ThreadRecordingLeaf>>,
+}
+
+unsafe impl Trace for RecordingLeafHolder {
+    fn trace(&self, tracer: &mut dyn Tracer) {
+        for child in &self.children {
+            crate::trace_edge(tracer, *child);
+        }
+    }
+
+    fn relocate(&self, _relocator: &mut dyn Relocator) {}
+}
+
 #[derive(Debug)]
 struct WeakHolder {
     label: u64,
@@ -1336,6 +1354,157 @@ fn execute_minor_plan_traces_on_multiple_threads_when_worker_count_is_high() {
     assert!(
         unique_threads > 1,
         "expected parallel minor tracing across multiple threads, saw {unique_threads}"
+    );
+}
+
+// Phase 3 work-stealing correctness smoke tests
+//
+// These tests exercise the lock-free work-stealing path from Phase 3 on
+// graphs where a single initial root owns most of the reachable set.
+// They verify that:
+//   - The stealing round produces no crashes or deadlocks
+//   - All live objects survive (mark correctness is preserved regardless
+//     of whether stealing actually distributed work across threads)
+//
+// The scheduling race between "worker 0 drains its own queue" and
+// "siblings steal from worker 0" is non-deterministic, so these tests
+// intentionally do NOT assert that multiple threads participated. The
+// existing `execute_{major,minor}_plan_traces_on_multiple_threads_*`
+// tests already cover that assertion with balanced initial distributions.
+
+#[test]
+fn major_mark_stealing_round_preserves_all_live_objects() {
+    let seen_threads = Arc::new(Mutex::new(HashSet::new()));
+    let mut heap = Heap::new(HeapConfig {
+        old: crate::spaces::OldGenConfig {
+            concurrent_mark_workers: 4,
+            mutator_assist_slices: 0,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+
+    const LEAF_COUNT: usize = 512;
+    let mut leaves = Vec::with_capacity(LEAF_COUNT);
+    for _ in 0..LEAF_COUNT {
+        let leaf = mutator
+            .alloc(
+                &mut scope,
+                ThreadRecordingLeaf {
+                    seen_threads: seen_threads.clone(),
+                },
+            )
+            .expect("alloc recording leaf");
+        leaves.push(leaf.as_gc());
+    }
+    let holder = mutator
+        .alloc(&mut scope, RecordingLeafHolder { children: leaves })
+        .expect("alloc holder");
+    // Rebuild scope so only the holder is an explicit root. Leaves are
+    // still reachable transitively through the holder's Vec<Gc<Leaf>>.
+    let holder_gc = holder.as_gc();
+    drop(scope);
+    let mut scope = mutator.handle_scope();
+    let _holder_root = mutator.root(&mut scope, holder_gc);
+
+    let object_count_before = mutator.heap().object_count();
+    let mut plan = mutator.plan_for(CollectionKind::Major);
+    plan.worker_count = 4;
+    // Small slice budget forces multiple rounds so the outer loop has
+    // to re-enter and the stealing path runs repeatedly.
+    plan.mark_slice_budget = 16;
+    let cycle = mutator.execute_plan(plan).expect("execute major plan");
+    assert_eq!(cycle.major_collections, 1);
+    // The holder + every leaf must survive. Nothing was unreachable.
+    assert_eq!(mutator.heap().object_count(), object_count_before);
+}
+
+#[test]
+fn minor_mark_stealing_round_preserves_all_live_objects() {
+    let seen_threads = Arc::new(Mutex::new(HashSet::new()));
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            parallel_minor_workers: 4,
+            ..NurseryConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+
+    const LEAF_COUNT: usize = 512;
+    let mut leaves = Vec::with_capacity(LEAF_COUNT);
+    for _ in 0..LEAF_COUNT {
+        let leaf = mutator
+            .alloc(
+                &mut scope,
+                ThreadRecordingLeaf {
+                    seen_threads: seen_threads.clone(),
+                },
+            )
+            .expect("alloc recording leaf");
+        leaves.push(leaf.as_gc());
+    }
+    let holder = mutator
+        .alloc(&mut scope, RecordingLeafHolder { children: leaves })
+        .expect("alloc holder");
+    let holder_gc = holder.as_gc();
+    drop(scope);
+    let mut scope = mutator.handle_scope();
+    let _holder_root = mutator.root(&mut scope, holder_gc);
+
+    let object_count_before = mutator.heap().object_count();
+    let mut plan = mutator.plan_for(CollectionKind::Minor);
+    plan.worker_count = 4;
+    plan.mark_slice_budget = 16;
+    let cycle = mutator.execute_plan(plan).expect("execute minor plan");
+    assert_eq!(cycle.minor_collections, 1);
+    assert_eq!(mutator.heap().object_count(), object_count_before);
+}
+
+#[test]
+fn major_mark_stealing_round_drops_unreachable_objects() {
+    let mut heap = Heap::new(HeapConfig {
+        old: crate::spaces::OldGenConfig {
+            concurrent_mark_workers: 4,
+            mutator_assist_slices: 0,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 0,
+            ..NurseryConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+
+    // Allocate 256 unreachable leaves in a transient scope. When the
+    // scope drops, they become unreachable and should be reclaimed by
+    // the next major GC.
+    {
+        let mut transient = mutator.handle_scope();
+        for byte in 0..=255u8 {
+            let _leaf = mutator
+                .alloc(&mut transient, OldLeaf([byte; 32]))
+                .expect("alloc transient leaf");
+        }
+    }
+
+    assert!(mutator.heap().object_count() >= 256);
+
+    let mut plan = mutator.plan_for(CollectionKind::Major);
+    plan.worker_count = 4;
+    plan.mark_slice_budget = 16;
+    let cycle = mutator.execute_plan(plan).expect("execute major plan");
+    assert_eq!(cycle.major_collections, 1);
+    assert_eq!(
+        mutator.heap().object_count(),
+        0,
+        "all 256 unreachable leaves should have been reclaimed"
     );
 }
 

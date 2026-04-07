@@ -4,6 +4,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
 
+use crossbeam_deque::{Steal, Stealer, Worker};
+
 use crate::descriptor::{EphemeronVisitor, GcErased, ObjectKey, Relocator, Tracer, WeakProcessor};
 use crate::heap::AllocError;
 use crate::index_state::{ForwardingMap, HeapIndexState, ObjectIndex};
@@ -770,65 +772,16 @@ impl<'a> MarkTracer<'a> {
             return (drained, u64::from(drained > 0));
         }
 
-        let mut worker_lists = vec![core::mem::take(&mut self.worklist)];
-        while worker_lists.len() < workers {
-            let Some((split_index, split_len)) = worker_lists
-                .iter()
-                .enumerate()
-                .map(|(index, list)| (index, list.len()))
-                .max_by_key(|(_, len)| *len)
-            else {
-                break;
-            };
-            if split_len <= 1 {
-                break;
-            }
-            let stolen = worker_lists[split_index].split_half();
-            worker_lists.push(stolen);
-        }
-
-        if worker_lists.len() == 1 {
-            let mut only_worker = MarkTracer::with_worklist(
-                self.objects,
-                self.index,
-                worker_lists.pop().expect("single worker list"),
-            );
-            let drained = only_worker.drain_one_slice(slice_budget);
-            self.worklist = only_worker.into_worklist();
-            return (drained, u64::from(drained > 0));
-        }
-
-        let mut drained_objects = 0usize;
-        let mut drained_slices = 0u64;
-        let shared = ParallelMarkShared::new(self.objects, self.index);
-        let worker_outputs = thread::scope(|scope| {
-            let mut handles = Vec::with_capacity(worker_lists.len());
-            for worker_list in worker_lists {
-                let shared = shared;
-                handles.push(scope.spawn(move || {
-                    let mut worker = shared.tracer(worker_list);
-                    let drained = worker.drain_one_slice(slice_budget);
-                    let remainder = worker.into_worklist();
-                    (drained, remainder)
-                }));
-            }
-
-            let mut outputs = Vec::with_capacity(handles.len());
-            for handle in handles {
-                outputs.push(handle.join().expect("parallel mark worker panicked"));
-            }
-            outputs
-        });
-
-        for (drained, mut remainder) in worker_outputs {
-            if drained > 0 {
-                drained_objects = drained_objects.saturating_add(drained);
-                drained_slices = drained_slices.saturating_add(1);
-            }
-            self.worklist.append(&mut remainder);
-        }
-
-        (drained_objects, drained_slices)
+        // Lock-free work-stealing path (Phase 3). The initial worklist is
+        // distributed across `workers` crossbeam deques; workers dynamically
+        // steal from each other whenever their local deque empties.
+        run_stealing_round_major(
+            self.objects,
+            self.index,
+            &mut self.worklist,
+            workers,
+            slice_budget,
+        )
     }
 
     pub(crate) fn drain_parallel_until_empty(
@@ -946,65 +899,14 @@ impl<'a> MinorTracer<'a> {
             return (drained, u64::from(drained > 0));
         }
 
-        let mut worker_lists = vec![core::mem::take(&mut self.young_worklist)];
-        while worker_lists.len() < workers {
-            let Some((split_index, split_len)) = worker_lists
-                .iter()
-                .enumerate()
-                .map(|(index, list)| (index, list.len()))
-                .max_by_key(|(_, len)| *len)
-            else {
-                break;
-            };
-            if split_len <= 1 {
-                break;
-            }
-            let stolen = worker_lists[split_index].split_half();
-            worker_lists.push(stolen);
-        }
-
-        if worker_lists.len() == 1 {
-            let mut only_worker = MinorTracer::with_worklist(
-                self.objects,
-                self.index,
-                worker_lists.pop().expect("single worker list"),
-            );
-            let drained = only_worker.drain_one_slice(slice_budget);
-            self.young_worklist = only_worker.into_worklist();
-            return (drained, u64::from(drained > 0));
-        }
-
-        let shared = ParallelMarkShared::new(self.objects, self.index);
-        let worker_outputs = thread::scope(|scope| {
-            let mut handles = Vec::with_capacity(worker_lists.len());
-            for worker_list in worker_lists {
-                let shared = shared;
-                handles.push(scope.spawn(move || {
-                    let mut worker = shared.minor_tracer(worker_list);
-                    let drained = worker.drain_one_slice(slice_budget);
-                    let remainder = worker.into_worklist();
-                    (drained, remainder)
-                }));
-            }
-
-            let mut outputs = Vec::with_capacity(handles.len());
-            for handle in handles {
-                outputs.push(handle.join().expect("parallel minor worker panicked"));
-            }
-            outputs
-        });
-
-        let mut drained_objects = 0usize;
-        let mut drained_slices = 0u64;
-        for (drained, mut remainder) in worker_outputs {
-            if drained > 0 {
-                drained_objects = drained_objects.saturating_add(drained);
-                drained_slices = drained_slices.saturating_add(1);
-            }
-            self.young_worklist.append(&mut remainder);
-        }
-
-        (drained_objects, drained_slices)
+        // Lock-free work-stealing path (Phase 3).
+        run_stealing_round_minor(
+            self.objects,
+            self.index,
+            &mut self.young_worklist,
+            workers,
+            slice_budget,
+        )
     }
 
     pub(crate) fn drain_parallel_until_empty(
@@ -1035,6 +937,330 @@ impl Tracer for MinorTracer<'_> {
             self.mark_young(index);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Lock-free work-stealing mark workers (Phase 3)
+// ---------------------------------------------------------------------------
+//
+// The stealing tracers wrap a `crossbeam_deque::Worker<usize>` and implement
+// the `Tracer` trait. During tracing they push freshly marked indices to their
+// own local deque. When a worker's local queue empties, it tries to steal from
+// sibling workers' stealers until it either finds work or observes a full
+// quiescent round across all siblings.
+//
+// Termination rule used by `run_stealing_round`:
+//   - A worker drains its local queue.
+//   - When empty, it performs one full pass over all siblings trying to steal.
+//   - If no work was found in that pass AND its local queue is still empty,
+//     the worker exits.
+//   - Any items that remain in a worker's local deque at exit (shouldn't
+//     happen in practice) are drained and returned to the caller so the outer
+//     `drain_parallel_until_empty` loop can pick them up on a subsequent round.
+//
+// Correctness relies on the fact that new work can only enter a worker's local
+// deque from that same worker's tracing calls. Once a worker's local deque is
+// empty AND one full steal pass finds nothing anywhere, the total work in the
+// system has reached zero and no future push can happen without further
+// tracing — which also requires new input to some worker's queue.
+//
+// The existing outer loop in `drain_parallel_until_empty` already handles
+// "one round left something behind" by re-entering `drain_worker_round`, so
+// partial progress is safe even if termination is imperfect.
+
+/// Stealing tracer for major (full heap) marking. Pushes newly marked indices
+/// to a local `crossbeam_deque::Worker<usize>` deque.
+pub(crate) struct StealingMarkTracer<'a> {
+    objects: &'a [ObjectRecord],
+    index: &'a ObjectIndex,
+    worker: Worker<usize>,
+}
+
+impl<'a> StealingMarkTracer<'a> {
+    fn new(objects: &'a [ObjectRecord], index: &'a ObjectIndex, worker: Worker<usize>) -> Self {
+        Self {
+            objects,
+            index,
+            worker,
+        }
+    }
+
+    fn mark_index(&mut self, index: usize) {
+        let object = &self.objects[index];
+        if object.mark_if_unmarked() {
+            self.worker.push(index);
+        }
+    }
+
+    fn trace_one(&mut self, index: usize) {
+        self.objects[index].trace_edges(self);
+    }
+
+    fn into_remainder(self) -> Vec<usize> {
+        let Self { worker, .. } = self;
+        drain_worker_remainder(&worker)
+    }
+}
+
+impl Tracer for StealingMarkTracer<'_> {
+    fn mark_erased(&mut self, object: GcErased) {
+        if let Some(&index) = self.index.get(&object.object_key()) {
+            self.mark_index(index);
+        }
+    }
+}
+
+/// Stealing tracer for minor (nursery-only) marking.
+pub(crate) struct StealingMinorTracer<'a> {
+    objects: &'a [ObjectRecord],
+    index: &'a ObjectIndex,
+    worker: Worker<usize>,
+}
+
+impl<'a> StealingMinorTracer<'a> {
+    fn new(objects: &'a [ObjectRecord], index: &'a ObjectIndex, worker: Worker<usize>) -> Self {
+        Self {
+            objects,
+            index,
+            worker,
+        }
+    }
+
+    fn mark_young(&mut self, index: usize) {
+        let object = &self.objects[index];
+        if object.space() == SpaceKind::Nursery && object.mark_if_unmarked() {
+            self.worker.push(index);
+        }
+    }
+
+    fn trace_one(&mut self, index: usize) {
+        self.objects[index].trace_edges(self);
+    }
+
+    fn into_remainder(self) -> Vec<usize> {
+        let Self { worker, .. } = self;
+        drain_worker_remainder(&worker)
+    }
+}
+
+impl Tracer for StealingMinorTracer<'_> {
+    fn mark_erased(&mut self, object: GcErased) {
+        let Some(&index) = self.index.get(&object.object_key()) else {
+            return;
+        };
+        if self.objects[index].space() == SpaceKind::Nursery {
+            self.mark_young(index);
+        }
+    }
+}
+
+fn drain_worker_remainder(worker: &Worker<usize>) -> Vec<usize> {
+    let mut remainder = Vec::new();
+    while let Some(value) = worker.pop() {
+        remainder.push(value);
+    }
+    remainder
+}
+
+/// Split a worklist into N LIFO workers, distributing items round-robin.
+///
+/// The initial distribution is simple round-robin over the drained worklist.
+/// Work stealing balances the rest during the round, so the initial split
+/// doesn't need to be perfectly even.
+fn distribute_into_workers(
+    initial: &mut MarkWorklist<usize>,
+    worker_count: usize,
+) -> Vec<Worker<usize>> {
+    let workers: Vec<Worker<usize>> = (0..worker_count).map(|_| Worker::new_lifo()).collect();
+    let mut slot = 0usize;
+    while let Some(value) = initial.pop() {
+        workers[slot].push(value);
+        slot = (slot + 1) % worker_count;
+    }
+    workers
+}
+
+/// Steal one value from any sibling stealer. Returns the stolen value and a
+/// flag indicating whether the caller should retry because a sibling reported
+/// `Steal::Retry`.
+fn try_steal_from_siblings(
+    worker_idx: usize,
+    stealers: &[Stealer<usize>],
+) -> (Option<usize>, bool) {
+    let mut should_retry = false;
+    for (sibling_idx, stealer) in stealers.iter().enumerate() {
+        if sibling_idx == worker_idx {
+            continue;
+        }
+        match stealer.steal() {
+            Steal::Empty => continue,
+            Steal::Retry => {
+                should_retry = true;
+                continue;
+            }
+            Steal::Success(value) => return (Some(value), false),
+        }
+    }
+    (None, should_retry)
+}
+
+/// Run one work-stealing mark round for major (full heap) marking.
+///
+/// Each worker drains up to `slice_budget` items, stealing from siblings
+/// whenever its local deque empties. Once a worker has drained its full
+/// slice budget, it stops and returns its remaining queue. Any leftover
+/// items are pushed back into `initial` so the outer drain loop can re-enter
+/// for the next round.
+///
+/// This preserves the "per-round total work ≤ worker_count * slice_budget"
+/// semantic that the outer loop relies on for pause-time budgeting.
+fn run_stealing_round_major(
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    initial: &mut MarkWorklist<usize>,
+    worker_count: usize,
+    slice_budget: usize,
+) -> (usize, u64) {
+    let worker_count = worker_count.max(1);
+    let slice_budget = slice_budget.max(1);
+    let workers = distribute_into_workers(initial, worker_count);
+    let stealers: Arc<[Stealer<usize>]> = workers
+        .iter()
+        .map(|w| w.stealer())
+        .collect::<Vec<_>>()
+        .into();
+
+    let shared = ParallelMarkShared::new(objects, index);
+    let outputs: Vec<(usize, Vec<usize>)> = thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(worker_count);
+        for (worker_idx, worker) in workers.into_iter().enumerate() {
+            let shared = shared;
+            let stealers = Arc::clone(&stealers);
+            handles.push(scope.spawn(move || {
+                let mut tracer = StealingMarkTracer::new(shared.objects(), shared.index(), worker);
+                let mut drained = 0usize;
+                'outer: while drained < slice_budget {
+                    // Drain local queue until we hit the budget or run out.
+                    while drained < slice_budget {
+                        let Some(next) = tracer.worker.pop() else {
+                            break;
+                        };
+                        tracer.trace_one(next);
+                        drained += 1;
+                    }
+                    if drained >= slice_budget {
+                        break;
+                    }
+                    // Local queue empty — try to steal from siblings.
+                    let (stolen, should_retry) =
+                        try_steal_from_siblings(worker_idx, &stealers);
+                    match stolen {
+                        Some(value) => {
+                            tracer.worker.push(value);
+                            continue;
+                        }
+                        None if should_retry => {
+                            std::thread::yield_now();
+                            continue;
+                        }
+                        None => break 'outer,
+                    }
+                }
+                (drained, tracer.into_remainder())
+            }));
+        }
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("parallel stealing major mark worker panicked"))
+            .collect()
+    });
+
+    let mut total_drained = 0usize;
+    let mut drained_slices = 0u64;
+    for (drained, remainder) in outputs {
+        if drained > 0 {
+            total_drained = total_drained.saturating_add(drained);
+            drained_slices = drained_slices.saturating_add(1);
+        }
+        for value in remainder {
+            initial.push(value);
+        }
+    }
+    (total_drained, drained_slices)
+}
+
+/// Run one work-stealing mark round for minor (nursery-only) marking.
+fn run_stealing_round_minor(
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    initial: &mut MarkWorklist<usize>,
+    worker_count: usize,
+    slice_budget: usize,
+) -> (usize, u64) {
+    let worker_count = worker_count.max(1);
+    let slice_budget = slice_budget.max(1);
+    let workers = distribute_into_workers(initial, worker_count);
+    let stealers: Arc<[Stealer<usize>]> = workers
+        .iter()
+        .map(|w| w.stealer())
+        .collect::<Vec<_>>()
+        .into();
+
+    let shared = ParallelMarkShared::new(objects, index);
+    let outputs: Vec<(usize, Vec<usize>)> = thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(worker_count);
+        for (worker_idx, worker) in workers.into_iter().enumerate() {
+            let shared = shared;
+            let stealers = Arc::clone(&stealers);
+            handles.push(scope.spawn(move || {
+                let mut tracer = StealingMinorTracer::new(shared.objects(), shared.index(), worker);
+                let mut drained = 0usize;
+                'outer: while drained < slice_budget {
+                    while drained < slice_budget {
+                        let Some(next) = tracer.worker.pop() else {
+                            break;
+                        };
+                        tracer.trace_one(next);
+                        drained += 1;
+                    }
+                    if drained >= slice_budget {
+                        break;
+                    }
+                    let (stolen, should_retry) =
+                        try_steal_from_siblings(worker_idx, &stealers);
+                    match stolen {
+                        Some(value) => {
+                            tracer.worker.push(value);
+                            continue;
+                        }
+                        None if should_retry => {
+                            std::thread::yield_now();
+                            continue;
+                        }
+                        None => break 'outer,
+                    }
+                }
+                (drained, tracer.into_remainder())
+            }));
+        }
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("parallel stealing minor mark worker panicked"))
+            .collect()
+    });
+
+    let mut total_drained = 0usize;
+    let mut drained_slices = 0u64;
+    for (drained, remainder) in outputs {
+        if drained > 0 {
+            total_drained = total_drained.saturating_add(drained);
+            drained_slices = drained_slices.saturating_add(1);
+        }
+        for value in remainder {
+            initial.push(value);
+        }
+    }
+    (total_drained, drained_slices)
 }
 
 pub(crate) fn trace_major_ephemerons(
