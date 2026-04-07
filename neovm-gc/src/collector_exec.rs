@@ -446,10 +446,10 @@ pub(crate) fn refresh_block_card_marks_after_minor(
             if self.seen_nursery_target {
                 return;
             }
-            if let Some(&target_index) = self.index.get(&object.object_key()) {
-                if self.objects[target_index].space() == SpaceKind::Nursery {
-                    self.seen_nursery_target = true;
-                }
+            if let Some(&target_index) = self.index.get(&object.object_key())
+                && self.objects[target_index].space() == SpaceKind::Nursery
+            {
+                self.seen_nursery_target = true;
             }
         }
     }
