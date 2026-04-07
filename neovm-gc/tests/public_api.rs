@@ -8391,6 +8391,25 @@ fn public_api_shared_update_pacer_config_works_while_heap_write_locked() {
 }
 
 #[test]
+fn public_api_shared_old_gen_fragmentation_ratio_returns_zero_on_empty_heap() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let frag = shared
+        .old_gen_fragmentation_ratio()
+        .expect("read fragmentation ratio");
+    assert_eq!(frag, 0.0);
+}
+
+#[test]
+fn public_api_shared_compact_old_gen_if_fragmented_skips_when_under_threshold() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let (frag, moved) = shared
+        .compact_old_gen_if_fragmented(0.1)
+        .expect("compact_old_gen_if_fragmented call");
+    assert_eq!(frag, 0.0);
+    assert_eq!(moved, 0);
+}
+
+#[test]
 fn public_api_shared_compaction_stats_reads_lock_free() {
     // A fresh SharedHeap reports zero compaction work so far.
     // Reading compaction_stats through the lock-free status

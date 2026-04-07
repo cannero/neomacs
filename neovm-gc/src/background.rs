@@ -1189,6 +1189,31 @@ impl SharedHeap {
             .map(|status| status.compaction)
     }
 
+    /// Return the current old-gen fragmentation ratio (a float
+    /// in `[0.0, 1.0]`) computed from the block-side counters.
+    ///
+    /// Takes a brief read-lock on the heap to walk the block
+    /// pool. Concurrent-safe with other readers. Returns
+    /// `Err(LockPoisoned)` only if the underlying RwLock is
+    /// poisoned. Lock-free snapshot reads cannot return this
+    /// because `f64` does not implement `Eq`, so the value is
+    /// not cached in `SharedHeapStatus`.
+    pub fn old_gen_fragmentation_ratio(&self) -> Result<f64, SharedHeapError> {
+        let heap = self.read().map_err(|_| SharedHeapError::LockPoisoned)?;
+        Ok(heap.old_gen_fragmentation_ratio())
+    }
+
+    /// Opportunistic compaction trigger via the shared heap.
+    /// Takes the heap WRITE lock for the duration. See
+    /// [`Heap::compact_old_gen_if_fragmented`] for semantics.
+    pub fn compact_old_gen_if_fragmented(
+        &self,
+        fragmentation_threshold: f64,
+    ) -> Result<(f64, usize), SharedHeapError> {
+        let mut heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
+        Ok(heap.compact_old_gen_if_fragmented(fragmentation_threshold))
+    }
+
     /// Return the adaptive pacer's current configuration.
     ///
     /// Reads through the cached `Pacer` handle that
