@@ -8426,6 +8426,37 @@ fn public_api_shared_compaction_stats_reads_lock_free() {
 }
 
 #[test]
+fn public_api_shared_should_compact_old_gen_returns_false_on_empty_heap() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let should_compact = shared
+        .should_compact_old_gen(0.1)
+        .expect("should_compact_old_gen call");
+    assert!(!should_compact);
+}
+
+#[test]
+fn public_api_shared_compact_old_gen_aggressive_zero_passes_returns_zero() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let total = shared
+        .compact_old_gen_aggressive(1.0, 0)
+        .expect("compact_old_gen_aggressive call");
+    assert_eq!(total, 0);
+}
+
+#[test]
+fn public_api_shared_clear_compaction_stats_resets_to_zero() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    shared
+        .clear_compaction_stats()
+        .expect("clear_compaction_stats call");
+    let stats = shared
+        .compaction_stats()
+        .expect("read after clear");
+    assert_eq!(stats.cycles, 0);
+    assert_eq!(stats.records_moved, 0);
+}
+
+#[test]
 fn public_api_shared_compact_old_gen_physical_runs_under_concurrent_observers() {
     // SharedHeap path: configure auto-compaction, allocate many
     // dead old-gen records via the shared mutator, run a major
