@@ -1302,8 +1302,10 @@ fn prepare_reclaim_survivor_reassigns_selected_region_after_preserved_regions() 
         ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf).expect("allocate first");
     let mut second =
         ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf).expect("allocate second");
-    let mut config = OldGenConfig::default();
-    config.region_bytes = first.total_size();
+    let config = OldGenConfig {
+        region_bytes: first.total_size(),
+        ..OldGenConfig::default()
+    };
 
     let mut old_gen = OldGenState::default();
     old_gen.record_allocated_object(&config, &mut first);
