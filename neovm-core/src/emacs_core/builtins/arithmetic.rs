@@ -565,46 +565,171 @@ pub(crate) fn builtin_abs(args: Vec<Value>) -> EvalResult {
 // Logical / bitwise
 // ===========================================================================
 
+/// `(logand &rest INTS-OR-MARKERS)` — bitwise AND.
+///
+/// Mirrors GNU `Flogand` (`src/data.c:3458`) → `arith_driver Alogand`.
+/// When any operand is a bignum the whole reduction runs in GMP via
+/// `mpz_and`; otherwise we stay on the i64 fast path. Note: bitwise
+/// AND of i64 values can never overflow into bignum range, but the
+/// final result still has to clear the fixnum-bits hurdle since `&`
+/// can produce a value with the high bits set (e.g. `(logand -1 -1)
+/// → -1` is fine, but `(logand most-positive-fixnum #x7fffffffffffffff)`
+/// could exceed fixnum range). Funnel through `make_integer`.
 pub(crate) fn builtin_logand(args: Vec<Value>) -> EvalResult {
-    let mut acc = -1i64; // all bits set
+    if has_bignum(&args) {
+        return bignum_logop(&args, BignumLogop::And);
+    }
+    let mut acc = -1i64;
     for a in &args {
         acc &= expect_integer_or_marker_after_number_check(a)?;
     }
-    Ok(Value::fixnum(acc))
+    Ok(Value::make_integer(rug::Integer::from(acc)))
 }
 
 pub(crate) fn builtin_logior(args: Vec<Value>) -> EvalResult {
+    if has_bignum(&args) {
+        return bignum_logop(&args, BignumLogop::Or);
+    }
     let mut acc = 0i64;
     for a in &args {
         acc |= expect_integer_or_marker_after_number_check(a)?;
     }
-    Ok(Value::fixnum(acc))
+    Ok(Value::make_integer(rug::Integer::from(acc)))
 }
 
 pub(crate) fn builtin_logxor(args: Vec<Value>) -> EvalResult {
+    if has_bignum(&args) {
+        return bignum_logop(&args, BignumLogop::Xor);
+    }
     let mut acc = 0i64;
     for a in &args {
         acc ^= expect_integer_or_marker_after_number_check(a)?;
     }
-    Ok(Value::fixnum(acc))
+    Ok(Value::make_integer(rug::Integer::from(acc)))
 }
 
+#[derive(Clone, Copy)]
+enum BignumLogop {
+    And,
+    Or,
+    Xor,
+}
+
+fn bignum_logop(args: &[Value], op: BignumLogop) -> EvalResult {
+    let mut acc = match op {
+        BignumLogop::And => rug::Integer::from(-1),
+        BignumLogop::Or | BignumLogop::Xor => rug::Integer::from(0),
+    };
+    for a in args {
+        let next = bignum_or_int_to_rug(a)?;
+        match op {
+            BignumLogop::And => acc &= next,
+            BignumLogop::Or => acc |= next,
+            BignumLogop::Xor => acc ^= next,
+        }
+    }
+    Ok(Value::make_integer(acc))
+}
+
+/// `(lognot NUMBER)` — mirrors GNU `Flognot` (`src/data.c:3648`).
 pub(crate) fn builtin_lognot(args: Vec<Value>) -> EvalResult {
     expect_args("lognot", &args, 1)?;
-    Ok(Value::fixnum(!expect_int(&args[0])?))
+    if let Some(big) = args[0].as_bignum() {
+        return Ok(Value::make_integer(!big.clone()));
+    }
+    let n = expect_int(&args[0])?;
+    Ok(Value::make_integer(rug::Integer::from(!n)))
 }
 
+/// `(ash VALUE COUNT)` — arithmetic shift, mirrors GNU `Fash`
+/// (`src/data.c:3519`).
+///
+/// Positive COUNT shifts left, negative shifts right. Both VALUE and
+/// COUNT may be bignums. The result is promoted to bignum on left
+/// shifts that exceed fixnum range — most importantly `(ash 1 100)`
+/// must return 2^100, not 0 (audit §2.7).
 pub(crate) fn builtin_ash(args: Vec<Value>) -> EvalResult {
     expect_args("ash", &args, 2)?;
-    let n = expect_int(&args[0])?;
-    let count = expect_int(&args[1])?;
-    if count >= 0 {
-        let shift = u32::try_from(count).unwrap_or(u32::MAX);
-        Ok(Value::fixnum(n.checked_shl(shift).unwrap_or(0)))
-    } else {
-        let shift = count.unsigned_abs().min((i64::BITS - 1) as u64) as u32;
-        Ok(Value::fixnum(n >> shift))
+    let value = &args[0];
+    let count_val = &args[1];
+
+    // COUNT must be an integer (fixnum or bignum). If it's a bignum
+    // and VALUE is anything but zero, GNU signals overflow-error for
+    // positive counts (no machine could represent the result) and
+    // returns 0 / -1 for negative counts (the value is shifted away).
+    let count_i64 = match count_val.kind() {
+        ValueKind::Fixnum(c) => c,
+        ValueKind::Veclike(VecLikeType::Bignum) => {
+            let big = count_val.as_bignum().unwrap();
+            // Zero VALUE is unchanged regardless of COUNT.
+            if value
+                .as_fixnum()
+                .map(|n| n == 0)
+                .or_else(|| value.as_bignum().map(|b| b.is_zero()))
+                .unwrap_or(false)
+            {
+                return Ok(Value::fixnum(0));
+            }
+            if big.cmp0().is_lt() {
+                // Negative count + nonzero value: result is 0 (or -1 for negative).
+                let sign_neg = match value.kind() {
+                    ValueKind::Fixnum(n) => n < 0,
+                    ValueKind::Veclike(VecLikeType::Bignum) => {
+                        value.as_bignum().unwrap().cmp0().is_lt()
+                    }
+                    _ => {
+                        return Err(signal(
+                            "wrong-type-argument",
+                            vec![Value::symbol("integerp"), *value],
+                        ));
+                    }
+                };
+                return Ok(Value::fixnum(if sign_neg { -1 } else { 0 }));
+            }
+            return Err(signal("overflow-error", vec![]));
+        }
+        _ => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("integerp"), *count_val],
+            ));
+        }
+    };
+
+    // Materialize VALUE as a rug::Integer once. We could try to keep
+    // small fixnum shifts on the i64 path, but ash is rare enough that
+    // correctness over branchy fast-pathing is the right tradeoff.
+    let value_big = match value.kind() {
+        ValueKind::Fixnum(n) => rug::Integer::from(n),
+        ValueKind::Veclike(VecLikeType::Bignum) => value.as_bignum().unwrap().clone(),
+        _ => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("integerp"), *value],
+            ));
+        }
+    };
+
+    if count_i64 == 0 {
+        return Ok(Value::make_integer(value_big));
     }
+    let result = if count_i64 > 0 {
+        // Left shift. rug::Integer << u32 (or usize) does GMP mul_2exp.
+        let bits = u32::try_from(count_i64).unwrap_or(u32::MAX);
+        value_big << bits
+    } else {
+        // Arithmetic right shift (toward -infinity, i.e. mpz_fdiv_q_2exp).
+        // For very large negative counts, the value is shifted away;
+        // GNU returns -1 for negative VALUE and 0 otherwise.
+        let neg_count = match count_i64.checked_neg() {
+            Some(c) => c,
+            None => i64::MAX,
+        };
+        let bits = u32::try_from(neg_count).unwrap_or(u32::MAX);
+        // rug::Integer >> u32 does mpz_fdiv_q_2exp (floor division).
+        value_big >> bits
+    };
+    Ok(Value::make_integer(result))
 }
 
 // ===========================================================================

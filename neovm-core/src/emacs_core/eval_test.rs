@@ -3030,6 +3030,44 @@ fn division_promotes_to_bignum_on_min_div_neg_one() {
     );
 }
 
+/// Regression for audit §2.7: bitwise ops must promote on overflow.
+/// The headline case is `(ash 1 100)` — used to return 0 because
+/// `1 << 100` is a no-op on i64. Mirrors GNU `Fash`
+/// (`src/data.c:3519`) which delegates the slow path to `mpz_mul_2exp`.
+#[test]
+fn bitwise_promotes_to_bignum() {
+    crate::test_utils::init_test_tracing();
+    // (ash 1 100) — must be 2^100, not 0.
+    assert_eq!(
+        eval_one("(ash 1 100)"),
+        "OK 1267650600228229401496703205376"
+    );
+    // (ash 1 62) — exceeds fixnum range (2^61 max), must be a bignum.
+    assert_eq!(eval_one("(ash 1 62)"), "OK 4611686018427387904");
+    // (ash 1 60) — fits in fixnum.
+    assert_eq!(eval_one("(ash 1 60)"), "OK 1152921504606846976");
+    // Right shift back from a bignum.
+    assert_eq!(eval_one("(ash (ash 1 100) -100)"), "OK 1");
+    // Right shift toward -infinity for negative bignum.
+    assert_eq!(eval_one("(ash -1 -1)"), "OK -1");
+    // logand/logior/logxor with bignum operands.
+    assert_eq!(
+        eval_one("(logand (ash 1 100) (ash 1 100))"),
+        "OK 1267650600228229401496703205376"
+    );
+    assert_eq!(
+        eval_one("(logior (ash 1 100) 1)"),
+        "OK 1267650600228229401496703205377"
+    );
+    assert_eq!(eval_one("(logxor (ash 1 100) (ash 1 100))"), "OK 0");
+    // lognot of fixnum and bignum.
+    assert_eq!(eval_one("(lognot 0)"), "OK -1");
+    assert_eq!(
+        eval_one("(lognot (ash 1 100))"),
+        "OK -1267650600228229401496703205377"
+    );
+}
+
 #[test]
 fn substring_accepts_vectors_like_gnu_emacs() {
     crate::test_utils::init_test_tracing();
