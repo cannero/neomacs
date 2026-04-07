@@ -391,7 +391,7 @@ impl SharedCollectorHandle {
             let changed = shared_background_status_from_parts(
                 heap_snapshot,
                 runtime_snapshot,
-                &*collector_snapshot,
+                &collector_snapshot,
             ) != shared_background_status_from_parts(
                 heap_snapshot,
                 runtime_snapshot,
