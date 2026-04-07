@@ -2188,6 +2188,52 @@ impl<'a> Vm<'a> {
             return Err(signal("setting-constant", vec![Value::from_sym_id(name_id)]));
         }
 
+        // Phase 9b of the symbol-redirect refactor: for LOCALIZED
+        // symbols, route the write through
+        // Obarray::set_internal_localized which updates the BLV
+        // cache and (for auto-create `Set` writes with
+        // `local_if_set`) extends the current buffer's
+        // local_var_alist. The legacy set_runtime_binding_in_state
+        // path below stays populated as a fallback until Phase 10
+        // deletes it.
+        use crate::emacs_core::symbol::{SetInternalBind, SymbolRedirect};
+        let redirect = self
+            .ctx
+            .obarray
+            .get_by_id(resolved)
+            .map(|s| s.redirect());
+        if matches!(redirect, Some(SymbolRedirect::Localized)) {
+            if let Some(buf_id) = self.ctx.buffers.current_buffer_id() {
+                // Extract buffer state before obarray borrow.
+                let (cur_val, alist) = match self.ctx.buffers.get(buf_id) {
+                    Some(buf) => {
+                        (Value::make_buffer(buf.id), buf.local_var_alist)
+                    }
+                    None => (Value::NIL, Value::NIL),
+                };
+                // Phase 7 stub always returns false; Phase 11 or
+                // later will walk specpdl for LET_LOCAL records.
+                let let_shadows =
+                    crate::emacs_core::symbol::let_shadows_buffer_binding_p(resolved);
+                let new_alist = self.ctx.obarray.set_internal_localized(
+                    resolved,
+                    value,
+                    cur_val,
+                    alist,
+                    SetInternalBind::Set,
+                    let_shadows,
+                );
+                // Store back the (possibly extended) alist.
+                if let Some(buf) = self.ctx.buffers.get_mut(buf_id) {
+                    buf.local_var_alist = new_alist;
+                }
+            }
+        }
+
+        // Legacy path: set_runtime_binding_in_state routes to
+        // either BufferLocals or the obarray value cell. Phase 10
+        // deletes this call once every LOCALIZED symbol is
+        // exclusively served by the new BLV path above.
         crate::emacs_core::eval::set_runtime_binding_in_state(&mut *self.ctx, resolved, value);
         self.run_variable_watchers_by_id(resolved, &value, &Value::NIL, "set")
     }
