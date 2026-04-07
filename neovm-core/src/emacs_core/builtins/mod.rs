@@ -316,6 +316,15 @@ pub(super) fn has_float(args: &[Value]) -> bool {
     args.iter().any(|v| v.is_float())
 }
 
+/// True if any arg is a bignum (triggers GMP arithmetic).
+///
+/// Mirrors GNU `arith_driver` (`src/data.c:3215`), which switches to
+/// `bignum_arith_driver` whenever a non-fixnum integer appears in the
+/// argument stream.
+pub(super) fn has_bignum(args: &[Value]) -> bool {
+    args.iter().any(|v| v.is_bignum())
+}
+
 pub(super) fn normalize_string_start_arg(
     string: &str,
     start: Option<&Value>,

@@ -2940,6 +2940,55 @@ fn basic_arithmetic() {
     assert_eq!(eval_one("(1- 5)"), "OK 4");
 }
 
+/// Regression for audit §1.1 / §2.1-§2.2: arithmetic must promote to
+/// bignum on overflow instead of silently wrapping. Mirrors GNU
+/// `arith_driver` (`src/data.c:3215`) which uses `ckd_add` /
+/// `ckd_mul` etc. to detect overflow and falls through to
+/// `bignum_arith_driver`.
+///
+/// `most-positive-fixnum` is 2^61 - 1 = 2305843009213693951.
+/// Adding 1 must yield 2305843009213693952 (== 2^61) as a bignum.
+#[test]
+fn arithmetic_promotes_to_bignum_on_overflow() {
+    crate::test_utils::init_test_tracing();
+    // (+ most-positive-fixnum 1) — used to wrap to most-negative-fixnum.
+    assert_eq!(
+        eval_one("(+ most-positive-fixnum 1)"),
+        "OK 2305843009213693952"
+    );
+    // 1+ on the same value.
+    assert_eq!(eval_one("(1+ most-positive-fixnum)"), "OK 2305843009213693952");
+    // (* most-positive-fixnum 2) — used to wrap.
+    assert_eq!(
+        eval_one("(* most-positive-fixnum 2)"),
+        "OK 4611686018427387902"
+    );
+    // (- most-negative-fixnum 1).
+    assert_eq!(
+        eval_one("(- most-negative-fixnum 1)"),
+        "OK -2305843009213693953"
+    );
+    // 1- on most-negative-fixnum.
+    assert_eq!(
+        eval_one("(1- most-negative-fixnum)"),
+        "OK -2305843009213693953"
+    );
+    // Unary negate of most-negative-fixnum: -MIN_FIXNUM > MAX_FIXNUM.
+    assert_eq!(
+        eval_one("(- most-negative-fixnum)"),
+        "OK 2305843009213693952"
+    );
+    // Round-trip: a bignum in + with a fixnum stays a bignum.
+    assert_eq!(
+        eval_one("(+ (1+ most-positive-fixnum) 1)"),
+        "OK 2305843009213693953"
+    );
+    // bignump / integerp / fixnump on the result.
+    assert_eq!(eval_one("(bignump (1+ most-positive-fixnum))"), "OK t");
+    assert_eq!(eval_one("(integerp (1+ most-positive-fixnum))"), "OK t");
+    assert_eq!(eval_one("(fixnump (1+ most-positive-fixnum))"), "OK nil");
+}
+
 #[test]
 fn substring_accepts_vectors_like_gnu_emacs() {
     crate::test_utils::init_test_tracing();

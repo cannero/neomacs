@@ -4561,35 +4561,82 @@ fn normalize_vm_builtin_error(name: &str, flow: Flow) -> Flow {
     }
 }
 
+/// Convert an integer-valued operand to `rug::Integer` for the bignum
+/// slow path. Accepts fixnum, bignum, and marker.
+fn rug_from_value_vm(vm: &Vm<'_>, value: &Value) -> Result<rug::Integer, Flow> {
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(rug::Integer::from(n)),
+        ValueKind::Veclike(VecLikeType::Bignum) => Ok(value.as_bignum().unwrap().clone()),
+        _ if value.is_marker() => Ok(rug::Integer::from(
+            crate::emacs_core::marker::marker_position_as_int_with_buffers(&vm.ctx.buffers, value)?,
+        )),
+        _ => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("number-or-marker-p"), *value],
+        )),
+    }
+}
+
+/// 2-arg `+` for the bytecode VM. Mirrors GNU `arith_driver` (Aadd):
+/// fixnum fast path with `ckd_add`-equivalent overflow check, GMP
+/// promotion on overflow or bignum operand, float fast path otherwise.
+///
+/// Note: i64 has 64 bits but fixnums get only 62 (the low 2 are tag),
+/// so a non-overflowing i64 result still has to clear the fixnum-range
+/// hurdle — we route everything through `Value::make_integer`.
 fn arith_add(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
     match (a.kind(), b.kind()) {
-        (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => Ok(Value::fixnum(a.wrapping_add(b))),
-        _ => {
+        (ValueKind::Fixnum(x), ValueKind::Fixnum(y)) => match x.checked_add(y) {
+            Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
+            None => Ok(Value::make_integer(rug::Integer::from(x) + y)),
+        },
+        (ValueKind::Float, _) | (_, ValueKind::Float) => {
             let a = number_or_marker_as_f64(vm, a)?;
             let b = number_or_marker_as_f64(vm, b)?;
-            Ok(Value::make_float(a + b)) // TODO(tagged): remove next_float_id()
+            Ok(Value::make_float(a + b))
+        }
+        _ => {
+            let av = rug_from_value_vm(vm, a)?;
+            let bv = rug_from_value_vm(vm, b)?;
+            Ok(Value::make_integer(av + bv))
         }
     }
 }
 
 fn arith_sub(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
     match (a.kind(), b.kind()) {
-        (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => Ok(Value::fixnum(a.wrapping_sub(b))),
-        _ => {
+        (ValueKind::Fixnum(x), ValueKind::Fixnum(y)) => match x.checked_sub(y) {
+            Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
+            None => Ok(Value::make_integer(rug::Integer::from(x) - y)),
+        },
+        (ValueKind::Float, _) | (_, ValueKind::Float) => {
             let a = number_or_marker_as_f64(vm, a)?;
             let b = number_or_marker_as_f64(vm, b)?;
-            Ok(Value::make_float(a - b)) // TODO(tagged): remove next_float_id()
+            Ok(Value::make_float(a - b))
+        }
+        _ => {
+            let av = rug_from_value_vm(vm, a)?;
+            let bv = rug_from_value_vm(vm, b)?;
+            Ok(Value::make_integer(av - bv))
         }
     }
 }
 
 fn arith_mul(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
     match (a.kind(), b.kind()) {
-        (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => Ok(Value::fixnum(a.wrapping_mul(b))),
-        _ => {
+        (ValueKind::Fixnum(x), ValueKind::Fixnum(y)) => match x.checked_mul(y) {
+            Some(p) => Ok(Value::make_integer(rug::Integer::from(p))),
+            None => Ok(Value::make_integer(rug::Integer::from(x) * y)),
+        },
+        (ValueKind::Float, _) | (_, ValueKind::Float) => {
             let a = number_or_marker_as_f64(vm, a)?;
             let b = number_or_marker_as_f64(vm, b)?;
-            Ok(Value::make_float(a * b)) // TODO(tagged): remove next_float_id()
+            Ok(Value::make_float(a * b))
+        }
+        _ => {
+            let av = rug_from_value_vm(vm, a)?;
+            let bv = rug_from_value_vm(vm, b)?;
+            Ok(Value::make_integer(av * bv))
         }
     }
 }
@@ -4636,12 +4683,24 @@ fn arith_rem(a: &Value, b: &Value) -> EvalResult {
 
 fn arith_add1(vm: &Vm<'_>, a: &Value) -> EvalResult {
     match a.kind() {
-        ValueKind::Fixnum(n) => Ok(Value::fixnum(n.wrapping_add(1))),
+        ValueKind::Fixnum(n) => match n.checked_add(1) {
+            Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
+            None => Ok(Value::make_integer(rug::Integer::from(n) + 1)),
+        },
         ValueKind::Float => Ok(Value::make_float(a.xfloat() + 1.0)),
-        _ if a.is_marker() => Ok(Value::fixnum(
-            crate::emacs_core::marker::marker_position_as_int_with_buffers(&vm.ctx.buffers, a)?
-                .wrapping_add(1),
-        )),
+        ValueKind::Veclike(VecLikeType::Bignum) => {
+            Ok(Value::make_integer(a.as_bignum().unwrap().clone() + 1))
+        }
+        _ if a.is_marker() => {
+            let n = crate::emacs_core::marker::marker_position_as_int_with_buffers(
+                &vm.ctx.buffers,
+                a,
+            )?;
+            match n.checked_add(1) {
+                Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
+                None => Ok(Value::make_integer(rug::Integer::from(n) + 1)),
+            }
+        }
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), *a],
@@ -4651,12 +4710,24 @@ fn arith_add1(vm: &Vm<'_>, a: &Value) -> EvalResult {
 
 fn arith_sub1(vm: &Vm<'_>, a: &Value) -> EvalResult {
     match a.kind() {
-        ValueKind::Fixnum(n) => Ok(Value::fixnum(n.wrapping_sub(1))),
+        ValueKind::Fixnum(n) => match n.checked_sub(1) {
+            Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
+            None => Ok(Value::make_integer(rug::Integer::from(n) - 1)),
+        },
         ValueKind::Float => Ok(Value::make_float(a.xfloat() - 1.0)),
-        _ if a.is_marker() => Ok(Value::fixnum(
-            crate::emacs_core::marker::marker_position_as_int_with_buffers(&vm.ctx.buffers, a)?
-                .wrapping_sub(1),
-        )),
+        ValueKind::Veclike(VecLikeType::Bignum) => {
+            Ok(Value::make_integer(a.as_bignum().unwrap().clone() - 1))
+        }
+        _ if a.is_marker() => {
+            let n = crate::emacs_core::marker::marker_position_as_int_with_buffers(
+                &vm.ctx.buffers,
+                a,
+            )?;
+            match n.checked_sub(1) {
+                Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
+                None => Ok(Value::make_integer(rug::Integer::from(n) - 1)),
+            }
+        }
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), *a],
@@ -4666,11 +4737,24 @@ fn arith_sub1(vm: &Vm<'_>, a: &Value) -> EvalResult {
 
 fn arith_negate(vm: &Vm<'_>, a: &Value) -> EvalResult {
     match a.kind() {
-        ValueKind::Fixnum(n) => Ok(Value::fixnum(-n)),
+        ValueKind::Fixnum(n) => match n.checked_neg() {
+            Some(neg) => Ok(Value::make_integer(rug::Integer::from(neg))),
+            None => Ok(Value::make_integer(-rug::Integer::from(n))),
+        },
         ValueKind::Float => Ok(Value::make_float(-a.xfloat())),
-        _ if a.is_marker() => Ok(Value::fixnum(
-            -crate::emacs_core::marker::marker_position_as_int_with_buffers(&vm.ctx.buffers, a)?,
-        )),
+        ValueKind::Veclike(VecLikeType::Bignum) => {
+            Ok(Value::make_integer(-a.as_bignum().unwrap().clone()))
+        }
+        _ if a.is_marker() => {
+            let n = crate::emacs_core::marker::marker_position_as_int_with_buffers(
+                &vm.ctx.buffers,
+                a,
+            )?;
+            match n.checked_neg() {
+                Some(neg) => Ok(Value::make_integer(rug::Integer::from(neg))),
+                None => Ok(Value::make_integer(-rug::Integer::from(n))),
+            }
+        }
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), *a],

@@ -10,68 +10,258 @@ unsafe extern "C" {
 // ===========================================================================
 // Arithmetic
 // ===========================================================================
+//
+// `+`, `-`, `*` mirror GNU's `arith_driver` (src/data.c:3215): a fast
+// fixnum loop using `ckd_add` / `ckd_sub` / `ckd_mul` for overflow
+// detection, and a fall-back path that switches to GMP (rug::Integer)
+// the moment overflow strikes or a bignum operand appears.
+
+/// Pull an integer-valued operand into an `i64`. Accepts fixnums and
+/// markers; for any other value (including bignums) returns
+/// `Err(()) → caller decides`.  This is the fast-path helper used
+/// before promotion to GMP.
+fn try_i64_from_value(eval: &super::eval::Context, value: &Value) -> Result<Option<i64>, Flow> {
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(Some(n)),
+        ValueKind::Veclike(VecLikeType::Bignum) => Ok(None),
+        _ if super::marker::is_marker(value) => Ok(Some(
+            super::marker::marker_position_as_int_eval(eval, value)?,
+        )),
+        _ => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("number-or-marker-p"), *value],
+        )),
+    }
+}
+
+/// Materialize an integer-valued operand as a `rug::Integer`. Used by
+/// the bignum slow path. Accepts fixnums, bignums, and markers.
+fn rug_from_value(eval: &super::eval::Context, value: &Value) -> Result<rug::Integer, Flow> {
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(rug::Integer::from(n)),
+        ValueKind::Veclike(VecLikeType::Bignum) => Ok(value.as_bignum().unwrap().clone()),
+        _ if super::marker::is_marker(value) => Ok(rug::Integer::from(
+            super::marker::marker_position_as_int_eval(eval, value)?,
+        )),
+        _ => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("number-or-marker-p"), *value],
+        )),
+    }
+}
 
 /// Eval-aware `+` that reads live marker positions from buffers.
+///
+/// Mirrors GNU `Fplus` → `arith_driver` (src/data.c:3215, 3271): if
+/// every operand is an i64-valued integer or marker and no addition
+/// overflows, stay on the fixnum fast path; otherwise promote to GMP
+/// via `rug::Integer`. Float operands divert through `make_float` as
+/// before.
+///
+/// Note: i64 has 64 bits, but fixnums only get 62 bits (the low 2 are
+/// the tag). A sum like `most-positive-fixnum + 1` does not overflow
+/// i64 yet exceeds fixnum range; we therefore funnel the final result
+/// through `Value::make_integer`, which decides between fixnum and
+/// bignum just like GNU `make_int` (`src/lisp.h`).
 pub(crate) fn builtin_add(eval: &mut super::super::eval::Context, args: Vec<Value>) -> EvalResult {
     if has_float(&args) {
         let mut sum = 0.0f64;
         for a in &args {
             sum += expect_number_or_marker_f64_eval(eval, a)?;
         }
-        Ok(Value::make_float(sum))
-    } else {
-        let mut sum = 0i64;
-        for a in &args {
-            sum = sum.wrapping_add(expect_integer_or_marker_after_number_check_eval(eval, a)?);
-        }
-        Ok(Value::fixnum(sum))
+        return Ok(Value::make_float(sum));
     }
+    // Fixnum fast path with overflow detection.
+    let mut sum: i64 = 0;
+    for (i, a) in args.iter().enumerate() {
+        match try_i64_from_value(eval, a)? {
+            Some(n) => match sum.checked_add(n) {
+                Some(s) => sum = s,
+                None => {
+                    let mut acc = rug::Integer::from(sum);
+                    acc += n;
+                    return continue_bignum_add(eval, &args[i + 1..], acc);
+                }
+            },
+            None => {
+                // Operand is a bignum — promote and re-process from here.
+                let mut acc = rug::Integer::from(sum);
+                acc += a.as_bignum().unwrap();
+                return continue_bignum_add(eval, &args[i + 1..], acc);
+            }
+        }
+    }
+    Ok(Value::make_integer(rug::Integer::from(sum)))
+}
+
+fn continue_bignum_add(
+    eval: &super::super::eval::Context,
+    rest: &[Value],
+    mut acc: rug::Integer,
+) -> EvalResult {
+    for a in rest {
+        // We already verified upfront that no operand is float, so any
+        // remaining value must be integer-or-marker.
+        let n = rug_from_value(eval, a)?;
+        acc += n;
+    }
+    Ok(Value::make_integer(acc))
 }
 
 /// Eval-aware `-` that reads live marker positions from buffers.
+///
+/// Mirrors GNU `Fminus` (`src/data.c:3282`):
+/// * 0 args → 0
+/// * 1 arg  → negation (with bignum promotion for `MIN_FIXNUM`)
+/// * N args → arith_driver in subtract mode
 pub(crate) fn builtin_sub(eval: &mut super::super::eval::Context, args: Vec<Value>) -> EvalResult {
     if args.is_empty() {
         return Ok(Value::fixnum(0));
     }
     if args.len() == 1 {
-        if has_float(&args) {
-            return Ok(Value::make_float(-expect_number_or_marker_f64_eval(
-                eval, &args[0],
-            )?));
-        }
-        let n = expect_integer_or_marker_after_number_check_eval(eval, &args[0])?;
-        return Ok(Value::fixnum(n.wrapping_neg()));
+        return negate_value(eval, &args[0]);
     }
     if has_float(&args) {
         let mut acc = expect_number_or_marker_f64_eval(eval, &args[0])?;
         for a in &args[1..] {
             acc -= expect_number_or_marker_f64_eval(eval, a)?;
         }
-        Ok(Value::make_float(acc))
-    } else {
-        let mut acc = expect_integer_or_marker_after_number_check_eval(eval, &args[0])?;
-        for a in &args[1..] {
-            acc = acc.wrapping_sub(expect_integer_or_marker_after_number_check_eval(eval, a)?);
+        return Ok(Value::make_float(acc));
+    }
+    // Fixnum fast path: seed accumulator with first arg, then subtract.
+    let first = &args[0];
+    let mut acc: i64 = match try_i64_from_value(eval, first)? {
+        Some(n) => n,
+        None => {
+            // First arg is a bignum — start GMP path immediately.
+            let acc = first.as_bignum().unwrap().clone();
+            return continue_bignum_sub(eval, &args[1..], acc);
         }
-        Ok(Value::fixnum(acc))
+    };
+    for (i, a) in args[1..].iter().enumerate() {
+        match try_i64_from_value(eval, a)? {
+            Some(n) => match acc.checked_sub(n) {
+                Some(s) => acc = s,
+                None => {
+                    let mut bacc = rug::Integer::from(acc);
+                    bacc -= n;
+                    return continue_bignum_sub(eval, &args[i + 2..], bacc);
+                }
+            },
+            None => {
+                let mut bacc = rug::Integer::from(acc);
+                bacc -= a.as_bignum().unwrap();
+                return continue_bignum_sub(eval, &args[i + 2..], bacc);
+            }
+        }
+    }
+    // Funnel through make_integer to promote i64 results that exceeded
+    // fixnum range (62-bit) but stayed within i64 (64-bit).
+    Ok(Value::make_integer(rug::Integer::from(acc)))
+}
+
+fn continue_bignum_sub(
+    eval: &super::super::eval::Context,
+    rest: &[Value],
+    mut acc: rug::Integer,
+) -> EvalResult {
+    for a in rest {
+        let n = rug_from_value(eval, a)?;
+        acc -= n;
+    }
+    Ok(Value::make_integer(acc))
+}
+
+/// Negate a single value, mirroring GNU `Fminus` 1-arg branch
+/// (`src/data.c:3293-3300`). Promotes `MOST_NEGATIVE_FIXNUM` to a
+/// bignum because `-MOST_NEGATIVE_FIXNUM` exceeds fixnum range.
+fn negate_value(eval: &super::super::eval::Context, value: &Value) -> EvalResult {
+    if value.is_float() {
+        return Ok(Value::make_float(-value.xfloat()));
+    }
+    if let Some(big) = value.as_bignum() {
+        return Ok(Value::make_integer(-big.clone()));
+    }
+    let n = match try_i64_from_value(eval, value)? {
+        Some(n) => n,
+        None => unreachable!(),
+    };
+    // checked_neg only fails for i64::MIN; for everything else we get
+    // an i64 back which still has to clear the fixnum-range hurdle, so
+    // route through make_integer.
+    match n.checked_neg() {
+        Some(neg) => Ok(Value::make_integer(rug::Integer::from(neg))),
+        None => Ok(Value::make_integer(-rug::Integer::from(n))),
     }
 }
 
+/// `*` with bignum promotion. Mirrors GNU `Ftimes` → `arith_driver`
+/// (`src/data.c:3304`).
 pub(crate) fn builtin_mul(args: Vec<Value>) -> EvalResult {
     if has_float(&args) {
         let mut prod = 1.0f64;
         for a in &args {
             prod *= expect_number_or_marker_f64(a)?;
         }
-        Ok(Value::make_float(prod))
-    } else {
-        // Official Emacs uses wrapping arithmetic for integer * (no overflow error).
-        let mut prod = 1i64;
-        for a in &args {
-            prod = prod.wrapping_mul(expect_integer_or_marker_after_number_check(a)?);
-        }
-        Ok(Value::fixnum(prod))
+        return Ok(Value::make_float(prod));
     }
+    // We don't have an `eval` context here, so use the marker-less
+    // helpers. This matches the existing builtin_mul signature.
+    let mut prod: i64 = 1;
+    for (i, a) in args.iter().enumerate() {
+        match a.kind() {
+            ValueKind::Fixnum(n) => match prod.checked_mul(n) {
+                Some(p) => prod = p,
+                None => {
+                    let mut acc = rug::Integer::from(prod);
+                    acc *= n;
+                    return continue_bignum_mul(&args[i + 1..], acc);
+                }
+            },
+            ValueKind::Veclike(VecLikeType::Bignum) => {
+                let mut acc = rug::Integer::from(prod);
+                acc *= a.as_bignum().unwrap();
+                return continue_bignum_mul(&args[i + 1..], acc);
+            }
+            _ if super::marker::is_marker(a) => {
+                let n = super::marker::marker_position_as_int(a)?;
+                match prod.checked_mul(n) {
+                    Some(p) => prod = p,
+                    None => {
+                        let mut acc = rug::Integer::from(prod);
+                        acc *= n;
+                        return continue_bignum_mul(&args[i + 1..], acc);
+                    }
+                }
+            }
+            _ => {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("number-or-marker-p"), *a],
+                ));
+            }
+        }
+    }
+    Ok(Value::make_integer(rug::Integer::from(prod)))
+}
+
+fn continue_bignum_mul(rest: &[Value], mut acc: rug::Integer) -> EvalResult {
+    for a in rest {
+        match a.kind() {
+            ValueKind::Fixnum(n) => acc *= n,
+            ValueKind::Veclike(VecLikeType::Bignum) => acc *= a.as_bignum().unwrap(),
+            _ if super::marker::is_marker(a) => {
+                acc *= super::marker::marker_position_as_int(a)?;
+            }
+            _ => {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("number-or-marker-p"), *a],
+                ));
+            }
+        }
+    }
+    Ok(Value::make_integer(acc))
 }
 
 pub(crate) fn builtin_div(args: Vec<Value>) -> EvalResult {
@@ -168,15 +358,28 @@ pub(crate) fn builtin_mod(args: Vec<Value>) -> EvalResult {
     }
 }
 
+/// `(1+ NUMBER)` — mirrors GNU `Fadd1` (`src/data.c:3634`).
+/// Promotes to bignum on `MOST_POSITIVE_FIXNUM + 1`.
 pub(crate) fn builtin_add1(args: Vec<Value>) -> EvalResult {
     expect_args("1+", &args, 1)?;
     match args[0].kind() {
-        // Official Emacs uses wrapping arithmetic for 1+ (no overflow error).
-        ValueKind::Fixnum(n) => Ok(Value::fixnum(n.wrapping_add(1))),
+        ValueKind::Fixnum(n) => match n.checked_add(1) {
+            // Even non-overflowing i64 results may exceed fixnum range
+            // (62-bit) — funnel through make_integer.
+            Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
+            None => Ok(Value::make_integer(rug::Integer::from(n) + 1)),
+        },
         ValueKind::Float => Ok(Value::make_float(args[0].xfloat() + 1.0)),
-        _ if args[0].is_marker() => Ok(Value::fixnum(
-            super::marker::marker_position_as_int(&args[0])?.wrapping_add(1),
-        )),
+        ValueKind::Veclike(VecLikeType::Bignum) => {
+            Ok(Value::make_integer(args[0].as_bignum().unwrap().clone() + 1))
+        }
+        _ if args[0].is_marker() => {
+            let n = super::marker::marker_position_as_int(&args[0])?;
+            match n.checked_add(1) {
+                Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
+                None => Ok(Value::make_integer(rug::Integer::from(n) + 1)),
+            }
+        }
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), args[0]],
@@ -184,15 +387,26 @@ pub(crate) fn builtin_add1(args: Vec<Value>) -> EvalResult {
     }
 }
 
+/// `(1- NUMBER)` — mirrors GNU `Fsub1` (`src/data.c:3658`).
+/// Promotes to bignum on `MOST_NEGATIVE_FIXNUM - 1`.
 pub(crate) fn builtin_sub1(args: Vec<Value>) -> EvalResult {
     expect_args("1-", &args, 1)?;
     match args[0].kind() {
-        // Official Emacs uses wrapping arithmetic for 1- (no overflow error).
-        ValueKind::Fixnum(n) => Ok(Value::fixnum(n.wrapping_sub(1))),
+        ValueKind::Fixnum(n) => match n.checked_sub(1) {
+            Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
+            None => Ok(Value::make_integer(rug::Integer::from(n) - 1)),
+        },
         ValueKind::Float => Ok(Value::make_float(args[0].xfloat() - 1.0)),
-        _ if args[0].is_marker() => Ok(Value::fixnum(
-            super::marker::marker_position_as_int(&args[0])?.wrapping_sub(1),
-        )),
+        ValueKind::Veclike(VecLikeType::Bignum) => {
+            Ok(Value::make_integer(args[0].as_bignum().unwrap().clone() - 1))
+        }
+        _ if args[0].is_marker() => {
+            let n = super::marker::marker_position_as_int(&args[0])?;
+            match n.checked_sub(1) {
+                Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
+                None => Ok(Value::make_integer(rug::Integer::from(n) - 1)),
+            }
+        }
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), args[0]],
