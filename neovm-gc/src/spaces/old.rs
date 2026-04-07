@@ -8,7 +8,7 @@ use crate::reclaim::PreparedReclaimSurvivor;
 use crate::stats::OldRegionStats;
 
 /// Old-generation configuration.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OldGenConfig {
     /// Region size in bytes.
     pub region_bytes: usize,
@@ -24,6 +24,21 @@ pub struct OldGenConfig {
     pub concurrent_mark_workers: usize,
     /// Number of major-mark slices one mutator operation should assist.
     pub mutator_assist_slices: usize,
+    /// Density threshold below which an `OldBlock` becomes a
+    /// physical-compaction candidate during a major cycle.
+    /// Expressed as a ratio in `[0.0, 1.0]`. A block whose
+    /// post-mark `live_bytes / capacity_bytes` is at or below
+    /// this threshold has every surviving record evacuated into
+    /// a freshly-created target block, after which the now-empty
+    /// source block is reclaimed by the block-pool sweep.
+    ///
+    /// The default is `0.0` — physical compaction is opt-in.
+    /// At `0.0` the threshold never fires (density is always
+    /// `> 0.0` for blocks that still hold live records), so the
+    /// major reclaim pipeline runs the legacy logical-compaction
+    /// path unchanged. Setting this to e.g. `0.3` enables
+    /// physical compaction of any block that is 30% full or less.
+    pub physical_compaction_density_threshold: f64,
 }
 
 impl Default for OldGenConfig {
@@ -36,6 +51,7 @@ impl Default for OldGenConfig {
             max_compaction_bytes_per_cycle: usize::MAX,
             concurrent_mark_workers: 1,
             mutator_assist_slices: 1,
+            physical_compaction_density_threshold: 0.0,
         }
     }
 }

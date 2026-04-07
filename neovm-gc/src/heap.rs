@@ -201,6 +201,59 @@ impl Heap {
         &self.config.old
     }
 
+    /// Physical old-gen compaction (opt-in, stop-the-world).
+    ///
+    /// Evacuates every surviving record in any `OldBlock` whose
+    /// live density is at or below `density_threshold` into
+    /// freshly-created target blocks, rewrites every inbound
+    /// reference via the existing forwarding relocator, and
+    /// reclaims the now-empty source blocks.
+    ///
+    /// Unlike the logical "region" compaction that runs inside a
+    /// major cycle, this actually moves bytes: the source block's
+    /// payload storage is abandoned and the survivors live in
+    /// fresh target blocks. After the call,
+    /// `block.used_bytes() - block.live_bytes()` on the fresh
+    /// target blocks reflects the tight packed layout, so metrics
+    /// that measure "hole bytes" (e.g. `OldRegionStats::hole_bytes`)
+    /// genuinely shrink.
+    ///
+    /// `density_threshold` is in `[0.0, 1.0]`. At 0.0 the threshold
+    /// never fires (nothing is compacted). At 1.0 every block with
+    /// any empty space becomes a candidate.
+    ///
+    /// Returns the number of records physically evacuated.
+    ///
+    /// This method assumes the caller has just completed a mark
+    /// phase that identified every live record. It does NOT run a
+    /// mark pass itself: dead records must already be gone from
+    /// `objects`, or the compaction will waste effort moving them.
+    /// In practice callers should invoke this right after a major
+    /// cycle to get physical compaction of the post-mark heap.
+    pub fn compact_old_gen_physical(&mut self, density_threshold: f64) -> usize {
+        let Self {
+            roots,
+            objects,
+            indexes,
+            old_gen,
+            config,
+            ..
+        } = self;
+        let old_config = &config.old;
+        let forwarding = crate::reclaim::compact_sparse_old_blocks(
+            objects,
+            old_gen,
+            old_config,
+            density_threshold,
+        );
+        let moved = forwarding.len();
+        if moved == 0 {
+            return 0;
+        }
+        crate::spaces::nursery::relocate_roots_and_edges(roots, objects, indexes, &forwarding);
+        moved
+    }
+
     pub(crate) fn collection_exec_parts(
         &mut self,
     ) -> (
