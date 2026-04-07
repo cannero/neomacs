@@ -109,51 +109,21 @@ pub(crate) fn resolve_variable_alias_id_in_obarray(
     obarray: &Obarray,
     symbol: SymId,
 ) -> Result<SymId, Flow> {
-    use crate::emacs_core::symbol::SymbolValue;
-
-    let alias_target = |id| match obarray.get_by_id(id) {
-        Some(sym) => match sym.value {
-            SymbolValue::Alias(target) => Some(target),
-            _ => None,
-        },
-        None => None,
-    };
-
-    // GNU Emacs follows `SYMBOL_VARALIAS` directly from the symbol redirect
-    // field in `find_symbol_value`/`Fdefvaralias`; there is no plist fallback.
-    // Keep a cycle check here as a guard against corrupted runtime state, but
-    // avoid heap allocation on the hot lookup path.
-    let mut slow = symbol;
-    let mut fast = symbol;
-
-    loop {
-        let Some(next_slow) = alias_target(slow) else {
-            break;
-        };
-        slow = next_slow;
-
-        let Some(next_fast) = alias_target(fast) else {
-            break;
-        };
-        let Some(next_fast) = alias_target(next_fast) else {
-            break;
-        };
-        fast = next_fast;
-
-        if slow == fast {
-            return Err(signal(
-                "cyclic-variable-indirection",
-                vec![Value::from_sym_id(symbol)],
-            ));
-        }
-    }
-
-    let mut current = symbol;
-    while let Some(next) = alias_target(current) {
-        current = next;
-    }
-
-    Ok(current)
+    // Phase 3 of the symbol-redirect refactor: walk via the new
+    // `flags.redirect() == Varalias` + `val.alias` path through
+    // `Obarray::indirect_variable_id`. Mirrors GNU's
+    // `indirect_variable` (`src/data.c:1284-1301`) and the `goto
+    // start` loop in `find_symbol_value` (`src/data.c:1593-1595`).
+    //
+    // Returns the chain terminus on success, or
+    // `cyclic-variable-indirection` if a cycle is detected via Floyd's
+    // tortoise/hare.
+    obarray.indirect_variable_id(symbol).ok_or_else(|| {
+        signal(
+            "cyclic-variable-indirection",
+            vec![Value::from_sym_id(symbol)],
+        )
+    })
 }
 
 pub(crate) fn resolve_variable_alias_id(
@@ -186,20 +156,21 @@ pub(crate) fn would_create_variable_alias_cycle_in_obarray(
     new_symbol: SymId,
     old_symbol: SymId,
 ) -> bool {
-    use crate::emacs_core::symbol::SymbolValue;
+    use crate::emacs_core::symbol::SymbolRedirect;
 
+    // Phase 3: walk via the new redirect tag instead of the legacy
+    // SymbolValue enum. Mirrors GNU `Fdefvaralias`'s base-chain walk
+    // (`src/eval.c:631-726`).
     let mut current = old_symbol;
-
     loop {
         if current == new_symbol {
             return true;
         }
         match obarray.get_by_id(current) {
-            Some(sym) => match sym.value {
-                SymbolValue::Alias(target) => current = target,
-                _ => return false,
-            },
-            None => return false,
+            Some(sym) if sym.flags.redirect() == SymbolRedirect::Varalias => {
+                current = unsafe { sym.val.alias };
+            }
+            _ => return false,
         }
     }
 }

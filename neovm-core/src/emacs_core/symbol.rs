@@ -300,6 +300,25 @@ pub struct LispSymbol {
 /// pre-refactor name. Removed in Phase 10.
 pub type SymbolData = LispSymbol;
 
+/// Reasons [`Obarray::make_variable_alias`] can fail. Mirrors the
+/// `xsignal` callsites in GNU `Fdefvaralias` (`src/eval.c:631-726`).
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum MakeAliasError {
+    /// `new_alias` is a constant — cannot be redirected.
+    Constant,
+    /// `new_alias` is currently `SYMBOL_FORWARDED` (a built-in C
+    /// variable). GNU rejects with "Cannot make a built-in variable
+    /// an alias".
+    Forwarded,
+    /// `new_alias` is currently `SYMBOL_LOCALIZED` (a buffer-local).
+    /// GNU rejects with "Don't know how to make a buffer-local
+    /// variable an alias".
+    Localized,
+    /// Following `base`'s alias chain reaches `new_alias` — would
+    /// create `cyclic-variable-indirection`.
+    Cycle,
+}
+
 impl LispSymbol {
     pub fn new(name: SymId) -> Self {
         let mut flags = SymbolFlags::default();
@@ -1041,10 +1060,105 @@ impl Obarray {
             .is_some_and(|s| matches!(s.value, SymbolValue::BufferLocal { .. }))
     }
 
-    /// Check whether a symbol is an alias by identity.
+    /// Check whether a symbol is an alias by identity. Reads through the
+    /// new redirect tag (Phase 3 of the symbol-redirect refactor).
     pub fn is_alias_id(&self, id: SymId) -> bool {
         self.slot(id)
-            .is_some_and(|s| matches!(s.value, SymbolValue::Alias(_)))
+            .is_some_and(|s| s.flags.redirect() == SymbolRedirect::Varalias)
+    }
+
+    /// Walk an alias chain to its terminus and return the resolved
+    /// SymId. Mirrors GNU `indirect_variable` (`src/data.c:1284-1301`).
+    /// Returns `None` if (and only if) a true cycle is detected via
+    /// Floyd's tortoise/hare. Symbols that don't yet have a slot in
+    /// the obarray are treated as "not an alias" and returned as-is —
+    /// matching GNU's `XSYMBOL(sym)->u.s.redirect != SYMBOL_VARALIAS`
+    /// fall-through path.
+    pub fn indirect_variable_id(&self, id: SymId) -> Option<SymId> {
+        let mut slow = id;
+        let mut fast = id;
+        loop {
+            // Tortoise: advance one hop (or stop if not an alias).
+            let Some(slow_sym) = self.slot(slow) else {
+                return Some(slow); // no slot → not an alias
+            };
+            if slow_sym.flags.redirect() != SymbolRedirect::Varalias {
+                return Some(slow);
+            }
+            slow = unsafe { slow_sym.val.alias };
+
+            // Hare: advance two hops (or stop if not an alias).
+            for _ in 0..2 {
+                let Some(fast_sym) = self.slot(fast) else {
+                    return Some(slow);
+                };
+                if fast_sym.flags.redirect() != SymbolRedirect::Varalias {
+                    return Some(slow);
+                }
+                fast = unsafe { fast_sym.val.alias };
+            }
+
+            if slow == fast {
+                return None; // cycle
+            }
+        }
+    }
+
+    /// Install a variable alias edge with full GNU semantics. Mirrors
+    /// `Fdefvaralias` (`src/eval.c:631-726`):
+    ///
+    /// 1. `new_alias` must not be a constant.
+    /// 2. `new_alias` must not currently be FORWARDED (a built-in C
+    ///    variable).
+    /// 3. `new_alias` must not currently be LOCALIZED (a buffer-local).
+    /// 4. Walking from `base` along the alias chain must not pass through
+    ///    `new_alias` (cycle detection).
+    ///
+    /// On success, flips `new_alias`'s redirect to `Varalias` pointing
+    /// at `base` and marks both symbols `declared_special`. The legacy
+    /// `value: SymbolValue::Alias` mirror stays in sync (deleted in
+    /// Phase 10).
+    ///
+    /// Returns `Err(())` for cycle, constant, forwarded, or localized;
+    /// the caller is responsible for translating into a Lisp signal.
+    pub fn make_variable_alias(
+        &mut self,
+        new_alias: SymId,
+        base: SymId,
+    ) -> Result<(), MakeAliasError> {
+        // Check current state of new_alias.
+        if let Some(sym) = self.slot(new_alias) {
+            if sym.constant {
+                return Err(MakeAliasError::Constant);
+            }
+            match sym.flags.redirect() {
+                SymbolRedirect::Forwarded => return Err(MakeAliasError::Forwarded),
+                SymbolRedirect::Localized => return Err(MakeAliasError::Localized),
+                _ => {}
+            }
+        }
+
+        // Walk the base chain looking for new_alias.
+        let mut current = base;
+        loop {
+            if current == new_alias {
+                return Err(MakeAliasError::Cycle);
+            }
+            let Some(sym) = self.slot(current) else {
+                break;
+            };
+            if sym.flags.redirect() != SymbolRedirect::Varalias {
+                break;
+            }
+            current = unsafe { sym.val.alias };
+        }
+
+        // Install the alias edge. `make_alias` keeps both
+        // representations in sync.
+        self.make_alias(new_alias, base);
+        self.make_special_id(new_alias);
+        self.make_special_id(base);
+        Ok(())
     }
 
     /// Get the default value of a symbol, following aliases.

@@ -269,6 +269,96 @@ fn symbol_flags_pack_into_one_byte() {
     assert_eq!(std::mem::size_of::<SymbolFlags>(), 1);
 }
 
+// Phase 3 — VARALIAS via the new redirect tag.
+
+/// `indirect_variable_id` walks a single-hop alias chain to its
+/// terminus. Mirrors GNU `indirect_variable` (`src/data.c:1284-1301`).
+#[test]
+fn indirect_variable_id_follows_chain() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    let a = intern("phase3-alias-a");
+    let b = intern("phase3-alias-b");
+    let c = intern("phase3-alias-c");
+    ob.ensure_symbol_id(a);
+    ob.ensure_symbol_id(b);
+    ob.ensure_symbol_id(c);
+    // a → b → c
+    ob.make_alias(a, b);
+    ob.make_alias(b, c);
+    assert_eq!(ob.indirect_variable_id(a), Some(c));
+    assert_eq!(ob.indirect_variable_id(b), Some(c));
+    assert_eq!(ob.indirect_variable_id(c), Some(c));
+}
+
+/// `indirect_variable_id` returns `None` on a cycle, detected via
+/// Floyd's tortoise/hare. The cycle protection mirrors the cycle
+/// guard in GNU's `find_symbol_value` `goto start` loop
+/// (`src/data.c:1593-1595`).
+#[test]
+fn indirect_variable_id_detects_cycle() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    let a = intern("phase3-cycle-a");
+    let b = intern("phase3-cycle-b");
+    ob.ensure_symbol_id(a);
+    ob.ensure_symbol_id(b);
+    // a → b → a (cycle)
+    ob.make_alias(a, b);
+    ob.make_alias(b, a);
+    assert_eq!(ob.indirect_variable_id(a), None);
+    assert_eq!(ob.indirect_variable_id(b), None);
+}
+
+/// `make_variable_alias` rejects an attempt that would create a cycle.
+/// Mirrors GNU `Fdefvaralias`'s "base chain looking for new_alias"
+/// guard (`src/eval.c:631-726`).
+#[test]
+fn make_variable_alias_rejects_cycle() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    let a = intern("phase3-malias-a");
+    let b = intern("phase3-malias-b");
+    let c = intern("phase3-malias-c");
+    ob.ensure_symbol_id(a);
+    ob.ensure_symbol_id(b);
+    ob.ensure_symbol_id(c);
+    // a → b → c, then try to make c → a (cycle).
+    ob.make_variable_alias(a, b).expect("a → b ok");
+    ob.make_variable_alias(b, c).expect("b → c ok");
+    let err = ob.make_variable_alias(c, a).unwrap_err();
+    assert_eq!(err, MakeAliasError::Cycle);
+}
+
+/// `make_variable_alias` rejects an attempt to alias a constant.
+#[test]
+fn make_variable_alias_rejects_constant() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    let target = intern("phase3-malias-target");
+    let nil_id = intern("nil"); // pre-interned constant
+    ob.ensure_symbol_id(target);
+    let err = ob.make_variable_alias(nil_id, target).unwrap_err();
+    assert_eq!(err, MakeAliasError::Constant);
+}
+
+/// After `make_variable_alias`, both symbols are marked
+/// `declared_special` (special).
+#[test]
+fn make_variable_alias_marks_both_special() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    let a = intern("phase3-malias-special-a");
+    let b = intern("phase3-malias-special-b");
+    ob.ensure_symbol_id(a);
+    ob.ensure_symbol_id(b);
+    ob.make_variable_alias(a, b).expect("a → b ok");
+    assert!(ob.is_special_id(a));
+    assert!(ob.is_special_id(b));
+    assert!(ob.is_alias_id(a));
+    assert!(!ob.is_alias_id(b));
+}
+
 #[test]
 fn uninterned_keyword_and_nil_names_are_not_canonical_constants() {
     crate::test_utils::init_test_tracing();
