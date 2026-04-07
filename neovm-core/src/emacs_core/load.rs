@@ -2613,6 +2613,27 @@ fn finalize_cached_bootstrap_eval(
         Value::string(format!("{}/", project_root.to_string_lossy())),
     );
 
+    // Mirror GNU `init_buffer` (`src/buffer.c`): after loading the
+    // dumped image, reset every buffer's `default-directory` to the
+    // *runtime* cwd (not the cwd at dump time). Without this step
+    // every caller that reads `default-directory` sees the stale slot
+    // value the dump was produced with, which may no longer exist on
+    // disk (or be nil entirely when the slot was never initialized).
+    if let Ok(cwd) = std::env::current_dir() {
+        let mut cwd_string = cwd.to_string_lossy().into_owned();
+        if !cwd_string.ends_with('/') {
+            cwd_string.push('/');
+        }
+        let cwd_value = Value::string(cwd_string);
+        use crate::buffer::buffer::BUFFER_SLOT_DEFAULT_DIRECTORY;
+        let buffer_ids = eval.buffers.buffer_list();
+        for id in buffer_ids {
+            if let Some(buf) = eval.buffers.get_mut(id) {
+                buf.slots[BUFFER_SLOT_DEFAULT_DIRECTORY] = cwd_value;
+            }
+        }
+    }
+
     eval.clear_top_level_eval_state();
 
     Ok(())
