@@ -2305,10 +2305,9 @@ fn minibuffer_sort_preprocess_history_sequence_contract() {
     assert_eq!(results[2], "OK nil");
     assert_eq!(results[3], "OK nil");
     assert_eq!(results[4], "OK (wrong-type-argument sequencep 1)");
-    assert_eq!(
-        results[5],
-        "OK (wrong-number-of-arguments minibuffer--sort-preprocess-history 0)"
-    );
+    // GNU verified: arity errors on Lisp-defined functions carry the
+    // (MIN . MAX) arity tuple, not the function symbol.
+    assert_eq!(results[5], "OK (wrong-number-of-arguments (1 . 1) 0)");
 }
 
 #[test]

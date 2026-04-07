@@ -290,14 +290,10 @@ fn frame_root_window_window_valid_and_minibuffer_activity_semantics() {
         out[22],
         "OK (wrong-number-of-arguments active-minibuffer-window 1)"
     );
-    assert_eq!(
-        out[23],
-        "OK (wrong-number-of-arguments minibuffer-window-active-p 0)"
-    );
-    assert_eq!(
-        out[24],
-        "OK (wrong-number-of-arguments minibuffer-window-active-p 2)"
-    );
+    // GNU `minibuffer-window-active-p` is a Lisp defun (window.el),
+    // so its arity errors carry the (MIN . MAX) tuple, not the symbol.
+    assert_eq!(out[23], "OK (wrong-number-of-arguments (1 . 1) 0)");
+    assert_eq!(out[24], "OK (wrong-number-of-arguments (1 . 1) 2)");
 }
 
 #[test]
