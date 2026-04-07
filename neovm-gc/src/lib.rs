@@ -2,8 +2,26 @@
 //! `neovm-gc` is a standalone managed-heap crate for VM runtimes.
 //!
 //! The crate provides a managed object model, rooted handles, descriptor-driven
-//! tracing, stop-the-world collection, and the heap/control surfaces needed by
-//! a future concurrent generational collector.
+//! tracing, and a generational collector with the following pieces:
+//!
+//! * **Nursery**: bump-pointer semispace allocator with parallel evacuation
+//!   into per-worker sub-arenas (see [`spaces`]).
+//! * **Old generation**: Immix-style block pool with line marks, hole-filling
+//!   allocation, and per-block card tables.
+//! * **Concurrent marker**: dedicated lock-alternating mark thread that drives
+//!   active major-mark sessions to completion via brief read-lock slices
+//!   (see [`concurrent_marker`]).
+//! * **Adaptive pacer**: Go-style EWMA-driven trigger model with three stacked
+//!   constraints (heap growth, max pause budget, CPU-aware budget) and
+//!   optional nursery soft trigger for early minor cycles (see [`pacer`]).
+//! * **Telemetry**: rolling pause-time histogram, per-space heap stats,
+//!   and lock-free shared snapshots ([`PauseHistogram`], [`HeapStats`],
+//!   [`SharedHeap::status`]).
+//!
+//! Most VM runtimes will interact with the crate through [`Heap`] (single
+//! mutator) or [`SharedHeap`] (multi-thread observation, background workers).
+//!
+//! [`SharedHeap::status`]: background::SharedHeap::status
 
 pub mod background;
 pub mod barrier;
