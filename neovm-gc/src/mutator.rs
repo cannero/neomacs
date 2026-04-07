@@ -82,6 +82,23 @@ impl<'heap> Mutator<'heap> {
         self.heap.compact_old_gen_physical(density_threshold)
     }
 
+    /// Read the current old-gen fragmentation ratio. Mirrors
+    /// [`Heap::old_gen_fragmentation_ratio`] but routes through
+    /// the mutator's borrow.
+    pub fn old_gen_fragmentation_ratio(&self) -> f64 {
+        self.heap.old_gen_fragmentation_ratio()
+    }
+
+    /// Opportunistic compaction trigger. Mirrors
+    /// [`Heap::compact_old_gen_if_fragmented`].
+    pub fn compact_old_gen_if_fragmented(
+        &mut self,
+        fragmentation_threshold: f64,
+    ) -> (f64, usize) {
+        self.heap
+            .compact_old_gen_if_fragmented(fragmentation_threshold)
+    }
+
     /// Return the number of queued finalizers waiting to run.
     pub fn pending_finalizer_count(&self) -> usize {
         self.heap.pending_finalizer_count()
