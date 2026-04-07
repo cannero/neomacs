@@ -210,6 +210,26 @@ impl Pacer {
         state.last_live_bytes = live_bytes_after;
 
         // 4. Compute the next trigger threshold.
+        //
+        // Three constraints stack here, and the smallest one wins
+        // (subject to the `min_trigger_bytes` floor at the end):
+        //
+        //   a. `target_growth` — heap is allowed to grow by
+        //      `heap_growth_target_ratio * live_bytes`. This is the
+        //      coarse "don't spend GC time on a barely-growing heap"
+        //      knob.
+        //   b. `max_safe_growth` — the most bytes the marker can chew
+        //      through inside one `target_pause` budget. Prevents the
+        //      next major from blowing the pause SLO.
+        //   c. `cpu_aware_growth` — the Go-style CPU-aware trigger:
+        //      pick `G` so that the GC's expected wall-clock time
+        //      consumes at most `target_gc_cpu_fraction` of the
+        //      mutator+GC duty cycle. Skipped on the first cycle
+        //      because we don't yet have an allocation rate sample.
+        //
+        // Each `compute_*_growth` helper returns 0 to mean
+        // "no signal yet, skip this constraint." Constraints that
+        // return 0 are not applied to the running minimum.
         let target_growth = compute_target_growth(
             live_bytes_after,
             self.config.heap_growth_target_ratio,
@@ -217,11 +237,19 @@ impl Pacer {
         );
         let max_safe_growth =
             compute_max_safe_growth(state.last_mark_rate_bps, target_pause_secs);
-        let chosen_growth = if max_safe_growth == 0 {
-            target_growth
-        } else {
-            target_growth.min(max_safe_growth)
-        };
+        let cpu_aware_growth = compute_cpu_aware_growth(
+            live_bytes_after,
+            state.last_allocation_rate_bps,
+            state.last_mark_rate_bps,
+            self.config.target_gc_cpu_fraction,
+        );
+        let mut chosen_growth = target_growth;
+        if max_safe_growth > 0 {
+            chosen_growth = chosen_growth.min(max_safe_growth);
+        }
+        if cpu_aware_growth > 0 {
+            chosen_growth = chosen_growth.min(cpu_aware_growth);
+        }
         let chosen_growth = chosen_growth.max(self.config.min_trigger_bytes);
         state.next_major_trigger_bytes = live_bytes_after.saturating_add(chosen_growth);
 
@@ -275,6 +303,57 @@ fn compute_max_safe_growth(mark_rate_bps: f64, target_pause_secs: f64) -> usize 
         return 0;
     }
     bytes as usize
+}
+
+/// Go-style CPU-aware growth budget.
+///
+/// Derivation: let `L` be live bytes, `r_alloc` be the observed
+/// allocation rate (bytes/sec), `r_mark` the observed mark rate
+/// (bytes/sec), and `c` the target GC CPU fraction. The mutator
+/// allocates `G` bytes in time `G / r_alloc`; the next major then
+/// marks `L` bytes in time `L / r_mark`. For the GC's share of
+/// duty-cycle wall-clock to settle at `c`,
+///
+///   `t_mark / (t_alloc + t_mark) = c`
+///   ⇒ `G = L · r_alloc · (1 − c) / (c · r_mark)`.
+///
+/// Returns 0 (the "skip this constraint" sentinel) when any input is
+/// missing or out of range. In particular, the first completed cycle
+/// has no allocation-rate sample yet so this helper returns 0 and the
+/// other two trigger heuristics decide alone.
+fn compute_cpu_aware_growth(
+    live_bytes_after: usize,
+    alloc_rate_bps: f64,
+    mark_rate_bps: f64,
+    target_gc_cpu_fraction: f64,
+) -> usize {
+    if !alloc_rate_bps.is_finite() || alloc_rate_bps <= 0.0 {
+        return 0;
+    }
+    if !mark_rate_bps.is_finite() || mark_rate_bps <= 0.0 {
+        return 0;
+    }
+    if !target_gc_cpu_fraction.is_finite()
+        || target_gc_cpu_fraction <= 0.0
+        || target_gc_cpu_fraction >= 1.0
+    {
+        return 0;
+    }
+    let one_minus_c = 1.0 - target_gc_cpu_fraction;
+    let numer = (live_bytes_after as f64) * alloc_rate_bps * one_minus_c;
+    let denom = target_gc_cpu_fraction * mark_rate_bps;
+    if denom <= 0.0 || !denom.is_finite() {
+        return 0;
+    }
+    let g = numer / denom;
+    if !g.is_finite() || g <= 0.0 {
+        return 0;
+    }
+    if g >= (usize::MAX as f64) {
+        usize::MAX
+    } else {
+        g as usize
+    }
 }
 
 fn duration_as_nanos_u64(d: Duration) -> u64 {
@@ -345,6 +424,149 @@ mod tests {
     fn compute_max_safe_growth_returns_byte_budget() {
         // 1_000_000 bytes/sec * 0.01 sec = 10_000 bytes.
         assert_eq!(compute_max_safe_growth(1_000_000.0, 0.01), 10_000);
+    }
+
+    #[test]
+    fn compute_cpu_aware_growth_uses_go_pacer_formula() {
+        // L=1000, r_alloc=2000, r_mark=4000, c=0.25
+        // G = 1000 * 2000 * 0.75 / (0.25 * 4000)
+        //   = 1_500_000 / 1_000
+        //   = 1500
+        assert_eq!(compute_cpu_aware_growth(1000, 2000.0, 4000.0, 0.25), 1500);
+    }
+
+    #[test]
+    fn compute_cpu_aware_growth_zero_when_no_alloc_rate() {
+        assert_eq!(compute_cpu_aware_growth(1000, 0.0, 4000.0, 0.25), 0);
+    }
+
+    #[test]
+    fn compute_cpu_aware_growth_zero_when_no_mark_rate() {
+        assert_eq!(compute_cpu_aware_growth(1000, 2000.0, 0.0, 0.25), 0);
+    }
+
+    #[test]
+    fn compute_cpu_aware_growth_zero_when_cpu_fraction_at_or_outside_unit_open_interval() {
+        assert_eq!(compute_cpu_aware_growth(1000, 2000.0, 4000.0, 0.0), 0);
+        assert_eq!(compute_cpu_aware_growth(1000, 2000.0, 4000.0, 1.0), 0);
+        assert_eq!(compute_cpu_aware_growth(1000, 2000.0, 4000.0, -0.5), 0);
+        assert_eq!(compute_cpu_aware_growth(1000, 2000.0, 4000.0, 1.5), 0);
+    }
+
+    #[test]
+    fn compute_cpu_aware_growth_zero_when_inputs_non_finite() {
+        assert_eq!(
+            compute_cpu_aware_growth(1000, f64::INFINITY, 4000.0, 0.25),
+            0
+        );
+        assert_eq!(
+            compute_cpu_aware_growth(1000, f64::NAN, 4000.0, 0.25),
+            0
+        );
+        assert_eq!(
+            compute_cpu_aware_growth(1000, 2000.0, f64::NAN, 0.25),
+            0
+        );
+    }
+
+    #[test]
+    fn compute_cpu_aware_growth_larger_with_lower_cpu_fraction() {
+        // The formula is G ∝ (1-c)/c, which is monotonically
+        // *decreasing* in c. A smaller GC CPU budget means GC must
+        // run *less* often, which means letting the heap grow
+        // *more* between collections.
+        let g_higher_budget = compute_cpu_aware_growth(10_000, 1000.0, 1000.0, 0.5);
+        let g_lower_budget = compute_cpu_aware_growth(10_000, 1000.0, 1000.0, 0.10);
+        assert!(
+            g_lower_budget > g_higher_budget,
+            "expected smaller GC CPU budget (c=0.10) to produce \
+             a larger growth budget than c=0.5, but \
+             g_lower_budget={} g_higher_budget={}",
+            g_lower_budget,
+            g_higher_budget
+        );
+    }
+
+    #[test]
+    fn pacer_threshold_clamped_by_target_gc_cpu_fraction() {
+        // Configure the other two constraints so they cannot win:
+        //   - heap_growth_target_ratio is huge → target_growth wide
+        //   - target_pause is huge → max_safe_growth wide
+        // Only the CPU-aware growth constrains the threshold.
+        // ewma_alpha=1.0 makes the EWMA take the latest sample.
+        let pacer = Pacer::new(PacerConfig {
+            target_gc_cpu_fraction: 0.10,
+            heap_growth_target_ratio: 1_000.0,
+            target_pause: Duration::from_secs(1),
+            min_trigger_bytes: 1,
+            ewma_alpha: 1.0,
+        });
+        let now = Instant::now();
+        // First cycle: pause=1ms, live=10_000 → mark_rate = 10_000 / 0.001
+        // = 10_000_000 bps. No allocation rate sample yet.
+        let cycle = cycle_with_pause(1_000_000);
+        pacer.record_completed_cycle_at(&cycle, 10_000, now);
+
+        // Allocate 5_000 bytes between cycles, then complete the
+        // second cycle 1 second later. alloc_rate = 5_000 bps.
+        pacer.record_allocation(5_000);
+        pacer.record_completed_cycle_at(&cycle, 10_000, now + Duration::from_secs(1));
+
+        let stats = pacer.stats();
+        // Expected G_cpu
+        //   = 10_000 * 5_000 * 0.9 / (0.10 * 10_000_000)
+        //   = 45_000_000 / 1_000_000
+        //   = 45
+        // The other two constraints offer 10_000 * 1000 = 10_000_000
+        // and 10_000_000 * 1.0 = 10_000_000 respectively, so the
+        // CPU-aware constraint wins.
+        assert_eq!(stats.next_major_trigger_bytes, 10_000 + 45);
+    }
+
+    #[test]
+    fn pacer_threshold_falls_back_to_target_growth_when_cpu_fraction_disabled() {
+        // target_gc_cpu_fraction=1.0 disables the CPU-aware constraint
+        // (the formula collapses to 0). target_growth then wins.
+        let pacer = Pacer::new(PacerConfig {
+            target_gc_cpu_fraction: 1.0,
+            heap_growth_target_ratio: 0.5,
+            target_pause: Duration::from_secs(100),
+            min_trigger_bytes: 1,
+            ewma_alpha: 1.0,
+        });
+        let now = Instant::now();
+        let cycle = cycle_with_pause(1_000_000);
+        pacer.record_completed_cycle_at(&cycle, 10_000, now);
+        pacer.record_allocation(5_000);
+        pacer.record_completed_cycle_at(&cycle, 10_000, now + Duration::from_secs(1));
+
+        let stats = pacer.stats();
+        // target_growth = 10_000 * 0.5 = 5_000
+        // max_safe_growth = 10_000_000 * 100 = 1_000_000_000 (loses)
+        // cpu_aware_growth = 0 (skipped)
+        // chosen = 5_000
+        assert_eq!(stats.next_major_trigger_bytes, 10_000 + 5_000);
+    }
+
+    #[test]
+    fn pacer_threshold_first_cycle_unaffected_by_cpu_fraction() {
+        // The first cycle has no allocation-rate sample, so the CPU
+        // constraint must skip and not falsely clamp the threshold.
+        let pacer = Pacer::new(PacerConfig {
+            target_gc_cpu_fraction: 0.01,
+            heap_growth_target_ratio: 0.5,
+            target_pause: Duration::from_secs(100),
+            min_trigger_bytes: 1,
+            ewma_alpha: 1.0,
+        });
+        let cycle = cycle_with_pause(1_000_000);
+        pacer.record_completed_cycle_at(&cycle, 10_000, Instant::now());
+
+        let stats = pacer.stats();
+        // No alloc-rate sample yet, so cpu-aware returns 0 and is
+        // skipped. target_growth = 5_000 wins over the very wide
+        // max_safe_growth.
+        assert_eq!(stats.next_major_trigger_bytes, 10_000 + 5_000);
     }
 
     #[test]
