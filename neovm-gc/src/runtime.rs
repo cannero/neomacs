@@ -278,7 +278,7 @@ impl<'heap> CollectorRuntime<'heap> {
             SpaceKind::Old => {
                 let (layout, payload_offset) =
                     crate::object::allocation_layout_for::<T>()?;
-                let old_config = self.heap.old_config().clone();
+                let old_config = *self.heap.old_config();
                 match self
                     .heap
                     .old_gen_mut()
