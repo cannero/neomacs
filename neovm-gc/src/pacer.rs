@@ -173,6 +173,19 @@ impl Pacer {
     /// Build a new pacer with `config`. The initial trigger threshold
     /// is set to `config.min_trigger_bytes` so the pacer cannot fire
     /// before the heap grows past the floor.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use neovm_gc::{Pacer, PacerConfig};
+    ///
+    /// let pacer = Pacer::new(PacerConfig {
+    ///     min_trigger_bytes: 4 * 1024,
+    ///     ..PacerConfig::default()
+    /// });
+    /// // Fresh pacers have observed nothing yet.
+    /// assert_eq!(pacer.stats().observed_cycles, 0);
+    /// ```
     pub fn new(config: PacerConfig) -> Self {
         let state = PacerState {
             config,
