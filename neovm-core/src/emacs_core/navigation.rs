@@ -636,6 +636,12 @@ pub(crate) fn builtin_end_of_line(eval: &mut super::eval::Context, args: Vec<Val
 // ===========================================================================
 
 /// (forward-char &optional N)
+///
+/// Mirrors GNU `Fforward_char` (`src/cmds.c:69`) and `move_point` at
+/// `src/cmds.c:36`. The accessible portion of the buffer is bounded by
+/// `BEGV` / `ZV` (the narrowing region), not the absolute buffer
+/// extents — `forward-char` must clamp to and signal against those
+/// fields, otherwise narrowing is silently ignored (audit §7.1).
 pub(crate) fn builtin_forward_char(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -646,34 +652,32 @@ pub(crate) fn builtin_forward_char(
         expect_int(&args[0])?
     };
     let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
-    let (old_byte, cur_char, total_chars, new_byte) = {
+    let (old_byte, cur_char, begv_char, zv_char, new_byte) = {
         let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
         let old_byte = buf.pt;
         let cur_char = buf.point_char();
-        let total_chars = buf.text.char_count();
-        let new_char = if n >= 0 {
-            let nc = cur_char.saturating_add(n as usize);
-            nc.min(total_chars)
-        } else {
-            let abs_n = (-n) as usize;
-            cur_char.saturating_sub(abs_n)
-        };
+        let begv_char = buf.point_min_char();
+        let zv_char = buf.point_max_char();
+        let desired = cur_char as i64 + n;
+        let clamped_char = desired.clamp(begv_char as i64, zv_char as i64) as usize;
         (
             old_byte,
             cur_char,
-            total_chars,
-            buf.text.char_to_byte(new_char),
+            begv_char,
+            zv_char,
+            buf.text.char_to_byte(clamped_char),
         )
     };
     let direction = if n >= 0 { 1 } else { -1 };
     let adjusted = adjust_for_intangible(eval, new_byte, direction);
     let _ = eval.buffers.goto_buffer_byte(current_id, adjusted);
-    // Signal if we couldn't move the full distance
+    // GNU `move_point`: signal beginning-of-buffer / end-of-buffer when
+    // the requested position falls outside the accessible portion.
     let desired = cur_char as i64 + n;
-    if desired < 0 {
+    if desired < begv_char as i64 {
         return Err(signal("beginning-of-buffer", vec![]));
     }
-    if desired > total_chars as i64 {
+    if desired > zv_char as i64 {
         return Err(signal("end-of-buffer", vec![]));
     }
     check_point_motion_hooks(eval, old_byte, adjusted)?;

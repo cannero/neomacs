@@ -851,3 +851,41 @@ fn test_forward_char_negative() {
     let pos = eval_int(&mut ev, "(point)");
     assert_eq!(pos, 2);
 }
+
+/// Regression for audit §7.1: `forward-char` must clamp against the
+/// narrowed region (BEGV/ZV), matching GNU `move_point` in
+/// `src/cmds.c:36`. Previously it clamped against the absolute buffer
+/// extents, which let point silently slip outside the accessible
+/// portion.
+#[test]
+fn test_forward_char_honors_narrowing_end() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = eval_with_text("abcdefghij");
+    // Narrow to "cdef" (positions 3..7).
+    eval_str(&mut ev, "(narrow-to-region 3 7)");
+    eval_str(&mut ev, "(goto-char 5)");
+    // Try to walk past ZV — must signal end-of-buffer and stop at ZV (= 7).
+    let result = eval_str(
+        &mut ev,
+        "(condition-case err (forward-char 10) (end-of-buffer 'caught))",
+    );
+    assert_eq!(result.as_symbol_name(), Some("caught"));
+    let pos = eval_int(&mut ev, "(point)");
+    assert_eq!(pos, 7);
+}
+
+#[test]
+fn test_forward_char_honors_narrowing_beginning() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = eval_with_text("abcdefghij");
+    eval_str(&mut ev, "(narrow-to-region 3 7)");
+    eval_str(&mut ev, "(goto-char 5)");
+    // Walking back past BEGV must signal beginning-of-buffer and clamp.
+    let result = eval_str(
+        &mut ev,
+        "(condition-case err (forward-char -10) (beginning-of-buffer 'caught))",
+    );
+    assert_eq!(result.as_symbol_name(), Some("caught"));
+    let pos = eval_int(&mut ev, "(point)");
+    assert_eq!(pos, 3);
+}
