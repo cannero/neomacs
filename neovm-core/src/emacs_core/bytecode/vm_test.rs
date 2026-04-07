@@ -4234,7 +4234,8 @@ fn vm_stale_process_builtins_use_shared_runtime_state() {
 #[test]
 fn vm_process_introspection_builtins_use_shared_runtime_state() {
     crate::test_utils::init_test_tracing();
-    let result = vm_eval_with_init_str(
+    // process-live-p is a defun in subr.el → bootstrap context required.
+    let result = vm_bootstrap_eval_with_init_str(
         r#"(let ((p 1))
              (list
               (equal (process-live-p p) '(run open listen connect stop))
@@ -4272,7 +4273,8 @@ fn vm_process_introspection_builtins_use_shared_runtime_state() {
 #[test]
 fn vm_stale_process_introspection_builtins_use_shared_runtime_state() {
     crate::test_utils::init_test_tracing();
-    let result = vm_eval_with_init_str(
+    // process-live-p is a defun in subr.el → bootstrap context required.
+    let result = vm_bootstrap_eval_with_init_str(
         r#"(let ((p 1))
              (list
               (null (process-live-p p))
@@ -4393,7 +4395,9 @@ fn vm_stale_process_coding_and_tty_builtins_use_shared_runtime_state() {
 #[test]
 fn vm_process_status_builtins_use_shared_runtime_state() {
     crate::test_utils::init_test_tracing();
-    let result = vm_eval_with_init_str(
+    // process-kill-buffer-query-function is defined in subr.el →
+    // bootstrap context required.
+    let result = vm_bootstrap_eval_with_init_str(
         r#"(list
              (eq (process-status 1) 'run)
              (eq (process-status 2) 'open)
@@ -4456,7 +4460,8 @@ fn vm_process_status_builtins_use_shared_runtime_state() {
 #[test]
 fn vm_stale_process_status_builtins_use_shared_runtime_state() {
     crate::test_utils::init_test_tracing();
-    let result = vm_eval_with_init_str(
+    // process-kill-buffer-query-function is in subr.el → bootstrap.
+    let result = vm_bootstrap_eval_with_init_str(
         r#"(let ((p 1))
              (list
               (eq (process-status p) 'signal)
@@ -4948,8 +4953,9 @@ fn vm_make_thread_records_join_error_on_shared_runtime() {
 #[test]
 fn vm_make_process_builtin_uses_shared_runtime_state() {
     crate::test_utils::init_test_tracing();
+    // ignore-errors is a macro from subr.el → bootstrap context required.
     assert_eq!(
-        vm_eval_str(
+        vm_bootstrap_eval_str(
             r#"(let ((p (make-process
                           :name "vm-make-process"
                           :buffer "vm-make-process-buffer"
