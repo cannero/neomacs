@@ -301,26 +301,6 @@ pub(crate) fn prepare_active_reclaim_request(
     )
 }
 
-pub(crate) fn prepare_active_major_reclaim_with_request(
-    collector: &mut CollectorState,
-    objects: &[ObjectRecord],
-    index: &ObjectIndex,
-    trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
-    prepare_major_reclaim: impl FnOnce(&CollectionPlan) -> PreparedReclaim,
-) -> Result<bool, AllocError> {
-    let Some(request) = active_reclaim_prep_request(collector) else {
-        return Ok(false);
-    };
-    if request.plan.kind != CollectionKind::Major {
-        return Ok(false);
-    }
-    let prepared =
-        prepare_active_reclaim_request(request, trace_ephemerons, objects, index, |plan| {
-            Ok(prepare_major_reclaim(plan))
-        })?;
-    Ok(complete_active_reclaim_prep(collector, prepared))
-}
-
 #[cfg(test)]
 pub(crate) fn prepare_active_collection_reclaim_if_needed(
     collector: &mut CollectorState,

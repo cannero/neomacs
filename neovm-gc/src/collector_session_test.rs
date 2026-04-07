@@ -279,48 +279,27 @@ fn prepare_active_reclaim_request_moves_major_session_to_reclaim() {
 }
 
 #[test]
-fn prepare_active_major_reclaim_with_request_moves_major_session_to_reclaim() {
+fn prepare_active_reclaim_request_moves_full_session_to_reclaim() {
     let mut state = CollectorState::default();
-    let plan = major_plan();
-    let index = ObjectIndex::default();
-    state.begin_major_mark(plan.clone(), MarkWorklist::default());
+    state.begin_major_mark(full_plan(), MarkWorklist::default());
+    assert!(state.complete_active_major_remark(5, 7));
+    let request = active_reclaim_prep_request(&state).expect("active reclaim prep request");
 
-    let completed = prepare_active_major_reclaim_with_request(
-        &mut state,
+    let prepared = prepare_active_reclaim_request(
+        request,
+        |_tracer, _plan| (0, 0),
         &[],
-        &index,
-        |_tracer, _plan| (2, 3),
-        |_plan| prepared_reclaim(),
+        &ObjectIndex::default(),
+        |_plan| Ok(prepared_reclaim()),
     )
-    .expect("major reclaim prep should succeed");
+    .expect("full reclaim prep should succeed");
+    let completed = complete_active_reclaim_prep(&mut state, prepared);
 
     assert!(completed);
     assert!(state.active_major_mark_is_ready());
     assert_eq!(
         state.active_major_mark_plan().expect("active plan").phase,
         CollectionPhase::Reclaim
-    );
-}
-
-#[test]
-fn prepare_active_major_reclaim_with_request_skips_full_session() {
-    let mut state = CollectorState::default();
-    state.begin_major_mark(full_plan(), MarkWorklist::default());
-
-    let completed = prepare_active_major_reclaim_with_request(
-        &mut state,
-        &[],
-        &ObjectIndex::default(),
-        |_tracer, _plan| panic!("full session should not use major-only reclaim prep"),
-        |_plan| panic!("full session should not build major-only reclaim prep"),
-    )
-    .expect("full session should be ignored");
-
-    assert!(!completed);
-    assert!(!state.active_major_mark_is_ready());
-    assert_eq!(
-        state.active_major_mark_plan().expect("active plan").phase,
-        CollectionPhase::Remark
     );
 }
 

@@ -406,19 +406,23 @@ fn collector_state_handle_finish_active_collection_now_finishes_prepared_session
 }
 
 #[test]
-fn collector_state_handle_prepare_active_major_reclaim_and_refresh_updates_recommended_plan() {
+fn collector_state_handle_prepare_active_collection_reclaim_and_refresh_updates_major_plan() {
     let handle = CollectorStateHandle::default();
     handle.with_state(|state| {
         state.begin_major_mark(major_plan(), MarkWorklist::default());
         assert!(state.complete_active_major_remark(2, 3));
     });
+    let request = handle
+        .active_reclaim_prep_request()
+        .expect("active reclaim prep request");
 
     let prepared = handle
-        .prepare_active_major_reclaim_with_request_and_refresh(
+        .prepare_active_collection_reclaim_with_request_and_refresh(
+            request,
             &[],
             &ObjectIndex::default(),
             |_tracer, _plan| (0, 0),
-            |_plan| prepared_reclaim(),
+            |_plan| Ok(prepared_reclaim()),
             &HeapStats::default(),
             &OldGenState::default(),
             &OldGenConfig::default(),
@@ -438,6 +442,46 @@ fn collector_state_handle_prepare_active_major_reclaim_and_refresh_updates_recom
         CollectionPhase::Reclaim
     );
     assert_eq!(handle.recommended_plan().kind, CollectionKind::Major);
+    assert_eq!(handle.recommended_plan().phase, CollectionPhase::Reclaim);
+}
+
+#[test]
+fn collector_state_handle_prepare_active_collection_reclaim_and_refresh_updates_full_plan() {
+    let handle = CollectorStateHandle::default();
+    handle.with_state(|state| {
+        state.begin_major_mark(full_plan(), MarkWorklist::default());
+        assert!(state.complete_active_major_remark(2, 3));
+    });
+    let request = handle
+        .active_reclaim_prep_request()
+        .expect("active reclaim prep request");
+
+    let prepared = handle
+        .prepare_active_collection_reclaim_with_request_and_refresh(
+            request,
+            &[],
+            &ObjectIndex::default(),
+            |_tracer, _plan| (0, 0),
+            |_plan| Ok(prepared_reclaim()),
+            &HeapStats::default(),
+            &OldGenState::default(),
+            &OldGenConfig::default(),
+            |kind| CollectionPlan {
+                kind,
+                ..full_plan()
+            },
+        )
+        .expect("prepare and refresh active full reclaim through handle");
+
+    assert!(prepared);
+    assert_eq!(
+        handle
+            .active_major_mark_plan()
+            .expect("active major-mark plan")
+            .phase,
+        CollectionPhase::Reclaim
+    );
+    assert_eq!(handle.recommended_plan().kind, CollectionKind::Full);
     assert_eq!(handle.recommended_plan().phase, CollectionPhase::Reclaim);
 }
 

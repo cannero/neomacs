@@ -293,28 +293,28 @@ impl CollectorStateHandle {
         })
     }
 
-    pub(crate) fn prepare_active_major_reclaim_with_request_and_refresh(
+    pub(crate) fn prepare_active_collection_reclaim_with_request_and_refresh(
         &self,
+        request: ActiveReclaimPrepRequest,
         objects: &[ObjectRecord],
         index: &ObjectIndex,
         trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
-        prepare_major_reclaim: impl FnOnce(&CollectionPlan) -> PreparedReclaim,
+        prepare_reclaim: impl FnOnce(&CollectionPlan) -> Result<PreparedReclaim, AllocError>,
         stats: &HeapStats,
         old_gen: &OldGenState,
         old_config: &OldGenConfig,
         plan_for: impl FnMut(CollectionKind) -> CollectionPlan,
     ) -> Result<bool, AllocError> {
-        self.with_state(|state| {
-            let prepared = collector_session::prepare_active_major_reclaim_with_request(
-                state,
-                objects,
-                index,
-                trace_ephemerons,
-                prepare_major_reclaim,
-            )?;
-            refresh_cached_collector_plans(state, stats, old_gen, old_config, plan_for);
-            Ok(prepared)
-        })
+        let prepared = collector_session::prepare_active_reclaim_request(
+            request,
+            trace_ephemerons,
+            objects,
+            index,
+            prepare_reclaim,
+        )?;
+        Ok(self.complete_active_reclaim_prep_and_refresh(
+            prepared, stats, old_gen, old_config, plan_for,
+        ))
     }
 
     pub(crate) fn active_reclaim_prep_request(&self) -> Option<ActiveReclaimPrepRequest> {
@@ -322,8 +322,21 @@ impl CollectorStateHandle {
         collector_session::active_reclaim_prep_request(&state)
     }
 
-    pub(crate) fn complete_active_reclaim_prep(&self, prepared: PreparedActiveReclaim) -> bool {
-        self.with_state(|state| collector_session::complete_active_reclaim_prep(state, prepared))
+    pub(crate) fn complete_active_reclaim_prep_and_refresh(
+        &self,
+        prepared: PreparedActiveReclaim,
+        stats: &HeapStats,
+        old_gen: &OldGenState,
+        old_config: &OldGenConfig,
+        plan_for: impl FnMut(CollectionKind) -> CollectionPlan,
+    ) -> bool {
+        self.with_state(|state| {
+            let completed = collector_session::complete_active_reclaim_prep(state, prepared);
+            if completed {
+                refresh_cached_collector_plans(state, stats, old_gen, old_config, plan_for);
+            }
+            completed
+        })
     }
 
     pub(crate) fn finish_active_collection_if_ready(

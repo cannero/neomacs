@@ -346,29 +346,26 @@ impl<'heap> CollectorRuntime<'heap> {
         {
             return Ok(false);
         }
-        if snapshot
-            .active_major_mark_plan
-            .as_ref()
-            .is_some_and(|plan| plan.kind == crate::plan::CollectionKind::Major)
-        {
+        let request = self.heap.collector_handle().active_reclaim_prep_request();
+        let Some(request) = request else {
+            return Ok(false);
+        };
+        if request.plan.kind == crate::plan::CollectionKind::Major {
             return self
                 .heap
                 .collector_handle()
-                .prepare_active_major_reclaim_with_request_and_refresh(
+                .prepare_active_collection_reclaim_with_request_and_refresh(
+                    request,
                     self.heap.objects(),
                     &self.heap.indexes().object_index,
                     |tracer, plan| trace_heap_major_ephemerons(self.heap, tracer, plan),
-                    |plan| prepare_heap_major_reclaim(self.heap, plan),
+                    |plan| Ok(prepare_heap_major_reclaim(self.heap, plan)),
                     &self.heap.storage_stats(),
                     self.heap.old_gen(),
                     self.heap.old_config(),
                     |kind| self.heap.plan_for(kind),
                 );
         }
-        let request = self.heap.collector_handle().active_reclaim_prep_request();
-        let Some(request) = request else {
-            return Ok(false);
-        };
 
         let (mark_steps_delta, mark_rounds_delta) = prepare_active_reclaim(
             &request,
@@ -383,15 +380,13 @@ impl<'heap> CollectorRuntime<'heap> {
         let prepared = self
             .heap
             .collector_handle()
-            .complete_active_reclaim_prep(prepared);
-        if prepared {
-            self.heap.collector_handle().refresh_cached_plans(
+            .complete_active_reclaim_prep_and_refresh(
+                prepared,
                 &self.heap.storage_stats(),
                 self.heap.old_gen(),
                 self.heap.old_config(),
                 |kind| self.heap.plan_for(kind),
             );
-        }
         Ok(prepared)
     }
 
@@ -645,6 +640,22 @@ impl SharedCollectorRuntime {
         next_collector: CollectorSharedSnapshot,
     ) -> Result<(), SharedHeapError> {
         self.runtime.publish_collector_snapshot(next_collector)
+    }
+
+    fn with_heap_read<R>(&self, f: impl FnOnce(&Heap) -> R) -> Result<R, SharedHeapError> {
+        let heap = self
+            .heap
+            .read()
+            .map_err(|_| SharedHeapError::LockPoisoned)?;
+        Ok(f(&heap))
+    }
+
+    fn try_with_heap_read<R>(&self, f: impl FnOnce(&Heap) -> R) -> Result<R, SharedHeapError> {
+        let heap = self.heap.try_read().map_err(|error| match error {
+            std::sync::TryLockError::Poisoned(_) => SharedHeapError::LockPoisoned,
+            std::sync::TryLockError::WouldBlock => SharedHeapError::WouldBlock,
+        })?;
+        Ok(f(&heap))
     }
 
     fn with_heap_read_collector_update<R>(
@@ -1030,31 +1041,31 @@ impl SharedCollectorRuntime {
         {
             return Ok(false);
         }
-        if snapshot
-            .active_major_mark_plan
-            .as_ref()
-            .is_some_and(|plan| plan.kind == crate::plan::CollectionKind::Major)
-        {
-            return self
-                .with_heap_read_collector_update(|heap, collector| {
-                    let prepared = collector_session::prepare_active_major_reclaim_with_request(
-                        collector,
-                        heap.objects(),
-                        &heap.indexes().object_index,
-                        |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
-                        |plan| prepare_heap_major_reclaim(heap, plan),
-                    )?;
-                    refresh_cached_collector_plans(
-                        collector,
-                        &heap.storage_stats(),
-                        heap.old_gen(),
-                        heap.old_config(),
-                        |kind| heap.plan_for(kind),
-                    );
-                    Ok(prepared)
+        let request = self.collector.active_reclaim_prep_request();
+        let Some(request) = request else {
+            return Ok(false);
+        };
+        if request.plan.kind == crate::plan::CollectionKind::Major {
+            let prepared = self
+                .with_heap_read(|heap| {
+                    self.collector
+                        .prepare_active_collection_reclaim_with_request_and_refresh(
+                            request,
+                            heap.objects(),
+                            &heap.indexes().object_index,
+                            |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
+                            |plan| Ok(prepare_heap_major_reclaim(heap, plan)),
+                            &heap.storage_stats(),
+                            heap.old_gen(),
+                            heap.old_config(),
+                            |kind| heap.plan_for(kind),
+                        )
                 })
                 .map_err(Self::map_shared_heap_error)?
-                .map_err(SharedBackgroundError::Collection);
+                .map_err(SharedBackgroundError::Collection)?;
+            self.publish_collector_snapshot(self.collector.state_snapshot())
+                .map_err(Self::map_shared_heap_error)?;
+            return Ok(prepared);
         }
         self.with_runtime_update(|runtime| runtime.prepare_active_reclaim_if_needed())
             .map_err(Self::map_shared_heap_error)?
@@ -1074,31 +1085,31 @@ impl SharedCollectorRuntime {
         {
             return Ok(false);
         }
-        if snapshot
-            .active_major_mark_plan
-            .as_ref()
-            .is_some_and(|plan| plan.kind == crate::plan::CollectionKind::Major)
-        {
-            return self
-                .try_with_heap_read_collector_update(|heap, collector| {
-                    let prepared = collector_session::prepare_active_major_reclaim_with_request(
-                        collector,
-                        heap.objects(),
-                        &heap.indexes().object_index,
-                        |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
-                        |plan| prepare_heap_major_reclaim(heap, plan),
-                    )?;
-                    refresh_cached_collector_plans(
-                        collector,
-                        &heap.storage_stats(),
-                        heap.old_gen(),
-                        heap.old_config(),
-                        |kind| heap.plan_for(kind),
-                    );
-                    Ok(prepared)
+        let request = self.collector.active_reclaim_prep_request();
+        let Some(request) = request else {
+            return Ok(false);
+        };
+        if request.plan.kind == crate::plan::CollectionKind::Major {
+            let prepared = self
+                .try_with_heap_read(|heap| {
+                    self.collector
+                        .prepare_active_collection_reclaim_with_request_and_refresh(
+                            request,
+                            heap.objects(),
+                            &heap.indexes().object_index,
+                            |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
+                            |plan| Ok(prepare_heap_major_reclaim(heap, plan)),
+                            &heap.storage_stats(),
+                            heap.old_gen(),
+                            heap.old_config(),
+                            |kind| heap.plan_for(kind),
+                        )
                 })
                 .map_err(Self::map_shared_heap_error)?
-                .map_err(SharedBackgroundError::Collection);
+                .map_err(SharedBackgroundError::Collection)?;
+            self.publish_collector_snapshot(self.collector.state_snapshot())
+                .map_err(Self::map_shared_heap_error)?;
+            return Ok(prepared);
         }
         self.try_with_runtime_update(|runtime| runtime.prepare_active_reclaim_if_needed())
             .map_err(Self::map_shared_heap_error)?

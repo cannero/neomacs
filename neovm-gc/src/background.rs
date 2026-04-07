@@ -317,6 +317,48 @@ impl SharedCollectorHandle {
         self.read_snapshot(Clone::clone)
     }
 
+    pub(crate) fn state_snapshot(&self) -> CollectorSharedSnapshot {
+        self.state.shared_snapshot()
+    }
+
+    pub(crate) fn active_reclaim_prep_request(
+        &self,
+    ) -> Option<crate::collector_session::ActiveReclaimPrepRequest> {
+        self.state.active_reclaim_prep_request()
+    }
+
+    pub(crate) fn prepare_active_collection_reclaim_with_request_and_refresh(
+        &self,
+        request: crate::collector_session::ActiveReclaimPrepRequest,
+        objects: &[crate::object::ObjectRecord],
+        index: &crate::index_state::ObjectIndex,
+        trace_ephemerons: impl FnOnce(
+            &mut crate::collector_exec::MarkTracer<'_>,
+            &crate::plan::CollectionPlan,
+        ) -> (u64, u64),
+        prepare_reclaim: impl FnOnce(
+            &crate::plan::CollectionPlan,
+        )
+            -> Result<crate::reclaim::PreparedReclaim, crate::heap::AllocError>,
+        stats: &crate::stats::HeapStats,
+        old_gen: &crate::spaces::OldGenState,
+        old_config: &crate::spaces::OldGenConfig,
+        plan_for: impl FnMut(crate::plan::CollectionKind) -> crate::plan::CollectionPlan,
+    ) -> Result<bool, crate::heap::AllocError> {
+        self.state
+            .prepare_active_collection_reclaim_with_request_and_refresh(
+                request,
+                objects,
+                index,
+                trace_ephemerons,
+                prepare_reclaim,
+                stats,
+                old_gen,
+                old_config,
+                plan_for,
+            )
+    }
+
     fn publish_snapshot(
         &self,
         next_collector: CollectorSharedSnapshot,
