@@ -302,6 +302,88 @@ fn sweep_rebuilds_block_live_accounting_from_survivors() {
 }
 
 #[test]
+fn physical_compaction_stress_keeps_heap_bounded_under_repeated_majors() {
+    // Stress test: allocate batches of old-gen records, drop
+    // most after each batch, run a major + auto-compaction,
+    // and assert the heap stays bounded over many iterations.
+    // The compaction telemetry should show real work happening
+    // (records_moved > 0 and at least some source blocks
+    // reclaimed) over the run.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        old: OldGenConfig {
+            region_bytes: 1024,
+            line_bytes: 16,
+            concurrent_mark_workers: 1,
+            // Aggressive compaction so any block under 80% live
+            // becomes a candidate.
+            physical_compaction_density_threshold: 0.8,
+            ..OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+
+    const ROUNDS: usize = 8;
+    const ALLOCS_PER_ROUND: usize = 16;
+
+    let mut survivor_root_kinds: Vec<u8> = Vec::new();
+
+    for round in 0..ROUNDS {
+        let kind = round as u8;
+        survivor_root_kinds.push(kind);
+
+        // Allocate ALLOCS_PER_ROUND records, drop them inside a
+        // sub-scope so they become garbage. Allocate one
+        // additional record that lives in an outer scope so it
+        // survives the major.
+        let mut mutator = heap.mutator();
+        let mut keep_scope = mutator.handle_scope();
+        let _survivor = mutator
+            .alloc(&mut keep_scope, OldChunk([kind; 32]))
+            .expect("alloc survivor");
+        {
+            let mut dead_scope = mutator.handle_scope();
+            for _ in 0..ALLOCS_PER_ROUND {
+                mutator
+                    .alloc(&mut dead_scope, OldChunk([0xff; 32]))
+                    .expect("alloc dead chunk");
+            }
+        }
+
+        // Major + auto-compaction.
+        mutator
+            .collect(CollectionKind::Major)
+            .expect("major + compaction");
+    }
+
+    // The heap must NOT have grown unboundedly.
+    let final_blocks = heap.old_gen().block_count();
+    assert!(
+        final_blocks < 2 * ROUNDS,
+        "expected bounded block growth across {ROUNDS} rounds; \
+         got {final_blocks} blocks"
+    );
+
+    // Compaction telemetry: at least some real work happened.
+    let stats = heap.compaction_stats();
+    assert!(
+        stats.cycles >= 1,
+        "expected compaction to run at least once across {ROUNDS} \
+         major cycles, got {} cycles",
+        stats.cycles
+    );
+    assert!(
+        stats.records_moved >= 1,
+        "expected compaction to move at least one record across \
+         {ROUNDS} rounds, got {} records moved",
+        stats.records_moved
+    );
+}
+
+#[test]
 fn physical_compaction_shrinks_block_hole_bytes_after_major() {
     // Block-side analog of the legacy
     // execute_major_plan_honors_exact_selected_old_regions test:
