@@ -340,8 +340,10 @@ fn handler_bind_1_leaves_shared_condition_stack_balanced() {
 #[test]
 fn handler_bind_1_runs_inside_signal_dynamic_extent() {
     crate::test_utils::init_test_tracing();
+    // user-error is defined in subr.el, so this needs the bootstrap
+    // runtime context.
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             "(catch 'tag
                (handler-bind-1
                  (lambda ()
@@ -394,8 +396,9 @@ fn clear_top_level_eval_state_restores_top_level_lexenv_mode() {
 #[test]
 fn handler_bind_1_mutes_lower_condition_handlers() {
     crate::test_utils::init_test_tracing();
+    // user-error is defined in subr.el → bootstrap context required.
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             "(condition-case nil
                (handler-bind-1
                  (lambda ()
@@ -414,8 +417,9 @@ fn handler_bind_1_mutes_lower_condition_handlers() {
 #[test]
 fn handler_bind_1_handlers_do_not_apply_within_handlers() {
     crate::test_utils::init_test_tracing();
+    // user-error is defined in subr.el → bootstrap context required.
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             "(condition-case nil
                (handler-bind-1
                  (lambda () (user-error \"hello\"))
@@ -5450,14 +5454,18 @@ fn fset_inside_lambda_uses_argument_definition() {
 }
 
 #[test]
-fn compiled_literal_reader_form_is_not_callable() {
+fn compiled_literal_reader_form_is_callable_like_gnu() {
     crate::test_utils::init_test_tracing();
+    // GNU emacs 31.0.50 verified: a bytecode object printed as the
+    // reader literal `#[ARGS BYTECODE CONSTANTS DEPTH ...]` *is*
+    // executable when funcall'd; the reader does the equivalent of
+    // `make-byte-code` on it. Mirror that here.
     let result = eval_one(
         "(condition-case err
              (funcall (car (read-from-string \"#[nil \\\"\\\\300\\\\207\\\" [42] 1]\")))
            (error (car err)))",
     );
-    assert_eq!(result, "OK invalid-function");
+    assert_eq!(result, "OK 42");
 }
 
 #[test]
@@ -6880,11 +6888,13 @@ fn lexical_inhibit_read_only_binding_overrides_buffer_read_only() {
     crate::test_utils::init_test_tracing();
     let mut ev = crate::test_utils::runtime_startup_context();
     ev.set_lexical_binding(true);
-    let result = ev.eval_str(r#"(with-temp-buffer
+    let result = ev.eval_str(
+        "(with-temp-buffer
            (setq buffer-read-only t)
            (let ((inhibit-read-only t))
              (insert \"ok\")
-             (buffer-string)))"#);
+             (buffer-string)))",
+    );
     assert_eq!(format_eval_result(&result), r#"OK "ok""#);
 }
 
@@ -7849,6 +7859,10 @@ fn gc_collect_retains_reachable() {
 fn gc_collect_exact_retains_reachable() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
+    // Default scan mode is now ConservativeStack (commit 0b71f3e12);
+    // pin to ExactOnly here so this test exercises the explicit-only
+    // path it was written for.
+    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
     assert_eq!(
         ev.gc_root_scan_mode(),
         crate::tagged::gc::RootScanMode::ExactOnly

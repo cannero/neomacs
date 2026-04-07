@@ -219,6 +219,28 @@ impl KeyEvent {
                 if alt {
                     return None;
                 }
+                // GNU's `kbd` parser collapses `C-x` into raw control
+                // codepoint U+0018 with `ctrl=false` (mirroring elisp
+                // `?\C-x => 24`). Reverse that here so terminal-level
+                // KeyEvents still carry a `ctrl` modifier for ASCII
+                // letters — otherwise `(C-x).key` reads as char 0x18
+                // and rendering / matching breaks.
+                let (code, ctrl) = if !ctrl
+                    && (code as u32) < 0x20
+                    && code != '\r'
+                    && code != '\t'
+                    && code != '\u{1b}'
+                    && code != '\u{7f}'
+                {
+                    let lowered = ((code as u8) | 0x60) as char;
+                    if lowered.is_ascii_alphabetic() {
+                        (lowered, true)
+                    } else {
+                        (code, false)
+                    }
+                } else {
+                    (code, ctrl)
+                };
                 let key = match code {
                     '\r' => Key::Named(NamedKey::Return),
                     '\t' => Key::Named(NamedKey::Tab),

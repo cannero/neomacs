@@ -54,6 +54,14 @@ fn with_vm_eval_full_context_state<R>(
     with_vm_eval_in_context(Context::new(), src, lexical, f)
 }
 
+fn with_vm_eval_bootstrap_context_state<R>(
+    src: &str,
+    lexical: bool,
+    f: impl FnOnce(Result<Value, EvalError>, &Context) -> R,
+) -> R {
+    with_vm_eval_in_context(crate::test_utils::runtime_startup_context(), src, lexical, f)
+}
+
 fn vm_eval_str(src: &str) -> String {
     with_vm_eval(src, false, |result| {
         crate::emacs_core::error::format_eval_result(&result)
@@ -134,7 +142,8 @@ fn vm_handler_bind_1_leaves_shared_condition_stack_balanced() {
 #[test]
 fn vm_handler_bind_1_runs_inside_signal_dynamic_extent() {
     crate::test_utils::init_test_tracing();
-    with_vm_eval_full_context_state(
+    // user-error is defined in subr.el → use bootstrap context.
+    with_vm_eval_bootstrap_context_state(
         "(catch 'tag
            (handler-bind-1
              (lambda ()
@@ -156,7 +165,8 @@ fn vm_handler_bind_1_runs_inside_signal_dynamic_extent() {
 #[test]
 fn vm_handler_bind_1_mutes_lower_condition_handlers() {
     crate::test_utils::init_test_tracing();
-    with_vm_eval_full_context_state(
+    // user-error is defined in subr.el → use bootstrap context.
+    with_vm_eval_bootstrap_context_state(
         "(condition-case nil
            (handler-bind-1
              (lambda ()
@@ -180,7 +190,8 @@ fn vm_handler_bind_1_mutes_lower_condition_handlers() {
 #[test]
 fn vm_handler_bind_1_handlers_do_not_apply_within_handlers() {
     crate::test_utils::init_test_tracing();
-    with_vm_eval_full_context_state(
+    // user-error is defined in subr.el → use bootstrap context.
+    with_vm_eval_bootstrap_context_state(
         "(condition-case nil
            (handler-bind-1
              (lambda () (user-error \"hello\"))
