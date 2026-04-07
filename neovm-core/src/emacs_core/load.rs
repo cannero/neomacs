@@ -1328,7 +1328,16 @@ fn load_file_body(
     let content = if is_elc {
         skip_elc_header(&raw_bytes)
     } else {
-        decode_emacs_utf8(&raw_bytes)
+        // GNU `Fload` (`src/lread.c`) lets the coding system swallow
+        // a leading UTF-8 BOM (U+FEFF). NeoVM's reader does not, so
+        // strip it here before the streaming reader sees the source —
+        // otherwise the BOM is parsed as a one-character symbol and
+        // signals `void-variable`.
+        let decoded = decode_emacs_utf8(&raw_bytes);
+        match decoded.strip_prefix('\u{feff}') {
+            Some(rest) => rest.to_string(),
+            None => decoded,
+        }
     };
 
     // Detect lexical-binding.
