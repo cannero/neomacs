@@ -328,9 +328,22 @@ impl Pacer {
         let target_pause_secs = nanos_as_secs_f64(target_pause_nanos);
 
         // 1. Mark rate (bytes per second processed by the marker).
-        if cycle.pause_nanos > 0 {
-            let pause_secs = nanos_as_secs_f64(cycle.pause_nanos);
-            let observed = (live_bytes_after as f64) / pause_secs;
+        //
+        // Approximate the mark-only time by subtracting the
+        // reclaim-prepare phase from the total stop-the-world pause.
+        // CollectionStats already separates reclaim_prepare_nanos so
+        // this gives a tighter mark rate estimate than treating the
+        // whole pause as marking. Falls back to pause_nanos when the
+        // subtraction would underflow (defensive — should not happen
+        // in practice because reclaim_prepare_nanos is a strict
+        // sub-interval of pause_nanos).
+        let mark_nanos = cycle
+            .pause_nanos
+            .checked_sub(cycle.reclaim_prepare_nanos)
+            .unwrap_or(cycle.pause_nanos);
+        if mark_nanos > 0 {
+            let mark_secs = nanos_as_secs_f64(mark_nanos);
+            let observed = (live_bytes_after as f64) / mark_secs;
             state.last_mark_rate_bps =
                 ewma_update(state.last_mark_rate_bps, observed, alpha);
         }
