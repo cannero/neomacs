@@ -1,7 +1,7 @@
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState, CollectorStateHandle};
 use crate::heap::{AllocError, Heap};
 use crate::mutator::Mutator;
-use crate::pacer::PacerStats;
+use crate::pacer::{Pacer, PacerConfig, PacerStats};
 use crate::pause_stats::PauseHistogram;
 use crate::plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress,
@@ -88,6 +88,11 @@ pub struct SharedHeap {
     inner: Arc<RwLock<Heap>>,
     runtime: SharedRuntimeHandle,
     collector: SharedCollectorHandle,
+    /// Cached `Pacer` handle. Cloning a `Pacer` is cheap (it just
+    /// bumps the inner `Arc<Mutex<PacerState>>` refcount), and the
+    /// cached handle lets `SharedHeap` callers read or update the
+    /// pacer's config without taking the main heap `RwLock`.
+    pacer: Pacer,
 }
 
 /// Public snapshot of shared heap state that can be read without taking the main heap mutex.
@@ -886,6 +891,7 @@ impl SharedHeap {
         let collector_snapshot = heap.collector_shared_snapshot();
         let runtime_state = heap.runtime_state_handle();
         let collector_state = heap.collector_handle();
+        let pacer = heap.pacer();
         let background_signal = Arc::new(SharedHeapSignal::default());
         let heap_signal = Arc::new(SharedHeapSignal::default());
         let snapshot = Arc::new(RwLock::new(snapshot));
@@ -902,6 +908,7 @@ impl SharedHeap {
             inner: Arc::new(RwLock::new(heap)),
             runtime,
             collector,
+            pacer,
         }
     }
 
@@ -1161,6 +1168,29 @@ impl SharedHeap {
         self.runtime
             .observe_heap_status()
             .map(|status| status.pauses)
+    }
+
+    /// Return the adaptive pacer's current configuration.
+    ///
+    /// Reads through the cached `Pacer` handle that
+    /// [`SharedHeap::from_heap`] captured at construction. The pacer
+    /// state lives behind its own `Arc<Mutex<...>>`, so this call
+    /// never touches the main heap `RwLock` and never contends with
+    /// mutators or background workers that hold it.
+    pub fn pacer_config(&self) -> PacerConfig {
+        self.pacer.config()
+    }
+
+    /// Replace the adaptive pacer's configuration in place. Preserves
+    /// all accumulated pacer runtime state (EWMA estimates, observed
+    /// cycles, next-trigger threshold).
+    ///
+    /// Lock-free with respect to the main heap `RwLock`: the call
+    /// only takes the pacer's own internal mutex, so callers can
+    /// retune the pacer mid-flight even while a mutator or background
+    /// worker holds the heap write lock.
+    pub fn update_pacer_config(&self, config: PacerConfig) {
+        self.pacer.update_config(config);
     }
 
     /// Return the number of queued finalizers waiting to run.

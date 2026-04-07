@@ -8354,6 +8354,43 @@ fn public_api_concurrent_marker_drives_major_mark_to_completion() {
 }
 
 #[test]
+fn public_api_shared_update_pacer_config_works_while_heap_write_locked() {
+    // Demonstrate that SharedHeap::update_pacer_config does NOT
+    // touch the main heap RwLock: it must succeed and be observable
+    // even while a different thread holds the heap write lock.
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let initial = shared.pacer_config();
+
+    // Park another thread on the heap write lock so any path that
+    // tried to take the lock would deadlock.
+    let (release_tx, waiter) = lock_shared_heap_on_other_thread(shared.clone());
+
+    // Now retune the pacer through the lock-free path.
+    shared.update_pacer_config(PacerConfig {
+        min_trigger_bytes: 4321,
+        nursery_soft_trigger_bytes: 8765,
+        ..initial
+    });
+
+    // The update is observable through the lock-free pacer_config
+    // accessor while the helper still owns the heap write lock.
+    let updated = shared.pacer_config();
+    assert_eq!(updated.min_trigger_bytes, 4321);
+    assert_eq!(updated.nursery_soft_trigger_bytes, 8765);
+
+    // Release the helper and verify it never panicked.
+    release_tx
+        .send(())
+        .expect("release shared heap write lock");
+    waiter.join().expect("join write-lock helper thread");
+
+    // The new config persists after the helper releases the lock.
+    let after_release = shared.pacer_config();
+    assert_eq!(after_release.min_trigger_bytes, 4321);
+    assert_eq!(after_release.nursery_soft_trigger_bytes, 8765);
+}
+
+#[test]
 fn public_api_shared_pacer_stats_accessor_reads_lock_free() {
     // Build a shared heap with a tight pacer trigger, run some
     // allocations through the shared mutator, and read the pacer
