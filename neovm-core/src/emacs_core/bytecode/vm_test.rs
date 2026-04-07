@@ -781,7 +781,11 @@ fn execute_manual_vm<T>(
 fn execute_manual_vm_built<T>(
     build: impl FnOnce(&mut crate::buffer::BufferManager) -> (ByteCodeFunction, T),
 ) -> (Value, crate::buffer::BufferManager, T) {
-    let mut eval = Context::new_minimal_vm_harness();
+    // Use the full Context::new() builder so the manual bytecode can
+    // call regular builtins (set-buffer, narrow-to-region, etc.). The
+    // minimal harness only registers std errors and lacks the full
+    // subr surface.
+    let mut eval = Context::new();
     let (func, init_state) = build(&mut eval.buffers);
 
     let result = {
