@@ -7181,9 +7181,12 @@ fn vm_buffer_local_and_binding_builtins_use_shared_state() {
 #[test]
 fn vm_search_builtins_use_shared_runtime_state_and_match_data() {
     crate::test_utils::init_test_tracing();
+    // Use bootstrap context throughout — mixing bare and bootstrap
+    // vm_eval inside one #[test] divergences the global interner with
+    // the cached pdump.
     assert_eq!(
-        vm_eval_str(
-            r#"(progn
+        vm_bootstrap_eval_str(
+            r#"(with-temp-buffer
                  (insert "ab")
                  (let ((end (copy-marker (point-max) t)))
                    (goto-char (point-min))
@@ -7198,10 +7201,11 @@ fn vm_search_builtins_use_shared_runtime_state_and_match_data() {
         "OK (4 4 4 3 4)"
     );
 
+    // search-forward-regexp is an alias defined in subr.el, so the
+    // bootstrap context is needed.
     assert_eq!(
-        vm_eval_str(
-            r#"(progn
-                 (erase-buffer)
+        vm_bootstrap_eval_str(
+            r#"(with-temp-buffer
                  (insert "ab12")
                  (goto-char 1)
                  (list (re-search-forward "[0-9]+" nil t)
