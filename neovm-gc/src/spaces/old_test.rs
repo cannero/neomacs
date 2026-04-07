@@ -160,6 +160,102 @@ fn heap_compact_old_gen_physical_empty_heap_reports_zero_moved() {
 }
 
 #[test]
+fn sweep_rebuilds_block_live_accounting_from_survivors() {
+    // Allocate several OldChunks so one block fills up. Drop
+    // most of them so the next major sweep drops dead records.
+    // After the major, the surviving block's live_bytes /
+    // object_count counters must reflect ONLY the survivors,
+    // not the pre-sweep total. Without the rebuild added in
+    // step 9 the counters would still reflect every allocation
+    // ever made in the block.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        old: OldGenConfig {
+            region_bytes: 1024,
+            line_bytes: 16,
+            concurrent_mark_workers: 1,
+            // Keep auto-compaction disabled so the test
+            // isolates the sweep-rebuild behavior from the
+            // compaction-rebuild behavior.
+            physical_compaction_density_threshold: 0.0,
+            ..OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+    // Allocate 2 rooted survivors; then allocate 4 more inside
+    // a nested scope that drops, making them unreachable.
+    let _survivor_a = mutator
+        .alloc(&mut keep_scope, OldChunk([1; 32]))
+        .expect("alloc survivor a");
+    let _survivor_b = mutator
+        .alloc(&mut keep_scope, OldChunk([2; 32]))
+        .expect("alloc survivor b");
+    {
+        let mut dead_scope = mutator.handle_scope();
+        for i in 0..4u8 {
+            mutator
+                .alloc(&mut dead_scope, OldChunk([3 + i; 32]))
+                .expect("alloc dead chunk");
+        }
+    }
+
+    // Six objects total in the block, 2 rooted.
+    let before_total_live: usize = mutator
+        .heap()
+        .old_gen()
+        .blocks()
+        .iter()
+        .map(|block| block.live_bytes())
+        .sum();
+    // The pre-sweep block live_bytes counts every allocation
+    // (6 objects). It must be strictly greater than the
+    // post-sweep total.
+    assert!(
+        before_total_live > 0,
+        "expected block live_bytes to have grown as records were allocated"
+    );
+
+    mutator
+        .collect(CollectionKind::Major)
+        .expect("major sweeps the 4 dead chunks");
+
+    // After the sweep, the block's live_bytes must reflect only
+    // the 2 surviving records. 2 * total_size is what we expect.
+    let after_total_live: usize = mutator
+        .heap()
+        .old_gen()
+        .blocks()
+        .iter()
+        .map(|block| block.live_bytes())
+        .sum();
+    let after_total_count: usize = mutator
+        .heap()
+        .old_gen()
+        .blocks()
+        .iter()
+        .map(|block| block.object_count())
+        .sum();
+    assert!(
+        after_total_live < before_total_live,
+        "post-sweep block live_bytes ({}) should be strictly less than \
+         pre-sweep ({}): the rebuild must drop the 4 dead records",
+        after_total_live,
+        before_total_live
+    );
+    assert_eq!(
+        after_total_count, 2,
+        "post-sweep block object_count should reflect exactly the 2 \
+         surviving rooted chunks"
+    );
+}
+
+#[test]
 fn compact_old_gen_physical_drops_emptied_source_blocks() {
     // After compaction moves every live record out of a sparse
     // block, that block has no surviving records and its
