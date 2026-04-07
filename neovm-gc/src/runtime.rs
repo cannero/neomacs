@@ -574,11 +574,9 @@ impl<'heap> CollectorRuntime<'heap> {
             .active_major_mark_plan
             .as_ref()
             .is_some_and(|plan| plan.phase != CollectionPhase::Reclaim)
-        {
-            if self.prepare_active_reclaim_if_needed()? {
+            && self.prepare_active_reclaim_if_needed()? {
                 return Ok(None);
             }
-        }
         let snapshot = self.heap.collector_shared_snapshot();
         if snapshot.active_major_mark_plan.is_none() {
             return Ok(None);
@@ -1332,11 +1330,9 @@ impl SharedCollectorRuntime {
                 plan.kind == crate::plan::CollectionKind::Major
                     && plan.phase != CollectionPhase::Reclaim
             })
-        {
-            if self.prepare_active_reclaim_if_needed()? {
+            && self.prepare_active_reclaim_if_needed()? {
                 return Ok(None);
             }
-        }
         self.with_runtime_update(|runtime| runtime.finish_active_major_collection_if_ready())
             .map_err(Self::map_shared_heap_error)?
             .map_err(SharedBackgroundError::Collection)
@@ -1390,11 +1386,9 @@ impl SharedCollectorRuntime {
                 plan.kind == crate::plan::CollectionKind::Major
                     && plan.phase != CollectionPhase::Reclaim
             })
-        {
-            if self.try_prepare_active_reclaim_if_needed()? {
+            && self.try_prepare_active_reclaim_if_needed()? {
                 return Ok(None);
             }
-        }
         self.try_with_runtime_update(|runtime| runtime.finish_active_major_collection_if_ready())
             .map_err(Self::map_shared_heap_error)?
             .map_err(SharedBackgroundError::Collection)

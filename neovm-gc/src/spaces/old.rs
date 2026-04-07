@@ -554,9 +554,9 @@ impl OldGenState {
         layout: core::alloc::Layout,
         target_hint: Option<usize>,
     ) -> Option<(OldBlockPlacement, core::ptr::NonNull<u8>, usize)> {
-        if let Some(index) = target_hint {
-            if let Some(block) = self.blocks.get_mut(index) {
-                if let Some((offset, ptr)) = block.try_alloc(layout) {
+        if let Some(index) = target_hint
+            && let Some(block) = self.blocks.get_mut(index)
+                && let Some((offset, ptr)) = block.try_alloc(layout) {
                     return Some((
                         OldBlockPlacement {
                             block_index: index,
@@ -567,8 +567,6 @@ impl OldGenState {
                         index,
                     ));
                 }
-            }
-        }
         let (placement, ptr) = self.alloc_in_fresh_block(config, layout)?;
         let new_target = placement.block_index;
         Some((placement, ptr, new_target))
@@ -846,14 +844,13 @@ impl OldGenState {
         // the time `record_object` is invoked. Update the block's
         // live_bytes / object_count counters so step 4 of the
         // OldRegion unification can read region-stats from blocks.
-        if let Some(block_placement) = object.old_block_placement() {
-            if let Some(block) = self.blocks.get_mut(block_placement.block_index) {
+        if let Some(block_placement) = object.old_block_placement()
+            && let Some(block) = self.blocks.get_mut(block_placement.block_index) {
                 block.record_object_accounting(
                     block_placement.offset_bytes,
                     object.total_size(),
                 );
             }
-        }
 
         // Legacy region-side accounting. Still maintained in this
         // step so every existing reader (region_stats,

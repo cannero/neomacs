@@ -1637,14 +1637,13 @@ impl BackgroundCollector {
         &mut self,
         runtime: &mut R,
     ) -> Result<bool, AllocError> {
-        if runtime.active_major_mark_plan().is_none() && self.config.auto_start_concurrent {
-            if let Some(plan) = runtime.recommended_background_plan()
+        if runtime.active_major_mark_plan().is_none() && self.config.auto_start_concurrent
+            && let Some(plan) = runtime.recommended_background_plan()
                 && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full)
             {
                 runtime.begin_major_mark(plan)?;
                 self.stats.sessions_started = self.stats.sessions_started.saturating_add(1);
             }
-        }
 
         Ok(runtime.active_major_mark_plan().is_some())
     }
@@ -1804,8 +1803,8 @@ impl BackgroundCollector {
         runtime: &SharedCollectorRuntime,
         nonblocking: bool,
     ) -> Result<bool, SharedBackgroundError> {
-        if runtime.active_major_mark_plan()?.is_none() && self.config.auto_start_concurrent {
-            if let Some(plan) = runtime.recommended_background_plan()?
+        if runtime.active_major_mark_plan()?.is_none() && self.config.auto_start_concurrent
+            && let Some(plan) = runtime.recommended_background_plan()?
                 && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full)
             {
                 if nonblocking {
@@ -1815,7 +1814,6 @@ impl BackgroundCollector {
                 }
                 self.stats.sessions_started = self.stats.sessions_started.saturating_add(1);
             }
-        }
 
         runtime.active_major_mark_plan().map(|plan| plan.is_some())
     }
@@ -1909,13 +1907,12 @@ impl BackgroundCollector {
                 BackgroundCollectionStatus::Idle => return Ok(None),
                 BackgroundCollectionStatus::Progress(_) => {}
                 BackgroundCollectionStatus::ReadyToFinish(progress) => {
-                    if progress.completed {
-                        if let Some(cycle) = runtime.finish_active_major_collection_if_ready()? {
+                    if progress.completed
+                        && let Some(cycle) = runtime.finish_active_major_collection_if_ready()? {
                             self.stats.sessions_finished =
                                 self.stats.sessions_finished.saturating_add(1);
                             return Ok(Some(cycle));
                         }
-                    }
                 }
                 BackgroundCollectionStatus::Finished(cycle) => return Ok(Some(cycle)),
             }
