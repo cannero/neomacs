@@ -24,7 +24,12 @@ use core::ptr::NonNull;
 use std::collections::HashMap;
 
 /// Heap creation configuration.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+///
+/// `Eq` is intentionally not derived because the embedded
+/// `PacerConfig` carries `f64` fields (allocation rates, ratios).
+/// `PartialEq` is still implemented so callers can compare configs
+/// for testing.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct HeapConfig {
     /// Nursery configuration.
     pub nursery: NurseryConfig,
@@ -34,6 +39,11 @@ pub struct HeapConfig {
     pub pinned: PinnedSpaceConfig,
     /// Large-object-space configuration.
     pub large: LargeObjectSpaceConfig,
+    /// Adaptive pacer configuration. Defaults to
+    /// [`PacerConfig::default`], which keeps the pacer enabled with
+    /// conservative trigger thresholds. The pacer can also be
+    /// reconfigured after construction via [`Heap::set_pacer_config`].
+    pub pacer: PacerConfig,
 }
 
 impl Default for HeapConfig {
@@ -43,6 +53,7 @@ impl Default for HeapConfig {
             old: OldGenConfig::default(),
             pinned: PinnedSpaceConfig::default(),
             large: LargeObjectSpaceConfig::default(),
+            pacer: PacerConfig::default(),
         }
     }
 }
@@ -106,6 +117,7 @@ impl Heap {
     /// Create a new heap with `config`.
     pub fn new(config: HeapConfig) -> Self {
         let nursery = NurseryState::new(config.nursery.semispace_bytes);
+        let pacer = Pacer::new(config.pacer);
         let heap = Self {
             stats: HeapStats {
                 nursery: crate::stats::SpaceStats {
@@ -141,7 +153,7 @@ impl Heap {
             recent_barrier_events: Vec::new(),
             collector: CollectorStateHandle::default(),
             pause_stats: PauseStatsHandle::new(),
-            pacer: Pacer::new(PacerConfig::default()),
+            pacer,
             nursery,
         };
         heap.refresh_recommended_plans();

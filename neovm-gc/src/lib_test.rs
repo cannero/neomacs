@@ -11340,6 +11340,8 @@ fn pacer_in_heap_triggers_major_via_allocation_pressure() {
     // enough to make the pacer want to fire. Use an enormous nursery
     // semispace so the *static* nursery pressure path can never fire,
     // forcing any observed major collections to come from the pacer.
+    // The pacer config is now part of HeapConfig so we can construct
+    // it inline.
     let mut heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             // Big enough that we never trip the static nursery pressure.
@@ -11350,13 +11352,13 @@ fn pacer_in_heap_triggers_major_via_allocation_pressure() {
             promotion_age: 1,
             ..NurseryConfig::default()
         },
+        pacer: PacerConfig {
+            target_pause: Duration::from_secs(1),
+            heap_growth_target_ratio: 2.0,
+            min_trigger_bytes: 256,
+            ..PacerConfig::default()
+        },
         ..HeapConfig::default()
-    });
-    heap.set_pacer_config(PacerConfig {
-        target_pause: Duration::from_secs(1),
-        heap_growth_target_ratio: 2.0,
-        min_trigger_bytes: 256,
-        ..PacerConfig::default()
     });
 
     let baseline_majors = heap.stats().collections.major_collections;
@@ -11397,6 +11399,29 @@ fn pacer_in_heap_triggers_major_via_allocation_pressure() {
         "live bytes ({}) should remain bounded under pacer-driven GC",
         live_bytes
     );
+}
+
+#[test]
+fn pacer_config_is_honored_when_supplied_via_heap_config() {
+    // Construct a heap with a custom PacerConfig directly through
+    // HeapConfig (no post-hoc set_pacer_config call). The heap's
+    // pacer should be initialized with the supplied config.
+    let heap = Heap::new(HeapConfig {
+        pacer: PacerConfig {
+            min_trigger_bytes: 9876,
+            heap_growth_target_ratio: 4.25,
+            nursery_soft_trigger_bytes: 4096,
+            ..PacerConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let cfg = heap.pacer().config();
+    assert_eq!(cfg.min_trigger_bytes, 9876);
+    assert!((cfg.heap_growth_target_ratio - 4.25).abs() < f64::EPSILON);
+    assert_eq!(cfg.nursery_soft_trigger_bytes, 4096);
+    // The initial trigger threshold matches min_trigger_bytes per
+    // Pacer::new's seeding behavior.
+    assert_eq!(heap.pacer_stats().next_major_trigger_bytes, 9876);
 }
 
 #[test]
