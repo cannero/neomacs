@@ -160,6 +160,52 @@ fn heap_compact_old_gen_physical_empty_heap_reports_zero_moved() {
 }
 
 #[test]
+fn block_region_stats_reports_per_block_live_and_used_bytes() {
+    // block_region_stats exposes the block-side counters as
+    // OldRegionStats entries (one per block). After dual-track
+    // step 2 populated the counters, this view mirrors what
+    // region_stats would report if it consumed the block side.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        old: OldGenConfig {
+            region_bytes: 1024,
+            line_bytes: 16,
+            concurrent_mark_workers: 1,
+            ..OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        for i in 0..3u8 {
+            mutator
+                .alloc(&mut scope, OldChunk([i; 32]))
+                .expect("alloc direct-old chunk");
+        }
+    }
+
+    let block_stats = heap.old_gen().block_region_stats();
+    assert!(
+        !block_stats.is_empty(),
+        "block_region_stats should have at least one entry after 3 allocations"
+    );
+    let total_live: usize = block_stats.iter().map(|s| s.live_bytes).sum();
+    let total_count: usize = block_stats.iter().map(|s| s.object_count).sum();
+    assert!(total_live > 0);
+    assert_eq!(total_count, 3);
+    // Every entry's reserved_bytes is the block's capacity.
+    for stat in &block_stats {
+        assert!(stat.reserved_bytes >= stat.live_bytes);
+        assert!(stat.occupied_lines <= stat.reserved_bytes / 16);
+    }
+}
+
+#[test]
 fn sweep_rebuilds_block_live_accounting_from_survivors() {
     // Allocate several OldChunks so one block fills up. Drop
     // most of them so the next major sweep drops dead records.

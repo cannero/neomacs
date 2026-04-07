@@ -844,6 +844,23 @@ impl OldGenState {
     }
 
     pub(crate) fn region_stats(&self) -> Vec<OldRegionStats> {
+        // Still reads from the legacy `regions` vec. An earlier
+        // attempt to compute this from blocks (step 10) tripped
+        // `execute_major_plan_honors_exact_selected_old_regions`
+        // because that test asserts the logical-compaction
+        // behavior of `hole_bytes` shrinking after a major --
+        // which happens when the legacy rebuild path rewrites
+        // region offsets tight against survivors, but does NOT
+        // happen when computing the same metric from blocks (the
+        // block's `used_bytes` stays at its physical high-water
+        // mark). The test semantic is fundamentally a logical-
+        // compaction contract, so as long as the test survives
+        // the regions vec has to be the source of truth.
+        //
+        // The block side does maintain identical counters
+        // (updated by record_object on alloc and by the sweep
+        // rebuild on survivors) so that future step can switch
+        // the reader if the test contract is revised.
         self.regions
             .iter()
             .enumerate()
@@ -857,6 +874,37 @@ impl OldGenState {
                 tail_bytes: region.capacity_bytes.saturating_sub(region.used_bytes),
                 object_count: region.object_count,
                 occupied_lines: region.occupied_lines.len(),
+            })
+            .collect()
+    }
+
+    /// Block-backed stats view. Each `OldBlock` maps to one
+    /// `OldRegionStats` entry (using the block index as the
+    /// pseudo region index). This exposes the block-side
+    /// counters maintained by step 9's sweep rebuild without
+    /// going through the legacy `regions` vec. Intended for
+    /// callers and tests that want to observe the physical
+    /// block layout directly.
+    #[allow(dead_code)]
+    pub(crate) fn block_region_stats(&self) -> Vec<OldRegionStats> {
+        self.blocks
+            .iter()
+            .enumerate()
+            .map(|(index, block)| {
+                let reserved_bytes = block.capacity_bytes();
+                let used_bytes = block.used_bytes();
+                let live_bytes = block.live_bytes();
+                OldRegionStats {
+                    region_index: index,
+                    reserved_bytes,
+                    used_bytes,
+                    live_bytes,
+                    free_bytes: reserved_bytes.saturating_sub(live_bytes),
+                    hole_bytes: used_bytes.saturating_sub(live_bytes),
+                    tail_bytes: reserved_bytes.saturating_sub(used_bytes),
+                    object_count: block.object_count(),
+                    occupied_lines: block.occupied_line_count(),
+                }
             })
             .collect()
     }
