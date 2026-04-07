@@ -1214,6 +1214,38 @@ impl SharedHeap {
         Ok(heap.compact_old_gen_if_fragmented(fragmentation_threshold))
     }
 
+    /// Aggressive multi-pass compaction via the shared heap.
+    /// Takes the heap WRITE lock for the duration. See
+    /// [`Heap::compact_old_gen_aggressive`] for semantics.
+    pub fn compact_old_gen_aggressive(
+        &self,
+        density_threshold: f64,
+        max_passes: usize,
+    ) -> Result<usize, SharedHeapError> {
+        let mut heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
+        Ok(heap.compact_old_gen_aggressive(density_threshold, max_passes))
+    }
+
+    /// Read-only predicate for whether physical compaction
+    /// would currently be productive. Takes a brief read-lock
+    /// on the heap. See [`Heap::should_compact_old_gen`].
+    pub fn should_compact_old_gen(
+        &self,
+        fragmentation_threshold: f64,
+    ) -> Result<bool, SharedHeapError> {
+        let heap = self.read().map_err(|_| SharedHeapError::LockPoisoned)?;
+        Ok(heap.should_compact_old_gen(fragmentation_threshold))
+    }
+
+    /// Clear the cumulative compaction counters via the shared
+    /// heap. Takes the heap WRITE lock briefly. See
+    /// [`Heap::clear_compaction_stats`].
+    pub fn clear_compaction_stats(&self) -> Result<(), SharedHeapError> {
+        let mut heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
+        heap.clear_compaction_stats();
+        Ok(())
+    }
+
     /// Return the adaptive pacer's current configuration.
     ///
     /// Reads through the cached `Pacer` handle that
