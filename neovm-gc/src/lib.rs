@@ -8,6 +8,13 @@
 //!   into per-worker sub-arenas (see [`spaces`]).
 //! * **Old generation**: Immix-style block pool with line marks, hole-filling
 //!   allocation, and per-block card tables.
+//! * **Physical old-gen compaction**: opt-in pass that evacuates surviving
+//!   records out of sparse blocks into freshly-packed target blocks,
+//!   reclaims the now-empty source blocks, and surfaces cumulative
+//!   compaction telemetry. Configured via
+//!   `OldGenConfig::physical_compaction_density_threshold` (0.0 = disabled
+//!   default) or invoked manually via `Heap::compact_old_gen_physical`,
+//!   `compact_old_gen_aggressive`, and `compact_old_gen_if_fragmented`.
 //! * **Concurrent marker**: dedicated lock-alternating mark thread that drives
 //!   active major-mark sessions to completion via brief read-lock slices
 //!   (see [`concurrent_marker`]).
@@ -15,7 +22,8 @@
 //!   constraints (heap growth, max pause budget, CPU-aware budget) and
 //!   optional nursery soft trigger for early minor cycles (see [`pacer`]).
 //! * **Telemetry**: rolling pause-time histogram, per-space heap stats,
-//!   and lock-free shared snapshots ([`PauseHistogram`], [`HeapStats`],
+//!   physical compaction counters ([`CompactionStats`]), and lock-free
+//!   shared snapshots ([`PauseHistogram`], [`HeapStats`],
 //!   [`SharedHeap::status`]).
 //!
 //! Most VM runtimes will interact with the crate through [`Heap`] (single
