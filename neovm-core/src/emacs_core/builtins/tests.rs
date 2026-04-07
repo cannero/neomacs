@@ -2285,7 +2285,9 @@ fn kill_all_local_variables_clears_buffer_locals() {
     let buf = eval.buffers.current_buffer().unwrap();
     assert!(buf.get_buffer_local("tab-width").is_none());
     assert!(buf.get_buffer_local("fill-column").is_none());
-    assert_eq!(buf.get_buffer_local("buffer-read-only"), Some(&Value::NIL));
+    // buffer-read-only is a BUFFER_OBJFWD-style slot now: it always
+    // resolves through the slot, never goes void, and starts at nil.
+    assert_eq!(buf.get_read_only(), false);
     assert_eq!(
         buf.get_buffer_local("major-mode"),
         Some(&Value::symbol("fundamental-mode"))

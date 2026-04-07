@@ -18,16 +18,19 @@ struct ConditionalSlotSpec {
 
 // GNU buffer.c init_buffer_once: slots marked with -1 in buffer_local_flags are
 // always buffer-local in every live buffer.
+//
+// Phase 10 sub-phase A: the four BUFFER_OBJFWD-style names
+// (`buffer-file-name`, `buffer-auto-save-file-name`,
+// `buffer-read-only`, `enable-multibyte-characters`) are not in this
+// list — they live exclusively in `Buffer::slots[]` after Phase 8b
+// and the BufferLocals path no longer mirrors them.
 const ALWAYS_LOCAL_BUFFER_LOCAL_NAMES: &[&str] = &[
-    "buffer-file-name",
     "buffer-file-truename",
     "default-directory",
-    "buffer-read-only",
     "buffer-undo-list",
     "buffer-saved-size",
     "buffer-backed-up",
     "buffer-file-format",
-    "buffer-auto-save-file-name",
     "buffer-auto-save-file-format",
     "major-mode",
     "local-minor-modes",
@@ -36,7 +39,6 @@ const ALWAYS_LOCAL_BUFFER_LOCAL_NAMES: &[&str] = &[
     "point-before-scroll",
     "buffer-display-count",
     "buffer-display-time",
-    "enable-multibyte-characters",
     "buffer-invisibility-spec",
 ];
 
@@ -241,15 +243,12 @@ fn default_directory_value() -> Value {
 
 fn always_local_default_binding(name: &str) -> Option<RuntimeBindingValue> {
     let value = match name {
-        "buffer-file-name" => Value::NIL,
         "buffer-file-truename" => Value::NIL,
         "default-directory" => default_directory_value(),
-        "buffer-read-only" => Value::NIL,
         "buffer-undo-list" => Value::NIL,
         "buffer-saved-size" => Value::fixnum(0),
         "buffer-backed-up" => Value::NIL,
         "buffer-file-format" => Value::NIL,
-        "buffer-auto-save-file-name" => Value::NIL,
         "buffer-auto-save-file-format" => Value::T,
         "major-mode" => Value::symbol("fundamental-mode"),
         "local-minor-modes" => Value::NIL,
@@ -258,7 +257,6 @@ fn always_local_default_binding(name: &str) -> Option<RuntimeBindingValue> {
         "point-before-scroll" => Value::NIL,
         "buffer-display-count" => Value::fixnum(0),
         "buffer-display-time" => Value::NIL,
-        "enable-multibyte-characters" => Value::T,
         "buffer-invisibility-spec" => Value::T,
         _ => return None,
     };

@@ -964,31 +964,38 @@ impl Buffer {
     // -- Buffer-local variables ----------------------------------------------
 
     pub fn set_buffer_local(&mut self, name: &str, value: Value) {
-        if name == "buffer-file-name" {
-            match value.kind() {
-                ValueKind::String => {
-                    self.slots[BUFFER_SLOT_FILE_NAME] = value;
-                }
-                ValueKind::Nil => {
-                    self.slots[BUFFER_SLOT_FILE_NAME] = Value::NIL;
-                }
-                _ => {}
+        // Phase 10 sub-phase A: the four BUFFER_OBJFWD-style fields
+        // live in `self.slots` only — write the slot and skip the
+        // BufferLocals dual-write. Mirrors GNU's `set_internal`
+        // routing for SYMBOL_FORWARDED variables.
+        match name {
+            "buffer-file-name" => {
+                self.slots[BUFFER_SLOT_FILE_NAME] = match value.kind() {
+                    ValueKind::String => value,
+                    ValueKind::Nil => Value::NIL,
+                    _ => self.slots[BUFFER_SLOT_FILE_NAME],
+                };
+                return;
             }
-        }
-        if name == "buffer-auto-save-file-name" {
-            match value.kind() {
-                ValueKind::String => {
-                    self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME] = value;
-                }
-                ValueKind::Nil => {
-                    self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME] = Value::NIL;
-                }
-                _ => {}
+            "buffer-auto-save-file-name" => {
+                self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME] = match value.kind() {
+                    ValueKind::String => value,
+                    ValueKind::Nil => Value::NIL,
+                    _ => self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME],
+                };
+                return;
             }
-        }
-        if name == "enable-multibyte-characters" {
-            self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS] =
-                if value.is_truthy() { Value::T } else { Value::NIL };
+            "buffer-read-only" => {
+                self.slots[BUFFER_SLOT_READ_ONLY] =
+                    if value.is_truthy() { Value::T } else { Value::NIL };
+                return;
+            }
+            "enable-multibyte-characters" => {
+                self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS] =
+                    if value.is_truthy() { Value::T } else { Value::NIL };
+                return;
+            }
+            _ => {}
         }
         if name == "buffer-undo-list" {
             self.undo_state.set_list(value);
@@ -1001,11 +1008,27 @@ impl Buffer {
     }
 
     pub fn set_buffer_local_void(&mut self, name: &str) {
-        if name == "buffer-file-name" {
-            self.slots[BUFFER_SLOT_FILE_NAME] = Value::NIL;
-        }
-        if name == "buffer-auto-save-file-name" {
-            self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME] = Value::NIL;
+        // Phase 10 sub-phase A: the four BUFFER_OBJFWD-style fields
+        // never go void — clearing them is equivalent to setting nil
+        // in the slot. Skip the BufferLocals path entirely.
+        match name {
+            "buffer-file-name" => {
+                self.slots[BUFFER_SLOT_FILE_NAME] = Value::NIL;
+                return;
+            }
+            "buffer-auto-save-file-name" => {
+                self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME] = Value::NIL;
+                return;
+            }
+            "buffer-read-only" => {
+                self.slots[BUFFER_SLOT_READ_ONLY] = Value::NIL;
+                return;
+            }
+            "enable-multibyte-characters" => {
+                self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS] = Value::NIL;
+                return;
+            }
+            _ => {}
         }
         if name == "buffer-undo-list" {
             self.undo_state.set_list(Value::NIL);
@@ -1031,28 +1054,53 @@ impl Buffer {
     }
 
     pub fn get_buffer_local(&self, name: &str) -> Option<&Value> {
-        self.locals.raw_value_ref(name)
+        // The four BUFFER_OBJFWD-style fields live exclusively in
+        // `self.slots` after Phase 8b — return a borrow into the
+        // slot table so consumers don't see a stale BufferLocals
+        // copy. Mirrors GNU's `BVAR(buf, …)` accessor returning a
+        // direct pointer into the C-side struct buffer slot.
+        match name {
+            "buffer-file-name" => Some(&self.slots[BUFFER_SLOT_FILE_NAME]),
+            "buffer-auto-save-file-name" => {
+                Some(&self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME])
+            }
+            "buffer-read-only" => Some(&self.slots[BUFFER_SLOT_READ_ONLY]),
+            "enable-multibyte-characters" => {
+                Some(&self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS])
+            }
+            _ => self.locals.raw_value_ref(name),
+        }
     }
 
     pub fn get_buffer_local_binding(&self, name: &str) -> Option<RuntimeBindingValue> {
+        // Phase 10 sub-phase A: the four BUFFER_OBJFWD-style fields
+        // are always live in `self.slots` and bypass the
+        // `has_local` short-circuit. They never go void in GNU
+        // (a nil slot still resolves as bound-to-nil).
+        match name {
+            "buffer-file-name" => {
+                return Some(RuntimeBindingValue::Bound(self.slots[BUFFER_SLOT_FILE_NAME]));
+            }
+            "buffer-auto-save-file-name" => {
+                return Some(RuntimeBindingValue::Bound(
+                    self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME],
+                ));
+            }
+            "buffer-read-only" => {
+                return Some(RuntimeBindingValue::Bound(self.slots[BUFFER_SLOT_READ_ONLY]));
+            }
+            "enable-multibyte-characters" => {
+                return Some(RuntimeBindingValue::Bound(
+                    self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS],
+                ));
+            }
+            _ => {}
+        }
         if !self.locals.has_local(name) {
             return None;
         }
         if name == "buffer-undo-list" {
             return Some(RuntimeBindingValue::Bound(self.get_undo_list()));
-        }
-        if name == "buffer-file-name" {
-            return Some(RuntimeBindingValue::Bound(self.slots[BUFFER_SLOT_FILE_NAME]));
-        }
-        if name == "buffer-auto-save-file-name" {
-            return Some(RuntimeBindingValue::Bound(
-                self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME],
-            ));
-        }
-        if name == "enable-multibyte-characters" {
-            return Some(RuntimeBindingValue::Bound(
-                self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS],
-            ));
         }
         self.locals.raw_binding(name)
     }
@@ -1077,21 +1125,52 @@ impl Buffer {
     }
 
     pub fn ordered_buffer_local_bindings(&self) -> Vec<(String, RuntimeBindingValue)> {
-        self.locals
-            .ordered_runtime_bindings()
-            .into_iter()
-            .map(|(name, binding)| {
-                if name == "buffer-undo-list" {
-                    (name, RuntimeBindingValue::Bound(self.get_undo_list()))
-                } else {
-                    (name, binding)
-                }
-            })
-            .collect()
+        // Phase 10 sub-phase A: prepend the four BUFFER_OBJFWD-style
+        // entries that no longer live in BufferLocals. Mirrors GNU's
+        // `buffer-local-variables` which always emits the C-side
+        // BVAR slots (e.g. buffer-file-name, buffer-read-only)
+        // regardless of whether the user "made" them buffer-local.
+        let mut out: Vec<(String, RuntimeBindingValue)> = Vec::new();
+        out.push((
+            "buffer-file-name".to_string(),
+            RuntimeBindingValue::Bound(self.slots[BUFFER_SLOT_FILE_NAME]),
+        ));
+        out.push((
+            "buffer-auto-save-file-name".to_string(),
+            RuntimeBindingValue::Bound(self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME]),
+        ));
+        out.push((
+            "buffer-read-only".to_string(),
+            RuntimeBindingValue::Bound(self.slots[BUFFER_SLOT_READ_ONLY]),
+        ));
+        out.push((
+            "enable-multibyte-characters".to_string(),
+            RuntimeBindingValue::Bound(self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS]),
+        ));
+        out.extend(
+            self.locals
+                .ordered_runtime_bindings()
+                .into_iter()
+                .map(|(name, binding)| {
+                    if name == "buffer-undo-list" {
+                        (name, RuntimeBindingValue::Bound(self.get_undo_list()))
+                    } else {
+                        (name, binding)
+                    }
+                }),
+        );
+        out
     }
 
     pub fn ordered_buffer_local_names(&self) -> Vec<String> {
-        self.locals.ordered_binding_names()
+        let mut names = vec![
+            "buffer-file-name".to_string(),
+            "buffer-auto-save-file-name".to_string(),
+            "buffer-read-only".to_string(),
+            "enable-multibyte-characters".to_string(),
+        ];
+        names.extend(self.locals.ordered_binding_names());
+        names
     }
 
     pub fn bound_buffer_local_values_mut(&mut self) -> impl Iterator<Item = &mut Value> {
@@ -2617,6 +2696,14 @@ impl GcTrace for BufferManager {
             buffer.text.trace_text_prop_roots(roots);
             buffer.undo_state.trace_roots(roots);
             buffer.overlays.trace_roots(roots);
+            // Phase 8b/Phase 10 sub-phase A: BUFFER_OBJFWD slot
+            // table holds Lisp values that must be GC-rooted.
+            // Mirrors GNU's `mark_buffer` walking the C-side
+            // BVAR slots in `alloc.c`.
+            for slot in &buffer.slots {
+                roots.push(*slot);
+            }
+            roots.push(buffer.local_var_alist);
         }
         for restrictions in self.labeled_restrictions.values() {
             for restriction in restrictions {
