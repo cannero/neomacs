@@ -1428,9 +1428,15 @@ fn bootstrap_runtime_loaded_bytecode_preserves_wrong_arity_shape() {
              (condition-case err (advice-remove 'car) (error err))
              (condition-case err (advice-member-p 'ignore) (error err)))"#,
     );
+    // GNU emacs 31.0.50 verified: advice-add, advice-remove, and
+    // advice-member-p are loaded as compiled bytecode functions
+    // from nadvice.el. Their wrong-arity errors carry the
+    // (MIN . MAX) tuple from the bytecode arglist descriptor,
+    // not the surface symbol name -- this is GNU funcall_lambda
+    // (eval.c:3411) signaling with the closure value's arity.
     assert_eq!(
         rendered,
-        "OK ((wrong-number-of-arguments advice-add 2) (wrong-number-of-arguments advice-remove 1) (wrong-number-of-arguments advice-member-p 1))"
+        "OK ((wrong-number-of-arguments (3 . 4) 2) (wrong-number-of-arguments (2 . 2) 1) (wrong-number-of-arguments (2 . 2) 1))"
     );
 }
 

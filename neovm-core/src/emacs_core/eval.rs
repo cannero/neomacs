@@ -6674,7 +6674,20 @@ impl Context {
     }
 
     fn listp_error(&self, value: Value) -> Flow {
-        signal("wrong-type-argument", vec![Value::symbol("listp"), value])
+        // GNU `CHECK_LIST` walks the cdr chain until it finds the
+        // non-cons tail and signals
+        // `(wrong-type-argument listp TAIL)` with the offending
+        // tail element, not the whole input. Verified against
+        // emacs 31.0.50 via:
+        //   (condition-case e (length '(1 . 2)) (error e))
+        //     -> (wrong-type-argument listp 2)
+        //   (condition-case e (let ((x 1) . 2) x) (error e))
+        //     -> (wrong-type-argument listp 2)
+        let mut tail = value;
+        while tail.is_cons() {
+            tail = tail.cons_cdr();
+        }
+        signal("wrong-type-argument", vec![Value::symbol("listp"), tail])
     }
 
     fn value_list_len_or_error(&self, list: Value) -> Result<usize, Flow> {
