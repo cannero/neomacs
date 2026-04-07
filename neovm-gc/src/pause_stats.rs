@@ -137,7 +137,7 @@ fn percentile(sorted: &[u64], percentile: u8) -> u64 {
     debug_assert!(percentile <= 100);
     // Nearest-rank method: index = ceil(p/100 * n) - 1, clamped.
     let n = sorted.len();
-    let rank = ((percentile as usize * n) + 99) / 100;
+    let rank = (percentile as usize * n).div_ceil(100);
     let idx = rank.saturating_sub(1).min(n - 1);
     sorted[idx]
 }
