@@ -95,6 +95,18 @@ impl<'heap> Mutator<'heap> {
             .compact_old_gen_aggressive(density_threshold, max_passes)
     }
 
+    /// Predicate-only check for opportunistic compaction.
+    /// Mirrors [`Heap::should_compact_old_gen`].
+    pub fn should_compact_old_gen(&self, fragmentation_threshold: f64) -> bool {
+        self.heap.should_compact_old_gen(fragmentation_threshold)
+    }
+
+    /// Reset every counter in [`Heap::compaction_stats`] to
+    /// zero. Mirrors [`Heap::clear_compaction_stats`].
+    pub fn clear_compaction_stats(&mut self) {
+        self.heap.clear_compaction_stats();
+    }
+
     /// Read the current old-gen fragmentation ratio. Mirrors
     /// [`Heap::old_gen_fragmentation_ratio`] but routes through
     /// the mutator's borrow.
