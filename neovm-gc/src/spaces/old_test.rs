@@ -160,6 +160,60 @@ fn heap_compact_old_gen_physical_empty_heap_reports_zero_moved() {
 }
 
 #[test]
+fn compact_old_gen_physical_drops_emptied_source_blocks() {
+    // After compaction moves every live record out of a sparse
+    // block, that block has no surviving records and its
+    // line_marks are stale (they still reflect the pre-
+    // compaction layout). The post-compact rebuild pass must
+    // clear those stale marks and drop the now-empty source
+    // block so the pool count shrinks instead of leaking the
+    // source slot until the next sweep.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        old: OldGenConfig {
+            region_bytes: 1024,
+            line_bytes: 16,
+            concurrent_mark_workers: 1,
+            // Not auto-enabled; we call compact_old_gen_physical
+            // explicitly so the test controls the sequence.
+            physical_compaction_density_threshold: 0.0,
+            ..OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+    let _survivor = mutator
+        .alloc(&mut keep_scope, OldChunk([42u8; 32]))
+        .expect("alloc survivor");
+    let before_compact = mutator.heap().old_gen().block_count();
+    assert!(before_compact >= 1);
+
+    // Explicit compaction at threshold 1.0. The survivor's
+    // block has a few percent density, so it qualifies. Going
+    // through the mutator keeps the root alive across the call.
+    let moved = mutator.compact_old_gen_physical(1.0);
+    assert_eq!(
+        moved, 1,
+        "expected the live rooted survivor to be evacuated"
+    );
+
+    // After the post-compact rebuild, the source block should
+    // have been dropped. The pool now holds only the fresh
+    // target block (one block total).
+    let after_compact = mutator.heap().old_gen().block_count();
+    assert_eq!(
+        after_compact, 1,
+        "post-compact rebuild must reclaim the source block; \
+         before={before_compact}, after={after_compact}"
+    );
+}
+
+#[test]
 fn major_cycle_physical_compaction_preserves_live_rooted_survivor() {
     // End-to-end live-survivor test. A single OldChunk is
     // allocated and kept rooted across a major cycle. The major

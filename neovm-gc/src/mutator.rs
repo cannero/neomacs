@@ -72,6 +72,16 @@ impl<'heap> Mutator<'heap> {
         self.heap.collector_runtime().collect(kind)
     }
 
+    /// Run physical old-gen compaction against this mutator's
+    /// heap. Mirrors [`Heap::compact_old_gen_physical`] but goes
+    /// through the mutator's borrow so scoped roots created from
+    /// the same mutator can still be dereferenced after the call.
+    ///
+    /// Returns the number of records physically evacuated.
+    pub fn compact_old_gen_physical(&mut self, density_threshold: f64) -> usize {
+        self.heap.compact_old_gen_physical(density_threshold)
+    }
+
     /// Return the number of queued finalizers waiting to run.
     pub fn pending_finalizer_count(&self) -> usize {
         self.heap.pending_finalizer_count()

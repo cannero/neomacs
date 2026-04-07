@@ -231,6 +231,7 @@ impl Heap {
     /// In practice callers should invoke this right after a major
     /// cycle to get physical compaction of the post-mark heap.
     pub fn compact_old_gen_physical(&mut self, density_threshold: f64) -> usize {
+        let runtime_state = self.runtime_state.clone();
         let Self {
             roots,
             objects,
@@ -251,6 +252,20 @@ impl Heap {
             return 0;
         }
         crate::spaces::nursery::relocate_roots_and_edges(roots, objects, indexes, &forwarding);
+        // After the compaction pass: source blocks have stale
+        // line_marks reflecting their pre-compaction placements,
+        // and fresh target blocks have zeroed line_marks because
+        // their allocations did not go through the sweep path.
+        // Rebuild line marks across every surviving block-backed
+        // record so the source blocks (now with no live records)
+        // become empty and get dropped, and the fresh targets get
+        // their line_marks repopulated from the survivors that
+        // now live in them.
+        crate::reclaim::rebuild_line_marks_and_reclaim_empty_old_blocks(
+            objects,
+            old_gen,
+            &runtime_state,
+        );
         moved
     }
 
