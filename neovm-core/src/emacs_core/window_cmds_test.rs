@@ -2142,9 +2142,12 @@ fn window_preserve_size_fixed_and_resizable_helpers_match_batch_semantics() {
         "OK (nil nil (t nil t) t nil (t t t) t t nil nil (nil nil))"
     );
     assert_eq!(out[1], "OK ((0 0 8 -8 nil t 0 1 0 0) nil 1 1.5 -1.5)");
+    // window-size-fixed-p, window-preserve-size, window-resizable
+    // are Lisp defuns (window.el), so arity errors carry (MIN . MAX)
+    // tuples instead of the function symbol.
     assert_eq!(
         out[2],
-        "OK (error error error wrong-type-argument (wrong-number-of-arguments window-size-fixed-p 4) (wrong-number-of-arguments window-preserve-size 4) (wrong-number-of-arguments window-resizable 6))"
+        "OK (error error error wrong-type-argument (wrong-number-of-arguments (0 . 3) 4) (wrong-number-of-arguments (0 . 3) 4) (wrong-number-of-arguments (2 . 5) 6))"
     );
 }
 
