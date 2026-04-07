@@ -11247,12 +11247,14 @@ fn pacer_default_threshold_starts_at_min_trigger() {
 #[test]
 fn pacer_record_completed_cycle_updates_threshold_based_on_live_bytes_and_growth_ratio()
 {
-    let mut heap = Heap::new(HeapConfig::default());
-    heap.set_pacer_config(PacerConfig {
-        target_pause: Duration::from_secs(1),
-        heap_growth_target_ratio: 1.5,
-        min_trigger_bytes: 256,
-        ..PacerConfig::default()
+    let heap = Heap::new(HeapConfig {
+        pacer: PacerConfig {
+            target_pause: Duration::from_secs(1),
+            heap_growth_target_ratio: 1.5,
+            min_trigger_bytes: 256,
+            ..PacerConfig::default()
+        },
+        ..HeapConfig::default()
     });
     let cycle = CollectionStats {
         collections: 1,
@@ -11275,14 +11277,16 @@ fn pacer_record_completed_cycle_updates_threshold_based_on_live_bytes_and_growth
 
 #[test]
 fn pacer_record_completed_cycle_clamps_growth_to_pause_budget_under_high_alloc_rate() {
-    let mut heap = Heap::new(HeapConfig::default());
-    heap.set_pacer_config(PacerConfig {
-        // Very tight pause budget.
-        target_pause: Duration::from_nanos(1),
-        // Generous growth allowance so growth-ratio cannot win.
-        heap_growth_target_ratio: 1024.0,
-        min_trigger_bytes: 1,
-        ..PacerConfig::default()
+    let heap = Heap::new(HeapConfig {
+        pacer: PacerConfig {
+            // Very tight pause budget.
+            target_pause: Duration::from_nanos(1),
+            // Generous growth allowance so growth-ratio cannot win.
+            heap_growth_target_ratio: 1024.0,
+            min_trigger_bytes: 1,
+            ..PacerConfig::default()
+        },
+        ..HeapConfig::default()
     });
     let cycle = CollectionStats {
         collections: 1,
@@ -11302,10 +11306,12 @@ fn pacer_record_completed_cycle_clamps_growth_to_pause_budget_under_high_alloc_r
 
 #[test]
 fn pacer_overshoot_increments_count_when_pause_exceeds_target() {
-    let mut heap = Heap::new(HeapConfig::default());
-    heap.set_pacer_config(PacerConfig {
-        target_pause: Duration::from_millis(1),
-        ..PacerConfig::default()
+    let heap = Heap::new(HeapConfig {
+        pacer: PacerConfig {
+            target_pause: Duration::from_millis(1),
+            ..PacerConfig::default()
+        },
+        ..HeapConfig::default()
     });
     let cycle = CollectionStats {
         collections: 1,
@@ -11515,16 +11521,17 @@ fn pacer_in_heap_triggers_minor_via_nursery_soft_threshold() {
             semispace_bytes: 16 * 1024 * 1024,
             ..NurseryConfig::default()
         },
+        pacer: PacerConfig {
+            // Soft minor trigger after only 4 KiB of nursery
+            // allocation.
+            nursery_soft_trigger_bytes: 4 * 1024,
+            // Disable the major path so the only thing the pacer
+            // can do is fire minors.
+            min_trigger_bytes: usize::MAX,
+            heap_growth_target_ratio: 1.5,
+            ..PacerConfig::default()
+        },
         ..HeapConfig::default()
-    });
-    heap.set_pacer_config(PacerConfig {
-        // Soft minor trigger after only 4 KiB of nursery allocation.
-        nursery_soft_trigger_bytes: 4 * 1024,
-        // Disable the major path so the only thing the pacer can do
-        // is fire minors.
-        min_trigger_bytes: usize::MAX,
-        heap_growth_target_ratio: 1.5,
-        ..PacerConfig::default()
     });
 
     let baseline_minors = heap.stats().collections.minor_collections;
