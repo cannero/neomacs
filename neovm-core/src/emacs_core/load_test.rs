@@ -2624,7 +2624,11 @@ fn bootstrap_runtime_seeds_gnu_per_buffer_frame_display_vars() {
                  horizontal-scroll-bar)"#,
     );
 
-    assert_eq!(rendered, "OK (nil nil nil nil nil nil nil t t)");
+    // GNU verified: `(list left-margin-width right-margin-width ...)`
+    // returns `(0 0 nil nil nil nil nil t t)` after fresh batch
+    // startup. Earlier expectation of nil-nil pre-dated the
+    // BUFFER_OBJFWD slot defaults that init left/right margins to 0.
+    assert_eq!(rendered, "OK (0 0 nil nil nil nil nil t t)");
 }
 
 #[test]
