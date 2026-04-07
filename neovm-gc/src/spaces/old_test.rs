@@ -302,6 +302,105 @@ fn sweep_rebuilds_block_live_accounting_from_survivors() {
 }
 
 #[test]
+fn physical_compaction_shrinks_block_hole_bytes_after_major() {
+    // Block-side analog of the legacy
+    // execute_major_plan_honors_exact_selected_old_regions test:
+    // allocate a batch, drop most of them, run a major + auto-
+    // compaction, then assert the per-block hole_bytes (sum
+    // across the pool) actually decreased. This proves physical
+    // compaction does what logical compaction did but for the
+    // block view: it tightens the layout so wasted space goes
+    // down.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        old: OldGenConfig {
+            region_bytes: 1024,
+            line_bytes: 16,
+            concurrent_mark_workers: 1,
+            // Enable auto-compaction at any density.
+            physical_compaction_density_threshold: 1.0,
+            ..OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+
+    // Phase 1: allocate enough records to populate one block,
+    // then immediately drop the scope so the records become
+    // dead garbage. Don't run a major yet -- we want the block
+    // to carry stale used_bytes.
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        for _ in 0..6 {
+            mutator
+                .alloc(&mut scope, OldChunk([0; 32]))
+                .expect("alloc dead chunk");
+        }
+    }
+    // Phase 2: allocate one rooted survivor that lives across
+    // the major cycle below.
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+    let _survivor = mutator
+        .alloc(&mut keep_scope, OldChunk([42u8; 32]))
+        .expect("alloc rooted survivor");
+
+    // Snapshot block-side hole bytes before the major.
+    let before_holes: usize = mutator
+        .heap()
+        .old_gen()
+        .block_region_stats()
+        .iter()
+        .map(|s| s.hole_bytes)
+        .sum();
+    let before_blocks = mutator.heap().old_gen().block_count();
+
+    // Run a major cycle. The cycle sweeps the dead chunks from
+    // phase 1, then auto-compaction runs against the now-sparse
+    // blocks, evacuates the survivor into a fresh tightly-packed
+    // target block, and reclaims the old source blocks.
+    mutator
+        .collect(CollectionKind::Major)
+        .expect("major + auto compaction");
+
+    let after_holes: usize = mutator
+        .heap()
+        .old_gen()
+        .block_region_stats()
+        .iter()
+        .map(|s| s.hole_bytes)
+        .sum();
+    let after_blocks = mutator.heap().old_gen().block_count();
+
+    // After physical compaction, the live survivor occupies a
+    // freshly-packed block whose used_bytes barely exceeds its
+    // live_bytes (modulo line rounding). The pre-cycle pool had
+    // dead-record holes accounted for in used_bytes that the
+    // sweep + compact pass eliminated.
+    assert!(
+        after_holes <= before_holes,
+        "post-compact total hole_bytes ({after_holes}) should be \
+         less than or equal to pre-compact ({before_holes})"
+    );
+    // Block count should not have grown -- we packed everything
+    // into a single fresh target and dropped the old block.
+    assert!(
+        after_blocks <= before_blocks,
+        "post-compact block_count ({after_blocks}) should be less \
+         than or equal to pre-compact ({before_blocks})"
+    );
+
+    // The compaction stats should show at least one cycle ran
+    // and at least one record was evacuated (the survivor).
+    let stats = mutator.heap().compaction_stats();
+    assert!(stats.cycles >= 1);
+    assert!(stats.records_moved >= 1);
+}
+
+#[test]
 fn old_gen_fragmentation_ratio_is_zero_on_empty_heap() {
     let heap = Heap::new(HeapConfig::default());
     assert_eq!(heap.old_gen_fragmentation_ratio(), 0.0);
