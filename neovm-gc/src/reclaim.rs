@@ -6,6 +6,47 @@ use crate::runtime_state::RuntimeStateHandle;
 use crate::spaces::{OldGenConfig, OldGenState, OldRegionCollectionStats, PreparedOldGenReclaim};
 use crate::stats::{CollectionStats, HeapStats, PreparedHeapStats};
 
+/// Physical old-gen compaction helper (physical-compaction step 2).
+///
+/// Copies the payload of `source` into a freshly-created OldBlock
+/// target slot and returns a new `ObjectRecord` owning that slot.
+/// `evacuate_to_arena_slot` installs a forwarding pointer on the
+/// source header as a side effect, so a later relocation pass can
+/// rewrite every inbound reference.
+///
+/// The target slot is allocated via
+/// [`OldGenState::alloc_in_fresh_block`] to guarantee the target
+/// block is NOT one of the sparse source blocks we are evacuating
+/// from — a fresh block had zero live bytes before this call, so it
+/// cannot collide with any source placement.
+///
+/// Returns `Err(AllocError)` if the target allocation or the
+/// payload layout cannot be satisfied. Callers should treat such
+/// failures as "skip this evacuation, leave the source record in
+/// place" rather than aborting the whole reclaim cycle.
+#[allow(dead_code)]
+pub(crate) fn evacuate_old_object_to_fresh_block(
+    old_gen: &mut OldGenState,
+    config: &OldGenConfig,
+    source: &ObjectRecord,
+) -> Result<ObjectRecord, AllocError> {
+    let total_size = source.total_size();
+    let align = source.layout_align();
+    let layout = core::alloc::Layout::from_size_align(total_size, align)
+        .map_err(|_| AllocError::LayoutOverflow)?;
+    let (placement, base) = old_gen
+        .alloc_in_fresh_block(config, layout)
+        .ok_or(AllocError::LayoutOverflow)?;
+    // SAFETY: `alloc_in_fresh_block` returned a freshly-created
+    // slot in a brand-new OldBlock whose backing buffer outlives
+    // the pool. The layout matches what evacuate_to_arena_slot
+    // expects. The source record's payload remains live until we
+    // replace it in the objects vec.
+    let mut evacuated = unsafe { source.evacuate_to_arena_slot(SpaceKind::Old, base)? };
+    evacuated.set_old_block_placement(placement);
+    Ok(evacuated)
+}
+
 #[derive(Debug)]
 pub(crate) struct PreparedReclaimSurvivor {
     /// Original index in `Heap::objects` before reclaim commit.

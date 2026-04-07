@@ -61,6 +61,47 @@ fn old_block_accounting_fields_start_zero_and_update_on_record() {
 }
 
 #[test]
+fn evacuate_old_object_to_fresh_block_copies_payload_and_forwards() {
+    use crate::reclaim::evacuate_old_object_to_fresh_block;
+
+    let mut old_gen = OldGenState::default();
+    let config = OldGenConfig {
+        region_bytes: 4096,
+        line_bytes: 16,
+        ..OldGenConfig::default()
+    };
+    // Place a source object via the normal block allocator so it
+    // lives in an existing block at index 0.
+    let mut source = ObjectRecord::allocate(
+        old_leaf_desc(),
+        SpaceKind::Old,
+        OldLeaf,
+    )
+    .expect("allocate source");
+    let layout = core::alloc::Layout::from_size_align(source.total_size(), 8).unwrap();
+    let (source_placement, _) = old_gen
+        .try_alloc_in_block(&config, layout)
+        .expect("seed source block");
+    source.set_old_block_placement(source_placement);
+    assert_eq!(source.old_block_placement().map(|p| p.block_index), Some(0));
+    assert_eq!(old_gen.block_count(), 1);
+
+    // Evacuate the source into a fresh block.
+    let evacuated = evacuate_old_object_to_fresh_block(&mut old_gen, &config, &source)
+        .expect("evacuate old object");
+
+    // A new block was created.
+    assert_eq!(old_gen.block_count(), 2);
+    // The evacuated record lives in block 1 (the fresh block).
+    assert_eq!(
+        evacuated.old_block_placement().map(|p| p.block_index),
+        Some(1)
+    );
+    // The source header carries a forwarding pointer now.
+    assert!(source.header().is_moved_out());
+}
+
+#[test]
 fn alloc_in_fresh_block_always_creates_new_block_bypassing_holes() {
     // Two existing blocks in the pool, both with room to spare.
     // alloc_in_fresh_block must still create a brand-new third

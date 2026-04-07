@@ -643,6 +643,7 @@ impl OldGenState {
     /// pool. Invoked at the start of the post-sweep rebuild so the
     /// survivor walk can repopulate the counters from the new
     /// layout via `record_block_object_accounting_for_placement`.
+    #[allow(dead_code)]
     pub(crate) fn clear_all_block_live_accounting(&mut self) {
         for block in &mut self.blocks {
             block.clear_live_accounting();
@@ -656,6 +657,7 @@ impl OldGenState {
     /// `mark_block_lines_for_placement`: these three helpers are
     /// called in lockstep by the post-sweep rebuild for every
     /// surviving record.
+    #[allow(dead_code)]
     pub(crate) fn record_block_object_accounting_for_placement(
         &mut self,
         placement: OldBlockPlacement,
