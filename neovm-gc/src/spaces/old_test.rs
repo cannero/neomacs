@@ -401,6 +401,22 @@ fn physical_compaction_shrinks_block_hole_bytes_after_major() {
 }
 
 #[test]
+fn mutator_fragmentation_wrappers_delegate_to_heap() {
+    // The Mutator wrappers must report the same values the
+    // underlying Heap methods would, so callers can use either
+    // surface interchangeably while keeping scoped roots live.
+    let mut heap = Heap::new(HeapConfig::default());
+    let mut mutator = heap.mutator();
+    let frag = mutator.old_gen_fragmentation_ratio();
+    assert_eq!(frag, 0.0);
+    let (frag2, moved) = mutator.compact_old_gen_if_fragmented(0.1);
+    assert_eq!(frag2, 0.0);
+    assert_eq!(moved, 0);
+    // Heap-side accessors agree.
+    assert_eq!(mutator.heap().old_gen_fragmentation_ratio(), 0.0);
+}
+
+#[test]
 fn old_gen_fragmentation_ratio_is_zero_on_empty_heap() {
     let heap = Heap::new(HeapConfig::default());
     assert_eq!(heap.old_gen_fragmentation_ratio(), 0.0);
