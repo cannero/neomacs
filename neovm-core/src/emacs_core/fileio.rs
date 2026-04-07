@@ -490,11 +490,36 @@ pub fn file_regular_p(filename: &str) -> bool {
 }
 
 /// Return true if FILENAME is a symbolic link.
+/// Return true if FILENAME is a symbolic link. Used by predicates that
+/// only need a yes/no answer (e.g. internal helpers); the public
+/// `file-symlink-p` builtin returns the link target instead.
 pub fn file_symlink_p(filename: &str) -> bool {
     match fs::symlink_metadata(filename) {
         Ok(meta) => meta.file_type().is_symlink(),
         Err(_) => false,
     }
+}
+
+/// Return the symbolic link target of FILENAME as a String, mirroring
+/// GNU Emacs `Ffile_symlink_p` (`fileio.c:3160`):
+///
+///   "Return non-nil if file FILENAME is the name of a symbolic link.
+///    The value is the link target, as a string.
+///    Return nil if FILENAME does not exist or is not a symbolic link,
+///    or there was trouble determining whether the file is a symbolic link.
+///    This function does not check whether the link target exists."
+///
+/// The returned target is whatever the OS `readlink` syscall produces;
+/// it may be relative.  We do NOT canonicalize it (GNU's
+/// `emacs_readlinkat` likewise does not).
+pub fn file_symlink_target(filename: &str) -> Option<String> {
+    let meta = fs::symlink_metadata(filename).ok()?;
+    if !meta.file_type().is_symlink() {
+        return None;
+    }
+    fs::read_link(filename)
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 /// Return true if FILENAME is on a case-insensitive filesystem.
@@ -1765,6 +1790,13 @@ pub(crate) fn builtin_file_regular_p(eval: &mut Context, args: Vec<Value>) -> Ev
 
 /// Context-aware variant of `file-symlink-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
+///
+/// Mirrors GNU `Ffile_symlink_p` (`src/fileio.c:3160`): returns the
+/// link target as a string when FILENAME is a symbolic link, nil
+/// otherwise.  Previously this returned `Value::bool_val(...)` (audit
+/// §10.3) which was a data-type bug — code that uses the result as a
+/// path (e.g. `(file-symlink-p f)` → expand-file-name → readlink
+/// chains) was always broken because it got `t` instead of a string.
 pub(crate) fn builtin_file_symlink_p_impl(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
@@ -1774,7 +1806,10 @@ pub(crate) fn builtin_file_symlink_p_impl(
     expect_args("file-symlink-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
     let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool_val(file_symlink_p(&filename)))
+    Ok(match file_symlink_target(&filename) {
+        Some(target) => Value::string(target),
+        None => Value::NIL,
+    })
 }
 
 pub(crate) fn builtin_file_symlink_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
