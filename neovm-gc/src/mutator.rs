@@ -82,6 +82,19 @@ impl<'heap> Mutator<'heap> {
         self.heap.compact_old_gen_physical(density_threshold)
     }
 
+    /// Aggressive compaction wrapper. Mirrors
+    /// [`Heap::compact_old_gen_aggressive`] through the mutator
+    /// borrow so scoped roots created from the same mutator
+    /// stay valid across the call.
+    pub fn compact_old_gen_aggressive(
+        &mut self,
+        density_threshold: f64,
+        max_passes: usize,
+    ) -> usize {
+        self.heap
+            .compact_old_gen_aggressive(density_threshold, max_passes)
+    }
+
     /// Read the current old-gen fragmentation ratio. Mirrors
     /// [`Heap::old_gen_fragmentation_ratio`] but routes through
     /// the mutator's borrow.

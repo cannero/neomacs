@@ -499,6 +499,49 @@ fn mutator_fragmentation_wrappers_delegate_to_heap() {
 }
 
 #[test]
+fn compact_old_gen_aggressive_runs_until_no_more_moves() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        old: OldGenConfig {
+            region_bytes: 1024,
+            line_bytes: 16,
+            concurrent_mark_workers: 1,
+            ..OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+
+    let mut mutator = heap.mutator();
+    let mut keep = mutator.handle_scope();
+    let _surv = mutator
+        .alloc(&mut keep, OldChunk([7u8; 32]))
+        .expect("alloc");
+
+    // Aggressive compact at threshold 1.0 with 5 max passes.
+    // The first pass moves the survivor into a packed target;
+    // the second pass sees no sparse blocks left and exits
+    // early via the moved == 0 break. Total moved should be
+    // exactly 1 (the survivor moved once).
+    let total = mutator.compact_old_gen_aggressive(1.0, 5);
+    assert_eq!(total, 1);
+
+    let stats = mutator.heap().compaction_stats();
+    assert!(stats.records_moved >= 1);
+    assert!(stats.cycles >= 1);
+}
+
+#[test]
+fn compact_old_gen_aggressive_zero_max_passes_returns_zero() {
+    let mut heap = Heap::new(HeapConfig::default());
+    let total = heap.compact_old_gen_aggressive(1.0, 0);
+    assert_eq!(total, 0);
+    assert_eq!(heap.compaction_stats().cycles, 0);
+}
+
+#[test]
 fn should_compact_old_gen_false_on_empty_heap_at_any_threshold() {
     let heap = Heap::new(HeapConfig::default());
     assert!(!heap.should_compact_old_gen(0.0));

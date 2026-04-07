@@ -388,6 +388,49 @@ impl Heap {
         self.old_gen_fragmentation_ratio() >= fragmentation_threshold
     }
 
+    /// Run [`Heap::compact_old_gen_physical`] in a loop at the
+    /// supplied density threshold until either no more progress
+    /// is made or the loop has run `max_passes` times. Returns
+    /// the total number of records evacuated across every pass.
+    ///
+    /// Convergence is detected by tracking the block count
+    /// BEFORE each pass. Compaction ALWAYS creates at least one
+    /// fresh target block when it moves any record, so a pass
+    /// is "productive" only when the post-compact block count
+    /// is strictly LESS than the pre-compact count (i.e. more
+    /// source blocks were dropped than target blocks added).
+    /// As soon as a pass fails that test the loop exits — this
+    /// guarantees the helper terminates even when the
+    /// density threshold would otherwise keep flagging the
+    /// freshly-packed targets as sparse.
+    ///
+    /// `max_passes` of 0 returns 0 immediately. The loop bound
+    /// caps worst-case work for pathological heaps.
+    pub fn compact_old_gen_aggressive(
+        &mut self,
+        density_threshold: f64,
+        max_passes: usize,
+    ) -> usize {
+        let mut total_moved = 0usize;
+        for _ in 0..max_passes {
+            let blocks_before = self.old_gen.block_count();
+            let moved = self.compact_old_gen_physical(density_threshold);
+            if moved == 0 {
+                break;
+            }
+            total_moved = total_moved.saturating_add(moved);
+            let blocks_after = self.old_gen.block_count();
+            // Termination check: if compaction did not net-
+            // shrink the block pool, no further progress is
+            // possible -- continuing would just move the same
+            // records between fresh targets indefinitely.
+            if blocks_after >= blocks_before {
+                break;
+            }
+        }
+        total_moved
+    }
+
     pub(crate) fn collection_exec_parts(
         &mut self,
     ) -> (
