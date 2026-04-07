@@ -206,6 +206,26 @@ impl Heap {
         (objects, indexes, old_gen, stats)
     }
 
+    pub(crate) fn allocation_commit_parts(
+        &mut self,
+    ) -> (
+        &mut Vec<ObjectRecord>,
+        &mut HeapIndexState,
+        &mut OldGenState,
+        &mut HeapStats,
+        &OldGenConfig,
+    ) {
+        let Self {
+            config,
+            objects,
+            indexes,
+            old_gen,
+            stats,
+            ..
+        } = self;
+        (objects, indexes, old_gen, stats, &config.old)
+    }
+
     /// Return the heap configuration.
     pub fn config(&self) -> &HeapConfig {
         &self.config
@@ -419,43 +439,14 @@ impl Heap {
         CollectorRuntime::new(self).execute_plan(plan)
     }
 
-    pub(crate) fn allocate_typed<T: Trace + 'static>(
-        &mut self,
-        value: T,
-    ) -> Result<crate::root::Gc<T>, AllocError> {
-        if self.prepared_full_reclaim_active() {
-            return Err(AllocError::CollectionInProgress);
-        }
-        let desc = self.descriptor_for::<T>();
-        let payload_bytes = core::mem::size_of::<T>();
-        let space = self.select_space(desc, payload_bytes)?;
-        let mut record = ObjectRecord::allocate(desc, space, value)?;
-        let total_size = record.header().total_size();
-        if space == SpaceKind::Old {
-            self.stats.old.reserved_bytes = self
-                .old_gen
-                .record_allocated_object(&self.config.old, &mut record);
-        }
-        let gc = unsafe { crate::root::Gc::from_erased(record.erased()) };
-        self.stats
-            .record_allocation(space, total_size, self.old_gen.reserved_bytes());
-        self.objects.push(record);
-        let index = self.objects.len() - 1;
-        let object_key = self.objects[index].object_key();
-        let desc = self.objects[index].header().desc();
-        self.indexes
-            .record_allocated_object(object_key, index, desc);
-        Ok(gc)
-    }
-
     pub(crate) fn typed_allocation_profile<T: Trace + 'static>(
         &mut self,
-    ) -> Result<(SpaceKind, usize), AllocError> {
+    ) -> Result<(&'static TypeDesc, SpaceKind, usize), AllocError> {
         let desc = self.descriptor_for::<T>();
         let payload_bytes = core::mem::size_of::<T>();
         let total_bytes = estimated_allocation_size::<T>()?;
         let space = self.select_space(desc, payload_bytes)?;
-        Ok((space, total_bytes))
+        Ok((desc, space, total_bytes))
     }
 
     pub(crate) fn push_barrier_event(

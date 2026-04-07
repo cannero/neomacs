@@ -153,7 +153,7 @@ impl<'heap> CollectorRuntime<'heap> {
         if self.heap.prepared_full_reclaim_active() {
             return Err(AllocError::CollectionInProgress);
         }
-        let (space, total_bytes) = self.heap.typed_allocation_profile::<T>()?;
+        let (_, space, total_bytes) = self.heap.typed_allocation_profile::<T>()?;
         self.service_allocation_pressure(space, total_bytes)
     }
 
@@ -162,7 +162,23 @@ impl<'heap> CollectorRuntime<'heap> {
         scope: &mut HandleScope<'scope, 'handle_heap>,
         value: T,
     ) -> Result<Root<'scope, T>, AllocError> {
-        let gc = self.heap.allocate_typed(value)?;
+        if self.heap.prepared_full_reclaim_active() {
+            return Err(AllocError::CollectionInProgress);
+        }
+        let (desc, space, _) = self.heap.typed_allocation_profile::<T>()?;
+        let mut record = crate::object::ObjectRecord::allocate(desc, space, value)?;
+        let total_size = record.header().total_size();
+        let (objects, indexes, old_gen, stats, old_config) = self.heap.allocation_commit_parts();
+        if space == SpaceKind::Old {
+            stats.old.reserved_bytes = old_gen.record_allocated_object(old_config, &mut record);
+        }
+        let gc = unsafe { crate::root::Gc::from_erased(record.erased()) };
+        stats.record_allocation(space, total_size, old_gen.reserved_bytes());
+        objects.push(record);
+        let index = objects.len() - 1;
+        let object_key = objects[index].object_key();
+        let desc = objects[index].header().desc();
+        indexes.record_allocated_object(object_key, index, desc);
         let had_active_major_mark = self.heap.collector_handle().has_active_major_mark();
         self.heap
             .collector_handle()

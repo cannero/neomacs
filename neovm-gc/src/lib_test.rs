@@ -2049,6 +2049,22 @@ fn collector_runtime_alloc_typed_keeps_rooted_object_alive_during_active_major_m
 }
 
 #[test]
+fn collector_runtime_alloc_typed_places_pinned_object_in_pinned_space() {
+    let mut heap = Heap::new(HeapConfig::default());
+    let pinned_gc = {
+        let root_stack = heap.root_stack_ptr();
+        let mut runtime = heap.collector_runtime();
+        let mut scope = HandleScope::new(root_stack);
+        runtime
+            .alloc_typed(&mut scope, PinnedLeaf(55))
+            .expect("alloc pinned leaf through runtime")
+            .as_gc()
+    };
+
+    assert_eq!(heap.space_of(pinned_gc), Some(SpaceKind::Pinned));
+}
+
+#[test]
 fn collector_runtime_can_create_background_service() {
     let mut heap = Heap::new(HeapConfig::default());
     let mut service = heap
