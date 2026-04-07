@@ -4,6 +4,9 @@ use crate::background::{
     SharedBackgroundService, SharedBackgroundStatus, SharedBackgroundWaitResult,
     SharedCollectorHandle, SharedHeap, SharedHeapError, SharedHeapStatus, SharedRuntimeHandle,
 };
+use crate::collector_exec::{
+    prepare_major_reclaim_for_plan, trace_major_ephemerons_for_candidates,
+};
 use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_plans;
 use crate::collector_session::{self, build_prepared_active_reclaim, prepare_active_reclaim};
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
@@ -112,8 +115,8 @@ impl<'heap> CollectorRuntime<'heap> {
             .poll_active_major_mark_with_completion_and_refresh(
                 self.heap.objects(),
                 &self.heap.indexes().object_index,
-                |tracer, plan| self.heap.trace_major_ephemerons(tracer, plan),
-                |plan| self.heap.prepare_major_reclaim(plan),
+                |tracer, plan| trace_heap_major_ephemerons(self.heap, tracer, plan),
+                |plan| prepare_heap_major_reclaim(self.heap, plan),
                 &self.heap.storage_stats(),
                 self.heap.old_gen(),
                 self.heap.old_config(),
@@ -167,7 +170,7 @@ impl<'heap> CollectorRuntime<'heap> {
             &mut state,
             self.heap.objects(),
             &self.heap.indexes().object_index,
-            |tracer, plan| self.heap.trace_major_ephemerons(tracer, plan),
+            |tracer, plan| trace_heap_major_ephemerons(self.heap, tracer, plan),
         );
         let finished = collector_session::finish_active_collection(state, |plan| {
             self.prepare_reclaim_for_plan(plan)
@@ -201,8 +204,8 @@ impl<'heap> CollectorRuntime<'heap> {
                 .prepare_active_major_reclaim_with_request_and_refresh(
                     self.heap.objects(),
                     &self.heap.indexes().object_index,
-                    |tracer, plan| self.heap.trace_major_ephemerons(tracer, plan),
-                    |plan| self.heap.prepare_major_reclaim(plan),
+                    |tracer, plan| trace_heap_major_ephemerons(self.heap, tracer, plan),
+                    |plan| prepare_heap_major_reclaim(self.heap, plan),
                     &self.heap.storage_stats(),
                     self.heap.old_gen(),
                     self.heap.old_config(),
@@ -216,7 +219,7 @@ impl<'heap> CollectorRuntime<'heap> {
 
         let (mark_steps_delta, mark_rounds_delta) = prepare_active_reclaim(
             &request,
-            |tracer, plan| self.heap.trace_major_ephemerons(tracer, plan),
+            |tracer, plan| trace_heap_major_ephemerons(self.heap, tracer, plan),
             self.heap.objects(),
             &self.heap.indexes().object_index,
         );
@@ -294,7 +297,7 @@ impl<'heap> CollectorRuntime<'heap> {
             .finish_active_collection_if_ready(
                 self.heap.objects(),
                 &self.heap.indexes().object_index,
-                |tracer, plan| self.heap.trace_major_ephemerons(tracer, plan),
+                |tracer, plan| trace_heap_major_ephemerons(self.heap, tracer, plan),
                 |plan| Err(AllocError::UnsupportedCollectionKind { kind: plan.kind }),
             )?;
         Ok(finished.map(|finished| {
@@ -332,7 +335,7 @@ impl<'heap> CollectorRuntime<'heap> {
         plan: &CollectionPlan,
     ) -> Result<PreparedReclaim, AllocError> {
         match plan.kind {
-            CollectionKind::Major => Ok(self.heap.prepare_major_reclaim(plan)),
+            CollectionKind::Major => Ok(prepare_heap_major_reclaim(self.heap, plan)),
             CollectionKind::Full => {
                 let mut phases = Vec::new();
                 let (roots, objects, indexes, old_gen, stats, old_config, nursery_config) =
@@ -388,6 +391,31 @@ impl<'heap> CollectorRuntime<'heap> {
         );
         cycle
     }
+}
+
+fn prepare_heap_major_reclaim(heap: &Heap, plan: &CollectionPlan) -> PreparedReclaim {
+    prepare_major_reclaim_for_plan(
+        plan,
+        heap.objects(),
+        heap.indexes(),
+        heap.old_gen(),
+        heap.old_config(),
+    )
+}
+
+fn trace_heap_major_ephemerons(
+    heap: &Heap,
+    tracer: &mut crate::collector_exec::MarkTracer<'_>,
+    plan: &CollectionPlan,
+) -> (u64, u64) {
+    trace_major_ephemerons_for_candidates(
+        heap.objects(),
+        &heap.indexes().object_index,
+        &heap.indexes().ephemeron_candidates,
+        tracer,
+        plan.worker_count.max(1),
+        plan.mark_slice_budget,
+    )
 }
 
 impl SharedCollectorRuntime {
@@ -759,8 +787,8 @@ impl SharedCollectorRuntime {
                 collector,
                 heap.objects(),
                 &heap.indexes().object_index,
-                |tracer, plan| heap.trace_major_ephemerons(tracer, plan),
-                |plan| heap.prepare_major_reclaim(plan),
+                |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
+                |plan| prepare_heap_major_reclaim(heap, plan),
             )?;
             refresh_cached_collector_plans(
                 collector,
@@ -785,8 +813,8 @@ impl SharedCollectorRuntime {
                 collector,
                 heap.objects(),
                 &heap.indexes().object_index,
-                |tracer, plan| heap.trace_major_ephemerons(tracer, plan),
-                |plan| heap.prepare_major_reclaim(plan),
+                |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
+                |plan| prepare_heap_major_reclaim(heap, plan),
             )?;
             refresh_cached_collector_plans(
                 collector,
@@ -824,8 +852,8 @@ impl SharedCollectorRuntime {
                         collector,
                         heap.objects(),
                         &heap.indexes().object_index,
-                        |tracer, plan| heap.trace_major_ephemerons(tracer, plan),
-                        |plan| heap.prepare_major_reclaim(plan),
+                        |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
+                        |plan| prepare_heap_major_reclaim(heap, plan),
                     )?;
                     refresh_cached_collector_plans(
                         collector,
@@ -868,8 +896,8 @@ impl SharedCollectorRuntime {
                         collector,
                         heap.objects(),
                         &heap.indexes().object_index,
-                        |tracer, plan| heap.trace_major_ephemerons(tracer, plan),
-                        |plan| heap.prepare_major_reclaim(plan),
+                        |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
+                        |plan| prepare_heap_major_reclaim(heap, plan),
                     )?;
                     refresh_cached_collector_plans(
                         collector,

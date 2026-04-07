@@ -5,10 +5,7 @@ use std::time::{Duration, Instant};
 
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
 use crate::barrier::{BarrierEvent, BarrierKind};
-use crate::collector_exec::{
-    collect_global_sources, execute_collection_plan, prepare_major_reclaim_for_plan,
-    trace_major_ephemerons_for_candidates,
-};
+use crate::collector_exec::{collect_global_sources, execute_collection_plan};
 use crate::collector_state::{CollectorSharedSnapshot, CollectorStateHandle};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
 use crate::index_state::HeapIndexState;
@@ -17,7 +14,6 @@ use crate::object::{ObjectRecord, SpaceKind, estimated_allocation_size};
 use crate::plan::{
     CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress, RuntimeWorkStatus,
 };
-use crate::reclaim::PreparedReclaim;
 use crate::root::{HandleScope, Root, RootStack};
 use crate::runtime::CollectorRuntime;
 use crate::runtime_state::RuntimeStateHandle;
@@ -835,30 +831,5 @@ impl Heap {
             .object_index
             .get(&object.object_key())
             .map(|&index| self.objects[index].space())
-    }
-
-    pub(crate) fn prepare_major_reclaim(&self, plan: &CollectionPlan) -> PreparedReclaim {
-        prepare_major_reclaim_for_plan(
-            plan,
-            &self.objects,
-            &self.indexes,
-            &self.old_gen,
-            &self.config.old,
-        )
-    }
-
-    pub(crate) fn trace_major_ephemerons(
-        &self,
-        tracer: &mut crate::collector_exec::MarkTracer<'_>,
-        plan: &CollectionPlan,
-    ) -> (u64, u64) {
-        trace_major_ephemerons_for_candidates(
-            &self.objects,
-            &self.indexes.object_index,
-            &self.indexes.ephemeron_candidates,
-            tracer,
-            plan.worker_count.max(1),
-            plan.mark_slice_budget,
-        )
     }
 }
