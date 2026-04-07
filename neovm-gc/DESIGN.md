@@ -100,8 +100,10 @@ Still staging compromises:
   `RwLock<Heap>` plus `Mutex<CollectorState>` rather than the final data-plane
   split
 - nursery allocation is not yet per-mutator TLAB/lock-free fast path
-- old-generation "compaction" is still logical region relayout/packing metadata,
-  not true moving old-gen compaction
+- physical old-gen compaction is implemented and can run automatically
+  inside a major cycle when `OldGenConfig::physical_compaction_density_threshold > 0.0`,
+  but the legacy logical-region compaction still ships in parallel because
+  some tests assert the logical-compaction `hole_bytes` shrink contract
 - remembered tracking is still coarser than the final region/card-table model
 - finalization is now queued and drained explicitly through runtime surfaces, but
   it still retains whole `ObjectRecord`s rather than a lower-level VM-facing
@@ -361,8 +363,22 @@ Major GC should be able to:
 Current implementation note:
 
 - region metadata, region ranking, and selective relayout planning are real
-- current "compaction" is logical old-region relayout, not physical movement of
-  old objects
+- physical old-gen compaction is now wired into the major reclaim path:
+  `compact_sparse_old_blocks` walks blocks whose live density falls below
+  the configured `physical_compaction_density_threshold`, evacuates each
+  surviving record into a packed fresh target block via
+  `evacuate_to_arena_slot`, installs forwarding pointers, runs the
+  existing relocator over roots/edges/remembered, and reclaims the
+  emptied source blocks via the post-compact line-mark rebuild
+- the legacy logical-region relayout system still ships alongside the
+  physical pass because the `execute_major_plan_honors_exact_selected_old_regions`
+  test asserts a logical-compaction `hole_bytes` contract; both systems
+  produce useful stats and the new `block_region_stats` accessor exposes
+  the physical view directly
+- compaction telemetry (`CompactionStats`: cycles, records_moved,
+  target_blocks_created, source_blocks_reclaimed) is exposed via
+  `Heap::compaction_stats`, `Mutator::compact_old_gen_physical`,
+  `SharedHeap::compaction_stats`, and through `SharedHeapStatus`
 
 ### Pinned space
 
