@@ -245,62 +245,14 @@ impl Heap {
 
     /// Build a scheduler-visible collection plan from current heap state.
     pub fn plan_for(&self, kind: CollectionKind) -> CollectionPlan {
-        match kind {
-            CollectionKind::Minor => {
-                let worker_count = self.config.nursery.parallel_minor_workers.max(1);
-                let mark_slice_budget = self
-                    .objects
-                    .iter()
-                    .filter(|object| object.space() == SpaceKind::Nursery)
-                    .count()
-                    .max(1)
-                    .div_ceil(worker_count);
-                CollectionPlan {
-                    kind,
-                    phase: CollectionPhase::Evacuate,
-                    concurrent: false,
-                    parallel: true,
-                    worker_count,
-                    mark_slice_budget,
-                    target_old_regions: 0,
-                    selected_old_regions: Vec::new(),
-                    estimated_compaction_bytes: 0,
-                    estimated_reclaim_bytes: self.stats.nursery.live_bytes,
-                }
-            }
-            CollectionKind::Major | CollectionKind::Full => {
-                let old_selection = self.old_gen.major_plan_selection(&self.config.old);
-                let selected_old_regions: Vec<_> = old_selection
-                    .candidates
-                    .iter()
-                    .map(|region| region.region_index)
-                    .collect();
-                let target_old_regions = selected_old_regions.len();
-                let estimated_compaction_bytes = old_selection.estimated_compaction_bytes;
-                let old_reclaim_bytes = old_selection.estimated_reclaim_bytes;
-                let worker_count = self.config.old.concurrent_mark_workers.max(1);
-                let mark_slice_budget = self.objects.len().max(1).div_ceil(worker_count);
-                let estimated_reclaim_bytes = match kind {
-                    CollectionKind::Major => old_reclaim_bytes,
-                    CollectionKind::Full => old_reclaim_bytes
-                        .saturating_add(self.stats.nursery.live_bytes)
-                        .saturating_add(self.stats.large.live_bytes),
-                    CollectionKind::Minor => unreachable!(),
-                };
-                CollectionPlan {
-                    kind,
-                    phase: CollectionPhase::InitialMark,
-                    concurrent: self.config.old.concurrent_mark_workers > 1,
-                    parallel: true,
-                    worker_count,
-                    mark_slice_budget,
-                    target_old_regions,
-                    selected_old_regions,
-                    estimated_compaction_bytes,
-                    estimated_reclaim_bytes,
-                }
-            }
-        }
+        crate::collector_policy::build_plan(
+            kind,
+            &self.objects,
+            &self.stats,
+            &self.config.nursery,
+            &self.config.old,
+            &self.old_gen,
+        )
     }
 
     /// Recommend the next collection plan from current heap pressure.
@@ -630,31 +582,15 @@ impl Heap {
         space: SpaceKind,
         bytes: usize,
     ) -> Option<CollectionPlan> {
-        match space {
-            SpaceKind::Nursery
-                if self.stats.nursery.live_bytes.saturating_add(bytes)
-                    > self.config.nursery.semispace_bytes =>
-            {
-                Some(self.plan_for(CollectionKind::Minor))
-            }
-            SpaceKind::Pinned
-                if self.stats.pinned.live_bytes.saturating_add(bytes)
-                    > self.config.pinned.reserved_bytes =>
-            {
-                Some(self.plan_for(CollectionKind::Major))
-            }
-            SpaceKind::Large
-                if self.stats.large.live_bytes.saturating_add(bytes)
-                    > self.config.large.soft_limit_bytes =>
-            {
-                Some(self.plan_for(CollectionKind::Full))
-            }
-            SpaceKind::Old
-            | SpaceKind::Pinned
-            | SpaceKind::Large
-            | SpaceKind::Nursery
-            | SpaceKind::Immortal => None,
-        }
+        crate::collector_policy::allocation_pressure_plan(
+            &self.stats,
+            &self.config.nursery,
+            &self.config.pinned,
+            &self.config.large,
+            space,
+            bytes,
+            |kind| self.plan_for(kind),
+        )
     }
 
     pub(crate) fn record_collection_stats(&mut self, cycle: CollectionStats) {
