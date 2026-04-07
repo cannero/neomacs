@@ -532,16 +532,7 @@ impl Heap {
         let payload_bytes = core::mem::size_of::<T>();
         let total_bytes = estimated_allocation_size::<T>()?;
         let space = self.select_space(desc, payload_bytes)?;
-        if !self.collector.has_active_major_mark()
-            && let Some(plan) = self.allocation_pressure_plan(space, total_bytes)
-        {
-            if plan.concurrent && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full)
-            {
-                self.begin_major_mark(plan)?;
-            } else {
-                self.execute_plan(plan)?;
-            }
-        }
+        CollectorRuntime::new(self).service_allocation_pressure(space, total_bytes)?;
         self.alloc_typed(scope, value)
     }
 
@@ -720,7 +711,11 @@ impl Heap {
         }
     }
 
-    fn allocation_pressure_plan(&self, space: SpaceKind, bytes: usize) -> Option<CollectionPlan> {
+    pub(crate) fn allocation_pressure_plan(
+        &self,
+        space: SpaceKind,
+        bytes: usize,
+    ) -> Option<CollectionPlan> {
         match space {
             SpaceKind::Nursery
                 if self.stats.nursery.live_bytes.saturating_add(bytes)

@@ -11,6 +11,7 @@ use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_pl
 use crate::collector_session::{self, build_prepared_active_reclaim, prepare_active_reclaim};
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::heap::{AllocError, Heap};
+use crate::object::SpaceKind;
 use crate::plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress,
     RuntimeWorkStatus,
@@ -123,6 +124,24 @@ impl<'heap> CollectorRuntime<'heap> {
             },
         );
         Ok(cycle)
+    }
+
+    pub(crate) fn service_allocation_pressure(
+        &mut self,
+        space: SpaceKind,
+        bytes: usize,
+    ) -> Result<(), AllocError> {
+        if self.heap.collector_handle().has_active_major_mark() {
+            return Ok(());
+        }
+        let Some(plan) = self.heap.allocation_pressure_plan(space, bytes) else {
+            return Ok(());
+        };
+        if plan.concurrent && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full) {
+            self.begin_major_mark(plan)
+        } else {
+            self.execute_plan(plan).map(|_| ())
+        }
     }
 
     /// Begin a persistent major-mark session for one scheduler-provided plan.
