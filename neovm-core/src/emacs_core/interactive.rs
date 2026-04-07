@@ -2957,6 +2957,31 @@ pub(crate) fn builtin_key_binding_impl(
 ) -> EvalResult {
     expect_min_args("key-binding", &args, 1)?;
     expect_max_args("key-binding", &args, 4)?;
+    // GNU `Fkey_binding` (`src/keymap.c`) validates POSITION before
+    // checking the key designator: an out-of-range integer position
+    // signals `(args-out-of-range BUFFER POS)` even if the key arg is
+    // garbage. Mirror that early-exit so we don't shadow the position
+    // error with a `wrong-type-argument arrayp` from
+    // key_events_from_designator below.
+    if let Some(position) = args.get(3)
+        && let ValueKind::Fixnum(pos_int) = position.kind()
+    {
+        if let Some(buf_id) = ctx.buffers.current_buffer_id()
+            && let Some(buf) = ctx.buffers.get(buf_id)
+        {
+            // Lisp positions are 1-based character positions, so
+            // valid range is `[char_min + 1, char_max + 1]`.
+            let lisp_min = buf.point_min_char() as i64 + 1;
+            let lisp_max = buf.point_max_char() as i64 + 1;
+            if pos_int < lisp_min || pos_int > lisp_max {
+                let buffer_value = Value::make_buffer(buf_id);
+                return Err(signal(
+                    "args-out-of-range",
+                    vec![buffer_value, *position],
+                ));
+            }
+        }
+    }
     let string_designator = args[0].is_string();
     let no_remap = args.get(2).is_some_and(|v| v.is_truthy());
     let events = match super::kbd::key_events_from_designator(&args[0]) {
