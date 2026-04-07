@@ -5,19 +5,43 @@ use crate::emacs_core::builtins::search::{
 use crate::emacs_core::search::builtin_replace_regexp_in_string;
 use crate::emacs_core::value::ValueKind;
 
+// Test helpers that keep the Context alive across the returned
+// Value. Previously these created a bare Context inside a block
+// and returned the result; the Context was dropped at end of
+// block, destroying the tagged heap and leaving the returned
+// Value pointing at freed memory. A thread_local Box<Context>
+// holds it alive until the next call replaces it.
+use std::cell::RefCell;
+thread_local! {
+    static SEARCH_TEST_CTX: RefCell<Option<Box<crate::emacs_core::eval::Context>>> =
+        const { RefCell::new(None) };
+}
+
 fn call_string_match(args: Vec<Value>) -> EvalResult {
-    let mut eval = crate::emacs_core::eval::Context::new();
-    builtin_string_match(&mut eval, args)
+    SEARCH_TEST_CTX.with(|slot| {
+        let mut new_ctx = Box::new(crate::emacs_core::eval::Context::new());
+        let result = builtin_string_match(&mut new_ctx, args);
+        *slot.borrow_mut() = Some(new_ctx);
+        result
+    })
 }
 
 fn call_string_match_p(args: Vec<Value>) -> EvalResult {
-    let mut eval = crate::emacs_core::eval::Context::new();
-    builtin_string_match_p(&mut eval, args)
+    SEARCH_TEST_CTX.with(|slot| {
+        let mut new_ctx = Box::new(crate::emacs_core::eval::Context::new());
+        let result = builtin_string_match_p(&mut new_ctx, args);
+        *slot.borrow_mut() = Some(new_ctx);
+        result
+    })
 }
 
 fn call_replace_regexp_in_string(args: Vec<Value>) -> EvalResult {
-    let mut eval = crate::emacs_core::eval::Context::new();
-    builtin_replace_regexp_in_string(&mut eval, args)
+    SEARCH_TEST_CTX.with(|slot| {
+        let mut new_ctx = Box::new(crate::emacs_core::eval::Context::new());
+        let result = builtin_replace_regexp_in_string(&mut new_ctx, args);
+        *slot.borrow_mut() = Some(new_ctx);
+        result
+    })
 }
 
 fn assert_int(val: Value, expected: i64) {

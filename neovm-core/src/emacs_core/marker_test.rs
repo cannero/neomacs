@@ -1,23 +1,51 @@
 use super::*;
 
+// Test helpers keep Context alive in a thread_local so the heap
+// objects in the returned Value survive until the next call.
+// Previously the bare `let mut eval = ...; builtin(&mut eval, args)`
+// pattern dropped the Context at end of block, destroying the
+// tagged heap and leaving the returned Value pointing at freed
+// memory.
+use std::cell::RefCell;
+thread_local! {
+    static MARKER_TEST_CTX: RefCell<Option<Box<super::super::eval::Context>>> =
+        const { RefCell::new(None) };
+}
+
 fn call_marker_position(args: Vec<Value>) -> EvalResult {
-    let mut eval = super::super::eval::Context::new();
-    builtin_marker_position(&mut eval, args)
+    MARKER_TEST_CTX.with(|slot| {
+        let mut ctx = Box::new(super::super::eval::Context::new());
+        let result = builtin_marker_position(&mut ctx, args);
+        *slot.borrow_mut() = Some(ctx);
+        result
+    })
 }
 
 fn call_marker_buffer(args: Vec<Value>) -> EvalResult {
-    let mut eval = super::super::eval::Context::new();
-    builtin_marker_buffer(&mut eval, args)
+    MARKER_TEST_CTX.with(|slot| {
+        let mut ctx = Box::new(super::super::eval::Context::new());
+        let result = builtin_marker_buffer(&mut ctx, args);
+        *slot.borrow_mut() = Some(ctx);
+        result
+    })
 }
 
 fn call_set_marker_insertion_type(args: Vec<Value>) -> EvalResult {
-    let mut eval = super::super::eval::Context::new();
-    builtin_set_marker_insertion_type(&mut eval, args)
+    MARKER_TEST_CTX.with(|slot| {
+        let mut ctx = Box::new(super::super::eval::Context::new());
+        let result = builtin_set_marker_insertion_type(&mut ctx, args);
+        *slot.borrow_mut() = Some(ctx);
+        result
+    })
 }
 
 fn call_copy_marker(args: Vec<Value>) -> EvalResult {
-    let mut eval = super::super::eval::Context::new();
-    builtin_copy_marker(&mut eval, args)
+    MARKER_TEST_CTX.with(|slot| {
+        let mut ctx = Box::new(super::super::eval::Context::new());
+        let result = builtin_copy_marker(&mut ctx, args);
+        *slot.borrow_mut() = Some(ctx);
+        result
+    })
 }
 
 #[test]

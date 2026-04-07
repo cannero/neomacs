@@ -46,13 +46,19 @@ fn eval_one(src: &str) -> String {
 
 fn eval_all_with(ev: &mut Context, src: &str) -> Vec<String> {
     let forms = crate::emacs_core::value_reader::read_all(src).expect("parse");
-    forms
-        .into_iter()
+    let saved_len = ev.save_temp_roots();
+    for form in &forms {
+        ev.push_temp_root(*form);
+    }
+    let results = forms
+        .iter()
         .map(|form| {
-            let result = ev.eval_form(form);
+            let result = ev.eval_form(*form);
             format_eval_result(&result)
         })
-        .collect()
+        .collect();
+    ev.restore_temp_roots(saved_len);
+    results
 }
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
