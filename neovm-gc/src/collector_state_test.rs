@@ -377,6 +377,35 @@ fn collector_state_handle_finish_active_collection_if_ready_finishes_prepared_se
 }
 
 #[test]
+fn collector_state_handle_finish_active_collection_now_finishes_prepared_session() {
+    let handle = CollectorStateHandle::default();
+    handle.with_state(|state| {
+        state.begin_major_mark(major_plan(), MarkWorklist::default());
+        assert!(state.complete_active_major_reclaim_prep(
+            5,
+            7,
+            Duration::from_nanos(13),
+            prepared_reclaim(),
+        ));
+    });
+
+    let finished = handle
+        .finish_active_collection_now(
+            &[],
+            &ObjectIndex::default(),
+            |_tracer, _plan| panic!("prepared session should not re-run remark"),
+            |_plan| Ok(prepared_reclaim()),
+        )
+        .expect("finish prepared active collection immediately through handle");
+
+    assert_eq!(finished.completed_plan.phase, CollectionPhase::Reclaim);
+    assert_eq!(finished.mark_steps, 5);
+    assert_eq!(finished.mark_rounds, 7);
+    assert_eq!(finished.reclaim_prepare_nanos, 13);
+    assert!(!handle.has_active_major_mark());
+}
+
+#[test]
 fn collector_state_handle_prepare_active_major_reclaim_and_refresh_updates_recommended_plan() {
     let handle = CollectorStateHandle::default();
     handle.with_state(|state| {

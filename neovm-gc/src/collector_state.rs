@@ -343,6 +343,24 @@ impl CollectorStateHandle {
             )
         })
     }
+
+    pub(crate) fn finish_active_collection_now(
+        &self,
+        objects: &[ObjectRecord],
+        index: &ObjectIndex,
+        trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
+        prepare_reclaim: impl FnOnce(&CollectionPlan) -> Result<PreparedReclaim, AllocError>,
+    ) -> Result<FinishedActiveCollection, AllocError> {
+        self.with_state(|state| {
+            collector_session::finish_active_collection_now(
+                state,
+                objects,
+                index,
+                trace_ephemerons,
+                prepare_reclaim,
+            )
+        })
+    }
 }
 
 #[derive(Debug)]

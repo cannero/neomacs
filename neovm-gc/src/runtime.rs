@@ -115,16 +115,12 @@ impl<'heap> CollectorRuntime<'heap> {
         )?;
         self.heap.collector_handle().push_phases(phases);
         cycle.pause_nanos = pause_start.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
-        self.heap.record_collection_stats(cycle);
-        self.heap.collector_handle().record_completed_plan(
+        self.record_completed_cycle(
+            cycle,
             CollectionPlan {
                 phase: CollectionPhase::Reclaim,
                 ..plan
             },
-            &self.heap.storage_stats(),
-            self.heap.old_gen(),
-            self.heap.old_config(),
-            |kind| self.heap.plan_for(kind),
         );
         Ok(cycle)
     }
@@ -300,13 +296,6 @@ impl<'heap> CollectorRuntime<'heap> {
                 return Ok(None);
             }
         }
-        self.commit_active_reclaim_if_ready()
-    }
-
-    /// Commit the active major collection once reclaim has already been prepared.
-    pub fn commit_active_reclaim_if_ready(
-        &mut self,
-    ) -> Result<Option<CollectionStats>, AllocError> {
         let snapshot = self.heap.collector_shared_snapshot();
         if snapshot.active_major_mark_plan.is_none() {
             return Ok(None);
@@ -332,7 +321,7 @@ impl<'heap> CollectorRuntime<'heap> {
             .finish_active_collection_if_ready(
                 self.heap.objects(),
                 &self.heap.indexes().object_index,
-                |tracer, plan| trace_heap_major_ephemerons(self.heap, tracer, plan),
+                |_tracer, _plan| panic!("reclaim-ready session should not re-run remark"),
                 |plan| Err(AllocError::UnsupportedCollectionKind { kind: plan.kind }),
             )?;
         Ok(finished.map(|finished| {
@@ -341,6 +330,45 @@ impl<'heap> CollectorRuntime<'heap> {
                 .push_phase(CollectionPhase::Reclaim);
             self.commit_finished_active_collection(finished, before_bytes, pause_start)
         }))
+    }
+
+    /// Commit the active major collection once reclaim has already been prepared.
+    pub fn commit_active_reclaim_if_ready(
+        &mut self,
+    ) -> Result<Option<CollectionStats>, AllocError> {
+        let snapshot = self.heap.collector_shared_snapshot();
+        if snapshot.active_major_mark_plan.is_none() {
+            return Ok(None);
+        }
+        if snapshot
+            .major_mark_progress
+            .is_some_and(|progress| !progress.completed)
+        {
+            return Ok(None);
+        }
+        if snapshot
+            .active_major_mark_plan
+            .as_ref()
+            .is_some_and(|plan| plan.phase != CollectionPhase::Reclaim)
+        {
+            return Ok(None);
+        }
+        let before_bytes = self.heap.stats().total_live_bytes();
+        let pause_start = Instant::now();
+        let finished = self.heap.collector_handle().finish_active_collection_now(
+            self.heap.objects(),
+            &self.heap.indexes().object_index,
+            |_tracer, _plan| panic!("reclaim-ready session should not re-run remark"),
+            |plan| Err(AllocError::UnsupportedCollectionKind { kind: plan.kind }),
+        )?;
+        self.heap
+            .collector_handle()
+            .push_phase(CollectionPhase::Reclaim);
+        Ok(Some(self.commit_finished_active_collection(
+            finished,
+            before_bytes,
+            pause_start,
+        )))
     }
 
     /// Service one background collection round for the active major-mark session.
@@ -416,15 +444,19 @@ impl<'heap> CollectorRuntime<'heap> {
             move |object| runtime_state.enqueue_pending_finalizer(object),
         );
         cycle.pause_nanos = pause_start.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
+        self.record_completed_cycle(cycle, finished.completed_plan);
+        cycle
+    }
+
+    fn record_completed_cycle(&mut self, cycle: CollectionStats, completed_plan: CollectionPlan) {
         self.heap.record_collection_stats(cycle);
         self.heap.collector_handle().record_completed_plan(
-            finished.completed_plan,
+            completed_plan,
             &self.heap.storage_stats(),
             self.heap.old_gen(),
             self.heap.old_config(),
             |kind| self.heap.plan_for(kind),
         );
-        cycle
     }
 }
 
