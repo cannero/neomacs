@@ -45,7 +45,10 @@ impl<'heap> Mutator<'heap> {
         scope: &mut HandleScope<'scope, 'heap>,
         value: T,
     ) -> Result<Root<'scope, T>, AllocError> {
-        self.heap.alloc_typed_auto(scope, value)
+        self.heap
+            .collector_runtime()
+            .prepare_typed_allocation::<T>()?;
+        self.heap.alloc_typed(scope, value)
     }
 
     /// Create a new rooted handle for an existing managed object.

@@ -1895,6 +1895,68 @@ fn collector_runtime_service_allocation_pressure_starts_concurrent_major_session
 }
 
 #[test]
+fn collector_runtime_prepare_typed_allocation_runs_minor_collection() {
+    let leaf_bytes = estimated_allocation_size::<Leaf>().expect("leaf allocation size");
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            semispace_bytes: leaf_bytes,
+            ..NurseryConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        mutator
+            .alloc(&mut scope, Leaf(13))
+            .expect("alloc first leaf");
+    }
+
+    heap.collector_runtime()
+        .prepare_typed_allocation::<Leaf>()
+        .expect("prepare typed nursery allocation through runtime");
+
+    assert_eq!(heap.stats().collections.minor_collections, 1);
+    assert_eq!(
+        heap.last_completed_plan().map(|plan| plan.kind),
+        Some(CollectionKind::Minor)
+    );
+}
+
+#[test]
+fn collector_runtime_prepare_typed_allocation_starts_concurrent_major_session() {
+    let pinned_bytes = estimated_allocation_size::<PinnedLeaf>().expect("pinned allocation size");
+    let mut heap = Heap::new(HeapConfig {
+        pinned: crate::spaces::PinnedSpaceConfig {
+            reserved_bytes: pinned_bytes,
+        },
+        old: crate::spaces::OldGenConfig {
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 1,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        mutator
+            .alloc(&mut scope, PinnedLeaf(14))
+            .expect("alloc first pinned leaf");
+    }
+
+    heap.collector_runtime()
+        .prepare_typed_allocation::<PinnedLeaf>()
+        .expect("prepare typed pinned allocation through runtime");
+
+    assert_eq!(heap.stats().collections.major_collections, 0);
+    assert_eq!(
+        heap.active_major_mark_plan().map(|plan| plan.kind),
+        Some(CollectionKind::Major)
+    );
+}
+
+#[test]
 fn collector_runtime_can_create_background_service() {
     let mut heap = Heap::new(HeapConfig::default());
     let mut service = heap

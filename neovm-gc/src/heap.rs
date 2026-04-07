@@ -520,20 +520,14 @@ impl Heap {
         Ok(scope.root(gc))
     }
 
-    pub(crate) fn alloc_typed_auto<'scope, T: Trace + 'static>(
+    pub(crate) fn typed_allocation_profile<T: Trace + 'static>(
         &mut self,
-        scope: &mut HandleScope<'scope, '_>,
-        value: T,
-    ) -> Result<Root<'scope, T>, AllocError> {
-        if self.prepared_full_reclaim_active() {
-            return Err(AllocError::CollectionInProgress);
-        }
+    ) -> Result<(SpaceKind, usize), AllocError> {
         let desc = self.descriptor_for::<T>();
         let payload_bytes = core::mem::size_of::<T>();
         let total_bytes = estimated_allocation_size::<T>()?;
         let space = self.select_space(desc, payload_bytes)?;
-        CollectorRuntime::new(self).service_allocation_pressure(space, total_bytes)?;
-        self.alloc_typed(scope, value)
+        Ok((space, total_bytes))
     }
 
     pub(crate) fn record_post_write(

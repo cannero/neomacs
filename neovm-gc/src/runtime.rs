@@ -144,6 +144,16 @@ impl<'heap> CollectorRuntime<'heap> {
         }
     }
 
+    pub(crate) fn prepare_typed_allocation<T: crate::descriptor::Trace + 'static>(
+        &mut self,
+    ) -> Result<(), AllocError> {
+        if self.heap.prepared_full_reclaim_active() {
+            return Err(AllocError::CollectionInProgress);
+        }
+        let (space, total_bytes) = self.heap.typed_allocation_profile::<T>()?;
+        self.service_allocation_pressure(space, total_bytes)
+    }
+
     /// Begin a persistent major-mark session for one scheduler-provided plan.
     pub fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
         self.heap.collector_handle().begin_major_mark_and_refresh(
