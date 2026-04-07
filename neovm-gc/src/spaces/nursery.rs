@@ -165,10 +165,11 @@ fn evacuate_marked_nursery_serial(
 
     let start = objects.len();
     objects.extend(records);
-    for index in start..objects.len() {
-        let object_key = objects[index].object_key();
+    for (offset, object) in objects[start..].iter().enumerate() {
+        let index = start + offset;
+        let object_key = object.object_key();
         indexes.object_index.insert(object_key, index);
-        let desc = objects[index].header().desc();
+        let desc = object.header().desc();
         indexes.record_descriptor_candidates(object_key, desc);
     }
 
@@ -310,10 +311,11 @@ fn evacuate_marked_nursery_parallel(
 
     let start = objects.len();
     objects.extend(records);
-    for index in start..objects.len() {
-        let object_key = objects[index].object_key();
+    for (offset, object) in objects[start..].iter().enumerate() {
+        let index = start + offset;
+        let object_key = object.object_key();
         indexes.object_index.insert(object_key, index);
-        let desc = objects[index].header().desc();
+        let desc = object.header().desc();
         indexes.record_descriptor_candidates(object_key, desc);
     }
 
