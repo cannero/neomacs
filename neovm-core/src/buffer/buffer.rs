@@ -190,8 +190,6 @@ pub struct Buffer {
     pub read_only: bool,
     /// Multi-byte encoding flag.  Always `true` for now.
     pub multibyte: bool,
-    /// Associated auto-save file path, if any.
-    pub auto_save_file_name: Option<String>,
     /// GNU-style noncurrent PT/BEGV/ZV markers for buffers that share text.
     pub state_markers: Option<BufferStateMarkers>,
     /// Buffer-local state, split between builtin slot-backed locals and
@@ -250,7 +248,6 @@ impl Buffer {
             inhibit_buffer_hooks: false,
             read_only: false,
             multibyte: true,
-            auto_save_file_name: None,
             state_markers: None,
             locals: BufferLocals::new(),
             local_var_alist: crate::emacs_core::value::Value::NIL,
@@ -289,14 +286,25 @@ impl Buffer {
         };
     }
 
-    /// Read `buffer-auto-save-file-name` via the Phase 8b accessor.
+    /// Read `buffer-auto-save-file-name`, mirroring GNU
+    /// `BVAR(buf, auto_save_file_name)` (`buffer.h:323`). Returns
+    /// `None` when the slot holds nil.
     pub fn get_auto_save_file_name(&self) -> Option<&str> {
-        self.auto_save_file_name.as_deref()
+        self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME].as_str()
     }
 
-    /// Write `buffer-auto-save-file-name`.
+    /// Clone `buffer-auto-save-file-name` as an `Option<String>`.
+    pub fn auto_save_file_name_owned(&self) -> Option<String> {
+        self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME].as_str_owned()
+    }
+
+    /// Write `buffer-auto-save-file-name`. Mirrors GNU
+    /// `bset_auto_save_file_name`. `None` stores nil in the slot.
     pub fn set_auto_save_file_name_value(&mut self, v: Option<String>) {
-        self.auto_save_file_name = v;
+        self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME] = match v {
+            Some(s) => Value::string(&s),
+            None => Value::NIL,
+        };
     }
 
     /// Read `buffer-read-only` via the Phase 8b accessor.
@@ -962,11 +970,15 @@ impl Buffer {
             }
         }
         if name == "buffer-auto-save-file-name" {
-            self.auto_save_file_name = match value.kind() {
-                ValueKind::String => value.as_str_owned(),
-                ValueKind::Nil => None,
-                _ => self.auto_save_file_name.take(),
-            };
+            match value.kind() {
+                ValueKind::String => {
+                    self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME] = value;
+                }
+                ValueKind::Nil => {
+                    self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME] = Value::NIL;
+                }
+                _ => {}
+            }
         }
         if name == "buffer-undo-list" {
             self.undo_state.set_list(value);
@@ -983,7 +995,7 @@ impl Buffer {
             self.slots[BUFFER_SLOT_FILE_NAME] = Value::NIL;
         }
         if name == "buffer-auto-save-file-name" {
-            self.auto_save_file_name = None;
+            self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME] = Value::NIL;
         }
         if name == "buffer-undo-list" {
             self.undo_state.set_list(Value::NIL);
@@ -1023,10 +1035,9 @@ impl Buffer {
             return Some(RuntimeBindingValue::Bound(self.slots[BUFFER_SLOT_FILE_NAME]));
         }
         if name == "buffer-auto-save-file-name" {
-            return Some(match &self.auto_save_file_name {
-                Some(file_name) => RuntimeBindingValue::Bound(Value::string(file_name)),
-                None => RuntimeBindingValue::Bound(Value::NIL),
-            });
+            return Some(RuntimeBindingValue::Bound(
+                self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME],
+            ));
         }
         if name == "enable-multibyte-characters" {
             return Some(RuntimeBindingValue::Bound(Value::bool_val(self.multibyte)));
@@ -3275,14 +3286,14 @@ mod tests {
             "buffer-auto-save-file-name",
             Value::string("/tmp/#demo.txt#"),
         );
-        assert_eq!(buf.auto_save_file_name.as_deref(), Some("/tmp/#demo.txt#"));
+        assert_eq!(buf.get_auto_save_file_name(), Some("/tmp/#demo.txt#"));
         assert_eq!(
             buf.buffer_local_value("buffer-auto-save-file-name"),
             Some(Value::string("/tmp/#demo.txt#"))
         );
 
         buf.set_buffer_local("buffer-auto-save-file-name", Value::NIL);
-        assert_eq!(buf.auto_save_file_name, None);
+        assert_eq!(buf.get_auto_save_file_name(), None);
         assert_eq!(
             buf.buffer_local_value("buffer-auto-save-file-name"),
             Some(Value::NIL)

@@ -3218,7 +3218,7 @@ pub(crate) fn builtin_make_auto_save_file_name(
     // Set buffer-auto-save-file-name as side effect
     if let Some(buf) = eval.buffers.get_mut(current_id) {
         buf.set_buffer_local("buffer-auto-save-file-name", Value::string(&auto_name));
-        buf.auto_save_file_name = Some(auto_name.clone());
+        buf.set_auto_save_file_name_value(Some(auto_name.clone()));
     }
 
     Ok(Value::string(auto_name))
@@ -3295,7 +3295,7 @@ pub(crate) fn builtin_do_auto_save(
             }
 
             // Determine the auto-save target
-            let auto_name = buf.auto_save_file_name.clone();
+            let auto_name = buf.auto_save_file_name_owned();
             let visit_name = buf.file_name_owned();
 
             // Get buffer content (entire buffer, not just accessible region)
@@ -3325,7 +3325,7 @@ pub(crate) fn builtin_do_auto_save(
             // Set the auto-save name on the buffer
             if let Some(buf) = eval.buffers.get_mut(buf_id) {
                 buf.set_buffer_local("buffer-auto-save-file-name", Value::string(&auto_name));
-                buf.auto_save_file_name = Some(auto_name.clone());
+                buf.set_auto_save_file_name_value(Some(auto_name.clone()));
             }
             // Write content
             let _ = write_string_to_file(&content, &auto_name, false);
