@@ -4,6 +4,7 @@
 use super::custom::CustomManager;
 use super::error::{EvalResult, Flow, signal};
 use super::intern::{SymId, intern, resolve_sym};
+use super::string_escape::{storage_byte_to_char, storage_char_len, storage_char_to_byte};
 use super::symbol::Obarray;
 use super::value::*;
 use std::time::Duration;
@@ -305,18 +306,28 @@ pub(crate) fn read_from_string_impl(
 
     let full_string = expect_string(&args[0])?;
 
+    // GNU Emacs `Fread_from_string` (`src/lread.c:2514`) treats START and
+    // END as character indices into STRING (validated via
+    // `validate_subarray` against `SCHARS (string)`), translates them to
+    // byte offsets through `string_char_to_byte`, and reports
+    // FINAL-STRING-INDEX as a *character* index too. Indexing by raw
+    // UTF-8 byte length here was a long-standing bug (audit §11.6) that
+    // would either panic on multibyte input (slicing mid-codepoint) or
+    // return a byte offset where elisp expected a character count.
+    let char_count = storage_char_len(&full_string);
+
     let start_arg = args.get(1).cloned().unwrap_or(Value::NIL);
     let end_arg = args.get(2).cloned().unwrap_or(Value::NIL);
-    let to_index = |value: &Value| -> Result<usize, Flow> {
+    let to_char_index = |value: &Value| -> Result<usize, Flow> {
         match value.kind() {
             ValueKind::Nil => Ok(0),
             ValueKind::Fixnum(n) => {
                 let idx = if n < 0 {
-                    (full_string.len() as i64) + n
+                    (char_count as i64) + n
                 } else {
                     n
                 };
-                if idx < 0 || idx > full_string.len() as i64 {
+                if idx < 0 || idx > char_count as i64 {
                     return Err(signal(
                         "args-out-of-range",
                         vec![args[0], start_arg, end_arg],
@@ -324,31 +335,34 @@ pub(crate) fn read_from_string_impl(
                 }
                 Ok(idx as usize)
             }
-            other => Err(signal(
+            _ => Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("integerp"), *value],
             )),
         }
     };
-    let start = if args.len() > 1 {
-        to_index(&start_arg)?
+    let start_char = if args.len() > 1 {
+        to_char_index(&start_arg)?
     } else {
         0
     };
-    let end = if args.len() > 2 {
-        to_index(&end_arg)?
+    let end_char = if args.len() > 2 {
+        to_char_index(&end_arg)?
     } else {
-        full_string.len()
+        char_count
     };
 
-    if start > end {
+    if start_char > end_char {
         return Err(signal(
             "args-out-of-range",
             vec![args[0], start_arg, end_arg],
         ));
     }
 
-    let substring = &full_string[start..end];
+    let start_byte = storage_char_to_byte(&full_string, start_char);
+    let end_byte = storage_char_to_byte(&full_string, end_char);
+
+    let substring = &full_string[start_byte..end_byte];
     if starts_with_hash_skip_dispatch(substring) {
         return Err(signal(
             "end-of-file",
@@ -376,9 +390,13 @@ pub(crate) fn read_from_string_impl(
             )
         })?;
 
-    let absolute_end = start + end_pos;
+    // `read_one` returns a byte offset into `substring`. Convert it back
+    // into a character index in the original STRING so the returned
+    // FINAL-STRING-INDEX matches GNU's contract.
+    let absolute_end_byte = start_byte + end_pos;
+    let absolute_end_char = storage_byte_to_char(&full_string, absolute_end_byte);
 
-    Ok(Value::cons(value, Value::fixnum(absolute_end as i64)))
+    Ok(Value::cons(value, Value::fixnum(absolute_end_char as i64)))
 }
 
 fn starts_with_hash_skip_dispatch(input: &str) -> bool {

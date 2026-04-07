@@ -368,6 +368,72 @@ fn read_from_string_with_start_and_end() {
     }
 }
 
+/// Regression for audit §11.6: START/END must be character indices, and
+/// the returned FINAL-STRING-INDEX must be a character index too
+/// (matching GNU `Fread_from_string` in `src/lread.c:2514`). Multibyte
+/// chars in STRING were previously sliced as raw UTF-8 bytes, which
+/// either panicked mid-codepoint or produced byte counts where elisp
+/// callers expect char counts.
+#[test]
+fn read_from_string_multibyte_indices_are_character_based() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    // "αβγ 42 δ" — eight logical characters, fourteen UTF-8 bytes.
+    // Read from char index 4 (just before "42").
+    let result = builtin_read_from_string(
+        &mut ev,
+        vec![Value::string("αβγ 42 δ"), Value::fixnum(4)],
+    )
+    .unwrap();
+    let pair_car = result.cons_car();
+    let pair_cdr = result.cons_cdr();
+    assert_eq!(pair_car.as_fixnum(), Some(42));
+    // FINAL-STRING-INDEX should be a character index — the position
+    // after "42", which is char 6 (the trailing space). If START/END
+    // were treated as byte offsets, we'd see a value > 6.
+    let cdr = pair_cdr.as_fixnum().expect("cdr is fixnum");
+    assert!(
+        (6..=7).contains(&cdr),
+        "expected cdr in 6..=7 char range, got {cdr}"
+    );
+}
+
+/// Negative START/END must count from the end of STRING in *characters*,
+/// not bytes (audit §11.6, mirroring GNU `validate_subarray`).
+#[test]
+fn read_from_string_negative_indices_are_character_based() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    // "αβ 42" — five characters, seven UTF-8 bytes. Negative -2 means
+    // the fourth character (the '4').
+    let result = builtin_read_from_string(
+        &mut ev,
+        vec![Value::string("αβ 42"), Value::fixnum(-2)],
+    )
+    .unwrap();
+    let pair_car = result.cons_car();
+    let pair_cdr = result.cons_cdr();
+    assert_eq!(pair_car.as_fixnum(), Some(42));
+    assert_eq!(pair_cdr.as_fixnum(), Some(5));
+}
+
+/// Out-of-range START/END is detected against the *character* count of
+/// STRING, not its byte length. For "α" (1 char, 2 bytes) char index 2
+/// must be rejected even though it would be a valid byte offset.
+#[test]
+fn read_from_string_out_of_range_uses_character_count() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let result = builtin_read_from_string(
+        &mut ev,
+        vec![Value::string("α"), Value::fixnum(2)],
+    );
+    assert!(
+        result.is_err(),
+        "char index 2 must be out of range for a 1-char string"
+    );
+}
+
 // ===================================================================
 // read tests
 // ===================================================================
