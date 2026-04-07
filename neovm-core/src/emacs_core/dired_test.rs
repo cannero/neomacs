@@ -230,8 +230,7 @@ fn test_directory_files_and_attributes_eval_respects_default_directory() {
 
     let mut eval = Context::new();
     let base_str = format!("{}/", base.to_string_lossy());
-    eval.obarray
-        .set_symbol_value("default-directory", Value::string(&base_str));
+    eval.set_variable("default-directory", Value::string(&base_str));
 
     let result = builtin_directory_files_and_attributes(
         &mut eval,
@@ -370,8 +369,7 @@ fn test_file_name_completion_predicate_with_eval() {
     fs::create_dir(dir.join("subdir")).unwrap();
 
     let mut eval = Context::new();
-    eval.obarray
-        .set_symbol_value("default-directory", Value::string("/tmp/"));
+    eval.set_variable("default-directory", Value::string("/tmp/"));
 
     let dirs_only_none = builtin_file_name_completion(
         &mut eval,
@@ -418,10 +416,7 @@ fn test_file_name_completion_eval_relative_directory() {
     fs::create_dir(fixture_dir.join("subdir")).unwrap();
 
     let mut eval = Context::new();
-    eval.obarray.set_symbol_value(
-        "default-directory",
-        Value::string(ensure_trailing_slash(&base_str)),
-    );
+    eval.set_variable("default-directory", Value::string(ensure_trailing_slash(&base_str)));
 
     let result = builtin_file_name_completion(
         &mut eval,
@@ -508,10 +503,7 @@ fn test_file_name_all_completions_eval_relative_directory() {
     fs::create_dir(fixture_dir.join("subdir")).unwrap();
 
     let mut eval = Context::new();
-    eval.obarray.set_symbol_value(
-        "default-directory",
-        Value::string(ensure_trailing_slash(&base_str)),
-    );
+    eval.set_variable("default-directory", Value::string(ensure_trailing_slash(&base_str)));
 
     let result = builtin_file_name_all_completions(
         &mut eval,
@@ -624,10 +616,7 @@ fn test_file_attributes_eval_respects_default_directory() {
     create_file(&dir, "alpha.txt", "x");
 
     let mut eval = Context::new();
-    eval.obarray.set_symbol_value(
-        "default-directory",
-        Value::string(ensure_trailing_slash(&dir_str)),
-    );
+    eval.set_variable("default-directory", Value::string(ensure_trailing_slash(&dir_str)));
 
     let result = builtin_file_attributes(&mut eval, vec![Value::string("alpha.txt")]).unwrap();
     let items = list_to_vec(&result).unwrap();
