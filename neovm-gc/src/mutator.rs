@@ -36,7 +36,7 @@ impl<'heap> Mutator<'heap> {
         scope: &mut HandleScope<'scope, 'heap>,
         value: T,
     ) -> Result<Root<'scope, T>, AllocError> {
-        self.heap.alloc_typed(scope, value)
+        self.heap.collector_runtime().alloc_typed(scope, value)
     }
 
     /// Allocate one managed object, collecting first if nursery pressure requires it.
@@ -48,7 +48,7 @@ impl<'heap> Mutator<'heap> {
         self.heap
             .collector_runtime()
             .prepare_typed_allocation::<T>()?;
-        self.heap.alloc_typed(scope, value)
+        self.heap.collector_runtime().alloc_typed(scope, value)
     }
 
     /// Create a new rooted handle for an existing managed object.

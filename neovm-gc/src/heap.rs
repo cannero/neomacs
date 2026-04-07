@@ -9,7 +9,7 @@ use crate::object::{ObjectRecord, SpaceKind, estimated_allocation_size};
 use crate::plan::{
     CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress, RuntimeWorkStatus,
 };
-use crate::root::{HandleScope, Root, RootStack};
+use crate::root::RootStack;
 use crate::runtime::CollectorRuntime;
 use crate::runtime_state::RuntimeStateHandle;
 use crate::spaces::{
@@ -313,7 +313,7 @@ impl Heap {
         self.collector.recommended_background_plan()
     }
 
-    fn refresh_recommended_plans(&self) {
+    pub(crate) fn refresh_recommended_plans(&self) {
         self.collector.refresh_cached_plans(
             &self.storage_stats(),
             &self.old_gen,
@@ -473,11 +473,10 @@ impl Heap {
         CollectorRuntime::new(self).execute_plan(plan)
     }
 
-    pub(crate) fn alloc_typed<'scope, T: Trace + 'static>(
+    pub(crate) fn allocate_typed<T: Trace + 'static>(
         &mut self,
-        scope: &mut HandleScope<'scope, '_>,
         value: T,
-    ) -> Result<Root<'scope, T>, AllocError> {
+    ) -> Result<crate::root::Gc<T>, AllocError> {
         if self.prepared_full_reclaim_active() {
             return Err(AllocError::CollectionInProgress);
         }
@@ -502,22 +501,7 @@ impl Heap {
         self.indexes.object_index.insert(object_key, index);
         let desc = self.objects[index].header().desc();
         self.indexes.record_descriptor_candidates(object_key, desc);
-        let had_active_major_mark = self.collector.has_active_major_mark();
-        self.collector
-            .record_active_major_reachable_object_and_refresh(
-                &self.objects,
-                &self.indexes.object_index,
-                gc.erase(),
-                self.config.old.mutator_assist_slices,
-                &self.storage_stats(),
-                &self.old_gen,
-                &self.config.old,
-                |kind| self.plan_for(kind),
-            )?;
-        if !had_active_major_mark {
-            self.refresh_recommended_plans();
-        }
-        Ok(scope.root(gc))
+        Ok(gc)
     }
 
     pub(crate) fn typed_allocation_profile<T: Trace + 'static>(

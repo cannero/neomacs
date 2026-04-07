@@ -2005,6 +2005,50 @@ fn collector_runtime_record_post_write_tracks_barrier_events_and_remembered_edge
 }
 
 #[test]
+fn collector_runtime_alloc_typed_keeps_rooted_object_alive_during_active_major_mark() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let root_stack = heap.root_stack_ptr();
+    let plan = {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        mutator
+            .alloc(&mut scope, OldLeaf([17; 32]))
+            .expect("alloc old leaf");
+        CollectionPlan {
+            mark_slice_budget: 1,
+            ..mutator.plan_for(CollectionKind::Major)
+        }
+    };
+
+    let kept_gc = {
+        let mut runtime = heap.collector_runtime();
+        runtime
+            .begin_major_mark(plan)
+            .expect("begin persistent major mark");
+        let mut scope = HandleScope::new(root_stack);
+        let kept = runtime
+            .alloc_typed(&mut scope, OldLeaf([18; 32]))
+            .expect("alloc old leaf through runtime");
+        runtime
+            .finish_major_collection()
+            .expect("finish major collection through runtime");
+        kept.as_gc()
+    };
+
+    assert!(heap.contains(kept_gc));
+}
+
+#[test]
 fn collector_runtime_can_create_background_service() {
     let mut heap = Heap::new(HeapConfig::default());
     let mut service = heap

@@ -19,6 +19,7 @@ use crate::plan::{
     RuntimeWorkStatus,
 };
 use crate::reclaim::{PreparedReclaim, finish_prepared_reclaim_cycle};
+use crate::root::{HandleScope, Root};
 use crate::stats::{CollectionStats, HeapStats};
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
@@ -154,6 +155,31 @@ impl<'heap> CollectorRuntime<'heap> {
         }
         let (space, total_bytes) = self.heap.typed_allocation_profile::<T>()?;
         self.service_allocation_pressure(space, total_bytes)
+    }
+
+    pub(crate) fn alloc_typed<'scope, 'handle_heap, T: crate::descriptor::Trace + 'static>(
+        &mut self,
+        scope: &mut HandleScope<'scope, 'handle_heap>,
+        value: T,
+    ) -> Result<Root<'scope, T>, AllocError> {
+        let gc = self.heap.allocate_typed(value)?;
+        let had_active_major_mark = self.heap.collector_handle().has_active_major_mark();
+        self.heap
+            .collector_handle()
+            .record_active_major_reachable_object_and_refresh(
+                self.heap.objects(),
+                &self.heap.indexes().object_index,
+                gc.erase(),
+                self.heap.config().old.mutator_assist_slices,
+                &self.heap.storage_stats(),
+                self.heap.old_gen(),
+                self.heap.old_config(),
+                |kind| self.heap.plan_for(kind),
+            )?;
+        if !had_active_major_mark {
+            self.heap.refresh_recommended_plans();
+        }
+        Ok(scope.root(gc))
     }
 
     pub(crate) fn root_during_active_major_mark(&mut self, object: GcErased) {
