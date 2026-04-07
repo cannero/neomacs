@@ -269,6 +269,35 @@ unsafe impl Trace for ThreadRecordingLeaf {
     fn relocate(&self, _relocator: &mut dyn Relocator) {}
 }
 
+/// Phase 5 helper: immortal variant of `ThreadRecordingLeaf`. The
+/// `Immortal` move policy keeps the leaf alive across collection cycles
+/// even when no `Root` handle survives between mutator closures, which
+/// matters for shared-heap concurrent-marker tests where seeded objects
+/// are dropped from their seeding handle scope before the marker thread
+/// gets a chance to trace them.
+#[derive(Debug)]
+struct ImmortalThreadRecordingLeaf {
+    seen_threads: Arc<Mutex<HashSet<thread::ThreadId>>>,
+}
+
+unsafe impl Trace for ImmortalThreadRecordingLeaf {
+    fn trace(&self, _tracer: &mut dyn Tracer) {
+        self.seen_threads
+            .lock()
+            .expect("record trace thread")
+            .insert(thread::current().id());
+    }
+
+    fn relocate(&self, _relocator: &mut dyn Relocator) {}
+
+    fn move_policy() -> MovePolicy
+    where
+        Self: Sized,
+    {
+        MovePolicy::Immortal
+    }
+}
+
 /// Holder that owns a `Vec<Gc<ThreadRecordingLeaf>>` and traces each child.
 /// Used by the Phase 3 work-stealing tests to build a graph where a single
 /// initial root transitively reaches many child objects.
@@ -10430,4 +10459,409 @@ fn dirty_card_scan_handles_object_at_card_boundary() {
     assert!(mutator.heap().contains(moved_b));
     assert_eq!(unsafe { moved_a.as_non_null().as_ref() }.0, 50);
     assert_eq!(unsafe { moved_b.as_non_null().as_ref() }.0, 51);
+}
+
+// ----- Phase 5 ConcurrentMarker tests -----------------------------------
+
+fn fresh_concurrent_marker_shared_heap() -> SharedHeap {
+    Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            region_bytes: 4096,
+            line_bytes: 16,
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared()
+}
+
+/// Wait for the concurrent marker to drain the active mark session or to
+/// auto-commit the cycle. The marker thread auto-commits the cycle as
+/// soon as the worklist is drained, so the active session may already be
+/// gone (with `last_completed_plan == Major`) by the time we observe
+/// shared state. `wait_for_mark_complete` already accepts both states,
+/// but this helper additionally waits for the cycle commit to settle so
+/// follow-up object-count assertions are stable.
+fn wait_for_concurrent_marker_cycle(
+    shared: &SharedHeap,
+    marker: &ConcurrentMarker,
+    timeout: Duration,
+) {
+    let deadline = Instant::now() + timeout;
+    let completed = marker
+        .wait_for_mark_complete(deadline.saturating_duration_since(Instant::now()))
+        .expect("wait for concurrent marker cycle");
+    assert!(
+        completed,
+        "concurrent marker did not drain or commit the cycle before timeout"
+    );
+
+    // Once mark is complete, give the marker thread a brief moment to
+    // commit the cycle if it has not already done so. The marker
+    // auto-commits inside `try_service_background_collection_round`, so in
+    // the common case the cycle is already committed by the time we get
+    // here.
+    loop {
+        let last_kind = shared
+            .last_completed_plan()
+            .expect("inspect last completed plan while waiting on marker")
+            .map(|plan| plan.kind);
+        if last_kind == Some(CollectionKind::Major) {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "concurrent marker did not commit a major cycle before timeout"
+        );
+        thread::sleep(Duration::from_millis(1));
+    }
+}
+
+#[test]
+fn concurrent_marker_runs_major_mark_to_completion() {
+    let shared = fresh_concurrent_marker_shared_heap();
+
+    // Allocate many immortal objects so the mark loop has real work to
+    // drain. Immortal objects survive collection regardless of rooting,
+    // which is what we want for "all objects survive" verification across
+    // multiple `with_mutator` invocations.
+    shared
+        .with_mutator(|mutator| {
+            let mut keep_scope = mutator.handle_scope();
+            for byte in 0..64u64 {
+                mutator
+                    .alloc(&mut keep_scope, ImmortalLeaf(byte))
+                    .expect("alloc immortal leaf");
+            }
+        })
+        .expect("seed shared heap with immortal survivors");
+
+    let object_count_after_seed = shared
+        .with_heap(|heap| heap.object_count())
+        .expect("inspect heap object count after seeding");
+    assert_eq!(object_count_after_seed, 64);
+
+    let marker = ConcurrentMarker::start(shared.clone(), ConcurrentMarkerConfig::default());
+
+    // Trigger one major-mark session through the mutator surface so the
+    // marker has work to drive.
+    shared
+        .with_mutator(|mutator| {
+            let plan = CollectionPlan {
+                mark_slice_budget: 1,
+                ..mutator.plan_for(CollectionKind::Major)
+            };
+            mutator
+                .begin_major_mark(plan)
+                .expect("begin major mark for concurrent marker test");
+        })
+        .expect("start major-mark session for concurrent marker test");
+
+    wait_for_concurrent_marker_cycle(&shared, &marker, Duration::from_secs(5));
+
+    // The cycle is fully committed. Immortal objects must remain.
+    let object_count_after_finish = shared
+        .with_heap(|heap| heap.object_count())
+        .expect("inspect heap object count after finish");
+    assert_eq!(
+        object_count_after_finish, 64,
+        "immortal survivors must remain after concurrent major mark commit"
+    );
+
+    let last = shared
+        .last_completed_plan()
+        .expect("inspect last completed plan after concurrent mark")
+        .map(|plan| plan.kind);
+    assert_eq!(last, Some(CollectionKind::Major));
+
+    let stats = marker.join().expect("join concurrent marker");
+    assert!(
+        stats.ticks > 0,
+        "concurrent marker must record at least one mark tick: {stats:?}"
+    );
+    assert!(
+        stats.sessions_completed >= 1,
+        "concurrent marker must report a finished session: {stats:?}"
+    );
+}
+
+#[test]
+fn concurrent_marker_runs_on_a_separate_thread() {
+    let shared = fresh_concurrent_marker_shared_heap();
+    let test_thread = thread::current().id();
+    let seen_threads: Arc<Mutex<HashSet<thread::ThreadId>>> = Arc::new(Mutex::new(HashSet::new()));
+
+    shared
+        .with_mutator(|mutator| {
+            let mut keep_scope = mutator.handle_scope();
+            for _ in 0..32usize {
+                mutator
+                    .alloc(
+                        &mut keep_scope,
+                        ImmortalThreadRecordingLeaf {
+                            seen_threads: Arc::clone(&seen_threads),
+                        },
+                    )
+                    .expect("alloc immortal thread recording leaf");
+            }
+        })
+        .expect("seed shared heap with immortal thread recording leaves");
+
+    let marker = ConcurrentMarker::start(
+        shared.clone(),
+        ConcurrentMarkerConfig {
+            mark_slice_budget: 4,
+            busy_sleep: Duration::ZERO,
+            idle_sleep: Duration::from_millis(1),
+        },
+    );
+
+    shared
+        .with_mutator(|mutator| {
+            let plan = CollectionPlan {
+                mark_slice_budget: 4,
+                ..mutator.plan_for(CollectionKind::Major)
+            };
+            mutator
+                .begin_major_mark(plan)
+                .expect("begin major mark for thread-id concurrent marker test");
+        })
+        .expect("start session for thread-id concurrent marker test");
+
+    wait_for_concurrent_marker_cycle(&shared, &marker, Duration::from_secs(5));
+
+    let _ = marker.join().expect("join concurrent marker");
+
+    let observed = seen_threads
+        .lock()
+        .expect("inspect seen threads after concurrent marker")
+        .clone();
+    assert!(
+        !observed.is_empty(),
+        "marker thread must trace at least one ThreadRecordingLeaf"
+    );
+    assert!(
+        observed.iter().any(|tid| *tid != test_thread),
+        "marker work must execute on a thread other than the test thread: observed={observed:?}, test={test_thread:?}"
+    );
+}
+
+#[test]
+fn concurrent_marker_survives_mutator_allocations_during_mark() {
+    let shared = fresh_concurrent_marker_shared_heap();
+
+    shared
+        .with_mutator(|mutator| {
+            let mut keep_scope = mutator.handle_scope();
+            for byte in 0..32u64 {
+                mutator
+                    .alloc(&mut keep_scope, ImmortalLeaf(byte))
+                    .expect("alloc immortal seed leaf");
+            }
+        })
+        .expect("seed shared heap before concurrent allocation race");
+
+    let marker = ConcurrentMarker::start(
+        shared.clone(),
+        ConcurrentMarkerConfig {
+            mark_slice_budget: 8,
+            busy_sleep: Duration::from_micros(50),
+            idle_sleep: Duration::from_millis(1),
+        },
+    );
+
+    // Trigger the major mark with a fine-grained slice budget so the
+    // marker has to take many short read-lock slices, leaving plenty of
+    // window for the test thread to interleave fresh allocations.
+    shared
+        .with_mutator(|mutator| {
+            let plan = CollectionPlan {
+                mark_slice_budget: 8,
+                ..mutator.plan_for(CollectionKind::Major)
+            };
+            mutator
+                .begin_major_mark(plan)
+                .expect("begin major mark for concurrent allocation race");
+        })
+        .expect("start session for concurrent allocation race");
+
+    // Allocate a small batch of fresh immortal objects from the test
+    // thread while the marker is mid-cycle. The active major-mark session
+    // must be able to tolerate these born-black allocations without
+    // crashing or losing them. We deliberately keep the burst small and
+    // sleep generously between allocations so the marker thread is not
+    // starved for read-lock windows on the shared heap.
+    let mut new_object_count = 0usize;
+    for batch in 0..16usize {
+        shared
+            .with_mutator(|mutator| {
+                let mut keep_scope = mutator.handle_scope();
+                let _leaf = mutator
+                    .alloc(&mut keep_scope, ImmortalLeaf(900 + batch as u64))
+                    .expect("alloc immortal during active concurrent mark");
+                new_object_count += 1;
+            })
+            .expect("allocate during active concurrent mark");
+        thread::sleep(Duration::from_millis(2));
+    }
+    assert!(
+        new_object_count > 0,
+        "test thread must allocate at least one object during active mark"
+    );
+
+    wait_for_concurrent_marker_cycle(&shared, &marker, Duration::from_secs(10));
+
+    // All seed objects (32) plus all concurrently allocated objects must
+    // remain after the cycle commits because they are immortal.
+    let object_count_after_finish = shared
+        .with_heap(|heap| heap.object_count())
+        .expect("inspect object count after commit");
+    assert_eq!(
+        object_count_after_finish,
+        32 + new_object_count,
+        "immortal seed + concurrent allocations must all survive commit"
+    );
+
+    let last = shared
+        .last_completed_plan()
+        .expect("inspect last completed plan after concurrent allocation race")
+        .map(|plan| plan.kind);
+    assert_eq!(last, Some(CollectionKind::Major));
+
+    let _ = marker.join().expect("join concurrent marker");
+}
+
+#[test]
+fn concurrent_marker_satb_barrier_keeps_overwritten_edge_alive() {
+    let shared = fresh_concurrent_marker_shared_heap();
+
+    let marker = ConcurrentMarker::start(
+        shared.clone(),
+        ConcurrentMarkerConfig {
+            mark_slice_budget: 1,
+            busy_sleep: Duration::from_micros(50),
+            idle_sleep: Duration::from_millis(1),
+        },
+    );
+
+    // Build owner -> target inside one mutator session, then begin the
+    // major mark and immediately overwrite the edge. The owner is an
+    // ImmortalHolder so it stays reachable across closures even without a
+    // surviving Root handle. The target is a regular Leaf reachable only
+    // through owner; once we overwrite owner.child to None, target is
+    // unreachable from any root and depends entirely on the SATB
+    // pre-write barrier to keep it alive across the active mark session.
+    let object_count_before_mark = shared
+        .with_mutator(|mutator| {
+            let mut keep_scope = mutator.handle_scope();
+            let owner = mutator
+                .alloc(
+                    &mut keep_scope,
+                    ImmortalHolder {
+                        child: EdgeCell::default(),
+                    },
+                )
+                .expect("alloc immortal owner");
+            let target = mutator
+                .alloc(&mut keep_scope, Leaf(2))
+                .expect("alloc target leaf");
+            mutator.store_edge(&owner, 0, |holder| &holder.child, Some(target.as_gc()));
+
+            let plan = CollectionPlan {
+                mark_slice_budget: 1,
+                ..mutator.plan_for(CollectionKind::Major)
+            };
+            mutator
+                .begin_major_mark(plan)
+                .expect("begin major mark for SATB concurrent test");
+
+            // Now overwrite the edge while the active major-mark session
+            // is open. The post-write barrier records the overwritten
+            // target so the marker keeps it alive.
+            mutator.store_edge(&owner, 0, |holder| &holder.child, None);
+
+            mutator.heap().object_count()
+        })
+        .expect("seed and overwrite owner -> target edge during active mark");
+    assert_eq!(object_count_before_mark, 2);
+
+    wait_for_concurrent_marker_cycle(&shared, &marker, Duration::from_secs(5));
+
+    let object_count_after_finish = shared
+        .with_heap(|heap| heap.object_count())
+        .expect("inspect object count after commit");
+    // Both owner and target must survive: owner because it is immortal
+    // and target because the SATB barrier captured the overwritten edge
+    // before the marker drained the worklist.
+    assert_eq!(
+        object_count_after_finish, 2,
+        "immortal owner and SATB-protected target must both survive concurrent mark"
+    );
+
+    let last = shared
+        .last_completed_plan()
+        .expect("inspect last completed plan after SATB session")
+        .map(|plan| plan.kind);
+    assert_eq!(last, Some(CollectionKind::Major));
+
+    let satb_seen = shared
+        .with_heap(|heap| {
+            heap.recent_barrier_events()
+                .iter()
+                .any(|event| event.kind == BarrierKind::SatbPreWrite)
+        })
+        .expect("inspect recent barrier events");
+    assert!(
+        satb_seen,
+        "SATB barrier event must be recorded for the overwritten edge"
+    );
+
+    let _ = marker.join().expect("join concurrent marker");
+}
+
+#[test]
+fn concurrent_marker_join_stops_thread_cleanly() {
+    let shared = fresh_concurrent_marker_shared_heap();
+
+    let marker = ConcurrentMarker::start(shared.clone(), ConcurrentMarkerConfig::default());
+
+    shared
+        .with_mutator(|mutator| {
+            let mut keep_scope = mutator.handle_scope();
+            for _ in 0..16usize {
+                mutator
+                    .alloc(&mut keep_scope, OldLeaf([3; 32]))
+                    .expect("alloc old leaf for clean stop test");
+            }
+        })
+        .expect("seed heap before clean stop");
+
+    // The marker should still be running before we join it.
+    assert!(!marker.is_finished());
+
+    marker.request_stop();
+    let stats = marker.join().expect("join concurrent marker cleanly");
+    // No active session was started, so the worker should have idled
+    // through any ticks it actually executed without finishing a session.
+    assert_eq!(stats.sessions_completed, 0);
+
+    // After joining, the heap remains usable from the test thread.
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            let _leaf = mutator
+                .alloc(&mut scope, OldLeaf([7; 32]))
+                .expect("allocate after concurrent marker join");
+        })
+        .expect("mutator works after concurrent marker join");
 }

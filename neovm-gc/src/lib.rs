@@ -12,6 +12,7 @@ mod collector_exec;
 mod collector_policy;
 mod collector_session;
 mod collector_state;
+pub mod concurrent_marker;
 pub mod descriptor;
 pub mod edge;
 pub mod heap;
@@ -36,6 +37,10 @@ pub use background::{
     SharedBackgroundObservation, SharedBackgroundService, SharedBackgroundServiceStatus,
     SharedBackgroundStatus, SharedBackgroundWaitResult, SharedHeap, SharedHeapAccessError,
     SharedHeapError, SharedHeapStatus,
+};
+pub use concurrent_marker::{
+    ConcurrentMarker, ConcurrentMarkerConfig, ConcurrentMarkerError, ConcurrentMarkerStats,
+    ConcurrentMarkerStatus,
 };
 pub use barrier::{BarrierEvent, BarrierKind, RememberedEdge};
 pub use descriptor::{
