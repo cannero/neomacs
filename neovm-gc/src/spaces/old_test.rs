@@ -21,6 +21,59 @@ fn old_leaf_desc() -> &'static crate::descriptor::TypeDesc {
 }
 
 #[test]
+fn old_block_accounting_fields_start_zero_and_update_on_record() {
+    let mut block = OldBlock::new(1024, 16);
+    assert_eq!(block.live_bytes(), 0);
+    assert_eq!(block.object_count(), 0);
+    assert_eq!(block.used_bytes(), 0);
+    assert_eq!(block.occupied_line_count(), 0);
+
+    block.record_object_accounting(0, 32);
+    assert_eq!(block.live_bytes(), 32);
+    assert_eq!(block.object_count(), 1);
+    assert_eq!(block.used_bytes(), 32);
+
+    block.record_object_accounting(64, 48);
+    assert_eq!(block.live_bytes(), 80);
+    assert_eq!(block.object_count(), 2);
+    // used_bytes lifts to the tail of the second placement.
+    assert_eq!(block.used_bytes(), 112);
+
+    block.clear_live_accounting();
+    assert_eq!(block.live_bytes(), 0);
+    assert_eq!(block.object_count(), 0);
+    // clear_live_accounting is a LIVE counter reset, not a
+    // backing-buffer clear; used_bytes intentionally stays at its
+    // high-water mark.
+    assert_eq!(block.used_bytes(), 112);
+}
+
+#[test]
+fn old_block_try_alloc_advances_used_bytes_high_water_mark() {
+    let mut block = OldBlock::new(1024, 16);
+    let layout = Layout::from_size_align(32, 8).unwrap();
+    let (_, _) = block.try_alloc(layout).expect("first alloc succeeds");
+    let first_high = block.used_bytes();
+    assert!(first_high >= 32);
+
+    let (_, _) = block.try_alloc(layout).expect("second alloc succeeds");
+    let second_high = block.used_bytes();
+    assert!(second_high > first_high);
+}
+
+#[test]
+fn old_block_occupied_line_count_reflects_marked_lines() {
+    let block = OldBlock::new(1024, 16);
+    assert_eq!(block.occupied_line_count(), 0);
+    block.mark_line(0);
+    block.mark_line(5);
+    block.mark_line(10);
+    assert_eq!(block.occupied_line_count(), 3);
+    block.clear_line_marks();
+    assert_eq!(block.occupied_line_count(), 0);
+}
+
+#[test]
 fn old_gen_record_allocated_object_sets_placement_and_live_stats() {
     let mut object =
         ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf).expect("allocate object");

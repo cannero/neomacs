@@ -56,6 +56,21 @@ pub(crate) struct OldBlock {
     line_marks: Box<[AtomicU8]>,
     line_bytes: usize,
     cursor: usize,
+    /// High-water mark: the largest offset any allocation has ever
+    /// advanced the cursor to. Tracks the logical "region used bytes"
+    /// concept that Step 1 of the OldRegion → OldBlock unification is
+    /// lifting out of `OldRegion`. Reset to 0 when the block is
+    /// cleared (currently unused — blocks are dropped, not cleared,
+    /// on reclaim — but preserved for future sweep paths).
+    used_bytes: usize,
+    /// Sum of `total_size` over every live object currently placed
+    /// in the block. Mirrors `OldRegion::live_bytes`. Updated by
+    /// `record_object_accounting` and cleared by
+    /// `clear_live_accounting`.
+    live_bytes: usize,
+    /// Count of live objects currently placed in the block. Mirrors
+    /// `OldRegion::object_count`. Updated alongside `live_bytes`.
+    object_count: usize,
     /// Per-block card table covering the backing buffer. The write barrier
     /// dirties cards through this table when the owner of an old-to-young
     /// edge lives inside the block; the minor GC root scan walks the dirty
@@ -94,9 +109,79 @@ impl OldBlock {
             line_marks: marks.into_boxed_slice(),
             line_bytes,
             cursor: 0,
+            used_bytes: 0,
+            live_bytes: 0,
+            object_count: 0,
             card_table,
             object_starts,
         }
+    }
+
+    /// Accumulated size of every live object currently placed in
+    /// this block. Mirrors `OldRegion::live_bytes`. Updated by
+    /// [`record_object_accounting`] and reset by
+    /// [`clear_live_accounting`].
+    #[allow(dead_code)]
+    pub(crate) fn live_bytes(&self) -> usize {
+        self.live_bytes
+    }
+
+    /// Count of live objects currently placed in this block.
+    /// Mirrors `OldRegion::object_count`. Updated by
+    /// [`record_object_accounting`] and reset by
+    /// [`clear_live_accounting`].
+    #[allow(dead_code)]
+    pub(crate) fn object_count(&self) -> usize {
+        self.object_count
+    }
+
+    /// Allocation high-water mark: the largest buffer offset any
+    /// `try_alloc` has advanced through. Mirrors
+    /// `OldRegion::used_bytes`. Distinct from [`cursor`] because
+    /// sweep resets the cursor for hole-filling but keeps
+    /// `used_bytes` as the upper bound of ever-allocated space
+    /// (useful for stats and compaction planning).
+    #[allow(dead_code)]
+    pub(crate) fn used_bytes(&self) -> usize {
+        self.used_bytes
+    }
+
+    /// Count the number of lines currently marked occupied.
+    /// Equivalent to `OldRegion::occupied_lines.len()` but computed
+    /// from the live `line_marks` atomic array, so it reflects the
+    /// post-sweep occupancy without maintaining a duplicate set.
+    #[allow(dead_code)]
+    pub(crate) fn occupied_line_count(&self) -> usize {
+        self.line_marks
+            .iter()
+            .filter(|slot| slot.load(Ordering::Relaxed) != 0)
+            .count()
+    }
+
+    /// Record a newly-placed live object in the block's accounting
+    /// counters. Bumps `live_bytes` and `object_count` and lifts
+    /// `used_bytes` to cover the object's tail. Line marks remain
+    /// the responsibility of [`mark_lines_for_range`] and are not
+    /// touched here so callers can keep the two concerns
+    /// independent during the unification migration.
+    #[allow(dead_code)]
+    pub(crate) fn record_object_accounting(&mut self, offset: usize, size: usize) {
+        self.live_bytes = self.live_bytes.saturating_add(size);
+        self.object_count = self.object_count.saturating_add(1);
+        let end = offset.saturating_add(size);
+        if end > self.used_bytes {
+            self.used_bytes = end.min(self.buffer.len());
+        }
+    }
+
+    /// Clear the live-object accounting counters without touching
+    /// the backing buffer or line marks. Invoked at the start of a
+    /// sweep-driven rebuild, right before the survivor walk
+    /// re-populates them via [`record_object_accounting`].
+    #[allow(dead_code)]
+    pub(crate) fn clear_live_accounting(&mut self) {
+        self.live_bytes = 0;
+        self.object_count = 0;
     }
 
     /// Read-only view of the per-card object-start index. Each entry is
@@ -287,6 +372,9 @@ impl OldBlock {
                 }
                 let after_lines = offset + lines_needed * self.line_bytes;
                 self.cursor = after_lines.min(self.buffer.len());
+                if self.cursor > self.used_bytes {
+                    self.used_bytes = self.cursor;
+                }
                 // Maintain the per-card object-start index. The first
                 // object in each card stays as the index entry, so we
                 // only update the slot when it is currently empty.
