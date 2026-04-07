@@ -33,11 +33,13 @@ impl NurseryArena {
     }
 
     /// Capacity in bytes.
+    #[allow(dead_code)]
     pub(crate) fn capacity(&self) -> usize {
         self.buffer.len()
     }
 
     /// Bytes consumed so far.
+    #[allow(dead_code)]
     pub(crate) fn used_bytes(&self) -> usize {
         self.cursor
     }
@@ -89,6 +91,7 @@ impl NurseryArena {
     }
 
     /// Returns true if `ptr` points inside this arena's backing buffer.
+    #[allow(dead_code)]
     pub(crate) fn contains_ptr(&self, ptr: *const u8) -> bool {
         let base = self.buffer.as_ptr() as usize;
         let end = base.saturating_add(self.buffer.len());
@@ -128,6 +131,7 @@ impl NurseryState {
         self.capacity
     }
 
+    #[allow(dead_code)]
     pub(crate) fn from_space(&self) -> &NurseryArena {
         &self.from_space
     }
@@ -137,6 +141,7 @@ impl NurseryState {
         &mut self.from_space
     }
 
+    #[allow(dead_code)]
     pub(crate) fn to_space(&self) -> &NurseryArena {
         &self.to_space
     }
@@ -165,11 +170,13 @@ impl NurseryState {
     }
 
     /// Returns true if `ptr` points into the from-space backing buffer.
+    #[allow(dead_code)]
     pub(crate) fn from_space_contains(&self, ptr: *const u8) -> bool {
         self.from_space.contains_ptr(ptr)
     }
 
     /// Returns true if `ptr` points into either space's backing buffer.
+    #[allow(dead_code)]
     pub(crate) fn contains_ptr(&self, ptr: *const u8) -> bool {
         self.from_space.contains_ptr(ptr) || self.to_space.contains_ptr(ptr)
     }

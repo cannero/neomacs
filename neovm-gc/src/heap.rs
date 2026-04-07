@@ -145,6 +145,7 @@ impl Heap {
         heap
     }
 
+    #[allow(dead_code)]
     pub(crate) fn nursery(&self) -> &NurseryState {
         &self.nursery
     }

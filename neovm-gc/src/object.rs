@@ -374,6 +374,7 @@ impl ObjectRecord {
 
     /// Returns true if this record's backing memory is owned by a
     /// nursery arena (not the system allocator).
+    #[allow(dead_code)]
     pub(crate) fn is_arena_owned(&self) -> bool {
         matches!(self.memory_kind, ObjectMemoryKind::Arena)
     }
