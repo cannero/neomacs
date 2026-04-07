@@ -855,8 +855,13 @@ fn test_builtin_expand_file_name() {
 fn test_builtin_expand_file_name_eval_uses_default_directory() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
-    eval.obarray
-        .set_symbol_value("default-directory", Value::string("/tmp/neovm-expand/"));
+    // `default-directory` is a SYMBOL_FORWARDED BUFFER_OBJFWD slot
+    // since Phase 10C; the per-buffer slot is the source of truth.
+    // Using `eval.set_variable` routes through the FORWARDED path
+    // (mirroring GNU's `set_internal` for SYMBOL_FORWARDED) so the
+    // current buffer's slot is updated, which is what
+    // `default_directory_in_state` reads.
+    eval.set_variable("default-directory", Value::string("/tmp/neovm-expand/"));
 
     let with_implicit = builtin_expand_file_name(&mut eval, vec![Value::string("alpha.txt")]);
     assert_eq!(

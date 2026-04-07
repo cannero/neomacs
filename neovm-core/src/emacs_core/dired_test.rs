@@ -2,24 +2,47 @@ use super::*;
 use crate::emacs_core::value::ValueKind;
 use std::io::Write;
 
+// Test helpers hold the Context alive in a thread_local so the
+// heap objects in the returned Value survive until the next call.
+// Previously the bare `let mut eval = ...; builtin(...)` pattern
+// dropped the Context at end of function, destroying the tagged
+// heap and leaving the returned Value pointing at freed memory.
+use std::cell::RefCell;
+thread_local! {
+    static DIRED_TEST_CTX: RefCell<Option<Box<super::super::eval::Context>>> =
+        const { RefCell::new(None) };
+}
+
 /// Test helper: create a fresh eval context for dired tests.
 fn test_eval_ctx() -> super::super::eval::Context {
     super::super::eval::Context::new()
 }
 
 fn call_directory_files_and_attributes(args: Vec<Value>) -> EvalResult {
-    let mut eval = test_eval_ctx();
-    builtin_directory_files_and_attributes(&mut eval, args)
+    DIRED_TEST_CTX.with(|slot| {
+        let mut ctx = Box::new(super::super::eval::Context::new());
+        let result = builtin_directory_files_and_attributes(&mut ctx, args);
+        *slot.borrow_mut() = Some(ctx);
+        result
+    })
 }
 
 fn call_file_name_all_completions(args: Vec<Value>) -> EvalResult {
-    let mut eval = test_eval_ctx();
-    builtin_file_name_all_completions(&mut eval, args)
+    DIRED_TEST_CTX.with(|slot| {
+        let mut ctx = Box::new(super::super::eval::Context::new());
+        let result = builtin_file_name_all_completions(&mut ctx, args);
+        *slot.borrow_mut() = Some(ctx);
+        result
+    })
 }
 
 fn call_file_attributes(args: Vec<Value>) -> EvalResult {
-    let mut eval = test_eval_ctx();
-    builtin_file_attributes(&mut eval, args)
+    DIRED_TEST_CTX.with(|slot| {
+        let mut ctx = Box::new(super::super::eval::Context::new());
+        let result = builtin_file_attributes(&mut ctx, args);
+        *slot.borrow_mut() = Some(ctx);
+        result
+    })
 }
 
 fn make_test_dir(name: &str) -> (std::path::PathBuf, String) {

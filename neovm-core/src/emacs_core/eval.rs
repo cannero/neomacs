@@ -6179,6 +6179,38 @@ impl Context {
             self.noninteractive = value.is_truthy();
         }
         self.note_macro_expansion_mutation();
+        // GNU set_internal (data.c:1762) for SYMBOL_FORWARDED routes
+        // the write through `store_symval_forwarding` which for the
+        // BUFFER_OBJFWD arm writes to the current buffer's slot.
+        // Mirror that here so callers like
+        // `obarray.set_symbol_value("default-directory", ...)`
+        // (and the test surface that uses set_variable) actually
+        // update the visible per-buffer slot rather than just the
+        // obarray symbol value (which a FORWARDED symbol no longer
+        // consults at read time).
+        use super::symbol::SymbolRedirect;
+        if let Some(sym) = self.obarray.get_by_id(sym_id)
+            && sym.flags.redirect() == SymbolRedirect::Forwarded
+            && let Some(buf_id) = self.buffers.current_buffer_id()
+        {
+            use super::forward::{LispBufferObjFwd, LispFwdType};
+            // Safety: install_buffer_objfwd leaks a 'static
+            // descriptor; the symbol's redirect tag and val.fwd
+            // pointer are immutable once installed.
+            let fwd_ptr = unsafe { sym.val.fwd };
+            let header = unsafe { &*fwd_ptr };
+            if matches!(header.ty, LispFwdType::BufferObj) {
+                let buf_fwd = unsafe { &*(fwd_ptr as *const LispBufferObjFwd) };
+                let offset = buf_fwd.offset as usize;
+                if let Some(buf) = self.buffers.get_mut(buf_id)
+                    && offset < buf.slots.len()
+                {
+                    buf.slots[offset] = value;
+                    self.mark_gc_runtime_settings_dirty_by_id(sym_id);
+                    return;
+                }
+            }
+        }
         self.obarray.set_symbol_value(name, value);
         self.mark_gc_runtime_settings_dirty_by_id(sym_id);
     }

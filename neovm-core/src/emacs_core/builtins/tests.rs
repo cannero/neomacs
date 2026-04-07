@@ -384,15 +384,19 @@ fn pure_dispatch_typed_ash_handles_extreme_negative_shift_counts() {
 }
 
 #[test]
-fn pure_dispatch_typed_abs_min_fixnum_signals_overflow_error() {
+fn pure_dispatch_typed_abs_min_fixnum_promotes_to_bignum() {
+    // GNU emacs 31.0.50 verified:
+    //   (abs most-negative-fixnum) -> 2305843009213693952
+    // -- the absolute value of the most-negative fixnum overflows
+    // i64 by 1 bit, so GNU promotes to a bignum. Mirrors the
+    // bignum-promotion path in builtin_abs (arithmetic.rs).
     crate::test_utils::init_test_tracing();
-    let err = dispatch_builtin_pure("abs", vec![Value::fixnum(Value::MOST_NEGATIVE_FIXNUM)])
+    let result = dispatch_builtin_pure("abs", vec![Value::fixnum(Value::MOST_NEGATIVE_FIXNUM)])
         .expect("builtin abs should resolve")
-        .expect_err("abs on most-negative-fixnum should not panic");
-    match err {
-        Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "overflow-error"),
-        other => panic!("unexpected flow: {other:?}"),
-    }
+        .expect("abs on most-negative-fixnum should promote to bignum");
+    assert!(result.is_bignum(), "expected bignum, got {:?}", result);
+    let s = result.as_bignum().unwrap().to_string();
+    assert_eq!(s, "2305843009213693952");
 }
 
 #[test]

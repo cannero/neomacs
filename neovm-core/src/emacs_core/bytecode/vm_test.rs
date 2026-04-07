@@ -5154,8 +5154,7 @@ fn vm_fileio_builtins_use_shared_default_directory_state() {
              (progn (access-file "alpha.txt" "open") 'ok)
              (length (file-system-info ".")))"#,
         |eval| {
-            eval.obarray
-                .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
+            eval.set_variable("default-directory", Value::string("/tmp/neovm-global/"));
             let current = eval.buffers.current_buffer_id().expect("current buffer");
             eval.buffers
                 .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
@@ -5192,8 +5191,7 @@ fn vm_fileio_mutation_builtins_use_shared_default_directory_state() {
              (progn (delete-file-internal "gamma.txt") (file-exists-p "gamma.txt"))
              (progn (delete-directory-internal "made") (file-directory-p "made")))"#,
         |eval| {
-            eval.obarray
-                .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
+            eval.set_variable("default-directory", Value::string("/tmp/neovm-global/"));
             let current = eval.buffers.current_buffer_id().expect("current buffer");
             eval.buffers
                 .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
@@ -5226,8 +5224,7 @@ fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
     let visit = base.join("visit.txt").to_string_lossy().to_string();
 
     let mut eval = Context::new_vm_runtime_harness();
-    eval.obarray
-        .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
+    eval.set_variable("default-directory", Value::string("/tmp/neovm-global/"));
     let current = eval.buffers.current_buffer_id().expect("current buffer");
     eval.buffers
         .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
@@ -5302,8 +5299,7 @@ fn vm_dired_builtins_use_shared_default_directory_state() {
                (nth 7 attrs))
              (find-file-name-handler "fixtures/alpha.txt" 'insert-file-contents))"#,
         |eval| {
-            eval.obarray
-                .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
+            eval.set_variable("default-directory", Value::string("/tmp/neovm-global/"));
             let current = eval.buffers.current_buffer_id().expect("current buffer");
             eval.buffers
                 .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
@@ -5343,8 +5339,7 @@ fn vm_file_name_completion_callable_predicate_uses_shared_runtime_callback() {
                       (file-directory-p path)))
                    seen))"#,
         |eval| {
-            eval.obarray
-                .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
+            eval.set_variable("default-directory", Value::string("/tmp/neovm-global/"));
             let current = eval.buffers.current_buffer_id().expect("current buffer");
             eval.buffers
                 .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
@@ -5380,8 +5375,7 @@ fn vm_file_metadata_builtins_use_shared_runtime_state() {
              (verify-visited-file-modtime)
              (set-visited-file-modtime nil))"#,
         |eval| {
-            eval.obarray
-                .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
+            eval.set_variable("default-directory", Value::string("/tmp/neovm-global/"));
             let current = eval.buffers.current_buffer_id().expect("current buffer");
             eval.buffers
                 .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
@@ -5423,8 +5417,7 @@ fn vm_file_metadata_tail_and_coding_scan_builtins_use_direct_dispatch() {
                     (find-coding-systems-region-internal 1 4)))
                (set-default-file-modes orig)))"#,
         |eval| {
-            eval.obarray
-                .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
+            eval.set_variable("default-directory", Value::string("/tmp/neovm-global/"));
             let current = eval.buffers.current_buffer_id().expect("current buffer");
             eval.buffers
                 .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
@@ -5457,8 +5450,7 @@ fn vm_file_setters_and_display_stubs_use_direct_dispatch() {
                (internal-show-cursor (selected-window) t)
                (internal-show-cursor-p (selected-window))))"#,
         |eval| {
-            eval.obarray
-                .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
+            eval.set_variable("default-directory", Value::string("/tmp/neovm-global/"));
             let current = eval.buffers.current_buffer_id().expect("current buffer");
             eval.buffers
                 .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
