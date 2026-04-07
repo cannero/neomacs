@@ -25,6 +25,40 @@ fn value_constructors() {
     });
 }
 
+/// Foundation smoke test for bignum support: a value bigger than the
+/// 62-bit fixnum range must round-trip through `Value::make_integer`,
+/// classify as `integerp` / `bignump` (and *not* `fixnump`), and print
+/// back to its decimal text. Mirrors GNU `make_integer_mpz`
+/// (`src/bignum.c:146`).
+#[test]
+fn bignum_constructor_and_predicates() {
+    crate::test_utils::init_test_tracing();
+    with_test_heap(|| {
+        // Pick a value that can never fit in fixnum: 2^100.
+        let mut huge = rug::Integer::from(1);
+        huge <<= 100;
+        let big = Value::make_integer(huge.clone());
+        assert!(big.is_bignum(), "expected bignum, got {:?}", big.kind());
+        assert!(big.is_integer(), "bignum should satisfy integerp");
+        assert!(big.is_number(), "bignum should satisfy numberp");
+        assert!(!big.is_fixnum(), "bignum must not be a fixnum");
+        assert_eq!(big.type_name(), "integer");
+
+        let borrowed = big.as_bignum().expect("as_bignum");
+        assert_eq!(*borrowed, huge);
+        assert_eq!(
+            crate::emacs_core::print::print_value(&big),
+            "1267650600228229401496703205376"
+        );
+
+        // Values that fit must come back as fixnums, not bignums.
+        let small = Value::make_integer(rug::Integer::from(42));
+        assert!(small.is_fixnum());
+        assert!(!small.is_bignum());
+        assert_eq!(small.as_fixnum(), Some(42));
+    });
+}
+
 #[test]
 fn list_round_trip() {
     crate::test_utils::init_test_tracing();

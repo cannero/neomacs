@@ -249,6 +249,9 @@ pub(crate) fn dump_value(v: &Value) -> DumpValue {
         ValueKind::Veclike(VecLikeType::Window) => DumpValue::Window(v.as_window_id().unwrap()),
         ValueKind::Veclike(VecLikeType::Frame) => DumpValue::Frame(v.as_frame_id().unwrap()),
         ValueKind::Veclike(VecLikeType::Timer) => DumpValue::Timer(v.as_timer_id().unwrap()),
+        ValueKind::Veclike(VecLikeType::Bignum) => {
+            DumpValue::Bignum(v.as_bignum().unwrap().to_string())
+        }
         ValueKind::Unknown => DumpValue::Nil,
     }
 }
@@ -1752,6 +1755,7 @@ pub(crate) fn load_value(v: &DumpValue) -> Value {
         DumpValue::Window(w) => load_cached_window(*w),
         DumpValue::Frame(f) => load_cached_frame(*f),
         DumpValue::Timer(t) => load_cached_timer(*t),
+        DumpValue::Bignum(text) => Value::make_integer_from_str_or_zero(text),
     }
 }
 

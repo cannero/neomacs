@@ -35,6 +35,8 @@ webpki-roots.workspace = true
 rustls-pki-types.workspace = true
 arboard.workspace = true
 parking_lot.workspace = true
+rug.workspace = true
+gmp-mpfr-sys.workspace = true
 
 [features]
 default = []

@@ -813,6 +813,42 @@ impl TaggedValue {
         with_tagged_heap(|h| h.alloc_float(f))
     }
 
+    /// Allocate a bignum on the heap. Caller is responsible for ensuring
+    /// the value is outside fixnum range — internal callers should
+    /// almost always use [`Value::make_integer`] instead, which mirrors
+    /// GNU `make_integer_mpz` (`src/bignum.c:146`) by returning a
+    /// fixnum when the value fits and only allocating a bignum on
+    /// promotion.
+    pub fn bignum(value: rug::Integer) -> Self {
+        with_tagged_heap(|h| h.alloc_bignum(value))
+    }
+
+    /// Canonical "make a Lisp integer from this rug::Integer" entry
+    /// point. Mirrors GNU `make_integer_mpz` (`src/bignum.c:146`):
+    /// returns a fixnum if the value fits in fixnum range, otherwise
+    /// allocates a bignum object.
+    pub fn make_integer(value: rug::Integer) -> Self {
+        if let Some(small) = value.to_i64() {
+            if (TaggedValue::MOST_NEGATIVE_FIXNUM..=TaggedValue::MOST_POSITIVE_FIXNUM)
+                .contains(&small)
+            {
+                return Self::fixnum(small);
+            }
+        }
+        Self::bignum(value)
+    }
+
+    /// Convenience used by the dump loader to materialize a bignum from
+    /// its decimal representation. If parsing fails (which would
+    /// indicate a corrupt dump) it falls back to 0 rather than
+    /// panicking — the dump format guarantees a valid base-10 string.
+    pub fn make_integer_from_str_or_zero(text: &str) -> Self {
+        match rug::Integer::parse(text) {
+            Ok(incomplete) => Self::make_integer(rug::Integer::from(incomplete)),
+            Err(_) => Self::fixnum(0),
+        }
+    }
+
     /// Allocate a cons cell (old API name).
     pub fn cons(car: Value, cdr: Value) -> Self {
         Self::make_cons(car, cdr)

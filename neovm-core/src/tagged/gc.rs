@@ -722,6 +722,7 @@ impl TaggedHeap {
                         VecLikeType::Frame => size_of::<FrameObj>(),
                         VecLikeType::Timer => size_of::<TimerObj>(),
                         VecLikeType::Subr => size_of::<SubrObj>(),
+                        VecLikeType::Bignum => size_of::<BignumObj>(),
                     }
                 }
             }
@@ -1011,6 +1012,24 @@ impl TaggedHeap {
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
         self.note_allocation_bytes(size_of::<MarkerObj>());
+        unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
+    }
+
+    /// Allocate a bignum (arbitrary-precision integer).
+    ///
+    /// Mirrors GNU `make_bignum` (`src/bignum.c:113`): the caller is
+    /// responsible for ensuring the value is outside fixnum range.
+    /// Use `Value::make_integer` for the canonical "fixnum-or-bignum"
+    /// constructor that delegates here only when promotion is needed.
+    pub fn alloc_bignum(&mut self, value: rug::Integer) -> TaggedValue {
+        let obj = Box::new(BignumObj {
+            header: VecLikeHeader::new(VecLikeType::Bignum),
+            value,
+        });
+        let ptr = Box::into_raw(obj);
+        self.link_veclike(ptr as *mut VecLikeHeader);
+        self.allocated_count += 1;
+        self.note_allocation_bytes(size_of::<BignumObj>());
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
@@ -1350,8 +1369,13 @@ impl TaggedHeap {
             | VecLikeType::Frame
             | VecLikeType::Timer
             | VecLikeType::Marker
-            | VecLikeType::Subr => {
-                // These have no Value children to trace
+            | VecLikeType::Subr
+            | VecLikeType::Bignum => {
+                // These have no Value children to trace.
+                //
+                // Bignums own a `rug::Integer`, which owns a libgmp
+                // limb buffer, but no Lisp_Object children — `Drop`
+                // takes care of the GMP memory in `free_gc_object`.
             }
         }
     }
@@ -1429,6 +1453,11 @@ impl TaggedHeap {
                     VecLikeType::Frame => unsafe { drop(Box::from_raw(ptr as *mut FrameObj)) },
                     VecLikeType::Timer => unsafe { drop(Box::from_raw(ptr as *mut TimerObj)) },
                     VecLikeType::Subr => unsafe { drop(Box::from_raw(ptr as *mut SubrObj)) },
+                    VecLikeType::Bignum => unsafe {
+                        // Box::drop runs rug::Integer::drop, which frees
+                        // the underlying libgmp limb buffer.
+                        drop(Box::from_raw(ptr as *mut BignumObj))
+                    },
                 }
             }
         }

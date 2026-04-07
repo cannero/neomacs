@@ -476,6 +476,12 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
             let tid = value.as_timer_id().unwrap();
             write!(out, "#<timer {}>", tid).unwrap();
         }
+        ValueKind::Veclike(VecLikeType::Bignum) => {
+            // GNU `print_object` formats bignums via `mpz_get_str`
+            // (`src/print.c` PRINT_INTEGER branch). `rug::Integer`'s
+            // Display delegates to the same routine.
+            write!(out, "{}", value.as_bignum().unwrap()).unwrap();
+        }
         ValueKind::Unknown => write!(out, "#<unknown {:#x}>", value.0).unwrap(),
     }
 }
@@ -1049,6 +1055,7 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
         ValueKind::Veclike(VecLikeType::Timer) => {
             format!("#<timer {}>", value.as_timer_id().unwrap())
         }
+        ValueKind::Veclike(VecLikeType::Bignum) => value.as_bignum().unwrap().to_string(),
         ValueKind::Unknown => format!("#<unknown {:#x}>", value.0),
     }
 }
@@ -1221,6 +1228,9 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
         }
         ValueKind::Veclike(VecLikeType::Timer) => {
             out.extend_from_slice(format!("#<timer {}>", value.as_timer_id().unwrap()).as_bytes());
+        }
+        ValueKind::Veclike(VecLikeType::Bignum) => {
+            out.extend_from_slice(value.as_bignum().unwrap().to_string().as_bytes());
         }
         ValueKind::Unknown => {
             out.extend_from_slice(format!("#<unknown {:#x}>", value.0).as_bytes());

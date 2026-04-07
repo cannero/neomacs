@@ -369,6 +369,8 @@ pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
         ValueKind::Veclike(VecLikeType::Window) => "window",
         ValueKind::Veclike(VecLikeType::Frame) => "frame",
         ValueKind::Veclike(VecLikeType::Timer) => "timer",
+        // GNU `Fcl_type_of` reports bignums as `bignum`.
+        ValueKind::Veclike(VecLikeType::Bignum) => "bignum",
         ValueKind::Unknown => "unknown",
     };
     Ok(Value::symbol(name))

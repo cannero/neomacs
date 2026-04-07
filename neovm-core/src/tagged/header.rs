@@ -144,6 +144,11 @@ pub enum VecLikeType {
     Timer = 11,
     /// Built-in function (like GNU's PVEC_SUBR).
     Subr = 12,
+    /// Arbitrary-precision integer (like GNU's PVEC_BIGNUM).
+    /// Mirrors `struct Lisp_Bignum` in `src/bignum.h`, which wraps an
+    /// `mpz_t`. NeoMacs wraps `rug::Integer` (which itself wraps the
+    /// same `mpz_t` from libgmp).
+    Bignum = 13,
 }
 
 use std::sync::OnceLock;
@@ -328,4 +333,18 @@ pub struct SubrObj {
     pub dispatch_kind: SubrDispatchKind,
     /// Native Rust entry point for the builtin, if fully registered.
     pub function: Option<SubrFn>,
+}
+
+/// Heap-allocated arbitrary-precision integer (mirrors GNU
+/// `struct Lisp_Bignum` in `src/bignum.h`).
+///
+/// GNU stores an `mpz_t` directly inside the struct. NeoMacs wraps
+/// `rug::Integer`, which itself owns an `mpz_t` (from libgmp). The GC
+/// has no Lisp_Object children to trace — the only owned resource is
+/// the GMP-managed limb buffer, which is freed when `Drop` runs in
+/// `free_gc_object`.
+#[repr(C)]
+pub struct BignumObj {
+    pub header: VecLikeHeader,
+    pub value: rug::Integer,
 }

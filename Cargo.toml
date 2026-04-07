@@ -70,6 +70,18 @@ bytemuck = { version = "1.18", features = ["derive"] }
 image = "0.24"
 allsorts = "0.16.1"
 
+# Arbitrary precision integers (bignum support).
+# Uses GMP under the hood, mirroring GNU Emacs's bignum.c which also
+# wraps GMP. We disable rug's default features so only the `integer`
+# module is built — we don't need MPFR (rationals/floats) here, since
+# elisp bignums are integers and elisp floats stay as f64.
+rug = { version = "1", default-features = false, features = ["integer"] }
+# We pin gmp-mpfr-sys (rug's underlying FFI crate) so we can enable its
+# `use-system-libs` feature, which links against the libgmp shipped by
+# our nix devShell instead of building GMP from source. Building GMP
+# from source needs `m4` in PATH which the devShell doesn't ship.
+gmp-mpfr-sys = { version = "1.7", default-features = false, features = ["use-system-libs"] }
+
 # GPU / windowing
 winit = "0.30"
 wgpu = "28"

@@ -47,6 +47,10 @@ pub enum DumpValue {
     Window(u64),
     Frame(u64),
     Timer(u64),
+    /// Bignum serialized as a base-10 decimal string. We don't share
+    /// bignums via heap refs because they're immutable and the dump
+    /// format only needs to recreate the value, not its identity.
+    Bignum(String),
 }
 
 impl Default for DumpValue {

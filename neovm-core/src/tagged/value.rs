@@ -28,7 +28,9 @@ use std::fmt;
 
 use crate::emacs_core::intern::{SymId, resolve_sym};
 
-use super::header::{ConsCell, FloatObj, GcHeader, StringObj, VecLikeHeader, VecLikeType};
+use super::header::{
+    BignumObj, ConsCell, FloatObj, GcHeader, StringObj, VecLikeHeader, VecLikeType,
+};
 
 pub(crate) fn reset_current_subrs() {
     crate::tagged::gc::with_tagged_heap(|heap| heap.clear_subr_registry());
@@ -316,6 +318,34 @@ impl TaggedValue {
         self.veclike_type() == Some(super::header::VecLikeType::Subr)
     }
 
+    /// Bignums are PVEC_BIGNUM veclike heap objects (mirrors GNU `BIGNUMP`).
+    #[inline]
+    pub fn is_bignum(self) -> bool {
+        self.veclike_type() == Some(super::header::VecLikeType::Bignum)
+    }
+
+    /// Get a borrowed reference to the underlying `rug::Integer`.
+    /// Returns `None` if this value isn't a bignum.
+    ///
+    /// # Safety / lifetime
+    /// The returned reference is `'static` because callers can't easily
+    /// thread a heap lifetime through `Value`. The pointer is only
+    /// valid for as long as the underlying heap object is alive — the
+    /// caller must avoid GC across the borrow. This matches the
+    /// existing `as_str` / `xfloat` pattern.
+    #[inline]
+    pub fn as_bignum(self) -> Option<&'static rug::Integer> {
+        if self.is_bignum() {
+            let ptr = (self.0 & !TAG_MASK) as *const BignumObj;
+            // Safety: tag check ensures this is a BignumObj allocated
+            // through `alloc_bignum`, which puts a `VecLikeHeader` at
+            // offset 0 followed by `value: rug::Integer`.
+            Some(unsafe { &(*ptr).value })
+        } else {
+            None
+        }
+    }
+
     /// True if this value holds a heap pointer (needs GC tracing).
     #[inline]
     pub fn is_heap_object(self) -> bool {
@@ -584,18 +614,18 @@ impl TaggedValue {
         !self.is_nil()
     }
 
-    /// True for integers.
-    /// True for integers (fixnums). Characters are also integers in GNU Emacs,
-    /// and since chars are now encoded as fixnums, this is just `is_fixnum()`.
+    /// True for integers — both fixnums and bignums (matches GNU `INTEGERP`).
+    /// Characters are also integers in GNU Emacs, and since chars are encoded
+    /// as fixnums, they fall through the fixnum branch.
     #[inline]
     pub fn is_integer(self) -> bool {
-        self.is_fixnum()
+        self.is_fixnum() || self.is_bignum()
     }
 
-    /// True for any number (fixnum or float).
+    /// True for any number (fixnum, bignum, or float). Mirrors GNU `NUMBERP`.
     #[inline]
     pub fn is_number(self) -> bool {
-        self.is_fixnum() || self.is_float()
+        self.is_fixnum() || self.is_bignum() || self.is_float()
     }
 
     /// True if this value is a vector (veclike with Vector type tag).
@@ -650,6 +680,9 @@ impl TaggedValue {
                 VecLikeType::Window => "window",
                 VecLikeType::Frame => "frame",
                 VecLikeType::Timer => "timer",
+                // GNU Emacs reports both fixnums and bignums as
+                // "integer" via `Ftype_of` / `Fcl_type_of`.
+                VecLikeType::Bignum => "integer",
             },
             ValueKind::Unknown => "unknown",
         }

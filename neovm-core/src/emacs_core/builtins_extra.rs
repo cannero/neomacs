@@ -625,19 +625,24 @@ pub(crate) fn builtin_user_full_name(args: Vec<Value>) -> EvalResult {
 /// `(system-name)` -> string.
 ///
 /// `(fixnump OBJ)` — return t if OBJ is a fixnum (small integer).
-/// NeoVM has no bignums, so all integers are fixnums.
+///
+/// Mirrors GNU `Ffixnump` (`src/data.c`). Now that bignums are real,
+/// this is *not* the same as `integerp` — `fixnump` returns nil for a
+/// bignum even though `integerp` returns t.
 pub(crate) fn builtin_fixnump(args: Vec<Value>) -> EvalResult {
     expect_args("fixnump", &args, 1)?;
-    Ok(Value::bool_val(
-        args[0].is_fixnum() || args[0].as_char().is_some(),
-    ))
+    Ok(Value::bool_val(args[0].is_fixnum()))
 }
 
 /// `(bignump OBJ)` — return t if OBJ is a bignum.
-/// NeoVM has no bignums, so always returns nil.
+///
+/// Mirrors GNU `Fbignump` (`src/data.c`) and the `BIGNUMP` predicate.
+/// Now that NeoMacs allocates real bignum objects via
+/// [`Value::make_integer`] / [`Value::bignum`], this checks the
+/// underlying veclike type tag instead of always returning nil.
 pub(crate) fn builtin_bignump(args: Vec<Value>) -> EvalResult {
     expect_args("bignump", &args, 1)?;
-    Ok(Value::NIL)
+    Ok(Value::bool_val(args[0].is_bignum()))
 }
 
 /// GNU editfns.c:1283 — returns the host name via `gethostname(2)`,
