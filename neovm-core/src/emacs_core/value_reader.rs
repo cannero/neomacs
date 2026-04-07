@@ -909,7 +909,7 @@ impl<'a> Reader<'a> {
             return Err(self.error("end of input"));
         }
         let len = self.parse_decimal_usize()?;
-        self.skip_exact_bytes(len)?;
+        self.skip_exact_source_bytes(len)?;
         self.read_form()
     }
 
@@ -1231,17 +1231,26 @@ impl<'a> Reader<'a> {
             .map_err(|_| self.error("invalid decimal length"))
     }
 
-    fn skip_exact_bytes(&mut self, len: usize) -> Result<(), ReadError> {
-        let Some(new_pos) = self.pos.checked_add(len) else {
-            return Err(self.error("byte skip overflow"));
-        };
-        if new_pos > self.input.len() {
-            return Err(self.error("byte skip past end of input"));
+    /// Advance `pos` past `len` source bytes from a `.elc` file.
+    ///
+    /// `.elc` bytes are Latin-1-decoded into a Rust `String` so that every
+    /// source byte (including raw 0x80..=0xFF) becomes exactly one `char`.
+    /// `#@LEN` skips count source bytes, not UTF-8 bytes, so we advance by
+    /// `len` chars and let each char contribute its actual UTF-8 width to
+    /// `pos`. A naive byte-wise advance would under-skip by 1 for every
+    /// 0x80..=0xFF source byte (which becomes a 2-byte UTF-8 sequence in
+    /// our `String`) and land mid-docstring on files like `window.elc`,
+    /// where docstrings contain U+2019 (`'`) stored as `0xe2 0x80 0x99`.
+    fn skip_exact_source_bytes(&mut self, len: usize) -> Result<(), ReadError> {
+        let mut chars = self.input[self.pos..].chars();
+        let mut bytes_advanced = 0usize;
+        for _ in 0..len {
+            match chars.next() {
+                Some(c) => bytes_advanced += c.len_utf8(),
+                None => return Err(self.error("byte skip past end of input")),
+            }
         }
-        if !self.input.is_char_boundary(new_pos) {
-            return Err(self.error("byte skip ended mid-character"));
-        }
-        self.pos = new_pos;
+        self.pos += bytes_advanced;
         Ok(())
     }
 }

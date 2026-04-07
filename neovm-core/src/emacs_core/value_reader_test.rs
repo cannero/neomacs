@@ -531,3 +531,131 @@ fn dollar_hash_load_file_name() {
     let v = read1("#$");
     assert!(v.is_symbol_named("load-file-name"));
 }
+
+/// Read forms from window.elc until form 22 (the form that loadup
+/// fails on) and assert no docstring fragment leaks out.
+#[test]
+fn read_window_elc_does_not_leak_docstring_fragments() {
+    crate::test_utils::init_test_tracing();
+    let path = "../lisp/window.elc";
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(_) => {
+            eprintln!("skipping: {} not present", path);
+            return;
+        }
+    };
+    let content: String = bytes.iter().map(|&b| b as char).collect();
+
+    // Skip the .elc preamble: header lines starting with `;` until the
+    // first newline-then-paren.
+    let mut pos = 0;
+    while pos < content.len() {
+        if content[pos..].starts_with("\n(") {
+            pos += 1;
+            break;
+        }
+        pos += 1;
+    }
+
+    let mut form_idx = 0;
+    while form_idx < 50 {
+        let res = read_one(&content, pos);
+        match res {
+            Ok(Some((form, next_pos))) => {
+                // Make sure we never produce a symbol whose name appears
+                // in window.elc only inside docstrings (e.g. `NORE`,
+                // a fragment of `IGNORE`).
+                if let ValueKind::Symbol(sid) = form.kind() {
+                    let name = resolve_sym(sid);
+                    assert_ne!(
+                        name, "NORE",
+                        "form {} parsed as symbol NORE — docstring leak \
+                         at byte {}",
+                        form_idx, pos
+                    );
+                }
+                pos = next_pos;
+                form_idx += 1;
+            }
+            Ok(None) => break,
+            Err(e) => panic!("read error at byte {}: {}", pos, e.message),
+        }
+    }
+}
+
+/// Reproduce the .elc reader bug where the `#@LEN` doc-string skip
+/// drifts and a docstring fragment ends up parsed as a symbol.
+///
+/// Format from `bytecomp.el byte-compile-output-as-comment`:
+///   #@LENGTH<space><docstring><US (\037)>
+/// where LENGTH = 1 (leading space) + len(docstring) + 1 (US) bytes.
+///
+/// After the skip, the reader should land at the next form, NOT at any
+/// byte inside the docstring.
+#[test]
+fn hash_skip_doc_string_lands_after_us_terminator() {
+    crate::test_utils::init_test_tracing();
+    // Docstring contents: "with a non-nil\nIGNORE arg"  (25 bytes)
+    // Wrapped form: " <docstring>\037" — 27 bytes
+    // So #@27 must skip past the leading space, the docstring, and the
+    // \037 terminator, landing at the next form `(next-form)`.
+    let docstring = "with a non-nil\nIGNORE arg";
+    assert_eq!(docstring.len(), 25);
+    let length = 1 + docstring.len() + 1; // 27
+    let input = format!("#@{length} {docstring}\u{1f}\n(next-form)");
+    let forms = read_all_ok(&input);
+    assert_eq!(forms.len(), 1, "expected exactly one top-level form");
+    let form = forms[0];
+    assert!(form.is_cons(), "form should be a cons, got {:?}", form);
+    assert!(
+        form.cons_car().is_symbol_named("next-form"),
+        "expected (next-form ...), got car {:?}",
+        form.cons_car()
+    );
+}
+
+/// `.elc` files store text bytes literally, including the raw bytes
+/// (0xe2 0x80 0x99) for U+2019 ('right single quotation mark') that
+/// `byte-compile-output-as-comment` writes when a docstring contains
+/// `‘` or `’`. Those bytes are Latin-1-decoded into Rust `chars` whose
+/// codepoints sit above 0x7F and therefore re-encode as 2-byte UTF-8
+/// sequences in our internal `String`. The `#@LEN` skip must count
+/// source bytes (= chars in the decoded String), not UTF-8 bytes — a
+/// byte-wise advance under-skips by 1 per high-bit source byte and
+/// strands the reader inside the docstring.
+#[test]
+fn hash_skip_doc_string_handles_high_bit_source_bytes() {
+    crate::test_utils::init_test_tracing();
+    // Build the same docstring layout that bytecomp produces, then
+    // re-encode it as Latin-1 (each source byte → one char) before
+    // handing to the reader, exactly like load.rs does for .elc files.
+    //
+    // Source docstring: "use ‘window-state-get’ first" with the curly
+    // quotes stored as raw bytes 0xe2 0x80 0x98 / 0xe2 0x80 0x99
+    // (the literal UTF-8 encoding of U+2018 / U+2019).
+    let mut source: Vec<u8> = Vec::new();
+    source.extend_from_slice(b"use ");
+    source.extend_from_slice(&[0xe2, 0x80, 0x98]); // ‘
+    source.extend_from_slice(b"window-state-get");
+    source.extend_from_slice(&[0xe2, 0x80, 0x99]); // ’
+    source.extend_from_slice(b" first");
+    let doc_byte_len = source.len();
+    let length = 1 + doc_byte_len + 1;
+
+    let mut elc: Vec<u8> = Vec::new();
+    elc.extend_from_slice(format!("#@{length} ").as_bytes());
+    elc.extend_from_slice(&source);
+    elc.push(0x1f); // US terminator
+    elc.push(b'\n');
+    elc.extend_from_slice(b"(window-state-put)");
+
+    let content: String = elc.iter().map(|&b| b as char).collect();
+    let forms = read_all(&content).expect("read should succeed");
+    assert_eq!(forms.len(), 1, "expected exactly one top-level form");
+    assert!(
+        forms[0].cons_car().is_symbol_named("window-state-put"),
+        "expected (window-state-put), got car {:?}",
+        forms[0].cons_car()
+    );
+}
