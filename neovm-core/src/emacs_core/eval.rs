@@ -3560,6 +3560,68 @@ impl Context {
 
             // Other
             defvar_per_buffer!("text-conversion-style", Value::NIL);
+
+            // Phase 10B: install BUFFER_OBJFWD descriptors for the
+            // four BUFFER_SLOT-backed names. After this point each
+            // of these symbols has redirect=Forwarded with a
+            // descriptor that resolves reads/writes to
+            // `Buffer::slots[offset]`. The earlier
+            // `defvar_per_buffer!` left them as LOCALIZED; we
+            // overwrite that with the FORWARDED tag here so the
+            // VM lookup/assign hot path takes the slot fast path.
+            //
+            // Mirrors GNU's `defvar_per_buffer` in `buffer.c`,
+            // which always uses BUFFER_OBJFWD for these C-side
+            // BVAR slots (`buffer.h:319-329`).
+            {
+                use crate::buffer::buffer::{
+                    BUFFER_SLOT_AUTO_SAVE_FILE_NAME,
+                    BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS,
+                    BUFFER_SLOT_FILE_NAME,
+                    BUFFER_SLOT_READ_ONLY,
+                };
+                use crate::emacs_core::forward::alloc_buffer_objfwd;
+                use crate::emacs_core::intern::intern;
+
+                let stringp = intern("stringp");
+                let null_pred = intern("null");
+
+                let id = intern("buffer-file-name");
+                let fwd = alloc_buffer_objfwd(
+                    BUFFER_SLOT_FILE_NAME as u16,
+                    -1,
+                    stringp,
+                    Value::NIL,
+                );
+                obarray.install_buffer_objfwd(id, fwd);
+
+                let id = intern("buffer-auto-save-file-name");
+                let fwd = alloc_buffer_objfwd(
+                    BUFFER_SLOT_AUTO_SAVE_FILE_NAME as u16,
+                    -1,
+                    stringp,
+                    Value::NIL,
+                );
+                obarray.install_buffer_objfwd(id, fwd);
+
+                let id = intern("buffer-read-only");
+                let fwd = alloc_buffer_objfwd(
+                    BUFFER_SLOT_READ_ONLY as u16,
+                    -1,
+                    null_pred,
+                    Value::NIL,
+                );
+                obarray.install_buffer_objfwd(id, fwd);
+
+                let id = intern("enable-multibyte-characters");
+                let fwd = alloc_buffer_objfwd(
+                    BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS as u16,
+                    -1,
+                    null_pred,
+                    Value::T,
+                );
+                obarray.install_buffer_objfwd(id, fwd);
+            }
         }
 
         let mut command_loop = crate::keyboard::CommandLoop::new();

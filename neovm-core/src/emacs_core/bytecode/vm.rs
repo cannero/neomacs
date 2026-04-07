@@ -2202,6 +2202,44 @@ impl<'a> Vm<'a> {
             .obarray
             .get_by_id(resolved)
             .map(|s| s.redirect());
+        // Phase 10B: FORWARDED writes go to the buffer slot the
+        // descriptor points at. Mirrors GNU
+        // `store_symval_forwarding` for the BUFFER_OBJFWD arm
+        // (`data.c:1374-1471`).
+        if matches!(redirect, Some(SymbolRedirect::Forwarded)) {
+            if let Some(buf_id) = self.ctx.buffers.current_buffer_id() {
+                use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
+                let fwd_ptr = self
+                    .ctx
+                    .obarray
+                    .get_by_id(resolved)
+                    .map(|s| unsafe { s.val.fwd });
+                if let Some(fwd) = fwd_ptr {
+                    // Safety: install_buffer_objfwd leaks a 'static
+                    // descriptor and the symbol's redirect tag is
+                    // immutable once installed.
+                    let header = unsafe { &*fwd };
+                    if matches!(header.ty, LispFwdType::BufferObj) {
+                        let buf_fwd = unsafe {
+                            &*(fwd as *const LispBufferObjFwd)
+                        };
+                        let offset = buf_fwd.offset as usize;
+                        if let Some(buf) = self.ctx.buffers.get_mut(buf_id)
+                            && offset < buf.slots.len()
+                        {
+                            buf.slots[offset] = value;
+                            return self.run_variable_watchers_by_id(
+                                resolved,
+                                &value,
+                                &Value::NIL,
+                                "set",
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         if matches!(redirect, Some(SymbolRedirect::Localized)) {
             if let Some(buf_id) = self.ctx.buffers.current_buffer_id() {
                 // Extract buffer state before obarray borrow.
