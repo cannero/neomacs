@@ -1,5 +1,12 @@
 use super::*;
 pub(crate) fn builtin_apply(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    // GNU fns.c Fapply: minimum one arg (the function). With one arg the
+    // last arg IS the spread list, and with `nargs == 1` GNU dispatches
+    // to `Ffuncall (0, args)` — i.e. calling the function with no args.
+    // We currently still reject the 1-arg case as wrong-type-argument
+    // (audit §6.2). That's a separate issue from the unsafe-panic
+    // hazard this commit fixes; leave the 0-arg / 1-arg arity behaviour
+    // unchanged here.
     if args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -16,7 +23,19 @@ pub(crate) fn builtin_apply(eval: &mut super::eval::Context, args: Vec<Value>) -
     let last = &args[args.len() - 1];
     let mut call_args: Vec<Value> = args[1..args.len() - 1].to_vec();
 
-    // Last argument must be a list, which gets spread
+    // Last argument must be a list, which gets spread.
+    //
+    // GNU Emacs Fapply iterates with CHECK_LIST_END / FOR_EACH_TAIL_SAFE
+    // and pushes each car onto the call args. There is no per-element
+    // pointer validation: a spread list element is a Lisp_Object and is
+    // trusted to be whatever its tag says it is. NeoMacs previously had
+    // a debug-only `unsafe` raw-pointer deref + unconditional `panic!`
+    // that crashed the entire process on any value whose pointer
+    // happened to look corrupt — running this code in the production
+    // hot path was a serious hazard, since *any* GC misstep or tagged-
+    // value bug elsewhere would manifest as a process abort instead of
+    // a Lisp signal we could catch and report. Match GNU and just
+    // collect the elements; trust the tag and the GC.
     match last.kind() {
         ValueKind::Nil => {}
         ValueKind::Cons => {
@@ -27,22 +46,10 @@ pub(crate) fn builtin_apply(eval: &mut super::eval::Context, args: Vec<Value>) -
                     ValueKind::Cons => {
                         let pair_car = cursor.cons_car();
                         let pair_cdr = cursor.cons_cdr();
-                        // Validate extracted value
-                        if pair_car.is_string() {
-                            let ptr = pair_car.as_string_ptr().unwrap();
-                            let hdr = unsafe { &(*(ptr as *const crate::tagged::header::StringObj)).header };
-                            if !matches!(hdr.kind, crate::tagged::header::HeapObjectKind::String) {
-                                panic!(
-                                    "APPLY SPREAD BUG: cons_car = {:#x} (ptr {:?}, kind={:?}) \
-                                     is corrupt string from spread list",
-                                    pair_car.0, ptr, hdr.kind,
-                                );
-                            }
-                        }
                         call_args.push(pair_car);
                         cursor = pair_cdr;
                     }
-                    other => {
+                    _ => {
                         return Err(signal(
                             "wrong-type-argument",
                             vec![Value::symbol("listp"), cursor],
