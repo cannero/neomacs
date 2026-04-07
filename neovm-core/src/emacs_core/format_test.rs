@@ -202,15 +202,15 @@ fn subr_x_string_helpers_autoload() {
                 (subrp (symbol-function 'string-glyph-split))))
         "#,
     );
-    // NeoVM loads .el source (not .elc), so `eval-when-compile` during
-    // bootstrap runs `(require 'subr-x)` (from prog-mode.el), which defines
-    // string-pad, string-limit, and string-glyph-split as Elisp functions
-    // before this test runs.  In GNU Emacs they stay as autoloads because
-    // .elc files fold eval-when-compile to a constant.  So autoloadp returns
-    // nil here instead of t.
+    // GNU `.elc` loading folds eval-when-compile to a constant, so
+    // string-pad / string-limit / string-glyph-split stay autoloaded
+    // until first use. Now that NeoMacs prefers `.elc` (since .elc
+    // loading was enabled), autoloadp returns t for the initial
+    // before-pad/limit/glyph values, then nil after the first call
+    // resolves the autoload.
     assert_eq!(
         results[0],
-        r#"OK (nil nil nil "x " "ab" ("a" "b" "c") nil nil nil nil nil nil)"#
+        r#"OK (t t t "x " "ab" ("a" "b" "c") nil nil nil nil nil nil)"#
     );
 }
 
