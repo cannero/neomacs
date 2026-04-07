@@ -1571,6 +1571,7 @@ fn allocate_tagged_placeholder(
             lexical: false,
             env: None,
             gnu_byte_offset_map: None,
+            gnu_bytecode_bytes: None,
             docstring: None,
             doc_form: None,
             interactive: None,
@@ -1881,6 +1882,7 @@ pub(crate) fn load_bytecode(bc: &DumpByteCodeFunction) -> Result<ByteCodeFunctio
                 .map(|(byte_off, instr_idx)| (*byte_off as usize, *instr_idx as usize))
                 .collect()
         }),
+        gnu_bytecode_bytes: None,
         docstring: bc.docstring.clone(),
         doc_form: load_opt_value(&bc.doc_form),
         interactive: load_opt_value(&bc.interactive),

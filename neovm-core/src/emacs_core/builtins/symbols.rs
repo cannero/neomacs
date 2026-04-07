@@ -3853,6 +3853,15 @@ pub(crate) fn make_byte_code_from_parts(
         lexical: false,
         env: None,
         gnu_byte_offset_map: Some(gnu_byte_offset_map),
+        // Preserve original GNU-format bytes so `(aref FN 1)` returns the
+        // bytecode string.  Required for `byte-compile-make-closure` which
+        // reads the bytes via aref and passes them back to `make-byte-code`
+        // when generating closure prototypes.
+        gnu_bytecode_bytes: if raw_bytes.is_empty() {
+            None
+        } else {
+            Some(raw_bytes)
+        },
         docstring: doc,
         doc_form,
         // GNU Emacs (eval.c:2301-2303): "Bytecode objects are interactive if

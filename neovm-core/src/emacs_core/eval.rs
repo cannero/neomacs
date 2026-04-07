@@ -7541,6 +7541,7 @@ impl Context {
             lexical: false,
             env: None,
             gnu_byte_offset_map: Some(gnu_byte_offset_map),
+            gnu_bytecode_bytes: None,
             docstring: None,
             doc_form: None,
             interactive: None,

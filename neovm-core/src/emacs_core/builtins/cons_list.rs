@@ -140,8 +140,20 @@ pub(crate) fn bytecode_to_closure_vector(value: &Value) -> Vec<Value> {
     let args = lambda_params_to_value(&bc.params);
     crate::emacs_core::eval::push_scratch_gc_root(args);
 
-    // Slot 1: bytecode string — NeoVM uses decoded IR, not raw bytes
-    let code = Value::NIL;
+    // Slot 1: bytecode string.  GNU Emacs stores this as a unibyte string of
+    // raw opcode bytes.  NeoVM normally executes from `ops` (decoded IR), but
+    // elisp code like `byte-compile-make-closure` reads `(aref fn 1)` and
+    // passes it to `make-byte-code`, so we need to round-trip the bytes.
+    let code = if let Some(bytes) = &bc.gnu_bytecode_bytes {
+        // Encode raw bytes as Latin-1 → Unicode (each byte becomes its code
+        // point), so the resulting Rust String is valid UTF-8 but
+        // `string_value_to_bytes` recovers the bytes exactly.
+        let s: String = bytes.iter().map(|&b| b as char).collect();
+        Value::unibyte_string(s)
+    } else {
+        Value::NIL
+    };
+    crate::emacs_core::eval::push_scratch_gc_root(code);
 
     // Slot 2: env if NeoVM-compiled (cons alist), else constants vector
     let env = if let Some(env_val) = bc.env {

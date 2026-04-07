@@ -1383,7 +1383,19 @@ fn skip_elc_header(raw_bytes: &[u8]) -> String {
     // Then comment lines starting with ";;".
     //
     // We need to skip all bytes up to the first non-comment line.
-    let content = decode_emacs_utf8(raw_bytes);
+    //
+    // GNU Emacs `.elc` files mix ASCII source (defvar, defun, etc.) with
+    // unibyte bytecode strings inside `#[...]` byte-code-function literals.
+    // The bytecode strings contain raw bytes 0x00-0xFF where bytes >= 0x80
+    // are NOT valid UTF-8 starts (e.g., 0xC0 0x87 = `constant 0; return`).
+    //
+    // We CANNOT use `decode_emacs_utf8` here because it replaces non-UTF-8
+    // bytes with U+FFFD or escapes, corrupting the bytecode.  Instead, use
+    // Latin-1 encoding: each raw byte 0-255 becomes the Unicode code point
+    // with the same value, encoded as UTF-8 in the resulting Rust String.
+    // This preserves all 256 byte values losslessly, and `string_value_to_bytes`
+    // (which truncates each char to u8) recovers the original bytes exactly.
+    let content: String = raw_bytes.iter().map(|&b| b as char).collect();
     let mut start = 0;
 
     // Skip bytes until we find the first line that doesn't start with ';' or
@@ -2526,27 +2538,6 @@ fn finalize_cached_bootstrap_eval(
     eval.set_variable(
         "installation-directory",
         Value::string(format!("{}/", project_root.to_string_lossy())),
-    );
-
-    // NeoMacs lambdas are interpreted (not byte-compiled).  cl-generic.el's
-    // defvar at line 694 sets `cl--generic-compiler' to `byte-compile' at
-    // load time (verified by diagnostic test: stored=byte-compile, but
-    // re-evaluating the same defvar form at runtime gives the eval lambda
-    // because compiled-function-p of a lambda returns nil).  The mismatch
-    // is unresolved at the bootstrap level, but its effect is severe:
-    // every cl-defmethod dispatch (e.g., yank → gui-backend-get-selection
-    // in TTY mode) calls byte-compile, which autoloads the entire
-    // bytecomp → compile → comint → ring → ansi-color chain, blocking
-    // the command loop for many seconds.
-    //
-    // Force the eval fallback to match runtime reality, eliminating the
-    // autoload chain on first cl-defmethod dispatch.  This matches the
-    // semantics cl-generic.el WOULD have selected if the defvar had
-    // evaluated correctly (compiled-function-p returns nil → eval branch).
-    let _ = eval.eval_str(
-        "(when (and (boundp 'cl--generic-compiler) \
-                    (eq cl--generic-compiler #'byte-compile)) \
-           (setq cl--generic-compiler (lambda (exp) (eval exp t))))",
     );
 
     eval.clear_top_level_eval_state();

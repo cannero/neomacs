@@ -24,6 +24,13 @@ pub struct ByteCodeFunction {
     /// Decoded runtime uses instruction indices, so GNU-decoded functions
     /// retain the byte-offset -> instruction-index map for `switch`.
     pub gnu_byte_offset_map: Option<HashMap<usize, usize>>,
+    /// Original GNU-format bytecode bytes from the .elc file or `make-byte-code`
+    /// call.  NeoVM normally executes from `ops` (decoded IR), but elisp code
+    /// like `byte-compile-make-closure` does `(aref FUN 1)` to read the raw
+    /// bytecode string and pass it to `make-byte-code` for closure prototype
+    /// generation.  Without preserving the original bytes, those round-trips
+    /// produce empty bytecode functions.
+    pub gnu_bytecode_bytes: Option<Vec<u8>>,
     /// Optional docstring.
     pub docstring: Option<String>,
     /// Optional documentation form (e.g., oclosure type symbol in slot 4).
@@ -43,6 +50,7 @@ impl ByteCodeFunction {
             lexical: false,
             env: None,
             gnu_byte_offset_map: None,
+            gnu_bytecode_bytes: None,
             docstring: None,
             doc_form: None,
             interactive: None,
