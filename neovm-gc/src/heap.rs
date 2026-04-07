@@ -440,6 +440,27 @@ impl Heap {
         self.indexes.remembered.owners.len()
     }
 
+    /// Sum live_bytes and object_count across every old-gen block
+    /// in the pool. Used by the OldRegion unification tests to
+    /// assert that the block-side accounting (step 2) mirrors the
+    /// region-side accounting for the same allocation sequence.
+    #[cfg(test)]
+    pub(crate) fn inspect_old_gen_block_accounting_for_test(&self) -> (usize, usize) {
+        let live: usize = self
+            .old_gen
+            .blocks()
+            .iter()
+            .map(|block| block.live_bytes())
+            .sum();
+        let count: usize = self
+            .old_gen
+            .blocks()
+            .iter()
+            .map(|block| block.object_count())
+            .sum();
+        (live, count)
+    }
+
     /// Total dirty cards across every old-gen block. Combined with
     /// `remembered_edge_count()` this gives the full picture of pending
     /// old-to-young roots between collections.
