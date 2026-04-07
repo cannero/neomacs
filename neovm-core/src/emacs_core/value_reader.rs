@@ -821,6 +821,21 @@ impl<'a> Reader<'a> {
                 // #@N<bytes> — reader skip used by .elc for inline data blocks.
                 self.read_hash_skip_bytes()
             }
+            '!' => {
+                // `#!shebang line` — GNU `lread.c` treats `#!` as a
+                // comment to end-of-line, so a script-style shebang
+                // (`#!/usr/bin/env emacs --script`) loads cleanly.
+                // Skip to the next newline (or EOF) and read the next
+                // form.
+                self.bump();
+                while let Some(c) = self.current() {
+                    self.bump();
+                    if c == '\n' {
+                        break;
+                    }
+                }
+                self.read_form()
+            }
             ':' => {
                 // #:X — uninterned symbol.
                 self.bump();

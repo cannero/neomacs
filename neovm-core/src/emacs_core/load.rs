@@ -1013,15 +1013,30 @@ fn streaming_readevalloop(
 
     loop {
         let read_result =
-            super::value_reader::read_one(content, pos).map_err(|e| EvalError::Signal {
-                symbol: intern("error"),
-                data: vec![Value::string(format!(
-                    "Read error in {}: {} at position {}",
-                    path.display(),
-                    e.message,
-                    e.position
-                ))],
-                raw_data: None,
+            super::value_reader::read_one(content, pos).map_err(|e| {
+                // GNU `Fload` (`src/lread.c`) signals `end-of-file`
+                // when the reader hits EOF mid-form (e.g. a single-line
+                // shebang that exhausts the file with no trailing
+                // newline before any forms). Mirror that here.
+                if e.message.contains("end of input")
+                    || e.message.contains("unterminated")
+                {
+                    return EvalError::Signal {
+                        symbol: intern("end-of-file"),
+                        data: vec![],
+                        raw_data: None,
+                    };
+                }
+                EvalError::Signal {
+                    symbol: intern("error"),
+                    data: vec![Value::string(format!(
+                        "Read error in {}: {} at position {}",
+                        path.display(),
+                        e.message,
+                        e.position
+                    ))],
+                    raw_data: None,
+                }
             })?;
 
         let Some((form, next_pos)) = read_result else {
