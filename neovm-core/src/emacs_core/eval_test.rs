@@ -7461,12 +7461,19 @@ fn alist_get_comes_from_gnu_subr_runtime() {
 #[test]
 fn with_local_quit_catches_quit_and_sets_quit_flag() {
     crate::test_utils::init_test_tracing();
+    // GNU verified: subr.el's `with-local-quit` macro re-signals the
+    // quit via `(eval '(ignore nil))` after setting `quit-flag`, so
+    // a top-level evaluation of the form propagates the quit instead
+    // of returning nil. Mirror GNU by wrapping the form in a
+    // condition-case so we observe both: the propagated quit and the
+    // quit-flag handling for the explicit inhibit-quit branch.
     let results = bootstrap_eval_all(
         "(setq quit-flag nil)
-         (with-local-quit
-           (keyboard-quit)
-           'after)
-         quit-flag
+         (condition-case nil
+             (with-local-quit
+               (keyboard-quit)
+               'after)
+           (quit 'caught-quit))
          (setq quit-flag nil)
          (condition-case err
              (with-local-quit (error \"boom\"))
@@ -7477,11 +7484,10 @@ fn with_local_quit_catches_quit_and_sets_quit_flag() {
            (with-local-quit (keyboard-quit))
            (list inhibit-quit quit-flag))",
     );
-    assert_eq!(results[1], "OK nil");
-    assert_eq!(results[2], "OK t");
-    assert_eq!(results[4], "OK error");
-    assert_eq!(results[5], "OK nil");
-    assert_eq!(results[6], "OK (t t)");
+    assert_eq!(results[1], "OK caught-quit");
+    assert_eq!(results[3], "OK error");
+    assert_eq!(results[4], "OK nil");
+    assert_eq!(results[5], "OK (t t)");
 }
 
 #[test]
