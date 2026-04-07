@@ -9,16 +9,21 @@ fn bootstrap_eval(src: &str) -> Vec<String> {
 }
 
 thread_local! {
-    /// Keep the last test Context alive so heap-backed return values remain
-    /// valid while the assertion code inspects them.
-    static LAST_TEST_CTX: std::cell::RefCell<Option<Context>> = const { std::cell::RefCell::new(None) };
+    /// Keep ALL test contexts alive across a single #[test] so that
+    /// heap-backed return values from earlier `call_fileio_builtin!`
+    /// invocations remain valid when later assertions inspect them.
+    /// Previously this stored only the *last* context, which freed
+    /// earlier strings and produced use-after-free panics in tests
+    /// that compared results across multiple builtin calls.
+    static LAST_TEST_CTX: std::cell::RefCell<Vec<Context>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 macro_rules! call_fileio_builtin {
     ($builtin:ident, $args:expr) => {{
         let mut eval = Context::new();
         let result = $builtin(&mut eval, $args);
-        LAST_TEST_CTX.with(|slot| *slot.borrow_mut() = Some(eval));
+        LAST_TEST_CTX.with(|slot| slot.borrow_mut().push(eval));
         result
     }};
 }
