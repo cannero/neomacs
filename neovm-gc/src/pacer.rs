@@ -97,7 +97,7 @@ impl Default for PacerConfig {
 }
 
 /// Public snapshot of the pacer's current model.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct PacerStats {
     /// Last computed allocation rate, bytes per second.
     pub allocation_rate_bps: u64,

@@ -1,7 +1,7 @@
 use neovm_gc::{
     BarrierKind, CollectionKind, CollectionPhase, EdgeCell, Ephemeron, EphemeronVisitor, Heap,
-    HeapConfig, MovePolicy, Relocator, RuntimeWorkStatus, Trace, Tracer, TypeFlags, Weak, WeakCell,
-    WeakProcessor, estimated_allocation_size,
+    HeapConfig, MovePolicy, PacerConfig, Relocator, RuntimeWorkStatus, Trace, Tracer, TypeFlags,
+    Weak, WeakCell, WeakProcessor, estimated_allocation_size,
 };
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -8166,4 +8166,64 @@ fn public_api_background_worker_publishes_one_round_snapshot_between_multi_round
     worker.request_stop();
     let stats = worker.join().expect("join background worker");
     assert!(stats.collector.rounds >= 1);
+}
+
+#[test]
+fn public_api_shared_status_reports_pacer_telemetry() {
+    // Build a shared heap with a tiny pacer trigger so a few
+    // allocations push the pacer past min_trigger_bytes and force a
+    // major. Read the SharedHeapStatus through the lock-free path
+    // and assert it carries pacer state.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            // Big enough that the static nursery pressure path
+            // never fires.
+            semispace_bytes: 16 * 1024 * 1024,
+            promotion_age: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    heap.set_pacer_config(PacerConfig {
+        target_pause: Duration::from_secs(1),
+        heap_growth_target_ratio: 2.0,
+        min_trigger_bytes: 256,
+        ..PacerConfig::default()
+    });
+    let shared = heap.into_shared();
+
+    // Initial snapshot — no cycles observed yet.
+    let before = shared
+        .status()
+        .expect("read shared status before allocations");
+    assert_eq!(before.pacer.observed_cycles, 0);
+    assert_eq!(before.pacer.last_live_bytes, 0);
+
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for i in 0..256u64 {
+                let _leaf = mutator
+                    .alloc_auto(&mut scope, Leaf(i))
+                    .expect("alloc auto leaf");
+            }
+        })
+        .expect("allocate via shared mutator");
+
+    // Status should now reflect at least one observed pacer cycle.
+    let after = shared
+        .status()
+        .expect("read shared status after allocations");
+    assert!(
+        after.pacer.observed_cycles >= 1,
+        "expected pacer to observe at least one cycle through \
+         shared status, got {}",
+        after.pacer.observed_cycles
+    );
+    assert!(
+        after.pacer.next_major_trigger_bytes >= 256,
+        "expected pacer next-major trigger to be at least the \
+         configured min_trigger_bytes floor, got {}",
+        after.pacer.next_major_trigger_bytes
+    );
 }
