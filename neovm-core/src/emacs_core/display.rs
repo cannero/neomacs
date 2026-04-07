@@ -448,6 +448,18 @@ fn gui_x_query_target_eval(
     args: &[Value],
 ) -> Result<bool, Flow> {
     expect_max_args(name, args, 1)?;
+    // For X-family primitives, only nil / live-frame designators
+    // exercise the "X is active" code path. Strings, fixnums, and
+    // other non-frame designators all fall through to
+    // `x_optional_display_query_error_eval` which produces the
+    // GNU-faithful error shape (`Display X can't be opened` for
+    // strings, `wrong-type-argument frame-live-p N` for ints).
+    if let Some(arg) = args.first()
+        && !arg.is_nil()
+        && !live_frame_designator_p(eval, arg)
+    {
+        return Ok(false);
+    }
     if !display_window_system_symbol_eval(eval, args.first())?
         .is_some_and(gui_window_system_active_value)
     {

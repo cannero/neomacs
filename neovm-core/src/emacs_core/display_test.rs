@@ -378,14 +378,19 @@ fn frame_terminal_rejects_non_frame_designator() {
 }
 
 #[test]
-fn frame_terminal_accepts_frame_id() {
+fn frame_terminal_rejects_non_frame_arg_like_gnu() {
     crate::test_utils::init_test_tracing();
+    // GNU `frame-terminal` only accepts nil or a live frame; integer
+    // arguments signal `wrong-type-argument frame-live-p`. Mirror that.
     let mut eval = crate::emacs_core::Context::new();
     let result = builtin_frame_terminal(&mut eval, vec![Value::fixnum(1)]);
-    assert!(result.is_ok());
-    let handle = result.unwrap();
-    let live = builtin_terminal_live_p(&mut eval, vec![handle]).unwrap();
-    assert_eq!(live, Value::T);
+    match result {
+        Err(crate::emacs_core::error::Flow::Signal(sig)) => {
+            assert_eq!(sig.symbol_name(), "wrong-type-argument");
+            assert_eq!(sig.data[0], Value::symbol("frame-live-p"));
+        }
+        other => panic!("expected wrong-type-argument signal, got {other:?}"),
+    }
 }
 
 #[test]
@@ -952,9 +957,12 @@ fn x_missing_optional_display_queries_match_batch_no_x_shapes() {
         match eval_query(&mut eval, vec![Value::string("x")]) {
             Err(Flow::Signal(sig)) => {
                 assert_eq!(sig.symbol_name(), "error");
+                let actual_msg = sig.data[0].as_str().map(String::from);
                 assert_eq!(
-                    sig.data,
-                    vec![Value::string("Display x can\u{2019}t be opened")]
+                    actual_msg.as_deref(),
+                    Some("Display x can\u{2019}t be opened"),
+                    "full data={:?}",
+                    sig.data
                 );
             }
             other => panic!("expected error signal, got {other:?}"),
