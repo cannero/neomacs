@@ -84,10 +84,12 @@ fn symbol_like_name(value: &Value) -> Option<&str> {
 }
 
 fn expect_number_or_marker_f64(value: &Value) -> Result<f64, Flow> {
+    use crate::emacs_core::value::VecLikeType;
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
         ValueKind::Float => Ok(value.xfloat()),
-        other => Err(signal(
+        ValueKind::Veclike(VecLikeType::Bignum) => Ok(value.as_bignum().unwrap().to_f64()),
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), *value],
         )),

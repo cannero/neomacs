@@ -517,7 +517,9 @@ pub(crate) fn builtin_max(eval: &mut super::eval::Context, args: Vec<Value>) -> 
         }
     }
     match best_value.kind() {
-        ValueKind::Fixnum(_) | ValueKind::Float => Ok(best_value),
+        ValueKind::Fixnum(_)
+        | ValueKind::Float
+        | ValueKind::Veclike(VecLikeType::Bignum) => Ok(best_value),
         _ if best_value.is_marker() => Ok(Value::fixnum(
             super::marker::marker_position_as_int_eval(eval, &best_value)?,
         )),
@@ -537,7 +539,9 @@ pub(crate) fn builtin_min(eval: &mut super::eval::Context, args: Vec<Value>) -> 
         }
     }
     match best_value.kind() {
-        ValueKind::Fixnum(_) | ValueKind::Float => Ok(best_value),
+        ValueKind::Fixnum(_)
+        | ValueKind::Float
+        | ValueKind::Veclike(VecLikeType::Bignum) => Ok(best_value),
         _ if best_value.is_marker() => Ok(Value::fixnum(
             super::marker::marker_position_as_int_eval(eval, &best_value)?,
         )),

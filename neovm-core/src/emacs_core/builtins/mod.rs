@@ -232,6 +232,12 @@ pub(super) fn expect_number_or_marker(value: &Value) -> Result<NumberOrMarker, F
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(NumberOrMarker::Int(n)),
         ValueKind::Float => Ok(NumberOrMarker::Float(value.xfloat())),
+        // Bignums lower into f64 for the comparison/numeric path,
+        // matching GNU's XFLOATINT behaviour. Callers that need
+        // exact arithmetic dispatch on the Value::kind() directly.
+        ValueKind::Veclike(VecLikeType::Bignum) => {
+            Ok(NumberOrMarker::Float(value.as_bignum().unwrap().to_f64()))
+        }
         _ if super::marker::is_marker(value) => Ok(NumberOrMarker::Int(
             super::marker::marker_position_as_int(value)?,
         )),
@@ -249,6 +255,9 @@ pub(super) fn expect_number_or_marker_eval(
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(NumberOrMarker::Int(n)),
         ValueKind::Float => Ok(NumberOrMarker::Float(value.xfloat())),
+        ValueKind::Veclike(VecLikeType::Bignum) => {
+            Ok(NumberOrMarker::Float(value.as_bignum().unwrap().to_f64()))
+        }
         _ if super::marker::is_marker(value) => Ok(NumberOrMarker::Int(
             super::marker::marker_position_as_int_eval(eval, value)?,
         )),
@@ -264,6 +273,7 @@ pub(super) fn expect_number(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
         ValueKind::Float => Ok(value.xfloat()),
+        ValueKind::Veclike(VecLikeType::Bignum) => Ok(value.as_bignum().unwrap().to_f64()),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *value],
