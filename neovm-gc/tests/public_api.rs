@@ -8391,6 +8391,15 @@ fn public_api_shared_update_pacer_config_works_while_heap_write_locked() {
 }
 
 #[test]
+fn public_api_shared_nursery_fill_ratio_starts_zero_on_empty_heap() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let ratio = shared
+        .nursery_fill_ratio()
+        .expect("read nursery fill ratio");
+    assert_eq!(ratio, 0.0);
+}
+
+#[test]
 fn public_api_shared_old_gen_fragmentation_ratio_returns_zero_on_empty_heap() {
     let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
     let frag = shared
