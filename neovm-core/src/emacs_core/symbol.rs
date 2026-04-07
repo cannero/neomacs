@@ -348,6 +348,32 @@ fn assq(key: Value, mut alist: Value) -> Value {
     Value::NIL
 }
 
+/// `bindflag` argument for [`Obarray::set_internal_localized`].
+/// Mirrors GNU `enum Set_Internal_Bind` (`src/lisp.h:3590-3596`).
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum SetInternalBind {
+    /// Ordinary `(setq foo bar)`. Auto-creates a per-buffer binding
+    /// when `local_if_set` is true.
+    Set,
+    /// `let`-binding initial assignment. Never auto-creates a new
+    /// per-buffer binding (the existing one or the default is
+    /// stashed in specpdl for unwind).
+    Bind,
+    /// `let`-binding unwind. Restores the previous value.
+    Unbind,
+}
+
+/// Stub for GNU `let_shadows_buffer_binding_p`
+/// (`src/eval.c:3559-3577`). Returns `true` if the symbol is
+/// currently `let`-bound to a buffer-local binding shadowing the
+/// per-buffer slot.
+///
+/// Phase 5 stub: always `false`. Phase 7 wires this against the
+/// specpdl `LET_LOCAL` records.
+pub fn let_shadows_buffer_binding_p(_sym_id: SymId) -> bool {
+    false
+}
+
 /// Reasons [`Obarray::make_variable_alias`] can fail. Mirrors the
 /// `xsignal` callsites in GNU `Fdefvaralias` (`src/eval.c:631-726`).
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -931,9 +957,96 @@ impl Obarray {
     ///
     /// Phase 2: thin wrapper over `set_symbol_value_id` that exposes
     /// the GNU name. Phase 5+ adds the LOCALIZED-aware logic and the
-    /// `where`/`bindflag` parameters.
+    /// `where`/`bindflag` parameters via [`Self::set_internal_localized`].
     pub fn set_internal(&mut self, id: SymId, value: Value) {
         self.set_symbol_value_id(id, value);
+    }
+
+    /// LOCALIZED arm of `set_internal`. Mirrors GNU
+    /// `set_internal` lines 1687-1763 (`src/data.c`).
+    ///
+    /// Updates the BLV cache and (for `Set` writes) creates a new
+    /// per-buffer binding when `local_if_set` is true and no current
+    /// binding exists. Returns the (possibly new) `local_var_alist`
+    /// for the target buffer; the caller is responsible for storing
+    /// it back into the buffer.
+    ///
+    /// Parameters:
+    /// - `sym_id`: the symbol being written.
+    /// - `value`: the new value.
+    /// - `target_buf`: the buffer the write is targeting (a
+    ///   `Value::buffer` for explicit, or whatever the caller treats
+    ///   as the "current" buffer Value). Used as the cache key.
+    /// - `target_alist`: the target buffer's current
+    ///   `local_var_alist`. May be updated.
+    /// - `bindflag`: `Set` for ordinary `(setq)` writes, `Bind` for
+    ///   `let` initial bindings (which never auto-create).
+    /// - `let_shadows`: result of [`let_shadows_buffer_binding_p`]
+    ///   for this symbol — Phase 7 wires this; Phase 5 callers pass
+    ///   `false`.
+    ///
+    /// Returns the updated alist (consed if a new cell was created;
+    /// unchanged otherwise).
+    pub fn set_internal_localized(
+        &mut self,
+        sym_id: SymId,
+        value: Value,
+        target_buf: Value,
+        target_alist: Value,
+        bindflag: SetInternalBind,
+        let_shadows: bool,
+    ) -> Value {
+        let mut new_alist = target_alist;
+        let blv = match self.blv_mut(sym_id) {
+            Some(blv) => blv,
+            None => return new_alist,
+        };
+
+        // Step 1: swap-in. If `where_buf` doesn't match the target
+        // buffer (or `valcell` is still pointing at the defcell),
+        // reload the cache from the target buffer's alist.
+        let need_swap =
+            blv.where_buf != target_buf || super::value::eq_value(&blv.valcell, &blv.defcell);
+        if need_swap {
+            // GNU stores the previous binding's value back into the
+            // *previous* valcell before swapping. The cons-cdr write
+            // is implicit because we hold a reference into the
+            // BLV-owned cells.
+            let key = Value::from_sym_id(sym_id);
+            let mut cell = assq(key, new_alist);
+            blv.where_buf = target_buf;
+            blv.found = true;
+
+            if cell.is_nil() {
+                // No existing binding for this buffer.
+                let auto_create = bindflag == SetInternalBind::Set
+                    && blv.local_if_set
+                    && !let_shadows;
+                if !auto_create {
+                    // Fall through to writing the default.
+                    blv.found = false;
+                    cell = blv.defcell;
+                } else {
+                    // Cons up `(sym . current-default-cdr)` and
+                    // prepend it to the buffer's local_var_alist.
+                    let default_cdr = blv.defcell.cons_cdr();
+                    cell = Value::cons(key, default_cdr);
+                    new_alist = Value::cons(cell, new_alist);
+                }
+            }
+            blv.valcell = cell;
+        }
+
+        // Step 2: actually write the new value into valcell's cdr.
+        // The BLV's valcell is a shared cons whose cdr lives in the
+        // tagged heap; mutate it via Value::set_cdr. Capture
+        // valcell first so the BLV borrow ends before we touch the
+        // cons cell.
+        let valcell = blv.valcell;
+        let _ = blv;
+        valcell.set_cdr(value);
+
+        new_alist
     }
 
     /// Inner helper: follow aliases and write the value at the resolved target.

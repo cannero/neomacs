@@ -449,6 +449,120 @@ fn localized_blv_cache_invalidated_on_buffer_switch() {
     assert!(!blv.found);
 }
 
+// Phase 5 — LOCALIZED write path.
+
+/// `set_internal_localized` with `local_if_set = true` and
+/// `bindflag = Set` auto-creates a per-buffer binding when none
+/// exists. Mirrors GNU set_internal lines 1687-1763 (`src/data.c`).
+#[test]
+fn set_localized_creates_buffer_local_when_local_if_set() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    let id = intern("phase5-autolocal-x");
+    ob.make_symbol_localized(id, Value::fixnum(0));
+    ob.set_blv_local_if_set(id, true);
+
+    let buf = Value::fixnum(1);
+    let mut alist = Value::NIL;
+    alist = ob.set_internal_localized(
+        id,
+        Value::fixnum(42),
+        buf,
+        alist,
+        SetInternalBind::Set,
+        false, // let_shadows: false
+    );
+    // The alist now has one entry: (sym . 42).
+    assert!(alist.is_cons());
+    let head = alist.cons_car();
+    assert!(head.is_cons());
+    assert_eq!(head.cons_car(), Value::from_sym_id(id));
+    assert_eq!(head.cons_cdr(), Value::fixnum(42));
+    // Read it back via the buffer-aware path.
+    let v = ob.find_symbol_value_in_buffer(id, None, buf, alist);
+    assert_eq!(v, Some(Value::fixnum(42)));
+}
+
+/// When `local_if_set` is false, `set_internal_localized` writes the
+/// default cell instead of auto-creating a per-buffer binding.
+#[test]
+fn set_localized_writes_default_when_no_local_if_set() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    let id = intern("phase5-noautolocal-x");
+    ob.make_symbol_localized(id, Value::fixnum(0));
+    // local_if_set stays false (default).
+
+    let buf = Value::fixnum(1);
+    let alist = Value::NIL;
+    let new_alist = ob.set_internal_localized(
+        id,
+        Value::fixnum(99),
+        buf,
+        alist,
+        SetInternalBind::Set,
+        false,
+    );
+    // Alist unchanged (no per-buffer binding created).
+    assert_eq!(new_alist, Value::NIL);
+    // The default value was updated to 99.
+    let blv = ob.blv(id).expect("BLV");
+    assert_eq!(blv.defcell.cons_cdr(), Value::fixnum(99));
+}
+
+/// When `let_shadows == true`, the auto-create branch is suppressed.
+/// Mirrors GNU's `let_shadows_buffer_binding_p` guard.
+#[test]
+fn set_localized_does_not_create_when_let_shadows() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    let id = intern("phase5-letshadow-x");
+    ob.make_symbol_localized(id, Value::fixnum(0));
+    ob.set_blv_local_if_set(id, true);
+
+    let buf = Value::fixnum(1);
+    let alist = Value::NIL;
+    let new_alist = ob.set_internal_localized(
+        id,
+        Value::fixnum(13),
+        buf,
+        alist,
+        SetInternalBind::Set,
+        true, // let_shadows: true
+    );
+    // No per-buffer binding created; defcell got the write.
+    assert_eq!(new_alist, Value::NIL);
+    let blv = ob.blv(id).expect("BLV");
+    assert_eq!(blv.defcell.cons_cdr(), Value::fixnum(13));
+}
+
+/// `set_internal_localized` with `bindflag = Bind` (let-binding's
+/// initial assignment) never auto-creates a per-buffer binding,
+/// even when `local_if_set` is true. The let unwind machinery in
+/// Phase 7 handles restoration.
+#[test]
+fn set_localized_bind_never_auto_creates() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    let id = intern("phase5-bind-x");
+    ob.make_symbol_localized(id, Value::fixnum(0));
+    ob.set_blv_local_if_set(id, true);
+
+    let buf = Value::fixnum(1);
+    let alist = Value::NIL;
+    let new_alist = ob.set_internal_localized(
+        id,
+        Value::fixnum(7),
+        buf,
+        alist,
+        SetInternalBind::Bind, // let-binding initial assignment
+        false,
+    );
+    assert_eq!(new_alist, Value::NIL);
+    let blv = ob.blv(id).expect("BLV");
+    assert_eq!(blv.defcell.cons_cdr(), Value::fixnum(7));
+}
+
 /// `Obarray::clone` deep-copies the BLV pool and remaps symbol
 /// pointers, so a cloned obarray reads independently from the
 /// original.
