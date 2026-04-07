@@ -61,9 +61,7 @@ impl WeakProcessor for WeakRetention<'_> {
         if let Some(&forwarded) = self.forwarding.get(&object.object_key()) {
             return Some(forwarded);
         }
-        let Some(record) = self.record_for(object) else {
-            return None;
-        };
+        let record = self.record_for(object)?;
         if record.space() == SpaceKind::Immortal {
             return Some(object);
         }
