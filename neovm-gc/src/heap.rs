@@ -178,6 +178,10 @@ impl Heap {
         &self.old_gen
     }
 
+    pub(crate) fn old_gen_mut(&mut self) -> &mut OldGenState {
+        &mut self.old_gen
+    }
+
     pub(crate) fn old_config(&self) -> &OldGenConfig {
         &self.config.old
     }
@@ -573,5 +577,22 @@ impl Heap {
             .object_index
             .get(&gc.erase().object_key())
             .map(|&index| self.objects[index].space())
+    }
+}
+
+/// Drain pending finalizers at the controlled boundary of `Heap` drop so
+/// that any arena- or old-block-backed `ObjectRecord`s sitting in
+/// `RuntimeState::pending_finalizers` run their payload `drop_in_place`
+/// while the backing buffers in `NurseryState` / `OldGenState` are still
+/// alive.
+///
+/// Without this, a `SharedHeap` clone of `RuntimeStateHandle` can keep
+/// the `RuntimeState` alive past `Heap`'s drop. When that Arc finally
+/// hits zero, the pending `ObjectRecord`s try to deref headers in
+/// arena or old-block buffers that have already been freed as part
+/// of `Heap`'s field-order drop sequence.
+impl Drop for Heap {
+    fn drop(&mut self) {
+        let _ = self.runtime_state.drain_pending_finalizers();
     }
 }

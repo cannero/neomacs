@@ -38,9 +38,48 @@ impl Default for OldGenConfig {
     }
 }
 
+/// A single old-generation block with its backing buffer and a bump
+/// cursor. Phase 2 MVP — objects directly allocated into the old
+/// generation are bump-allocated from a block's buffer. Line marking
+/// and selective evacuation remain future work.
+#[derive(Debug)]
+pub(crate) struct OldBlock {
+    buffer: Box<[u8]>,
+    cursor: usize,
+}
+
+impl OldBlock {
+    pub(crate) fn new(capacity_bytes: usize) -> Self {
+        let buffer: Box<[u8]> = vec![0u8; capacity_bytes].into_boxed_slice();
+        Self { buffer, cursor: 0 }
+    }
+
+    pub(crate) fn try_alloc(&mut self, layout: core::alloc::Layout) -> Option<core::ptr::NonNull<u8>> {
+        let size = layout.size();
+        let align = layout.align().max(1);
+        let base = self.buffer.as_ptr() as usize;
+        let current = base.checked_add(self.cursor)?;
+        let mask = align - 1;
+        let aligned = current.checked_add(mask).map(|v| v & !mask)?;
+        let padding = aligned.checked_sub(base)?;
+        let end = padding.checked_add(size)?;
+        if end > self.buffer.len() {
+            return None;
+        }
+        let ptr = aligned as *mut u8;
+        self.cursor = end;
+        core::ptr::NonNull::new(ptr)
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct OldGenState {
     pub(crate) regions: Vec<OldRegion>,
+    /// Block buffer pool (Phase 2 MVP). Blocks are allocated on demand
+    /// when direct old-gen allocation needs fresh backing storage, and
+    /// they are dropped only when the `OldGenState` itself drops —
+    /// per-block reclaim after sweep is deferred to a later phase.
+    blocks: Vec<OldBlock>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -91,6 +130,32 @@ impl OldGenState {
         let offset = self.regions[region_index].used_bytes;
         self.regions[region_index].used_bytes = bytes;
         self.make_placement(config, region_index, offset, bytes)
+    }
+
+    /// Phase 2 MVP block allocation. Returns a bump-allocated pointer
+    /// inside one of the owned `OldBlock` buffers, sized to `layout`.
+    /// Returns `None` if the layout cannot be satisfied even by a
+    /// fresh block (e.g. `layout.size() > config.region_bytes`).
+    pub(crate) fn try_alloc_in_block(
+        &mut self,
+        config: &OldGenConfig,
+        layout: core::alloc::Layout,
+    ) -> Option<core::ptr::NonNull<u8>> {
+        // First try the most-recently-used block so hot allocations
+        // stay in the same cache line region.
+        if let Some(last) = self.blocks.last_mut()
+            && let Some(ptr) = last.try_alloc(layout)
+        {
+            return Some(ptr);
+        }
+
+        // Allocate a new block sized to the larger of the configured
+        // region size and the requested layout.
+        let capacity = config.region_bytes.max(layout.size());
+        let mut block = OldBlock::new(capacity);
+        let ptr = block.try_alloc(layout)?;
+        self.blocks.push(block);
+        Some(ptr)
     }
 
     pub(crate) fn record_object(&mut self, object: &ObjectRecord) {

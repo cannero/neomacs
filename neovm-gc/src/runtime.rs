@@ -168,29 +168,52 @@ impl<'heap> CollectorRuntime<'heap> {
         }
         let (desc, space, _) = self.typed_allocation_profile::<T>()?;
 
-        // Nursery allocations (Phase 1) go through the bump-pointer
-        // semispace arena. We compute the layout first, try to reserve
-        // a slot in the from-space, and fall back to system allocation
-        // if the arena cannot service the request (e.g. the nursery is
-        // full before the pressure plan could trigger a minor GC).
-        let mut record = if space == SpaceKind::Nursery {
-            let (layout, payload_offset) =
-                crate::object::allocation_layout_for::<T>()?;
-            match self.heap.nursery_mut().try_alloc(layout) {
-                Some(base) => unsafe {
-                    crate::object::ObjectRecord::allocate_in_arena::<T>(
-                        desc,
-                        space,
-                        base,
-                        layout,
-                        payload_offset,
-                        value,
-                    )
-                },
-                None => crate::object::ObjectRecord::allocate(desc, space, value)?,
+        // Phase 1: nursery allocations bump-allocate from the
+        // semispace arena.
+        // Phase 2: direct old-gen allocations bump-allocate from a
+        // block pool. Both fall back to system allocation if the
+        // relevant allocator cannot service the request.
+        let mut record = match space {
+            SpaceKind::Nursery => {
+                let (layout, payload_offset) =
+                    crate::object::allocation_layout_for::<T>()?;
+                match self.heap.nursery_mut().try_alloc(layout) {
+                    Some(base) => unsafe {
+                        crate::object::ObjectRecord::allocate_in_arena::<T>(
+                            desc,
+                            space,
+                            base,
+                            layout,
+                            payload_offset,
+                            value,
+                        )
+                    },
+                    None => crate::object::ObjectRecord::allocate(desc, space, value)?,
+                }
             }
-        } else {
-            crate::object::ObjectRecord::allocate(desc, space, value)?
+            SpaceKind::Old => {
+                let (layout, payload_offset) =
+                    crate::object::allocation_layout_for::<T>()?;
+                let old_config = self.heap.old_config().clone();
+                match self
+                    .heap
+                    .old_gen_mut()
+                    .try_alloc_in_block(&old_config, layout)
+                {
+                    Some(base) => unsafe {
+                        crate::object::ObjectRecord::allocate_in_arena::<T>(
+                            desc,
+                            space,
+                            base,
+                            layout,
+                            payload_offset,
+                            value,
+                        )
+                    },
+                    None => crate::object::ObjectRecord::allocate(desc, space, value)?,
+                }
+            }
+            _ => crate::object::ObjectRecord::allocate(desc, space, value)?,
         };
         let total_size = record.header().total_size();
         let (objects, indexes, old_gen, stats, old_config) = self.heap.allocation_commit_parts();
