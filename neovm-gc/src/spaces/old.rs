@@ -404,7 +404,7 @@ impl OldBlock {
                 // re-check guards against pathological alignment requests.
                 let base_addr = self.buffer.as_ptr() as usize;
                 let slot_addr = base_addr + offset;
-                if slot_addr % layout.align().max(1) != 0 {
+                if !slot_addr.is_multiple_of(layout.align().max(1)) {
                     // The requested alignment exceeds line alignment; skip
                     // this run and keep searching.
                     search_line = run_end;
