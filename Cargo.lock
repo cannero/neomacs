@@ -2078,6 +2078,7 @@ dependencies = [
  "libloading",
  "neovm-host-abi",
  "network-interface",
+ "parking_lot",
  "polling",
  "portable-pty",
  "proptest",

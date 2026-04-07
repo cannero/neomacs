@@ -219,8 +219,24 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
 
     let compile_first_sources =
         parse_compile_first_sources(&paths.makefile_in, &paths.lisp_root, options.native_comp)?;
-    for source in compile_first_sources {
-        let compile_first_args = compile_first_args_for_source(options.native_comp, &source);
+    // Match GNU lisp/Makefile.in: a COMPILE_FIRST .el is rebuilt only when
+    // its .elc sibling is missing or older.  GNU's make handles this via
+    // pattern rules; xtask isn't make, so check timestamps explicitly.
+    // Skipping unchanged sources lets a fresh checkout reuse pre-built
+    // .elc files (e.g. those compiled by GNU Emacs externally) without
+    // paying the per-file bootstrap-neomacs startup cost.
+    let compile_first_sources: Vec<PathBuf> = compile_first_sources
+        .into_iter()
+        .filter(|source| compile_first_needs_rebuild(source))
+        .collect();
+    if !compile_first_sources.is_empty() {
+        // batch-byte-compile accepts multiple FILE arguments and processes
+        // them in a single Lisp loop, so we can amortize the bootstrap-
+        // neomacs startup cost (loading bytecomp / cconv / byte-opt /
+        // their dependencies) across the entire COMPILE_FIRST set instead
+        // of paying it once per file.
+        let compile_first_args =
+            compile_first_args_for_sources(options.native_comp, &compile_first_sources);
         run_command(
             options,
             &options.repo_root,
@@ -437,7 +453,32 @@ fn parse_compile_first_sources_from_str(
     out.into_iter().filter(|path| path.is_file()).collect()
 }
 
+/// Return true if `source` (a .el file) needs to be byte-compiled because
+/// its .elc sibling is missing or older.  Mirrors what GNU make would do
+/// for a `%.elc: %.el` pattern rule under lisp/Makefile.in.
+fn compile_first_needs_rebuild(source: &Path) -> bool {
+    let elc = source.with_extension("elc");
+    let Ok(source_meta) = fs::metadata(source) else {
+        // Can't stat the source — let bootstrap-neomacs surface the
+        // error rather than silently skipping it.
+        return true;
+    };
+    let Ok(elc_meta) = fs::metadata(&elc) else {
+        return true; // .elc missing
+    };
+    let source_mtime = source_meta.modified().ok();
+    let elc_mtime = elc_meta.modified().ok();
+    match (source_mtime, elc_mtime) {
+        (Some(s), Some(e)) => s > e,
+        _ => true,
+    }
+}
+
 fn compile_first_args_for_source(native_comp: bool, source: &Path) -> Vec<OsString> {
+    compile_first_args_for_sources(native_comp, std::slice::from_ref(&source.to_path_buf()))
+}
+
+fn compile_first_args_for_sources(native_comp: bool, sources: &[PathBuf]) -> Vec<OsString> {
     let mut args = vec![OsString::from("--batch")];
     if native_comp {
         args.push(OsString::from("-l"));
@@ -445,7 +486,9 @@ fn compile_first_args_for_source(native_comp: bool, source: &Path) -> Vec<OsStri
     }
     args.push(OsString::from("-f"));
     args.push(OsString::from("batch-byte-compile"));
-    args.push(source.as_os_str().to_os_string());
+    for source in sources {
+        args.push(source.as_os_str().to_os_string());
+    }
     args
 }
 
