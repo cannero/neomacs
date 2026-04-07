@@ -235,6 +235,31 @@ impl Heap {
     /// `objects`, or the compaction will waste effort moving them.
     /// In practice callers should invoke this right after a major
     /// cycle to get physical compaction of the post-mark heap.
+    ///
+    /// # Typical usage
+    ///
+    /// Two common patterns:
+    ///
+    /// 1. **Automatic invocation**: set
+    ///    `OldGenConfig::physical_compaction_density_threshold`
+    ///    above 0.0 in `HeapConfig` and the runtime hooks in
+    ///    `execute_plan` and `commit_finished_active_collection`
+    ///    will call `compact_old_gen_physical` after every major
+    ///    cycle. Most callers want this.
+    ///
+    /// 2. **Manual invocation**: keep the threshold at 0.0 in
+    ///    config and call `mutator.compact_old_gen_physical(...)`
+    ///    explicitly at chosen safepoints. Useful for callers
+    ///    that want to time compaction against their own
+    ///    workload pattern (idle periods, post-checkpoint, etc.).
+    ///
+    /// For the conditional variant that only runs compaction
+    /// when fragmentation actually warrants it, see
+    /// [`Heap::compact_old_gen_if_fragmented`]. For multi-pass
+    /// bulk cleanup before a long idle period see
+    /// [`Heap::compact_old_gen_aggressive`]. For a cheap
+    /// "should I bother?" predicate see
+    /// [`Heap::should_compact_old_gen`].
     pub fn compact_old_gen_physical(&mut self, density_threshold: f64) -> usize {
         let runtime_state = self.runtime_state.clone();
         let block_count_before = self.old_gen.block_count();
