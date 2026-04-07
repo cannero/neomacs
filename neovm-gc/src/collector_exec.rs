@@ -251,7 +251,6 @@ impl<'a> MajorMarkSession<'a> {
         let worker_outputs = thread::scope(|scope| {
             let mut handles = Vec::with_capacity(workers);
             for worker_index in 0..workers {
-                let shared = shared;
                 let start = worker_index.saturating_mul(chunk_size);
                 let end = (start + chunk_size).min(self.objects.len());
                 if start >= end {
@@ -1334,7 +1333,6 @@ fn run_stealing_round_major(
     let outputs: Vec<(usize, Vec<usize>)> = thread::scope(|scope| {
         let mut handles = Vec::with_capacity(worker_count);
         for (worker_idx, worker) in workers.into_iter().enumerate() {
-            let shared = shared;
             let stealers = Arc::clone(&stealers);
             handles.push(scope.spawn(move || {
                 let mut tracer = StealingMarkTracer::new(shared.objects(), shared.index(), worker);
@@ -1410,7 +1408,6 @@ fn run_stealing_round_minor(
     let outputs: Vec<(usize, Vec<usize>)> = thread::scope(|scope| {
         let mut handles = Vec::with_capacity(worker_count);
         for (worker_idx, worker) in workers.into_iter().enumerate() {
-            let shared = shared;
             let stealers = Arc::clone(&stealers);
             handles.push(scope.spawn(move || {
                 let mut tracer = StealingMinorTracer::new(shared.objects(), shared.index(), worker);
@@ -1560,7 +1557,6 @@ fn scan_minor_ephemerons_parallel(
     let worker_outputs = thread::scope(|scope| {
         let mut handles = Vec::with_capacity(workers);
         for worker_index in 0..workers {
-            let shared = shared;
             let ephemeron_candidates = Arc::clone(&ephemeron_candidates);
             let start = worker_index.saturating_mul(chunk_size);
             let end = (start + chunk_size).min(ephemeron_candidates.len());
@@ -1630,7 +1626,6 @@ pub(crate) fn process_weak_references(
     thread::scope(|scope| {
         let mut handles = Vec::with_capacity(workers);
         for worker_index in 0..workers {
-            let shared = shared;
             let weak_candidates = Arc::clone(&weak_candidates);
             let start = worker_index.saturating_mul(chunk_size);
             let end = (start + chunk_size).min(weak_candidates.len());

@@ -260,7 +260,6 @@ fn evacuate_marked_nursery_parallel(
     let worker_results: Vec<WorkerResult> = thread::scope(|scope| {
         let mut handles = Vec::with_capacity(worker_count);
         for (worker_index, arena) in worker_arenas.into_iter().enumerate() {
-            let shared = shared;
             let start = worker_index.saturating_mul(chunk_size);
             let end = start.saturating_add(chunk_size).min(total);
             handles.push(scope.spawn(move || -> WorkerResult {
