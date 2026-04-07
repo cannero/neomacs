@@ -24,13 +24,18 @@ fn copy_alist_basic() {
     let result = builtin_copy_alist(vec![alist]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 2);
-    // Original and copy should have equal structure
+    // Original and copy should have equal structure (`equal`).
     assert!(equal_value(&alist, &result, 0));
-    // But the cons cells should not be eq (different heap objects)
+    // But the cons cells should not be eq (different heap objects).
+    // GNU `eq` is pointer-equal, so check via eq_value not the
+    // Rust PartialEq impl (which is structural `equal`).
     assert!(items[0].is_cons());
     let orig_first = &list_to_vec(&alist).unwrap()[0];
     assert!(orig_first.is_cons());
-    assert_ne!(items[0], *orig_first);
+    assert!(
+        !crate::emacs_core::value::eq_value(&items[0], orig_first),
+        "copy-alist must produce a fresh cons cell, not eq the original"
+    );
 }
 
 #[test]
