@@ -914,7 +914,7 @@ fn indent_to_basic() {
 #[test]
 fn indent_to_returns_reached_column() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abcdef")
              (goto-char (point-max))
@@ -933,7 +933,7 @@ fn indent_to_returns_reached_column() {
 #[test]
 fn indent_to_minimum_requires_fixnump() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer (condition-case err (indent-to 4 nil) (error err)))
            (with-temp-buffer (condition-case err (indent-to 4 "x") (error err)))
            (with-temp-buffer (condition-case err (indent-to 4 t) (error err)))
@@ -1013,14 +1013,9 @@ fn newline_and_indent_rejects_too_many_args() {
            (with-temp-buffer
              (condition-case err (newline-and-indent nil nil nil) (error err)))"#,
     );
-    assert_eq!(
-        results[0],
-        "OK (wrong-number-of-arguments newline-and-indent 2)"
-    );
-    assert_eq!(
-        results[1],
-        "OK (wrong-number-of-arguments newline-and-indent 3)"
-    );
+    // GNU 31.0.50: newline-and-indent has arity (0 . 1).
+    assert_eq!(results[0], "OK (wrong-number-of-arguments (0 . 1) 2)");
+    assert_eq!(results[1], "OK (wrong-number-of-arguments (0 . 1) 3)");
 }
 
 // -- newline-and-indent tests --
@@ -1253,14 +1248,11 @@ fn delete_indentation_rejects_too_many_args() {
            (with-temp-buffer
              (condition-case err (delete-indentation t nil nil nil) (error err)))"#,
     );
-    assert_eq!(
-        results[0],
-        "OK (wrong-number-of-arguments delete-indentation 4)"
-    );
-    assert_eq!(
-        results[1],
-        "OK (wrong-number-of-arguments delete-indentation 4)"
-    );
+    // GNU emacs 31.0.50 verified: delete-indentation is a Lisp
+    // bytecode function with arity (0 . 3); arity errors carry
+    // the (MIN . MAX) tuple from funcall_lambda.
+    assert_eq!(results[0], "OK (wrong-number-of-arguments (0 . 3) 4)");
+    assert_eq!(results[1], "OK (wrong-number-of-arguments (0 . 3) 4)");
 }
 
 // -- tab-to-tab-stop tests --
