@@ -78,7 +78,7 @@ pub use plan::{
 };
 pub use root::{Gc, HandleScope, Root};
 pub use runtime::{CollectorRuntime, SharedCollectorRuntime};
-pub use stats::{CollectionStats, HeapStats, OldRegionStats, SpaceStats};
+pub use stats::{CollectionStats, CompactionStats, HeapStats, OldRegionStats, SpaceStats};
 pub use weak::{Ephemeron, Weak, WeakCell, WeakMapToken};
 
 #[cfg(test)]

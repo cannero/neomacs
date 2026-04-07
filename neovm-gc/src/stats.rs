@@ -126,6 +126,32 @@ pub struct SpaceStats {
     pub live_bytes: usize,
 }
 
+/// Cumulative physical old-gen compaction counters.
+///
+/// Populated by [`crate::heap::Heap::compact_old_gen_physical`]
+/// (and the mutator + shared-heap wrappers). Counters are
+/// monotonic: they only grow. Users can diff two snapshots to
+/// attribute work to a particular interval.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CompactionStats {
+    /// Total number of `compact_old_gen_physical` calls that ran
+    /// and actually moved at least one record.
+    pub cycles: u64,
+    /// Total number of records physically evacuated across every
+    /// compaction call.
+    pub records_moved: u64,
+    /// Total number of freshly-created target blocks the
+    /// compaction pass allocated to hold evacuated records. With
+    /// the pack-targets rewrite a single target block can host
+    /// many survivors, so this is typically much smaller than
+    /// `records_moved`.
+    pub target_blocks_created: u64,
+    /// Total number of source blocks reclaimed by the post-
+    /// compact rebuild pass because no surviving record still
+    /// points into them.
+    pub source_blocks_reclaimed: u64,
+}
+
 /// Public snapshot of one logical old-generation region.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct OldRegionStats {

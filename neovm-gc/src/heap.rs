@@ -102,6 +102,10 @@ pub struct Heap {
     collector: CollectorStateHandle,
     pause_stats: PauseStatsHandle,
     pacer: Pacer,
+    /// Cumulative physical old-gen compaction counters. Updated
+    /// by `compact_old_gen_physical` after every call that
+    /// actually moves at least one record.
+    compaction_stats: crate::stats::CompactionStats,
     // --- arena buffers (drops last, after all records) ---
     /// Bump-pointer semispace nursery arenas (Phase 1).
     nursery: NurseryState,
@@ -154,6 +158,7 @@ impl Heap {
             collector: CollectorStateHandle::default(),
             pause_stats: PauseStatsHandle::new(),
             pacer,
+            compaction_stats: crate::stats::CompactionStats::default(),
             nursery,
         };
         heap.refresh_recommended_plans();
@@ -232,6 +237,7 @@ impl Heap {
     /// cycle to get physical compaction of the post-mark heap.
     pub fn compact_old_gen_physical(&mut self, density_threshold: f64) -> usize {
         let runtime_state = self.runtime_state.clone();
+        let block_count_before = self.old_gen.block_count();
         let Self {
             roots,
             objects,
@@ -252,6 +258,7 @@ impl Heap {
             return 0;
         }
         crate::spaces::nursery::relocate_roots_and_edges(roots, objects, indexes, &forwarding);
+        let block_count_after_evacuation = old_gen.block_count();
         // After the compaction pass: source blocks have stale
         // line_marks reflecting their pre-compaction placements,
         // and fresh target blocks have zeroed line_marks because
@@ -266,7 +273,36 @@ impl Heap {
             old_gen,
             &runtime_state,
         );
+        let block_count_after_rebuild = old_gen.block_count();
+        // target_blocks_created = blocks that appeared between
+        // the pre-compact count and the post-evacuation count.
+        // source_blocks_reclaimed = blocks that disappeared
+        // between the post-evacuation count and the post-rebuild
+        // count.
+        let target_blocks_created =
+            block_count_after_evacuation.saturating_sub(block_count_before) as u64;
+        let source_blocks_reclaimed = block_count_after_evacuation
+            .saturating_sub(block_count_after_rebuild) as u64;
+        self.compaction_stats.cycles = self.compaction_stats.cycles.saturating_add(1);
+        self.compaction_stats.records_moved = self
+            .compaction_stats
+            .records_moved
+            .saturating_add(moved as u64);
+        self.compaction_stats.target_blocks_created = self
+            .compaction_stats
+            .target_blocks_created
+            .saturating_add(target_blocks_created);
+        self.compaction_stats.source_blocks_reclaimed = self
+            .compaction_stats
+            .source_blocks_reclaimed
+            .saturating_add(source_blocks_reclaimed);
         moved
+    }
+
+    /// Cumulative physical compaction counters since heap
+    /// construction. See [`crate::stats::CompactionStats`].
+    pub fn compaction_stats(&self) -> crate::stats::CompactionStats {
+        self.compaction_stats
     }
 
     pub(crate) fn collection_exec_parts(

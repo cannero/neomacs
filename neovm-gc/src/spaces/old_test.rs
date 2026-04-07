@@ -302,6 +302,47 @@ fn sweep_rebuilds_block_live_accounting_from_survivors() {
 }
 
 #[test]
+fn compact_old_gen_physical_updates_compaction_stats_counters() {
+    // Run a compaction with a live rooted survivor and confirm
+    // the Heap::compaction_stats counters reflect the work: one
+    // cycle, one record moved, one fresh target block created,
+    // one source block reclaimed.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        old: OldGenConfig {
+            region_bytes: 1024,
+            line_bytes: 16,
+            concurrent_mark_workers: 1,
+            physical_compaction_density_threshold: 0.0,
+            ..OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+
+    assert_eq!(heap.compaction_stats().cycles, 0);
+    assert_eq!(heap.compaction_stats().records_moved, 0);
+
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+    let _survivor = mutator
+        .alloc(&mut keep_scope, OldChunk([7u8; 32]))
+        .expect("alloc survivor");
+    // One block holding one sparse survivor. Compact at 1.0 so
+    // the block qualifies.
+    let moved = mutator.compact_old_gen_physical(1.0);
+    assert_eq!(moved, 1);
+
+    let stats = mutator.heap().compaction_stats();
+    assert_eq!(stats.cycles, 1);
+    assert_eq!(stats.records_moved, 1);
+    assert_eq!(stats.target_blocks_created, 1);
+    assert_eq!(stats.source_blocks_reclaimed, 1);
+}
+
+#[test]
 fn compact_old_gen_physical_drops_emptied_source_blocks() {
     // After compaction moves every live record out of a sparse
     // block, that block has no surviving records and its
