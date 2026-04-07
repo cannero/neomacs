@@ -94,32 +94,45 @@ pub(crate) fn builtin_make_variable_buffer_local_with_state(
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         ValueKind::Nil => "nil".to_string(),
         ValueKind::T => "t".to_string(),
-        other => {
+        _other => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("symbolp"), args[0]],
             ));
         }
     };
-    let resolved = resolve_sym(super::builtins::resolve_variable_alias_id_in_obarray(
-        obarray,
-        intern(&name),
-    )?)
-    .to_string();
+    let resolved_id =
+        super::builtins::resolve_variable_alias_id_in_obarray(obarray, intern(&name))?;
+    let resolved = resolve_sym(resolved_id).to_string();
     if obarray.is_constant(&resolved) {
         return Err(signal("setting-constant", vec![Value::symbol(name)]));
     }
     if !obarray.boundp(&resolved) {
         obarray.set_symbol_value(&resolved, Value::NIL);
     }
-    // Primary mechanism: mark in the obarray's SymbolValue enum.
+    // Phase 6 of the symbol-redirect refactor: flip the new redirect
+    // tag to LOCALIZED and set local_if_set on the BLV. The legacy
+    // BufferLocal SymbolValue marker and the CustomManager
+    // auto_buffer_local set stay in sync until Phase 10 deletes
+    // them. Mirrors GNU Fmake_variable_buffer_local
+    // (data.c:2142-2207).
+    let default_value = obarray
+        .find_symbol_value(resolved_id)
+        .unwrap_or(Value::NIL);
+    obarray.make_symbol_localized(resolved_id, default_value);
+    obarray.set_blv_local_if_set(resolved_id, true);
     obarray.make_buffer_local(&resolved, true);
-    // Keep CustomManager in sync during the transition period.
     custom.make_variable_buffer_local(&resolved);
     Ok(args[0])
 }
 
 /// `(make-local-variable VARIABLE)` -- make variable local in current buffer.
+///
+/// Mirrors GNU `Fmake_local_variable` (`data.c:2209-2312`). Differs
+/// from `make-variable-buffer-local` in that it creates a per-buffer
+/// binding *only* in the current buffer, without setting
+/// `local_if_set` (which would auto-create on every subsequent
+/// `setq` in any buffer).
 pub(crate) fn builtin_make_local_variable(
     ctx: &mut super::eval::Context,
     args: Vec<Value>,
@@ -129,7 +142,7 @@ pub(crate) fn builtin_make_local_variable(
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         ValueKind::Nil => "nil".to_string(),
         ValueKind::T => "t".to_string(),
-        other => {
+        _other => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("symbolp"), args[0]],
@@ -143,6 +156,40 @@ pub(crate) fn builtin_make_local_variable(
         return Err(signal("setting-constant", vec![Value::symbol(name)]));
     }
 
+    // Phase 6 of the symbol-redirect refactor: flip the symbol to
+    // LOCALIZED (preserving its current value as the default) and
+    // seed the current buffer's local_var_alist with `(sym . default)`
+    // if it doesn't already have an entry. This is the new GNU-shape
+    // path. The legacy BufferLocals storage stays populated below
+    // until Phase 10 deletes it.
+    let default_value = ctx
+        .obarray
+        .find_symbol_value(resolved)
+        .unwrap_or(Value::NIL);
+    ctx.obarray.make_symbol_localized(resolved, default_value);
+    if let Some(current_id) = ctx.buffers.current_buffer_id() {
+        if let Some(buf) = ctx.buffers.get_mut(current_id) {
+            // Only seed when no entry exists yet (idempotent — calling
+            // make-local-variable twice doesn't double-prepend).
+            let key = Value::from_sym_id(resolved);
+            let mut cursor = buf.local_var_alist;
+            let mut found = false;
+            while cursor.is_cons() {
+                let entry = cursor.cons_car();
+                if entry.is_cons() && super::value::eq_value(&entry.cons_car(), &key) {
+                    found = true;
+                    break;
+                }
+                cursor = cursor.cons_cdr();
+            }
+            if !found {
+                let cell = Value::cons(key, default_value);
+                buf.local_var_alist = Value::cons(cell, buf.local_var_alist);
+            }
+        }
+    }
+
+    // Legacy path: keep BufferLocals populated until Phase 10.
     if let Some(current_id) = ctx.buffers.current_buffer_id() {
         if ctx
             .buffers
