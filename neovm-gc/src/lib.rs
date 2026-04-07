@@ -1,4 +1,13 @@
 #![forbid(unsafe_op_in_unsafe_fn)]
+// Several internal GC orchestration entry points (e.g.
+// `prepare_full_reclaim_for_plan`, `record_active_major_*_and_refresh`,
+// `completed_old_gen_cycle`) take many arguments by design — they
+// thread the small-and-orthogonal pieces of `Heap` state through
+// the collector pipeline without building an intermediate "context"
+// struct that would just shuffle the same fields around. Suppressing
+// `too_many_arguments` crate-wide acknowledges that choice rather
+// than papering over each function with its own #[allow].
+#![allow(clippy::too_many_arguments)]
 //! `neovm-gc` is a standalone managed-heap crate for VM runtimes.
 //!
 //! The crate provides a managed object model, rooted handles, descriptor-driven
