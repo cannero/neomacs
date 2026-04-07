@@ -4,6 +4,7 @@ use crate::barrier::RememberedEdge;
 use crate::descriptor::{GcErased, ObjectKey, TypeDesc, TypeFlags};
 use crate::object::{ObjectRecord, SpaceKind};
 use crate::plan::CollectionKind;
+use crate::reclaim::PreparedReclaimSurvivor;
 
 pub(crate) type ObjectIndex = HashMap<ObjectKey, usize>;
 pub(crate) type ForwardingMap = HashMap<ObjectKey, GcErased>;
@@ -22,6 +23,17 @@ pub(crate) struct HeapIndexState {
     pub(crate) weak_candidates: Vec<ObjectKey>,
     pub(crate) ephemeron_candidates: Vec<ObjectKey>,
     pub(crate) remembered: RememberedSetState,
+}
+
+#[derive(Debug)]
+pub(crate) struct PreparedIndexReclaim {
+    pub(crate) rebuilt_object_index: ObjectIndex,
+    pub(crate) finalize_indices: Vec<usize>,
+    pub(crate) finalizable_candidates: Vec<ObjectKey>,
+    pub(crate) weak_candidates: Vec<ObjectKey>,
+    pub(crate) ephemeron_candidates: Vec<ObjectKey>,
+    pub(crate) remembered_edges: Vec<RememberedEdge>,
+    pub(crate) remembered_owners: Vec<ObjectKey>,
 }
 
 impl RememberedSetState {
@@ -170,6 +182,62 @@ impl HeapIndexState {
     ) -> (Vec<RememberedEdge>, Vec<ObjectKey>) {
         self.remembered
             .edges_for_collection(objects, &self.object_index, kind)
+    }
+
+    pub(crate) fn prepare_reclaim_state(
+        &self,
+        objects: &[ObjectRecord],
+        survivors: &[PreparedReclaimSurvivor],
+        kind: CollectionKind,
+    ) -> PreparedIndexReclaim {
+        let finalizable_candidate_set: HashSet<_> =
+            self.finalizable_candidates.iter().copied().collect();
+        let weak_candidate_set: HashSet<_> = self.weak_candidates.iter().copied().collect();
+        let ephemeron_candidate_set: HashSet<_> =
+            self.ephemeron_candidates.iter().copied().collect();
+
+        let mut rebuilt_object_index = HashMap::with_capacity(survivors.len());
+        let mut survivor_keys = HashSet::with_capacity(survivors.len());
+        let mut finalizable_candidates = Vec::new();
+        let mut weak_candidates = Vec::new();
+        let mut ephemeron_candidates = Vec::new();
+        for (rebuilt_index, survivor) in survivors.iter().enumerate() {
+            let object_key = objects[survivor.object_index].object_key();
+            rebuilt_object_index.insert(object_key, rebuilt_index);
+            survivor_keys.insert(object_key);
+            if finalizable_candidate_set.contains(&object_key) {
+                finalizable_candidates.push(object_key);
+            }
+            if weak_candidate_set.contains(&object_key) {
+                weak_candidates.push(object_key);
+            }
+            if ephemeron_candidate_set.contains(&object_key) {
+                ephemeron_candidates.push(object_key);
+            }
+        }
+
+        let mut finalize_indices = Vec::new();
+        for (object_index, object) in objects.iter().enumerate() {
+            let object_key = object.object_key();
+            if !survivor_keys.contains(&object_key)
+                && finalizable_candidate_set.contains(&object_key)
+                && !object.header().is_moved_out()
+            {
+                finalize_indices.push(object_index);
+            }
+        }
+
+        let (remembered_edges, remembered_owners) =
+            self.remembered_edges_for_collection(objects, kind);
+        PreparedIndexReclaim {
+            rebuilt_object_index,
+            finalize_indices,
+            finalizable_candidates,
+            weak_candidates,
+            ephemeron_candidates,
+            remembered_edges,
+            remembered_owners,
+        }
     }
 
     pub(crate) fn retain_remembered_edges_for_post_sweep_objects(

@@ -1,6 +1,7 @@
 use super::*;
-use crate::descriptor::{Trace, Tracer, fixed_type_desc};
+use crate::descriptor::{Trace, Tracer, TypeFlags, fixed_type_desc};
 use crate::object::SpaceKind;
+use crate::reclaim::PreparedReclaimSurvivor;
 
 #[derive(Debug)]
 struct Leaf;
@@ -13,6 +14,46 @@ unsafe impl Trace for Leaf {
 
 fn leaf_desc() -> &'static crate::descriptor::TypeDesc {
     Box::leak(Box::new(fixed_type_desc::<Leaf>()))
+}
+
+#[derive(Debug)]
+struct FinalizableLeaf;
+
+unsafe impl Trace for FinalizableLeaf {
+    fn trace(&self, _tracer: &mut dyn Tracer) {}
+
+    fn relocate(&self, _relocator: &mut dyn crate::descriptor::Relocator) {}
+
+    fn type_flags() -> TypeFlags
+    where
+        Self: Sized,
+    {
+        TypeFlags::FINALIZABLE
+    }
+}
+
+fn finalizable_leaf_desc() -> &'static crate::descriptor::TypeDesc {
+    Box::leak(Box::new(fixed_type_desc::<FinalizableLeaf>()))
+}
+
+#[derive(Debug)]
+struct WeakEphemeronLeaf;
+
+unsafe impl Trace for WeakEphemeronLeaf {
+    fn trace(&self, _tracer: &mut dyn Tracer) {}
+
+    fn relocate(&self, _relocator: &mut dyn crate::descriptor::Relocator) {}
+
+    fn type_flags() -> TypeFlags
+    where
+        Self: Sized,
+    {
+        TypeFlags::WEAK | TypeFlags::EPHEMERON_KEY
+    }
+}
+
+fn weak_ephemeron_leaf_desc() -> &'static crate::descriptor::TypeDesc {
+    Box::leak(Box::new(fixed_type_desc::<WeakEphemeronLeaf>()))
 }
 
 #[test]
@@ -79,4 +120,81 @@ fn heap_index_state_record_allocated_object_updates_index_and_candidates() {
     assert!(indexes.finalizable_candidates.is_empty());
     assert!(indexes.weak_candidates.is_empty());
     assert!(indexes.ephemeron_candidates.is_empty());
+}
+
+#[test]
+fn heap_index_state_prepare_reclaim_state_rebuilds_candidates_and_remembered_edges() {
+    let finalizable_desc = finalizable_leaf_desc();
+    let weak_ephemeron_desc = weak_ephemeron_leaf_desc();
+    let leaf_desc = leaf_desc();
+
+    let dead_finalizable =
+        ObjectRecord::allocate(finalizable_desc, SpaceKind::Pinned, FinalizableLeaf)
+            .expect("allocate dead finalizable");
+    let live_finalizable =
+        ObjectRecord::allocate(finalizable_desc, SpaceKind::Pinned, FinalizableLeaf)
+            .expect("allocate live finalizable");
+    let live_weak_ephemeron =
+        ObjectRecord::allocate(weak_ephemeron_desc, SpaceKind::Old, WeakEphemeronLeaf)
+            .expect("allocate live weak ephemeron");
+    let owner = ObjectRecord::allocate(leaf_desc, SpaceKind::Pinned, Leaf).expect("allocate owner");
+    let target =
+        ObjectRecord::allocate(leaf_desc, SpaceKind::Nursery, Leaf).expect("allocate target");
+
+    assert!(live_finalizable.mark_if_unmarked());
+    assert!(live_weak_ephemeron.mark_if_unmarked());
+    assert!(owner.mark_if_unmarked());
+    assert!(target.mark_if_unmarked());
+
+    let objects = vec![
+        dead_finalizable,
+        live_finalizable,
+        live_weak_ephemeron,
+        owner,
+        target,
+    ];
+    let mut indexes = HeapIndexState::default();
+    for (index, object) in objects.iter().enumerate() {
+        indexes.record_allocated_object(object.object_key(), index, object.header().desc());
+    }
+    indexes.record_remembered_edge(objects[3].erased(), objects[4].erased());
+
+    let survivors = vec![
+        PreparedReclaimSurvivor {
+            object_index: 1,
+            old_region_placement: None,
+        },
+        PreparedReclaimSurvivor {
+            object_index: 2,
+            old_region_placement: objects[2].old_region_placement(),
+        },
+        PreparedReclaimSurvivor {
+            object_index: 3,
+            old_region_placement: None,
+        },
+        PreparedReclaimSurvivor {
+            object_index: 4,
+            old_region_placement: None,
+        },
+    ];
+
+    let prepared = indexes.prepare_reclaim_state(&objects, &survivors, CollectionKind::Major);
+
+    assert_eq!(
+        prepared.rebuilt_object_index.get(&objects[1].object_key()),
+        Some(&0)
+    );
+    assert_eq!(
+        prepared.rebuilt_object_index.get(&objects[2].object_key()),
+        Some(&1)
+    );
+    assert_eq!(prepared.finalize_indices, vec![0]);
+    assert_eq!(
+        prepared.finalizable_candidates,
+        vec![objects[1].object_key()]
+    );
+    assert_eq!(prepared.weak_candidates, vec![objects[2].object_key()]);
+    assert_eq!(prepared.ephemeron_candidates, vec![objects[2].object_key()]);
+    assert_eq!(prepared.remembered_edges.len(), 1);
+    assert_eq!(prepared.remembered_owners, vec![objects[3].object_key()]);
 }

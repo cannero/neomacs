@@ -188,9 +188,25 @@ impl OldGenState {
         let Some(rebuild) = rebuild else {
             return;
         };
-        let Some(mut placement) = object.old_region_placement() else {
+        let Some(placement) = object.old_region_placement() else {
             return;
         };
+        let Some(placement) =
+            Self::prepare_reclaim_survivor(rebuild, config, placement, total_size)
+        else {
+            return;
+        };
+        if object.old_region_placement() != Some(placement) {
+            object.set_old_region_placement(placement);
+        }
+    }
+
+    pub(crate) fn prepare_reclaim_survivor(
+        rebuild: &mut OldRegionRebuildState,
+        config: &OldGenConfig,
+        mut placement: OldRegionPlacement,
+        total_size: usize,
+    ) -> Option<OldRegionPlacement> {
         if rebuild.selected_regions.contains(&placement.region_index) {
             let compacted =
                 Self::reserve_rebuild_placement(&mut rebuild.compacted_regions, config, total_size);
@@ -198,29 +214,24 @@ impl OldGenState {
             placement.offset_bytes = compacted.offset_bytes;
             placement.line_start = compacted.line_start;
             placement.line_count = compacted.line_count;
-            object.set_old_region_placement(placement);
             let region = &mut rebuild.compacted_regions[compacted.region_index];
             region.live_bytes = region.live_bytes.saturating_add(total_size);
             region.object_count = region.object_count.saturating_add(1);
             for line in placement.line_start..placement.line_start + placement.line_count {
                 region.occupied_lines.insert(line);
             }
-            return;
+            return Some(placement);
         }
 
-        let Some(&new_index) = rebuild.preserved_index_map.get(&placement.region_index) else {
-            return;
-        };
-        if placement.region_index != new_index {
-            placement.region_index = new_index;
-            object.set_old_region_placement(placement);
-        }
+        let &new_index = rebuild.preserved_index_map.get(&placement.region_index)?;
+        placement.region_index = new_index;
         let region = &mut rebuild.rebuilt_regions[new_index];
         region.live_bytes = region.live_bytes.saturating_add(total_size);
         region.object_count = region.object_count.saturating_add(1);
         for line in placement.line_start..placement.line_start + placement.line_count {
             region.occupied_lines.insert(line);
         }
+        Some(placement)
     }
 
     pub(crate) fn finish_rebuild(

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::barrier::RememberedEdge;
 use crate::descriptor::{ObjectKey, TypeFlags};
@@ -68,13 +68,6 @@ pub(crate) fn prepare_reclaim(
 ) -> PreparedReclaim {
     let mut rebuild = old_gen.prepare_rebuild_for_plan(plan);
     let mut survivors = Vec::new();
-    let mut rebuilt_object_index = HashMap::with_capacity(objects.len());
-    let mut finalize_indices = Vec::new();
-    let finalizable_candidate_set: HashSet<_> =
-        indexes.finalizable_candidates.iter().copied().collect();
-    let mut finalizable_candidates = Vec::new();
-    let mut weak_candidates = Vec::new();
-    let mut ephemeron_candidates = Vec::new();
     let mut nursery_live_bytes = 0usize;
     let mut old_live_bytes = 0usize;
     let mut pinned_live_bytes = 0usize;
@@ -82,67 +75,27 @@ pub(crate) fn prepare_reclaim(
     let mut immortal_live_bytes = 0usize;
 
     for (object_index, object) in objects.iter().enumerate() {
-        let object_key = object.object_key();
-        let desc = object.header().desc();
         if !keep_object_for_collection(kind, object) {
-            if !object.header().is_moved_out() && finalizable_candidate_set.contains(&object_key) {
-                finalize_indices.push(object_index);
-            }
             continue;
         }
 
         let total_size = object.total_size();
-        if finalizable_candidate_set.contains(&object_key) {
-            finalizable_candidates.push(object_key);
-        }
-        if desc.flags.contains(TypeFlags::WEAK) {
-            weak_candidates.push(object_key);
-        }
-        if desc.flags.contains(TypeFlags::EPHEMERON_KEY) {
-            ephemeron_candidates.push(object_key);
-        }
 
         let old_region_placement = match object.space() {
-            SpaceKind::Old => {
-                let mut placement = object
+            SpaceKind::Old => OldGenState::prepare_reclaim_survivor(
+                &mut rebuild,
+                old_config,
+                object
                     .old_region_placement()
-                    .expect("live old object should retain old-region placement");
-                if rebuild.selected_regions.contains(&placement.region_index) {
-                    let compacted = OldGenState::reserve_rebuild_placement(
-                        &mut rebuild.compacted_regions,
-                        old_config,
-                        total_size,
-                    );
-                    placement.region_index = rebuild.compacted_base_index + compacted.region_index;
-                    placement.offset_bytes = compacted.offset_bytes;
-                    placement.line_start = compacted.line_start;
-                    placement.line_count = compacted.line_count;
-                    let region = &mut rebuild.compacted_regions[compacted.region_index];
-                    region.live_bytes = region.live_bytes.saturating_add(total_size);
-                    region.object_count = region.object_count.saturating_add(1);
-                    for line in placement.line_start..placement.line_start + placement.line_count {
-                        region.occupied_lines.insert(line);
-                    }
-                } else if let Some(&new_index) =
-                    rebuild.preserved_index_map.get(&placement.region_index)
-                {
-                    placement.region_index = new_index;
-                    let region = &mut rebuild.rebuilt_regions[new_index];
-                    region.live_bytes = region.live_bytes.saturating_add(total_size);
-                    region.object_count = region.object_count.saturating_add(1);
-                    for line in placement.line_start..placement.line_start + placement.line_count {
-                        region.occupied_lines.insert(line);
-                    }
-                }
-                Some(placement)
-            }
+                    .expect("live old object should retain old-region placement"),
+                total_size,
+            ),
             _ => None,
         };
         survivors.push(PreparedReclaimSurvivor {
             object_index,
             old_region_placement,
         });
-        rebuilt_object_index.insert(object_key, survivors.len().saturating_sub(1));
 
         match object.space() {
             SpaceKind::Nursery => {
@@ -169,21 +122,20 @@ pub(crate) fn prepare_reclaim(
         .iter()
         .map(|region| region.capacity_bytes)
         .sum();
-    let (remembered_edges, remembered_owners) =
-        indexes.remembered_edges_for_collection(objects, kind);
+    let prepared_indexes = indexes.prepare_reclaim_state(objects, &survivors, kind);
     PreparedReclaim {
         promoted_bytes: 0,
         rebuilt_old_regions,
-        rebuilt_object_index,
+        rebuilt_object_index: prepared_indexes.rebuilt_object_index,
         old_reserved_bytes,
         old_region_stats,
         survivors,
-        finalize_indices,
-        finalizable_candidates,
-        weak_candidates,
-        ephemeron_candidates,
-        remembered_edges,
-        remembered_owners,
+        finalize_indices: prepared_indexes.finalize_indices,
+        finalizable_candidates: prepared_indexes.finalizable_candidates,
+        weak_candidates: prepared_indexes.weak_candidates,
+        ephemeron_candidates: prepared_indexes.ephemeron_candidates,
+        remembered_edges: prepared_indexes.remembered_edges,
+        remembered_owners: prepared_indexes.remembered_owners,
         nursery_live_bytes,
         old_live_bytes,
         pinned_live_bytes,
