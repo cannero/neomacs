@@ -251,22 +251,13 @@ fn bootstrap_line_and_word_kill_arity_checks_match_simple_el() {
            (with-temp-buffer (condition-case err (kill-whole-line 1 2 3) (error err)))
            (with-temp-buffer (condition-case err (kill-word) (error err)))"#,
     );
-    assert_eq!(results[0], "OK (wrong-number-of-arguments kill-line 2)");
-    assert_eq!(results[1], "OK (wrong-number-of-arguments kill-line 2)");
-    assert_eq!(results[2], "OK (wrong-number-of-arguments kill-line 3)");
-    assert_eq!(
-        results[3],
-        "OK (wrong-number-of-arguments kill-whole-line 2)"
-    );
-    assert_eq!(
-        results[4],
-        "OK (wrong-number-of-arguments kill-whole-line 2)"
-    );
-    assert_eq!(
-        results[5],
-        "OK (wrong-number-of-arguments kill-whole-line 3)"
-    );
-    assert_eq!(results[6], "OK (wrong-number-of-arguments kill-word 0)");
+    assert_eq!(results[0], "OK (wrong-number-of-arguments (0 . 1) 2)");
+    assert_eq!(results[1], "OK (wrong-number-of-arguments (0 . 1) 2)");
+    assert_eq!(results[2], "OK (wrong-number-of-arguments (0 . 1) 3)");
+    assert_eq!(results[3], "OK (wrong-number-of-arguments (0 . 1) 2)");
+    assert_eq!(results[4], "OK (wrong-number-of-arguments (0 . 1) 2)");
+    assert_eq!(results[5], "OK (wrong-number-of-arguments (0 . 1) 3)");
+    assert_eq!(results[6], "OK (wrong-number-of-arguments (1 . 1) 0)");
 }
 
 // -- yank tests --
@@ -308,10 +299,10 @@ fn bootstrap_yank_and_yank_pop_arity_checks_match_simple_el() {
            (with-temp-buffer (condition-case err (yank-pop nil nil) (error err)))
            (with-temp-buffer (condition-case err (yank-pop 1 2 3) (error err)))"#,
     );
-    assert_eq!(results[0], "OK (wrong-number-of-arguments yank 2)");
-    assert_eq!(results[1], "OK (wrong-number-of-arguments yank 3)");
-    assert_eq!(results[2], "OK (wrong-number-of-arguments yank-pop 2)");
-    assert_eq!(results[3], "OK (wrong-number-of-arguments yank-pop 3)");
+    assert_eq!(results[0], "OK (wrong-number-of-arguments (0 . 1) 2)");
+    assert_eq!(results[1], "OK (wrong-number-of-arguments (0 . 1) 3)");
+    assert_eq!(results[2], "OK (wrong-number-of-arguments (0 . 1) 2)");
+    assert_eq!(results[3], "OK (wrong-number-of-arguments (0 . 1) 3)");
 }
 
 // -- yank-pop tests --
@@ -999,8 +990,8 @@ fn newline_rejects_too_many_args() {
            (with-temp-buffer
              (condition-case err (newline nil nil nil nil) (error err)))"#,
     );
-    assert_eq!(results[0], "OK (wrong-number-of-arguments newline 3)");
-    assert_eq!(results[1], "OK (wrong-number-of-arguments newline 4)");
+    assert_eq!(results[0], "OK (wrong-number-of-arguments (0 . 2) 3)");
+    assert_eq!(results[1], "OK (wrong-number-of-arguments (0 . 2) 4)");
 }
 
 #[test]

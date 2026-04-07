@@ -6058,6 +6058,13 @@ impl Context {
             return self.eval_sub(expanded);
         }
 
+        // GNU eval_sub direct-call path reports `wrong-number-of-arguments`
+        // with the symbol name in data[0], not the `#<subr NAME>` value
+        // that funcall would emit. Capture the surface symbol name (the
+        // car of the form) so we can undo the funcall-style rewrite
+        // applied by `apply_subr_object_by_id` for that error path.
+        let direct_call_name: Option<String> = sym_id.map(|id| resolve_sym(id).to_owned());
+
         // Regular function call: evaluate args, then apply
         // (GNU eval.c:2625-2715)
         let mut args = Vec::new();
@@ -6070,7 +6077,12 @@ impl Context {
             cursor = cursor.cons_cdr();
         }
 
-        self.apply(func, args)
+        let result = self.apply(func, args);
+        if let Some(name) = direct_call_name {
+            result.map_err(|flow| undo_wrong_arity_function_object_rewrite(flow, &name))
+        } else {
+            result
+        }
     }
 
     /// Legacy eval_value: delegates to eval_sub.
@@ -10012,6 +10024,18 @@ impl Context {
 }
 
 fn rewrite_wrong_arity_function_object(flow: Flow, name: &str) -> Flow {
+    // GNU `Ffuncall` reports `wrong-number-of-arguments` with the
+    // SUBR value in data[0] (e.g.
+    // `(funcall (function defalias))` →
+    // `(wrong-number-of-arguments #<subr defalias> 0)`).
+    // In contrast, a direct `(defalias)` form reports the SYMBOL
+    // name (`(wrong-number-of-arguments defalias 0)`).
+    //
+    // The dispatch helpers below set `rewrite_builtin_wrong_arity`
+    // to true on the funcall path; this helper performs the
+    // symbol→subr rewrite. The eval_sub direct-call path uses
+    // `undo_wrong_arity_function_object_rewrite` afterwards to
+    // restore the symbol form.
     match flow {
         Flow::Signal(mut sig) => {
             if sig.symbol_name() == "wrong-number-of-arguments"
@@ -10020,6 +10044,30 @@ fn rewrite_wrong_arity_function_object(flow: Flow, name: &str) -> Flow {
                 && sig.data[0].as_symbol_name() == Some(name)
             {
                 sig.data[0] = Value::subr(intern(name));
+            }
+            Flow::Signal(sig)
+        }
+        other => other,
+    }
+}
+
+/// Inverse of `rewrite_wrong_arity_function_object` for the eval_sub
+/// direct-call path. GNU's eval_sub reports
+/// `(wrong-number-of-arguments NAME N)` with NAME as a symbol,
+/// while funcall reports it as `#<subr NAME>`. NeoMacs's apply
+/// dispatch always goes through the funcall-style rewrite, so we
+/// undo it here when the call originated from eval_sub.
+fn undo_wrong_arity_function_object_rewrite(flow: Flow, name: &str) -> Flow {
+    match flow {
+        Flow::Signal(mut sig) => {
+            if sig.symbol_name() == "wrong-number-of-arguments"
+                && sig.raw_data.is_none()
+                && !sig.data.is_empty()
+                && let ValueKind::Veclike(VecLikeType::Subr) = sig.data[0].kind()
+                && let Some(id) = sig.data[0].as_subr_id()
+                && resolve_sym(id) == name
+            {
+                sig.data[0] = Value::symbol(name);
             }
             Flow::Signal(sig)
         }

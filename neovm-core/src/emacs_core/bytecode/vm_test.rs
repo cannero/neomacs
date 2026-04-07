@@ -7420,12 +7420,18 @@ fn vm_aref_aset_error_parity() {
 }
 
 #[test]
-fn vm_builtin_wrong_arity_uses_subr_payload() {
+fn vm_builtin_wrong_arity_uses_symbol_payload_for_direct_calls() {
+    // GNU Emacs `wrong-number-of-arguments` for a direct subr call
+    // signals with the symbol name in data[0]. Verified via
+    // `(condition-case err (car) (error err))` →
+    // `(wrong-number-of-arguments car 0)`. The funcall path
+    // (`(funcall #'car)`) instead reports the subr value -- those
+    // semantics live in the apply_subr_object_by_id rewrite.
     crate::test_utils::init_test_tracing();
     with_vm_eval("(car)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-number-of-arguments");
-            assert_eq!(data, vec![Value::subr(intern("car")), Value::fixnum(0)]);
+            assert_eq!(data, vec![Value::symbol("car"), Value::fixnum(0)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -7433,7 +7439,7 @@ fn vm_builtin_wrong_arity_uses_subr_payload() {
     with_vm_eval("(car 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-number-of-arguments");
-            assert_eq!(data, vec![Value::subr(intern("car")), Value::fixnum(2)]);
+            assert_eq!(data, vec![Value::symbol("car"), Value::fixnum(2)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
