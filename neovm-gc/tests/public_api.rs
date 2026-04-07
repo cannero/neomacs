@@ -8229,6 +8229,83 @@ fn public_api_shared_status_reports_pacer_telemetry() {
 }
 
 #[test]
+fn public_api_shared_pacer_stats_accessor_reads_lock_free() {
+    // Build a shared heap with a tight pacer trigger, run some
+    // allocations through the shared mutator, and read the pacer
+    // snapshot via the dedicated SharedHeap::pacer_stats accessor.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            semispace_bytes: 16 * 1024 * 1024,
+            promotion_age: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    heap.set_pacer_config(PacerConfig {
+        target_pause: Duration::from_secs(1),
+        heap_growth_target_ratio: 2.0,
+        min_trigger_bytes: 256,
+        ..PacerConfig::default()
+    });
+    let shared = heap.into_shared();
+
+    let before = shared
+        .pacer_stats()
+        .expect("read pacer stats before allocations");
+    assert_eq!(before.observed_cycles, 0);
+
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for i in 0..256u64 {
+                let _leaf = mutator
+                    .alloc_auto(&mut scope, Leaf(i))
+                    .expect("alloc auto leaf");
+            }
+        })
+        .expect("allocate via shared mutator");
+
+    let after = shared
+        .pacer_stats()
+        .expect("read pacer stats after allocations");
+    assert!(
+        after.observed_cycles >= 1,
+        "expected pacer to observe at least one cycle, got {}",
+        after.observed_cycles
+    );
+}
+
+#[test]
+fn public_api_shared_pause_histogram_accessor_reads_lock_free() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+
+    let before = shared
+        .pause_histogram()
+        .expect("read pause histogram before collections");
+    assert_eq!(before.total_samples, 0);
+
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            let _leaf = mutator
+                .alloc(&mut scope, Leaf(99))
+                .expect("alloc leaf");
+            mutator.collect(CollectionKind::Major).expect("major");
+        })
+        .expect("collect via shared mutator");
+
+    let after = shared
+        .pause_histogram()
+        .expect("read pause histogram after collections");
+    assert!(
+        after.total_samples >= 1,
+        "expected pause histogram to record at least one sample, \
+         got {}",
+        after.total_samples
+    );
+}
+
+#[test]
 fn public_api_shared_status_reports_pause_histogram() {
     // Build a shared heap, run a few collections through the shared
     // mutator API, and assert the rolling pause histogram is

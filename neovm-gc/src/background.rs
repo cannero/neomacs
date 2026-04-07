@@ -1140,6 +1140,29 @@ impl SharedHeap {
             .map(|status| status.stats)
     }
 
+    /// Return the adaptive pacer's current model snapshot.
+    ///
+    /// Reads from the same lock-free shared snapshot as
+    /// [`SharedHeap::stats`], so this never blocks on the heap
+    /// mutex even while a mutator or background worker holds it.
+    pub fn pacer_stats(&self) -> Result<PacerStats, SharedHeapError> {
+        self.runtime
+            .observe_heap_status()
+            .map(|status| status.pacer)
+    }
+
+    /// Return the rolling pause-time histogram (P50/P95/P99 over a
+    /// bounded window) from the latest shared snapshot.
+    ///
+    /// Reads from the same lock-free shared snapshot as
+    /// [`SharedHeap::stats`], so this never blocks on the heap
+    /// mutex.
+    pub fn pause_histogram(&self) -> Result<PauseHistogram, SharedHeapError> {
+        self.runtime
+            .observe_heap_status()
+            .map(|status| status.pauses)
+    }
+
     /// Return the number of queued finalizers waiting to run.
     pub fn pending_finalizer_count(&self) -> Result<usize, SharedHeapError> {
         self.runtime.pending_finalizer_count()
