@@ -43,6 +43,35 @@
 //! mutator) or [`SharedHeap`] (multi-thread observation, background workers).
 //!
 //! [`SharedHeap::status`]: background::SharedHeap::status
+//!
+//! # Quick start
+//!
+//! Construct a [`Heap`], grab a [`Mutator`] view from it, and read or
+//! mutate state through the mutator. Cumulative pacer and compaction
+//! counters are available via the heap's stats accessors regardless of
+//! whether anything has been allocated yet.
+//!
+//! ```
+//! use neovm_gc::{Heap, HeapConfig};
+//!
+//! let mut heap = Heap::new(HeapConfig::default());
+//!
+//! // Pacer telemetry: a fresh heap has observed nothing yet.
+//! let pacer_stats = heap.pacer_stats();
+//! assert_eq!(pacer_stats.observed_cycles, 0);
+//!
+//! // Compaction telemetry: zero physical compaction work so far.
+//! let compaction_stats = heap.compaction_stats();
+//! assert_eq!(compaction_stats.cycles, 0);
+//! assert_eq!(compaction_stats.records_moved, 0);
+//!
+//! // Old-gen fragmentation ratio reads 0.0 on an empty pool.
+//! assert_eq!(heap.old_gen_fragmentation_ratio(), 0.0);
+//!
+//! // The should_compact predicate returns false at any threshold
+//! // when no blocks exist.
+//! assert!(!heap.should_compact_old_gen(0.5));
+//! ```
 
 /// Shared/background collector surfaces (`SharedHeap`,
 /// background worker, lock-free status snapshots).
