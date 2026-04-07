@@ -74,6 +74,23 @@ fn parse_defsubr_targets(path: &Path) -> BTreeMap<String, String> {
         }
     }
 
+    // Also pick up entries registered via the newer
+    // `register_builtin(ctx, BuiltinRegistration::...("name", target, ...))`
+    // surface — primarily eval-state-aware window primitives that
+    // don't go through ctx.defsubr. The "target" can be either a
+    // path identifier (super::window_cmds::builtin_foo) or a closure
+    // (|ctx, args| super::window_cmds::builtin_foo(args)); accept
+    // both by allowing `|...|` and dotted path tokens.
+    let re = Regex::new(
+        r#"BuiltinRegistration::[A-Za-z0-9_]+\(\s*"([^"]+)"\s*,\s*((?:\|[^|]*\|\s*)?[^,)]+)"#,
+    )
+    .expect("builtin reg regex");
+    for caps in re.captures_iter(&source) {
+        let name = caps[1].to_string();
+        let target = caps[2].trim().to_string();
+        out.entry(name).or_insert(target);
+    }
+
     out
 }
 
