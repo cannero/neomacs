@@ -251,11 +251,18 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
 
         fn push_concat_element(result: &mut String, value: &Value) -> Result<(), Flow> {
             match value.kind() {
-                ValueKind::Fixnum(c) => {
-                    result.push(char::from_u32(c as u32).unwrap_or('\0'));
-                    Ok(())
-                }
-                other => Err(signal(
+                // Route through push_concat_int so raw-byte character codes
+                // 0x3FFF80..=0x3FFFFF (BYTE8_TO_CHAR range, see GNU
+                // character.h) are encoded into the string storage instead
+                // of being silently mapped to NUL by char::from_u32(...
+                // ).unwrap_or('\0'). The buggy fast path was the audit's
+                // §3.1/§3.2/§3.3/§3.12 raw-byte corruption finding —
+                // push_concat_int is the correctly-written helper that
+                // handles both Unicode codepoints and the raw-byte range,
+                // and was already defined just above this function but
+                // never called from anywhere.
+                ValueKind::Fixnum(c) => push_concat_int(result, c),
+                _ => Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("characterp"), *value],
                 )),
