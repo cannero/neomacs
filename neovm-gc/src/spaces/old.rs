@@ -535,6 +535,45 @@ impl OldGenState {
         ))
     }
 
+    /// Compaction target allocator: try to place `layout` into the
+    /// block at `target_hint`; if that fails (or `target_hint` is
+    /// `None`), create a fresh block and place the layout there.
+    /// Returns the `(placement, pointer, new_target_hint)` tuple;
+    /// the new_target_hint is the block index the allocation
+    /// landed in, which the caller should thread into the next
+    /// call so multiple survivors from the compaction pass share
+    /// the same target block.
+    ///
+    /// Returns `None` only if even the fresh-block path cannot
+    /// service the layout (e.g. `layout.size() == 0`). Callers
+    /// treat that as "skip this survivor."
+    #[allow(dead_code)]
+    pub(crate) fn alloc_for_compaction_into_target(
+        &mut self,
+        config: &OldGenConfig,
+        layout: core::alloc::Layout,
+        target_hint: Option<usize>,
+    ) -> Option<(OldBlockPlacement, core::ptr::NonNull<u8>, usize)> {
+        if let Some(index) = target_hint {
+            if let Some(block) = self.blocks.get_mut(index) {
+                if let Some((offset, ptr)) = block.try_alloc(layout) {
+                    return Some((
+                        OldBlockPlacement {
+                            block_index: index,
+                            offset_bytes: offset,
+                            total_size: layout.size(),
+                        },
+                        ptr,
+                        index,
+                    ));
+                }
+            }
+        }
+        let (placement, ptr) = self.alloc_in_fresh_block(config, layout)?;
+        let new_target = placement.block_index;
+        Some((placement, ptr, new_target))
+    }
+
     /// Allocate directly into a newly-created block, bypassing the
     /// hole-filling search over existing blocks that
     /// [`try_alloc_in_block`] performs.

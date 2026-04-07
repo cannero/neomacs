@@ -125,8 +125,13 @@ pub(crate) fn compact_sparse_old_blocks(
     let candidate_set: std::collections::HashSet<usize> = candidates.into_iter().collect();
 
     // Phase B: walk every record; for each one whose block is a
-    // candidate, evacuate it into a fresh target block and swap
-    // the record in place.
+    // candidate, evacuate it into a compaction target block and
+    // swap the record in place. Multiple survivors share the
+    // same target block until it fills up, at which point
+    // alloc_for_compaction_into_target rolls over to a fresh
+    // one. This packs survivors tight instead of creating one
+    // new block per evacuated record.
+    let mut target_hint: Option<usize> = None;
     for slot_index in 0..objects.len() {
         let (is_candidate, object_key) = {
             let object = &objects[slot_index];
@@ -147,19 +152,47 @@ pub(crate) fn compact_sparse_old_blocks(
         let Some(object_key) = object_key else {
             continue;
         };
-        let evacuated = {
+        // Derive the allocation layout from the source record.
+        let layout = {
             let source = &objects[slot_index];
-            match evacuate_old_object_to_fresh_block(old_gen, config, source) {
-                Ok(record) => record,
+            match core::alloc::Layout::from_size_align(
+                source.total_size(),
+                source.layout_align(),
+            ) {
+                Ok(l) => l,
                 Err(_) => continue,
             }
         };
+        // Allocate the target slot via the compaction-aware
+        // allocator: prefer the current target block, fall
+        // forward to a fresh block when the current one is full.
+        let Some((placement, base, new_target)) =
+            old_gen.alloc_for_compaction_into_target(config, layout, target_hint)
+        else {
+            continue;
+        };
+        target_hint = Some(new_target);
+        // Copy the payload and install the forwarding pointer.
+        let evacuated = {
+            let source = &objects[slot_index];
+            // SAFETY: `alloc_for_compaction_into_target` returned
+            // a freshly-reserved slot in a non-source block
+            // backed by a buffer owned by the pool. The layout
+            // matches what evacuate_to_arena_slot expects.
+            let mut record =
+                match unsafe { source.evacuate_to_arena_slot(SpaceKind::Old, base) } {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
+            record.set_old_block_placement(placement);
+            record
+        };
         let new_erased = evacuated.erased();
         // Replace the source record in place with the evacuated
-        // one. The old record's payload bytes remain in the source
-        // block buffer but are no longer referenced by any record
-        // slot; the next post-sweep rebuild will drop the whole
-        // source block because none of its lines are marked.
+        // one. The source block's bytes remain in the pool buffer
+        // but no record now references them; the post-compact
+        // rebuild will drop the source block because none of
+        // its lines are marked any more.
         objects[slot_index] = evacuated;
         forwarding.insert(object_key, new_erased);
     }

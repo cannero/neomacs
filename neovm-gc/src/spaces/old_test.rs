@@ -523,6 +523,74 @@ fn heap_compact_old_gen_physical_after_major_is_noop_on_all_dead_heap() {
 }
 
 #[test]
+fn compact_sparse_old_blocks_packs_survivors_into_shared_target() {
+    use crate::reclaim::compact_sparse_old_blocks;
+
+    // Create two sparse source blocks, each with one small
+    // survivor. The compaction pass should pack both survivors
+    // into the SAME fresh target block instead of creating one
+    // fresh block per evacuated record.
+    let mut old_gen = OldGenState::default();
+    let config = OldGenConfig {
+        // Target blocks are sized up to region_bytes; make them
+        // big enough that two 64-byte survivors easily fit in
+        // one target.
+        region_bytes: 4096,
+        line_bytes: 16,
+        ..OldGenConfig::default()
+    };
+
+    let layout = core::alloc::Layout::from_size_align(64, 8).unwrap();
+    let mut objects: Vec<ObjectRecord> = Vec::new();
+    // Source block 0: one survivor.
+    let mut rec_a =
+        ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf)
+            .expect("alloc rec a");
+    let (pa, _) = old_gen
+        .try_alloc_in_block(&config, layout)
+        .expect("alloc into block 0");
+    rec_a.set_old_block_placement(pa);
+    objects.push(rec_a);
+    // Source block 1: one survivor.
+    let mut rec_b =
+        ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf)
+            .expect("alloc rec b");
+    let (pb, _) = old_gen
+        .alloc_in_fresh_block(&config, layout)
+        .expect("alloc into block 1");
+    rec_b.set_old_block_placement(pb);
+    objects.push(rec_b);
+    assert_eq!(old_gen.block_count(), 2);
+
+    // Both source blocks are sparse (one tiny survivor each in
+    // a 4 KiB region). Compact at 100% threshold to force both
+    // into the evacuation candidate set.
+    let forwarding = compact_sparse_old_blocks(&mut objects, &mut old_gen, &config, 1.0);
+    assert_eq!(forwarding.len(), 2, "both survivors should be evacuated");
+
+    // Exactly ONE new block was created as the shared target
+    // (so pool grew from 2 to 3, not from 2 to 4).
+    assert_eq!(
+        old_gen.block_count(),
+        3,
+        "target packing should create a single shared target block, \
+         not one per survivor"
+    );
+
+    // Both evacuated records now live in block 2 (the fresh
+    // shared target).
+    let mut target_blocks = std::collections::HashSet::new();
+    for record in &objects {
+        if let Some(p) = record.old_block_placement() {
+            target_blocks.insert(p.block_index);
+        }
+    }
+    assert!(target_blocks.contains(&2), "both records should point at the new shared target block 2");
+    assert!(!target_blocks.contains(&0) && !target_blocks.contains(&1),
+        "source blocks 0 and 1 should no longer be referenced by any record");
+}
+
+#[test]
 fn compact_sparse_old_blocks_moves_survivors_into_fresh_targets() {
     use crate::reclaim::compact_sparse_old_blocks;
 
