@@ -98,6 +98,17 @@ impl OldGenState {
         }
     }
 
+    pub(crate) fn record_allocated_object(
+        &mut self,
+        config: &OldGenConfig,
+        object: &mut ObjectRecord,
+    ) -> usize {
+        let placement = self.allocate_placement(config, object.total_size());
+        object.set_old_region_placement(placement);
+        self.record_object(object);
+        self.reserved_bytes()
+    }
+
     pub(crate) fn region_stats(&self) -> Vec<OldRegionStats> {
         self.regions
             .iter()
@@ -485,3 +496,7 @@ fn align_up(value: usize, align: usize) -> usize {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "old_test.rs"]
+mod tests;

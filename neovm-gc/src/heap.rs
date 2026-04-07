@@ -486,21 +486,18 @@ impl Heap {
         let mut record = ObjectRecord::allocate(desc, space, value)?;
         let total_size = record.header().total_size();
         if space == SpaceKind::Old {
-            let placement = self
+            self.stats.old.reserved_bytes = self
                 .old_gen
-                .allocate_placement(&self.config.old, total_size);
-            record.set_old_region_placement(placement);
-            self.old_gen.record_object(&record);
-            self.stats.old.reserved_bytes = self.old_gen.reserved_bytes();
+                .record_allocated_object(&self.config.old, &mut record);
         }
         let gc = unsafe { crate::root::Gc::from_erased(record.erased()) };
         self.account_allocation(space, total_size);
         self.objects.push(record);
         let index = self.objects.len() - 1;
         let object_key = self.objects[index].object_key();
-        self.indexes.object_index.insert(object_key, index);
         let desc = self.objects[index].header().desc();
-        self.indexes.record_descriptor_candidates(object_key, desc);
+        self.indexes
+            .record_allocated_object(object_key, index, desc);
         Ok(gc)
     }
 

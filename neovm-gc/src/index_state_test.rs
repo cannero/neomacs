@@ -65,3 +65,18 @@ fn remembered_set_retain_for_post_sweep_objects_keeps_only_old_to_nursery_edges(
         objects[1].object_key()
     );
 }
+
+#[test]
+fn heap_index_state_record_allocated_object_updates_index_and_candidates() {
+    let desc = leaf_desc();
+    let object = ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate object");
+    let object_key = object.object_key();
+    let mut indexes = HeapIndexState::default();
+
+    indexes.record_allocated_object(object_key, 3, desc);
+
+    assert_eq!(indexes.object_index.get(&object_key), Some(&3));
+    assert!(indexes.finalizable_candidates.is_empty());
+    assert!(indexes.weak_candidates.is_empty());
+    assert!(indexes.ephemeron_candidates.is_empty());
+}

@@ -115,6 +115,16 @@ impl RememberedSetState {
 }
 
 impl HeapIndexState {
+    pub(crate) fn record_allocated_object(
+        &mut self,
+        object_key: ObjectKey,
+        index: usize,
+        desc: &'static TypeDesc,
+    ) {
+        self.object_index.insert(object_key, index);
+        self.record_descriptor_candidates(object_key, desc);
+    }
+
     pub(crate) fn record_descriptor_candidates(
         &mut self,
         object_key: ObjectKey,
