@@ -3068,6 +3068,58 @@ fn bitwise_promotes_to_bignum() {
     );
 }
 
+/// Regression for audit §1.1, §2.6, §2.15-2.17. (expt 2 100), (abs
+/// most-negative-fixnum), and floor/ceiling/round/truncate on
+/// out-of-range floats must produce bignums or signal overflow-error
+/// (for inf/NaN), not silently wrap or saturate to i64.
+#[test]
+fn expt_abs_and_rounding_promote_to_bignum() {
+    crate::test_utils::init_test_tracing();
+    // (expt 2 100) — used to wrap to 0.
+    assert_eq!(eval_one("(expt 2 100)"), "OK 1267650600228229401496703205376");
+    // (expt 2 62) — exceeds fixnum but fits in i64.
+    assert_eq!(eval_one("(expt 2 62)"), "OK 4611686018427387904");
+    // Special cases that never overflow.
+    assert_eq!(eval_one("(expt 1 1000000)"), "OK 1");
+    assert_eq!(eval_one("(expt -1 1000000)"), "OK 1");
+    assert_eq!(eval_one("(expt -1 1000001)"), "OK -1");
+    assert_eq!(eval_one("(expt 0 5)"), "OK 0");
+    assert_eq!(eval_one("(expt 0 0)"), "OK 1");
+    // Negative exponent → float.
+    assert_eq!(eval_one("(expt 2 -2)"), "OK 0.25");
+
+    // (abs most-negative-fixnum) — used to signal overflow-error.
+    assert_eq!(
+        eval_one("(abs most-negative-fixnum)"),
+        "OK 2305843009213693952"
+    );
+    // abs of a bignum.
+    assert_eq!(
+        eval_one("(abs (- (ash 1 100)))"),
+        "OK 1267650600228229401496703205376"
+    );
+
+    // Float rounding on a value far outside i64.
+    // 1e20 is about 2^66, outside fixnum range.
+    assert_eq!(
+        eval_one("(truncate 1e20)"),
+        "OK 100000000000000000000"
+    );
+    assert_eq!(
+        eval_one("(floor 1e20)"),
+        "OK 100000000000000000000"
+    );
+    // Inf and NaN must signal overflow-error, not saturate.
+    assert_eq!(
+        eval_one("(condition-case e (truncate 1.0e+INF) (overflow-error 'caught))"),
+        "OK caught"
+    );
+    assert_eq!(
+        eval_one("(condition-case e (floor 0.0e+NaN) (overflow-error 'caught))"),
+        "OK caught"
+    );
+}
+
 #[test]
 fn substring_accepts_vectors_like_gnu_emacs() {
     crate::test_utils::init_test_tracing();

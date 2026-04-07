@@ -1,4 +1,5 @@
 use super::*;
+use rug::ops::Pow;
 use std::sync::Mutex;
 
 #[cfg(unix)]
@@ -544,16 +545,23 @@ pub(crate) fn builtin_min(eval: &mut super::eval::Context, args: Vec<Value>) -> 
     }
 }
 
+/// `(abs ARG)` — mirrors GNU `Fabs` (`src/floatfns.c`).
+///
+/// Promotes `MOST_NEGATIVE_FIXNUM` to a bignum (audit §2.6) instead
+/// of signaling overflow-error.
 pub(crate) fn builtin_abs(args: Vec<Value>) -> EvalResult {
     expect_args("abs", &args, 1)?;
     match args[0].kind() {
-        ValueKind::Fixnum(n) => {
-            if n == Value::MOST_NEGATIVE_FIXNUM {
-                return Err(signal("overflow-error", vec![]));
-            }
-            Ok(Value::fixnum(n.abs()))
-        }
+        ValueKind::Fixnum(n) => match n.checked_abs() {
+            // Even non-overflowing |i64| might exceed fixnum range —
+            // make_integer DTRT.
+            Some(a) => Ok(Value::make_integer(rug::Integer::from(a))),
+            None => Ok(Value::make_integer(rug::Integer::from(n).abs())),
+        },
         ValueKind::Float => Ok(Value::make_float(args[0].xfloat().abs())),
+        ValueKind::Veclike(VecLikeType::Bignum) => {
+            Ok(Value::make_integer(args[0].as_bignum().unwrap().clone().abs()))
+        }
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), args[0]],
@@ -851,6 +859,14 @@ fn value_to_f64(_name: &str, v: &Value) -> Result<f64, Flow> {
 /// Helper for 1-or-2-arg rounding functions.
 /// When called with 2 args, divides first by second, then applies the rounding op.
 /// For int/int with no remainder, returns integer directly.
+///
+/// Mirrors GNU `rounding_driver` (`src/floatfns.c`). The audit
+/// (§2.15, §2.17) flagged that NeoMacs used to truncate float
+/// results to i64 with `as i64` saturation, silently producing
+/// `i64::MAX`/`i64::MIN` for out-of-range floats and not surfacing
+/// overflow on infinity / NaN. We now route every integer result
+/// through `Value::make_integer`, and floats outside i64 range use
+/// `rug::Integer::from_f64` to produce a bignum.
 fn rounding_with_divisor(
     name: &str,
     args: &[Value],
@@ -859,28 +875,128 @@ fn rounding_with_divisor(
 ) -> EvalResult {
     expect_range_args(name, args, 1, 2)?;
     if args.len() == 1 {
-        match args[0].kind() {
-            ValueKind::Fixnum(n) => return Ok(Value::fixnum(n)),
-            ValueKind::Float => return Ok(Value::fixnum(round_fn(args[0].xfloat()) as i64)),
-            _ => {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("numberp"), args[0]],
-                ));
+        return match args[0].kind() {
+            ValueKind::Fixnum(n) => Ok(Value::make_integer(rug::Integer::from(n))),
+            ValueKind::Float => float_to_lisp_integer(round_fn(args[0].xfloat())),
+            ValueKind::Veclike(VecLikeType::Bignum) => {
+                Ok(Value::make_integer(args[0].as_bignum().unwrap().clone()))
             }
-        }
+            _ => Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("numberp"), args[0]],
+            )),
+        };
     }
     // 2-arg form: (op ARG DIVISOR)
-    let divisor = value_to_f64(name, &args[1])?;
-    if divisor == 0.0 {
+    if args[1].is_float() {
+        let divisor = args[1].xfloat();
+        if divisor == 0.0 {
+            return Err(signal("arith-error", vec![]));
+        }
+        let dividend = value_to_f64(name, &args[0])?;
+        return float_to_lisp_integer(round_fn(dividend / divisor));
+    }
+    if let Some(d) = args[1].as_fixnum() {
+        if d == 0 {
+            return Err(signal("arith-error", vec![]));
+        }
+        if let Some(a) = args[0].as_fixnum() {
+            return Ok(Value::make_integer(rug::Integer::from(int_div(a, d))));
+        }
+    }
+    if args[1].is_bignum() && args[1].as_bignum().unwrap().is_zero() {
         return Err(signal("arith-error", vec![]));
     }
-    // If both are integers and division is exact, use integer path
-    if let (Some(a), Some(d)) = (&args[0].as_fixnum(), &args[1].as_fixnum()) {
-        return Ok(Value::fixnum(int_div(*a, *d)));
+    // Mixed bignum / float / fixnum 2-arg fallback. For non-float
+    // operands fall through to the float path; this loses precision
+    // for very large bignums but matches the existing behavior for
+    // the cases the test suite covers. A future pass can wire in
+    // mpz_tdiv_q etc. for full bignum-divisor support.
+    if args[0].is_float() || args[1].is_float() {
+        let dividend = value_to_f64(name, &args[0])?;
+        let divisor = value_to_f64(name, &args[1])?;
+        if divisor == 0.0 {
+            return Err(signal("arith-error", vec![]));
+        }
+        return float_to_lisp_integer(round_fn(dividend / divisor));
     }
-    let dividend = value_to_f64(name, &args[0])?;
-    Ok(Value::fixnum(round_fn(dividend / divisor) as i64))
+    // Bignum-divisor or bignum-dividend integer path: do GMP
+    // truncation and reapply the rounding flavor on the residue.
+    let a = bignum_or_int_to_rug(&args[0])?;
+    let d = bignum_or_int_to_rug(&args[1])?;
+    if d.is_zero() {
+        return Err(signal("arith-error", vec![]));
+    }
+    // Truncation (toward-zero) division as the building block.
+    let q = rug::Integer::from(&a / &d);
+    let r = rug::Integer::from(&a - rug::Integer::from(&q * &d));
+    // Apply the same flavor that the int_div lambda would for fixnums,
+    // but in GMP. We dispatch by name because the closure type erases
+    // intent — and there are only four flavors.
+    let adjusted = match name {
+        "truncate" => q,
+        "floor" => {
+            // Toward -inf: if remainder is nonzero and r and d have
+            // opposite signs, subtract 1.
+            if !r.is_zero() && (r.cmp0().is_lt()) != (d.cmp0().is_lt()) {
+                q - 1
+            } else {
+                q
+            }
+        }
+        "ceiling" => {
+            // Toward +inf: if remainder is nonzero and r and d have
+            // the same sign, add 1.
+            if !r.is_zero() && (r.cmp0().is_lt()) == (d.cmp0().is_lt()) {
+                q + 1
+            } else {
+                q
+            }
+        }
+        "round" => {
+            // Round half to even (banker's rounding).
+            let abs_r2 = rug::Integer::from(&r * 2).abs();
+            let abs_d = rug::Integer::from(d.abs_ref());
+            use std::cmp::Ordering;
+            match abs_r2.cmp(&abs_d) {
+                Ordering::Greater => {
+                    if (r.cmp0().is_lt()) == (d.cmp0().is_lt()) {
+                        q + 1
+                    } else {
+                        q - 1
+                    }
+                }
+                Ordering::Equal => {
+                    if q.is_odd() {
+                        if (r.cmp0().is_lt()) == (d.cmp0().is_lt()) {
+                            q + 1
+                        } else {
+                            q - 1
+                        }
+                    } else {
+                        q
+                    }
+                }
+                Ordering::Less => q,
+            }
+        }
+        _ => unreachable!("unknown rounding name {name}"),
+    };
+    Ok(Value::make_integer(adjusted))
+}
+
+/// Convert a finite f64 into a Lisp integer (fixnum or bignum). NaN
+/// and infinity signal `overflow-error`, mirroring GNU
+/// `double_to_integer` (`src/bignum.c:81`).
+fn float_to_lisp_integer(value: f64) -> EvalResult {
+    if !value.is_finite() {
+        return Err(signal("overflow-error", vec![]));
+    }
+    // i64::MIN..=i64::MAX is the safe `as i64` range; outside that we
+    // need GMP. But fixnum range is even tighter (62-bit), so always
+    // funnel through make_integer.
+    let big = rug::Integer::from_f64(value).expect("finite f64");
+    Ok(Value::make_integer(big))
 }
 
 pub(crate) fn builtin_truncate(args: Vec<Value>) -> EvalResult {
@@ -1011,21 +1127,87 @@ pub(crate) fn builtin_log(args: Vec<Value>) -> EvalResult {
     }
 }
 
+/// `(expt BASE EXPONENT)` — mirrors GNU `Fexpt`
+/// (`src/floatfns.c`) and `expt_integer` (`src/data.c:3587`).
+///
+/// Integer base + non-negative integer exponent uses `mpz_pow_ui` to
+/// promote on overflow. The headline audit case is `(expt 2 100)`
+/// which used to return 0 because `2_i64.wrapping_pow(100)` wraps.
 pub(crate) fn builtin_expt(args: Vec<Value>) -> EvalResult {
     expect_args("expt", &args, 2)?;
     if has_float(&args) {
         let base = expect_number(&args[0])?;
         let exp = expect_number(&args[1])?;
-        Ok(Value::make_float(base.powf(exp)))
-    } else {
-        let base = expect_number(&args[0])? as i64;
-        let exp = expect_number(&args[1])? as i64;
-        if exp < 0 {
-            Ok(Value::make_float((base as f64).powf(exp as f64)))
-        } else {
-            Ok(Value::fixnum(base.wrapping_pow(exp as u32)))
+        return Ok(Value::make_float(base.powf(exp)));
+    }
+    // Integer-only path. Negative exponent on integer base falls back
+    // to float (GNU does the same: a^-n is rarely an integer).
+    let exp_val = &args[1];
+    let exp_is_neg = match exp_val.kind() {
+        ValueKind::Fixnum(n) => n < 0,
+        ValueKind::Veclike(VecLikeType::Bignum) => exp_val.as_bignum().unwrap().cmp0().is_lt(),
+        _ => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("integerp"), *exp_val],
+            ));
+        }
+    };
+    if exp_is_neg {
+        let base = expect_number(&args[0])?;
+        let exp = expect_number(exp_val)?;
+        return Ok(Value::make_float(base.powf(exp)));
+    }
+
+    // Special cases for -1, 0, 1 — never overflow regardless of exponent.
+    let base_val = &args[0];
+    if let Some(b) = base_val.as_fixnum() {
+        match b {
+            0 => {
+                // 0^0 = 1 in elisp, 0^positive = 0.
+                let exp_zero = match exp_val.kind() {
+                    ValueKind::Fixnum(n) => n == 0,
+                    ValueKind::Veclike(VecLikeType::Bignum) => {
+                        exp_val.as_bignum().unwrap().is_zero()
+                    }
+                    _ => false,
+                };
+                return Ok(Value::fixnum(if exp_zero { 1 } else { 0 }));
+            }
+            1 => return Ok(Value::fixnum(1)),
+            -1 => {
+                let odd = match exp_val.kind() {
+                    ValueKind::Fixnum(n) => n & 1 == 1,
+                    ValueKind::Veclike(VecLikeType::Bignum) => {
+                        exp_val.as_bignum().unwrap().is_odd()
+                    }
+                    _ => false,
+                };
+                return Ok(Value::fixnum(if odd { -1 } else { 1 }));
+            }
+            _ => {}
         }
     }
+
+    // Exponent must fit in u32 for rug::Integer::pow_u. (GNU bounds it
+    // by ULONG_MAX; that's larger than u32 on most platforms but the
+    // result becomes astronomically large long before then.)
+    let exp_u32: u32 = match exp_val.kind() {
+        ValueKind::Fixnum(n) => match u32::try_from(n) {
+            Ok(v) => v,
+            Err(_) => return Err(signal("overflow-error", vec![])),
+        },
+        ValueKind::Veclike(VecLikeType::Bignum) => {
+            match exp_val.as_bignum().unwrap().to_u32() {
+                Some(v) => v,
+                None => return Err(signal("overflow-error", vec![])),
+            }
+        }
+        _ => unreachable!("non-int exponent handled above"),
+    };
+
+    let base_big = bignum_or_int_to_rug(base_val)?;
+    Ok(Value::make_integer(base_big.pow(exp_u32)))
 }
 
 pub(crate) fn builtin_random(args: Vec<Value>) -> EvalResult {
