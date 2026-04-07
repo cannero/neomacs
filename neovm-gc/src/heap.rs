@@ -305,6 +305,63 @@ impl Heap {
         self.compaction_stats
     }
 
+    /// Current old-gen fragmentation ratio computed from the
+    /// block-side counters. Defined as
+    /// `total_hole_bytes / max(total_used_bytes, 1)` where
+    /// `total_hole_bytes = sum(block.used_bytes - block.live_bytes)`
+    /// across every block. Returns `0.0` when the pool is empty.
+    /// Range `[0.0, 1.0]`: 0.0 means every block is packed
+    /// tight, 1.0 means every block is entirely wasted space.
+    ///
+    /// Reading this is cheap (one linear scan over the block
+    /// pool) and safe to call whenever the heap is accessible
+    /// via its owned reference.
+    pub fn old_gen_fragmentation_ratio(&self) -> f64 {
+        let blocks = self.old_gen.blocks();
+        if blocks.is_empty() {
+            return 0.0;
+        }
+        let mut total_used = 0usize;
+        let mut total_live = 0usize;
+        for block in blocks {
+            total_used = total_used.saturating_add(block.used_bytes());
+            total_live = total_live.saturating_add(block.live_bytes());
+        }
+        if total_used == 0 {
+            return 0.0;
+        }
+        let holes = total_used.saturating_sub(total_live);
+        (holes as f64) / (total_used as f64)
+    }
+
+    /// Opportunistic physical compaction: compute the current
+    /// old-gen fragmentation ratio and, if it exceeds
+    /// `fragmentation_threshold`, run
+    /// [`Heap::compact_old_gen_physical`] at the configured
+    /// density threshold (or a permissive 0.5 fallback if the
+    /// config is set to the default 0.0 disabled value).
+    ///
+    /// Returns `(fragmentation, records_moved)` so callers can
+    /// distinguish "no compaction run" (moved == 0) from "compaction
+    /// ran but nothing qualified" (fragmentation met threshold but
+    /// no sparse blocks).
+    pub fn compact_old_gen_if_fragmented(
+        &mut self,
+        fragmentation_threshold: f64,
+    ) -> (f64, usize) {
+        let frag = self.old_gen_fragmentation_ratio();
+        if frag < fragmentation_threshold {
+            return (frag, 0);
+        }
+        let density = self
+            .config
+            .old
+            .physical_compaction_density_threshold
+            .max(0.5);
+        let moved = self.compact_old_gen_physical(density);
+        (frag, moved)
+    }
+
     pub(crate) fn collection_exec_parts(
         &mut self,
     ) -> (

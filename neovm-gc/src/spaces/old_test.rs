@@ -302,6 +302,61 @@ fn sweep_rebuilds_block_live_accounting_from_survivors() {
 }
 
 #[test]
+fn old_gen_fragmentation_ratio_is_zero_on_empty_heap() {
+    let heap = Heap::new(HeapConfig::default());
+    assert_eq!(heap.old_gen_fragmentation_ratio(), 0.0);
+}
+
+#[test]
+fn old_gen_fragmentation_ratio_is_bounded_between_zero_and_one() {
+    // The fragmentation ratio is defined as
+    // (used_bytes - live_bytes) / used_bytes, where used_bytes
+    // counts lines (rounded up by line_bytes) and live_bytes
+    // counts the raw object total_size. Even without dead
+    // objects the ratio is typically non-zero because of
+    // line-rounding overhead. Assert the result stays in the
+    // valid [0.0, 1.0] range after a batch of allocations.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        old: OldGenConfig {
+            region_bytes: 1024,
+            line_bytes: 16,
+            concurrent_mark_workers: 1,
+            ..OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        for _ in 0..4 {
+            mutator
+                .alloc(&mut scope, OldChunk([0; 32]))
+                .expect("alloc chunk");
+        }
+    }
+    let ratio = heap.old_gen_fragmentation_ratio();
+    assert!(
+        (0.0..=1.0).contains(&ratio),
+        "fragmentation ratio {ratio} should be in [0.0, 1.0]"
+    );
+}
+
+#[test]
+fn compact_old_gen_if_fragmented_skips_when_under_threshold() {
+    // A fresh heap has 0.0 fragmentation; calling
+    // compact_old_gen_if_fragmented with any positive threshold
+    // must return (0.0, 0) -- nothing compacted.
+    let mut heap = Heap::new(HeapConfig::default());
+    let (frag, moved) = heap.compact_old_gen_if_fragmented(0.1);
+    assert_eq!(frag, 0.0);
+    assert_eq!(moved, 0);
+}
+
+#[test]
 fn compact_old_gen_physical_updates_compaction_stats_counters() {
     // Run a compaction with a live rooted survivor and confirm
     // the Heap::compaction_stats counters reflect the work: one
