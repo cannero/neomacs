@@ -762,7 +762,7 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
         save_modified_tick: Some(buf.save_modified_tick),
         autosave_modified_tick: Some(buf.autosave_modified_tick),
         last_window_start: Some(buf.last_window_start),
-        read_only: buf.read_only,
+        read_only: buf.get_read_only(),
         multibyte: buf.multibyte,
         file_name: buf.file_name_owned(),
         auto_save_file_name: buf.auto_save_file_name_owned(),
@@ -2221,7 +2221,6 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         last_window_start,
         last_selected_window: None,
         inhibit_buffer_hooks: false,
-        read_only: db.read_only,
         multibyte: db.multibyte,
         state_markers: match (db.state_pt_marker, db.state_begv_marker, db.state_zv_marker) {
             (Some(pt_marker), Some(begv_marker), Some(zv_marker)) => {
@@ -2240,10 +2239,10 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         // version); fresh-load buffers start empty.
         local_var_alist: crate::emacs_core::value::Value::NIL,
         // Phase 8a: BUFFER_OBJFWD slot table. Phase 8b migrated
-        // `file_name` and `auto_save_file_name` into the slot
-        // table, so seed them from the dump's legacy fields.
-        // Phase 11 will round-trip the remaining slot values
-        // through pdump natively.
+        // `file_name`, `auto_save_file_name`, and `read_only`
+        // into the slot table, so seed them from the dump's
+        // legacy fields. Phase 11 will round-trip the remaining
+        // slot values through pdump natively.
         slots: {
             let mut s = [crate::emacs_core::value::Value::NIL;
                 crate::buffer::buffer::BUFFER_SLOT_COUNT];
@@ -2254,6 +2253,10 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
             if let Some(ref asname) = db.auto_save_file_name {
                 s[crate::buffer::buffer::BUFFER_SLOT_AUTO_SAVE_FILE_NAME] =
                     crate::emacs_core::value::Value::string(asname);
+            }
+            if db.read_only {
+                s[crate::buffer::buffer::BUFFER_SLOT_READ_ONLY] =
+                    crate::emacs_core::value::Value::T;
             }
             s
         },

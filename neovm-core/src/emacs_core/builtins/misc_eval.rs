@@ -844,7 +844,7 @@ pub(super) fn buffer_read_only_active(
         return false;
     }
 
-    if buf.read_only {
+    if buf.get_read_only() {
         return true;
     }
 

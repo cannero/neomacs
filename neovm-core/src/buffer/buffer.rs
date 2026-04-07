@@ -186,8 +186,6 @@ pub struct Buffer {
     /// GNU `inhibit_buffer_hooks`: suppress buffer lifecycle hooks for
     /// temporary/internal buffers.
     pub inhibit_buffer_hooks: bool,
-    /// If true, insertions/deletions are forbidden.
-    pub read_only: bool,
     /// Multi-byte encoding flag.  Always `true` for now.
     pub multibyte: bool,
     /// GNU-style noncurrent PT/BEGV/ZV markers for buffers that share text.
@@ -246,7 +244,6 @@ impl Buffer {
             last_window_start: 1,
             last_selected_window: None,
             inhibit_buffer_hooks: false,
-            read_only: false,
             multibyte: true,
             state_markers: None,
             locals: BufferLocals::new(),
@@ -307,14 +304,16 @@ impl Buffer {
         };
     }
 
-    /// Read `buffer-read-only` via the Phase 8b accessor.
+    /// Read `buffer-read-only`, mirroring GNU
+    /// `BVAR(buf, read_only)`. A non-nil slot maps to `true`.
     pub fn get_read_only(&self) -> bool {
-        self.read_only
+        self.slots[BUFFER_SLOT_READ_ONLY].is_truthy()
     }
 
-    /// Write `buffer-read-only`.
+    /// Write `buffer-read-only`. `true` stores `Value::T`, `false`
+    /// stores `Value::NIL`.
     pub fn set_read_only_value(&mut self, v: bool) {
-        self.read_only = v;
+        self.slots[BUFFER_SLOT_READ_ONLY] = if v { Value::T } else { Value::NIL };
     }
 
     /// Read `enable-multibyte-characters` via the Phase 8b accessor.
@@ -2648,7 +2647,7 @@ mod tests {
         assert_eq!(buf.point_max(), 0);
         assert_eq!(buf.buffer_size(), 0);
         assert!(!buf.is_modified());
-        assert!(!buf.read_only);
+        assert!(!buf.get_read_only());
         assert!(buf.multibyte);
         assert!(buf.get_file_name().is_none());
         assert!(buf.mark().is_none());

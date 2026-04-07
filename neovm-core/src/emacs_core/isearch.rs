@@ -134,7 +134,7 @@ fn dynamic_or_global_symbol_value(eval: &super::eval::Context, name: &str) -> Op
 }
 
 fn buffer_read_only_active(eval: &super::eval::Context, buf: &Buffer) -> bool {
-    if buf.read_only {
+    if buf.get_read_only() {
         return true;
     }
 

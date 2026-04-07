@@ -1839,7 +1839,7 @@ fn interactive_buffer_read_only_active_in_state(
     dynamic: &[OrderedRuntimeBindingMap],
     buf: &crate::buffer::Buffer,
 ) -> bool {
-    if buf.read_only {
+    if buf.get_read_only() {
         return true;
     }
     dynamic_buffer_or_global_symbol_value_in_state(obarray, dynamic, buf, "buffer-read-only")

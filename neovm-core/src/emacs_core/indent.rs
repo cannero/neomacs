@@ -113,7 +113,7 @@ fn buffer_read_only_active_in_state(
     dynamic: &[OrderedRuntimeBindingMap],
     buf: &Buffer,
 ) -> bool {
-    if buf.read_only {
+    if buf.get_read_only() {
         return true;
     }
     dynamic_buffer_or_global_symbol_value(obarray, dynamic, Some(buf), "buffer-read-only")
