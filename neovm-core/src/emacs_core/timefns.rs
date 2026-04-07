@@ -158,6 +158,19 @@ impl TimeMicros {
 ///   - (HIGH LOW USEC)       -> with microseconds
 ///   - (HIGH LOW USEC PSEC)  -> with microseconds (PSEC ignored)
 fn parse_time(val: &Value) -> Result<TimeMicros, Flow> {
+    use crate::emacs_core::value::VecLikeType;
+    // Bignum seconds-since-epoch values get truncated to i64;
+    // Emacs's GNU encoding of large times uses (HIGH LOW) cons
+    // pairs anyway, so a bignum here usually only occurs for
+    // tests that compute (1+ most-positive-fixnum) etc.
+    if let ValueKind::Veclike(VecLikeType::Bignum) = val.kind() {
+        let f = val.as_bignum().unwrap().to_f64();
+        return Ok(TimeMicros {
+            secs: f as i64,
+            usecs: 0,
+            psecs: 0,
+        });
+    }
     match val.kind() {
         ValueKind::Nil => Ok(TimeMicros::now()),
         ValueKind::Fixnum(n) => Ok(TimeMicros {

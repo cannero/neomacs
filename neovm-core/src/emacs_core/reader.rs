@@ -57,13 +57,13 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
 }
 
 fn expect_number(value: &Value) -> Result<(), Flow> {
-    match value.kind() {
-        ValueKind::Fixnum(_) | ValueKind::Float => Ok(()),
-        other => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("numberp"), *value],
-        )),
+    if value.is_number() {
+        return Ok(());
     }
+    Err(signal(
+        "wrong-type-argument",
+        vec![Value::symbol("numberp"), *value],
+    ))
 }
 
 pub(crate) fn parse_optional_read_seconds_arg(
@@ -974,10 +974,10 @@ fn read_number_minibuffer_args(args: &[Value]) -> [Value; 6] {
 }
 
 fn validate_read_number_result(result: Value) -> EvalResult {
-    match result.kind() {
-        ValueKind::Fixnum(_) | ValueKind::Float => Ok(result),
-        _ => Err(signal("error", vec![Value::string("Not a number")])),
+    if result.is_number() {
+        return Ok(result);
     }
+    Err(signal("error", vec![Value::string("Not a number")]))
 }
 
 pub(crate) fn finish_read_number_with_minibuffer(
