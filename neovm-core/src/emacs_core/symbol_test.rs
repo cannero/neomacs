@@ -183,6 +183,92 @@ fn for_each_value_cell_mut_updates_plain_and_buffer_local_values() {
     );
 }
 
+// ===========================================================================
+// Symbol-redirect refactor — Phase 1 sanity tests
+// ===========================================================================
+//
+// These cover the new SymbolRedirect / SymbolFlags / SymbolVal machinery
+// introduced in `drafts/symbol-redirect-plan.md` Step 1. They do NOT yet
+// exercise LOCALIZED or FORWARDED dispatch — those land in later phases.
+
+/// `LispSymbol::new` produces a fresh PLAINVAL symbol with NIL in its
+/// value cell. Mirrors GNU `init_symbol` (`alloc.c:3659-3673`).
+#[test]
+fn fresh_lisp_symbol_is_plainval_nil() {
+    crate::test_utils::init_test_tracing();
+    let id = intern("phase1-fresh");
+    let sym = LispSymbol::new(id);
+    assert_eq!(sym.redirect(), SymbolRedirect::Plainval);
+    assert_eq!(sym.flags.trapped_write(), SymbolTrappedWrite::Untrapped);
+    assert_eq!(sym.flags.interned(), SymbolInterned::Uninterned);
+    assert!(!sym.flags.declared_special());
+    assert_eq!(sym.plain(), Value::NIL);
+}
+
+/// `Obarray::set_symbol_value` keeps the legacy `SymbolValue::Plain`
+/// representation in sync with the new `flags + val` shape during the
+/// Phase 1 transition. Once both representations agree, Phase 4-10 can
+/// delete the legacy enum without behavior drift.
+#[test]
+fn plainval_redirect_mirrors_legacy_value_field() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    ob.set_symbol_value("phase1-mirror", Value::fixnum(7));
+    let id = intern("phase1-mirror");
+    let sym = ob.get_by_id(id).expect("symbol just installed");
+    assert_eq!(sym.redirect(), SymbolRedirect::Plainval);
+    assert_eq!(sym.plain(), Value::fixnum(7));
+    match &sym.value {
+        SymbolValue::Plain(Some(v)) => assert_eq!(*v, Value::fixnum(7)),
+        other => panic!("legacy value out of sync: {:?}", other),
+    }
+}
+
+/// `make_alias` flips the redirect tag to `Varalias` AND keeps the
+/// legacy enum in sync. Phase 3 of the refactor cuts the alias-following
+/// hot path over to the redirect tag exclusively.
+#[test]
+fn varalias_redirect_mirrors_legacy_alias_field() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    let from_id = intern("phase1-alias-from");
+    let to_id = intern("phase1-alias-to");
+    ob.ensure_symbol_id(from_id);
+    ob.ensure_symbol_id(to_id);
+    ob.make_alias(from_id, to_id);
+    let sym = ob.get_by_id(from_id).expect("symbol just installed");
+    assert_eq!(sym.redirect(), SymbolRedirect::Varalias);
+    assert_eq!(sym.alias_target(), to_id);
+    match &sym.value {
+        SymbolValue::Alias(target) => assert_eq!(*target, to_id),
+        other => panic!("legacy value out of sync: {:?}", other),
+    }
+}
+
+/// Pre-interned `t` and `nil` carry their canonical values in both the
+/// legacy and the new shape. Mirrors GNU's setup of `Qnil` / `Qt` in
+/// `alloc.c::init_alloc_once`.
+#[test]
+fn t_and_nil_have_consistent_redirect_state() {
+    crate::test_utils::init_test_tracing();
+    let ob = Obarray::new();
+    let t = ob.get_by_id(intern("t")).expect("t pre-interned");
+    let nil = ob.get_by_id(intern("nil")).expect("nil pre-interned");
+    assert_eq!(t.redirect(), SymbolRedirect::Plainval);
+    assert_eq!(t.plain(), Value::T);
+    assert!(t.constant);
+    assert_eq!(nil.redirect(), SymbolRedirect::Plainval);
+    assert_eq!(nil.plain(), Value::NIL);
+    assert!(nil.constant);
+}
+
+/// SymbolFlags packs into a single byte (matches GNU's bit layout).
+#[test]
+fn symbol_flags_pack_into_one_byte() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(std::mem::size_of::<SymbolFlags>(), 1);
+}
+
 #[test]
 fn uninterned_keyword_and_nil_names_are_not_canonical_constants() {
     crate::test_utils::init_test_tracing();

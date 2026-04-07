@@ -1996,6 +1996,34 @@ pub(crate) fn load_symbol_data(sd: &DumpSymbolData) -> SymbolData {
         SymbolValue::Plain(load_opt_value(&sd.value))
     };
     let mut symbol = SymbolData::new(load_sym_id(&sd.name));
+    // Mirror the legacy `value` cell into the new redirect-shape fields
+    // (Phase 1 of the symbol-redirect refactor — both representations
+    // are kept in sync until Phase 4-10 removes the legacy enum).
+    use crate::emacs_core::symbol::{SymbolRedirect, SymbolVal};
+    match &value {
+        SymbolValue::Plain(v) => {
+            symbol.flags.set_redirect(SymbolRedirect::Plainval);
+            symbol.val = SymbolVal {
+                plain: v.unwrap_or(crate::emacs_core::value::Value::NIL),
+            };
+        }
+        SymbolValue::Alias(target) => {
+            symbol.set_alias_target(*target);
+        }
+        SymbolValue::BufferLocal { default, .. } => {
+            // Phase 1: BufferLocal still rides on Plainval until the BLV
+            // dispatch lands in Phase 4. The default lives in `val.plain`.
+            symbol.flags.set_redirect(SymbolRedirect::Plainval);
+            symbol.val = SymbolVal {
+                plain: default.unwrap_or(crate::emacs_core::value::Value::NIL),
+            };
+        }
+        SymbolValue::Forwarded => {
+            // Phase 1: forwarded symbols are not yet round-tripped through
+            // the redirect (Phase 8 wires it up). Leave the new fields at
+            // their default Plainval / NIL.
+        }
+    }
     symbol.value = value;
     symbol.function = load_opt_value(&sd.function);
     symbol.plist = sd

@@ -7,15 +7,232 @@
 //! - A function cell (function binding)
 //! - A property list (plist)
 //! - A `special` flag (for dynamic binding in lexical scope)
+//!
+//! # Redirect machinery (GNU `Lisp_Symbol::redirect`)
+//!
+//! Mirrors GNU Emacs's `enum symbol_redirect` (`src/lisp.h:771-777`). Every
+//! symbol has a [`SymbolRedirect`] tag that determines how its value cell is
+//! interpreted:
+//!
+//! | Tag         | `val` payload                  | GNU equivalent      |
+//! | ----------- | ------------------------------ | ------------------- |
+//! | `Plainval`  | direct [`Value`] (or UNBOUND)  | `SYMBOL_PLAINVAL`   |
+//! | `Varalias`  | aliased [`SymId`]              | `SYMBOL_VARALIAS`   |
+//! | `Localized` | `*mut LispBufferLocalValue`    | `SYMBOL_LOCALIZED`  |
+//! | `Forwarded` | `*const LispFwd`               | `SYMBOL_FORWARDED`  |
+//!
+//! Phase 1 of the symbol-redirect refactor (`drafts/symbol-redirect-plan.md`)
+//! introduces the new shape but every existing symbol still routes through
+//! `Plainval`. The `BufferLocal` and `Forwarded` paths still also live on
+//! the legacy `SymbolValue` enum during the transition; Phases 4-8 cut them
+//! over to the redirect dispatch and Phase 10 deletes the legacy enum.
 
 use super::intern::{SymId, intern, is_canonical_id, lookup_interned, resolve_sym};
 use super::value::{Value, ValueKind};
 use crate::gc_trace::GcTrace;
 use rustc_hash::FxHashMap;
 
-/// Describes how a symbol's value cell is stored, matching GNU Emacs's
-/// `symbol_redirect` enum (`SYMBOL_PLAINVAL`, `SYMBOL_VARALIAS`,
-/// `SYMBOL_LOCALIZED`, `SYMBOL_FORWARDED`).
+// ===========================================================================
+// Redirect machinery — mirrors GNU `lisp.h:771-829`
+// ===========================================================================
+
+/// Two-bit `redirect` tag. Mirrors GNU `enum symbol_redirect`
+/// (`src/lisp.h:771-777`). Discriminant for [`SymbolVal`].
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
+pub enum SymbolRedirect {
+    /// Value is in `val.plain`. GNU `SYMBOL_PLAINVAL`.
+    #[default]
+    Plainval = 0,
+    /// Value is really in another symbol. GNU `SYMBOL_VARALIAS`.
+    Varalias = 1,
+    /// Value is in a buffer-local cache. GNU `SYMBOL_LOCALIZED`.
+    Localized = 2,
+    /// Value is in a static C-side variable. GNU `SYMBOL_FORWARDED`.
+    Forwarded = 3,
+}
+
+/// Two-bit `trapped_write` flag. Mirrors GNU `enum symbol_trapped_write`
+/// (`src/lisp.h:780-785`).
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
+pub enum SymbolTrappedWrite {
+    /// Normal symbol. GNU `SYMBOL_UNTRAPPED_WRITE`.
+    #[default]
+    Untrapped = 0,
+    /// Constant — write attempts signal `setting-constant`. GNU `SYMBOL_NOWRITE`.
+    NoWrite = 1,
+    /// Variable watchers fire on every write. GNU `SYMBOL_TRAPPED_WRITE`.
+    Trapped = 2,
+}
+
+/// Two-bit `interned` flag. Mirrors GNU `enum symbol_interned`
+/// (`src/lisp.h:782-787`).
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
+pub enum SymbolInterned {
+    /// Uninterned (e.g. `make-symbol`). GNU `SYMBOL_UNINTERNED`.
+    #[default]
+    Uninterned = 0,
+    /// Interned in some obarray. GNU `SYMBOL_INTERNED`.
+    Interned = 1,
+    /// Interned in the *initial* obarray (the global one). GNU
+    /// `SYMBOL_INTERNED_IN_INITIAL_OBARRAY`. Used for keywords.
+    InternedInInitial = 2,
+}
+
+/// Packed flags byte for a [`LispSymbol`]. Mirrors the bit-packed first byte
+/// of GNU `Lisp_Symbol::s` (`src/lisp.h:786-792`).
+///
+/// Bit layout:
+/// ```text
+///   bits 0..2 : SymbolRedirect
+///   bits 2..4 : SymbolTrappedWrite
+///   bits 4..6 : SymbolInterned
+///   bit  6    : declared_special
+///   bit  7    : reserved
+/// ```
+#[repr(transparent)]
+#[derive(Copy, Clone, Debug, Default)]
+pub struct SymbolFlags(u8);
+
+impl SymbolFlags {
+    const REDIRECT_MASK: u8 = 0b0000_0011;
+    const TRAPPED_WRITE_SHIFT: u8 = 2;
+    const TRAPPED_WRITE_MASK: u8 = 0b0000_1100;
+    const INTERNED_SHIFT: u8 = 4;
+    const INTERNED_MASK: u8 = 0b0011_0000;
+    const DECLARED_SPECIAL_BIT: u8 = 0b0100_0000;
+
+    #[inline]
+    pub fn redirect(self) -> SymbolRedirect {
+        // Safety: SymbolRedirect is `#[repr(u8)]` with values 0..=3 and the
+        // mask restricts to 2 bits.
+        unsafe { std::mem::transmute(self.0 & Self::REDIRECT_MASK) }
+    }
+
+    #[inline]
+    pub fn set_redirect(&mut self, r: SymbolRedirect) {
+        self.0 = (self.0 & !Self::REDIRECT_MASK) | (r as u8);
+    }
+
+    #[inline]
+    pub fn trapped_write(self) -> SymbolTrappedWrite {
+        let raw = (self.0 & Self::TRAPPED_WRITE_MASK) >> Self::TRAPPED_WRITE_SHIFT;
+        // Safety: 2-bit value, valid SymbolTrappedWrite discriminants.
+        unsafe { std::mem::transmute(raw) }
+    }
+
+    #[inline]
+    pub fn set_trapped_write(&mut self, t: SymbolTrappedWrite) {
+        self.0 = (self.0 & !Self::TRAPPED_WRITE_MASK)
+            | ((t as u8) << Self::TRAPPED_WRITE_SHIFT);
+    }
+
+    #[inline]
+    pub fn interned(self) -> SymbolInterned {
+        let raw = (self.0 & Self::INTERNED_MASK) >> Self::INTERNED_SHIFT;
+        // Safety: 2-bit value, valid SymbolInterned discriminants.
+        unsafe { std::mem::transmute(raw) }
+    }
+
+    #[inline]
+    pub fn set_interned(&mut self, i: SymbolInterned) {
+        self.0 = (self.0 & !Self::INTERNED_MASK) | ((i as u8) << Self::INTERNED_SHIFT);
+    }
+
+    #[inline]
+    pub fn declared_special(self) -> bool {
+        self.0 & Self::DECLARED_SPECIAL_BIT != 0
+    }
+
+    #[inline]
+    pub fn set_declared_special(&mut self, v: bool) {
+        if v {
+            self.0 |= Self::DECLARED_SPECIAL_BIT;
+        } else {
+            self.0 &= !Self::DECLARED_SPECIAL_BIT;
+        }
+    }
+}
+
+/// One-word value cell for a symbol, reinterpreted by the [`SymbolFlags`]
+/// `redirect` tag. Mirrors GNU `union { Lisp_Object value; struct
+/// Lisp_Symbol *alias; struct Lisp_Buffer_Local_Value *blv; lispfwd fwd; }`
+/// at `src/lisp.h:797-802`.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union SymbolVal {
+    /// Live when redirect == Plainval. The value, or [`Value::NIL`] for
+    /// "still unbound" (Phase 1 keeps an explicit "bound" bit on the side
+    /// in [`LispSymbol::value`] until the legacy [`SymbolValue`] is removed
+    /// in Phase 4-10).
+    pub plain: Value,
+    /// Live when redirect == Varalias. The aliased symbol id.
+    pub alias: SymId,
+    /// Live when redirect == Localized. Pointer to a heap-allocated
+    /// per-symbol BLV cache. Null until Phase 4 wires up the LOCALIZED
+    /// dispatch.
+    pub blv: *mut LispBufferLocalValue,
+    /// Live when redirect == Forwarded. Pointer to a 'static forwarder
+    /// descriptor. Null until Phase 8 introduces forwarded variables.
+    pub fwd: *const crate::emacs_core::forward::LispFwd,
+}
+
+impl Default for SymbolVal {
+    fn default() -> Self {
+        // Plainval / NIL is the safe initial state.
+        Self { plain: Value::NIL }
+    }
+}
+
+impl std::fmt::Debug for SymbolVal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Without the redirect tag we can't safely interpret the union;
+        // print the raw bits for diagnostics.
+        let raw: usize = unsafe { std::mem::transmute_copy(self) };
+        write!(f, "SymbolVal({:#x})", raw)
+    }
+}
+
+/// Per-symbol buffer-local cache. Mirrors GNU `struct
+/// Lisp_Buffer_Local_Value` at `src/lisp.h:3116-3137`.
+///
+/// Phase 1 only declares the type; allocation and dispatch through it
+/// land in Phases 4-6.
+#[repr(C)]
+#[derive(Clone, Debug)]
+pub struct LispBufferLocalValue {
+    /// True if `make-variable-buffer-local` was called: any subsequent
+    /// `set` creates a per-buffer binding. GNU `local_if_set`.
+    pub local_if_set: bool,
+    /// True if the loaded binding (`valcell`) was actually found in the
+    /// buffer's `local_var_alist`, vs. the default. GNU `found`.
+    pub found: bool,
+    /// Optional forwarder for variables that have BOTH a per-buffer
+    /// binding *and* a static C slot (e.g. `case-fold-search`). Must not
+    /// be a `BufferObj` or `KboardObj`.
+    pub fwd: Option<&'static crate::emacs_core::forward::LispFwd>,
+    /// Buffer for which `valcell` was loaded, or `Value::NIL` for the
+    /// global default. GNU `where`.
+    pub where_buf: Value,
+    /// `(SYMBOL . DEFAULT-VALUE)` cons. GNU `defcell`.
+    pub defcell: Value,
+    /// `(SYMBOL . CURRENT-VALUE)` cons. Equal to `defcell` when no
+    /// per-buffer binding is loaded. GNU `valcell`.
+    pub valcell: Value,
+}
+
+// ===========================================================================
+// Legacy value-cell enum — to be removed in Phase 4-10
+// ===========================================================================
+
+/// Legacy variant of [`LispSymbol::value`] retained until Phases 4-10
+/// migrate every code path through the redirect dispatch. New code should
+/// read [`LispSymbol::redirect`] / [`LispSymbol::plain`] etc. instead.
+///
+/// Mirrors GNU Emacs's `symbol_redirect` enum (`SYMBOL_PLAINVAL`,
+/// `SYMBOL_VARALIAS`, `SYMBOL_LOCALIZED`, `SYMBOL_FORWARDED`).
 #[derive(Clone, Debug)]
 pub enum SymbolValue {
     /// Direct value (GNU: SYMBOL_PLAINVAL).
@@ -37,20 +254,41 @@ impl Default for SymbolValue {
     }
 }
 
-/// Per-symbol metadata stored in the obarray.
+// ===========================================================================
+// LispSymbol — per-symbol metadata stored in the obarray
+// ===========================================================================
+
+/// Per-symbol metadata stored in the obarray. Mirrors GNU `struct
+/// Lisp_Symbol` at `src/lisp.h:786-829`, modulo Phase 1 transitional
+/// fields that will be removed in later phases.
+///
+/// Renamed from `SymbolData` as part of the symbol-redirect refactor
+/// (Phase 1). The legacy [`SymbolValue`] field stays alongside the new
+/// [`SymbolFlags`] / [`SymbolVal`] fields during the transition; reads
+/// and writes go through both, kept in sync, until Phase 4-10 removes
+/// the legacy field.
 #[derive(Clone, Debug)]
-pub struct SymbolData {
+pub struct LispSymbol {
     /// The symbol's name.
     pub name: SymId,
-    /// Value cell — see [`SymbolValue`] for the indirection variants.
+    /// Packed flags: redirect tag, trapped-write tag, interned tag,
+    /// declared-special bit. Mirrors the first byte of GNU
+    /// `Lisp_Symbol::s` (`lisp.h:786-792`).
+    pub flags: SymbolFlags,
+    /// One-word value cell. Reinterpreted by `flags.redirect()`.
+    pub val: SymbolVal,
+    /// LEGACY value cell — see [`SymbolValue`]. Kept in sync with
+    /// `flags + val` during Phase 1; will be removed in Phase 10.
     pub value: SymbolValue,
     /// Function cell (None = void-function).
     pub function: Option<Value>,
     /// Property list (flat alternating key-value pairs stored as HashMap).
     pub plist: FxHashMap<SymId, Value>,
     /// Whether this symbol is declared `special` (always dynamically bound).
+    /// LEGACY mirror of `flags.declared_special()`. Removed in Phase 10.
     pub special: bool,
-    /// Whether this symbol is a constant (defconst).
+    /// Whether this symbol is a constant (defconst). LEGACY — will collapse
+    /// into `flags.trapped_write() == NoWrite` in Phase 10.
     pub constant: bool,
     /// Whether this symbol is interned in the global obarray.
     interned_global: bool,
@@ -58,10 +296,18 @@ pub struct SymbolData {
     function_unbound: bool,
 }
 
-impl SymbolData {
+/// Type alias for backward compatibility with code that still uses the
+/// pre-refactor name. Removed in Phase 10.
+pub type SymbolData = LispSymbol;
+
+impl LispSymbol {
     pub fn new(name: SymId) -> Self {
+        let mut flags = SymbolFlags::default();
+        flags.set_redirect(SymbolRedirect::Plainval);
         Self {
             name,
+            flags,
+            val: SymbolVal { plain: Value::NIL },
             value: SymbolValue::Plain(None),
             function: None,
             plist: FxHashMap::default(),
@@ -70,6 +316,43 @@ impl SymbolData {
             interned_global: false,
             function_unbound: false,
         }
+    }
+
+    /// Read the redirect tag.
+    #[inline]
+    pub fn redirect(&self) -> SymbolRedirect {
+        self.flags.redirect()
+    }
+
+    /// Read the value cell as a plain `Value`. Caller must have verified
+    /// the redirect is `Plainval`.
+    #[inline]
+    pub fn plain(&self) -> Value {
+        debug_assert_eq!(self.redirect(), SymbolRedirect::Plainval);
+        unsafe { self.val.plain }
+    }
+
+    /// Write the value cell as a plain `Value`. Caller must have set the
+    /// redirect to `Plainval` (or be initializing a fresh symbol).
+    #[inline]
+    pub fn set_plain(&mut self, v: Value) {
+        debug_assert_eq!(self.redirect(), SymbolRedirect::Plainval);
+        self.val = SymbolVal { plain: v };
+    }
+
+    /// Read the alias target. Caller must have verified the redirect is
+    /// `Varalias`.
+    #[inline]
+    pub fn alias_target(&self) -> SymId {
+        debug_assert_eq!(self.redirect(), SymbolRedirect::Varalias);
+        unsafe { self.val.alias }
+    }
+
+    /// Switch this symbol to `Varalias` and store the target id.
+    #[inline]
+    pub fn set_alias_target(&mut self, target: SymId) {
+        self.flags.set_redirect(SymbolRedirect::Varalias);
+        self.val = SymbolVal { alias: target };
     }
 }
 
@@ -134,7 +417,10 @@ impl Obarray {
                 sym.special = true;
                 sym.constant = true;
                 if matches!(sym.value, SymbolValue::Plain(None)) {
-                    sym.value = SymbolValue::Plain(Some(Value::keyword_id(id)));
+                    let kw = Value::keyword_id(id);
+                    sym.value = SymbolValue::Plain(Some(kw));
+                    sym.flags.set_redirect(SymbolRedirect::Plainval);
+                    sym.val = SymbolVal { plain: kw };
                 }
             }
             true
@@ -189,11 +475,14 @@ impl Obarray {
             function_epoch: 0,
         };
 
-        // Pre-intern fundamental symbols
+        // Pre-intern fundamental symbols. Both `t` and `nil` are
+        // self-referential constants in GNU.
         let t_id = intern("t");
         {
             let t_sym = ob.ensure_slot(t_id);
             t_sym.value = SymbolValue::Plain(Some(Value::T));
+            t_sym.flags.set_redirect(SymbolRedirect::Plainval);
+            t_sym.val = SymbolVal { plain: Value::T };
             t_sym.constant = true;
             t_sym.special = true;
         }
@@ -203,6 +492,8 @@ impl Obarray {
         {
             let nil_sym = ob.ensure_slot(nil_id);
             nil_sym.value = SymbolValue::Plain(Some(Value::NIL));
+            nil_sym.flags.set_redirect(SymbolRedirect::Plainval);
+            nil_sym.val = SymbolVal { plain: Value::NIL };
             nil_sym.constant = true;
             nil_sym.special = true;
         }
@@ -304,19 +595,36 @@ impl Obarray {
     }
 
     /// Inner helper: follow aliases and write the value at the resolved target.
+    ///
+    /// Phase 1: keeps `value: SymbolValue` and `flags + val` in sync. The
+    /// new redirect machinery is the eventual source of truth (Phase 4-10);
+    /// for now both representations carry the same data.
     fn set_symbol_value_id_inner(&mut self, id: SymId, value: Value) {
         let target = self.resolve_alias_for_write(id);
         let sym = self.ensure_symbol_id(target);
         match sym.value {
-            SymbolValue::Plain(_) => sym.value = SymbolValue::Plain(Some(value)),
+            SymbolValue::Plain(_) => {
+                sym.value = SymbolValue::Plain(Some(value));
+                sym.flags.set_redirect(SymbolRedirect::Plainval);
+                sym.val = SymbolVal { plain: value };
+            }
             SymbolValue::BufferLocal {
                 ref mut default, ..
-            } => *default = Some(value),
+            } => {
+                *default = Some(value);
+                // The new shape doesn't yet model BufferLocal — Phase 4
+                // introduces the BLV. For now keep the redirect on
+                // Plainval pointing at the default.
+                sym.flags.set_redirect(SymbolRedirect::Plainval);
+                sym.val = SymbolVal { plain: value };
+            }
             SymbolValue::Forwarded => { /* no-op placeholder */ }
             SymbolValue::Alias(_) => {
                 // resolve_alias_for_write should have resolved this, but
                 // as a safety fallback write as Plain.
                 sym.value = SymbolValue::Plain(Some(value));
+                sym.flags.set_redirect(SymbolRedirect::Plainval);
+                sym.val = SymbolVal { plain: value };
             }
         }
     }
@@ -452,6 +760,12 @@ impl Obarray {
                     SymbolValue::Forwarded => { /* no-op */ }
                     SymbolValue::Alias(_) => sym.value = SymbolValue::Plain(None),
                 }
+                // Mirror into the new shape: Plainval / NIL is the
+                // "no value" state until we have a proper UNBOUND
+                // sentinel (planned for Phase 4 once SymbolValue is
+                // gone).
+                sym.flags.set_redirect(SymbolRedirect::Plainval);
+                sym.val = SymbolVal { plain: Value::NIL };
             }
         }
     }
@@ -613,6 +927,11 @@ impl Obarray {
 
     /// Mark a symbol as a buffer-local variable in the obarray.
     /// Preserves any existing default value from `Plain` or `BufferLocal`.
+    ///
+    /// Phase 1: this still sets the legacy `SymbolValue::BufferLocal`
+    /// marker. The new redirect machinery does not yet route through
+    /// `Localized`; Phase 4 wires the BLV cache and Phase 6 cuts
+    /// `make-local-variable` / `make-variable-buffer-local` over to it.
     pub fn make_buffer_local(&mut self, name: &str, local_if_set: bool) {
         let id = intern(name);
         self.mark_global_member(id);
@@ -623,15 +942,25 @@ impl Obarray {
             _ => None,
         };
         sym.value = SymbolValue::BufferLocal {
-            default: old_default,
+            default: old_default.clone(),
             local_if_set,
+        };
+        // Mirror into the new shape: Phase 1 still uses Plainval; the
+        // default lives in `val.plain`.
+        sym.flags.set_redirect(SymbolRedirect::Plainval);
+        sym.val = SymbolVal {
+            plain: old_default.unwrap_or(Value::NIL),
         };
     }
 
     /// Install a variable-alias edge: reading/writing `id` will redirect to `target`.
+    ///
+    /// Phase 1: maintains both the legacy enum and the new redirect tag.
+    /// Phase 3 cuts callers over to the redirect-only path.
     pub fn make_alias(&mut self, id: SymId, target: SymId) {
         let sym = self.ensure_symbol_id(id);
         sym.value = SymbolValue::Alias(target);
+        sym.set_alias_target(target);
     }
 
     /// Check whether a symbol is a buffer-local variable in the obarray.

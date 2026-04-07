@@ -50,6 +50,7 @@ pub mod filelock;
 pub mod floatfns;
 pub mod fns;
 pub mod font;
+pub mod forward;
 pub mod fontset;
 pub mod format;
 pub mod frame_vars;
