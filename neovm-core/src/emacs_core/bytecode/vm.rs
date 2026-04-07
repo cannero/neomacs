@@ -2083,12 +2083,58 @@ impl<'a> Vm<'a> {
             return Ok(val);
         }
 
-        // Phase 2 of the symbol-redirect refactor: gate the buffer-local
-        // detour on the obarray's buffer-local marker so the String
-        // allocation + HashMap lookup are skipped for the ~99% of symbols
-        // that are NOT buffer-local. The unconditional `resolve_sym +
-        // get_buffer_local_binding` chain on every variable access was
-        // the dominant cost in `lookup_var_id`.
+        // Phase 9 of the symbol-redirect refactor: if the symbol's
+        // redirect tag is LOCALIZED or FORWARDED, the new redirect
+        // machinery is the source of truth. Route the read through
+        // `find_symbol_value_in_buffer` which will swap the BLV
+        // cache for LOCALIZED and read the slot for FORWARDED.
+        //
+        // For PLAINVAL / VARALIAS (and the transitional case where a
+        // LOCALIZED read misses because the legacy `make-local-variable`
+        // wrote only to BufferLocals), we fall through to the legacy
+        // buffer-local detour and the PLAINVAL fast path.
+        use crate::emacs_core::symbol::SymbolRedirect;
+        let redirect = self
+            .ctx
+            .obarray
+            .get_by_id(resolved)
+            .map(|s| s.redirect());
+        if matches!(
+            redirect,
+            Some(SymbolRedirect::Localized | SymbolRedirect::Forwarded)
+        ) {
+            let (cur_val, alist, slots_ptr, buf_id) =
+                match self.ctx.buffers.current_buffer() {
+                    Some(buf) => (
+                        Value::make_buffer(buf.id),
+                        buf.local_var_alist,
+                        Some(&buf.slots[..] as *const [Value]),
+                        Some(buf.id),
+                    ),
+                    None => (Value::NIL, Value::NIL, None, None),
+                };
+            // Safety: the slots pointer is valid for the duration of
+            // this call because we hold `&mut self.ctx`, the buffer
+            // lives inside `self.ctx.buffers`, and
+            // `find_symbol_value_in_buffer` does not mutate the
+            // buffer manager. The raw pointer dance is only needed
+            // because `find_symbol_value_in_buffer` also needs
+            // `&mut self.ctx.obarray` for the BLV swap-in, and the
+            // borrow checker can't express "hold a slice of one
+            // field while mutating another" across the method call.
+            let slots_opt: Option<&[Value]> =
+                slots_ptr.map(|p| unsafe { &*p });
+            if let Some(val) = self.ctx.obarray.find_symbol_value_in_buffer(
+                resolved, buf_id, cur_val, alist, slots_opt,
+            ) {
+                return Ok(val);
+            }
+        }
+
+        // Phase 2 fall-back: legacy buffer-local detour for symbols
+        // still on the legacy storage path. Gated on
+        // `is_buffer_local_id` so the String allocation + HashMap
+        // lookup only fires for marked buffer-local variables.
         let is_local = self.ctx.obarray.is_buffer_local_id(resolved)
             || self
                 .ctx
