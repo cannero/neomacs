@@ -42,7 +42,40 @@
 //! Most VM runtimes will interact with the crate through [`Heap`] (single
 //! mutator) or [`SharedHeap`] (multi-thread observation, background workers).
 //!
+//! # Where to look
+//!
+//! The crate exposes a wide surface area. New users typically only need
+//! a few entry points:
+//!
+//! | If you want to... | Use |
+//! |---|---|
+//! | Construct a heap | [`Heap::new`] with [`HeapConfig`] |
+//! | Allocate an object | [`Mutator::alloc`] inside a [`HandleScope`] |
+//! | Run a collection | [`Mutator::collect`] |
+//! | Read heap stats | [`Heap::stats`] |
+//! | Run physical compaction | [`Heap::compact_old_gen_physical`] |
+//! | Tune the pacer | [`HeapConfig::pacer`] field, [`PacerConfig`] |
+//! | Share a heap across threads | [`SharedHeap`] |
+//! | Observe heap state without locking | [`SharedHeap::status`], [`SharedHeap::stats`], [`SharedHeap::pacer_stats`] |
+//! | Spawn a background mark thread | [`ConcurrentMarker::start`] |
+//!
+//! Most other items in the public API are bookkeeping types
+//! ([`CollectionStats`], [`HeapStats`], [`CompactionStats`], [`PauseHistogram`])
+//! returned by the entry points above, or trait + descriptor scaffolding
+//! ([`Trace`], [`Tracer`], [`TypeDesc`], [`MovePolicy`]) that custom
+//! managed types implement to plug into the collector's tracing pipeline.
+//!
 //! [`SharedHeap::status`]: background::SharedHeap::status
+//! [`SharedHeap::stats`]: background::SharedHeap::stats
+//! [`SharedHeap::pacer_stats`]: background::SharedHeap::pacer_stats
+//! [`Heap::new`]: heap::Heap::new
+//! [`Heap::stats`]: heap::Heap::stats
+//! [`Heap::compact_old_gen_physical`]: heap::Heap::compact_old_gen_physical
+//! [`Mutator::alloc`]: mutator::Mutator::alloc
+//! [`Mutator::collect`]: mutator::Mutator::collect
+//! [`HandleScope`]: root::HandleScope
+//! [`HeapConfig::pacer`]: heap::HeapConfig::pacer
+//! [`ConcurrentMarker::start`]: concurrent_marker::ConcurrentMarker::start
 //!
 //! # Quick start
 //!
