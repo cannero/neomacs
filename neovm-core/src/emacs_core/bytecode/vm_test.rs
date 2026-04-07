@@ -3088,8 +3088,9 @@ fn vm_remaining_frame_stub_builtins_use_direct_dispatch() {
 #[test]
 fn vm_window_selection_and_buffer_builtins_use_shared_runtime_state() {
     crate::test_utils::init_test_tracing();
+    // other-window is a defun in window.el → bootstrap context required.
     assert_eq!(
-        vm_eval_with_init_str(
+        vm_bootstrap_eval_with_init_str(
             r#"(let* ((w1 (selected-window))
                       (w2 (next-window w1))
                       (b1 (get-buffer-create "vm-wsel-1"))
@@ -5785,8 +5786,9 @@ fn vm_base64_json_ccl_and_runtime_clusters_use_direct_dispatch() {
 #[test]
 fn vm_base64_region_and_json_buffer_builtins_use_shared_current_buffer_state() {
     crate::test_utils::init_test_tracing();
+    // with-current-buffer is a macro in subr.el → bootstrap required.
     assert_eq!(
-        vm_eval_str(
+        vm_bootstrap_eval_str(
             r#"(with-current-buffer (get-buffer-create " *vm-base64-json*")
                  (erase-buffer)
                  (insert "Hi")
@@ -7994,8 +7996,9 @@ fn vm_kill_all_local_variables_uses_shared_runtime_defaults_and_clears_local_map
 #[test]
 fn vm_syntax_table_accessors_use_shared_current_buffer_state() {
     crate::test_utils::init_test_tracing();
+    // syntax-after is defined in subr.el → bootstrap context required.
     assert_eq!(
-        vm_eval_str(
+        vm_bootstrap_eval_str(
             r#"(let ((primary (current-buffer))
                      (other (get-buffer-create "vm-syntax-other")))
                  (set-syntax-table (copy-syntax-table (standard-syntax-table)))
