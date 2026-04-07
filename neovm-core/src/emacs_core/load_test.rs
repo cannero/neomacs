@@ -3985,9 +3985,11 @@ fn eval_after_load_defines_function_on_provide() {
     eprintln!("test-pkg-fn after provide (during load): {mid}");
 
     // 4. Simulate do-after-load-evaluation (runs after-load-functions)
-    eval.eval_str(r#"(when (fboundp 'do-after-load-evaluation)
-           (do-after-load-evaluation \"/tmp/test-pkg.el\"))"#)
-        .expect("do-after-load-evaluation should succeed");
+    eval.eval_str(
+        "(when (fboundp 'do-after-load-evaluation)
+           (do-after-load-evaluation \"/tmp/test-pkg.el\"))",
+    )
+    .expect("do-after-load-evaluation should succeed");
 
     // 5. NOW test-pkg-fn should be defined
     let after = eval
