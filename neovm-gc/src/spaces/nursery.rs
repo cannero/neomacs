@@ -6,6 +6,7 @@ use crate::heap::AllocError;
 use crate::index_state::{ForwardingMap, HeapIndexState};
 use crate::object::{ObjectRecord, SpaceKind};
 use crate::root::RootStack;
+use crate::spaces::nursery_arena::NurseryState;
 use crate::spaces::{OldGenConfig, OldGenState};
 use crate::stats::HeapStats;
 
@@ -62,6 +63,7 @@ pub(crate) fn evacuate_marked_nursery(
     old_config: &OldGenConfig,
     nursery_config: &NurseryConfig,
     stats: &mut HeapStats,
+    nursery: &mut NurseryState,
 ) -> Result<EvacuationOutcome, AllocError> {
     let mut forwarding = HashMap::new();
     let mut evacuated: Vec<(ObjectRecord, SpaceKind)> = Vec::new();
@@ -74,7 +76,26 @@ pub(crate) fn evacuate_marked_nursery(
                 object.header().age(),
                 nursery_config.promotion_age,
             );
-            let new_record = object.evacuate_to_space(target_space)?;
+            // Survivors that remain in the nursery are copied into the
+            // to-space arena via bump allocation. If the to-space arena
+            // cannot satisfy the layout (shouldn't happen under normal
+            // operation since to-space is sized like from-space), fall
+            // back to a system allocation so the copy still succeeds.
+            let new_record = if target_space == SpaceKind::Nursery {
+                let layout = core::alloc::Layout::from_size_align(
+                    object.total_size(),
+                    object.layout_align(),
+                )
+                .map_err(|_| AllocError::LayoutOverflow)?;
+                match nursery.try_alloc_in_to_space(layout) {
+                    Some(base) => unsafe {
+                        object.evacuate_to_arena_slot(target_space, base)?
+                    },
+                    None => object.evacuate_to_space(target_space)?,
+                }
+            } else {
+                object.evacuate_to_space(target_space)?
+            };
             new_record.set_marked(true);
             forwarding.insert(object.object_key(), new_record.erased());
             evacuated.push((new_record, target_space));

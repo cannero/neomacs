@@ -4,7 +4,7 @@ use crate::index_state::{HeapIndexState, ObjectIndex};
 use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan};
 use crate::root::RootStack;
 use crate::runtime_state::RuntimeStateHandle;
-use crate::spaces::{NurseryConfig, OldGenConfig, OldGenState};
+use crate::spaces::{NurseryConfig, NurseryState, OldGenConfig, OldGenState};
 use crate::stats::{HeapStats, SpaceStats};
 use std::collections::HashMap;
 
@@ -101,6 +101,12 @@ fn trace_collection_records_major_phases() {
 
 #[test]
 fn execute_collection_plan_records_minor_phases() {
+    // `nursery_state` must be declared BEFORE `objects` so that Rust's
+    // reverse-declaration-order local drops release the Vec<ObjectRecord>
+    // first, giving arena-backed records a chance to run their
+    // drop_in_place before the backing arena buffer is freed.
+    let nursery = NurseryConfig::default();
+    let mut nursery_state = NurseryState::new(nursery.semispace_bytes);
     let desc = Box::leak(Box::new(fixed_type_desc::<Leaf>()));
     let object =
         ObjectRecord::allocate(desc, SpaceKind::Nursery, Leaf).expect("allocate nursery leaf");
@@ -112,7 +118,6 @@ fn execute_collection_plan_records_minor_phases() {
     let mut roots = RootStack::default();
     roots.push(source);
     let mut old_gen = OldGenState::default();
-    let nursery = NurseryConfig::default();
     let old = OldGenConfig::default();
     let mut stats = HeapStats {
         nursery: SpaceStats {
@@ -144,6 +149,7 @@ fn execute_collection_plan_records_minor_phases() {
         &old,
         &nursery,
         &mut stats,
+        &mut nursery_state,
         &runtime_state,
         |phase| phases.push(phase),
     )

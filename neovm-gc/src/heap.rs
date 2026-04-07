@@ -14,8 +14,8 @@ use crate::root::RootStack;
 use crate::runtime::CollectorRuntime;
 use crate::runtime_state::RuntimeStateHandle;
 use crate::spaces::{
-    LargeObjectSpaceConfig, NurseryConfig, OldGenConfig, OldGenPlanSelection, OldGenState,
-    PinnedSpaceConfig,
+    LargeObjectSpaceConfig, NurseryConfig, NurseryState, OldGenConfig, OldGenPlanSelection,
+    OldGenState, PinnedSpaceConfig,
 };
 use crate::stats::{CollectionStats, HeapStats, OldRegionStats};
 use core::any::TypeId;
@@ -68,19 +68,30 @@ pub enum AllocError {
 }
 
 /// Global heap object.
+///
+/// Field order matters: `ObjectRecord` storage (both the live `objects`
+/// vec and the `runtime_state` pending-finalizer queue) must drop
+/// BEFORE the `NurseryState` that backs their arena allocations,
+/// otherwise arena-owned records would run their payload `Drop`
+/// implementations against already-freed buffers.
 #[derive(Debug)]
 pub struct Heap {
     config: HeapConfig,
     stats: HeapStats,
     roots: RootStack,
     descriptors: HashMap<TypeId, &'static TypeDesc>,
+    // --- record storage (drops first, before nursery) ---
     objects: Vec<ObjectRecord>,
+    runtime_state: RuntimeStateHandle,
+    // --- index and collector bookkeeping ---
     indexes: HeapIndexState,
     old_gen: OldGenState,
     recent_barrier_events: Vec<BarrierEvent>,
-    runtime_state: RuntimeStateHandle,
     collector: CollectorStateHandle,
     pause_stats: PauseStatsHandle,
+    // --- arena buffers (drops last, after all records) ---
+    /// Bump-pointer semispace nursery arenas (Phase 1).
+    nursery: NurseryState,
 }
 
 // SAFETY: `Heap` owns all heap allocations and its raw pointers are internal references into that
@@ -92,6 +103,7 @@ unsafe impl Send for Heap {}
 impl Heap {
     /// Create a new heap with `config`.
     pub fn new(config: HeapConfig) -> Self {
+        let nursery = NurseryState::new(config.nursery.semispace_bytes);
         let heap = Self {
             stats: HeapStats {
                 nursery: crate::stats::SpaceStats {
@@ -123,13 +135,22 @@ impl Heap {
             objects: Vec::new(),
             indexes: HeapIndexState::default(),
             old_gen: OldGenState::default(),
-            recent_barrier_events: Vec::new(),
             runtime_state: RuntimeStateHandle::default(),
+            recent_barrier_events: Vec::new(),
             collector: CollectorStateHandle::default(),
             pause_stats: PauseStatsHandle::new(),
+            nursery,
         };
         heap.refresh_recommended_plans();
         heap
+    }
+
+    pub(crate) fn nursery(&self) -> &NurseryState {
+        &self.nursery
+    }
+
+    pub(crate) fn nursery_mut(&mut self) -> &mut NurseryState {
+        &mut self.nursery
     }
 
     pub(crate) fn runtime_state_handle(&self) -> RuntimeStateHandle {
@@ -170,6 +191,7 @@ impl Heap {
         &mut HeapStats,
         &OldGenConfig,
         &NurseryConfig,
+        &mut NurseryState,
     ) {
         let Self {
             config,
@@ -178,6 +200,7 @@ impl Heap {
             objects,
             indexes,
             old_gen,
+            nursery,
             ..
         } = self;
         (
@@ -188,6 +211,7 @@ impl Heap {
             stats,
             &config.old,
             &config.nursery,
+            nursery,
         )
     }
 

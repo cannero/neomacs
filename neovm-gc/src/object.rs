@@ -143,6 +143,19 @@ impl ObjectHeader {
     }
 }
 
+/// Backing-store identity for the memory underneath one `ObjectRecord`.
+///
+/// - `Owned` records were allocated via `std::alloc::alloc` and must
+///   release their memory via `dealloc` on Drop.
+/// - `Arena` records were bump-allocated from a `NurseryArena` and must
+///   NOT touch the system allocator on Drop — the arena owns the
+///   backing buffer and reclaims it in bulk.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ObjectMemoryKind {
+    Owned,
+    Arena,
+}
+
 /// Owned allocation record stored by the heap.
 #[derive(Debug)]
 pub(crate) struct ObjectRecord {
@@ -150,6 +163,7 @@ pub(crate) struct ObjectRecord {
     layout: Layout,
     header: NonNull<ObjectHeader>,
     old_region: Option<OldRegionPlacement>,
+    memory_kind: ObjectMemoryKind,
 }
 
 // Safety: `ObjectRecord` is the heap-owned metadata for one allocation. The raw
@@ -184,8 +198,72 @@ impl ObjectRecord {
         let base = NonNull::new(raw).ok_or(AllocError::OutOfMemory {
             requested_bytes: layout.size(),
         })?;
+
+        unsafe { Self::write_header_and_payload::<T>(base, layout, payload_offset, desc, space, 0, value) };
         let header = base.cast::<ObjectHeader>();
 
+        Ok(Self {
+            base,
+            layout,
+            header,
+            old_region: None,
+            memory_kind: ObjectMemoryKind::Owned,
+        })
+    }
+
+    /// Construct an `ObjectRecord` that points at a region already
+    /// bump-allocated inside a `NurseryArena`. The caller has already
+    /// reserved a `layout`-sized, `layout`-aligned region at `base`
+    /// inside the arena; this constructor writes the `ObjectHeader`
+    /// and the payload in place and records the memory kind as
+    /// `Arena` so Drop skips the system allocator.
+    ///
+    /// # Safety
+    ///
+    /// - `base` must point to exactly `layout.size()` bytes of
+    ///   uninitialized storage inside a nursery arena buffer.
+    /// - The storage must not be reused or freed for the lifetime of
+    ///   the returned `ObjectRecord`.
+    /// - `layout` and `payload_offset` must match the results of
+    ///   `allocation_layout_for::<T>()`.
+    pub(crate) unsafe fn allocate_in_arena<T: Trace + 'static>(
+        desc: &'static TypeDesc,
+        space: SpaceKind,
+        base: NonNull<u8>,
+        layout: Layout,
+        payload_offset: usize,
+        value: T,
+    ) -> Self {
+        unsafe {
+            Self::write_header_and_payload::<T>(base, layout, payload_offset, desc, space, 0, value)
+        };
+        let header = base.cast::<ObjectHeader>();
+        Self {
+            base,
+            layout,
+            header,
+            old_region: None,
+            memory_kind: ObjectMemoryKind::Arena,
+        }
+    }
+
+    /// Low-level helper: write the ObjectHeader and the payload at `base`.
+    ///
+    /// # Safety
+    ///
+    /// Same constraints as `allocate_in_arena`: `base` must point to
+    /// `layout.size()` bytes of suitably aligned uninitialized storage
+    /// that outlives the resulting `ObjectRecord`.
+    unsafe fn write_header_and_payload<T: Trace + 'static>(
+        base: NonNull<u8>,
+        layout: Layout,
+        payload_offset: usize,
+        desc: &'static TypeDesc,
+        space: SpaceKind,
+        age: u8,
+        value: T,
+    ) {
+        let header = base.cast::<ObjectHeader>();
         unsafe {
             header.as_ptr().write(ObjectHeader {
                 desc,
@@ -194,24 +272,14 @@ impl ObjectRecord {
                 payload_offset,
                 space: AtomicU8::new(space as u8),
                 generation: AtomicU8::new(space.initial_generation() as u8),
-                age: AtomicU8::new(0),
+                age: AtomicU8::new(age),
                 mark_bits: AtomicU8::new(0),
                 forwarding: AtomicPtr::new(core::ptr::null_mut()),
                 moved_out: AtomicBool::new(false),
             });
-        }
-
-        let payload = unsafe { base.as_ptr().add(payload_offset).cast::<T>() };
-        unsafe {
+            let payload = base.as_ptr().add(payload_offset).cast::<T>();
             payload.write(value);
         }
-
-        Ok(Self {
-            base,
-            layout,
-            header,
-            old_region: None,
-        })
     }
 
     pub(crate) fn erased(&self) -> GcErased {
@@ -236,6 +304,13 @@ impl ObjectRecord {
 
     pub(crate) fn total_size(&self) -> usize {
         self.header().total_size()
+    }
+
+    /// Alignment of the backing storage, needed when a copy target
+    /// (e.g. the nursery to-space arena) needs to reserve a region
+    /// with matching layout constraints.
+    pub(crate) fn layout_align(&self) -> usize {
+        self.layout.align()
     }
 
     pub(crate) fn space(&self) -> SpaceKind {
@@ -297,6 +372,17 @@ impl ObjectRecord {
         true
     }
 
+    /// Returns true if this record's backing memory is owned by a
+    /// nursery arena (not the system allocator).
+    pub(crate) fn is_arena_owned(&self) -> bool {
+        matches!(self.memory_kind, ObjectMemoryKind::Arena)
+    }
+
+    /// Evacuate this record into a newly system-allocated backing
+    /// store for `space`. The new record is always `ObjectMemoryKind::Owned`
+    /// (promotion into old / pinned / large always goes through the
+    /// system allocator; nursery-to-nursery survivor copies instead
+    /// use `evacuate_to_arena_slot`).
     pub(crate) fn evacuate_to_space(&self, space: SpaceKind) -> Result<Self, AllocError> {
         let total_size = self.total_size();
         let layout = Layout::from_size_align(total_size, self.layout.align())
@@ -305,8 +391,59 @@ impl ObjectRecord {
         let base = NonNull::new(raw).ok_or(AllocError::OutOfMemory {
             requested_bytes: layout.size(),
         })?;
+        unsafe { self.populate_evacuated_header(base, layout, space) };
         let header = base.cast::<ObjectHeader>();
+        self.header().forward_to(header);
+        Ok(Self {
+            base,
+            layout,
+            header,
+            old_region: None,
+            memory_kind: ObjectMemoryKind::Owned,
+        })
+    }
 
+    /// Copy this record's header + payload into a caller-provided
+    /// nursery arena slot. Returns a new `ObjectRecord` pointing at the
+    /// arena slot with `ObjectMemoryKind::Arena`. The caller has
+    /// already bump-allocated `layout.size()` aligned bytes at `base`.
+    ///
+    /// # Safety
+    ///
+    /// - `base` must point to at least `self.total_size()` bytes of
+    ///   uninitialized storage inside a nursery arena buffer with
+    ///   alignment matching `self.layout.align()`.
+    /// - The backing storage must outlive the returned record.
+    pub(crate) unsafe fn evacuate_to_arena_slot(
+        &self,
+        space: SpaceKind,
+        base: NonNull<u8>,
+    ) -> Result<Self, AllocError> {
+        let total_size = self.total_size();
+        let layout = Layout::from_size_align(total_size, self.layout.align())
+            .map_err(|_| AllocError::LayoutOverflow)?;
+        unsafe { self.populate_evacuated_header(base, layout, space) };
+        let header = base.cast::<ObjectHeader>();
+        self.header().forward_to(header);
+        Ok(Self {
+            base,
+            layout,
+            header,
+            old_region: None,
+            memory_kind: ObjectMemoryKind::Arena,
+        })
+    }
+
+    /// Write the evacuated ObjectHeader and copy the payload bytes from
+    /// `self` to `base`.
+    ///
+    /// # Safety
+    ///
+    /// `base` must point to `layout.size()` bytes of uninitialized
+    /// storage matching `layout.align()`.
+    unsafe fn populate_evacuated_header(&self, base: NonNull<u8>, layout: Layout, space: SpaceKind) {
+        let total_size = self.total_size();
+        let header = base.cast::<ObjectHeader>();
         unsafe {
             header.as_ptr().write(ObjectHeader {
                 desc: self.header().desc(),
@@ -321,20 +458,12 @@ impl ObjectRecord {
                 moved_out: AtomicBool::new(false),
             });
         }
-
+        let _ = layout;
         let src = self.payload_ptr();
         let dst = unsafe { ObjectHeader::payload_ptr(header) };
         unsafe {
             core::ptr::copy_nonoverlapping(src.as_ptr(), dst.as_ptr(), self.header().payload_size);
         }
-        self.header().forward_to(header);
-
-        Ok(Self {
-            base,
-            layout,
-            header,
-            old_region: None,
-        })
     }
 }
 
@@ -346,7 +475,12 @@ impl Drop for ObjectRecord {
             if !header.is_moved_out() {
                 (header.desc().drop_in_place)(payload.as_ptr());
             }
-            dealloc(self.base.as_ptr(), self.layout);
+            // Arena-backed records must NOT touch the system allocator:
+            // the arena owns the backing buffer and reclaims it in bulk
+            // when it resets.
+            if matches!(self.memory_kind, ObjectMemoryKind::Owned) {
+                dealloc(self.base.as_ptr(), self.layout);
+            }
         }
     }
 }

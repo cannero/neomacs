@@ -103,7 +103,7 @@ impl<'heap> CollectorRuntime<'heap> {
         self.heap.collector_handle().clear_recent_phase_trace();
         let runtime_state = self.heap.runtime_state_handle();
         let mut phases = Vec::new();
-        let (roots, objects, indexes, old_gen, stats, old_config, nursery_config) =
+        let (roots, objects, indexes, old_gen, stats, old_config, nursery_config, nursery) =
             self.heap.collection_exec_parts();
         let mut cycle = execute_collection_plan(
             &plan,
@@ -114,6 +114,7 @@ impl<'heap> CollectorRuntime<'heap> {
             old_config,
             nursery_config,
             stats,
+            nursery,
             &runtime_state,
             |phase| phases.push(phase),
         )?;
@@ -166,7 +167,31 @@ impl<'heap> CollectorRuntime<'heap> {
             return Err(AllocError::CollectionInProgress);
         }
         let (desc, space, _) = self.typed_allocation_profile::<T>()?;
-        let mut record = crate::object::ObjectRecord::allocate(desc, space, value)?;
+
+        // Nursery allocations (Phase 1) go through the bump-pointer
+        // semispace arena. We compute the layout first, try to reserve
+        // a slot in the from-space, and fall back to system allocation
+        // if the arena cannot service the request (e.g. the nursery is
+        // full before the pressure plan could trigger a minor GC).
+        let mut record = if space == SpaceKind::Nursery {
+            let (layout, payload_offset) =
+                crate::object::allocation_layout_for::<T>()?;
+            match self.heap.nursery_mut().try_alloc(layout) {
+                Some(base) => unsafe {
+                    crate::object::ObjectRecord::allocate_in_arena::<T>(
+                        desc,
+                        space,
+                        base,
+                        layout,
+                        payload_offset,
+                        value,
+                    )
+                },
+                None => crate::object::ObjectRecord::allocate(desc, space, value)?,
+            }
+        } else {
+            crate::object::ObjectRecord::allocate(desc, space, value)?
+        };
         let total_size = record.header().total_size();
         let (objects, indexes, old_gen, stats, old_config) = self.heap.allocation_commit_parts();
         if space == SpaceKind::Old {
@@ -548,8 +573,16 @@ impl<'heap> CollectorRuntime<'heap> {
             CollectionKind::Major => Ok(prepare_heap_major_reclaim(self.heap, plan)),
             CollectionKind::Full => {
                 let mut phases = Vec::new();
-                let (roots, objects, indexes, old_gen, stats, old_config, nursery_config) =
-                    self.heap.collection_exec_parts();
+                let (
+                    roots,
+                    objects,
+                    indexes,
+                    old_gen,
+                    stats,
+                    old_config,
+                    nursery_config,
+                    nursery,
+                ) = self.heap.collection_exec_parts();
                 let prepared = crate::collector_exec::prepare_full_reclaim_for_plan(
                     plan,
                     roots,
@@ -559,6 +592,7 @@ impl<'heap> CollectorRuntime<'heap> {
                     old_config,
                     nursery_config,
                     stats,
+                    nursery,
                     |phase| phases.push(phase),
                 )?;
                 self.heap.collector_handle().push_phases(phases);

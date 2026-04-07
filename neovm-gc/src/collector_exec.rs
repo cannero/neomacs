@@ -391,6 +391,7 @@ pub(crate) fn prepare_full_reclaim_for_plan(
     old_config: &OldGenConfig,
     nursery_config: &NurseryConfig,
     stats: &mut HeapStats,
+    nursery: &mut crate::spaces::NurseryState,
     mut record_phase: impl FnMut(CollectionPhase),
 ) -> Result<PreparedReclaim, AllocError> {
     struct FullReclaimState<'a> {
@@ -401,6 +402,7 @@ pub(crate) fn prepare_full_reclaim_for_plan(
         old_config: &'a OldGenConfig,
         nursery_config: &'a NurseryConfig,
         stats: &'a mut HeapStats,
+        nursery: &'a mut crate::spaces::NurseryState,
     }
 
     let mut state = FullReclaimState {
@@ -411,6 +413,7 @@ pub(crate) fn prepare_full_reclaim_for_plan(
         old_config,
         nursery_config,
         stats,
+        nursery,
     };
     record_phase(CollectionPhase::Evacuate);
     orchestrate_full_reclaim(
@@ -424,6 +427,7 @@ pub(crate) fn prepare_full_reclaim_for_plan(
                 state.old_config,
                 state.nursery_config,
                 state.stats,
+                state.nursery,
             )?;
             Ok((evacuation.forwarding, evacuation.promoted_bytes))
         },
@@ -467,6 +471,7 @@ pub(crate) fn execute_collection_plan(
     old_config: &OldGenConfig,
     nursery_config: &NurseryConfig,
     stats: &mut HeapStats,
+    nursery: &mut crate::spaces::NurseryState,
     runtime_state: &RuntimeStateHandle,
     mut record_phase: impl FnMut(CollectionPhase),
 ) -> Result<CollectionStats, AllocError> {
@@ -490,6 +495,7 @@ pub(crate) fn execute_collection_plan(
                 old_config,
                 nursery_config,
                 stats,
+                nursery,
             )?;
             relocate_forwarded_roots_and_edges(roots, objects, indexes, &evacuation.forwarding);
             process_weak_references_for_candidates(
@@ -512,6 +518,12 @@ pub(crate) fn execute_collection_plan(
                 Some(plan.clone()),
                 move |object| runtime_state.enqueue_pending_finalizer(object),
             );
+            // Now that dead nursery records are dropped and survivors
+            // have been copied into the to-space arena, swap from- and
+            // to-spaces so new allocations bump-alloc from the same
+            // buffer the survivors now live in, and reset the (now
+            // drained) former from-space for the next minor cycle.
+            nursery.swap_spaces_and_reset();
             Ok(CollectionStats::completed_minor_cycle(
                 mark_steps,
                 mark_rounds,
@@ -552,11 +564,12 @@ pub(crate) fn execute_collection_plan(
                 old_config,
                 nursery_config,
                 stats,
+                nursery,
                 |phase| record_phase(phase),
             )?;
             record_phase(CollectionPhase::Reclaim);
             let runtime_state = runtime_state.clone();
-            Ok(finish_prepared_reclaim_cycle(
+            let cycle = finish_prepared_reclaim_cycle(
                 objects,
                 indexes,
                 old_gen,
@@ -567,7 +580,11 @@ pub(crate) fn execute_collection_plan(
                 saturating_duration_nanos(reclaim_prepare_start.elapsed()),
                 prepared_reclaim,
                 move |object| runtime_state.enqueue_pending_finalizer(object),
-            ))
+            );
+            // Full collection also evacuates the nursery; swap and
+            // reset like a minor does.
+            nursery.swap_spaces_and_reset();
+            Ok(cycle)
         }
     }
 }
