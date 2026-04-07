@@ -1189,6 +1189,16 @@ impl SharedHeap {
             .map(|status| status.compaction)
     }
 
+    /// Return the current nursery fill ratio (a float in
+    /// `[0.0, 1.0]`).
+    ///
+    /// Takes a brief read-lock on the heap. Concurrent-safe
+    /// with other readers.
+    pub fn nursery_fill_ratio(&self) -> Result<f64, SharedHeapError> {
+        let heap = self.read().map_err(|_| SharedHeapError::LockPoisoned)?;
+        Ok(heap.nursery_fill_ratio())
+    }
+
     /// Return the current old-gen fragmentation ratio (a float
     /// in `[0.0, 1.0]`) computed from the block-side counters.
     ///

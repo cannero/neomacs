@@ -107,6 +107,12 @@ impl<'heap> Mutator<'heap> {
         self.heap.clear_compaction_stats();
     }
 
+    /// Read the current nursery fill ratio. Mirrors
+    /// [`Heap::nursery_fill_ratio`].
+    pub fn nursery_fill_ratio(&self) -> f64 {
+        self.heap.nursery_fill_ratio()
+    }
+
     /// Read the current old-gen fragmentation ratio. Mirrors
     /// [`Heap::old_gen_fragmentation_ratio`] but routes through
     /// the mutator's borrow.
