@@ -311,6 +311,17 @@
       (load "x-dnd")
       (load "term/common-win")
       (load "term/x-win")))
+;; Neomacs window-system: mirrors the (featurep 'x) clause above so that
+;; term/neo-win is loaded during loadup, *before* the kill-emacs that
+;; ends loadup writes the pdump. This is the only way the pdump can
+;; capture (provide 'neo-win) so that the GUI startup check
+;; (featurep 'neo-win) in startup.el's command-line passes for fresh
+;; binary launches. The neomacs feature is provided by the bootstrap
+;; evaluator before loadup.el runs (see create_bootstrap_evaluator_with_features).
+(if (featurep 'neomacs)
+    (progn
+      (load "term/common-win")
+      (load "term/neo-win")))
 (if (fboundp 'x-create-frame)
     ;; Do it after loading term/foo-win.el since the value of the
     ;; mouse-wheel-*-event vars depends on those files being loaded or not.

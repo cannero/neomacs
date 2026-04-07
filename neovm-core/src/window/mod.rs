@@ -848,7 +848,24 @@ impl Frame {
             width,
             height,
             window_system: None,
-            parameters: HashMap::new(),
+            // GNU Emacs frame.c make_frame() initializes the foreground-color
+            // and background-color parameters before any Lisp startup runs:
+            // see Fmake_terminal_frame and the GUI equivalents, which call
+            // store_frame_param with the framework defaults ("black" /
+            // "white") so that frame-parameter never returns nil for them.
+            // Lisp code in startup (e.g. frame--current-background-mode in
+            // frame.el) calls (color-values (frame-parameter f
+            // 'background-color)), and color-values -> xw-color-values
+            // signals wrong-type-argument: stringp nil if the value is not a
+            // string. Match GNU and pre-populate the defaults here so the
+            // parameter alist is never missing them.
+            parameters: {
+                let mut params = HashMap::new();
+                params.insert("foreground-color".to_string(), Value::string("black"));
+                params.insert("background-color".to_string(), Value::string("white"));
+                params.insert("cursor-color".to_string(), Value::string("black"));
+                params
+            },
             visible: true,
             title: String::new(),
             menu_bar_height: 0,

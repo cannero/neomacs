@@ -4272,10 +4272,28 @@ impl Context {
                 resume: ResumeTarget::CommandLoopTopLevel,
             });
 
+            // GNU keyboard.c command_loop():
+            //   internal_catch (Qtop_level, top_level_1, Qnil);
+            //   internal_catch (Qtop_level, command_loop_2, Qerror);
+            // Both top_level_1 and command_loop_2 run unconditionally per
+            // outer loop iteration. The catch around top_level_1 turns any
+            // 'top-level throw into a normal return so the next line — the
+            // command_loop_2 catch — still runs. The previous NeoMacs
+            // implementation gated command_loop_2 on
+            // `self.command_loop.running`, which incorrectly skipped the
+            // interactive loop entirely whenever (normal-top-level) raised
+            // an error caught inside command_loop_top_level_1: the GUI
+            // would create its window, hit the error, return Ok(NIL), and
+            // immediately exit before the first redisplay. Match GNU and
+            // always run command_loop_2 after top_level_1.
             let result = if outermost_command_loop {
                 match self.command_loop_top_level_1() {
-                    Ok(_) if self.command_loop.running => self.command_loop_2(),
-                    Ok(_) => Ok(Value::NIL),
+                    Ok(_) => self.command_loop_2(),
+                    Err(Flow::Throw { ref tag, .. }) if tag.is_symbol_named("top-level") => {
+                        // top-level throw inside top_level_1 — fall through
+                        // to command_loop_2 just like GNU's two-catch flow.
+                        self.command_loop_2()
+                    }
                     Err(flow) => Err(flow),
                 }
             } else {
