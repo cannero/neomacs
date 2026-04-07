@@ -339,6 +339,25 @@ impl Heap {
         self.compaction_stats = crate::stats::CompactionStats::default();
     }
 
+    /// Current nursery fill ratio: `live_bytes / capacity` of
+    /// the from-space arena. Returns `0.0` when the from-space
+    /// is empty or the capacity is zero. Range `[0.0, 1.0]`:
+    /// 0.0 means the nursery is empty, 1.0 means it is full.
+    ///
+    /// Useful for callers that want to decide when to trigger
+    /// a minor cycle without waiting for the static nursery
+    /// pressure plan to fire (the same job the pacer's nursery
+    /// soft trigger does, but exposed as a raw value rather
+    /// than a decision).
+    pub fn nursery_fill_ratio(&self) -> f64 {
+        let capacity = self.nursery.capacity();
+        if capacity == 0 {
+            return 0.0;
+        }
+        let used = self.nursery.from_space().used_bytes();
+        (used as f64) / (capacity as f64)
+    }
+
     /// Current old-gen fragmentation ratio computed from the
     /// block-side counters. Defined as
     /// `total_hole_bytes / max(total_used_bytes, 1)` where

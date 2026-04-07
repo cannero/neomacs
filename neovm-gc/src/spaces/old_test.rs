@@ -590,6 +590,29 @@ fn should_compact_old_gen_returns_true_when_fragmentation_meets_threshold() {
 }
 
 #[test]
+fn nursery_fill_ratio_starts_zero_and_grows_with_allocations() {
+    let mut heap = Heap::new(HeapConfig::default());
+    assert_eq!(heap.nursery_fill_ratio(), 0.0);
+
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        for _ in 0..16 {
+            mutator
+                .alloc(&mut scope, OldChunk([7; 32]))
+                .expect("alloc nursery chunk");
+        }
+    }
+
+    let ratio = heap.nursery_fill_ratio();
+    assert!(
+        ratio > 0.0 && ratio <= 1.0,
+        "nursery fill ratio {ratio} should be in (0.0, 1.0] after \
+         16 allocations"
+    );
+}
+
+#[test]
 fn old_gen_fragmentation_ratio_is_zero_on_empty_heap() {
     let heap = Heap::new(HeapConfig::default());
     assert_eq!(heap.old_gen_fragmentation_ratio(), 0.0);
