@@ -8391,6 +8391,18 @@ fn public_api_shared_update_pacer_config_works_while_heap_write_locked() {
 }
 
 #[test]
+fn public_api_shared_compact_old_gen_physical_reports_zero_on_empty_heap() {
+    // Smoke test: a brand-new SharedHeap has nothing in the old
+    // gen, so SharedHeap::compact_old_gen_physical at any
+    // threshold reports zero moved and does not panic.
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let moved = shared
+        .compact_old_gen_physical(1.0)
+        .expect("compact_old_gen_physical on empty shared heap");
+    assert_eq!(moved, 0);
+}
+
+#[test]
 fn public_api_pacer_drives_minor_collection_via_shared_mutator() {
     // End-to-end test: configure a SharedHeap with a giant static
     // nursery (so the static minor pressure path never fires) and a

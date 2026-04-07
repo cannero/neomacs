@@ -1193,6 +1193,27 @@ impl SharedHeap {
         self.pacer.update_config(config);
     }
 
+    /// Run physical old-gen compaction under the heap write lock.
+    ///
+    /// Takes the heap write lock, calls
+    /// [`Heap::compact_old_gen_physical`], and returns the number
+    /// of records physically evacuated. This is *not* lock-free —
+    /// physical compaction mutates the objects vec and the root
+    /// stack, which requires exclusive access. Background workers
+    /// and other observers must not be holding the heap lock while
+    /// this runs.
+    ///
+    /// The density threshold applies the same semantics as the
+    /// inner heap method: blocks with live-byte density at or
+    /// below `density_threshold` are candidates for evacuation.
+    pub fn compact_old_gen_physical(
+        &self,
+        density_threshold: f64,
+    ) -> Result<usize, SharedHeapError> {
+        let mut heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
+        Ok(heap.compact_old_gen_physical(density_threshold))
+    }
+
     /// Return the number of queued finalizers waiting to run.
     pub fn pending_finalizer_count(&self) -> Result<usize, SharedHeapError> {
         self.runtime.pending_finalizer_count()
