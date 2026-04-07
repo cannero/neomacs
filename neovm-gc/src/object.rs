@@ -132,6 +132,47 @@ impl ObjectHeader {
         self.moved_out.store(true, Ordering::Release);
     }
 
+    /// Atomically install a forwarding pointer if none has been
+    /// installed yet (parallel-evacuation safe).
+    ///
+    /// Returns `Ok(())` if this caller installed `new_header` —
+    /// the caller now owns the right to publish a new `ObjectRecord`
+    /// for `new_header`. Returns `Err(existing)` if another worker
+    /// already installed a forwarding pointer; the caller must
+    /// discard its candidate copy and use the winning forwarding
+    /// pointer instead.
+    ///
+    /// Note: callers that win the race must additionally set
+    /// `moved_out` so the rest of the collector observes the source
+    /// as moved. The `moved_out` store happens via a follow-up
+    /// `Release` write inside `try_evacuate_to_arena_slot`.
+    pub(crate) fn try_install_forwarding(
+        &self,
+        new_header: NonNull<ObjectHeader>,
+    ) -> Result<(), NonNull<ObjectHeader>> {
+        match self.forwarding.compare_exchange(
+            core::ptr::null_mut(),
+            new_header.as_ptr(),
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => {
+                // Publish the moved-out flag after the forwarding
+                // pointer is visible. Use Release so any worker that
+                // observes `is_moved_out() == true` is guaranteed to
+                // see the forwarding pointer it was paired with.
+                self.moved_out.store(true, Ordering::Release);
+                Ok(())
+            }
+            Err(existing) => {
+                // SAFETY: a non-null forwarding pointer is only ever
+                // installed via this CAS or `forward_to`, both of
+                // which take a `NonNull<ObjectHeader>`.
+                Err(unsafe { NonNull::new_unchecked(existing) })
+            }
+        }
+    }
+
     pub(crate) fn is_moved_out(&self) -> bool {
         self.moved_out.load(Ordering::Acquire)
     }
@@ -433,6 +474,62 @@ impl ObjectRecord {
             old_region: None,
             memory_kind: ObjectMemoryKind::Arena,
         })
+    }
+
+    /// Parallel-evacuation variant of `evacuate_to_arena_slot`.
+    ///
+    /// Writes the new header + payload at `base`, then atomically
+    /// installs a forwarding pointer via CAS on
+    /// `ObjectHeader::forwarding`. The first writer wins.
+    ///
+    /// Returns:
+    /// - `Ok(Some(record))` if this caller installed the forwarding
+    ///   pointer. The returned record now owns the arena slot and
+    ///   should be added to `Heap::objects`.
+    /// - `Ok(None)` if another worker already evacuated this object.
+    ///   The bytes written at `base` are now dead — they remain in
+    ///   the worker's slab but are not referenced by any record. The
+    ///   bytes will be reclaimed in bulk when the slab is reset on
+    ///   the next minor GC cycle. Callers that need the winning
+    ///   forwarding pointer should consult
+    ///   `self.header().forwarding`.
+    /// - `Err(_)` on layout overflow.
+    ///
+    /// # Safety
+    ///
+    /// Same constraints as `evacuate_to_arena_slot`.
+    pub(crate) unsafe fn try_evacuate_to_arena_slot(
+        &self,
+        space: SpaceKind,
+        base: NonNull<u8>,
+    ) -> Result<Option<Self>, AllocError> {
+        let total_size = self.total_size();
+        let layout = Layout::from_size_align(total_size, self.layout.align())
+            .map_err(|_| AllocError::LayoutOverflow)?;
+        // Speculatively write the candidate header + payload. If we
+        // lose the CAS race below, the bytes become dead arena
+        // memory.
+        unsafe { self.populate_evacuated_header(base, layout, space) };
+        let header = base.cast::<ObjectHeader>();
+        match self.header().try_install_forwarding(header) {
+            Ok(()) => Ok(Some(Self {
+                base,
+                layout,
+                header,
+                old_region: None,
+                memory_kind: ObjectMemoryKind::Arena,
+            })),
+            Err(_winner) => {
+                // The header we wrote at `base` will never be
+                // referenced again. We must NOT drop it as a normal
+                // ObjectRecord (that would call drop_in_place on a
+                // payload that's about to be aliased by the winner's
+                // existing copy or recycled). Instead leave the bytes
+                // in place; the slab is reclaimed in bulk on the next
+                // reset.
+                Ok(None)
+            }
+        }
     }
 
     /// Write the evacuated ObjectHeader and copy the payload bytes from

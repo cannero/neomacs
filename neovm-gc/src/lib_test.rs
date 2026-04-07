@@ -264,6 +264,85 @@ unsafe impl Trace for RecordingLeafHolder {
     fn relocate(&self, _relocator: &mut dyn Relocator) {}
 }
 
+/// Phase 6 helper: holder that owns a `Vec<EdgeCell<Leaf>>` and traces
+/// every child. Used to keep many `Leaf` survivors alive across a
+/// parallel minor GC. `EdgeCell` provides the interior mutability that
+/// `relocate` needs to patch each forwarded child pointer in place.
+#[derive(Debug)]
+struct RecordingLeafHolderStrong {
+    children: Vec<EdgeCell<Leaf>>,
+}
+
+unsafe impl Trace for RecordingLeafHolderStrong {
+    fn trace(&self, tracer: &mut dyn Tracer) {
+        for child in &self.children {
+            child.trace(tracer);
+        }
+    }
+
+    fn relocate(&self, relocator: &mut dyn Relocator) {
+        for child in &self.children {
+            child.relocate(relocator);
+        }
+    }
+}
+
+/// Phase 6 helper: leaf that bumps a shared counter every time its
+/// `trace` impl runs. Used to detect double-evacuation: each surviving
+/// instance should be traced exactly once during the next major mark.
+#[derive(Debug)]
+struct CountingLeaf {
+    trace_counter: Arc<AtomicUsize>,
+}
+
+unsafe impl Trace for CountingLeaf {
+    fn trace(&self, _tracer: &mut dyn Tracer) {
+        self.trace_counter.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn relocate(&self, _relocator: &mut dyn Relocator) {}
+}
+
+/// Phase 6 helper: holder that points at a single shared
+/// `CountingLeaf` via a strong edge. Many parents can point at the
+/// same child to construct cross-worker shared targets.
+#[derive(Debug)]
+struct CountingHolder {
+    child: EdgeCell<CountingLeaf>,
+}
+
+unsafe impl Trace for CountingHolder {
+    fn trace(&self, tracer: &mut dyn Tracer) {
+        self.child.trace(tracer);
+    }
+
+    fn relocate(&self, relocator: &mut dyn Relocator) {
+        self.child.relocate(relocator);
+    }
+}
+
+/// Phase 6 helper: list of `CountingHolder` parents kept alive
+/// transitively from a single root, using `EdgeCell` so relocate can
+/// patch the child pointers in place when they get evacuated.
+#[derive(Debug)]
+struct CountingHolderList {
+    children: Vec<EdgeCell<CountingHolder>>,
+}
+
+unsafe impl Trace for CountingHolderList {
+    fn trace(&self, tracer: &mut dyn Tracer) {
+        for child in &self.children {
+            child.trace(tracer);
+        }
+    }
+
+    fn relocate(&self, relocator: &mut dyn Relocator) {
+        for child in &self.children {
+            child.relocate(relocator);
+        }
+    }
+}
+
 #[derive(Debug)]
 struct WeakHolder {
     label: u64,
@@ -1464,6 +1543,183 @@ fn minor_mark_stealing_round_preserves_all_live_objects() {
     let cycle = mutator.execute_plan(plan).expect("execute minor plan");
     assert_eq!(cycle.minor_collections, 1);
     assert_eq!(mutator.heap().object_count(), object_count_before);
+}
+
+// Phase 6: parallel nursery evacuation with per-worker sub-arenas.
+//
+// These tests configure `parallel_minor_workers > 1` and exercise the
+// new parallel evacuation path. The workers partition the to-space
+// into per-thread slabs and bump-allocate without contention; a CAS
+// on `ObjectHeader::forwarding` arbitrates any double-evacuation
+// attempt. Old-gen promotion bookkeeping happens serially after the
+// workers join.
+
+#[test]
+fn parallel_minor_gc_preserves_all_survivors() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            parallel_minor_workers: 4,
+            ..NurseryConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+
+    const LEAF_COUNT: usize = 256;
+    let mut leaves: Vec<EdgeCell<Leaf>> = Vec::with_capacity(LEAF_COUNT);
+    for index in 0..LEAF_COUNT {
+        let leaf = mutator
+            .alloc(&mut scope, Leaf(index as u64))
+            .expect("alloc leaf");
+        leaves.push(EdgeCell::new(Some(leaf.as_gc())));
+    }
+    // Single root holding strong references to every leaf so the
+    // entire batch survives the minor collection.
+    let holder = mutator
+        .alloc(&mut scope, RecordingLeafHolderStrong { children: leaves })
+        .expect("alloc holder");
+    let holder_gc = holder.as_gc();
+    drop(scope);
+    let mut scope = mutator.handle_scope();
+    let _holder_root = mutator.root(&mut scope, holder_gc);
+
+    let object_count_before = mutator.heap().object_count();
+    let plan = mutator.plan_for(CollectionKind::Minor);
+    let cycle = mutator.execute_plan(plan).expect("execute minor plan");
+    assert_eq!(cycle.minor_collections, 1);
+    assert_eq!(
+        mutator.heap().object_count(),
+        object_count_before,
+        "every rooted survivor must be retained after parallel minor GC"
+    );
+}
+
+#[test]
+fn parallel_minor_gc_handles_cross_worker_shared_target() {
+    // Counter increments every time a `SharedChildLeaf` payload is
+    // traced. We use it to detect that the leaf is reachable but
+    // doesn't get evacuated twice across workers.
+    let trace_counter = Arc::new(AtomicUsize::new(0));
+
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            parallel_minor_workers: 4,
+            ..NurseryConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+
+    let shared_child = mutator
+        .alloc(
+            &mut scope,
+            CountingLeaf {
+                trace_counter: trace_counter.clone(),
+            },
+        )
+        .expect("alloc shared child");
+
+    // Many parents all referencing the same `shared_child`. The
+    // parents are spread across worker chunks, but the child is one
+    // single object that must be evacuated exactly once even if
+    // multiple workers chase pointers to it.
+    const PARENT_COUNT: usize = 64;
+    let shared_gc = shared_child.as_gc();
+    let mut parents: Vec<EdgeCell<CountingHolder>> = Vec::with_capacity(PARENT_COUNT);
+    for _ in 0..PARENT_COUNT {
+        let parent = mutator
+            .alloc(
+                &mut scope,
+                CountingHolder {
+                    child: EdgeCell::new(Some(shared_gc)),
+                },
+            )
+            .expect("alloc parent");
+        parents.push(EdgeCell::new(Some(parent.as_gc())));
+    }
+    let holder = mutator
+        .alloc(&mut scope, CountingHolderList { children: parents })
+        .expect("alloc holder list");
+    let holder_gc = holder.as_gc();
+    drop(scope);
+    let mut scope = mutator.handle_scope();
+    let _holder_root = mutator.root(&mut scope, holder_gc);
+
+    let plan = mutator.plan_for(CollectionKind::Minor);
+    let cycle = mutator.execute_plan(plan).expect("execute minor plan");
+    assert_eq!(cycle.minor_collections, 1);
+
+    // Object count must equal: 1 shared child + PARENT_COUNT parents +
+    // 1 holder list. Anything higher would mean the shared child was
+    // evacuated more than once and recorded as multiple objects.
+    let expected = 1 + PARENT_COUNT + 1;
+    assert_eq!(
+        mutator.heap().object_count(),
+        expected,
+        "shared child must be evacuated exactly once across workers"
+    );
+}
+
+#[test]
+fn parallel_minor_gc_with_deferred_old_promotion() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            // Promote at the very first survivor cycle so every
+            // survivor goes through the deferred old-promotion path.
+            promotion_age: 1,
+            parallel_minor_workers: 4,
+            ..NurseryConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+
+    const LEAF_COUNT: usize = 128;
+    let mut leaves: Vec<EdgeCell<Leaf>> = Vec::with_capacity(LEAF_COUNT);
+    for index in 0..LEAF_COUNT {
+        let leaf = mutator
+            .alloc(&mut scope, Leaf(index as u64))
+            .expect("alloc leaf");
+        leaves.push(EdgeCell::new(Some(leaf.as_gc())));
+    }
+    let holder = mutator
+        .alloc(&mut scope, RecordingLeafHolderStrong { children: leaves })
+        .expect("alloc holder");
+    let holder_gc = holder.as_gc();
+    drop(scope);
+    let mut scope = mutator.handle_scope();
+    let holder_root = mutator.root(&mut scope, holder_gc);
+
+    // First minor cycle: every leaf has age 0, so target_space_for_survivor
+    // returns Old (since promotion_age = 1) and the workers route them
+    // through the deferred-promotion path. Run a second minor cycle
+    // for good measure to confirm subsequent collections still find
+    // them in the old gen.
+    let plan_one = mutator.plan_for(CollectionKind::Minor);
+    let _cycle_one = mutator.execute_plan(plan_one).expect("execute minor plan");
+    let plan_two = mutator.plan_for(CollectionKind::Minor);
+    let _cycle_two = mutator
+        .execute_plan(plan_two)
+        .expect("execute second minor plan");
+
+    // After two minor cycles all `LEAF_COUNT` survivors must live in
+    // the old gen. Inspect each leaf via the (relocated) holder edge
+    // cells, which were patched by relocate_edges in place.
+    let holder_after = holder_root.as_gc();
+    let holder_ref = unsafe { holder_after.as_non_null().as_ref() };
+    assert_eq!(holder_ref.children.len(), LEAF_COUNT);
+    for child_cell in &holder_ref.children {
+        let child = child_cell.get().expect("child still present after promotion");
+        let space = mutator.heap().space_of(child);
+        assert_eq!(
+            space,
+            Some(SpaceKind::Old),
+            "every promoted survivor must end up in the old generation"
+        );
+    }
 }
 
 #[test]

@@ -106,6 +106,85 @@ fn align_up(addr: usize, align: usize) -> Option<usize> {
     addr.checked_add(mask).map(|v| v & !mask)
 }
 
+/// A bump-pointer sub-arena owned by a single evacuation worker.
+///
+/// During parallel minor GC the to-space buffer is partitioned into N
+/// equal-sized slabs (one per worker). Each `WorkerEvacuationArena`
+/// owns the right to bump-allocate inside its slab, but does NOT own
+/// the underlying memory: the parent `NurseryState::to_space` arena
+/// owns the buffer and reclaims it in bulk.
+///
+/// `WorkerEvacuationArena` is `Send` so it can be moved into a worker
+/// thread, but it is intentionally not `Sync` — only the worker that
+/// owns the arena bumps its cursor, eliminating contention. After all
+/// workers join, the main thread calls
+/// `NurseryState::merge_worker_arenas` to fold the per-worker usage
+/// back into the unified to-space cursor.
+#[derive(Debug)]
+pub(crate) struct WorkerEvacuationArena {
+    /// Base pointer of this worker's slab inside the to-space buffer.
+    base: NonNull<u8>,
+    /// Length of this worker's slab in bytes.
+    len: usize,
+    /// Bytes already bump-allocated within the slab (0..=len).
+    cursor: usize,
+    /// Offset of `base` from the start of the parent to-space buffer.
+    /// Used by `NurseryState::merge_worker_arenas` to compute the
+    /// final unified cursor.
+    base_offset: usize,
+}
+
+// Safety: a `WorkerEvacuationArena` only carries raw pointers and
+// indices. It must NOT outlive the parent `NurseryState::to_space`
+// buffer that owns the underlying memory; that invariant is upheld by
+// always producing/consuming worker arenas inside a single
+// `evacuate_marked_nursery_parallel` call without escaping the scope.
+unsafe impl Send for WorkerEvacuationArena {}
+
+impl WorkerEvacuationArena {
+    /// Bytes consumed so far inside this slab.
+    #[allow(dead_code)]
+    pub(crate) fn used_bytes(&self) -> usize {
+        self.cursor
+    }
+
+    /// Slab length in bytes.
+    #[allow(dead_code)]
+    pub(crate) fn capacity(&self) -> usize {
+        self.len
+    }
+
+    /// Offset of this slab's base inside the parent to-space buffer.
+    #[allow(dead_code)]
+    pub(crate) fn base_offset(&self) -> usize {
+        self.base_offset
+    }
+
+    /// Attempt to bump-allocate `layout` from this worker's slab.
+    ///
+    /// Returns `None` if the slab cannot satisfy the request. Callers
+    /// fall back to a system allocation in that case (the same way the
+    /// serial path falls back when the unified to-space cursor would
+    /// overflow).
+    pub(crate) fn try_alloc(&mut self, layout: Layout) -> Option<NonNull<u8>> {
+        let size = layout.size();
+        let align = layout.align().max(1);
+
+        let base_addr = self.base.as_ptr() as usize;
+        let current = base_addr.checked_add(self.cursor)?;
+        let aligned = align_up(current, align)?;
+        let padding = aligned.checked_sub(base_addr)?;
+        let end = padding.checked_add(size)?;
+        if end > self.len {
+            return None;
+        }
+
+        let ptr = aligned as *mut u8;
+        self.cursor = end;
+        NonNull::new(ptr)
+    }
+}
+
 /// Semispace nursery state: a from-space arena (where current
 /// allocations live) and a to-space arena (the destination for
 /// survivor copies during minor GC). After copy-evacuation the two
@@ -167,6 +246,85 @@ impl NurseryState {
     pub(crate) fn swap_spaces_and_reset(&mut self) {
         core::mem::swap(&mut self.from_space, &mut self.to_space);
         self.to_space.reset();
+    }
+
+    /// Partition the to-space into `worker_count` equal-sized slabs,
+    /// returning one `WorkerEvacuationArena` per worker.
+    ///
+    /// The to-space cursor is left at zero. After all workers join,
+    /// the caller must hand the worker arenas back to
+    /// `merge_worker_arenas` so the unified cursor reflects the
+    /// total bytes consumed.
+    ///
+    /// Slabs do not overlap. Each slab covers a contiguous range
+    /// `[base + slab_index * slab_len, base + (slab_index + 1) * slab_len)`,
+    /// except the last slab which absorbs any leftover bytes from
+    /// integer division so the entire to-space buffer is covered.
+    pub(crate) fn split_to_space_into_worker_arenas(
+        &mut self,
+        worker_count: usize,
+    ) -> Vec<WorkerEvacuationArena> {
+        let workers = worker_count.max(1);
+        // Resetting the cursor here is defensive: callers always invoke
+        // this on an empty to-space, but pinning to zero makes the
+        // partitioning logic correct regardless.
+        self.to_space.cursor = 0;
+        let total = self.to_space.buffer.len();
+        let base_addr = self.to_space.buffer.as_ptr() as *mut u8;
+
+        let slab_size = total / workers;
+        let mut arenas = Vec::with_capacity(workers);
+        let mut offset = 0usize;
+        for worker_index in 0..workers {
+            let len = if worker_index + 1 == workers {
+                total.saturating_sub(offset)
+            } else {
+                slab_size
+            };
+            let slab_base = unsafe { base_addr.add(offset) };
+            let base = NonNull::new(slab_base).expect("non-null buffer base");
+            arenas.push(WorkerEvacuationArena {
+                base,
+                len,
+                cursor: 0,
+                base_offset: offset,
+            });
+            offset = offset.saturating_add(len);
+        }
+        arenas
+    }
+
+    /// Fold the per-worker bump cursors back into the unified
+    /// to-space cursor.
+    ///
+    /// Each worker's used bytes occupy a contiguous prefix of its
+    /// slab. The unified cursor is set to the end of the last
+    /// non-empty slab, computed as `slab.base_offset + slab.used_bytes`,
+    /// taken across all workers. Empty slabs do not contribute. This
+    /// keeps the cursor invariant: the next swap-and-reset will see a
+    /// to-space whose used range covers exactly the bytes that were
+    /// allocated during evacuation.
+    ///
+    /// Note that the unified cursor may include unused holes between
+    /// slabs (e.g. if worker 0 only used 100 bytes of a 256-byte slab
+    /// while worker 1 used all 256 bytes). Those holes are dead
+    /// memory inside this minor cycle; they are reclaimed in bulk
+    /// when the to-space is reset on the next minor GC.
+    pub(crate) fn merge_worker_arenas(&mut self, arenas: &[WorkerEvacuationArena]) {
+        let mut max_end = 0usize;
+        for arena in arenas {
+            if arena.cursor == 0 {
+                continue;
+            }
+            let end = arena.base_offset.saturating_add(arena.cursor);
+            if end > max_end {
+                max_end = end;
+            }
+        }
+        if max_end > self.to_space.buffer.len() {
+            max_end = self.to_space.buffer.len();
+        }
+        self.to_space.cursor = max_end;
     }
 
     /// Returns true if `ptr` points into the from-space backing buffer.
@@ -244,6 +402,88 @@ mod tests {
         assert!(arena.contains_ptr(ptr));
         let far: *const u8 = 0xdead_beef_usize as *const u8;
         assert!(!arena.contains_ptr(far));
+    }
+
+    #[test]
+    fn split_to_space_into_worker_arenas_partitions_buffer() {
+        let mut state = NurseryState::new(256);
+        let arenas = state.split_to_space_into_worker_arenas(4);
+        assert_eq!(arenas.len(), 4);
+
+        let total: usize = arenas.iter().map(WorkerEvacuationArena::capacity).sum();
+        assert_eq!(total, 256);
+
+        // Slabs are contiguous starting from offset 0.
+        let mut expected_offset = 0usize;
+        for arena in &arenas {
+            assert_eq!(arena.base_offset(), expected_offset);
+            expected_offset = expected_offset.saturating_add(arena.capacity());
+        }
+        assert_eq!(expected_offset, 256);
+    }
+
+    #[test]
+    fn split_to_space_handles_uneven_division_with_tail_slab() {
+        let mut state = NurseryState::new(257);
+        let arenas = state.split_to_space_into_worker_arenas(4);
+        assert_eq!(arenas.len(), 4);
+        // First three slabs use floor(257 / 4) = 64 bytes each.
+        assert_eq!(arenas[0].capacity(), 64);
+        assert_eq!(arenas[1].capacity(), 64);
+        assert_eq!(arenas[2].capacity(), 64);
+        // Last slab absorbs the leftover (257 - 192 = 65).
+        assert_eq!(arenas[3].capacity(), 65);
+        let total: usize = arenas.iter().map(WorkerEvacuationArena::capacity).sum();
+        assert_eq!(total, 257);
+    }
+
+    #[test]
+    fn worker_evacuation_arena_alloc_advances_local_cursor() {
+        let mut state = NurseryState::new(256);
+        let mut arenas = state.split_to_space_into_worker_arenas(2);
+        let layout = Layout::from_size_align(32, 8).unwrap();
+        let ptr_a = arenas[0].try_alloc(layout).expect("alloc in slab 0");
+        let ptr_b = arenas[0].try_alloc(layout).expect("second alloc in slab 0");
+        let ptr_c = arenas[1].try_alloc(layout).expect("alloc in slab 1");
+        assert_ne!(ptr_a.as_ptr(), ptr_b.as_ptr());
+        assert_ne!(ptr_a.as_ptr(), ptr_c.as_ptr());
+        assert_eq!(arenas[0].used_bytes(), 64);
+        assert_eq!(arenas[1].used_bytes(), 32);
+    }
+
+    #[test]
+    fn worker_evacuation_arena_returns_none_when_slab_full() {
+        let mut state = NurseryState::new(64);
+        let mut arenas = state.split_to_space_into_worker_arenas(2);
+        let layout = Layout::from_size_align(32, 8).unwrap();
+        assert!(arenas[0].try_alloc(layout).is_some());
+        // Each slab is 32 bytes; another 32-byte alloc no longer fits.
+        assert!(arenas[0].try_alloc(layout).is_none());
+        // The other slab is independent and still has room.
+        assert!(arenas[1].try_alloc(layout).is_some());
+    }
+
+    #[test]
+    fn merge_worker_arenas_advances_unified_cursor_to_max_used_offset() {
+        let mut state = NurseryState::new(256);
+        let mut arenas = state.split_to_space_into_worker_arenas(4);
+        let layout = Layout::from_size_align(16, 8).unwrap();
+        // Slab 0 uses 16 bytes, slab 2 uses 32 bytes, slab 1 and 3 are empty.
+        arenas[0].try_alloc(layout).unwrap();
+        arenas[2].try_alloc(layout).unwrap();
+        arenas[2].try_alloc(layout).unwrap();
+        let snapshot = arenas;
+        state.merge_worker_arenas(&snapshot);
+        // Slab 2 starts at offset 128 (256/4 * 2), uses 32 bytes => end 160.
+        assert_eq!(state.to_space().used_bytes(), 160);
+    }
+
+    #[test]
+    fn merge_worker_arenas_with_no_allocations_leaves_cursor_at_zero() {
+        let mut state = NurseryState::new(128);
+        let arenas = state.split_to_space_into_worker_arenas(4);
+        state.merge_worker_arenas(&arenas);
+        assert_eq!(state.to_space().used_bytes(), 0);
     }
 
     #[test]
