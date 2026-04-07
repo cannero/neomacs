@@ -5827,11 +5827,30 @@ impl Context {
         if forms.is_empty() {
             return Ok(Value::NIL);
         }
-        let mut result = Value::NIL;
-        for form in forms {
-            result = self.eval_sub(form).map_err(super::error::map_flow)?;
+        // Root every parsed form: each `eval_sub` call may trigger
+        // GC and the un-iterated forms still inside the Vec
+        // (heap memory) are otherwise invisible to the conservative
+        // stack scanner.
+        let saved_len = self.temp_roots.len();
+        for form in &forms {
+            self.temp_roots.push(*form);
         }
-        Ok(result)
+        let mut result = Value::NIL;
+        let mut error = None;
+        for form in &forms {
+            match self.eval_sub(*form).map_err(super::error::map_flow) {
+                Ok(v) => result = v,
+                Err(e) => {
+                    error = Some(e);
+                    break;
+                }
+            }
+        }
+        self.temp_roots.truncate(saved_len);
+        match error {
+            Some(e) => Err(e),
+            None => Ok(result),
+        }
     }
 
     /// Evaluate a single Value form and return a public EvalError on failure.
@@ -6074,10 +6093,17 @@ impl Context {
                 })];
             }
         };
+        // Root every parsed form upfront. The previous version only
+        // rooted successful results; un-iterated parsed forms still
+        // sitting in the heap-allocated `forms` Vec were unrooted
+        // and could be reclaimed by an `eval_sub`-triggered GC.
         let saved_len = self.temp_roots.len();
+        for form in &forms {
+            self.temp_roots.push(*form);
+        }
         let mut results = Vec::with_capacity(forms.len());
-        for form in forms {
-            let result = self.eval_sub(form).map_err(map_flow);
+        for form in &forms {
+            let result = self.eval_sub(*form).map_err(map_flow);
             if let Ok(ref val) = result {
                 self.temp_roots.push(*val);
             }

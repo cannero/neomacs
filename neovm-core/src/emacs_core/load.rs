@@ -2285,51 +2285,67 @@ pub(crate) fn apply_ldefs_boot_autoloads_for_names(
             raw_data: None,
         })?;
 
+    // Phase: parsed Lisp forms in `forms` (a Vec<Value>) live on
+    // the malloc heap and are NOT reachable via conservative stack
+    // scanning. The intervening `eval_generated_loaddefs_form`
+    // calls below can trigger GC and would reclaim the cons cells
+    // out from under us. Root every form for the duration of the
+    // dispatch loop.
+    let saved_temp_roots = eval.save_temp_roots();
+    for form in &forms {
+        eval.push_temp_root(*form);
+    }
+
     let wanted = names
         .iter()
         .map(|name| (*name).to_string())
         .collect::<std::collections::BTreeSet<_>>();
     let mut property_forms: Vec<Value> = Vec::new();
 
-    for form in &forms {
-        let Some(items) = list_to_vec(form) else {
-            continue;
-        };
-        let Some(head) = items.first() else {
-            continue;
-        };
-        if head.is_symbol_named("autoload")
-            && let Some(name) = items.get(1).and_then(|v| value_quoted_symbol_name(*v))
-            && wanted.contains(&name)
-        {
+    let result: Result<(), EvalError> = (|| {
+        for form in &forms {
+            let Some(items) = list_to_vec(form) else {
+                continue;
+            };
+            let Some(head) = items.first() else {
+                continue;
+            };
+            if head.is_symbol_named("autoload")
+                && let Some(name) = items.get(1).and_then(|v| value_quoted_symbol_name(*v))
+                && wanted.contains(&name)
+            {
+                eval_generated_loaddefs_form(eval, *form)?;
+            }
+        }
+
+        for form in &forms {
+            let Some(items) = list_to_vec(form) else {
+                continue;
+            };
+            let Some(head) = items.first() else {
+                continue;
+            };
+            let Some(head_name) = head.as_symbol_name() else {
+                continue;
+            };
+            if head_name != "function-put" && head_name != "put" {
+                continue;
+            }
+            let Some(name) = items.get(1).and_then(|v| value_quoted_symbol_name(*v)) else {
+                continue;
+            };
+            if wanted.contains(&name) {
+                property_forms.push(*form);
+            }
+        }
+
+        for form in &property_forms {
             eval_generated_loaddefs_form(eval, *form)?;
         }
-    }
-
-    for form in &forms {
-        let Some(items) = list_to_vec(form) else {
-            continue;
-        };
-        let Some(head) = items.first() else {
-            continue;
-        };
-        let Some(head_name) = head.as_symbol_name() else {
-            continue;
-        };
-        if head_name != "function-put" && head_name != "put" {
-            continue;
-        }
-        let Some(name) = items.get(1).and_then(|v| value_quoted_symbol_name(*v)) else {
-            continue;
-        };
-        if wanted.contains(&name) {
-            property_forms.push(*form);
-        }
-    }
-
-    for form in &property_forms {
-        eval_generated_loaddefs_form(eval, *form)?;
-    }
+        Ok(())
+    })();
+    eval.restore_temp_roots(saved_temp_roots);
+    result?;
 
     Ok(())
 }
