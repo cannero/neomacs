@@ -2539,7 +2539,7 @@ pub(crate) fn builtin_insert_byte(eval: &mut super::eval::Context, args: Vec<Val
         .buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
-        .multibyte;
+        .get_multibyte();
     if eval.buffers.get(current_id).is_some_and(|buf| {
         super::editfns::buffer_read_only_active_in_state(&eval.obarray, &[], buf)
     }) {
@@ -3274,7 +3274,7 @@ pub(crate) fn builtin_get_byte(eval: &mut super::eval::Context, args: Vec<Value>
         return Ok(Value::fixnum(0));
     }
 
-    if !buf.multibyte {
+    if !buf.get_multibyte() {
         let code = match buf.char_after(byte_pos) {
             Some(ch) => ch as u32,
             None => return Ok(Value::fixnum(0)),

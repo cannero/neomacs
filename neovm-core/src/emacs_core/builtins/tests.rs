@@ -2403,13 +2403,13 @@ fn replace_buffer_contents_and_set_buffer_multibyte_runtime_semantics() {
         builtin_set_buffer_multibyte(&mut eval, vec![Value::NIL]).unwrap(),
         Value::NIL
     );
-    assert!(!eval.buffers.current_buffer().unwrap().multibyte);
+    assert!(!eval.buffers.current_buffer().unwrap().get_multibyte());
 
     assert_eq!(
         builtin_set_buffer_multibyte(&mut eval, vec![Value::symbol("foo")]).unwrap(),
         Value::symbol("foo")
     );
-    assert!(eval.buffers.current_buffer().unwrap().multibyte);
+    assert!(eval.buffers.current_buffer().unwrap().get_multibyte());
 }
 
 #[test]

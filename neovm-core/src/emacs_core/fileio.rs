@@ -2754,7 +2754,7 @@ pub(crate) fn builtin_insert_file_contents(
     let multibyte = eval
         .buffers
         .get(current_id)
-        .map(|buffer| buffer.multibyte)
+        .map(|buffer| buffer.get_multibyte())
         .unwrap_or(true);
     let (contents, used_coding) = decode_insert_file_contents(
         slice,

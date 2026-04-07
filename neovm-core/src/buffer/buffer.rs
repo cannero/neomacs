@@ -186,8 +186,6 @@ pub struct Buffer {
     /// GNU `inhibit_buffer_hooks`: suppress buffer lifecycle hooks for
     /// temporary/internal buffers.
     pub inhibit_buffer_hooks: bool,
-    /// Multi-byte encoding flag.  Always `true` for now.
-    pub multibyte: bool,
     /// GNU-style noncurrent PT/BEGV/ZV markers for buffers that share text.
     pub state_markers: Option<BufferStateMarkers>,
     /// Buffer-local state, split between builtin slot-backed locals and
@@ -244,11 +242,16 @@ impl Buffer {
             last_window_start: 1,
             last_selected_window: None,
             inhibit_buffer_hooks: false,
-            multibyte: true,
             state_markers: None,
             locals: BufferLocals::new(),
             local_var_alist: crate::emacs_core::value::Value::NIL,
-            slots: [crate::emacs_core::value::Value::NIL; BUFFER_SLOT_COUNT],
+            slots: {
+                let mut s = [crate::emacs_core::value::Value::NIL; BUFFER_SLOT_COUNT];
+                // multibyte defaults to t for new buffers, mirroring
+                // GNU's `init_buffer_once` (`buffer.c`).
+                s[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS] = Value::T;
+                s
+            },
             overlays: OverlayList::new(),
             syntax_table: SyntaxTable::new_standard(),
             undo_state: SharedUndoState::new(),
@@ -316,14 +319,18 @@ impl Buffer {
         self.slots[BUFFER_SLOT_READ_ONLY] = if v { Value::T } else { Value::NIL };
     }
 
-    /// Read `enable-multibyte-characters` via the Phase 8b accessor.
+    /// Read `enable-multibyte-characters`, mirroring GNU
+    /// `BVAR(buf, enable_multibyte_characters)`. A non-nil slot
+    /// maps to `true`.
     pub fn get_multibyte(&self) -> bool {
-        self.multibyte
+        self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS].is_truthy()
     }
 
-    /// Write `enable-multibyte-characters`.
+    /// Write `enable-multibyte-characters`. `true` stores
+    /// `Value::T`, `false` stores `Value::NIL`.
     pub fn set_multibyte_value(&mut self, v: bool) {
-        self.multibyte = v;
+        self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS] =
+            if v { Value::T } else { Value::NIL };
     }
 
     // -- Point queries -------------------------------------------------------
@@ -979,6 +986,10 @@ impl Buffer {
                 _ => {}
             }
         }
+        if name == "enable-multibyte-characters" {
+            self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS] =
+                if value.is_truthy() { Value::T } else { Value::NIL };
+        }
         if name == "buffer-undo-list" {
             self.undo_state.set_list(value);
             if value.is_nil() {
@@ -1039,7 +1050,9 @@ impl Buffer {
             ));
         }
         if name == "enable-multibyte-characters" {
-            return Some(RuntimeBindingValue::Bound(Value::bool_val(self.multibyte)));
+            return Some(RuntimeBindingValue::Bound(
+                self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS],
+            ));
         }
         self.locals.raw_binding(name)
     }
@@ -1227,7 +1240,7 @@ impl BufferManager {
         indirect.undo_state = root.undo_state.clone();
         indirect.narrow_to_byte_region(root.begv, root.zv);
         indirect.goto_byte(root.pt);
-        indirect.multibyte = root.multibyte;
+        indirect.set_multibyte_value(root.get_multibyte());
         indirect.modified = root.modified;
         indirect.modified_tick = root.modified_tick;
         indirect.chars_modified_tick = root.chars_modified_tick;
@@ -2045,7 +2058,7 @@ impl BufferManager {
 
     pub fn set_buffer_multibyte_flag(&mut self, id: BufferId, flag: bool) -> Option<()> {
         let buf = self.buffers.get_mut(&id)?;
-        buf.multibyte = flag;
+        buf.set_multibyte_value(flag);
         buf.set_buffer_local(
             "enable-multibyte-characters",
             if flag {
@@ -2648,7 +2661,7 @@ mod tests {
         assert_eq!(buf.buffer_size(), 0);
         assert!(!buf.is_modified());
         assert!(!buf.get_read_only());
-        assert!(buf.multibyte);
+        assert!(buf.get_multibyte());
         assert!(buf.get_file_name().is_none());
         assert!(buf.mark().is_none());
     }

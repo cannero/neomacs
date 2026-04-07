@@ -2094,7 +2094,7 @@ pub(crate) fn builtin_find_coding_systems_region_internal(
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    if !buffer.multibyte {
+    if !buffer.get_multibyte() {
         return Ok(Value::T);
     }
 
@@ -2111,7 +2111,7 @@ pub(crate) fn builtin_find_coding_systems_region_internal(
     Ok(safe_coding_systems_for_text(
         &eval.coding_systems,
         slice,
-        buffer.multibyte,
+        buffer.get_multibyte(),
         exclude.as_deref(),
     ))
 }
