@@ -151,6 +151,84 @@ fn find_sparse_old_block_candidates_picks_low_density_blocks() {
 }
 
 #[test]
+fn compact_sparse_old_blocks_moves_survivors_into_fresh_targets() {
+    use crate::reclaim::compact_sparse_old_blocks;
+
+    // Synthetic two-block fixture:
+    //   - block 0 is "dense": we do not want it compacted
+    //   - block 1 is "sparse": a single small object in a
+    //     1024-byte region
+    // Then we ask compact_sparse_old_blocks to evacuate any
+    // block at or below 10% density.
+    let mut old_gen = OldGenState::default();
+    let config = OldGenConfig {
+        region_bytes: 1024,
+        line_bytes: 16,
+        ..OldGenConfig::default()
+    };
+
+    let layout = core::alloc::Layout::from_size_align(64, 8).unwrap();
+    // Seed block 0 with enough allocations to keep it dense.
+    let mut objects: Vec<ObjectRecord> = Vec::new();
+    for _ in 0..10 {
+        let mut record = ObjectRecord::allocate(
+            old_leaf_desc(),
+            SpaceKind::Old,
+            OldLeaf,
+        )
+        .expect("alloc dense record");
+        let (placement, _) = old_gen
+            .try_alloc_in_block(&config, layout)
+            .expect("alloc in block 0");
+        record.set_old_block_placement(placement);
+        objects.push(record);
+    }
+    // Seed block 1 with a single object (sparse).
+    let mut sparse_record = ObjectRecord::allocate(
+        old_leaf_desc(),
+        SpaceKind::Old,
+        OldLeaf,
+    )
+    .expect("alloc sparse record");
+    let (sparse_placement, _) = old_gen
+        .alloc_in_fresh_block(&config, layout)
+        .expect("alloc sparse");
+    sparse_record.set_old_block_placement(sparse_placement);
+    let sparse_key_before = sparse_record.object_key();
+    objects.push(sparse_record);
+
+    assert_eq!(old_gen.block_count(), 2);
+
+    // Run the compaction pass with a 10% density threshold.
+    // Block 0: 10 * 64 / 1024 ≈ 0.625 → dense, not picked.
+    // Block 1: 1 * 64 / 1024 ≈ 0.0625 → sparse, picked.
+    let forwarding = compact_sparse_old_blocks(&mut objects, &mut old_gen, &config, 0.10);
+
+    // Exactly one entry in the forwarding map (the sparse-block
+    // survivor that got moved).
+    assert_eq!(forwarding.len(), 1);
+    assert!(forwarding.contains_key(&sparse_key_before));
+
+    // The sparse block (index 1) should now be disjoint from any
+    // record: every remaining record is either in block 0 or in
+    // the brand-new block 2 created by the compaction pass.
+    let mut blocks_with_records = std::collections::HashSet::new();
+    for record in &objects {
+        if let Some(placement) = record.old_block_placement() {
+            blocks_with_records.insert(placement.block_index);
+        }
+    }
+    assert!(!blocks_with_records.contains(&1), "sparse source block 1 should have no surviving records");
+    assert!(blocks_with_records.contains(&0), "dense block 0 should still hold its records");
+    assert!(blocks_with_records.contains(&2), "freshly-created target block 2 should hold the evacuated record");
+
+    // Total block count is now 3: blocks 0, 1 (empty), 2 (new).
+    // Block 1 is still in the pool until the next
+    // drop_unused_blocks_with_remap call.
+    assert_eq!(old_gen.block_count(), 3);
+}
+
+#[test]
 fn evacuate_old_object_to_fresh_block_copies_payload_and_forwards() {
     use crate::reclaim::evacuate_old_object_to_fresh_block;
 

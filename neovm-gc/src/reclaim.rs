@@ -1,5 +1,5 @@
 use crate::heap::AllocError;
-use crate::index_state::{HeapIndexState, PreparedIndexReclaim};
+use crate::index_state::{ForwardingMap, HeapIndexState, PreparedIndexReclaim};
 use crate::object::{ObjectRecord, OldBlockPlacement, OldRegionPlacement, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPlan};
 use crate::runtime_state::RuntimeStateHandle;
@@ -74,6 +74,97 @@ pub(crate) fn find_sparse_old_block_candidates(
         }
     }
     candidates
+}
+
+/// Physical old-gen compaction pass (physical-compaction step 4).
+///
+/// Walks `objects`, identifies sparse OldBlock candidates whose
+/// live density is at or below `density_threshold`, evacuates
+/// every surviving record in those blocks into freshly-created
+/// target blocks via [`evacuate_old_object_to_fresh_block`], and
+/// replaces the source records in `objects` with the evacuated
+/// ones. Returns a [`ForwardingMap`] of
+/// `(old_object_key, new_GcErased)` entries that a subsequent
+/// relocation pass can feed through [`ForwardingRelocator`] to
+/// rewrite any inbound reference.
+///
+/// This function does NOT touch the source block contents: the
+/// source blocks become empty (no surviving records point into
+/// them), and the existing
+/// [`rebuild_line_marks_and_reclaim_empty_old_blocks`] pass drops
+/// them as part of the post-sweep rebuild.
+///
+/// If no blocks qualify as sparse, the function returns an empty
+/// forwarding map and leaves `objects` untouched. Allocation
+/// failures during evacuation are treated per-object: the
+/// failing record is left in place, the forwarding map omits it,
+/// and the pass moves on. Callers get a best-effort compaction.
+#[allow(dead_code)]
+pub(crate) fn compact_sparse_old_blocks(
+    objects: &mut Vec<ObjectRecord>,
+    old_gen: &mut OldGenState,
+    config: &OldGenConfig,
+    density_threshold: f64,
+) -> ForwardingMap {
+    let mut forwarding = ForwardingMap::new();
+    if objects.is_empty() || old_gen.block_count() == 0 {
+        return forwarding;
+    }
+
+    // Phase A: compute per-block live_bytes from the post-mark
+    // object slice and pick sparse candidates.
+    let live_by_block = compute_per_block_live_bytes(objects, old_gen.block_count());
+    let candidates = find_sparse_old_block_candidates(
+        &live_by_block,
+        old_gen.blocks(),
+        density_threshold,
+    );
+    if candidates.is_empty() {
+        return forwarding;
+    }
+    let candidate_set: std::collections::HashSet<usize> = candidates.into_iter().collect();
+
+    // Phase B: walk every record; for each one whose block is a
+    // candidate, evacuate it into a fresh target block and swap
+    // the record in place.
+    for slot_index in 0..objects.len() {
+        let (is_candidate, object_key) = {
+            let object = &objects[slot_index];
+            if object.space() != SpaceKind::Old {
+                (false, None)
+            } else {
+                match object.old_block_placement() {
+                    Some(placement) if candidate_set.contains(&placement.block_index) => {
+                        (true, Some(object.object_key()))
+                    }
+                    _ => (false, None),
+                }
+            }
+        };
+        if !is_candidate {
+            continue;
+        }
+        let Some(object_key) = object_key else {
+            continue;
+        };
+        let evacuated = {
+            let source = &objects[slot_index];
+            match evacuate_old_object_to_fresh_block(old_gen, config, source) {
+                Ok(record) => record,
+                Err(_) => continue,
+            }
+        };
+        let new_erased = evacuated.erased();
+        // Replace the source record in place with the evacuated
+        // one. The old record's payload bytes remain in the source
+        // block buffer but are no longer referenced by any record
+        // slot; the next post-sweep rebuild will drop the whole
+        // source block because none of its lines are marked.
+        objects[slot_index] = evacuated;
+        forwarding.insert(object_key, new_erased);
+    }
+
+    forwarding
 }
 
 /// Physical old-gen compaction helper (physical-compaction step 2).
