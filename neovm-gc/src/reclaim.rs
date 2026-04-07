@@ -17,7 +17,6 @@ use crate::stats::{CollectionStats, HeapStats, PreparedHeapStats};
 /// counted. The returned vector has one entry per block in
 /// `blocks`; entries for blocks that hold no surviving records
 /// stay at zero.
-#[allow(dead_code)]
 pub(crate) fn compute_per_block_live_bytes(
     objects: &[ObjectRecord],
     block_count: usize,
@@ -56,7 +55,6 @@ pub(crate) fn compute_per_block_live_bytes(
 /// out of a 1%-full block reclaims more space than moving it
 /// out of a 50%-full block, and the compaction target packing
 /// works best when we evacuate the most-wasted blocks first.
-#[allow(dead_code)]
 pub(crate) fn find_sparse_old_block_candidates(
     live_by_block: &[usize],
     blocks: &[OldBlock],
@@ -111,7 +109,6 @@ pub(crate) fn find_sparse_old_block_candidates(
 /// failures during evacuation are treated per-object: the
 /// failing record is left in place, the forwarding map omits it,
 /// and the pass moves on. Callers get a best-effort compaction.
-#[allow(dead_code)]
 pub(crate) fn compact_sparse_old_blocks(
     objects: &mut [ObjectRecord],
     old_gen: &mut OldGenState,
@@ -232,7 +229,15 @@ pub(crate) fn compact_sparse_old_blocks(
 /// payload layout cannot be satisfied. Callers should treat such
 /// failures as "skip this evacuation, leave the source record in
 /// place" rather than aborting the whole reclaim cycle.
-#[allow(dead_code)]
+///
+/// Currently consumed only by the unit test that exercises the
+/// single-record evacuation primitive in isolation. The
+/// production compaction loop in `compact_sparse_old_blocks`
+/// inlines `alloc_for_compaction_into_target` plus
+/// `evacuate_to_arena_slot` directly so it can share a packed
+/// target block across multiple survivors. Kept here as a
+/// reference implementation for the simpler one-shot path.
+#[cfg(test)]
 pub(crate) fn evacuate_old_object_to_fresh_block(
     old_gen: &mut OldGenState,
     config: &OldGenConfig,
