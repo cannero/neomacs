@@ -196,8 +196,11 @@ impl<'heap> CollectorRuntime<'heap> {
                     // start a background mark session when the
                     // static path would have done so.
                     let plan = self.heap.plan_for(CollectionKind::Major);
-                    self.heap.pacer().record_pacer_triggered_major();
                     self.dispatch_collection_plan(plan)?;
+                    // Only count the trigger after dispatch
+                    // succeeds so pacer_triggered_majors agrees
+                    // with observed_cycles for the pacer path.
+                    self.heap.pacer().record_pacer_triggered_major();
                 }
             }
             crate::pacer::PacerDecision::TriggerMinor => {
@@ -211,8 +214,8 @@ impl<'heap> CollectorRuntime<'heap> {
                     // dispatches to execute_plan via
                     // dispatch_collection_plan unconditionally.
                     let plan = self.heap.plan_for(CollectionKind::Minor);
-                    self.heap.pacer().record_pacer_triggered_minor();
                     self.dispatch_collection_plan(plan)?;
+                    self.heap.pacer().record_pacer_triggered_minor();
                 }
             }
             crate::pacer::PacerDecision::Continue => {}
