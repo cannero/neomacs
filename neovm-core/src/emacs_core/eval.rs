@@ -7547,7 +7547,6 @@ impl Context {
             interactive: None,
         };
 
-        self.refresh_features_from_variable();
         let mut vm = super::bytecode::Vm::from_context(self);
         let exec_start = trace_toplevel_bytecode.then(std::time::Instant::now);
         let result = vm.execute(&bc, vec![]);
@@ -7559,7 +7558,6 @@ impl Context {
                 start.elapsed()
             );
         }
-        self.sync_features_variable();
         result
     }
 
@@ -8147,12 +8145,15 @@ impl Context {
     ) -> EvalResult {
         match function.kind() {
             ValueKind::Veclike(VecLikeType::ByteCode) => {
-                self.refresh_features_from_variable();
-                let bc_data = function.get_bytecode_data().unwrap().clone();
+                // get_bytecode_data returns a reference into the GC-managed
+                // ByteCodeObj.  GNU's bytecode interpreter executes from the
+                // function struct in place, never copying.  Don't clone here
+                // either — bytecode functions can have thousands of ops, and
+                // cloning per call dominated debug-build batch-byte-compile
+                // runtime.
+                let bc_data = function.get_bytecode_data().unwrap();
                 let mut vm = super::bytecode::Vm::from_context(self);
-                let result = vm.execute_with_func_value(&bc_data, args, function);
-                self.sync_features_variable();
-                result
+                vm.execute_with_func_value(bc_data, args, function)
             }
             ValueKind::Veclike(VecLikeType::Lambda) => self.apply_lambda(function, args),
             ValueKind::Veclike(VecLikeType::Macro) => self.apply_lambda(function, args),

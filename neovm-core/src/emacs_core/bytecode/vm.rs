@@ -526,33 +526,30 @@ impl<'a> Vm<'a> {
                     );
                 }
                 Op::VarBind(idx) => {
+                    // GNU bytecode.c Bvarbind: `specbind (vectorp[arg], POP);`
+                    // — always a dynamic binding, no lexical fallback. The
+                    // byte-compiler (bytecomp.el byte-compile-bind) emits
+                    // `byte-varbind` ONLY for variables that
+                    // `cconv--not-lexical-var-p` reports as dynamic — i.e.
+                    // members of `byte-compile-bound-variables`, populated
+                    // from the file's top-level `(defvar VAR)` declarations
+                    // among other sources. Lexical `let` bindings never get
+                    // a varbind opcode at all; they live on the value stack
+                    // and are tracked via `byte-compile--lexical-environment`.
+                    //
+                    // Therefore the VM must NOT second-guess the byte-compiler
+                    // by inspecting `is_special_id` / `lexenv_declares_special`
+                    // at runtime. Doing so misroutes file-local-only dynamic
+                    // declarations (e.g. `(defvar cconv-freevars-alist)` in
+                    // cconv.el — declared special locally but not globally) to
+                    // the lexenv, where they are invisible to other functions
+                    // called from the let body and surface as `void-variable`.
                     let name = sym_name(constants, *idx);
                     let val = stk!().pop().unwrap_or(Value::NIL);
-                    let old_value = self.lookup_var(&name).unwrap_or(Value::NIL);
                     let name_id = intern(&name);
-                    let lexical_bind = func.lexical
-                        && !self.ctx.obarray.is_constant_id(name_id)
-                        && !self.ctx.obarray.is_special_id(name_id)
-                        && !self
-                            .ctx
-                            .lexenv_declares_special_cached_in(self.ctx.lexenv, name_id);
-                    if lexical_bind {
-                        let old_lexenv = self.ctx.lexenv;
-                        self.ctx.lexenv = lexenv_prepend(self.ctx.lexenv, name_id, val);
-                        specpdl.push(VmUnwindEntry::LexicalBinding {
-                            sym_id: name_id,
-                            restored_value: old_value,
-                            old_lexenv,
-                        });
-                    } else {
-                        let specpdl_count = self.ctx.specpdl.len();
-                        // Use full specbind which handles buffer-local variables
-                        // (LetLocal/LetDefault). The simplified specbind_in_state
-                        // only handles plain Let bindings, which causes bugs when
-                        // let-binding buffer-local variables like `mode-name`.
-                        self.ctx.specbind(name_id, val);
-                        specpdl.push(VmUnwindEntry::DynamicBinding { specpdl_count });
-                    }
+                    let specpdl_count = self.ctx.specpdl.len();
+                    self.ctx.specbind(name_id, val);
+                    specpdl.push(VmUnwindEntry::DynamicBinding { specpdl_count });
                 }
                 Op::Unbind(n) => {
                     let mut unwind_roots = Vec::new();
