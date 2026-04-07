@@ -20,6 +20,7 @@ mod index_state;
 mod mark;
 pub mod mutator;
 mod object;
+pub mod pacer;
 mod pause_stats;
 pub mod plan;
 mod reclaim;
@@ -51,6 +52,7 @@ pub use edge::EdgeCell;
 pub use heap::{AllocError, Heap, HeapConfig};
 pub use mutator::Mutator;
 pub use object::estimated_allocation_size;
+pub use pacer::{Pacer, PacerConfig, PacerDecision, PacerStats};
 pub use pause_stats::PauseHistogram;
 pub use plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress,

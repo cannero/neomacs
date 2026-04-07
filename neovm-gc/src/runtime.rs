@@ -155,7 +155,22 @@ impl<'heap> CollectorRuntime<'heap> {
             return Err(AllocError::CollectionInProgress);
         }
         let (_, space, total_bytes) = self.typed_allocation_profile::<T>()?;
-        self.service_allocation_pressure(space, total_bytes)
+        // Layer the adaptive pacer on top of the static thresholds.
+        // The pacer never overrides the static path: if the static
+        // pressure plan would already collect, that still wins. The
+        // pacer only forces an additional major collection when its
+        // EWMA model believes the next major is due.
+        let pacer_decision = self.heap.pacer().record_allocation(total_bytes);
+        self.service_allocation_pressure(space, total_bytes)?;
+        if matches!(pacer_decision, crate::pacer::PacerDecision::TriggerMajor)
+            && !self.heap.collector_handle().has_active_major_mark()
+            && self.heap.allocation_pressure_plan(space, total_bytes).is_none()
+        {
+            // Static thresholds did not fire; honor the pacer's decision
+            // and run a major collection now.
+            self.collect(CollectionKind::Major)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn alloc_typed<'scope, 'handle_heap, T: crate::descriptor::Trace + 'static>(

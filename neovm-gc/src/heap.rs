@@ -6,6 +6,7 @@ use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
 use crate::index_state::HeapIndexState;
 use crate::mutator::Mutator;
 use crate::object::{ObjectRecord, SpaceKind};
+use crate::pacer::{Pacer, PacerConfig, PacerStats};
 use crate::pause_stats::{PauseHistogram, PauseStatsHandle};
 use crate::plan::{
     CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress, RuntimeWorkStatus,
@@ -89,6 +90,7 @@ pub struct Heap {
     recent_barrier_events: Vec<BarrierEvent>,
     collector: CollectorStateHandle,
     pause_stats: PauseStatsHandle,
+    pacer: Pacer,
     // --- arena buffers (drops last, after all records) ---
     /// Bump-pointer semispace nursery arenas (Phase 1).
     nursery: NurseryState,
@@ -139,6 +141,7 @@ impl Heap {
             recent_barrier_events: Vec::new(),
             collector: CollectorStateHandle::default(),
             pause_stats: PauseStatsHandle::new(),
+            pacer: Pacer::new(PacerConfig::default()),
             nursery,
         };
         heap.refresh_recommended_plans();
@@ -560,6 +563,10 @@ impl Heap {
         if cycle.pause_nanos > 0 {
             self.pause_stats.record(cycle.pause_nanos);
         }
+        if cycle.major_collections > 0 {
+            let live_after = self.storage_stats().total_live_bytes();
+            self.pacer.record_completed_cycle(&cycle, live_after);
+        }
     }
 
     /// Return a snapshot of recent stop-the-world pause statistics (P50/P95/P99
@@ -571,6 +578,25 @@ impl Heap {
     #[allow(dead_code)]
     pub(crate) fn pause_stats_handle(&self) -> PauseStatsHandle {
         self.pause_stats.clone()
+    }
+
+    /// Snapshot the adaptive pacer's current model.
+    pub fn pacer_stats(&self) -> PacerStats {
+        self.pacer.stats()
+    }
+
+    /// Return a clone of the pacer handle. Cheap; the inner state is
+    /// shared via `Arc<Mutex<...>>`.
+    pub fn pacer(&self) -> Pacer {
+        self.pacer.clone()
+    }
+
+    /// Override the pacer's configuration. Replaces the existing pacer
+    /// with a fresh one constructed from `config`. Intended for tests
+    /// and tuning experiments — production code should set the config
+    /// once during heap construction.
+    pub fn set_pacer_config(&mut self, config: PacerConfig) {
+        self.pacer = Pacer::new(config);
     }
 
     #[cfg(test)]

@@ -11227,3 +11227,174 @@ fn concurrent_marker_join_stops_thread_cleanly() {
         })
         .expect("mutator works after concurrent marker join");
 }
+
+// ---------------------------------------------------------------------------
+// Adaptive pacer tests (Phase 7 completion).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn pacer_default_threshold_starts_at_min_trigger() {
+    let heap = Heap::new(HeapConfig::default());
+    let stats = heap.pacer_stats();
+    assert_eq!(stats.observed_cycles, 0);
+    assert_eq!(stats.last_live_bytes, 0);
+    assert_eq!(stats.next_major_trigger_bytes, 1024 * 1024);
+    assert_eq!(stats.allocation_rate_bps, 0);
+    assert_eq!(stats.mark_rate_bps, 0);
+    assert_eq!(stats.overshoot_count, 0);
+}
+
+#[test]
+fn pacer_record_completed_cycle_updates_threshold_based_on_live_bytes_and_growth_ratio()
+{
+    let mut heap = Heap::new(HeapConfig::default());
+    heap.set_pacer_config(PacerConfig {
+        target_pause: Duration::from_secs(1),
+        heap_growth_target_ratio: 1.5,
+        min_trigger_bytes: 256,
+        ..PacerConfig::default()
+    });
+    let cycle = CollectionStats {
+        collections: 1,
+        major_collections: 1,
+        // Modest pause keeps the safe-growth budget very generous so the
+        // growth-ratio side wins the min(...) calculation.
+        pause_nanos: 1_000,
+        ..CollectionStats::default()
+    };
+    heap.pacer().record_completed_cycle(&cycle, 4096);
+    let stats = heap.pacer_stats();
+    assert_eq!(stats.observed_cycles, 1);
+    assert_eq!(stats.last_live_bytes, 4096);
+    // Expected target growth = 4096 * 1.5 = 6144 bytes.
+    // Mark rate from this cycle is huge (4096 bytes / 1 microsec) so
+    // max_safe_growth at a 1-second pause budget is enormous; the min
+    // selection should yield 6144.
+    assert_eq!(stats.next_major_trigger_bytes, 4096 + 6144);
+}
+
+#[test]
+fn pacer_record_completed_cycle_clamps_growth_to_pause_budget_under_high_alloc_rate() {
+    let mut heap = Heap::new(HeapConfig::default());
+    heap.set_pacer_config(PacerConfig {
+        // Very tight pause budget.
+        target_pause: Duration::from_nanos(1),
+        // Generous growth allowance so growth-ratio cannot win.
+        heap_growth_target_ratio: 1024.0,
+        min_trigger_bytes: 1,
+        ..PacerConfig::default()
+    });
+    let cycle = CollectionStats {
+        collections: 1,
+        major_collections: 1,
+        // Slow mark: 1 byte per nanosecond → mark rate = 1e9 bytes/sec.
+        // max_safe_growth = 1e9 * 1e-9 = 1 byte. Floored to min_trigger_bytes=1.
+        pause_nanos: 1_000_000,
+        ..CollectionStats::default()
+    };
+    heap.pacer().record_completed_cycle(&cycle, 1_000_000);
+    let stats = heap.pacer_stats();
+    // The clamp picks max_safe_growth (1) over target_growth (>>>1).
+    // Then floors to min_trigger_bytes=1. Trigger = live + 1.
+    assert_eq!(stats.next_major_trigger_bytes, 1_000_001);
+    assert!(stats.mark_rate_bps > 0);
+}
+
+#[test]
+fn pacer_overshoot_increments_count_when_pause_exceeds_target() {
+    let mut heap = Heap::new(HeapConfig::default());
+    heap.set_pacer_config(PacerConfig {
+        target_pause: Duration::from_millis(1),
+        ..PacerConfig::default()
+    });
+    let cycle = CollectionStats {
+        collections: 1,
+        major_collections: 1,
+        pause_nanos: 5_000_000,
+        ..CollectionStats::default()
+    };
+    heap.pacer().record_completed_cycle(&cycle, 1024);
+    assert_eq!(heap.pacer_stats().overshoot_count, 1);
+    heap.pacer().record_completed_cycle(&cycle, 1024);
+    assert_eq!(heap.pacer_stats().overshoot_count, 2);
+}
+
+#[test]
+fn pacer_record_allocation_returns_trigger_major_when_threshold_exceeded() {
+    let mut heap = Heap::new(HeapConfig::default());
+    heap.set_pacer_config(PacerConfig {
+        min_trigger_bytes: 1024,
+        ..PacerConfig::default()
+    });
+    // Sub-threshold allocation continues.
+    let decision_a = heap.pacer().record_allocation(64);
+    assert_eq!(decision_a, PacerDecision::Continue);
+    // Allocation that pushes the running total past the trigger fires.
+    let decision_b = heap.pacer().record_allocation(2048);
+    assert_eq!(decision_b, PacerDecision::TriggerMajor);
+}
+
+#[test]
+fn pacer_in_heap_triggers_major_via_allocation_pressure() {
+    // Build a heap with a tiny pacer trigger so a few allocs are
+    // enough to make the pacer want to fire. Use an enormous nursery
+    // semispace so the *static* nursery pressure path can never fire,
+    // forcing any observed major collections to come from the pacer.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            // Big enough that we never trip the static nursery pressure.
+            semispace_bytes: 16 * 1024 * 1024,
+            // Promote nursery objects on every minor collection so the
+            // pacer-driven major sees real live old-gen bytes if the
+            // mutator chooses to flush.
+            promotion_age: 1,
+            ..NurseryConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    heap.set_pacer_config(PacerConfig {
+        target_pause: Duration::from_secs(1),
+        heap_growth_target_ratio: 2.0,
+        min_trigger_bytes: 256,
+        ..PacerConfig::default()
+    });
+
+    let baseline_majors = heap.stats().collections.major_collections;
+
+    // Allocate via the auto path so prepare_typed_allocation runs and
+    // consults the pacer. Use enough leaves to push past min_trigger.
+    let mut mutator = heap.mutator();
+    {
+        let mut scope = mutator.handle_scope();
+        for i in 0..256 {
+            let _leaf = mutator
+                .alloc_auto(&mut scope, Leaf(i as u64))
+                .expect("alloc auto leaf");
+        }
+    }
+
+    let stats = heap.stats();
+    assert!(
+        stats.collections.major_collections > baseline_majors,
+        "expected pacer to drive at least one major collection, got {}",
+        stats.collections.major_collections
+    );
+
+    let pacer_stats = heap.pacer_stats();
+    assert!(
+        pacer_stats.observed_cycles >= 1,
+        "expected pacer to observe at least one completed cycle, got {}",
+        pacer_stats.observed_cycles
+    );
+
+    // Heap should still be bounded — we capped it at the pacer trigger
+    // plus a small bounded slack.
+    let live_bytes = stats.nursery.live_bytes
+        + stats.old.live_bytes
+        + stats.pinned.live_bytes;
+    assert!(
+        live_bytes < 16 * 1024 * 1024,
+        "live bytes ({}) should remain bounded under pacer-driven GC",
+        live_bytes
+    );
+}
