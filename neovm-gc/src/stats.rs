@@ -1,3 +1,4 @@
+use crate::object::SpaceKind;
 use crate::spaces::OldRegionCollectionStats;
 
 /// Collection statistics for one completed GC cycle.
@@ -179,6 +180,15 @@ pub struct HeapStats {
     pub pending_finalizers: usize,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PreparedHeapStats {
+    pub(crate) nursery: SpaceStats,
+    pub(crate) old: SpaceStats,
+    pub(crate) pinned: SpaceStats,
+    pub(crate) large: SpaceStats,
+    pub(crate) immortal: SpaceStats,
+}
+
 impl HeapStats {
     pub(crate) fn total_live_bytes(&self) -> usize {
         self.nursery
@@ -187,6 +197,56 @@ impl HeapStats {
             .saturating_add(self.pinned.live_bytes)
             .saturating_add(self.large.live_bytes)
             .saturating_add(self.immortal.live_bytes)
+    }
+}
+
+impl PreparedHeapStats {
+    pub(crate) fn record_live_object(&mut self, space: SpaceKind, bytes: usize) {
+        match space {
+            SpaceKind::Nursery => {
+                self.nursery.live_bytes = self.nursery.live_bytes.saturating_add(bytes);
+            }
+            SpaceKind::Old => {
+                self.old.live_bytes = self.old.live_bytes.saturating_add(bytes);
+            }
+            SpaceKind::Pinned => {
+                self.pinned.live_bytes = self.pinned.live_bytes.saturating_add(bytes);
+            }
+            SpaceKind::Large => {
+                self.large.live_bytes = self.large.live_bytes.saturating_add(bytes);
+                self.large.reserved_bytes = self.large.reserved_bytes.saturating_add(bytes);
+            }
+            SpaceKind::Immortal => {
+                self.immortal.live_bytes = self.immortal.live_bytes.saturating_add(bytes);
+                self.immortal.reserved_bytes = self.immortal.reserved_bytes.saturating_add(bytes);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn total_live_bytes(&self) -> usize {
+        self.nursery
+            .live_bytes
+            .saturating_add(self.old.live_bytes)
+            .saturating_add(self.pinned.live_bytes)
+            .saturating_add(self.large.live_bytes)
+            .saturating_add(self.immortal.live_bytes)
+    }
+
+    pub(crate) fn apply_prepared_reclaim(
+        self,
+        stats: &mut HeapStats,
+        old_reserved_bytes: usize,
+    ) -> usize {
+        stats.nursery.live_bytes = self.nursery.live_bytes;
+        stats.old.live_bytes = self.old.live_bytes;
+        stats.old.reserved_bytes = old_reserved_bytes;
+        stats.pinned.live_bytes = self.pinned.live_bytes;
+        stats.large.live_bytes = self.large.live_bytes;
+        stats.large.reserved_bytes = self.large.reserved_bytes;
+        stats.immortal.live_bytes = self.immortal.live_bytes;
+        stats.immortal.reserved_bytes = self.immortal.reserved_bytes;
+        stats.total_live_bytes()
     }
 }
 

@@ -25,7 +25,7 @@ pub(crate) struct HeapIndexState {
     pub(crate) remembered: RememberedSetState,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct PreparedIndexReclaim {
     pub(crate) rebuilt_object_index: ObjectIndex,
     pub(crate) finalize_indices: Vec<usize>,
@@ -238,6 +238,15 @@ impl HeapIndexState {
             remembered_edges,
             remembered_owners,
         }
+    }
+
+    pub(crate) fn apply_prepared_reclaim(&mut self, prepared: PreparedIndexReclaim) {
+        self.object_index = prepared.rebuilt_object_index;
+        self.finalizable_candidates = prepared.finalizable_candidates;
+        self.weak_candidates = prepared.weak_candidates;
+        self.ephemeron_candidates = prepared.ephemeron_candidates;
+        self.remembered
+            .replace(prepared.remembered_edges, prepared.remembered_owners);
     }
 
     pub(crate) fn retain_remembered_edges_for_post_sweep_objects(

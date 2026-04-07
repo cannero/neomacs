@@ -1,5 +1,8 @@
 use super::*;
+use crate::index_state::PreparedIndexReclaim;
 use crate::plan::{CollectionKind, CollectionPhase};
+use crate::spaces::PreparedOldGenReclaim;
+use crate::stats::PreparedHeapStats;
 use std::cell::RefCell;
 
 fn major_plan() -> CollectionPlan {
@@ -20,22 +23,11 @@ fn major_plan() -> CollectionPlan {
 fn prepared_reclaim() -> PreparedReclaim {
     PreparedReclaim {
         promoted_bytes: 0,
-        rebuilt_old_regions: Vec::new(),
-        rebuilt_object_index: HashMap::new(),
-        old_reserved_bytes: 0,
-        old_region_stats: OldRegionCollectionStats::default(),
+        old_gen: PreparedOldGenReclaim::default(),
+        indexes: PreparedIndexReclaim::default(),
         survivors: Vec::new(),
         finalize_indices: Vec::new(),
-        finalizable_candidates: Vec::new(),
-        weak_candidates: Vec::new(),
-        ephemeron_candidates: Vec::new(),
-        remembered_edges: Vec::new(),
-        remembered_owners: Vec::new(),
-        nursery_live_bytes: 0,
-        old_live_bytes: 0,
-        pinned_live_bytes: 0,
-        large_live_bytes: 0,
-        immortal_live_bytes: 0,
+        stats: PreparedHeapStats::default(),
     }
 }
 

@@ -2,6 +2,7 @@ use super::*;
 use crate::descriptor::{Trace, Tracer, fixed_type_desc};
 use crate::object::{ObjectRecord, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan};
+use std::collections::HashSet;
 
 #[derive(Debug)]
 struct OldLeaf;
@@ -75,4 +76,36 @@ fn prepare_reclaim_survivor_reassigns_selected_region_after_preserved_regions() 
     assert_eq!(rebuild.compacted_regions.len(), 1);
     assert_eq!(rebuild.compacted_regions[0].object_count, 1);
     assert_eq!(rebuild.compacted_regions[0].live_bytes, first.total_size());
+}
+
+#[test]
+fn apply_prepared_reclaim_replaces_regions_and_returns_region_stats() {
+    let prepared = PreparedOldGenReclaim {
+        rebuilt_regions: vec![OldRegion {
+            capacity_bytes: 64,
+            used_bytes: 32,
+            live_bytes: 24,
+            object_count: 2,
+            occupied_lines: HashSet::new(),
+        }],
+        reserved_bytes: 64,
+        region_stats: OldRegionCollectionStats {
+            compacted_regions: 1,
+            reclaimed_regions: 2,
+        },
+    };
+    let mut old_gen = OldGenState::default();
+
+    let stats = old_gen.apply_prepared_reclaim(prepared);
+
+    assert_eq!(
+        stats,
+        OldRegionCollectionStats {
+            compacted_regions: 1,
+            reclaimed_regions: 2,
+        }
+    );
+    assert_eq!(old_gen.regions.len(), 1);
+    assert_eq!(old_gen.reserved_bytes(), 64);
+    assert_eq!(old_gen.regions[0].live_bytes, 24);
 }

@@ -1,13 +1,10 @@
-use std::collections::HashMap;
-
-use crate::barrier::RememberedEdge;
-use crate::descriptor::{ObjectKey, TypeFlags};
+use crate::descriptor::TypeFlags;
 use crate::heap::AllocError;
-use crate::index_state::HeapIndexState;
+use crate::index_state::{HeapIndexState, PreparedIndexReclaim};
 use crate::object::{ObjectRecord, OldRegionPlacement, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPlan};
-use crate::spaces::{OldGenConfig, OldGenState, OldRegion, OldRegionCollectionStats};
-use crate::stats::{CollectionStats, HeapStats};
+use crate::spaces::{OldGenConfig, OldGenState, OldRegionCollectionStats, PreparedOldGenReclaim};
+use crate::stats::{CollectionStats, HeapStats, PreparedHeapStats};
 
 #[derive(Debug)]
 pub(crate) struct PreparedReclaimSurvivor {
@@ -19,10 +16,8 @@ pub(crate) struct PreparedReclaimSurvivor {
 #[derive(Debug)]
 pub(crate) struct PreparedReclaim {
     pub(crate) promoted_bytes: usize,
-    pub(crate) rebuilt_old_regions: Vec<OldRegion>,
-    pub(crate) rebuilt_object_index: HashMap<ObjectKey, usize>,
-    pub(crate) old_reserved_bytes: usize,
-    pub(crate) old_region_stats: OldRegionCollectionStats,
+    pub(crate) old_gen: PreparedOldGenReclaim,
+    pub(crate) indexes: PreparedIndexReclaim,
     /// Survivors in ascending original `object_index` order.
     ///
     /// `commit_prepared_reclaim_objects` drains this in lockstep with the original
@@ -32,16 +27,7 @@ pub(crate) struct PreparedReclaim {
     /// order. `commit_prepared_reclaim_objects` drains these into the
     /// pending-finalizer queue in lockstep with the original `objects` vector.
     pub(crate) finalize_indices: Vec<usize>,
-    pub(crate) finalizable_candidates: Vec<ObjectKey>,
-    pub(crate) weak_candidates: Vec<ObjectKey>,
-    pub(crate) ephemeron_candidates: Vec<ObjectKey>,
-    pub(crate) remembered_edges: Vec<RememberedEdge>,
-    pub(crate) remembered_owners: Vec<ObjectKey>,
-    pub(crate) nursery_live_bytes: usize,
-    pub(crate) old_live_bytes: usize,
-    pub(crate) pinned_live_bytes: usize,
-    pub(crate) large_live_bytes: usize,
-    pub(crate) immortal_live_bytes: usize,
+    pub(crate) stats: PreparedHeapStats,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -68,11 +54,7 @@ pub(crate) fn prepare_reclaim(
 ) -> PreparedReclaim {
     let mut rebuild = old_gen.prepare_rebuild_for_plan(plan);
     let mut survivors = Vec::new();
-    let mut nursery_live_bytes = 0usize;
-    let mut old_live_bytes = 0usize;
-    let mut pinned_live_bytes = 0usize;
-    let mut large_live_bytes = 0usize;
-    let mut immortal_live_bytes = 0usize;
+    let mut prepared_stats = PreparedHeapStats::default();
 
     for (object_index, object) in objects.iter().enumerate() {
         if !keep_object_for_collection(kind, object) {
@@ -96,51 +78,19 @@ pub(crate) fn prepare_reclaim(
             object_index,
             old_region_placement,
         });
-
-        match object.space() {
-            SpaceKind::Nursery => {
-                nursery_live_bytes = nursery_live_bytes.saturating_add(total_size);
-            }
-            SpaceKind::Old => {
-                old_live_bytes = old_live_bytes.saturating_add(total_size);
-            }
-            SpaceKind::Pinned => {
-                pinned_live_bytes = pinned_live_bytes.saturating_add(total_size);
-            }
-            SpaceKind::Large => {
-                large_live_bytes = large_live_bytes.saturating_add(total_size);
-            }
-            SpaceKind::Immortal => {
-                immortal_live_bytes = immortal_live_bytes.saturating_add(total_size);
-            }
-        }
+        prepared_stats.record_live_object(object.space(), total_size);
     }
 
-    let (rebuilt_old_regions, old_region_stats) =
-        OldGenState::finish_prepared_rebuild(rebuild, &mut survivors);
-    let old_reserved_bytes = rebuilt_old_regions
-        .iter()
-        .map(|region| region.capacity_bytes)
-        .sum();
+    let prepared_old_gen = OldGenState::finish_prepared_rebuild(rebuild, &mut survivors);
     let prepared_indexes = indexes.prepare_reclaim_state(objects, &survivors, kind);
+    let finalize_indices = prepared_indexes.finalize_indices.clone();
     PreparedReclaim {
         promoted_bytes: 0,
-        rebuilt_old_regions,
-        rebuilt_object_index: prepared_indexes.rebuilt_object_index,
-        old_reserved_bytes,
-        old_region_stats,
+        old_gen: prepared_old_gen,
+        indexes: prepared_indexes,
         survivors,
-        finalize_indices: prepared_indexes.finalize_indices,
-        finalizable_candidates: prepared_indexes.finalizable_candidates,
-        weak_candidates: prepared_indexes.weak_candidates,
-        ephemeron_candidates: prepared_indexes.ephemeron_candidates,
-        remembered_edges: prepared_indexes.remembered_edges,
-        remembered_owners: prepared_indexes.remembered_owners,
-        nursery_live_bytes,
-        old_live_bytes,
-        pinned_live_bytes,
-        large_live_bytes,
-        immortal_live_bytes,
+        finalize_indices,
+        stats: prepared_stats,
     }
 }
 
@@ -249,29 +199,21 @@ pub(crate) fn apply_prepared_reclaim(
     let (rebuilt_objects, queued_finalizers) =
         commit_prepared_reclaim_objects(old_objects, &prepared_reclaim, enqueue_pending_finalizer);
 
-    let old_region_stats = prepared_reclaim.old_region_stats;
+    let PreparedReclaim {
+        old_gen: prepared_old_gen,
+        indexes: prepared_indexes,
+        stats: prepared_stats,
+        ..
+    } = prepared_reclaim;
     *objects = rebuilt_objects;
-    old_gen.regions = prepared_reclaim.rebuilt_old_regions;
-    indexes.object_index = prepared_reclaim.rebuilt_object_index;
-    indexes.finalizable_candidates = prepared_reclaim.finalizable_candidates;
-    indexes.weak_candidates = prepared_reclaim.weak_candidates;
-    indexes.ephemeron_candidates = prepared_reclaim.ephemeron_candidates;
-    indexes.remembered.replace(
-        prepared_reclaim.remembered_edges,
-        prepared_reclaim.remembered_owners,
-    );
-    stats.nursery.live_bytes = prepared_reclaim.nursery_live_bytes;
-    stats.old.live_bytes = prepared_reclaim.old_live_bytes;
-    stats.pinned.live_bytes = prepared_reclaim.pinned_live_bytes;
-    stats.large.live_bytes = prepared_reclaim.large_live_bytes;
-    stats.large.reserved_bytes = prepared_reclaim.large_live_bytes;
-    stats.immortal.live_bytes = prepared_reclaim.immortal_live_bytes;
-    stats.immortal.reserved_bytes = prepared_reclaim.immortal_live_bytes;
-    stats.old.reserved_bytes = prepared_reclaim.old_reserved_bytes;
+    let old_region_stats = old_gen.apply_prepared_reclaim(prepared_old_gen);
+    let old_reserved_bytes = old_gen.reserved_bytes();
+    indexes.apply_prepared_reclaim(prepared_indexes);
+    let after_bytes = prepared_stats.apply_prepared_reclaim(stats, old_reserved_bytes);
     ReclaimCommitResult {
         queued_finalizers,
         old_region_stats,
-        after_bytes: stats.total_live_bytes(),
+        after_bytes,
     }
 }
 

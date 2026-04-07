@@ -50,6 +50,13 @@ pub(crate) struct OldGenPlanSelection {
     pub(crate) estimated_reclaim_bytes: usize,
 }
 
+#[derive(Debug, Default)]
+pub(crate) struct PreparedOldGenReclaim {
+    pub(crate) rebuilt_regions: Vec<OldRegion>,
+    pub(crate) reserved_bytes: usize,
+    pub(crate) region_stats: OldRegionCollectionStats,
+}
+
 impl OldGenState {
     pub(crate) fn is_empty(&self) -> bool {
         self.regions.is_empty()
@@ -300,7 +307,7 @@ impl OldGenState {
     pub(crate) fn finish_prepared_rebuild(
         rebuild: OldRegionRebuildState,
         survivors: &mut [PreparedReclaimSurvivor],
-    ) -> (Vec<OldRegion>, OldRegionCollectionStats) {
+    ) -> PreparedOldGenReclaim {
         let provisional_compacted_base = rebuild.compacted_base_index;
         let mut preserved_index_remap = vec![None; provisional_compacted_base];
         let mut compacted_regions = Vec::with_capacity(
@@ -337,13 +344,28 @@ impl OldGenState {
         let reclaimed_regions = rebuild
             .previous_region_count
             .saturating_sub(compacted_regions.len()) as u64;
-        (
-            compacted_regions,
-            OldRegionCollectionStats {
+        let reserved_bytes = compacted_regions
+            .iter()
+            .map(|region| region.capacity_bytes)
+            .sum();
+        PreparedOldGenReclaim {
+            rebuilt_regions: compacted_regions,
+            reserved_bytes,
+            region_stats: OldRegionCollectionStats {
                 compacted_regions: rebuild.compacted_regions_count,
                 reclaimed_regions,
             },
-        )
+        }
+    }
+
+    pub(crate) fn apply_prepared_reclaim(
+        &mut self,
+        prepared: PreparedOldGenReclaim,
+    ) -> OldRegionCollectionStats {
+        let region_stats = prepared.region_stats;
+        self.regions = prepared.rebuilt_regions;
+        debug_assert_eq!(self.reserved_bytes(), prepared.reserved_bytes);
+        region_stats
     }
 
     pub(crate) fn reserve_rebuild_placement(

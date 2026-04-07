@@ -8,5 +8,7 @@ pub mod pinned;
 pub use large::LargeObjectSpaceConfig;
 pub use nursery::NurseryConfig;
 pub use old::OldGenConfig;
-pub(crate) use old::{OldGenPlanSelection, OldGenState, OldRegion, OldRegionCollectionStats};
+pub(crate) use old::{
+    OldGenPlanSelection, OldGenState, OldRegionCollectionStats, PreparedOldGenReclaim,
+};
 pub use pinned::PinnedSpaceConfig;

@@ -4,7 +4,8 @@ use crate::descriptor::{Trace, Tracer, fixed_type_desc};
 use crate::mark::MarkWorklist;
 use crate::object::{ObjectRecord, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPhase};
-use crate::spaces::{NurseryConfig, OldRegion};
+use crate::spaces::NurseryConfig;
+use crate::spaces::old::OldRegion;
 use crate::stats::{HeapStats, SpaceStats};
 
 fn plan_for(kind: CollectionKind) -> CollectionPlan {

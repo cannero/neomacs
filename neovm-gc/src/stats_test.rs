@@ -1,4 +1,5 @@
 use super::*;
+use crate::object::SpaceKind;
 use crate::spaces::OldRegionCollectionStats;
 
 #[test]
@@ -154,4 +155,28 @@ fn heap_stats_total_live_bytes_sums_all_spaces() {
     };
 
     assert_eq!(stats.total_live_bytes(), 15);
+}
+
+#[test]
+fn prepared_heap_stats_apply_reclaim_updates_space_live_and_reserved_bytes() {
+    let mut prepared = PreparedHeapStats::default();
+    prepared.record_live_object(SpaceKind::Nursery, 3);
+    prepared.record_live_object(SpaceKind::Old, 5);
+    prepared.record_live_object(SpaceKind::Pinned, 7);
+    prepared.record_live_object(SpaceKind::Large, 11);
+    prepared.record_live_object(SpaceKind::Immortal, 13);
+    assert_eq!(prepared.total_live_bytes(), 39);
+
+    let mut stats = HeapStats::default();
+    let after_bytes = prepared.apply_prepared_reclaim(&mut stats, 17);
+
+    assert_eq!(after_bytes, 39);
+    assert_eq!(stats.nursery.live_bytes, 3);
+    assert_eq!(stats.old.live_bytes, 5);
+    assert_eq!(stats.old.reserved_bytes, 17);
+    assert_eq!(stats.pinned.live_bytes, 7);
+    assert_eq!(stats.large.live_bytes, 11);
+    assert_eq!(stats.large.reserved_bytes, 11);
+    assert_eq!(stats.immortal.live_bytes, 13);
+    assert_eq!(stats.immortal.reserved_bytes, 13);
 }

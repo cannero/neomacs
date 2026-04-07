@@ -1,10 +1,12 @@
 use super::*;
 use crate::descriptor::{Relocator, Trace, Tracer, fixed_type_desc};
+use crate::index_state::PreparedIndexReclaim;
 use crate::mark::MarkWorklist;
 use crate::object::{ObjectRecord, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan};
 use crate::reclaim::{PreparedReclaim, PreparedReclaimSurvivor};
-use crate::spaces::OldRegionCollectionStats;
+use crate::spaces::{OldRegionCollectionStats, PreparedOldGenReclaim};
+use crate::stats::PreparedHeapStats;
 use std::collections::HashMap;
 
 fn major_plan() -> CollectionPlan {
@@ -32,25 +34,17 @@ fn full_plan() -> CollectionPlan {
 fn prepared_reclaim() -> PreparedReclaim {
     PreparedReclaim {
         promoted_bytes: 0,
-        rebuilt_old_regions: Vec::new(),
-        rebuilt_object_index: std::collections::HashMap::new(),
-        old_reserved_bytes: 0,
-        old_region_stats: OldRegionCollectionStats::default(),
+        old_gen: PreparedOldGenReclaim {
+            region_stats: OldRegionCollectionStats::default(),
+            ..PreparedOldGenReclaim::default()
+        },
+        indexes: PreparedIndexReclaim::default(),
         survivors: vec![PreparedReclaimSurvivor {
             object_index: 0,
             old_region_placement: None,
         }],
         finalize_indices: Vec::new(),
-        finalizable_candidates: Vec::new(),
-        weak_candidates: Vec::new(),
-        ephemeron_candidates: Vec::new(),
-        remembered_edges: Vec::new(),
-        remembered_owners: Vec::new(),
-        nursery_live_bytes: 0,
-        old_live_bytes: 0,
-        pinned_live_bytes: 0,
-        large_live_bytes: 0,
-        immortal_live_bytes: 0,
+        stats: PreparedHeapStats::default(),
     }
 }
 
