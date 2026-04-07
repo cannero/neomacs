@@ -3,8 +3,78 @@ use crate::index_state::{HeapIndexState, PreparedIndexReclaim};
 use crate::object::{ObjectRecord, OldBlockPlacement, OldRegionPlacement, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPlan};
 use crate::runtime_state::RuntimeStateHandle;
-use crate::spaces::{OldGenConfig, OldGenState, OldRegionCollectionStats, PreparedOldGenReclaim};
+use crate::spaces::{
+    OldBlock, OldGenConfig, OldGenState, OldRegionCollectionStats, PreparedOldGenReclaim,
+};
 use crate::stats::{CollectionStats, HeapStats, PreparedHeapStats};
+
+/// Physical old-gen compaction helper (physical-compaction step 3).
+///
+/// Walks `objects` and computes the sum of `total_size` for every
+/// live block-backed object, grouped by `OldBlockPlacement::block_index`.
+/// Only objects that a previous pass has identified as survivors
+/// (i.e. still present in the slice after mark processing) are
+/// counted. The returned vector has one entry per block in
+/// `blocks`; entries for blocks that hold no surviving records
+/// stay at zero.
+#[allow(dead_code)]
+pub(crate) fn compute_per_block_live_bytes(
+    objects: &[ObjectRecord],
+    block_count: usize,
+) -> Vec<usize> {
+    let mut live_by_block = vec![0usize; block_count];
+    for object in objects {
+        if object.space() != SpaceKind::Old {
+            continue;
+        }
+        let Some(placement) = object.old_block_placement() else {
+            continue;
+        };
+        if let Some(slot) = live_by_block.get_mut(placement.block_index) {
+            *slot = slot.saturating_add(object.total_size());
+        }
+    }
+    live_by_block
+}
+
+/// Physical old-gen compaction helper (physical-compaction step 3).
+///
+/// Identify the indices of blocks whose current live-byte density
+/// falls at or below `density_threshold` relative to their
+/// capacity. These are the candidates the compaction pass will
+/// evacuate from: copying their survivors into fresh target
+/// blocks leaves the source blocks empty so the existing
+/// block-reclaim path can drop them.
+///
+/// `density_threshold` is in the range `[0.0, 1.0]`. A value of
+/// `0.3` means "blocks with 30% or less live fill are candidates."
+/// Blocks that are empty are excluded (nothing to evacuate).
+/// Blocks that hold a single object as their entire content are
+/// also excluded (moving it gains nothing — the block IS its
+/// single object).
+#[allow(dead_code)]
+pub(crate) fn find_sparse_old_block_candidates(
+    live_by_block: &[usize],
+    blocks: &[OldBlock],
+    density_threshold: f64,
+) -> Vec<usize> {
+    let mut candidates = Vec::new();
+    for (index, block) in blocks.iter().enumerate() {
+        let live = live_by_block.get(index).copied().unwrap_or(0);
+        if live == 0 {
+            continue; // empty blocks get dropped by drop_unused_blocks_with_remap.
+        }
+        let capacity = block.capacity_bytes();
+        if capacity == 0 {
+            continue;
+        }
+        let density = (live as f64) / (capacity as f64);
+        if density <= density_threshold {
+            candidates.push(index);
+        }
+    }
+    candidates
+}
 
 /// Physical old-gen compaction helper (physical-compaction step 2).
 ///

@@ -61,6 +61,96 @@ fn old_block_accounting_fields_start_zero_and_update_on_record() {
 }
 
 #[test]
+fn compute_per_block_live_bytes_sums_total_size_by_block_index() {
+    use crate::reclaim::compute_per_block_live_bytes;
+
+    let mut old_gen = OldGenState::default();
+    let config = OldGenConfig {
+        region_bytes: 4096,
+        line_bytes: 16,
+        ..OldGenConfig::default()
+    };
+    // Seed block 0 with two objects and block 1 with one.
+    let layout = core::alloc::Layout::from_size_align(64, 8).unwrap();
+    let mut objects = Vec::new();
+    for _ in 0..2 {
+        let mut record = ObjectRecord::allocate(
+            old_leaf_desc(),
+            SpaceKind::Old,
+            OldLeaf,
+        )
+        .expect("alloc obj in block 0");
+        let (placement, _) = old_gen
+            .try_alloc_in_block(&config, layout)
+            .expect("alloc in block 0");
+        record.set_old_block_placement(placement);
+        objects.push(record);
+    }
+    // Force a second block.
+    let mut record3 = ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf)
+        .expect("alloc obj in block 1");
+    let (fresh_placement, _) = old_gen
+        .alloc_in_fresh_block(&config, layout)
+        .expect("alloc in fresh block 1");
+    record3.set_old_block_placement(fresh_placement);
+    objects.push(record3);
+
+    let per_block = compute_per_block_live_bytes(&objects, old_gen.block_count());
+    assert_eq!(per_block.len(), 2);
+    // Two objects in block 0: total = 2 * total_size.
+    assert_eq!(per_block[0], 2 * objects[0].total_size());
+    // One object in block 1.
+    assert_eq!(per_block[1], objects[2].total_size());
+}
+
+#[test]
+fn find_sparse_old_block_candidates_picks_low_density_blocks() {
+    use crate::reclaim::find_sparse_old_block_candidates;
+
+    let mut old_gen = OldGenState::default();
+    let config = OldGenConfig {
+        // Small region_bytes makes it easy to reason about
+        // density in the test.
+        region_bytes: 1024,
+        line_bytes: 16,
+        ..OldGenConfig::default()
+    };
+
+    let layout = core::alloc::Layout::from_size_align(64, 8).unwrap();
+    // Block 0: allocate many objects so it's dense.
+    for _ in 0..10 {
+        old_gen
+            .try_alloc_in_block(&config, layout)
+            .expect("alloc dense");
+    }
+    // Block 1: fresh block with a single allocation — sparse.
+    old_gen
+        .alloc_in_fresh_block(&config, layout)
+        .expect("alloc sparse");
+    assert_eq!(old_gen.block_count(), 2);
+
+    // Synthetic live-byte counts: block 0 has 10*64=640 live,
+    // block 1 has 64 live.
+    let live_by_block = vec![640usize, 64usize];
+    // Threshold 0.30: block 0 density = 640/1024 = 0.625 (not
+    // candidate); block 1 density = 64/1024 = 0.0625 (candidate).
+    let candidates =
+        find_sparse_old_block_candidates(&live_by_block, old_gen.blocks(), 0.30);
+    assert_eq!(candidates, vec![1]);
+
+    // Threshold 0.8 includes both.
+    let candidates =
+        find_sparse_old_block_candidates(&live_by_block, old_gen.blocks(), 0.80);
+    assert_eq!(candidates, vec![0, 1]);
+
+    // Empty blocks are skipped even with a permissive threshold.
+    let live_by_block_with_empty = vec![0usize, 64usize];
+    let candidates =
+        find_sparse_old_block_candidates(&live_by_block_with_empty, old_gen.blocks(), 1.0);
+    assert_eq!(candidates, vec![1]);
+}
+
+#[test]
 fn evacuate_old_object_to_fresh_block_copies_payload_and_forwards() {
     use crate::reclaim::evacuate_old_object_to_fresh_block;
 

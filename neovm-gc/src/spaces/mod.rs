@@ -11,6 +11,6 @@ pub use nursery::NurseryConfig;
 pub(crate) use nursery_arena::NurseryState;
 pub use old::OldGenConfig;
 pub(crate) use old::{
-    OldGenPlanSelection, OldGenState, OldRegionCollectionStats, PreparedOldGenReclaim,
+    OldBlock, OldGenPlanSelection, OldGenState, OldRegionCollectionStats, PreparedOldGenReclaim,
 };
 pub use pinned::PinnedSpaceConfig;
