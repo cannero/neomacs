@@ -61,7 +61,9 @@ impl<'heap> Mutator<'heap> {
             !self.heap.prepared_full_reclaim_active(),
             "cannot add new roots while prepared full reclaim is active; finish the active full collection first"
         );
-        self.heap.root_during_active_major_mark(gc.erase());
+        self.heap
+            .collector_runtime()
+            .root_during_active_major_mark(gc.erase());
         scope.root(gc)
     }
 
@@ -189,7 +191,7 @@ impl<'heap> Mutator<'heap> {
             !self.heap.prepared_full_reclaim_active(),
             "cannot mutate heap edges while prepared full reclaim is active; finish the active full collection first"
         );
-        self.heap.record_post_write(
+        self.heap.collector_runtime().record_post_write(
             owner.erase(),
             slot,
             old_value.map(Gc::erase),

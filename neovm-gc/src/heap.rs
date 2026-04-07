@@ -530,75 +530,34 @@ impl Heap {
         Ok((space, total_bytes))
     }
 
-    pub(crate) fn record_post_write(
+    pub(crate) fn push_barrier_event(
         &mut self,
+        kind: BarrierKind,
         owner: GcErased,
         slot: Option<usize>,
         old_value: Option<GcErased>,
         new_value: Option<GcErased>,
     ) {
-        assert!(
-            !self.prepared_full_reclaim_active(),
-            "cannot mutate heap edges while prepared full reclaim is active"
-        );
         const MAX_BARRIER_EVENTS: usize = 1024;
 
-        fn push_barrier_event(
-            recent_barrier_events: &mut Vec<BarrierEvent>,
-            kind: BarrierKind,
-            owner: GcErased,
-            slot: Option<usize>,
-            old_value: Option<GcErased>,
-            new_value: Option<GcErased>,
-        ) {
-            recent_barrier_events.push(BarrierEvent {
-                kind,
-                owner: unsafe { crate::root::Gc::from_erased(owner) },
-                slot,
-                old_value: old_value.map(|value| unsafe { crate::root::Gc::from_erased(value) }),
-                new_value: new_value.map(|value| unsafe { crate::root::Gc::from_erased(value) }),
-            });
-            if recent_barrier_events.len() > MAX_BARRIER_EVENTS {
-                let overflow = recent_barrier_events.len() - MAX_BARRIER_EVENTS;
-                recent_barrier_events.drain(..overflow);
-            }
-        }
-
-        push_barrier_event(
-            &mut self.recent_barrier_events,
-            BarrierKind::PostWrite,
-            owner,
+        self.recent_barrier_events.push(BarrierEvent {
+            kind,
+            owner: unsafe { crate::root::Gc::from_erased(owner) },
             slot,
-            old_value,
-            new_value,
-        );
-
-        if old_value.is_some() && self.collector.has_active_major_mark() {
-            push_barrier_event(
-                &mut self.recent_barrier_events,
-                BarrierKind::SatbPreWrite,
-                owner,
-                slot,
-                old_value,
-                new_value,
-            );
+            old_value: old_value.map(|value| unsafe { crate::root::Gc::from_erased(value) }),
+            new_value: new_value.map(|value| unsafe { crate::root::Gc::from_erased(value) }),
+        });
+        if self.recent_barrier_events.len() > MAX_BARRIER_EVENTS {
+            let overflow = self.recent_barrier_events.len() - MAX_BARRIER_EVENTS;
+            self.recent_barrier_events.drain(..overflow);
         }
+    }
 
-        self.collector
-            .record_active_major_post_write_and_refresh(
-                &self.objects,
-                &self.indexes.object_index,
-                owner,
-                old_value,
-                new_value,
-                self.config.old.mutator_assist_slices,
-                &self.storage_stats(),
-                &self.old_gen,
-                &self.config.old,
-                |kind| self.plan_for(kind),
-            )
-            .expect("post-write active major-mark assist should not fail");
-
+    pub(crate) fn record_remembered_edge_if_needed(
+        &mut self,
+        owner: GcErased,
+        new_value: Option<GcErased>,
+    ) {
         let Some(owner_space) = self.space_for_erased(owner) else {
             return;
         };
@@ -613,26 +572,6 @@ impl Heap {
         if owner_is_old && target_space == SpaceKind::Nursery {
             self.indexes.record_remembered_edge(owner, target);
         }
-    }
-
-    pub(crate) fn root_during_active_major_mark(&mut self, object: GcErased) {
-        assert!(
-            !self.prepared_full_reclaim_active(),
-            "cannot add new roots while prepared full reclaim is active"
-        );
-        let _ = self
-            .collector
-            .record_active_major_reachable_object_and_refresh(
-                &self.objects,
-                &self.indexes.object_index,
-                object,
-                self.config.old.mutator_assist_slices,
-                &self.storage_stats(),
-                &self.old_gen,
-                &self.config.old,
-                |kind| self.plan_for(kind),
-            )
-            .expect("rooting during active major-mark should not fail");
     }
 
     pub(crate) fn prepared_full_reclaim_active(&self) -> bool {
@@ -771,7 +710,7 @@ impl Heap {
             .map(|&index| self.objects[index].space())
     }
 
-    fn space_for_erased(&self, object: GcErased) -> Option<SpaceKind> {
+    pub(crate) fn space_for_erased(&self, object: GcErased) -> Option<SpaceKind> {
         self.indexes
             .object_index
             .get(&object.object_key())

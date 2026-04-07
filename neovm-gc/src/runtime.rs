@@ -4,12 +4,14 @@ use crate::background::{
     SharedBackgroundService, SharedBackgroundStatus, SharedBackgroundWaitResult,
     SharedCollectorHandle, SharedHeap, SharedHeapError, SharedHeapStatus, SharedRuntimeHandle,
 };
+use crate::barrier::BarrierKind;
 use crate::collector_exec::{
     execute_collection_plan, prepare_major_reclaim_for_plan, trace_major_ephemerons_for_candidates,
 };
 use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_plans;
 use crate::collector_session::{self, build_prepared_active_reclaim, prepare_active_reclaim};
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
+use crate::descriptor::GcErased;
 use crate::heap::{AllocError, Heap};
 use crate::object::SpaceKind;
 use crate::plan::{
@@ -152,6 +154,71 @@ impl<'heap> CollectorRuntime<'heap> {
         }
         let (space, total_bytes) = self.heap.typed_allocation_profile::<T>()?;
         self.service_allocation_pressure(space, total_bytes)
+    }
+
+    pub(crate) fn root_during_active_major_mark(&mut self, object: GcErased) {
+        assert!(
+            !self.heap.prepared_full_reclaim_active(),
+            "cannot add new roots while prepared full reclaim is active"
+        );
+        let _ = self
+            .heap
+            .collector_handle()
+            .record_active_major_reachable_object_and_refresh(
+                self.heap.objects(),
+                &self.heap.indexes().object_index,
+                object,
+                self.heap.config().old.mutator_assist_slices,
+                &self.heap.storage_stats(),
+                self.heap.old_gen(),
+                self.heap.old_config(),
+                |kind| self.heap.plan_for(kind),
+            )
+            .expect("rooting during active major-mark should not fail");
+    }
+
+    pub(crate) fn record_post_write(
+        &mut self,
+        owner: GcErased,
+        slot: Option<usize>,
+        old_value: Option<GcErased>,
+        new_value: Option<GcErased>,
+    ) {
+        assert!(
+            !self.heap.prepared_full_reclaim_active(),
+            "cannot mutate heap edges while prepared full reclaim is active"
+        );
+
+        self.heap
+            .push_barrier_event(BarrierKind::PostWrite, owner, slot, old_value, new_value);
+
+        if old_value.is_some() && self.heap.collector_handle().has_active_major_mark() {
+            self.heap.push_barrier_event(
+                BarrierKind::SatbPreWrite,
+                owner,
+                slot,
+                old_value,
+                new_value,
+            );
+        }
+
+        self.heap
+            .collector_handle()
+            .record_active_major_post_write_and_refresh(
+                self.heap.objects(),
+                &self.heap.indexes().object_index,
+                owner,
+                old_value,
+                new_value,
+                self.heap.config().old.mutator_assist_slices,
+                &self.heap.storage_stats(),
+                self.heap.old_gen(),
+                self.heap.old_config(),
+                |kind| self.heap.plan_for(kind),
+            )
+            .expect("post-write active major-mark assist should not fail");
+
+        self.heap.record_remembered_edge_if_needed(owner, new_value);
     }
 
     /// Begin a persistent major-mark session for one scheduler-provided plan.

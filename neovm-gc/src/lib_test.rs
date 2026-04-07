@@ -1957,6 +1957,54 @@ fn collector_runtime_prepare_typed_allocation_starts_concurrent_major_session() 
 }
 
 #[test]
+fn collector_runtime_record_post_write_tracks_barrier_events_and_remembered_edge() {
+    let mut heap = Heap::new(HeapConfig::default());
+    let (owner_gc, target_gc) = {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        let owner = mutator
+            .alloc(
+                &mut scope,
+                Link {
+                    label: 15,
+                    next: EdgeCell::default(),
+                },
+            )
+            .expect("alloc owner");
+        mutator
+            .collect(CollectionKind::Minor)
+            .expect("promote owner toward old");
+        mutator
+            .collect(CollectionKind::Minor)
+            .expect("promote owner into old");
+        let owner_gc = owner.as_gc();
+        let target = mutator.alloc(
+            &mut scope,
+            Link {
+                label: 16,
+                next: EdgeCell::default(),
+            },
+        );
+        let target = target.expect("alloc nursery target");
+        (owner_gc, target.as_gc())
+    };
+
+    heap.collector_runtime().record_post_write(
+        owner_gc.erase(),
+        Some(0),
+        None,
+        Some(target_gc.erase()),
+    );
+
+    assert_eq!(heap.remembered_edge_count(), 1);
+    assert!(
+        heap.recent_barrier_events()
+            .iter()
+            .any(|event| event.kind == BarrierKind::PostWrite)
+    );
+}
+
+#[test]
 fn collector_runtime_can_create_background_service() {
     let mut heap = Heap::new(HeapConfig::default());
     let mut service = heap
