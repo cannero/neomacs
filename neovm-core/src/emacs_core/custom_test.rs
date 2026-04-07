@@ -7,13 +7,22 @@ use crate::test_utils::{runtime_startup_context, runtime_startup_eval_all};
 fn eval_all(src: &str) -> Vec<String> {
     let mut ev = Context::new();
     let forms = crate::emacs_core::value_reader::read_all(src).expect("parse");
-    forms
-        .into_iter()
+    // Root all parsed forms across the eval loop. Same GC hazard
+    // as eval_test::eval_all: the Vec<Value> lives on the malloc
+    // heap and is invisible to conservative stack scanning.
+    let saved_len = ev.save_temp_roots();
+    for form in &forms {
+        ev.push_temp_root(*form);
+    }
+    let results = forms
+        .iter()
         .map(|form| {
-            let result = ev.eval_form(form);
+            let result = ev.eval_form(*form);
             format_eval_result(&result)
         })
-        .collect()
+        .collect();
+    ev.restore_temp_roots(saved_len);
+    results
 }
 
 fn bootstrap_context() -> Context {
@@ -474,7 +483,7 @@ fn make_variable_buffer_local_works() {
 #[test]
 fn make_variable_buffer_local_binds_unbound_symbol_to_nil_like_gnu() {
     crate::test_utils::init_test_tracing();
-    let result = eval_all(
+    let result = bootstrap_eval_all(
         r#"(progn
              (makunbound 'vm-mvbl-unbound)
              (make-variable-buffer-local 'vm-mvbl-unbound)
@@ -489,7 +498,7 @@ fn make_variable_buffer_local_binds_unbound_symbol_to_nil_like_gnu() {
 #[test]
 fn make_variable_buffer_local_resolves_alias_for_auto_local_assignment() {
     crate::test_utils::init_test_tracing();
-    let result = eval_all(
+    let result = bootstrap_eval_all(
         r#"(setq vm-mvbl-base 1)
            (defvaralias 'vm-mvbl-alias 'vm-mvbl-base)
            (make-variable-buffer-local 'vm-mvbl-alias)
@@ -538,7 +547,7 @@ fn make_local_variable_in_buffer() {
 #[test]
 fn make_local_variable_resolves_alias_bindings() {
     crate::test_utils::init_test_tracing();
-    let result = eval_all(
+    let result = bootstrap_eval_all(
         r#"(setq vm-mlv-base 4)
            (defvaralias 'vm-mlv-alias 'vm-mlv-base)
            (with-temp-buffer
@@ -555,7 +564,7 @@ fn make_local_variable_resolves_alias_bindings() {
 #[test]
 fn make_local_variable_preserves_existing_buffer_local_binding() {
     crate::test_utils::init_test_tracing();
-    let result = eval_all(
+    let result = bootstrap_eval_all(
         r#"(progn
              (setq vm-mlv-preserve-global 1)
              (with-temp-buffer
@@ -625,7 +634,7 @@ fn make_local_variable_ignores_lexical_bindings_like_gnu() {
 #[test]
 fn make_local_variable_constant_and_keyword_payloads_match_oracle() {
     crate::test_utils::init_test_tracing();
-    let result = eval_all(
+    let result = bootstrap_eval_all(
         r#"(list
              (condition-case err (with-temp-buffer (make-local-variable nil)) (error err))
              (condition-case err (with-temp-buffer (make-local-variable t)) (error err))
@@ -654,7 +663,7 @@ fn local_variable_p_returns_nil_when_not_local() {
 #[test]
 fn local_variable_p_reports_builtin_buffer_locals() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (list (local-variable-p 'major-mode)
                    (local-variable-p 'mode-name)
@@ -783,7 +792,7 @@ fn kill_local_variable_removes_binding() {
 #[test]
 fn kill_local_variable_resolves_alias_bindings() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(defvaralias 'vm-klv-alias 'vm-klv-base)
            (with-temp-buffer
              (set (make-local-variable 'vm-klv-alias) 3)
@@ -800,7 +809,7 @@ fn kill_local_variable_resolves_alias_bindings() {
 #[test]
 fn kill_local_variable_accepts_keywords_like_oracle() {
     crate::test_utils::init_test_tracing();
-    let result = eval_all(
+    let result = bootstrap_eval_all(
         r#"(list
              (condition-case err (with-temp-buffer (kill-local-variable nil)) (error err))
              (condition-case err (with-temp-buffer (kill-local-variable t)) (error err))
@@ -816,7 +825,7 @@ fn kill_local_variable_accepts_keywords_like_oracle() {
 #[test]
 fn kill_local_variable_triggers_makunbound_watcher_with_buffer_where() {
     crate::test_utils::init_test_tracing();
-    let result = eval_all(
+    let result = bootstrap_eval_all(
         r#"(progn
              (setq vm-klv-a-events nil)
              (fset 'vm-klv-a-rec

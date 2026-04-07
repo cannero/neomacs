@@ -19,13 +19,23 @@ fn eval_one(src: &str) -> String {
 fn eval_all(src: &str) -> Vec<String> {
     let mut ev = Context::new();
     let forms = crate::emacs_core::value_reader::read_all(src).expect("parse");
-    forms
-        .into_iter()
+    // Root all parsed forms across the eval loop. Without rooting,
+    // any intervening GC reclaims the cons cells in the unrooted
+    // `forms` Vec<Value> (malloc heap, invisible to conservative
+    // stack scanning).
+    let saved_len = ev.save_temp_roots();
+    for form in &forms {
+        ev.push_temp_root(*form);
+    }
+    let results = forms
+        .iter()
         .map(|form| {
-            let result = ev.eval_form(form);
+            let result = ev.eval_form(*form);
             format_eval_result(&result)
         })
-        .collect()
+        .collect();
+    ev.restore_temp_roots(saved_len);
+    results
 }
 
 fn eval_one_with_frame(src: &str) -> String {
@@ -4510,7 +4520,7 @@ fn setq_alias_triggers_single_watcher_callback_on_resolved_target() {
 #[test]
 fn buffer_local_value_follows_alias_and_keyword_semantics() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(progn
            (defvaralias 'vm-blv-alias 'vm-blv-base)
            (with-temp-buffer
@@ -4574,7 +4584,7 @@ fn local_variable_if_set_p_follows_alias_and_contract_semantics() {
 #[test]
 fn variable_binding_locus_follows_buffer_local_and_alias_semantics() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(let ((locus (condition-case err
                           (progn (with-temp-buffer (set (make-local-variable 'x) 2) (variable-binding-locus 'x)))
                         (error err))))
@@ -6605,7 +6615,7 @@ fn buffer_delete_region() {
 #[test]
 fn buffer_delete_and_extract_region_accepts_live_markers_after_insertions() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(with-temp-buffer
            (insert \"abcdef\")
            (let ((start (copy-marker 2))
@@ -6636,7 +6646,7 @@ fn buffer_erase() {
 #[test]
 fn buffer_mutation_read_only_shape_matches_gnu() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(list
            (with-temp-buffer
              (insert \"abc\")
@@ -6666,7 +6676,7 @@ fn buffer_mutation_read_only_shape_matches_gnu() {
 #[test]
 fn buffer_mutation_read_only_noop_cases_match_gnu() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(list
            (with-temp-buffer
              (setq buffer-read-only t)
@@ -6702,7 +6712,7 @@ fn buffer_narrowing() {
 #[test]
 fn buffer_narrowing_accepts_live_marker_bounds_after_insertions() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(with-temp-buffer
            (insert \"abcdef\")
            (let ((start (copy-marker 2))
@@ -6787,7 +6797,7 @@ fn buffer_save_excursion() {
 #[test]
 fn buffer_save_excursion_tracks_marker_through_edits() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(with-temp-buffer
            (insert \"0123456789\")
            (goto-char 6)
@@ -6805,7 +6815,7 @@ fn buffer_save_excursion_tracks_marker_through_edits() {
 #[test]
 fn insert_before_markers_advances_before_markers_at_point() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(with-temp-buffer
            (insert \"ab\")
            (goto-char 1)
@@ -6819,7 +6829,7 @@ fn insert_before_markers_advances_before_markers_at_point() {
 #[test]
 fn insert_read_only_shape_and_noop_cases_match_gnu() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(list
            (with-temp-buffer
              (setq buffer-read-only t)
@@ -6893,7 +6903,7 @@ fn bootstrap_display_warning_does_not_signal_buffer_read_only() {
 #[test]
 fn insert_char_nil_count_defaults_to_one_with_inherit() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(with-temp-buffer
            (insert \"ab\")
            (put-text-property 2 3 'face 'bold)
@@ -6907,7 +6917,7 @@ fn insert_char_nil_count_defaults_to_one_with_inherit() {
 #[test]
 fn insert_inherit_variants_match_gnu_property_and_marker_semantics() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(list
            (with-temp-buffer
              (insert \"a\")
@@ -7106,7 +7116,7 @@ fn replace_region_contents_preserves_source_properties_and_rejects_self_buffer()
 #[test]
 fn subst_char_in_region_read_only_shape_and_noop_cases_match_gnu() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(list
            (with-temp-buffer
              (insert \"abc\")
@@ -7127,7 +7137,7 @@ fn subst_char_in_region_read_only_shape_and_noop_cases_match_gnu() {
 #[test]
 fn buffer_undo_list_reflects_recorded_edits() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(with-temp-buffer
            (setq buffer-undo-list nil)
            (insert \"Hello\")
@@ -7150,7 +7160,7 @@ fn buffer_undo_list_reflects_recorded_edits() {
 #[test]
 fn char_primitives_respect_narrowing() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(with-temp-buffer
            (insert \"Hello, 世界\")
            (narrow-to-region 3 8)
@@ -7166,7 +7176,7 @@ fn char_primitives_respect_narrowing() {
 #[test]
 fn delete_char_respects_narrowing_boundaries() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(with-temp-buffer
            (insert \"abc\")
            (narrow-to-region 1 2)
@@ -7187,7 +7197,7 @@ fn delete_char_respects_narrowing_boundaries() {
 #[test]
 fn navigation_predicates_and_line_positions_respect_narrowing() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(with-temp-buffer
            (insert \"wx\nab\ncd\")
            (narrow-to-region 4 6)
@@ -7205,7 +7215,7 @@ fn navigation_predicates_and_line_positions_respect_narrowing() {
 #[test]
 fn line_position_optional_argument_matches_gnu_current_rules() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(with-temp-buffer
            (insert \"a\nbb\nccc\")
            (goto-char 2)
@@ -8105,12 +8115,21 @@ fn eval_stress(src: &str) -> Vec<String> {
     ev.gc_stress = true;
     // Force very low threshold so gc_safe_point triggers on every call
     ev.tagged_heap.set_gc_threshold(1);
+    // Root all parsed forms before the eval loop. The Vec<Value>
+    // lives on the malloc heap and is invisible to conservative
+    // stack scanning; without rooting, the forced low-threshold
+    // GC reclaims the cons cells while we are still iterating.
+    let saved_len = ev.save_temp_roots();
+    for form in &forms {
+        ev.push_temp_root(*form);
+    }
     let mut results = Vec::new();
-    for form in forms {
-        let r = ev.eval_form(form);
+    for form in &forms {
+        let r = ev.eval_form(*form);
         results.push(format_eval_result(&r));
         ev.gc_safe_point();
     }
+    ev.restore_temp_roots(saved_len);
     results
 }
 

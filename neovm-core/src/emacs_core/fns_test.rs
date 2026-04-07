@@ -8,10 +8,33 @@ fn test_eval_ctx() -> crate::emacs_core::eval::Context {
     crate::emacs_core::eval::Context::new()
 }
 
+/// Test helper that calls an evaluator builtin and keeps the
+/// context alive for the remainder of the test. Previously the
+/// `call_fns_builtin!` macro created a short-lived `Context::new()`
+/// inside its block expression and returned the builtin's result;
+/// the context was then dropped at the end of the expression,
+/// destroying the tagged heap and leaving the returned Value
+/// pointing at freed memory. `.as_str()` on the stale Value hit
+/// `BUG: StringObj header.kind = VecLike` from `tagged/value.rs`.
+///
+/// Each call to this helper allocates a boxed `Context` in a
+/// thread-local so the returned Value's heap memory lives until
+/// the test function returns.
 macro_rules! call_fns_builtin {
     ($builtin:ident, $args:expr) => {{
-        let mut eval = Context::new();
-        $builtin(&mut eval, $args)
+        use std::cell::RefCell;
+        thread_local! {
+            static TEST_CTX: RefCell<Option<Box<Context>>> = const { RefCell::new(None) };
+        }
+        TEST_CTX.with(|slot| {
+            let mut new_ctx = Box::new(Context::new());
+            let result = $builtin(&mut new_ctx, $args);
+            // Replace any prior held context (previous test calls
+            // in the same thread) — the new one owns the heap
+            // that holds the returned Value.
+            *slot.borrow_mut() = Some(new_ctx);
+            result
+        })
     }};
 }
 
