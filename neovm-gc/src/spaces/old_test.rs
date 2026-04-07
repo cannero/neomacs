@@ -138,10 +138,13 @@ fn find_sparse_old_block_candidates_picks_low_density_blocks() {
         find_sparse_old_block_candidates(&live_by_block, old_gen.blocks(), 0.30);
     assert_eq!(candidates, vec![1]);
 
-    // Threshold 0.8 includes both.
+    // Threshold 0.8 includes both. The result is sorted by
+    // ASCENDING density so block 1 (density 0.0625) precedes
+    // block 0 (density 0.625) -- step 22 sorts candidates so
+    // the most-wasted blocks evacuate first.
     let candidates =
         find_sparse_old_block_candidates(&live_by_block, old_gen.blocks(), 0.80);
-    assert_eq!(candidates, vec![0, 1]);
+    assert_eq!(candidates, vec![1, 0]);
 
     // Empty blocks are skipped even with a permissive threshold.
     let live_by_block_with_empty = vec![0usize, 64usize];

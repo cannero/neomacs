@@ -49,16 +49,20 @@ pub(crate) fn compute_per_block_live_bytes(
 /// `density_threshold` is in the range `[0.0, 1.0]`. A value of
 /// `0.3` means "blocks with 30% or less live fill are candidates."
 /// Blocks that are empty are excluded (nothing to evacuate).
-/// Blocks that hold a single object as their entire content are
-/// also excluded (moving it gains nothing — the block IS its
-/// single object).
+///
+/// The returned vec is sorted by *ascending density*: the
+/// emptiest blocks come first. This gives the compaction loop
+/// the best-bang-for-buck ordering — moving a single survivor
+/// out of a 1%-full block reclaims more space than moving it
+/// out of a 50%-full block, and the compaction target packing
+/// works best when we evacuate the most-wasted blocks first.
 #[allow(dead_code)]
 pub(crate) fn find_sparse_old_block_candidates(
     live_by_block: &[usize],
     blocks: &[OldBlock],
     density_threshold: f64,
 ) -> Vec<usize> {
-    let mut candidates = Vec::new();
+    let mut candidates: Vec<(usize, f64)> = Vec::new();
     for (index, block) in blocks.iter().enumerate() {
         let live = live_by_block.get(index).copied().unwrap_or(0);
         if live == 0 {
@@ -70,10 +74,18 @@ pub(crate) fn find_sparse_old_block_candidates(
         }
         let density = (live as f64) / (capacity as f64);
         if density <= density_threshold {
-            candidates.push(index);
+            candidates.push((index, density));
         }
     }
-    candidates
+    // Sort by ascending density so the emptiest blocks come
+    // first. Density values come from (live_bytes / capacity)
+    // and are bounded in [0.0, 1.0]; partial_cmp is safe here
+    // because the inputs are real, finite, non-NaN.
+    candidates.sort_by(|a, b| {
+        a.1.partial_cmp(&b.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    candidates.into_iter().map(|(index, _)| index).collect()
 }
 
 /// Physical old-gen compaction pass (physical-compaction step 4).
