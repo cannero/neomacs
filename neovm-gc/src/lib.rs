@@ -8,6 +8,10 @@
 // `too_many_arguments` crate-wide acknowledges that choice rather
 // than papering over each function with its own #[allow].
 #![allow(clippy::too_many_arguments)]
+// Every public item must have rustdoc. Promoted to deny so the
+// crate stays fully documented at the public surface and future
+// additions cannot accidentally land undocumented.
+#![deny(missing_docs)]
 //! `neovm-gc` is a standalone managed-heap crate for VM runtimes.
 //!
 //! The crate provides a managed object model, rooted handles, descriptor-driven
