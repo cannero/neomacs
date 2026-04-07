@@ -108,7 +108,7 @@ pub(crate) fn builtin_message_box(ctx: &mut super::eval::Context, args: Vec<Valu
             .to_owned(),
         _ => String::new(),
     };
-    eprintln!("{}", msg);
+    tracing::info!(msg = %msg);
     Ok(Value::string(msg))
 }
 
@@ -128,7 +128,7 @@ pub(crate) fn builtin_message_or_box(
             .to_owned(),
         _ => String::new(),
     };
-    eprintln!("{}", msg);
+    tracing::info!(msg = %msg);
     Ok(Value::string(msg))
 }
 

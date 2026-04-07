@@ -4289,24 +4289,24 @@ impl Context {
             .copied()
             .unwrap_or(Value::NIL);
 
-        eprintln!("command_loop_top_level_1: top-level={}", top_level);
+        tracing::debug!("command_loop_top_level_1: top-level={}", top_level);
 
         if top_level.is_nil() {
-            eprintln!("command_loop_top_level_1: top-level is nil, skipping");
+            tracing::debug!("command_loop_top_level_1: top-level is nil, skipping");
             self.log_startup_state("top-level-nil");
             return Ok(Value::NIL);
         }
 
-        eprintln!("command_loop_top_level_1: evaluating top-level form");
+        tracing::debug!("command_loop_top_level_1: evaluating top-level form");
         self.log_startup_state("top-level-before");
         match self.eval_value(&top_level) {
             Ok(_) => {
-                eprintln!("command_loop_top_level_1: top-level completed OK");
+                tracing::debug!("command_loop_top_level_1: top-level completed OK");
                 self.log_startup_state("top-level-after");
                 Ok(Value::NIL)
             }
             Err(Flow::Signal(sig)) => {
-                eprintln!(
+                tracing::warn!(
                     "command_loop_top_level_1: top-level SIGNALED: {} {:?}",
                     sig.symbol_name(),
                     sig.data
