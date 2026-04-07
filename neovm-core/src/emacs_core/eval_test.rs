@@ -3169,6 +3169,42 @@ fn comparisons_are_exact_for_bignums() {
     );
 }
 
+/// Regression for audit §1.1 (reader sub-issue): integer literals
+/// outside fixnum range must read back as bignums, not silently
+/// overflow to a wrapped fixnum or signal a parse error. Mirrors
+/// GNU `string_to_number` (`src/lread.c`).
+#[test]
+fn reader_recognizes_bignum_literals() {
+    crate::test_utils::init_test_tracing();
+    // Just over the fixnum boundary (2^61).
+    assert_eq!(eval_one("4611686018427387904"), "OK 4611686018427387904");
+    assert_eq!(
+        eval_one("-4611686018427387905"),
+        "OK -4611686018427387905"
+    );
+    // Larger than i64 — has to come back as a bignum.
+    assert_eq!(
+        eval_one("12345678901234567890"),
+        "OK 12345678901234567890"
+    );
+    assert_eq!(
+        eval_one("-12345678901234567890"),
+        "OK -12345678901234567890"
+    );
+    // 2^100 by literal.
+    assert_eq!(
+        eval_one("1267650600228229401496703205376"),
+        "OK 1267650600228229401496703205376"
+    );
+    // Reader-produced bignum participates correctly in arithmetic.
+    assert_eq!(
+        eval_one("(+ 1267650600228229401496703205376 1)"),
+        "OK 1267650600228229401496703205377"
+    );
+    // bignump on a literal.
+    assert_eq!(eval_one("(bignump 1267650600228229401496703205376)"), "OK t");
+}
+
 #[test]
 fn substring_accepts_vectors_like_gnu_emacs() {
     crate::test_utils::init_test_tracing();

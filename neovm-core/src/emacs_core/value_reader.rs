@@ -980,9 +980,28 @@ impl<'a> Reader<'a> {
             return Err(self.error(&format!("integer, radix {}", radix)));
         }
 
-        let val =
-            i64::from_str_radix(&digits, radix).map_err(|_| self.error("invalid radix number"))?;
-        Ok(Value::fixnum(if negative { -val } else { val }))
+        // Try i64 first; on overflow promote to a rug::Integer with the
+        // requested radix. Mirrors GNU `string_to_number` (`src/lread.c`)
+        // which falls through to the bignum path on overflow.
+        let value = match i64::from_str_radix(&digits, radix) {
+            Ok(val) => Value::make_integer(rug::Integer::from(if negative {
+                -val
+            } else {
+                val
+            })),
+            Err(_) => {
+                let mut signed = String::with_capacity(digits.len() + 1);
+                if negative {
+                    signed.push('-');
+                }
+                signed.push_str(&digits);
+                let parsed =
+                    rug::Integer::parse_radix(&signed, radix as i32)
+                        .map_err(|_| self.error("invalid radix number"))?;
+                Value::make_integer(rug::Integer::from(parsed))
+            }
+        };
+        Ok(value)
     }
 
     fn read_hash_table_or_record_literal(&mut self) -> Result<Value, ReadError> {
@@ -1113,9 +1132,18 @@ impl<'a> Reader<'a> {
             return Ok(Value::keyword(&token));
         }
 
-        // Try integer
-        if let Ok(n) = token.parse::<i64>() {
-            return Ok(Value::fixnum(n));
+        // Try integer. Funnel through Value::make_integer so a value
+        // that fits in i64 but not in fixnum (62-bit) is promoted to
+        // a bignum, matching GNU `string_to_number` behavior. On i64
+        // overflow, fall through to a rug::Integer parse so true
+        // bignum literals work.
+        if looks_like_integer(&token) {
+            if let Ok(n) = token.parse::<i64>() {
+                return Ok(Value::make_integer(rug::Integer::from(n)));
+            }
+            if let Ok(parsed) = rug::Integer::parse(&token) {
+                return Ok(Value::make_integer(rug::Integer::from(parsed)));
+            }
         }
 
         // Try float — handles 1.5, 1e10, .5, 1.5e-3, etc.
@@ -1131,7 +1159,7 @@ impl<'a> Reader<'a> {
         // Hex integer: 0xFF
         if token.starts_with("0x") || token.starts_with("0X") {
             if let Ok(n) = i64::from_str_radix(&token[2..], 16) {
-                return Ok(Value::fixnum(n));
+                return Ok(Value::make_integer(rug::Integer::from(n)));
             }
         }
 
@@ -1281,6 +1309,20 @@ fn looks_like_float(s: &str) -> bool {
         return false;
     }
     s.contains('.') || s.contains('e') || s.contains('E')
+}
+
+/// True if `s` is a plain decimal integer literal (with optional sign)
+/// — i.e. would parse as either an i64 or a bignum but never as a
+/// float. We use this to gate the bignum-fallback path so we don't
+/// trip on tokens that contain `e`/`E`/`.` (those are floats) or that
+/// aren't numeric at all (those are symbols).
+fn looks_like_integer(s: &str) -> bool {
+    let s = if s.starts_with('+') || s.starts_with('-') {
+        &s[1..]
+    } else {
+        s
+    };
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
 }
 
 fn parse_emacs_special_float(token: &str) -> Option<f64> {
