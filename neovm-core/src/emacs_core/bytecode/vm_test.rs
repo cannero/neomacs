@@ -91,6 +91,16 @@ fn vm_eval_with_init_str(src: &str, init: impl FnOnce(&mut Context)) -> String {
     crate::emacs_core::error::format_eval_result(&result)
 }
 
+fn vm_bootstrap_eval_with_init_str(
+    src: &str,
+    init: impl FnOnce(&mut Context),
+) -> String {
+    let mut eval = crate::test_utils::runtime_startup_context();
+    init(&mut eval);
+    let result = eval.eval_str(src);
+    crate::emacs_core::error::format_eval_result(&result)
+}
+
 #[test]
 fn vm_catch_leaves_shared_condition_stack_balanced() {
     crate::test_utils::init_test_tracing();
@@ -2855,8 +2865,10 @@ fn vm_raw_lambda_and_closure_callables_use_shared_runtime() {
 #[test]
 fn vm_mapatoms_and_maphash_use_shared_runtime_callbacks() {
     crate::test_utils::init_test_tracing();
+    // `when` is a macro defined in subr.el, so this test needs the
+    // bootstrap context.
     assert_eq!(
-        vm_eval_str(
+        vm_bootstrap_eval_str(
             "(list
                (let ((h (make-hash-table :test 'eq))
                      (acc 0))
@@ -3823,8 +3835,9 @@ fn vm_reader_message_and_completion_builtins_use_shared_runtime_entry() {
 #[test]
 fn vm_completion_builtins_use_shared_runtime_callbacks() {
     crate::test_utils::init_test_tracing();
+    // `defun` is defined in subr.el → bootstrap context required.
     assert_eq!(
-        vm_eval_with_init_str(
+        vm_bootstrap_eval_with_init_str(
             r#"(progn
                  (defun neo-vm-completion-target () nil)
                  (let ((items '("alpha" "alps" "beta"))
