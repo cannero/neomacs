@@ -300,6 +300,54 @@ pub struct LispSymbol {
 /// pre-refactor name. Removed in Phase 10.
 pub type SymbolData = LispSymbol;
 
+/// Mirrors GNU `swap_in_symval_forwarding` (`src/data.c:1539-1571`).
+///
+/// Loads the BLV's `valcell` from the current buffer's
+/// `local_var_alist` if `where_buf` doesn't already match. The Phase 4
+/// shape doesn't yet support `Lisp_*Fwd` predicates or the
+/// `local-flags` buffer slot — those land in Phase 8.
+///
+/// `current_buffer` is the buffer we're switching the cache to (a
+/// `Value::buffer` or `Value::NIL` for the global default).
+/// `local_var_alist` is `current_buffer`'s alist of `(sym . val)`
+/// per-buffer bindings.
+fn swap_in_blv(
+    obarray: &mut Obarray,
+    sym_id: SymId,
+    current_buffer: Value,
+    local_var_alist: Value,
+) {
+    let Some(blv) = obarray.blv_mut(sym_id) else {
+        return;
+    };
+    if blv.where_buf == current_buffer {
+        return; // cache already loaded for this buffer
+    }
+    // Find this symbol in the new buffer's alist.
+    let key = Value::from_sym_id(sym_id);
+    let found_cell = assq(key, local_var_alist);
+    blv.where_buf = current_buffer;
+    blv.found = !found_cell.is_nil();
+    blv.valcell = if blv.found { found_cell } else { blv.defcell };
+}
+
+/// Walk an alist looking for the cons whose car is `eq` to `key`.
+/// Returns the matching cons or `Value::NIL`. Mirrors GNU `Fassq`.
+///
+/// Free function rather than a method on `Value` because Phase 4 needs
+/// it locally and we don't want to grow the public Value API for an
+/// internal helper.
+fn assq(key: Value, mut alist: Value) -> Value {
+    while alist.is_cons() {
+        let entry = alist.cons_car();
+        if entry.is_cons() && super::value::eq_value(&entry.cons_car(), &key) {
+            return entry;
+        }
+        alist = alist.cons_cdr();
+    }
+    Value::NIL
+}
+
 /// Reasons [`Obarray::make_variable_alias`] can fail. Mirrors the
 /// `xsignal` callsites in GNU `Fdefvaralias` (`src/eval.c:631-726`).
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -379,12 +427,85 @@ impl LispSymbol {
 ///
 /// This is the central symbol registry. `intern` looks up or creates symbols,
 /// ensuring that `(eq 'foo 'foo)` is always true.
-#[derive(Clone, Debug)]
+///
+/// Phase 4 of the symbol-redirect refactor adds a heap-allocated BLV
+/// pool ([`Obarray::blvs`]) for `LOCALIZED` symbols. The Obarray owns
+/// every BLV; symbols' [`SymbolVal::blv`] field stores a raw pointer
+/// into the pool. The custom [`Clone`] impl deep-copies BLVs and
+/// remaps the pointers in the cloned symbols, so `Obarray::clone()`
+/// stays semantically a deep copy. The custom [`Drop`] impl frees the
+/// heap allocations.
 pub struct Obarray {
     symbols: Vec<Option<SymbolData>>,
     global_member_count: usize,
     function_epoch: u64,
+    /// Heap-allocated BLVs for `SYMBOL_LOCALIZED` symbols. Each entry
+    /// is a `Box::into_raw` pointer; freed in [`Obarray::drop`]. The
+    /// pool is append-only — we never reuse a slot.
+    blvs: Vec<*mut LispBufferLocalValue>,
 }
+
+impl std::fmt::Debug for Obarray {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Obarray")
+            .field("global_member_count", &self.global_member_count)
+            .field("function_epoch", &self.function_epoch)
+            .field("blvs", &self.blvs.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for Obarray {
+    fn drop(&mut self) {
+        for ptr in self.blvs.drain(..) {
+            // Safety: we created each pointer via `Box::into_raw` in
+            // `make_symbol_localized` and never alias it elsewhere
+            // (the only other reference lives inside a `LispSymbol`'s
+            // `val.blv` field, which goes away with `self`).
+            unsafe { drop(Box::from_raw(ptr)) };
+        }
+    }
+}
+
+impl Clone for Obarray {
+    fn clone(&self) -> Self {
+        // Deep-copy the BLV pool. Build a `old → new` map so we can
+        // remap each LOCALIZED symbol's `val.blv` to its clone.
+        let mut blvs: Vec<*mut LispBufferLocalValue> = Vec::with_capacity(self.blvs.len());
+        let mut blv_map: rustc_hash::FxHashMap<usize, *mut LispBufferLocalValue> =
+            rustc_hash::FxHashMap::default();
+        for &orig in &self.blvs {
+            // Safety: each entry was Box::into_raw'd by us and is
+            // alive for the duration of `&self`.
+            let cloned_box = Box::new(unsafe { (*orig).clone() });
+            let cloned_ptr = Box::into_raw(cloned_box);
+            blvs.push(cloned_ptr);
+            blv_map.insert(orig as usize, cloned_ptr);
+        }
+        let mut symbols = self.symbols.clone();
+        for slot in symbols.iter_mut().flatten() {
+            if slot.flags.redirect() == SymbolRedirect::Localized {
+                let orig = unsafe { slot.val.blv };
+                if let Some(&new_ptr) = blv_map.get(&(orig as usize)) {
+                    slot.val = SymbolVal { blv: new_ptr };
+                }
+            }
+        }
+        Self {
+            symbols,
+            global_member_count: self.global_member_count,
+            function_epoch: self.function_epoch,
+            blvs,
+        }
+    }
+}
+
+// Safety: Obarray contains raw pointers to its own heap allocations.
+// They're owned by the obarray, so sending the obarray across threads
+// (via Send) or sharing it via &Obarray (via Sync) is safe — the
+// pointers don't escape and don't carry interior mutability.
+unsafe impl Send for Obarray {}
+unsafe impl Sync for Obarray {}
 
 impl Default for Obarray {
     fn default() -> Self {
@@ -492,6 +613,7 @@ impl Obarray {
             symbols: Vec::new(),
             global_member_count: 0,
             function_epoch: 0,
+            blvs: Vec::new(),
         };
 
         // Pre-intern fundamental symbols. Both `t` and `nil` are
@@ -613,17 +735,96 @@ impl Obarray {
         self.set_symbol_value_id_inner(id, value);
     }
 
+    /// Allocate a fresh `LispBufferLocalValue` for `id`, flip the
+    /// symbol's redirect to `Localized`, and store the BLV pointer in
+    /// `val.blv`. Mirrors GNU `make_blv` (`src/data.c:2112-2140`).
+    ///
+    /// `default` becomes the cdr of `defcell` and `valcell` (initially
+    /// the same cons, mirroring GNU's "valcell == defcell when no
+    /// per-buffer binding loaded" invariant).
+    ///
+    /// If the symbol is already LOCALIZED, this is a no-op (returns
+    /// the existing BLV pointer).
+    pub fn make_symbol_localized(&mut self, id: SymId, default: Value) -> *mut LispBufferLocalValue {
+        let target = self.resolve_alias_for_write(id);
+        // Check existing state before mutating.
+        if let Some(existing) = self.slot(target) {
+            if existing.flags.redirect() == SymbolRedirect::Localized {
+                return unsafe { existing.val.blv };
+            }
+        }
+        // Build defcell = (sym . default). The same cons doubles as
+        // valcell until per-buffer bindings are swapped in.
+        let defcell = Value::cons(Value::from_sym_id(target), default);
+        let blv = Box::new(LispBufferLocalValue {
+            local_if_set: false,
+            found: false,
+            fwd: None,
+            where_buf: Value::NIL,
+            defcell,
+            valcell: defcell,
+        });
+        let raw = Box::into_raw(blv);
+        self.blvs.push(raw);
+        let sym = self.ensure_symbol_id(target);
+        sym.flags.set_redirect(SymbolRedirect::Localized);
+        sym.val = SymbolVal { blv: raw };
+        // Phase 4 keeps the legacy enum mirror in sync until Phase 10.
+        sym.value = SymbolValue::BufferLocal {
+            default: Some(default),
+            local_if_set: false,
+        };
+        raw
+    }
+
+    /// Set the `local_if_set` flag on a LOCALIZED symbol's BLV. Used
+    /// by `make-variable-buffer-local` (Phase 6) which differs from
+    /// `make-local-variable` only in this flag. Phase 4 exposes the
+    /// helper so the LOCALIZED tests can flip it directly.
+    pub fn set_blv_local_if_set(&mut self, id: SymId, local_if_set: bool) {
+        let target = self.resolve_alias_for_write(id);
+        if let Some(sym) = self.slot(target) {
+            if sym.flags.redirect() == SymbolRedirect::Localized {
+                let blv = unsafe { &mut *sym.val.blv };
+                blv.local_if_set = local_if_set;
+            }
+        }
+    }
+
+    /// Read a LOCALIZED symbol's BLV (immutable borrow). Returns
+    /// `None` if the symbol is not LOCALIZED.
+    pub fn blv(&self, id: SymId) -> Option<&LispBufferLocalValue> {
+        let sym = self.slot(id)?;
+        if sym.flags.redirect() != SymbolRedirect::Localized {
+            return None;
+        }
+        // Safety: the symbol's val.blv was allocated by
+        // make_symbol_localized and is owned by self.blvs. The
+        // pointer stays valid for &self's lifetime because Drop
+        // can't run while we hold &self.
+        Some(unsafe { &*sym.val.blv })
+    }
+
+    /// Mutable BLV access. Used by `set_internal` (Phase 5) and
+    /// `swap_in_symval_forwarding` (Phase 4).
+    pub fn blv_mut(&mut self, id: SymId) -> Option<&mut LispBufferLocalValue> {
+        let sym = self.slot(id)?;
+        if sym.flags.redirect() != SymbolRedirect::Localized {
+            return None;
+        }
+        // Safety: same rationale as `blv`. The mutable borrow follows
+        // from `&mut self`.
+        Some(unsafe { &mut *sym.val.blv })
+    }
+
     /// Read a symbol's value via the redirect dispatch. Mirrors GNU
     /// `find_symbol_value` (`src/data.c:1584-1609`).
     ///
-    /// Phase 2: this is the primary read entry point used by the
-    /// bytecode VM and tree-walking interpreter. The redirect dispatch
-    /// is in place; PLAINVAL takes the fast path (one tag check + one
-    /// load through the legacy `value` field, since UNBOUND sentinel
-    /// arrives in Phase 4). VARALIAS follows the chain via the legacy
-    /// alias check until Phase 3 cuts it over to `flags.redirect()`.
-    /// LOCALIZED / FORWARDED still defer to the legacy enum until
-    /// Phases 4-8 wire the BLV / BUFFER_OBJFWD machinery.
+    /// **Note:** this variant takes only the obarray and is correct
+    /// for PLAINVAL / VARALIAS / FORWARDED cases. The LOCALIZED case
+    /// returns the BLV's *defcell* default; per-buffer dispatch
+    /// requires the buffer-aware [`Self::find_symbol_value_in_buffer`]
+    /// variant.
     ///
     /// Returns `None` for unbound (`void-variable` callsite signals).
     pub fn find_symbol_value(&self, id: SymId) -> Option<Value> {
@@ -653,8 +854,19 @@ impl Obarray {
                     current = unsafe { sym.val.alias };
                     continue;
                 }
-                SymbolRedirect::Localized | SymbolRedirect::Forwarded => {
-                    // Not yet wired in Phase 2. Defer to legacy enum.
+                SymbolRedirect::Localized => {
+                    // Phase 4: read the BLV's *currently loaded*
+                    // valcell. Without a buffer context to swap in,
+                    // we return whatever the cache currently holds —
+                    // the caller is `find_symbol_value_in_buffer` for
+                    // buffer-aware reads. For the bare obarray API
+                    // we expose the default.
+                    let blv = unsafe { &*sym.val.blv };
+                    let cdr = blv.valcell.cons_cdr();
+                    return Some(cdr);
+                }
+                SymbolRedirect::Forwarded => {
+                    // Phase 8 wires this. For now defer to legacy enum.
                     match sym.value {
                         SymbolValue::Plain(v) => return v,
                         SymbolValue::BufferLocal { default, .. } => return default,
@@ -668,6 +880,50 @@ impl Obarray {
             }
         }
         None // alias cycle
+    }
+
+    /// Buffer-aware variant of [`Self::find_symbol_value`]. Mirrors
+    /// GNU `find_symbol_value` + `swap_in_symval_forwarding`
+    /// (`src/data.c:1584-1571`).
+    ///
+    /// For LOCALIZED symbols, swaps the BLV cache to point at
+    /// `current_buffer`'s per-buffer binding (if any) before reading.
+    /// For other variants, this is identical to [`Self::find_symbol_value`].
+    pub fn find_symbol_value_in_buffer(
+        &mut self,
+        id: SymId,
+        current_buffer_id: Option<crate::buffer::BufferId>,
+        current_buffer_value: Value,
+        local_var_alist: Value,
+    ) -> Option<Value> {
+        let mut current = id;
+        for _ in 0..50 {
+            // Phase 4: only the LOCALIZED arm needs &mut self for the
+            // cache swap. Borrow-check it carefully so the rest of the
+            // walk can stay on a shared reference.
+            let redirect = self.slot(current)?.flags.redirect();
+            match redirect {
+                SymbolRedirect::Plainval | SymbolRedirect::Forwarded => {
+                    return self.find_symbol_value(current);
+                }
+                SymbolRedirect::Varalias => {
+                    let next = unsafe { self.slot(current)?.val.alias };
+                    current = next;
+                    continue;
+                }
+                SymbolRedirect::Localized => {
+                    // Swap-in: if `where_buf` doesn't match the
+                    // current buffer, scan the new buffer's
+                    // local_var_alist for `(sym . val)` and update
+                    // valcell. Mirrors GNU
+                    // `swap_in_symval_forwarding`.
+                    swap_in_blv(self, current, current_buffer_value, local_var_alist);
+                    let blv = self.blv(current)?;
+                    return Some(blv.valcell.cons_cdr());
+                }
+            }
+        }
+        None
     }
 
     /// Write a symbol's value via the redirect dispatch. Mirrors GNU
@@ -1284,6 +1540,7 @@ impl Obarray {
             symbols: Vec::new(),
             global_member_count: 0,
             function_epoch,
+            blvs: Vec::new(),
         };
         for (id, mut sym) in symbols {
             sym.interned_global = false;

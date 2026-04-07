@@ -2236,6 +2236,11 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
             _ => None,
         },
         locals,
+        // Phase 4 of the symbol-redirect refactor: per-buffer
+        // alist for SYMBOL_LOCALIZED variables. Pdump format
+        // doesn't yet round-trip this (Phase 11 bumps the dump
+        // version); fresh-load buffers start empty.
+        local_var_alist: crate::emacs_core::value::Value::NIL,
         overlays: OverlayList::from_dump(
             db.overlays
                 .overlays

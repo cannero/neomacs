@@ -359,6 +359,120 @@ fn make_variable_alias_marks_both_special() {
     assert!(!ob.is_alias_id(b));
 }
 
+// Phase 4 — LOCALIZED read path with BLV cache.
+
+/// `make_symbol_localized` allocates a BLV with `defcell == valcell`,
+/// flips the redirect to LOCALIZED, and stores the BLV pointer in
+/// `val.blv`. Mirrors GNU `make_blv` (`src/data.c:2112-2140`).
+#[test]
+fn make_symbol_localized_allocates_blv() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    let id = intern("phase4-localized-x");
+    ob.make_symbol_localized(id, Value::fixnum(42));
+    let sym = ob.get_by_id(id).expect("symbol installed");
+    assert_eq!(sym.redirect(), SymbolRedirect::Localized);
+    let blv = ob.blv(id).expect("BLV pointer");
+    // defcell == valcell initially.
+    assert_eq!(blv.defcell, blv.valcell);
+    // (sym . default)
+    assert_eq!(blv.defcell.cons_cdr(), Value::fixnum(42));
+    assert!(blv.where_buf.is_nil());
+    assert!(!blv.found);
+    assert!(!blv.local_if_set);
+}
+
+/// `find_symbol_value_in_buffer` for a LOCALIZED symbol with no
+/// per-buffer binding returns the default. Mirrors GNU
+/// `find_symbol_value` LOCALIZED arm.
+#[test]
+fn localized_returns_default_when_no_buffer_local() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    let id = intern("phase4-default-x");
+    ob.make_symbol_localized(id, Value::fixnum(7));
+    let buf_value = Value::NIL; // pretend no current buffer
+    let alist = Value::NIL; // empty alist
+    let v = ob.find_symbol_value_in_buffer(id, None, buf_value, alist);
+    assert_eq!(v, Some(Value::fixnum(7)));
+}
+
+/// `find_symbol_value_in_buffer` swaps the BLV cache to the buffer's
+/// `local_var_alist` entry when one exists. Mirrors GNU
+/// `swap_in_symval_forwarding` (`src/data.c:1539-1571`).
+#[test]
+fn localized_swap_in_reads_buffer_local_value() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    let id = intern("phase4-buflocal-x");
+    ob.make_symbol_localized(id, Value::fixnum(0));
+    // Build a fake buffer alist `((phase4-buflocal-x . 99))` and a
+    // fake buffer value (we use a fixnum as a sentinel for "buffer A"
+    // since the test doesn't need a real BufferManager).
+    let cell = Value::cons(Value::from_sym_id(id), Value::fixnum(99));
+    let alist = Value::cons(cell, Value::NIL);
+    let buf_a = Value::fixnum(1);
+    let v = ob.find_symbol_value_in_buffer(id, None, buf_a, alist);
+    assert_eq!(v, Some(Value::fixnum(99)));
+    // The cache now records `where_buf == buf_a` and `found == true`.
+    let blv = ob.blv(id).expect("BLV");
+    assert_eq!(blv.where_buf, buf_a);
+    assert!(blv.found);
+}
+
+/// Switching buffers reloads the BLV cache. A symbol with a binding
+/// in buffer A returns A's value when current; switching to buffer B
+/// (with no binding) returns the default.
+#[test]
+fn localized_blv_cache_invalidated_on_buffer_switch() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    let id = intern("phase4-switch-x");
+    ob.make_symbol_localized(id, Value::fixnum(0));
+
+    // Buffer A has a binding (sym . 42).
+    let buf_a = Value::fixnum(1);
+    let alist_a = Value::cons(
+        Value::cons(Value::from_sym_id(id), Value::fixnum(42)),
+        Value::NIL,
+    );
+    let v_a = ob.find_symbol_value_in_buffer(id, None, buf_a, alist_a);
+    assert_eq!(v_a, Some(Value::fixnum(42)));
+
+    // Buffer B has no binding for this symbol → default.
+    let buf_b = Value::fixnum(2);
+    let alist_b = Value::NIL;
+    let v_b = ob.find_symbol_value_in_buffer(id, None, buf_b, alist_b);
+    assert_eq!(v_b, Some(Value::fixnum(0)));
+    let blv = ob.blv(id).expect("BLV");
+    assert_eq!(blv.where_buf, buf_b);
+    assert!(!blv.found);
+}
+
+/// `Obarray::clone` deep-copies the BLV pool and remaps symbol
+/// pointers, so a cloned obarray reads independently from the
+/// original.
+#[test]
+fn clone_obarray_deep_copies_blvs() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    let id = intern("phase4-clone-x");
+    ob.make_symbol_localized(id, Value::fixnum(11));
+    let cloned = ob.clone();
+    // Both obarrays read the same default initially.
+    let v1 = ob.find_symbol_value(id);
+    let v2 = cloned.find_symbol_value(id);
+    assert_eq!(v1, Some(Value::fixnum(11)));
+    assert_eq!(v2, Some(Value::fixnum(11)));
+    // The cloned obarray's BLV pointer is a fresh allocation.
+    let blv1 = ob.blv(id).expect("blv1");
+    let blv2 = cloned.blv(id).expect("blv2");
+    assert!(
+        std::ptr::addr_of!(*blv1) != std::ptr::addr_of!(*blv2),
+        "cloned BLV must be a distinct allocation"
+    );
+}
+
 #[test]
 fn uninterned_keyword_and_nil_names_are_not_canonical_constants() {
     crate::test_utils::init_test_tracing();

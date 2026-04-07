@@ -168,6 +168,13 @@ pub struct Buffer {
     /// Buffer-local state, split between builtin slot-backed locals and
     /// ordinary Lisp locals.
     pub locals: BufferLocals,
+    /// `local_var_alist` — list of `(SYMBOL . VALUE)` per-buffer
+    /// bindings for `SYMBOL_LOCALIZED` variables. Mirrors GNU
+    /// `BVAR(buffer, local_var_alist)` (`buffer.h:362`). Phase 4 of
+    /// the symbol-redirect refactor adds this field; the legacy
+    /// [`Self::locals`] map stays in place during the transition
+    /// (Phase 10 deletes it).
+    pub local_var_alist: crate::emacs_core::value::Value,
     /// Overlays attached to the buffer.
     pub overlays: OverlayList,
     /// Syntax table for character classification.
@@ -208,6 +215,7 @@ impl Buffer {
             auto_save_file_name: None,
             state_markers: None,
             locals: BufferLocals::new(),
+            local_var_alist: crate::emacs_core::value::Value::NIL,
             overlays: OverlayList::new(),
             syntax_table: SyntaxTable::new_standard(),
             undo_state: SharedUndoState::new(),
