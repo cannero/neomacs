@@ -128,6 +128,11 @@ fn compat_overlay_semantics_matches_gnu_emacs() {
 
 #[test]
 fn empty_overlay_cross_buffer_form_parses_in_neovm() {
+    // value_reader::read_all allocates cons cells on the tagged heap,
+    // which requires a TaggedHeap to be active on the current thread.
+    // The simplest way to install one for an integration test is to
+    // construct an empty Context.
+    let _eval = neovm_core::emacs_core::eval::Context::new();
     let forms = value_reader::read_all(EMPTY_OVERLAY_QUERIES_AND_CROSS_BUFFER_MOVE_FORM)
         .expect("overlay audit form should parse");
     assert_eq!(forms.len(), 1);

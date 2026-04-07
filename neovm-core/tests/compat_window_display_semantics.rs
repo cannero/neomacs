@@ -138,6 +138,11 @@ fn compat_gui_set_window_buffer_applies_display_defaults() {
 
 #[test]
 fn compat_split_window_copies_window_display_state() {
+    // FrameManager / split_window allocate values on the tagged heap
+    // (window display state, scroll bar values, etc.). Construct an
+    // empty Context first so a TaggedHeap is registered for this
+    // thread.
+    let _eval = neovm_core::emacs_core::eval::Context::new();
     let mut frames = FrameManager::new();
     let frame_id = frames.create_frame("F1", 800, 600, BufferId(1));
     let original_window_id = frames.get(frame_id).expect("frame").window_list()[0];
