@@ -160,6 +160,60 @@ fn heap_compact_old_gen_physical_empty_heap_reports_zero_moved() {
 }
 
 #[test]
+fn major_cycle_physical_compaction_preserves_live_rooted_survivor() {
+    // End-to-end live-survivor test. A single OldChunk is
+    // allocated and kept rooted across a major cycle. The major
+    // cycle fires the automatic physical-compaction hook and
+    // evacuates the live record out of its sparse source block
+    // into a fresh target block. The root must still dereference
+    // to the original payload bytes after the evacuation.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        old: OldGenConfig {
+            // Make the region big enough that a single OldChunk
+            // is a tiny fraction of the block, so the block
+            // qualifies as sparse at any reasonable threshold.
+            region_bytes: 1024,
+            line_bytes: 16,
+            concurrent_mark_workers: 1,
+            physical_compaction_density_threshold: 0.9,
+            ..OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+    let survivor = mutator
+        .alloc(&mut keep_scope, OldChunk([0xa5; 32]))
+        .expect("alloc survivor");
+    // The survivor is rooted through `keep_scope`, so the
+    // upcoming major cycle will see it as live and the
+    // automatic compaction hook will evacuate it if its block
+    // qualifies as sparse.
+    let before_gc = mutator.heap().old_gen().block_count();
+    assert!(before_gc >= 1, "should have at least one old-gen block before cycle");
+
+    mutator
+        .collect(CollectionKind::Major)
+        .expect("major cycle with auto-compaction");
+
+    // The root must still read the same payload byte pattern
+    // that was written at allocation time. If the forwarding +
+    // relocation path is broken, dereferencing the root would
+    // either crash or read garbage.
+    let payload = unsafe { survivor.as_gc().as_non_null().as_ref() };
+    assert_eq!(
+        payload.0[0], 0xa5,
+        "rooted survivor payload must still be intact after major + compact"
+    );
+    assert_eq!(payload.0[31], 0xa5);
+}
+
+#[test]
 fn major_cycle_runs_physical_compaction_when_density_threshold_enabled() {
     // Enable physical compaction via
     // OldGenConfig::physical_compaction_density_threshold = 1.0.
