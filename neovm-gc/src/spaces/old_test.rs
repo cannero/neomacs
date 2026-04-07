@@ -151,16 +151,24 @@ fn find_sparse_old_block_candidates_picks_low_density_blocks() {
 }
 
 #[test]
-fn heap_compact_old_gen_physical_moves_surviving_old_records() {
-    // Build a heap where direct old-gen allocation puts every
-    // OldLeaf into an OldBlock. Allocate many records so block 0
-    // is dense, then drop enough of them that block 0 becomes
-    // sparse. Call compact_old_gen_physical at a permissive
-    // threshold and assert the survivors were physically moved
-    // into a fresh block.
+fn heap_compact_old_gen_physical_empty_heap_reports_zero_moved() {
+    // A heap with no old-gen records can be compacted at any
+    // threshold and reports zero moved.
+    let mut heap = Heap::new(HeapConfig::default());
+    let moved = heap.compact_old_gen_physical(1.0);
+    assert_eq!(moved, 0);
+}
+
+#[test]
+fn heap_compact_old_gen_physical_after_major_is_noop_on_all_dead_heap() {
+    // A more realistic scenario: allocate several OldChunks
+    // inside a scoped handle that drops, run a major GC to
+    // sweep them, then call compact_old_gen_physical. The
+    // old-gen is now empty, so no record is evacuated.
+    // Covers the public API path without tripping rooting
+    // lifetime restrictions on Root<'scope>.
     let mut heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
-            // Force OldLeaf to the old-gen allocation path.
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
         },
@@ -173,34 +181,24 @@ fn heap_compact_old_gen_physical_moves_surviving_old_records() {
         ..HeapConfig::default()
     });
 
-    // Allocate 6 OldLeaf objects rooted via the scope. Since
-    // OldLeaf is zero-sized we need an OldChunk-style test type.
     {
         let mut mutator = heap.mutator();
-        let mut keep_scope = mutator.handle_scope();
+        let mut scope = mutator.handle_scope();
         for i in 0..6u8 {
             mutator
-                .alloc(&mut keep_scope, OldChunk([i; 32]))
+                .alloc(&mut scope, OldChunk([i; 32]))
                 .expect("alloc direct-old chunk");
         }
-        // Roots drop as keep_scope drops -- objects become
-        // garbage from the live-set perspective.
     }
-
-    // Run a major collection to sweep dead chunks.
     {
         let mut mutator = heap.mutator();
         mutator
             .collect(CollectionKind::Major)
-            .expect("major collect to drop dead chunks");
+            .expect("major sweeps dead old-gen records");
     }
 
-    // At this point every OldChunk was unrooted, so the major
-    // cycle should have dropped all of them. Nothing is live in
-    // the old gen. compact_old_gen_physical at any threshold
-    // should report 0 moved.
     let moved = heap.compact_old_gen_physical(1.0);
-    assert_eq!(moved, 0, "empty old gen should not evacuate anything");
+    assert_eq!(moved, 0);
 }
 
 #[test]
