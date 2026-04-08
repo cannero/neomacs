@@ -150,6 +150,94 @@ fn custom_declare_variable_with_funcall_lambda_default_sets_variable() {
     );
 }
 
+/// Loads a real .elc fixture compiled by GNU Emacs from a tiny
+/// `(defcustom test-mle-edge 'window ...)` source file. Verifies
+/// that the .elc bytecode path correctly invokes
+/// custom-declare-variable and that the variable is set afterwards.
+/// This is the smallest possible repro for the bindings.elc bootstrap
+/// failure (which signals void-variable on the same defcustom shape).
+#[test]
+fn defcustom_loaded_from_real_elc_sets_variable() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let src_path = dir.path().join("test_dc.el");
+    std::fs::write(
+        &src_path,
+        r#";;; -*- lexical-binding: t -*-
+(defvar-local test-mle-process nil "doc1")
+;;;###autoload
+(put 'test-mle-process 'risky-local-variable t)
+
+(defcustom test-mle-edge 'window
+  "Where function `test-mle-fn' should align to.
+Multiple lines, just like the bindings.el version."
+  :type '(choice (const right-margin)
+                 (const right-fringe)
+                 (const window))
+  :group 'help
+  :version "30.1")
+(defun test-mle-fn () test-mle-edge)
+"#,
+    )
+    .expect("write source");
+    // Byte-compile via GNU Emacs.
+    let gnu_emacs = "/home/exec/.local/bin/emacs";
+    if !std::path::Path::new(gnu_emacs).exists() {
+        eprintln!("skipping: GNU Emacs not available at {gnu_emacs}");
+        return;
+    }
+    let status = std::process::Command::new(gnu_emacs)
+        .args(["--batch", "--eval"])
+        .arg(format!("(byte-compile-file \"{}\")", src_path.display()))
+        .status()
+        .expect("byte-compile");
+    assert!(status.success(), "byte-compile failed");
+    let elc_path = dir.path().join("test_dc.elc");
+    assert!(elc_path.exists(), ".elc file should exist");
+
+    let mut ev = bootstrap_context();
+    super::super::load::load_file(&mut ev, &elc_path).expect("load .elc fixture");
+    let result = ev
+        .eval_str("(boundp 'test-mle-edge)")
+        .expect("boundp eval");
+    assert_eq!(
+        result,
+        crate::emacs_core::value::Value::T,
+        "test-mle-edge should be bound after loading .elc"
+    );
+    let value = ev.eval_str("test-mle-edge").expect("read test-mle-edge");
+    assert_eq!(value, crate::emacs_core::value::Value::symbol("window"));
+}
+
+/// Reproduces the actual `.elc` form for `(defcustom mode-line-right-align-edge
+/// 'window ...)` — with a *bytecode* lambda as the default's lambda
+/// (not a regular cons-cell lambda). The .elc bytecode for the
+/// defcustom default constructs `(list 'funcall (list 'function #[0
+/// "\300\207" [window] 1]))` where #[...] is a real bytecode object.
+#[test]
+fn custom_declare_variable_with_bytecode_lambda_default_sets_variable() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = bootstrap_context();
+    ev.set_lexical_binding(true);
+    let result = ev
+        .eval_str(
+            r##"(progn
+                  (custom-declare-variable
+                    'test-bc-edge
+                    (list 'funcall (list 'function (read "#[0 \"\\300\\207\" [window] 1]")))
+                    "docstring"
+                    :type 'symbol
+                    :group 'help)
+                  test-bc-edge)"##,
+        )
+        .expect("eval");
+    assert_eq!(
+        result,
+        crate::emacs_core::value::Value::symbol("window"),
+        "test-bc-edge should be set to 'window via bytecode lambda default"
+    );
+}
+
 /// Reproduces the `bindings.elc` failure pattern: defcustom with a
 /// quoted-symbol default followed by a defun that references the
 /// variable. GNU verified: this should yield (window window).
