@@ -113,6 +113,35 @@ fn defcustom_custom_variable_p() {
     assert_eq!(results[2], "OK nil");
 }
 
+/// Reproduces the `bindings.elc` failure pattern: defcustom with a
+/// quoted-symbol default followed by a defun that references the
+/// variable. GNU verified: this should yield (window window).
+#[test]
+fn defcustom_quoted_symbol_default_followed_by_defun_using_var() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = bootstrap_context();
+    ev.set_lexical_binding(true);
+    let results: Vec<_> = ev
+        .eval_str_each(
+            r#"(defcustom mode-line-test-edge 'window
+                  "Where function `mode-line-format-right-align' should align to."
+                  :type '(choice (const right-margin)
+                                 (const right-fringe)
+                                 (const window)))
+               (defun mode--line-test ()
+                 (let ((edge mode-line-test-edge))
+                   edge))
+               (list mode-line-test-edge (mode--line-test))"#,
+        )
+        .iter()
+        .map(crate::emacs_core::error::format_eval_result)
+        .collect();
+    // GNU verified via:
+    //   emacs --batch --eval '(progn (defcustom ...) (defun ...) (list ...))'
+    //   => (window window)
+    assert_eq!(results[2], "OK (window window)", "results: {results:?}");
+}
+
 // -- GNU custom.el group tests -----------------------------------------
 
 #[test]
