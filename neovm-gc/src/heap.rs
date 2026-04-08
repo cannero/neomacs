@@ -109,6 +109,25 @@ pub struct Heap {
 // `Send` but intentionally not `Sync`.
 unsafe impl Send for Heap {}
 
+/// Crate-internal alias for the type that will eventually
+/// be split out of [`Heap`] as a `pub(crate)` inner struct
+/// held behind an `Arc<RwLock<HeapCore>>` in the multi-
+/// mutator refactor (DESIGN.md Appendix A commit 4).
+///
+/// Today the alias points directly at `Heap` because the
+/// single-mutator borrow model means `Heap` itself already
+/// carries every field the future `HeapCore` will own.
+/// Referencing `HeapCore` instead of `Heap` from
+/// crate-internal code anticipates the split: when the
+/// rename lands, sites that use `HeapCore` keep working
+/// and sites that still use `Heap` get a clean list of
+/// touch points.
+///
+/// External callers continue to use `Heap` as the public
+/// entry type.
+#[allow(dead_code)]
+pub(crate) type HeapCore = Heap;
+
 impl Heap {
     /// Create a new heap with `config`.
     pub fn new(config: HeapConfig) -> Self {

@@ -12,7 +12,7 @@ use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_pl
 use crate::collector_session::{self, build_prepared_active_reclaim, prepare_active_reclaim};
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::descriptor::{GcErased, TypeDesc};
-use crate::heap::{AllocError, Heap};
+use crate::heap::{AllocError, Heap, HeapCore};
 use crate::object::SpaceKind;
 use crate::plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress,
@@ -876,7 +876,7 @@ impl<'heap> CollectorRuntime<'heap> {
     }
 }
 
-fn prepare_heap_major_reclaim(heap: &Heap, plan: &CollectionPlan) -> PreparedReclaim {
+fn prepare_heap_major_reclaim(heap: &HeapCore, plan: &CollectionPlan) -> PreparedReclaim {
     prepare_major_reclaim_for_plan(
         plan,
         heap.objects(),
@@ -887,7 +887,7 @@ fn prepare_heap_major_reclaim(heap: &Heap, plan: &CollectionPlan) -> PreparedRec
 }
 
 fn trace_heap_major_ephemerons(
-    heap: &Heap,
+    heap: &HeapCore,
     tracer: &mut crate::collector_exec::MarkTracer<'_>,
     plan: &CollectionPlan,
 ) -> (u64, u64) {
