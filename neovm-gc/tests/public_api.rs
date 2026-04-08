@@ -7026,6 +7026,73 @@ fn public_api_shared_background_service_drains_pending_finalizers() {
 }
 
 #[test]
+fn public_api_shared_background_service_drain_pending_finalizers_bounded_runs_in_slices() {
+    // Pin the bounded-drain surface on the SharedBackgroundService
+    // — the cross-thread variant a host runs on a dedicated
+    // background thread. Slicing semantics are the same: budget
+    // 2 then budget 5 to drain the rest. With this test the
+    // bounded drain is now end-to-end pinned across every public
+    // SharedHeap-side surface that exposes it.
+    PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
+
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            for i in 0..3u64 {
+                let mut scope = mutator.handle_scope();
+                mutator
+                    .alloc(&mut scope, FinalizableLeaf(1300 + i))
+                    .expect("alloc finalizable old leaf");
+            }
+            let cycle = mutator
+                .collect(CollectionKind::Major)
+                .expect("major collect");
+            assert_eq!(cycle.queued_finalizers, 3);
+        })
+        .expect("collect shared finalizable objects");
+
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    assert_eq!(service.pending_finalizer_count().expect("pending count"), 3);
+
+    assert_eq!(
+        service
+            .drain_pending_finalizers_bounded(2)
+            .expect("bounded drain 2"),
+        2
+    );
+    assert_eq!(service.pending_finalizer_count().expect("pending count"), 1);
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 2);
+
+    assert_eq!(
+        service
+            .drain_pending_finalizers_bounded(5)
+            .expect("bounded drain 5"),
+        1
+    );
+    assert_eq!(service.pending_finalizer_count().expect("pending count"), 0);
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        service
+            .heap()
+            .stats()
+            .expect("shared heap stats")
+            .finalizers_run,
+        3
+    );
+}
+
+#[test]
 fn public_api_shared_background_service_drains_pending_finalizers_while_heap_is_read_locked() {
     PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
 
