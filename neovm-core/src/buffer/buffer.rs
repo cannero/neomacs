@@ -1005,6 +1005,38 @@ pub fn lookup_buffer_slot(name: &str) -> Option<&'static BufferSlotInfo> {
 ///    and `enable-multibyte-characters` whose GNU equivalents are
 ///    declared `BVAR_PER_BUFFER_TYPE_BOOL`.
 ///  - Anything else (including `""`): store as-is.
+/// Filter a `(perm-hook ...)` value to keep only entries that
+/// are themselves `permanent-local-hook` per their symbol property,
+/// plus the `t` element if present. Mirrors GNU
+/// `reset_buffer_local_variables`'s permanent-local-hook handling
+/// at `buffer.c:1308-1335`. Used by [`Buffer::kill_all_local_variables`]
+/// when walking `local_var_alist` for LOCALIZED hook bindings.
+pub(crate) fn preserve_partial_permanent_local_hook_value(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    value: crate::emacs_core::value::Value,
+) -> crate::emacs_core::value::Value {
+    use crate::emacs_core::value::Value;
+    if !value.is_cons() {
+        return value;
+    }
+    let mut preserved = Vec::new();
+    let mut cursor = value;
+    while cursor.is_cons() {
+        let elt = cursor.cons_car();
+        cursor = cursor.cons_cdr();
+        if elt.is_symbol_named("t")
+            || elt.as_symbol_name().is_some_and(|name| {
+                obarray
+                    .get_property(name, "permanent-local-hook")
+                    .is_some_and(|prop| !prop.is_nil())
+            })
+        {
+            preserved.push(elt);
+        }
+    }
+    Value::list(preserved)
+}
+
 pub(crate) fn coerce_to_slot(
     info: &BufferSlotInfo,
     value: crate::emacs_core::value::Value,
@@ -2048,7 +2080,7 @@ impl Buffer {
 
     pub fn kill_all_local_variables(
         &mut self,
-        obarray: &crate::emacs_core::symbol::Obarray,
+        obarray: &mut crate::emacs_core::symbol::Obarray,
         kill_permanent: bool,
     ) {
         // Phase 10C: BUFFER_OBJFWD slots flagged `reset_on_kill`
@@ -2078,6 +2110,87 @@ impl Buffer {
                 self.slots[info.offset] = info.default.to_value();
             }
         }
+
+        // Phase 10E: walk `local_var_alist` and remove non-permanent
+        // entries IN PLACE. Mirrors GNU `reset_buffer_local_variables`
+        // at `buffer.c:1296-1335` which uses `Fdelq`-style splice.
+        //
+        // Permanent locals (`(get sym 'permanent-local)`) survive
+        // unconditionally. Permanent-local-hook variables get their
+        // hook list filtered to keep only the permanent entries.
+        // The filter MUTATES the existing cell's cdr in place so
+        // any BLV whose valcell points at the cell still observes
+        // the filtered value without needing a re-swap.
+        //
+        // Removed entries trigger a BLV cache reset so the next
+        // read for that LOCALIZED variable falls through to the
+        // global default.
+        {
+            use crate::emacs_core::value::Value;
+            let mut new_head = Value::NIL;
+            let mut new_tail: Option<Value> = None;
+            let mut alist = self.local_var_alist;
+            while alist.is_cons() {
+                let next_pair = alist.cons_cdr();
+                let entry = alist.cons_car();
+                if !entry.is_cons() {
+                    alist = next_pair;
+                    continue;
+                }
+                let sym_val = entry.cons_car();
+                let Some(name) = sym_val.as_symbol_name() else {
+                    alist = next_pair;
+                    continue;
+                };
+                let mut keep = false;
+                if kill_permanent {
+                    // Drop all entries.
+                } else {
+                    let prop = obarray
+                        .get_property(name, "permanent-local")
+                        .copied()
+                        .filter(|v| !v.is_nil());
+                    if let Some(prop) = prop {
+                        if prop.is_symbol_named("permanent-local-hook") {
+                            // Partial-preserve: filter the value and
+                            // mutate the existing cell's cdr in place.
+                            let value = entry.cons_cdr();
+                            let preserved =
+                                preserve_partial_permanent_local_hook_value(obarray, value);
+                            entry.set_cdr(preserved);
+                        }
+                        keep = true;
+                    }
+                }
+                if keep {
+                    // Append this `alist` cons to the new chain.
+                    if new_tail.is_none() {
+                        new_head = alist;
+                    } else {
+                        new_tail.unwrap().set_cdr(alist);
+                    }
+                    new_tail = Some(alist);
+                } else {
+                    // Drop. Reset the BLV cache for this LOCALIZED
+                    // variable so subsequent reads re-swap to the
+                    // global default. Mirrors GNU's
+                    // `swap_in_global_binding`.
+                    let id = crate::emacs_core::intern::intern(name);
+                    if let Some(blv) = obarray.blv_mut(id) {
+                        blv.where_buf = Value::NIL;
+                        blv.found = false;
+                        blv.valcell = blv.defcell;
+                    }
+                }
+                alist = next_pair;
+            }
+            // Terminate the new chain.
+            if let Some(tail) = new_tail {
+                tail.set_cdr(Value::NIL);
+            }
+            self.local_var_alist = new_head;
+        }
+
         self.locals
             .kill_all_local_variables(obarray, kill_permanent);
     }
@@ -3144,7 +3257,7 @@ impl BufferManager {
     pub fn clear_buffer_local_properties(
         &mut self,
         id: BufferId,
-        obarray: &crate::emacs_core::symbol::Obarray,
+        obarray: &mut crate::emacs_core::symbol::Obarray,
         kill_permanent: bool,
     ) -> Option<()> {
         let buf = self.buffers.get_mut(&id)?;

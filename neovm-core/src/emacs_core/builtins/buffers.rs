@@ -1147,9 +1147,10 @@ pub(crate) fn builtin_kill_all_local_variables(
     // - preserves most always-local slots
     // - resets only a small fixed reset-on-kill-all subset
     // - clears conditional slot locals unless they are permanent-local
+    // - walks local_var_alist for LOCALIZED entries (Phase 10E)
     let _ = eval
         .buffers
-        .clear_buffer_local_properties(current_id, &eval.obarray, kill_permanent);
+        .clear_buffer_local_properties(current_id, &mut eval.obarray, kill_permanent);
     Ok(Value::NIL)
 }
 
