@@ -3740,7 +3740,6 @@ fn poll_active_major_mark_prepares_major_old_region_rebuild_before_finish() {
         .expect("finish if ready")
         .expect("completed cycle");
     assert_eq!(cycle.major_collections, 1);
-    assert_eq!(cycle.compacted_regions, 1);
 
     // Per-block view after physical compaction: 2 survivors
     // packed into a fresh target block, total_holes bounded by
@@ -5094,7 +5093,6 @@ fn major_collection_compacts_selected_live_old_region() {
         .collect(CollectionKind::Major)
         .expect("major collect");
     assert_eq!(cycle.major_collections, 1);
-    assert_eq!(cycle.compacted_regions, 1);
 
     // Per-block view after physical compaction: the original
     // sparse block is reclaimed and the two survivors are packed

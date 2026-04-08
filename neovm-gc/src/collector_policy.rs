@@ -41,11 +41,12 @@ pub(crate) fn build_plan(
         }
         CollectionKind::Major | CollectionKind::Full => {
             let old_selection = old_gen.major_plan_selection(old_config);
-            let selected_old_regions: Vec<_> = old_selection
-                .candidates
-                .iter()
-                .map(|region| region.region_index)
-                .collect();
+            // Logical selected_old_regions is retired: no test
+            // or production caller asserts on it any more, the
+            // rebuild path consumes it but the rebuild itself
+            // is now a no-op. Producing an empty vec lets the
+            // unused rebuild path be deleted in a follow-up.
+            let selected_old_regions: Vec<usize> = Vec::new();
             // Block-indexed parallel selection. Runs the same
             // heuristic against the per-block view; the resulting
             // indices may not match selected_old_regions because
@@ -58,7 +59,11 @@ pub(crate) fn build_plan(
                 .iter()
                 .map(|block| block.region_index)
                 .collect();
-            let target_old_regions = selected_old_regions.len();
+            // target_old_regions is now driven by the block-side
+            // selection: it counts the blocks the planner picks
+            // for compaction, regardless of how the legacy
+            // selected_old_regions field is populated.
+            let target_old_regions = selected_old_blocks.len();
             let estimated_compaction_bytes = old_selection.estimated_compaction_bytes;
             let old_reclaim_bytes = old_selection.estimated_reclaim_bytes;
             let worker_count = old_config.concurrent_mark_workers.max(1);

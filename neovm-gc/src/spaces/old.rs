@@ -967,15 +967,15 @@ impl OldGenState {
 
     pub(crate) fn prepare_rebuild(
         &mut self,
-        completed_plan: Option<&CollectionPlan>,
+        _completed_plan: Option<&CollectionPlan>,
     ) -> Option<OldRegionRebuildState> {
-        if !completed_plan
-            .is_some_and(|plan| matches!(plan.kind, CollectionKind::Major | CollectionKind::Full))
-        {
-            return None;
-        }
-        let previous_regions = core::mem::take(&mut self.regions);
-        prepare_old_region_rebuild_for_plan(&previous_regions, completed_plan)
+        // Logical-region rebuild is retired. The block-side
+        // accounting maintained by record_object is the only
+        // source of post-sweep stats now; physical compaction
+        // (Heap::compact_old_gen_physical /
+        // Heap::compact_old_gen_blocks) is the only mechanism
+        // that actually moves bytes.
+        None
     }
 
     pub(crate) fn prepare_rebuild_for_plan(&self, plan: &CollectionPlan) -> OldRegionRebuildState {
