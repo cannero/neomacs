@@ -6140,7 +6140,18 @@ impl Context {
             cursor = cursor.cons_cdr();
         }
 
-        self.apply(func, args)
+        // When the form dispatched via a symbol, record the SYMBOL
+        // (not the resolved subr/lambda) as the backtrace-frame
+        // function. Mirrors GNU `eval_sub` which calls
+        // `record_in_backtrace (original_fun, args, nargs)` with the
+        // original symbol (`eval.c:2645-2654`). Without this,
+        // `backtrace-frame` returns `#<subr funcall-interactively>`
+        // where GNU returns the bare symbol `funcall-interactively`.
+        if let Some(sym_id) = sym_id {
+            self.apply_with_frame_function(Value::from_sym_id(sym_id), func, args)
+        } else {
+            self.apply(func, args)
+        }
     }
 
     /// Legacy eval_value: delegates to eval_sub.
@@ -8430,6 +8441,36 @@ impl Context {
 
     pub(crate) fn apply_untraced(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
         self.apply_internal(function, args, false)
+    }
+
+    /// Apply FUNC to ARGS, but record FRAME_FUNCTION (not FUNC) in the
+    /// runtime backtrace frame. Used by `eval_sub_cons` when the form
+    /// dispatches through a symbol: the symbol is what GNU stores in
+    /// specpdl (and what `backtrace-frame` returns), while the
+    /// resolved function cell is what actually runs.
+    ///
+    /// Mirrors GNU's `eval_sub` SYMBOLP arm at `eval.c:2600-2625`,
+    /// where `original_fun` (the symbol) is the value written into the
+    /// specpdl entry via `record_in_backtrace (original_fun, args, ...)`.
+    pub(crate) fn apply_with_frame_function(
+        &mut self,
+        frame_function: Value,
+        func: Value,
+        args: Vec<Value>,
+    ) -> EvalResult {
+        self.with_gc_scope_result(|ctx| {
+            ctx.root(frame_function);
+            ctx.root(func);
+            for &arg in &args {
+                ctx.root(arg);
+            }
+            ctx.maybe_gc_and_quit()?;
+            ctx.maybe_grow_eval_stack(|ctx| {
+                ctx.with_runtime_backtrace_frame(frame_function, args, |eval, args| {
+                    eval.funcall_general_untraced(func, args)
+                })
+            })
+        })
     }
 
     /// Unified function dispatch — matches GNU Emacs's funcall_general.
