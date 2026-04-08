@@ -10591,6 +10591,20 @@ fn documentation_property_plan(
             Ok(DocumentationPlan::Final(Value::string(doc)))
         }
         Some(value) => documentation_plan_from_property_value(lisp_directory.as_deref(), value),
+        // No plist entry: fall through to the central GNU DEFVAR
+        // table for `variable-documentation' queries (Phase A9 of
+        // the v5 audit's R5 plan). Covers all upstream GNU DEFVAR_*
+        // variables that aren't explicitly seeded into the obarray
+        // plist by the legacy `STARTUP_VARIABLE_DOC_*' tables.
+        // Other property names fall through to nil (only
+        // `variable-documentation' has a central source).
+        _ if prop == "variable-documentation" => {
+            if let Some(text) = super::var_docs::lookup(sym) {
+                Ok(DocumentationPlan::Final(Value::string(text)))
+            } else {
+                Ok(DocumentationPlan::Final(Value::NIL))
+            }
+        }
         _ => Ok(DocumentationPlan::Final(Value::NIL)),
     }
 }

@@ -90,6 +90,7 @@ pub mod search;
 pub(crate) mod string_escape;
 pub mod subr_docs;
 pub mod subr_info;
+pub mod var_docs;
 pub mod symbol;
 pub mod syntax;
 pub mod terminal;
