@@ -228,7 +228,15 @@ const CT_CHAR_TABLE_TAG: &str = "--char-table--";
 const CT_SUBTYPE: usize = 3;
 const CT_EXTRA_COUNT: usize = 4;
 const CT_EXTRA_START: usize = 5;
-const CURRENT_CASE_TABLE_PROPERTY: &str = "case-table";
+// Phase 10D holdout 5: per-buffer case-table char-table now lives in
+// `Buffer::slots[BUFFER_SLOT_CASE_TABLE]`. NeoMacs collapses GNU's four
+// separate `downcase_table_` / `upcase_table_` / `case_canon_table_` /
+// `case_eqv_table_` BVAR slots (`buffer.h:408-417`) into a single
+// downcase char-table whose extras[0..2] hold the upcase / canonicalize /
+// equivalence subsidiary tables — the same value shape `Fcurrent_case_table`
+// returns. The slot is non-Lisp-visible (`install_as_forwarder: false`),
+// always-local (`local_flags_idx == -1`, matching GNU `buffer.c:4731-4734`).
+// Reads/writes happen through `(current-case-table)` / `(set-case-table)`.
 const STANDARD_CASE_TABLE_SYMBOL: &str = "neovm--standard-case-table-object";
 
 /// Build a char-table vector with the given subtype, extra slots, default, and data pairs.
@@ -401,23 +409,26 @@ fn current_case_table_for_buffer_in_state(
     obarray: &mut super::symbol::Obarray,
     buffers: &mut crate::buffer::BufferManager,
 ) -> Result<Value, Flow> {
+    use crate::buffer::buffer::BUFFER_SLOT_CASE_TABLE;
     let fallback = ensure_standard_case_table_object_in_state(obarray)?;
     let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let buf = buffers
-        .get(current_id)
+        .get_mut(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
-    if let Some(RuntimeBindingValue::Bound(value)) =
-        buf.get_buffer_local_binding(CURRENT_CASE_TABLE_PROPERTY)
-    {
-        if is_case_table(&value) {
-            return Ok(value);
-        }
+    // Mirrors GNU `Fcurrent_case_table` (`casetab.c:65-72`):
+    //     return BVAR (current_buffer, downcase_table);
+    let value = buf.slots[BUFFER_SLOT_CASE_TABLE];
+    if is_case_table(&value) {
+        return Ok(value);
     }
 
-    let _ = buffers.set_buffer_local_property(current_id, CURRENT_CASE_TABLE_PROPERTY, fallback);
+    // Slot unset or invalid: seed from the standard table —
+    // matches GNU `reset_buffer` cloning the standard tables
+    // into a fresh buffer (`buffer.c:1149-1157`).
+    buf.slots[BUFFER_SLOT_CASE_TABLE] = fallback;
     Ok(fallback)
 }
 
@@ -432,10 +443,21 @@ fn set_current_case_table_for_buffer_in_state(
     buffers: &mut crate::buffer::BufferManager,
     table: Value,
 ) -> Result<(), Flow> {
+    use crate::buffer::buffer::BUFFER_SLOT_CASE_TABLE;
     let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = buffers.set_buffer_local_property(current_id, CURRENT_CASE_TABLE_PROPERTY, table);
+    let buf = buffers
+        .get_mut(current_id)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    // Mirrors GNU `Fset_case_table` (`casetab.c:82-86`) → `set_case_table`
+    // (`casetab.c:135-202`) which decomposes the table into 4 BVAR slots
+    // and bset_*'s each one. NeoMacs collapses those into a single slot,
+    // so the write here is the equivalent of GNU's bset_downcase_table
+    // plus the implicit consistency between extras[0..2] and the other
+    // 3 case tables. The case-table slot is always-local
+    // (`local_flags_idx == -1`), so no flag bit needs setting.
+    buf.slots[BUFFER_SLOT_CASE_TABLE] = table;
     Ok(())
 }
 

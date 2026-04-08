@@ -3584,6 +3584,15 @@ impl Context {
                 use crate::emacs_core::intern::intern;
 
                 for info in BUFFER_SLOT_INFO {
+                    if !info.install_as_forwarder {
+                        // Internal BVAR-only slot (syntax-table /
+                        // category-table / case-table). Mirrors GNU's
+                        // handling of `syntax_table_` etc. which
+                        // occupy BVAR slot positions but are not
+                        // DEFVAR_PER_BUFFER'd. Reads/writes happen
+                        // exclusively through dedicated builtins.
+                        continue;
+                    }
                     let id = intern(info.name);
                     let predicate = if info.predicate.is_empty() {
                         intern("null")

@@ -793,14 +793,11 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
         overlays: dump_overlay_list(&buf.overlays),
         syntax_table: dump_syntax_table(&buf.syntax_table),
         undo_list: None,
-        // Phase 11: BUFFER_OBJFWD slot table is intentionally NOT
-        // round-tripped — see
-        // project_phase11_pdump_round_trip_blocker.md. The naive
-        // approach corrupts heap refs in
-        // `apply_runtime_startup_state`. Slots are reseeded at
-        // load time from the legacy file_name etc. fields and
-        // re-populated by post-load Lisp.
-        slots: Vec::new(),
+        // Phase 11.1: round-trip the BUFFER_OBJFWD slot table.
+        // Previously blocked on the BLV GC trace bug (5699c3569);
+        // with BLVs traced as roots, slot round-trip is safe for
+        // the slot vector overall.
+        slots: buf.slots.iter().map(dump_value).collect(),
         // Phase 11: per-slot local-flag bitmap. Mirrors
         // `Buffer::local_flags` (Phase 10D bitset). Safe to
         // round-trip — it's a `u64`.
@@ -2252,25 +2249,27 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         // Loaded from `db.local_var_alist`. The cons-cell graph
         // already round-trips through the dump heap.
         local_var_alist: load_value(&db.local_var_alist),
-        // Phase 8b: BUFFER_OBJFWD slot table. We do NOT round-trip
-        // `Buffer::slots` directly through pdump (see project
-        // memory `phase11_pdump_round_trip_blocker`); the slot
-        // values are reconstructed in two stages:
-        //   - At load time we only mirror the four hardcoded
-        //     legacy fields (file_name, auto_save_file_name,
-        //     read_only, multibyte), leaving every other slot at
-        //     `Value::NIL`. Seeding them from
-        //     `BUFFER_SLOT_INFO::default` here would allocate new
-        //     heap objects (LazyString, LazySymbol, LazyCwd) on
-        //     the still-being-finalised pdump heap and breaks
-        //     ~30 tests downstream of `apply_runtime_startup_state`.
-        //   - `finalize_cached_bootstrap_eval` (`load.rs:2574`)
-        //     re-runs the bootstrap startup forms after pdump
-        //     load, which re-populate every conditional slot via
-        //     the normal Lisp `setq`/`set-default` paths.
+        // Phase 11.1: round-trip BUFFER_OBJFWD slots through pdump.
+        // Previously blocked on the BLV GC trace bug (5699c3569);
+        // with BLVs now traced as roots, slot Values stay live
+        // through GCs in `apply_runtime_startup_state` and the
+        // round-trip is safe. Falls back to per-slot defaults from
+        // `BUFFER_SLOT_INFO` for any slot the dump didn't carry
+        // (older format compatibility, or sentinel buffers without
+        // a populated slot vector).
         slots: {
             let mut s = [crate::emacs_core::value::Value::NIL;
                 crate::buffer::buffer::BUFFER_SLOT_COUNT];
+            for info in crate::buffer::buffer::BUFFER_SLOT_INFO {
+                s[info.offset] = info.default.to_value();
+            }
+            for (idx, dumped) in db.slots.iter().enumerate() {
+                if idx >= crate::buffer::buffer::BUFFER_SLOT_COUNT {
+                    break;
+                }
+                s[idx] = load_value(dumped);
+            }
+            // Legacy header field overrides (older dump compat).
             if let Some(ref fname) = db.file_name {
                 s[crate::buffer::buffer::BUFFER_SLOT_FILE_NAME] =
                     crate::emacs_core::value::Value::string(fname);

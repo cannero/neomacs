@@ -205,6 +205,23 @@ pub const BUFFER_SLOT_BUFFER_DISPLAY_TABLE: usize = 57;
 /// Slot index for `buffer-file-coding-system`. Default nil
 /// (permanent).
 pub const BUFFER_SLOT_BUFFER_FILE_CODING_SYSTEM: usize = 58;
+/// Slot index for the buffer's syntax table (`BVAR(buf, syntax_table)`
+/// in GNU `buffer.h:391`). Not exposed as a Lisp variable in GNU —
+/// accessed only via `(syntax-table)` / `(set-syntax-table)`. Conditional
+/// per GNU `buffer.c:4758` (`PER_BUFFER_VAR_IDX(syntax_table)`).
+pub const BUFFER_SLOT_SYNTAX_TABLE: usize = 59;
+/// Slot index for the buffer's category table (`BVAR(buf, category_table)`
+/// in GNU `buffer.h:394`). Not exposed as a Lisp variable in GNU —
+/// accessed only via `(category-table)` / `(set-category-table)`. Conditional
+/// per GNU `buffer.c:4760`.
+pub const BUFFER_SLOT_CATEGORY_TABLE: usize = 60;
+/// Slot index for the buffer's case table (combined downcase/upcase/
+/// canonicalize/equivalence as extras of a single char-table —
+/// NeoMacs's collapse of GNU's 4-slot design in `buffer.h:408-417`).
+/// Not exposed as a Lisp variable; accessed via `(current-case-table)`
+/// / `(set-case-table)`. Always-local per GNU `buffer.c:4731-4734`
+/// (flag=0 means every buffer has its own value, no conditional gate).
+pub const BUFFER_SLOT_CASE_TABLE: usize = 61;
 
 // ---------------------------------------------------------------------------
 // BUFFER_SLOT_INFO table — declarative metadata for every BUFFER_OBJFWD
@@ -299,6 +316,15 @@ pub struct BufferSlotInfo {
     /// separate offset and `local_flags_idx` to keep dispatch a
     /// single bit shift).
     pub local_flags_idx: i16,
+    /// Whether `install_buffer_objfwd` should install a FORWARDED
+    /// symbol for this slot's `name`. GNU's DEFVAR_PER_BUFFER entries
+    /// all become forwarded symbols (`syntax-table` / `category-table`
+    /// / case tables are NOT DEFVAR_PER_BUFFER — they live in the
+    /// BVAR slot block but are only accessible through builtins like
+    /// `Fsyntax_table`). Setting this to `false` keeps the slot in
+    /// the BVAR block (same storage, GC tracing, pdump round-trip)
+    /// but leaves the symbol of that name untouched, matching GNU.
+    pub install_as_forwarder: bool,
 }
 
 /// The complete table of `BUFFER_OBJFWD`-style slots. Phase 10C started
@@ -313,6 +339,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "stringp",
         reset_on_kill: false,
         local_flags_idx: -1,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         name: "buffer-auto-save-file-name",
@@ -321,6 +348,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "stringp",
         reset_on_kill: false,
         local_flags_idx: -1,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         name: "buffer-read-only",
@@ -329,6 +357,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "booleanp",
         reset_on_kill: false,
         local_flags_idx: -1,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         name: "enable-multibyte-characters",
@@ -337,6 +366,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "booleanp",
         reset_on_kill: false,
         local_flags_idx: -1,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         name: "buffer-file-truename",
@@ -345,6 +375,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "stringp",
         reset_on_kill: false,
         local_flags_idx: -1,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU buffer.c:5381 — default-directory defaults to the
@@ -357,6 +388,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "stringp",
         reset_on_kill: false,
         local_flags_idx: -1,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         name: "buffer-saved-size",
@@ -365,6 +397,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "integerp",
         reset_on_kill: false,
         local_flags_idx: -1,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         name: "buffer-backed-up",
@@ -373,6 +406,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "booleanp",
         reset_on_kill: false,
         local_flags_idx: -1,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         name: "buffer-file-format",
@@ -381,6 +415,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "listp",
         reset_on_kill: false,
         local_flags_idx: -1,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         name: "buffer-auto-save-file-format",
@@ -389,6 +424,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "listp",
         reset_on_kill: false,
         local_flags_idx: -1,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         name: "major-mode",
@@ -397,6 +433,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "symbolp",
         reset_on_kill: true,
         local_flags_idx: -1,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         name: "local-minor-modes",
@@ -405,6 +442,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "listp",
         reset_on_kill: false,
         local_flags_idx: -1,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         name: "mode-name",
@@ -413,6 +451,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: true,
         local_flags_idx: -1,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         name: "mark-active",
@@ -421,6 +460,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: -1,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         name: "point-before-scroll",
@@ -429,6 +469,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: -1,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         name: "buffer-display-count",
@@ -437,6 +478,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "integerp",
         reset_on_kill: false,
         local_flags_idx: -1,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         name: "buffer-display-time",
@@ -445,6 +487,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: -1,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU sets this to t (a magic-bag value), not nil. The
@@ -456,6 +499,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: true,
         local_flags_idx: -1,
+        install_as_forwarder: true,
     },
     // Phase 10D conditional slots --------------------------------
     BufferSlotInfo {
@@ -469,6 +513,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "integerp",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_FILL_COLUMN as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4848` — tab-width defaults to 8.
@@ -478,6 +523,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "integerp",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_TAB_WIDTH as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4867` — left-margin defaults to 0.
@@ -487,6 +533,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "integerp",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_LEFT_MARGIN as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4835` — abbrev-mode defaults to nil.
@@ -496,6 +543,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_ABBREV_MODE as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4836` — overwrite-mode defaults to nil.
@@ -505,6 +553,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_OVERWRITE_MODE as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4838` — selective-display defaults to nil.
@@ -514,6 +563,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_SELECTIVE_DISPLAY as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4839` — selective-display-ellipses defaults to t.
@@ -523,6 +573,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_SELECTIVE_DISPLAY_ELLIPSES as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4849` — truncate-lines defaults to nil.
@@ -536,6 +587,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_TRUNCATE_LINES as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4850` — word-wrap defaults to nil.
@@ -545,6 +597,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_WORD_WRAP as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4851` — ctl-arrow defaults to t.
@@ -554,6 +607,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_CTL_ARROW as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4837` — auto-fill-function defaults to nil.
@@ -563,6 +617,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_AUTO_FILL_FUNCTION as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4832` — mode-line-format defaults to "%-".
@@ -574,6 +629,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_MODE_LINE_FORMAT as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4833` — header-line-format defaults to nil.
@@ -583,6 +639,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_HEADER_LINE_FORMAT as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4834` — tab-line-format defaults to nil.
@@ -592,6 +649,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_TAB_LINE_FORMAT as i16,
+        install_as_forwarder: true,
     },
     //
     // Phase 10D step 5 batch 2 — display/bidi/fringe/scroll-bar slots.
@@ -603,6 +661,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_BIDI_DISPLAY_REORDERING as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4853` — bidi-paragraph-direction defaults to nil.
@@ -612,6 +671,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_BIDI_PARAGRAPH_DIRECTION as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4854` — bidi-paragraph-start-re defaults to nil.
@@ -621,6 +681,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_BIDI_PARAGRAPH_START_RE as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4855` — bidi-paragraph-separate-re defaults to nil.
@@ -630,6 +691,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_BIDI_PARAGRAPH_SEPARATE_RE as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4856` — cursor-type defaults to t.
@@ -639,6 +701,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_CURSOR_TYPE as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4857` — extra-line-spacing defaults to nil.
@@ -648,6 +711,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_LINE_SPACING as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4861` — text-conversion-style defaults to nil.
@@ -657,6 +721,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_TEXT_CONVERSION_STYLE as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4862` — cursor-in-non-selected-windows defaults to t.
@@ -666,6 +731,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_CURSOR_IN_NON_SELECTED_WINDOWS as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4871` — left-margin-cols defaults to 0.
@@ -675,6 +741,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_LEFT_MARGIN_WIDTH as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4872` — right-margin-cols defaults to 0.
@@ -684,6 +751,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_RIGHT_MARGIN_WIDTH as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4873` — left-fringe-width defaults to nil.
@@ -693,6 +761,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_LEFT_FRINGE_WIDTH as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4874` — right-fringe-width defaults to nil.
@@ -702,6 +771,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_RIGHT_FRINGE_WIDTH as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4875` — fringes-outside-margins defaults to nil.
@@ -711,6 +781,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_FRINGES_OUTSIDE_MARGINS as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4876` — scroll-bar-width defaults to nil.
@@ -720,6 +791,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_SCROLL_BAR_WIDTH as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4877` — scroll-bar-height defaults to nil.
@@ -729,6 +801,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_SCROLL_BAR_HEIGHT as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4878` — vertical-scroll-bar defaults to t.
@@ -738,6 +811,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_VERTICAL_SCROLL_BAR as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4879` — horizontal-scroll-bar defaults to t.
@@ -747,6 +821,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_HORIZONTAL_SCROLL_BAR as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4880` — indicate-empty-lines defaults to nil.
@@ -756,6 +831,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_INDICATE_EMPTY_LINES as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4881` — indicate-buffer-boundaries defaults to nil.
@@ -765,6 +841,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_INDICATE_BUFFER_BOUNDARIES as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4882` — fringe-indicator-alist defaults to nil.
@@ -774,6 +851,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_FRINGE_INDICATOR_ALIST as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4883` — fringe-cursor-alist defaults to nil.
@@ -783,6 +861,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_FRINGE_CURSOR_ALIST as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4884` — scroll-up-aggressively defaults to nil.
@@ -792,6 +871,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_SCROLL_UP_AGGRESSIVELY as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4885` — scroll-down-aggressively defaults to nil.
@@ -801,6 +881,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_SCROLL_DOWN_AGGRESSIVELY as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4868` — cache-long-scans defaults to t.
@@ -810,6 +891,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_CACHE_LONG_SCANS as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4840` — abbrev-table defaults to nil.
@@ -819,6 +901,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_LOCAL_ABBREV_TABLE as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4841` — display-table defaults to nil.
@@ -828,6 +911,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_BUFFER_DISPLAY_TABLE as i16,
+        install_as_forwarder: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4865` — buffer-file-coding-system defaults to nil.
@@ -840,13 +924,71 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         predicate: "",
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_BUFFER_FILE_CODING_SYSTEM as i16,
+        install_as_forwarder: true,
+    },
+    // ---------- Internal-only slots (not exposed as Lisp variables) ----------
+    //
+    // These slots mirror GNU BVAR fields that are NOT `DEFVAR_PER_BUFFER`'d.
+    // The slot offset lives in `Buffer::slots[]` so the storage, GC tracing,
+    // pdump round-trip, and local_flags machinery all work uniformly, but the
+    // `install_as_forwarder: false` flag tells the install loop to leave the
+    // corresponding symbol alone — matching GNU where `(symbol-value
+    // 'syntax-table)` signals void-variable.
+    BufferSlotInfo {
+        // GNU `buffer.h:391` `syntax_table_` + `buffer.c:4758` conditional
+        // local_flags entry. Read via `Fsyntax_table` / written via
+        // `Fset_syntax_table` (which also `SET_PER_BUFFER_VALUE_P`).
+        name: "syntax-table",
+        offset: BUFFER_SLOT_SYNTAX_TABLE,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_SYNTAX_TABLE as i16,
+        install_as_forwarder: false,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.h:394` `category_table_` + `buffer.c:4760` conditional
+        // local_flags entry. Read via `Fcategory_table` / written via
+        // `Fset_category_table`.
+        name: "category-table",
+        offset: BUFFER_SLOT_CATEGORY_TABLE,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_CATEGORY_TABLE as i16,
+        install_as_forwarder: false,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.h:408-417` `downcase_table_` / `upcase_table_` /
+        // `case_canon_table_` / `case_eqv_table_` + `buffer.c:4731-4734`
+        // always-local (flag=0) entries. NeoMacs collapses the four GNU
+        // slots into a single downcase char-table whose extras[0..2] hold
+        // the upcase / canonicalize / equivalence subsidiary tables —
+        // the same value shape `Fcurrent_case_table` returns. Read via
+        // `Fcurrent_case_table` / written via `Fset_case_table`.
+        name: "case-table",
+        offset: BUFFER_SLOT_CASE_TABLE,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: -1,
+        install_as_forwarder: false,
     },
 ];
 
 /// Look up a [`BufferSlotInfo`] by Lisp variable name. Returns `None`
 /// for non-slot-backed names.
+///
+/// Only returns entries with `install_as_forwarder: true` — the
+/// Lisp-visible slots. Internal BVAR-only slots (`syntax-table`,
+/// `category-table`, `case-table`) are addressed by their
+/// dedicated slot offset constants instead of by name, matching
+/// GNU where those symbols signal void-variable if read as Lisp
+/// variables.
 pub fn lookup_buffer_slot(name: &str) -> Option<&'static BufferSlotInfo> {
-    BUFFER_SLOT_INFO.iter().find(|info| info.name == name)
+    BUFFER_SLOT_INFO
+        .iter()
+        .find(|info| info.install_as_forwarder && info.name == name)
 }
 
 /// Coerce a write value to fit a slot's predicate. Mirrors GNU's
@@ -1061,7 +1203,9 @@ pub struct Buffer {
     pub local_flags: u64,
     /// Overlays attached to the buffer.
     pub overlays: OverlayList,
-    /// Syntax table for character classification.
+    /// Compiled syntax table for character classification. Produced
+    /// from `slots[BUFFER_SLOT_SYNTAX_TABLE]` via
+    /// `syntax_table_from_chartable` whenever the slot changes.
     pub syntax_table: SyntaxTable,
     /// Shared undo owner for this text.
     pub undo_state: SharedUndoState,
@@ -2032,9 +2176,18 @@ impl Buffer {
         // `local_var_alist` (`buffer.c:1423-1450`) and the
         // PER_BUFFER_VALUE_P-gated slot loop in
         // `buffer.c:1485-1494`.
+        //
+        // Internal-only slots (`install_as_forwarder: false`) are
+        // omitted — GNU's `buffer-local-variables` skips
+        // `syntax_table_` / `category_table_` / case-table fields
+        // because they aren't DEFVAR_PER_BUFFER'd and have no Lisp
+        // variable name to report.
         let mut out: Vec<(String, RuntimeBindingValue)> = BUFFER_SLOT_INFO
             .iter()
-            .filter(|info| info.local_flags_idx < 0 || self.slot_local_flag(info.offset))
+            .filter(|info| {
+                info.install_as_forwarder
+                    && (info.local_flags_idx < 0 || self.slot_local_flag(info.offset))
+            })
             .map(|info| {
                 (
                     info.name.to_string(),
@@ -2060,7 +2213,10 @@ impl Buffer {
     pub fn ordered_buffer_local_names(&self) -> Vec<String> {
         let mut names: Vec<String> = BUFFER_SLOT_INFO
             .iter()
-            .filter(|info| info.local_flags_idx < 0 || self.slot_local_flag(info.offset))
+            .filter(|info| {
+                info.install_as_forwarder
+                    && (info.local_flags_idx < 0 || self.slot_local_flag(info.offset))
+            })
             .map(|info| info.name.to_string())
             .collect();
         names.extend(self.locals.ordered_binding_names());

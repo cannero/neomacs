@@ -34,7 +34,12 @@ pub fn collect_category_gc_roots(roots: &mut Vec<Value>) {
     });
 }
 
-const CATEGORY_TABLE_PROPERTY: &str = "category-table";
+// Phase 10D holdout 4: per-buffer category table char-table now lives in
+// `Buffer::slots[BUFFER_SLOT_CATEGORY_TABLE]`, mirroring GNU's
+// `BVAR(buf, category_table)` storage. The slot is non-Lisp-visible
+// (`install_as_forwarder: false`); the symbol `category-table` continues
+// to signal void-variable as in GNU. Reads/writes happen exclusively
+// through `(category-table)` / `(set-category-table)`.
 const CATEGORY_DOCSTRING_SLOT: i64 = 0;
 const CATEGORY_VERSION_SLOT: i64 = 1;
 const CATEGORY_DOCSTRING_COUNT: usize = 95;
@@ -267,21 +272,26 @@ fn set_category_docstring_in_table(
 fn current_buffer_category_table_in_buffers(
     buffers: &mut crate::buffer::BufferManager,
 ) -> Result<Value, Flow> {
+    use crate::buffer::buffer::BUFFER_SLOT_CATEGORY_TABLE;
     let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let buf = buffers
-        .get(current_id)
+        .get_mut(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
-    if let Some(RuntimeBindingValue::Bound(table)) =
-        buf.get_buffer_local_binding(CATEGORY_TABLE_PROPERTY)
-    {
+    // Mirrors GNU `Fcategory_table` (`category.c:184-189`):
+    //     return BVAR (current_buffer, category_table);
+    let table = buf.slots[BUFFER_SLOT_CATEGORY_TABLE];
+    if !table.is_nil() {
         return Ok(table);
     }
 
+    // Slot unset: seed from the standard category table —
+    // matches GNU `reset_buffer` cloning the standard table into
+    // a fresh buffer.
     let fallback = ensure_standard_category_table_object()?;
-    let _ = buffers.set_buffer_local_property(current_id, CATEGORY_TABLE_PROPERTY, fallback);
+    buf.slots[BUFFER_SLOT_CATEGORY_TABLE] = fallback;
     Ok(fallback)
 }
 
@@ -315,10 +325,19 @@ fn set_current_buffer_category_table_in_buffers(
     buffers: &mut crate::buffer::BufferManager,
     table: Value,
 ) -> Result<(), Flow> {
+    use crate::buffer::buffer::BUFFER_SLOT_CATEGORY_TABLE;
     let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = buffers.set_buffer_local_property(current_id, CATEGORY_TABLE_PROPERTY, table);
+    let buf = buffers
+        .get_mut(current_id)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    // Mirrors GNU `Fset_category_table` (`category.c:262-275`):
+    //     bset_category_table (current_buffer, table);
+    //     SET_PER_BUFFER_VALUE_P (current_buffer,
+    //                             PER_BUFFER_VAR_IDX (category_table), 1);
+    buf.slots[BUFFER_SLOT_CATEGORY_TABLE] = table;
+    buf.set_slot_local_flag(BUFFER_SLOT_CATEGORY_TABLE, true);
     Ok(())
 }
 

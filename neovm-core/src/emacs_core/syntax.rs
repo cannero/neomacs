@@ -45,7 +45,13 @@ pub fn collect_syntax_gc_roots(roots: &mut Vec<Value>) {
     });
 }
 
-const SYNTAX_TABLE_OBJECT_PROPERTY: &str = "syntax-table-object";
+// Phase 10D holdout 3: the per-buffer syntax table char-table now lives in
+// `Buffer::slots[BUFFER_SLOT_SYNTAX_TABLE]`, mirroring GNU's
+// `BVAR(buf, syntax_table)` storage. Reads go through `slots[offset]`,
+// writes go through `slots[offset]` plus `set_slot_local_flag` (matching
+// `Fset_syntax_table`'s `SET_PER_BUFFER_VALUE_P`). The slot itself is
+// non-Lisp-visible (`install_as_forwarder: false`), so the symbol
+// `syntax-table` continues to signal void-variable as in GNU.
 
 /// Pre-populate GNU Emacs syntax variables that are defined from C.
 pub fn init_syntax_vars(
@@ -1283,6 +1289,7 @@ fn ensure_standard_syntax_table_object() -> EvalResult {
 fn current_buffer_syntax_table_object_in_buffers(
     buffers: &mut BufferManager,
 ) -> Result<Value, Flow> {
+    use crate::buffer::buffer::BUFFER_SLOT_SYNTAX_TABLE;
     let fallback = ensure_standard_syntax_table_object()?;
     let current_id = buffers
         .current_buffer_id()
@@ -1291,15 +1298,18 @@ fn current_buffer_syntax_table_object_in_buffers(
         .get_mut(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
-    if let Some(RuntimeBindingValue::Bound(value)) =
-        buf.get_buffer_local_binding(SYNTAX_TABLE_OBJECT_PROPERTY)
-    {
-        if builtin_syntax_table_p(vec![value])?.is_truthy() {
-            return Ok(value);
-        }
+    // Mirrors GNU `Fsyntax_table` (`syntax.c:987-993`):
+    //     return BVAR (current_buffer, syntax_table);
+    let value = buf.slots[BUFFER_SLOT_SYNTAX_TABLE];
+    if !value.is_nil() && builtin_syntax_table_p(vec![value])?.is_truthy() {
+        return Ok(value);
     }
 
-    buf.set_buffer_local(SYNTAX_TABLE_OBJECT_PROPERTY, fallback);
+    // Slot is unset (fresh buffer or never assigned). Seed it
+    // from the standard syntax table — matches GNU's
+    // `reset_buffer` (`buffer.c:1149-1157`) which copies the
+    // standard tables into a fresh buffer.
+    buf.slots[BUFFER_SLOT_SYNTAX_TABLE] = fallback;
     Ok(fallback)
 }
 
@@ -1328,13 +1338,19 @@ fn set_current_buffer_syntax_table_object_in_buffers(
     buffers: &mut BufferManager,
     table: Value,
 ) -> Result<(), Flow> {
+    use crate::buffer::buffer::BUFFER_SLOT_SYNTAX_TABLE;
     let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let buf = buffers
         .get_mut(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.set_buffer_local(SYNTAX_TABLE_OBJECT_PROPERTY, table);
+    // Mirrors GNU `Fset_syntax_table` (`syntax.c:1030-1042`):
+    //     bset_syntax_table (current_buffer, table);
+    //     SET_PER_BUFFER_VALUE_P (current_buffer,
+    //                             PER_BUFFER_VAR_IDX (syntax_table), 1);
+    buf.slots[BUFFER_SLOT_SYNTAX_TABLE] = table;
+    buf.set_slot_local_flag(BUFFER_SLOT_SYNTAX_TABLE, true);
     Ok(())
 }
 
