@@ -222,8 +222,8 @@ pub struct BarrierStats {
     pub satb_pre_write: u64,
 }
 
-/// Atomic counterpart of [`BarrierStats`] held inside
-/// [`crate::heap::HeapCore`]. The barrier hook bumps these
+/// Atomic counterpart of [`BarrierStats`] held inside the
+/// crate-internal heap core. The barrier hook bumps these
 /// counters with plain `Relaxed` atomic adds, avoiding the
 /// heap write lock entirely on the barrier hot path.
 /// Observers read a [`BarrierStats`] snapshot via

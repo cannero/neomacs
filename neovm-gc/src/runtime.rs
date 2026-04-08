@@ -157,7 +157,7 @@ impl<'heap> CollectorRuntime<'heap> {
     }
 
     /// Run at most `max` queued finalizers and return the number
-    /// that actually ran. See [`Heap::drain_pending_finalizers_bounded`].
+    /// that actually ran. See [`crate::heap::Heap::drain_pending_finalizers_bounded`].
     pub fn drain_pending_finalizers_bounded(&mut self, max: usize) -> u64 {
         self.heap.drain_pending_finalizers_bounded(max)
     }
@@ -1138,7 +1138,7 @@ impl SharedCollectorRuntime {
     }
 
     /// Run at most `max` queued finalizers and return the number
-    /// that actually ran. See [`Heap::drain_pending_finalizers_bounded`].
+    /// that actually ran. See [`crate::heap::Heap::drain_pending_finalizers_bounded`].
     pub fn drain_pending_finalizers_bounded(
         &self,
         max: usize,
@@ -1157,7 +1157,7 @@ impl SharedCollectorRuntime {
 
     /// Run at most `max` queued finalizers without blocking on
     /// heap contention. See
-    /// [`Heap::drain_pending_finalizers_bounded`] for the
+    /// [`crate::heap::Heap::drain_pending_finalizers_bounded`] for the
     /// blocking variant's semantics.
     pub fn try_drain_pending_finalizers_bounded(
         &self,

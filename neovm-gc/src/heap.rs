@@ -131,8 +131,9 @@ unsafe impl Send for HeapCore {}
 /// Each mutator briefly acquires the write lock to perform
 /// allocation, barrier, or collection work, and drops it at
 /// the end of the operation. The hot-path TLAB bump still
-/// lives on the per-mutator [`crate::mutator::MutatorLocal::tlab`]
-/// and does not need to acquire the lock on hit.
+/// lives on the per-mutator nursery slab inside the
+/// mutator's local state and does not need to acquire the
+/// lock on hit.
 ///
 /// `Heap` is `Clone` via `Arc::clone` — passing the heap to
 /// another thread or storing additional handles is cheap.
