@@ -790,29 +790,12 @@ impl OldGenState {
         // old-gen record goes through `try_alloc_in_block` for its
         // physical bytes, so it has an `OldBlockPlacement` set by
         // the time `record_object` is invoked. Update the block's
-        // live_bytes / object_count counters so step 4 of the
-        // OldRegion unification can read region-stats from blocks.
+        // live_bytes / object_count counters so subsequent stats
+        // queries reflect the new survivor.
         if let Some(block_placement) = object.old_block_placement()
-            && let Some(block) = self.blocks.get_mut(block_placement.block_index) {
-                block.record_object_accounting(
-                    block_placement.offset_bytes,
-                    object.total_size(),
-                );
-            }
-
-        // Legacy region-side accounting. Still maintained in this
-        // step so every existing reader (region_stats,
-        // major_plan_selection, rebuild) observes the same numbers
-        // as before. Later steps move the readers to the block
-        // side and delete this branch.
-        let Some(placement) = object.old_region_placement() else {
-            return;
-        };
-        let region = &mut self.regions[placement.region_index];
-        region.live_bytes = region.live_bytes.saturating_add(object.total_size());
-        region.object_count = region.object_count.saturating_add(1);
-        for line in placement.line_start..placement.line_start + placement.line_count {
-            region.occupied_lines.insert(line);
+            && let Some(block) = self.blocks.get_mut(block_placement.block_index)
+        {
+            block.record_object_accounting(block_placement.offset_bytes, object.total_size());
         }
     }
 

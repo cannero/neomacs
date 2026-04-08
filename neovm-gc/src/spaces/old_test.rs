@@ -1277,24 +1277,12 @@ fn old_block_accounting_tracks_allocations_alongside_regions() {
     );
 }
 
-#[test]
-fn old_gen_record_allocated_object_sets_placement_and_live_stats() {
-    let mut object =
-        ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf).expect("allocate object");
-    let mut old_gen = OldGenState::default();
-    let config = OldGenConfig::default();
-
-    let reserved_bytes = old_gen.record_allocated_object(&config, &mut object);
-
-    let placement = object
-        .old_region_placement()
-        .expect("old object placement recorded");
-    assert_eq!(placement.region_index, 0);
-    assert_eq!(reserved_bytes, old_gen.reserved_bytes());
-    assert_eq!(old_gen.regions.len(), 1);
-    assert_eq!(old_gen.regions[0].live_bytes, object.total_size());
-    assert_eq!(old_gen.regions[0].object_count, 1);
-}
+// Removed: old_gen_record_allocated_object_sets_placement_and_live_stats
+// (was a unit test for the legacy region-side accounting branch in
+// OldGenState::record_object, which has been deleted. The production
+// allocation path now goes through try_alloc_in_block + record_object,
+// which updates block accounting; coverage for that lives in the
+// existing block_region_stats / record_object_accounting tests.)
 
 // Removed: prepare_reclaim_survivor_reassigns_selected_region_after_preserved_regions
 // (was a unit test for the dead "select-and-renumber" branch of
