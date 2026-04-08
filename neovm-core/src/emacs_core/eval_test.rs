@@ -4403,10 +4403,11 @@ fn let_and_let_star_binding_constants_signal_setting_constant() {
 #[test]
 fn lambda_parameters_can_shadow_nil_and_t_like_gnu_emacs() {
     crate::test_utils::init_test_tracing();
-    // After the specbind refactor, dynamic variable bindings write
-    // directly to the obarray, so `t` and `nil` (constants) cannot be
-    // shadowed as lambda parameters.  The lambda body still sees the
-    // constant value.
+    // Task #36: GNU allows `t` / `nil` to appear as lambda parameter
+    // names and the body reads/writes the shadowed cell. The
+    // `setting-constant` guard only applies to top-level assignments,
+    // not to lambda-parameter bindings. Verified against
+    // GNU Emacs 31.0.50: these forms return `(7 9 (1 2 3) (4 5 6))`.
     let results = eval_all(
         "(list
             (funcall (lambda (t) t) 7)
@@ -4414,20 +4415,24 @@ fn lambda_parameters_can_shadow_nil_and_t_like_gnu_emacs() {
             (mapcar (lambda (t) t) '(1 2 3))
             (mapcar (lambda (nil) nil) '(4 5 6)))",
     );
-    assert_eq!(results[0], "OK (t nil (t t t) (nil nil nil))");
+    assert_eq!(results[0], "OK (7 9 (1 2 3) (4 5 6))");
 }
 
 #[test]
 fn setq_can_assign_shadowing_nil_and_t_parameters_like_gnu_emacs() {
     crate::test_utils::init_test_tracing();
-    // After the specbind refactor, `t` and `nil` are constants and
-    // cannot be assigned via setq even inside a lambda shadow.
+    // Task #36: with `t` / `nil` shadowed as lambda parameters,
+    // setq inside the body is allowed (the specpdl entry from the
+    // parameter binding is the "local" that
+    // `has_local_binding_by_id` finds, which bypasses the
+    // setting-constant guard). Verified against GNU Emacs 31.0.50:
+    // these forms return `(9 11)`.
     let results = eval_all(
         "(list
             (funcall (lambda (t) (setq t 9) t) 7)
             (funcall (lambda (nil) (setq nil 11) nil) 8))",
     );
-    assert_eq!(results[0], "OK (t nil)");
+    assert_eq!(results[0], "OK (9 11)");
 }
 
 #[test]

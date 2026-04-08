@@ -6273,22 +6273,13 @@ impl Context {
             }
         }
 
-        // Dynamic scope lookup: specbind writes directly to obarray,
-        // so for special variables just fall through to obarray lookup below.
-
-        if symbol_is_canonical && symbol == "nil" {
-            return Ok(Value::NIL);
-        }
-        if symbol_is_canonical && symbol == "t" {
-            return Ok(Value::T);
-        }
-
-        if resolved_is_canonical && resolved_name == "nil" {
-            return Ok(Value::NIL);
-        }
-        if resolved_is_canonical && resolved_name == "t" {
-            return Ok(Value::T);
-        }
+        // Task #36: no t/nil short-circuit here. A lambda-parameter
+        // or legitimate specbind can shadow the canonical constants
+        // (GNU: `(funcall (lambda (t) t) 7)` → 7 even in dynamic
+        // mode, because specbind stores 7 in the t symbol cell).
+        // The fall-through to `find_symbol_value` below reads the
+        // current cell; the canonical values are restored as a
+        // fallback at the very end if no binding is found.
         if resolved_is_canonical && resolved_name.starts_with(':') {
             return Ok(Value::from_kw_id(resolved));
         }
@@ -6375,6 +6366,23 @@ impl Context {
         // and signalling void-variable.
         if let Some(value) = self.obarray.find_symbol_value(resolved) {
             return Ok(value);
+        }
+
+        // Task #36: canonical constant fallback. When `t` / `nil`
+        // aren't explicitly stored in the obarray and aren't
+        // specbound, they resolve to their canonical values.
+        // Mirrors the vm.rs `lookup_var` fallback path.
+        if symbol_is_canonical && symbol == "nil" {
+            return Ok(Value::NIL);
+        }
+        if symbol_is_canonical && symbol == "t" {
+            return Ok(Value::T);
+        }
+        if resolved_is_canonical && resolved_name == "nil" {
+            return Ok(Value::NIL);
+        }
+        if resolved_is_canonical && resolved_name == "t" {
+            return Ok(Value::T);
         }
 
         Err(signal("void-variable", vec![value_from_symbol_id(sym_id)]))
