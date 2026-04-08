@@ -2103,29 +2103,40 @@ impl<'a> Vm<'a> {
             redirect,
             Some(SymbolRedirect::Localized | SymbolRedirect::Forwarded)
         ) {
-            let (cur_val, alist, slots_ptr, buf_id) =
+            let (cur_val, alist, slots_ptr, buf_id, local_flags) =
                 match self.ctx.buffers.current_buffer() {
                     Some(buf) => (
                         Value::make_buffer(buf.id),
                         buf.local_var_alist,
                         Some(&buf.slots[..] as *const [Value]),
                         Some(buf.id),
+                        buf.local_flags,
                     ),
-                    None => (Value::NIL, Value::NIL, None, None),
+                    None => (Value::NIL, Value::NIL, None, None, 0u64),
                 };
-            // Safety: the slots pointer is valid for the duration of
-            // this call because we hold `&mut self.ctx`, the buffer
-            // lives inside `self.ctx.buffers`, and
+            let defaults_ptr: *const [Value] =
+                &self.ctx.buffers.buffer_defaults[..] as *const [Value];
+            // Safety: the slots and defaults pointers are valid for
+            // the duration of this call because we hold `&mut self.ctx`,
+            // the buffer and BufferManager live inside `self.ctx`, and
             // `find_symbol_value_in_buffer` does not mutate the
             // buffer manager. The raw pointer dance is only needed
             // because `find_symbol_value_in_buffer` also needs
             // `&mut self.ctx.obarray` for the BLV swap-in, and the
-            // borrow checker can't express "hold a slice of one
-            // field while mutating another" across the method call.
+            // borrow checker can't express "hold slices of two
+            // fields while mutating a third" across the method call.
             let slots_opt: Option<&[Value]> =
                 slots_ptr.map(|p| unsafe { &*p });
+            let defaults_opt: Option<&[Value]> =
+                Some(unsafe { &*defaults_ptr });
             if let Some(val) = self.ctx.obarray.find_symbol_value_in_buffer(
-                resolved, buf_id, cur_val, alist, slots_opt,
+                resolved,
+                buf_id,
+                cur_val,
+                alist,
+                slots_opt,
+                local_flags,
+                defaults_opt,
             ) {
                 return Ok(val);
             }
@@ -2206,6 +2217,12 @@ impl<'a> Vm<'a> {
         // descriptor points at. Mirrors GNU
         // `store_symval_forwarding` for the BUFFER_OBJFWD arm
         // (`data.c:1374-1471`).
+        //
+        // Phase 10D: for conditional slots (`local_flags_idx >= 0`),
+        // also set the per-buffer local-flags bit so subsequent reads
+        // route to `slots[off]` rather than `buffer_defaults`. This
+        // mirrors GNU `set_internal` SYMBOL_FORWARDED arm at
+        // `data.c:1774-1786` which calls `SET_PER_BUFFER_VALUE_P`.
         if matches!(redirect, Some(SymbolRedirect::Forwarded)) {
             if let Some(buf_id) = self.ctx.buffers.current_buffer_id() {
                 use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
@@ -2224,10 +2241,14 @@ impl<'a> Vm<'a> {
                             &*(fwd as *const LispBufferObjFwd)
                         };
                         let offset = buf_fwd.offset as usize;
+                        let flags_idx = buf_fwd.local_flags_idx;
                         if let Some(buf) = self.ctx.buffers.get_mut(buf_id)
                             && offset < buf.slots.len()
                         {
                             buf.slots[offset] = value;
+                            if flags_idx >= 0 {
+                                buf.set_slot_local_flag(offset, true);
+                            }
                             return self.run_variable_watchers_by_id(
                                 resolved,
                                 &value,

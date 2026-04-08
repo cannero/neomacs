@@ -956,6 +956,8 @@ impl Obarray {
         current_buffer_value: Value,
         local_var_alist: Value,
         current_buffer_slots: Option<&[Value]>,
+        current_buffer_local_flags: u64,
+        buffer_defaults: Option<&[Value]>,
     ) -> Option<Value> {
         let mut current = id;
         for _ in 0..50 {
@@ -984,10 +986,13 @@ impl Obarray {
                 }
                 SymbolRedirect::Forwarded => {
                     // Phase 8a: read through the forwarder descriptor.
-                    // BUFFER_OBJFWD reads from current_buffer.slots
-                    // at the forwarder's offset. Other forwarder
-                    // types (Int / Bool / Obj / KboardObj) land in
-                    // Phase 8b.
+                    // Phase 10D: dispatch on `local_flags_idx`.
+                    // Always-local slots (`-1`) read `slots[off]`
+                    // unconditionally; conditional slots (`>= 0`)
+                    // gate the read on `local_flags`'s bit and fall
+                    // through to `buffer_defaults` when clear.
+                    // Mirrors GNU `do_symval_forwarding` BUFFER_OBJFWD
+                    // arm + `PER_BUFFER_VALUE_P` (`buffer.h:1640`).
                     let sym = self.slot(current)?;
                     let fwd = unsafe { &*sym.val.fwd };
                     use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
@@ -997,6 +1002,33 @@ impl Obarray {
                                 &*(fwd as *const _ as *const LispBufferObjFwd)
                             };
                             let off = buf_fwd.offset as usize;
+                            let flags_idx = buf_fwd.local_flags_idx;
+                            // Conditional slot: gate on local_flags.
+                            // GNU uses a separate `local_flags_idx`
+                            // counter, but NeoMacs reuses `offset`
+                            // as the bit index since both fit in
+                            // BUFFER_SLOT_COUNT.
+                            if flags_idx >= 0 {
+                                let bit_set = (current_buffer_local_flags
+                                    >> (off as u32))
+                                    & 1
+                                    != 0;
+                                if bit_set {
+                                    if let Some(slots) = current_buffer_slots
+                                        && off < slots.len()
+                                    {
+                                        return Some(slots[off]);
+                                    }
+                                }
+                                // Fall through to defaults.
+                                if let Some(defaults) = buffer_defaults
+                                    && off < defaults.len()
+                                {
+                                    return Some(defaults[off]);
+                                }
+                                return Some(buf_fwd.default);
+                            }
+                            // Always-local: slots are authoritative.
                             return Some(match current_buffer_slots {
                                 Some(slots) if off < slots.len() => slots[off],
                                 _ => buf_fwd.default,

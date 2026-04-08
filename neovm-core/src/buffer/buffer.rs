@@ -1361,8 +1361,17 @@ impl Buffer {
         // the BUFFER_OBJFWD arm: the slot is written, optionally
         // gated by the predicate (currently we accept the value as-is
         // and let the assign hot path handle predicate checks).
+        //
+        // Phase 10D: for conditional slots (`local_flags_idx >= 0`),
+        // also flip the per-buffer local-flags bit so subsequent
+        // reads observe the per-buffer value rather than the global
+        // default. Mirrors GNU `set_internal` SYMBOL_FORWARDED arm at
+        // `data.c:1774-1786` which calls `SET_PER_BUFFER_VALUE_P`.
         if let Some(info) = lookup_buffer_slot(name) {
             self.slots[info.offset] = coerce_to_slot(info, value, self.slots[info.offset]);
+            if info.local_flags_idx >= 0 {
+                self.set_slot_local_flag(info.offset, true);
+            }
             return;
         }
         if name == "buffer-undo-list" {

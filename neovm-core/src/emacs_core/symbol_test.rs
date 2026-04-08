@@ -393,7 +393,7 @@ fn localized_returns_default_when_no_buffer_local() {
     ob.make_symbol_localized(id, Value::fixnum(7));
     let buf_value = Value::NIL; // pretend no current buffer
     let alist = Value::NIL; // empty alist
-    let v = ob.find_symbol_value_in_buffer(id, None, buf_value, alist, None);
+    let v = ob.find_symbol_value_in_buffer(id, None, buf_value, alist, None, 0, None);
     assert_eq!(v, Some(Value::fixnum(7)));
 }
 
@@ -412,7 +412,7 @@ fn localized_swap_in_reads_buffer_local_value() {
     let cell = Value::cons(Value::from_sym_id(id), Value::fixnum(99));
     let alist = Value::cons(cell, Value::NIL);
     let buf_a = Value::fixnum(1);
-    let v = ob.find_symbol_value_in_buffer(id, None, buf_a, alist, None);
+    let v = ob.find_symbol_value_in_buffer(id, None, buf_a, alist, None, 0, None);
     assert_eq!(v, Some(Value::fixnum(99)));
     // The cache now records `where_buf == buf_a` and `found == true`.
     let blv = ob.blv(id).expect("BLV");
@@ -436,13 +436,13 @@ fn localized_blv_cache_invalidated_on_buffer_switch() {
         Value::cons(Value::from_sym_id(id), Value::fixnum(42)),
         Value::NIL,
     );
-    let v_a = ob.find_symbol_value_in_buffer(id, None, buf_a, alist_a, None);
+    let v_a = ob.find_symbol_value_in_buffer(id, None, buf_a, alist_a, None, 0, None);
     assert_eq!(v_a, Some(Value::fixnum(42)));
 
     // Buffer B has no binding for this symbol → default.
     let buf_b = Value::fixnum(2);
     let alist_b = Value::NIL;
-    let v_b = ob.find_symbol_value_in_buffer(id, None, buf_b, alist_b, None);
+    let v_b = ob.find_symbol_value_in_buffer(id, None, buf_b, alist_b, None, 0, None);
     assert_eq!(v_b, Some(Value::fixnum(0)));
     let blv = ob.blv(id).expect("BLV");
     assert_eq!(blv.where_buf, buf_b);
@@ -479,7 +479,7 @@ fn set_localized_creates_buffer_local_when_local_if_set() {
     assert_eq!(head.cons_car(), Value::from_sym_id(id));
     assert_eq!(head.cons_cdr(), Value::fixnum(42));
     // Read it back via the buffer-aware path.
-    let v = ob.find_symbol_value_in_buffer(id, None, buf, alist, None);
+    let v = ob.find_symbol_value_in_buffer(id, None, buf, alist, None, 0, None);
     assert_eq!(v, Some(Value::fixnum(42)));
 }
 
@@ -600,7 +600,15 @@ fn find_symbol_value_forwarded_reads_buffer_slot() {
     // Synthetic buffer slot table.
     let mut slots = vec![Value::NIL; 10];
     slots[3] = Value::fixnum(99);
-    let v = ob.find_symbol_value_in_buffer(id, None, Value::NIL, Value::NIL, Some(&slots));
+    let v = ob.find_symbol_value_in_buffer(
+        id,
+        None,
+        Value::NIL,
+        Value::NIL,
+        Some(&slots),
+        0,
+        None,
+    );
     assert_eq!(v, Some(Value::fixnum(99)));
 }
 
@@ -616,7 +624,7 @@ fn find_symbol_value_forwarded_returns_default_without_buffer() {
     let predicate = intern("phase8-stringp");
     let fwd = alloc_buffer_objfwd(5, -1, predicate, Value::fixnum(7));
     ob.install_buffer_objfwd(id, fwd);
-    let v = ob.find_symbol_value_in_buffer(id, None, Value::NIL, Value::NIL, None);
+    let v = ob.find_symbol_value_in_buffer(id, None, Value::NIL, Value::NIL, None, 0, None);
     assert_eq!(v, Some(Value::fixnum(7)));
 }
 
