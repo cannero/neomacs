@@ -9,7 +9,7 @@ use crate::plan::{
 };
 use crate::runtime::{CollectorRuntime, SharedCollectorRuntime};
 use crate::runtime_state::{RuntimeState, RuntimeStateHandle};
-use crate::stats::{CollectionStats, CompactionStats, HeapStats};
+use crate::stats::{BarrierStats, CollectionStats, CompactionStats, HeapStats};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{
@@ -110,6 +110,9 @@ pub struct SharedHeapStatus {
     /// Cumulative physical compaction counters as captured in
     /// the latest shared snapshot.
     pub compaction: CompactionStats,
+    /// Cumulative write-barrier traffic counters as captured in
+    /// the latest shared snapshot.
+    pub barriers: BarrierStats,
     /// Runtime-side follow-up work that remains outside GC commit.
     pub runtime_work: RuntimeWorkStatus,
     /// Scheduler-visible recommended collection plan from the latest shared snapshot.
@@ -210,6 +213,7 @@ struct SharedHeapSnapshot {
     pacer: PacerStats,
     pauses: PauseHistogram,
     compaction: CompactionStats,
+    barriers: BarrierStats,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -286,6 +290,7 @@ impl SharedHeapSnapshot {
             pacer: heap.pacer_stats(),
             pauses: heap.pause_histogram(),
             compaction: heap.compaction_stats(),
+            barriers: heap.barrier_stats(),
         }
     }
 }
@@ -787,6 +792,7 @@ fn shared_heap_status_from_parts(
         pacer: heap_snapshot.pacer,
         pauses: heap_snapshot.pauses,
         compaction: heap_snapshot.compaction,
+        barriers: heap_snapshot.barriers,
         runtime_work: RuntimeWorkStatus::from_pending_finalizers(
             runtime_snapshot.pending_finalizers,
         ),
@@ -1194,6 +1200,19 @@ impl SharedHeap {
             .map(|status| status.compaction)
     }
 
+    /// Return the cumulative write-barrier traffic counters from
+    /// the latest shared snapshot.
+    ///
+    /// Reads from the same lock-free shared snapshot as
+    /// [`SharedHeap::stats`], so this never blocks on the heap
+    /// mutex. Observers can diff two snapshots to attribute
+    /// barrier traffic to a specific interval.
+    pub fn barrier_stats(&self) -> Result<BarrierStats, SharedHeapError> {
+        self.runtime
+            .observe_heap_status()
+            .map(|status| status.barriers)
+    }
+
     /// Return the current nursery fill ratio (a float in
     /// `[0.0, 1.0]`).
     ///
@@ -1258,6 +1277,15 @@ impl SharedHeap {
     pub fn clear_compaction_stats(&self) -> Result<(), SharedHeapError> {
         let mut heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
         heap.clear_compaction_stats();
+        Ok(())
+    }
+
+    /// Clear the cumulative barrier traffic counters via the
+    /// shared heap. Takes the heap WRITE lock briefly. See
+    /// [`Heap::clear_barrier_stats`].
+    pub fn clear_barrier_stats(&self) -> Result<(), SharedHeapError> {
+        let mut heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
+        heap.clear_barrier_stats();
         Ok(())
     }
 

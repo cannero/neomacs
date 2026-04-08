@@ -108,7 +108,10 @@ Still staging compromises:
 - finalization is now queued and drained explicitly through runtime surfaces, but
   it still retains whole `ObjectRecord`s rather than a lower-level VM-facing
   finalization handoff
-- telemetry is useful but not yet the full observability surface described below
+- telemetry covers most of the observability surface described below
+  (allocation by space, pause histogram, evacuated regions, pinned bytes,
+  remembered-set pressure, barrier traffic via `BarrierStats`); concurrent
+  mark duration and a true nursery survival rate are still missing
 
 ## Core Principles
 

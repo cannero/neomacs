@@ -2036,6 +2036,199 @@ fn public_api_persistent_major_mark_barrier_keeps_new_value() {
 }
 
 #[test]
+fn public_api_barrier_stats_count_post_write_traffic_outside_major_mark() {
+    let mut heap = Heap::new(HeapConfig::default());
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+
+    let owner = mutator
+        .alloc(
+            &mut keep_scope,
+            Link {
+                label: 1,
+                next: EdgeCell::new(None),
+            },
+        )
+        .expect("alloc owner");
+    let target_a = mutator
+        .alloc(
+            &mut keep_scope,
+            Link {
+                label: 2,
+                next: EdgeCell::new(None),
+            },
+        )
+        .expect("alloc target a");
+    let target_b = mutator
+        .alloc(
+            &mut keep_scope,
+            Link {
+                label: 3,
+                next: EdgeCell::new(None),
+            },
+        )
+        .expect("alloc target b");
+
+    assert_eq!(mutator.barrier_stats().post_write, 0);
+    assert_eq!(mutator.barrier_stats().satb_pre_write, 0);
+
+    mutator.store_edge(&owner, 0, |link| &link.next, Some(target_a.as_gc()));
+    assert_eq!(mutator.barrier_stats().post_write, 1);
+    // No active major mark, so the SATB hook never fires.
+    assert_eq!(mutator.barrier_stats().satb_pre_write, 0);
+
+    // Overwriting the same slot still bumps the post-write
+    // counter and still does NOT fire the SATB hook because no
+    // major mark is active.
+    mutator.store_edge(&owner, 0, |link| &link.next, Some(target_b.as_gc()));
+    assert_eq!(mutator.barrier_stats().post_write, 2);
+    assert_eq!(mutator.barrier_stats().satb_pre_write, 0);
+
+    // clear_barrier_stats resets the cumulative counters but
+    // leaves the diagnostic event ring buffer alone.
+    let events_before = mutator.heap().barrier_event_count();
+    mutator.clear_barrier_stats();
+    assert_eq!(mutator.barrier_stats().post_write, 0);
+    assert_eq!(mutator.barrier_stats().satb_pre_write, 0);
+    assert_eq!(mutator.heap().barrier_event_count(), events_before);
+}
+
+#[test]
+fn public_api_barrier_stats_count_satb_pre_write_during_major_mark() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+    let owner = mutator
+        .alloc(
+            &mut keep_scope,
+            Link {
+                label: 1,
+                next: EdgeCell::new(None),
+            },
+        )
+        .expect("alloc owner");
+    let initial_target = mutator
+        .alloc(
+            &mut keep_scope,
+            Link {
+                label: 2,
+                next: EdgeCell::new(None),
+            },
+        )
+        .expect("alloc initial target");
+    // Install an initial value so the next store has a non-None
+    // old_value: SATB only fires when the overwritten slot held
+    // a managed reference.
+    mutator.store_edge(&owner, 0, |link| &link.next, Some(initial_target.as_gc()));
+    let post_write_before_mark = mutator.barrier_stats().post_write;
+    assert_eq!(mutator.barrier_stats().satb_pre_write, 0);
+
+    let new_target = mutator
+        .alloc(
+            &mut keep_scope,
+            Link {
+                label: 3,
+                next: EdgeCell::new(None),
+            },
+        )
+        .expect("alloc new target");
+    let new_target_gc = new_target.as_gc();
+
+    let plan = neovm_gc::CollectionPlan {
+        mark_slice_budget: 1,
+        ..mutator.plan_for(CollectionKind::Major)
+    };
+    mutator
+        .begin_major_mark(plan)
+        .expect("begin persistent major mark");
+
+    mutator.store_edge(&owner, 0, |link| &link.next, Some(new_target_gc));
+
+    let stats_after_overwrite = mutator.barrier_stats();
+    assert_eq!(stats_after_overwrite.post_write, post_write_before_mark + 1);
+    assert_eq!(stats_after_overwrite.satb_pre_write, 1);
+
+    while !mutator
+        .advance_major_mark()
+        .expect("advance persistent major mark")
+        .completed
+    {}
+    let cycle = mutator
+        .finish_major_collection()
+        .expect("finish persistent major mark");
+    assert_eq!(cycle.major_collections, 1);
+    // Counters are not reset by a collection cycle — they are
+    // lifetime-cumulative.
+    let stats_after_cycle = mutator.barrier_stats();
+    assert_eq!(
+        stats_after_cycle.post_write,
+        stats_after_overwrite.post_write
+    );
+    assert_eq!(
+        stats_after_cycle.satb_pre_write,
+        stats_after_overwrite.satb_pre_write
+    );
+}
+
+#[test]
+fn public_api_shared_barrier_stats_visible_after_mutator_writes() {
+    let mut heap = Heap::new(HeapConfig::default());
+    {
+        let mut mutator = heap.mutator();
+        let mut keep_scope = mutator.handle_scope();
+        let owner = mutator
+            .alloc(
+                &mut keep_scope,
+                Link {
+                    label: 1,
+                    next: EdgeCell::new(None),
+                },
+            )
+            .expect("alloc owner");
+        let target = mutator
+            .alloc(
+                &mut keep_scope,
+                Link {
+                    label: 2,
+                    next: EdgeCell::new(None),
+                },
+            )
+            .expect("alloc target");
+        mutator.store_edge(&owner, 0, |link| &link.next, Some(target.as_gc()));
+        mutator.store_edge(&owner, 0, |link| &link.next, None);
+    }
+
+    let shared = heap.into_shared();
+    let stats = shared
+        .barrier_stats()
+        .expect("read shared barrier stats from snapshot");
+    assert!(stats.post_write >= 2);
+    assert_eq!(stats.satb_pre_write, 0);
+
+    let status = shared.status().expect("read shared heap status");
+    assert_eq!(status.barriers, stats);
+
+    shared
+        .clear_barrier_stats()
+        .expect("clear shared barrier stats");
+    let stats_after_clear = shared
+        .barrier_stats()
+        .expect("read shared barrier stats after clear");
+    assert_eq!(stats_after_clear.post_write, 0);
+    assert_eq!(stats_after_clear.satb_pre_write, 0);
+}
+
+#[test]
 fn public_api_active_major_mark_plan_is_visible() {
     let mut heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {

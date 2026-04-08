@@ -94,6 +94,10 @@ pub struct Heap {
     /// by `compact_old_gen_physical` after every call that
     /// actually moves at least one record.
     compaction_stats: crate::stats::CompactionStats,
+    /// Cumulative write-barrier traffic counters. Updated by
+    /// `push_barrier_event` for every barrier kind the runtime
+    /// records.
+    barrier_stats: crate::stats::BarrierStats,
     // --- arena buffers (drops last, after all records) ---
     /// Bump-pointer semispace nursery arenas (Phase 1).
     nursery: NurseryState,
@@ -147,6 +151,7 @@ impl Heap {
             pause_stats: PauseStatsHandle::new(),
             pacer,
             compaction_stats: crate::stats::CompactionStats::default(),
+            barrier_stats: crate::stats::BarrierStats::default(),
             nursery,
         };
         heap.refresh_recommended_plans();
@@ -760,6 +765,37 @@ impl Heap {
         &self.recent_barrier_events
     }
 
+    /// Cumulative write-barrier traffic counters.
+    ///
+    /// The returned [`crate::stats::BarrierStats`] reports the
+    /// number of post-write and SATB pre-write barriers the
+    /// heap has recorded over its entire lifetime. These
+    /// counters are monotonic, so callers can subtract two
+    /// snapshots to attribute barrier traffic to one interval.
+    /// The recent-events ring buffer is bounded for diagnostic
+    /// inspection; these counters are unbounded for telemetry.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use neovm_gc::{Heap, HeapConfig};
+    ///
+    /// let heap = Heap::new(HeapConfig::default());
+    /// let stats = heap.barrier_stats();
+    /// assert_eq!(stats.post_write, 0);
+    /// assert_eq!(stats.satb_pre_write, 0);
+    /// ```
+    pub fn barrier_stats(&self) -> crate::stats::BarrierStats {
+        self.barrier_stats
+    }
+
+    /// Reset cumulative barrier traffic counters back to zero.
+    /// Recent diagnostic events retained in the bounded ring
+    /// buffer are left untouched.
+    pub fn clear_barrier_stats(&mut self) {
+        self.barrier_stats = crate::stats::BarrierStats::default();
+    }
+
     #[cfg(test)]
     pub(crate) fn root_slot_count(&self) -> usize {
         self.roots.len()
@@ -811,6 +847,17 @@ impl Heap {
         new_value: Option<GcErased>,
     ) {
         const MAX_BARRIER_EVENTS: usize = 1024;
+
+        match kind {
+            BarrierKind::PostWrite => {
+                self.barrier_stats.post_write =
+                    self.barrier_stats.post_write.saturating_add(1);
+            }
+            BarrierKind::SatbPreWrite => {
+                self.barrier_stats.satb_pre_write =
+                    self.barrier_stats.satb_pre_write.saturating_add(1);
+            }
+        }
 
         self.recent_barrier_events.push(BarrierEvent {
             kind,

@@ -126,6 +126,41 @@ pub struct SpaceStats {
     pub live_bytes: usize,
 }
 
+/// Cumulative write-barrier traffic counters.
+///
+/// The DESIGN.md telemetry contract calls out "barrier traffic"
+/// as a required observability surface. These counters are bumped
+/// every time the runtime pushes a [`crate::barrier::BarrierEvent`]
+/// for a mutator-side write, broken down by
+/// [`crate::barrier::BarrierKind`]:
+///
+/// * [`post_write`](Self::post_write) — every post-write barrier
+///   call regardless of whether the slot landed in the remembered
+///   set. Counts pure mutation traffic.
+/// * [`satb_pre_write`](Self::satb_pre_write) — only the post-
+///   write barriers that also fired the SATB pre-write hook
+///   because a major mark session was active and the overwritten
+///   slot held a managed reference. This is the metric to watch
+///   when reasoning about marker overhead during incremental
+///   cycles.
+///
+/// Counters are monotonic for the lifetime of one [`crate::Heap`]
+/// (and one [`crate::SharedHeap`] backing it). Diff two
+/// snapshots to attribute work to a particular interval.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct BarrierStats {
+    /// Number of post-write barriers recorded across the heap's
+    /// lifetime. Bumped once per
+    /// [`crate::barrier::BarrierKind::PostWrite`] event.
+    pub post_write: u64,
+    /// Number of SATB pre-write barriers recorded across the
+    /// heap's lifetime. Bumped once per
+    /// [`crate::barrier::BarrierKind::SatbPreWrite`] event, which
+    /// only fires when a major mark session is active and the
+    /// overwritten slot carried a managed reference.
+    pub satb_pre_write: u64,
+}
+
 /// Cumulative physical old-gen compaction counters.
 ///
 /// Populated by [`crate::heap::Heap::compact_old_gen_physical`]

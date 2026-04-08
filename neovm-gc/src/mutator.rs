@@ -107,6 +107,18 @@ impl<'heap> Mutator<'heap> {
         self.heap.clear_compaction_stats();
     }
 
+    /// Cumulative write-barrier traffic counters. Mirrors
+    /// [`Heap::barrier_stats`] through the mutator borrow.
+    pub fn barrier_stats(&self) -> crate::stats::BarrierStats {
+        self.heap.barrier_stats()
+    }
+
+    /// Reset every counter in [`Heap::barrier_stats`] to zero.
+    /// Mirrors [`Heap::clear_barrier_stats`].
+    pub fn clear_barrier_stats(&mut self) {
+        self.heap.clear_barrier_stats();
+    }
+
     /// Read the current nursery fill ratio. Mirrors
     /// [`Heap::nursery_fill_ratio`].
     pub fn nursery_fill_ratio(&self) -> f64 {
