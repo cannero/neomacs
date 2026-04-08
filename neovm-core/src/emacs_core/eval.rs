@@ -515,21 +515,6 @@ enum InterpretedClosureEnvEntry {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct MacroExpansionCacheEntry {
-    expanded: Value,
-    fingerprint: u64,
-}
-
-impl MacroExpansionCacheEntry {
-    fn new(expanded: Value, fingerprint: u64) -> Self {
-        Self {
-            expanded,
-            fingerprint,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
 pub(crate) struct RuntimeMacroExpansionCacheEntry {
     expanded: Value,
     fingerprint: u64,
@@ -1211,11 +1196,6 @@ pub struct Context {
     /// expander is running. Eager-load caches use this to preserve GNU
     /// `eval-and-compile` side effects during replay.
     macro_expansion_mutation_epoch: u64,
-    /// Cache for macro expansion results.
-    ///
-    /// Key: `(macro_heap_id, args_fingerprint, mutation_epoch)`.
-    /// Value: the expanded runtime Lisp object plus a content fingerprint.
-    pub(crate) macro_expansion_cache: HashMap<(usize, usize, u64), Rc<MacroExpansionCacheEntry>>,
     /// Diagnostic counters for macro expansion cache.
     pub(crate) macro_cache_hits: u64,
     pub(crate) macro_cache_misses: u64,
@@ -1926,7 +1906,6 @@ impl Context {
         ev.saved_lexenvs.clear();
         ev.named_call_cache.clear();
 
-        ev.macro_expansion_cache.clear();
         ev.runtime_macro_expansion_cache.clear();
         ev.macro_cache_hits = 0;
         ev.macro_cache_misses = 0;
@@ -3681,7 +3660,6 @@ impl Context {
 
             macro_expansion_scope_depth: 0,
             macro_expansion_mutation_epoch: 0,
-            macro_expansion_cache: HashMap::new(),
             macro_cache_hits: 0,
             macro_cache_misses: 0,
             macro_expand_total_us: 0,
@@ -3814,7 +3792,6 @@ impl Context {
 
             macro_expansion_scope_depth: 0,
             macro_expansion_mutation_epoch: 0,
-            macro_expansion_cache: HashMap::new(),
             macro_cache_hits: 0,
             macro_cache_misses: 0,
             macro_expand_total_us: 0,
@@ -4981,7 +4958,6 @@ impl Context {
         extra_root_slices: &[&[Value]],
     ) {
         let start = std::time::Instant::now();
-        self.macro_expansion_cache.clear();
         self.lexenv_assq_cache.borrow_mut().clear();
         self.lexenv_special_cache.borrow_mut().clear();
         let roots = self.collect_roots_with_extra_root_slices(extra_root_slices);

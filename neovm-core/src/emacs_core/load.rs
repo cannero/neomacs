@@ -1368,10 +1368,6 @@ fn load_file_body(
 
     // --- Shared context setup via with_load_context ---
     with_load_context(eval, path, lexical_binding, |eval| {
-        if !is_elc {
-            eval.macro_expansion_cache.clear();
-        }
-
         // Both .el and .elc use the streaming Value reader.
         // .el files get eager macro expansion; .elc files are already compiled
         // so no expansion is needed (macroexpand_fn = None).  The reader
@@ -1393,7 +1389,6 @@ pub(crate) fn eval_decoded_source_file_in_context(
     _lexical_binding: bool,
 ) -> Result<Value, EvalError> {
     // Use the streaming Value-reader path (no Expr intermediate).
-    eval.macro_expansion_cache.clear();
     let macroexpand_fn = get_eager_macroexpand_fn(eval);
     streaming_readevalloop(eval, path, content, macroexpand_fn)
 }
