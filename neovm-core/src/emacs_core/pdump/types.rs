@@ -537,6 +537,22 @@ pub struct DumpBuffer {
     /// lives inside the `properties` map as `buffer-undo-list`.
     #[serde(default)]
     pub undo_list: Option<DumpUndoList>,
+    /// Phase 11: BUFFER_OBJFWD slot table values. One DumpValue per
+    /// `Buffer::slots[]` entry, in offset order. Empty for legacy
+    /// (pre-format-11) dumps; load_buffer falls back to seeding
+    /// from BUFFER_SLOT_INFO defaults + the legacy file_name etc.
+    /// fields when this is empty.
+    #[serde(default)]
+    pub slots: Vec<DumpValue>,
+    /// Phase 11: per-slot "is buffer-local in this buffer" bitmap.
+    /// Mirrors `Buffer::local_flags` (Phase 10D). Defaults to 0
+    /// for legacy dumps.
+    #[serde(default)]
+    pub local_flags: u64,
+    /// Phase 11: `local_var_alist` for SYMBOL_LOCALIZED variables.
+    /// Defaults to `Nil` for legacy dumps.
+    #[serde(default)]
+    pub local_var_alist: DumpValue,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -35,7 +35,11 @@ use crate::emacs_core::intern;
 use crate::emacs_core::value;
 
 const MAGIC: &[u8; 8] = b"NEOPDUMP";
-const FORMAT_VERSION: u32 = 10;
+// Phase 11 bump (11): DumpBuffer now round-trips `slots`,
+// `local_flags`, and `local_var_alist` so the BUFFER_OBJFWD slot
+// table and SYMBOL_LOCALIZED per-buffer alist survive dump/load
+// without leaning on the legacy `properties` blob.
+const FORMAT_VERSION: u32 = 11;
 
 /// Errors from dump/load operations.
 #[derive(Debug)]

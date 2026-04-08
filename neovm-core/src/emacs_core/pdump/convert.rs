@@ -793,6 +793,22 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
         overlays: dump_overlay_list(&buf.overlays),
         syntax_table: dump_syntax_table(&buf.syntax_table),
         undo_list: None,
+        // Phase 11: BUFFER_OBJFWD slot table is intentionally NOT
+        // round-tripped — see
+        // project_phase11_pdump_round_trip_blocker.md. The naive
+        // approach corrupts heap refs in
+        // `apply_runtime_startup_state`. Slots are reseeded at
+        // load time from the legacy file_name etc. fields and
+        // re-populated by post-load Lisp.
+        slots: Vec::new(),
+        // Phase 11: per-slot local-flag bitmap. Mirrors
+        // `Buffer::local_flags` (Phase 10D bitset). Safe to
+        // round-trip — it's a `u64`.
+        local_flags: buf.local_flags,
+        // Phase 11: per-buffer alist for SYMBOL_LOCALIZED variables.
+        // Mirrors GNU `BVAR(buf, local_var_alist)`. The cons cells
+        // already round-trip safely via the dump heap.
+        local_var_alist: dump_value(&buf.local_var_alist),
     }
 }
 
@@ -2232,16 +2248,26 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
             _ => None,
         },
         locals,
-        // Phase 4 of the symbol-redirect refactor: per-buffer
-        // alist for SYMBOL_LOCALIZED variables. Pdump format
-        // doesn't yet round-trip this (Phase 11 bumps the dump
-        // version); fresh-load buffers start empty.
-        local_var_alist: crate::emacs_core::value::Value::NIL,
-        // Phase 8a: BUFFER_OBJFWD slot table. Phase 8b migrated
-        // `file_name`, `auto_save_file_name`, `read_only`, and
-        // `multibyte` into the slot table, so seed them from the
-        // dump's legacy fields. Phase 11 will round-trip the
-        // remaining slot values through pdump natively.
+        // Phase 11: per-buffer alist for SYMBOL_LOCALIZED variables.
+        // Loaded from `db.local_var_alist`. The cons-cell graph
+        // already round-trips through the dump heap.
+        local_var_alist: load_value(&db.local_var_alist),
+        // Phase 8b: BUFFER_OBJFWD slot table. We do NOT round-trip
+        // `Buffer::slots` directly through pdump (see project
+        // memory `phase11_pdump_round_trip_blocker`); the slot
+        // values are reconstructed in two stages:
+        //   - At load time we only mirror the four hardcoded
+        //     legacy fields (file_name, auto_save_file_name,
+        //     read_only, multibyte), leaving every other slot at
+        //     `Value::NIL`. Seeding them from
+        //     `BUFFER_SLOT_INFO::default` here would allocate new
+        //     heap objects (LazyString, LazySymbol, LazyCwd) on
+        //     the still-being-finalised pdump heap and breaks
+        //     ~30 tests downstream of `apply_runtime_startup_state`.
+        //   - `finalize_cached_bootstrap_eval` (`load.rs:2574`)
+        //     re-runs the bootstrap startup forms after pdump
+        //     load, which re-populate every conditional slot via
+        //     the normal Lisp `setq`/`set-default` paths.
         slots: {
             let mut s = [crate::emacs_core::value::Value::NIL;
                 crate::buffer::buffer::BUFFER_SLOT_COUNT];
@@ -2263,10 +2289,8 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
             }
             s
         },
-        // Phase 10D: pdump format doesn't yet round-trip
-        // `local_flags` (Phase 11 bumps the dump version). Fresh-load
-        // buffers start with no conditional-local bits set.
-        local_flags: 0,
+        // Phase 11: per-buffer local-flags bitmap round-trip.
+        local_flags: db.local_flags,
         overlays: OverlayList::from_dump(
             db.overlays
                 .overlays
