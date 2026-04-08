@@ -474,8 +474,13 @@ impl<'heap> CollectorRuntime<'heap> {
             .expect("rooting during active major-mark should not fail");
     }
 
-    pub(crate) fn record_post_write(
+    /// Record a post-write barrier and push the diagnostic
+    /// event onto the supplied mutator-local ring. This is
+    /// the production path used by
+    /// [`crate::mutator::Mutator::post_write_barrier`].
+    pub(crate) fn record_post_write_with_local(
         &mut self,
+        local: &mut crate::mutator::MutatorLocal,
         owner: GcErased,
         slot: Option<usize>,
         old_value: Option<GcErased>,
@@ -486,11 +491,14 @@ impl<'heap> CollectorRuntime<'heap> {
             "cannot mutate heap edges while prepared full reclaim is active"
         );
 
-        self.heap
-            .push_barrier_event(BarrierKind::PostWrite, owner, slot, old_value, new_value);
+        let active_major_mark = self.heap.collector_handle().has_active_major_mark();
+        let record_satb = old_value.is_some() && active_major_mark;
 
-        if old_value.is_some() && self.heap.collector_handle().has_active_major_mark() {
-            self.heap.push_barrier_event(
+        self.heap.bump_barrier_stats(BarrierKind::PostWrite);
+        local.push_barrier_event(BarrierKind::PostWrite, owner, slot, old_value, new_value);
+        if record_satb {
+            self.heap.bump_barrier_stats(BarrierKind::SatbPreWrite);
+            local.push_barrier_event(
                 BarrierKind::SatbPreWrite,
                 owner,
                 slot,

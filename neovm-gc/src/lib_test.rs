@@ -2583,12 +2583,21 @@ fn collector_runtime_record_post_write_tracks_barrier_events_and_remembered_edge
         (owner_gc, target.as_gc())
     };
 
-    heap.collector_runtime().record_post_write(
-        owner_gc.erase(),
-        Some(0),
-        None,
-        Some(target_gc.erase()),
-    );
+    // Drive the barrier through a fresh mutator so the
+    // event lands in that mutator's per-local diagnostic
+    // ring. Reading the ring after the mutator drops
+    // would lose the events, so the assertion runs while
+    // the mutator is still alive.
+    {
+        let mut mutator = heap.mutator();
+        mutator.post_write_barrier::<Link, Link>(owner_gc, Some(0), None, Some(target_gc));
+        assert!(
+            mutator
+                .recent_barrier_events()
+                .iter()
+                .any(|event| event.kind == BarrierKind::PostWrite)
+        );
+    }
 
     // Phase 4: the owner lives inside a block-backed old region, so the
     // write barrier routes to the per-block card-table fast path. The
@@ -2596,11 +2605,6 @@ fn collector_runtime_record_post_write_tracks_barrier_events_and_remembered_edge
     // `total_remembered_count` reports the dirty card.
     assert_eq!(heap.remembered_edge_count(), 0);
     assert_eq!(heap.total_remembered_count(), 1);
-    assert!(
-        heap.recent_barrier_events()
-            .iter()
-            .any(|event| event.kind == BarrierKind::PostWrite)
-    );
 }
 
 #[test]
@@ -3247,7 +3251,6 @@ fn persistent_major_mark_session_post_write_barrier_keeps_newly_reachable_object
     assert_eq!(unsafe { next.as_non_null().as_ref() }.label, 2);
     assert!(
         mutator
-            .heap()
             .recent_barrier_events()
             .iter()
             .any(|event| event.kind == BarrierKind::PostWrite)
@@ -3321,7 +3324,6 @@ fn persistent_major_mark_session_satb_keeps_overwritten_snapshot_edge() {
     );
     assert!(
         mutator
-            .heap()
             .recent_barrier_events()
             .iter()
             .any(|event| event.kind == BarrierKind::SatbPreWrite)
@@ -5525,7 +5527,7 @@ fn minor_collection_traces_young_objects_reachable_from_old_objects() {
     // unified remembered count keeps the edge tracked across cycles
     // even though the legacy Vec+HashSet path stays empty.
     assert_eq!(mutator.heap().total_remembered_count(), 1);
-    assert!(mutator.heap().barrier_event_count() > 0);
+    assert!(mutator.barrier_event_count() > 0);
     assert_eq!(
         unsafe { parent.as_gc().as_non_null().as_ref() }
             .next
@@ -5687,7 +5689,7 @@ fn minor_collection_keeps_young_child_with_barrier_on_non_root_old_owner() {
     // card-table fast path; the unified count covers both the legacy
     // Vec path and the dirty cards.
     assert_eq!(mutator.heap().total_remembered_count(), 1);
-    assert!(mutator.heap().barrier_event_count() > 0);
+    assert!(mutator.barrier_event_count() > 0);
 }
 
 #[test]
@@ -11295,7 +11297,7 @@ fn concurrent_marker_satb_barrier_keeps_overwritten_edge_alive() {
     // through owner; once we overwrite owner.child to None, target is
     // unreachable from any root and depends entirely on the SATB
     // pre-write barrier to keep it alive across the active mark session.
-    let object_count_before_mark = shared
+    let (object_count_before_mark, satb_seen) = shared
         .with_mutator(|mutator| {
             let mut keep_scope = mutator.handle_scope();
             let owner = mutator
@@ -11324,10 +11326,23 @@ fn concurrent_marker_satb_barrier_keeps_overwritten_edge_alive() {
             // target so the marker keeps it alive.
             mutator.store_edge(&owner, 0, |holder| &holder.child, None);
 
-            mutator.heap().object_count()
+            // Check the per-mutator diagnostic ring BEFORE the closure
+            // returns and the mutator drops. Post-move, the barrier
+            // event ring lives on MutatorLocal; reading it through the
+            // heap lock is no longer possible because each mutator owns
+            // its own ring.
+            let satb_seen = mutator
+                .recent_barrier_events()
+                .iter()
+                .any(|event| event.kind == BarrierKind::SatbPreWrite);
+            (mutator.heap().object_count(), satb_seen)
         })
         .expect("seed and overwrite owner -> target edge during active mark");
     assert_eq!(object_count_before_mark, 2);
+    assert!(
+        satb_seen,
+        "SATB barrier event must be recorded for the overwritten edge"
+    );
 
     wait_for_concurrent_marker_cycle(&shared, &marker, Duration::from_secs(5));
 
@@ -11347,18 +11362,6 @@ fn concurrent_marker_satb_barrier_keeps_overwritten_edge_alive() {
         .expect("inspect last completed plan after SATB session")
         .map(|plan| plan.kind);
     assert_eq!(last, Some(CollectionKind::Major));
-
-    let satb_seen = shared
-        .with_heap(|heap| {
-            heap.recent_barrier_events()
-                .iter()
-                .any(|event| event.kind == BarrierKind::SatbPreWrite)
-        })
-        .expect("inspect recent barrier events");
-    assert!(
-        satb_seen,
-        "SATB barrier event must be recorded for the overwritten edge"
-    );
 
     let _ = marker.join().expect("join concurrent marker");
 }

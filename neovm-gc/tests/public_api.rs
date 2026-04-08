@@ -2342,7 +2342,6 @@ fn public_api_persistent_major_mark_barrier_keeps_new_value() {
     assert_eq!(unsafe { next.as_non_null().as_ref() }.label, 2);
     assert!(
         mutator
-            .heap()
             .recent_barrier_events()
             .iter()
             .any(|event| event.kind == BarrierKind::PostWrite)
@@ -2400,11 +2399,11 @@ fn public_api_barrier_stats_count_post_write_traffic_outside_major_mark() {
 
     // clear_barrier_stats resets the cumulative counters but
     // leaves the diagnostic event ring buffer alone.
-    let events_before = mutator.heap().barrier_event_count();
+    let events_before = mutator.barrier_event_count();
     mutator.clear_barrier_stats();
     assert_eq!(mutator.barrier_stats().post_write, 0);
     assert_eq!(mutator.barrier_stats().satb_pre_write, 0);
-    assert_eq!(mutator.heap().barrier_event_count(), events_before);
+    assert_eq!(mutator.barrier_event_count(), events_before);
 }
 
 #[test]

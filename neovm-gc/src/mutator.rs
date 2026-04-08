@@ -1,5 +1,6 @@
 use crate::background::BackgroundCollectionRuntime;
-use crate::descriptor::Trace;
+use crate::barrier::{BarrierEvent, BarrierKind};
+use crate::descriptor::{GcErased, Trace};
 use crate::edge::EdgeCell;
 use crate::heap::{AllocError, Heap, HeapCore};
 use crate::plan::{
@@ -9,20 +10,26 @@ use crate::plan::{
 use crate::root::{Gc, HandleScope, Root};
 use crate::stats::CollectionStats;
 
+/// Bounded ring retained per mutator for diagnostic
+/// inspection of recent barrier events. The count matches
+/// the legacy heap-wide ring size so external observers that
+/// paginated through the heap ring see the same horizon when
+/// they migrate to the mutator-side accessor.
+const MAX_BARRIER_EVENTS: usize = 1024;
+
 /// Per-mutator local state.
 ///
 /// Holds data that in the final multi-mutator architecture
 /// belongs to one mutator instance and must not be shared
 /// across mutators even when they allocate against the same
-/// heap: the per-mutator nursery TLAB slab and (in later
-/// commits) the root stack and the per-mutator barrier event
-/// ring.
+/// heap: the per-mutator nursery TLAB slab, the per-mutator
+/// barrier event ring, and (in later commits) the root stack.
 ///
-/// Currently owns only `tlab`. The remaining fields
-/// (`RootStack`, `recent_barrier_events`) still live on
-/// [`Heap`] because moving them requires the
+/// The `RootStack` move still requires the
 /// `Arc<RwLock<HeapCore>>` wrap in commit 4 of the
-/// multi-mutator migration order (`DESIGN.md` Appendix A).
+/// multi-mutator migration order (`DESIGN.md` Appendix A)
+/// because moving it means threading `&mut MutatorLocal`
+/// through every collector entry point that walks roots.
 #[derive(Debug, Default)]
 pub struct MutatorLocal {
     /// Per-mutator nursery TLAB slab. Carved out of the
@@ -37,6 +44,45 @@ pub struct MutatorLocal {
     /// `try_alloc` against the stale slab returns `None`,
     /// forcing a refill.
     pub(crate) tlab: Option<crate::spaces::nursery_arena::NurseryTlab>,
+    /// Bounded diagnostic ring of the most recent barrier
+    /// events this mutator has recorded. Updated by
+    /// [`MutatorLocal::push_barrier_event`] from the barrier
+    /// path in [`crate::runtime::CollectorRuntime::record_post_write`].
+    /// External observers read it via
+    /// [`Mutator::recent_barrier_events`].
+    ///
+    /// Per-mutator ownership (vs a shared heap-wide ring)
+    /// removes contention on the ring's write lock in the
+    /// multi-mutator target and matches the "per-mutator
+    /// diagnostic ring" design in DESIGN.md Appendix A.
+    pub(crate) barrier_events: Vec<BarrierEvent>,
+}
+
+impl MutatorLocal {
+    /// Append one barrier event to this mutator's recent
+    /// ring, dropping the oldest entries when the ring grows
+    /// past `MAX_BARRIER_EVENTS`. Mirrors the trimming the
+    /// heap-wide ring did before the move.
+    pub(crate) fn push_barrier_event(
+        &mut self,
+        kind: BarrierKind,
+        owner: GcErased,
+        slot: Option<usize>,
+        old_value: Option<GcErased>,
+        new_value: Option<GcErased>,
+    ) {
+        self.barrier_events.push(BarrierEvent {
+            kind,
+            owner: unsafe { Gc::from_erased(owner) },
+            slot,
+            old_value: old_value.map(|value| unsafe { Gc::from_erased(value) }),
+            new_value: new_value.map(|value| unsafe { Gc::from_erased(value) }),
+        });
+        if self.barrier_events.len() > MAX_BARRIER_EVENTS {
+            let overflow = self.barrier_events.len() - MAX_BARRIER_EVENTS;
+            self.barrier_events.drain(..overflow);
+        }
+    }
 }
 
 /// Mutator view onto the heap.
@@ -184,6 +230,22 @@ impl<'heap> Mutator<'heap> {
     /// [`Heap::barrier_stats`] through the mutator borrow.
     pub fn barrier_stats(&self) -> crate::stats::BarrierStats {
         self.heap.barrier_stats()
+    }
+
+    /// Return the bounded ring of recent barrier events
+    /// recorded by this mutator. Events recorded through
+    /// other mutators are not visible here.
+    ///
+    /// Per-mutator ownership of the ring removes contention
+    /// on the ring write lock in the multi-mutator target.
+    pub fn recent_barrier_events(&self) -> &[BarrierEvent] {
+        &self.local.barrier_events
+    }
+
+    /// Return the number of recent barrier events retained
+    /// in this mutator's diagnostic ring.
+    pub fn barrier_event_count(&self) -> usize {
+        self.local.barrier_events.len()
     }
 
     /// Reset every counter in [`Heap::barrier_stats`] to zero.
@@ -340,12 +402,20 @@ impl<'heap> Mutator<'heap> {
             !self.heap.prepared_full_reclaim_active(),
             "cannot mutate heap edges while prepared full reclaim is active; finish the active full collection first"
         );
-        self.heap.collector_runtime().record_post_write(
-            owner.erase(),
-            slot,
-            old_value.map(Gc::erase),
-            new_value.map(Gc::erase),
-        );
+        // Route through the local so this mutator's
+        // per-mutator barrier event ring (on `MutatorLocal`)
+        // captures the diagnostic entry. The collector-side
+        // bookkeeping (cumulative stats, SATB recording,
+        // remembered set) still runs on the heap.
+        self.heap
+            .collector_runtime()
+            .record_post_write_with_local(
+                &mut self.local,
+                owner.erase(),
+                slot,
+                old_value.map(Gc::erase),
+                new_value.map(Gc::erase),
+            );
     }
 
     /// Store a managed edge and record the required post-write barrier.

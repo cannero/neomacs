@@ -1,5 +1,5 @@
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
-use crate::barrier::{BarrierEvent, BarrierKind};
+use crate::barrier::BarrierKind;
 use crate::collector_exec::collect_global_sources;
 use crate::collector_state::{CollectorSharedSnapshot, CollectorStateHandle};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
@@ -101,7 +101,6 @@ pub(crate) struct HeapCore {
     // --- index and collector bookkeeping ---
     indexes: HeapIndexState,
     old_gen: OldGenState,
-    recent_barrier_events: Vec<BarrierEvent>,
     collector: CollectorStateHandle,
     pause_stats: PauseStatsHandle,
     pacer: Pacer,
@@ -402,16 +401,6 @@ impl Heap {
         self.core.total_remembered_count()
     }
 
-    /// See [`HeapCore::barrier_event_count`].
-    pub fn barrier_event_count(&self) -> usize {
-        self.core.barrier_event_count()
-    }
-
-    /// See [`HeapCore::recent_barrier_events`].
-    pub fn recent_barrier_events(&self) -> &[BarrierEvent] {
-        self.core.recent_barrier_events()
-    }
-
     /// See [`HeapCore::barrier_stats`].
     pub fn barrier_stats(&self) -> crate::stats::BarrierStats {
         self.core.barrier_stats()
@@ -608,7 +597,6 @@ impl HeapCore {
             indexes: HeapIndexState::default(),
             old_gen: OldGenState::default(),
             runtime_state: RuntimeStateHandle::default(),
-            recent_barrier_events: Vec::new(),
             collector: CollectorStateHandle::default(),
             pause_stats: PauseStatsHandle::new(),
             pacer,
@@ -1355,16 +1343,6 @@ impl HeapCore {
         self.remembered_edge_count().saturating_add(self.dirty_card_count())
     }
 
-    /// Number of recent barrier events retained for diagnostics.
-    pub fn barrier_event_count(&self) -> usize {
-        self.recent_barrier_events.len()
-    }
-
-    /// Recorded recent barrier events retained for diagnostics.
-    pub fn recent_barrier_events(&self) -> &[BarrierEvent] {
-        &self.recent_barrier_events
-    }
-
     /// Cumulative write-barrier traffic counters.
     ///
     /// The returned [`crate::stats::BarrierStats`] reports the
@@ -1433,16 +1411,14 @@ impl HeapCore {
         CollectorRuntime::new(self).execute_plan(plan)
     }
 
-    pub(crate) fn push_barrier_event(
-        &mut self,
-        kind: BarrierKind,
-        owner: GcErased,
-        slot: Option<usize>,
-        old_value: Option<GcErased>,
-        new_value: Option<GcErased>,
-    ) {
-        const MAX_BARRIER_EVENTS: usize = 1024;
-
+    /// Increment the heap-wide cumulative barrier counters
+    /// for `kind`. The per-mutator diagnostic ring now
+    /// lives on [`crate::mutator::MutatorLocal`]; the
+    /// collector pushes events there via
+    /// [`crate::mutator::MutatorLocal::push_barrier_event`]
+    /// during the same barrier hook that bumps the stats
+    /// here.
+    pub(crate) fn bump_barrier_stats(&mut self, kind: BarrierKind) {
         match kind {
             BarrierKind::PostWrite => {
                 self.barrier_stats.post_write =
@@ -1452,18 +1428,6 @@ impl HeapCore {
                 self.barrier_stats.satb_pre_write =
                     self.barrier_stats.satb_pre_write.saturating_add(1);
             }
-        }
-
-        self.recent_barrier_events.push(BarrierEvent {
-            kind,
-            owner: unsafe { crate::root::Gc::from_erased(owner) },
-            slot,
-            old_value: old_value.map(|value| unsafe { crate::root::Gc::from_erased(value) }),
-            new_value: new_value.map(|value| unsafe { crate::root::Gc::from_erased(value) }),
-        });
-        if self.recent_barrier_events.len() > MAX_BARRIER_EVENTS {
-            let overflow = self.recent_barrier_events.len() - MAX_BARRIER_EVENTS;
-            self.recent_barrier_events.drain(..overflow);
         }
     }
 
