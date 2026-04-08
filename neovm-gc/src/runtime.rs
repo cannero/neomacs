@@ -68,6 +68,12 @@ impl<'heap> CollectorRuntime<'heap> {
         self.heap.drain_pending_finalizers()
     }
 
+    /// Run at most `max` queued finalizers and return the number
+    /// that actually ran. See [`Heap::drain_pending_finalizers_bounded`].
+    pub fn drain_pending_finalizers_bounded(&mut self, max: usize) -> u64 {
+        self.heap.drain_pending_finalizers_bounded(max)
+    }
+
     /// Recommend the next background concurrent collection plan, if any.
     pub fn recommended_background_plan(&self) -> Option<CollectionPlan> {
         self.heap.recommended_background_plan()
@@ -982,6 +988,17 @@ impl SharedCollectorRuntime {
     pub fn drain_pending_finalizers(&self) -> Result<u64, SharedBackgroundError> {
         self.runtime
             .drain_pending_finalizers()
+            .map_err(Self::map_shared_heap_error)
+    }
+
+    /// Run at most `max` queued finalizers and return the number
+    /// that actually ran. See [`Heap::drain_pending_finalizers_bounded`].
+    pub fn drain_pending_finalizers_bounded(
+        &self,
+        max: usize,
+    ) -> Result<u64, SharedBackgroundError> {
+        self.runtime
+            .drain_pending_finalizers_bounded(max)
             .map_err(Self::map_shared_heap_error)
     }
 

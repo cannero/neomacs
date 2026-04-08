@@ -714,6 +714,25 @@ impl SharedRuntimeHandle {
         Ok(ran)
     }
 
+    pub(crate) fn drain_pending_finalizers_bounded(
+        &self,
+        max: usize,
+    ) -> Result<u64, SharedHeapError> {
+        let (ran, next_runtime_snapshot) = self.with_state(|runtime_state| {
+            let ran = runtime_state.drain_pending_finalizers_bounded(max);
+            let (finalizers_run, pending_finalizers) = runtime_state.snapshot();
+            (
+                ran,
+                SharedRuntimeSnapshot {
+                    finalizers_run,
+                    pending_finalizers,
+                },
+            )
+        });
+        self.publish_snapshot(next_runtime_snapshot)?;
+        Ok(ran)
+    }
+
     pub(crate) fn try_drain_pending_finalizers(&self) -> Result<u64, SharedHeapError> {
         let (ran, next_runtime_snapshot) = self.try_with_state(|runtime_state| {
             let ran = runtime_state.drain_pending_finalizers();
@@ -1387,6 +1406,15 @@ impl SharedHeap {
         self.runtime.drain_pending_finalizers()
     }
 
+    /// Run at most `max` queued finalizers and return the number
+    /// that actually ran. See [`Heap::drain_pending_finalizers_bounded`].
+    pub fn drain_pending_finalizers_bounded(
+        &self,
+        max: usize,
+    ) -> Result<u64, SharedHeapError> {
+        self.runtime.drain_pending_finalizers_bounded(max)
+    }
+
     /// Run and drain queued finalizers without blocking on heap contention.
     pub fn try_drain_pending_finalizers(&self) -> Result<u64, SharedHeapError> {
         self.runtime.try_drain_pending_finalizers()
@@ -2056,6 +2084,12 @@ impl<'heap> BackgroundService<'heap> {
         self.runtime.drain_pending_finalizers()
     }
 
+    /// Run at most `max` queued finalizers and return the number
+    /// that actually ran. See [`Heap::drain_pending_finalizers_bounded`].
+    pub fn drain_pending_finalizers_bounded(&mut self, max: usize) -> u64 {
+        self.runtime.drain_pending_finalizers_bounded(max)
+    }
+
     /// Return runtime-side follow-up work that remains outside GC commit.
     pub fn runtime_work_status(&self) -> RuntimeWorkStatus {
         self.runtime.runtime_work_status()
@@ -2240,6 +2274,15 @@ impl SharedBackgroundService {
     /// Run and drain queued finalizers.
     pub fn drain_pending_finalizers(&mut self) -> Result<u64, SharedBackgroundError> {
         self.runtime.drain_pending_finalizers()
+    }
+
+    /// Run at most `max` queued finalizers and return the number
+    /// that actually ran. See [`Heap::drain_pending_finalizers_bounded`].
+    pub fn drain_pending_finalizers_bounded(
+        &mut self,
+        max: usize,
+    ) -> Result<u64, SharedBackgroundError> {
+        self.runtime.drain_pending_finalizers_bounded(max)
     }
 
     /// Return runtime-side follow-up work that remains outside GC commit.

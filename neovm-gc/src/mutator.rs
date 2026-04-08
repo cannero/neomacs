@@ -160,6 +160,12 @@ impl<'heap> Mutator<'heap> {
         self.heap.drain_pending_finalizers()
     }
 
+    /// Run at most `max` queued finalizers and return the number
+    /// that actually ran. See [`Heap::drain_pending_finalizers_bounded`].
+    pub fn drain_pending_finalizers_bounded(&mut self, max: usize) -> u64 {
+        self.heap.drain_pending_finalizers_bounded(max)
+    }
+
     /// Return runtime-side follow-up work that remains outside GC commit.
     pub fn runtime_work_status(&self) -> RuntimeWorkStatus {
         self.heap.runtime_work_status()

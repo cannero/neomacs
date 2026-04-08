@@ -1794,6 +1794,90 @@ fn public_api_collector_runtime_drain_pending_finalizers_runs_queued_finalizers(
 }
 
 #[test]
+fn public_api_collector_runtime_drain_pending_finalizers_bounded_runs_in_slices() {
+    // VM-driven cooperative finalization (compromise 4 step):
+    // a host runtime should be able to budget how many pending
+    // finalizers run per scheduler tick instead of being forced
+    // to drain the entire queue at once. This test queues three
+    // finalizers, runs the bounded drain twice (with budget 2,
+    // then budget 5), and verifies that:
+    //   * the first call returns 2 and leaves one pending
+    //   * the second call drains the remaining one
+    //   * stats.finalizers_run reflects the cumulative total
+    PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
+
+    let mut heap = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    {
+        let mut mutator = heap.mutator();
+        for i in 0..3u64 {
+            let mut scope = mutator.handle_scope();
+            mutator
+                .alloc(&mut scope, FinalizableLeaf(700 + i))
+                .expect("alloc finalizable old leaf");
+        }
+    }
+
+    let cycle = heap.collect(CollectionKind::Major).expect("major collect");
+    assert_eq!(cycle.queued_finalizers, 3);
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 0);
+
+    {
+        let mut runtime = heap.collector_runtime();
+        assert_eq!(runtime.pending_finalizer_count(), 3);
+
+        // First slice: budget 2 → exactly 2 should run.
+        assert_eq!(runtime.drain_pending_finalizers_bounded(2), 2);
+        assert_eq!(runtime.pending_finalizer_count(), 1);
+        assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 2);
+        assert_eq!(runtime.stats().finalizers_run, 2);
+
+        // Second slice: budget 5 → only the remaining 1 runs.
+        assert_eq!(runtime.drain_pending_finalizers_bounded(5), 1);
+        assert_eq!(runtime.pending_finalizer_count(), 0);
+        assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 3);
+        assert_eq!(runtime.stats().finalizers_run, 3);
+
+        // Third slice on an empty queue is a no-op.
+        assert_eq!(runtime.drain_pending_finalizers_bounded(7), 0);
+        assert_eq!(runtime.pending_finalizer_count(), 0);
+        assert_eq!(runtime.stats().finalizers_run, 3);
+    }
+
+    // A zero budget never runs anything, even when entries
+    // are queued. Re-allocate a finalizable, force a fresh
+    // major cycle to enqueue it, then verify the bounded
+    // drain with budget 0 is a no-op.
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        mutator
+            .alloc(&mut scope, FinalizableLeaf(703))
+            .expect("alloc finalizable old leaf");
+    }
+    let cycle = heap
+        .collect(CollectionKind::Major)
+        .expect("major collect after re-queue");
+    assert_eq!(cycle.queued_finalizers, 1);
+    assert_eq!(heap.pending_finalizer_count(), 1);
+    assert_eq!(heap.drain_pending_finalizers_bounded(0), 0);
+    assert_eq!(heap.pending_finalizer_count(), 1);
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 3);
+    // Drain the leftover so the test leaves no queued finalizers.
+    assert_eq!(heap.drain_pending_finalizers(), 1);
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 4);
+}
+
+#[test]
 fn public_api_mutator_prepare_active_major_reclaim_moves_session_to_reclaim() {
     let mut heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
@@ -9101,6 +9185,76 @@ fn public_api_shared_nursery_fill_ratio_starts_zero_on_empty_heap() {
         .nursery_fill_ratio()
         .expect("read nursery fill ratio");
     assert_eq!(ratio, 0.0);
+}
+
+#[test]
+fn public_api_shared_drain_pending_finalizers_bounded_runs_in_slices() {
+    // Same VM-driven cooperative finalization contract as the
+    // CollectorRuntime test, but exercised via the SharedHeap
+    // surface so the bounded drain is pinned end-to-end through
+    // the shared snapshot path.
+    PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
+
+    let shared = neovm_gc::SharedHeap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    shared
+        .with_mutator(|mutator| {
+            for i in 0..3u64 {
+                let mut scope = mutator.handle_scope();
+                mutator
+                    .alloc(&mut scope, FinalizableLeaf(800 + i))
+                    .expect("alloc finalizable old leaf");
+            }
+            let cycle = mutator
+                .collect(CollectionKind::Major)
+                .expect("major collect");
+            assert_eq!(cycle.queued_finalizers, 3);
+        })
+        .expect("collect through shared mutator");
+
+    assert_eq!(
+        shared.pending_finalizer_count().expect("pending count"),
+        3
+    );
+
+    // First slice: budget 1 → exactly 1 should run, 2 remain.
+    assert_eq!(
+        shared
+            .drain_pending_finalizers_bounded(1)
+            .expect("bounded drain 1"),
+        1
+    );
+    assert_eq!(
+        shared.pending_finalizer_count().expect("pending count"),
+        2
+    );
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
+
+    // Second slice: budget 10 → only the remaining 2 run.
+    assert_eq!(
+        shared
+            .drain_pending_finalizers_bounded(10)
+            .expect("bounded drain 10"),
+        2
+    );
+    assert_eq!(
+        shared.pending_finalizer_count().expect("pending count"),
+        0
+    );
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 3);
+
+    let stats = shared.stats().expect("read stats after bounded drain");
+    assert_eq!(stats.finalizers_run, 3);
+    assert_eq!(stats.pending_finalizers, 0);
 }
 
 #[test]

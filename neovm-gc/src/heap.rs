@@ -848,6 +848,20 @@ impl Heap {
         self.runtime_state.drain_pending_finalizers()
     }
 
+    /// Run at most `max` queued finalizers and return the number
+    /// that actually ran. Any finalizers beyond `max` stay queued
+    /// for the next drain call.
+    ///
+    /// `max == 0` returns immediately with `0`.
+    ///
+    /// Intended for VM-driven cooperative finalization: the host
+    /// runtime can run a fixed budget of finalizers per scheduler
+    /// tick without committing to draining the entire queue at
+    /// once.
+    pub fn drain_pending_finalizers_bounded(&self, max: usize) -> u64 {
+        self.runtime_state.drain_pending_finalizers_bounded(max)
+    }
+
     /// Number of remembered old-to-young edges currently tracked.
     pub fn remembered_edge_count(&self) -> usize {
         self.indexes.remembered.edges.len()
