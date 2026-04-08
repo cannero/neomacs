@@ -88,6 +88,7 @@ pub mod regex_emacs;
 pub mod register;
 pub mod search;
 pub(crate) mod string_escape;
+pub mod subr_docs;
 pub mod subr_info;
 pub mod symbol;
 pub mod syntax;

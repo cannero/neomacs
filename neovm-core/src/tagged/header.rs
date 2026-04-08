@@ -333,6 +333,19 @@ pub struct SubrObj {
     pub dispatch_kind: SubrDispatchKind,
     /// Native Rust entry point for the builtin, if fully registered.
     pub function: Option<SubrFn>,
+    /// Documentation string, if known. Mirrors GNU's `EMACS_INT doc`
+    /// field on `struct Lisp_Subr` (`src/lisp.h:2201`), but stored as
+    /// a `&'static str` pointing into `.rodata` instead of as a byte
+    /// offset into `etc/DOC`. Single field read at query time, zero
+    /// hot-path impact (the dispatch path never reads this field).
+    ///
+    /// Set once at construction in `alloc_subr` from
+    /// `lookup_gnu_subr_doc(name)`. The static doc table is compile-
+    /// time data and always available, so the doc is known the moment
+    /// the subr is allocated — no later mutation, no `Cell`, no
+    /// `unsafe`. Subrs whose name isn't in the table stay `None` and
+    /// fall through to `"Built-in function."` at query time.
+    pub doc: Option<&'static str>,
 }
 
 /// Heap-allocated arbitrary-precision integer (mirrors GNU

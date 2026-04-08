@@ -10081,8 +10081,14 @@ impl Context {
             subr.function = Some(func);
             existing
         } else {
+            // Look up the GNU `DEFUN doc:` text for this name once at
+            // construction. The static table in `subr_docs.rs` is
+            // compile-time data, so the lookup is a const-friendly
+            // linear scan that runs exactly once per subr in the
+            // process lifetime.
+            let doc = super::subr_docs::lookup(name);
             let value = crate::tagged::gc::with_tagged_heap(|h| {
-                h.alloc_subr(sym_id, Some(func), min_args, max_args, dispatch_kind)
+                h.alloc_subr(sym_id, Some(func), min_args, max_args, dispatch_kind, doc)
             });
             crate::tagged::value::register_current_subr(sym_id, value);
             value

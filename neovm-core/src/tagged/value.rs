@@ -44,6 +44,15 @@ pub(crate) fn register_current_subr(id: SymId, value: TaggedValue) {
     crate::tagged::gc::with_tagged_heap(|heap| heap.register_subr_value(id, value));
 }
 
+/// Look up the GNU `DEFUN doc:` text for a builtin subr by name.
+/// Returns `None` if no entry exists. The returned string is `'static`
+/// because doc strings live in `.rodata`. This is the read side of
+/// the lookup; the table is populated by the bulk-import phase
+/// (Phase A2) from `src/emacs_core/subr_docs/gnu_subr_docs.rs`.
+pub(crate) fn lookup_gnu_subr_doc(name: &str) -> Option<&'static str> {
+    crate::emacs_core::subr_docs::lookup(name)
+}
+
 // ---------------------------------------------------------------------------
 // Tag constants
 // ---------------------------------------------------------------------------
@@ -230,10 +239,16 @@ impl TaggedValue {
         if let Some(value) = current_subr_value(id) {
             return value;
         }
+        let name = resolve_sym(id);
         let (min_args, max_args, dispatch_kind) =
-            crate::emacs_core::subr_info::lookup_compat_subr_metadata(resolve_sym(id), 0, None);
+            crate::emacs_core::subr_info::lookup_compat_subr_metadata(name, 0, None);
+        // Resolve the GNU `DEFUN doc:` text once at construction.
+        // The static table is compile-time data, always available;
+        // no later mutation is needed, so `SubrObj.doc` stays a
+        // plain immutable field with no `Cell` and no `unsafe`.
+        let doc = lookup_gnu_subr_doc(name);
         let value = crate::tagged::gc::with_tagged_heap(|h| {
-            h.alloc_subr(id, None, min_args, max_args, dispatch_kind)
+            h.alloc_subr(id, None, min_args, max_args, dispatch_kind, doc)
         });
         register_current_subr(id, value);
         value
