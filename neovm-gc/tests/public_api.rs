@@ -9302,6 +9302,27 @@ fn public_api_shared_compact_old_gen_if_fragmented_skips_when_under_threshold() 
 }
 
 #[test]
+fn public_api_shared_compact_old_gen_if_fragmented_skips_lock_when_not_needed() {
+    // Lock-free precheck contract: if the cached snapshot
+    // already says no compaction is needed,
+    // compact_old_gen_if_fragmented should never take the heap
+    // write lock. This test pins the contract by holding the
+    // heap write lock on a helper thread and verifying the
+    // call still returns a result.
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let (release_tx, waiter) = lock_shared_heap_on_other_thread(shared.clone());
+
+    let (frag, moved) = shared
+        .compact_old_gen_if_fragmented(0.1)
+        .expect("compact_old_gen_if_fragmented while heap is write-locked");
+    assert_eq!(frag, 0.0);
+    assert_eq!(moved, 0);
+
+    release_tx.send(()).expect("release shared heap write lock");
+    waiter.join().expect("join write-lock helper thread");
+}
+
+#[test]
 fn public_api_shared_compaction_stats_reads_lock_free() {
     // A fresh SharedHeap reports zero compaction work so far.
     // Reading compaction_stats through the lock-free status

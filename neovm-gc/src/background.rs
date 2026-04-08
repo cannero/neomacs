@@ -1278,12 +1278,31 @@ impl SharedHeap {
     }
 
     /// Opportunistic compaction trigger via the shared heap.
-    /// Takes the heap WRITE lock for the duration. See
-    /// [`Heap::compact_old_gen_if_fragmented`] for semantics.
+    ///
+    /// Performs a lock-free precheck through the cached
+    /// snapshot via [`SharedHeap::old_gen_fragmentation_ratio`]
+    /// first. If the current fragmentation is below
+    /// `fragmentation_threshold` the call returns immediately
+    /// with `(frag, 0)` without ever taking the heap write lock,
+    /// matching the no-op semantics of
+    /// [`Heap::compact_old_gen_if_fragmented`]. Only when the
+    /// snapshot says compaction would be productive does the
+    /// call grab the write lock and dispatch to the inner heap
+    /// method, which re-runs the same check under the lock so
+    /// concurrent mutators that re-pack the pool first see a
+    /// consistent decision.
+    ///
+    /// This means the common "scheduler polls but no compaction
+    /// is needed" case is now contention-free with running
+    /// mutators and background workers.
     pub fn compact_old_gen_if_fragmented(
         &self,
         fragmentation_threshold: f64,
     ) -> Result<(f64, usize), SharedHeapError> {
+        let frag = self.old_gen_fragmentation_ratio()?;
+        if frag < fragmentation_threshold {
+            return Ok((frag, 0));
+        }
         let mut heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
         Ok(heap.compact_old_gen_if_fragmented(fragmentation_threshold))
     }
