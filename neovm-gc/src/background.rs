@@ -1282,14 +1282,32 @@ impl SharedHeap {
     }
 
     /// Read-only predicate for whether physical compaction
-    /// would currently be productive. Takes a brief read-lock
-    /// on the heap. See [`Heap::should_compact_old_gen`].
+    /// would currently be productive.
+    ///
+    /// Reads from the same lock-free shared snapshot as
+    /// [`SharedHeap::stats`] and
+    /// [`SharedHeap::old_gen_fragmentation_ratio`], so this
+    /// never blocks on the heap mutex even while a mutator or
+    /// background worker holds it. Returns `true` when at least
+    /// one block has been reserved AND the reconstructed
+    /// fragmentation ratio meets `fragmentation_threshold`.
+    /// Mirrors [`Heap::should_compact_old_gen`].
     pub fn should_compact_old_gen(
         &self,
         fragmentation_threshold: f64,
     ) -> Result<bool, SharedHeapError> {
-        let heap = self.read().map_err(|_| SharedHeapError::LockPoisoned)?;
-        Ok(heap.should_compact_old_gen(fragmentation_threshold))
+        let stats = self.stats()?;
+        if stats.old.reserved_bytes == 0 {
+            return Ok(false);
+        }
+        let used = stats.old_gen_used_bytes;
+        if used == 0 {
+            return Ok(0.0 >= fragmentation_threshold);
+        }
+        let live = stats.old.live_bytes;
+        let holes = used.saturating_sub(live);
+        let frag = (holes as f64) / (used as f64);
+        Ok(frag >= fragmentation_threshold)
     }
 
     /// Clear the cumulative compaction counters via the shared

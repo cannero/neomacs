@@ -9161,6 +9161,25 @@ fn public_api_shared_should_compact_old_gen_returns_false_on_empty_heap() {
 }
 
 #[test]
+fn public_api_shared_should_compact_old_gen_reads_lock_free_while_heap_is_write_locked() {
+    // Lock-free contract: should_compact_old_gen reads through
+    // the cached stats snapshot using `old.reserved_bytes`,
+    // `old_gen_used_bytes`, and `old.live_bytes`. It must return
+    // a result even when another thread is holding the heap
+    // write lock.
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let (release_tx, waiter) = lock_shared_heap_on_other_thread(shared.clone());
+
+    let should_compact = shared
+        .should_compact_old_gen(0.1)
+        .expect("should_compact_old_gen while heap is write-locked");
+    assert!(!should_compact);
+
+    release_tx.send(()).expect("release shared heap write lock");
+    waiter.join().expect("join write-lock helper thread");
+}
+
+#[test]
 fn public_api_shared_compact_old_gen_aggressive_zero_passes_returns_zero() {
     let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
     let total = shared
