@@ -3099,28 +3099,21 @@ impl BufferManager {
     }
 
     pub fn set_buffer_file_name(&mut self, id: BufferId, file_name: Option<String>) -> Option<()> {
+        // Phase 10D: `buffer-file-name` and `buffer-file-truename`
+        // both live in the slot table (BUFFER_SLOT_FILE_NAME /
+        // BUFFER_SLOT_FILE_TRUENAME). Writing through
+        // `set_file_name_value` covers buffer-file-name; mirror
+        // the same value into buffer-file-truename via the slot
+        // path. The legacy `buf.locals.set_raw_binding` calls
+        // were dual-write dead code from before Phase 8b
+        // migrated these names to BUFFER_SLOT_INFO.
         let buf = self.buffers.get_mut(&id)?;
         buf.set_file_name_value(file_name.clone());
-        match file_name {
-            Some(file_name) => {
-                buf.locals.set_raw_binding(
-                    "buffer-file-name",
-                    RuntimeBindingValue::Bound(Value::string(&file_name)),
-                );
-                buf.locals.set_raw_binding(
-                    "buffer-file-truename",
-                    RuntimeBindingValue::Bound(Value::string(&file_name)),
-                );
-            }
-            None => {
-                buf.locals
-                    .set_raw_binding("buffer-file-name", RuntimeBindingValue::Bound(Value::NIL));
-                buf.locals.set_raw_binding(
-                    "buffer-file-truename",
-                    RuntimeBindingValue::Bound(Value::NIL),
-                );
-            }
-        }
+        let truename_value = match &file_name {
+            Some(name) => Value::string(name),
+            None => Value::NIL,
+        };
+        buf.slots[BUFFER_SLOT_FILE_TRUENAME] = truename_value;
         Some(())
     }
 
