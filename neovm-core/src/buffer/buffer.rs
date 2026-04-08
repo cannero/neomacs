@@ -2413,42 +2413,50 @@ impl Buffer {
     }
 
     pub fn ordered_buffer_local_bindings(&self) -> Vec<(String, RuntimeBindingValue)> {
-        // Emit every BUFFER_OBJFWD slot from the slot table.
-        // Mirrors GNU's `buffer-local-variables` which always emits
-        // the C-side BVAR slots regardless of whether the user
-        // "made" them buffer-local. Conditional slots only appear
-        // when the per-buffer local-flag bit is set, mirroring GNU's
-        // `buffer_lisp_local_variables` walking `local_var_alist`
-        // (`buffer.c:1423-1450`) and the PER_BUFFER_VALUE_P-gated
-        // slot loop at `buffer.c:1485-1494`.
+        // Returns entries in REVERSED GNU order so the caller can
+        // `.rev()' to get GNU's prepend-based final order.
         //
-        // Internal-only slots (`install_as_forwarder: false`) are
-        // omitted — GNU's `buffer-local-variables` skips
-        // `syntax_table_` / `category_table_` / case-table fields
-        // because they aren't DEFVAR_PER_BUFFER'd and have no Lisp
-        // variable name to report.
-        let mut out: Vec<(String, RuntimeBindingValue)> = BUFFER_SLOT_INFO
-            .iter()
-            .filter(|info| {
-                info.install_as_forwarder
-                    && (info.local_flags_idx < 0 || self.slot_local_flag(info.offset))
-            })
-            .map(|info| {
-                (
-                    info.name.to_string(),
-                    RuntimeBindingValue::Bound(self.slots[info.offset]),
-                )
-            })
-            .collect();
-        // Emit `buffer-undo-list` next, read from SharedUndoState.
-        out.push((
-            "buffer-undo-list".to_string(),
-            RuntimeBindingValue::Bound(self.get_undo_list()),
-        ));
-        // Walk `local_var_alist` for all LOCALIZED per-buffer
-        // bindings. Mirrors GNU `buffer_lisp_local_variables` at
-        // `buffer.c:1423-1450`, which emits a bare symbol (not a
-        // cons) for entries whose cdr is `Qunbound`.
+        // GNU `Fbuffer_local_variables' (`buffer.c:1471-1502'):
+        //
+        //   1. `buffer_lisp_local_variables(buf, 0)' walks
+        //      `local_var_alist' forward, prepending each entry.
+        //      Result: alist entries in REVERSE iteration order.
+        //
+        //   2. `FOR_EACH_PER_BUFFER_OBJECT_AT (offset)' walks slot
+        //      offsets forward, prepending each applicable slot
+        //      entry. Result so far: slot entries (reversed) at the
+        //      FRONT of the alist entries.
+        //
+        //   3. Finally prepends the special `undo_list' slot via
+        //      `buffer_local_variables_1(buf, ..., Qbuffer_undo_list)'.
+        //
+        // Final GNU order:
+        //
+        //     [undo_list,
+        //      slot_N_rev, slot_N-1_rev, ..., slot_0_rev,
+        //      alist_N_rev, alist_N-1_rev, ..., alist_0_rev]
+        //
+        // This function returns the REVERSE of that:
+        //
+        //     [alist_0, alist_1, ..., alist_N,
+        //      slot_0, slot_1, ..., slot_N,
+        //      undo_list]
+        //
+        // so `.rev()' in `builtin_buffer_local_variables' yields
+        // GNU's exact order. The bare-symbol-vs-cons mapping for
+        // `Qunbound' values happens at the caller's `.map()' step.
+        //
+        // Slot filter mirrors GNU's `buffer_local_variables_1':
+        // emit when `local_flags_idx == -1' (always-local) OR
+        // `PER_BUFFER_VALUE_P (buf, idx)' (the local-flag bit is
+        // set). Internal-only slots (`install_as_forwarder: false')
+        // are omitted because GNU skips slots with no Lisp variable
+        // name (syntax_table_ etc.).
+        let mut out: Vec<(String, RuntimeBindingValue)> = Vec::new();
+
+        // Step 1: alist entries, walked forward, used UNREVERSED so
+        // that `.rev()' in the caller flips them to match GNU's
+        // `buffer_lisp_local_variables' prepend-based reversal.
         let mut cursor = self.local_var_alist;
         while cursor.is_cons() {
             let entry = cursor.cons_car();
@@ -2466,6 +2474,35 @@ impl Buffer {
                 out.push((name.to_string(), binding));
             }
         }
+
+        // Step 2: BUFFER_OBJFWD slots in declaration order. Same
+        // forward iteration; the `.rev()' in the caller flips them
+        // to match GNU's prepend reversal.
+        for info in BUFFER_SLOT_INFO {
+            if !info.install_as_forwarder {
+                continue;
+            }
+            // GNU's filter: emit only when always-local
+            // (local_flags_idx == -1) or the per-buffer flag bit is
+            // set. Always-local slots in GNU correspond to neomacs
+            // slots with `local_flags_idx < 0'.
+            if info.local_flags_idx >= 0 && !self.slot_local_flag(info.offset) {
+                continue;
+            }
+            out.push((
+                info.name.to_string(),
+                RuntimeBindingValue::Bound(self.slots[info.offset]),
+            ));
+        }
+
+        // Step 3: `buffer-undo-list' last in this Vec so `.rev()'
+        // puts it FIRST in the final list, matching GNU's special
+        // tail-prepend at `buffer.c:1496-1499'.
+        out.push((
+            "buffer-undo-list".to_string(),
+            RuntimeBindingValue::Bound(self.get_undo_list()),
+        ));
+
         out
     }
 
