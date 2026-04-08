@@ -3684,6 +3684,106 @@ fn public_api_block_region_stats_match_legacy_region_stats_pre_collection() {
 }
 
 #[test]
+fn public_api_major_block_candidates_match_legacy_ranking_for_fragmented_workload() {
+    // Verifies that the new block-side compaction candidate
+    // selector reports a non-empty candidate set with the same
+    // ranking shape as the legacy region-side selector for the
+    // same workload. This pins the contract that ranking-only
+    // tests can migrate from major_region_candidates to
+    // major_block_candidates without losing semantics, even
+    // though the specific region_index values may differ between
+    // the two views.
+    let old_bytes = neovm_gc::estimated_allocation_size::<OldLeaf>()
+        .expect("old allocation size");
+    let mut heap = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: old_bytes.saturating_mul(3),
+            line_bytes: 16,
+            compaction_candidate_limit: 2,
+            selective_reclaim_threshold_bytes: 1,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+
+    // Create a fragmented workload: 6 leaves, keep 4 of them
+    // (drop the 2nd and 5th to leave honest holes).
+    let kept_gcs = {
+        let mut setup_scope = mutator.handle_scope();
+        let mut kept = Vec::new();
+        for byte in 0..6u8 {
+            let leaf = mutator
+                .alloc(&mut setup_scope, OldLeaf([byte; 32]))
+                .expect("alloc old leaf");
+            if byte != 1 && byte != 4 {
+                kept.push(leaf.as_gc());
+            }
+        }
+        kept
+    };
+    for gc in kept_gcs {
+        mutator.root(&mut keep_scope, gc);
+    }
+
+    let region_candidates = mutator.heap().major_region_candidates();
+    let block_candidates = mutator.heap().major_block_candidates();
+
+    // Both selectors must produce a non-empty candidate set.
+    assert!(!region_candidates.is_empty());
+    assert!(!block_candidates.is_empty());
+
+    // The candidate count agrees because both heuristics see the
+    // same survivors and run the same selection logic; the only
+    // difference is the index source.
+    assert_eq!(region_candidates.len(), block_candidates.len());
+
+    // Both selectors respect the same compaction_candidate_limit.
+    assert!(region_candidates.len() <= 2);
+    assert!(block_candidates.len() <= 2);
+
+    // Both selectors must report a positive aggregate live byte
+    // total — survivors are the same set of records regardless
+    // of which view counts them.
+    let region_live: usize = region_candidates.iter().map(|c| c.live_bytes).sum();
+    let block_live: usize = block_candidates.iter().map(|c| c.live_bytes).sum();
+    assert!(region_live > 0);
+    assert!(block_live > 0);
+    // The two views agree on live bytes for selected candidates
+    // because both count survivor sizes the same way.
+    assert_eq!(region_live, block_live);
+
+    // Both selectors report positive aggregate hole bytes — the
+    // exact totals may differ because the legacy view tracks
+    // logical hole bytes (used_bytes - live_bytes inside the
+    // regions vec) while the block view tracks physical hole
+    // bytes that include line-alignment padding inside each
+    // block. The shape that matters for ranking is "non-zero".
+    let region_holes: usize = region_candidates.iter().map(|c| c.hole_bytes).sum();
+    let block_holes: usize = block_candidates.iter().map(|c| c.hole_bytes).sum();
+    assert!(region_holes > 0);
+    assert!(block_holes > 0);
+
+    // Both selectors must rank by hole_bytes descending (or by
+    // the same compaction-efficiency tiebreaker).
+    if region_candidates.len() >= 2 {
+        assert!(region_candidates[0].hole_bytes >= region_candidates[1].hole_bytes);
+    }
+    if block_candidates.len() >= 2 {
+        assert!(block_candidates[0].hole_bytes >= block_candidates[1].hole_bytes);
+    }
+}
+
+#[test]
 fn public_api_block_region_stats_report_holes_after_dropping_some_objects() {
     // Allocates several old-gen leaves, drops half of them, runs
     // a major cycle, and verifies that the block view reports

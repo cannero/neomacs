@@ -913,8 +913,30 @@ impl OldGenState {
     }
 
     pub(crate) fn major_plan_selection(&self, config: &OldGenConfig) -> OldGenPlanSelection {
-        let mut candidates: Vec<_> = self
-            .region_stats()
+        Self::run_major_plan_selection(self.region_stats(), config)
+    }
+
+    /// Block-backed equivalent of [`Self::major_plan_selection`].
+    /// Runs the identical hole-bytes heuristic but reads candidate
+    /// stats from the per-block view ([`Self::block_region_stats`])
+    /// instead of the legacy regions vec. Returned `region_index`
+    /// fields refer to block indices.
+    ///
+    /// Unlike [`Self::major_plan_selection`], the result of this
+    /// method is *observation-only* today: nothing in the rebuild
+    /// path consumes block-indexed selections yet. Once the
+    /// remaining lib_test cases that depend on the legacy planner
+    /// are migrated, the rebuild can switch to consume this and
+    /// the legacy method goes away.
+    pub(crate) fn block_plan_selection(&self, config: &OldGenConfig) -> OldGenPlanSelection {
+        Self::run_major_plan_selection(self.block_region_stats(), config)
+    }
+
+    fn run_major_plan_selection(
+        stats: Vec<OldRegionStats>,
+        config: &OldGenConfig,
+    ) -> OldGenPlanSelection {
+        let mut candidates: Vec<_> = stats
             .into_iter()
             .filter(|region| {
                 region.object_count > 0

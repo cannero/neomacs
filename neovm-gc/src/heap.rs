@@ -723,6 +723,31 @@ impl Heap {
         candidates
     }
 
+    /// Return the same compaction-candidate ranking as
+    /// [`Heap::major_region_candidates`], but computed against the
+    /// per-block view rather than the legacy regions vec.
+    ///
+    /// The returned `region_index` fields refer to block indices,
+    /// not logical region indices, and the underlying selection
+    /// runs the identical heuristic
+    /// (`hole_bytes >= selective_reclaim_threshold_bytes`, ranked
+    /// by compaction efficiency, capped at
+    /// `compaction_candidate_limit` and
+    /// `max_compaction_bytes_per_cycle`).
+    ///
+    /// This is the long-term replacement for
+    /// `major_region_candidates`. Today its output is observational
+    /// only — the rebuild path still consumes the legacy
+    /// region-indexed selection. Tests that just want to verify
+    /// candidate ranking can already use this method; tests that
+    /// feed indices back into a manual `CollectionPlan` still need
+    /// the legacy entry point.
+    pub fn major_block_candidates(&self) -> Vec<OldRegionStats> {
+        let OldGenPlanSelection { candidates, .. } =
+            self.old_gen.block_plan_selection(&self.config.old);
+        candidates
+    }
+
     /// Number of live objects currently tracked by the heap.
     pub fn object_count(&self) -> usize {
         self.objects.len()
