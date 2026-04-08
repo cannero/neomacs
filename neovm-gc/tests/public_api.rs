@@ -780,6 +780,60 @@ fn public_api_alloc_auto_collects_under_nursery_pressure() {
 }
 
 #[test]
+fn public_api_nursery_tlab_bytes_config_is_honored_through_mutator_alloc() {
+    // End-to-end verification that NurseryConfig::tlab_bytes
+    // is plumbed through Heap::new into the Mutator allocation
+    // hot path. Construct a heap with an unusually small
+    // tlab_bytes value and allocate enough Leaves that a
+    // fixed-size TLAB must refill. The allocations must all
+    // succeed (no leaked reservations, no double-counting)
+    // and the nursery live-bytes counter must match the
+    // number of leaves allocated.
+    let leaf_bytes = estimated_allocation_size::<Leaf>().expect("leaf allocation size");
+    // Pick a tlab_bytes that forces a refill after roughly
+    // 4 Leaf allocations so the test exercises at least
+    // several refill cycles over the 64-leaf loop below.
+    let tiny_tlab = leaf_bytes.saturating_mul(4);
+
+    let mut heap = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            tlab_bytes: tiny_tlab,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+
+    // Sanity: the config round-tripped correctly.
+    assert_eq!(heap.config().nursery.tlab_bytes, tiny_tlab);
+
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+    for i in 0..64u64 {
+        mutator
+            .alloc(&mut scope, Leaf(i))
+            .expect("bulk tlab-refill alloc");
+    }
+
+    // With 64 Leaves and a ~4-leaf TLAB, the path must have
+    // refilled many times. The nursery live-bytes counter
+    // must match the number of successful allocations.
+    let stats = mutator.heap().stats();
+    let expected_live = leaf_bytes.saturating_mul(64);
+    assert_eq!(
+        stats.nursery.live_bytes, expected_live,
+        "all 64 leaves must be counted in stats.nursery.live_bytes",
+    );
+
+    // No minor collections should have fired: the default
+    // 16MB semispace dwarfs 64 * leaf_bytes, so the only
+    // work done was TLAB refill cycles, not evacuation.
+    assert_eq!(
+        stats.collections.minor_collections, 0,
+        "TLAB refill must not trigger minor collections under a non-pressurized nursery",
+    );
+}
+
+#[test]
 fn public_api_alloc_auto_collects_under_pinned_pressure() {
     let pinned_bytes = estimated_allocation_size::<PinnedLeaf>().expect("pinned allocation size");
     let mut heap = Heap::new(HeapConfig {
