@@ -1,7 +1,7 @@
 use crate::background::BackgroundCollectionRuntime;
 use crate::descriptor::Trace;
 use crate::edge::EdgeCell;
-use crate::heap::{AllocError, Heap};
+use crate::heap::{AllocError, Heap, HeapCore};
 use crate::plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress,
     RuntimeWorkStatus,
@@ -42,12 +42,12 @@ pub struct MutatorLocal {
 /// Mutator view onto the heap.
 #[derive(Debug)]
 pub struct Mutator<'heap> {
-    heap: &'heap mut Heap,
+    heap: &'heap mut HeapCore,
     local: MutatorLocal,
 }
 
 impl<'heap> Mutator<'heap> {
-    pub(crate) fn new(heap: &'heap mut Heap) -> Self {
+    pub(crate) fn new(heap: &'heap mut HeapCore) -> Self {
         Self {
             heap,
             local: MutatorLocal::default(),
@@ -61,7 +61,7 @@ impl<'heap> Mutator<'heap> {
 
     /// Return a shared view of the underlying heap.
     pub fn heap(&self) -> &Heap {
-        self.heap
+        Heap::ref_cast(self.heap)
     }
 
     /// Allocate one managed object.

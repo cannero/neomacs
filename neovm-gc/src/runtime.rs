@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 /// Collector-side runtime bound to one heap.
 #[derive(Debug)]
 pub struct CollectorRuntime<'heap> {
-    heap: &'heap mut Heap,
+    heap: &'heap mut HeapCore,
 }
 
 /// Try to bump-allocate `layout` through the caller-supplied
@@ -88,13 +88,13 @@ pub struct SharedCollectorRuntime {
 }
 
 impl<'heap> CollectorRuntime<'heap> {
-    pub(crate) fn new(heap: &'heap mut Heap) -> Self {
+    pub(crate) fn new(heap: &'heap mut HeapCore) -> Self {
         Self { heap }
     }
 
     /// Return a shared view of the underlying heap.
     pub fn heap(&self) -> &Heap {
-        self.heap
+        Heap::ref_cast(self.heap)
     }
 
     /// Return current heap statistics.
@@ -1310,8 +1310,8 @@ impl SharedCollectorRuntime {
                 collector,
                 heap.objects(),
                 &heap.indexes().object_index,
-                |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
-                |plan| prepare_heap_major_reclaim(heap, plan),
+                |tracer, plan| trace_heap_major_ephemerons(heap.core(), tracer, plan),
+                |plan| prepare_heap_major_reclaim(heap.core(), plan),
             )?;
             refresh_cached_collector_plans(
                 collector,
@@ -1336,8 +1336,8 @@ impl SharedCollectorRuntime {
                 collector,
                 heap.objects(),
                 &heap.indexes().object_index,
-                |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
-                |plan| prepare_heap_major_reclaim(heap, plan),
+                |tracer, plan| trace_heap_major_ephemerons(heap.core(), tracer, plan),
+                |plan| prepare_heap_major_reclaim(heap.core(), plan),
             )?;
             refresh_cached_collector_plans(
                 collector,
@@ -1376,8 +1376,8 @@ impl SharedCollectorRuntime {
                             request,
                             heap.objects(),
                             &heap.indexes().object_index,
-                            |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
-                            |plan| Ok(prepare_heap_major_reclaim(heap, plan)),
+                            |tracer, plan| trace_heap_major_ephemerons(heap.core(), tracer, plan),
+                            |plan| Ok(prepare_heap_major_reclaim(heap.core(), plan)),
                             &heap.storage_stats(),
                             heap.old_gen(),
                             heap.old_config(),
@@ -1420,8 +1420,8 @@ impl SharedCollectorRuntime {
                             request,
                             heap.objects(),
                             &heap.indexes().object_index,
-                            |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
-                            |plan| Ok(prepare_heap_major_reclaim(heap, plan)),
+                            |tracer, plan| trace_heap_major_ephemerons(heap.core(), tracer, plan),
+                            |plan| Ok(prepare_heap_major_reclaim(heap.core(), plan)),
                             &heap.storage_stats(),
                             heap.old_gen(),
                             heap.old_config(),

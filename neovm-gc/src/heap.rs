@@ -67,15 +67,30 @@ pub enum AllocError {
     },
 }
 
-/// Global heap object.
+/// Crate-internal heap owner.
 ///
-/// Field order matters: `ObjectRecord` storage (both the live `objects`
-/// vec and the `runtime_state` pending-finalizer queue) must drop
-/// BEFORE the `NurseryState` that backs their arena allocations,
-/// otherwise arena-owned records would run their payload `Drop`
-/// implementations against already-freed buffers.
+/// `HeapCore` owns every field the heap manages: configuration,
+/// statistics, descriptors, the object log, runtime state,
+/// indexes, old-generation pool, collector handle, pacer,
+/// barrier stats, and the nursery. It is the sole owner of
+/// the heap's storage; the public [`Heap`] type is a
+/// `#[repr(transparent)]` newtype around a `HeapCore`.
+///
+/// Field order matters: `ObjectRecord` storage (both the live
+/// `objects` vec and the `runtime_state` pending-finalizer
+/// queue) must drop BEFORE the `NurseryState` that backs
+/// their arena allocations, otherwise arena-owned records
+/// would run their payload `Drop` implementations against
+/// already-freed buffers.
+///
+/// The multi-mutator refactor (DESIGN.md Appendix A) will
+/// eventually wrap `HeapCore` in `Arc<RwLock<HeapCore>>`
+/// inside [`Heap`] so multiple `Mutator` instances can
+/// coexist against the same heap. This commit introduces the
+/// split as a concrete type so later commits can slot the
+/// lock in without churning the interior field layout.
 #[derive(Debug)]
-pub struct Heap {
+pub(crate) struct HeapCore {
     config: HeapConfig,
     stats: HeapStats,
     roots: RootStack,
@@ -103,34 +118,457 @@ pub struct Heap {
     nursery: NurseryState,
 }
 
-// SAFETY: `Heap` owns all heap allocations and its raw pointers are internal references into that
-// owned storage or static descriptors. Sending a `Heap` to another thread does not invalidate those
-// pointers. Concurrent access is still not allowed without external synchronization, so `Heap` is
-// `Send` but intentionally not `Sync`.
-unsafe impl Send for Heap {}
+// SAFETY: `HeapCore` owns all heap allocations and its raw pointers are internal references into
+// that owned storage or static descriptors. Sending a `HeapCore` to another thread does not
+// invalidate those pointers. Concurrent access is still not allowed without external
+// synchronization, so `HeapCore` is `Send` but intentionally not `Sync`.
+unsafe impl Send for HeapCore {}
 
-/// Crate-internal alias for the type that will eventually
-/// be split out of [`Heap`] as a `pub(crate)` inner struct
-/// held behind an `Arc<RwLock<HeapCore>>` in the multi-
-/// mutator refactor (DESIGN.md Appendix A commit 4).
+/// Global heap object.
 ///
-/// Today the alias points directly at `Heap` because the
-/// single-mutator borrow model means `Heap` itself already
-/// carries every field the future `HeapCore` will own.
-/// Referencing `HeapCore` instead of `Heap` from
-/// crate-internal code anticipates the split: when the
-/// rename lands, sites that use `HeapCore` keep working
-/// and sites that still use `Heap` get a clean list of
-/// touch points.
+/// `Heap` is a `#[repr(transparent)]` newtype around the
+/// crate-internal [`HeapCore`]. Today the two types share
+/// identical layout, so a `&HeapCore` can be safely
+/// reinterpreted as a `&Heap` via [`Heap::ref_cast`].
 ///
-/// External callers continue to use `Heap` as the public
-/// entry type.
-#[allow(dead_code)]
-pub(crate) type HeapCore = Heap;
+/// Every method previously defined on `Heap` lives on
+/// [`HeapCore`] now; `Heap` itself carries only the
+/// construction entry points (`new`, `into_shared`) and the
+/// `Deref` / `DerefMut` forwarding to `HeapCore`. External
+/// callers see no behavioral change — `Heap::mutator`,
+/// `Heap::collect`, etc. resolve through auto-deref.
+///
+/// The multi-mutator refactor (DESIGN.md Appendix A) will
+/// eventually change this wrapper to own
+/// `Arc<RwLock<HeapCore>>` instead of `HeapCore` directly,
+/// and `Mutator` / `CollectorRuntime` will acquire the lock
+/// at the start of each operation. This commit only
+/// introduces the split; the locking infrastructure comes
+/// in later commits.
+#[repr(transparent)]
+#[derive(Debug)]
+pub struct Heap {
+    core: HeapCore,
+}
+
+// SAFETY: `Heap` is `#[repr(transparent)]` over `HeapCore`, which is `Send` via the
+// `unsafe impl Send for HeapCore {}` above. Send does not auto-propagate through
+// `#[repr(transparent)]` when the inner type has an explicit `unsafe impl`, so we repeat
+// the bound here.
+unsafe impl Send for Heap {}
 
 impl Heap {
     /// Create a new heap with `config`.
     pub fn new(config: HeapConfig) -> Self {
+        Self {
+            core: HeapCore::new(config),
+        }
+    }
+
+    /// Convert this heap into a shared synchronized heap wrapper.
+    pub fn into_shared(self) -> SharedHeap {
+        SharedHeap::from_heap(self)
+    }
+
+    /// Reinterpret a `&HeapCore` as a `&Heap`.
+    ///
+    /// Safe because `Heap` is `#[repr(transparent)]` over
+    /// `HeapCore`, which guarantees identical layout.
+    /// Crate-internal so call sites that hold a `&mut HeapCore`
+    /// (e.g. `Mutator::heap()`, `CollectorRuntime::heap()`)
+    /// can still expose a `&Heap` on their public API.
+    #[inline]
+    pub(crate) fn ref_cast(core: &HeapCore) -> &Self {
+        // SAFETY: `Heap` is `#[repr(transparent)]` over
+        // `HeapCore`, so the two types share the same layout
+        // and a shared reference to one can be reinterpreted
+        // as a shared reference to the other.
+        unsafe { &*(core as *const HeapCore as *const Self) }
+    }
+
+    /// Access the underlying `HeapCore`.
+    ///
+    /// Crate-internal helper for call sites that need a
+    /// `&HeapCore` to pass to collector helpers that take
+    /// `&HeapCore` directly (rather than routing through
+    /// `CollectorRuntime`). External callers should use the
+    /// public `Heap` API methods defined below.
+    #[inline]
+    pub(crate) fn core(&self) -> &HeapCore {
+        &self.core
+    }
+
+    // -- Public forwarders --------------------------------------------------
+    //
+    // Every method below is a thin wrapper around the matching
+    // method on `HeapCore`. We cannot use `Deref`/`DerefMut` to
+    // auto-forward because `HeapCore` is `pub(crate)` and cannot
+    // appear in a public trait impl's associated type. The
+    // forwarders preserve the exact public signature the heap
+    // exposed before the split so external callers see no
+    // behavioral change.
+
+    /// See [`HeapCore::config`].
+    pub fn config(&self) -> &HeapConfig {
+        self.core.config()
+    }
+
+    /// See [`HeapCore::stats`].
+    pub fn stats(&self) -> HeapStats {
+        self.core.stats()
+    }
+
+    /// See [`HeapCore::runtime_work_status`].
+    pub fn runtime_work_status(&self) -> RuntimeWorkStatus {
+        self.core.runtime_work_status()
+    }
+
+    /// See [`HeapCore::compact_old_gen_physical`].
+    pub fn compact_old_gen_physical(&mut self, density_threshold: f64) -> usize {
+        self.core.compact_old_gen_physical(density_threshold)
+    }
+
+    /// See [`HeapCore::compact_old_gen_blocks`].
+    pub fn compact_old_gen_blocks(&mut self, block_indices: &[usize]) -> usize {
+        self.core.compact_old_gen_blocks(block_indices)
+    }
+
+    /// See [`HeapCore::compaction_stats`].
+    pub fn compaction_stats(&self) -> crate::stats::CompactionStats {
+        self.core.compaction_stats()
+    }
+
+    /// See [`HeapCore::clear_compaction_stats`].
+    pub fn clear_compaction_stats(&mut self) {
+        self.core.clear_compaction_stats();
+    }
+
+    /// See [`HeapCore::nursery_fill_ratio`].
+    pub fn nursery_fill_ratio(&self) -> f64 {
+        self.core.nursery_fill_ratio()
+    }
+
+    /// See [`HeapCore::old_gen_fragmentation_ratio`].
+    pub fn old_gen_fragmentation_ratio(&self) -> f64 {
+        self.core.old_gen_fragmentation_ratio()
+    }
+
+    /// See [`HeapCore::compact_old_gen_if_fragmented`].
+    pub fn compact_old_gen_if_fragmented(
+        &mut self,
+        fragmentation_threshold: f64,
+    ) -> (f64, usize) {
+        self.core.compact_old_gen_if_fragmented(fragmentation_threshold)
+    }
+
+    /// See [`HeapCore::should_compact_old_gen`].
+    pub fn should_compact_old_gen(&self, fragmentation_threshold: f64) -> bool {
+        self.core.should_compact_old_gen(fragmentation_threshold)
+    }
+
+    /// See [`HeapCore::compact_old_gen_aggressive`].
+    pub fn compact_old_gen_aggressive(
+        &mut self,
+        density_threshold: f64,
+        max_passes: usize,
+    ) -> usize {
+        self.core.compact_old_gen_aggressive(density_threshold, max_passes)
+    }
+
+    /// See [`HeapCore::plan_for`].
+    pub fn plan_for(&self, kind: CollectionKind) -> CollectionPlan {
+        self.core.plan_for(kind)
+    }
+
+    /// See [`HeapCore::recommended_plan`].
+    pub fn recommended_plan(&self) -> CollectionPlan {
+        self.core.recommended_plan()
+    }
+
+    /// See [`HeapCore::recommended_background_plan`].
+    pub fn recommended_background_plan(&self) -> Option<CollectionPlan> {
+        self.core.recommended_background_plan()
+    }
+
+    /// See [`HeapCore::recent_phase_trace`].
+    pub fn recent_phase_trace(&self) -> Vec<CollectionPhase> {
+        self.core.recent_phase_trace()
+    }
+
+    /// See [`HeapCore::last_completed_plan`].
+    pub fn last_completed_plan(&self) -> Option<CollectionPlan> {
+        self.core.last_completed_plan()
+    }
+
+    /// See [`HeapCore::active_major_mark_plan`].
+    pub fn active_major_mark_plan(&self) -> Option<CollectionPlan> {
+        self.core.active_major_mark_plan()
+    }
+
+    /// See [`HeapCore::major_mark_progress`].
+    pub fn major_mark_progress(&self) -> Option<MajorMarkProgress> {
+        self.core.major_mark_progress()
+    }
+
+    /// See [`HeapCore::begin_major_mark`].
+    pub fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
+        self.core.begin_major_mark(plan)
+    }
+
+    /// See [`HeapCore::advance_major_mark`].
+    pub fn advance_major_mark(&mut self) -> Result<MajorMarkProgress, AllocError> {
+        self.core.advance_major_mark()
+    }
+
+    /// See [`HeapCore::finish_major_collection`].
+    pub fn finish_major_collection(&mut self) -> Result<CollectionStats, AllocError> {
+        self.core.finish_major_collection()
+    }
+
+    /// See [`HeapCore::assist_major_mark`].
+    pub fn assist_major_mark(
+        &mut self,
+        max_slices: usize,
+    ) -> Result<Option<MajorMarkProgress>, AllocError> {
+        self.core.assist_major_mark(max_slices)
+    }
+
+    /// See [`HeapCore::poll_active_major_mark`].
+    pub fn poll_active_major_mark(&mut self) -> Result<Option<MajorMarkProgress>, AllocError> {
+        self.core.poll_active_major_mark()
+    }
+
+    /// See [`HeapCore::finish_active_major_collection_if_ready`].
+    pub fn finish_active_major_collection_if_ready(
+        &mut self,
+    ) -> Result<Option<CollectionStats>, AllocError> {
+        self.core.finish_active_major_collection_if_ready()
+    }
+
+    /// See [`HeapCore::commit_active_reclaim_if_ready`].
+    pub fn commit_active_reclaim_if_ready(
+        &mut self,
+    ) -> Result<Option<CollectionStats>, AllocError> {
+        self.core.commit_active_reclaim_if_ready()
+    }
+
+    /// See [`HeapCore::old_region_stats`].
+    pub fn old_region_stats(&self) -> Vec<OldRegionStats> {
+        self.core.old_region_stats()
+    }
+
+    /// See [`HeapCore::old_block_region_stats`].
+    pub fn old_block_region_stats(&self) -> Vec<OldRegionStats> {
+        self.core.old_block_region_stats()
+    }
+
+    /// See [`HeapCore::major_block_candidates`].
+    pub fn major_block_candidates(&self) -> Vec<OldRegionStats> {
+        self.core.major_block_candidates()
+    }
+
+    /// See [`HeapCore::object_count`].
+    pub fn object_count(&self) -> usize {
+        self.core.object_count()
+    }
+
+    /// See [`HeapCore::pending_finalizer_count`].
+    pub fn pending_finalizer_count(&self) -> usize {
+        self.core.pending_finalizer_count()
+    }
+
+    /// See [`HeapCore::drain_pending_finalizers`].
+    pub fn drain_pending_finalizers(&self) -> u64 {
+        self.core.drain_pending_finalizers()
+    }
+
+    /// See [`HeapCore::drain_pending_finalizers_bounded`].
+    pub fn drain_pending_finalizers_bounded(&self, max: usize) -> u64 {
+        self.core.drain_pending_finalizers_bounded(max)
+    }
+
+    /// See [`HeapCore::remembered_edge_count`].
+    pub fn remembered_edge_count(&self) -> usize {
+        self.core.remembered_edge_count()
+    }
+
+    /// See [`HeapCore::dirty_card_count`].
+    pub fn dirty_card_count(&self) -> usize {
+        self.core.dirty_card_count()
+    }
+
+    /// See [`HeapCore::total_remembered_count`].
+    pub fn total_remembered_count(&self) -> usize {
+        self.core.total_remembered_count()
+    }
+
+    /// See [`HeapCore::barrier_event_count`].
+    pub fn barrier_event_count(&self) -> usize {
+        self.core.barrier_event_count()
+    }
+
+    /// See [`HeapCore::recent_barrier_events`].
+    pub fn recent_barrier_events(&self) -> &[BarrierEvent] {
+        self.core.recent_barrier_events()
+    }
+
+    /// See [`HeapCore::barrier_stats`].
+    pub fn barrier_stats(&self) -> crate::stats::BarrierStats {
+        self.core.barrier_stats()
+    }
+
+    /// See [`HeapCore::clear_barrier_stats`].
+    pub fn clear_barrier_stats(&mut self) {
+        self.core.clear_barrier_stats();
+    }
+
+    /// See [`HeapCore::mutator`].
+    pub fn mutator(&mut self) -> Mutator<'_> {
+        self.core.mutator()
+    }
+
+    /// See [`HeapCore::collector_runtime`].
+    pub fn collector_runtime(&mut self) -> CollectorRuntime<'_> {
+        self.core.collector_runtime()
+    }
+
+    /// See [`HeapCore::background_service`].
+    pub fn background_service(
+        &mut self,
+        config: BackgroundCollectorConfig,
+    ) -> BackgroundService<'_> {
+        self.core.background_service(config)
+    }
+
+    /// See [`HeapCore::collect`].
+    pub fn collect(&mut self, kind: CollectionKind) -> Result<CollectionStats, AllocError> {
+        self.core.collect(kind)
+    }
+
+    /// See [`HeapCore::execute_plan`].
+    pub fn execute_plan(&mut self, plan: CollectionPlan) -> Result<CollectionStats, AllocError> {
+        self.core.execute_plan(plan)
+    }
+
+    /// See [`HeapCore::pause_histogram`].
+    pub fn pause_histogram(&self) -> PauseHistogram {
+        self.core.pause_histogram()
+    }
+
+    /// See [`HeapCore::pacer_stats`].
+    pub fn pacer_stats(&self) -> PacerStats {
+        self.core.pacer_stats()
+    }
+
+    /// See [`HeapCore::pacer`].
+    pub fn pacer(&self) -> Pacer {
+        self.core.pacer()
+    }
+
+    /// See [`HeapCore::set_pacer_config`].
+    pub fn set_pacer_config(&mut self, config: PacerConfig) {
+        self.core.set_pacer_config(config);
+    }
+
+    // -- Crate-internal forwarders ------------------------------------------
+    //
+    // Internal helpers reachable from collector code that only
+    // has a `&Heap` (typically from a shared heap lock guard).
+    // These mirror the `pub(crate) fn` surface on `HeapCore` so
+    // the collector can keep calling `heap.xyz()` without first
+    // unwrapping to `heap.core().xyz()`.
+
+    pub(crate) fn objects(&self) -> &[ObjectRecord] {
+        self.core.objects()
+    }
+
+    pub(crate) fn indexes(&self) -> &HeapIndexState {
+        self.core.indexes()
+    }
+
+    pub(crate) fn old_gen(&self) -> &OldGenState {
+        self.core.old_gen()
+    }
+
+    pub(crate) fn old_config(&self) -> &OldGenConfig {
+        self.core.old_config()
+    }
+
+    pub(crate) fn global_sources(&self) -> Vec<GcErased> {
+        self.core.global_sources()
+    }
+
+    pub(crate) fn storage_stats(&self) -> HeapStats {
+        self.core.storage_stats()
+    }
+
+    pub(crate) fn runtime_finalizer_stats(&self) -> (u64, usize) {
+        self.core.runtime_finalizer_stats()
+    }
+
+    pub(crate) fn runtime_state_handle(&self) -> RuntimeStateHandle {
+        self.core.runtime_state_handle()
+    }
+
+    pub(crate) fn collector_handle(&self) -> CollectorStateHandle {
+        self.core.collector_handle()
+    }
+
+    pub(crate) fn collector_shared_snapshot(&self) -> CollectorSharedSnapshot {
+        self.core.collector_shared_snapshot()
+    }
+
+    // -- Test-only forwarders ----------------------------------------------
+
+    #[cfg(test)]
+    pub(crate) fn contains<T>(&self, gc: crate::root::Gc<T>) -> bool {
+        self.core.contains(gc)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn finalizable_candidate_count(&self) -> usize {
+        self.core.finalizable_candidate_count()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn weak_candidate_count(&self) -> usize {
+        self.core.weak_candidate_count()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn ephemeron_candidate_count(&self) -> usize {
+        self.core.ephemeron_candidate_count()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn space_of<T>(&self, gc: crate::root::Gc<T>) -> Option<SpaceKind> {
+        self.core.space_of(gc)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn root_slot_count(&self) -> usize {
+        self.core.root_slot_count()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn remembered_owner_count(&self) -> usize {
+        self.core.remembered_owner_count()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inspect_old_gen_block_accounting_for_test(&self) -> (usize, usize) {
+        self.core.inspect_old_gen_block_accounting_for_test()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn root_stack_ptr(&mut self) -> NonNull<RootStack> {
+        self.core.root_stack_ptr()
+    }
+}
+
+impl HeapCore {
+    /// Create a new heap core with `config`.
+    pub(crate) fn new(config: HeapConfig) -> Self {
         let nursery = NurseryState::new(config.nursery.semispace_bytes);
         let pacer = Pacer::new(config.pacer);
         let heap = Self {
@@ -985,11 +1423,6 @@ impl Heap {
         self.collector_runtime().background_service(config)
     }
 
-    /// Convert this heap into a shared synchronized heap wrapper.
-    pub fn into_shared(self) -> SharedHeap {
-        SharedHeap::from_heap(self)
-    }
-
     /// Run one stop-the-world collection cycle.
     pub fn collect(&mut self, kind: CollectionKind) -> Result<CollectionStats, AllocError> {
         CollectorRuntime::new(self).collect(kind)
@@ -1155,18 +1588,22 @@ impl Heap {
     }
 }
 
-/// Drain pending finalizers at the controlled boundary of `Heap` drop so
-/// that any arena- or old-block-backed `ObjectRecord`s sitting in
-/// `RuntimeState::pending_finalizers` run their payload `drop_in_place`
-/// while the backing buffers in `NurseryState` / `OldGenState` are still
-/// alive.
+/// Drain pending finalizers at the controlled boundary of `HeapCore`
+/// drop so that any arena- or old-block-backed `ObjectRecord`s
+/// sitting in `RuntimeState::pending_finalizers` run their payload
+/// `drop_in_place` while the backing buffers in `NurseryState` /
+/// `OldGenState` are still alive.
 ///
 /// Without this, a `SharedHeap` clone of `RuntimeStateHandle` can keep
-/// the `RuntimeState` alive past `Heap`'s drop. When that Arc finally
-/// hits zero, the pending `ObjectRecord`s try to deref headers in
-/// arena or old-block buffers that have already been freed as part
-/// of `Heap`'s field-order drop sequence.
-impl Drop for Heap {
+/// the `RuntimeState` alive past `HeapCore`'s drop. When that Arc
+/// finally hits zero, the pending `ObjectRecord`s try to deref
+/// headers in arena or old-block buffers that have already been
+/// freed as part of `HeapCore`'s field-order drop sequence.
+///
+/// The Drop lives on `HeapCore` rather than the outer `Heap` wrapper
+/// so the drain runs whether the `HeapCore` is owned directly (rare,
+/// test-only) or held behind the `Heap` newtype (the public entry).
+impl Drop for HeapCore {
     fn drop(&mut self) {
         let _ = self.runtime_state.drain_pending_finalizers();
     }
