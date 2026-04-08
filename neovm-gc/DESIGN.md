@@ -96,10 +96,31 @@ Implemented today:
 
 Still staging compromises:
 
-- shared/background execution still relies on split locking around
-  `RwLock<Heap>` plus `Mutex<CollectorState>` rather than the final data-plane
-  split
-- nursery allocation is not yet per-mutator TLAB/lock-free fast path
+- shared/background execution uses an `RwLock<Heap>` plus a
+  `Mutex<CollectorState>` plus cached lock-free snapshots for the
+  hot-path reads (`SharedHeapStatus`, `CollectorSharedSnapshot`,
+  `SharedRuntimeSnapshot`, `SharedHeapSnapshot`). Most observers
+  already never touch the main `RwLock`: `stats`, `pacer_stats`,
+  `pause_histogram`, `compaction_stats`, `barrier_stats`,
+  `recommended_plan`, `nursery_fill_ratio`, `pending_finalizer_count`,
+  and the background-collector status surfaces all read from the
+  cached snapshots. The main `RwLock` is only taken for
+  state-mutating operations (`compact_old_gen_blocks`, the
+  `clear_*_stats` family, `compact_old_gen_if_fragmented`,
+  `compact_old_gen_aggressive`) and a small number of reads whose
+  inputs are not yet cached (`old_gen_fragmentation_ratio`,
+  `should_compact_old_gen`). The final data-plane split would
+  drive the main `RwLock` down to zero read-path takers.
+- nursery allocation is a single bump-pointer cursor on the
+  from-space arena. The allocation hot path is already ~8
+  arithmetic ops and a single byte store, so it is "lock-free"
+  in the single-mutator sense. A per-mutator TLAB slab layer
+  would let future multi-mutator support allocate without
+  contention; the structural split (per-slab cursor + slab
+  reservation from the unified cursor) is not yet in place
+  because `Heap::mutator` returns a `Mutator<'_>` with an
+  exclusive `&mut Heap` borrow, which precludes concurrent
+  mutators at the type level.
 - physical old-gen compaction is the only old-gen compaction
   mechanism. The legacy logical-region rebuild infrastructure
   is fully retired: the `regions` vec, `OldRegion` struct,
@@ -118,7 +139,21 @@ Still staging compromises:
   `rebuild_line_marks_and_reclaim_empty_old_blocks` pass,
   and `compacted_regions` is hardcoded to zero (manual
   compaction telemetry lives in `Heap::compaction_stats()`).
-- remembered tracking is still coarser than the final region/card-table model
+- remembered tracking uses a per-block dirty-card table
+  (`card_table.rs`, 512B cards, `AtomicU8` per card) as the fast
+  path for block-backed owners and a `Vec<RememberedEdge>`
+  fallback for non-block-backed owners (pinned space, large
+  object space, system-allocated promotions that could not fit
+  any block hole). Both paths are reported through
+  `HeapStats.remembered_dirty_cards` / `remembered_explicit_edges`
+  (split) and `remembered_edges` (unified sum) so observers can
+  attribute pressure to either path. In the final-goal target
+  every old-gen byte lives in a block-backed region with its
+  own card table, so `remembered_explicit_edges` should drift
+  toward zero as pinned and large spaces migrate to the block
+  model. Today the fallback path is non-zero for workloads that
+  mutate pinned or large-space owners to point at nursery
+  survivors.
 - finalization queue interactions go through a `PendingFinalizer`
   newtype that hides the wrapped `ObjectRecord` behind a focused
   handoff API (`run`, `block_placement`, `rebind_block`). The
