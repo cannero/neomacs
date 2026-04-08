@@ -558,7 +558,7 @@ unsafe impl Trace for FinalizableOldLeaf {
 
 #[test]
 fn heap_constructs_with_empty_scope() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let scope = mutator.handle_scope();
     assert_eq!(scope.slot_count(), 0);
@@ -566,7 +566,7 @@ fn heap_constructs_with_empty_scope() {
 
 #[test]
 fn alloc_small_object_into_nursery() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut scope = mutator.handle_scope();
     let root = mutator.alloc(&mut scope, Leaf(7)).expect("alloc leaf");
@@ -580,7 +580,7 @@ fn alloc_small_object_into_nursery() {
 
 #[test]
 fn remembered_owner_cache_deduplicates_multiple_edges_from_one_owner() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 8,
             ..NurseryConfig::default()
@@ -634,7 +634,7 @@ fn remembered_owner_cache_deduplicates_multiple_edges_from_one_owner() {
 #[test]
 fn alloc_auto_triggers_minor_collection_under_nursery_pressure() {
     let leaf_bytes = estimated_allocation_size::<Leaf>().expect("leaf allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             semispace_bytes: leaf_bytes,
             ..NurseryConfig::default()
@@ -662,7 +662,7 @@ fn alloc_auto_triggers_minor_collection_under_nursery_pressure() {
 #[test]
 fn alloc_auto_triggers_major_collection_under_pinned_pressure() {
     let pinned_bytes = estimated_allocation_size::<PinnedLeaf>().expect("pinned allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         pinned: crate::spaces::PinnedSpaceConfig {
             reserved_bytes: pinned_bytes,
         },
@@ -697,7 +697,7 @@ fn alloc_auto_triggers_major_collection_under_pinned_pressure() {
 #[test]
 fn alloc_auto_triggers_full_collection_under_large_pressure() {
     let large_bytes = estimated_allocation_size::<LargeLeaf>().expect("large allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         large: LargeObjectSpaceConfig {
             threshold_bytes: 64,
             soft_limit_bytes: large_bytes,
@@ -732,7 +732,7 @@ fn alloc_auto_triggers_full_collection_under_large_pressure() {
 
 #[test]
 fn full_collection_evacuates_live_nursery_objects() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             promotion_age: 1,
             ..NurseryConfig::default()
@@ -776,7 +776,7 @@ fn full_collection_evacuates_live_nursery_objects() {
 
 #[test]
 fn minor_plan_reports_evacuation_and_nursery_bytes() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut scope = mutator.handle_scope();
     mutator.alloc(&mut scope, Leaf(8)).expect("alloc leaf");
@@ -794,7 +794,7 @@ fn minor_plan_reports_evacuation_and_nursery_bytes() {
 
 #[test]
 fn minor_plan_uses_configured_parallel_worker_budget() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             parallel_minor_workers: 4,
             ..NurseryConfig::default()
@@ -813,7 +813,7 @@ fn minor_plan_uses_configured_parallel_worker_budget() {
 
 #[test]
 fn recommended_plan_prefers_minor_for_live_nursery() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut scope = mutator.handle_scope();
     mutator.alloc(&mut scope, Leaf(9)).expect("alloc leaf");
@@ -825,7 +825,7 @@ fn recommended_plan_prefers_minor_for_live_nursery() {
 
 #[test]
 fn execute_minor_plan_records_phase_trace_and_last_plan() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut scope = mutator.handle_scope();
     mutator.alloc(&mut scope, Leaf(10)).expect("alloc leaf");
@@ -850,7 +850,7 @@ fn execute_minor_plan_records_phase_trace_and_last_plan() {
 
 #[test]
 fn alloc_pinned_object_into_pinned_space() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut scope = mutator.handle_scope();
 
@@ -865,7 +865,7 @@ fn alloc_pinned_object_into_pinned_space() {
 
 #[test]
 fn alloc_oversize_promote_to_pinned_object_into_pinned_space() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 8,
             ..NurseryConfig::default()
@@ -894,7 +894,7 @@ fn alloc_oversize_promote_to_pinned_object_into_pinned_space() {
 
 #[test]
 fn minor_collection_promotes_promote_to_pinned_object_into_pinned_space() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             promotion_age: 1,
             ..NurseryConfig::default()
@@ -931,7 +931,7 @@ fn minor_collection_promotes_promote_to_pinned_object_into_pinned_space() {
 
 #[test]
 fn alloc_immortal_object_into_immortal_space() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut scope = mutator.handle_scope();
 
@@ -954,7 +954,7 @@ fn alloc_immortal_object_into_immortal_space() {
 
 #[test]
 fn immortal_object_survives_unrooted_major_collection() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let immortal_gc = {
         let mut scope = mutator.handle_scope();
@@ -979,7 +979,7 @@ fn immortal_object_survives_unrooted_major_collection() {
 
 #[test]
 fn minor_collection_immortal_object_keeps_young_child_alive() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut scope = mutator.handle_scope();
     let holder = mutator
@@ -1022,7 +1022,7 @@ fn minor_collection_immortal_object_keeps_young_child_alive() {
 
 #[test]
 fn active_major_mark_keeps_newly_allocated_unrooted_immortal_object_alive() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut scope = mutator.handle_scope();
     let _anchor = mutator
@@ -1063,7 +1063,7 @@ fn active_major_mark_keeps_newly_allocated_unrooted_immortal_object_alive() {
 
 #[test]
 fn alloc_large_object_into_large_space() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig::default(),
         large: LargeObjectSpaceConfig {
             threshold_bytes: 64,
@@ -1085,7 +1085,7 @@ fn alloc_large_object_into_large_space() {
 
 #[test]
 fn direct_old_allocation_tracks_old_region_stats() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -1119,7 +1119,7 @@ fn direct_old_allocation_tracks_old_region_stats() {
 
 #[test]
 fn minor_collection_preserves_old_region_layout_metadata() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 16,
             ..NurseryConfig::default()
@@ -1165,7 +1165,7 @@ fn minor_collection_preserves_old_region_layout_metadata() {
 
 #[test]
 fn major_plan_reports_old_region_targets_and_reclaim_headroom() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -1234,7 +1234,7 @@ fn major_plan_reports_old_region_targets_and_reclaim_headroom() {
 
 #[test]
 fn major_plan_reports_zero_compaction_bytes_without_old_region_candidates() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         pinned: crate::spaces::PinnedSpaceConfig {
             reserved_bytes: usize::MAX,
         },
@@ -1259,7 +1259,7 @@ fn major_plan_reports_zero_compaction_bytes_without_old_region_candidates() {
 
 #[test]
 fn recommended_plan_prefers_major_for_old_generation_pressure() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -1283,7 +1283,7 @@ fn recommended_plan_prefers_major_for_old_generation_pressure() {
 
 #[test]
 fn execute_major_plan_records_phase_trace_and_last_plan() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -1342,7 +1342,7 @@ fn execute_major_plan_records_phase_trace_and_last_plan() {
 
 #[test]
 fn major_mark_session_uses_multiple_steps_with_tiny_budget() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -1384,7 +1384,7 @@ fn major_mark_session_uses_multiple_steps_with_tiny_budget() {
 #[test]
 fn execute_major_plan_uses_worker_count_to_reduce_mark_rounds() {
     fn run_major_cycle(worker_count: usize) -> CollectionStats {
-        let mut heap = Heap::new(HeapConfig {
+        let heap = Heap::new(HeapConfig {
             nursery: NurseryConfig {
                 max_regular_object_bytes: 1,
                 ..NurseryConfig::default()
@@ -1429,7 +1429,7 @@ fn execute_major_plan_uses_worker_count_to_reduce_mark_rounds() {
 #[test]
 fn execute_major_plan_traces_on_multiple_threads_when_worker_count_is_high() {
     let seen_threads = Arc::new(Mutex::new(HashSet::new()));
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut keep_scope = mutator.handle_scope();
     for _ in 0..128usize {
@@ -1460,7 +1460,7 @@ fn execute_major_plan_traces_on_multiple_threads_when_worker_count_is_high() {
 #[test]
 fn execute_minor_plan_traces_on_multiple_threads_when_worker_count_is_high() {
     let seen_threads = Arc::new(Mutex::new(HashSet::new()));
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             parallel_minor_workers: 4,
             ..NurseryConfig::default()
@@ -1512,7 +1512,7 @@ fn execute_minor_plan_traces_on_multiple_threads_when_worker_count_is_high() {
 #[test]
 fn major_mark_stealing_round_preserves_all_live_objects() {
     let seen_threads = Arc::new(Mutex::new(HashSet::new()));
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         old: crate::spaces::OldGenConfig {
             concurrent_mark_workers: 4,
             mutator_assist_slices: 0,
@@ -1562,7 +1562,7 @@ fn major_mark_stealing_round_preserves_all_live_objects() {
 #[test]
 fn minor_mark_stealing_round_preserves_all_live_objects() {
     let seen_threads = Arc::new(Mutex::new(HashSet::new()));
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             parallel_minor_workers: 4,
             ..NurseryConfig::default()
@@ -1614,7 +1614,7 @@ fn minor_mark_stealing_round_preserves_all_live_objects() {
 
 #[test]
 fn parallel_minor_gc_preserves_all_survivors() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             parallel_minor_workers: 4,
             ..NurseryConfig::default()
@@ -1660,7 +1660,7 @@ fn parallel_minor_gc_handles_cross_worker_shared_target() {
     // doesn't get evacuated twice across workers.
     let trace_counter = Arc::new(AtomicUsize::new(0));
 
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             parallel_minor_workers: 4,
             ..NurseryConfig::default()
@@ -1722,7 +1722,7 @@ fn parallel_minor_gc_handles_cross_worker_shared_target() {
 
 #[test]
 fn parallel_minor_gc_with_deferred_old_promotion() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             // Promote at the very first survivor cycle so every
             // survivor goes through the deferred old-promotion path.
@@ -1782,7 +1782,7 @@ fn parallel_minor_gc_with_deferred_old_promotion() {
 
 #[test]
 fn major_mark_stealing_round_drops_unreachable_objects() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         old: crate::spaces::OldGenConfig {
             concurrent_mark_workers: 4,
             mutator_assist_slices: 0,
@@ -1825,7 +1825,7 @@ fn major_mark_stealing_round_drops_unreachable_objects() {
 #[test]
 fn execute_major_plan_visits_ephemerons_on_multiple_threads_when_worker_count_is_high() {
     let seen_threads = Arc::new(Mutex::new(HashSet::new()));
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut keep_scope = mutator.handle_scope();
     for index in 0..128u64 {
@@ -1863,7 +1863,7 @@ fn execute_major_plan_visits_ephemerons_on_multiple_threads_when_worker_count_is
 #[test]
 fn execute_major_plan_processes_weak_edges_on_multiple_threads_when_worker_count_is_high() {
     let seen_threads = Arc::new(Mutex::new(HashSet::new()));
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut keep_scope = mutator.handle_scope();
     for index in 0..128u64 {
@@ -1897,7 +1897,7 @@ fn execute_major_plan_processes_weak_edges_on_multiple_threads_when_worker_count
 
 #[test]
 fn persistent_major_mark_session_advances_across_calls() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -1975,7 +1975,7 @@ fn persistent_major_mark_session_advances_across_calls() {
 
 #[test]
 fn persistent_full_mark_session_finishes_with_evacuated_nursery_survivor() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             promotion_age: 1,
             ..NurseryConfig::default()
@@ -2029,7 +2029,7 @@ fn persistent_full_mark_session_finishes_with_evacuated_nursery_survivor() {
 
 #[test]
 fn finish_active_major_collection_prepares_full_reclaim_before_commit() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             promotion_age: 1,
             ..NurseryConfig::default()
@@ -2165,7 +2165,7 @@ fn heap_drop_runs_pending_finalizers_while_arena_buffers_are_alive() {
 
 #[test]
 fn pause_histogram_records_samples_from_completed_cycles() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
 
     // Empty histogram at heap start.
     let empty = heap.pause_histogram();
@@ -2226,7 +2226,7 @@ fn pause_histogram_records_samples_from_completed_cycles() {
 
 #[test]
 fn collector_runtime_prepare_active_reclaim_moves_full_session_to_reclaim() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             promotion_age: 1,
             ..NurseryConfig::default()
@@ -2302,7 +2302,7 @@ fn collector_runtime_prepare_active_reclaim_moves_full_session_to_reclaim() {
 
 #[test]
 fn collector_runtime_finish_major_collection_finishes_active_session_directly() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -2345,7 +2345,7 @@ fn collector_runtime_finish_major_collection_finishes_active_session_directly() 
 
 #[test]
 fn collector_runtime_advance_major_mark_reports_progress() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let plan = {
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
@@ -2375,7 +2375,7 @@ fn collector_runtime_advance_major_mark_reports_progress() {
 
 #[test]
 fn collector_runtime_execute_plan_runs_minor_collection() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     {
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
@@ -2400,7 +2400,7 @@ fn collector_runtime_execute_plan_runs_minor_collection() {
 
 #[test]
 fn collector_runtime_collect_runs_minor_collection() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     {
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
@@ -2422,7 +2422,7 @@ fn collector_runtime_collect_runs_minor_collection() {
 #[test]
 fn collector_runtime_service_allocation_pressure_runs_minor_collection() {
     let leaf_bytes = estimated_allocation_size::<Leaf>().expect("leaf allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             semispace_bytes: leaf_bytes,
             ..NurseryConfig::default()
@@ -2451,7 +2451,7 @@ fn collector_runtime_service_allocation_pressure_runs_minor_collection() {
 #[test]
 fn collector_runtime_service_allocation_pressure_starts_concurrent_major_session() {
     let pinned_bytes = estimated_allocation_size::<PinnedLeaf>().expect("pinned allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         pinned: crate::spaces::PinnedSpaceConfig {
             reserved_bytes: pinned_bytes,
         },
@@ -2491,7 +2491,7 @@ fn collector_runtime_service_allocation_pressure_starts_concurrent_major_session
 #[test]
 fn collector_runtime_prepare_typed_allocation_runs_minor_collection() {
     let leaf_bytes = estimated_allocation_size::<Leaf>().expect("leaf allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             semispace_bytes: leaf_bytes,
             ..NurseryConfig::default()
@@ -2520,7 +2520,7 @@ fn collector_runtime_prepare_typed_allocation_runs_minor_collection() {
 #[test]
 fn collector_runtime_prepare_typed_allocation_starts_concurrent_major_session() {
     let pinned_bytes = estimated_allocation_size::<PinnedLeaf>().expect("pinned allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         pinned: crate::spaces::PinnedSpaceConfig {
             reserved_bytes: pinned_bytes,
         },
@@ -2552,7 +2552,7 @@ fn collector_runtime_prepare_typed_allocation_starts_concurrent_major_session() 
 
 #[test]
 fn collector_runtime_record_post_write_tracks_barrier_events_and_remembered_edge() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let (owner_gc, target_gc) = {
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
@@ -2609,7 +2609,7 @@ fn collector_runtime_record_post_write_tracks_barrier_events_and_remembered_edge
 
 #[test]
 fn collector_runtime_alloc_typed_keeps_rooted_object_alive_during_active_major_mark() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -2658,7 +2658,7 @@ fn collector_runtime_alloc_typed_keeps_rooted_object_alive_during_active_major_m
 
 #[test]
 fn collector_runtime_alloc_typed_places_pinned_object_in_pinned_space() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut scratch = crate::mutator::MutatorLocal::default();
     let pinned_gc = {
         let root_stack = scratch.root_stack_ptr();
@@ -2675,7 +2675,7 @@ fn collector_runtime_alloc_typed_places_pinned_object_in_pinned_space() {
 
 #[test]
 fn collector_runtime_can_create_background_service() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut service = heap
         .collector_runtime()
         .background_service(BackgroundCollectorConfig::default());
@@ -2689,7 +2689,7 @@ fn collector_runtime_can_create_background_service() {
 
 #[test]
 fn heap_advance_major_mark_reports_progress_directly() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let plan = {
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
@@ -2717,7 +2717,7 @@ fn heap_advance_major_mark_reports_progress_directly() {
 
 #[test]
 fn collector_runtime_commit_active_reclaim_returns_none_before_full_reclaim_is_prepared() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             promotion_age: 1,
             ..NurseryConfig::default()
@@ -2786,7 +2786,7 @@ fn collector_runtime_commit_active_reclaim_returns_none_before_full_reclaim_is_p
 
 #[test]
 fn collector_runtime_prepare_active_major_reclaim_moves_major_session_to_reclaim() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -2845,7 +2845,7 @@ fn collector_runtime_prepare_active_major_reclaim_moves_major_session_to_reclaim
 
 #[test]
 fn collector_runtime_service_background_collection_round_finishes_major_session() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -2904,7 +2904,7 @@ fn collector_runtime_service_background_collection_round_finishes_major_session(
 fn collector_runtime_drain_pending_finalizers_runs_queued_finalizers() {
     MAJOR_FINALIZE_COUNT.store(0, Ordering::SeqCst);
 
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -2942,7 +2942,7 @@ fn collector_runtime_drain_pending_finalizers_runs_queued_finalizers() {
 
 #[test]
 fn mutator_prepare_active_major_reclaim_moves_session_to_reclaim() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -3013,7 +3013,7 @@ fn mutator_prepare_active_major_reclaim_moves_session_to_reclaim() {
 
 #[test]
 fn mutator_commit_active_reclaim_requires_reclaim_phase() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -3079,7 +3079,7 @@ fn mutator_commit_active_reclaim_requires_reclaim_phase() {
 
 #[test]
 fn mutator_commit_active_reclaim_returns_none_before_full_reclaim_is_prepared() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             promotion_age: 1,
             ..NurseryConfig::default()
@@ -3146,7 +3146,7 @@ fn mutator_commit_active_reclaim_returns_none_before_full_reclaim_is_prepared() 
 
 #[test]
 fn persistent_major_mark_session_root_keeps_existing_object() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -3194,7 +3194,7 @@ fn persistent_major_mark_session_root_keeps_existing_object() {
 
 #[test]
 fn persistent_major_mark_session_post_write_barrier_keeps_newly_reachable_object() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -3265,7 +3265,7 @@ fn persistent_major_mark_session_post_write_barrier_keeps_newly_reachable_object
 
 #[test]
 fn persistent_major_mark_session_satb_keeps_overwritten_snapshot_edge() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -3338,7 +3338,7 @@ fn persistent_major_mark_session_satb_keeps_overwritten_snapshot_edge() {
 
 #[test]
 fn active_major_mark_plan_is_visible_through_recommended_plan() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -3400,7 +3400,7 @@ fn active_major_mark_plan_is_visible_through_recommended_plan() {
 
 #[test]
 fn allocation_during_active_major_mark_advances_assist_progress() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -3460,7 +3460,7 @@ fn allocation_during_active_major_mark_advances_assist_progress() {
 #[test]
 fn alloc_auto_starts_concurrent_major_mark_session_under_pinned_pressure() {
     let pinned_bytes = estimated_allocation_size::<PinnedLeaf>().expect("pinned allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         pinned: crate::spaces::PinnedSpaceConfig {
             reserved_bytes: pinned_bytes,
         },
@@ -3505,7 +3505,7 @@ fn alloc_auto_starts_concurrent_major_mark_session_under_pinned_pressure() {
 
 #[test]
 fn poll_active_major_mark_round_and_finish_ready_complete_session() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -3577,7 +3577,7 @@ fn poll_active_major_mark_round_and_finish_ready_complete_session() {
 
 #[test]
 fn poll_active_major_mark_uses_configured_worker_round_width() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -3623,7 +3623,7 @@ fn poll_active_major_mark_uses_configured_worker_round_width() {
 
 #[test]
 fn poll_active_major_mark_processes_major_weak_edges_before_finish() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut keep_scope = mutator.handle_scope();
     let holder_gc = {
@@ -3682,7 +3682,7 @@ fn poll_active_major_mark_processes_major_weak_edges_before_finish() {
 #[test]
 fn poll_active_major_mark_prepares_major_old_region_rebuild_before_finish() {
     let old_bytes = estimated_allocation_size::<OldLeaf>().expect("old allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -3782,7 +3782,7 @@ fn poll_active_major_mark_prepares_major_old_region_rebuild_before_finish() {
 #[test]
 fn poll_active_major_mark_with_physical_compaction_packs_block_view() {
     let old_bytes = estimated_allocation_size::<OldLeaf>().expect("old allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -3875,7 +3875,7 @@ fn poll_active_major_mark_with_physical_compaction_packs_block_view() {
 fn poll_active_major_mark_prepares_major_finalizer_before_finish() {
     MAJOR_FINALIZE_COUNT.store(0, Ordering::SeqCst);
 
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -3938,7 +3938,7 @@ fn poll_active_major_mark_prepares_major_finalizer_before_finish() {
 
 #[test]
 fn background_collection_round_finishes_active_major_session() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -3998,7 +3998,7 @@ fn background_collection_round_finishes_active_major_session() {
 #[test]
 fn pressure_started_concurrent_session_finishes_via_background_service() {
     let pinned_bytes = estimated_allocation_size::<PinnedLeaf>().expect("pinned allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         pinned: crate::spaces::PinnedSpaceConfig {
             reserved_bytes: pinned_bytes,
         },
@@ -4045,7 +4045,7 @@ fn pressure_started_concurrent_session_finishes_via_background_service() {
 
 #[test]
 fn background_collector_auto_starts_and_finishes_concurrent_major_plan() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -4089,7 +4089,7 @@ fn background_collector_auto_starts_and_finishes_concurrent_major_plan() {
 
 #[test]
 fn background_collector_can_disable_auto_start() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -4132,7 +4132,7 @@ fn background_collector_can_disable_auto_start() {
 
 #[test]
 fn background_collector_auto_starts_and_finishes_concurrent_full_plan() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         large: LargeObjectSpaceConfig {
             threshold_bytes: 64,
             soft_limit_bytes: usize::MAX,
@@ -4167,7 +4167,7 @@ fn background_collector_auto_starts_and_finishes_concurrent_full_plan() {
 
 #[test]
 fn recommended_background_plan_prefers_major_even_with_live_nursery() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         pinned: crate::spaces::PinnedSpaceConfig {
             reserved_bytes: usize::MAX,
         },
@@ -4195,7 +4195,7 @@ fn recommended_background_plan_prefers_major_even_with_live_nursery() {
 
 #[test]
 fn recommended_background_plan_is_none_when_concurrency_is_disabled() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         pinned: crate::spaces::PinnedSpaceConfig {
             reserved_bytes: usize::MAX,
         },
@@ -4216,7 +4216,7 @@ fn recommended_background_plan_is_none_when_concurrency_is_disabled() {
 
 #[test]
 fn background_collector_prefers_full_even_with_live_nursery() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         large: LargeObjectSpaceConfig {
             threshold_bytes: 64,
             soft_limit_bytes: usize::MAX,
@@ -4263,7 +4263,7 @@ fn background_collector_prefers_full_even_with_live_nursery() {
 
 #[test]
 fn background_collector_tick_aggregates_multiple_rounds() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -4375,7 +4375,7 @@ fn background_collector_try_tick_returns_would_block_without_progress() {
 
 #[test]
 fn background_collector_can_leave_ready_session_for_explicit_finish() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -4443,7 +4443,7 @@ fn background_collector_can_leave_ready_session_for_explicit_finish() {
 
 #[test]
 fn background_collector_prepares_full_reclaim_before_finishing_runtime_session() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         large: LargeObjectSpaceConfig {
             threshold_bytes: 64,
             soft_limit_bytes: usize::MAX,
@@ -4512,7 +4512,7 @@ fn background_collector_prepares_full_reclaim_before_finishing_runtime_session()
 
 #[test]
 fn major_region_candidates_respect_limit_and_sort_by_hole_bytes() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -4591,7 +4591,7 @@ fn major_region_candidates_respect_limit_and_sort_by_hole_bytes() {
 #[test]
 fn major_region_candidates_prefer_holey_regions_over_tail_only_sparse_regions() {
     let old_bytes = estimated_allocation_size::<OldLeaf>().expect("old allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -4676,7 +4676,7 @@ fn major_region_candidates_prefer_holey_regions_over_tail_only_sparse_regions() 
 #[test]
 fn major_region_candidates_respect_compaction_byte_budget() {
     let old_bytes = estimated_allocation_size::<OldLeaf>().expect("old allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -4760,7 +4760,7 @@ fn major_region_candidates_respect_compaction_byte_budget() {
 #[test]
 fn major_region_candidates_prefer_more_reclaim_efficient_regions_under_budget() {
     let old_bytes = estimated_allocation_size::<OldLeaf>().expect("old allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -4860,7 +4860,7 @@ fn major_region_candidates_prefer_more_reclaim_efficient_regions_under_budget() 
 
 #[test]
 fn major_collection_reuses_empty_old_region_for_later_old_allocation() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -4923,7 +4923,7 @@ fn major_collection_reuses_empty_old_region_for_later_old_allocation() {
 
 #[test]
 fn major_collection_repacks_surviving_old_objects_to_drop_interior_holes() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -4992,7 +4992,7 @@ fn major_collection_repacks_surviving_old_objects_to_drop_interior_holes() {
 #[test]
 fn major_collection_preserves_non_candidate_hole_in_live_old_region() {
     let old_bytes = estimated_allocation_size::<OldLeaf>().expect("old allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -5056,7 +5056,7 @@ fn major_collection_preserves_non_candidate_hole_in_live_old_region() {
 #[test]
 fn major_collection_compacts_selected_live_old_region() {
     let old_bytes = estimated_allocation_size::<OldLeaf>().expect("old allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -5127,7 +5127,7 @@ fn major_collection_compacts_selected_live_old_region() {
 #[test]
 fn execute_major_plan_honors_exact_selected_old_regions() {
     let old_bytes = estimated_allocation_size::<OldLeaf>().expect("old allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -5259,7 +5259,7 @@ fn execute_major_plan_honors_exact_selected_old_regions() {
 
 #[test]
 fn dropping_scope_releases_root_slots() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
 
     let mut mutator = heap.mutator();
     {
@@ -5275,7 +5275,7 @@ fn dropping_scope_releases_root_slots() {
 
 #[test]
 fn major_collection_reclaims_unrooted_objects() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
 
     {
         let mut mutator = heap.mutator();
@@ -5299,7 +5299,7 @@ fn major_collection_reclaims_unrooted_objects() {
 fn minor_collection_finalizes_dead_nursery_object() {
     MINOR_FINALIZE_COUNT.store(0, Ordering::SeqCst);
 
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     {
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
@@ -5333,7 +5333,7 @@ fn minor_collection_finalizes_dead_nursery_object() {
 fn major_collection_finalizes_dead_old_object() {
     MAJOR_FINALIZE_COUNT.store(0, Ordering::SeqCst);
 
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -5376,7 +5376,7 @@ fn major_collection_finalizes_dead_old_object() {
 
 #[test]
 fn major_collection_preserves_rooted_objects() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut scope = mutator.handle_scope();
     let root = mutator.alloc(&mut scope, Leaf(34)).expect("alloc leaf");
@@ -5392,7 +5392,7 @@ fn major_collection_preserves_rooted_objects() {
 
 #[test]
 fn major_collection_reclaims_unreachable_cycle() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
 
     {
         let mut mutator = heap.mutator();
@@ -5428,7 +5428,7 @@ fn major_collection_reclaims_unreachable_cycle() {
 
 #[test]
 fn minor_collection_promotes_reachable_nursery_objects() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut scope = mutator.handle_scope();
     let root = mutator
@@ -5476,7 +5476,7 @@ fn minor_collection_promotes_reachable_nursery_objects() {
 
 #[test]
 fn minor_collection_traces_young_objects_reachable_from_old_objects() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut parent_scope = mutator.handle_scope();
     let parent = mutator
@@ -5546,7 +5546,7 @@ fn minor_collection_traces_young_objects_reachable_from_old_objects() {
 
 #[test]
 fn minor_collection_drops_young_child_without_barrier_on_non_root_old_owner() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut root_scope = mutator.handle_scope();
     let root = mutator
@@ -5622,7 +5622,7 @@ fn minor_collection_drops_young_child_without_barrier_on_non_root_old_owner() {
 
 #[test]
 fn minor_collection_keeps_young_child_with_barrier_on_non_root_old_owner() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut root_scope = mutator.handle_scope();
     let root = mutator
@@ -5701,7 +5701,7 @@ fn minor_collection_keeps_young_child_with_barrier_on_non_root_old_owner() {
 
 #[test]
 fn full_collection_prunes_remembered_edges_for_dead_old_owner() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut root_scope = mutator.handle_scope();
     let root = mutator
@@ -5772,7 +5772,7 @@ fn full_collection_prunes_remembered_edges_for_dead_old_owner() {
 
 #[test]
 fn major_collection_clears_dead_weak_target() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut scope = mutator.handle_scope();
     let target = mutator.alloc(&mut scope, Leaf(200)).expect("alloc target");
@@ -5808,7 +5808,7 @@ fn major_collection_clears_dead_weak_target() {
 
 #[test]
 fn major_collection_keeps_live_weak_target() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut scope = mutator.handle_scope();
     let target = mutator.alloc(&mut scope, Leaf(210)).expect("alloc target");
@@ -5839,7 +5839,7 @@ fn major_collection_keeps_live_weak_target() {
 
 #[test]
 fn minor_collection_clears_dead_nursery_weak_target() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut holder_scope = mutator.handle_scope();
     let holder = mutator
@@ -5897,7 +5897,7 @@ fn minor_collection_clears_dead_nursery_weak_target() {
 
 #[test]
 fn minor_collection_keeps_old_weak_target_without_marking_it() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut target_scope = mutator.handle_scope();
     let target = mutator
@@ -5941,7 +5941,7 @@ fn minor_collection_keeps_old_weak_target_without_marking_it() {
 
 #[test]
 fn major_collection_ephemeron_keeps_value_when_key_is_live() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut keep_scope = mutator.handle_scope();
 
@@ -5988,7 +5988,7 @@ fn major_collection_ephemeron_keeps_value_when_key_is_live() {
 
 #[test]
 fn major_collection_ephemeron_clears_when_key_is_dead() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut keep_scope = mutator.handle_scope();
 
@@ -6034,7 +6034,7 @@ fn major_collection_ephemeron_clears_when_key_is_dead() {
 
 #[test]
 fn post_sweep_rebuild_refreshes_weak_and_ephemeron_candidate_indexes() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
 
     let (weak_holder_gc, ephemeron_holder_gc, finalizable_gc) = {
@@ -6120,7 +6120,7 @@ fn post_sweep_rebuild_refreshes_weak_and_ephemeron_candidate_indexes() {
 
 #[test]
 fn minor_collection_ephemeron_keeps_nursery_value_when_old_key_is_live() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut keep_scope = mutator.handle_scope();
 
@@ -6188,7 +6188,7 @@ fn minor_collection_ephemeron_keeps_nursery_value_when_old_key_is_live() {
 
 #[test]
 fn minor_collection_ephemeron_clears_when_nursery_key_is_dead() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut keep_scope = mutator.handle_scope();
 
@@ -6252,7 +6252,7 @@ fn minor_collection_ephemeron_clears_when_nursery_key_is_dead() {
 
 #[test]
 fn background_collector_can_drive_collector_runtime_surface() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -6293,14 +6293,14 @@ fn background_collector_can_drive_collector_runtime_surface() {
     assert_eq!(collector.stats().sessions_finished, 1);
     assert_eq!(runtime.active_major_mark_plan(), None);
     assert_eq!(
-        runtime.heap().last_completed_plan().map(|plan| plan.kind),
+        runtime.last_completed_plan().map(|plan| plan.kind),
         Some(CollectionKind::Major)
     );
 }
 
 #[test]
 fn background_service_owns_collector_runtime_loop() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -6339,7 +6339,7 @@ fn background_service_owns_collector_runtime_loop() {
     assert_eq!(service.stats().sessions_finished, 1);
     assert_eq!(service.active_major_mark_plan(), None);
     assert_eq!(
-        service.heap().last_completed_plan().map(|plan| plan.kind),
+        service.last_completed_plan().map(|plan| plan.kind),
         Some(CollectionKind::Major)
     );
 }
@@ -6348,7 +6348,7 @@ fn background_service_owns_collector_runtime_loop() {
 fn background_service_drains_pending_finalizers() {
     MAJOR_FINALIZE_COUNT.store(0, Ordering::SeqCst);
 
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -6383,7 +6383,7 @@ fn background_service_drains_pending_finalizers() {
     assert_eq!(service.drain_pending_finalizers(), 1);
     assert_eq!(service.pending_finalizer_count(), 0);
     assert_eq!(service.runtime_work_status(), RuntimeWorkStatus::Idle);
-    assert_eq!(service.heap().stats().finalizers_run, 1);
+    assert_eq!(service.heap_stats().finalizers_run, 1);
     assert_eq!(MAJOR_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
 }
 
@@ -6563,7 +6563,7 @@ fn background_worker_owns_autonomous_service_loop() {
     })
     .into_shared();
     {
-        let mut heap = shared.lock().expect("lock shared heap for allocation");
+        let heap = shared.lock().expect("lock shared heap for allocation");
         let mut mutator = heap.mutator();
         let mut keep_scope = mutator.handle_scope();
         for byte in 0..16u8 {
@@ -7311,7 +7311,7 @@ fn shared_collector_runtime_background_observation_stays_stable_under_lock_and_r
     assert!(before.status.recommended_background_plan.is_none());
 
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
         for byte in 0..8u8 {
@@ -7417,7 +7417,7 @@ fn shared_collector_runtime_status_reads_work_while_heap_lock_is_held_and_refres
     assert_eq!(before.active_major_mark_plan, None);
 
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         assert_eq!(
             runtime
                 .status()
@@ -7581,7 +7581,7 @@ fn shared_snapshot_reads_work_while_heap_lock_is_held_and_refresh_on_drop() {
     let before = shared.stats().expect("read snapshot stats before lock");
 
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         assert_eq!(
             shared
                 .stats()
@@ -7647,7 +7647,7 @@ fn shared_status_reads_work_while_heap_lock_is_held_and_refresh_on_drop() {
     assert_eq!(before.active_major_mark_plan, None);
 
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         assert_eq!(
             shared
                 .status()
@@ -7750,7 +7750,7 @@ fn shared_snapshot_major_mark_progress_reads_work_while_heap_lock_is_held_and_re
 
     let second_progress;
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         assert_eq!(
             shared
                 .major_mark_progress()
@@ -7831,7 +7831,7 @@ fn shared_snapshot_recommended_background_plan_reads_work_while_heap_lock_is_hel
 
     let after;
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         assert_eq!(
             shared
                 .recommended_background_plan()
@@ -7839,10 +7839,12 @@ fn shared_snapshot_recommended_background_plan_reads_work_while_heap_lock_is_hel
             Some(before.clone())
         );
 
-        let mut runtime = heap.collector_runtime();
-        runtime
-            .begin_major_mark(before.clone())
-            .expect("begin major mark under guard");
+        {
+            let mut runtime = heap.collector_runtime();
+            runtime
+                .begin_major_mark(before.clone())
+                .expect("begin major mark under guard");
+        }
         after = heap.recommended_background_plan();
 
         assert_eq!(
@@ -7888,7 +7890,7 @@ fn shared_snapshot_recommended_plan_reads_work_while_heap_lock_is_held_and_refre
     assert_eq!(before.kind, CollectionKind::Minor);
 
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         assert_eq!(
             shared
                 .recommended_plan()
@@ -7947,7 +7949,7 @@ fn shared_collector_runtime_recommended_plan_reads_work_while_heap_lock_is_held_
     assert_eq!(before.kind, CollectionKind::Minor);
 
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         assert_eq!(
             runtime
                 .recommended_plan()
@@ -8381,7 +8383,7 @@ fn shared_background_service_status_reads_work_while_heap_lock_is_held_and_refre
     assert_eq!(before.heap.recommended_plan.kind, CollectionKind::Minor);
 
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         assert_eq!(
             service
                 .status()
@@ -9636,7 +9638,7 @@ fn shared_background_observation_stays_stable_under_lock_and_refreshes_on_drop()
     assert!(before.status.recommended_background_plan.is_none());
 
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
         for byte in 0..8u8 {
@@ -10087,7 +10089,7 @@ fn background_worker_status_reads_work_while_heap_lock_is_held_and_refresh_on_dr
     let before = worker.status().expect("read worker status before lock");
 
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         let during = worker
             .status()
             .expect("read worker status while heap lock held");
@@ -10347,7 +10349,7 @@ fn card_barrier_sets_dirty_card_on_old_to_young_write() {
     // PairHolder is large enough to skip the nursery (max_regular_object_bytes=8)
     // and lands directly inside an old-gen block, so the write barrier should
     // route through the per-block card table.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 8,
             ..NurseryConfig::default()
@@ -10400,7 +10402,7 @@ fn card_barrier_falls_back_to_remembered_set_for_pinned_owners() {
     // Writes against a pinned owner cannot be tracked by the per-block
     // card table, so the barrier must fall back to the legacy
     // Vec+HashSet remembered set.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 16,
             ..NurseryConfig::default()
@@ -10449,7 +10451,7 @@ fn card_barrier_falls_back_to_remembered_set_for_pinned_owners() {
 
 #[test]
 fn minor_gc_finds_young_target_via_dirty_card_scan() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 8,
             ..NurseryConfig::default()
@@ -10505,7 +10507,7 @@ fn minor_gc_finds_young_target_via_dirty_card_scan() {
 
 #[test]
 fn minor_gc_clears_cards_after_sweep() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 8,
             ..NurseryConfig::default()
@@ -10565,7 +10567,7 @@ fn dirty_card_scan_handles_object_at_card_boundary() {
     // following parent and verify the dirty-card scan picks both up
     // (the iteration would otherwise undercount when an object header
     // sits exactly on a card boundary).
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 8,
             ..NurseryConfig::default()
@@ -10652,7 +10654,7 @@ fn object_start_index_records_first_object_in_each_card() {
     // SMALLEST offset whose header lies in that card. With small
     // line_bytes (16) and a tiny region the layout is dense enough
     // that several cards have entries.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 8,
             ..NurseryConfig::default()
@@ -10686,7 +10688,8 @@ fn object_start_index_records_first_object_in_each_card() {
     // Inspect every block in the pool. At least one card per block
     // should have a populated object-start entry, and every populated
     // entry must point at an offset that maps back into that card.
-    let old_gen = mutator.heap().old_gen();
+    let guard = mutator.heap().read_core();
+    let old_gen = guard.old_gen();
     assert!(old_gen.block_count() >= 1, "expected at least one block");
     for block in old_gen.blocks() {
         let card_size = block.card_table().card_size();
@@ -10715,7 +10718,7 @@ fn object_start_index_skips_subsequent_objects_in_same_card() {
     // The per-card object-start index should retain the FIRST (smallest)
     // offset and not be overwritten by later allocations in the same
     // card.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 8,
             ..NurseryConfig::default()
@@ -10745,7 +10748,8 @@ fn object_start_index_skips_subsequent_objects_in_same_card() {
             )
             .expect("alloc block-backed parent");
     }
-    let old_gen = mutator.heap().old_gen();
+    let guard = mutator.heap().read_core();
+    let old_gen = guard.old_gen();
     let block = &old_gen.blocks()[0];
     // Card 0 covers offsets [0, 512). With line_bytes=64, the first
     // four allocations land at offsets 0, 64, 128, 192 — all inside
@@ -10759,7 +10763,7 @@ fn object_start_index_rebuilds_after_sweep() {
     // GC that walks the rebuild path. After the sweep the per-card
     // object-start index must reflect the SURVIVING records and the
     // dirty-card scan must still walk the new layout correctly.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 8,
             ..NurseryConfig::default()
@@ -10795,7 +10799,7 @@ fn object_start_index_rebuilds_after_sweep() {
     // Snapshot the populated card indices before the GC.
     let starts_before: Vec<Vec<(usize, u32)>> = mutator
         .heap()
-        .old_gen()
+        .read_core().old_gen()
         .blocks()
         .iter()
         .map(|block| {
@@ -10815,7 +10819,8 @@ fn object_start_index_rebuilds_after_sweep() {
     // After the rebuild, every block must still have a non-empty index
     // (its survivors are the same set we allocated). Cross-check that
     // each populated entry remains a valid offset for the new layout.
-    let old_gen = mutator.heap().old_gen();
+    let guard = mutator.heap().read_core();
+    let old_gen = guard.old_gen();
     for (block, before_entries) in old_gen.blocks().iter().zip(starts_before.iter()) {
         let card_size = block.card_table().card_size();
         let starts = block.object_starts();
@@ -10843,7 +10848,7 @@ fn dirty_card_scan_via_object_start_index_finds_correct_records() {
     // Allocate a block-backed parent, mutate an old-to-young edge, and
     // verify the dirty-card scan walks the per-card object-start index
     // and emits the parent as a remembered-set root.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 8,
             ..NurseryConfig::default()
@@ -10891,7 +10896,7 @@ fn dirty_card_scan_via_object_start_index_handles_objects_spanning_card_boundary
     // whose headers live in different cards. The dirty-card scan must
     // emit BOTH parents as roots, which keeps both children alive
     // through the minor cycle.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 8,
             ..NurseryConfig::default()
@@ -10953,7 +10958,7 @@ fn dirty_card_scan_index_avoids_linear_objects_walk() {
     // card, then call the per-card scan helper directly with a counter
     // and assert that the scan inspected far fewer records than the
     // total count in `Heap::objects`.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 8,
             ..NurseryConfig::default()
@@ -10986,11 +10991,11 @@ fn dirty_card_scan_index_avoids_linear_objects_walk() {
     mutator.store_edge(&holders[0], 0, |h| &h.first, Some(child.as_gc()));
     assert_eq!(mutator.heap().dirty_card_count(), 1);
 
-    let total_objects = mutator.heap().objects().len();
+    let total_objects = mutator.heap().read_core().objects().len();
     let mut counter = 0usize;
     let roots = crate::collector_exec::collect_dirty_card_root_indices_with_counter(
-        mutator.heap().objects(),
-        mutator.heap().old_gen(),
+        mutator.heap().read_core().objects(),
+        mutator.heap().read_core().old_gen(),
         &mut counter,
     );
     assert!(!roots.is_empty(), "expected at least one dirty-card root");
@@ -11532,7 +11537,7 @@ fn pacer_in_heap_triggers_major_via_allocation_pressure() {
     // forcing any observed major collections to come from the pacer.
     // The pacer config is now part of HeapConfig so we can construct
     // it inline.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             // Big enough that we never trip the static nursery pressure.
             semispace_bytes: 16 * 1024 * 1024,
@@ -11633,7 +11638,7 @@ fn pacer_driven_major_starts_background_session_when_concurrent_workers_configur
     //     pacer's TriggerMajor decision.
     //   - Asserting that after enough allocations, an active
     //     major-mark plan is observable through the heap.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             // Big nursery so the static path never fires.
             semispace_bytes: 16 * 1024 * 1024,
@@ -11696,7 +11701,7 @@ fn pacer_in_heap_triggers_minor_via_nursery_soft_threshold() {
     // (so the static pressure plan never fires) and a tiny pacer
     // soft threshold. The pacer should observe at least one minor
     // cycle before the static path would have done so.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             // Big enough that the static nursery pressure path
             // never fires across the test's allocation budget.
@@ -11776,7 +11781,7 @@ fn nursery_tlab_reserved_on_first_nursery_alloc() {
     // helper and route through the TLAB fast path. After
     // the alloc, Mutator::has_nursery_tlab() must report
     // true.
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     assert!(
         !mutator.has_nursery_tlab(),
@@ -11799,7 +11804,7 @@ fn nursery_tlab_services_many_allocations_from_one_reservation() {
     // allocates many leaves and verifies the mutator still
     // holds a TLAB at the end (the reservation was not
     // exhausted).
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut scope = mutator.handle_scope();
     for i in 0..64u64 {
@@ -11821,7 +11826,7 @@ fn nursery_tlab_invalidated_by_minor_collection() {
     // leaf (reserving a TLAB), runs a minor cycle, and
     // verifies the subsequent alloc refilled with the
     // post-collection generation.
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     {
         let mut scope = mutator.handle_scope();
@@ -11855,7 +11860,7 @@ fn nursery_tlab_force_invalidation_via_test_helper() {
     // drops the current slab so the next alloc has to
     // refill. This is useful for tests that want to force
     // a refill without running a full minor cycle.
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     {
         let mut scope = mutator.handle_scope();
@@ -11889,7 +11894,7 @@ fn nursery_tlab_honors_custom_tlab_bytes_config() {
         leaf_bytes <= 64,
         "test assumption: a Leaf allocation must fit in a 64-byte slab",
     );
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             tlab_bytes: 64,
             ..NurseryConfig::default()

@@ -863,7 +863,7 @@ fn shared_background_status_from_parts(
 pub struct SharedHeapGuard<'a> {
     guard: Option<RwLockWriteGuard<'a, Heap>>,
     runtime: &'a SharedRuntimeHandle,
-    dirty: bool,
+    dirty: std::cell::Cell<bool>,
 }
 
 /// Guard returned by `SharedHeap::read()` and `SharedHeap::try_read()`.
@@ -877,7 +877,7 @@ impl<'a> SharedHeapGuard<'a> {
         Self {
             guard: Some(guard),
             runtime,
-            dirty: false,
+            dirty: std::cell::Cell::new(false),
         }
     }
 }
@@ -894,6 +894,16 @@ impl Deref for SharedHeapGuard<'_> {
     type Target = Heap;
 
     fn deref(&self) -> &Self::Target {
+        // The Heap interior is now wrapped in
+        // `Arc<RwLock<HeapCore>>`, so any access through
+        // `&Heap` may mutate the heap (via the inner write
+        // lock). Set the dirty bit on every deref so the
+        // drop hook captures and publishes a fresh snapshot
+        // even when callers never went through `deref_mut`.
+        // This is the cost of moving from
+        // `Heap::mutator(&mut self)` to
+        // `Heap::mutator(&self)`.
+        self.dirty.set(true);
         self.guard
             .as_deref()
             .expect("shared heap guard should hold heap lock")
@@ -902,7 +912,7 @@ impl Deref for SharedHeapGuard<'_> {
 
 impl DerefMut for SharedHeapGuard<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.dirty = true;
+        self.dirty.set(true);
         self.guard
             .as_deref_mut()
             .expect("shared heap guard should hold heap lock")
@@ -911,7 +921,7 @@ impl DerefMut for SharedHeapGuard<'_> {
 
 impl Drop for SharedHeapGuard<'_> {
     fn drop(&mut self) {
-        if !self.dirty {
+        if !self.dirty.get() {
             return;
         }
         let (next_snapshot, next_runtime_snapshot) = {
@@ -1161,7 +1171,8 @@ impl SharedHeap {
         f: impl for<'heap> FnOnce(&mut CollectorRuntime<'heap>) -> R,
     ) -> Result<R, SharedHeapError> {
         self.with_heap(|heap| {
-            let mut runtime = heap.collector_runtime();
+            let mut guard = heap.collector_runtime();
+            let mut runtime = guard.runtime();
             f(&mut runtime)
         })
     }
@@ -1173,7 +1184,8 @@ impl SharedHeap {
         f: impl for<'heap> FnOnce(&mut CollectorRuntime<'heap>) -> R,
     ) -> Result<R, SharedHeapError> {
         self.try_with_heap(|heap| {
-            let mut runtime = heap.collector_runtime();
+            let mut guard = heap.collector_runtime();
+            let mut runtime = guard.runtime();
             f(&mut runtime)
         })
     }
@@ -1185,7 +1197,8 @@ impl SharedHeap {
         f: impl for<'heap> FnOnce(&mut CollectorRuntime<'heap>) -> R,
     ) -> Result<R, SharedHeapAccessError> {
         self.try_with_heap_status(|heap| {
-            let mut runtime = heap.collector_runtime();
+            let mut guard = heap.collector_runtime();
+            let mut runtime = guard.runtime();
             f(&mut runtime)
         })
     }
@@ -1322,7 +1335,7 @@ impl SharedHeap {
         if frag < fragmentation_threshold {
             return Ok((frag, 0));
         }
-        let mut heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
+        let heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
         Ok(heap.compact_old_gen_if_fragmented(fragmentation_threshold))
     }
 
@@ -1351,7 +1364,7 @@ impl SharedHeap {
         if stats.old.reserved_bytes == 0 {
             return Ok(0);
         }
-        let mut heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
+        let heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
         Ok(heap.compact_old_gen_aggressive(density_threshold, max_passes))
     }
 
@@ -1388,7 +1401,7 @@ impl SharedHeap {
     /// heap. Takes the heap WRITE lock briefly. See
     /// [`Heap::clear_compaction_stats`].
     pub fn clear_compaction_stats(&self) -> Result<(), SharedHeapError> {
-        let mut heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
+        let heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
         heap.clear_compaction_stats();
         Ok(())
     }
@@ -1397,7 +1410,7 @@ impl SharedHeap {
     /// shared heap. Takes the heap WRITE lock briefly. See
     /// [`Heap::clear_barrier_stats`].
     pub fn clear_barrier_stats(&self) -> Result<(), SharedHeapError> {
-        let mut heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
+        let heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
         heap.clear_barrier_stats();
         Ok(())
     }
@@ -1452,7 +1465,7 @@ impl SharedHeap {
         if stats.old.reserved_bytes == 0 {
             return Ok(0);
         }
-        let mut heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
+        let heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
         Ok(heap.compact_old_gen_physical(density_threshold))
     }
 
@@ -1667,10 +1680,16 @@ pub struct BackgroundCollector {
 }
 
 /// Collector-owned background service loop bound to one heap.
+///
+/// Holds an exclusive write guard on the heap core for its
+/// entire lifetime via [`crate::heap::HeapCollectorRuntime`].
+/// Each `tick()` builds a fresh `CollectorRuntime` against
+/// the held guard plus a scratch `MutatorLocal` and runs
+/// the coordinator round through it.
 #[derive(Debug)]
 pub struct BackgroundService<'heap> {
     collector: BackgroundCollector,
-    runtime: CollectorRuntime<'heap>,
+    guard: crate::heap::HeapCollectorRuntime<'heap>,
 }
 
 /// Shared background service loop backed by `SharedHeap`.
@@ -2092,14 +2111,15 @@ impl BackgroundCollector {
 }
 
 impl<'heap> BackgroundService<'heap> {
-    /// Create a new background service loop bound to `heap`.
-    pub(crate) fn from_runtime(
-        runtime: CollectorRuntime<'heap>,
+    /// Create a new background service loop from a
+    /// write-locked collector runtime guard.
+    pub(crate) fn from_runtime_guard(
+        guard: crate::heap::HeapCollectorRuntime<'heap>,
         config: BackgroundCollectorConfig,
     ) -> Self {
         Self {
             collector: BackgroundCollector::new(config),
-            runtime,
+            guard,
         }
     }
 
@@ -2113,69 +2133,76 @@ impl<'heap> BackgroundService<'heap> {
         self.collector.stats()
     }
 
-    /// Return a shared view of the underlying heap.
-    pub fn heap(&self) -> &Heap {
-        self.runtime.heap()
-    }
-
     /// Return the active major-mark plan, if one is in progress.
     pub fn active_major_mark_plan(&self) -> Option<crate::plan::CollectionPlan> {
-        self.runtime.active_major_mark_plan()
+        self.guard.active_major_mark_plan()
     }
 
     /// Return progress for the active major-mark session, if any.
     pub fn major_mark_progress(&self) -> Option<crate::plan::MajorMarkProgress> {
-        self.runtime.major_mark_progress()
+        self.guard.major_mark_progress()
     }
 
     /// Run one background-collection coordinator tick.
     pub fn tick(&mut self) -> Result<BackgroundCollectionStatus, AllocError> {
-        self.collector.tick(&mut self.runtime)
+        let mut runtime = self.guard.runtime();
+        self.collector.tick(&mut runtime)
     }
 
     /// Service background collection until no active session remains or one collection finishes.
     pub fn run_until_idle(&mut self) -> Result<Option<CollectionStats>, AllocError> {
-        self.collector.run_until_idle(&mut self.runtime)
+        let mut runtime = self.guard.runtime();
+        self.collector.run_until_idle(&mut runtime)
     }
 
     /// Prepare reclaim for the active major collection once mark work is fully drained.
     pub fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
-        self.runtime.prepare_active_reclaim_if_needed()
+        self.guard.prepare_active_reclaim_if_needed()
     }
 
     /// Commit the active major collection once reclaim has already been prepared.
     pub fn commit_active_reclaim_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
-        self.runtime.commit_active_reclaim_if_ready()
+        self.guard.commit_active_reclaim_if_ready()
     }
 
     /// Return the number of queued finalizers waiting to run.
     pub fn pending_finalizer_count(&self) -> usize {
-        self.runtime.pending_finalizer_count()
+        self.guard.pending_finalizer_count()
     }
 
     /// Run and drain queued finalizers.
     pub fn drain_pending_finalizers(&mut self) -> u64 {
-        self.runtime.drain_pending_finalizers()
+        self.guard.drain_pending_finalizers()
     }
 
     /// Run at most `max` queued finalizers and return the number
     /// that actually ran. See [`Heap::drain_pending_finalizers_bounded`].
     pub fn drain_pending_finalizers_bounded(&mut self, max: usize) -> u64 {
-        self.runtime.drain_pending_finalizers_bounded(max)
+        self.guard.drain_pending_finalizers_bounded(max)
     }
 
     /// Return runtime-side follow-up work that remains outside GC commit.
     pub fn runtime_work_status(&self) -> RuntimeWorkStatus {
-        self.runtime.runtime_work_status()
+        self.guard.runtime_work_status()
     }
 
     /// Finish the active major collection if its mark work is fully drained.
     pub fn finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
-        self.runtime.finish_active_major_collection_if_ready()
+        self.guard.finish_active_major_collection_if_ready()
+    }
+
+    /// Last completed collection plan, if any.
+    pub fn last_completed_plan(&self) -> Option<crate::plan::CollectionPlan> {
+        self.guard.last_completed_plan()
+    }
+
+    /// Snapshot of heap statistics.
+    pub fn heap_stats(&self) -> HeapStats {
+        self.guard.stats()
     }
 }
 

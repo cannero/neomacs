@@ -385,7 +385,7 @@ unsafe impl Trace for FinalizableLeaf {
 
 #[test]
 fn public_api_keeps_rooted_pinned_object_across_major_gc() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut scope = mutator.handle_scope();
     let leaf = mutator
@@ -402,7 +402,7 @@ fn public_api_keeps_rooted_pinned_object_across_major_gc() {
 
 #[test]
 fn public_api_alloc_oversize_promote_to_pinned_object_into_pinned_space() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 8,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -426,7 +426,7 @@ fn public_api_alloc_oversize_promote_to_pinned_object_into_pinned_space() {
 
 #[test]
 fn public_api_minor_collection_promotes_promote_to_pinned_object_into_pinned_space() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             promotion_age: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -454,7 +454,7 @@ fn public_api_minor_collection_promotes_promote_to_pinned_object_into_pinned_spa
 
 #[test]
 fn public_api_alloc_immortal_object_into_immortal_space() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut scope = mutator.handle_scope();
     let leaf = mutator
@@ -472,7 +472,7 @@ fn public_api_alloc_immortal_object_into_immortal_space() {
 
 #[test]
 fn public_api_minor_collection_immortal_object_keeps_young_child_alive() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut scope = mutator.handle_scope();
     let holder = mutator
@@ -508,7 +508,7 @@ fn public_api_minor_collection_immortal_object_keeps_young_child_alive() {
 
 #[test]
 fn public_api_minor_plan_uses_configured_parallel_worker_budget() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             parallel_minor_workers: 4,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -527,7 +527,7 @@ fn public_api_minor_plan_uses_configured_parallel_worker_budget() {
 
 #[test]
 fn public_api_full_collection_prunes_remembered_edges_for_dead_old_owner() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut root_scope = mutator.handle_scope();
     let root = mutator
@@ -622,7 +622,7 @@ fn public_api_pinned_owner_nursery_edge_uses_explicit_fallback() {
     // default promotion_age of 2 the child would survive in
     // to-space for one cycle and the post-minor refresh would
     // still see a nursery edge through the pinned owner.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             promotion_age: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -719,7 +719,7 @@ fn public_api_pinned_owner_explicit_fallback_dedupes_repeated_writes() {
     // have grown to N entries (one per write); the new model
     // grows to one entry (one per deduped owner) regardless of
     // the write count.
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut owner_scope = mutator.handle_scope();
     let owner = mutator
@@ -754,7 +754,7 @@ fn public_api_pinned_owner_explicit_fallback_dedupes_repeated_writes() {
 #[test]
 fn public_api_alloc_auto_collects_under_nursery_pressure() {
     let leaf_bytes = estimated_allocation_size::<Leaf>().expect("leaf allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             semispace_bytes: leaf_bytes,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -795,7 +795,7 @@ fn public_api_nursery_tlab_bytes_config_is_honored_through_mutator_alloc() {
     // several refill cycles over the 64-leaf loop below.
     let tiny_tlab = leaf_bytes.saturating_mul(4);
 
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             tlab_bytes: tiny_tlab,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -836,7 +836,7 @@ fn public_api_nursery_tlab_bytes_config_is_honored_through_mutator_alloc() {
 #[test]
 fn public_api_alloc_auto_collects_under_pinned_pressure() {
     let pinned_bytes = estimated_allocation_size::<PinnedLeaf>().expect("pinned allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         pinned: neovm_gc::spaces::PinnedSpaceConfig {
             reserved_bytes: pinned_bytes,
         },
@@ -871,7 +871,7 @@ fn public_api_alloc_auto_collects_under_pinned_pressure() {
 #[test]
 fn public_api_alloc_auto_collects_under_large_pressure() {
     let large_bytes = estimated_allocation_size::<LargeLeaf>().expect("large allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         large: neovm_gc::spaces::LargeObjectSpaceConfig {
             threshold_bytes: 64,
             soft_limit_bytes: large_bytes,
@@ -906,7 +906,7 @@ fn public_api_alloc_auto_collects_under_large_pressure() {
 
 #[test]
 fn public_api_full_collection_evacuates_live_nursery_objects() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             promotion_age: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -949,7 +949,7 @@ fn public_api_full_collection_evacuates_live_nursery_objects() {
 
 #[test]
 fn public_api_recommended_plan_prefers_full_for_large_objects() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         large: neovm_gc::spaces::LargeObjectSpaceConfig {
             threshold_bytes: 64,
             ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
@@ -971,7 +971,7 @@ fn public_api_recommended_plan_prefers_full_for_large_objects() {
 
 #[test]
 fn public_api_execute_major_plan_records_phase_trace() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -1030,7 +1030,7 @@ fn public_api_execute_major_plan_records_phase_trace() {
 
 #[test]
 fn public_api_major_plan_can_mark_in_multiple_slices() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -1072,7 +1072,7 @@ fn public_api_major_plan_can_mark_in_multiple_slices() {
 #[test]
 fn public_api_execute_major_plan_uses_worker_count_to_reduce_mark_rounds() {
     fn run_major_cycle(worker_count: usize) -> neovm_gc::CollectionStats {
-        let mut heap = Heap::new(HeapConfig {
+        let heap = Heap::new(HeapConfig {
             nursery: neovm_gc::spaces::NurseryConfig {
                 max_regular_object_bytes: 1,
                 ..neovm_gc::spaces::NurseryConfig::default()
@@ -1117,7 +1117,7 @@ fn public_api_execute_major_plan_uses_worker_count_to_reduce_mark_rounds() {
 #[test]
 fn public_api_execute_major_plan_traces_on_multiple_threads_when_worker_count_is_high() {
     let seen_threads = Arc::new(Mutex::new(HashSet::new()));
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut keep_scope = mutator.handle_scope();
     for _ in 0..128usize {
@@ -1148,7 +1148,7 @@ fn public_api_execute_major_plan_traces_on_multiple_threads_when_worker_count_is
 #[test]
 fn public_api_execute_minor_plan_traces_on_multiple_threads_when_worker_count_is_high() {
     let seen_threads = Arc::new(Mutex::new(HashSet::new()));
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             parallel_minor_workers: 4,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -1185,7 +1185,7 @@ fn public_api_execute_minor_plan_traces_on_multiple_threads_when_worker_count_is
 #[test]
 fn public_api_execute_major_plan_visits_ephemerons_on_multiple_threads_when_worker_count_is_high() {
     let seen_threads = Arc::new(Mutex::new(HashSet::new()));
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut keep_scope = mutator.handle_scope();
     for index in 0..128u64 {
@@ -1224,7 +1224,7 @@ fn public_api_execute_major_plan_visits_ephemerons_on_multiple_threads_when_work
 fn public_api_execute_major_plan_processes_weak_edges_on_multiple_threads_when_worker_count_is_high()
  {
     let seen_threads = Arc::new(Mutex::new(HashSet::new()));
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut keep_scope = mutator.handle_scope();
     for index in 0..128u64 {
@@ -1258,7 +1258,7 @@ fn public_api_execute_major_plan_processes_weak_edges_on_multiple_threads_when_w
 
 #[test]
 fn public_api_persistent_major_mark_session_advances_and_finishes() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -1336,7 +1336,7 @@ fn public_api_persistent_major_mark_session_advances_and_finishes() {
 
 #[test]
 fn public_api_persistent_full_mark_session_finishes_with_evacuated_nursery_survivor() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             promotion_age: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -1391,7 +1391,7 @@ fn public_api_persistent_full_mark_session_finishes_with_evacuated_nursery_survi
 
 #[test]
 fn public_api_finish_active_major_collection_prepares_full_reclaim_before_commit() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             promotion_age: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -1478,7 +1478,7 @@ fn public_api_finish_active_major_collection_prepares_full_reclaim_before_commit
 
 #[test]
 fn public_api_collector_runtime_prepare_active_reclaim_moves_full_session_to_reclaim() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             promotion_age: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -1554,7 +1554,7 @@ fn public_api_collector_runtime_prepare_active_reclaim_moves_full_session_to_rec
 
 #[test]
 fn public_api_collector_runtime_finish_major_collection_finishes_active_session_directly() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -1597,7 +1597,7 @@ fn public_api_collector_runtime_finish_major_collection_finishes_active_session_
 
 #[test]
 fn public_api_collector_runtime_advance_major_mark_reports_progress() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let plan = {
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
@@ -1627,7 +1627,7 @@ fn public_api_collector_runtime_advance_major_mark_reports_progress() {
 
 #[test]
 fn public_api_collector_runtime_execute_plan_runs_minor_collection() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     {
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
@@ -1652,7 +1652,7 @@ fn public_api_collector_runtime_execute_plan_runs_minor_collection() {
 
 #[test]
 fn public_api_collector_runtime_collect_runs_minor_collection() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     {
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
@@ -1673,7 +1673,7 @@ fn public_api_collector_runtime_collect_runs_minor_collection() {
 
 #[test]
 fn public_api_collector_runtime_can_create_background_service() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut service = heap
         .collector_runtime()
         .background_service(neovm_gc::BackgroundCollectorConfig::default());
@@ -1687,7 +1687,7 @@ fn public_api_collector_runtime_can_create_background_service() {
 
 #[test]
 fn public_api_heap_advance_major_mark_reports_progress_directly() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let plan = {
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
@@ -1716,7 +1716,7 @@ fn public_api_heap_advance_major_mark_reports_progress_directly() {
 #[test]
 fn public_api_collector_runtime_commit_active_reclaim_returns_none_before_full_reclaim_is_prepared()
 {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             promotion_age: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -1785,7 +1785,7 @@ fn public_api_collector_runtime_commit_active_reclaim_returns_none_before_full_r
 
 #[test]
 fn public_api_collector_runtime_prepare_active_major_reclaim_moves_major_session_to_reclaim() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -1844,7 +1844,7 @@ fn public_api_collector_runtime_prepare_active_major_reclaim_moves_major_session
 
 #[test]
 fn public_api_collector_runtime_service_background_collection_round_finishes_major_session() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -1905,7 +1905,7 @@ fn public_api_collector_runtime_service_background_collection_round_finishes_maj
 fn public_api_collector_runtime_drain_pending_finalizers_runs_queued_finalizers() {
     PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
 
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -1954,7 +1954,7 @@ fn public_api_collector_runtime_drain_pending_finalizers_bounded_runs_in_slices(
     //   * stats.finalizers_run reflects the cumulative total
     PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
 
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -2027,7 +2027,7 @@ fn public_api_collector_runtime_drain_pending_finalizers_bounded_runs_in_slices(
 
 #[test]
 fn public_api_mutator_prepare_active_major_reclaim_moves_session_to_reclaim() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -2098,7 +2098,7 @@ fn public_api_mutator_prepare_active_major_reclaim_moves_session_to_reclaim() {
 
 #[test]
 fn public_api_mutator_commit_active_reclaim_requires_reclaim_phase() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -2164,7 +2164,7 @@ fn public_api_mutator_commit_active_reclaim_requires_reclaim_phase() {
 
 #[test]
 fn public_api_mutator_commit_active_reclaim_returns_none_before_full_reclaim_is_prepared() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             promotion_age: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -2231,7 +2231,7 @@ fn public_api_mutator_commit_active_reclaim_returns_none_before_full_reclaim_is_
 
 #[test]
 fn public_api_persistent_major_mark_root_keeps_existing_object() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -2279,7 +2279,7 @@ fn public_api_persistent_major_mark_root_keeps_existing_object() {
 
 #[test]
 fn public_api_persistent_major_mark_barrier_keeps_new_value() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -2350,7 +2350,7 @@ fn public_api_persistent_major_mark_barrier_keeps_new_value() {
 
 #[test]
 fn public_api_barrier_stats_count_post_write_traffic_outside_major_mark() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut keep_scope = mutator.handle_scope();
 
@@ -2408,7 +2408,7 @@ fn public_api_barrier_stats_count_post_write_traffic_outside_major_mark() {
 
 #[test]
 fn public_api_barrier_stats_count_satb_pre_write_during_major_mark() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -2495,7 +2495,7 @@ fn public_api_barrier_stats_count_satb_pre_write_during_major_mark() {
 
 #[test]
 fn public_api_shared_barrier_stats_visible_after_mutator_writes() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     {
         let mut mutator = heap.mutator();
         let mut keep_scope = mutator.handle_scope();
@@ -2543,7 +2543,7 @@ fn public_api_shared_barrier_stats_visible_after_mutator_writes() {
 
 #[test]
 fn public_api_active_major_mark_plan_is_visible() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -2605,7 +2605,7 @@ fn public_api_active_major_mark_plan_is_visible() {
 
 #[test]
 fn public_api_allocation_during_active_major_mark_advances_assist_progress() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -2668,7 +2668,7 @@ fn public_api_allocation_during_active_major_mark_advances_assist_progress() {
 #[test]
 fn public_api_alloc_auto_starts_concurrent_major_mark_under_pinned_pressure() {
     let pinned_bytes = estimated_allocation_size::<PinnedLeaf>().expect("pinned allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         pinned: neovm_gc::spaces::PinnedSpaceConfig {
             reserved_bytes: pinned_bytes,
         },
@@ -2713,7 +2713,7 @@ fn public_api_alloc_auto_starts_concurrent_major_mark_under_pinned_pressure() {
 
 #[test]
 fn public_api_poll_active_major_mark_and_finish_ready_complete_session() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -2785,7 +2785,7 @@ fn public_api_poll_active_major_mark_and_finish_ready_complete_session() {
 
 #[test]
 fn public_api_poll_active_major_mark_uses_configured_worker_round_width() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -2831,7 +2831,7 @@ fn public_api_poll_active_major_mark_uses_configured_worker_round_width() {
 
 #[test]
 fn public_api_poll_active_major_mark_processes_major_weak_edges_before_finish() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut keep_scope = mutator.handle_scope();
     let holder_gc = {
@@ -2888,7 +2888,7 @@ fn public_api_poll_active_major_mark_processes_major_weak_edges_before_finish() 
 #[test]
 fn public_api_poll_active_major_mark_prepares_major_old_region_rebuild_before_finish() {
     let old_bytes = neovm_gc::estimated_allocation_size::<OldLeaf>().expect("old allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -2975,7 +2975,7 @@ fn public_api_poll_active_major_mark_prepares_major_old_region_rebuild_before_fi
 fn public_api_poll_active_major_mark_prepares_major_finalizer_before_finish() {
     PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
 
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -3038,7 +3038,7 @@ fn public_api_poll_active_major_mark_prepares_major_finalizer_before_finish() {
 
 #[test]
 fn public_api_background_collection_round_finishes_active_major_session() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -3100,7 +3100,7 @@ fn public_api_background_collection_round_finishes_active_major_session() {
 #[test]
 fn public_api_pressure_started_concurrent_session_finishes_via_background_service() {
     let pinned_bytes = estimated_allocation_size::<PinnedLeaf>().expect("pinned allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         pinned: neovm_gc::spaces::PinnedSpaceConfig {
             reserved_bytes: pinned_bytes,
         },
@@ -3149,7 +3149,7 @@ fn public_api_pressure_started_concurrent_session_finishes_via_background_servic
 
 #[test]
 fn public_api_background_collector_auto_starts_and_finishes_concurrent_major_plan() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -3193,7 +3193,7 @@ fn public_api_background_collector_auto_starts_and_finishes_concurrent_major_pla
 
 #[test]
 fn public_api_background_collector_can_disable_auto_start() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -3236,7 +3236,7 @@ fn public_api_background_collector_can_disable_auto_start() {
 
 #[test]
 fn public_api_background_collector_auto_starts_and_finishes_concurrent_full_plan() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         large: neovm_gc::spaces::LargeObjectSpaceConfig {
             threshold_bytes: 64,
             soft_limit_bytes: usize::MAX,
@@ -3271,7 +3271,7 @@ fn public_api_background_collector_auto_starts_and_finishes_concurrent_full_plan
 
 #[test]
 fn public_api_recommended_background_plan_prefers_major_even_with_live_nursery() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         pinned: neovm_gc::spaces::PinnedSpaceConfig {
             reserved_bytes: usize::MAX,
         },
@@ -3299,7 +3299,7 @@ fn public_api_recommended_background_plan_prefers_major_even_with_live_nursery()
 
 #[test]
 fn public_api_recommended_background_plan_is_none_when_concurrency_is_disabled() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         pinned: neovm_gc::spaces::PinnedSpaceConfig {
             reserved_bytes: usize::MAX,
         },
@@ -3320,7 +3320,7 @@ fn public_api_recommended_background_plan_is_none_when_concurrency_is_disabled()
 
 #[test]
 fn public_api_background_collector_prefers_full_even_with_live_nursery() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         large: neovm_gc::spaces::LargeObjectSpaceConfig {
             threshold_bytes: 64,
             soft_limit_bytes: usize::MAX,
@@ -3369,7 +3369,7 @@ fn public_api_background_collector_prefers_full_even_with_live_nursery() {
 
 #[test]
 fn public_api_background_collector_tick_aggregates_multiple_rounds() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -3430,7 +3430,7 @@ fn public_api_background_collector_tick_aggregates_multiple_rounds() {
 
 #[test]
 fn public_api_background_collector_can_leave_ready_session_for_explicit_finish() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -3503,7 +3503,7 @@ fn public_api_background_collector_can_leave_ready_session_for_explicit_finish()
 
 #[test]
 fn public_api_background_collector_prepares_full_reclaim_before_finishing_runtime_session() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         large: neovm_gc::spaces::LargeObjectSpaceConfig {
             threshold_bytes: 64,
             soft_limit_bytes: usize::MAX,
@@ -3574,7 +3574,7 @@ fn public_api_background_collector_prepares_full_reclaim_before_finishing_runtim
 fn public_api_reports_queued_finalizers_and_finalizer_drains() {
     PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
 
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     {
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
@@ -3606,7 +3606,7 @@ fn public_api_reports_queued_finalizers_and_finalizer_drains() {
 
 #[test]
 fn public_api_reports_reclaimed_bytes_on_major_gc() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     {
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
@@ -3626,7 +3626,7 @@ fn public_api_reports_reclaimed_bytes_on_major_gc() {
 
 #[test]
 fn public_api_collection_stats_track_nursery_survival_inputs() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     for value in 0..32u64 {
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
@@ -3685,7 +3685,7 @@ fn public_api_collection_stats_track_nursery_survival_inputs() {
 
 #[test]
 fn public_api_collection_stats_track_concurrent_mark_duration() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     for value in 0..16u64 {
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
@@ -3721,7 +3721,7 @@ fn public_api_collection_stats_track_concurrent_mark_duration() {
 
 #[test]
 fn public_api_clears_dead_weak_target_on_major_gc() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut keep_scope = mutator.handle_scope();
 
@@ -3758,7 +3758,7 @@ fn public_api_clears_dead_weak_target_on_major_gc() {
 
 #[test]
 fn public_api_ephemeron_keeps_value_when_key_is_live() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut keep_scope = mutator.handle_scope();
 
@@ -3802,7 +3802,7 @@ fn public_api_ephemeron_keeps_value_when_key_is_live() {
 
 #[test]
 fn public_api_ephemeron_clears_when_key_is_dead() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let mut keep_scope = mutator.handle_scope();
 
@@ -3846,7 +3846,7 @@ fn public_api_ephemeron_clears_when_key_is_dead() {
 
 #[test]
 fn public_api_heap_stats_report_candidate_counts() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
 
     let (weak_holder_gc, ephemeron_holder_gc, finalizable_gc) = {
@@ -3918,7 +3918,7 @@ fn public_api_heap_stats_report_candidate_counts() {
 
 #[test]
 fn public_api_exposes_old_region_stats() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -3958,7 +3958,7 @@ fn public_api_block_region_stats_match_legacy_region_stats_pre_collection() {
     // contract for future migrations: any test that asserts
     // properties of the post-allocation state can switch to
     // old_block_region_stats with no semantic change.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -4016,7 +4016,7 @@ fn public_api_major_block_candidates_ranking_for_fragmented_workload() {
     // view.)
     let old_bytes = neovm_gc::estimated_allocation_size::<OldLeaf>()
         .expect("old allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -4084,7 +4084,7 @@ fn public_api_compact_old_gen_blocks_compacts_named_blocks_only() {
     // blocks should be untouched.
     let old_bytes = neovm_gc::estimated_allocation_size::<OldLeaf>()
         .expect("old allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -4170,7 +4170,7 @@ fn public_api_block_region_stats_report_holes_after_dropping_some_objects() {
     // know which view to consult.
     let old_bytes = neovm_gc::estimated_allocation_size::<OldLeaf>()
         .expect("old allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -4230,7 +4230,7 @@ fn public_api_block_region_stats_report_holes_after_dropping_some_objects() {
 
 #[test]
 fn public_api_minor_collection_preserves_old_region_layout_metadata() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 16,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -4272,7 +4272,7 @@ fn public_api_minor_collection_preserves_old_region_layout_metadata() {
 
 #[test]
 fn public_api_exposes_major_collection_plan() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -4344,7 +4344,7 @@ fn public_api_exposes_major_collection_plan() {
 
 #[test]
 fn public_api_major_plan_reports_zero_compaction_bytes_without_old_region_candidates() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         pinned: neovm_gc::spaces::PinnedSpaceConfig {
             reserved_bytes: usize::MAX,
         },
@@ -4369,7 +4369,7 @@ fn public_api_major_plan_reports_zero_compaction_bytes_without_old_region_candid
 
 #[test]
 fn public_api_exposes_major_region_candidates() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -4459,7 +4459,7 @@ fn public_api_exposes_major_region_candidates() {
 #[test]
 fn public_api_major_region_candidates_prefer_holey_regions_over_tail_only_sparse_regions() {
     let old_bytes = estimated_allocation_size::<OldLeaf>().expect("old allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -4542,7 +4542,7 @@ fn public_api_major_region_candidates_prefer_holey_regions_over_tail_only_sparse
 #[test]
 fn public_api_major_region_candidates_respect_compaction_byte_budget() {
     let old_bytes = estimated_allocation_size::<OldLeaf>().expect("old allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -4623,7 +4623,7 @@ fn public_api_major_region_candidates_respect_compaction_byte_budget() {
 #[test]
 fn public_api_major_region_candidates_prefer_more_reclaim_efficient_regions_under_budget() {
     let old_bytes = estimated_allocation_size::<OldLeaf>().expect("old allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -4723,7 +4723,7 @@ fn public_api_major_region_candidates_prefer_more_reclaim_efficient_regions_unde
 
 #[test]
 fn public_api_reuses_empty_old_region_after_major_gc() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -4775,7 +4775,7 @@ fn public_api_reuses_empty_old_region_after_major_gc() {
 
 #[test]
 fn public_api_major_gc_repacks_old_regions_after_hole() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -4834,7 +4834,7 @@ fn public_api_major_gc_repacks_old_regions_after_hole() {
 #[test]
 fn public_api_major_collection_preserves_non_candidate_hole_in_live_old_region() {
     let old_bytes = estimated_allocation_size::<OldLeaf>().expect("old allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -4889,7 +4889,7 @@ fn public_api_major_collection_preserves_non_candidate_hole_in_live_old_region()
 #[test]
 fn public_api_major_collection_compacts_selected_live_old_region() {
     let old_bytes = estimated_allocation_size::<OldLeaf>().expect("old allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -4960,7 +4960,7 @@ fn public_api_major_collection_compacts_selected_live_old_region() {
 #[test]
 fn public_api_execute_major_plan_honors_exact_selected_old_regions() {
     let old_bytes = estimated_allocation_size::<OldLeaf>().expect("old allocation size");
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -5066,7 +5066,7 @@ fn public_api_execute_major_plan_honors_exact_selected_old_regions() {
 
 #[test]
 fn public_api_background_collector_can_drive_collector_runtime_surface() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -5107,14 +5107,14 @@ fn public_api_background_collector_can_drive_collector_runtime_surface() {
     assert_eq!(collector.stats().sessions_finished, 1);
     assert_eq!(runtime.active_major_mark_plan(), None);
     assert_eq!(
-        runtime.heap().last_completed_plan().map(|plan| plan.kind),
+        runtime.last_completed_plan().map(|plan| plan.kind),
         Some(CollectionKind::Major)
     );
 }
 
 #[test]
 fn public_api_background_service_owns_collector_runtime_loop() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -5153,7 +5153,7 @@ fn public_api_background_service_owns_collector_runtime_loop() {
     assert_eq!(service.stats().sessions_finished, 1);
     assert_eq!(service.active_major_mark_plan(), None);
     assert_eq!(
-        service.heap().last_completed_plan().map(|plan| plan.kind),
+        service.last_completed_plan().map(|plan| plan.kind),
         Some(CollectionKind::Major)
     );
 }
@@ -5162,7 +5162,7 @@ fn public_api_background_service_owns_collector_runtime_loop() {
 fn public_api_background_service_drains_pending_finalizers() {
     PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
 
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -5197,7 +5197,7 @@ fn public_api_background_service_drains_pending_finalizers() {
     assert_eq!(service.drain_pending_finalizers(), 1);
     assert_eq!(service.pending_finalizer_count(), 0);
     assert_eq!(service.runtime_work_status(), RuntimeWorkStatus::Idle);
-    assert_eq!(service.heap().stats().finalizers_run, 1);
+    assert_eq!(service.heap_stats().finalizers_run, 1);
     assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
 }
 
@@ -5211,7 +5211,7 @@ fn public_api_background_service_drain_pending_finalizers_bounded_runs_in_slices
     // its background service can budget work per service tick.
     PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
 
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
@@ -5248,7 +5248,7 @@ fn public_api_background_service_drain_pending_finalizers_bounded_runs_in_slices
     assert_eq!(service.drain_pending_finalizers_bounded(5), 1);
     assert_eq!(service.pending_finalizer_count(), 0);
     assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 3);
-    assert_eq!(service.heap().stats().finalizers_run, 3);
+    assert_eq!(service.heap_stats().finalizers_run, 3);
 }
 
 #[test]
@@ -5427,7 +5427,7 @@ fn public_api_background_worker_owns_autonomous_service_loop() {
     })
     .into_shared();
     {
-        let mut heap = shared.lock().expect("lock shared heap for allocation");
+        let heap = shared.lock().expect("lock shared heap for allocation");
         let mut mutator = heap.mutator();
         let mut keep_scope = mutator.handle_scope();
         for byte in 0..16u8 {
@@ -6230,7 +6230,7 @@ fn public_api_shared_collector_runtime_background_observation_stays_stable_under
     assert!(before.status.recommended_background_plan.is_none());
 
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
         for byte in 0..8u8 {
@@ -6337,7 +6337,7 @@ fn public_api_shared_collector_runtime_status_reads_work_while_heap_lock_is_held
     assert_eq!(before.active_major_mark_plan, None);
 
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         assert_eq!(
             runtime
                 .status()
@@ -6502,7 +6502,7 @@ fn public_api_shared_snapshot_reads_work_while_heap_lock_is_held_and_refresh_on_
     let before = shared.stats().expect("read snapshot stats before lock");
 
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         assert_eq!(
             shared
                 .stats()
@@ -6568,7 +6568,7 @@ fn public_api_shared_status_reads_work_while_heap_lock_is_held_and_refresh_on_dr
     assert_eq!(before.active_major_mark_plan, None);
 
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         assert_eq!(
             shared
                 .status()
@@ -6672,7 +6672,7 @@ fn public_api_shared_snapshot_major_mark_progress_reads_work_while_heap_lock_is_
 
     let second_progress;
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         assert_eq!(
             shared
                 .major_mark_progress()
@@ -6753,7 +6753,7 @@ fn public_api_shared_snapshot_recommended_background_plan_reads_work_while_heap_
 
     let after;
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         assert_eq!(
             shared
                 .recommended_background_plan()
@@ -6761,10 +6761,12 @@ fn public_api_shared_snapshot_recommended_background_plan_reads_work_while_heap_
             Some(before.clone())
         );
 
-        let mut runtime = heap.collector_runtime();
-        runtime
-            .begin_major_mark(before.clone())
-            .expect("begin major mark under guard");
+        {
+            let mut runtime = heap.collector_runtime();
+            runtime
+                .begin_major_mark(before.clone())
+                .expect("begin major mark under guard");
+        }
         after = heap.recommended_background_plan();
 
         assert_eq!(
@@ -6811,7 +6813,7 @@ fn public_api_shared_snapshot_recommended_plan_reads_work_while_heap_lock_is_hel
     assert_eq!(before.kind, CollectionKind::Minor);
 
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         assert_eq!(
             shared
                 .recommended_plan()
@@ -6870,7 +6872,7 @@ fn public_api_shared_collector_runtime_recommended_plan_reads_work_while_heap_lo
     assert_eq!(before.kind, CollectionKind::Minor);
 
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         assert_eq!(
             runtime
                 .recommended_plan()
@@ -7372,7 +7374,7 @@ fn public_api_shared_background_service_status_reads_work_while_heap_lock_is_hel
     assert_eq!(before.heap.recommended_plan.kind, CollectionKind::Minor);
 
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         assert_eq!(
             service
                 .status()
@@ -8545,7 +8547,7 @@ fn public_api_shared_background_observation_stays_stable_under_lock_and_refreshe
     assert!(before.status.recommended_background_plan.is_none());
 
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
         for byte in 0..8u8 {
@@ -8998,7 +9000,7 @@ fn public_api_background_worker_status_reads_work_while_heap_lock_is_held_and_re
     let before = worker.status().expect("read worker status before lock");
 
     {
-        let mut heap = shared.lock().expect("lock shared heap");
+        let heap = shared.lock().expect("lock shared heap");
         let during = worker
             .status()
             .expect("read worker status while heap lock held");

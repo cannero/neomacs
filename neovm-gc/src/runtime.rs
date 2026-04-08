@@ -1,5 +1,5 @@
 use crate::background::{
-    BackgroundCollectionRuntime, BackgroundCollectorConfig, BackgroundService, BackgroundWorker,
+    BackgroundCollectionRuntime, BackgroundCollectorConfig, BackgroundWorker,
     BackgroundWorkerConfig, SharedBackgroundError, SharedBackgroundObservation,
     SharedBackgroundService, SharedBackgroundStatus, SharedBackgroundWaitResult,
     SharedCollectorHandle, SharedHeap, SharedHeapError, SharedHeapStatus, SharedRuntimeHandle,
@@ -12,7 +12,7 @@ use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_pl
 use crate::collector_session::{self, build_prepared_active_reclaim, prepare_active_reclaim};
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::descriptor::{GcErased, TypeDesc};
-use crate::heap::{AllocError, Heap, HeapCore};
+use crate::heap::{AllocError, HeapCore};
 use crate::object::SpaceKind;
 use crate::plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress,
@@ -37,37 +37,24 @@ pub struct CollectorRuntime<'heap> {
     local: CollectorLocal<'heap>,
 }
 
-/// Owner or borrow of the [`crate::mutator::MutatorLocal`]
-/// carried by [`CollectorRuntime`]. When constructed from a
-/// [`crate::mutator::Mutator`] (the production path) the
-/// runtime borrows the mutator's local so per-mutator state
-/// (TLAB, root stack, barrier ring) survives across calls.
-/// When constructed directly from `HeapCore` (via
-/// [`HeapCore::collector_runtime`], typically a test or
-/// non-mutator entry point), the runtime owns an ephemeral
-/// local that dies at the end of the borrow — empty roots
-/// are fine because the borrow checker prevents concurrent
-/// mutator activity, so no live roots could exist during
-/// that window anyway.
+/// Borrow of the [`crate::mutator::MutatorLocal`] carried by
+/// [`CollectorRuntime`]. The runtime always borrows from
+/// either an outer [`crate::mutator::Mutator`] (the
+/// production path) or a scratch local owned by
+/// [`crate::heap::HeapCollectorRuntime`] (the non-mutator
+/// path). The runtime itself never owns the local.
 #[derive(Debug)]
-pub(crate) enum CollectorLocal<'heap> {
-    Borrowed(&'heap mut crate::mutator::MutatorLocal),
-    Owned(Box<crate::mutator::MutatorLocal>),
+pub(crate) struct CollectorLocal<'heap> {
+    inner: &'heap mut crate::mutator::MutatorLocal,
 }
 
 impl CollectorLocal<'_> {
     pub(crate) fn get(&self) -> &crate::mutator::MutatorLocal {
-        match self {
-            Self::Borrowed(local) => local,
-            Self::Owned(local) => local,
-        }
+        self.inner
     }
 
     pub(crate) fn get_mut(&mut self) -> &mut crate::mutator::MutatorLocal {
-        match self {
-            Self::Borrowed(local) => local,
-            Self::Owned(local) => local,
-        }
+        self.inner
     }
 }
 
@@ -129,43 +116,29 @@ pub struct SharedCollectorRuntime {
 }
 
 impl<'heap> CollectorRuntime<'heap> {
-    /// Build a runtime that owns an ephemeral mutator local.
-    /// Used by test-only and non-mutator entry points that
-    /// just need a collector surface without owning a
-    /// `Mutator`. Empty roots are fine in this mode because
-    /// the borrow checker guarantees no `Mutator` is alive
-    /// while a `&mut HeapCore` is held — so no live roots
-    /// could exist either.
-    pub(crate) fn new(heap: &'heap mut HeapCore) -> Self {
-        Self {
-            heap,
-            local: CollectorLocal::Owned(Box::default()),
-        }
-    }
-
     /// Build a runtime that borrows the supplied mutator
-    /// local. Used by [`crate::mutator::Mutator`] so every
-    /// collector operation (alloc, collect, barrier, etc.)
-    /// sees that mutator's TLAB, root stack, and barrier
-    /// event ring.
+    /// local. Used by [`crate::heap::HeapCollectorRuntime::runtime`]
+    /// (which carries a scratch local) and by
+    /// [`crate::mutator::Mutator::with_runtime`] (which
+    /// borrows the mutator's own local).
     pub(crate) fn with_local(
         heap: &'heap mut HeapCore,
         local: &'heap mut crate::mutator::MutatorLocal,
     ) -> Self {
         Self {
             heap,
-            local: CollectorLocal::Borrowed(local),
+            local: CollectorLocal { inner: local },
         }
-    }
-
-    /// Return a shared view of the underlying heap.
-    pub fn heap(&self) -> &Heap {
-        Heap::ref_cast(self.heap)
     }
 
     /// Return current heap statistics.
     pub fn stats(&self) -> HeapStats {
         self.heap.stats()
+    }
+
+    /// Return the most recently completed collection plan, if any.
+    pub fn last_completed_plan(&self) -> Option<CollectionPlan> {
+        self.heap.last_completed_plan()
     }
 
     /// Return the number of queued finalizers waiting to run.
@@ -202,11 +175,6 @@ impl<'heap> CollectorRuntime<'heap> {
     /// Return progress for the active major-mark session, if any.
     pub fn major_mark_progress(&self) -> Option<MajorMarkProgress> {
         self.heap.major_mark_progress()
-    }
-
-    /// Create a background collection service loop bound to this runtime.
-    pub fn background_service(self, config: BackgroundCollectorConfig) -> BackgroundService<'heap> {
-        BackgroundService::from_runtime(self, config)
     }
 
     /// Run one stop-the-world collection cycle.
@@ -1004,35 +972,46 @@ impl SharedCollectorRuntime {
         self.runtime.publish_collector_snapshot(next_collector)
     }
 
-    fn with_heap_read<R>(&self, f: impl FnOnce(&Heap) -> R) -> Result<R, SharedHeapError> {
+    fn with_heap_read<R>(
+        &self,
+        f: impl FnOnce(&HeapCore) -> R,
+    ) -> Result<R, SharedHeapError> {
         let heap = self
             .heap
             .read()
             .map_err(|_| SharedHeapError::LockPoisoned)?;
-        Ok(f(&heap))
+        let core = heap.read_core();
+        Ok(f(&core))
     }
 
-    fn try_with_heap_read<R>(&self, f: impl FnOnce(&Heap) -> R) -> Result<R, SharedHeapError> {
+    fn try_with_heap_read<R>(
+        &self,
+        f: impl FnOnce(&HeapCore) -> R,
+    ) -> Result<R, SharedHeapError> {
         let heap = self.heap.try_read().map_err(|error| match error {
             std::sync::TryLockError::Poisoned(_) => SharedHeapError::LockPoisoned,
             std::sync::TryLockError::WouldBlock => SharedHeapError::WouldBlock,
         })?;
-        Ok(f(&heap))
+        let core = heap.read_core();
+        Ok(f(&core))
     }
 
     fn with_heap_read_collector_update<R>(
         &self,
-        f: impl FnOnce(&Heap, &mut CollectorState) -> Result<R, AllocError>,
+        f: impl FnOnce(&HeapCore, &mut CollectorState) -> Result<R, AllocError>,
     ) -> Result<Result<R, AllocError>, SharedHeapError> {
         let heap = self
             .heap
             .read()
             .map_err(|_| SharedHeapError::LockPoisoned)?;
+        let core = heap.read_core();
         let result = self.collector.with_state(|collector| {
-            f(&heap, collector).map(|value| (value, collector.shared_snapshot()))
+            f(&core, collector).map(|value| (value, collector.shared_snapshot()))
         })?;
         match result {
             Ok((value, collector_snapshot)) => {
+                drop(core);
+                drop(heap);
                 self.publish_collector_snapshot(collector_snapshot)?;
                 Ok(Ok(value))
             }
@@ -1042,17 +1021,20 @@ impl SharedCollectorRuntime {
 
     fn try_with_heap_read_collector_update<R>(
         &self,
-        f: impl FnOnce(&Heap, &mut CollectorState) -> Result<R, AllocError>,
+        f: impl FnOnce(&HeapCore, &mut CollectorState) -> Result<R, AllocError>,
     ) -> Result<Result<R, AllocError>, SharedHeapError> {
         let heap = self.heap.try_read().map_err(|error| match error {
             std::sync::TryLockError::Poisoned(_) => SharedHeapError::LockPoisoned,
             std::sync::TryLockError::WouldBlock => SharedHeapError::WouldBlock,
         })?;
+        let core = heap.read_core();
         let result = self.collector.try_with_state(|collector| {
-            f(&heap, collector).map(|value| (value, collector.shared_snapshot()))
+            f(&core, collector).map(|value| (value, collector.shared_snapshot()))
         })?;
         match result {
             Ok((value, collector_snapshot)) => {
+                drop(core);
+                drop(heap);
                 self.publish_collector_snapshot(collector_snapshot)?;
                 Ok(Ok(value))
             }
@@ -1064,11 +1046,12 @@ impl SharedCollectorRuntime {
         &self,
         f: impl for<'heap> FnOnce(&mut CollectorRuntime<'heap>) -> Result<R, AllocError>,
     ) -> Result<Result<R, AllocError>, SharedHeapError> {
-        let mut heap = self
+        let heap = self
             .heap
             .lock()
             .map_err(|_| SharedHeapError::LockPoisoned)?;
-        let mut runtime = heap.collector_runtime();
+        let mut guard = heap.collector_runtime();
+        let mut runtime = guard.runtime();
         Ok(f(&mut runtime))
     }
 
@@ -1076,11 +1059,12 @@ impl SharedCollectorRuntime {
         &self,
         f: impl for<'heap> FnOnce(&mut CollectorRuntime<'heap>) -> Result<R, AllocError>,
     ) -> Result<Result<R, AllocError>, SharedHeapError> {
-        let mut heap = self.heap.try_lock().map_err(|error| match error {
+        let heap = self.heap.try_lock().map_err(|error| match error {
             std::sync::TryLockError::Poisoned(_) => SharedHeapError::LockPoisoned,
             std::sync::TryLockError::WouldBlock => SharedHeapError::WouldBlock,
         })?;
-        let mut runtime = heap.collector_runtime();
+        let mut guard = heap.collector_runtime();
+        let mut runtime = guard.runtime();
         Ok(f(&mut runtime))
     }
 
@@ -1373,8 +1357,8 @@ impl SharedCollectorRuntime {
                 collector,
                 heap.objects(),
                 &heap.indexes().object_index,
-                |tracer, plan| trace_heap_major_ephemerons(heap.core(), tracer, plan),
-                |plan| prepare_heap_major_reclaim(heap.core(), plan),
+                |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
+                |plan| prepare_heap_major_reclaim(heap, plan),
             )?;
             refresh_cached_collector_plans(
                 collector,
@@ -1399,8 +1383,8 @@ impl SharedCollectorRuntime {
                 collector,
                 heap.objects(),
                 &heap.indexes().object_index,
-                |tracer, plan| trace_heap_major_ephemerons(heap.core(), tracer, plan),
-                |plan| prepare_heap_major_reclaim(heap.core(), plan),
+                |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
+                |plan| prepare_heap_major_reclaim(heap, plan),
             )?;
             refresh_cached_collector_plans(
                 collector,
@@ -1439,8 +1423,8 @@ impl SharedCollectorRuntime {
                             request,
                             heap.objects(),
                             &heap.indexes().object_index,
-                            |tracer, plan| trace_heap_major_ephemerons(heap.core(), tracer, plan),
-                            |plan| Ok(prepare_heap_major_reclaim(heap.core(), plan)),
+                            |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
+                            |plan| Ok(prepare_heap_major_reclaim(heap, plan)),
                             &heap.storage_stats(),
                             heap.old_gen(),
                             heap.old_config(),
@@ -1483,8 +1467,8 @@ impl SharedCollectorRuntime {
                             request,
                             heap.objects(),
                             &heap.indexes().object_index,
-                            |tracer, plan| trace_heap_major_ephemerons(heap.core(), tracer, plan),
-                            |plan| Ok(prepare_heap_major_reclaim(heap.core(), plan)),
+                            |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
+                            |plan| Ok(prepare_heap_major_reclaim(heap, plan)),
                             &heap.storage_stats(),
                             heap.old_gen(),
                             heap.old_config(),

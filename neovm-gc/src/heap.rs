@@ -9,7 +9,8 @@ use crate::object::{ObjectRecord, SpaceKind};
 use crate::pacer::{Pacer, PacerConfig, PacerStats};
 use crate::pause_stats::{PauseHistogram, PauseStatsHandle};
 use crate::plan::{
-    CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress, RuntimeWorkStatus,
+    BackgroundCollectionStatus, CollectionKind, CollectionPhase, CollectionPlan,
+    MajorMarkProgress, RuntimeWorkStatus,
 };
 use crate::runtime::CollectorRuntime;
 use crate::runtime_state::RuntimeStateHandle;
@@ -125,42 +126,28 @@ unsafe impl Send for HeapCore {}
 
 /// Global heap object.
 ///
-/// `Heap` is a `#[repr(transparent)]` newtype around the
-/// crate-internal [`HeapCore`]. Today the two types share
-/// identical layout, so a `&HeapCore` can be safely
-/// reinterpreted as a `&Heap` via [`Heap::ref_cast`].
+/// `Heap` owns an `Arc<RwLock<HeapCore>>` so multiple
+/// `Mutator` instances can coexist against the same heap.
+/// Each mutator briefly acquires the write lock to perform
+/// allocation, barrier, or collection work, and drops it at
+/// the end of the operation. The hot-path TLAB bump still
+/// lives on the per-mutator [`crate::mutator::MutatorLocal::tlab`]
+/// and does not need to acquire the lock on hit.
 ///
-/// Every method previously defined on `Heap` lives on
-/// [`HeapCore`] now; `Heap` itself carries only the
-/// construction entry points (`new`, `into_shared`) and the
-/// `Deref` / `DerefMut` forwarding to `HeapCore`. External
-/// callers see no behavioral change — `Heap::mutator`,
-/// `Heap::collect`, etc. resolve through auto-deref.
-///
-/// The multi-mutator refactor (DESIGN.md Appendix A) will
-/// eventually change this wrapper to own
-/// `Arc<RwLock<HeapCore>>` instead of `HeapCore` directly,
-/// and `Mutator` / `CollectorRuntime` will acquire the lock
-/// at the start of each operation. This commit only
-/// introduces the split; the locking infrastructure comes
-/// in later commits.
-#[repr(transparent)]
-#[derive(Debug)]
+/// `Heap` is `Clone` via `Arc::clone` — passing the heap to
+/// another thread or storing additional handles is cheap.
+/// The cloned handles all reference the same underlying
+/// `HeapCore`.
+#[derive(Clone, Debug)]
 pub struct Heap {
-    core: HeapCore,
+    core: std::sync::Arc<std::sync::RwLock<HeapCore>>,
 }
-
-// SAFETY: `Heap` is `#[repr(transparent)]` over `HeapCore`, which is `Send` via the
-// `unsafe impl Send for HeapCore {}` above. Send does not auto-propagate through
-// `#[repr(transparent)]` when the inner type has an explicit `unsafe impl`, so we repeat
-// the bound here.
-unsafe impl Send for Heap {}
 
 impl Heap {
     /// Create a new heap with `config`.
     pub fn new(config: HeapConfig) -> Self {
         Self {
-            core: HeapCore::new(config),
+            core: std::sync::Arc::new(std::sync::RwLock::new(HeapCore::new(config))),
         }
     }
 
@@ -169,32 +156,28 @@ impl Heap {
         SharedHeap::from_heap(self)
     }
 
-    /// Reinterpret a `&HeapCore` as a `&Heap`.
-    ///
-    /// Safe because `Heap` is `#[repr(transparent)]` over
-    /// `HeapCore`, which guarantees identical layout.
-    /// Crate-internal so call sites that hold a `&mut HeapCore`
-    /// (e.g. `Mutator::heap()`, `CollectorRuntime::heap()`)
-    /// can still expose a `&Heap` on their public API.
+    /// Acquire a write guard on the underlying `HeapCore`.
+    /// Used by every mutating heap operation. The guard is
+    /// dropped when the returned value goes out of scope.
     #[inline]
-    pub(crate) fn ref_cast(core: &HeapCore) -> &Self {
-        // SAFETY: `Heap` is `#[repr(transparent)]` over
-        // `HeapCore`, so the two types share the same layout
-        // and a shared reference to one can be reinterpreted
-        // as a shared reference to the other.
-        unsafe { &*(core as *const HeapCore as *const Self) }
+    pub(crate) fn write_core(&self) -> std::sync::RwLockWriteGuard<'_, HeapCore> {
+        self.core.write().expect("heap core lock poisoned")
     }
 
-    /// Access the underlying `HeapCore`.
-    ///
-    /// Crate-internal helper for call sites that need a
-    /// `&HeapCore` to pass to collector helpers that take
-    /// `&HeapCore` directly (rather than routing through
-    /// `CollectorRuntime`). External callers should use the
-    /// public `Heap` API methods defined below.
+    /// Acquire a read guard on the underlying `HeapCore`.
+    /// Used by read-only heap accessors and by tests that
+    /// need to traverse heap-owned data structures across
+    /// multiple statements.
     #[inline]
-    pub(crate) fn core(&self) -> &HeapCore {
-        &self.core
+    pub(crate) fn read_core(&self) -> std::sync::RwLockReadGuard<'_, HeapCore> {
+        self.core.read().expect("heap core lock poisoned")
+    }
+
+    /// Crate-internal `Arc` clone helper.
+    #[inline]
+    #[allow(dead_code)]
+    pub(crate) fn clone_arc(&self) -> std::sync::Arc<std::sync::RwLock<HeapCore>> {
+        std::sync::Arc::clone(&self.core)
     }
 
     // -- Public forwarders --------------------------------------------------
@@ -207,262 +190,275 @@ impl Heap {
     // exposed before the split so external callers see no
     // behavioral change.
 
-    /// See [`HeapCore::config`].
-    pub fn config(&self) -> &HeapConfig {
-        self.core.config()
+    /// Heap configuration. Returned by value because the
+    /// underlying field lives behind the heap lock.
+    pub fn config(&self) -> HeapConfig {
+        *self.read_core().config()
     }
 
-    /// See [`HeapCore::stats`].
+    /// Snapshot the current heap statistics.
     pub fn stats(&self) -> HeapStats {
-        self.core.stats()
+        self.read_core().stats()
     }
 
-    /// See [`HeapCore::runtime_work_status`].
+    /// Runtime-side follow-up work.
     pub fn runtime_work_status(&self) -> RuntimeWorkStatus {
-        self.core.runtime_work_status()
+        self.read_core().runtime_work_status()
     }
 
-    /// See [`HeapCore::compact_old_gen_physical`].
-    pub fn compact_old_gen_physical(&mut self, density_threshold: f64) -> usize {
+    /// Run physical old-gen compaction.
+    pub fn compact_old_gen_physical(&self, density_threshold: f64) -> usize {
         let mut roots = crate::root::RootStack::default();
-        self.core.compact_old_gen_physical(&mut roots, density_threshold)
+        self.write_core()
+            .compact_old_gen_physical(&mut roots, density_threshold)
     }
 
-    /// See [`HeapCore::compact_old_gen_blocks`].
-    pub fn compact_old_gen_blocks(&mut self, block_indices: &[usize]) -> usize {
+    /// Run targeted block compaction.
+    pub fn compact_old_gen_blocks(&self, block_indices: &[usize]) -> usize {
         let mut roots = crate::root::RootStack::default();
-        self.core.compact_old_gen_blocks(&mut roots, block_indices)
+        self.write_core()
+            .compact_old_gen_blocks(&mut roots, block_indices)
     }
 
-    /// See [`HeapCore::compaction_stats`].
+    /// Cumulative compaction stats.
     pub fn compaction_stats(&self) -> crate::stats::CompactionStats {
-        self.core.compaction_stats()
+        self.read_core().compaction_stats()
     }
 
-    /// See [`HeapCore::clear_compaction_stats`].
-    pub fn clear_compaction_stats(&mut self) {
-        self.core.clear_compaction_stats();
+    /// Reset compaction stats.
+    pub fn clear_compaction_stats(&self) {
+        self.write_core().clear_compaction_stats();
     }
 
-    /// See [`HeapCore::nursery_fill_ratio`].
+    /// Nursery fill ratio.
     pub fn nursery_fill_ratio(&self) -> f64 {
-        self.core.nursery_fill_ratio()
+        self.read_core().nursery_fill_ratio()
     }
 
-    /// See [`HeapCore::old_gen_fragmentation_ratio`].
+    /// Old-generation fragmentation ratio.
     pub fn old_gen_fragmentation_ratio(&self) -> f64 {
-        self.core.old_gen_fragmentation_ratio()
+        self.read_core().old_gen_fragmentation_ratio()
     }
 
-    /// See [`HeapCore::compact_old_gen_if_fragmented`].
+    /// Opportunistic compaction trigger.
     pub fn compact_old_gen_if_fragmented(
-        &mut self,
+        &self,
         fragmentation_threshold: f64,
     ) -> (f64, usize) {
         let mut roots = crate::root::RootStack::default();
-        self.core
+        self.write_core()
             .compact_old_gen_if_fragmented(&mut roots, fragmentation_threshold)
     }
 
-    /// See [`HeapCore::should_compact_old_gen`].
+    /// Predicate-only fragmentation check.
     pub fn should_compact_old_gen(&self, fragmentation_threshold: f64) -> bool {
-        self.core.should_compact_old_gen(fragmentation_threshold)
+        self.read_core().should_compact_old_gen(fragmentation_threshold)
     }
 
-    /// See [`HeapCore::compact_old_gen_aggressive`].
+    /// Aggressive compaction wrapper.
     pub fn compact_old_gen_aggressive(
-        &mut self,
+        &self,
         density_threshold: f64,
         max_passes: usize,
     ) -> usize {
         let mut roots = crate::root::RootStack::default();
-        self.core
+        self.write_core()
             .compact_old_gen_aggressive(&mut roots, density_threshold, max_passes)
     }
 
-    /// See [`HeapCore::plan_for`].
+    /// Build a scheduler-visible collection plan.
     pub fn plan_for(&self, kind: CollectionKind) -> CollectionPlan {
-        self.core.plan_for(kind)
+        self.read_core().plan_for(kind)
     }
 
-    /// See [`HeapCore::recommended_plan`].
+    /// Recommend the next collection plan.
     pub fn recommended_plan(&self) -> CollectionPlan {
-        self.core.recommended_plan()
+        self.read_core().recommended_plan()
     }
 
-    /// See [`HeapCore::recommended_background_plan`].
+    /// Recommend the next background concurrent collection plan, if any.
     pub fn recommended_background_plan(&self) -> Option<CollectionPlan> {
-        self.core.recommended_background_plan()
+        self.read_core().recommended_background_plan()
     }
 
-    /// See [`HeapCore::recent_phase_trace`].
+    /// Phases traversed by the most recently executed collection.
     pub fn recent_phase_trace(&self) -> Vec<CollectionPhase> {
-        self.core.recent_phase_trace()
+        self.read_core().recent_phase_trace()
     }
 
-    /// See [`HeapCore::last_completed_plan`].
+    /// Most recently completed collection plan, if any.
     pub fn last_completed_plan(&self) -> Option<CollectionPlan> {
-        self.core.last_completed_plan()
+        self.read_core().last_completed_plan()
     }
 
-    /// See [`HeapCore::active_major_mark_plan`].
+    /// Active major-mark plan, if one is in progress.
     pub fn active_major_mark_plan(&self) -> Option<CollectionPlan> {
-        self.core.active_major_mark_plan()
+        self.read_core().active_major_mark_plan()
     }
 
-    /// See [`HeapCore::major_mark_progress`].
+    /// Active major-mark progress, if any.
     pub fn major_mark_progress(&self) -> Option<MajorMarkProgress> {
-        self.core.major_mark_progress()
+        self.read_core().major_mark_progress()
     }
 
-    /// See [`HeapCore::begin_major_mark`].
-    pub fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
-        self.core.begin_major_mark(plan)
+    /// Begin a persistent major-mark session.
+    pub fn begin_major_mark(&self, plan: CollectionPlan) -> Result<(), AllocError> {
+        self.collector_runtime().begin_major_mark(plan)
     }
 
-    /// See [`HeapCore::advance_major_mark`].
-    pub fn advance_major_mark(&mut self) -> Result<MajorMarkProgress, AllocError> {
-        self.core.advance_major_mark()
+    /// Advance one slice of the current persistent major-mark session.
+    pub fn advance_major_mark(&self) -> Result<MajorMarkProgress, AllocError> {
+        self.collector_runtime().advance_major_mark()
     }
 
-    /// See [`HeapCore::finish_major_collection`].
-    pub fn finish_major_collection(&mut self) -> Result<CollectionStats, AllocError> {
-        self.core.finish_major_collection()
+    /// Finish the current persistent major-mark session and reclaim.
+    pub fn finish_major_collection(&self) -> Result<CollectionStats, AllocError> {
+        self.collector_runtime().finish_major_collection()
     }
 
-    /// See [`HeapCore::assist_major_mark`].
+    /// Advance up to `max_slices` of the active major-mark session.
     pub fn assist_major_mark(
-        &mut self,
+        &self,
         max_slices: usize,
     ) -> Result<Option<MajorMarkProgress>, AllocError> {
-        self.core.assist_major_mark(max_slices)
+        self.collector_runtime().assist_major_mark(max_slices)
     }
 
-    /// See [`HeapCore::poll_active_major_mark`].
-    pub fn poll_active_major_mark(&mut self) -> Result<Option<MajorMarkProgress>, AllocError> {
-        self.core.poll_active_major_mark()
+    /// Advance one scheduler-style concurrent major-mark round.
+    pub fn poll_active_major_mark(&self) -> Result<Option<MajorMarkProgress>, AllocError> {
+        self.collector_runtime().poll_active_major_mark()
     }
 
-    /// See [`HeapCore::finish_active_major_collection_if_ready`].
+    /// Finish the active major collection if its mark work is fully drained.
     pub fn finish_active_major_collection_if_ready(
-        &mut self,
+        &self,
     ) -> Result<Option<CollectionStats>, AllocError> {
-        self.core.finish_active_major_collection_if_ready()
+        self.collector_runtime().finish_active_major_collection_if_ready()
     }
 
-    /// See [`HeapCore::commit_active_reclaim_if_ready`].
+    /// Commit the active major collection once reclaim has already been prepared.
     pub fn commit_active_reclaim_if_ready(
-        &mut self,
+        &self,
     ) -> Result<Option<CollectionStats>, AllocError> {
-        self.core.commit_active_reclaim_if_ready()
+        self.collector_runtime().commit_active_reclaim_if_ready()
     }
 
-    /// See [`HeapCore::old_region_stats`].
+    /// Per-block old-generation statistics.
     pub fn old_region_stats(&self) -> Vec<OldRegionStats> {
-        self.core.old_region_stats()
+        self.read_core().old_region_stats()
     }
 
-    /// See [`HeapCore::old_block_region_stats`].
+    /// Per-block old-generation statistics view.
     pub fn old_block_region_stats(&self) -> Vec<OldRegionStats> {
-        self.core.old_block_region_stats()
+        self.read_core().old_block_region_stats()
     }
 
-    /// See [`HeapCore::major_block_candidates`].
+    /// Currently selected old-block compaction candidates.
     pub fn major_block_candidates(&self) -> Vec<OldRegionStats> {
-        self.core.major_block_candidates()
+        self.read_core().major_block_candidates()
     }
 
-    /// See [`HeapCore::object_count`].
+    /// Number of live objects currently tracked by the heap.
     pub fn object_count(&self) -> usize {
-        self.core.object_count()
+        self.read_core().object_count()
     }
 
-    /// See [`HeapCore::pending_finalizer_count`].
+    /// Number of queued finalizers waiting to run.
     pub fn pending_finalizer_count(&self) -> usize {
-        self.core.pending_finalizer_count()
+        self.read_core().pending_finalizer_count()
     }
 
-    /// See [`HeapCore::drain_pending_finalizers`].
+    /// Run and drain queued finalizers.
     pub fn drain_pending_finalizers(&self) -> u64 {
-        self.core.drain_pending_finalizers()
+        self.read_core().drain_pending_finalizers()
     }
 
-    /// See [`HeapCore::drain_pending_finalizers_bounded`].
+    /// Run at most `max` queued finalizers.
     pub fn drain_pending_finalizers_bounded(&self, max: usize) -> u64 {
-        self.core.drain_pending_finalizers_bounded(max)
+        self.read_core().drain_pending_finalizers_bounded(max)
     }
 
-    /// See [`HeapCore::remembered_edge_count`].
+    /// Number of remembered edges tracked by the explicit fallback path.
     pub fn remembered_edge_count(&self) -> usize {
-        self.core.remembered_edge_count()
+        self.read_core().remembered_edge_count()
     }
 
-    /// See [`HeapCore::dirty_card_count`].
+    /// Total dirty cards across every old-gen block.
     pub fn dirty_card_count(&self) -> usize {
-        self.core.dirty_card_count()
+        self.read_core().dirty_card_count()
     }
 
-    /// See [`HeapCore::total_remembered_count`].
+    /// Unified count of pending old-to-young roots.
     pub fn total_remembered_count(&self) -> usize {
-        self.core.total_remembered_count()
+        self.read_core().total_remembered_count()
     }
 
-    /// See [`HeapCore::barrier_stats`].
+    /// Cumulative write-barrier traffic counters.
     pub fn barrier_stats(&self) -> crate::stats::BarrierStats {
-        self.core.barrier_stats()
+        self.read_core().barrier_stats()
     }
 
-    /// See [`HeapCore::clear_barrier_stats`].
-    pub fn clear_barrier_stats(&mut self) {
-        self.core.clear_barrier_stats();
+    /// Reset cumulative barrier traffic counters.
+    pub fn clear_barrier_stats(&self) {
+        self.read_core().clear_barrier_stats();
     }
 
-    /// See [`HeapCore::mutator`].
-    pub fn mutator(&mut self) -> Mutator<'_> {
-        self.core.mutator()
+    /// Create a mutator bound to this heap.
+    ///
+    /// Takes `&self` so multiple mutators can coexist
+    /// against the same heap at the type level. Each mutator
+    /// owns its own [`crate::mutator::MutatorLocal`] and
+    /// briefly acquires the heap core write lock per
+    /// operation.
+    pub fn mutator(&self) -> Mutator<'_> {
+        Mutator::new(self)
     }
 
-    /// See [`HeapCore::collector_runtime`].
-    pub fn collector_runtime(&mut self) -> CollectorRuntime<'_> {
-        self.core.collector_runtime()
+    /// Create a collector-side runtime guard bound to this
+    /// heap. The returned guard holds an exclusive write
+    /// lock on the heap core for its entire lifetime, so
+    /// only one outstanding `HeapCollectorRuntime` can exist
+    /// at a time.
+    pub fn collector_runtime(&self) -> HeapCollectorRuntime<'_> {
+        HeapCollectorRuntime::new(self.write_core())
     }
 
-    /// See [`HeapCore::background_service`].
+    /// Create a background collection service loop bound to this heap.
     pub fn background_service(
-        &mut self,
+        &self,
         config: BackgroundCollectorConfig,
     ) -> BackgroundService<'_> {
-        self.core.background_service(config)
+        BackgroundService::from_runtime_guard(self.collector_runtime(), config)
     }
 
-    /// See [`HeapCore::collect`].
-    pub fn collect(&mut self, kind: CollectionKind) -> Result<CollectionStats, AllocError> {
-        self.core.collect(kind)
+    /// Run one stop-the-world collection cycle.
+    pub fn collect(&self, kind: CollectionKind) -> Result<CollectionStats, AllocError> {
+        self.collector_runtime().collect(kind)
     }
 
-    /// See [`HeapCore::execute_plan`].
-    pub fn execute_plan(&mut self, plan: CollectionPlan) -> Result<CollectionStats, AllocError> {
-        self.core.execute_plan(plan)
+    /// Execute one scheduler-provided collection plan.
+    pub fn execute_plan(&self, plan: CollectionPlan) -> Result<CollectionStats, AllocError> {
+        self.collector_runtime().execute_plan(plan)
     }
 
-    /// See [`HeapCore::pause_histogram`].
+    /// Snapshot of recent stop-the-world pause statistics.
     pub fn pause_histogram(&self) -> PauseHistogram {
-        self.core.pause_histogram()
+        self.read_core().pause_histogram()
     }
 
-    /// See [`HeapCore::pacer_stats`].
+    /// Snapshot of the adaptive pacer's current model.
     pub fn pacer_stats(&self) -> PacerStats {
-        self.core.pacer_stats()
+        self.read_core().pacer_stats()
     }
 
-    /// See [`HeapCore::pacer`].
+    /// Clone of the pacer handle.
     pub fn pacer(&self) -> Pacer {
-        self.core.pacer()
+        self.read_core().pacer()
     }
 
-    /// See [`HeapCore::set_pacer_config`].
-    pub fn set_pacer_config(&mut self, config: PacerConfig) {
-        self.core.set_pacer_config(config);
+    /// Override the pacer's configuration in place.
+    pub fn set_pacer_config(&self, config: PacerConfig) {
+        self.write_core().set_pacer_config(config);
     }
 
     // -- Crate-internal forwarders ------------------------------------------
@@ -473,97 +469,319 @@ impl Heap {
     // the collector can keep calling `heap.xyz()` without first
     // unwrapping to `heap.core().xyz()`.
 
-    pub(crate) fn objects(&self) -> &[ObjectRecord] {
-        self.core.objects()
-    }
-
-    pub(crate) fn indexes(&self) -> &HeapIndexState {
-        self.core.indexes()
-    }
-
-    pub(crate) fn old_gen(&self) -> &OldGenState {
-        self.core.old_gen()
-    }
-
-    pub(crate) fn old_config(&self) -> &OldGenConfig {
-        self.core.old_config()
-    }
-
-    pub(crate) fn global_sources_with_roots(
-        &self,
-        roots: &crate::root::RootStack,
-    ) -> Vec<GcErased> {
-        self.core.global_sources_with_roots(roots)
-    }
-
     pub(crate) fn storage_stats(&self) -> HeapStats {
-        self.core.storage_stats()
+        self.read_core().storage_stats()
     }
 
     pub(crate) fn runtime_finalizer_stats(&self) -> (u64, usize) {
-        self.core.runtime_finalizer_stats()
+        self.read_core().runtime_finalizer_stats()
     }
 
     pub(crate) fn runtime_state_handle(&self) -> RuntimeStateHandle {
-        self.core.runtime_state_handle()
+        self.read_core().runtime_state_handle()
     }
 
     pub(crate) fn collector_handle(&self) -> CollectorStateHandle {
-        self.core.collector_handle()
+        self.read_core().collector_handle()
     }
 
     pub(crate) fn collector_shared_snapshot(&self) -> CollectorSharedSnapshot {
-        self.core.collector_shared_snapshot()
+        self.read_core().collector_shared_snapshot()
     }
 
     // -- Test-only forwarders ----------------------------------------------
 
     #[cfg(test)]
     pub(crate) fn contains<T>(&self, gc: crate::root::Gc<T>) -> bool {
-        self.core.contains(gc)
+        self.read_core().contains(gc)
     }
 
     #[cfg(test)]
     pub(crate) fn finalizable_candidate_count(&self) -> usize {
-        self.core.finalizable_candidate_count()
+        self.read_core().finalizable_candidate_count()
     }
 
     #[cfg(test)]
     pub(crate) fn weak_candidate_count(&self) -> usize {
-        self.core.weak_candidate_count()
+        self.read_core().weak_candidate_count()
     }
 
     #[cfg(test)]
     pub(crate) fn ephemeron_candidate_count(&self) -> usize {
-        self.core.ephemeron_candidate_count()
+        self.read_core().ephemeron_candidate_count()
     }
 
     #[cfg(test)]
     pub(crate) fn space_of<T>(&self, gc: crate::root::Gc<T>) -> Option<SpaceKind> {
-        self.core.space_of(gc)
+        self.read_core().space_of(gc)
     }
 
-    /// Build a `CollectorRuntime` that borrows the supplied
-    /// `MutatorLocal` instead of carrying an ephemeral one.
-    /// Crate-internal helper for tests that need to drive
-    /// the collector runtime directly without going through
-    /// a `Mutator`.
+    /// Test-only build a write-locked collector runtime
+    /// that borrows the supplied external `MutatorLocal`.
     #[cfg(test)]
     pub(crate) fn collector_runtime_with_local<'a>(
-        &'a mut self,
+        &'a self,
         local: &'a mut crate::mutator::MutatorLocal,
-    ) -> CollectorRuntime<'a> {
-        CollectorRuntime::with_local(&mut self.core, local)
+    ) -> HeapCollectorRuntimeWithLocal<'a> {
+        HeapCollectorRuntimeWithLocal {
+            guard: self.write_core(),
+            local,
+        }
     }
 
     #[cfg(test)]
     pub(crate) fn remembered_owner_count(&self) -> usize {
-        self.core.remembered_owner_count()
+        self.read_core().remembered_owner_count()
     }
 
     #[cfg(test)]
     pub(crate) fn inspect_old_gen_block_accounting_for_test(&self) -> (usize, usize) {
-        self.core.inspect_old_gen_block_accounting_for_test()
+        self.read_core().inspect_old_gen_block_accounting_for_test()
+    }
+}
+
+/// Guard type returned by [`Heap::collector_runtime`] that
+/// holds an exclusive write guard on the heap core and a
+/// scratch `MutatorLocal` for the duration of collector
+/// operations. Each method builds a fresh
+/// [`CollectorRuntime`] against the held borrows and runs
+/// the operation through it.
+#[derive(Debug)]
+pub struct HeapCollectorRuntime<'a> {
+    guard: std::sync::RwLockWriteGuard<'a, HeapCore>,
+    local: crate::mutator::MutatorLocal,
+}
+
+impl<'a> HeapCollectorRuntime<'a> {
+    fn new(guard: std::sync::RwLockWriteGuard<'a, HeapCore>) -> Self {
+        Self {
+            guard,
+            local: crate::mutator::MutatorLocal::default(),
+        }
+    }
+
+    /// Build the inner `CollectorRuntime` from the held heap
+    /// core borrow plus this guard's scratch local.
+    pub(crate) fn runtime(&mut self) -> CollectorRuntime<'_> {
+        CollectorRuntime::with_local(&mut self.guard, &mut self.local)
+    }
+
+    /// Run one stop-the-world collection cycle.
+    pub fn collect(&mut self, kind: CollectionKind) -> Result<CollectionStats, AllocError> {
+        self.runtime().collect(kind)
+    }
+
+    /// Execute one scheduler-provided collection plan.
+    pub fn execute_plan(&mut self, plan: CollectionPlan) -> Result<CollectionStats, AllocError> {
+        self.runtime().execute_plan(plan)
+    }
+
+    /// Begin a persistent major-mark session.
+    pub fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
+        self.runtime().begin_major_mark(plan)
+    }
+
+    /// Advance one slice of the current persistent major-mark session.
+    pub fn advance_major_mark(&mut self) -> Result<MajorMarkProgress, AllocError> {
+        self.runtime().advance_major_mark()
+    }
+
+    /// Advance up to `max_slices` of the active major-mark session.
+    pub fn assist_major_mark(
+        &mut self,
+        max_slices: usize,
+    ) -> Result<Option<MajorMarkProgress>, AllocError> {
+        self.runtime().assist_major_mark(max_slices)
+    }
+
+    /// Advance one scheduler-style concurrent major-mark round.
+    pub fn poll_active_major_mark(
+        &mut self,
+    ) -> Result<Option<MajorMarkProgress>, AllocError> {
+        self.runtime().poll_active_major_mark()
+    }
+
+    /// Finish the current persistent major-mark session.
+    pub fn finish_major_collection(&mut self) -> Result<CollectionStats, AllocError> {
+        self.runtime().finish_major_collection()
+    }
+
+    /// Finish the active major collection if its mark work is fully drained.
+    pub fn finish_active_major_collection_if_ready(
+        &mut self,
+    ) -> Result<Option<CollectionStats>, AllocError> {
+        self.runtime().finish_active_major_collection_if_ready()
+    }
+
+    /// Prepare reclaim for the active major collection.
+    pub fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
+        self.runtime().prepare_active_reclaim_if_needed()
+    }
+
+    /// Commit the active major collection.
+    pub fn commit_active_reclaim_if_ready(
+        &mut self,
+    ) -> Result<Option<CollectionStats>, AllocError> {
+        self.runtime().commit_active_reclaim_if_ready()
+    }
+
+    /// Service one background collection round.
+    pub fn service_background_collection_round(
+        &mut self,
+    ) -> Result<BackgroundCollectionStatus, AllocError> {
+        self.runtime().service_background_collection_round()
+    }
+
+    /// Return current heap statistics.
+    pub fn stats(&self) -> HeapStats {
+        self.guard.stats()
+    }
+
+    /// Return the number of queued finalizers waiting to run.
+    pub fn pending_finalizer_count(&self) -> usize {
+        self.guard.pending_finalizer_count()
+    }
+
+    /// Drain queued finalizers.
+    pub fn drain_pending_finalizers(&mut self) -> u64 {
+        self.guard.drain_pending_finalizers()
+    }
+
+    /// Drain up to `max` queued finalizers.
+    pub fn drain_pending_finalizers_bounded(&mut self, max: usize) -> u64 {
+        self.guard.drain_pending_finalizers_bounded(max)
+    }
+
+    /// Active major-mark plan, if any.
+    pub fn active_major_mark_plan(&self) -> Option<CollectionPlan> {
+        self.guard.active_major_mark_plan()
+    }
+
+    /// Active major-mark progress, if any.
+    pub fn major_mark_progress(&self) -> Option<MajorMarkProgress> {
+        self.guard.major_mark_progress()
+    }
+
+    /// Recommend the next background concurrent collection plan, if any.
+    pub fn recommended_background_plan(&self) -> Option<CollectionPlan> {
+        self.guard.recommended_background_plan()
+    }
+
+    /// Last completed collection plan, if any.
+    pub fn last_completed_plan(&self) -> Option<CollectionPlan> {
+        self.guard.last_completed_plan()
+    }
+
+    /// Runtime-side follow-up work.
+    pub fn runtime_work_status(&self) -> RuntimeWorkStatus {
+        self.guard.runtime_work_status()
+    }
+
+    /// Heap configuration.
+    pub fn config(&self) -> HeapConfig {
+        *self.guard.config()
+    }
+
+    /// Prepare a typed allocation pressure check.
+    pub fn prepare_typed_allocation<T: crate::descriptor::Trace + 'static>(
+        &mut self,
+    ) -> Result<(), AllocError> {
+        self.runtime().prepare_typed_allocation::<T>()
+    }
+
+    /// Test-only: service allocation pressure for the given space and bytes.
+    #[cfg(test)]
+    pub(crate) fn service_allocation_pressure(
+        &mut self,
+        space: crate::object::SpaceKind,
+        bytes: usize,
+    ) -> Result<(), AllocError> {
+        self.runtime().service_allocation_pressure(space, bytes)
+    }
+
+    /// Convert this collector runtime guard into a background
+    /// service loop.
+    pub fn background_service(
+        self,
+        config: BackgroundCollectorConfig,
+    ) -> BackgroundService<'a> {
+        BackgroundService::from_runtime_guard(self, config)
+    }
+
+    /// Crate-internal access to the underlying `HeapCore`
+    /// for callers that need to inspect heap-owned state
+    /// while the guard is held.
+    #[allow(dead_code)]
+    pub(crate) fn heap_core(&self) -> &HeapCore {
+        &self.guard
+    }
+}
+
+impl crate::background::BackgroundCollectionRuntime for HeapCollectorRuntime<'_> {
+    fn active_major_mark_plan(&self) -> Option<CollectionPlan> {
+        HeapCollectorRuntime::active_major_mark_plan(self)
+    }
+
+    fn recommended_background_plan(&self) -> Option<CollectionPlan> {
+        HeapCollectorRuntime::recommended_background_plan(self)
+    }
+
+    fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
+        HeapCollectorRuntime::begin_major_mark(self, plan)
+    }
+
+    fn poll_background_mark_round(
+        &mut self,
+    ) -> Result<Option<MajorMarkProgress>, AllocError> {
+        HeapCollectorRuntime::poll_active_major_mark(self)
+    }
+
+    fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
+        HeapCollectorRuntime::prepare_active_reclaim_if_needed(self)
+    }
+
+    fn finish_active_major_collection_if_ready(
+        &mut self,
+    ) -> Result<Option<CollectionStats>, AllocError> {
+        HeapCollectorRuntime::finish_active_major_collection_if_ready(self)
+    }
+
+    fn commit_active_reclaim_if_ready(
+        &mut self,
+    ) -> Result<Option<CollectionStats>, AllocError> {
+        HeapCollectorRuntime::commit_active_reclaim_if_ready(self)
+    }
+}
+
+/// Test-only guard returned by
+/// [`Heap::collector_runtime_with_local`] that borrows an
+/// external `MutatorLocal` so the caller can hand out a
+/// root stack pointer before constructing the runtime.
+#[cfg(test)]
+#[derive(Debug)]
+pub struct HeapCollectorRuntimeWithLocal<'a> {
+    guard: std::sync::RwLockWriteGuard<'a, HeapCore>,
+    local: &'a mut crate::mutator::MutatorLocal,
+}
+
+#[cfg(test)]
+impl<'a> HeapCollectorRuntimeWithLocal<'a> {
+    pub(crate) fn alloc_typed_scoped<'scope, 'handle_heap, T: crate::descriptor::Trace + 'static>(
+        &mut self,
+        scope: &mut crate::root::HandleScope<'scope, 'handle_heap>,
+        value: T,
+    ) -> Result<crate::root::Root<'scope, T>, AllocError> {
+        CollectorRuntime::with_local(&mut self.guard, &mut *self.local)
+            .alloc_typed_scoped(scope, value)
+    }
+
+    pub(crate) fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
+        CollectorRuntime::with_local(&mut self.guard, &mut *self.local).begin_major_mark(plan)
+    }
+
+    pub(crate) fn finish_major_collection(&mut self) -> Result<CollectionStats, AllocError> {
+        CollectorRuntime::with_local(&mut self.guard, &mut *self.local)
+            .finish_major_collection()
     }
 }
 
@@ -1199,48 +1417,6 @@ impl HeapCore {
         self.collector.major_mark_progress()
     }
 
-    /// Begin a persistent major-mark session for `plan`.
-    pub fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
-        CollectorRuntime::new(self).begin_major_mark(plan)
-    }
-
-    /// Advance one slice of the current persistent major-mark session.
-    pub fn advance_major_mark(&mut self) -> Result<MajorMarkProgress, AllocError> {
-        CollectorRuntime::new(self).advance_major_mark()
-    }
-
-    /// Finish the current persistent major-mark session and reclaim.
-    pub fn finish_major_collection(&mut self) -> Result<CollectionStats, AllocError> {
-        CollectorRuntime::new(self).finish_major_collection()
-    }
-
-    /// Advance up to `max_slices` of the active major-mark session.
-    pub fn assist_major_mark(
-        &mut self,
-        max_slices: usize,
-    ) -> Result<Option<MajorMarkProgress>, AllocError> {
-        CollectorRuntime::new(self).assist_major_mark(max_slices)
-    }
-
-    /// Advance one scheduler-style concurrent major-mark round using the plan worker count.
-    pub fn poll_active_major_mark(&mut self) -> Result<Option<MajorMarkProgress>, AllocError> {
-        CollectorRuntime::new(self).poll_active_major_mark()
-    }
-
-    /// Finish the active major collection if its mark work is fully drained.
-    pub fn finish_active_major_collection_if_ready(
-        &mut self,
-    ) -> Result<Option<CollectionStats>, AllocError> {
-        CollectorRuntime::new(self).finish_active_major_collection_if_ready()
-    }
-
-    /// Commit the active major collection once reclaim has already been prepared.
-    pub fn commit_active_reclaim_if_ready(
-        &mut self,
-    ) -> Result<Option<CollectionStats>, AllocError> {
-        CollectorRuntime::new(self).commit_active_reclaim_if_ready()
-    }
-
     /// Return per-block old-generation statistics. Each entry
     /// corresponds to one `OldBlock` in allocation order; the
     /// `region_index` field carries the block index.
@@ -1397,34 +1573,6 @@ impl HeapCore {
     /// atomic counters can be reset without exclusive access.
     pub fn clear_barrier_stats(&self) {
         self.barrier_stats.clear();
-    }
-
-    /// Create a mutator bound to this heap.
-    pub fn mutator(&mut self) -> Mutator<'_> {
-        Mutator::new(self)
-    }
-
-    /// Create a collector-side runtime bound to this heap.
-    pub fn collector_runtime(&mut self) -> CollectorRuntime<'_> {
-        CollectorRuntime::new(self)
-    }
-
-    /// Create a background collection service loop bound to this heap.
-    pub fn background_service(
-        &mut self,
-        config: BackgroundCollectorConfig,
-    ) -> BackgroundService<'_> {
-        self.collector_runtime().background_service(config)
-    }
-
-    /// Run one stop-the-world collection cycle.
-    pub fn collect(&mut self, kind: CollectionKind) -> Result<CollectionStats, AllocError> {
-        CollectorRuntime::new(self).collect(kind)
-    }
-
-    /// Execute one scheduler-provided collection plan.
-    pub fn execute_plan(&mut self, plan: CollectionPlan) -> Result<CollectionStats, AllocError> {
-        CollectorRuntime::new(self).execute_plan(plan)
     }
 
     /// Increment the heap-wide cumulative barrier counters

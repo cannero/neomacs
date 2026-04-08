@@ -2,7 +2,7 @@ use crate::background::BackgroundCollectionRuntime;
 use crate::barrier::{BarrierEvent, BarrierKind};
 use crate::descriptor::{GcErased, Trace};
 use crate::edge::EdgeCell;
-use crate::heap::{AllocError, Heap, HeapCore};
+use crate::heap::{AllocError, Heap};
 use crate::plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress,
     RuntimeWorkStatus,
@@ -119,27 +119,39 @@ impl MutatorLocal {
 }
 
 /// Mutator view onto the heap.
+///
+/// Holds a shared `&Heap` borrow plus a per-mutator
+/// `MutatorLocal`. Multiple mutators can coexist against
+/// the same heap because they all borrow `&Heap`. Each
+/// collector operation briefly acquires the heap core write
+/// lock via `with_runtime` and releases it at the end of
+/// the method.
 #[derive(Debug)]
 pub struct Mutator<'heap> {
-    heap: &'heap mut HeapCore,
+    heap: &'heap Heap,
     local: MutatorLocal,
 }
 
 impl<'heap> Mutator<'heap> {
-    pub(crate) fn new(heap: &'heap mut HeapCore) -> Self {
+    pub(crate) fn new(heap: &'heap Heap) -> Self {
         Self {
             heap,
             local: MutatorLocal::default(),
         }
     }
 
-    /// Build a `CollectorRuntime` that borrows both this
-    /// mutator's heap core and its mutator local. Used by
-    /// every collector entry point on this mutator so the
-    /// runtime sees the mutator's TLAB, root stack, and
-    /// barrier event ring.
-    fn runtime<'r>(&'r mut self) -> crate::runtime::CollectorRuntime<'r> {
-        crate::runtime::CollectorRuntime::with_local(self.heap, &mut self.local)
+    /// Acquire the heap core write lock and run the closure
+    /// with a live `CollectorRuntime` built against the lock
+    /// guard plus this mutator's local. The lock is released
+    /// when the closure returns.
+    fn with_runtime<R>(
+        &mut self,
+        f: impl FnOnce(&mut crate::runtime::CollectorRuntime<'_>) -> R,
+    ) -> R {
+        let mut guard = self.heap.write_core();
+        let mut runtime =
+            crate::runtime::CollectorRuntime::with_local(&mut guard, &mut self.local);
+        f(&mut runtime)
     }
 
     /// Create a new rooted handle scope backed by this
@@ -150,7 +162,7 @@ impl<'heap> Mutator<'heap> {
 
     /// Return a shared view of the underlying heap.
     pub fn heap(&self) -> &Heap {
-        Heap::ref_cast(self.heap)
+        self.heap
     }
 
     /// Allocate one managed object.
@@ -169,7 +181,7 @@ impl<'heap> Mutator<'heap> {
         scope: &mut HandleScope<'scope, 'heap>,
         value: T,
     ) -> Result<Root<'scope, T>, AllocError> {
-        self.runtime().alloc_typed_scoped(scope, value)
+        self.with_runtime(|runtime| runtime.alloc_typed_scoped(scope, value))
     }
 
     /// Allocate one managed object, collecting first if nursery pressure requires it.
@@ -178,9 +190,10 @@ impl<'heap> Mutator<'heap> {
         scope: &mut HandleScope<'scope, 'heap>,
         value: T,
     ) -> Result<Root<'scope, T>, AllocError> {
-        let mut runtime = self.runtime();
-        runtime.prepare_typed_allocation::<T>()?;
-        runtime.alloc_typed_scoped(scope, value)
+        self.with_runtime(|runtime| {
+            runtime.prepare_typed_allocation::<T>()?;
+            runtime.alloc_typed_scoped(scope, value)
+        })
     }
 
     /// Return whether this mutator currently holds a
@@ -214,16 +227,16 @@ impl<'heap> Mutator<'heap> {
         gc: Gc<T>,
     ) -> Root<'scope, T> {
         assert!(
-            !self.heap.prepared_full_reclaim_active(),
+            !self.heap.read_core().prepared_full_reclaim_active(),
             "cannot add new roots while prepared full reclaim is active; finish the active full collection first"
         );
-        self.runtime().root_during_active_major_mark(gc.erase());
+        self.with_runtime(|runtime| runtime.root_during_active_major_mark(gc.erase()));
         scope.root(gc)
     }
 
     /// Run one collection cycle against this mutator's heap.
     pub fn collect(&mut self, kind: CollectionKind) -> Result<CollectionStats, AllocError> {
-        self.runtime().collect(kind)
+        self.with_runtime(|runtime| runtime.collect(kind))
     }
 
     /// Run physical old-gen compaction against this mutator's
@@ -233,8 +246,8 @@ impl<'heap> Mutator<'heap> {
     ///
     /// Returns the number of records physically evacuated.
     pub fn compact_old_gen_physical(&mut self, density_threshold: f64) -> usize {
-        self.heap
-            .compact_old_gen_physical(self.local.roots_mut(), density_threshold)
+        let mut guard = self.heap.write_core();
+        guard.compact_old_gen_physical(self.local.roots_mut(), density_threshold)
     }
 
     /// Aggressive compaction wrapper. Mirrors
@@ -246,8 +259,8 @@ impl<'heap> Mutator<'heap> {
         density_threshold: f64,
         max_passes: usize,
     ) -> usize {
-        self.heap
-            .compact_old_gen_aggressive(self.local.roots_mut(), density_threshold, max_passes)
+        let mut guard = self.heap.write_core();
+        guard.compact_old_gen_aggressive(self.local.roots_mut(), density_threshold, max_passes)
     }
 
     /// Block-targeted compaction wrapper. Mirrors
@@ -255,8 +268,8 @@ impl<'heap> Mutator<'heap> {
     /// borrow so scoped roots created from the same mutator
     /// stay valid across the call.
     pub fn compact_old_gen_blocks(&mut self, block_indices: &[usize]) -> usize {
-        self.heap
-            .compact_old_gen_blocks(self.local.roots_mut(), block_indices)
+        let mut guard = self.heap.write_core();
+        guard.compact_old_gen_blocks(self.local.roots_mut(), block_indices)
     }
 
     /// Predicate-only check for opportunistic compaction.
@@ -318,8 +331,8 @@ impl<'heap> Mutator<'heap> {
         &mut self,
         fragmentation_threshold: f64,
     ) -> (f64, usize) {
-        self.heap
-            .compact_old_gen_if_fragmented(self.local.roots_mut(), fragmentation_threshold)
+        let mut guard = self.heap.write_core();
+        guard.compact_old_gen_if_fragmented(self.local.roots_mut(), fragmentation_threshold)
     }
 
     /// Return the number of queued finalizers waiting to run.
@@ -370,22 +383,22 @@ impl<'heap> Mutator<'heap> {
 
     /// Execute one scheduler-provided collection plan.
     pub fn execute_plan(&mut self, plan: CollectionPlan) -> Result<CollectionStats, AllocError> {
-        self.runtime().execute_plan(plan)
+        self.with_runtime(|runtime| runtime.execute_plan(plan))
     }
 
     /// Begin a persistent major-mark session for one scheduler-provided plan.
     pub fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
-        self.runtime().begin_major_mark(plan)
+        self.with_runtime(|runtime| runtime.begin_major_mark(plan))
     }
 
     /// Advance one slice of the current persistent major-mark session.
     pub fn advance_major_mark(&mut self) -> Result<MajorMarkProgress, AllocError> {
-        self.runtime().advance_major_mark()
+        self.with_runtime(|runtime| runtime.advance_major_mark())
     }
 
     /// Finish the current persistent major-mark session and reclaim.
     pub fn finish_major_collection(&mut self) -> Result<CollectionStats, AllocError> {
-        self.runtime().finish_major_collection()
+        self.with_runtime(|runtime| runtime.finish_major_collection())
     }
 
     /// Advance up to `max_slices` of the active major-mark session.
@@ -393,38 +406,38 @@ impl<'heap> Mutator<'heap> {
         &mut self,
         max_slices: usize,
     ) -> Result<Option<MajorMarkProgress>, AllocError> {
-        self.runtime().assist_major_mark(max_slices)
+        self.with_runtime(|runtime| runtime.assist_major_mark(max_slices))
     }
 
     /// Advance one scheduler-style concurrent major-mark round using the active plan worker count.
     pub fn poll_active_major_mark(&mut self) -> Result<Option<MajorMarkProgress>, AllocError> {
-        self.runtime().poll_active_major_mark()
+        self.with_runtime(|runtime| runtime.poll_active_major_mark())
     }
 
     /// Prepare reclaim for the active major collection once mark work is fully drained.
     pub fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
-        self.runtime().prepare_active_reclaim_if_needed()
+        self.with_runtime(|runtime| runtime.prepare_active_reclaim_if_needed())
     }
 
     /// Finish the active major collection if its mark work is fully drained.
     pub fn finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
-        self.runtime().finish_active_major_collection_if_ready()
+        self.with_runtime(|runtime| runtime.finish_active_major_collection_if_ready())
     }
 
     /// Commit the active major collection once reclaim has already been prepared.
     pub fn commit_active_reclaim_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
-        self.runtime().commit_active_reclaim_if_ready()
+        self.with_runtime(|runtime| runtime.commit_active_reclaim_if_ready())
     }
 
     /// Service one background collection round for the active major-mark session.
     pub fn service_background_collection_round(
         &mut self,
     ) -> Result<BackgroundCollectionStatus, AllocError> {
-        self.runtime().service_background_collection_round()
+        self.with_runtime(|runtime| runtime.service_background_collection_round())
     }
 
     /// Record a post-write barrier for one mutated GC edge.
@@ -436,15 +449,15 @@ impl<'heap> Mutator<'heap> {
         new_value: Option<Gc<Value>>,
     ) {
         assert!(
-            !self.heap.prepared_full_reclaim_active(),
+            !self.heap.read_core().prepared_full_reclaim_active(),
             "cannot mutate heap edges while prepared full reclaim is active; finish the active full collection first"
         );
-        self.runtime().record_post_write(
-            owner.erase(),
-            slot,
-            old_value.map(Gc::erase),
-            new_value.map(Gc::erase),
-        );
+        let owner_erased = owner.erase();
+        let old_erased = old_value.map(Gc::erase);
+        let new_erased = new_value.map(Gc::erase);
+        self.with_runtime(|runtime| {
+            runtime.record_post_write(owner_erased, slot, old_erased, new_erased)
+        });
     }
 
     /// Store a managed edge and record the required post-write barrier.
@@ -456,7 +469,7 @@ impl<'heap> Mutator<'heap> {
         new_value: Option<Gc<Value>>,
     ) {
         assert!(
-            !self.heap.prepared_full_reclaim_active(),
+            !self.heap.read_core().prepared_full_reclaim_active(),
             "cannot mutate heap edges while prepared full reclaim is active; finish the active full collection first"
         );
         let owner_ref = unsafe { owner.as_gc().as_non_null().as_ref() };

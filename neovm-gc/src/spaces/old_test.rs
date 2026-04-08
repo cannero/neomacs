@@ -156,7 +156,7 @@ fn find_sparse_old_block_candidates_picks_low_density_blocks() {
 fn heap_compact_old_gen_physical_empty_heap_reports_zero_moved() {
     // A heap with no old-gen records can be compacted at any
     // threshold and reports zero moved.
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let moved = heap.compact_old_gen_physical(1.0);
     assert_eq!(moved, 0);
 }
@@ -167,7 +167,7 @@ fn block_region_stats_reports_per_block_live_and_used_bytes() {
     // OldRegionStats entries (one per block). After dual-track
     // step 2 populated the counters, this view mirrors what
     // region_stats would report if it consumed the block side.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -191,7 +191,7 @@ fn block_region_stats_reports_per_block_live_and_used_bytes() {
         }
     }
 
-    let block_stats = heap.old_gen().block_region_stats();
+    let block_stats = heap.read_core().old_gen().block_region_stats();
     assert!(
         !block_stats.is_empty(),
         "block_region_stats should have at least one entry after 3 allocations"
@@ -216,7 +216,7 @@ fn sweep_rebuilds_block_live_accounting_from_survivors() {
     // not the pre-sweep total. Without the rebuild added in
     // step 9 the counters would still reflect every allocation
     // ever made in the block.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -256,7 +256,7 @@ fn sweep_rebuilds_block_live_accounting_from_survivors() {
     // Six objects total in the block, 2 rooted.
     let before_total_live: usize = mutator
         .heap()
-        .old_gen()
+        .read_core().old_gen()
         .blocks()
         .iter()
         .map(|block| block.live_bytes())
@@ -277,14 +277,14 @@ fn sweep_rebuilds_block_live_accounting_from_survivors() {
     // the 2 surviving records. 2 * total_size is what we expect.
     let after_total_live: usize = mutator
         .heap()
-        .old_gen()
+        .read_core().old_gen()
         .blocks()
         .iter()
         .map(|block| block.live_bytes())
         .sum();
     let after_total_count: usize = mutator
         .heap()
-        .old_gen()
+        .read_core().old_gen()
         .blocks()
         .iter()
         .map(|block| block.object_count())
@@ -311,7 +311,7 @@ fn physical_compaction_stress_keeps_heap_bounded_under_repeated_majors() {
     // The compaction telemetry should show real work happening
     // (records_moved > 0 and at least some source blocks
     // reclaimed) over the run.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -362,7 +362,7 @@ fn physical_compaction_stress_keeps_heap_bounded_under_repeated_majors() {
     }
 
     // The heap must NOT have grown unboundedly.
-    let final_blocks = heap.old_gen().block_count();
+    let final_blocks = heap.read_core().old_gen().block_count();
     assert!(
         final_blocks < 2 * ROUNDS,
         "expected bounded block growth across {ROUNDS} rounds; \
@@ -395,7 +395,7 @@ fn physical_compaction_shrinks_block_hole_bytes_after_major() {
     // compaction does what logical compaction did but for the
     // block view: it tightens the layout so wasted space goes
     // down.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -435,12 +435,12 @@ fn physical_compaction_shrinks_block_hole_bytes_after_major() {
     // Snapshot block-side hole bytes before the major.
     let before_holes: usize = mutator
         .heap()
-        .old_gen()
+        .read_core().old_gen()
         .block_region_stats()
         .iter()
         .map(|s| s.hole_bytes)
         .sum();
-    let before_blocks = mutator.heap().old_gen().block_count();
+    let before_blocks = mutator.heap().read_core().old_gen().block_count();
 
     // Run a major cycle. The cycle sweeps the dead chunks from
     // phase 1, then auto-compaction runs against the now-sparse
@@ -452,12 +452,12 @@ fn physical_compaction_shrinks_block_hole_bytes_after_major() {
 
     let after_holes: usize = mutator
         .heap()
-        .old_gen()
+        .read_core().old_gen()
         .block_region_stats()
         .iter()
         .map(|s| s.hole_bytes)
         .sum();
-    let after_blocks = mutator.heap().old_gen().block_count();
+    let after_blocks = mutator.heap().read_core().old_gen().block_count();
 
     // After physical compaction, the live survivor occupies a
     // freshly-packed block whose used_bytes barely exceeds its
@@ -489,7 +489,7 @@ fn mutator_fragmentation_wrappers_delegate_to_heap() {
     // The Mutator wrappers must report the same values the
     // underlying Heap methods would, so callers can use either
     // surface interchangeably while keeping scoped roots live.
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
     let frag = mutator.old_gen_fragmentation_ratio();
     assert_eq!(frag, 0.0);
@@ -502,7 +502,7 @@ fn mutator_fragmentation_wrappers_delegate_to_heap() {
 
 #[test]
 fn compact_old_gen_aggressive_runs_until_no_more_moves() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -537,7 +537,7 @@ fn compact_old_gen_aggressive_runs_until_no_more_moves() {
 
 #[test]
 fn compact_old_gen_aggressive_zero_max_passes_returns_zero() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let total = heap.compact_old_gen_aggressive(1.0, 0);
     assert_eq!(total, 0);
     assert_eq!(heap.compaction_stats().cycles, 0);
@@ -556,7 +556,7 @@ fn should_compact_old_gen_returns_true_when_fragmentation_meets_threshold() {
     // After allocating into a block, the line-rounding overhead
     // already creates some fragmentation, so a low threshold
     // should return true.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -590,7 +590,7 @@ fn should_compact_old_gen_returns_true_when_fragmentation_meets_threshold() {
 
 #[test]
 fn nursery_fill_ratio_starts_zero_and_grows_with_allocations() {
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     assert_eq!(heap.nursery_fill_ratio(), 0.0);
 
     {
@@ -626,7 +626,7 @@ fn old_gen_fragmentation_ratio_is_bounded_between_zero_and_one() {
     // objects the ratio is typically non-zero because of
     // line-rounding overhead. Assert the result stays in the
     // valid [0.0, 1.0] range after a batch of allocations.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -660,7 +660,7 @@ fn compact_old_gen_if_fragmented_skips_when_under_threshold() {
     // A fresh heap has 0.0 fragmentation; calling
     // compact_old_gen_if_fragmented with any positive threshold
     // must return (0.0, 0) -- nothing compacted.
-    let mut heap = Heap::new(HeapConfig::default());
+    let heap = Heap::new(HeapConfig::default());
     let (frag, moved) = heap.compact_old_gen_if_fragmented(0.1);
     assert_eq!(frag, 0.0);
     assert_eq!(moved, 0);
@@ -668,7 +668,7 @@ fn compact_old_gen_if_fragmented_skips_when_under_threshold() {
 
 #[test]
 fn clear_compaction_stats_resets_every_counter_to_zero() {
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -709,7 +709,7 @@ fn compact_old_gen_physical_updates_compaction_stats_counters() {
     // the Heap::compaction_stats counters reflect the work: one
     // cycle, one record moved, one fresh target block created,
     // one source block reclaimed.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -753,7 +753,7 @@ fn compact_old_gen_physical_drops_emptied_source_blocks() {
     // clear those stale marks and drop the now-empty source
     // block so the pool count shrinks instead of leaking the
     // source slot until the next sweep.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -775,7 +775,7 @@ fn compact_old_gen_physical_drops_emptied_source_blocks() {
     let _survivor = mutator
         .alloc(&mut keep_scope, OldChunk([42u8; 32]))
         .expect("alloc survivor");
-    let before_compact = mutator.heap().old_gen().block_count();
+    let before_compact = mutator.heap().read_core().old_gen().block_count();
     assert!(before_compact >= 1);
 
     // Explicit compaction at threshold 1.0. The survivor's
@@ -790,7 +790,7 @@ fn compact_old_gen_physical_drops_emptied_source_blocks() {
     // After the post-compact rebuild, the source block should
     // have been dropped. The pool now holds only the fresh
     // target block (one block total).
-    let after_compact = mutator.heap().old_gen().block_count();
+    let after_compact = mutator.heap().read_core().old_gen().block_count();
     assert_eq!(
         after_compact, 1,
         "post-compact rebuild must reclaim the source block; \
@@ -806,7 +806,7 @@ fn major_cycle_physical_compaction_preserves_live_rooted_survivor() {
     // evacuates the live record out of its sparse source block
     // into a fresh target block. The root must still dereference
     // to the original payload bytes after the evacuation.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -833,7 +833,7 @@ fn major_cycle_physical_compaction_preserves_live_rooted_survivor() {
     // upcoming major cycle will see it as live and the
     // automatic compaction hook will evacuate it if its block
     // qualifies as sparse.
-    let before_gc = mutator.heap().old_gen().block_count();
+    let before_gc = mutator.heap().read_core().old_gen().block_count();
     assert!(before_gc >= 1, "should have at least one old-gen block before cycle");
 
     mutator
@@ -869,7 +869,7 @@ fn major_cycle_runs_physical_compaction_when_density_threshold_enabled() {
     // behind. The test primarily verifies the hook does not
     // panic and does not regress non-compaction behavior when
     // the threshold is enabled.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -894,7 +894,7 @@ fn major_cycle_runs_physical_compaction_when_density_threshold_enabled() {
         }
     }
 
-    let before_blocks = heap.old_gen().block_count();
+    let before_blocks = heap.read_core().old_gen().block_count();
     assert!(
         before_blocks > 0,
         "fixture should have allocated at least one block"
@@ -910,7 +910,7 @@ fn major_cycle_runs_physical_compaction_when_density_threshold_enabled() {
     // Old-gen is all-dead now, so after the sweep nothing needs
     // compacting. The test's purpose is to prove the hook ran
     // without panicking and that stats are still coherent.
-    let after_blocks = heap.old_gen().block_count();
+    let after_blocks = heap.read_core().old_gen().block_count();
     // After a major that sweeps all dead old-gen records and
     // runs compaction, the block count should be less than or
     // equal to before (the sweep drops empty blocks; any fresh
@@ -931,7 +931,7 @@ fn heap_compact_old_gen_physical_after_major_is_noop_on_all_dead_heap() {
     // old-gen is now empty, so no record is evacuated.
     // Covers the public API path without tripping rooting
     // lifetime restrictions on Root<'scope>.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -1226,7 +1226,7 @@ fn old_block_accounting_tracks_allocations_alongside_regions() {
     // runtime path and verify the block-side accounting mirrors
     // the region-side accounting. This is the dual-track
     // invariant step 2 of the OldRegion unification establishes.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         old: OldGenConfig {
             concurrent_mark_workers: 1,
             ..OldGenConfig::default()
@@ -1373,7 +1373,7 @@ fn sweep_marks_only_surviving_lines() {
     // Allocate three OldPayload objects directly into the old space.
     // After the scope drops, none are rooted; running a full GC must
     // leave the old-gen blocks empty (no marked lines).
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -1396,7 +1396,7 @@ fn sweep_marks_only_surviving_lines() {
         // Sanity: at least one block has live lines while objects exist.
         let any_marked_before_drop = mutator
             .heap()
-            .old_gen()
+            .read_core().old_gen()
             .blocks()
             .iter()
             .any(|block| (0..block.line_count()).any(|line| block.is_line_marked(line)));
@@ -1408,7 +1408,8 @@ fn sweep_marks_only_surviving_lines() {
     // gone. After sweep + reclaim, the old-gen blocks should either be
     // gone entirely or have all-zero line marks.
     let _ = heap.collect(CollectionKind::Full).expect("full collection");
-    let old_gen = heap.old_gen();
+    let guard = heap.read_core();
+    let old_gen = guard.old_gen();
     for block in old_gen.blocks() {
         for line in 0..block.line_count() {
             assert!(
@@ -1426,7 +1427,7 @@ fn sweep_marks_lines_for_surviving_records_only() {
     // rooted across the major GC, and after the sweep the surviving
     // record's lines remain marked while the dead record's lines do
     // not.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -1461,7 +1462,7 @@ fn sweep_marks_lines_for_surviving_records_only() {
     // and pointing into a live block whose lines are marked. The number
     // of marked lines across all blocks should be > 0 because the
     // survivor anchors at least one line.
-    let total_marked: usize = heap
+    let total_marked: usize = heap.read_core()
         .old_gen()
         .blocks()
         .iter()
@@ -1473,7 +1474,7 @@ fn sweep_marks_lines_for_surviving_records_only() {
     );
     // The survivor record should still be tracked.
     assert!(
-        heap.objects()
+        heap.read_core().objects()
             .iter()
             .any(|object| object.object_key() == survivor_key),
         "survivor record should remain in objects after major GC"
@@ -1486,7 +1487,7 @@ fn block_reclaim_after_full_sweep_drops_empty_blocks() {
     // enough OldPayload records to fill multiple blocks, drop all
     // references, then run a full GC. After the sweep, blocks whose
     // entire contents died should have been reclaimed from the pool.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             max_regular_object_bytes: 1,
             ..NurseryConfig::default()
@@ -1508,10 +1509,10 @@ fn block_reclaim_after_full_sweep_drops_empty_blocks() {
                 .expect("alloc dying old payload");
         }
     }
-    let blocks_before = heap.old_gen().block_count();
+    let blocks_before = heap.read_core().old_gen().block_count();
     assert!(blocks_before > 0, "expected at least one block to exist");
     let _ = heap.collect(CollectionKind::Full).expect("full collection");
-    let blocks_after = heap.old_gen().block_count();
+    let blocks_after = heap.read_core().old_gen().block_count();
     assert!(
         blocks_after < blocks_before,
         "expected empty blocks to be reclaimed (before={blocks_before}, after={blocks_after})"
@@ -1525,7 +1526,7 @@ fn promotion_uses_old_block_allocator() {
     // After the minor GC, the promoted record's backing storage should be
     // owned by an OldBlock — verifying via the per-record OldBlockPlacement
     // hook that the evacuation routed through `OldGenState::try_alloc_in_block`.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
             promotion_age: 1,
             ..NurseryConfig::default()
@@ -1560,10 +1561,11 @@ fn promotion_uses_old_block_allocator() {
     // next collection that drops it). The promoted record's backing
     // memory should be tagged Arena (block-backed).
     assert!(
-        heap.old_gen().block_count() >= 1,
+        heap.read_core().old_gen().block_count() >= 1,
         "promotion should have allocated at least one OldBlock"
     );
-    let found = heap
+    let guard = heap.read_core();
+    let found = guard
         .objects()
         .iter()
         .find(|object| object.object_key() == leaf_key)
