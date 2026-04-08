@@ -1336,8 +1336,9 @@ impl SharedHeap {
     ///   * the snapshot reports no reserved old-gen bytes
     ///     (`stats.old.reserved_bytes == 0`), meaning the block
     ///     pool is empty and there is nothing to compact.
-    /// Otherwise the call grabs the write lock and dispatches to
-    /// [`Heap::compact_old_gen_aggressive`].
+    ///
+    /// Otherwise the call grabs the write lock and dispatches
+    /// to [`Heap::compact_old_gen_aggressive`].
     pub fn compact_old_gen_aggressive(
         &self,
         density_threshold: f64,
