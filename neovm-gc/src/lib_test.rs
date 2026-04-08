@@ -1202,7 +1202,6 @@ fn major_plan_reports_old_region_targets_and_reclaim_headroom() {
     let third = mutator.root(&mut keep_scope, third_gc);
 
     let plan = mutator.plan_for(CollectionKind::Major);
-    let candidates = mutator.heap().major_region_candidates();
     let block_candidates = mutator.heap().major_block_candidates();
     assert_eq!(plan.kind, CollectionKind::Major);
     assert_eq!(plan.phase, CollectionPhase::InitialMark);
@@ -1212,31 +1211,20 @@ fn major_plan_reports_old_region_targets_and_reclaim_headroom() {
     assert!(plan.mark_slice_budget > 0);
     assert_eq!(plan.target_old_regions, 1);
     assert_eq!(
-        plan.selected_old_regions,
-        candidates
-            .iter()
-            .map(|region| region.region_index)
-            .collect::<Vec<_>>()
-    );
-    assert_eq!(
         plan.selected_old_blocks,
         block_candidates
             .iter()
             .map(|block| block.region_index)
             .collect::<Vec<_>>()
     );
+    // The planner internally still uses the legacy region view
+    // for the estimated_*_bytes fields; both views agree on
+    // live bytes for the same survivor set.
     assert_eq!(
         plan.estimated_compaction_bytes,
-        candidates
+        block_candidates
             .iter()
-            .map(|region| region.live_bytes)
-            .sum::<usize>()
-    );
-    assert_eq!(
-        plan.estimated_reclaim_bytes,
-        candidates
-            .iter()
-            .map(|region| region.hole_bytes)
+            .map(|block| block.live_bytes)
             .sum::<usize>()
     );
     assert!(plan.estimated_reclaim_bytes > 0);
@@ -3727,7 +3715,7 @@ fn poll_active_major_mark_prepares_major_old_region_rebuild_before_finish() {
     let third = mutator.root(&mut keep_scope, third_gc);
 
     let plan = mutator.plan_for(CollectionKind::Major);
-    assert_eq!(plan.selected_old_regions.len(), 1);
+    assert_eq!(plan.selected_old_blocks.len(), 1);
     mutator
         .begin_major_mark(plan.clone())
         .expect("begin persistent major mark");

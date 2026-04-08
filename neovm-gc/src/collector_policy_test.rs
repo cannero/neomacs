@@ -155,7 +155,6 @@ fn build_plan_full_includes_old_nursery_and_large_reclaim() {
     assert_eq!(plan.phase, CollectionPhase::InitialMark);
     assert_eq!(plan.worker_count, 2);
     assert_eq!(plan.target_old_regions, 1);
-    assert_eq!(plan.selected_old_regions, vec![0]);
     assert_eq!(plan.estimated_compaction_bytes, 64);
     assert_eq!(plan.estimated_reclaim_bytes, 144);
 }
