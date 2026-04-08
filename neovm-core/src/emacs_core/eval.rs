@@ -10355,6 +10355,30 @@ impl Context {
     ) -> Option<Value> {
         let (resolved_name, resolved_is_canonical) = resolve_sym_metadata(resolved);
 
+        // Phase 10E: route LOCALIZED reads through the BLV
+        // machinery so they observe writes from set_internal_localized.
+        // Mirrors GNU `find_symbol_value` LOCALIZED arm
+        // (`data.c:1620-1650`). Without this, `symbol-value` returns
+        // the stale `SymbolValue::BufferLocal::default` field for
+        // LOCALIZED variables that have a per-buffer binding.
+        if resolved_is_canonical
+            && let Some(buf) = self.buffers.current_buffer()
+        {
+            use crate::emacs_core::symbol::SymbolRedirect;
+            if let Some(sym) = self.obarray.get_by_id(resolved)
+                && sym.redirect() == SymbolRedirect::Localized
+            {
+                let target_buf = Value::make_buffer(buf.id);
+                if let Some(value) = self.obarray.read_localized(
+                    resolved,
+                    target_buf,
+                    buf.local_var_alist,
+                ) {
+                    return Some(value);
+                }
+            }
+        }
+
         if resolved_is_canonical
             && let Some(buf) = self.buffers.current_buffer()
             && let Some(binding) = buf.get_buffer_local_binding(resolved_name)

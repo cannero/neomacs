@@ -1207,11 +1207,27 @@ impl Obarray {
         // Step 2: actually write the new value into valcell's cdr.
         // The BLV's valcell is a shared cons whose cdr lives in the
         // tagged heap; mutate it via Value::set_cdr. Capture
-        // valcell first so the BLV borrow ends before we touch the
-        // cons cell.
+        // valcell + defcell first so the BLV borrow ends before we
+        // touch the cons cell.
         let valcell = blv.valcell;
+        let defcell = blv.defcell;
+        let writing_default = super::value::eq_value(&valcell, &defcell);
         let _ = blv;
         valcell.set_cdr(value);
+
+        // Phase 10E: keep the legacy `SymbolValue::BufferLocal::default`
+        // mirror in sync when the write lands on the defcell. This
+        // matters because `Obarray::symbol_value_id` and
+        // `default_value_id` still read from the legacy enum, and
+        // GNU `Fdefault_value` for SYMBOL_LOCALIZED returns
+        // `XCDR(blv->defcell)` (`data.c:1659-1668`). Without this
+        // sync, `(default-value 'foo)` returns the stale enum value.
+        if writing_default
+            && let Some(sym) = self.slot_mut(sym_id)
+            && let SymbolValue::BufferLocal { default, .. } = &mut sym.value
+        {
+            *default = Some(value);
+        }
 
         new_alist
     }

@@ -395,12 +395,54 @@ pub(crate) fn builtin_kill_local_variable_impl(
     let resolved_name = resolve_sym(resolved);
     let mut removed = false;
     let buffer_id = ctx.buffers.current_buffer_id();
+
+    // Phase 10E: for LOCALIZED symbols, remove the entry from
+    // `Buffer::local_var_alist` and reset the BLV cache. Mirrors
+    // GNU `Fkill_local_variable` SYMBOL_LOCALIZED arm at
+    // `data.c:2349-2378` which does:
+    //
+    //     swap_in_global_binding (sym);
+    //     XSETSYMBOL (variable, sym);
+    //     bset_local_var_alist (current_buffer,
+    //                           Fdelq (Fassq (variable,
+    //                                         BVAR (current_buffer, local_var_alist)),
+    //                                  BVAR (current_buffer, local_var_alist)));
+    use crate::emacs_core::symbol::SymbolRedirect;
     if let Some(buffer_id) = buffer_id {
-        removed = ctx
-            .buffers
-            .remove_buffer_local_property(buffer_id, resolved_name)
-            .flatten()
-            .is_some();
+        let is_localized = ctx
+            .obarray
+            .get_by_id(resolved)
+            .map(|s| s.redirect() == SymbolRedirect::Localized)
+            .unwrap_or(false);
+        if is_localized {
+            // Reset the BLV cache so subsequent reads re-swap to
+            // the global default. Equivalent to GNU's
+            // `swap_in_global_binding`.
+            if let Some(blv) = ctx.obarray.blv_mut(resolved) {
+                blv.where_buf = crate::emacs_core::value::Value::NIL;
+                blv.found = false;
+                blv.valcell = blv.defcell;
+            }
+            // Walk the buffer's alist and remove any (sym . val)
+            // pair. Returns whether anything was removed.
+            if let Some(buf) = ctx.buffers.get_mut(buffer_id) {
+                let key = crate::emacs_core::value::Value::from_sym_id(resolved);
+                let new_alist = remove_alist_key(buf.local_var_alist, key);
+                if !crate::emacs_core::value::eq_value(
+                    &new_alist,
+                    &buf.local_var_alist,
+                ) {
+                    removed = true;
+                    buf.local_var_alist = new_alist;
+                }
+            }
+        } else {
+            removed = ctx
+                .buffers
+                .remove_buffer_local_property(buffer_id, resolved_name)
+                .flatten()
+                .is_some();
+        }
     }
 
     Ok(KillLocalVariableOutcome {
@@ -409,6 +451,42 @@ pub(crate) fn builtin_kill_local_variable_impl(
         resolved_id: resolved,
         buffer_id,
     })
+}
+
+/// Walk an alist and return a new alist with the entry whose
+/// car is `eq` to `key` removed. Mirrors GNU `Fdelq` over an
+/// `Fassq`-matched cons. Returns the original alist if `key`
+/// is absent.
+fn remove_alist_key(
+    mut alist: crate::emacs_core::value::Value,
+    key: crate::emacs_core::value::Value,
+) -> crate::emacs_core::value::Value {
+    use crate::emacs_core::value::{Value, eq_value};
+    let mut head = alist;
+    let mut prev: Option<Value> = None;
+    while alist.is_cons() {
+        let entry = alist.cons_car();
+        let next = alist.cons_cdr();
+        if entry.is_cons() && eq_value(&entry.cons_car(), &key) {
+            // Remove this cons from the chain by relinking
+            // prev.cdr to next, or advancing head if no prev.
+            match prev {
+                Some(p) => {
+                    p.set_cdr(next);
+                }
+                None => {
+                    head = next;
+                }
+            }
+            // Continue walking in case the same key appears
+            // again (alists may have shadowed entries).
+            alist = next;
+            continue;
+        }
+        prev = Some(alist);
+        alist = next;
+    }
+    head
 }
 
 /// `(default-value SYMBOL)` -- get the default (global) value of a variable.
