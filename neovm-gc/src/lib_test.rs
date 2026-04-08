@@ -3751,7 +3751,10 @@ fn poll_active_major_mark_prepares_major_old_region_rebuild_before_finish() {
     assert_eq!(cycle.major_collections, 1);
     assert_eq!(cycle.compacted_regions, 1);
 
-    let regions = mutator.heap().old_region_stats();
+    // Legacy logical-renumbering view: the rebuild rewrote the
+    // regions vec to pack the two survivors tight against each
+    // other, so hole_bytes shrinks even though no bytes moved.
+    let regions = mutator.heap().legacy_old_region_stats();
     assert_eq!(regions.len(), 1);
     assert_eq!(regions[0].object_count, 2);
     assert!(regions[0].hole_bytes < old_bytes);
@@ -4631,7 +4634,11 @@ fn major_region_candidates_prefer_holey_regions_over_tail_only_sparse_regions() 
         .expect("alloc tiny tail-only old leaf");
     assert_eq!(unsafe { tiny.as_gc().as_non_null().as_ref() }.0[0], 84);
 
-    let regions = mutator.heap().old_region_stats();
+    // The legacy regions vec is the only view that reports
+    // hole_bytes == 0 for a tail-only sparse region (the block
+    // view counts line-alignment padding inside the block as
+    // honest physical hole bytes).
+    let regions = mutator.heap().legacy_old_region_stats();
     assert_eq!(regions.len(), 2);
     let holey_region = regions
         .iter()
@@ -5084,7 +5091,10 @@ fn major_collection_compacts_selected_live_old_region() {
     assert_eq!(cycle.compacted_regions, 1);
     assert_eq!(cycle.reclaimed_regions, 0);
 
-    let regions = mutator.heap().old_region_stats();
+    // Legacy logical-renumbering view: the rebuild rewrote the
+    // regions vec to pack the two survivors tight against each
+    // other, so hole_bytes shrinks even though no bytes moved.
+    let regions = mutator.heap().legacy_old_region_stats();
     assert_eq!(regions.len(), 1);
     assert_eq!(regions[0].object_count, 2);
     assert!(regions[0].hole_bytes < old_bytes);
@@ -5144,7 +5154,11 @@ fn execute_major_plan_honors_exact_selected_old_regions() {
     let fourth = mutator.root(&mut keep_scope, fourth_gc);
     let sixth = mutator.root(&mut keep_scope, sixth_gc);
 
-    let before_regions = mutator.heap().old_region_stats();
+    // Manual plan construction works against the legacy logical-
+    // region namespace: selected_old_regions, the rebuild path,
+    // and the post-major shrink contract are all expressed in
+    // logical region indices, not block indices.
+    let before_regions = mutator.heap().legacy_old_region_stats();
     let candidate_regions: Vec<_> = before_regions
         .iter()
         .filter(|region| region.object_count > 1 && region.hole_bytes > 0)
@@ -5183,7 +5197,7 @@ fn execute_major_plan_honors_exact_selected_old_regions() {
     assert_eq!(cycle.major_collections, 1);
     assert_eq!(cycle.compacted_regions, 1);
 
-    let after_regions = mutator.heap().old_region_stats();
+    let after_regions = mutator.heap().legacy_old_region_stats();
     assert_eq!(after_regions.len(), before_regions.len());
     let after_manual = after_regions
         .iter()

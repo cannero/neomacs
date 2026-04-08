@@ -2640,7 +2640,10 @@ fn public_api_poll_active_major_mark_prepares_major_old_region_rebuild_before_fi
     assert_eq!(cycle.major_collections, 1);
     assert_eq!(cycle.compacted_regions, 1);
 
-    let regions = mutator.heap().old_region_stats();
+    // Legacy logical-renumbering view: the rebuild rewrote the
+    // regions vec to pack the two survivors tight against each
+    // other, so hole_bytes shrinks even though no bytes moved.
+    let regions = mutator.heap().legacy_old_region_stats();
     assert_eq!(regions.len(), 1);
     assert_eq!(regions[0].object_count, 2);
     assert!(regions[0].hole_bytes < old_bytes);
@@ -4129,7 +4132,11 @@ fn public_api_major_region_candidates_prefer_holey_regions_over_tail_only_sparse
         .expect("alloc tiny tail-only old leaf");
     assert_eq!(unsafe { tiny.as_gc().as_non_null().as_ref() }.0[0], 94);
 
-    let regions = mutator.heap().old_region_stats();
+    // The legacy regions vec is the only view that reports
+    // hole_bytes == 0 for a tail-only sparse region (the block
+    // view counts line-alignment padding inside the block as
+    // honest physical hole bytes).
+    let regions = mutator.heap().legacy_old_region_stats();
     assert_eq!(regions.len(), 2);
     let holey_region = regions
         .iter()
@@ -4293,44 +4300,44 @@ fn public_api_major_region_candidates_prefer_more_reclaim_efficient_regions_unde
     let b_first = mutator.root(&mut keep_scope, b_first);
     let b_tiny = mutator.root(&mut keep_scope, b_tiny);
 
-    let regions = mutator.heap().old_region_stats();
-    let holey_regions: Vec<_> = regions
+    let blocks = mutator.heap().old_block_region_stats();
+    let holey_blocks: Vec<_> = blocks
         .iter()
-        .filter(|region| region.hole_bytes > 0)
+        .filter(|block| block.hole_bytes > 0)
         .collect();
     assert!(
-        holey_regions.len() >= 2,
-        "fixture should expose at least two holey regions"
+        holey_blocks.len() >= 2,
+        "fixture should expose at least two holey blocks"
     );
     assert!(
-        holey_regions
+        holey_blocks
             .iter()
-            .any(|region| region.region_index != holey_regions[0].region_index),
-        "fixture should include at least one competing holey region"
+            .any(|block| block.region_index != holey_blocks[0].region_index),
+        "fixture should include at least one competing holey block"
     );
 
-    let candidates = mutator.heap().major_region_candidates();
+    let candidates = mutator.heap().major_block_candidates();
     assert!(
         !candidates.is_empty(),
         "fixture should produce at least one compaction candidate"
     );
     let selected = &candidates[0];
-    for region in &holey_regions {
+    for block in &holey_blocks {
         let selected_score =
-            (selected.hole_bytes as u128).saturating_mul(region.live_bytes.max(1) as u128);
+            (selected.hole_bytes as u128).saturating_mul(block.live_bytes.max(1) as u128);
         let other_score =
-            (region.hole_bytes as u128).saturating_mul(selected.live_bytes.max(1) as u128);
+            (block.hole_bytes as u128).saturating_mul(selected.live_bytes.max(1) as u128);
         assert!(
             selected_score >= other_score,
-            "selected region should not be less reclaim-efficient than any competing holey region"
+            "selected block should not be less reclaim-efficient than any competing holey block"
         );
     }
     let plan = mutator.plan_for(CollectionKind::Major);
     assert!(
         plan.target_old_regions >= 1,
-        "plan should carry at least the most efficient selected region"
+        "plan should carry at least the most efficient selected block"
     );
-    assert_eq!(plan.selected_old_regions[0], selected.region_index);
+    assert_eq!(plan.selected_old_blocks[0], selected.region_index);
 
     assert_eq!(unsafe { a_first.as_gc().as_non_null().as_ref() }.0[0], 130);
     assert_eq!(unsafe { a_third.as_gc().as_non_null().as_ref() }.0[0], 132);
@@ -4550,7 +4557,10 @@ fn public_api_major_collection_compacts_selected_live_old_region() {
     assert_eq!(cycle.compacted_regions, 1);
     assert_eq!(cycle.reclaimed_regions, 0);
 
-    let regions = mutator.heap().old_region_stats();
+    // Legacy logical-renumbering view: the rebuild rewrote the
+    // regions vec to pack the two survivors tight against each
+    // other, so hole_bytes shrinks even though no bytes moved.
+    let regions = mutator.heap().legacy_old_region_stats();
     assert_eq!(regions.len(), 1);
     assert_eq!(regions[0].object_count, 2);
     assert!(regions[0].hole_bytes < old_bytes);
@@ -4610,7 +4620,11 @@ fn public_api_execute_major_plan_honors_exact_selected_old_regions() {
     let fourth = mutator.root(&mut keep_scope, fourth_gc);
     let sixth = mutator.root(&mut keep_scope, sixth_gc);
 
-    let before_regions = mutator.heap().old_region_stats();
+    // Manual plan construction works against the legacy logical-
+    // region namespace: selected_old_regions, the rebuild path,
+    // and the post-major shrink contract are all expressed in
+    // logical region indices, not block indices.
+    let before_regions = mutator.heap().legacy_old_region_stats();
     let candidate_regions: Vec<_> = before_regions
         .iter()
         .filter(|region| region.object_count > 1 && region.hole_bytes > 0)
@@ -4649,7 +4663,7 @@ fn public_api_execute_major_plan_honors_exact_selected_old_regions() {
     assert_eq!(cycle.major_collections, 1);
     assert_eq!(cycle.compacted_regions, 1);
 
-    let after_regions = mutator.heap().old_region_stats();
+    let after_regions = mutator.heap().legacy_old_region_stats();
     assert_eq!(after_regions.len(), before_regions.len());
     let after_manual = after_regions
         .iter()

@@ -683,18 +683,39 @@ impl Heap {
         CollectorRuntime::new(self).commit_active_reclaim_if_ready()
     }
 
-    /// Return logical old-generation region statistics.
+    /// Return per-block old-generation statistics.
     ///
-    /// This is the legacy view: it reads from the regions vec
-    /// that the major-cycle rebuild rewrites in place to
-    /// renumber survivors into tightly-packed regions. The
-    /// `hole_bytes` field shrinks after a major cycle as a
-    /// side effect of the rebuild even though no bytes are
-    /// physically moved. Prefer
-    /// [`Heap::old_block_region_stats`] for the honest physical
-    /// layout.
+    /// This is the migrated default reader: as of the
+    /// logical-region retirement work, `old_region_stats` and
+    /// [`Heap::old_block_region_stats`] return the same per-block
+    /// view. The legacy regions vec is still maintained
+    /// internally for the rebuild path that still consumes
+    /// `selected_old_regions`, but no observer reads it directly
+    /// any more.
+    ///
+    /// The `region_index` in each entry is therefore a block
+    /// index. Tests that explicitly need the legacy renumbering
+    /// contract should call [`Heap::legacy_old_region_stats`]
+    /// instead.
     pub fn old_region_stats(&self) -> Vec<OldRegionStats> {
         self.old_gen.region_stats()
+    }
+
+    /// Return the legacy logical-region statistics view.
+    ///
+    /// Reads directly from the internal regions vec that the
+    /// major-cycle rebuild rewrites in place to renumber
+    /// survivors into tightly-packed regions. The `hole_bytes`
+    /// field shrinks after a major cycle as a side effect of
+    /// the rebuild even though no bytes are physically moved.
+    ///
+    /// This accessor exists for the few legacy fixtures that
+    /// explicitly verify the logical-renumbering contract.
+    /// Production observers should use
+    /// [`Heap::old_block_region_stats`] (or the equivalent
+    /// `old_region_stats`).
+    pub fn legacy_old_region_stats(&self) -> Vec<OldRegionStats> {
+        self.old_gen.legacy_region_stats()
     }
 
     /// Return the per-block old-generation statistics view.

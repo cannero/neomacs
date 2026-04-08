@@ -827,24 +827,21 @@ impl OldGenState {
         self.reserved_bytes()
     }
 
+    /// Legacy region-stats reader, retained as an alias for the
+    /// per-block view so existing call sites compile during the
+    /// migration off the logical-region namespace. The internal
+    /// `regions` vec is still maintained by the allocator for the
+    /// rebuild path's benefit, but no observer reads it directly
+    /// any more.
     pub(crate) fn region_stats(&self) -> Vec<OldRegionStats> {
-        // Still reads from the legacy `regions` vec. An earlier
-        // attempt to compute this from blocks (step 10) tripped
-        // `execute_major_plan_honors_exact_selected_old_regions`
-        // because that test asserts the logical-compaction
-        // behavior of `hole_bytes` shrinking after a major --
-        // which happens when the legacy rebuild path rewrites
-        // region offsets tight against survivors, but does NOT
-        // happen when computing the same metric from blocks (the
-        // block's `used_bytes` stays at its physical high-water
-        // mark). The test semantic is fundamentally a logical-
-        // compaction contract, so as long as the test survives
-        // the regions vec has to be the source of truth.
-        //
-        // The block side does maintain identical counters
-        // (updated by record_object on alloc and by the sweep
-        // rebuild on survivors) so that future step can switch
-        // the reader if the test contract is revised.
+        self.block_region_stats()
+    }
+
+    /// Direct reader of the legacy `regions` vec, retained for
+    /// the rebuild path that still operates on logical-region
+    /// indices via `prepare_old_region_rebuild_for_plan` and the
+    /// manual-plan tests that drive `selected_old_regions`.
+    pub(crate) fn legacy_region_stats(&self) -> Vec<OldRegionStats> {
         self.regions
             .iter()
             .enumerate()
@@ -913,7 +910,7 @@ impl OldGenState {
     }
 
     pub(crate) fn major_plan_selection(&self, config: &OldGenConfig) -> OldGenPlanSelection {
-        Self::run_major_plan_selection(self.region_stats(), config)
+        Self::run_major_plan_selection(self.legacy_region_stats(), config)
     }
 
     /// Block-backed equivalent of [`Self::major_plan_selection`].
