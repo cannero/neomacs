@@ -2585,9 +2585,40 @@ fn finalize_cached_bootstrap_eval(
     // GNU Emacs loads the pdump as-is with no cleanup/normalization.
     // We only need to:
     // 1. Re-register builtins (pdump can't preserve Rust function pointers)
-    // 2. Reset thread-local caches
-    // 3. Set path variables for the current runtime location
+    // 2. Re-install BUFFER_OBJFWD forwarders (pdump load leaves the
+    //    redirect as Plainval; mirror Context::new_inner here so
+    //    default-directory etc. are Forwarded again).
+    // 3. Reset thread-local caches
+    // 4. Set path variables for the current runtime location
     super::builtins::init_builtins(eval);
+
+    // Re-install BUFFER_OBJFWD forwarders to restore the Forwarded
+    // redirect tag on per-buffer variables. `pdump::convert.rs`
+    // leaves Forwarded symbols at Plainval/NIL (documented Phase 8
+    // gap), so writes via set_variable would otherwise bypass the
+    // per-buffer slot entirely. Mirrors the loop in
+    // `Context::new_inner`.
+    {
+        use crate::buffer::buffer::BUFFER_SLOT_INFO;
+        use crate::emacs_core::forward::alloc_buffer_objfwd;
+        use crate::emacs_core::intern::intern;
+        let obarray = eval.obarray_mut();
+        for info in BUFFER_SLOT_INFO {
+            let id = intern(info.name);
+            let predicate = if info.predicate.is_empty() {
+                intern("null")
+            } else {
+                intern(info.predicate)
+            };
+            let fwd = alloc_buffer_objfwd(
+                info.offset as u16,
+                -1,
+                predicate,
+                info.default.to_value(),
+            );
+            obarray.install_buffer_objfwd(id, fwd);
+        }
+    }
     super::font::restore_created_faces_from_table(&eval.face_table.face_list());
     clear_runtime_loader_state(eval);
     ensure_startup_compat_variables(eval, project_root);
@@ -2613,25 +2644,20 @@ fn finalize_cached_bootstrap_eval(
         Value::string(format!("{}/", project_root.to_string_lossy())),
     );
 
-    // Mirror GNU `init_buffer` (`src/buffer.c`): after loading the
-    // dumped image, reset every buffer's `default-directory` to the
-    // *runtime* cwd (not the cwd at dump time). Without this step
-    // every caller that reads `default-directory` sees the stale slot
-    // value the dump was produced with, which may no longer exist on
-    // disk (or be nil entirely when the slot was never initialized).
+    // Mirror GNU `init_buffer` (`src/buffer.c:4923`): after loading
+    // the dumped image, switch to `*scratch*` and reset its
+    // `default-directory` to the runtime cwd captured at startup
+    // (GNU `emacs_wd` / our `std::env::current_dir()`). GNU only
+    // touches the scratch buffer and the (shared) minibuffer here —
+    // every other buffer inherits on creation. Mirror that by
+    // setting just the current buffer's slot via `set_variable`,
+    // which routes through the FORWARDED dispatch.
     if let Ok(cwd) = std::env::current_dir() {
         let mut cwd_string = cwd.to_string_lossy().into_owned();
         if !cwd_string.ends_with('/') {
             cwd_string.push('/');
         }
-        let cwd_value = Value::string(cwd_string);
-        use crate::buffer::buffer::BUFFER_SLOT_DEFAULT_DIRECTORY;
-        let buffer_ids = eval.buffers.buffer_list();
-        for id in buffer_ids {
-            if let Some(buf) = eval.buffers.get_mut(id) {
-                buf.slots[BUFFER_SLOT_DEFAULT_DIRECTORY] = cwd_value;
-            }
-        }
+        eval.set_variable("default-directory", Value::string(cwd_string));
     }
 
     eval.clear_top_level_eval_state();

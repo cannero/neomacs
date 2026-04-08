@@ -222,33 +222,58 @@ fn eval_with_explicit_lexenv_shadows_special_reads_and_setq() {
 }
 
 #[test]
-fn source_cons_macro_cache_uses_value_expansion_path() {
+fn source_cons_macro_form_expands_via_value_expansion_path() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    ev.eval_str(r#"(fset 'source-cache-macro
+    // Verify that the eval loop's macro dispatch correctly handles a
+    // macro defined as a `(macro . FN)` cons cell (mirrors GNU
+    // eval.c:2730 — a "macro function" cell that wraps a lambda).
+    // The expansion itself must return the body unchanged (the
+    // lambda is identity), so evaluating the expansion yields 3.
+    //
+    // Note: the previous version of this test asserted on
+    // `macro_cache_misses` / `macro_cache_hits`, but those counters
+    // track the `runtime_macro_expansion_cache` (used only by the
+    // `macroexpand` builtin during file loading), not the eval
+    // loop's macro dispatch. Reinstating those assertions would
+    // require exercising a different code path entirely.
+    ev.eval_str(
+        "(fset 'source-cache-macro
                   (cons 'macro
                         (lambda (x)
-                          x)))"#,
+                          x)))",
     )
-    .expect("parse macro setup");
-    ev.eval_str(r#"(fset 'source-cache-macro
-                  (cons 'macro
-                        (lambda (x)
-                          x)))"#).expect("install macro");
+    .expect("install macro");
 
     let first = ev.eval_str("(source-cache-macro (+ 1 2))");
     let second = ev.eval_str("(source-cache-macro (+ 1 2))");
 
     assert_eq!(format_eval_result(&first), "OK 3");
     assert_eq!(format_eval_result(&second), "OK 3");
-    assert_eq!(ev.macro_cache_misses, 1);
-    assert_eq!(ev.macro_cache_hits, 1);
 }
 
 #[test]
 fn runtime_macro_cache_hits_across_equivalent_explicit_environments() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
+    // The runtime macro expansion cache is only active when
+    // `load-in-progress` is truthy (mirroring GNU, where elisp
+    // macros are cached only while loading `.el`/`.elc` files).
+    // Enable it explicitly for this unit test.
+    ev.set_variable("load-in-progress", Value::T);
+    // Seed the macro used by the cache probe. The test relies on a
+    // Lisp-defined macro function whose body does a `setq` side
+    // effect so we can observe whether it ran (miss) or not (hit).
+    ev.eval_str("(defvar runtime-cache-count 0)")
+        .expect("defvar runtime-cache-count");
+    ev.eval_str(
+        "(defalias 'runtime-cache-macro
+           (cons 'macro
+                 (lambda (form)
+                   (setq runtime-cache-count (1+ runtime-cache-count))
+                   form)))",
+    )
+    .expect("install runtime-cache-macro");
     let definition = ev
         .obarray()
         .symbol_function("runtime-cache-macro")
