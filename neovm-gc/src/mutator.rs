@@ -95,6 +95,14 @@ impl<'heap> Mutator<'heap> {
             .compact_old_gen_aggressive(density_threshold, max_passes)
     }
 
+    /// Block-targeted compaction wrapper. Mirrors
+    /// [`Heap::compact_old_gen_blocks`] through the mutator
+    /// borrow so scoped roots created from the same mutator
+    /// stay valid across the call.
+    pub fn compact_old_gen_blocks(&mut self, block_indices: &[usize]) -> usize {
+        self.heap.compact_old_gen_blocks(block_indices)
+    }
+
     /// Predicate-only check for opportunistic compaction.
     /// Mirrors [`Heap::should_compact_old_gen`].
     pub fn should_compact_old_gen(&self, fragmentation_threshold: f64) -> bool {

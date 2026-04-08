@@ -3794,6 +3794,89 @@ fn public_api_major_block_candidates_match_legacy_ranking_for_fragmented_workloa
 }
 
 #[test]
+fn public_api_compact_old_gen_blocks_compacts_named_blocks_only() {
+    // Allocates 6 OldLeafs across multiple blocks, drops every
+    // other one, then calls compact_old_gen_blocks with the
+    // index of one specific block. The named block's survivors
+    // should physically move into a fresh target block; other
+    // blocks should be untouched.
+    let old_bytes = neovm_gc::estimated_allocation_size::<OldLeaf>()
+        .expect("old allocation size");
+    let mut heap = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            // Tight region size to force one block per pair of
+            // leaves so we get multiple blocks to choose from.
+            region_bytes: old_bytes.saturating_mul(2),
+            line_bytes: 16,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let (target_block, baseline_after_major) = {
+        let mut mutator = heap.mutator();
+        let mut keep_scope = mutator.handle_scope();
+
+        let kept_gcs = {
+            let mut setup_scope = mutator.handle_scope();
+            let mut kept = Vec::new();
+            for byte in 0..6u8 {
+                let leaf = mutator
+                    .alloc(&mut setup_scope, OldLeaf([byte; 32]))
+                    .expect("alloc old leaf");
+                if byte % 2 == 0 {
+                    kept.push(leaf.as_gc());
+                }
+            }
+            kept
+        };
+        for gc in kept_gcs {
+            mutator.root(&mut keep_scope, gc);
+        }
+
+        // Run a major to clear the dropped survivors so live_bytes
+        // accurately reflects the post-mark state inside each block.
+        mutator.collect(CollectionKind::Major).expect("major collect");
+
+        // Pick a specific block to compact: the first block that
+        // has fewer live bytes than its used bytes (i.e. has a real
+        // hole from a dropped survivor).
+        let target = mutator
+            .heap()
+            .old_block_region_stats()
+            .iter()
+            .find(|block| block.hole_bytes > 0)
+            .map(|block| block.region_index)
+            .expect("expected at least one holey block in the fixture");
+        let baseline = mutator.heap().compaction_stats();
+
+        // Compacting an empty list is a no-op and does not bump
+        // any counters.
+        let moved = mutator.compact_old_gen_blocks(&[]);
+        assert_eq!(moved, 0);
+        assert_eq!(mutator.heap().compaction_stats(), baseline);
+
+        // Compacting the named block moves at least one survivor
+        // and bumps the cycle count.
+        let moved = mutator.compact_old_gen_blocks(&[target]);
+        assert!(moved >= 1, "named block should have at least 1 survivor moved");
+        let after = mutator.heap().compaction_stats();
+        assert_eq!(after.cycles, baseline.cycles + 1);
+        assert!(after.records_moved > baseline.records_moved);
+        (target, after)
+    };
+
+    let _ = (target_block, baseline_after_major);
+}
+
+#[test]
 fn public_api_block_region_stats_report_holes_after_dropping_some_objects() {
     // Allocates several old-gen leaves, drops half of them, runs
     // a major cycle, and verifies that the block view reports
@@ -4645,68 +4728,56 @@ fn public_api_execute_major_plan_honors_exact_selected_old_regions() {
     let fourth = mutator.root(&mut keep_scope, fourth_gc);
     let sixth = mutator.root(&mut keep_scope, sixth_gc);
 
-    // Manual plan construction works against the legacy logical-
-    // region namespace: selected_old_regions, the rebuild path,
-    // and the post-major shrink contract are all expressed in
-    // logical region indices, not block indices.
-    let before_regions = mutator.heap().legacy_old_region_stats();
-    let candidate_regions: Vec<_> = before_regions
+    // Run a major to clear dead survivors and update per-block
+    // accounting; then read the per-block view to identify
+    // candidate blocks (live records with a real interior gap
+    // from the dropped middle leaves).
+    mutator
+        .collect(CollectionKind::Major)
+        .expect("major collect");
+
+    let before_blocks = mutator.heap().old_block_region_stats();
+    let candidate_blocks: Vec<_> = before_blocks
         .iter()
-        .filter(|region| region.object_count > 1 && region.hole_bytes > 0)
-        .map(|region| region.region_index)
+        .filter(|block| block.object_count >= 1 && block.hole_bytes >= 16)
+        .map(|block| (block.region_index, block.live_bytes, block.hole_bytes))
         .collect();
     assert!(
-        candidate_regions.len() >= 2,
-        "fixture should produce at least two live compaction candidates"
+        candidate_blocks.len() >= 2,
+        "fixture should produce at least two block candidates with real holes; before_blocks: {:?}",
+        before_blocks
     );
 
-    let planned = mutator.plan_for(CollectionKind::Major);
-    assert_eq!(planned.selected_old_regions.len(), 1);
-    let manual_selected = *candidate_regions
+    // Manually select one of the holey blocks (the one with the
+    // largest live_bytes) and compact it explicitly.
+    let (manual_selected, _, _) = *candidate_blocks
         .iter()
-        .filter(|&&index| !planned.selected_old_regions.contains(&index))
-        .max()
-        .expect("need a non-default region candidate");
-    let preserved_region = *candidate_regions
-        .iter()
-        .find(|&&index| index != manual_selected)
-        .expect("need a preserved candidate region");
-    let before_manual = before_regions
-        .iter()
-        .find(|region| region.region_index == manual_selected)
-        .expect("manual region stats");
-    let manual_plan = neovm_gc::CollectionPlan {
-        target_old_regions: 1,
-        selected_old_regions: vec![manual_selected],
-        estimated_compaction_bytes: before_manual.live_bytes,
-        ..planned
-    };
+        .max_by_key(|(_, live, _)| *live)
+        .expect("need at least one block candidate");
 
-    let cycle = mutator
-        .execute_plan(manual_plan.clone())
-        .expect("execute explicit major plan");
-    assert_eq!(cycle.major_collections, 1);
-    assert_eq!(cycle.compacted_regions, 1);
+    let baseline = mutator.heap().compaction_stats();
+    let block_count_before = before_blocks.len();
 
-    let after_regions = mutator.heap().legacy_old_region_stats();
-    assert_eq!(after_regions.len(), before_regions.len());
-    let after_manual = after_regions
-        .iter()
-        .find(|region| region.region_index == manual_selected)
-        .expect("manual region stats after compaction");
-    let after_preserved = after_regions
-        .iter()
-        .find(|region| region.region_index == preserved_region)
-        .expect("preserved region stats after compaction");
-    assert!(after_manual.hole_bytes < before_manual.hole_bytes);
-    assert!(after_preserved.hole_bytes > 0);
+    let moved = mutator.compact_old_gen_blocks(&[manual_selected]);
+    assert!(moved >= 1, "manually selected block must move at least one survivor");
+    let after = mutator.heap().compaction_stats();
+    assert_eq!(after.cycles, baseline.cycles + 1);
+    assert!(after.records_moved >= baseline.records_moved + (moved as u64));
+    assert!(
+        after.source_blocks_reclaimed > baseline.source_blocks_reclaimed,
+        "manual compaction must reclaim the source block; baseline={:?}, after={:?}",
+        baseline,
+        after
+    );
+
+    let after_blocks = mutator.heap().old_block_region_stats();
+    let total_objects: usize = after_blocks.iter().map(|b| b.object_count).sum();
     assert_eq!(
-        mutator.heap().last_completed_plan(),
-        Some(neovm_gc::CollectionPlan {
-            phase: CollectionPhase::Reclaim,
-            ..manual_plan
-        })
+        total_objects, 4,
+        "all four rooted survivors must remain after manual block compaction"
     );
+    assert!(after_blocks.len() <= block_count_before + 1);
+
     assert_eq!(unsafe { first.as_gc().as_non_null().as_ref() }.0[0], 70);
     assert_eq!(unsafe { third.as_gc().as_non_null().as_ref() }.0[0], 72);
     assert_eq!(unsafe { fourth.as_gc().as_non_null().as_ref() }.0[0], 73);

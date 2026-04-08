@@ -115,9 +115,8 @@ pub(crate) fn compact_sparse_old_blocks(
     config: &OldGenConfig,
     density_threshold: f64,
 ) -> ForwardingMap {
-    let mut forwarding = ForwardingMap::new();
     if objects.is_empty() || old_gen.block_count() == 0 {
-        return forwarding;
+        return ForwardingMap::new();
     }
 
     // Phase A: compute per-block live_bytes from the post-mark
@@ -129,9 +128,35 @@ pub(crate) fn compact_sparse_old_blocks(
         density_threshold,
     );
     if candidates.is_empty() {
-        return forwarding;
+        return ForwardingMap::new();
     }
     let candidate_set: std::collections::HashSet<usize> = candidates.into_iter().collect();
+    compact_specific_old_blocks(objects, old_gen, config, &candidate_set)
+}
+
+/// Physical old-gen compaction pass that operates on a
+/// caller-supplied set of block indices instead of computing the
+/// set via density-thresholding.
+///
+/// Used by the future block-indexed manual-plan path: callers
+/// pass the exact block indices they want compacted, the
+/// function evacuates every surviving record in those blocks
+/// into freshly-created target blocks, and the existing
+/// post-compact rebuild drops the now-empty source blocks.
+///
+/// Returns the same `ForwardingMap` shape as
+/// [`compact_sparse_old_blocks`]; pass it to a relocator pass to
+/// rewrite inbound references.
+pub(crate) fn compact_specific_old_blocks(
+    objects: &mut [ObjectRecord],
+    old_gen: &mut OldGenState,
+    config: &OldGenConfig,
+    candidate_set: &std::collections::HashSet<usize>,
+) -> ForwardingMap {
+    let mut forwarding = ForwardingMap::new();
+    if objects.is_empty() || old_gen.block_count() == 0 || candidate_set.is_empty() {
+        return forwarding;
+    }
 
     // Phase B: walk every record; for each one whose block is a
     // candidate, evacuate it into a compaction target block and

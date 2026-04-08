@@ -330,6 +330,80 @@ impl Heap {
         moved
     }
 
+    /// Physical old-gen compaction targeting an explicit set of
+    /// block indices.
+    ///
+    /// Unlike [`Heap::compact_old_gen_physical`], which scans for
+    /// sparse blocks via the density threshold, this method
+    /// compacts exactly the blocks named in `block_indices` —
+    /// every surviving record in those blocks is evacuated into
+    /// freshly-created target blocks, inbound references are
+    /// rewritten via the forwarding map, and the now-empty source
+    /// blocks are reclaimed by the post-compact rebuild. Block
+    /// indices not currently present in the pool are silently
+    /// skipped.
+    ///
+    /// This is the manual-plan compaction surface: callers that
+    /// know exactly which blocks they want compacted (typically
+    /// from a previous `Heap::major_block_candidates` /
+    /// `CollectionPlan::selected_old_blocks` snapshot) can pass
+    /// the indices in directly. Returns the number of records
+    /// physically evacuated.
+    pub fn compact_old_gen_blocks(&mut self, block_indices: &[usize]) -> usize {
+        if block_indices.is_empty() {
+            return 0;
+        }
+        let runtime_state = self.runtime_state.clone();
+        let block_count_before = self.old_gen.block_count();
+        let candidate_set: std::collections::HashSet<usize> =
+            block_indices.iter().copied().collect();
+        let Self {
+            roots,
+            objects,
+            indexes,
+            old_gen,
+            config,
+            ..
+        } = self;
+        let old_config = &config.old;
+        let forwarding = crate::reclaim::compact_specific_old_blocks(
+            objects,
+            old_gen,
+            old_config,
+            &candidate_set,
+        );
+        let moved = forwarding.len();
+        if moved == 0 {
+            return 0;
+        }
+        crate::spaces::nursery::relocate_roots_and_edges(roots, objects, indexes, &forwarding);
+        let block_count_after_evacuation = old_gen.block_count();
+        crate::reclaim::rebuild_line_marks_and_reclaim_empty_old_blocks(
+            objects,
+            old_gen,
+            &runtime_state,
+        );
+        let block_count_after_rebuild = old_gen.block_count();
+        let target_blocks_created =
+            block_count_after_evacuation.saturating_sub(block_count_before) as u64;
+        let source_blocks_reclaimed = block_count_after_evacuation
+            .saturating_sub(block_count_after_rebuild) as u64;
+        self.compaction_stats.cycles = self.compaction_stats.cycles.saturating_add(1);
+        self.compaction_stats.records_moved = self
+            .compaction_stats
+            .records_moved
+            .saturating_add(moved as u64);
+        self.compaction_stats.target_blocks_created = self
+            .compaction_stats
+            .target_blocks_created
+            .saturating_add(target_blocks_created);
+        self.compaction_stats.source_blocks_reclaimed = self
+            .compaction_stats
+            .source_blocks_reclaimed
+            .saturating_add(source_blocks_reclaimed);
+        moved
+    }
+
     /// Cumulative physical compaction counters since heap
     /// construction. See [`crate::stats::CompactionStats`].
     pub fn compaction_stats(&self) -> crate::stats::CompactionStats {
