@@ -3029,9 +3029,40 @@ pub(crate) fn builtin_interactive_form(
             Ok(Value::NIL)
         }
 
-        // GNU (data.c:1162-1177 for COMPILED_FUNCTION_P): bytecode
+        // GNU (data.c:1162-1177 for COMPILED_FUNCTION_P): bytecode.
+        // First check the COMPILED_INTERACTIVE slot. If absent, check
+        // the COMPILED_DOC_STRING slot — if it isn't a valid docstring
+        // (i.e. not nil and not a plain string), set `genfun = true`
+        // and fall through to `oclosure-interactive-form`. nadvice's
+        // `:around` / `:before` / `:after` wrappers go through this
+        // path: they're bytecode objects whose doc_form holds the
+        // `advice` oclosure tag, and `oclosure-interactive-form`
+        // dispatches to the cl-defmethod in nadvice.el.
         ValueKind::Veclike(VecLikeType::ByteCode) => {
-            Ok(interactive_form_from_bytecode_value(fun).unwrap_or(Value::NIL))
+            if let Some(iform) = interactive_form_from_bytecode_value(fun) {
+                return Ok(iform);
+            }
+            // Bytecode has no interactive slot. Check for an oclosure
+            // tag in the doc slot.
+            if let Some(bc) = fun.get_bytecode_data()
+                && bc.doc_form.is_some()
+            {
+                genfun = true;
+            }
+            if genfun
+                && !eval
+                    .obarray
+                    .is_function_unbound("oclosure-interactive-form")
+            {
+                if let Ok(result) =
+                    eval.apply(Value::symbol("oclosure-interactive-form"), vec![fun])
+                {
+                    if !result.is_nil() {
+                        return Ok(result);
+                    }
+                }
+            }
+            Ok(Value::NIL)
         }
 
         // GNU (data.c:1188-1189): autoload → load then retry
