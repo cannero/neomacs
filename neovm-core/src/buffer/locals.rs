@@ -6,21 +6,14 @@ use crate::emacs_core::value::{RuntimeBindingValue, Value, ValueKind};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BufferLocalStorageKind {
     AlwaysLocal,
-    ConditionalSlot,
     LispBinding,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct ConditionalSlotSpec {
-    name: &'static str,
-    permanent: bool,
 }
 
 // GNU buffer.c init_buffer_once: slots marked with -1 in buffer_local_flags are
 // always buffer-local in every live buffer.
 //
-// Phase 10C: names that have migrated to `Buffer::slots[]` via
-// `BUFFER_SLOT_INFO` are not in this list -- they live exclusively
+// Phase 10C/D: names that have migrated to `Buffer::slots[]` via
+// `BUFFER_SLOT_INFO` are not in this list — they live exclusively
 // in the slot table and the BufferLocals path no longer mirrors them.
 // Only `buffer-undo-list` remains here because the undo state has its
 // own dedicated `SharedUndoState` storage and is not a simple slot.
@@ -28,59 +21,18 @@ const ALWAYS_LOCAL_BUFFER_LOCAL_NAMES: &[&str] = &[
     "buffer-undo-list",
 ];
 
-// GNU buffer.c init_buffer_once: slots assigned an idx in buffer_local_flags
-// are only buffer-local when the buffer's local flag is set.
-const CONDITIONAL_SLOT_BUFFER_LOCAL_SPECS: &[ConditionalSlotSpec] = &[
-    // Phase 10D migration tracker:
-    //   step 4 migrated: fill-column
-    //   step 5 batch 1 migrated: tab-width, left-margin, abbrev-mode,
-    //     overwrite-mode, selective-display, selective-display-ellipses,
-    //     truncate-lines, word-wrap, ctl-arrow, auto-fill-function
-    //   step 5 batch 2 migrated: bidi-{display-reordering,
-    //     paragraph-direction, paragraph-start-re, paragraph-separate-re},
-    //     cursor-type, line-spacing, text-conversion-style,
-    //     cursor-in-non-selected-windows, left/right-margin-width,
-    //     left/right-fringe-width, fringes-outside-margins,
-    //     scroll-bar-{width,height}, vertical/horizontal-scroll-bar,
-    //     indicate-{empty-lines,buffer-boundaries},
-    //     fringe-{indicator,cursor}-alist,
-    //     scroll-{up,down}-aggressively, cache-long-scans,
-    //     local-abbrev-table, buffer-display-table,
-    //     buffer-file-coding-system
-    //
-    // Held back from migration (need separate analysis):
-    //   - mode-line-format, header-line-format, tab-line-format —
-    //     redisplay path
-    //   - case-fold-search, indent-tabs-mode — DEFVAR_LISP / DEFVAR_BOOL
-    //     in GNU, not DEFVAR_PER_BUFFER (need different treatment)
-    //   - syntax-table-object, category-table, case-table — non-trivial
-    //     per-buffer object pointers in GNU
-    // Phase 10D step 5 batch 3 migrated:
-    //   mode-line-format, header-line-format, tab-line-format
-    // (the layout-engine `effective_buffer_value` reader was
-    // updated to consult `BufferSlotInfo` directly so the
-    // FORWARDED dispatch sees the right value.)
-    ConditionalSlotSpec {
-        name: "syntax-table-object",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "category-table",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "case-fold-search",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "indent-tabs-mode",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "case-table",
-        permanent: false,
-    },
-];
+// Phase 10 final cleanup (post-Phase 10D step 5): every entry that
+// was previously in `CONDITIONAL_SLOT_BUFFER_LOCAL_SPECS` is now
+// either:
+//   - migrated to BUFFER_SLOT_INFO (the bulk of the table:
+//     fill-column, tab-width, mode-line-format, etc.), or
+//   - routed through `LispBinding` storage (the 5 GNU-side
+//     non-DEFVAR_PER_BUFFER holdouts: case-fold-search,
+//     indent-tabs-mode, syntax-table-object, category-table,
+//     case-table).
+//
+// The legacy `BufferLocalStorageKind::ConditionalSlot` variant and
+// the per-buffer `slot_bindings` HashMap are gone with this change.
 
 fn always_local_default_binding(name: &str) -> Option<RuntimeBindingValue> {
     let value = match name {
@@ -100,21 +52,9 @@ fn always_local_kill_all_resets(name: &str) -> bool {
 fn buffer_local_storage_kind(name: &str) -> BufferLocalStorageKind {
     if ALWAYS_LOCAL_BUFFER_LOCAL_NAMES.contains(&name) {
         BufferLocalStorageKind::AlwaysLocal
-    } else if CONDITIONAL_SLOT_BUFFER_LOCAL_SPECS
-        .iter()
-        .any(|spec| spec.name == name)
-    {
-        BufferLocalStorageKind::ConditionalSlot
     } else {
         BufferLocalStorageKind::LispBinding
     }
-}
-
-fn conditional_slot_is_permanent(name: &str) -> bool {
-    CONDITIONAL_SLOT_BUFFER_LOCAL_SPECS
-        .iter()
-        .find(|spec| spec.name == name)
-        .is_some_and(|spec| spec.permanent)
 }
 
 /// GNU buffer.c splits per-buffer state into:
@@ -122,12 +62,21 @@ fn conditional_slot_is_permanent(name: &str) -> bool {
 /// - conditional slot-backed vars whose local flag may be set per buffer
 /// - ordinary Lisp locals in local_var_alist
 ///
-/// This structure mirrors that ownership split without requiring GNU's C
-/// buffer layout.
+/// Phase 10 final cleanup: BufferLocals now only owns
+///   - the single `buffer-undo-list` always-local entry
+///     (`buffer-undo-list` lives in its own `SharedUndoState`
+///     storage but is mirrored here for the legacy
+///     `RuntimeBindingValue` API)
+///   - the `local_map` keymap slot
+///   - a `lisp_bindings` vec of catch-all per-buffer locals for
+///     names that aren't yet routed through `local_var_alist`
+/// The `slot_bindings` HashMap and `ConditionalSlot` storage kind
+/// are gone — every conditional BUFFER_OBJFWD slot lives in
+/// `Buffer::slots[]` (Phase 10D), and the 5 GNU-side
+/// non-DEFVAR_PER_BUFFER holdouts route through `lisp_bindings`.
 #[derive(Clone)]
 pub struct BufferLocals {
     always_local_bindings: HashMap<String, RuntimeBindingValue>,
-    slot_bindings: HashMap<String, RuntimeBindingValue>,
     lisp_bindings: Vec<(String, RuntimeBindingValue)>,
     local_map: Value,
 }
@@ -148,7 +97,6 @@ impl BufferLocals {
         }
         Self {
             always_local_bindings,
-            slot_bindings: HashMap::new(),
             lisp_bindings: Vec::new(),
             local_map: Value::NIL,
         }
@@ -175,12 +123,6 @@ impl BufferLocals {
             }
         }
 
-        for spec in CONDITIONAL_SLOT_BUFFER_LOCAL_SPECS {
-            if let Some(binding) = binding_map.remove(spec.name) {
-                locals.set_raw_binding(spec.name, binding);
-            }
-        }
-
         let mut remaining: Vec<_> = binding_map.into_iter().collect();
         remaining.sort_by(|left, right| left.0.cmp(&right.0));
         for (name, binding) in remaining {
@@ -198,13 +140,6 @@ impl BufferLocals {
                 self.always_local_bindings
                     .insert((*name).to_string(), binding);
             }
-        }
-
-        if kill_permanent {
-            self.slot_bindings.clear();
-        } else {
-            self.slot_bindings
-                .retain(|name, _| conditional_slot_is_permanent(name));
         }
 
         if kill_permanent {
@@ -235,9 +170,6 @@ impl BufferLocals {
             BufferLocalStorageKind::AlwaysLocal => {
                 self.always_local_bindings.insert(name.to_string(), binding);
             }
-            BufferLocalStorageKind::ConditionalSlot => {
-                self.slot_bindings.insert(name.to_string(), binding);
-            }
             BufferLocalStorageKind::LispBinding => {
                 if let Some((_, existing)) = self
                     .lisp_bindings
@@ -255,7 +187,6 @@ impl BufferLocals {
     pub fn raw_binding(&self, name: &str) -> Option<RuntimeBindingValue> {
         match buffer_local_storage_kind(name) {
             BufferLocalStorageKind::AlwaysLocal => self.always_local_bindings.get(name).copied(),
-            BufferLocalStorageKind::ConditionalSlot => self.slot_bindings.get(name).copied(),
             BufferLocalStorageKind::LispBinding => self
                 .lisp_bindings
                 .iter()
@@ -270,10 +201,6 @@ impl BufferLocals {
                 .always_local_bindings
                 .get(name)
                 .and_then(RuntimeBindingValue::as_ref),
-            BufferLocalStorageKind::ConditionalSlot => self
-                .slot_bindings
-                .get(name)
-                .and_then(RuntimeBindingValue::as_ref),
             BufferLocalStorageKind::LispBinding => self
                 .lisp_bindings
                 .iter()
@@ -285,7 +212,6 @@ impl BufferLocals {
     pub fn bound_values_mut(&mut self) -> impl Iterator<Item = &mut Value> {
         self.always_local_bindings
             .values_mut()
-            .chain(self.slot_bindings.values_mut())
             .chain(self.lisp_bindings.iter_mut().map(|(_, binding)| binding))
             .filter_map(|binding| match binding {
                 RuntimeBindingValue::Bound(value) => Some(value),
@@ -296,7 +222,6 @@ impl BufferLocals {
     pub fn has_local(&self, name: &str) -> bool {
         match buffer_local_storage_kind(name) {
             BufferLocalStorageKind::AlwaysLocal => true,
-            BufferLocalStorageKind::ConditionalSlot => self.slot_bindings.contains_key(name),
             BufferLocalStorageKind::LispBinding => self
                 .lisp_bindings
                 .iter()
@@ -307,7 +232,6 @@ impl BufferLocals {
     pub fn remove(&mut self, name: &str) -> Option<RuntimeBindingValue> {
         match buffer_local_storage_kind(name) {
             BufferLocalStorageKind::AlwaysLocal => None,
-            BufferLocalStorageKind::ConditionalSlot => self.slot_bindings.remove(name),
             BufferLocalStorageKind::LispBinding => {
                 let index = self
                     .lisp_bindings
@@ -324,12 +248,6 @@ impl BufferLocals {
         for name in ALWAYS_LOCAL_BUFFER_LOCAL_NAMES {
             if let Some(binding) = self.always_local_bindings.get(*name).copied() {
                 bindings.push(((*name).to_string(), binding));
-            }
-        }
-
-        for spec in CONDITIONAL_SLOT_BUFFER_LOCAL_SPECS {
-            if let Some(binding) = self.slot_bindings.get(spec.name).copied() {
-                bindings.push((spec.name.to_string(), binding));
             }
         }
 
@@ -357,7 +275,6 @@ impl BufferLocals {
         for binding in self
             .always_local_bindings
             .values()
-            .chain(self.slot_bindings.values())
             .chain(self.lisp_bindings.iter().map(|(_, binding)| binding))
         {
             if let RuntimeBindingValue::Bound(value) = binding {
