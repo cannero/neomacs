@@ -78,15 +78,29 @@ pub fn load_minimal_gnu_help_runtime(eval: &mut Context) {
         load_file(eval, &path).unwrap_or_else(|err| panic!("load {name}: {err:?}"));
     }
 
-    let help_path = find_file_in_load_path("help", &load_path).expect("cannot find help");
+    // Force the .el source — `find_file_in_load_path("help", ...)`
+    // returns help.elc when both exist, but `read_to_string` then
+    // mis-parses .elc binary data and emits `(nil . OFFSET)` doc
+    // refs that downstream `defface` rejects. Passing "help.el"
+    // explicitly bypasses the suffix preference loop.
+    let help_path = find_file_in_load_path("help.el", &load_path).expect("cannot find help.el");
     let help_source =
         std::fs::read_to_string(&help_path).unwrap_or_else(|err| panic!("read help.el: {err}"));
     let help_forms = crate::emacs_core::value_reader::read_all(&help_source)
         .expect("parse help.el");
+    // Root every parsed form upfront. Without this, forms still
+    // sitting in the `help_forms` Vec aren't visible to the GC and
+    // can be reclaimed when an `eval_sub` of an earlier form
+    // triggers a collection. Mirrors the rooting pattern in
+    // `Context::eval_str_each` (eval.rs:6170-6183).
+    let saved_temp_roots_len = eval.save_temp_roots();
+    for form in &help_forms {
+        eval.push_temp_root(*form);
+    }
     let mut found_substitute_command_keys = false;
-    for form in help_forms {
-        let is_target = is_named_defun_value(&form, "substitute-command-keys");
-        eval.eval_sub(form)
+    for form in &help_forms {
+        let is_target = is_named_defun_value(form, "substitute-command-keys");
+        eval.eval_sub(*form)
             .map_err(map_flow)
             .unwrap_or_else(|err| panic!("eval help.el prefix: {err:?}"));
         if is_target {
@@ -94,6 +108,7 @@ pub fn load_minimal_gnu_help_runtime(eval: &mut Context) {
             break;
         }
     }
+    eval.restore_temp_roots(saved_temp_roots_len);
     assert!(
         found_substitute_command_keys,
         "help.el should define substitute-command-keys"
