@@ -5652,6 +5652,65 @@ fn public_api_shared_collector_runtime_drain_pending_finalizers_runs_queued_fina
 }
 
 #[test]
+fn public_api_shared_collector_runtime_drain_pending_finalizers_bounded_runs_in_slices() {
+    // Pin the bounded-drain surface on the SharedCollectorRuntime
+    // — the entry point background workers use to drive the
+    // finalizer queue without holding a Mutator. Verifies the
+    // slicing semantics through the shared runtime path: budget
+    // 2, then budget 5 to drain the rest.
+    PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
+
+    let shared = neovm_gc::SharedHeap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+
+    shared
+        .with_mutator(|mutator| {
+            for i in 0..3u64 {
+                let mut scope = mutator.handle_scope();
+                mutator
+                    .alloc(&mut scope, FinalizableLeaf(1200 + i))
+                    .expect("alloc finalizable old leaf");
+            }
+            let cycle = mutator
+                .collect(CollectionKind::Major)
+                .expect("major collect");
+            assert_eq!(cycle.queued_finalizers, 3);
+        })
+        .expect("collect through shared mutator");
+
+    let runtime = shared.collector_runtime();
+    assert_eq!(runtime.pending_finalizer_count().expect("pending count"), 3);
+
+    assert_eq!(
+        runtime
+            .drain_pending_finalizers_bounded(2)
+            .expect("bounded drain 2"),
+        2
+    );
+    assert_eq!(runtime.pending_finalizer_count().expect("pending count"), 1);
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 2);
+
+    assert_eq!(
+        runtime
+            .drain_pending_finalizers_bounded(5)
+            .expect("bounded drain 5"),
+        1
+    );
+    assert_eq!(runtime.pending_finalizer_count().expect("pending count"), 0);
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 3);
+    assert_eq!(runtime.stats().expect("runtime stats").finalizers_run, 3);
+}
+
+#[test]
 fn public_api_shared_collector_runtime_drains_pending_finalizers_while_heap_is_read_locked() {
     PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
 
