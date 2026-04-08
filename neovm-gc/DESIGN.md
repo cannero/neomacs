@@ -99,18 +99,22 @@ Still staging compromises:
 - shared/background execution uses an `RwLock<Heap>` plus a
   `Mutex<CollectorState>` plus cached lock-free snapshots for the
   hot-path reads (`SharedHeapStatus`, `CollectorSharedSnapshot`,
-  `SharedRuntimeSnapshot`, `SharedHeapSnapshot`). Most observers
-  already never touch the main `RwLock`: `stats`, `pacer_stats`,
-  `pause_histogram`, `compaction_stats`, `barrier_stats`,
-  `recommended_plan`, `nursery_fill_ratio`, `pending_finalizer_count`,
-  and the background-collector status surfaces all read from the
-  cached snapshots. The main `RwLock` is only taken for
-  state-mutating operations (`compact_old_gen_blocks`, the
-  `clear_*_stats` family, `compact_old_gen_if_fragmented`,
-  `compact_old_gen_aggressive`) and a small number of reads whose
-  inputs are not yet cached (`old_gen_fragmentation_ratio`,
-  `should_compact_old_gen`). The final data-plane split would
-  drive the main `RwLock` down to zero read-path takers.
+  `SharedRuntimeSnapshot`, `SharedHeapSnapshot`). Every read-only
+  observer on `SharedHeap` is now lock-free with respect to the
+  main heap `RwLock`: `stats`, `pacer_stats`, `pause_histogram`,
+  `compaction_stats`, `barrier_stats`, `recommended_plan`,
+  `nursery_fill_ratio`, `old_gen_fragmentation_ratio`,
+  `should_compact_old_gen`, `pending_finalizer_count`, and the
+  background-collector status surfaces all read from the cached
+  snapshots. The fragmentation accessors reconstruct their ratios
+  from the new `HeapStats.old_gen_used_bytes` field that is
+  populated alongside `old.live_bytes`. The main `RwLock` is now
+  only taken for state-mutating operations (`compact_old_gen_blocks`,
+  the `clear_*_stats` family, `compact_old_gen_if_fragmented`,
+  `compact_old_gen_aggressive`, `compact_old_gen_physical`). The
+  final data-plane split would target reducing write-side
+  contention next, e.g. by routing barrier-event recording and
+  remembered-set maintenance through their own locks.
 - nursery allocation is a single bump-pointer cursor on the
   from-space arena. The allocation hot path is already ~8
   arithmetic ops and a single byte store, so it is "lock-free"
@@ -144,27 +148,40 @@ Still staging compromises:
   path for block-backed owners and a `Vec<RememberedEdge>`
   fallback for non-block-backed owners (pinned space, large
   object space, system-allocated promotions that could not fit
-  any block hole). Both paths are reported through
-  `HeapStats.remembered_dirty_cards` / `remembered_explicit_edges`
-  (split) and `remembered_edges` (unified sum) so observers can
-  attribute pressure to either path. In the final-goal target
-  every old-gen byte lives in a block-backed region with its
-  own card table, so `remembered_explicit_edges` should drift
-  toward zero as pinned and large spaces migrate to the block
-  model. Today the fallback path is non-zero for workloads that
-  mutate pinned or large-space owners to point at nursery
-  survivors.
+  any block hole). Both paths are reported through split
+  edge counters (`HeapStats.remembered_dirty_cards` /
+  `remembered_explicit_edges`) AND split owner counters
+  (`HeapStats.remembered_dirty_card_owners` /
+  `remembered_explicit_owners`); the unified `remembered_edges`
+  and `remembered_owners` fields remain as the sum view so
+  existing observers see the combined picture. In the final-goal
+  target every old-gen byte lives in a block-backed region with
+  its own card table, so `remembered_explicit_edges` and
+  `remembered_explicit_owners` should drift toward zero as
+  pinned and large spaces migrate to the block model. Today the
+  fallback path is non-zero for workloads that mutate pinned or
+  large-space owners to point at nursery survivors; the
+  `public_api_pinned_owner_nursery_edge_uses_explicit_fallback`
+  test pins the contract on both sides.
 - finalization queue interactions go through a `PendingFinalizer`
   newtype that hides the wrapped `ObjectRecord` behind a focused
   handoff API (`run`, `block_placement`, `rebind_block`). The
   reclaim path is the unique constructor and `RuntimeState` is
   the unique consumer; `runtime_state.rs` no longer touches
-  `ObjectRecord`. Further work: the wrapped record still owns
-  the same fields as before (header, base, layout, block
+  `ObjectRecord`. The drain surface now exposes both an
+  unbounded `drain_pending_finalizers()` and a bounded
+  `drain_pending_finalizers_bounded(max)` variant across every
+  layer (Heap, Mutator, CollectorRuntime, SharedHeap,
+  SharedCollectorRuntime, BackgroundService,
+  SharedBackgroundService) so VM hosts can drive finalization
+  in cooperative slices instead of being forced to drain the
+  entire queue at once. Further work: the wrapped record still
+  owns the same fields as before (header, base, layout, block
   placement, memory kind), so the carrier size hasn't shrunk —
   the next iteration could split the carrier into a smaller
   payload+descriptor pair for embedders that want to drive
-  finalization themselves.
+  finalization themselves on a separate thread without holding
+  any heap-side lock.
 - telemetry covers the full observability surface described below:
   allocation by space, pause histogram, evacuated regions, pinned bytes,
   remembered-set pressure, barrier traffic via `BarrierStats`, concurrent
