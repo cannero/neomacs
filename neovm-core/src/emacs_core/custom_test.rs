@@ -113,6 +113,43 @@ fn defcustom_custom_variable_p() {
     assert_eq!(results[2], "OK nil");
 }
 
+/// Reproduces the `help-macro.el` defcustom-then-reference pattern:
+/// after the macroexpand-all-toplevel pass that the loader's eager
+/// expansion runs, custom-declare-variable should still set the
+/// variable. We verify by directly calling the *expanded* form so
+/// the test exercises exactly what the loader sees post-expansion.
+#[test]
+fn custom_declare_variable_with_funcall_lambda_default_sets_variable() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = bootstrap_context();
+    ev.set_lexical_binding(true);
+    // Mirror the form that the byte-compiler produces for
+    // `\`(funcall #',(lambda () nil))` per GNU macroexp:
+    //   (list 'funcall (list 'function #'(lambda nil nil)))
+    // — `function` wraps the lambda as its single argument inside a
+    // list, NOT a cons. Earlier scratch tests used (cons 'function
+    // (list 'lambda nil nil)) which yields `(function lambda nil
+    // nil)` and signals wrong-number-of-arguments on the function
+    // special form.
+    let result = ev
+        .eval_str(
+            r#"(progn
+                 (custom-declare-variable
+                   'test-three-step-help
+                   (list 'funcall (list 'function (list 'lambda nil 'nil)))
+                   "docstring"
+                   :type 'boolean
+                   :group 'help)
+                 (boundp 'test-three-step-help))"#,
+        )
+        .expect("eval");
+    assert_eq!(
+        result,
+        crate::emacs_core::value::Value::T,
+        "test-three-step-help should be bound after custom-declare-variable"
+    );
+}
+
 /// Reproduces the `bindings.elc` failure pattern: defcustom with a
 /// quoted-symbol default followed by a defun that references the
 /// variable. GNU verified: this should yield (window window).
