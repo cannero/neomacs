@@ -33,9 +33,9 @@ pub struct OldGenConfig {
     /// The default is `0.0` — physical compaction is opt-in.
     /// At `0.0` the threshold never fires (density is always
     /// `> 0.0` for blocks that still hold live records), so the
-    /// major reclaim pipeline runs the legacy logical-compaction
-    /// path unchanged. Setting this to e.g. `0.3` enables
-    /// physical compaction of any block that is 30% full or less.
+    /// post-major commit hook never moves any record. Setting
+    /// this to e.g. `0.3` enables physical compaction of any
+    /// block that is 30% full or less.
     pub physical_compaction_density_threshold: f64,
 }
 
@@ -177,14 +177,14 @@ impl OldBlock {
         self.occupied_lines.len()
     }
 
-    /// Record a newly-placed live object in the block's accounting
-    /// counters. Bumps `live_bytes`, `object_count`, lifts
-    /// `used_bytes` to cover the object's tail, and inserts every
-    /// line the object overlaps into the `occupied_lines` set. This
-    /// mirrors the exact semantics of the legacy
-    /// `OldRegion::live_bytes` / `object_count` / `occupied_lines`
-    /// accounting so `region_stats()` can be migrated to compute
-    /// from blocks in step 4 without any behavior change.
+    /// Record a newly-placed live object in the block's
+    /// accounting counters. Bumps `live_bytes`, `object_count`,
+    /// lifts `used_bytes` to cover the object's tail, and
+    /// inserts every line the object overlaps into the
+    /// `occupied_lines` set. These per-block counters drive
+    /// `block_region_stats()`, the major-cycle compaction
+    /// candidate selector, and the cached
+    /// `HeapStats.old_gen_used_bytes` field.
     pub(crate) fn record_object_accounting(&mut self, offset: usize, size: usize) {
         if size == 0 {
             return;
@@ -445,20 +445,14 @@ pub(crate) struct PreparedOldGenReclaim {
 
 impl OldGenState {
     pub(crate) fn is_empty(&self) -> bool {
-        // The block pool is the source of truth for whether the
-        // old generation has any storage. The legacy regions vec
-        // can hold dead allocator-time entries that no longer
-        // correspond to live blocks; checking it would over-
-        // report "non-empty".
         self.blocks.is_empty()
     }
 
     pub(crate) fn reserved_bytes(&self) -> usize {
-        // Sum block capacities. The legacy regions vec is still
-        // populated by allocate_placement but is being phased
-        // out; use the block pool as the source of truth so
-        // reserved_bytes stays accurate even when the regions
-        // vec is dropped.
+        // Sum every block's capacity. The block pool is the
+        // single source of truth for old-gen storage; the
+        // logical regions vec was retired with the legacy
+        // rebuild path.
         self.blocks.iter().map(|block| block.capacity_bytes()).sum()
     }
 
@@ -613,12 +607,14 @@ impl OldGenState {
         None
     }
 
-    /// Mark the card containing `owner_addr` as dirty if `owner_addr`
-    /// falls inside one of the old-gen blocks. Returns true if a card
-    /// was set; false when the owner is not block-backed (e.g. it lives
-    /// in a pinned record, large-object space, or a system-allocated
-    /// fallback record). Callers fall back to the legacy
-    /// `RememberedSetState` for the false case.
+    /// Mark the card containing `owner_addr` as dirty if
+    /// `owner_addr` falls inside one of the old-gen blocks.
+    /// Returns true if a card was set; false when the owner is
+    /// not block-backed (pinned record, large-object space, or
+    /// a system-allocated fallback record). Callers must fall
+    /// back to the explicit-edge `RememberedSetState` for the
+    /// false case so the minor GC's old-to-young scan still
+    /// covers the owner.
     pub(crate) fn record_write_barrier(&self, owner_addr: usize) -> bool {
         let Some(index) = self.find_block_for_addr(owner_addr) else {
             return false;
@@ -792,45 +788,36 @@ impl OldGenState {
         _config: &OldGenConfig,
         object: &mut ObjectRecord,
     ) -> usize {
-        // The legacy logical-region rebuild was retired; the
-        // production allocation path went through
-        // try_alloc_in_block which already set the
-        // OldBlockPlacement on `object`. record_object updates
-        // the per-block accounting from that placement.
+        // The production allocation path always goes through
+        // try_alloc_in_block, which sets the OldBlockPlacement
+        // on `object` before this is called. record_object
+        // simply updates the per-block accounting from that
+        // placement.
         self.record_object(object);
         self.reserved_bytes()
     }
 
-    /// Legacy region-stats reader, retained as an alias for the
-    /// per-block view so existing call sites compile during the
-    /// migration off the logical-region namespace. The internal
-    /// `regions` vec is still maintained by the allocator for the
-    /// rebuild path's benefit, but no observer reads it directly
-    /// any more.
+    /// Per-block region-stats reader. Aliases
+    /// [`OldGenState::block_region_stats`]; both methods
+    /// produce the same result. Kept under both names so older
+    /// internal call sites and tests that grep for
+    /// `region_stats` continue to work.
     pub(crate) fn region_stats(&self) -> Vec<OldRegionStats> {
         self.block_region_stats()
     }
 
-/// Block-backed stats view. Each `OldBlock` maps to one
+    /// Block-backed stats view. Each `OldBlock` maps to one
     /// `OldRegionStats` entry (using the block index as the
-    /// pseudo region index). This exposes the per-block
-    /// counters maintained by the sweep rebuild without going
-    /// through the legacy `regions` vec.
-    ///
-    /// This is the long-term replacement for
-    /// [`OldGenState::region_stats`]: once the logical-region
-    /// `hole_bytes` shrink contract is migrated off the
-    /// remaining `lib_test.rs` assertions, the legacy `regions`
-    /// vec and `region_stats()` go away and this becomes the
-    /// only reader. Until then both views ship in parallel and
-    /// callers that want the honest physical layout (e.g.
-    /// post-physical-compaction observers) should read this.
+    /// pseudo region index). The per-block counters are
+    /// maintained by the sweep rebuild and the bump allocator
+    /// directly.
     ///
     /// Field semantics:
     /// * `region_index` — block index in allocation order.
     /// * `reserved_bytes` — block capacity.
     /// * `used_bytes` — high-water mark of the bump cursor in
-    ///   the block. Does NOT shrink under logical compaction.
+    ///   the block. Only shrinks when bytes are physically
+    ///   moved (via physical compaction).
     /// * `live_bytes` — sum of survivor sizes after the most
     ///   recent sweep rebuild.
     /// * `hole_bytes` — interior gaps (`used_bytes - live_bytes`).
@@ -908,20 +895,19 @@ impl OldGenState {
         }
     }
 
-    /// Apply a prepared reclaim — now a near-no-op since the
-    /// legacy logical-region rebuild was retired. Returns the
-    /// prepared region stats unchanged. The regions vec is no
-    /// longer rewritten by the prepared reclaim; physical
-    /// compaction is the only mechanism that can shrink it
-    /// (via `rebuild_line_marks_and_reclaim_empty_old_blocks`
-    /// at the end of the major commit path).
+    /// Apply a prepared reclaim. The major-cycle reclaim
+    /// pipeline now defers all physical mutation to the
+    /// `rebuild_line_marks_and_reclaim_empty_old_blocks` pass
+    /// that runs at the end of the major commit, so this entry
+    /// point exists only to thread the prepared region stats
+    /// out of the prepared-reclaim phase and into the cycle
+    /// stats.
     pub(crate) fn apply_prepared_reclaim(
         &mut self,
         prepared: PreparedOldGenReclaim,
     ) -> OldRegionCollectionStats {
         prepared.region_stats
     }
-
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

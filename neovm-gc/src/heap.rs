@@ -647,10 +647,14 @@ impl Heap {
     pub(crate) fn storage_stats(&self) -> HeapStats {
         let mut stats = self.stats;
         self.indexes.apply_storage_stats(&mut stats);
-        // Phase 4: fold dirty card counts into the legacy
-        // remembered_edges/remembered_owners counters so observers see
-        // a unified view across the legacy Vec+HashSet path and the
-        // per-block card-table fast path.
+        // Fold dirty card counts into the unified
+        // remembered_edges / remembered_owners counters so
+        // observers see one combined view across the explicit
+        // Vec+HashSet fallback path and the per-block
+        // card-table fast path. The split counters
+        // (remembered_explicit_*, remembered_dirty_card_*)
+        // remain available for callers that want to attribute
+        // pressure to one specific path.
         self.indexes
             .apply_dirty_card_storage_stats(&mut stats, &self.old_gen);
         // Cache the old-gen block bump cursor sum into the shared
@@ -768,35 +772,24 @@ impl Heap {
         CollectorRuntime::new(self).commit_active_reclaim_if_ready()
     }
 
-    /// Return per-block old-generation statistics.
+    /// Return per-block old-generation statistics. Each entry
+    /// corresponds to one `OldBlock` in allocation order; the
+    /// `region_index` field carries the block index.
     ///
-    /// This is the migrated default reader: `old_region_stats`
-    /// and [`Heap::old_block_region_stats`] return the same
-    /// per-block view. The legacy regions vec is still
-    /// maintained internally for the rebuild path that consumes
-    /// `selected_old_regions`, but no observer reads it
-    /// through the public API any more.
-    ///
-    /// The `region_index` in each entry is a block index.
+    /// `old_region_stats` and [`Heap::old_block_region_stats`]
+    /// are aliases for the same per-block view — the legacy
+    /// region-side reader has been retired. New observers
+    /// should use either name; both are stable.
     pub fn old_region_stats(&self) -> Vec<OldRegionStats> {
         self.old_gen.region_stats()
     }
 
     /// Return the per-block old-generation statistics view.
-    ///
-    /// Each entry corresponds to one `OldBlock` in allocation
-    /// order. Unlike [`Heap::old_region_stats`], this view is
-    /// computed directly from the per-block live/used counters
-    /// the sweep rebuild maintains, so the reported
+    /// Aliases [`Heap::old_region_stats`]; both methods read the
+    /// same `block_region_stats` source. The reported
     /// `hole_bytes` reflect the *physical* layout of the heap:
     /// they only shrink when bytes are actually moved (via
-    /// physical compaction), not as a side effect of logical
-    /// renumbering.
-    ///
-    /// This is the long-term replacement for `old_region_stats`
-    /// once the remaining `lib_test.rs` assertions that depend
-    /// on the logical-compaction shrink contract are migrated.
-    /// New observers should use this method.
+    /// physical compaction).
     pub fn old_block_region_stats(&self) -> Vec<OldRegionStats> {
         self.old_gen.block_region_stats()
     }
@@ -884,9 +877,13 @@ impl Heap {
         self.old_gen.dirty_card_count()
     }
 
-    /// Total number of pending old-to-young roots, summed across both
-    /// the legacy `RememberedSetState` (used for non-block-backed
-    /// owners) and the per-block dirty-card tables (Phase 4 fast path).
+    /// Total number of pending old-to-young roots, summed across
+    /// both the explicit-edge fallback `RememberedSetState`
+    /// (used for non-block-backed owners) and the per-block
+    /// dirty-card fast path. This is the unified view exposed
+    /// to observers; the split contributions are also available
+    /// via `HeapStats::remembered_explicit_edges` /
+    /// `remembered_dirty_cards`.
     pub fn total_remembered_count(&self) -> usize {
         self.remembered_edge_count().saturating_add(self.dirty_card_count())
     }

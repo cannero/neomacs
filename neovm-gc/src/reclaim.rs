@@ -548,9 +548,8 @@ pub(crate) fn apply_prepared_reclaim(
     let dropped_blocks =
         rebuild_line_marks_and_reclaim_empty_old_blocks(objects, old_gen, runtime_state);
     // Merge the physical block-reclaim count into the cycle's
-    // reclaimed_regions stat: this is the only reclamation
-    // event that happens in the major commit path now that
-    // the legacy logical rebuild is retired.
+    // reclaimed_regions stat: physical block reclaim is the
+    // only reclamation event in the major commit path.
     old_region_stats.reclaimed_regions = old_region_stats
         .reclaimed_regions
         .saturating_add(dropped_blocks as u64);
@@ -648,10 +647,8 @@ pub(crate) fn sweep_minor_and_rebuild_post_collection(
     indexes.retain_remembered_edges_for_post_sweep_objects(objects);
     MinorRebuildResult {
         queued_finalizers,
-        // reclaimed_regions now reports physically reclaimed
-        // blocks (the legacy logical-region rebuild's
-        // reclaimed_regions counter measured the same conceptual
-        // quantity but in the logical-region namespace).
+        // reclaimed_regions reports the number of empty
+        // old-gen blocks the post-minor sweep rebuild dropped.
         old_region_stats: OldRegionCollectionStats {
             compacted_regions: 0,
             reclaimed_regions: dropped_blocks as u64,

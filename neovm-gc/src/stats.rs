@@ -292,7 +292,7 @@ pub struct HeapStats {
     pub remembered_edges: usize,
     /// Number of distinct old owners represented in the remembered set.
     pub remembered_owners: usize,
-    /// Number of remembered edges recorded via the legacy
+    /// Number of remembered edges recorded via the
     /// explicit-edge fallback path.
     ///
     /// This path fires when the owner of a post-write barrier
