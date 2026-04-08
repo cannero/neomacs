@@ -4930,10 +4930,10 @@ fn major_collection_repacks_surviving_old_objects_to_drop_interior_holes() {
     let first = mutator.root(&mut keep_scope, first_gc);
     let third = mutator.root(&mut keep_scope, third_gc);
 
-    let regions = mutator.heap().old_region_stats();
-    assert_eq!(regions.len(), 3);
+    let blocks = mutator.heap().old_block_region_stats();
+    assert_eq!(blocks.len(), 3);
     assert_eq!(
-        regions
+        blocks
             .iter()
             .map(|region| region.object_count)
             .sum::<usize>(),
@@ -4946,17 +4946,17 @@ fn major_collection_repacks_surviving_old_objects_to_drop_interior_holes() {
     assert_eq!(cycle.major_collections, 1);
     assert_eq!(cycle.compacted_regions, 0);
     assert_eq!(cycle.reclaimed_regions, 1);
-    let regions = mutator.heap().old_region_stats();
-    assert_eq!(regions.len(), 2);
+    let blocks = mutator.heap().old_block_region_stats();
+    assert_eq!(blocks.len(), 2);
     assert_eq!(
-        regions
+        blocks
             .iter()
             .map(|region| region.object_count)
             .sum::<usize>(),
         2
     );
-    assert_eq!(regions[0].region_index, 0);
-    assert_eq!(regions[1].region_index, 1);
+    assert_eq!(blocks[0].region_index, 0);
+    assert_eq!(blocks[1].region_index, 1);
     assert_eq!(unsafe { first.as_gc().as_non_null().as_ref() }.0[0], 10);
     assert_eq!(unsafe { third.as_gc().as_non_null().as_ref() }.0[0], 12);
 }
