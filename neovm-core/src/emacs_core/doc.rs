@@ -2119,7 +2119,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
         "num-nonmacro-input-events",
         "Number of input events read from the keyboard so far.",
     ),
-    ("obarray", "Symbol table for use by ‘intern’ and ‘read’."),
+    ("obarray", "Symbol table for use by `intern' and `read'."),
     (
         "open-paren-in-column-0-is-defun-start",
         "Non-nil means an open paren in column 0 denotes the start of a defun.",
@@ -2166,7 +2166,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "overriding-local-map-menu-flag",
-        "Non-nil means ‘overriding-local-map’ applies to the menu bar.",
+        "Non-nil means `overriding-local-map' applies to the menu bar.",
     ),
     (
         "overriding-plist-environment",
@@ -2178,7 +2178,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "overriding-text-conversion-style",
-        "Non-buffer local version of ‘text-conversion-style’.",
+        "Non-buffer local version of `text-conversion-style'.",
     ),
     (
         "overwrite-mode",
@@ -2186,11 +2186,11 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "parse-sexp-ignore-comments",
-        "Non-nil means ‘forward-sexp’, etc., should treat comments as whitespace.",
+        "Non-nil means `forward-sexp', etc., should treat comments as whitespace.",
     ),
     (
         "parse-sexp-lookup-properties",
-        "Non-nil means ‘forward-sexp’, etc., obey ‘syntax-table’ property.",
+        "Non-nil means `forward-sexp', etc., obey `syntax-table' property.",
     ),
     (
         "path-separator",
@@ -2222,7 +2222,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "post-self-insert-hook",
-        "Hook run at the end of ‘self-insert-command’.",
+        "Hook run at the end of `self-insert-command'.",
     ),
     (
         "pre-command-hook",
@@ -2238,7 +2238,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "prefix-help-command",
-        "Command to run when ‘help-char’ character follows a prefix key.",
+        "Command to run when `help-char' character follows a prefix key.",
     ),
     (
         "preloaded-file-list",
@@ -2246,7 +2246,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "print-charset-text-property",
-        "A flag to control printing of ‘charset’ text property on printing a string.",
+        "A flag to control printing of `charset' text property on printing a string.",
     ),
     (
         "print-circle",
@@ -2258,7 +2258,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "print-escape-control-characters",
-        "Non-nil means print control characters in strings as ‘\\OOO’.",
+        "Non-nil means print control characters in strings as `\\OOO'.",
     ),
     (
         "print-escape-multibyte",
@@ -2266,7 +2266,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "print-escape-newlines",
-        "Non-nil means print newlines in strings as ‘\\n’.",
+        "Non-nil means print newlines in strings as `\\n'.",
     ),
     (
         "print-escape-nonascii",
@@ -2282,7 +2282,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "print-number-table",
-        "A vector used internally to produce ‘#N=’ labels and ‘#N#’ references.",
+        "A vector used internally to produce `#N=' labels and `#N#' references.",
     ),
     (
         "print-quoted",
@@ -2346,11 +2346,11 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "quit-flag",
-        "Non-nil causes ‘eval’ to abort, unless ‘inhibit-quit’ is non-nil.",
+        "Non-nil causes `eval' to abort, unless `inhibit-quit' is non-nil.",
     ),
     (
         "rcs2log-program-name",
-        "Name of the ‘rcs2log’ program distributed with Emacs.",
+        "Name of the `rcs2log' program distributed with Emacs.",
     ),
     (
         "read-buffer-completion-ignore-case",
@@ -2358,7 +2358,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "read-buffer-function",
-        "If this is non-nil, ‘read-buffer’ does its work by calling this function.",
+        "If this is non-nil, `read-buffer' does its work by calling this function.",
     ),
     (
         "read-circle",
@@ -2386,15 +2386,15 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "real-last-command",
-        "Same as ‘last-command’, but never altered by Lisp code.",
+        "Same as `last-command', but never altered by Lisp code.",
     ),
     (
         "real-this-command",
-        "This is like ‘this-command’, except that commands should never modify it.",
+        "This is like `this-command', except that commands should never modify it.",
     ),
     (
         "recenter-redisplay",
-        "Non-nil means ‘recenter’ redraws entire frame.",
+        "Non-nil means `recenter' redraws entire frame.",
     ),
     ("record-all-keys", "Non-nil means record all keys you type."),
     (
@@ -2419,7 +2419,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "redisplay-skip-fontification-on-input",
-        "Skip ‘fontification_functions‘ when there is input pending.",
+        "Skip `fontification_functions` when there is input pending.",
     ),
     (
         "redisplay-skip-initial-frame",
@@ -2427,7 +2427,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "region-extract-function",
-        "Function to get the region’s content.",
+        "Function to get the region's content.",
     ),
     (
         "report-emacs-bug-address",
@@ -2447,7 +2447,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "right-fringe-width",
-        "Width of this buffer’s right fringe (in pixels).",
+        "Width of this buffer's right fringe (in pixels).",
     ),
     (
         "right-margin-width",
@@ -2472,11 +2472,11 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "scroll-bar-height",
-        "Height of this buffer’s horizontal scroll bars in pixels.",
+        "Height of this buffer's horizontal scroll bars in pixels.",
     ),
     (
         "scroll-bar-width",
-        "Width of this buffer’s vertical scroll bars in pixels.",
+        "Width of this buffer's vertical scroll bars in pixels.",
     ),
     (
         "scroll-conservatively",
@@ -2549,11 +2549,11 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "signal-hook-function",
-        "If non-nil, this is a function for ‘signal’ to call.",
+        "If non-nil, this is a function for `signal' to call.",
     ),
     (
         "signal-process-functions",
-        "List of functions to be called for ‘signal-process’.",
+        "List of functions to be called for `signal-process'.",
     ),
     (
         "source-directory",
@@ -2653,7 +2653,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "tab-line-format",
-        "Analogous to ‘mode-line-format’, but controls the tab line.",
+        "Analogous to `mode-line-format', but controls the tab line.",
     ),
     (
         "tab-width",
@@ -2669,7 +2669,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "terminal-frame",
-        "The initial frame-object, which represents Emacs’s stdout.",
+        "The initial frame-object, which represents Emacs's stdout.",
     ),
     (
         "text-conversion-edits",
@@ -2681,7 +2681,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "text-conversion-style",
-        "How the on screen keyboard’s input method should insert in this buffer.",
+        "How the on screen keyboard's input method should insert in this buffer.",
     ),
     (
         "text-property-default-nonsticky",
@@ -2777,7 +2777,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "tty-menu-calls-mouse-position-function",
-        "Non-nil means TTY menu code will call ‘mouse-position-function’.",
+        "Non-nil means TTY menu code will call `mouse-position-function'.",
     ),
     (
         "underline-minimum-offset",
@@ -2785,7 +2785,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "undo-inhibit-record-point",
-        "Non-nil means do not record ‘point’ in ‘buffer-undo-list’.",
+        "Non-nil means do not record `point' in `buffer-undo-list'.",
     ),
     (
         "undo-outer-limit",
@@ -2793,7 +2793,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "undo-outer-limit-function",
-        "Function to call when an undo list exceeds ‘undo-outer-limit’.",
+        "Function to call when an undo list exceeds `undo-outer-limit'.",
     ),
     (
         "unibyte-display-via-language-environment",
@@ -2801,7 +2801,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "unicode-category-table",
-        "Char table of Unicode’s \"General Category\".",
+        "Char table of Unicode's \"General Category\".",
     ),
     (
         "unread-post-input-method-events",
@@ -2813,7 +2813,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "use-default-font-for-symbols",
-        "If non-nil, use the default face’s font for symbols and punctuation.",
+        "If non-nil, use the default face's font for symbols and punctuation.",
     ),
     (
         "use-dialog-box",
@@ -2825,7 +2825,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "use-short-answers",
-        "Non-nil means ‘yes-or-no-p’ uses shorter answers \"y\" or \"n\".",
+        "Non-nil means `yes-or-no-p' uses shorter answers \"y\" or \"n\".",
     ),
     (
         "use-system-tooltips",
@@ -2833,15 +2833,15 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "user-init-file",
-        "File name, including directory, of user’s initialization file.",
+        "File name, including directory, of user's initialization file.",
     ),
     (
         "user-login-name",
-        "The user’s name, taken from environment variables if possible.",
+        "The user's name, taken from environment variables if possible.",
     ),
     (
         "user-real-login-name",
-        "The user’s name, based upon the real uid only.",
+        "The user's name, based upon the real uid only.",
     ),
     (
         "values",
@@ -2857,7 +2857,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "vertical-scroll-bar",
-        "Position of this buffer’s vertical scroll bar.",
+        "Position of this buffer's vertical scroll bar.",
     ),
     (
         "visible-bell",
@@ -2873,11 +2873,11 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "where-is-preferred-modifier",
-        "Preferred modifier key to use for ‘where-is’.",
+        "Preferred modifier key to use for `where-is'.",
     ),
     (
         "while-no-input-ignore-events",
-        "Ignored events from ‘while-no-input’.",
+        "Ignored events from `while-no-input'.",
     ),
     (
         "window-buffer-change-functions",
@@ -2901,7 +2901,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "window-point-insertion-type",
-        "Insertion type of marker to use for ‘window-point’.",
+        "Insertion type of marker to use for `window-point'.",
     ),
     (
         "window-resize-pixelwise",
@@ -2945,7 +2945,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "words-include-escapes",
-        "Non-nil means ‘forward-word’, etc., should treat escape chars part of words.",
+        "Non-nil means `forward-word', etc., should treat escape chars part of words.",
     ),
     (
         "wrap-prefix",
@@ -2953,7 +2953,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "write-region-annotate-functions",
-        "A list of functions to be called at the start of ‘write-region’.",
+        "A list of functions to be called at the start of `write-region'.",
     ),
     (
         "write-region-annotations-so-far",
@@ -2961,11 +2961,11 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "write-region-inhibit-fsync",
-        "Non-nil means don’t call fsync in ‘write-region’.",
+        "Non-nil means don't call fsync in `write-region'.",
     ),
     (
         "write-region-post-annotation-function",
-        "Function to call after ‘write-region’ completes.",
+        "Function to call after `write-region' completes.",
     ),
     (
         "x-allow-focus-stealing",
@@ -3021,7 +3021,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "x-dnd-preserve-selection-data",
-        "Preserve selection data after ‘x-begin-drag’ returns.",
+        "Preserve selection data after `x-begin-drag' returns.",
     ),
     ("x-dnd-targets-list", "List of drag-and-drop targets."),
     (
@@ -3042,7 +3042,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "x-fast-selection-list",
-        "List of selections for which ‘x-selection-exists-p’ should be fast.",
+        "List of selections for which `x-selection-exists-p' should be fast.",
     ),
     (
         "x-frame-normalize-before-maximize",
@@ -3098,7 +3098,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "x-lax-frame-positioning",
-        "If non-nil, Emacs won’t compensate for WM geometry behavior.",
+        "If non-nil, Emacs won't compensate for WM geometry behavior.",
     ),
     (
         "x-lost-selection-functions",
@@ -3123,7 +3123,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "x-pixel-size-width-font-regexp",
-        "Regexp matching a font name whose width is the same as ‘PIXEL_SIZE’.",
+        "Regexp matching a font name whose width is the same as `PIXEL_SIZE'.",
     ),
     (
         "x-pointer-shape",
@@ -3131,7 +3131,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "x-pre-popup-menu-hook",
-        "Hook run before ‘x-popup-menu’ displays a popup menu.",
+        "Hook run before `x-popup-menu' displays a popup menu.",
     ),
     (
         "x-quit-keysym",
@@ -3183,7 +3183,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "x-show-tooltip-timeout",
-        "The default timeout (in seconds) for ‘x-show-tip’.",
+        "The default timeout (in seconds) for `x-show-tip'.",
     ),
     (
         "x-stretch-cursor",
@@ -3207,7 +3207,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "x-use-fast-mouse-position",
-        "How to make ‘mouse-position’ faster.",
+        "How to make `mouse-position' faster.",
     ),
     (
         "x-use-underline-position-properties",
@@ -3256,12 +3256,12 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "xft-ignore-color-fonts",
-        "Non-nil means don’t query fontconfig for color fonts, since they often",
+        "Non-nil means don't query fontconfig for color fonts, since they often",
     ),
     ("xft-settings", "Font settings applied to Xft."),
     (
         "yes-or-no-prompt",
-        "String to append when ‘yes-or-no-p’ asks a question.",
+        "String to append when `yes-or-no-p' asks a question.",
     ),
     ("last-command", "The last command executed."),
     (
@@ -3366,11 +3366,11 @@ pub(crate) static STARTUP_VARIABLE_DOC_STRING_PROPERTIES: &[(&str, &str)] = &[
     ),
     (
         "abbrev-expand-function",
-        "Function that ‘expand-abbrev’ uses to perform abbrev expansion.",
+        "Function that `expand-abbrev' uses to perform abbrev expansion.",
     ),
     (
         "abbrev-expand-functions",
-        "Wrapper hook around ‘abbrev--default-expand’.",
+        "Wrapper hook around `abbrev--default-expand'.",
     ),
     (
         "abbrev-file-name",
@@ -3383,15 +3383,15 @@ pub(crate) static STARTUP_VARIABLE_DOC_STRING_PROPERTIES: &[(&str, &str)] = &[
     ),
     (
         "abbrev-mode-hook",
-        "Hook run after entering or leaving ‘abbrev-mode’.",
+        "Hook run after entering or leaving `abbrev-mode'.",
     ),
     (
         "abbrev-start-location",
-        "Buffer position for ‘expand-abbrev’ to use as the start of the abbrev.",
+        "Buffer position for `expand-abbrev' to use as the start of the abbrev.",
     ),
     (
         "abbrev-start-location-buffer",
-        "Buffer that ‘abbrev-start-location’ has been set for.",
+        "Buffer that `abbrev-start-location' has been set for.",
     ),
     (
         "abbrev-suggest",
@@ -3407,7 +3407,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STRING_PROPERTIES: &[(&str, &str)] = &[
     ),
     (
         "abbreviated-home-dir",
-        "Regexp matching the user’s homedir at the beginning of file name.",
+        "Regexp matching the user's homedir at the beginning of file name.",
     ),
     (
         "abbrevs-changed",
@@ -3435,7 +3435,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STRING_PROPERTIES: &[(&str, &str)] = &[
     ),
     (
         "after-make-frame-functions",
-        "Functions to run after ‘make-frame’ created a new frame.",
+        "Functions to run after `make-frame' created a new frame.",
     ),
     (
         "after-pdump-load-hook",
@@ -3443,7 +3443,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STRING_PROPERTIES: &[(&str, &str)] = &[
     ),
     (
         "after-revert-hook",
-        "Normal hook for ‘revert-buffer’ to run after reverting.",
+        "Normal hook for `revert-buffer' to run after reverting.",
     ),
     (
         "after-save-hook",
@@ -3455,7 +3455,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STRING_PROPERTIES: &[(&str, &str)] = &[
     ),
     (
         "after-setting-font-hook",
-        "Functions to run after a frame’s font has been changed.",
+        "Functions to run after a frame's font has been changed.",
     ),
     (
         "allout-auto-activation",
@@ -6137,7 +6137,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STRING_PROPERTIES: &[(&str, &str)] = &[
         "hippie-expand-try-functions-list",
         "The list of expansion functions tried in order by `hippie-expand'.",
     ),
-    ("holiday-bahai-holidays", "Bahá’í holidays."),
+    ("holiday-bahai-holidays", "Bahá'í holidays."),
     ("holiday-christian-holidays", "Christian holidays."),
     (
         "holiday-general-holidays",
