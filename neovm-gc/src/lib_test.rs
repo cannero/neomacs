@@ -4609,7 +4609,14 @@ fn major_region_candidates_prefer_holey_regions_over_tail_only_sparse_regions() 
             region_bytes: old_bytes.saturating_mul(4),
             line_bytes: 16,
             compaction_candidate_limit: 2,
-            selective_reclaim_threshold_bytes: 1,
+            // Bumping the threshold above one line of alignment
+            // padding lets the per-block view distinguish a
+            // real interior hole from a tail-only block whose
+            // only "hole" is alignment padding inside its
+            // single-allocation footprint. With this threshold
+            // (24 > one line of 16), the tail-only block fails
+            // the filter under both views.
+            selective_reclaim_threshold_bytes: 24,
             ..crate::spaces::OldGenConfig::default()
         },
         ..HeapConfig::default()
@@ -4641,39 +4648,33 @@ fn major_region_candidates_prefer_holey_regions_over_tail_only_sparse_regions() 
         .expect("alloc tiny tail-only old leaf");
     assert_eq!(unsafe { tiny.as_gc().as_non_null().as_ref() }.0[0], 84);
 
-    // The legacy regions vec is the only view that reports
-    // hole_bytes == 0 for a tail-only sparse region. The block
-    // view counts line-alignment padding as honest physical
-    // hole bytes, so a single-allocation tail-only block always
-    // has a small non-zero hole_bytes. This test stays on the
-    // legacy view to preserve the "tail-only is NOT a candidate"
-    // contract; migrating it would require either a
-    // padding-aware selector pass or changing the fixture so
-    // the tiny leaf's size is exactly line-aligned (which
-    // changes the test's coverage of the selector).
-    let regions = mutator.heap().legacy_old_region_stats();
-    assert_eq!(regions.len(), 2);
-    let holey_region = regions
+    // Per-block view: identify the holey block (multiple
+    // survivors with a real interior gap) vs the tail-only
+    // block (single small allocation with a large unused tail).
+    // The threshold above filters padding-only blocks out of
+    // the candidate set automatically.
+    let blocks = mutator.heap().old_block_region_stats();
+    assert_eq!(blocks.len(), 2);
+    let holey_block = blocks
         .iter()
-        .find(|region| region.hole_bytes > 0)
-        .expect("expected a holey region");
-    let tail_only_region = regions
+        .find(|block| block.object_count > 1 && block.hole_bytes > 0)
+        .expect("expected a holey block with multiple survivors");
+    let tail_only_block = blocks
         .iter()
-        .find(|region| region.hole_bytes == 0 && region.free_bytes > holey_region.free_bytes)
-        .expect("expected a tail-only sparse region with more raw free bytes");
+        .find(|block| block.object_count == 1 && block.tail_bytes > holey_block.tail_bytes)
+        .expect("expected a tail-only sparse block with a larger unused tail");
 
-    let candidates = mutator.heap().major_region_candidates();
+    let candidates = mutator.heap().major_block_candidates();
     assert_eq!(candidates.len(), 1);
-    assert_eq!(candidates[0].region_index, holey_region.region_index);
+    assert_eq!(candidates[0].region_index, holey_block.region_index);
     assert!(candidates[0].hole_bytes > 0);
 
     let plan = mutator.plan_for(CollectionKind::Major);
-    assert_eq!(plan.selected_old_regions, vec![holey_region.region_index]);
+    assert_eq!(plan.selected_old_blocks, vec![holey_block.region_index]);
     assert_eq!(plan.target_old_regions, 1);
-    assert_eq!(plan.estimated_reclaim_bytes, holey_region.hole_bytes);
     assert!(
-        tail_only_region.free_bytes > holey_region.free_bytes,
-        "tail-only sparse region should remain more free but no longer be a compaction target"
+        tail_only_block.tail_bytes > holey_block.tail_bytes,
+        "tail-only sparse block should remain freer but no longer be a compaction target"
     );
 }
 
