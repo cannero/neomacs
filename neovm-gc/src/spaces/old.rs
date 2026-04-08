@@ -861,33 +861,13 @@ impl OldGenState {
             .collect()
     }
 
-    /// Old-gen compaction candidate selector. Now reads from
-    /// the per-block view; the legacy logical-region selector
-    /// was retired alongside the rebuild path. This and
-    /// [`Self::block_plan_selection`] are functionally
-    /// identical aliases now — kept under both names for
-    /// existing internal call sites.
-    ///
-    /// The estimator outputs (`estimated_compaction_bytes`,
+    /// Old-gen compaction candidate selector. Reads from the
+    /// per-block view (the legacy logical-region selector was
+    /// retired alongside the rebuild path). The estimator
+    /// outputs (`estimated_compaction_bytes`,
     /// `estimated_reclaim_bytes`) feed `CollectionPlan` fields
     /// of the same names, which the runtime accumulates into
     /// `Heap::stats().collections`.
-    pub(crate) fn major_plan_selection(&self, config: &OldGenConfig) -> OldGenPlanSelection {
-        Self::run_major_plan_selection(self.block_region_stats(), config)
-    }
-
-    /// Block-backed equivalent of [`Self::major_plan_selection`].
-    /// Runs the identical hole-bytes heuristic but reads candidate
-    /// stats from the per-block view ([`Self::block_region_stats`])
-    /// instead of the legacy regions vec. Returned `region_index`
-    /// fields refer to block indices.
-    ///
-    /// Unlike [`Self::major_plan_selection`], the result of this
-    /// method is *observation-only* today: nothing in the rebuild
-    /// path consumes block-indexed selections yet. Once the
-    /// remaining lib_test cases that depend on the legacy planner
-    /// are migrated, the rebuild can switch to consume this and
-    /// the legacy method goes away.
     pub(crate) fn block_plan_selection(&self, config: &OldGenConfig) -> OldGenPlanSelection {
         Self::run_major_plan_selection(self.block_region_stats(), config)
     }

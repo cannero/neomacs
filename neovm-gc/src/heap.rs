@@ -801,32 +801,16 @@ impl Heap {
         self.old_gen.block_region_stats()
     }
 
-    /// Return the currently selected old-region compaction candidates.
-    pub fn major_region_candidates(&self) -> Vec<OldRegionStats> {
-        let OldGenPlanSelection { candidates, .. } =
-            self.old_gen.major_plan_selection(&self.config.old);
-        candidates
-    }
-
-    /// Return the same compaction-candidate ranking as
-    /// [`Heap::major_region_candidates`], but computed against the
-    /// per-block view rather than the legacy regions vec.
+    /// Return the currently selected old-block compaction
+    /// candidates from the block-side selector. Returned
+    /// `region_index` fields refer to block indices in the
+    /// per-block view.
     ///
-    /// The returned `region_index` fields refer to block indices,
-    /// not logical region indices, and the underlying selection
-    /// runs the identical heuristic
-    /// (`hole_bytes >= selective_reclaim_threshold_bytes`, ranked
-    /// by compaction efficiency, capped at
+    /// The selector runs the same heuristic the major-cycle
+    /// planner uses: `hole_bytes >= selective_reclaim_threshold_bytes`,
+    /// ranked by compaction efficiency, capped at
     /// `compaction_candidate_limit` and
-    /// `max_compaction_bytes_per_cycle`).
-    ///
-    /// This is the long-term replacement for
-    /// `major_region_candidates`. Today its output is observational
-    /// only — the rebuild path still consumes the legacy
-    /// region-indexed selection. Tests that just want to verify
-    /// candidate ranking can already use this method; tests that
-    /// feed indices back into a manual `CollectionPlan` still need
-    /// the legacy entry point.
+    /// `max_compaction_bytes_per_cycle`.
     pub fn major_block_candidates(&self) -> Vec<OldRegionStats> {
         let OldGenPlanSelection { candidates, .. } =
             self.old_gen.block_plan_selection(&self.config.old);

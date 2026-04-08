@@ -5037,9 +5037,9 @@ fn major_collection_preserves_non_candidate_hole_in_live_old_region() {
     assert_eq!(blocks[0].object_count, 2);
     assert!(blocks[0].hole_bytes > 0);
     assert_eq!(
-        mutator.heap().major_region_candidates().len(),
+        mutator.heap().major_block_candidates().len(),
         0,
-        "threshold should keep the region out of the compaction set"
+        "threshold should keep the block out of the compaction set"
     );
     assert_eq!(unsafe { first.as_gc().as_non_null().as_ref() }.0[0], 20);
     assert_eq!(unsafe { third.as_gc().as_non_null().as_ref() }.0[0], 22);
