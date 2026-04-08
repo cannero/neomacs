@@ -3752,6 +3752,112 @@ fn poll_active_major_mark_prepares_major_old_region_rebuild_before_finish() {
     assert_eq!(unsafe { third.as_gc().as_non_null().as_ref() }.0[0], 32);
 }
 
+/// Migrated form of
+/// `poll_active_major_mark_prepares_major_old_region_rebuild_before_finish`
+/// for the physical-compaction-only future. Same workload (3 old leaves,
+/// drop the middle one, finish a major) but with
+/// `physical_compaction_density_threshold` set so the major's commit
+/// hook actually moves bytes, and assertions on
+/// `old_block_region_stats()` instead of the legacy logical view.
+///
+/// This test pins the migration recipe for Category A logical-shrink
+/// assertions: physical compaction reclaims the source block (one
+/// dead survivor leaves the original block at 67% density), packs
+/// the two survivors into a fresh target block, and the resulting
+/// block view reports `hole_bytes == 0` for the new block — the
+/// honest physical shrink.
+#[test]
+fn poll_active_major_mark_with_physical_compaction_packs_block_view() {
+    let old_bytes = estimated_allocation_size::<OldLeaf>().expect("old allocation size");
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            region_bytes: old_bytes.saturating_mul(4),
+            line_bytes: 16,
+            selective_reclaim_threshold_bytes: 1,
+            compaction_candidate_limit: 1,
+            // Aggressive threshold so the major-commit hook moves
+            // bytes for any block below 99% density.
+            physical_compaction_density_threshold: 0.99,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+
+    let (first_gc, third_gc) = {
+        let mut setup_scope = mutator.handle_scope();
+        let first = mutator
+            .alloc(&mut setup_scope, OldLeaf([30; 32]))
+            .expect("alloc first old leaf");
+        mutator
+            .alloc(&mut setup_scope, OldLeaf([31; 32]))
+            .expect("alloc middle old leaf");
+        let third = mutator
+            .alloc(&mut setup_scope, OldLeaf([32; 32]))
+            .expect("alloc third old leaf");
+        (first.as_gc(), third.as_gc())
+    };
+    let first = mutator.root(&mut keep_scope, first_gc);
+    let third = mutator.root(&mut keep_scope, third_gc);
+
+    let plan = mutator.plan_for(CollectionKind::Major);
+    mutator
+        .begin_major_mark(plan)
+        .expect("begin persistent major mark");
+
+    while !mutator
+        .poll_active_major_mark()
+        .expect("poll active major mark")
+        .expect("active progress")
+        .completed
+    {}
+
+    let cycle = mutator
+        .finish_active_major_collection_if_ready()
+        .expect("finish if ready")
+        .expect("completed cycle");
+    assert_eq!(cycle.major_collections, 1);
+
+    // Block view: after physical compaction, the original block
+    // is reclaimed and the two survivors are packed into a fresh
+    // target block. The remaining `hole_bytes` must be smaller
+    // than one whole dropped survivor (`old_bytes`) — the only
+    // residual gap is the line-alignment padding inside the
+    // packed block, which is bounded by the block's `line_bytes`.
+    let blocks = mutator.heap().old_block_region_stats();
+    let total_live: usize = blocks.iter().map(|b| b.live_bytes).sum();
+    let total_objects: usize = blocks.iter().map(|b| b.object_count).sum();
+    let total_holes: usize = blocks.iter().map(|b| b.hole_bytes).sum();
+    assert_eq!(total_objects, 2);
+    assert!(total_live > 0);
+    assert!(
+        total_holes < old_bytes,
+        "physical compaction should reclaim the dropped survivor's bytes; blocks: {:?}",
+        blocks
+    );
+
+    // Compaction telemetry must show records were physically
+    // moved by the post-major hook (anything > 0 confirms the
+    // hook fired and moved at least the survivors).
+    let compaction_stats = mutator.heap().compaction_stats();
+    assert!(compaction_stats.cycles >= 1);
+    assert!(compaction_stats.records_moved >= 2);
+
+    // The rooted handles still resolve to the right payloads
+    // after compaction relocated them via the forwarding map.
+    assert_eq!(unsafe { first.as_gc().as_non_null().as_ref() }.0[0], 30);
+    assert_eq!(unsafe { third.as_gc().as_non_null().as_ref() }.0[0], 32);
+}
+
 #[test]
 fn poll_active_major_mark_prepares_major_finalizer_before_finish() {
     MAJOR_FINALIZE_COUNT.store(0, Ordering::SeqCst);
