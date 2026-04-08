@@ -103,25 +103,20 @@ Still staging compromises:
 - physical old-gen compaction is implemented and can run automatically
   inside a major cycle when `OldGenConfig::physical_compaction_density_threshold > 0.0`,
   but the legacy logical-region compaction still ships in parallel
-  because two test pairs explicitly verify it. The block-side surface
-  is the new default: `Heap::old_region_stats` (and the renamed
-  `OldGenState::region_stats`) read from blocks; `Heap::old_block_region_stats`
-  is its alias; `Heap::major_block_candidates` runs the same heuristic
-  against blocks; the planner populates `CollectionPlan::selected_old_blocks`
-  alongside `selected_old_regions`. The legacy renumbering view is
-  available via `Heap::legacy_old_region_stats` for the explicit
-  legacy holdouts. Two test pairs are still on the legacy view:
-  the manual-plan tests `execute_major_plan_honors_exact_selected_old_regions`
-  (the rebuild path still consumes `selected_old_regions`) and the
-  tail-only sparse selector tests `major_region_candidates_prefer_holey
-  _regions_over_tail_only_sparse_regions` (the block view counts
-  line-alignment padding as honest hole bytes, so a single-allocation
-  tail-only block does not satisfy `hole_bytes == 0`). The final
-  step is switching `prepare_reclaim_survivor` and `finish_rebuild`
-  to consume `selected_old_blocks` so the manual-plan path can use
-  block indices, after which the `regions` vec, `prepare_rebuild`,
-  `finish_rebuild`, and `legacy_old_region_stats` can all be deleted
-  together.
+  because one test pair (`execute_major_plan_honors_exact_selected_old_regions`)
+  explicitly verifies the manual-plan path. The block-side surface
+  is the new default: `Heap::old_region_stats` reads from blocks;
+  `Heap::old_block_region_stats` is its alias; `Heap::major_block_candidates`
+  runs the same heuristic against blocks; the planner populates
+  `CollectionPlan::selected_old_blocks` alongside `selected_old_regions`;
+  `OldGenState::run_major_plan_selection` is shared between both
+  selectors. The legacy renumbering view is available via
+  `Heap::legacy_old_region_stats` for the one remaining holdout.
+  The final step is switching `prepare_reclaim_survivor` and
+  `finish_rebuild` to consume `selected_old_blocks` so the
+  manual-plan path can use block indices, after which the `regions`
+  vec, `prepare_rebuild`, `finish_rebuild`, `OldRegionPlacement`,
+  and `legacy_old_region_stats` can all be deleted together.
 - remembered tracking is still coarser than the final region/card-table model
 - finalization is now queued and drained explicitly through runtime surfaces, but
   it still retains whole `ObjectRecord`s rather than a lower-level VM-facing
