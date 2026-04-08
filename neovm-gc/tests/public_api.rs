@@ -5055,6 +5055,56 @@ fn public_api_background_service_drains_pending_finalizers() {
 }
 
 #[test]
+fn public_api_background_service_drain_pending_finalizers_bounded_runs_in_slices() {
+    // Pin the bounded-drain surface on the BackgroundService
+    // (heap-bound, runtime-owned variant). Same cooperative
+    // slicing contract as the SharedHeap and CollectorRuntime
+    // tests, but exposed through the in-process background
+    // service handle so a host that drives finalization through
+    // its background service can budget work per service tick.
+    PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
+
+    let mut heap = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    {
+        let mut mutator = heap.mutator();
+        for i in 0..3u64 {
+            let mut scope = mutator.handle_scope();
+            mutator
+                .alloc(&mut scope, FinalizableLeaf(1100 + i))
+                .expect("alloc finalizable old leaf");
+        }
+        let cycle = mutator
+            .collect(CollectionKind::Major)
+            .expect("major collect");
+        assert_eq!(cycle.queued_finalizers, 3);
+    }
+
+    let mut service = heap.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    assert_eq!(service.pending_finalizer_count(), 3);
+
+    // First slice: budget 2.
+    assert_eq!(service.drain_pending_finalizers_bounded(2), 2);
+    assert_eq!(service.pending_finalizer_count(), 1);
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 2);
+
+    // Second slice: budget 5 (only 1 remaining).
+    assert_eq!(service.drain_pending_finalizers_bounded(5), 1);
+    assert_eq!(service.pending_finalizer_count(), 0);
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 3);
+    assert_eq!(service.heap().stats().finalizers_run, 3);
+}
+
+#[test]
 fn public_api_shared_background_service_prepare_active_reclaim_moves_full_session_to_reclaim() {
     let shared = neovm_gc::SharedHeap::new(HeapConfig {
         large: neovm_gc::spaces::LargeObjectSpaceConfig {
