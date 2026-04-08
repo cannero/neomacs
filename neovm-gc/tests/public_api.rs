@@ -706,6 +706,52 @@ fn public_api_pinned_owner_nursery_edge_uses_explicit_fallback() {
 }
 
 #[test]
+fn public_api_pinned_owner_explicit_fallback_dedupes_repeated_writes() {
+    // After the owner-only refactor, the explicit fallback
+    // tracks deduped owners only — no per-edge entries. This
+    // test pins the contract by writing the SAME pinned
+    // owner's edge slot many times in a row (overwriting the
+    // previous value with a new nursery target each time) and
+    // verifying that the fallback stats stay at exactly one
+    // owner across all the writes.
+    //
+    // Before the refactor, the dense Vec<RememberedEdge> would
+    // have grown to N entries (one per write); the new model
+    // grows to one entry (one per deduped owner) regardless of
+    // the write count.
+    let mut heap = Heap::new(HeapConfig::default());
+    let mut mutator = heap.mutator();
+    let mut owner_scope = mutator.handle_scope();
+    let owner = mutator
+        .alloc(
+            &mut owner_scope,
+            PinnedOwner {
+                child: EdgeCell::default(),
+            },
+        )
+        .expect("alloc pinned owner");
+
+    for i in 0..10u64 {
+        let mut child_scope = mutator.handle_scope();
+        let child = mutator
+            .alloc(&mut child_scope, Leaf(7000 + i))
+            .expect("alloc nursery leaf");
+        mutator.store_edge(&owner, 0, |o| &o.child, Some(child.as_gc()));
+    }
+
+    // Ten writes, one deduped owner.
+    let stats = mutator.heap().stats();
+    assert_eq!(
+        stats.remembered_explicit_edges, 1,
+        "the owner-only fallback should report one entry per deduped owner regardless of write count",
+    );
+    assert_eq!(stats.remembered_explicit_owners, 1);
+    assert_eq!(stats.remembered_dirty_cards, 0);
+    assert_eq!(stats.remembered_edges, 1);
+    assert_eq!(stats.remembered_owners, 1);
+}
+
+#[test]
 fn public_api_alloc_auto_collects_under_nursery_pressure() {
     let leaf_bytes = estimated_allocation_size::<Leaf>().expect("leaf allocation size");
     let mut heap = Heap::new(HeapConfig {
