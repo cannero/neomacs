@@ -168,6 +168,21 @@ Still staging compromises:
   large-space owners to point at nursery survivors; the
   `public_api_pinned_owner_nursery_edge_uses_explicit_fallback`
   test pins the contract on both sides.
+
+  Two intermediate refactors are queued for the explicit-edge
+  fallback before the full block-model migration:
+  1. Drop the dense `Vec<RememberedEdge>` and keep only the
+     deduped owner set (`HashSet<ObjectKey>`). The minor GC
+     scan already only consumes owners; the edges are only used
+     to derive post-collection owner membership, which can be
+     re-derived by walking each tracked owner's record edges
+     after the collection. This shrinks the per-edge memory
+     cost from `(2 * pointer_size + HashSet entry)` to just
+     the HashSet entry.
+  2. Promote pinned/large records into a dedicated block pool
+     so the fast-path card table covers them too. After this
+     step the explicit fallback can be deleted entirely and
+     `remembered_explicit_*` counters drop to zero.
 - finalization queue interactions go through a `PendingFinalizer`
   newtype that hides the wrapped `ObjectRecord` behind a focused
   handoff API (`run`, `block_placement`, `rebind_block`). The
