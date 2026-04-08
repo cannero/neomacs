@@ -1,6 +1,6 @@
 use crate::heap::AllocError;
 use crate::index_state::{ForwardingMap, HeapIndexState, PreparedIndexReclaim};
-use crate::object::{ObjectRecord, OldBlockPlacement, OldRegionPlacement, SpaceKind};
+use crate::object::{ObjectRecord, OldBlockPlacement, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPlan};
 use crate::runtime_state::RuntimeStateHandle;
 use crate::spaces::{
@@ -289,7 +289,6 @@ pub(crate) fn evacuate_old_object_to_fresh_block(
 pub(crate) struct PreparedReclaimSurvivor {
     /// Original index in `Heap::objects` before reclaim commit.
     pub(crate) object_index: usize,
-    pub(crate) old_region_placement: Option<OldRegionPlacement>,
 }
 
 #[derive(Debug)]
@@ -340,22 +339,13 @@ pub(crate) fn prepare_reclaim(
         if !keep_object_for_collection(kind, object) {
             continue;
         }
-
         let total_size = object.total_size();
-        // Survivors keep their old_region_placement unchanged.
         // Logical-region renumbering is retired; physical
         // compaction (Heap::compact_old_gen_blocks /
         // compact_old_gen_physical) is the only mechanism that
         // moves bytes, and that updates old_block_placement
         // directly.
-        let old_region_placement = match object.space() {
-            SpaceKind::Old => object.old_region_placement(),
-            _ => None,
-        };
-        survivors.push(PreparedReclaimSurvivor {
-            object_index,
-            old_region_placement,
-        });
+        survivors.push(PreparedReclaimSurvivor { object_index });
         prepared_stats.record_live_object(object.space(), total_size);
     }
 
@@ -431,7 +421,7 @@ pub(crate) fn commit_prepared_reclaim_objects(
     // that prepared order in lockstep with the owned `objects` vector so
     // commit stays linear while dead finalizable objects are transferred to
     // the pending-finalizer queue instead of running inline during GC.
-    for mut object in old_objects {
+    for object in old_objects {
         let current_index = object_index;
         object_index = object_index.saturating_add(1);
         let should_finalize = finalize_iter
@@ -443,16 +433,13 @@ pub(crate) fn commit_prepared_reclaim_objects(
             continue;
         }
 
-        let Some(survivor) =
+        let Some(_survivor) =
             survivor_iter.next_if(|survivor| survivor.object_index == current_index)
         else {
             continue;
         };
 
         object.clear_mark();
-        if let Some(placement) = survivor.old_region_placement {
-            object.set_old_region_placement(placement);
-        }
         rebuilt_objects.push(object);
     }
 

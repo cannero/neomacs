@@ -5,7 +5,6 @@ use crate::heap::HeapConfig;
 use crate::mark::MarkWorklist;
 use crate::object::{ObjectRecord, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPhase};
-use crate::spaces::old::OldRegion;
 use crate::spaces::{LargeObjectSpaceConfig, NurseryConfig};
 use crate::stats::{HeapStats, SpaceStats};
 
@@ -18,7 +17,6 @@ fn plan_for(kind: CollectionKind) -> CollectionPlan {
         worker_count: 2,
         mark_slice_budget: 8,
         target_old_regions: 0,
-        selected_old_regions: Vec::new(),
         selected_old_blocks: Vec::new(),
         estimated_compaction_bytes: 0,
         estimated_reclaim_bytes: 0,
@@ -131,14 +129,7 @@ fn build_plan_full_includes_old_nursery_and_large_reclaim() {
         },
         ..HeapStats::default()
     };
-    let mut old_gen = OldGenState::default();
-    old_gen.regions = vec![OldRegion {
-        capacity_bytes: 256,
-        used_bytes: 128,
-        live_bytes: 64,
-        object_count: 1,
-        occupied_lines: Default::default(),
-    }];
+    let old_gen = OldGenState::default();
 
     let plan = build_plan(
         CollectionKind::Full,
@@ -335,14 +326,7 @@ fn refresh_cached_plans_prefers_full_for_large_pressure() {
         },
         ..HeapStats::default()
     };
-    let mut old_gen = OldGenState::default();
-    old_gen.regions = vec![OldRegion {
-        capacity_bytes: 256,
-        used_bytes: 0,
-        live_bytes: 0,
-        object_count: 0,
-        occupied_lines: Default::default(),
-    }];
+    let old_gen = OldGenState::default();
 
     refresh_cached_plans(
         &mut collector,

@@ -2,7 +2,7 @@ use core::sync::atomic::{AtomicU8, Ordering};
 use std::collections::HashSet;
 
 use crate::card_table::CardTable;
-use crate::object::{ObjectRecord, OldBlockPlacement, OldRegionPlacement};
+use crate::object::{ObjectRecord, OldBlockPlacement};
 use crate::stats::OldRegionStats;
 
 /// Old-generation configuration.
@@ -424,7 +424,6 @@ impl OldBlock {
 
 #[derive(Debug, Default)]
 pub(crate) struct OldGenState {
-    pub(crate) regions: Vec<OldRegion>,
     /// Block buffer pool. Blocks are allocated on demand when direct old-gen
     /// allocation or nursery promotion needs fresh backing storage, and the
     /// post-sweep reclaim path drops blocks whose line marks are entirely
@@ -455,34 +454,12 @@ impl OldGenState {
     }
 
     pub(crate) fn reserved_bytes(&self) -> usize {
-        self.regions
-            .iter()
-            .map(|region| region.capacity_bytes)
-            .sum()
-    }
-
-    pub(crate) fn allocate_placement(
-        &mut self,
-        config: &OldGenConfig,
-        bytes: usize,
-    ) -> OldRegionPlacement {
-        let align = config.line_bytes.max(8);
-        if let Some((region_index, offset)) = self.try_reserve_in_existing_region(bytes, align) {
-            return self.make_placement(config, region_index, offset, bytes);
-        }
-
-        let capacity_bytes = config.region_bytes.max(bytes);
-        self.regions.push(OldRegion {
-            capacity_bytes,
-            used_bytes: 0,
-            live_bytes: 0,
-            object_count: 0,
-            occupied_lines: HashSet::new(),
-        });
-        let region_index = self.regions.len() - 1;
-        let offset = self.regions[region_index].used_bytes;
-        self.regions[region_index].used_bytes = bytes;
-        self.make_placement(config, region_index, offset, bytes)
+        // Sum block capacities. The legacy regions vec is still
+        // populated by allocate_placement but is being phased
+        // out; use the block pool as the source of truth so
+        // reserved_bytes stays accurate even when the regions
+        // vec is dropped.
+        self.blocks.iter().map(|block| block.capacity_bytes()).sum()
     }
 
     /// Phase 2 Immix-style block allocation. Walks every block looking for
@@ -802,11 +779,14 @@ impl OldGenState {
 
     pub(crate) fn record_allocated_object(
         &mut self,
-        config: &OldGenConfig,
+        _config: &OldGenConfig,
         object: &mut ObjectRecord,
     ) -> usize {
-        let placement = self.allocate_placement(config, object.total_size());
-        object.set_old_region_placement(placement);
+        // The legacy logical-region rebuild was retired; the
+        // production allocation path went through
+        // try_alloc_in_block which already set the
+        // OldBlockPlacement on `object`. record_object updates
+        // the per-block accounting from that placement.
         self.record_object(object);
         self.reserved_bytes()
     }
@@ -952,65 +932,6 @@ impl OldGenState {
         prepared.region_stats
     }
 
-    fn try_reserve_in_existing_region(
-        &mut self,
-        bytes: usize,
-        align: usize,
-    ) -> Option<(usize, usize)> {
-        for (region_index, region) in self.regions.iter_mut().enumerate() {
-            let offset = align_up(region.used_bytes, align);
-            if offset.saturating_add(bytes) <= region.capacity_bytes {
-                region.used_bytes = offset.saturating_add(bytes);
-                return Some((region_index, offset));
-            }
-        }
-        None
-    }
-
-    fn make_placement(
-        &self,
-        config: &OldGenConfig,
-        region_index: usize,
-        offset_bytes: usize,
-        bytes: usize,
-    ) -> OldRegionPlacement {
-        Self::make_placement_for_config(config, region_index, offset_bytes, bytes)
-    }
-
-    fn make_placement_for_config(
-        config: &OldGenConfig,
-        region_index: usize,
-        offset_bytes: usize,
-        bytes: usize,
-    ) -> OldRegionPlacement {
-        let line_bytes = config.line_bytes.max(1);
-        let line_start = offset_bytes / line_bytes;
-        let line_count = bytes.div_ceil(line_bytes).max(1);
-        OldRegionPlacement {
-            region_index,
-            offset_bytes,
-            line_start,
-            line_count,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct OldRegion {
-    pub(crate) capacity_bytes: usize,
-    pub(crate) used_bytes: usize,
-    // live_bytes / object_count / occupied_lines were the
-    // legacy logical accounting fields. Nothing reads them
-    // any more (block-side accounting is the source of truth)
-    // but they're retained as a thin compatibility layer for
-    // the allocator's region bookkeeping until allocate
-    // _placement and the regions vec are themselves deleted.
-    #[allow(dead_code)]
-    pub(crate) live_bytes: usize,
-    #[allow(dead_code)]
-    pub(crate) object_count: usize,
-    #[allow(dead_code)]
-    pub(crate) occupied_lines: HashSet<usize>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -1035,19 +956,6 @@ pub(crate) fn compare_compaction_candidate_priority(
         .then_with(|| right.free_bytes.cmp(&left.free_bytes))
         .then_with(|| left.object_count.cmp(&right.object_count))
         .then_with(|| left.region_index.cmp(&right.region_index))
-}
-
-fn align_up(value: usize, align: usize) -> usize {
-    if align <= 1 {
-        value
-    } else {
-        let rem = value % align;
-        if rem == 0 {
-            value
-        } else {
-            value + (align - rem)
-        }
-    }
 }
 
 #[cfg(test)]

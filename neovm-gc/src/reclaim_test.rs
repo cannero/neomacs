@@ -14,7 +14,6 @@ fn major_plan() -> CollectionPlan {
         worker_count: 4,
         mark_slice_budget: 8,
         target_old_regions: 2,
-        selected_old_regions: vec![0, 3],
         selected_old_blocks: vec![0, 3],
         estimated_compaction_bytes: 64,
         estimated_reclaim_bytes: 32,

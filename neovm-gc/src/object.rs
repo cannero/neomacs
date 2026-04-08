@@ -62,21 +62,11 @@ impl Generation {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct OldRegionPlacement {
-    pub(crate) region_index: usize,
-    pub(crate) offset_bytes: usize,
-    pub(crate) line_start: usize,
-    pub(crate) line_count: usize,
-}
-
 /// Physical placement of an object inside an `OldBlock` from `OldGenState`.
 ///
-/// Distinct from `OldRegionPlacement`, which tracks the *logical* old-region
-/// bookkeeping for compaction planning. `OldBlockPlacement` records which
-/// concrete block buffer the object's bytes live in so the sweep path can
-/// re-mark the lines the object occupies and so empty blocks can be reclaimed
-/// after collection.
+/// Records which concrete block buffer the object's bytes live in so the
+/// sweep path can re-mark the lines the object occupies and so empty blocks
+/// can be reclaimed after collection.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct OldBlockPlacement {
     pub(crate) block_index: usize,
@@ -217,7 +207,6 @@ pub(crate) struct ObjectRecord {
     base: NonNull<u8>,
     layout: Layout,
     header: NonNull<ObjectHeader>,
-    old_region: Option<OldRegionPlacement>,
     old_block: Option<OldBlockPlacement>,
     memory_kind: ObjectMemoryKind,
 }
@@ -270,7 +259,6 @@ impl ObjectRecord {
             base,
             layout,
             header,
-            old_region: None,
             old_block: None,
             memory_kind: ObjectMemoryKind::Owned,
         })
@@ -307,7 +295,6 @@ impl ObjectRecord {
             base,
             layout,
             header,
-            old_region: None,
             old_block: None,
             memory_kind: ObjectMemoryKind::Arena,
         }
@@ -358,14 +345,6 @@ impl ObjectRecord {
 
     pub(crate) fn object_key(&self) -> ObjectKey {
         ObjectKey::from_header(self.header)
-    }
-
-    pub(crate) fn old_region_placement(&self) -> Option<OldRegionPlacement> {
-        self.old_region
-    }
-
-    pub(crate) fn set_old_region_placement(&mut self, placement: OldRegionPlacement) {
-        self.old_region = Some(placement);
     }
 
     pub(crate) fn old_block_placement(&self) -> Option<OldBlockPlacement> {
@@ -478,7 +457,6 @@ impl ObjectRecord {
             base,
             layout,
             header,
-            old_region: None,
             old_block: None,
             memory_kind: ObjectMemoryKind::Owned,
         })
@@ -510,7 +488,6 @@ impl ObjectRecord {
             base,
             layout,
             header,
-            old_region: None,
             old_block: None,
             memory_kind: ObjectMemoryKind::Arena,
         })
@@ -556,7 +533,6 @@ impl ObjectRecord {
                 base,
                 layout,
                 header,
-                old_region: None,
                 old_block: None,
                 memory_kind: ObjectMemoryKind::Arena,
             })),

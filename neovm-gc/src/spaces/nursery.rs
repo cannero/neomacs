@@ -152,10 +152,12 @@ fn evacuate_marked_nursery_serial(
     }
 
     let mut records = Vec::with_capacity(evacuated.len());
-    for (mut new_record, target_space) in evacuated {
+    for (new_record, target_space) in evacuated {
         if target_space == SpaceKind::Old {
-            let placement = old_gen.allocate_placement(old_config, new_record.total_size());
-            new_record.set_old_region_placement(placement);
+            // Block accounting was already wired by
+            // try_alloc_in_block above; calling record_object
+            // here just updates the block-side counters for the
+            // newly-promoted survivor.
             old_gen.record_object(&new_record);
             stats.old.reserved_bytes = old_gen.reserved_bytes();
             promoted_bytes = promoted_bytes.saturating_add(new_record.total_size());
@@ -292,16 +294,16 @@ fn evacuate_marked_nursery_parallel(
     nursery.merge_worker_arenas(&merged_arenas);
 
     // Serial promotion bookkeeping for survivors targeted at the old
-    // generation. The system-allocated copy itself was already
-    // performed in the worker, but `OldGenState::allocate_placement`
-    // and `record_object` mutate shared state and run on the main
-    // thread.
+    // generation. The worker-side evacuation went through the system
+    // allocator (no block placement was set), so call record_object
+    // which is now a no-op for records without an OldBlockPlacement
+    // — those survivors are only tracked through PreparedHeapStats
+    // and the cycle stats accumulators.
+    let _ = old_config;
     let mut promoted_bytes = 0usize;
     let mut records = Vec::with_capacity(survivors.len());
-    for (mut new_record, target_space) in survivors {
+    for (new_record, target_space) in survivors {
         if target_space == SpaceKind::Old {
-            let placement = old_gen.allocate_placement(old_config, new_record.total_size());
-            new_record.set_old_region_placement(placement);
             old_gen.record_object(&new_record);
             stats.old.reserved_bytes = old_gen.reserved_bytes();
             promoted_bytes = promoted_bytes.saturating_add(new_record.total_size());

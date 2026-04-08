@@ -160,22 +160,10 @@ fn heap_index_state_prepare_reclaim_state_rebuilds_candidates_and_remembered_edg
     indexes.record_remembered_edge(objects[3].erased(), objects[4].erased());
 
     let survivors = vec![
-        PreparedReclaimSurvivor {
-            object_index: 1,
-            old_region_placement: None,
-        },
-        PreparedReclaimSurvivor {
-            object_index: 2,
-            old_region_placement: objects[2].old_region_placement(),
-        },
-        PreparedReclaimSurvivor {
-            object_index: 3,
-            old_region_placement: None,
-        },
-        PreparedReclaimSurvivor {
-            object_index: 4,
-            old_region_placement: None,
-        },
+        PreparedReclaimSurvivor { object_index: 1 },
+        PreparedReclaimSurvivor { object_index: 2 },
+        PreparedReclaimSurvivor { object_index: 3 },
+        PreparedReclaimSurvivor { object_index: 4 },
     ];
 
     let prepared = indexes.prepare_reclaim_state(&objects, &survivors, CollectionKind::Major);

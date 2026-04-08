@@ -43,23 +43,15 @@ pub struct CollectionPlan {
     pub worker_count: usize,
     /// Maximum number of objects to drain from one mark slice.
     pub mark_slice_budget: usize,
-    /// Number of old regions implicated by this plan.
+    /// Number of old-gen blocks implicated by this plan.
     pub target_old_regions: usize,
-    /// Exact old-region indices selected for compaction or evacuation by this plan.
-    pub selected_old_regions: Vec<usize>,
-    /// Block-indexed equivalent of [`Self::selected_old_regions`].
+    /// Exact old-block indices the planner selected for
+    /// physical compaction.
     ///
-    /// Populated by the planner alongside `selected_old_regions`
-    /// during the migration off the legacy logical-region view.
-    /// Block indices are computed by running the same heuristic
-    /// against `OldGenState::block_plan_selection` so the two
-    /// vectors describe the *same* compaction intent through
-    /// different namespaces.
-    ///
-    /// Today this field is observation-only: the rebuild path
-    /// still consumes `selected_old_regions`. Once the rebuild
-    /// migrates to block indices, `selected_old_regions` goes
-    /// away.
+    /// The runtime feeds this list directly to
+    /// `Heap::compact_old_gen_blocks` to physically evacuate
+    /// the named blocks. An empty vec means the planner found
+    /// no fragmented blocks worth compacting this cycle.
     pub selected_old_blocks: Vec<usize>,
     /// Estimated live bytes that would be moved by the selected old-region compaction set.
     pub estimated_compaction_bytes: usize,
@@ -130,7 +122,6 @@ impl Default for CollectionPlan {
             worker_count: 1,
             mark_slice_budget: 0,
             target_old_regions: 0,
-            selected_old_regions: Vec::new(),
             selected_old_blocks: Vec::new(),
             estimated_compaction_bytes: 0,
             estimated_reclaim_bytes: 0,
