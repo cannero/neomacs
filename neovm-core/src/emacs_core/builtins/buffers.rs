@@ -263,13 +263,19 @@ pub(crate) fn builtin_find_buffer(eval: &mut super::eval::Context, args: Vec<Val
         }
     }
 
+    let key = Value::from_sym_id(name_id);
     for id in scan_order {
         let Some(buf) = buffers.get(id) else {
             continue;
         };
+        // Phase 10E: prefer the buffer's local_var_alist (LOCALIZED
+        // per-buffer storage), then fall back to the legacy
+        // get_buffer_local lookup (slot or lisp_bindings), then to
+        // the global default. Mirrors GNU `find_buffer` (`buffer.c`)
+        // walking the alist directly.
         let observed = buf
-            .get_buffer_local(name)
-            .cloned()
+            .find_in_local_var_alist(key)
+            .or_else(|| buf.get_buffer_local(name).cloned())
             .unwrap_or(fallback_value);
         if eq_value(&observed, &target_value) {
             return Ok(Value::make_buffer(id));

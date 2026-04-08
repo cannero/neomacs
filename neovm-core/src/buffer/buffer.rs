@@ -2103,6 +2103,28 @@ impl Buffer {
         self.locals.raw_value_ref(name)
     }
 
+    /// Walk this buffer's `local_var_alist` for an `(sym . val)`
+    /// pair whose car matches `key`. Returns the cdr if found.
+    /// Mirrors GNU's `assq_no_quit (variable, BVAR (buf, local_var_alist))`
+    /// at `data.c:2409`.
+    ///
+    /// Used by Phase 10E callers that need to look up per-buffer
+    /// values for LOCALIZED symbols without going through the
+    /// obarray's BLV swap-in.
+    pub fn find_in_local_var_alist(&self, key: Value) -> Option<Value> {
+        let mut alist = self.local_var_alist;
+        while alist.is_cons() {
+            let entry = alist.cons_car();
+            if entry.is_cons()
+                && crate::emacs_core::value::eq_value(&entry.cons_car(), &key)
+            {
+                return Some(entry.cons_cdr());
+            }
+            alist = alist.cons_cdr();
+        }
+        None
+    }
+
     pub fn get_buffer_local_binding(&self, name: &str) -> Option<RuntimeBindingValue> {
         // Phase 10C: BUFFER_OBJFWD slots are always live and bypass
         // the `has_local` short-circuit. They never go void in GNU

@@ -156,6 +156,47 @@ pub(crate) fn builtin_make_local_variable(
         return Err(signal("setting-constant", vec![Value::symbol(name)]));
     }
 
+    // Phase 10E: for FORWARDED BUFFER_OBJFWD symbols, just flip the
+    // per-buffer local-flags bit on the current buffer. Mirrors GNU
+    // `Fmake_local_variable` SYMBOL_FORWARDED arm at data.c:2263-2272:
+    //
+    //     if (forwarded && BUFFER_OBJFWDP (valcontents.fwd)) {
+    //       int idx = PER_BUFFER_IDX (offset);
+    //       eassert (idx);
+    //       if (idx > 0)
+    //         SET_PER_BUFFER_VALUE_P (current_buffer, idx, true);
+    //       return variable;
+    //     }
+    //
+    // The slot remains the source of truth — DO NOT replace it with
+    // a fresh BLV via make_symbol_localized.
+    {
+        use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
+        use crate::emacs_core::symbol::SymbolRedirect;
+        let buf_objfwd = ctx
+            .obarray
+            .get_by_id(resolved)
+            .filter(|s| s.redirect() == SymbolRedirect::Forwarded)
+            .and_then(|s| {
+                let fwd = unsafe { &*s.val.fwd };
+                if matches!(fwd.ty, LispFwdType::BufferObj) {
+                    let buf_fwd =
+                        unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
+                    Some(buf_fwd.offset as usize)
+                } else {
+                    None
+                }
+            });
+        if let Some(offset) = buf_objfwd {
+            if let Some(buf_id) = ctx.buffers.current_buffer_id()
+                && let Some(buf) = ctx.buffers.get_mut(buf_id)
+            {
+                buf.set_slot_local_flag(offset, true);
+            }
+            return Ok(args[0]);
+        }
+    }
+
     // Phase 6 of the symbol-redirect refactor: flip the symbol to
     // LOCALIZED (preserving its current value as the default) and
     // seed the current buffer's local_var_alist with `(sym . default)`

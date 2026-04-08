@@ -263,7 +263,7 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
         .map(std::path::PathBuf::from)
         .collect();
 
-    let eval = Context::from_dump(
+    let mut eval = Context::from_dump(
         tagged_heap,
         obarray,
         lexenv,
@@ -287,6 +287,40 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
         load_bookmark_manager(&state.bookmarks),
         load_watcher_list(&state.watchers),
     );
+
+    // Phase 10E follow-up: re-install BUFFER_OBJFWD forwarders.
+    // `pdump::convert::load_symbol_data` leaves SymbolValue::Forwarded
+    // entries at redirect=Plainval (the descriptor pointer is a
+    // 'static reference and is rebuilt from BUFFER_SLOT_INFO at
+    // install time, so the dump never carried it). Without this
+    // loop, every per-buffer C-slot variable behaves like a plain
+    // global after a snapshot restore, breaking writes routed via
+    // `Buffer::set_buffer_local`. Mirrors the matching loop in
+    // `Context::new_inner` and `finalize_cached_bootstrap_eval`.
+    {
+        use crate::buffer::buffer::BUFFER_SLOT_INFO;
+        use crate::emacs_core::forward::alloc_buffer_objfwd;
+        use crate::emacs_core::intern::intern;
+        let obarray = eval.obarray_mut();
+        for info in BUFFER_SLOT_INFO {
+            if !info.install_as_forwarder {
+                continue;
+            }
+            let id = intern(info.name);
+            let predicate = if info.predicate.is_empty() {
+                intern("null")
+            } else {
+                intern(info.predicate)
+            };
+            let fwd = alloc_buffer_objfwd(
+                info.offset as u16,
+                info.local_flags_idx,
+                predicate,
+                info.default.to_value(),
+            );
+            obarray.install_buffer_objfwd(id, fwd);
+        }
+    }
 
     finish_preload_tagged_heap();
 

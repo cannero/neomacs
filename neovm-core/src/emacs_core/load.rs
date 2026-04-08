@@ -2599,6 +2599,13 @@ fn finalize_cached_bootstrap_eval(
         use crate::emacs_core::intern::intern;
         let obarray = eval.obarray_mut();
         for info in BUFFER_SLOT_INFO {
+            // Phase 10D holdouts 3/4/5: skip internal-only slots
+            // (syntax-table / category-table / case-table) — they
+            // live in the BVAR slot block but have no Lisp variable
+            // exposure, matching GNU.
+            if !info.install_as_forwarder {
+                continue;
+            }
             let id = intern(info.name);
             let predicate = if info.predicate.is_empty() {
                 intern("null")
