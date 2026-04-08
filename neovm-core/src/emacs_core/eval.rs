@@ -3566,7 +3566,7 @@ impl Context {
                     };
                     let fwd = alloc_buffer_objfwd(
                         info.offset as u16,
-                        -1,
+                        info.local_flags_idx,
                         predicate,
                         info.default.to_value(),
                     );
@@ -6260,6 +6260,11 @@ impl Context {
 
         // Buffer-local bindings are name-based and must not intercept
         // uninterned symbols that merely share the same print name.
+        // Phase 10D: `get_buffer_local_binding` returns None for
+        // conditional FORWARDED slots whose `local_flags` bit is
+        // clear; the obarray fall-through below resolves those to
+        // the global default via `find_symbol_value` (which routes
+        // FORWARDED reads through the forwarder descriptor).
         if resolved_is_canonical && let Some(buf) = self.buffers.current_buffer() {
             if let Some(binding) = buf.get_buffer_local_binding(resolved_name) {
                 return binding
@@ -6268,9 +6273,12 @@ impl Context {
             }
         }
 
-        // Obarray value cell
-        if let Some(value) = self.obarray.symbol_value_id(resolved) {
-            return Ok(*value);
+        // Obarray value cell. Use `find_symbol_value` (not the
+        // legacy `symbol_value_id`) so FORWARDED reads land on the
+        // forwarder descriptor's default rather than returning None
+        // and signalling void-variable.
+        if let Some(value) = self.obarray.find_symbol_value(resolved) {
+            return Ok(value);
         }
 
         Err(signal("void-variable", vec![value_from_symbol_id(sym_id)]))

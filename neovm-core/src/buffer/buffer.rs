@@ -95,6 +95,23 @@ pub const BUFFER_SLOT_DISPLAY_TIME: usize = 16;
 pub const BUFFER_SLOT_INVISIBILITY_SPEC: usize = 17;
 
 // ---------------------------------------------------------------------------
+// Phase 10D conditional slot offsets. These are BUFFER_OBJFWD slots
+// with `local_flags_idx >= 0`: a fresh buffer's slot mirrors the
+// global default in `BufferManager::buffer_defaults` until
+// `make-local-variable` or a write through the slot flips the
+// per-buffer `Buffer::local_flags` bit.
+//
+// Mirrors GNU `buffer.c:4742-4791` where each conditional `BVAR` slot
+// gets a positive index assigned in `buffer_local_flags`.
+// ---------------------------------------------------------------------------
+
+/// Slot index for `fill-column`. Mirrors GNU's `fill_column_`
+/// (`buffer.h:387`). First conditional slot migrated by Phase 10D
+/// step 3 — picked because the value is a simple integer with a
+/// non-trivial default (70) and dense test coverage.
+pub const BUFFER_SLOT_FILL_COLUMN: usize = 18;
+
+// ---------------------------------------------------------------------------
 // BUFFER_SLOT_INFO table — declarative metadata for every BUFFER_OBJFWD
 // slot. Mirrors GNU's `buffer_local_flags` + `defvar_per_buffer` table
 // in `buffer.c:5056-5500`. Used by Phase 10C dispatch in `set_buffer_local`,
@@ -345,6 +362,12 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: true,
         local_flags_idx: -1,
     },
+    // Phase 10D conditional slots will be added here in step 4+
+    // once setq-default propagation and the legacy reader paths
+    // route through `BufferManager::buffer_defaults`. The slot
+    // constant `BUFFER_SLOT_FILL_COLUMN` is reserved for
+    // `fill-column` and will be the first conditional migration
+    // when the dispatch is fully wired.
 ];
 
 /// Look up a [`BufferSlotInfo`] by Lisp variable name. Returns `None`
@@ -1417,8 +1440,24 @@ impl Buffer {
         // which special-cases `major_mode_`, `mode_name_`,
         // `invisibility_spec_` even though most BVAR slots
         // (file_name, default_directory, etc.) survive the kill.
+        //
+        // Phase 10D: for conditional slots, also clear the
+        // per-buffer local-flags bit and reset the slot to its
+        // declared default. Mirrors GNU
+        // `reset_buffer_local_variables` walking
+        // `buffer_local_flags` and clearing `local_flags[i]` for
+        // non-permanent slots. (`reset_on_kill` doubles as the
+        // "permanent" gate for conditional slots until step 4
+        // adds a dedicated `permanent_local` field; today every
+        // migrated conditional slot is non-permanent so the
+        // distinction doesn't yet matter.)
         for info in BUFFER_SLOT_INFO {
-            if info.reset_on_kill {
+            if info.local_flags_idx >= 0 {
+                // Conditional slot: clear bit + reset to default.
+                self.set_slot_local_flag(info.offset, false);
+                self.slots[info.offset] = info.default.to_value();
+            } else if info.reset_on_kill {
+                // Always-local slot flagged for reset.
                 self.slots[info.offset] = info.default.to_value();
             }
         }
@@ -1432,7 +1471,16 @@ impl Buffer {
         // value, not a stale BufferLocals copy. Mirrors GNU's
         // `BVAR(buf, …)` accessor returning a direct pointer into
         // the C-side struct buffer slot.
+        //
+        // Phase 10D: conditional slots only expose a per-buffer
+        // borrow when the local-flags bit is set; otherwise the
+        // caller treats the variable as "no per-buffer binding"
+        // and falls through to the global default at a higher
+        // layer that has access to `BufferManager::buffer_defaults`.
         if let Some(info) = lookup_buffer_slot(name) {
+            if info.local_flags_idx >= 0 && !self.slot_local_flag(info.offset) {
+                return None;
+            }
             return Some(&self.slots[info.offset]);
         }
         self.locals.raw_value_ref(name)
@@ -1442,7 +1490,17 @@ impl Buffer {
         // Phase 10C: BUFFER_OBJFWD slots are always live and bypass
         // the `has_local` short-circuit. They never go void in GNU
         // (a nil slot still resolves as bound-to-nil).
+        //
+        // Phase 10D: conditional slots return the per-buffer slot
+        // value only when the local-flag bit is set; otherwise the
+        // caller falls through to the global default. (NeoMacs's
+        // `get_buffer_local_binding` doesn't have access to
+        // `BufferManager::buffer_defaults`, so we delegate the
+        // fall-through to the higher layer that does.)
         if let Some(info) = lookup_buffer_slot(name) {
+            if info.local_flags_idx >= 0 && !self.slot_local_flag(info.offset) {
+                return None;
+            }
             return Some(RuntimeBindingValue::Bound(self.slots[info.offset]));
         }
         if !self.locals.has_local(name) {
@@ -1460,7 +1518,15 @@ impl Buffer {
         // `local-variable-p` returning t for `DEFVAR_PER_BUFFER`
         // variables regardless of whether the user explicitly
         // called `make-local-variable`).
-        if lookup_buffer_slot(name).is_some() {
+        //
+        // Phase 10D: conditional slots (`local_flags_idx >= 0`) only
+        // count as local when the per-buffer flag bit is set.
+        // Mirrors GNU `local-variable-p` going through
+        // `PER_BUFFER_VALUE_P` in `data.c:2347-2380`.
+        if let Some(info) = lookup_buffer_slot(name) {
+            if info.local_flags_idx >= 0 {
+                return self.slot_local_flag(info.offset);
+            }
             return true;
         }
         self.locals.has_local(name)

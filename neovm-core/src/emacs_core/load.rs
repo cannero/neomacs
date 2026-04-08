@@ -2607,7 +2607,7 @@ fn finalize_cached_bootstrap_eval(
             };
             let fwd = alloc_buffer_objfwd(
                 info.offset as u16,
-                -1,
+                info.local_flags_idx,
                 predicate,
                 info.default.to_value(),
             );

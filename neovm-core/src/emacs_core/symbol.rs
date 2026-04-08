@@ -920,16 +920,26 @@ impl Obarray {
                     return Some(cdr);
                 }
                 SymbolRedirect::Forwarded => {
-                    // Phase 8 wires this. For now defer to legacy enum.
-                    match sym.value {
-                        SymbolValue::Plain(v) => return v,
-                        SymbolValue::BufferLocal { default, .. } => return default,
-                        SymbolValue::Forwarded => return None,
-                        SymbolValue::Alias(target) => {
-                            current = target;
-                            continue;
-                        }
+                    // Phase 10D: bare-obarray reads of FORWARDED
+                    // BUFFER_OBJFWD symbols return the forwarder's
+                    // default. Mirrors GNU `find_symbol_value`
+                    // (`data.c:1591-1607`) which dispatches through
+                    // `do_symval_forwarding` even without a current
+                    // buffer; for BUFFER_OBJFWD that reads
+                    // `buffer_defaults` (which we mirror as the
+                    // forwarder's stored `default` field — keeping
+                    // this in sync with `BufferManager::buffer_defaults`
+                    // is `setq-default`'s job).
+                    let fwd = unsafe { &*sym.val.fwd };
+                    use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
+                    if matches!(fwd.ty, LispFwdType::BufferObj) {
+                        let buf_fwd = unsafe {
+                            &*(fwd as *const _ as *const LispBufferObjFwd)
+                        };
+                        return Some(buf_fwd.default);
                     }
+                    // Other forwarder types not yet implemented.
+                    return None;
                 }
             }
         }
@@ -1627,11 +1637,25 @@ impl Obarray {
 
     /// Get the default value of a symbol, following aliases.
     /// For `Plain` and `BufferLocal` this is the direct/default value;
-    /// for `Alias` it follows the chain; for `Forwarded` it returns `None`.
+    /// for `Alias` it follows the chain; for `Forwarded` BUFFER_OBJFWD
+    /// it returns the forwarder's static default (Phase 10D).
     pub fn default_value_id(&self, id: SymId) -> Option<&Value> {
         let mut current = id;
         for _ in 0..50 {
-            match self.slot(current)?.value {
+            let sym = self.slot(current)?;
+            // Phase 10D: prefer the new redirect tag for FORWARDED
+            // since the legacy `value` field is the `Forwarded`
+            // sentinel which carries no payload.
+            if sym.flags.redirect() == SymbolRedirect::Forwarded {
+                use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
+                let fwd = unsafe { &*sym.val.fwd };
+                if matches!(fwd.ty, LispFwdType::BufferObj) {
+                    let buf_fwd = unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
+                    return Some(&buf_fwd.default);
+                }
+                return None;
+            }
+            match sym.value {
                 SymbolValue::Plain(ref v) => return v.as_ref(),
                 SymbolValue::BufferLocal { ref default, .. } => return default.as_ref(),
                 SymbolValue::Alias(target) => current = target,
