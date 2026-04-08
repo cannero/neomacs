@@ -1406,7 +1406,11 @@ impl TaggedValue {
             ValueKind::Cons | ValueKind::String | ValueKind::Veclike(_) => {
                 HashKey::Ptr(self.bits())
             }
-            ValueKind::Unknown => HashKey::Ptr(self.bits()),
+            // `Qunbound` collapses to its unique bit pattern — two
+            // UNBOUND values are `eq`. Ordinary Lisp code should
+            // never stash `Qunbound` in a hash table; this arm
+            // exists only so the match stays exhaustive.
+            ValueKind::Unbound | ValueKind::Unknown => HashKey::Ptr(self.bits()),
         }
     }
 

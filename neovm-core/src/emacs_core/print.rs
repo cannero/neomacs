@@ -482,6 +482,7 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
             // Display delegates to the same routine.
             write!(out, "{}", value.as_bignum().unwrap()).unwrap();
         }
+        ValueKind::Unbound => out.push_str("#<unbound>"),
         ValueKind::Unknown => write!(out, "#<unknown {:#x}>", value.0).unwrap(),
     }
 }
@@ -1056,6 +1057,7 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
             format!("#<timer {}>", value.as_timer_id().unwrap())
         }
         ValueKind::Veclike(VecLikeType::Bignum) => value.as_bignum().unwrap().to_string(),
+        ValueKind::Unbound => "#<unbound>".to_string(),
         ValueKind::Unknown => format!("#<unknown {:#x}>", value.0),
     }
 }
@@ -1231,6 +1233,9 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
         }
         ValueKind::Veclike(VecLikeType::Bignum) => {
             out.extend_from_slice(value.as_bignum().unwrap().to_string().as_bytes());
+        }
+        ValueKind::Unbound => {
+            out.extend_from_slice(b"#<unbound>");
         }
         ValueKind::Unknown => {
             out.extend_from_slice(format!("#<unknown {:#x}>", value.0).as_bytes());

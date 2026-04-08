@@ -6306,6 +6306,12 @@ impl Context {
                     target_buf,
                     buf.local_var_alist,
                 ) {
+                    if value.is_unbound() {
+                        return Err(signal(
+                            "void-variable",
+                            vec![value_from_symbol_id(sym_id)],
+                        ));
+                    }
                     return Ok(value);
                 }
             }
@@ -10382,6 +10388,14 @@ impl Context {
                     target_buf,
                     buf.local_var_alist,
                 ) {
+                    // `Qunbound` means the LOCALIZED binding is
+                    // void in this buffer — return None so the
+                    // caller signals `void-variable`. Mirrors GNU
+                    // `Fsymbol_value` treating `Qunbound` from
+                    // `find_symbol_value` as void.
+                    if value.is_unbound() {
+                        return None;
+                    }
                     return Some(value);
                 }
             }

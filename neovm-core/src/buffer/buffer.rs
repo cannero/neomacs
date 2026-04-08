@@ -2310,9 +2310,14 @@ impl Buffer {
         }
         // Everything else: walk `local_var_alist`. Mirrors GNU's
         // `assq_no_quit (var, BVAR (buf, local_var_alist))` at
-        // `data.c:2409`.
+        // `data.c:2409`. A `Qunbound` cdr is a "local but void"
+        // marker — report it as absent for this read-style API,
+        // since callers want a readable value. Use
+        // `get_buffer_local_binding` when the Bound/Void/absent
+        // distinction matters.
         let key = Value::from_sym_id(crate::emacs_core::intern::intern(name));
         find_local_var_alist_entry(self.local_var_alist, key)
+            .filter(|v| !v.is_unbound())
     }
 
     /// Walk this buffer's `local_var_alist` for an `(sym . val)`
@@ -2354,8 +2359,18 @@ impl Buffer {
             return Some(RuntimeBindingValue::Bound(self.get_undo_list()));
         }
         let key = Value::from_sym_id(crate::emacs_core::intern::intern(name));
-        find_local_var_alist_entry(self.local_var_alist, key)
-            .map(RuntimeBindingValue::Bound)
+        // An UNBOUND cdr in the alist marks a void per-buffer
+        // binding — the variable IS local (Some) but has no
+        // value (Void). Mirrors GNU's `(var . Qunbound)` alist
+        // entries created by `Fmake_local_variable` on a void
+        // symbol at `data.c:2285-2289`.
+        find_local_var_alist_entry(self.local_var_alist, key).map(|v| {
+            if v.is_unbound() {
+                RuntimeBindingValue::Void
+            } else {
+                RuntimeBindingValue::Bound(v)
+            }
+        })
     }
 
     pub fn has_buffer_local(&self, name: &str) -> bool {
@@ -2431,7 +2446,9 @@ impl Buffer {
             RuntimeBindingValue::Bound(self.get_undo_list()),
         ));
         // Walk `local_var_alist` for all LOCALIZED per-buffer
-        // bindings. Mirrors GNU `buffer_lisp_local_variables`.
+        // bindings. Mirrors GNU `buffer_lisp_local_variables` at
+        // `buffer.c:1423-1450`, which emits a bare symbol (not a
+        // cons) for entries whose cdr is `Qunbound`.
         let mut cursor = self.local_var_alist;
         while cursor.is_cons() {
             let entry = cursor.cons_car();
@@ -2440,10 +2457,13 @@ impl Buffer {
                 continue;
             }
             if let Some(name) = entry.cons_car().as_symbol_name() {
-                out.push((
-                    name.to_string(),
-                    RuntimeBindingValue::Bound(entry.cons_cdr()),
-                ));
+                let cdr = entry.cons_cdr();
+                let binding = if cdr.is_unbound() {
+                    RuntimeBindingValue::Void
+                } else {
+                    RuntimeBindingValue::Bound(cdr)
+                };
+                out.push((name.to_string(), binding));
             }
         }
         out

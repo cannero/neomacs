@@ -51,6 +51,11 @@ pub enum DumpValue {
     /// bignums via heap refs because they're immutable and the dump
     /// format only needs to recreate the value, not its identity.
     Bignum(String),
+    /// The `Qunbound` sentinel. Reaches the dump path only via a
+    /// `local_var_alist` entry whose cdr marks a void per-buffer
+    /// binding (mirrors GNU storing `(sym . Qunbound)` for
+    /// `make-local-variable` on a void symbol, `data.c:2285-2289`).
+    Unbound,
 }
 
 impl Default for DumpValue {

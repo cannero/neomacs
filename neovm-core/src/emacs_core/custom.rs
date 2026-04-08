@@ -201,12 +201,16 @@ pub(crate) fn builtin_make_local_variable(
     // LOCALIZED (preserving its current value as the default) and
     // seed the current buffer's local_var_alist with `(sym . default)`
     // if it doesn't already have an entry. This is the new GNU-shape
-    // path. The legacy BufferLocals storage stays populated below
-    // until Phase 10 deletes it.
+    // path.
+    //
+    // For a void symbol, seed the alist with `Qunbound` as the cdr —
+    // mirrors GNU `Fmake_local_variable` which does `Fcons (variable,
+    // XCDR (blv->defcell))` at `data.c:2289`, and `blv->defcell` is
+    // `(variable . Qunbound)` when the symbol has no value.
     let default_value = ctx
         .obarray
         .find_symbol_value(resolved)
-        .unwrap_or(Value::NIL);
+        .unwrap_or(Value::UNBOUND);
     ctx.obarray.make_symbol_localized(resolved, default_value);
     if let Some(current_id) = ctx.buffers.current_buffer_id() {
         if let Some(buf) = ctx.buffers.get_mut(current_id) {
@@ -229,54 +233,12 @@ pub(crate) fn builtin_make_local_variable(
             }
         }
     }
-
-    // Legacy path: keep BufferLocals populated until Phase 10.
-    if let Some(current_id) = ctx.buffers.current_buffer_id() {
-        if ctx
-            .buffers
-            .get(current_id)
-            .is_some_and(|buf| !buf.has_buffer_local(resolved_name))
-        {
-            match runtime_binding_for_make_local_variable(&ctx.obarray, &[], symbol, resolved) {
-                RuntimeBindingValue::Bound(value) => {
-                    let _ = ctx
-                        .buffers
-                        .set_buffer_local_property(current_id, resolved_name, value);
-                }
-                RuntimeBindingValue::Void => {
-                    let _ = ctx
-                        .buffers
-                        .set_buffer_local_void_property(current_id, resolved_name);
-                }
-            }
-        }
-    }
+    // Silence unused-warning: the legacy BufferLocals dispatch via
+    // `runtime_binding_for_make_local_variable` is gone with
+    // Phase 10F — all reads now flow through `local_var_alist`.
+    let _ = resolved_name;
+    let _ = symbol;
     Ok(args[0])
-}
-
-fn runtime_binding_for_make_local_variable(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    symbol: SymId,
-    resolved: SymId,
-) -> RuntimeBindingValue {
-    // specbind writes directly to obarray, so no dynamic stack lookup needed.
-    if let Some(value) = obarray.symbol_value_id(resolved) {
-        return RuntimeBindingValue::Bound(*value);
-    }
-
-    let resolved_name = resolve_sym(resolved);
-    if super::builtins::is_canonical_symbol_id(resolved) && resolved_name == "nil" {
-        return RuntimeBindingValue::Bound(Value::NIL);
-    }
-    if super::builtins::is_canonical_symbol_id(resolved) && resolved_name == "t" {
-        return RuntimeBindingValue::Bound(Value::T);
-    }
-    if super::builtins::is_canonical_symbol_id(resolved) && resolved_name.starts_with(':') {
-        return RuntimeBindingValue::Bound(Value::keyword_id(resolved));
-    }
-
-    RuntimeBindingValue::Void
 }
 
 /// `(local-variable-p VARIABLE &optional BUFFER)` -- test if variable is local.
@@ -341,6 +303,17 @@ pub(crate) fn builtin_local_variable_p(
 }
 
 /// `(buffer-local-variables &optional BUFFER)` -- list all local variables.
+///
+/// Mirrors GNU `Fbuffer_local_variables` (`buffer.c:1453-1520`), which
+/// walks `BVAR(buf, local_var_alist)` and `FOR_EACH_PER_BUFFER_OBJECT_AT`
+/// and prepends each entry with `Fcons`. The net effect is:
+///
+///   result = [alist walked forward, prepended]
+///            ++ [slots walked forward, prepended]
+///
+/// which reverses within-group iteration order. Entries whose alist cdr
+/// is `Qunbound` are emitted as the bare symbol (no cons) — that's
+/// what `(memq SYMBOL (buffer-local-variables))` keys off of.
 pub(crate) fn builtin_buffer_local_variables(
     ctx: &mut super::eval::Context,
     args: Vec<Value>,
@@ -372,15 +345,15 @@ pub(crate) fn builtin_buffer_local_variables(
         .get(id)
         .ok_or_else(|| signal("error", vec![Value::string("No such live buffer")]))?;
 
-    let locals: Vec<(String, Option<Value>)> = buf
-        .ordered_buffer_local_bindings()
+    // Build in GNU prepend order: start with slots (forward iter,
+    // appended to a Vec, later reversed), then alist (same pattern).
+    // The final entries list ends up as [alist-reversed, slots-reversed]
+    // which matches GNU's prepend-based construction.
+    let ordered = buf.ordered_buffer_local_bindings();
+    let entries: Vec<Value> = ordered
         .into_iter()
-        .map(|(name, value)| (name, value.as_value()))
-        .collect();
-
-    let entries: Vec<Value> = locals
-        .into_iter()
-        .map(|(name, value)| match value {
+        .rev()
+        .map(|(name, value)| match value.as_value() {
             Some(value) => Value::cons(Value::symbol(name), value),
             None => Value::symbol(name),
         })

@@ -116,6 +116,7 @@ fn test_type_dispatch() {
             ValueKind::Symbol(_) => "symbol".to_string(),
             ValueKind::Veclike(VecLikeType::Subr) => "subr".to_string(),
             ValueKind::Veclike(_) => "veclike".to_string(),
+            ValueKind::Unbound => "unbound".to_string(),
             ValueKind::Unknown => "unknown".to_string(),
         };
         results.push(desc);
@@ -318,6 +319,7 @@ fn test_value_description() {
                 }
             }
             ValueKind::Veclike(ty) => format!("#<{:?}>", ty),
+            ValueKind::Unbound => "#<unbound>".into(),
             ValueKind::Unknown => "#<unknown>".into(),
         }
     }

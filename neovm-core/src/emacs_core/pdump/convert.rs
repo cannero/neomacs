@@ -252,6 +252,7 @@ pub(crate) fn dump_value(v: &Value) -> DumpValue {
         ValueKind::Veclike(VecLikeType::Bignum) => {
             DumpValue::Bignum(v.as_bignum().unwrap().to_string())
         }
+        ValueKind::Unbound => DumpValue::Unbound,
         ValueKind::Unknown => DumpValue::Nil,
     }
 }
@@ -1769,6 +1770,7 @@ pub(crate) fn load_value(v: &DumpValue) -> Value {
         DumpValue::Frame(f) => load_cached_frame(*f),
         DumpValue::Timer(t) => load_cached_timer(*t),
         DumpValue::Bignum(text) => Value::make_integer_from_str_or_zero(text),
+        DumpValue::Unbound => Value::UNBOUND,
     }
 }
 

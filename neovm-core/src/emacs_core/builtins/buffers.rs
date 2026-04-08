@@ -3337,7 +3337,8 @@ pub(crate) fn builtin_buffer_local_value(
     // Mirrors GNU `Fbuffer_local_value` SYMBOL_LOCALIZED arm at
     // `data.c:1696-1740` which uses `blv_value` (returning the
     // already-loaded valcell.cdr if `where == buf`, else walks
-    // `BVAR(buf, local_var_alist)`).
+    // `BVAR(buf, local_var_alist)`), then signals void-variable if
+    // the result is `Qunbound`.
     if let Some(sym_slot) = eval.obarray().get_by_id(resolved_id)
         && sym_slot.redirect() == SymbolRedirect::Localized
     {
@@ -3345,6 +3346,9 @@ pub(crate) fn builtin_buffer_local_value(
         if let Some(value) =
             eval.obarray().read_localized(resolved_id, target_buf, buf.local_var_alist)
         {
+            if value.is_unbound() {
+                return Err(signal("void-variable", vec![original_arg]));
+            }
             return Ok(value);
         }
     }

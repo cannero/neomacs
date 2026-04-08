@@ -56,14 +56,20 @@ const TAG_CONS: usize = 0b010;
 const TAG_VECLIKE: usize = 0b011;
 const TAG_STRING: usize = 0b100;
 const TAG_FLOAT: usize = 0b110;
-// Tag 111 was previously used for immediates (char, keyword, subr).
-// All three have been removed:
-// - Characters are fixnums (GNU Emacs compat)
-// - Keywords are symbols (GNU Emacs compat)
-// - Subrs are PVEC_SUBR veclike objects (GNU Emacs compat)
-// Tag 111 is now unused/reserved.
-#[allow(dead_code)]
+// Tag 111 is reserved for sui generis sentinel values that aren't
+// representable as any other Lisp type. Chars, keywords, and subrs
+// all migrated away (chars=fixnum, keywords=symbol, subrs=PVEC_SUBR),
+// leaving `Qunbound` as the only inhabitant. Sub-tags (bits 3-7)
+// distinguish future sentinels if we ever add more.
+//
+// Reserving tag 111 for sentinels mirrors GNU's `Qunbound` which
+// is also a sui generis `Lisp_Object` not accessible from Lisp code.
 const TAG_IMMEDIATE: usize = 0b111;
+
+// Immediate sub-tags. `Qunbound` uses sub-tag 0 so its full bit
+// pattern is `0b00000111 == 7`. NIL is 0 and T is 8, so UNBOUND
+// slots neatly into the Special Values range.
+const IMMED_UNBOUND: usize = (0 << TAG_BITS) | TAG_IMMEDIATE;
 
 // Fixnum uses two tags: 001 and 101. Both have (v & 3) == 1.
 const FIXNUM_CHECK_MASK: usize = 0b11;
@@ -113,6 +119,19 @@ impl TaggedValue {
 
     /// The t (true) value. `t = Symbol(1) = 0x8`.
     pub const T: Self = Self(1 << TAG_BITS);
+
+    /// The `Qunbound` sentinel. A sui generis immediate value that
+    /// marks "no value" for symbol value cells and
+    /// `local_var_alist` entries. Mirrors GNU's `Qunbound` (defined
+    /// in `lisp.h` and used as the cdr of a BLV `defcell` / alist
+    /// entry when a LOCALIZED variable is void in a particular
+    /// buffer). See `data.c:1696-1740` (`blv_value`) and
+    /// `data.c:2209-2312` (`Fmake_local_variable`).
+    ///
+    /// This must never leak into ordinary Lisp code — callers that
+    /// observe it should either signal `void-variable` or treat it
+    /// as "absent" depending on context.
+    pub const UNBOUND: Self = Self(IMMED_UNBOUND);
 
     // -- Fixnum --
 
@@ -281,11 +300,23 @@ impl TaggedValue {
         self.0 & TAG_MASK == TAG_VECLIKE
     }
 
-    /// TAG_IMMEDIATE is no longer used (chars=fixnum, keywords=symbol, subrs=veclike).
+    /// True if this value is a sui generis immediate sentinel.
+    /// Currently only `Qunbound` (`Value::UNBOUND`) uses this tag.
     #[inline]
-    #[deprecated(note = "No types use TAG_IMMEDIATE anymore")]
     pub fn is_immediate(self) -> bool {
         self.0 & TAG_MASK == TAG_IMMEDIATE
+    }
+
+    /// True if this is the `Qunbound` sentinel.
+    ///
+    /// `Qunbound` marks a "no value" state for symbol value cells
+    /// and buffer-local alist entries. Seeing it in an ordinary
+    /// read path means the caller should signal `void-variable`
+    /// or treat the binding as absent. Mirrors GNU's `BASE_EQ (x,
+    /// Qunbound)` checks throughout `data.c`.
+    #[inline]
+    pub fn is_unbound(self) -> bool {
+        self.0 == IMMED_UNBOUND
     }
 
     /// In GNU Emacs, characters are integers. `characterp` checks if the
@@ -573,6 +604,7 @@ impl TaggedValue {
             }
             TAG_STRING => ValueKind::String,
             TAG_FLOAT => ValueKind::Float,
+            TAG_IMMEDIATE if self.is_unbound() => ValueKind::Unbound,
             TAG_IMMEDIATE => ValueKind::Unknown,
             _ => ValueKind::Unknown,
         }
@@ -684,6 +716,7 @@ impl TaggedValue {
                 // "integer" via `Ftype_of` / `Fcl_type_of`.
                 VecLikeType::Bignum => "integer",
             },
+            ValueKind::Unbound => "unbound",
             ValueKind::Unknown => "unknown",
         }
     }
@@ -777,6 +810,10 @@ pub enum ValueKind {
     // NOTE: No Keyword variant. Keywords are Symbol in GNU Emacs.
     // NOTE: No Subr variant. Subrs are Veclike(VecLikeType::Subr) in GNU Emacs.
     Veclike(VecLikeType),
+    /// The `Qunbound` sentinel. Never reached by ordinary Lisp
+    /// reads — a caller that dispatches on this should signal
+    /// `void-variable` or treat the binding as absent.
+    Unbound,
     Unknown,
 }
 
@@ -797,6 +834,7 @@ impl fmt::Debug for TaggedValue {
                 write!(f, "Float({})", self.xfloat())
             }
             ValueKind::Veclike(ty) => write!(f, "{:?}@{:#x}", ty, self.0 & !TAG_MASK),
+            ValueKind::Unbound => write!(f, "#<unbound>"),
             ValueKind::Unknown => write!(f, "Unknown({:#x})", self.0),
         }
     }

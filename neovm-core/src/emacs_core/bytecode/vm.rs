@@ -2138,6 +2138,18 @@ impl<'a> Vm<'a> {
                 local_flags,
                 defaults_opt,
             ) {
+                // `Qunbound` from the BLV cache / alist walk marks a
+                // void LOCALIZED binding for this buffer — signal
+                // `void-variable` instead of returning the sentinel
+                // to the caller. Mirrors GNU `Fsymbol_value` which
+                // signals when `find_symbol_value` returns
+                // `Qunbound`.
+                if val.is_unbound() {
+                    return Err(signal(
+                        "void-variable",
+                        vec![Value::from_sym_id(name_id)],
+                    ));
+                }
                 return Ok(val);
             }
         }
