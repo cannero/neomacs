@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::thread;
 
 use crate::collector_exec::ForwardingRelocator;
-use crate::descriptor::{MovePolicy, Relocator};
+use crate::descriptor::MovePolicy;
 use crate::heap::AllocError;
 use crate::index_state::{ForwardingMap, HeapIndexState};
 use crate::object::{ObjectRecord, SpaceKind};
@@ -414,12 +414,14 @@ pub(crate) fn relocate_roots_and_edges(
         }
     }
 
-    for edge in &mut indexes.remembered.edges {
-        edge.owner =
-            unsafe { crate::root::Gc::from_erased(relocator.relocate_erased(edge.owner.erase())) };
-        edge.target =
-            unsafe { crate::root::Gc::from_erased(relocator.relocate_erased(edge.target.erase())) };
-    }
+    // The explicit-edge fallback is now an owner-only set
+    // keyed by ObjectKey. Owners that qualify for the
+    // explicit fallback are non-block-backed (pinned, large,
+    // or system-allocated old records that didn't fit any
+    // block hole), and none of those move during minor
+    // collection — so the keys remain stable and there is
+    // nothing to relocate here.
+    let _ = indexes;
 }
 
 #[cfg(test)]

@@ -839,9 +839,19 @@ impl Heap {
         self.runtime_state.drain_pending_finalizers_bounded(max)
     }
 
-    /// Number of remembered old-to-young edges currently tracked.
+    /// Number of remembered old-to-young owners currently
+    /// tracked by the explicit-edge fallback path. Each owner
+    /// represents at least one (deduped) old-to-young edge into
+    /// the nursery; the dense per-edge view was retired in
+    /// favor of owner-only tracking.
+    ///
+    /// The unified `HeapStats::remembered_edges` and
+    /// `remembered_owners` counters fold this with the per-block
+    /// dirty card count. The split
+    /// `HeapStats::remembered_explicit_*` counters report this
+    /// path in isolation.
     pub fn remembered_edge_count(&self) -> usize {
-        self.indexes.remembered.edges.len()
+        self.indexes.remembered.owners.len()
     }
 
     #[cfg(test)]

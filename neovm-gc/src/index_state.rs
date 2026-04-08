@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::barrier::RememberedEdge;
-use crate::descriptor::{GcErased, ObjectKey, TypeDesc, TypeFlags};
+use crate::descriptor::{GcErased, ObjectKey, Tracer, TypeDesc, TypeFlags};
 use crate::object::{ObjectRecord, SpaceKind};
 use crate::plan::CollectionKind;
 use crate::reclaim::PreparedReclaimSurvivor;
@@ -11,9 +10,20 @@ use crate::stats::HeapStats;
 pub(crate) type ObjectIndex = HashMap<ObjectKey, usize>;
 pub(crate) type ForwardingMap = HashMap<ObjectKey, GcErased>;
 
+/// Explicit-edge fallback remembered set, owner-only model.
+///
+/// Tracks the deduped set of non-block-backed old-gen owners
+/// that have at least one edge into the nursery. The minor GC
+/// scans these owners as additional roots; after each
+/// collection the set is re-derived by walking each candidate
+/// owner's record edges. Owners that no longer hold a nursery
+/// reference (because the target moved or was overwritten)
+/// drop out of the set automatically.
+///
+/// Block-backed owners take the per-block dirty card fast path
+/// instead and never appear in this set.
 #[derive(Debug, Default)]
 pub(crate) struct RememberedSetState {
-    pub(crate) edges: Vec<RememberedEdge>,
     pub(crate) owners: Vec<ObjectKey>,
     owner_set: HashSet<ObjectKey>,
 }
@@ -34,7 +44,6 @@ pub(crate) struct PreparedIndexReclaim {
     pub(crate) finalizable_candidates: Vec<ObjectKey>,
     pub(crate) weak_candidates: Vec<ObjectKey>,
     pub(crate) ephemeron_candidates: Vec<ObjectKey>,
-    pub(crate) remembered_edges: Vec<RememberedEdge>,
     pub(crate) remembered_owners: Vec<ObjectKey>,
 }
 
@@ -44,93 +53,136 @@ pub(crate) struct PostSweepIndexRebuild {
 }
 
 impl RememberedSetState {
-    pub(crate) fn record_edge(&mut self, owner: GcErased, target: GcErased) {
-        let owner_key = owner.object_key();
-        self.edges.push(RememberedEdge {
-            owner: unsafe { crate::root::Gc::from_erased(owner) },
-            target: unsafe { crate::root::Gc::from_erased(target) },
-        });
+    /// Record `owner_key` as having a fresh old-to-young edge.
+    /// Idempotent: a second call with the same key is a no-op.
+    /// The caller is responsible for ensuring the owner is not
+    /// block-backed (block-backed owners take the per-block
+    /// dirty card path instead).
+    pub(crate) fn record_owner(&mut self, owner_key: ObjectKey) {
         if self.owner_set.insert(owner_key) {
             self.owners.push(owner_key);
         }
     }
 
-    pub(crate) fn rebuild_owners(&mut self) {
-        self.owner_set.clear();
-        self.owners.clear();
-        for edge in &self.edges {
-            let owner = edge.owner.erase().object_key();
-            if self.owner_set.insert(owner) {
-                self.owners.push(owner);
-            }
-        }
-    }
-
-    pub(crate) fn edges_for_collection(
-        &self,
-        objects: &[ObjectRecord],
-        object_index: &ObjectIndex,
-        kind: CollectionKind,
-    ) -> (Vec<RememberedEdge>, Vec<ObjectKey>) {
-        let remembered_edges: Vec<_> = self
-            .edges
-            .iter()
-            .copied()
-            .filter(|edge| {
-                let Some(&owner_index) = object_index.get(&edge.owner.erase().object_key()) else {
-                    return false;
-                };
-                let Some(&target_index) = object_index.get(&edge.target.erase().object_key())
-                else {
-                    return false;
-                };
-                let owner = &objects[owner_index];
-                let target = &objects[target_index];
-                keep_object_for_collection(kind, owner)
-                    && owner.space() != SpaceKind::Nursery
-                    && owner.space() != SpaceKind::Immortal
-                    && keep_object_for_collection(kind, target)
-                    && target.space() == SpaceKind::Nursery
-            })
-            .collect();
-
-        let mut remembered_owners = Vec::new();
-        let mut remembered_owner_set = HashSet::new();
-        for edge in &remembered_edges {
-            let owner = edge.owner.erase().object_key();
-            if remembered_owner_set.insert(owner) {
-                remembered_owners.push(owner);
-            }
-        }
-        (remembered_edges, remembered_owners)
-    }
-
-    pub(crate) fn retain_for_post_sweep_objects(
+    /// Re-derive the current owner set by walking each tracked
+    /// owner's record edges. Owners that are dead (no longer in
+    /// `object_index`), moved out, no longer in an old-gen
+    /// space, or no longer hold any nursery reference get
+    /// dropped.
+    ///
+    /// Used after every minor cycle to clean up owners whose
+    /// nursery edges either moved to old (via promotion) or
+    /// were overwritten between collections.
+    pub(crate) fn refresh_from_records(
         &mut self,
         objects: &[ObjectRecord],
         object_index: &ObjectIndex,
     ) {
-        self.edges.retain(|edge| {
-            let owner = edge.owner.erase().object_key();
-            let target = edge.target.erase().object_key();
-            let owner_space = object_index
-                .get(&owner)
-                .map(|&index| objects[index].space());
-            let target_space = object_index
-                .get(&target)
-                .map(|&index| objects[index].space());
-            owner_space
-                .is_some_and(|space| space != SpaceKind::Nursery && space != SpaceKind::Immortal)
-                && target_space == Some(SpaceKind::Nursery)
-        });
-        self.rebuild_owners();
+        let mut next_owners = Vec::with_capacity(self.owners.len());
+        let mut next_set = HashSet::with_capacity(self.owners.len());
+        for owner_key in &self.owners {
+            let Some(&owner_index) = object_index.get(owner_key) else {
+                continue;
+            };
+            let owner = &objects[owner_index];
+            if !owner_qualifies_as_explicit_remembered_owner(owner) {
+                continue;
+            }
+            if owner_has_nursery_edge(objects, object_index, owner)
+                && next_set.insert(*owner_key)
+            {
+                next_owners.push(*owner_key);
+            }
+        }
+        self.owners = next_owners;
+        self.owner_set = next_set;
     }
 
-    pub(crate) fn replace(&mut self, edges: Vec<RememberedEdge>, owners: Vec<ObjectKey>) {
-        self.edges = edges;
+    /// Filter the current owners against a `kind`-specific
+    /// "keep" predicate (e.g. major drops unmarked owners) and
+    /// the live-nursery-edge predicate. Returns the surviving
+    /// owner keys ordered by the original insertion order.
+    pub(crate) fn owners_for_collection(
+        &self,
+        objects: &[ObjectRecord],
+        object_index: &ObjectIndex,
+        kind: CollectionKind,
+    ) -> Vec<ObjectKey> {
+        self.owners
+            .iter()
+            .copied()
+            .filter(|owner_key| {
+                let Some(&owner_index) = object_index.get(owner_key) else {
+                    return false;
+                };
+                let owner = &objects[owner_index];
+                if !keep_object_for_collection(kind, owner) {
+                    return false;
+                }
+                if !owner_qualifies_as_explicit_remembered_owner(owner) {
+                    return false;
+                }
+                owner_has_nursery_edge(objects, object_index, owner)
+            })
+            .collect()
+    }
+
+    /// Replace the owner set with the given list. Used by the
+    /// prepared-reclaim commit path so the owners filtered
+    /// during prepare match the rebuilt object index.
+    pub(crate) fn replace(&mut self, owners: Vec<ObjectKey>) {
         self.owners = owners;
         self.owner_set = self.owners.iter().copied().collect();
     }
+}
+
+/// Predicate: is `owner` a candidate for explicit-edge
+/// remembered tracking? Pinned and large-space records (and
+/// any other non-nursery, non-immortal owner that has not been
+/// moved out) qualify; nursery, immortal, and moved-out
+/// records do not.
+fn owner_qualifies_as_explicit_remembered_owner(owner: &ObjectRecord) -> bool {
+    let space = owner.space();
+    space != SpaceKind::Nursery
+        && space != SpaceKind::Immortal
+        && !owner.header().is_moved_out()
+}
+
+/// Predicate: does `owner` currently hold at least one
+/// reference into the nursery? Walks the owner's trace edges
+/// with a short-circuiting tracer that stops as soon as it
+/// finds a nursery target.
+fn owner_has_nursery_edge(
+    objects: &[ObjectRecord],
+    object_index: &ObjectIndex,
+    owner: &ObjectRecord,
+) -> bool {
+    struct NurseryDetectTracer<'a> {
+        objects: &'a [ObjectRecord],
+        index: &'a ObjectIndex,
+        seen: bool,
+    }
+
+    impl Tracer for NurseryDetectTracer<'_> {
+        fn mark_erased(&mut self, object: GcErased) {
+            if self.seen {
+                return;
+            }
+            if let Some(&target_index) = self.index.get(&object.object_key())
+                && self.objects[target_index].space() == SpaceKind::Nursery
+            {
+                self.seen = true;
+            }
+        }
+    }
+
+    let mut tracer = NurseryDetectTracer {
+        objects,
+        index: object_index,
+        seen: false,
+    };
+    owner.trace_edges(&mut tracer);
+    tracer.seen
 }
 
 impl HeapIndexState {
@@ -145,11 +197,15 @@ impl HeapIndexState {
     }
 
     pub(crate) fn apply_storage_stats(&self, stats: &mut HeapStats) {
-        let explicit_edges = self.remembered.edges.len();
+        // The explicit-edge fallback is now an owner-only set
+        // (one entry per non-block-backed old-gen owner that
+        // has at least one nursery edge). Each owner counts as
+        // one entry in both the edge and owner stats since the
+        // dense edge Vec was retired.
         let explicit_owners = self.remembered.owners.len();
-        stats.remembered_explicit_edges = explicit_edges;
+        stats.remembered_explicit_edges = explicit_owners;
         stats.remembered_explicit_owners = explicit_owners;
-        stats.remembered_edges = explicit_edges;
+        stats.remembered_edges = explicit_owners;
         stats.remembered_owners = explicit_owners;
         stats.remembered_dirty_cards = 0;
         stats.remembered_dirty_card_owners = 0;
@@ -212,8 +268,8 @@ impl HeapIndexState {
             .collect()
     }
 
-    pub(crate) fn record_remembered_edge(&mut self, owner: GcErased, target: GcErased) {
-        self.remembered.record_edge(owner, target);
+    pub(crate) fn record_remembered_owner(&mut self, owner: GcErased) {
+        self.remembered.record_owner(owner.object_key());
     }
 
     pub(crate) fn record_remembered_edge_if_needed(
@@ -235,19 +291,19 @@ impl HeapIndexState {
 
         let owner_is_old = owner_space != SpaceKind::Nursery && owner_space != SpaceKind::Immortal;
         if owner_is_old && target_space == SpaceKind::Nursery {
-            // Phase 4: prefer marking the per-block card table over the
-            // dense Vec+HashSet remembered set. The card table tracks
+            // Prefer marking the per-block card table over the
+            // owner-only fallback set. The card table tracks
             // mutated regions in O(1) per write and rebuilds the
-            // owner-set lazily by walking dirty cards at the start of
-            // the next minor GC. The Vec+HashSet path remains as a
-            // fallback for non-block-backed owners (pinned space, large
-            // space, or system-allocated promotions that didn't fit any
-            // block hole).
+            // owner-set lazily by walking dirty cards at the
+            // start of the next minor GC. The owner-only set
+            // remains as a fallback for non-block-backed owners
+            // (pinned space, large space, or system-allocated
+            // promotions that didn't fit any block hole).
             let owner_addr = owner.header().as_ptr() as usize;
             if old_gen.record_write_barrier(owner_addr) {
                 return;
             }
-            self.record_remembered_edge(owner, target);
+            self.record_remembered_owner(owner);
         }
     }
 
@@ -270,13 +326,13 @@ impl HeapIndexState {
         rebuild
     }
 
-    pub(crate) fn remembered_edges_for_collection(
+    pub(crate) fn remembered_owners_for_collection(
         &self,
         objects: &[ObjectRecord],
         kind: CollectionKind,
-    ) -> (Vec<RememberedEdge>, Vec<ObjectKey>) {
+    ) -> Vec<ObjectKey> {
         self.remembered
-            .edges_for_collection(objects, &self.object_index, kind)
+            .owners_for_collection(objects, &self.object_index, kind)
     }
 
     pub(crate) fn prepare_reclaim_state(
@@ -322,15 +378,13 @@ impl HeapIndexState {
             }
         }
 
-        let (remembered_edges, remembered_owners) =
-            self.remembered_edges_for_collection(objects, kind);
+        let remembered_owners = self.remembered_owners_for_collection(objects, kind);
         PreparedIndexReclaim {
             rebuilt_object_index,
             finalize_indices,
             finalizable_candidates,
             weak_candidates,
             ephemeron_candidates,
-            remembered_edges,
             remembered_owners,
         }
     }
@@ -340,16 +394,15 @@ impl HeapIndexState {
         self.finalizable_candidates = prepared.finalizable_candidates;
         self.weak_candidates = prepared.weak_candidates;
         self.ephemeron_candidates = prepared.ephemeron_candidates;
-        self.remembered
-            .replace(prepared.remembered_edges, prepared.remembered_owners);
+        self.remembered.replace(prepared.remembered_owners);
     }
 
-    pub(crate) fn retain_remembered_edges_for_post_sweep_objects(
+    pub(crate) fn refresh_remembered_owners_for_post_sweep_objects(
         &mut self,
         objects: &[ObjectRecord],
     ) {
         self.remembered
-            .retain_for_post_sweep_objects(objects, &self.object_index);
+            .refresh_from_records(objects, &self.object_index);
     }
 }
 

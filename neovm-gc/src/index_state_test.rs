@@ -57,54 +57,43 @@ fn weak_ephemeron_leaf_desc() -> &'static crate::descriptor::TypeDesc {
 }
 
 #[test]
-fn remembered_set_record_edge_deduplicates_owner_keys() {
+fn remembered_set_record_owner_deduplicates() {
+    // The owner-only fallback set dedupes by ObjectKey.
+    // Recording the same owner twice (e.g. two different
+    // nursery edges from the same pinned holder) should leave
+    // exactly one entry in the set, not two.
     let desc = leaf_desc();
     let owner = ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate owner");
-    let target_a =
-        ObjectRecord::allocate(desc, SpaceKind::Nursery, Leaf).expect("allocate nursery target");
-    let target_b =
-        ObjectRecord::allocate(desc, SpaceKind::Nursery, Leaf).expect("allocate nursery target");
 
     let mut remembered = RememberedSetState::default();
-    remembered.record_edge(owner.erased(), target_a.erased());
-    remembered.record_edge(owner.erased(), target_b.erased());
+    remembered.record_owner(owner.object_key());
+    remembered.record_owner(owner.object_key());
 
-    assert_eq!(remembered.edges.len(), 2);
     assert_eq!(remembered.owners, vec![owner.object_key()]);
 }
 
 #[test]
-fn remembered_set_retain_for_post_sweep_objects_keeps_only_old_to_nursery_edges() {
+fn remembered_set_refresh_drops_owners_with_no_nursery_edges_when_index_lacks_owner() {
+    // refresh_from_records should drop any owner whose
+    // ObjectKey is no longer present in the rebuilt
+    // object_index (i.e. the owner is dead). Use a synthetic
+    // index that is missing the owner to simulate the dead
+    // case without needing to set up a full owner record with
+    // edge slots (the trace-edge predicate tests live in
+    // public_api.rs and lib_test.rs because they need real
+    // EdgeCell holders).
     let desc = leaf_desc();
     let owner = ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate owner");
-    let live_target =
-        ObjectRecord::allocate(desc, SpaceKind::Nursery, Leaf).expect("allocate nursery target");
-    let old_target =
-        ObjectRecord::allocate(desc, SpaceKind::Old, Leaf).expect("allocate old target");
-    let dead_target =
-        ObjectRecord::allocate(desc, SpaceKind::Nursery, Leaf).expect("allocate dead target");
-    let objects = vec![owner, live_target, old_target, dead_target];
-    let object_index = [
-        (objects[0].object_key(), 0usize),
-        (objects[1].object_key(), 1usize),
-        (objects[2].object_key(), 2usize),
-    ]
-    .into_iter()
-    .collect();
+
+    let objects: Vec<ObjectRecord> = Vec::new();
+    let object_index = ObjectIndex::new();
 
     let mut remembered = RememberedSetState::default();
-    remembered.record_edge(objects[0].erased(), objects[1].erased());
-    remembered.record_edge(objects[0].erased(), objects[2].erased());
-    remembered.record_edge(objects[0].erased(), objects[3].erased());
+    remembered.record_owner(owner.object_key());
+    assert_eq!(remembered.owners.len(), 1);
 
-    remembered.retain_for_post_sweep_objects(&objects, &object_index);
-
-    assert_eq!(remembered.edges.len(), 1);
-    assert_eq!(remembered.owners, vec![objects[0].object_key()]);
-    assert_eq!(
-        remembered.edges[0].target.erase().object_key(),
-        objects[1].object_key()
-    );
+    remembered.refresh_from_records(&objects, &object_index);
+    assert!(remembered.owners.is_empty());
 }
 
 #[test]
@@ -123,7 +112,16 @@ fn heap_index_state_record_allocated_object_updates_index_and_candidates() {
 }
 
 #[test]
-fn heap_index_state_prepare_reclaim_state_rebuilds_candidates_and_remembered_edges() {
+fn heap_index_state_prepare_reclaim_state_rebuilds_candidates_and_remembered_owners() {
+    // The owner-only filter requires walking the owner's
+    // edges via trace_edges() to confirm at least one nursery
+    // reference. The bare `Leaf` test struct in this file does
+    // not implement edges, so the prepare path filters out the
+    // owner here. The substantive end-to-end remembered-set
+    // contracts (with real EdgeCell holders) live in
+    // public_api.rs and lib_test.rs. This test still verifies
+    // the candidate rebuild path for finalizable, weak, and
+    // ephemeron candidates and the finalize_indices output.
     let finalizable_desc = finalizable_leaf_desc();
     let weak_ephemeron_desc = weak_ephemeron_leaf_desc();
     let leaf_desc = leaf_desc();
@@ -157,7 +155,7 @@ fn heap_index_state_prepare_reclaim_state_rebuilds_candidates_and_remembered_edg
     for (index, object) in objects.iter().enumerate() {
         indexes.record_allocated_object(object.object_key(), index, object.header().desc());
     }
-    indexes.record_remembered_edge(objects[3].erased(), objects[4].erased());
+    indexes.record_remembered_owner(objects[3].erased());
 
     let survivors = vec![
         PreparedReclaimSurvivor { object_index: 1 },
@@ -183,8 +181,11 @@ fn heap_index_state_prepare_reclaim_state_rebuilds_candidates_and_remembered_edg
     );
     assert_eq!(prepared.weak_candidates, vec![objects[2].object_key()]);
     assert_eq!(prepared.ephemeron_candidates, vec![objects[2].object_key()]);
-    assert_eq!(prepared.remembered_edges.len(), 1);
-    assert_eq!(prepared.remembered_owners, vec![objects[3].object_key()]);
+    // The bare Leaf owner has no trace edges, so the live-
+    // nursery-edge predicate filters it out at the prepare
+    // step. The substantive contract is exercised in
+    // public_api.rs's pinned-owner test.
+    assert!(prepared.remembered_owners.is_empty());
 }
 
 #[test]
@@ -227,7 +228,7 @@ fn heap_index_state_apply_storage_stats_reports_candidate_and_remembered_counts(
         3,
         weak_ephemeron.header().desc(),
     );
-    indexes.record_remembered_edge(owner.erased(), target.erased());
+    indexes.record_remembered_owner(owner.erased());
 
     let mut stats = crate::stats::HeapStats::default();
     indexes.apply_storage_stats(&mut stats);
@@ -267,10 +268,8 @@ fn heap_index_state_record_remembered_edge_if_needed_only_keeps_old_to_nursery()
         Some(objects[2].erased()),
     );
 
-    assert_eq!(indexes.remembered.edges.len(), 1);
+    // Only the old-to-nursery write recorded the owner. The
+    // old-to-old write was filtered out by the
+    // record_remembered_edge_if_needed predicate.
     assert_eq!(indexes.remembered.owners, vec![objects[0].object_key()]);
-    assert_eq!(
-        indexes.remembered.edges[0].target.erase().object_key(),
-        objects[1].object_key()
-    );
 }

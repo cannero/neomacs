@@ -644,7 +644,7 @@ pub(crate) fn sweep_minor_and_rebuild_post_collection(
     let dropped_blocks =
         rebuild_line_marks_and_reclaim_empty_old_blocks(objects, old_gen, runtime_state);
     let after_bytes = rebuilt_stats.apply_space_rebuild(stats, old_gen.reserved_bytes());
-    indexes.retain_remembered_edges_for_post_sweep_objects(objects);
+    indexes.refresh_remembered_owners_for_post_sweep_objects(objects);
     MinorRebuildResult {
         queued_finalizers,
         // reclaimed_regions reports the number of empty
