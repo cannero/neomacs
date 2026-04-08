@@ -14,30 +14,35 @@ use crate::stats::CollectionStats;
 /// Holds data that in the final multi-mutator architecture
 /// belongs to one mutator instance and must not be shared
 /// across mutators even when they allocate against the same
-/// heap: the per-mutator nursery TLAB slab, the root stack,
-/// and the per-mutator barrier event ring.
+/// heap: the per-mutator nursery TLAB slab and (in later
+/// commits) the root stack and the per-mutator barrier event
+/// ring.
 ///
-/// Today the struct is empty because every field it will
-/// eventually own still lives on [`Heap`] while the single-
-/// mutator borrow model is in place. The multi-mutator
-/// refactor described in `DESIGN.md` Appendix A migrates
-/// fields onto this struct one at a time across commits 2-7
-/// of the migration order. Extracting the struct as a
-/// no-op ground-laying change lets each later commit slot
-/// a field into place without having to touch the [`Mutator`]
-/// field list again.
+/// Currently owns only `tlab`. The remaining fields
+/// (`RootStack`, `recent_barrier_events`) still live on
+/// [`Heap`] because moving them requires the
+/// `Arc<RwLock<HeapCore>>` wrap in commit 4 of the
+/// multi-mutator migration order (`DESIGN.md` Appendix A).
 #[derive(Debug, Default)]
 pub struct MutatorLocal {
-    // Reserved for future mutator-local state. See
-    // `DESIGN.md` Appendix A for the migration plan.
-    _non_empty: (),
+    /// Per-mutator nursery TLAB slab. Carved out of the
+    /// shared `NurseryState::from_space` via
+    /// `NurseryState::reserve_tlab`. Local bumps within the
+    /// slab never touch the shared from-space cursor; slab
+    /// refill takes the heap lock briefly.
+    ///
+    /// Invalidation is automatic via the generation stamp
+    /// on the TLAB: a post-minor-cycle `swap_spaces_and_reset`
+    /// increments the nursery generation, and the next
+    /// `try_alloc` against the stale slab returns `None`,
+    /// forcing a refill.
+    pub(crate) tlab: Option<crate::spaces::nursery_arena::NurseryTlab>,
 }
 
 /// Mutator view onto the heap.
 #[derive(Debug)]
 pub struct Mutator<'heap> {
     heap: &'heap mut Heap,
-    #[allow(dead_code)]
     local: MutatorLocal,
 }
 
@@ -60,12 +65,24 @@ impl<'heap> Mutator<'heap> {
     }
 
     /// Allocate one managed object.
+    ///
+    /// Nursery allocations bump within this mutator's TLAB
+    /// slab on the fast path. On TLAB miss (including the
+    /// post-minor-cycle stale case), the slab is refilled
+    /// from the shared from-space via
+    /// `NurseryState::reserve_tlab` and the allocation
+    /// retries once. On refill failure the allocation falls
+    /// through to the shared-cursor bump path and finally
+    /// to the system allocator. Non-nursery allocations
+    /// bypass the TLAB entirely.
     pub fn alloc<'scope, T: Trace + 'static>(
         &mut self,
         scope: &mut HandleScope<'scope, 'heap>,
         value: T,
     ) -> Result<Root<'scope, T>, AllocError> {
-        self.heap.collector_runtime().alloc_typed(scope, value)
+        self.heap
+            .collector_runtime()
+            .alloc_typed_with_tlab(scope, &mut self.local.tlab, value)
     }
 
     /// Allocate one managed object, collecting first if nursery pressure requires it.
@@ -77,7 +94,26 @@ impl<'heap> Mutator<'heap> {
         self.heap
             .collector_runtime()
             .prepare_typed_allocation::<T>()?;
-        self.heap.collector_runtime().alloc_typed(scope, value)
+        self.heap
+            .collector_runtime()
+            .alloc_typed_with_tlab(scope, &mut self.local.tlab, value)
+    }
+
+    /// Return whether this mutator currently holds a
+    /// reserved nursery TLAB slab. Test-only observer.
+    #[cfg(test)]
+    pub(crate) fn has_nursery_tlab(&self) -> bool {
+        self.local.tlab.is_some()
+    }
+
+    /// Drop any per-mutator nursery TLAB slab. Test-only
+    /// helper; the generation stamp on the TLAB already
+    /// handles staleness automatically across collection
+    /// boundaries, so production code has no reason to call
+    /// this.
+    #[cfg(test)]
+    pub(crate) fn invalidate_nursery_tlab(&mut self) {
+        self.local.tlab = None;
     }
 
     /// Create a new rooted handle for an existing managed object.

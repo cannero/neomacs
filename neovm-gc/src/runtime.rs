@@ -30,16 +30,16 @@ pub struct CollectorRuntime<'heap> {
     heap: &'heap mut Heap,
 }
 
-/// Default per-heap nursery TLAB slab size. Sized as one
-/// percent of the default 16MB semispace so most workloads
-/// can service several thousand small allocations before a
-/// refill is needed, but small enough that a mutator that
-/// drops a TLAB (or one that gets invalidated by a minor
-/// cycle) does not leak an excessive amount of reserved-but-
-/// unused from-space capacity.
+/// Default per-mutator nursery TLAB slab size. Sized as
+/// one percent of the default 16MB semispace so most
+/// workloads can service several thousand small allocations
+/// before a refill is needed, but small enough that a
+/// mutator that drops a TLAB (or one that gets invalidated
+/// by a minor cycle) does not leak an excessive amount of
+/// reserved-but-unused from-space capacity.
 const NURSERY_TLAB_DEFAULT_BYTES: usize = 16 * 1024;
 
-/// Try to bump-allocate `layout` through the heap's per-heap
+/// Try to bump-allocate `layout` through the caller-supplied
 /// nursery TLAB slab. On TLAB miss (including the "no TLAB
 /// reserved yet" case and the "generation-stale" case after
 /// a minor cycle), refill the slab from the shared from-
@@ -48,17 +48,16 @@ const NURSERY_TLAB_DEFAULT_BYTES: usize = 16 * 1024;
 /// TLAB nor the refilled one can service the layout; the
 /// caller falls through to the shared-cursor bump path.
 ///
-/// This is the single-mutator stepping-stone toward the
-/// multi-mutator refactor: the TLAB lives on the `Heap`
-/// today, but the allocation hot path already consults it
-/// through this helper, so the later migration only has to
-/// move the field from `Heap` to `MutatorLocal` without
-/// touching the alloc logic.
+/// The `tlab_slot` parameter is a `&mut Option<NurseryTlab>`
+/// so the caller can own the slab wherever it likes —
+/// currently on `MutatorLocal`, so each mutator has its own
+/// per-mutator slab without serializing on the shared
+/// cursor for the common case.
 fn try_bump_nursery_tlab_or_refill(
-    heap: &mut Heap,
+    tlab_slot: &mut Option<crate::spaces::nursery_arena::NurseryTlab>,
+    nursery: &mut crate::spaces::nursery_arena::NurseryState,
     layout: core::alloc::Layout,
 ) -> Option<core::ptr::NonNull<u8>> {
-    let (tlab_slot, nursery) = heap.nursery_tlab_and_nursery_mut();
     let current_generation = nursery.generation();
 
     if let Some(tlab) = tlab_slot.as_mut()
@@ -298,9 +297,56 @@ impl<'heap> CollectorRuntime<'heap> {
         Ok(())
     }
 
+    /// Allocate a typed managed object without a
+    /// per-mutator TLAB slab. Nursery allocations bump
+    /// directly from the shared from-space cursor. Used by
+    /// test call sites that construct a bare
+    /// `CollectorRuntime` without a `MutatorLocal`;
+    /// production `Mutator::alloc` and `Mutator::alloc_auto`
+    /// use
+    /// [`alloc_typed_with_tlab`](Self::alloc_typed_with_tlab)
+    /// instead so each mutator bumps within its own slab.
+    #[cfg(test)]
     pub(crate) fn alloc_typed<'scope, 'handle_heap, T: crate::descriptor::Trace + 'static>(
         &mut self,
         scope: &mut HandleScope<'scope, 'handle_heap>,
+        value: T,
+    ) -> Result<Root<'scope, T>, AllocError> {
+        // The no-TLAB path is semantically equivalent to
+        // `alloc_typed_with_tlab` with a throwaway empty slab
+        // slot: `try_bump_nursery_tlab_or_refill` will try the
+        // (empty) slot, then fall through to refill and
+        // finally to the shared-cursor bump. The throwaway
+        // slab is dropped at the end of this call, releasing
+        // any from-space capacity it reserved but did not
+        // actually use.
+        let mut throwaway: Option<crate::spaces::nursery_arena::NurseryTlab> = None;
+        self.alloc_typed_with_tlab(scope, &mut throwaway, value)
+    }
+
+    /// Allocate a typed managed object through an
+    /// externally-owned nursery TLAB slab.
+    ///
+    /// Nursery allocations attempt to bump within the
+    /// supplied slab via
+    /// [`try_bump_nursery_tlab_or_refill`]. On TLAB hit the
+    /// allocation never touches the shared from-space
+    /// cursor. On TLAB miss the slab is refilled from the
+    /// shared cursor; on refill failure the allocation
+    /// falls through to the shared-cursor bump path; on
+    /// shared-cursor failure the allocation falls back to
+    /// the system allocator.
+    ///
+    /// Direct old-gen allocations bump-allocate from the
+    /// block pool with a system-alloc fallback, identical
+    /// to the no-TLAB path.
+    ///
+    /// Pinned, large, and immortal-space allocations always
+    /// bypass the TLAB and go through the system allocator.
+    pub(crate) fn alloc_typed_with_tlab<'scope, 'handle_heap, T: crate::descriptor::Trace + 'static>(
+        &mut self,
+        scope: &mut HandleScope<'scope, 'handle_heap>,
+        tlab: &mut Option<crate::spaces::nursery_arena::NurseryTlab>,
         value: T,
     ) -> Result<Root<'scope, T>, AllocError> {
         if self.heap.prepared_full_reclaim_active() {
@@ -308,20 +354,11 @@ impl<'heap> CollectorRuntime<'heap> {
         }
         let (desc, space, _) = self.typed_allocation_profile::<T>()?;
 
-        // Nursery allocations bump-allocate from a per-heap
-        // TLAB slab first; on TLAB miss the slab is refilled
-        // from the shared from-space cursor via
-        // `NurseryState::reserve_tlab`. On refill failure the
-        // path falls through to the shared-cursor bump, and
-        // on shared-cursor failure it falls through to the
-        // system allocator. Direct old-gen allocations
-        // bump-allocate from a block pool with the same
-        // system-alloc fallback.
         let mut record = match space {
             SpaceKind::Nursery => {
                 let (layout, payload_offset) =
                     crate::object::allocation_layout_for::<T>()?;
-                let base = try_bump_nursery_tlab_or_refill(self.heap, layout)
+                let base = try_bump_nursery_tlab_or_refill(tlab, self.heap.nursery_mut(), layout)
                     .or_else(|| self.heap.nursery_mut().try_alloc(layout));
                 match base {
                     Some(base) => unsafe {

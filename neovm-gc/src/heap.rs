@@ -101,15 +101,6 @@ pub struct Heap {
     // --- arena buffers (drops last, after all records) ---
     /// Bump-pointer semispace nursery arenas.
     nursery: NurseryState,
-    /// Per-heap nursery TLAB slab. On the stepping-stone path
-    /// toward the multi-mutator refactor this field lives on
-    /// the `Heap` itself so the single-mutator allocation hot
-    /// path can bump within a local slab instead of touching
-    /// the shared from-space cursor on every call. The
-    /// multi-mutator refactor (DESIGN.md Appendix A commit 3)
-    /// will move this field onto `MutatorLocal` so each
-    /// mutator owns its own TLAB.
-    nursery_tlab: Option<crate::spaces::nursery_arena::NurseryTlab>,
 }
 
 // SAFETY: `Heap` owns all heap allocations and its raw pointers are internal references into that
@@ -167,7 +158,6 @@ impl Heap {
             compaction_stats: crate::stats::CompactionStats::default(),
             barrier_stats: crate::stats::BarrierStats::default(),
             nursery,
-            nursery_tlab: None,
         };
         heap.refresh_recommended_plans();
         heap
@@ -180,39 +170,6 @@ impl Heap {
 
     pub(crate) fn nursery_mut(&mut self) -> &mut NurseryState {
         &mut self.nursery
-    }
-
-    /// Split borrow: return the TLAB and nursery together so
-    /// the allocation hot path can consult the current TLAB
-    /// (if any) and, on miss, refill from the shared nursery
-    /// via `NurseryState::reserve_tlab`. The split is safe
-    /// because the two fields are disjoint.
-    pub(crate) fn nursery_tlab_and_nursery_mut(
-        &mut self,
-    ) -> (
-        &mut Option<crate::spaces::nursery_arena::NurseryTlab>,
-        &mut NurseryState,
-    ) {
-        (&mut self.nursery_tlab, &mut self.nursery)
-    }
-
-    /// Drop any per-heap TLAB slab. Called when the caller
-    /// knows the current slab is stale (typically unnecessary
-    /// since the generation stamp on the TLAB catches
-    /// staleness on the next `try_alloc`, but useful in tests
-    /// that want to force a refill).
-    #[cfg(test)]
-    pub(crate) fn invalidate_nursery_tlab(&mut self) {
-        self.nursery_tlab = None;
-    }
-
-    /// Return whether the heap currently holds a reserved
-    /// nursery TLAB slab. Used by tests to verify the
-    /// stepping-stone wire-up is actually taking the fast
-    /// path.
-    #[cfg(test)]
-    pub(crate) fn has_nursery_tlab(&self) -> bool {
-        self.nursery_tlab.is_some()
     }
 
     pub(crate) fn runtime_state_handle(&self) -> RuntimeStateHandle {
