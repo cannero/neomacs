@@ -2263,6 +2263,10 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
             }
             s
         },
+        // Phase 10D: pdump format doesn't yet round-trip
+        // `local_flags` (Phase 11 bumps the dump version). Fresh-load
+        // buffers start with no conditional-local bits set.
+        local_flags: 0,
         overlays: OverlayList::from_dump(
             db.overlays
                 .overlays

@@ -24,10 +24,13 @@ use crate::window::WindowId;
 
 /// Number of `BUFFER_OBJFWD` slots in [`Buffer::slots`]. Mirrors GNU's
 /// `MAX_PER_BUFFER_VARS = 50` limit on per-buffer C-side variables
-/// (`buffer.c:4719`). Bump this if NeoMacs registers more forwarders
-/// than GNU does, but only after a careful audit — the number bounds
-/// every Buffer's memory footprint.
-pub const BUFFER_SLOT_COUNT: usize = 50;
+/// (`buffer.h:311`). Bumped to 64 in Phase 10D so the conditional
+/// `BUFFER_OBJFWD` slots (mode-line-format, fill-column, …) have room
+/// alongside the always-local set already migrated in Phase 10A-C.
+/// Sized to a power of two so [`Buffer::local_flags`] (a `u64`
+/// bitmap) covers exactly one bit per slot. Bump again only after a
+/// careful audit — the number bounds every Buffer's memory footprint.
+pub const BUFFER_SLOT_COUNT: usize = 64;
 
 // ---------------------------------------------------------------------------
 // Phase 8b slot offset constants for the four hardcoded Buffer fields
@@ -170,6 +173,20 @@ pub struct BufferSlotInfo {
     /// and `default-directory` are NOT reset (they survive the
     /// kill).
     pub reset_on_kill: bool,
+    /// GNU `buffer_local_flags` index. Mirrors `buffer.c:4703-4791`:
+    /// - `-1`: always-local — every buffer has its own value, the
+    ///   slot is authoritative without consulting `local_flags`.
+    /// - `>= 0`: conditional — the slot only holds a per-buffer
+    ///   value when the corresponding bit in
+    ///   [`Buffer::local_flags`] is set; otherwise reads fall
+    ///   through to [`BufferManager::buffer_defaults`].
+    ///
+    /// Phase 10A-C only used the always-local arm; Phase 10D adds
+    /// conditional slots. The numeric index also serves as the bit
+    /// position in `Buffer::local_flags` (NeoMacs collapses GNU's
+    /// separate offset and `local_flags_idx` to keep dispatch a
+    /// single bit shift).
+    pub local_flags_idx: i16,
 }
 
 /// The complete table of `BUFFER_OBJFWD`-style slots. Phase 10C started
@@ -183,6 +200,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
         predicate: "stringp",
         reset_on_kill: false,
+        local_flags_idx: -1,
     },
     BufferSlotInfo {
         name: "buffer-auto-save-file-name",
@@ -190,6 +208,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
         predicate: "stringp",
         reset_on_kill: false,
+        local_flags_idx: -1,
     },
     BufferSlotInfo {
         name: "buffer-read-only",
@@ -197,6 +216,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
         predicate: "booleanp",
         reset_on_kill: false,
+        local_flags_idx: -1,
     },
     BufferSlotInfo {
         name: "enable-multibyte-characters",
@@ -204,6 +224,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         default: SlotDefault::Const(crate::emacs_core::value::Value::T),
         predicate: "booleanp",
         reset_on_kill: false,
+        local_flags_idx: -1,
     },
     BufferSlotInfo {
         name: "buffer-file-truename",
@@ -211,6 +232,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
         predicate: "stringp",
         reset_on_kill: false,
+        local_flags_idx: -1,
     },
     BufferSlotInfo {
         // GNU buffer.c:5381 — default-directory defaults to the
@@ -222,6 +244,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         default: SlotDefault::LazyCwd,
         predicate: "stringp",
         reset_on_kill: false,
+        local_flags_idx: -1,
     },
     BufferSlotInfo {
         name: "buffer-saved-size",
@@ -229,6 +252,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         default: SlotDefault::LazyFixnum(0),
         predicate: "integerp",
         reset_on_kill: false,
+        local_flags_idx: -1,
     },
     BufferSlotInfo {
         name: "buffer-backed-up",
@@ -236,6 +260,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
         predicate: "booleanp",
         reset_on_kill: false,
+        local_flags_idx: -1,
     },
     BufferSlotInfo {
         name: "buffer-file-format",
@@ -243,6 +268,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
         predicate: "listp",
         reset_on_kill: false,
+        local_flags_idx: -1,
     },
     BufferSlotInfo {
         name: "buffer-auto-save-file-format",
@@ -250,6 +276,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         default: SlotDefault::Const(crate::emacs_core::value::Value::T),
         predicate: "listp",
         reset_on_kill: false,
+        local_flags_idx: -1,
     },
     BufferSlotInfo {
         name: "major-mode",
@@ -257,6 +284,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         default: SlotDefault::LazySymbol("fundamental-mode"),
         predicate: "symbolp",
         reset_on_kill: true,
+        local_flags_idx: -1,
     },
     BufferSlotInfo {
         name: "local-minor-modes",
@@ -264,6 +292,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
         predicate: "listp",
         reset_on_kill: false,
+        local_flags_idx: -1,
     },
     BufferSlotInfo {
         name: "mode-name",
@@ -271,6 +300,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         default: SlotDefault::LazyString("Fundamental"),
         predicate: "",
         reset_on_kill: true,
+        local_flags_idx: -1,
     },
     BufferSlotInfo {
         name: "mark-active",
@@ -278,6 +308,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
         predicate: "",
         reset_on_kill: false,
+        local_flags_idx: -1,
     },
     BufferSlotInfo {
         name: "point-before-scroll",
@@ -285,6 +316,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
         predicate: "",
         reset_on_kill: false,
+        local_flags_idx: -1,
     },
     BufferSlotInfo {
         name: "buffer-display-count",
@@ -292,6 +324,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         default: SlotDefault::LazyFixnum(0),
         predicate: "integerp",
         reset_on_kill: false,
+        local_flags_idx: -1,
     },
     BufferSlotInfo {
         name: "buffer-display-time",
@@ -299,6 +332,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
         predicate: "",
         reset_on_kill: false,
+        local_flags_idx: -1,
     },
     BufferSlotInfo {
         // GNU sets this to t (a magic-bag value), not nil. The
@@ -309,6 +343,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         default: SlotDefault::Const(crate::emacs_core::value::Value::T),
         predicate: "",
         reset_on_kill: true,
+        local_flags_idx: -1,
     },
 ];
 
@@ -510,6 +545,24 @@ pub struct Buffer {
     /// [`Self::auto_save_file_name`], [`Self::read_only`],
     /// [`Self::multibyte`]) into slots and remove the duplicates.
     pub slots: [crate::emacs_core::value::Value; BUFFER_SLOT_COUNT],
+    /// Per-slot "is buffer-local in this buffer" bitmap. Bit `N` is
+    /// set when this buffer has its own local value for the slot at
+    /// offset `N`. Mirrors GNU `b->local_flags[]` (`buffer.h:646`,
+    /// `char[MAX_PER_BUFFER_VARS]`); we use a `u64` bitmap because
+    /// `BUFFER_SLOT_COUNT == 64`.
+    ///
+    /// **Semantics** (mirrors `set_internal` SYMBOL_FORWARDED arm at
+    /// `data.c:1764-1791`):
+    /// - Always-local slots (`local_flags_idx == -1`) ignore this
+    ///   bitmap entirely; the slot is authoritative.
+    /// - Conditional slots (`local_flags_idx >= 0`): a read returns
+    ///   `slots[N]` iff bit `N` is set, otherwise the global default
+    ///   from `Context::buffer_defaults[N]`. A write sets the bit
+    ///   and writes the slot.
+    ///
+    /// Phase 10D wires the bitmap up; Phase 10A-C only used the
+    /// always-local arm.
+    pub local_flags: u64,
     /// Overlays attached to the buffer.
     pub overlays: OverlayList,
     /// Syntax table for character classification.
@@ -557,9 +610,43 @@ impl Buffer {
                 }
                 s
             },
+            // Phase 10D: every fresh buffer starts with no conditional
+            // local-flag bits set. Reads of conditional slots fall
+            // through to `Context::buffer_defaults` until a write or
+            // `make-local-variable` flips the bit.
+            local_flags: 0,
             overlays: OverlayList::new(),
             syntax_table: SyntaxTable::new_standard(),
             undo_state: SharedUndoState::new(),
+        }
+    }
+
+    // -- Phase 10D: per-slot local-flag bitmap accessors. Conditional
+    // -- BUFFER_OBJFWD slots (those with `local_flags_idx >= 0`) only
+    // -- hold buffer-local values when their bit is set in
+    // -- [`Self::local_flags`]. Always-local slots ignore the bitmap.
+    // -- Mirrors GNU's `PER_BUFFER_VALUE_P` / `SET_PER_BUFFER_VALUE_P`
+    // -- (`buffer.h:1640-1645`).
+
+    /// Test whether the conditional slot at `offset` has a per-buffer
+    /// local value installed in this buffer. Mirrors GNU
+    /// `PER_BUFFER_VALUE_P` (`buffer.h:1640`).
+    #[inline]
+    pub fn slot_local_flag(&self, offset: usize) -> bool {
+        debug_assert!(offset < BUFFER_SLOT_COUNT);
+        (self.local_flags >> (offset as u32)) & 1 != 0
+    }
+
+    /// Set or clear the conditional-local flag for the slot at
+    /// `offset`. Mirrors GNU `SET_PER_BUFFER_VALUE_P` (`buffer.h:1645`).
+    #[inline]
+    pub fn set_slot_local_flag(&mut self, offset: usize, on: bool) {
+        debug_assert!(offset < BUFFER_SLOT_COUNT);
+        let bit = 1u64 << (offset as u32);
+        if on {
+            self.local_flags |= bit;
+        } else {
+            self.local_flags &= !bit;
         }
     }
 
@@ -1457,6 +1544,14 @@ pub struct BufferManager {
     next_marker_id: u64,
     labeled_restrictions: HashMap<BufferId, Vec<LabeledRestriction>>,
     dead_buffer_last_names: HashMap<BufferId, String>,
+    /// Global default values for `BUFFER_OBJFWD` slots. Mirrors GNU's
+    /// `buffer_defaults` (`buffer.c:84-90`), which is itself a
+    /// sentinel `struct buffer` whose fields hold the global default
+    /// for every per-buffer variable. Reads of a conditional slot
+    /// (`local_flags_idx >= 0`) fall through here when the per-buffer
+    /// `Buffer::local_flags` bit is clear; `setq-default` writes
+    /// here directly. Phase 10D wires this in.
+    pub buffer_defaults: [crate::emacs_core::value::Value; BUFFER_SLOT_COUNT],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1470,6 +1565,15 @@ pub struct UndoExecutionResult {
 impl BufferManager {
     /// Create a new `BufferManager` pre-populated with a `*scratch*` buffer.
     pub fn new() -> Self {
+        // Phase 10D: seed `buffer_defaults` from `BUFFER_SLOT_INFO`,
+        // mirroring GNU `init_buffer_once` which materializes
+        // `buffer_defaults` from the per-slot `default` literals
+        // (`buffer.c:4828-4889`). Slots that are not in
+        // BUFFER_SLOT_INFO start as `Value::NIL`.
+        let mut buffer_defaults = [crate::emacs_core::value::Value::NIL; BUFFER_SLOT_COUNT];
+        for info in BUFFER_SLOT_INFO {
+            buffer_defaults[info.offset] = info.default.to_value();
+        }
         let mut mgr = Self {
             buffers: HashMap::new(),
             current: None,
@@ -1477,6 +1581,7 @@ impl BufferManager {
             next_marker_id: 1,
             labeled_restrictions: HashMap::new(),
             dead_buffer_last_names: HashMap::new(),
+            buffer_defaults,
         };
         let scratch = mgr.create_buffer("*scratch*");
         mgr.current = Some(scratch);
@@ -2921,6 +3026,14 @@ impl BufferManager {
             buffer.undo_state = shared_undo;
         }
 
+        // Phase 10D: rebuild `buffer_defaults` from BUFFER_SLOT_INFO
+        // (mirror of `BufferManager::new`). Pdump round-trip will
+        // serialize this in Phase 11; until then we re-seed from
+        // the const table.
+        let mut buffer_defaults = [crate::emacs_core::value::Value::NIL; BUFFER_SLOT_COUNT];
+        for info in BUFFER_SLOT_INFO {
+            buffer_defaults[info.offset] = info.default.to_value();
+        }
         let mut manager = Self {
             buffers,
             current,
@@ -2928,6 +3041,7 @@ impl BufferManager {
             next_marker_id,
             labeled_restrictions: HashMap::new(),
             dead_buffer_last_names: HashMap::new(),
+            buffer_defaults,
         };
         let root_ids: Vec<BufferId> = manager
             .buffers
@@ -2962,6 +3076,12 @@ impl GcTrace for BufferManager {
                 roots.push(*slot);
             }
             roots.push(buffer.local_var_alist);
+        }
+        // Phase 10D: `buffer_defaults` holds the global default
+        // values for every per-buffer slot. Mirrors GNU's
+        // `mark_buffer (&buffer_defaults)` in `alloc.c`.
+        for slot in &self.buffer_defaults {
+            roots.push(*slot);
         }
         for restrictions in self.labeled_restrictions.values() {
             for restriction in restrictions {
