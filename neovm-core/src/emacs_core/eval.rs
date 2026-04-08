@@ -3427,6 +3427,32 @@ impl Context {
         super::indent::init_indent_vars(&mut obarray);
 
         let mut custom = CustomManager::new();
+
+        // `case-fold-search` is DEFVAR_LISP + Fmake_variable_buffer_local
+        // in GNU `buffer.c:5971-5975`. Install it as a LOCALIZED symbol
+        // with `local_if_set = 1` at init time so reads/writes route
+        // through the BLV + local_var_alist path instead of the legacy
+        // `BufferLocals::lisp_bindings` fallback. Default is `t`.
+        {
+            let id = crate::emacs_core::intern::intern("case-fold-search");
+            obarray.set_symbol_value("case-fold-search", Value::T);
+            custom.make_variable_buffer_local("case-fold-search");
+            obarray.make_symbol_localized(id, Value::T);
+            obarray.set_blv_local_if_set(id, true);
+        }
+
+        // `indent-tabs-mode` is DEFVAR_BOOL + make-variable-buffer-local
+        // (bindings.el:1032). GNU's DEFVAR_BOOL installs a C-backed
+        // forwarder; NeoMacs stores it as a plain Lisp value and
+        // then hoists it to LOCALIZED at init. Default is `t`
+        // (matches `init_indent_vars`).
+        {
+            let id = crate::emacs_core::intern::intern("indent-tabs-mode");
+            custom.make_variable_buffer_local("indent-tabs-mode");
+            obarray.make_symbol_localized(id, Value::T);
+            obarray.set_blv_local_if_set(id, true);
+        }
+
         super::textprop::init_textprop_vars(&mut obarray, &mut custom);
         super::syntax::init_syntax_vars(&mut obarray, &mut custom);
         // Register all DEFVAR_PER_BUFFER variables from GNU Emacs buffer.c.
