@@ -324,12 +324,15 @@ pub struct HeapStats {
     /// barrier is an O(1) card byte store, and the minor GC
     /// scans O(dirty_cards) rather than O(recorded edges).
     pub remembered_dirty_cards: usize,
-    /// Number of distinct old owners represented in the explicit-
-    /// edge fallback path. Always equal to the unique owner-set
-    /// size of the `Vec<RememberedEdge>` fallback container.
+    /// Number of distinct old owners represented in the
+    /// explicit-edge fallback path. Equal to the unique owner-
+    /// set size of the owner-only fallback container.
     ///
-    /// This is the owner-side companion to
-    /// [`Self::remembered_explicit_edges`]. Together with
+    /// After the explicit-edge refactor, the fallback path
+    /// stores deduped owners only (no per-edge entries), so
+    /// `remembered_explicit_owners` and
+    /// [`Self::remembered_explicit_edges`] always report the
+    /// same number. Together with
     /// [`Self::remembered_dirty_card_owners`] they sum (modulo
     /// the dirty-card-as-owner approximation noted on the
     /// dirty-card counter) to the unified

@@ -150,39 +150,39 @@ Still staging compromises:
   compaction telemetry lives in `Heap::compaction_stats()`).
 - remembered tracking uses a per-block dirty-card table
   (`card_table.rs`, 512B cards, `AtomicU8` per card) as the fast
-  path for block-backed owners and a `Vec<RememberedEdge>`
+  path for block-backed owners and an owner-only `HashSet`
   fallback for non-block-backed owners (pinned space, large
   object space, system-allocated promotions that could not fit
-  any block hole). Both paths are reported through split
-  edge counters (`HeapStats.remembered_dirty_cards` /
+  any block hole). The dense `Vec<RememberedEdge>` was retired:
+  the minor GC scan only ever consumed deduped owners as
+  additional roots, and post-collection owner membership is
+  now re-derived by walking each tracked owner record's trace
+  edges via a short-circuiting `NurseryDetectTracer`.
+
+  Both paths are reported through split edge counters
+  (`HeapStats.remembered_dirty_cards` /
   `remembered_explicit_edges`) AND split owner counters
   (`HeapStats.remembered_dirty_card_owners` /
   `remembered_explicit_owners`); the unified `remembered_edges`
   and `remembered_owners` fields remain as the sum view so
-  existing observers see the combined picture. In the final-goal
-  target every old-gen byte lives in a block-backed region with
-  its own card table, so `remembered_explicit_edges` and
-  `remembered_explicit_owners` should drift toward zero as
-  pinned and large spaces migrate to the block model. Today the
-  fallback path is non-zero for workloads that mutate pinned or
-  large-space owners to point at nursery survivors; the
+  existing observers see the combined picture. After the
+  owner-only refactor the explicit-side edge and owner counters
+  always report the same number (one entry per deduped owner).
+  In the final-goal target every old-gen byte lives in a
+  block-backed region with its own card table, so the
+  `remembered_explicit_*` counters should drift to zero.
+  Today the fallback path is non-zero for workloads that
+  mutate pinned or large-space owners to point at nursery
+  survivors; the
   `public_api_pinned_owner_nursery_edge_uses_explicit_fallback`
   test pins the contract on both sides.
 
-  Two intermediate refactors are queued for the explicit-edge
-  fallback before the full block-model migration:
-  1. Drop the dense `Vec<RememberedEdge>` and keep only the
-     deduped owner set (`HashSet<ObjectKey>`). The minor GC
-     scan already only consumes owners; the edges are only used
-     to derive post-collection owner membership, which can be
-     re-derived by walking each tracked owner's record edges
-     after the collection. This shrinks the per-edge memory
-     cost from `(2 * pointer_size + HashSet entry)` to just
-     the HashSet entry.
-  2. Promote pinned/large records into a dedicated block pool
-     so the fast-path card table covers them too. After this
-     step the explicit fallback can be deleted entirely and
-     `remembered_explicit_*` counters drop to zero.
+  One refactor remains before the explicit fallback can be
+  deleted entirely: promote pinned/large records into a
+  dedicated block pool so the fast-path card table covers them
+  too. After that step the `remembered_explicit_*` counters
+  drop permanently to zero and the entire owner-only fallback
+  goes away.
 - finalization queue interactions go through a `PendingFinalizer`
   newtype that hides the wrapped `ObjectRecord` behind a focused
   handoff API (`run`, `block_placement`, `rebind_block`). The

@@ -614,7 +614,7 @@ fn public_api_pinned_owner_nursery_edge_uses_explicit_fallback() {
     // Pinned-space records do not live inside an `OldBlock` so the
     // per-block card-table fast path cannot fire for them. The
     // remembered-set maintenance code therefore has to fall back to
-    // the explicit `Vec<RememberedEdge>` path. This test pins that
+    // the owner-only explicit fallback path. This test pins that
     // contract by storing an edge from a pinned owner into a nursery
     // child and observing the split stats counters.
     let mut heap = Heap::new(HeapConfig::default());

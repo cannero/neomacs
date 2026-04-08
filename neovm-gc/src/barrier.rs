@@ -9,15 +9,6 @@ pub enum BarrierKind {
     SatbPreWrite,
 }
 
-/// Remembered-set edge from one object to another.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RememberedEdge {
-    /// Source object.
-    pub owner: Gc<()>,
-    /// Destination object.
-    pub target: Gc<()>,
-}
-
 /// Recorded barrier event.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BarrierEvent {

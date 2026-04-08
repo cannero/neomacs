@@ -169,7 +169,7 @@ pub use concurrent_marker::{
     ConcurrentMarker, ConcurrentMarkerConfig, ConcurrentMarkerError, ConcurrentMarkerStats,
     ConcurrentMarkerStatus,
 };
-pub use barrier::{BarrierEvent, BarrierKind, RememberedEdge};
+pub use barrier::{BarrierEvent, BarrierKind};
 pub use descriptor::{
     EphemeronVisitor, GcErased, LayoutKind, MovePolicy, Relocator, Trace, TraceFn, Tracer,
     TypeDesc, TypeFlags, WeakProcessor, trace_edge,
