@@ -177,12 +177,20 @@ Still staging compromises:
   `public_api_pinned_owner_nursery_edge_uses_explicit_fallback`
   test pins the contract on both sides.
 
-  One refactor remains before the explicit fallback can be
-  deleted entirely: promote pinned/large records into a
-  dedicated block pool so the fast-path card table covers them
-  too. After that step the `remembered_explicit_*` counters
-  drop permanently to zero and the entire owner-only fallback
-  goes away.
+  The remaining structural difference between the fast and
+  fallback paths is just the lookup mechanism: the fast path
+  is `find_block_for_addr` + `card_table.record_write`
+  (O(blocks) + O(1)), while the fallback path is one
+  `HashSet::insert` (O(1) amortized). Both write paths cost
+  one barrier event in stats; both produce a deduped owner set
+  the minor GC consumes as additional roots. Migrating
+  pinned/large allocations into a dedicated block pool would
+  trade the HashSet for a card-byte store but would also drag
+  in pinned-budget enforcement, allocation-path branching, and
+  block-reclaim behaviour changes for non-movable records.
+  The cost/benefit of that further refactor is borderline now
+  that the dense edge Vec has been retired; documenting it
+  here as "open question" rather than "queued next step".
 - finalization queue interactions go through a `PendingFinalizer`
   newtype that hides the wrapped `ObjectRecord` behind a focused
   handoff API (`run`, `block_placement`, `rebind_block`). The
