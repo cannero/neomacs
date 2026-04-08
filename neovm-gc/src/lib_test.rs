@@ -3700,6 +3700,9 @@ fn poll_active_major_mark_prepares_major_old_region_rebuild_before_finish() {
             line_bytes: 16,
             selective_reclaim_threshold_bytes: 1,
             compaction_candidate_limit: 1,
+            // Migrated to physical compaction so the persistent
+            // major-mark commit packs the surviving block.
+            physical_compaction_density_threshold: 0.99,
             ..crate::spaces::OldGenConfig::default()
         },
         ..HeapConfig::default()
@@ -3751,14 +3754,18 @@ fn poll_active_major_mark_prepares_major_old_region_rebuild_before_finish() {
     assert_eq!(cycle.major_collections, 1);
     assert_eq!(cycle.compacted_regions, 1);
 
-    // Legacy logical-renumbering view: the rebuild rewrote the
-    // regions vec to pack the two survivors tight against each
-    // other, so hole_bytes shrinks even though no bytes moved.
-    let regions = mutator.heap().legacy_old_region_stats();
-    assert_eq!(regions.len(), 1);
-    assert_eq!(regions[0].object_count, 2);
-    assert!(regions[0].hole_bytes < old_bytes);
-    assert!(regions[0].tail_bytes > 0);
+    // Per-block view after physical compaction: 2 survivors
+    // packed into a fresh target block, total_holes bounded by
+    // line-alignment padding.
+    let blocks = mutator.heap().old_block_region_stats();
+    let total_objects: usize = blocks.iter().map(|b| b.object_count).sum();
+    let total_holes: usize = blocks.iter().map(|b| b.hole_bytes).sum();
+    assert_eq!(total_objects, 2);
+    assert!(total_holes < old_bytes);
+    let compaction_stats = mutator.heap().compaction_stats();
+    assert!(compaction_stats.cycles >= 1);
+    assert!(compaction_stats.records_moved >= 2);
+
     assert_eq!(unsafe { first.as_gc().as_non_null().as_ref() }.0[0], 30);
     assert_eq!(unsafe { third.as_gc().as_non_null().as_ref() }.0[0], 32);
 }
@@ -5061,6 +5068,10 @@ fn major_collection_compacts_selected_live_old_region() {
             line_bytes: 16,
             selective_reclaim_threshold_bytes: 1,
             compaction_candidate_limit: 1,
+            // Migrated to the physical-compaction model: enable
+            // the post-major hook so the surviving block is
+            // physically packed instead of logically renumbered.
+            physical_compaction_density_threshold: 0.99,
             ..crate::spaces::OldGenConfig::default()
         },
         ..HeapConfig::default()
@@ -5089,16 +5100,25 @@ fn major_collection_compacts_selected_live_old_region() {
         .expect("major collect");
     assert_eq!(cycle.major_collections, 1);
     assert_eq!(cycle.compacted_regions, 1);
-    assert_eq!(cycle.reclaimed_regions, 0);
 
-    // Legacy logical-renumbering view: the rebuild rewrote the
-    // regions vec to pack the two survivors tight against each
-    // other, so hole_bytes shrinks even though no bytes moved.
-    let regions = mutator.heap().legacy_old_region_stats();
-    assert_eq!(regions.len(), 1);
-    assert_eq!(regions[0].object_count, 2);
-    assert!(regions[0].hole_bytes < old_bytes);
-    assert!(regions[0].tail_bytes > 0);
+    // Per-block view after physical compaction: the original
+    // sparse block is reclaimed and the two survivors are packed
+    // into a fresh target block, so total_holes is bounded by
+    // line-alignment padding (always less than one whole
+    // dropped survivor's bytes).
+    let blocks = mutator.heap().old_block_region_stats();
+    let total_objects: usize = blocks.iter().map(|b| b.object_count).sum();
+    let total_holes: usize = blocks.iter().map(|b| b.hole_bytes).sum();
+    assert_eq!(total_objects, 2);
+    assert!(
+        total_holes < old_bytes,
+        "physical compaction should reclaim the dropped survivor's bytes; blocks: {:?}",
+        blocks
+    );
+    let compaction_stats = mutator.heap().compaction_stats();
+    assert!(compaction_stats.cycles >= 1);
+    assert!(compaction_stats.records_moved >= 2);
+
     assert_eq!(unsafe { first.as_gc().as_non_null().as_ref() }.0[0], 30);
     assert_eq!(unsafe { third.as_gc().as_non_null().as_ref() }.0[0], 32);
 }
