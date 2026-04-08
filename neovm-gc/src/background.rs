@@ -1241,15 +1241,21 @@ impl SharedHeap {
     /// Return the current old-gen fragmentation ratio (a float
     /// in `[0.0, 1.0]`) computed from the block-side counters.
     ///
-    /// Takes a brief read-lock on the heap to walk the block
-    /// pool. Concurrent-safe with other readers. The raw
-    /// numerator (`sum(block.used_bytes - block.live_bytes)`)
-    /// and denominator (`sum(block.used_bytes)`) used by the
-    /// Heap are not tracked in the cached snapshot, so this
-    /// method cannot use the lock-free snapshot path.
+    /// Reads from the same lock-free shared snapshot as
+    /// [`SharedHeap::stats`], so this never blocks on the heap
+    /// mutex even while a mutator or background worker holds it.
+    /// The ratio is reconstructed from the cached
+    /// `stats.old_gen_used_bytes` and `stats.old.live_bytes`
+    /// integers rather than walking the block pool.
     pub fn old_gen_fragmentation_ratio(&self) -> Result<f64, SharedHeapError> {
-        let heap = self.read().map_err(|_| SharedHeapError::LockPoisoned)?;
-        Ok(heap.old_gen_fragmentation_ratio())
+        let stats = self.stats()?;
+        let used = stats.old_gen_used_bytes;
+        if used == 0 {
+            return Ok(0.0);
+        }
+        let live = stats.old.live_bytes;
+        let holes = used.saturating_sub(live);
+        Ok((holes as f64) / (used as f64))
     }
 
     /// Opportunistic compaction trigger via the shared heap.

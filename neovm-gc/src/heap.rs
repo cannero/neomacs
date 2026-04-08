@@ -135,6 +135,7 @@ impl Heap {
                 remembered_owners: 0,
                 remembered_explicit_edges: 0,
                 remembered_dirty_cards: 0,
+                old_gen_used_bytes: 0,
                 finalizable_candidates: 0,
                 weak_candidates: 0,
                 ephemeron_candidates: 0,
@@ -650,6 +651,12 @@ impl Heap {
         // per-block card-table fast path.
         self.indexes
             .apply_dirty_card_storage_stats(&mut stats, &self.old_gen);
+        // Cache the old-gen block bump cursor sum into the shared
+        // stats surface so `SharedHeap::old_gen_fragmentation_ratio`
+        // can read it from the cached snapshot without taking the
+        // heap lock. The ratio is reconstructed as
+        // `(old_gen_used_bytes - old.live_bytes) / old_gen_used_bytes`.
+        stats.old_gen_used_bytes = self.old_gen.total_used_bytes();
         stats
     }
 

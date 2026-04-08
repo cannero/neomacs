@@ -9101,6 +9101,31 @@ fn public_api_shared_old_gen_fragmentation_ratio_returns_zero_on_empty_heap() {
 }
 
 #[test]
+fn public_api_shared_old_gen_fragmentation_ratio_reads_lock_free_while_heap_is_write_locked() {
+    // Shared snapshot path: SharedHeap::old_gen_fragmentation_ratio
+    // reconstructs the ratio from the cached
+    // `stats.old_gen_used_bytes` and `stats.old.live_bytes`
+    // counters, so it must succeed even when another thread is
+    // holding the heap write lock. This pins compromise #1
+    // (shared/background data-plane split): observers should be
+    // able to read this telemetry without contending on the heap
+    // mutex.
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let (release_tx, waiter) = lock_shared_heap_on_other_thread(shared.clone());
+
+    let ratio = shared
+        .old_gen_fragmentation_ratio()
+        .expect("read fragmentation ratio while heap is write-locked");
+    assert!(
+        (0.0..=1.0).contains(&ratio),
+        "ratio out of [0.0, 1.0]: {ratio}",
+    );
+
+    release_tx.send(()).expect("release shared heap write lock");
+    waiter.join().expect("join write-lock helper thread");
+}
+
+#[test]
 fn public_api_shared_compact_old_gen_if_fragmented_skips_when_under_threshold() {
     let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
     let (frag, moved) = shared

@@ -462,6 +462,16 @@ impl OldGenState {
         self.blocks.iter().map(|block| block.capacity_bytes()).sum()
     }
 
+    /// Total bytes the block-pool bump allocator has consumed
+    /// across every block (`sum(block.used_bytes)`). This is the
+    /// denominator of the old-gen fragmentation ratio and is
+    /// cached into `HeapStats::old_gen_used_bytes` so observers
+    /// that want the ratio lock-free can read it from the shared
+    /// snapshot.
+    pub(crate) fn total_used_bytes(&self) -> usize {
+        self.blocks.iter().map(|block| block.used_bytes()).sum()
+    }
+
     /// Phase 2 Immix-style block allocation. Walks every block looking for
     /// a hole large enough to fit `layout` (hole-filling), and on failure
     /// allocates a fresh block sized to the larger of `config.region_bytes`

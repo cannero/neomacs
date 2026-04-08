@@ -324,6 +324,25 @@ pub struct HeapStats {
     /// barrier is an O(1) card byte store, and the minor GC
     /// scans O(dirty_cards) rather than O(recorded edges).
     pub remembered_dirty_cards: usize,
+    /// Total bytes the old-generation block allocator has bumped
+    /// past across every block in the pool. This is the sum of
+    /// `block.used_bytes()` over every block, where `used_bytes`
+    /// is the byte offset the bump allocator has advanced to
+    /// inside that block (including any interior holes left by
+    /// dead objects).
+    ///
+    /// Unlike [`SpaceStats::live_bytes`], `old_gen_used_bytes`
+    /// also covers the "hole bytes" that sit between surviving
+    /// objects inside used lines. The difference between this
+    /// counter and `old.live_bytes` is exactly the old-gen
+    /// fragmentation that drives the physical-compaction
+    /// decision: `holes = old_gen_used_bytes - old.live_bytes`.
+    ///
+    /// Cached into the shared snapshot so
+    /// [`crate::SharedHeap::old_gen_fragmentation_ratio`] can
+    /// reconstruct the ratio lock-free instead of walking the
+    /// block pool under the heap read lock.
+    pub old_gen_used_bytes: usize,
     /// Number of finalizable objects currently tracked as reclaim candidates.
     pub finalizable_candidates: usize,
     /// Number of weak-bearing objects currently tracked as reclaim candidates.
