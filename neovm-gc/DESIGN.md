@@ -125,11 +125,23 @@ Still staging compromises:
   arithmetic ops and a single byte store, so it is "lock-free"
   in the single-mutator sense. A per-mutator TLAB slab layer
   would let future multi-mutator support allocate without
-  contention; the structural split (per-slab cursor + slab
-  reservation from the unified cursor) is not yet in place
-  because `Heap::mutator` returns a `Mutator<'_>` with an
-  exclusive `&mut Heap` borrow, which precludes concurrent
-  mutators at the type level.
+  contention.
+
+  The structural primitive has now landed: `NurseryTlab` +
+  `NurseryState::reserve_tlab` + a generation counter on
+  `NurseryState` that invalidates stale TLABs when the
+  nursery flips spaces. The primitive is unit-tested in
+  isolation (six tests covering reservation, local bump,
+  exhaustion, staleness, full-arena rejection, and
+  zero-size rejection). The wire-up into the mutator's
+  allocation path is still deferred: today's hot path uses
+  the shared cursor directly because `Heap::mutator`
+  returns a `Mutator<'_>` with an exclusive `&mut Heap`
+  borrow, which precludes concurrent mutators at the type
+  level. The multi-mutator refactor can start from the
+  tested primitive instead of having to introduce the slab
+  abstraction, the staleness protocol, and the wire-up all
+  at once.
 - physical old-gen compaction is the only old-gen compaction
   mechanism. The legacy logical-region rebuild infrastructure
   is fully retired: the `regions` vec, `OldRegion` struct,
