@@ -1500,14 +1500,18 @@ impl Obarray {
     /// Mark a symbol as a buffer-local variable in the obarray.
     /// Preserves any existing default value from `Plain` or `BufferLocal`.
     ///
-    /// Phase 1: this still sets the legacy `SymbolValue::BufferLocal`
-    /// marker. The new redirect machinery does not yet route through
-    /// `Localized`; Phase 4 wires the BLV cache and Phase 6 cuts
-    /// `make-local-variable` / `make-variable-buffer-local` over to it.
+    /// This updates the legacy `SymbolValue::BufferLocal` marker so
+    /// that callers of `is_buffer_local_id` still see the symbol as
+    /// buffer-local. If the symbol's new-shape redirect is already
+    /// `Localized` (because `make_symbol_localized` was called first),
+    /// the redirect + BLV pointer are left untouched — clobbering
+    /// them would orphan the BLV and break the Phase 9+ LOCALIZED
+    /// hot path in `vm.rs::lookup_var_id`.
     pub fn make_buffer_local(&mut self, name: &str, local_if_set: bool) {
         let id = intern(name);
         self.mark_global_member(id);
         let sym = self.ensure_symbol_id(id);
+        let already_localized = sym.flags.redirect() == SymbolRedirect::Localized;
         let old_default = match &sym.value {
             SymbolValue::Plain(v) => v.clone(),
             SymbolValue::BufferLocal { default, .. } => default.clone(),
@@ -1517,12 +1521,12 @@ impl Obarray {
             default: old_default.clone(),
             local_if_set,
         };
-        // Mirror into the new shape: Phase 1 still uses Plainval; the
-        // default lives in `val.plain`.
-        sym.flags.set_redirect(SymbolRedirect::Plainval);
-        sym.val = SymbolVal {
-            plain: old_default.unwrap_or(Value::NIL),
-        };
+        if !already_localized {
+            sym.flags.set_redirect(SymbolRedirect::Plainval);
+            sym.val = SymbolVal {
+                plain: old_default.unwrap_or(Value::NIL),
+            };
+        }
     }
 
     /// Install a variable-alias edge: reading/writing `id` will redirect to `target`.
@@ -1820,6 +1824,22 @@ impl GcTrace for Obarray {
             for pval in sym.plist.values() {
                 roots.push(*pval);
             }
+        }
+        // Phase 10 follow-up: trace BLV contents for SYMBOL_LOCALIZED
+        // variables. Each BLV's `defcell`/`valcell` is a cons cell
+        // `(sym . value)` allocated in the tagged heap; the `value`
+        // part must be kept live across GC. `where_buf` is the buffer
+        // pointer from the last swap-in and is also a heap object.
+        // Mirrors GNU's `mark_localized_symbol` which walks
+        // `SYMBOL_BLV(sym)->defcell/valcell/where` as GC roots.
+        for &blv_ptr in &self.blvs {
+            // Safety: BLVs are owned by `self.blvs` and live for the
+            // lifetime of the Obarray. `&self` guarantees no
+            // concurrent mutation during trace.
+            let blv = unsafe { &*blv_ptr };
+            roots.push(blv.defcell);
+            roots.push(blv.valcell);
+            roots.push(blv.where_buf);
         }
     }
 }

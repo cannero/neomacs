@@ -382,6 +382,37 @@ fn make_symbol_localized_allocates_blv() {
     assert!(!blv.local_if_set);
 }
 
+/// `Obarray::trace_roots` walks the BLV pool and pushes each BLV's
+/// `defcell`, `valcell`, and `where_buf` fields as GC roots. Regression
+/// test for a bug where a LOCALIZED symbol's cons-typed default value
+/// was unrooted and got reclaimed by GC, causing reads to return
+/// random heap garbage (see the `make_buffer_local` + LOCALIZED
+/// interaction in Phase 10 cleanup).
+#[test]
+fn trace_roots_walks_blv_pool() {
+    use crate::gc_trace::GcTrace;
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    let id = intern("blv-trace-regression-x");
+    // Cons-typed default. If the BLV isn't traced, this cons is
+    // unreachable the moment the BLV swallows it.
+    let default = Value::cons(Value::fixnum(1), Value::fixnum(2));
+    ob.make_symbol_localized(id, default);
+    let mut roots = Vec::new();
+    ob.trace_roots(&mut roots);
+    // The BLV's defcell is `(sym . default)`, a cons. valcell starts
+    // equal to defcell. Both must be present in the root set.
+    let blv = ob.blv(id).expect("BLV");
+    assert!(
+        roots.iter().any(|r| r.bits() == blv.defcell.bits()),
+        "BLV defcell should be traced as a root"
+    );
+    assert!(
+        roots.iter().any(|r| r.bits() == blv.valcell.bits()),
+        "BLV valcell should be traced as a root"
+    );
+}
+
 /// `find_symbol_value_in_buffer` for a LOCALIZED symbol with no
 /// per-buffer binding returns the default. Mirrors GNU
 /// `find_symbol_value` LOCALIZED arm.
