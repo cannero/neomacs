@@ -118,18 +118,32 @@ Still staging compromises:
   only taken for the actual mutation pass of those compaction
   calls and for the `clear_*_stats` family.
 
-  The `clear_compaction_stats` / `clear_barrier_stats` pair is
-  intentionally left taking the heap write lock: both methods
-  are rare (test setup, interval resets) and do not appear on
-  any hot path, while atomicizing `CompactionStats` /
-  `BarrierStats` would touch every mutation site, the snapshot
-  capture path, and the Heap construction path for near-zero
-  user-visible benefit. Revisit only if a profile shows the
-  clear call is contending with observers in production.
+  `BarrierStats` has been atomicized: the heap-side counters
+  live on `AtomicBarrierStats` (relaxed `AtomicU64` for
+  `post_write` and `satb_pre_write`), so the barrier hot
+  path bumps the counters with a fetch-add and never needs
+  the heap write lock for this bookkeeping. Observers
+  continue to read a plain `BarrierStats` snapshot via
+  `Heap::barrier_stats()` / `SharedHeap::barrier_stats()`.
+  The internal helper `HeapCore::bump_barrier_stats` and
+  `HeapCore::clear_barrier_stats` both relaxed to `&self`
+  for the same reason; the public `Heap::clear_barrier_stats`
+  wrapper still takes `&mut self` to keep the API surface
+  unchanged.
 
-  The final data-plane split would target reducing write-side
-  contention next, e.g. by routing barrier-event recording and
-  remembered-set maintenance through their own locks.
+  `CompactionStats` is intentionally left taking the heap
+  write lock during `clear_compaction_stats`: it is rare
+  (test setup, interval resets) and does not appear on any
+  hot path. Atomicizing it would touch every mutation site
+  and the snapshot capture path for near-zero user-visible
+  benefit. Revisit only if a profile shows the clear call
+  is contending with observers in production.
+
+  The remaining data-plane split target is the
+  `Arc<RwLock<HeapCore>>` wrap that lets multiple `Mutator`
+  instances coexist against the same heap (DESIGN.md
+  Appendix A commit 4). That refactor is multi-week work
+  scoped separately.
 - nursery allocation is a single bump-pointer cursor on the
   from-space arena. The allocation hot path is already ~8
   arithmetic ops and a single byte store, so it is "lock-free"
@@ -137,23 +151,34 @@ Still staging compromises:
   would let future multi-mutator support allocate without
   contention.
 
-  The structural primitive has now landed: `NurseryTlab` +
+  The structural primitive has landed: `NurseryTlab` +
   `NurseryState::reserve_tlab` + a generation counter on
   `NurseryState` that invalidates stale TLABs when the
-  nursery flips spaces. The primitive is unit-tested in
-  isolation (eight tests covering reservation, local bump
-  without touching the shared cursor, exhaustion, staleness
-  detection, full-arena rejection, zero-size rejection,
-  post-swap reservation with fresh generation, and disjoint
-  slab invariant across back-to-back reservations). The
-  wire-up into the mutator's allocation path is still
-  deferred: today's hot path uses the shared cursor directly
-  because `Heap::mutator` returns a `Mutator<'_>` with an
-  exclusive `&mut Heap` borrow, which precludes concurrent
-  mutators at the type level. The multi-mutator refactor can
-  start from the tested primitive instead of having to
-  introduce the slab abstraction, the staleness protocol,
-  and the wire-up all at once.
+  nursery flips spaces. The TLAB is wired into the mutator
+  allocation path: every nursery allocation goes through
+  `try_bump_nursery_tlab_or_refill` against
+  `MutatorLocal::tlab`. On hit the bump never touches the
+  shared cursor; on miss the slab is refilled from the
+  shared from-space.
+
+  `MutatorLocal` now also owns the per-mutator
+  `recent_barrier_events` ring (moved off `HeapCore` so
+  each mutator records into its own bounded ring with no
+  cross-mutator contention) and the per-mutator
+  `RootStack` (moved off `HeapCore` so the collector
+  walks each mutator's roots independently). The
+  collector entry points thread `&mut MutatorLocal`
+  through every barrier and collection call site, and
+  `HeapCore::collection_exec_parts` no longer carries
+  the root stack — it comes from the runtime's carried
+  local instead.
+
+  The remaining structural change is the
+  `Arc<RwLock<HeapCore>>` wrap so `Heap::mutator` can
+  drop its `&mut self` requirement and let multiple
+  mutators coexist at the type level. That refactor is
+  the riskiest commit in DESIGN.md Appendix A and is
+  scoped to a separate multi-week effort.
 - physical old-gen compaction is the only old-gen compaction
   mechanism. The legacy logical-region rebuild infrastructure
   is fully retired: the `regions` vec, `OldRegion` struct,
@@ -882,36 +907,42 @@ passes the full test suite:
    `Arc<RwLock<HeapCore>>` refactor to land first so the alloc path can
    route through `&mut MutatorLocal`.
    **Status:** landed as commit `7a45cd3fd`.
-3. ~~**Move `RootStack` and `recent_barrier_events` onto `MutatorLocal`**~~
-   **This commit was planned as a pre-refactor stepping stone but cannot be
-   cleanly separated from commit 4.** Both fields are currently consumed by
-   `CollectorRuntime` via `Heap::collection_exec_parts()` / `Heap::
-   push_barrier_event()`; `CollectorRuntime` is constructed from `Heap`, not
-   from `Mutator`, so there is no path from the collector call sites to
-   `MutatorLocal` without threading `&mut MutatorLocal` through every
-   collector entry point — which is most of commit 4's scope anyway. The
-   deeper issue: in a true multi-mutator world, the collector walks *all*
-   mutators' root stacks during a cycle. Moving `RootStack` onto
-   `MutatorLocal` is not a rename, it is the step where the collector gains
-   the concept of "iterate over all mutators' root stacks", which is part of
-   the `Arc<RwLock<HeapCore>>` architecture itself. Commit 3's field moves
-   are now folded into commit 4.
-4. **Wrap `Heap` in `Arc<RwLock<HeapCore>>`** (~1000-1500 lines including the
-   absorbed commit 3 moves). The riskiest commit — every `&mut Heap` site
-   migrates. Extract `HeapCore` as a `pub(crate)` inner type owning every
-   field that stays shared; move `RootStack`, `recent_barrier_events`, and
-   `NurseryTlab` onto `MutatorLocal`; update the collector entry points to
-   accept `&mut MutatorLocal` alongside `&HeapCore` (or equivalent split).
-   Allocation is still serialized via the write lock, but the type system
-   now allows multiple `Mutator` instances.
-5. **Change `Heap::mutator` to a shared-handle factory** (~100 lines).
-6. **Multi-mutator stress tests** (~200 lines): N threads, each with its own
-   mutator, all allocating concurrently.
-7. **Atomicize `BarrierStats` for lock-free barriers** (~150 lines). Optional
-   but high-value: without it every barrier event serializes on the heap
-   write lock.
-8. **(Optional) Fine-grained locks** if profiling shows the single-lock model
-   is the bottleneck.
+3. **Extract `HeapCore` as a real `pub(crate)` inner struct** (~500 lines).
+   `Heap` becomes a `#[repr(transparent)]` newtype around `HeapCore` and
+   forwards every public method to `self.core`. `Mutator<'heap>` and
+   `CollectorRuntime<'heap>` switch from `&'heap mut Heap` to
+   `&'heap mut HeapCore`; their `heap()` accessors return `&Heap` via
+   `Heap::ref_cast` (safe because of `#[repr(transparent)]`).
+   **Status:** landed.
+4. **Move `recent_barrier_events` to `MutatorLocal`** (~150 lines). Splits
+   `HeapCore::push_barrier_event` into `HeapCore::bump_barrier_stats`
+   (cumulative counters) and `MutatorLocal::push_barrier_event`
+   (per-mutator diagnostic ring). The `record_post_write` helper threads
+   the `&mut MutatorLocal` through. `Mutator::recent_barrier_events` is
+   the new public reader. **Status:** landed.
+5. **Move `RootStack` to `MutatorLocal`** (~250 lines). `MutatorLocal`
+   gains the per-mutator root stack; `HeapCore::collection_exec_parts`
+   no longer returns it. `CollectorRuntime` carries a `CollectorLocal`
+   enum (Borrowed from a `Mutator` or Owned for non-mutator paths) and
+   the collector entry points read roots from `self.local.get_mut().roots_mut()`.
+   `HeapCore::compact_old_gen_*` take `&mut RootStack` explicitly so
+   the Mutator wrappers can pass `self.local.roots_mut()` and the bare
+   `Heap` wrappers can pass an empty stack. **Status:** landed.
+6. **Wrap `HeapCore` in `Arc<RwLock<HeapCore>>`** (~1500-2500 lines). The
+   riskiest commit — every `&mut Heap` site migrates. `Heap::mutator(&self)`
+   acquires the write lock per operation; multiple `Mutator` instances
+   can coexist at the type level. **Status:** deferred — multi-week
+   dedicated session.
+7. **Multi-mutator stress tests** (~200 lines): N threads, each with its
+   own mutator, all allocating concurrently. **Status:** depends on (6).
+8. **Atomicize `BarrierStats` for lock-free barriers** (~150 lines).
+   `HeapCore::barrier_stats` field becomes `AtomicBarrierStats` with
+   relaxed `AtomicU64` counters; the barrier hot path bumps via
+   `fetch_add` and never needs the heap write lock for this bookkeeping.
+   `HeapCore::bump_barrier_stats` and `clear_barrier_stats` both relax
+   to `&self`. **Status:** landed.
+9. **(Optional) Fine-grained locks** if profiling shows the single-lock
+   model is the bottleneck.
 
 ### Success Criteria
 
