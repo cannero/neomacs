@@ -253,3 +253,53 @@ fn nursery_tlab_reserve_rejects_zero_size() {
     let mut state = NurseryState::new(1024);
     assert!(state.reserve_tlab(0).is_none());
 }
+
+#[test]
+fn nursery_tlab_reserve_after_swap_uses_new_from_space() {
+    // After a swap-and-reset, reserving a TLAB should come
+    // out of the NEW from-space (which was the old to-space
+    // before the swap). The generation stamp on the new TLAB
+    // must match the post-swap generation, not the pre-swap
+    // one, so subsequent try_alloc calls succeed.
+    let mut state = NurseryState::new(1024);
+    let _pre = state.reserve_tlab(128).expect("reserve pre-swap tlab");
+
+    state.swap_spaces_and_reset();
+    let post_generation = state.generation();
+    assert!(post_generation >= 1, "swap must bump the generation");
+
+    // The post-swap from-space starts empty (it was the old
+    // to-space), so we can reserve a fresh TLAB.
+    let mut post = state.reserve_tlab(128).expect("reserve post-swap tlab");
+    assert_eq!(post.generation(), post_generation);
+
+    let layout = Layout::from_size_align(32, 8).unwrap();
+    assert!(
+        post.try_alloc(post_generation, layout).is_some(),
+        "post-swap TLAB must service an alloc at the current generation",
+    );
+}
+
+#[test]
+fn nursery_tlab_multiple_reservations_carve_disjoint_slabs() {
+    // Back-to-back reserve_tlab calls against the same
+    // from-space must carve disjoint ranges so two mutators
+    // bumping within their own TLABs never observe overlapping
+    // allocations.
+    let mut state = NurseryState::new(1024);
+    let tlab_a = state.reserve_tlab(128).expect("reserve tlab a");
+    let tlab_b = state.reserve_tlab(128).expect("reserve tlab b");
+
+    let a_base = tlab_a.base.as_ptr() as usize;
+    let a_end = a_base.saturating_add(tlab_a.capacity());
+    let b_base = tlab_b.base.as_ptr() as usize;
+    let b_end = b_base.saturating_add(tlab_b.capacity());
+
+    // Slab A and slab B must not overlap. Either A is
+    // entirely before B, or B is entirely before A.
+    let disjoint = a_end <= b_base || b_end <= a_base;
+    assert!(
+        disjoint,
+        "tlab reservations must carve disjoint ranges",
+    );
+}
