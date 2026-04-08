@@ -1203,6 +1203,7 @@ fn major_plan_reports_old_region_targets_and_reclaim_headroom() {
 
     let plan = mutator.plan_for(CollectionKind::Major);
     let candidates = mutator.heap().major_region_candidates();
+    let block_candidates = mutator.heap().major_block_candidates();
     assert_eq!(plan.kind, CollectionKind::Major);
     assert_eq!(plan.phase, CollectionPhase::InitialMark);
     assert!(plan.concurrent);
@@ -1215,6 +1216,13 @@ fn major_plan_reports_old_region_targets_and_reclaim_headroom() {
         candidates
             .iter()
             .map(|region| region.region_index)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        plan.selected_old_blocks,
+        block_candidates
+            .iter()
+            .map(|block| block.region_index)
             .collect::<Vec<_>>()
     );
     assert_eq!(

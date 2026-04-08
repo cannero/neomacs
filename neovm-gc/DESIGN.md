@@ -102,15 +102,24 @@ Still staging compromises:
 - nursery allocation is not yet per-mutator TLAB/lock-free fast path
 - physical old-gen compaction is implemented and can run automatically
   inside a major cycle when `OldGenConfig::physical_compaction_density_threshold > 0.0`,
-  but the legacy logical-region compaction still ships in parallel because
-  ~21 assertions in `lib_test.rs` depend on the logical-compaction
-  `hole_bytes` shrink contract. The block-side replacement view is
-  available at `Heap::old_block_region_stats()` (it reports the honest
-  physical layout that does NOT shrink under logical renumbering); the
-  retirement plan is to migrate Category A assertions ("post-major
-  hole_bytes shrunk") to either physical-compaction equivalents or to
-  `live_bytes` / `object_count` invariants, then delete the regions vec
-  and `prepare_rebuild` / `finish_rebuild` paths
+  but the legacy logical-region compaction still ships in parallel
+  because the rebuild path (`prepare_rebuild` / `finish_rebuild`) still
+  consumes `selected_old_regions` and renumbers the legacy regions vec.
+  The block-side parallel surface is now in place: `Heap::old_block_region_stats`
+  reports the honest physical layout, `Heap::major_block_candidates`
+  runs the same compaction heuristic against the block view, and the
+  planner populates `CollectionPlan::selected_old_blocks` alongside
+  `selected_old_regions` so observers can read either namespace.
+  Half the original `~21` `lib_test.rs` `hole_bytes` assertions are
+  already migrated; the remainder either consume the legacy rebuild's
+  shrink contract (Category A — they need physical compaction enabled
+  via `physical_compaction_density_threshold`, with the migration
+  recipe pinned by `poll_active_major_mark_with_physical_compaction_packs_block_view`)
+  or feed `selected_old_regions` into a manual `CollectionPlan` (those
+  need the rebuild itself to migrate to block indices). The final
+  step is switching `prepare_reclaim_survivor` and `finish_rebuild`
+  to consume `selected_old_blocks`, then deleting the regions vec
+  entirely.
 - remembered tracking is still coarser than the final region/card-table model
 - finalization is now queued and drained explicitly through runtime surfaces, but
   it still retains whole `ObjectRecord`s rather than a lower-level VM-facing
