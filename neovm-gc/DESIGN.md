@@ -103,7 +103,14 @@ Still staging compromises:
 - physical old-gen compaction is implemented and can run automatically
   inside a major cycle when `OldGenConfig::physical_compaction_density_threshold > 0.0`,
   but the legacy logical-region compaction still ships in parallel because
-  some tests assert the logical-compaction `hole_bytes` shrink contract
+  ~21 assertions in `lib_test.rs` depend on the logical-compaction
+  `hole_bytes` shrink contract. The block-side replacement view is
+  available at `Heap::old_block_region_stats()` (it reports the honest
+  physical layout that does NOT shrink under logical renumbering); the
+  retirement plan is to migrate Category A assertions ("post-major
+  hole_bytes shrunk") to either physical-compaction equivalents or to
+  `live_bytes` / `object_count` invariants, then delete the regions vec
+  and `prepare_rebuild` / `finish_rebuild` paths
 - remembered tracking is still coarser than the final region/card-table model
 - finalization is now queued and drained explicitly through runtime surfaces, but
   it still retains whole `ObjectRecord`s rather than a lower-level VM-facing

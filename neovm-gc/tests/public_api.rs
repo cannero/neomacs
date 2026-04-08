@@ -3628,6 +3628,132 @@ fn public_api_exposes_old_region_stats() {
 }
 
 #[test]
+fn public_api_block_region_stats_match_legacy_region_stats_pre_collection() {
+    // Before any major cycle, the legacy regions vec and the
+    // per-block view should report the same survivor accounting:
+    // logical-compaction renumbering only kicks in when the
+    // major rebuild runs. Verifying equivalence here gives a
+    // contract for future migrations: any test that asserts
+    // properties of the post-allocation state can switch to
+    // old_block_region_stats with no semantic change.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: 256,
+            line_bytes: 16,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+    for byte in 0..6u8 {
+        mutator
+            .alloc(&mut keep_scope, OldLeaf([byte; 32]))
+            .expect("alloc old leaf");
+    }
+
+    let legacy = mutator.heap().old_region_stats();
+    let blocks = mutator.heap().old_block_region_stats();
+
+    // Aggregate fields must agree across the two views.
+    let legacy_objects: usize = legacy.iter().map(|r| r.object_count).sum();
+    let block_objects: usize = blocks.iter().map(|r| r.object_count).sum();
+    assert_eq!(legacy_objects, block_objects);
+    assert_eq!(legacy_objects, 6);
+
+    let legacy_live: usize = legacy.iter().map(|r| r.live_bytes).sum();
+    let block_live: usize = blocks.iter().map(|r| r.live_bytes).sum();
+    assert_eq!(legacy_live, block_live);
+    assert!(legacy_live > 0);
+
+    // The block view exposes the per-block honest physical
+    // layout: every entry has a non-zero capacity and the
+    // sum of live bytes is at most the sum of used bytes.
+    for block in &blocks {
+        assert!(block.reserved_bytes > 0);
+        assert!(block.live_bytes <= block.used_bytes);
+    }
+}
+
+#[test]
+fn public_api_block_region_stats_report_holes_after_dropping_some_objects() {
+    // Allocates several old-gen leaves, drops half of them, runs
+    // a major cycle, and verifies that the block view reports
+    // honest hole_bytes from the dropped objects. The legacy
+    // regions view shrinks hole_bytes via logical renumbering;
+    // the block view does NOT — it stays at the physical
+    // high-water mark until physical compaction actually moves
+    // bytes. This test pins that contract so future migrations
+    // know which view to consult.
+    let old_bytes = neovm_gc::estimated_allocation_size::<OldLeaf>()
+        .expect("old allocation size");
+    let mut heap = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: old_bytes.saturating_mul(8),
+            line_bytes: 16,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+    let kept_gcs = {
+        let mut setup_scope = mutator.handle_scope();
+        let mut kept = Vec::new();
+        for byte in 0..6u8 {
+            let leaf = mutator
+                .alloc(&mut setup_scope, OldLeaf([byte; 32]))
+                .expect("alloc old leaf");
+            if byte % 2 == 0 {
+                kept.push(leaf.as_gc());
+            }
+        }
+        kept
+    };
+    for gc in kept_gcs {
+        mutator.root(&mut keep_scope, gc);
+    }
+
+    let cycle = mutator.collect(CollectionKind::Major).expect("major collect");
+    assert_eq!(cycle.major_collections, 1);
+
+    let blocks = mutator.heap().old_block_region_stats();
+    assert!(!blocks.is_empty());
+    let total_live: usize = blocks.iter().map(|r| r.live_bytes).sum();
+    let total_used: usize = blocks.iter().map(|r| r.used_bytes).sum();
+    let total_holes: usize = blocks.iter().map(|r| r.hole_bytes).sum();
+    let total_objects: usize = blocks.iter().map(|r| r.object_count).sum();
+
+    assert_eq!(total_objects, 3, "three rooted leaves should survive");
+    assert!(total_live > 0);
+    // Without physical compaction, the block-side hole_bytes
+    // reflect the dropped survivors and must be > 0 for this
+    // workload (3 leaves of 32 bytes were dropped from a single
+    // contiguous block).
+    assert!(
+        total_holes > 0,
+        "dropped objects should leave honest physical holes"
+    );
+    assert_eq!(total_holes, total_used.saturating_sub(total_live));
+}
+
+#[test]
 fn public_api_minor_collection_preserves_old_region_layout_metadata() {
     let mut heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {

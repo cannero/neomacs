@@ -684,8 +684,36 @@ impl Heap {
     }
 
     /// Return logical old-generation region statistics.
+    ///
+    /// This is the legacy view: it reads from the regions vec
+    /// that the major-cycle rebuild rewrites in place to
+    /// renumber survivors into tightly-packed regions. The
+    /// `hole_bytes` field shrinks after a major cycle as a
+    /// side effect of the rebuild even though no bytes are
+    /// physically moved. Prefer
+    /// [`Heap::old_block_region_stats`] for the honest physical
+    /// layout.
     pub fn old_region_stats(&self) -> Vec<OldRegionStats> {
         self.old_gen.region_stats()
+    }
+
+    /// Return the per-block old-generation statistics view.
+    ///
+    /// Each entry corresponds to one `OldBlock` in allocation
+    /// order. Unlike [`Heap::old_region_stats`], this view is
+    /// computed directly from the per-block live/used counters
+    /// the sweep rebuild maintains, so the reported
+    /// `hole_bytes` reflect the *physical* layout of the heap:
+    /// they only shrink when bytes are actually moved (via
+    /// physical compaction), not as a side effect of logical
+    /// renumbering.
+    ///
+    /// This is the long-term replacement for `old_region_stats`
+    /// once the remaining `lib_test.rs` assertions that depend
+    /// on the logical-compaction shrink contract are migrated.
+    /// New observers should use this method.
+    pub fn old_block_region_stats(&self) -> Vec<OldRegionStats> {
+        self.old_gen.block_region_stats()
     }
 
     /// Return the currently selected old-region compaction candidates.

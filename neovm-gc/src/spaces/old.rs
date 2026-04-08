@@ -156,7 +156,6 @@ impl OldBlock {
     /// Mirrors `OldRegion::object_count`. Updated by
     /// [`record_object_accounting`] and reset by
     /// [`clear_live_accounting`].
-    #[cfg(test)]
     pub(crate) fn object_count(&self) -> usize {
         self.object_count
     }
@@ -172,12 +171,10 @@ impl OldBlock {
     }
 
     /// Number of lines currently containing at least one live
-    /// Number of lines currently containing at least one live
     /// object, as tracked by the allocation-time `occupied_lines`
     /// set. Distinct from [`line_marks`]: this reflects what
     /// `record_object_accounting` has recorded, while `line_marks`
     /// is populated only during post-sweep rebuild.
-    #[cfg(test)]
     pub(crate) fn occupied_line_count(&self) -> usize {
         self.occupied_lines.len()
     }
@@ -867,12 +864,31 @@ impl OldGenState {
 
     /// Block-backed stats view. Each `OldBlock` maps to one
     /// `OldRegionStats` entry (using the block index as the
-    /// pseudo region index). This exposes the block-side
-    /// counters maintained by step 9's sweep rebuild without
-    /// going through the legacy `regions` vec. Intended for
-    /// callers and tests that want to observe the physical
-    /// block layout directly.
-    #[cfg(test)]
+    /// pseudo region index). This exposes the per-block
+    /// counters maintained by the sweep rebuild without going
+    /// through the legacy `regions` vec.
+    ///
+    /// This is the long-term replacement for
+    /// [`OldGenState::region_stats`]: once the logical-region
+    /// `hole_bytes` shrink contract is migrated off the
+    /// remaining `lib_test.rs` assertions, the legacy `regions`
+    /// vec and `region_stats()` go away and this becomes the
+    /// only reader. Until then both views ship in parallel and
+    /// callers that want the honest physical layout (e.g.
+    /// post-physical-compaction observers) should read this.
+    ///
+    /// Field semantics:
+    /// * `region_index` — block index in allocation order.
+    /// * `reserved_bytes` — block capacity.
+    /// * `used_bytes` — high-water mark of the bump cursor in
+    ///   the block. Does NOT shrink under logical compaction.
+    /// * `live_bytes` — sum of survivor sizes after the most
+    ///   recent sweep rebuild.
+    /// * `hole_bytes` — interior gaps (`used_bytes - live_bytes`).
+    /// * `tail_bytes` — unused tail at the end of the block.
+    /// * `object_count` — number of survivors in the block.
+    /// * `occupied_lines` — number of Immix lines containing
+    ///   live data.
     pub(crate) fn block_region_stats(&self) -> Vec<OldRegionStats> {
         self.blocks
             .iter()
