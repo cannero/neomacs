@@ -9,15 +9,44 @@ use crate::plan::{
 use crate::root::{Gc, HandleScope, Root};
 use crate::stats::CollectionStats;
 
+/// Per-mutator local state.
+///
+/// Holds data that in the final multi-mutator architecture
+/// belongs to one mutator instance and must not be shared
+/// across mutators even when they allocate against the same
+/// heap: the per-mutator nursery TLAB slab, the root stack,
+/// and the per-mutator barrier event ring.
+///
+/// Today the struct is empty because every field it will
+/// eventually own still lives on [`Heap`] while the single-
+/// mutator borrow model is in place. The multi-mutator
+/// refactor described in `DESIGN.md` Appendix A migrates
+/// fields onto this struct one at a time across commits 2-7
+/// of the migration order. Extracting the struct as a
+/// no-op ground-laying change lets each later commit slot
+/// a field into place without having to touch the [`Mutator`]
+/// field list again.
+#[derive(Debug, Default)]
+pub struct MutatorLocal {
+    // Reserved for future mutator-local state. See
+    // `DESIGN.md` Appendix A for the migration plan.
+    _non_empty: (),
+}
+
 /// Mutator view onto the heap.
 #[derive(Debug)]
 pub struct Mutator<'heap> {
     heap: &'heap mut Heap,
+    #[allow(dead_code)]
+    local: MutatorLocal,
 }
 
 impl<'heap> Mutator<'heap> {
     pub(crate) fn new(heap: &'heap mut Heap) -> Self {
-        Self { heap }
+        Self {
+            heap,
+            local: MutatorLocal::default(),
+        }
     }
 
     /// Create a new rooted handle scope.
