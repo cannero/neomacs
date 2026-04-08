@@ -298,15 +298,29 @@ pub struct BufferSlotInfo {
     /// write. `""` for "no check" (mirrors GNU's `Qnil` predicate
     /// slot).
     pub predicate: &'static str,
-    /// Whether `kill-all-local-variables` resets the slot back to
-    /// its default. Mirrors GNU's `reset_buffer_local_variables`
-    /// (`buffer.c:1241-1349`) which resets only the slots flagged
-    /// in `buffer_permanent_local_flags` and a few special-cased
-    /// names like `major-mode`, `mode-name`,
-    /// `buffer-invisibility-spec`. Slots like `buffer-file-name`
-    /// and `default-directory` are NOT reset (they survive the
-    /// kill).
+    /// Whether `kill-all-local-variables` resets this *always-local*
+    /// slot back to its default. Mirrors the explicit reset block at
+    /// the top of GNU's `reset_buffer_local_variables`
+    /// (`buffer.c:1143-1158`), which sets `bset_major_mode`,
+    /// `bset_mode_name`, `bset_invisibility_spec`, the case tables,
+    /// and the keymap. Other always-local slots
+    /// (`buffer-file-name`, `default-directory`, etc.) are NOT
+    /// reset and this flag stays `false` for them.
+    ///
+    /// **For conditional slots (`local_flags_idx >= 0`), use
+    /// `permanent_local` instead** — conditional slots are reset by
+    /// default and `permanent_local: true` opts them out.
     pub reset_on_kill: bool,
+    /// Whether this *conditional* slot should be preserved across
+    /// `kill-all-local-variables`. Mirrors GNU's
+    /// `buffer_permanent_local_flags[idx]` table
+    /// (`buffer.c:109,4751,4767`). Only `truncate-lines` and
+    /// `buffer-file-coding-system` are marked permanent in upstream
+    /// GNU; both survive the major-mode change.
+    ///
+    /// For always-local slots this field is ignored — always-local
+    /// slots are governed by `reset_on_kill`.
+    pub permanent_local: bool,
     /// GNU `buffer_local_flags` index. Mirrors `buffer.c:4703-4791`:
     /// - `-1`: always-local — every buffer has its own value, the
     ///   slot is authoritative without consulting `local_flags`.
@@ -345,6 +359,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: -1,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         name: "buffer-auto-save-file-name",
@@ -354,6 +369,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: -1,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         name: "buffer-read-only",
@@ -363,6 +379,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: -1,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         name: "enable-multibyte-characters",
@@ -372,6 +389,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: -1,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         name: "buffer-file-truename",
@@ -381,6 +399,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: -1,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU buffer.c:5381 — default-directory defaults to the
@@ -394,6 +413,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: -1,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         name: "buffer-saved-size",
@@ -403,6 +423,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: -1,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         name: "buffer-backed-up",
@@ -412,6 +433,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: -1,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         name: "buffer-file-format",
@@ -421,6 +443,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: -1,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         name: "buffer-auto-save-file-format",
@@ -430,6 +453,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: -1,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         name: "major-mode",
@@ -439,6 +463,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: true,
         local_flags_idx: -1,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         name: "local-minor-modes",
@@ -448,6 +473,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: -1,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         name: "mode-name",
@@ -457,6 +483,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: true,
         local_flags_idx: -1,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         name: "mark-active",
@@ -466,6 +493,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: -1,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         name: "point-before-scroll",
@@ -475,6 +503,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: -1,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         name: "buffer-display-count",
@@ -484,6 +513,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: -1,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         name: "buffer-display-time",
@@ -493,6 +523,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: -1,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU sets this to t (a magic-bag value), not nil. The
@@ -505,6 +536,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: true,
         local_flags_idx: -1,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     // Phase 10D conditional slots --------------------------------
     BufferSlotInfo {
@@ -519,6 +551,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_FILL_COLUMN as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4848` — tab-width defaults to 8.
@@ -529,6 +562,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_TAB_WIDTH as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4867` — left-margin defaults to 0.
@@ -539,6 +573,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_LEFT_MARGIN as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4835` — abbrev-mode defaults to nil.
@@ -549,6 +584,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_ABBREV_MODE as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4836` — overwrite-mode defaults to nil.
@@ -559,6 +595,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_OVERWRITE_MODE as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4838` — selective-display defaults to nil.
@@ -569,6 +606,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_SELECTIVE_DISPLAY as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4839` — selective-display-ellipses defaults to t.
@@ -579,6 +617,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_SELECTIVE_DISPLAY_ELLIPSES as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4849` — truncate-lines defaults to nil.
@@ -593,6 +632,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_TRUNCATE_LINES as i16,
         install_as_forwarder: true,
+        permanent_local: true,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4850` — word-wrap defaults to nil.
@@ -603,6 +643,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_WORD_WRAP as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4851` — ctl-arrow defaults to t.
@@ -613,6 +654,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_CTL_ARROW as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4837` — auto-fill-function defaults to nil.
@@ -623,6 +665,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_AUTO_FILL_FUNCTION as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4832` — mode-line-format defaults to "%-".
@@ -635,6 +678,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_MODE_LINE_FORMAT as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4833` — header-line-format defaults to nil.
@@ -645,6 +689,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_HEADER_LINE_FORMAT as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4834` — tab-line-format defaults to nil.
@@ -655,6 +700,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_TAB_LINE_FORMAT as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     //
     // Phase 10D step 5 batch 2 — display/bidi/fringe/scroll-bar slots.
@@ -667,6 +713,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_BIDI_DISPLAY_REORDERING as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4853` — bidi-paragraph-direction defaults to nil.
@@ -677,6 +724,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_BIDI_PARAGRAPH_DIRECTION as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4854` — bidi-paragraph-start-re defaults to nil.
@@ -687,6 +735,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_BIDI_PARAGRAPH_START_RE as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4855` — bidi-paragraph-separate-re defaults to nil.
@@ -697,6 +746,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_BIDI_PARAGRAPH_SEPARATE_RE as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4856` — cursor-type defaults to t.
@@ -707,6 +757,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_CURSOR_TYPE as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4857` — extra-line-spacing defaults to nil.
@@ -717,6 +768,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_LINE_SPACING as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4861` — text-conversion-style defaults to nil.
@@ -727,6 +779,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_TEXT_CONVERSION_STYLE as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4862` — cursor-in-non-selected-windows defaults to t.
@@ -737,6 +790,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_CURSOR_IN_NON_SELECTED_WINDOWS as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4871` — left-margin-cols defaults to 0.
@@ -747,6 +801,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_LEFT_MARGIN_WIDTH as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4872` — right-margin-cols defaults to 0.
@@ -757,6 +812,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_RIGHT_MARGIN_WIDTH as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4873` — left-fringe-width defaults to nil.
@@ -767,6 +823,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_LEFT_FRINGE_WIDTH as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4874` — right-fringe-width defaults to nil.
@@ -777,6 +834,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_RIGHT_FRINGE_WIDTH as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4875` — fringes-outside-margins defaults to nil.
@@ -787,6 +845,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_FRINGES_OUTSIDE_MARGINS as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4876` — scroll-bar-width defaults to nil.
@@ -797,6 +856,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_SCROLL_BAR_WIDTH as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4877` — scroll-bar-height defaults to nil.
@@ -807,6 +867,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_SCROLL_BAR_HEIGHT as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4878` — vertical-scroll-bar defaults to t.
@@ -817,6 +878,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_VERTICAL_SCROLL_BAR as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4879` — horizontal-scroll-bar defaults to t.
@@ -827,6 +889,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_HORIZONTAL_SCROLL_BAR as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4880` — indicate-empty-lines defaults to nil.
@@ -837,6 +900,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_INDICATE_EMPTY_LINES as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4881` — indicate-buffer-boundaries defaults to nil.
@@ -847,6 +911,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_INDICATE_BUFFER_BOUNDARIES as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4882` — fringe-indicator-alist defaults to nil.
@@ -857,6 +922,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_FRINGE_INDICATOR_ALIST as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4883` — fringe-cursor-alist defaults to nil.
@@ -867,6 +933,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_FRINGE_CURSOR_ALIST as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4884` — scroll-up-aggressively defaults to nil.
@@ -877,6 +944,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_SCROLL_UP_AGGRESSIVELY as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4885` — scroll-down-aggressively defaults to nil.
@@ -887,6 +955,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_SCROLL_DOWN_AGGRESSIVELY as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4868` — cache-long-scans defaults to t.
@@ -897,6 +966,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_CACHE_LONG_SCANS as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4840` — abbrev-table defaults to nil.
@@ -907,6 +977,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_LOCAL_ABBREV_TABLE as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4841` — display-table defaults to nil.
@@ -917,6 +988,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_BUFFER_DISPLAY_TABLE as i16,
         install_as_forwarder: true,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.c:4865` — buffer-file-coding-system defaults to nil.
@@ -930,6 +1002,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_BUFFER_FILE_CODING_SYSTEM as i16,
         install_as_forwarder: true,
+        permanent_local: true,
     },
     // ---------- Internal-only slots (not exposed as Lisp variables) ----------
     //
@@ -950,6 +1023,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_SYNTAX_TABLE as i16,
         install_as_forwarder: false,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.h:394` `category_table_` + `buffer.c:4760` conditional
@@ -962,6 +1036,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_CATEGORY_TABLE as i16,
         install_as_forwarder: false,
+        permanent_local: false,
     },
     BufferSlotInfo {
         // GNU `buffer.h:408-417` `downcase_table_` / `upcase_table_` /
@@ -978,6 +1053,7 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: -1,
         install_as_forwarder: false,
+        permanent_local: false,
     },
 ];
 
@@ -2178,30 +2254,54 @@ impl Buffer {
         obarray: &mut crate::emacs_core::symbol::Obarray,
         kill_permanent: bool,
     ) {
-        // Phase 10C: BUFFER_OBJFWD slots flagged `reset_on_kill`
-        // are restored to their declared defaults. Mirrors GNU's
-        // `reset_buffer_local_variables` (`buffer.c:1241-1349`)
-        // which special-cases `major_mode_`, `mode_name_`,
-        // `invisibility_spec_` even though most BVAR slots
-        // (file_name, default_directory, etc.) survive the kill.
+        // Mirrors GNU `reset_buffer_local_variables'
+        // (`buffer.c:1135-1234'). Three things happen:
         //
-        // Phase 10D: for conditional slots, also clear the
-        // per-buffer local-flags bit and reset the slot to its
-        // declared default. Mirrors GNU
-        // `reset_buffer_local_variables` walking
-        // `buffer_local_flags` and clearing `local_flags[i]` for
-        // non-permanent slots. (`reset_on_kill` doubles as the
-        // "permanent" gate for conditional slots until step 4
-        // adds a dedicated `permanent_local` field; today every
-        // migrated conditional slot is non-permanent so the
-        // distinction doesn't yet matter.)
+        //   1. Specific always-local slots get reset (major-mode,
+        //      mode-name, invisibility-spec, the case tables, the
+        //      keymap). GNU does these explicitly at the top of
+        //      `reset_buffer_local_variables'. Neomacs encodes them
+        //      via `BufferSlotInfo.reset_on_kill = true' for the
+        //      slot-backed ones; the keymap is reset at the end.
+        //
+        //   2. Conditional slots are reset by clearing
+        //      `local_flags[idx]', UNLESS `permanent_local' is set
+        //      (matches GNU's `buffer_permanent_local_flags' table
+        //      at `buffer.c:109,4751,4767'). Permanent conditional
+        //      slots in upstream GNU are `truncate-lines' and
+        //      `buffer-file-coding-system' -- both survive
+        //      kill-all-local-variables.
+        //
+        //   3. The LOCALIZED `local_var_alist' is walked and
+        //      non-`permanent-local' entries are spliced out
+        //      (`buffer.c:1163-1228'). The `permanent-local-hook'
+        //      partial-preserve filter runs in-place. See the
+        //      walking loop below.
+        //
+        // Always-local slots that GNU does NOT explicitly reset
+        // (`buffer-file-name', `default-directory', `mark-active',
+        // `point-before-scroll', `buffer-display-count',
+        // `buffer-display-time', `buffer-read-only', etc.) are
+        // left untouched here. They have `reset_on_kill: false'.
         for info in BUFFER_SLOT_INFO {
             if info.local_flags_idx >= 0 {
-                // Conditional slot: clear bit + reset to default.
+                // Conditional slot. Skip if permanent (matches
+                // GNU's `buffer_permanent_local_flags[idx] != 0'
+                // gate at `buffer.c:1232'). The `kill_permanent'
+                // flag overrides permanence -- it's used by
+                // internal callers like `reset_buffer_local_variables(b, 1)'
+                // for buffer creation/deletion. Ordinary
+                // `kill-all-local-variables' calls pass
+                // `kill_permanent = false' so permanent slots
+                // survive.
+                if info.permanent_local && !kill_permanent {
+                    continue;
+                }
                 self.set_slot_local_flag(info.offset, false);
                 self.slots[info.offset] = info.default.to_value();
             } else if info.reset_on_kill {
-                // Always-local slot flagged for reset.
+                // Always-local slot in GNU's explicit reset list
+                // (major-mode, mode-name, invisibility-spec).
                 self.slots[info.offset] = info.default.to_value();
             }
         }
