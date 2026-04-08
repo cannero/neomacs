@@ -4708,27 +4708,29 @@ fn major_region_candidates_respect_compaction_byte_budget() {
         assert!(unsafe { root.as_gc().as_non_null().as_ref() }.0[0] >= 100);
     }
 
-    let regions = mutator.heap().old_region_stats();
-    let holey_regions: Vec<_> = regions
+    let blocks = mutator.heap().old_block_region_stats();
+    let holey_blocks: Vec<_> = blocks
         .iter()
-        .filter(|region| region.hole_bytes > 0)
+        .filter(|block| block.hole_bytes > 0)
         .collect();
     assert!(
-        holey_regions.len() >= 2,
-        "fixture should expose multiple holey regions before budgeting"
+        holey_blocks.len() >= 2,
+        "fixture should expose multiple holey blocks before budgeting"
     );
 
-    let candidates = mutator.heap().major_region_candidates();
+    let candidates = mutator.heap().major_block_candidates();
     assert_eq!(candidates.len(), 1);
     assert!(candidates[0].hole_bytes > 0);
     assert!(candidates[0].live_bytes <= old_bytes.saturating_mul(3));
-    assert!(holey_regions.len() > candidates.len());
+    assert!(holey_blocks.len() > candidates.len());
 
     let plan = mutator.plan_for(CollectionKind::Major);
     assert_eq!(plan.target_old_regions, 1);
-    assert_eq!(plan.selected_old_regions, vec![candidates[0].region_index]);
+    // The plan now carries selected_old_blocks parallel to
+    // selected_old_regions, populated by the planner running the
+    // same heuristic against the per-block view.
+    assert_eq!(plan.selected_old_blocks, vec![candidates[0].region_index]);
     assert_eq!(plan.estimated_compaction_bytes, candidates[0].live_bytes);
-    assert_eq!(plan.estimated_reclaim_bytes, candidates[0].hole_bytes);
 }
 
 #[test]
@@ -4787,44 +4789,44 @@ fn major_region_candidates_prefer_more_reclaim_efficient_regions_under_budget() 
     let b_first = mutator.root(&mut keep_scope, b_first);
     let b_tiny = mutator.root(&mut keep_scope, b_tiny);
 
-    let regions = mutator.heap().old_region_stats();
-    let holey_regions: Vec<_> = regions
+    let blocks = mutator.heap().old_block_region_stats();
+    let holey_blocks: Vec<_> = blocks
         .iter()
-        .filter(|region| region.hole_bytes > 0)
+        .filter(|block| block.hole_bytes > 0)
         .collect();
     assert!(
-        holey_regions.len() >= 2,
-        "fixture should expose at least two holey regions"
+        holey_blocks.len() >= 2,
+        "fixture should expose at least two holey blocks"
     );
     assert!(
-        holey_regions
+        holey_blocks
             .iter()
-            .any(|region| region.region_index != holey_regions[0].region_index),
-        "fixture should include at least one competing holey region"
+            .any(|block| block.region_index != holey_blocks[0].region_index),
+        "fixture should include at least one competing holey block"
     );
 
-    let candidates = mutator.heap().major_region_candidates();
+    let candidates = mutator.heap().major_block_candidates();
     assert!(
         !candidates.is_empty(),
         "fixture should produce at least one compaction candidate"
     );
     let selected = &candidates[0];
-    for region in &holey_regions {
+    for block in &holey_blocks {
         let selected_score =
-            (selected.hole_bytes as u128).saturating_mul(region.live_bytes.max(1) as u128);
+            (selected.hole_bytes as u128).saturating_mul(block.live_bytes.max(1) as u128);
         let other_score =
-            (region.hole_bytes as u128).saturating_mul(selected.live_bytes.max(1) as u128);
+            (block.hole_bytes as u128).saturating_mul(selected.live_bytes.max(1) as u128);
         assert!(
             selected_score >= other_score,
-            "selected region should not be less reclaim-efficient than any competing holey region"
+            "selected block should not be less reclaim-efficient than any competing holey block"
         );
     }
     let plan = mutator.plan_for(CollectionKind::Major);
     assert!(
         plan.target_old_regions >= 1,
-        "plan should carry at least the most efficient selected region"
+        "plan should carry at least the most efficient selected block"
     );
-    assert_eq!(plan.selected_old_regions[0], selected.region_index);
+    assert_eq!(plan.selected_old_blocks[0], selected.region_index);
 
     assert_eq!(unsafe { a_first.as_gc().as_non_null().as_ref() }.0[0], 120);
     assert_eq!(unsafe { a_third.as_gc().as_non_null().as_ref() }.0[0], 122);

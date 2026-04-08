@@ -19,6 +19,7 @@ fn plan_for(kind: CollectionKind) -> CollectionPlan {
         mark_slice_budget: 8,
         target_old_regions: 0,
         selected_old_regions: Vec::new(),
+        selected_old_blocks: Vec::new(),
         estimated_compaction_bytes: 0,
         estimated_reclaim_bytes: 0,
     }

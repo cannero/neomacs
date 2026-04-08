@@ -34,6 +34,7 @@ pub(crate) fn build_plan(
                 mark_slice_budget,
                 target_old_regions: 0,
                 selected_old_regions: Vec::new(),
+                selected_old_blocks: Vec::new(),
                 estimated_compaction_bytes: 0,
                 estimated_reclaim_bytes: stats.nursery.live_bytes,
             }
@@ -44,6 +45,18 @@ pub(crate) fn build_plan(
                 .candidates
                 .iter()
                 .map(|region| region.region_index)
+                .collect();
+            // Block-indexed parallel selection. Runs the same
+            // heuristic against the per-block view; the resulting
+            // indices may not match selected_old_regions because
+            // blocks and logical regions evolve independently
+            // during allocation, but they describe the same
+            // compaction intent through the block namespace.
+            let block_selection = old_gen.block_plan_selection(old_config);
+            let selected_old_blocks: Vec<_> = block_selection
+                .candidates
+                .iter()
+                .map(|block| block.region_index)
                 .collect();
             let target_old_regions = selected_old_regions.len();
             let estimated_compaction_bytes = old_selection.estimated_compaction_bytes;
@@ -66,6 +79,7 @@ pub(crate) fn build_plan(
                 mark_slice_budget,
                 target_old_regions,
                 selected_old_regions,
+                selected_old_blocks,
                 estimated_compaction_bytes,
                 estimated_reclaim_bytes,
             }

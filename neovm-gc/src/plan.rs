@@ -47,6 +47,20 @@ pub struct CollectionPlan {
     pub target_old_regions: usize,
     /// Exact old-region indices selected for compaction or evacuation by this plan.
     pub selected_old_regions: Vec<usize>,
+    /// Block-indexed equivalent of [`Self::selected_old_regions`].
+    ///
+    /// Populated by the planner alongside `selected_old_regions`
+    /// during the migration off the legacy logical-region view.
+    /// Block indices are computed by running the same heuristic
+    /// against `OldGenState::block_plan_selection` so the two
+    /// vectors describe the *same* compaction intent through
+    /// different namespaces.
+    ///
+    /// Today this field is observation-only: the rebuild path
+    /// still consumes `selected_old_regions`. Once the rebuild
+    /// migrates to block indices, `selected_old_regions` goes
+    /// away.
+    pub selected_old_blocks: Vec<usize>,
     /// Estimated live bytes that would be moved by the selected old-region compaction set.
     pub estimated_compaction_bytes: usize,
     /// Estimated bytes the plan may reclaim or compact.
@@ -117,6 +131,7 @@ impl Default for CollectionPlan {
             mark_slice_budget: 0,
             target_old_regions: 0,
             selected_old_regions: Vec::new(),
+            selected_old_blocks: Vec::new(),
             estimated_compaction_bytes: 0,
             estimated_reclaim_bytes: 0,
         }

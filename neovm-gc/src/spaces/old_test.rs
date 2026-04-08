@@ -1320,6 +1320,7 @@ fn prepare_reclaim_survivor_reassigns_selected_region_after_preserved_regions() 
         mark_slice_budget: 1,
         target_old_regions: 1,
         selected_old_regions: vec![0],
+        selected_old_blocks: vec![0],
         estimated_compaction_bytes: first.total_size(),
         estimated_reclaim_bytes: 0,
     };
