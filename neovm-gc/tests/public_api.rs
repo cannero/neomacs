@@ -557,14 +557,20 @@ fn public_api_full_collection_prunes_remembered_edges_for_dead_old_owner() {
         mutator.store_edge(&mid, 0, |link| &link.next, Some(child.as_gc()));
     }
 
-    // Phase 4: the live mid lives in a block-backed old region; the
-    // edge tracking goes through the per-block card table. Stats fold
-    // dirty cards into the legacy counters so observers see a unified
-    // view across both paths.
+    // The live mid lives in a block-backed old region; the edge
+    // tracking goes through the per-block card table. Stats fold
+    // dirty cards into the unified `remembered_edges` counter so
+    // existing observers see the combined picture, and the split
+    // `remembered_dirty_cards` / `remembered_explicit_edges`
+    // counters report each path separately. This workload
+    // exercises the fast (dirty-card) path, so the explicit-edge
+    // fallback counter should be zero.
     assert_eq!(mutator.heap().total_remembered_count(), 1);
     let stats = mutator.heap().stats();
     assert_eq!(stats.remembered_edges, 1);
     assert_eq!(stats.remembered_owners, 1);
+    assert_eq!(stats.remembered_dirty_cards, 1);
+    assert_eq!(stats.remembered_explicit_edges, 0);
     drop(root_scope);
 
     let cycle = mutator.collect(CollectionKind::Full).expect("full collect");
@@ -573,6 +579,8 @@ fn public_api_full_collection_prunes_remembered_edges_for_dead_old_owner() {
     let stats = mutator.heap().stats();
     assert_eq!(stats.remembered_edges, 0);
     assert_eq!(stats.remembered_owners, 0);
+    assert_eq!(stats.remembered_dirty_cards, 0);
+    assert_eq!(stats.remembered_explicit_edges, 0);
 }
 
 #[test]

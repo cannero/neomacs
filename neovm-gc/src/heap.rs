@@ -133,6 +133,8 @@ impl Heap {
                 collections: crate::stats::CollectionStats::default(),
                 remembered_edges: 0,
                 remembered_owners: 0,
+                remembered_explicit_edges: 0,
+                remembered_dirty_cards: 0,
                 finalizable_candidates: 0,
                 weak_candidates: 0,
                 ephemeron_candidates: 0,

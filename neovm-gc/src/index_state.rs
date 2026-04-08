@@ -145,25 +145,32 @@ impl HeapIndexState {
     }
 
     pub(crate) fn apply_storage_stats(&self, stats: &mut HeapStats) {
-        stats.remembered_edges = self.remembered.edges.len();
+        let explicit_edges = self.remembered.edges.len();
+        stats.remembered_explicit_edges = explicit_edges;
+        stats.remembered_edges = explicit_edges;
         stats.remembered_owners = self.remembered.owners.len();
+        stats.remembered_dirty_cards = 0;
         stats.finalizable_candidates = self.finalizable_candidates.len();
         stats.weak_candidates = self.weak_candidates.len();
         stats.ephemeron_candidates = self.ephemeron_candidates.len();
     }
 
-    /// Fold dirty card counts (Phase 4 fast-path remembered set) into
-    /// the legacy `stats.remembered_edges` / `stats.remembered_owners`
-    /// counters so existing observers see a unified picture across both
-    /// paths. Each dirty card is counted as both one edge and one
-    /// owner approximation since the card represents at least one
-    /// pending old-to-young root in that region.
+    /// Fold dirty card counts (the per-block fast-path remembered set)
+    /// into the unified `stats.remembered_edges` / `stats.remembered
+    /// _owners` counters so existing observers see the combined
+    /// picture, AND populate the split
+    /// `stats.remembered_dirty_cards` counter so observers that
+    /// want to attribute pressure to the fast path can read it
+    /// directly. Each dirty card is counted as both one edge and
+    /// one owner approximation since the card represents at least
+    /// one pending old-to-young root in that region.
     pub(crate) fn apply_dirty_card_storage_stats(
         &self,
         stats: &mut HeapStats,
         old_gen: &OldGenState,
     ) {
         let dirty_cards = old_gen.dirty_card_count();
+        stats.remembered_dirty_cards = dirty_cards;
         stats.remembered_edges = stats.remembered_edges.saturating_add(dirty_cards);
         stats.remembered_owners = stats.remembered_owners.saturating_add(dirty_cards);
     }

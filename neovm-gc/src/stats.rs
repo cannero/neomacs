@@ -282,9 +282,48 @@ pub struct HeapStats {
     /// Collection counters.
     pub collections: CollectionStats,
     /// Number of remembered old-to-young edges currently tracked.
+    ///
+    /// This is the unified view: the sum of the explicit-edge
+    /// fallback path ([`Self::remembered_explicit_edges`]) and
+    /// the per-block dirty-card fast path
+    /// ([`Self::remembered_dirty_cards`]). Readers that need to
+    /// attribute remembered-set pressure to one path or the
+    /// other should consult the split counters below.
     pub remembered_edges: usize,
     /// Number of distinct old owners represented in the remembered set.
     pub remembered_owners: usize,
+    /// Number of remembered edges recorded via the legacy
+    /// explicit-edge fallback path.
+    ///
+    /// This path fires when the owner of a post-write barrier
+    /// is not backed by an old-gen block (pinned space, large
+    /// object space, or a system-allocated old-gen survivor
+    /// that could not fit in a block hole). Each entry is a
+    /// full `(owner, target)` pair stored in a dense `Vec`, so
+    /// this counter is a rough proxy for fallback-path memory
+    /// pressure.
+    ///
+    /// In the DESIGN.md final-goal target, every old-gen byte
+    /// lives in a block-backed region with its own card table,
+    /// so this counter should drift toward zero as pinned and
+    /// large spaces migrate to the block model. Today it is
+    /// non-zero for workloads that allocate pinned or large
+    /// objects and mutate their contents to point at nursery
+    /// survivors.
+    pub remembered_explicit_edges: usize,
+    /// Number of dirty cards currently marked across the old-
+    /// gen block pool.
+    ///
+    /// Each dirty card represents at least one pending
+    /// old-to-young root in its covered byte range. The minor
+    /// GC's dirty-card scan walks these cards to find the
+    /// records living in them and adds those records as
+    /// additional trace sources.
+    ///
+    /// Dirty cards are the fast-path write barrier: each
+    /// barrier is an O(1) card byte store, and the minor GC
+    /// scans O(dirty_cards) rather than O(recorded edges).
+    pub remembered_dirty_cards: usize,
     /// Number of finalizable objects currently tracked as reclaim candidates.
     pub finalizable_candidates: usize,
     /// Number of weak-bearing objects currently tracked as reclaim candidates.
