@@ -4642,9 +4642,15 @@ fn major_region_candidates_prefer_holey_regions_over_tail_only_sparse_regions() 
     assert_eq!(unsafe { tiny.as_gc().as_non_null().as_ref() }.0[0], 84);
 
     // The legacy regions vec is the only view that reports
-    // hole_bytes == 0 for a tail-only sparse region (the block
-    // view counts line-alignment padding inside the block as
-    // honest physical hole bytes).
+    // hole_bytes == 0 for a tail-only sparse region. The block
+    // view counts line-alignment padding as honest physical
+    // hole bytes, so a single-allocation tail-only block always
+    // has a small non-zero hole_bytes. This test stays on the
+    // legacy view to preserve the "tail-only is NOT a candidate"
+    // contract; migrating it would require either a
+    // padding-aware selector pass or changing the fixture so
+    // the tiny leaf's size is exactly line-aligned (which
+    // changes the test's coverage of the selector).
     let regions = mutator.heap().legacy_old_region_stats();
     assert_eq!(regions.len(), 2);
     let holey_region = regions
