@@ -9261,6 +9261,74 @@ fn public_api_shared_drain_pending_finalizers_bounded_runs_while_heap_is_write_l
 }
 
 #[test]
+fn public_api_shared_try_drain_pending_finalizers_bounded_runs_in_slices() {
+    // Non-blocking variant of the bounded drain: when the
+    // runtime state lock is uncontended, try_*_bounded should
+    // behave identically to the blocking variant. This pins the
+    // contract for VMs that want to drive cooperative
+    // finalization without ever blocking, e.g. inside a tight
+    // event loop.
+    PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
+
+    let shared = neovm_gc::SharedHeap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    shared
+        .with_mutator(|mutator| {
+            for i in 0..3u64 {
+                let mut scope = mutator.handle_scope();
+                mutator
+                    .alloc(&mut scope, FinalizableLeaf(1000 + i))
+                    .expect("alloc finalizable old leaf");
+            }
+            let cycle = mutator
+                .collect(CollectionKind::Major)
+                .expect("major collect");
+            assert_eq!(cycle.queued_finalizers, 3);
+        })
+        .expect("collect through shared mutator");
+
+    assert_eq!(
+        shared.pending_finalizer_count().expect("pending count"),
+        3
+    );
+
+    // First slice: budget 2.
+    assert_eq!(
+        shared
+            .try_drain_pending_finalizers_bounded(2)
+            .expect("try bounded drain"),
+        2
+    );
+    assert_eq!(
+        shared.pending_finalizer_count().expect("pending count"),
+        1
+    );
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 2);
+
+    // Second slice: budget 5 (only 1 remaining).
+    assert_eq!(
+        shared
+            .try_drain_pending_finalizers_bounded(5)
+            .expect("try bounded drain"),
+        1
+    );
+    assert_eq!(
+        shared.pending_finalizer_count().expect("pending count"),
+        0
+    );
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 3);
+}
+
+#[test]
 fn public_api_shared_drain_pending_finalizers_bounded_runs_in_slices() {
     // Same VM-driven cooperative finalization contract as the
     // CollectorRuntime test, but exercised via the SharedHeap

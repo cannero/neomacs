@@ -749,6 +749,25 @@ impl SharedRuntimeHandle {
         Ok(ran)
     }
 
+    pub(crate) fn try_drain_pending_finalizers_bounded(
+        &self,
+        max: usize,
+    ) -> Result<u64, SharedHeapError> {
+        let (ran, next_runtime_snapshot) = self.try_with_state(|runtime_state| {
+            let ran = runtime_state.drain_pending_finalizers_bounded(max);
+            let (finalizers_run, pending_finalizers) = runtime_state.snapshot();
+            (
+                ran,
+                SharedRuntimeSnapshot {
+                    finalizers_run,
+                    pending_finalizers,
+                },
+            )
+        })?;
+        self.publish_snapshot(next_runtime_snapshot)?;
+        Ok(ran)
+    }
+
     fn publish_heap_change(
         &self,
         next_heap_snapshot: SharedHeapSnapshot,
@@ -1463,6 +1482,17 @@ impl SharedHeap {
     /// Run and drain queued finalizers without blocking on heap contention.
     pub fn try_drain_pending_finalizers(&self) -> Result<u64, SharedHeapError> {
         self.runtime.try_drain_pending_finalizers()
+    }
+
+    /// Run at most `max` queued finalizers without blocking on
+    /// heap contention. Returns
+    /// [`SharedHeapError::WouldBlock`] when the runtime state
+    /// mutex is currently held by another caller.
+    pub fn try_drain_pending_finalizers_bounded(
+        &self,
+        max: usize,
+    ) -> Result<u64, SharedHeapError> {
+        self.runtime.try_drain_pending_finalizers_bounded(max)
     }
 
     /// Return one consistent shared snapshot of heap and background-collector state.
@@ -2338,6 +2368,16 @@ impl SharedBackgroundService {
     /// Run and drain queued finalizers without blocking on heap contention.
     pub fn try_drain_pending_finalizers(&mut self) -> Result<u64, SharedBackgroundError> {
         self.runtime.try_drain_pending_finalizers()
+    }
+
+    /// Run at most `max` queued finalizers without blocking on
+    /// heap contention. See
+    /// [`Heap::drain_pending_finalizers_bounded`] for semantics.
+    pub fn try_drain_pending_finalizers_bounded(
+        &mut self,
+        max: usize,
+    ) -> Result<u64, SharedBackgroundError> {
+        self.runtime.try_drain_pending_finalizers_bounded(max)
     }
 
     /// Commit the active major collection once reclaim has already been prepared, without

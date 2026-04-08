@@ -1009,6 +1009,19 @@ impl SharedCollectorRuntime {
             .map_err(Self::map_shared_heap_error)
     }
 
+    /// Run at most `max` queued finalizers without blocking on
+    /// heap contention. See
+    /// [`Heap::drain_pending_finalizers_bounded`] for the
+    /// blocking variant's semantics.
+    pub fn try_drain_pending_finalizers_bounded(
+        &self,
+        max: usize,
+    ) -> Result<u64, SharedBackgroundError> {
+        self.runtime
+            .try_drain_pending_finalizers_bounded(max)
+            .map_err(Self::map_shared_heap_error)
+    }
+
     /// Recommend the next background concurrent collection plan, if any.
     pub fn recommended_background_plan(
         &self,
