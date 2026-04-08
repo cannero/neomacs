@@ -1174,10 +1174,15 @@ fn documentation_property_eval_native_comp_eln_load_path_integer_property_return
         ],
     )
     .unwrap();
+    // The doc text now comes from the var_docs GNU table (Phase
+    // A7-A10), which preserves GNU's actual wording: "native-
+    // compiled *.eln files" rather than the legacy STUBS shim's
+    // "natively-compiled". The legacy spelling was a transcription
+    // artifact -- the GNU source uses "native-compiled".
     assert!(
         result
             .as_str()
-            .is_some_and(|s| s.contains("natively-compiled *.eln files"))
+            .is_some_and(|s| s.contains("native-compiled *.eln files"))
     );
 }
 

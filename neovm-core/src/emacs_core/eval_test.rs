@@ -5922,7 +5922,14 @@ fn startup_variable_documentation_property_counts_match_oracle_snapshot() {
                  (if (stringp d) (progn (setq n (1+ n)))))))
             n))",
     );
-    assert_eq!(results[0], "OK (761 1902)");
+    // Phase A10 of the v5 audit (Option A for variables) deleted
+    // 691 redundant entries from STARTUP_VARIABLE_DOC_STUBS that
+    // are now covered by var_docs::lookup. The remaining 70 STUBS
+    // entries are neomacs-specific and still get an integer 0
+    // sentinel pre-pushed onto their `variable-documentation' plist.
+    // STRING_PROPERTIES is unchanged at 1902 entries (only 2
+    // overlapped with GNU and they were left in place).
+    assert_eq!(results[0], "OK (70 1902)");
 }
 
 #[test]
@@ -5947,7 +5954,11 @@ fn startup_variable_documentation_runtime_resolution_counts_match_oracle_snapsho
                    (progn (setq n (1+ n)))))))
             n))",
     );
-    assert_eq!(results[0], "OK (761 1902)");
+    // See `startup_variable_documentation_property_counts_*' for
+    // why these counts shrank from 761 to 70. The integer-sentinel
+    // path still resolves through the legacy STUBS dispatch, which
+    // covers exactly the 70 surviving entries.
+    assert_eq!(results[0], "OK (70 1902)");
 }
 
 #[test]
