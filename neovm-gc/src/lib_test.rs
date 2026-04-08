@@ -2620,7 +2620,6 @@ fn collector_runtime_alloc_typed_keeps_rooted_object_alive_during_active_major_m
         },
         ..HeapConfig::default()
     });
-    let root_stack = heap.root_stack_ptr();
     let plan = {
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
@@ -2633,14 +2632,20 @@ fn collector_runtime_alloc_typed_keeps_rooted_object_alive_during_active_major_m
         }
     };
 
+    // Build a scratch mutator local for the collector runtime
+    // so the test can construct a handle scope without
+    // holding a live Mutator. The scratch's root stack is
+    // dropped at the end of the block, along with the scope.
+    let mut scratch = crate::mutator::MutatorLocal::default();
     let kept_gc = {
-        let mut runtime = heap.collector_runtime();
+        let root_stack = scratch.root_stack_ptr();
+        let mut runtime = heap.collector_runtime_with_local(&mut scratch);
         runtime
             .begin_major_mark(plan)
             .expect("begin persistent major mark");
         let mut scope = HandleScope::new(root_stack);
         let kept = runtime
-            .alloc_typed(&mut scope, OldLeaf([18; 32]))
+            .alloc_typed_scoped(&mut scope, OldLeaf([18; 32]))
             .expect("alloc old leaf through runtime");
         runtime
             .finish_major_collection()
@@ -2654,12 +2659,13 @@ fn collector_runtime_alloc_typed_keeps_rooted_object_alive_during_active_major_m
 #[test]
 fn collector_runtime_alloc_typed_places_pinned_object_in_pinned_space() {
     let mut heap = Heap::new(HeapConfig::default());
+    let mut scratch = crate::mutator::MutatorLocal::default();
     let pinned_gc = {
-        let root_stack = heap.root_stack_ptr();
-        let mut runtime = heap.collector_runtime();
+        let root_stack = scratch.root_stack_ptr();
+        let mut runtime = heap.collector_runtime_with_local(&mut scratch);
         let mut scope = HandleScope::new(root_stack);
         runtime
-            .alloc_typed(&mut scope, PinnedLeaf(55))
+            .alloc_typed_scoped(&mut scope, PinnedLeaf(55))
             .expect("alloc pinned leaf through runtime")
             .as_gc()
     };
@@ -5255,15 +5261,16 @@ fn execute_major_plan_honors_exact_selected_old_regions() {
 fn dropping_scope_releases_root_slots() {
     let mut heap = Heap::new(HeapConfig::default());
 
+    let mut mutator = heap.mutator();
     {
-        let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
         mutator.alloc(&mut scope, Leaf(13)).expect("alloc leaf");
         assert_eq!(scope.slot_count(), 1);
-        assert_eq!(mutator.heap().root_slot_count(), 1);
+        assert_eq!(mutator.root_slot_count(), 1);
     }
-
-    assert_eq!(heap.root_slot_count(), 0);
+    // Dropping the scope truncates the mutator's local root
+    // stack back to its pre-scope length.
+    assert_eq!(mutator.root_slot_count(), 0);
 }
 
 #[test]

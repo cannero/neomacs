@@ -25,9 +25,50 @@ use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
 /// Collector-side runtime bound to one heap.
+///
+/// The runtime carries a per-cycle `MutatorLocal` that it
+/// either borrows from an outer [`crate::mutator::Mutator`]
+/// or owns for the duration of the call. Every collector
+/// entry point that needs to walk roots threads that local
+/// through.
 #[derive(Debug)]
 pub struct CollectorRuntime<'heap> {
     heap: &'heap mut HeapCore,
+    local: CollectorLocal<'heap>,
+}
+
+/// Owner or borrow of the [`crate::mutator::MutatorLocal`]
+/// carried by [`CollectorRuntime`]. When constructed from a
+/// [`crate::mutator::Mutator`] (the production path) the
+/// runtime borrows the mutator's local so per-mutator state
+/// (TLAB, root stack, barrier ring) survives across calls.
+/// When constructed directly from `HeapCore` (via
+/// [`HeapCore::collector_runtime`], typically a test or
+/// non-mutator entry point), the runtime owns an ephemeral
+/// local that dies at the end of the borrow — empty roots
+/// are fine because the borrow checker prevents concurrent
+/// mutator activity, so no live roots could exist during
+/// that window anyway.
+#[derive(Debug)]
+pub(crate) enum CollectorLocal<'heap> {
+    Borrowed(&'heap mut crate::mutator::MutatorLocal),
+    Owned(Box<crate::mutator::MutatorLocal>),
+}
+
+impl CollectorLocal<'_> {
+    pub(crate) fn get(&self) -> &crate::mutator::MutatorLocal {
+        match self {
+            Self::Borrowed(local) => local,
+            Self::Owned(local) => local,
+        }
+    }
+
+    pub(crate) fn get_mut(&mut self) -> &mut crate::mutator::MutatorLocal {
+        match self {
+            Self::Borrowed(local) => local,
+            Self::Owned(local) => local,
+        }
+    }
 }
 
 /// Try to bump-allocate `layout` through the caller-supplied
@@ -88,8 +129,33 @@ pub struct SharedCollectorRuntime {
 }
 
 impl<'heap> CollectorRuntime<'heap> {
+    /// Build a runtime that owns an ephemeral mutator local.
+    /// Used by test-only and non-mutator entry points that
+    /// just need a collector surface without owning a
+    /// `Mutator`. Empty roots are fine in this mode because
+    /// the borrow checker guarantees no `Mutator` is alive
+    /// while a `&mut HeapCore` is held — so no live roots
+    /// could exist either.
     pub(crate) fn new(heap: &'heap mut HeapCore) -> Self {
-        Self { heap }
+        Self {
+            heap,
+            local: CollectorLocal::Owned(Box::default()),
+        }
+    }
+
+    /// Build a runtime that borrows the supplied mutator
+    /// local. Used by [`crate::mutator::Mutator`] so every
+    /// collector operation (alloc, collect, barrier, etc.)
+    /// sees that mutator's TLAB, root stack, and barrier
+    /// event ring.
+    pub(crate) fn with_local(
+        heap: &'heap mut HeapCore,
+        local: &'heap mut crate::mutator::MutatorLocal,
+    ) -> Self {
+        Self {
+            heap,
+            local: CollectorLocal::Borrowed(local),
+        }
     }
 
     /// Return a shared view of the underlying heap.
@@ -158,7 +224,8 @@ impl<'heap> CollectorRuntime<'heap> {
         self.heap.collector_handle().clear_recent_phase_trace();
         let runtime_state = self.heap.runtime_state_handle();
         let mut phases = Vec::new();
-        let (roots, objects, indexes, old_gen, stats, old_config, nursery_config, nursery) =
+        let roots = self.local.get_mut().roots_mut();
+        let (objects, indexes, old_gen, stats, old_config, nursery_config, nursery) =
             self.heap.collection_exec_parts();
         let mut cycle = execute_collection_plan(
             &plan,
@@ -190,7 +257,8 @@ impl<'heap> CollectorRuntime<'heap> {
                 .old_config()
                 .physical_compaction_density_threshold;
             if density_threshold > 0.0 {
-                self.heap.compact_old_gen_physical(density_threshold);
+                let roots = self.local.get_mut().roots_mut();
+                self.heap.compact_old_gen_physical(roots, density_threshold);
             }
         }
         cycle.pause_nanos = pause_start.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
@@ -297,38 +365,30 @@ impl<'heap> CollectorRuntime<'heap> {
         Ok(())
     }
 
-    /// Allocate a typed managed object without a
-    /// per-mutator TLAB slab. Nursery allocations bump
-    /// directly from the shared from-space cursor. Used by
-    /// test call sites that construct a bare
-    /// `CollectorRuntime` without a `MutatorLocal`;
-    /// production `Mutator::alloc` and `Mutator::alloc_auto`
-    /// use
-    /// [`alloc_typed_with_tlab`](Self::alloc_typed_with_tlab)
-    /// instead so each mutator bumps within its own slab.
-    #[cfg(test)]
-    pub(crate) fn alloc_typed<'scope, 'handle_heap, T: crate::descriptor::Trace + 'static>(
+    /// Try to allocate `layout` bytes of nursery storage
+    /// by bumping within the carried local's TLAB. Returns
+    /// `None` if both the TLAB refill and the shared
+    /// from-space cursor fail.
+    fn try_alloc_nursery_with_local(
         &mut self,
-        scope: &mut HandleScope<'scope, 'handle_heap>,
-        value: T,
-    ) -> Result<Root<'scope, T>, AllocError> {
-        // The no-TLAB path is semantically equivalent to
-        // `alloc_typed_with_tlab` with a throwaway empty slab
-        // slot: `try_bump_nursery_tlab_or_refill` will try the
-        // (empty) slot, then fall through to refill and
-        // finally to the shared-cursor bump. The throwaway
-        // slab is dropped at the end of this call, releasing
-        // any from-space capacity it reserved but did not
-        // actually use.
-        let mut throwaway: Option<crate::spaces::nursery_arena::NurseryTlab> = None;
-        self.alloc_typed_with_tlab(scope, &mut throwaway, value)
+        layout: core::alloc::Layout,
+    ) -> Option<core::ptr::NonNull<u8>> {
+        let tlab_bytes = self.heap.config().nursery.tlab_bytes;
+        // Split borrow: self.local and self.heap are disjoint
+        // fields of CollectorRuntime, so we can mutably
+        // reference both at the same time.
+        let local: &mut crate::mutator::MutatorLocal = self.local.get_mut();
+        let tlab = &mut local.tlab;
+        let heap: &mut HeapCore = &mut *self.heap;
+        try_bump_nursery_tlab_or_refill(tlab, heap.nursery_mut(), layout, tlab_bytes)
+            .or_else(|| heap.nursery_mut().try_alloc(layout))
     }
 
-    /// Allocate a typed managed object through an
-    /// externally-owned nursery TLAB slab.
+    /// Allocate a typed managed object through this
+    /// runtime's carried `MutatorLocal`.
     ///
     /// Nursery allocations attempt to bump within the
-    /// supplied slab via
+    /// local's TLAB slab via
     /// [`try_bump_nursery_tlab_or_refill`]. On TLAB hit the
     /// allocation never touches the shared from-space
     /// cursor. On TLAB miss the slab is refilled from the
@@ -343,10 +403,9 @@ impl<'heap> CollectorRuntime<'heap> {
     ///
     /// Pinned, large, and immortal-space allocations always
     /// bypass the TLAB and go through the system allocator.
-    pub(crate) fn alloc_typed_with_tlab<'scope, 'handle_heap, T: crate::descriptor::Trace + 'static>(
+    pub(crate) fn alloc_typed_scoped<'scope, 'handle_heap, T: crate::descriptor::Trace + 'static>(
         &mut self,
         scope: &mut HandleScope<'scope, 'handle_heap>,
-        tlab: &mut Option<crate::spaces::nursery_arena::NurseryTlab>,
         value: T,
     ) -> Result<Root<'scope, T>, AllocError> {
         if self.heap.prepared_full_reclaim_active() {
@@ -358,14 +417,7 @@ impl<'heap> CollectorRuntime<'heap> {
             SpaceKind::Nursery => {
                 let (layout, payload_offset) =
                     crate::object::allocation_layout_for::<T>()?;
-                let tlab_bytes = self.heap.config().nursery.tlab_bytes;
-                let base = try_bump_nursery_tlab_or_refill(
-                    tlab,
-                    self.heap.nursery_mut(),
-                    layout,
-                    tlab_bytes,
-                )
-                .or_else(|| self.heap.nursery_mut().try_alloc(layout));
+                let base = self.try_alloc_nursery_with_local(layout);
                 match base {
                     Some(base) => unsafe {
                         crate::object::ObjectRecord::allocate_in_arena::<T>(
@@ -475,12 +527,9 @@ impl<'heap> CollectorRuntime<'heap> {
     }
 
     /// Record a post-write barrier and push the diagnostic
-    /// event onto the supplied mutator-local ring. This is
-    /// the production path used by
-    /// [`crate::mutator::Mutator::post_write_barrier`].
-    pub(crate) fn record_post_write_with_local(
+    /// event onto the runtime's carried mutator-local ring.
+    pub(crate) fn record_post_write(
         &mut self,
-        local: &mut crate::mutator::MutatorLocal,
         owner: GcErased,
         slot: Option<usize>,
         old_value: Option<GcErased>,
@@ -495,10 +544,12 @@ impl<'heap> CollectorRuntime<'heap> {
         let record_satb = old_value.is_some() && active_major_mark;
 
         self.heap.bump_barrier_stats(BarrierKind::PostWrite);
-        local.push_barrier_event(BarrierKind::PostWrite, owner, slot, old_value, new_value);
+        self.local
+            .get_mut()
+            .push_barrier_event(BarrierKind::PostWrite, owner, slot, old_value, new_value);
         if record_satb {
             self.heap.bump_barrier_stats(BarrierKind::SatbPreWrite);
-            local.push_barrier_event(
+            self.local.get_mut().push_barrier_event(
                 BarrierKind::SatbPreWrite,
                 owner,
                 slot,
@@ -528,11 +579,14 @@ impl<'heap> CollectorRuntime<'heap> {
 
     /// Begin a persistent major-mark session for one scheduler-provided plan.
     pub fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
+        let sources = self
+            .heap
+            .global_sources_with_roots(&self.local.get().roots);
         self.heap.collector_handle().begin_major_mark_and_refresh(
             self.heap.objects(),
             &self.heap.indexes().object_index,
             plan,
-            self.heap.global_sources(),
+            sources,
             &self.heap.storage_stats(),
             self.heap.old_gen(),
             self.heap.old_config(),
@@ -795,8 +849,8 @@ impl<'heap> CollectorRuntime<'heap> {
             CollectionKind::Major => Ok(prepare_heap_major_reclaim(self.heap, plan)),
             CollectionKind::Full => {
                 let mut phases = Vec::new();
+                let roots = self.local.get_mut().roots_mut();
                 let (
-                    roots,
                     objects,
                     indexes,
                     old_gen,
@@ -865,7 +919,8 @@ impl<'heap> CollectorRuntime<'heap> {
             .old_config()
             .physical_compaction_density_threshold;
         if density_threshold > 0.0 {
-            self.heap.compact_old_gen_physical(density_threshold);
+            let roots = self.local.get_mut().roots_mut();
+            self.heap.compact_old_gen_physical(roots, density_threshold);
         }
         cycle.pause_nanos = pause_start.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
         self.record_completed_cycle(cycle, finished.completed_plan);
@@ -1270,7 +1325,7 @@ impl SharedCollectorRuntime {
                 heap.objects(),
                 &heap.indexes().object_index,
                 plan,
-                heap.global_sources(),
+                heap.global_sources_with_roots(&crate::root::RootStack::default()),
             )?;
             refresh_cached_collector_plans(
                 collector,
@@ -1293,7 +1348,7 @@ impl SharedCollectorRuntime {
                 heap.objects(),
                 &heap.indexes().object_index,
                 plan,
-                heap.global_sources(),
+                heap.global_sources_with_roots(&crate::root::RootStack::default()),
             )?;
             refresh_cached_collector_plans(
                 collector,

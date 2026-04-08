@@ -11,7 +11,6 @@ use crate::pause_stats::{PauseHistogram, PauseStatsHandle};
 use crate::plan::{
     CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress, RuntimeWorkStatus,
 };
-use crate::root::RootStack;
 use crate::runtime::CollectorRuntime;
 use crate::runtime_state::RuntimeStateHandle;
 use crate::spaces::{
@@ -20,7 +19,6 @@ use crate::spaces::{
 };
 use crate::stats::{CollectionStats, HeapStats, OldRegionStats};
 use core::any::TypeId;
-use core::ptr::NonNull;
 use std::collections::HashMap;
 
 /// Heap creation configuration.
@@ -93,7 +91,6 @@ pub enum AllocError {
 pub(crate) struct HeapCore {
     config: HeapConfig,
     stats: HeapStats,
-    roots: RootStack,
     descriptors: HashMap<TypeId, &'static TypeDesc>,
     // --- record storage (drops first, before nursery) ---
     objects: Vec<ObjectRecord>,
@@ -224,12 +221,14 @@ impl Heap {
 
     /// See [`HeapCore::compact_old_gen_physical`].
     pub fn compact_old_gen_physical(&mut self, density_threshold: f64) -> usize {
-        self.core.compact_old_gen_physical(density_threshold)
+        let mut roots = crate::root::RootStack::default();
+        self.core.compact_old_gen_physical(&mut roots, density_threshold)
     }
 
     /// See [`HeapCore::compact_old_gen_blocks`].
     pub fn compact_old_gen_blocks(&mut self, block_indices: &[usize]) -> usize {
-        self.core.compact_old_gen_blocks(block_indices)
+        let mut roots = crate::root::RootStack::default();
+        self.core.compact_old_gen_blocks(&mut roots, block_indices)
     }
 
     /// See [`HeapCore::compaction_stats`].
@@ -257,7 +256,9 @@ impl Heap {
         &mut self,
         fragmentation_threshold: f64,
     ) -> (f64, usize) {
-        self.core.compact_old_gen_if_fragmented(fragmentation_threshold)
+        let mut roots = crate::root::RootStack::default();
+        self.core
+            .compact_old_gen_if_fragmented(&mut roots, fragmentation_threshold)
     }
 
     /// See [`HeapCore::should_compact_old_gen`].
@@ -271,7 +272,9 @@ impl Heap {
         density_threshold: f64,
         max_passes: usize,
     ) -> usize {
-        self.core.compact_old_gen_aggressive(density_threshold, max_passes)
+        let mut roots = crate::root::RootStack::default();
+        self.core
+            .compact_old_gen_aggressive(&mut roots, density_threshold, max_passes)
     }
 
     /// See [`HeapCore::plan_for`].
@@ -483,8 +486,11 @@ impl Heap {
         self.core.old_config()
     }
 
-    pub(crate) fn global_sources(&self) -> Vec<GcErased> {
-        self.core.global_sources()
+    pub(crate) fn global_sources_with_roots(
+        &self,
+        roots: &crate::root::RootStack,
+    ) -> Vec<GcErased> {
+        self.core.global_sources_with_roots(roots)
     }
 
     pub(crate) fn storage_stats(&self) -> HeapStats {
@@ -534,9 +540,17 @@ impl Heap {
         self.core.space_of(gc)
     }
 
+    /// Build a `CollectorRuntime` that borrows the supplied
+    /// `MutatorLocal` instead of carrying an ephemeral one.
+    /// Crate-internal helper for tests that need to drive
+    /// the collector runtime directly without going through
+    /// a `Mutator`.
     #[cfg(test)]
-    pub(crate) fn root_slot_count(&self) -> usize {
-        self.core.root_slot_count()
+    pub(crate) fn collector_runtime_with_local<'a>(
+        &'a mut self,
+        local: &'a mut crate::mutator::MutatorLocal,
+    ) -> CollectorRuntime<'a> {
+        CollectorRuntime::with_local(&mut self.core, local)
     }
 
     #[cfg(test)]
@@ -547,11 +561,6 @@ impl Heap {
     #[cfg(test)]
     pub(crate) fn inspect_old_gen_block_accounting_for_test(&self) -> (usize, usize) {
         self.core.inspect_old_gen_block_accounting_for_test()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn root_stack_ptr(&mut self) -> NonNull<RootStack> {
-        self.core.root_stack_ptr()
     }
 }
 
@@ -591,7 +600,6 @@ impl HeapCore {
                 pending_finalizers: 0,
             },
             config,
-            roots: RootStack::default(),
             descriptors: HashMap::default(),
             objects: Vec::new(),
             indexes: HeapIndexState::default(),
@@ -625,8 +633,16 @@ impl HeapCore {
         self.collector.clone()
     }
 
-    pub(crate) fn global_sources(&self) -> Vec<GcErased> {
-        collect_global_sources(&self.roots, &self.objects)
+    /// Build the list of global trace sources the collector
+    /// walks alongside mutator roots. Mutator roots now live
+    /// on per-mutator `MutatorLocal` instances; this helper
+    /// takes one root stack and pairs it with the heap's
+    /// permanent sources (immortal objects, etc.).
+    pub(crate) fn global_sources_with_roots(
+        &self,
+        roots: &crate::root::RootStack,
+    ) -> Vec<GcErased> {
+        collect_global_sources(roots, &self.objects)
     }
 
     pub(crate) fn objects(&self) -> &[ObjectRecord] {
@@ -716,11 +732,14 @@ impl HeapCore {
     /// assert_eq!(moved, 0);
     /// assert_eq!(heap.compaction_stats().cycles, 0);
     /// ```
-    pub fn compact_old_gen_physical(&mut self, density_threshold: f64) -> usize {
+    pub(crate) fn compact_old_gen_physical(
+        &mut self,
+        roots: &mut crate::root::RootStack,
+        density_threshold: f64,
+    ) -> usize {
         let runtime_state = self.runtime_state.clone();
         let block_count_before = self.old_gen.block_count();
         let Self {
-            roots,
             objects,
             indexes,
             old_gen,
@@ -799,7 +818,11 @@ impl HeapCore {
     /// `CollectionPlan::selected_old_blocks` snapshot) can pass
     /// the indices in directly. Returns the number of records
     /// physically evacuated.
-    pub fn compact_old_gen_blocks(&mut self, block_indices: &[usize]) -> usize {
+    pub(crate) fn compact_old_gen_blocks(
+        &mut self,
+        roots: &mut crate::root::RootStack,
+        block_indices: &[usize],
+    ) -> usize {
         if block_indices.is_empty() {
             return 0;
         }
@@ -808,7 +831,6 @@ impl HeapCore {
         let candidate_set: std::collections::HashSet<usize> =
             block_indices.iter().copied().collect();
         let Self {
-            roots,
             objects,
             indexes,
             old_gen,
@@ -928,8 +950,9 @@ impl HeapCore {
     /// distinguish "no compaction run" (moved == 0) from "compaction
     /// ran but nothing qualified" (fragmentation met threshold but
     /// no sparse blocks).
-    pub fn compact_old_gen_if_fragmented(
+    pub(crate) fn compact_old_gen_if_fragmented(
         &mut self,
+        roots: &mut crate::root::RootStack,
         fragmentation_threshold: f64,
     ) -> (f64, usize) {
         let frag = self.old_gen_fragmentation_ratio();
@@ -941,7 +964,7 @@ impl HeapCore {
             .old
             .physical_compaction_density_threshold
             .max(0.5);
-        let moved = self.compact_old_gen_physical(density);
+        let moved = self.compact_old_gen_physical(roots, density);
         (frag, moved)
     }
 
@@ -980,15 +1003,16 @@ impl HeapCore {
     ///
     /// `max_passes` of 0 returns 0 immediately. The loop bound
     /// caps worst-case work for pathological heaps.
-    pub fn compact_old_gen_aggressive(
+    pub(crate) fn compact_old_gen_aggressive(
         &mut self,
+        roots: &mut crate::root::RootStack,
         density_threshold: f64,
         max_passes: usize,
     ) -> usize {
         let mut total_moved = 0usize;
         for _ in 0..max_passes {
             let blocks_before = self.old_gen.block_count();
-            let moved = self.compact_old_gen_physical(density_threshold);
+            let moved = self.compact_old_gen_physical(roots, density_threshold);
             if moved == 0 {
                 break;
             }
@@ -1008,7 +1032,6 @@ impl HeapCore {
     pub(crate) fn collection_exec_parts(
         &mut self,
     ) -> (
-        &mut RootStack,
         &mut Vec<ObjectRecord>,
         &mut HeapIndexState,
         &mut OldGenState,
@@ -1020,7 +1043,6 @@ impl HeapCore {
         let Self {
             config,
             stats,
-            roots,
             objects,
             indexes,
             old_gen,
@@ -1028,7 +1050,6 @@ impl HeapCore {
             ..
         } = self;
         (
-            roots,
             objects,
             indexes,
             old_gen,
@@ -1372,15 +1393,6 @@ impl HeapCore {
     /// buffer are left untouched.
     pub fn clear_barrier_stats(&mut self) {
         self.barrier_stats = crate::stats::BarrierStats::default();
-    }
-
-    #[cfg(test)]
-    pub(crate) fn root_slot_count(&self) -> usize {
-        self.roots.len()
-    }
-
-    pub(crate) fn root_stack_ptr(&mut self) -> NonNull<RootStack> {
-        NonNull::from(&mut self.roots)
     }
 
     /// Create a mutator bound to this heap.

@@ -7,8 +7,9 @@ use crate::plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress,
     RuntimeWorkStatus,
 };
-use crate::root::{Gc, HandleScope, Root};
+use crate::root::{Gc, HandleScope, Root, RootStack};
 use crate::stats::CollectionStats;
+use core::ptr::NonNull;
 
 /// Bounded ring retained per mutator for diagnostic
 /// inspection of recent barrier events. The count matches
@@ -23,13 +24,7 @@ const MAX_BARRIER_EVENTS: usize = 1024;
 /// belongs to one mutator instance and must not be shared
 /// across mutators even when they allocate against the same
 /// heap: the per-mutator nursery TLAB slab, the per-mutator
-/// barrier event ring, and (in later commits) the root stack.
-///
-/// The `RootStack` move still requires the
-/// `Arc<RwLock<HeapCore>>` wrap in commit 4 of the
-/// multi-mutator migration order (`DESIGN.md` Appendix A)
-/// because moving it means threading `&mut MutatorLocal`
-/// through every collector entry point that walks roots.
+/// barrier event ring, and the per-mutator root stack.
 #[derive(Debug, Default)]
 pub struct MutatorLocal {
     /// Per-mutator nursery TLAB slab. Carved out of the
@@ -47,7 +42,7 @@ pub struct MutatorLocal {
     /// Bounded diagnostic ring of the most recent barrier
     /// events this mutator has recorded. Updated by
     /// [`MutatorLocal::push_barrier_event`] from the barrier
-    /// path in [`crate::runtime::CollectorRuntime::record_post_write`].
+    /// path in [`crate::runtime::CollectorRuntime::record_post_write_with_local`].
     /// External observers read it via
     /// [`Mutator::recent_barrier_events`].
     ///
@@ -56,6 +51,44 @@ pub struct MutatorLocal {
     /// multi-mutator target and matches the "per-mutator
     /// diagnostic ring" design in DESIGN.md Appendix A.
     pub(crate) barrier_events: Vec<BarrierEvent>,
+    /// Per-mutator root stack. Each `HandleScope` pushes
+    /// slots into its mutator's local stack; collection
+    /// walks them during stop-the-world cycles and during
+    /// concurrent major mark.
+    ///
+    /// In the single-mutator world this was heap-owned via
+    /// `HeapCore::roots`. Moving it onto `MutatorLocal` lets
+    /// the collector walk multiple mutators' root stacks
+    /// independently in the multi-mutator target. Today's
+    /// collector still operates on a single `&mut MutatorLocal`
+    /// threaded in from the caller.
+    pub(crate) roots: RootStack,
+}
+
+impl MutatorLocal {
+    /// Return a `NonNull` pointer into this local's root
+    /// stack. The pointer is safe to use as long as
+    /// `self` is not moved; `HandleScope` relies on stable
+    /// addressing of the backing vector while the scope is
+    /// alive, which in turn relies on the `MutatorLocal`
+    /// itself being pinned by a `&mut` borrow for the scope
+    /// duration.
+    pub(crate) fn root_stack_ptr(&mut self) -> NonNull<RootStack> {
+        NonNull::from(&mut self.roots)
+    }
+
+    /// Crate-internal accessor for the root stack. Used by
+    /// collector entry points that need to iterate live
+    /// roots during a cycle.
+    #[allow(dead_code)]
+    pub(crate) fn roots(&self) -> &RootStack {
+        &self.roots
+    }
+
+    /// Mutable accessor for the root stack.
+    pub(crate) fn roots_mut(&mut self) -> &mut RootStack {
+        &mut self.roots
+    }
 }
 
 impl MutatorLocal {
@@ -100,9 +133,19 @@ impl<'heap> Mutator<'heap> {
         }
     }
 
-    /// Create a new rooted handle scope.
+    /// Build a `CollectorRuntime` that borrows both this
+    /// mutator's heap core and its mutator local. Used by
+    /// every collector entry point on this mutator so the
+    /// runtime sees the mutator's TLAB, root stack, and
+    /// barrier event ring.
+    fn runtime<'r>(&'r mut self) -> crate::runtime::CollectorRuntime<'r> {
+        crate::runtime::CollectorRuntime::with_local(self.heap, &mut self.local)
+    }
+
+    /// Create a new rooted handle scope backed by this
+    /// mutator's per-local root stack.
     pub fn handle_scope<'scope>(&mut self) -> HandleScope<'scope, 'heap> {
-        HandleScope::new(self.heap.root_stack_ptr())
+        HandleScope::new(self.local.root_stack_ptr())
     }
 
     /// Return a shared view of the underlying heap.
@@ -126,9 +169,7 @@ impl<'heap> Mutator<'heap> {
         scope: &mut HandleScope<'scope, 'heap>,
         value: T,
     ) -> Result<Root<'scope, T>, AllocError> {
-        self.heap
-            .collector_runtime()
-            .alloc_typed_with_tlab(scope, &mut self.local.tlab, value)
+        self.runtime().alloc_typed_scoped(scope, value)
     }
 
     /// Allocate one managed object, collecting first if nursery pressure requires it.
@@ -137,12 +178,9 @@ impl<'heap> Mutator<'heap> {
         scope: &mut HandleScope<'scope, 'heap>,
         value: T,
     ) -> Result<Root<'scope, T>, AllocError> {
-        self.heap
-            .collector_runtime()
-            .prepare_typed_allocation::<T>()?;
-        self.heap
-            .collector_runtime()
-            .alloc_typed_with_tlab(scope, &mut self.local.tlab, value)
+        let mut runtime = self.runtime();
+        runtime.prepare_typed_allocation::<T>()?;
+        runtime.alloc_typed_scoped(scope, value)
     }
 
     /// Return whether this mutator currently holds a
@@ -150,6 +188,13 @@ impl<'heap> Mutator<'heap> {
     #[cfg(test)]
     pub(crate) fn has_nursery_tlab(&self) -> bool {
         self.local.tlab.is_some()
+    }
+
+    /// Number of live root slots in this mutator's local
+    /// root stack. Test-only observer.
+    #[cfg(test)]
+    pub(crate) fn root_slot_count(&self) -> usize {
+        self.local.roots.len()
     }
 
     /// Drop any per-mutator nursery TLAB slab. Test-only
@@ -172,15 +217,13 @@ impl<'heap> Mutator<'heap> {
             !self.heap.prepared_full_reclaim_active(),
             "cannot add new roots while prepared full reclaim is active; finish the active full collection first"
         );
-        self.heap
-            .collector_runtime()
-            .root_during_active_major_mark(gc.erase());
+        self.runtime().root_during_active_major_mark(gc.erase());
         scope.root(gc)
     }
 
     /// Run one collection cycle against this mutator's heap.
     pub fn collect(&mut self, kind: CollectionKind) -> Result<CollectionStats, AllocError> {
-        self.heap.collector_runtime().collect(kind)
+        self.runtime().collect(kind)
     }
 
     /// Run physical old-gen compaction against this mutator's
@@ -190,7 +233,8 @@ impl<'heap> Mutator<'heap> {
     ///
     /// Returns the number of records physically evacuated.
     pub fn compact_old_gen_physical(&mut self, density_threshold: f64) -> usize {
-        self.heap.compact_old_gen_physical(density_threshold)
+        self.heap
+            .compact_old_gen_physical(self.local.roots_mut(), density_threshold)
     }
 
     /// Aggressive compaction wrapper. Mirrors
@@ -203,7 +247,7 @@ impl<'heap> Mutator<'heap> {
         max_passes: usize,
     ) -> usize {
         self.heap
-            .compact_old_gen_aggressive(density_threshold, max_passes)
+            .compact_old_gen_aggressive(self.local.roots_mut(), density_threshold, max_passes)
     }
 
     /// Block-targeted compaction wrapper. Mirrors
@@ -211,7 +255,8 @@ impl<'heap> Mutator<'heap> {
     /// borrow so scoped roots created from the same mutator
     /// stay valid across the call.
     pub fn compact_old_gen_blocks(&mut self, block_indices: &[usize]) -> usize {
-        self.heap.compact_old_gen_blocks(block_indices)
+        self.heap
+            .compact_old_gen_blocks(self.local.roots_mut(), block_indices)
     }
 
     /// Predicate-only check for opportunistic compaction.
@@ -274,7 +319,7 @@ impl<'heap> Mutator<'heap> {
         fragmentation_threshold: f64,
     ) -> (f64, usize) {
         self.heap
-            .compact_old_gen_if_fragmented(fragmentation_threshold)
+            .compact_old_gen_if_fragmented(self.local.roots_mut(), fragmentation_threshold)
     }
 
     /// Return the number of queued finalizers waiting to run.
@@ -325,22 +370,22 @@ impl<'heap> Mutator<'heap> {
 
     /// Execute one scheduler-provided collection plan.
     pub fn execute_plan(&mut self, plan: CollectionPlan) -> Result<CollectionStats, AllocError> {
-        self.heap.collector_runtime().execute_plan(plan)
+        self.runtime().execute_plan(plan)
     }
 
     /// Begin a persistent major-mark session for one scheduler-provided plan.
     pub fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
-        self.heap.collector_runtime().begin_major_mark(plan)
+        self.runtime().begin_major_mark(plan)
     }
 
     /// Advance one slice of the current persistent major-mark session.
     pub fn advance_major_mark(&mut self) -> Result<MajorMarkProgress, AllocError> {
-        self.heap.collector_runtime().advance_major_mark()
+        self.runtime().advance_major_mark()
     }
 
     /// Finish the current persistent major-mark session and reclaim.
     pub fn finish_major_collection(&mut self) -> Result<CollectionStats, AllocError> {
-        self.heap.collector_runtime().finish_major_collection()
+        self.runtime().finish_major_collection()
     }
 
     /// Advance up to `max_slices` of the active major-mark session.
@@ -348,46 +393,38 @@ impl<'heap> Mutator<'heap> {
         &mut self,
         max_slices: usize,
     ) -> Result<Option<MajorMarkProgress>, AllocError> {
-        self.heap.collector_runtime().assist_major_mark(max_slices)
+        self.runtime().assist_major_mark(max_slices)
     }
 
     /// Advance one scheduler-style concurrent major-mark round using the active plan worker count.
     pub fn poll_active_major_mark(&mut self) -> Result<Option<MajorMarkProgress>, AllocError> {
-        self.heap.collector_runtime().poll_active_major_mark()
+        self.runtime().poll_active_major_mark()
     }
 
     /// Prepare reclaim for the active major collection once mark work is fully drained.
     pub fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
-        self.heap
-            .collector_runtime()
-            .prepare_active_reclaim_if_needed()
+        self.runtime().prepare_active_reclaim_if_needed()
     }
 
     /// Finish the active major collection if its mark work is fully drained.
     pub fn finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
-        self.heap
-            .collector_runtime()
-            .finish_active_major_collection_if_ready()
+        self.runtime().finish_active_major_collection_if_ready()
     }
 
     /// Commit the active major collection once reclaim has already been prepared.
     pub fn commit_active_reclaim_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
-        self.heap
-            .collector_runtime()
-            .commit_active_reclaim_if_ready()
+        self.runtime().commit_active_reclaim_if_ready()
     }
 
     /// Service one background collection round for the active major-mark session.
     pub fn service_background_collection_round(
         &mut self,
     ) -> Result<BackgroundCollectionStatus, AllocError> {
-        self.heap
-            .collector_runtime()
-            .service_background_collection_round()
+        self.runtime().service_background_collection_round()
     }
 
     /// Record a post-write barrier for one mutated GC edge.
@@ -402,20 +439,12 @@ impl<'heap> Mutator<'heap> {
             !self.heap.prepared_full_reclaim_active(),
             "cannot mutate heap edges while prepared full reclaim is active; finish the active full collection first"
         );
-        // Route through the local so this mutator's
-        // per-mutator barrier event ring (on `MutatorLocal`)
-        // captures the diagnostic entry. The collector-side
-        // bookkeeping (cumulative stats, SATB recording,
-        // remembered set) still runs on the heap.
-        self.heap
-            .collector_runtime()
-            .record_post_write_with_local(
-                &mut self.local,
-                owner.erase(),
-                slot,
-                old_value.map(Gc::erase),
-                new_value.map(Gc::erase),
-            );
+        self.runtime().record_post_write(
+            owner.erase(),
+            slot,
+            old_value.map(Gc::erase),
+            new_value.map(Gc::erase),
+        );
     }
 
     /// Store a managed edge and record the required post-write barrier.
