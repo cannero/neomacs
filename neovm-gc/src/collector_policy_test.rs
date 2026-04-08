@@ -154,15 +154,16 @@ fn build_plan_full_includes_old_nursery_and_large_reclaim() {
 
     assert_eq!(plan.phase, CollectionPhase::InitialMark);
     assert_eq!(plan.worker_count, 2);
-    // target_old_regions is now driven by block-side selection.
-    // This synthetic fixture only populates the legacy regions
-    // vec (not the blocks vec) so block-side selection finds
-    // zero candidates here. The legacy estimated_*_bytes are
-    // still computed from the populated regions vec, hence
-    // the 64 / 144 expectations below remain meaningful.
+    // The planner reads its candidate set from blocks. This
+    // synthetic fixture only populates the legacy regions vec
+    // (not the blocks vec) so block-side selection finds zero
+    // candidates and the old-gen contribution to all the
+    // estimator outputs is zero.
     assert_eq!(plan.target_old_regions, 0);
-    assert_eq!(plan.estimated_compaction_bytes, 64);
-    assert_eq!(plan.estimated_reclaim_bytes, 144);
+    assert_eq!(plan.estimated_compaction_bytes, 0);
+    // estimated_reclaim_bytes for Full still includes nursery
+    // and large bytes from the stats fixture (32 + 48 = 80).
+    assert_eq!(plan.estimated_reclaim_bytes, 80);
 }
 
 #[test]
