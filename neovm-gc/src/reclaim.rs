@@ -1,6 +1,6 @@
 use crate::heap::AllocError;
 use crate::index_state::{ForwardingMap, HeapIndexState, PreparedIndexReclaim};
-use crate::object::{ObjectRecord, OldBlockPlacement, SpaceKind};
+use crate::object::{ObjectRecord, OldBlockPlacement, PendingFinalizer, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPlan};
 use crate::runtime_state::RuntimeStateHandle;
 use crate::spaces::{
@@ -388,7 +388,7 @@ pub(crate) fn prepare_full_reclaim<Heap, Forwarding>(
 pub(crate) fn commit_prepared_reclaim_objects(
     old_objects: Vec<ObjectRecord>,
     prepared_reclaim: &PreparedReclaim,
-    mut enqueue_pending_finalizer: impl FnMut(ObjectRecord) -> u64,
+    mut enqueue_pending_finalizer: impl FnMut(PendingFinalizer) -> u64,
 ) -> (Vec<ObjectRecord>, u64) {
     debug_assert!(
         prepared_reclaim
@@ -429,7 +429,9 @@ pub(crate) fn commit_prepared_reclaim_objects(
             .is_some_and(|&pending_index| pending_index == current_index);
         if should_finalize {
             finalize_iter.next();
-            queued_finalizers = queued_finalizers.saturating_add(enqueue_pending_finalizer(object));
+            let pending = PendingFinalizer::new(object);
+            queued_finalizers =
+                queued_finalizers.saturating_add(enqueue_pending_finalizer(pending));
             continue;
         }
 
@@ -525,7 +527,7 @@ pub(crate) fn apply_prepared_reclaim(
     stats: &mut HeapStats,
     runtime_state: &RuntimeStateHandle,
     prepared_reclaim: PreparedReclaim,
-    enqueue_pending_finalizer: impl FnMut(ObjectRecord) -> u64,
+    enqueue_pending_finalizer: impl FnMut(PendingFinalizer) -> u64,
 ) -> ReclaimCommitResult {
     let old_objects = core::mem::take(objects);
     let (rebuilt_objects, queued_finalizers) =
@@ -573,7 +575,7 @@ pub(crate) fn finish_prepared_reclaim_cycle(
     mark_elapsed_nanos: u64,
     reclaim_prepare_nanos: u64,
     prepared_reclaim: PreparedReclaim,
-    enqueue_pending_finalizer: impl FnMut(ObjectRecord) -> u64,
+    enqueue_pending_finalizer: impl FnMut(PendingFinalizer) -> u64,
 ) -> CollectionStats {
     let promoted_bytes = prepared_reclaim.promoted_bytes;
     let commit = apply_prepared_reclaim(
@@ -607,7 +609,7 @@ pub(crate) fn sweep_minor_and_rebuild_post_collection(
     runtime_state: &RuntimeStateHandle,
     kind: CollectionKind,
     completed_plan: Option<CollectionPlan>,
-    mut enqueue_pending_finalizer: impl FnMut(ObjectRecord) -> u64,
+    mut enqueue_pending_finalizer: impl FnMut(PendingFinalizer) -> u64,
 ) -> MinorRebuildResult {
     let _ = (old_config, completed_plan);
     let old_objects = core::mem::take(objects);
@@ -619,8 +621,9 @@ pub(crate) fn sweep_minor_and_rebuild_post_collection(
     for object in old_objects {
         if !keep_object_for_collection(kind, &object) {
             if post_sweep_indexes.should_enqueue_finalizer(&object) {
+                let pending = PendingFinalizer::new(object);
                 queued_finalizers =
-                    queued_finalizers.saturating_add(enqueue_pending_finalizer(object));
+                    queued_finalizers.saturating_add(enqueue_pending_finalizer(pending));
             }
             continue;
         }

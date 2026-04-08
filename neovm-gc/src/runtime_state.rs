@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError, TryLockResult};
 
-use crate::object::{ObjectRecord, OldBlockPlacement, PendingFinalizer};
+use crate::object::{OldBlockPlacement, PendingFinalizer};
 use crate::plan::RuntimeWorkStatus;
 use crate::stats::HeapStats;
 
@@ -44,8 +44,8 @@ impl RuntimeStateHandle {
         stats.pending_finalizers = pending_finalizers;
     }
 
-    pub(crate) fn enqueue_pending_finalizer(&self, object: ObjectRecord) -> u64 {
-        self.lock().enqueue_pending_finalizer(object)
+    pub(crate) fn enqueue_pending_finalizer(&self, pending: PendingFinalizer) -> u64 {
+        self.lock().enqueue_pending_finalizer(pending)
     }
 
     /// Snapshot the `OldBlockPlacement`s of every pending finalizer record.
@@ -128,8 +128,8 @@ impl RuntimeState {
         self.pending_finalizers.len()
     }
 
-    pub(crate) fn enqueue_pending_finalizer(&mut self, object: ObjectRecord) -> u64 {
-        self.pending_finalizers.push(PendingFinalizer::new(object));
+    pub(crate) fn enqueue_pending_finalizer(&mut self, pending: PendingFinalizer) -> u64 {
+        self.pending_finalizers.push(pending);
         1
     }
 
