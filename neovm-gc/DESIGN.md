@@ -869,21 +869,47 @@ The refactor lands as a series of small commits, each of which compiles and
 passes the full test suite:
 
 1. **Extract `MutatorLocal`** (~30 lines). `Mutator` gains a `local:
-   MutatorLocal` field initialized to default. No behavioral change.
-2. **Wire `NurseryTlab` into the nursery alloc path** (~300 lines). `Mutator::
-   alloc` intercepts the nursery fast path, bumps within the TLAB on hit, refills
-   via `reserve_tlab` on miss. Still `&mut Heap`; stepping stone.
-3. **Move `RootStack` and `recent_barrier_events` onto `MutatorLocal`** (~200
-   lines).
-4. **Wrap `Heap` in `Arc<RwLock<HeapCore>>`** (~800-1200 lines). The riskiest
-   commit — every `&mut Heap` site migrates. Allocation is still serialized via
-   the write lock, but the type system now allows multiple `Mutator` instances.
+   MutatorLocal` field initialized to default. No behavioral change. Ground-
+   laying step that places the struct on the `Mutator` type so later commits
+   can slot fields onto it without revisiting the struct definition.
+   **Status:** landed as commit `ea2c1bc7e`.
+2. **Wire `NurseryTlab` into the nursery alloc path** (~300 lines). The
+   allocation hot path intercepts via `try_bump_nursery_tlab_or_refill`,
+   bumps within the TLAB on hit, refills via `reserve_tlab` on miss. TLAB
+   currently lives on `Heap` as a stepping stone because `CollectorRuntime`
+   (which drives the alloc path) is constructed from `Heap`, not from
+   `Mutator`; moving the field onto `MutatorLocal` requires the
+   `Arc<RwLock<HeapCore>>` refactor to land first so the alloc path can
+   route through `&mut MutatorLocal`.
+   **Status:** landed as commit `7a45cd3fd`.
+3. ~~**Move `RootStack` and `recent_barrier_events` onto `MutatorLocal`**~~
+   **This commit was planned as a pre-refactor stepping stone but cannot be
+   cleanly separated from commit 4.** Both fields are currently consumed by
+   `CollectorRuntime` via `Heap::collection_exec_parts()` / `Heap::
+   push_barrier_event()`; `CollectorRuntime` is constructed from `Heap`, not
+   from `Mutator`, so there is no path from the collector call sites to
+   `MutatorLocal` without threading `&mut MutatorLocal` through every
+   collector entry point — which is most of commit 4's scope anyway. The
+   deeper issue: in a true multi-mutator world, the collector walks *all*
+   mutators' root stacks during a cycle. Moving `RootStack` onto
+   `MutatorLocal` is not a rename, it is the step where the collector gains
+   the concept of "iterate over all mutators' root stacks", which is part of
+   the `Arc<RwLock<HeapCore>>` architecture itself. Commit 3's field moves
+   are now folded into commit 4.
+4. **Wrap `Heap` in `Arc<RwLock<HeapCore>>`** (~1000-1500 lines including the
+   absorbed commit 3 moves). The riskiest commit — every `&mut Heap` site
+   migrates. Extract `HeapCore` as a `pub(crate)` inner type owning every
+   field that stays shared; move `RootStack`, `recent_barrier_events`, and
+   `NurseryTlab` onto `MutatorLocal`; update the collector entry points to
+   accept `&mut MutatorLocal` alongside `&HeapCore` (or equivalent split).
+   Allocation is still serialized via the write lock, but the type system
+   now allows multiple `Mutator` instances.
 5. **Change `Heap::mutator` to a shared-handle factory** (~100 lines).
 6. **Multi-mutator stress tests** (~200 lines): N threads, each with its own
    mutator, all allocating concurrently.
 7. **Atomicize `BarrierStats` for lock-free barriers** (~150 lines). Optional
-   but high-value: without it every barrier event serializes on the heap write
-   lock.
+   but high-value: without it every barrier event serializes on the heap
+   write lock.
 8. **(Optional) Fine-grained locks** if profiling shows the single-lock model
    is the bottleneck.
 
