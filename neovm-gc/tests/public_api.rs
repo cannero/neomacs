@@ -78,6 +78,28 @@ unsafe impl Trace for PinnedLeaf {
 }
 
 #[derive(Debug)]
+struct PinnedOwner {
+    child: EdgeCell<Leaf>,
+}
+
+unsafe impl Trace for PinnedOwner {
+    fn trace(&self, tracer: &mut dyn Tracer) {
+        self.child.trace(tracer);
+    }
+
+    fn relocate(&self, relocator: &mut dyn Relocator) {
+        self.child.relocate(relocator);
+    }
+
+    fn move_policy() -> MovePolicy
+    where
+        Self: Sized,
+    {
+        MovePolicy::Pinned
+    }
+}
+
+#[derive(Debug)]
 struct PromoteToPinnedLeaf(u64);
 
 unsafe impl Trace for PromoteToPinnedLeaf {
@@ -581,6 +603,46 @@ fn public_api_full_collection_prunes_remembered_edges_for_dead_old_owner() {
     assert_eq!(stats.remembered_owners, 0);
     assert_eq!(stats.remembered_dirty_cards, 0);
     assert_eq!(stats.remembered_explicit_edges, 0);
+}
+
+#[test]
+fn public_api_pinned_owner_nursery_edge_uses_explicit_fallback() {
+    // Pinned-space records do not live inside an `OldBlock` so the
+    // per-block card-table fast path cannot fire for them. The
+    // remembered-set maintenance code therefore has to fall back to
+    // the explicit `Vec<RememberedEdge>` path. This test pins that
+    // contract by storing an edge from a pinned owner into a nursery
+    // child and observing the split stats counters.
+    let mut heap = Heap::new(HeapConfig::default());
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+    let owner = mutator
+        .alloc(
+            &mut scope,
+            PinnedOwner {
+                child: EdgeCell::default(),
+            },
+        )
+        .expect("alloc pinned owner");
+    let child = mutator.alloc(&mut scope, Leaf(9001)).expect("alloc leaf");
+
+    mutator.store_edge(&owner, 0, |o| &o.child, Some(child.as_gc()));
+
+    let stats = mutator.heap().stats();
+    assert_eq!(
+        stats.remembered_explicit_edges, 1,
+        "pinned owner should force the explicit-edge fallback",
+    );
+    assert_eq!(
+        stats.remembered_dirty_cards, 0,
+        "pinned owner must not dirty any block card",
+    );
+    assert_eq!(
+        stats.remembered_edges, 1,
+        "unified counter reflects the explicit edge only",
+    );
+    assert_eq!(stats.remembered_owners, 1);
+    assert_eq!(mutator.heap().total_remembered_count(), 1);
 }
 
 #[test]
