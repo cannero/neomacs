@@ -1216,22 +1216,37 @@ impl SharedHeap {
     /// Return the current nursery fill ratio (a float in
     /// `[0.0, 1.0]`).
     ///
-    /// Takes a brief read-lock on the heap. Concurrent-safe
-    /// with other readers.
+    /// Reads from the same lock-free shared snapshot as
+    /// [`SharedHeap::stats`], so this never blocks on the heap
+    /// mutex. The ratio is reconstructed from the cached
+    /// `stats.nursery` integers (live_bytes / reserved_bytes)
+    /// rather than walking the live heap.
     pub fn nursery_fill_ratio(&self) -> Result<f64, SharedHeapError> {
-        let heap = self.read().map_err(|_| SharedHeapError::LockPoisoned)?;
-        Ok(heap.nursery_fill_ratio())
+        let stats = self.stats()?;
+        let reserved = stats.nursery.reserved_bytes;
+        if reserved == 0 {
+            return Ok(0.0);
+        }
+        // The nursery is a semispace: reserved_bytes is 2 *
+        // semispace_bytes, so the capacity of the one active
+        // half (which live_bytes is measured against) is half
+        // of reserved_bytes.
+        let semispace = reserved / 2;
+        if semispace == 0 {
+            return Ok(0.0);
+        }
+        Ok((stats.nursery.live_bytes as f64) / (semispace as f64))
     }
 
     /// Return the current old-gen fragmentation ratio (a float
     /// in `[0.0, 1.0]`) computed from the block-side counters.
     ///
     /// Takes a brief read-lock on the heap to walk the block
-    /// pool. Concurrent-safe with other readers. Returns
-    /// `Err(LockPoisoned)` only if the underlying RwLock is
-    /// poisoned. Lock-free snapshot reads cannot return this
-    /// because `f64` does not implement `Eq`, so the value is
-    /// not cached in `SharedHeapStatus`.
+    /// pool. Concurrent-safe with other readers. The raw
+    /// numerator (`sum(block.used_bytes - block.live_bytes)`)
+    /// and denominator (`sum(block.used_bytes)`) used by the
+    /// Heap are not tracked in the cached snapshot, so this
+    /// method cannot use the lock-free snapshot path.
     pub fn old_gen_fragmentation_ratio(&self) -> Result<f64, SharedHeapError> {
         let heap = self.read().map_err(|_| SharedHeapError::LockPoisoned)?;
         Ok(heap.old_gen_fragmentation_ratio())
