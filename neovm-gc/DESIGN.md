@@ -108,13 +108,18 @@ Still staging compromises:
   background-collector status surfaces all read from the cached
   snapshots. The fragmentation accessors reconstruct their ratios
   from the new `HeapStats.old_gen_used_bytes` field that is
-  populated alongside `old.live_bytes`. The main `RwLock` is now
-  only taken for state-mutating operations (`compact_old_gen_blocks`,
-  the `clear_*_stats` family, `compact_old_gen_if_fragmented`,
-  `compact_old_gen_aggressive`, `compact_old_gen_physical`). The
-  final data-plane split would target reducing write-side
-  contention next, e.g. by routing barrier-event recording and
-  remembered-set maintenance through their own locks.
+  populated alongside `old.live_bytes`. The three SharedHeap
+  compaction triggers (`compact_old_gen_if_fragmented`,
+  `compact_old_gen_aggressive`, `compact_old_gen_physical`) all
+  perform a lock-free precheck through the cached snapshot and
+  return immediately for their no-op cases (empty pool,
+  insufficient fragmentation, or `max_passes == 0`) without
+  ever taking the heap write lock. The main `RwLock` is now
+  only taken for the actual mutation pass of those compaction
+  calls and for the `clear_*_stats` family. The final
+  data-plane split would target reducing write-side contention
+  next, e.g. by routing barrier-event recording and remembered-
+  set maintenance through their own locks.
 - nursery allocation is a single bump-pointer cursor on the
   from-space arena. The allocation hot path is already ~8
   arithmetic ops and a single byte store, so it is "lock-free"
