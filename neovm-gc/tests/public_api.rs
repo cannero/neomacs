@@ -10180,3 +10180,178 @@ fn public_api_shared_status_reports_pause_histogram() {
     // pause must be at least as large as the min pause.
     assert!(after.pauses.max_nanos >= after.pauses.min_nanos);
 }
+
+// -- Multi-mutator stress tests (DESIGN.md Appendix A success criterion 3) --
+
+#[test]
+fn public_api_multi_mutator_two_mutators_coexist_against_same_heap() {
+    // Type-system smoke test: with `Heap::mutator(&self)`,
+    // two mutators can coexist as long as their borrows do
+    // not actively overlap in operations. Here we simply
+    // hold both alive at once and operate on each one in
+    // turn — the type system rejects this in the old
+    // `&mut self` model and accepts it in the new `&self`
+    // model.
+    let heap = Heap::new(HeapConfig::default());
+    let mut m1 = heap.mutator();
+    let mut m2 = heap.mutator();
+    {
+        let mut s1 = m1.handle_scope();
+        m1.alloc(&mut s1, Leaf(1)).expect("alloc on mutator one");
+    }
+    {
+        let mut s2 = m2.handle_scope();
+        m2.alloc(&mut s2, Leaf(2)).expect("alloc on mutator two");
+    }
+    // Both mutators recorded an allocation against the same
+    // heap. Heap::object_count is the unified count.
+    assert_eq!(heap.object_count(), 2);
+}
+
+#[test]
+fn public_api_multi_mutator_concurrent_allocation_from_n_threads() {
+    // Spawn N worker threads that each clone the heap, build
+    // their own mutator, and allocate a batch of leaves
+    // concurrently. After all workers finish, the unified
+    // object_count must equal `n_workers * leaves_per_worker`
+    // — every allocation must have been recorded against the
+    // shared HeapCore without dropping or duplicating any
+    // entry.
+    const N_WORKERS: usize = 4;
+    const LEAVES_PER_WORKER: u64 = 64;
+
+    let heap = Heap::new(HeapConfig::default());
+    let mut handles = Vec::new();
+    for worker_id in 0..N_WORKERS {
+        let heap = heap.clone();
+        handles.push(thread::spawn(move || {
+            let mut mutator = heap.mutator();
+            let mut scope = mutator.handle_scope();
+            for i in 0..LEAVES_PER_WORKER {
+                let label = (worker_id as u64) * 1_000 + i;
+                mutator
+                    .alloc(&mut scope, Leaf(label))
+                    .expect("alloc concurrent leaf");
+            }
+        }));
+    }
+    for handle in handles {
+        handle.join().expect("join concurrent allocator");
+    }
+    let total = N_WORKERS * (LEAVES_PER_WORKER as usize);
+    assert_eq!(heap.object_count(), total);
+}
+
+#[test]
+fn public_api_multi_mutator_collection_serializes_with_concurrent_allocators() {
+    // One thread allocates continuously while another runs a
+    // major collection. The new lock model serializes the
+    // collection cycle against allocator activity (collection
+    // takes the heap write lock; allocators briefly take the
+    // same lock per op). The test asserts the collection
+    // completes and the allocator survives without panic.
+    use std::sync::atomic::AtomicBool;
+
+    let heap = Heap::new(HeapConfig::default());
+    let stop = Arc::new(AtomicBool::new(false));
+
+    // Allocator thread.
+    let allocator_heap = heap.clone();
+    let allocator_stop = Arc::clone(&stop);
+    let allocator = thread::spawn(move || {
+        let mut mutator = allocator_heap.mutator();
+        let mut count: u64 = 0;
+        while !allocator_stop.load(Ordering::Acquire) {
+            let mut scope = mutator.handle_scope();
+            for i in 0..16u64 {
+                mutator
+                    .alloc(&mut scope, Leaf(count + i))
+                    .expect("alloc concurrent leaf");
+            }
+            count += 16;
+        }
+        count
+    });
+
+    // Run a few collection cycles from the main thread.
+    for _ in 0..4 {
+        thread::sleep(Duration::from_millis(2));
+        heap.collect(CollectionKind::Major)
+            .expect("major collection during concurrent allocator");
+    }
+
+    stop.store(true, Ordering::Release);
+    let allocated = allocator.join().expect("join allocator thread");
+    assert!(
+        allocated >= 16,
+        "allocator should have made progress before stopping, allocated {}",
+        allocated
+    );
+}
+
+#[test]
+fn public_api_multi_mutator_each_mutator_owns_independent_barrier_ring() {
+    // Two mutators that each fire a post-write barrier.
+    // Each mutator's barrier event ring should record only
+    // its own events; the other mutator should see an empty
+    // ring. The cumulative heap-wide barrier counters should
+    // reflect both events because they atomically aggregate
+    // across mutators.
+    let heap = Heap::new(HeapConfig::default());
+    let owner_a;
+    let target_a;
+    let owner_b;
+    let target_b;
+
+    // Allocate four leaves through one mutator (cheap setup).
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        owner_a = mutator
+            .alloc(&mut scope, Leaf(1))
+            .expect("alloc owner_a")
+            .as_gc();
+        target_a = mutator
+            .alloc(&mut scope, Leaf(2))
+            .expect("alloc target_a")
+            .as_gc();
+        owner_b = mutator
+            .alloc(&mut scope, Leaf(3))
+            .expect("alloc owner_b")
+            .as_gc();
+        target_b = mutator
+            .alloc(&mut scope, Leaf(4))
+            .expect("alloc target_b")
+            .as_gc();
+    }
+
+    let baseline = heap.barrier_stats();
+
+    // Two separate mutators, each fires one post-write
+    // barrier with disjoint owner/target pairs.
+    let mut m1 = heap.mutator();
+    let mut m2 = heap.mutator();
+    m1.post_write_barrier::<Leaf, Leaf>(owner_a, Some(0), None, Some(target_a));
+    m2.post_write_barrier::<Leaf, Leaf>(owner_b, Some(0), None, Some(target_b));
+
+    // Each mutator's per-local ring records only its own
+    // event.
+    assert_eq!(m1.barrier_event_count(), 1);
+    assert_eq!(m2.barrier_event_count(), 1);
+    assert!(
+        m1.recent_barrier_events()
+            .iter()
+            .any(|e| e.kind == BarrierKind::PostWrite)
+    );
+    assert!(
+        m2.recent_barrier_events()
+            .iter()
+            .any(|e| e.kind == BarrierKind::PostWrite)
+    );
+
+    // The heap-wide cumulative counters reflect both events
+    // because the AtomicBarrierStats counters are shared
+    // across mutators.
+    let after = heap.barrier_stats();
+    assert_eq!(after.post_write, baseline.post_write + 2);
+}
