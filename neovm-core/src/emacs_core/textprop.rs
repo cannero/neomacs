@@ -34,8 +34,20 @@ pub(crate) fn init_textprop_vars(
         ]),
     );
     obarray.make_special("text-property-default-nonsticky");
+    // Mirrors GNU `Fmake_variable_buffer_local` (`data.c:2142-2207`):
+    // flip the redirect tag to LOCALIZED, allocate a BLV, set
+    // local_if_set = 1. Replaces the legacy `make_buffer_local`
+    // helper which was destructive (set the redirect back to
+    // PLAINVAL and orphaned the BLV).
+    {
+        let id = crate::emacs_core::intern::intern("text-property-default-nonsticky");
+        let default = obarray
+            .find_symbol_value(id)
+            .unwrap_or(crate::emacs_core::value::Value::NIL);
+        obarray.make_symbol_localized(id, default);
+        obarray.set_blv_local_if_set(id, true);
+    }
     custom.make_variable_buffer_local("text-property-default-nonsticky");
-    obarray.make_buffer_local("text-property-default-nonsticky", true);
 }
 
 // ---------------------------------------------------------------------------

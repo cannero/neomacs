@@ -79,10 +79,21 @@ pub fn init_syntax_vars(
         obarray.make_special(name);
     }
 
-    custom.make_variable_buffer_local("syntax-propertize--done");
-    obarray.make_buffer_local("syntax-propertize--done", true);
-    custom.make_variable_buffer_local("comment-end-can-be-escaped");
-    obarray.make_buffer_local("comment-end-can-be-escaped", true);
+    // Mirrors GNU `Fmake_variable_buffer_local` (`data.c:2142-2207`):
+    // flip the redirect tag to LOCALIZED, allocate a BLV, set
+    // local_if_set = 1. The legacy `obarray.make_buffer_local`
+    // helper used to be called here too but it overwrites the
+    // freshly-set LOCALIZED redirect back to PLAINVAL and
+    // orphans the BLV.
+    for name in ["syntax-propertize--done", "comment-end-can-be-escaped"] {
+        custom.make_variable_buffer_local(name);
+        let id = crate::emacs_core::intern::intern(name);
+        let default = obarray
+            .find_symbol_value(id)
+            .unwrap_or(crate::emacs_core::value::Value::NIL);
+        obarray.make_symbol_localized(id, default);
+        obarray.set_blv_local_if_set(id, true);
+    }
 }
 
 // ===========================================================================
