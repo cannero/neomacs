@@ -315,6 +315,13 @@ fn documentation_lambda_no_docstring() {
 fn documentation_substitutes_command_keys_unless_raw() {
     crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
+    // `(documentation 'foo)` calls `substitute-command-keys` on the
+    // raw doc when RAW is nil. That function lives in `lisp/help.el`,
+    // not in C/Rust, so the test must load enough of the GNU runtime
+    // for help.el's `defun substitute-command-keys` to be reachable.
+    // Mirrors GNU loadup.el ordering, which loads help.el before any
+    // documentation query.
+    crate::test_utils::load_minimal_gnu_help_runtime(&mut evaluator);
     let lambda = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![]),
         body: vec![Value::symbol("t")],
@@ -393,6 +400,12 @@ fn documentation_if_special_form_uses_oracle_text_shape() {
 fn documentation_core_subr_stubs_use_oracle_first_line_shapes() {
     crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
+    // The shim now stores raw grave-quoted text matching GNU's actual
+    // DEFUN doc: comments. With bare `Context::new()' there's no
+    // substitute-command-keys yet, so the prefix is checked against
+    // the raw form. Once help.el loads,
+    // `substitute-command-keys' will rewrite the quotes per
+    // `text-quoting-style' (see the post-shim integration test below).
     let probes = [
         (
             "cons",
@@ -425,9 +438,9 @@ fn documentation_core_subr_stubs_use_oracle_first_line_shapes() {
         ),
         (
             "member",
-            "Return non-nil if ELT is an element of LIST.  Comparison done with ‘equal’.",
+            "Return non-nil if ELT is an element of LIST.  Comparison done with `equal'.",
         ),
-        ("symbol-name", "Return SYMBOL’s name, a string."),
+        ("symbol-name", "Return SYMBOL's name, a string."),
     ];
 
     for (name, expected_prefix) in probes {
@@ -733,6 +746,9 @@ fn documentation_property_eval_returns_string_property() {
 fn documentation_property_eval_substitutes_command_keys_unless_raw() {
     crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
+    // See `documentation_substitutes_command_keys_unless_raw' for why
+    // help.el must be loaded before exercising the substitute path.
+    crate::test_utils::load_minimal_gnu_help_runtime(&mut evaluator);
     evaluator.obarray.put_property(
         "doc-sym",
         "variable-documentation",

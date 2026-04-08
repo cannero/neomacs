@@ -1342,11 +1342,12 @@ fn internal_coding_system_setters_match_surface_validation() {
 #[test]
 fn text_quoting_and_conversion_style_basics() {
     crate::test_utils::init_test_tracing();
+    let eval = crate::emacs_core::eval::Context::new();
     assert_eq!(
-        builtin_text_quoting_style(vec![]).expect("text-quoting-style"),
+        builtin_text_quoting_style(&eval, vec![]).expect("text-quoting-style"),
         Value::symbol("curve")
     );
-    assert!(builtin_text_quoting_style(vec![Value::NIL]).is_err());
+    assert!(builtin_text_quoting_style(&eval, vec![Value::NIL]).is_err());
     assert_eq!(
         builtin_set_text_conversion_style(vec![Value::symbol("latin-1")])
             .expect("set-text-conversion-style"),

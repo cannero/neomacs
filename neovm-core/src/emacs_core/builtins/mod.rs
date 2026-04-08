@@ -8300,7 +8300,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "text-quoting-style",
-        |_ctx, args| super::coding::builtin_text_quoting_style(args),
+        |ctx, args| super::coding::builtin_text_quoting_style(ctx, args),
         0,
         Some(0),
     );

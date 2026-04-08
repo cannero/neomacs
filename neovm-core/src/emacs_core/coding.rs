@@ -1733,9 +1733,42 @@ pub(crate) fn builtin_set_safe_terminal_coding_system_internal(
     Ok(Value::NIL)
 }
 
-/// `(text-quoting-style)` -- return current text quoting style.
-pub(crate) fn builtin_text_quoting_style(args: Vec<Value>) -> EvalResult {
+/// `(text-quoting-style)` -- return the current effective text quoting style.
+///
+/// Mirrors GNU `Ftext_quoting_style` (`src/doc.c:652-678`):
+///   - If `text-quoting-style' is `grave', `straight', or `curve', return it.
+///   - If nil (the default), return `grave' when curved quotes cannot be
+///     displayed, otherwise `curve'.
+///   - Any other value is treated as `curve'.
+///   - Never returns nil.
+///
+/// The display-capability fallback (GNU's `default_to_grave_quoting_style')
+/// is currently a stub that always picks `curve' — neomacs does not yet
+/// query the active display table for curved-quote support. This matches
+/// GNU's behavior on a graphical/UTF-8 terminal.
+pub(crate) fn builtin_text_quoting_style(
+    eval: &super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("text-quoting-style", &args, 0)?;
+    let var = eval
+        .obarray
+        .symbol_value("text-quoting-style")
+        .copied()
+        .unwrap_or(Value::NIL);
+    if var.is_nil() {
+        // GNU `default_to_grave_quoting_style' inspects the standard
+        // display table to decide whether curved quotes are renderable.
+        // Stub: always pick `curve'. Bringing in real display-capability
+        // detection is a separate task.
+        return Ok(Value::symbol("curve"));
+    }
+    if let Some(name) = var.as_symbol_name() {
+        match name {
+            "grave" | "straight" | "curve" => return Ok(Value::symbol(name)),
+            _ => {}
+        }
+    }
     Ok(Value::symbol("curve"))
 }
 
