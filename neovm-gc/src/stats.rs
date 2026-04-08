@@ -203,6 +203,11 @@ pub struct SpaceStats {
 /// Counters are monotonic for the lifetime of one [`crate::Heap`]
 /// (and one [`crate::SharedHeap`] backing it). Diff two
 /// snapshots to attribute work to a particular interval.
+///
+/// The snapshot struct is plain `u64` so callers can compare
+/// and copy it cheaply. The live counters inside the heap
+/// live on [`AtomicBarrierStats`] for lock-free updates from
+/// the mutator barrier path.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct BarrierStats {
     /// Number of post-write barriers recorded across the heap's
@@ -215,6 +220,55 @@ pub struct BarrierStats {
     /// only fires when a major mark session is active and the
     /// overwritten slot carried a managed reference.
     pub satb_pre_write: u64,
+}
+
+/// Atomic counterpart of [`BarrierStats`] held inside
+/// [`crate::heap::HeapCore`]. The barrier hook bumps these
+/// counters with plain `Relaxed` atomic adds, avoiding the
+/// heap write lock entirely on the barrier hot path.
+/// Observers read a [`BarrierStats`] snapshot via
+/// [`AtomicBarrierStats::snapshot`].
+#[derive(Debug, Default)]
+pub struct AtomicBarrierStats {
+    post_write: std::sync::atomic::AtomicU64,
+    satb_pre_write: std::sync::atomic::AtomicU64,
+}
+
+impl AtomicBarrierStats {
+    /// Construct a fresh set of counters at zero.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Bump the post-write counter by one.
+    pub fn bump_post_write(&self) {
+        self.post_write
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Bump the SATB pre-write counter by one.
+    pub fn bump_satb_pre_write(&self) {
+        self.satb_pre_write
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Return a consistent snapshot of the current counter values.
+    pub fn snapshot(&self) -> BarrierStats {
+        BarrierStats {
+            post_write: self.post_write.load(std::sync::atomic::Ordering::Relaxed),
+            satb_pre_write: self
+                .satb_pre_write
+                .load(std::sync::atomic::Ordering::Relaxed),
+        }
+    }
+
+    /// Reset every counter to zero.
+    pub fn clear(&self) {
+        self.post_write
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.satb_pre_write
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 /// Cumulative physical old-gen compaction counters.

@@ -105,10 +105,13 @@ pub(crate) struct HeapCore {
     /// by `compact_old_gen_physical` after every call that
     /// actually moves at least one record.
     compaction_stats: crate::stats::CompactionStats,
-    /// Cumulative write-barrier traffic counters. Updated by
-    /// `push_barrier_event` for every barrier kind the runtime
-    /// records.
-    barrier_stats: crate::stats::BarrierStats,
+    /// Cumulative write-barrier traffic counters. The
+    /// backing store is atomic so the barrier hot path can
+    /// bump the counters with a relaxed fetch-add, avoiding
+    /// the heap write lock entirely. Observers read a
+    /// [`crate::stats::BarrierStats`] snapshot via
+    /// [`crate::stats::AtomicBarrierStats::snapshot`].
+    barrier_stats: crate::stats::AtomicBarrierStats,
     // --- arena buffers (drops last, after all records) ---
     /// Bump-pointer semispace nursery arenas.
     nursery: NurseryState,
@@ -609,7 +612,7 @@ impl HeapCore {
             pause_stats: PauseStatsHandle::new(),
             pacer,
             compaction_stats: crate::stats::CompactionStats::default(),
-            barrier_stats: crate::stats::BarrierStats::default(),
+            barrier_stats: crate::stats::AtomicBarrierStats::new(),
             nursery,
         };
         heap.refresh_recommended_plans();
@@ -1385,14 +1388,15 @@ impl HeapCore {
     /// assert_eq!(stats.satb_pre_write, 0);
     /// ```
     pub fn barrier_stats(&self) -> crate::stats::BarrierStats {
-        self.barrier_stats
+        self.barrier_stats.snapshot()
     }
 
     /// Reset cumulative barrier traffic counters back to zero.
     /// Recent diagnostic events retained in the bounded ring
-    /// buffer are left untouched.
-    pub fn clear_barrier_stats(&mut self) {
-        self.barrier_stats = crate::stats::BarrierStats::default();
+    /// buffer are left untouched. Takes `&self` because the
+    /// atomic counters can be reset without exclusive access.
+    pub fn clear_barrier_stats(&self) {
+        self.barrier_stats.clear();
     }
 
     /// Create a mutator bound to this heap.
@@ -1424,22 +1428,20 @@ impl HeapCore {
     }
 
     /// Increment the heap-wide cumulative barrier counters
-    /// for `kind`. The per-mutator diagnostic ring now
-    /// lives on [`crate::mutator::MutatorLocal`]; the
-    /// collector pushes events there via
+    /// for `kind`. Takes `&self` because
+    /// [`crate::stats::AtomicBarrierStats`] uses relaxed
+    /// atomic fetch-adds — the barrier hot path never needs
+    /// exclusive access to the heap for this bookkeeping.
+    /// The per-mutator diagnostic ring lives on
+    /// [`crate::mutator::MutatorLocal`]; the collector
+    /// pushes events there via
     /// [`crate::mutator::MutatorLocal::push_barrier_event`]
     /// during the same barrier hook that bumps the stats
     /// here.
-    pub(crate) fn bump_barrier_stats(&mut self, kind: BarrierKind) {
+    pub(crate) fn bump_barrier_stats(&self, kind: BarrierKind) {
         match kind {
-            BarrierKind::PostWrite => {
-                self.barrier_stats.post_write =
-                    self.barrier_stats.post_write.saturating_add(1);
-            }
-            BarrierKind::SatbPreWrite => {
-                self.barrier_stats.satb_pre_write =
-                    self.barrier_stats.satb_pre_write.saturating_add(1);
-            }
+            BarrierKind::PostWrite => self.barrier_stats.bump_post_write(),
+            BarrierKind::SatbPreWrite => self.barrier_stats.bump_satb_pre_write(),
         }
     }
 
