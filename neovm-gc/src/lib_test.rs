@@ -11865,3 +11865,46 @@ fn nursery_tlab_force_invalidation_via_test_helper() {
         "next alloc must refill the TLAB after forced invalidation",
     );
 }
+
+#[test]
+fn nursery_tlab_honors_custom_tlab_bytes_config() {
+    // A tiny tlab_bytes value should force refills after
+    // just a few allocations (one Leaf occupies ~16 bytes
+    // of header + 8 bytes of payload = ~24 bytes). With
+    // tlab_bytes = 64, the first refill services at most
+    // two Leaf allocations before the slab overflows and a
+    // new one has to be reserved.
+    let leaf_bytes = estimated_allocation_size::<Leaf>().expect("leaf allocation size");
+    assert!(
+        leaf_bytes <= 64,
+        "test assumption: a Leaf allocation must fit in a 64-byte slab",
+    );
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            tlab_bytes: 64,
+            ..NurseryConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    // First allocation reserves a 64-byte slab. The exact
+    // number of Leafs that fit depends on alignment, but
+    // the slab must be reserved and a subsequent
+    // allocation must still succeed (via refill or shared
+    // cursor fallback).
+    {
+        let mut scope = mutator.handle_scope();
+        for i in 0..16u64 {
+            mutator
+                .alloc(&mut scope, Leaf(i))
+                .expect("alloc under tight tlab_bytes");
+        }
+    }
+    // The mutator should still hold a TLAB (either the
+    // current refill slab or the one the final allocation
+    // landed in).
+    assert!(
+        mutator.has_nursery_tlab(),
+        "a tight tlab_bytes value must still end up holding a TLAB after many allocations",
+    );
+}

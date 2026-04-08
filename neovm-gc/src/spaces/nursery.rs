@@ -22,6 +22,25 @@ pub struct NurseryConfig {
     pub promotion_age: u8,
     /// Number of worker threads to use for stop-the-world nursery tracing.
     pub parallel_minor_workers: usize,
+    /// Size in bytes of each per-mutator TLAB slab reserved
+    /// from the shared from-space cursor.
+    ///
+    /// Each `Mutator` bumps within its own slab on the
+    /// allocation hot path and only touches the shared
+    /// cursor on slab refill. Sizing affects the
+    /// refill/waste tradeoff:
+    ///
+    /// * Larger slabs amortize the refill cost across more
+    ///   allocations but leave more unused from-space
+    ///   capacity reserved per mutator.
+    /// * Smaller slabs refill more often but waste less
+    ///   from-space capacity to reserved-but-unused bytes.
+    ///
+    /// The default of 16 KiB is sized as roughly 0.1% of
+    /// the default 16 MiB semispace, which lets most
+    /// workloads amortize a refill across several thousand
+    /// small allocations.
+    pub tlab_bytes: usize,
 }
 
 impl Default for NurseryConfig {
@@ -31,6 +50,7 @@ impl Default for NurseryConfig {
             max_regular_object_bytes: 64 * 1024,
             promotion_age: 2,
             parallel_minor_workers: 1,
+            tlab_bytes: 16 * 1024,
         }
     }
 }

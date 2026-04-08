@@ -30,15 +30,6 @@ pub struct CollectorRuntime<'heap> {
     heap: &'heap mut Heap,
 }
 
-/// Default per-mutator nursery TLAB slab size. Sized as
-/// one percent of the default 16MB semispace so most
-/// workloads can service several thousand small allocations
-/// before a refill is needed, but small enough that a
-/// mutator that drops a TLAB (or one that gets invalidated
-/// by a minor cycle) does not leak an excessive amount of
-/// reserved-but-unused from-space capacity.
-const NURSERY_TLAB_DEFAULT_BYTES: usize = 16 * 1024;
-
 /// Try to bump-allocate `layout` through the caller-supplied
 /// nursery TLAB slab. On TLAB miss (including the "no TLAB
 /// reserved yet" case and the "generation-stale" case after
@@ -53,10 +44,15 @@ const NURSERY_TLAB_DEFAULT_BYTES: usize = 16 * 1024;
 /// currently on `MutatorLocal`, so each mutator has its own
 /// per-mutator slab without serializing on the shared
 /// cursor for the common case.
+///
+/// `tlab_bytes` comes from
+/// [`crate::spaces::NurseryConfig::tlab_bytes`] and controls
+/// how much from-space capacity each refill reserves.
 fn try_bump_nursery_tlab_or_refill(
     tlab_slot: &mut Option<crate::spaces::nursery_arena::NurseryTlab>,
     nursery: &mut crate::spaces::nursery_arena::NurseryState,
     layout: core::alloc::Layout,
+    tlab_bytes: usize,
 ) -> Option<core::ptr::NonNull<u8>> {
     let current_generation = nursery.generation();
 
@@ -68,11 +64,15 @@ fn try_bump_nursery_tlab_or_refill(
 
     // The existing TLAB (if any) is either exhausted or stale.
     // Drop it and try to refill from the shared cursor. The
-    // refill size is `max(layout.size(), NURSERY_TLAB_DEFAULT_BYTES)`
-    // so a single oversized allocation still has a chance of
-    // fitting via the TLAB path.
+    // refill size is `max(layout.size(), tlab_bytes)` so a
+    // single oversized allocation still has a chance of
+    // fitting via the TLAB path even when tlab_bytes is set
+    // smaller than the object.
     *tlab_slot = None;
-    let refill_size = NURSERY_TLAB_DEFAULT_BYTES.max(layout.size());
+    let refill_size = tlab_bytes.max(layout.size());
+    if refill_size == 0 {
+        return None;
+    }
     let mut fresh = nursery.reserve_tlab(refill_size)?;
     let base = fresh.try_alloc(current_generation, layout)?;
     *tlab_slot = Some(fresh);
@@ -358,8 +358,14 @@ impl<'heap> CollectorRuntime<'heap> {
             SpaceKind::Nursery => {
                 let (layout, payload_offset) =
                     crate::object::allocation_layout_for::<T>()?;
-                let base = try_bump_nursery_tlab_or_refill(tlab, self.heap.nursery_mut(), layout)
-                    .or_else(|| self.heap.nursery_mut().try_alloc(layout));
+                let tlab_bytes = self.heap.config().nursery.tlab_bytes;
+                let base = try_bump_nursery_tlab_or_refill(
+                    tlab,
+                    self.heap.nursery_mut(),
+                    layout,
+                    tlab_bytes,
+                )
+                .or_else(|| self.heap.nursery_mut().try_alloc(layout));
                 match base {
                     Some(base) => unsafe {
                         crate::object::ObjectRecord::allocate_in_arena::<T>(
