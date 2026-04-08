@@ -617,20 +617,39 @@ fn public_api_pinned_owner_nursery_edge_uses_explicit_fallback() {
     // the owner-only explicit fallback path. This test pins that
     // contract by storing an edge from a pinned owner into a nursery
     // child and observing the split stats counters.
-    let mut heap = Heap::new(HeapConfig::default());
+    // Set promotion_age = 1 so the nursery child gets
+    // promoted to old after a single minor cycle. With the
+    // default promotion_age of 2 the child would survive in
+    // to-space for one cycle and the post-minor refresh would
+    // still see a nursery edge through the pinned owner.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            promotion_age: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        ..HeapConfig::default()
+    });
     let mut mutator = heap.mutator();
-    let mut scope = mutator.handle_scope();
+    let mut owner_scope = mutator.handle_scope();
     let owner = mutator
         .alloc(
-            &mut scope,
+            &mut owner_scope,
             PinnedOwner {
                 child: EdgeCell::default(),
             },
         )
         .expect("alloc pinned owner");
-    let child = mutator.alloc(&mut scope, Leaf(9001)).expect("alloc leaf");
 
-    mutator.store_edge(&owner, 0, |o| &o.child, Some(child.as_gc()));
+    {
+        // Nested scope for the nursery child Root: when the
+        // scope drops, the child is unreachable except through
+        // the pinned owner's stored edge.
+        let mut child_scope = mutator.handle_scope();
+        let child = mutator
+            .alloc(&mut child_scope, Leaf(9001))
+            .expect("alloc leaf");
+        mutator.store_edge(&owner, 0, |o| &o.child, Some(child.as_gc()));
+    }
 
     let stats = mutator.heap().stats();
     assert_eq!(
@@ -655,6 +674,35 @@ fn public_api_pinned_owner_nursery_edge_uses_explicit_fallback() {
     );
     assert_eq!(stats.remembered_owners, 1);
     assert_eq!(mutator.heap().total_remembered_count(), 1);
+
+    // Run a minor cycle: the child gets evacuated (either to
+    // to-space or promoted to old) and the post-collection
+    // refresh walks the tracked owners. After the refresh, the
+    // pinned owner's edge no longer points at a nursery record
+    // so the owner gets dropped from the explicit fallback set.
+    mutator
+        .collect(CollectionKind::Minor)
+        .expect("minor collect");
+
+    let stats = mutator.heap().stats();
+    assert_eq!(
+        stats.remembered_explicit_edges, 0,
+        "post-minor refresh must drop owners with no nursery edges",
+    );
+    assert_eq!(
+        stats.remembered_explicit_owners, 0,
+        "owner-side counter must follow the edge counter",
+    );
+
+    // The owner is still rooted in owner_scope, and its edge
+    // still points at the (now-relocated) child.
+    assert!(
+        unsafe { owner.as_gc().as_non_null().as_ref() }
+            .child
+            .get()
+            .is_some(),
+        "pinned owner should still hold a relocated edge to the surviving child",
+    );
 }
 
 #[test]
