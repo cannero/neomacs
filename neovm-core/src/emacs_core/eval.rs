@@ -9505,10 +9505,24 @@ pub(crate) fn set_runtime_binding(
         }
     }
 
-    // If the variable is buffer-local (local_if_set=true) and no local
-    // binding exists yet, auto-create one — UNLESS a `let` is currently
-    // shadowing the default value (GNU: let_shadows_buffer_binding_p).
-    if symbol_is_canonical && (obarray.is_buffer_local(name) || custom.is_auto_buffer_local(name)) {
+    // If the variable was made buffer-local-by-default (i.e. GNU
+    // `local_if_set` is true on the BLV — set by `make-variable-buffer-local`)
+    // and no per-buffer binding exists yet, auto-create one in the
+    // current buffer. UNLESS a `let` is currently shadowing the
+    // default value (GNU: let_shadows_buffer_binding_p).
+    //
+    // Mirrors GNU `set_internal` SYMBOL_LOCALIZED arm
+    // (`src/data.c:1687-1762`): the auto-create branch is gated on
+    // `blv->local_if_set`. A symbol that was only made local in some
+    // *other* buffer via `make-local-variable` is LOCALIZED but has
+    // `local_if_set=false`; setq in a different buffer must update
+    // the global default, NOT create a new local.
+    let local_if_set = obarray
+        .blv(sym_id)
+        .map(|blv| blv.local_if_set)
+        .unwrap_or(false)
+        || custom.is_auto_buffer_local(name);
+    if symbol_is_canonical && local_if_set {
         // Check if a let is shadowing the default value
         let let_shadows = specpdl.iter().rev().any(
             |entry| matches!(entry, SpecBinding::LetDefault { sym_id: s, .. } if *s == sym_id),
@@ -9546,7 +9560,15 @@ pub(crate) fn makunbound_runtime_binding_in_state(
         return;
     }
 
-    if symbol_is_canonical && (obarray.is_buffer_local(name) || custom.is_auto_buffer_local(name)) {
+    // Same `local_if_set` gate as `set_runtime_binding` — see the
+    // long comment there. Mirrors GNU `set_internal` SYMBOL_LOCALIZED
+    // arm with `unbinding_p = true` (`src/data.c:1687-1762`).
+    let local_if_set = obarray
+        .blv(sym_id)
+        .map(|blv| blv.local_if_set)
+        .unwrap_or(false)
+        || custom.is_auto_buffer_local(name);
+    if symbol_is_canonical && local_if_set {
         if let Some(current_id) = buffers.current_buffer_id() {
             let _ = buffers.set_buffer_local_void_property(current_id, name);
             return;
