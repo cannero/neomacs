@@ -1108,12 +1108,12 @@ fn direct_old_allocation_tracks_old_region_stats() {
         .expect("alloc old leaf");
 
     assert_eq!(mutator.heap().space_of(root.as_gc()), Some(SpaceKind::Old));
-    let regions = mutator.heap().old_region_stats();
-    assert_eq!(regions.len(), 1);
-    assert_eq!(regions[0].region_index, 0);
-    assert_eq!(regions[0].object_count, 1);
-    assert!(regions[0].live_bytes > 0);
-    assert!(regions[0].occupied_lines > 0);
+    let blocks = mutator.heap().old_block_region_stats();
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0].region_index, 0);
+    assert_eq!(blocks[0].object_count, 1);
+    assert!(blocks[0].live_bytes > 0);
+    assert!(blocks[0].occupied_lines > 0);
     assert_eq!(unsafe { root.as_gc().as_non_null().as_ref() }.0[0], 7);
 }
 
@@ -1140,7 +1140,7 @@ fn minor_collection_preserves_old_region_layout_metadata() {
     let old_leaf = mutator
         .alloc(&mut keep_scope, OldLeaf([8; 32]))
         .expect("alloc direct-old leaf");
-    let before_regions = mutator.heap().old_region_stats();
+    let before_blocks = mutator.heap().old_block_region_stats();
 
     {
         let mut nursery_scope = mutator.handle_scope();
@@ -1152,10 +1152,10 @@ fn minor_collection_preserves_old_region_layout_metadata() {
     let cycle = mutator
         .collect(CollectionKind::Minor)
         .expect("minor collect");
-    let after_regions = mutator.heap().old_region_stats();
+    let after_blocks = mutator.heap().old_block_region_stats();
 
     assert_eq!(cycle.minor_collections, 1);
-    assert_eq!(after_regions, before_regions);
+    assert_eq!(after_blocks, before_blocks);
     assert_eq!(
         mutator.heap().space_of(old_leaf.as_gc()),
         Some(SpaceKind::Old)
@@ -4862,10 +4862,10 @@ fn major_collection_reuses_empty_old_region_for_later_old_allocation() {
         second.as_gc()
     };
     let second = mutator.root(&mut keep_scope, second_gc);
-    let regions = mutator.heap().old_region_stats();
-    assert_eq!(regions.len(), 2);
+    let blocks = mutator.heap().old_block_region_stats();
+    assert_eq!(blocks.len(), 2);
     assert_eq!(
-        regions
+        blocks
             .iter()
             .map(|region| region.object_count)
             .sum::<usize>(),
@@ -4878,17 +4878,17 @@ fn major_collection_reuses_empty_old_region_for_later_old_allocation() {
     assert_eq!(cycle.major_collections, 1);
     assert_eq!(cycle.compacted_regions, 0);
     assert_eq!(cycle.reclaimed_regions, 1);
-    let regions = mutator.heap().old_region_stats();
-    assert_eq!(regions.len(), 1);
-    assert_eq!(regions[0].object_count, 1);
+    let blocks = mutator.heap().old_block_region_stats();
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0].object_count, 1);
 
     let third = mutator
         .alloc(&mut keep_scope, OldLeaf([3; 32]))
         .expect("alloc reused old leaf");
-    let regions = mutator.heap().old_region_stats();
-    assert_eq!(regions.len(), 2);
-    assert_eq!(regions[0].object_count, 1);
-    assert_eq!(regions[1].object_count, 1);
+    let blocks = mutator.heap().old_block_region_stats();
+    assert_eq!(blocks.len(), 2);
+    assert_eq!(blocks[0].object_count, 1);
+    assert_eq!(blocks[1].object_count, 1);
     assert_eq!(unsafe { second.as_gc().as_non_null().as_ref() }.0[0], 2);
     assert_eq!(unsafe { third.as_gc().as_non_null().as_ref() }.0[0], 3);
 }
@@ -5007,10 +5007,15 @@ fn major_collection_preserves_non_candidate_hole_in_live_old_region() {
     assert_eq!(cycle.compacted_regions, 0);
     assert_eq!(cycle.reclaimed_regions, 0);
 
-    let regions = mutator.heap().old_region_stats();
-    assert_eq!(regions.len(), 1);
-    assert_eq!(regions[0].object_count, 2);
-    assert!(regions[0].hole_bytes > 0);
+    // Read the per-block view: with selective_reclaim_threshold
+    // set to usize::MAX the candidate set is empty, so no
+    // compaction runs and the dropped middle survivor's bytes
+    // remain as an honest physical hole inside the original
+    // block.
+    let blocks = mutator.heap().old_block_region_stats();
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0].object_count, 2);
+    assert!(blocks[0].hole_bytes > 0);
     assert_eq!(
         mutator.heap().major_region_candidates().len(),
         0,
@@ -5401,10 +5406,10 @@ fn minor_collection_promotes_reachable_nursery_objects() {
     assert_eq!(unsafe { root.as_gc().as_non_null().as_ref() }.label, 55);
     assert_eq!(mutator.heap().stats().nursery.live_bytes, 0);
     assert!(mutator.heap().stats().old.live_bytes > 0);
-    let regions = mutator.heap().old_region_stats();
-    assert_eq!(regions.len(), 1);
-    assert_eq!(regions[0].object_count, 1);
-    assert!(regions[0].live_bytes > 0);
+    let blocks = mutator.heap().old_block_region_stats();
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0].object_count, 1);
+    assert!(blocks[0].live_bytes > 0);
 }
 
 #[test]
