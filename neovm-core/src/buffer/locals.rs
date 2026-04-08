@@ -31,52 +31,25 @@ const ALWAYS_LOCAL_BUFFER_LOCAL_NAMES: &[&str] = &[
 // GNU buffer.c init_buffer_once: slots assigned an idx in buffer_local_flags
 // are only buffer-local when the buffer's local flag is set.
 const CONDITIONAL_SLOT_BUFFER_LOCAL_SPECS: &[ConditionalSlotSpec] = &[
+    // Phase 10D step 4 migrated `fill-column`.
+    // Phase 10D step 5 batch 1 migrated:
+    //   tab-width, left-margin, abbrev-mode, overwrite-mode,
+    //   selective-display, selective-display-ellipses,
+    //   truncate-lines, word-wrap, ctl-arrow, auto-fill-function.
+    // mode-line-format / header-line-format / tab-line-format
+    // remain on the legacy storage until the redisplay path is
+    // audited (those names triggered bootstrap timeouts when
+    // routed through FORWARDED).
     ConditionalSlotSpec {
         name: "mode-line-format",
         permanent: false,
     },
     ConditionalSlotSpec {
-        name: "abbrev-mode",
+        name: "header-line-format",
         permanent: false,
     },
     ConditionalSlotSpec {
-        name: "overwrite-mode",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "auto-fill-function",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "selective-display",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "selective-display-ellipses",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "tab-width",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "truncate-lines",
-        permanent: true,
-    },
-    ConditionalSlotSpec {
-        name: "word-wrap",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "ctl-arrow",
-        permanent: false,
-    },
-    // Phase 10D step 4: `fill-column` migrated to BUFFER_SLOT_INFO
-    // (`buffer.rs:BUFFER_SLOT_FILL_COLUMN`). The slot table is the
-    // single source of truth; the legacy entry would shadow the
-    // FORWARDED dispatch.
-    ConditionalSlotSpec {
-        name: "left-margin",
+        name: "tab-line-format",
         permanent: false,
     },
     ConditionalSlotSpec {

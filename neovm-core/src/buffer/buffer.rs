@@ -110,6 +110,41 @@ pub const BUFFER_SLOT_INVISIBILITY_SPEC: usize = 17;
 /// step 3 — picked because the value is a simple integer with a
 /// non-trivial default (70) and dense test coverage.
 pub const BUFFER_SLOT_FILL_COLUMN: usize = 18;
+/// Slot index for `tab-width`. Mirrors GNU's `tab_width_`
+/// (`buffer.h:386`). Default 8 (`buffer.c:4848`).
+pub const BUFFER_SLOT_TAB_WIDTH: usize = 19;
+/// Slot index for `left-margin`. Mirrors GNU's `left_margin_`
+/// (`buffer.h:388`). Default 0 (`buffer.c:4867`).
+pub const BUFFER_SLOT_LEFT_MARGIN: usize = 20;
+/// Slot index for `abbrev-mode`. Mirrors GNU's `abbrev_mode_`
+/// (`buffer.h:368`). Default nil (`buffer.c:4835`).
+pub const BUFFER_SLOT_ABBREV_MODE: usize = 21;
+/// Slot index for `overwrite-mode`. Mirrors GNU's `overwrite_mode_`
+/// (`buffer.h:369`). Default nil (`buffer.c:4836`).
+pub const BUFFER_SLOT_OVERWRITE_MODE: usize = 22;
+/// Slot index for `selective-display`. Mirrors GNU's
+/// `selective_display_` (`buffer.h:373`). Default nil (`buffer.c:4838`).
+pub const BUFFER_SLOT_SELECTIVE_DISPLAY: usize = 23;
+/// Slot index for `selective-display-ellipses`. Mirrors GNU's
+/// `selective_display_ellipses_` (`buffer.h:374`). Default t
+/// (`buffer.c:4839`).
+pub const BUFFER_SLOT_SELECTIVE_DISPLAY_ELLIPSES: usize = 24;
+/// Slot index for `truncate-lines`. Mirrors GNU's `truncate_lines_`
+/// (`buffer.h:355`). Default nil (`buffer.c:4849`).
+pub const BUFFER_SLOT_TRUNCATE_LINES: usize = 25;
+/// Slot index for `word-wrap`. Mirrors GNU's `word_wrap_`
+/// (`buffer.h:357`). Default nil (`buffer.c:4850`).
+pub const BUFFER_SLOT_WORD_WRAP: usize = 26;
+/// Slot index for `ctl-arrow`. Mirrors GNU's `ctl_arrow_`
+/// (`buffer.h:359`). Default t (`buffer.c:4851`).
+pub const BUFFER_SLOT_CTL_ARROW: usize = 27;
+/// Slot index for `auto-fill-function`. Mirrors GNU's
+/// `auto_fill_function_` (`buffer.h:367`). Default nil
+/// (`buffer.c:4837`).
+pub const BUFFER_SLOT_AUTO_FILL_FUNCTION: usize = 28;
+// Slots 29-31 reserved for mode-line-format, header-line-format,
+// tab-line-format. They will land in a follow-up sub-batch after
+// the redisplay readers stop hitting the legacy slot storage path.
 
 // ---------------------------------------------------------------------------
 // BUFFER_SLOT_INFO table — declarative metadata for every BUFFER_OBJFWD
@@ -375,6 +410,106 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_FILL_COLUMN as i16,
     },
+    BufferSlotInfo {
+        // GNU `buffer.c:4848` — tab-width defaults to 8.
+        name: "tab-width",
+        offset: BUFFER_SLOT_TAB_WIDTH,
+        default: SlotDefault::LazyFixnum(8),
+        predicate: "integerp",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_TAB_WIDTH as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4867` — left-margin defaults to 0.
+        name: "left-margin",
+        offset: BUFFER_SLOT_LEFT_MARGIN,
+        default: SlotDefault::LazyFixnum(0),
+        predicate: "integerp",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_LEFT_MARGIN as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4835` — abbrev-mode defaults to nil.
+        name: "abbrev-mode",
+        offset: BUFFER_SLOT_ABBREV_MODE,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_ABBREV_MODE as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4836` — overwrite-mode defaults to nil.
+        name: "overwrite-mode",
+        offset: BUFFER_SLOT_OVERWRITE_MODE,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_OVERWRITE_MODE as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4838` — selective-display defaults to nil.
+        name: "selective-display",
+        offset: BUFFER_SLOT_SELECTIVE_DISPLAY,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_SELECTIVE_DISPLAY as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4839` — selective-display-ellipses defaults to t.
+        name: "selective-display-ellipses",
+        offset: BUFFER_SLOT_SELECTIVE_DISPLAY_ELLIPSES,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::T),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_SELECTIVE_DISPLAY_ELLIPSES as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4849` — truncate-lines defaults to nil.
+        // GNU `buffer.c:4751` flags this as `permanent_local`; the
+        // `permanent_local` semantics aren't yet wired (Phase 10D
+        // step 5+ will add a dedicated field), so for now we leave
+        // `reset_on_kill` false to mirror the most common path.
+        name: "truncate-lines",
+        offset: BUFFER_SLOT_TRUNCATE_LINES,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_TRUNCATE_LINES as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4850` — word-wrap defaults to nil.
+        name: "word-wrap",
+        offset: BUFFER_SLOT_WORD_WRAP,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_WORD_WRAP as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4851` — ctl-arrow defaults to t.
+        name: "ctl-arrow",
+        offset: BUFFER_SLOT_CTL_ARROW,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::T),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_CTL_ARROW as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4837` — auto-fill-function defaults to nil.
+        name: "auto-fill-function",
+        offset: BUFFER_SLOT_AUTO_FILL_FUNCTION,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_AUTO_FILL_FUNCTION as i16,
+    },
+    // mode-line-format / header-line-format / tab-line-format are
+    // intentionally NOT migrated yet — the redisplay path reads them
+    // through the legacy storage and Phase 10D step 5 batch 1
+    // observed bootstrap timeouts when they were FORWARDED. Future
+    // step 5 sub-batches will migrate them after their callsites
+    // are audited.
 ];
 
 /// Look up a [`BufferSlotInfo`] by Lisp variable name. Returns `None`
@@ -1684,6 +1819,17 @@ impl BufferManager {
         let id = BufferId(self.next_id);
         self.next_id += 1;
         let mut buf = Buffer::new(id, name.to_string());
+        // Phase 10D: seed every conditional slot from
+        // `BufferManager::buffer_defaults` so a buffer created
+        // *after* a `setq-default`/`set-default` observes the live
+        // global default rather than the static `BufferSlotInfo`
+        // seed. Always-local slots (-1) keep their per-buffer
+        // initial value (the static seed already populated them).
+        for info in BUFFER_SLOT_INFO {
+            if info.local_flags_idx >= 0 {
+                buf.slots[info.offset] = self.buffer_defaults[info.offset];
+            }
+        }
         buf.inhibit_buffer_hooks = inhibit_buffer_hooks;
         if let Some(default_directory) = self
             .current

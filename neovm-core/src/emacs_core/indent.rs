@@ -77,6 +77,19 @@ fn dynamic_buffer_or_global_symbol_value(
     buf: Option<&Buffer>,
     name: &str,
 ) -> Option<Value> {
+    // Phase 10D: BUFFER_OBJFWD slots (always-local AND conditional)
+    // store the live value in `buf.slots[offset]`. After
+    // `set-default` propagation, conditional slots whose
+    // local-flags bit is clear still reflect the latest global
+    // default in their per-buffer slot, so reading the slot
+    // directly is correct in both cases. `get_buffer_local`
+    // returns None for conditional slots with the bit clear,
+    // which would otherwise lose the live value here.
+    if let Some(buf) = buf
+        && let Some(info) = crate::buffer::buffer::lookup_buffer_slot(name)
+    {
+        return Some(buf.slots[info.offset]);
+    }
     if let Some(buf) = buf
         && let Some(value) = buf.get_buffer_local(name)
     {
