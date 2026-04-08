@@ -1,12 +1,12 @@
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError, TryLockResult};
 
-use crate::object::{ObjectRecord, OldBlockPlacement};
+use crate::object::{ObjectRecord, OldBlockPlacement, PendingFinalizer};
 use crate::plan::RuntimeWorkStatus;
 use crate::stats::HeapStats;
 
 #[derive(Debug, Default)]
 pub(crate) struct RuntimeState {
-    pending_finalizers: Vec<ObjectRecord>,
+    pending_finalizers: Vec<PendingFinalizer>,
     finalizers_run: u64,
 }
 
@@ -57,7 +57,7 @@ impl RuntimeStateHandle {
         state
             .pending_finalizers
             .iter()
-            .filter_map(|object| object.old_block_placement())
+            .filter_map(|pending| pending.block_placement())
             .collect()
     }
 
@@ -66,8 +66,8 @@ impl RuntimeStateHandle {
     /// reclaim renumbers the surviving blocks.
     pub(crate) fn rebind_pending_finalizer_block_indices(&self, remap: &[Option<usize>]) {
         let mut state = self.lock();
-        for object in state.pending_finalizers.iter_mut() {
-            let Some(placement) = object.old_block_placement() else {
+        for pending in state.pending_finalizers.iter_mut() {
+            let Some(placement) = pending.block_placement() else {
                 continue;
             };
             let Some(&Some(new_index)) = remap.get(placement.block_index) else {
@@ -76,10 +76,7 @@ impl RuntimeStateHandle {
             if new_index == placement.block_index {
                 continue;
             }
-            object.set_old_block_placement(OldBlockPlacement {
-                block_index: new_index,
-                ..placement
-            });
+            pending.rebind_block(new_index);
         }
     }
 
@@ -87,17 +84,17 @@ impl RuntimeStateHandle {
         // Take the pending list out of the state under the lock, then
         // release the lock before running user-defined finalizer code.
         //
-        // Holding the lock across `run_finalizer()` would be a reentry
-        // deadlock risk: a finalizer that touches the heap (e.g. by
-        // observing `pending_finalizer_count()` or queueing more work)
-        // would re-enter this handle through another `lock()` call.
+        // Holding the lock across `run()` would be a reentry deadlock
+        // risk: a finalizer that touches the heap (e.g. by observing
+        // `pending_finalizer_count()` or queueing more work) would
+        // re-enter this handle through another `lock()` call.
         let pending = {
             let mut state = self.lock();
             core::mem::take(&mut state.pending_finalizers)
         };
         let mut ran = 0u64;
-        for object in pending {
-            if object.run_finalizer() {
+        for pending in pending {
+            if pending.run() {
                 ran = ran.saturating_add(1);
             }
         }
@@ -132,14 +129,14 @@ impl RuntimeState {
     }
 
     pub(crate) fn enqueue_pending_finalizer(&mut self, object: ObjectRecord) -> u64 {
-        self.pending_finalizers.push(object);
+        self.pending_finalizers.push(PendingFinalizer::new(object));
         1
     }
 
     pub(crate) fn drain_pending_finalizers(&mut self) -> u64 {
         let mut ran = 0u64;
-        for object in core::mem::take(&mut self.pending_finalizers) {
-            if object.run_finalizer() {
+        for pending in core::mem::take(&mut self.pending_finalizers) {
+            if pending.run() {
                 ran = ran.saturating_add(1);
             }
         }

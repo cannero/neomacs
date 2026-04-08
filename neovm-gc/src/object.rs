@@ -600,6 +600,66 @@ impl Drop for ObjectRecord {
     }
 }
 
+/// Lightweight VM-facing handoff for one queued finalizer.
+///
+/// Wraps an `ObjectRecord` whose owning slot in the heap's main
+/// `objects` vector has been removed but whose finalizer has not
+/// yet run. The handoff exposes a focused API for the runtime
+/// state and reclaim paths to interact with: invoke the
+/// finalizer, query the block placement that pins the source
+/// block, or rebind the block index after physical reclamation.
+///
+/// Hiding `ObjectRecord` behind this newtype gives the
+/// finalization queue a small, abstract surface so callers don't
+/// reach into private record internals (header / base pointer /
+/// memory kind) just to drive the drain loop.
+///
+/// Like `ObjectRecord`, dropping a `PendingFinalizer` runs the
+/// payload's `drop_in_place` and frees the backing storage if
+/// the record was system-allocated.
+#[derive(Debug)]
+pub(crate) struct PendingFinalizer {
+    record: ObjectRecord,
+}
+
+impl PendingFinalizer {
+    /// Wrap an `ObjectRecord` whose finalizer is pending. The
+    /// caller should have already verified that the record's
+    /// descriptor advertises `TypeFlags::FINALIZABLE`.
+    pub(crate) fn new(record: ObjectRecord) -> Self {
+        Self { record }
+    }
+
+    /// Invoke the wrapped record's finalizer. Returns `true` if
+    /// the finalizer ran, `false` if the record was already
+    /// moved out or its descriptor does not declare
+    /// `FINALIZABLE`. Mirrors `ObjectRecord::run_finalizer`.
+    pub(crate) fn run(&self) -> bool {
+        self.record.run_finalizer()
+    }
+
+    /// Return the wrapped record's `OldBlockPlacement`, if any.
+    /// Used by the post-sweep block reclaim path so the block
+    /// the finalizer's payload still lives in stays pinned
+    /// (its lines stay marked) until the drain runs.
+    pub(crate) fn block_placement(&self) -> Option<OldBlockPlacement> {
+        self.record.old_block_placement()
+    }
+
+    /// Apply a `(old block index -> new block index)` remap to
+    /// the wrapped record's `OldBlockPlacement`. Used after
+    /// empty-block reclaim renumbers the surviving blocks so
+    /// the queued finalizer keeps pointing at the right slot.
+    pub(crate) fn rebind_block(&mut self, new_index: usize) {
+        if let Some(placement) = self.record.old_block_placement() {
+            self.record.set_old_block_placement(OldBlockPlacement {
+                block_index: new_index,
+                ..placement
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "object_test.rs"]
 mod tests;
