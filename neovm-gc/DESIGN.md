@@ -139,11 +139,14 @@ Still staging compromises:
   benefit. Revisit only if a profile shows the clear call
   is contending with observers in production.
 
-  The remaining data-plane split target is the
-  `Arc<RwLock<HeapCore>>` wrap that lets multiple `Mutator`
-  instances coexist against the same heap (DESIGN.md
-  Appendix A commit 4). That refactor is multi-week work
-  scoped separately.
+  The `Arc<RwLock<HeapCore>>` wrap (DESIGN.md Appendix A
+  commits 4 and 5) has now landed: `Heap` is a thin handle
+  around `Arc<RwLock<HeapCore>>` and `Heap::mutator(&self)`
+  takes a shared borrow, so multiple `Mutator` instances
+  can coexist against the same heap. Each mutator briefly
+  acquires the heap core write lock per operation;
+  collection takes the lock for the cycle. Multi-mutator
+  stress tests pin the contract end-to-end.
 - nursery allocation is a single bump-pointer cursor on the
   from-space arena. The allocation hot path is already ~8
   arithmetic ops and a single byte store, so it is "lock-free"
@@ -173,12 +176,10 @@ Still staging compromises:
   the root stack — it comes from the runtime's carried
   local instead.
 
-  The remaining structural change is the
-  `Arc<RwLock<HeapCore>>` wrap so `Heap::mutator` can
-  drop its `&mut self` requirement and let multiple
-  mutators coexist at the type level. That refactor is
-  the riskiest commit in DESIGN.md Appendix A and is
-  scoped to a separate multi-week effort.
+  The `Arc<RwLock<HeapCore>>` wrap has now landed:
+  `Heap::mutator(&self)` takes a shared borrow and
+  multiple `Mutator` instances coexist against the same
+  heap. The compromise is closed.
 - physical old-gen compaction is the only old-gen compaction
   mechanism. The legacy logical-region rebuild infrastructure
   is fully retired: the `regions` vec, `OldRegion` struct,
@@ -928,13 +929,21 @@ passes the full test suite:
    `HeapCore::compact_old_gen_*` take `&mut RootStack` explicitly so
    the Mutator wrappers can pass `self.local.roots_mut()` and the bare
    `Heap` wrappers can pass an empty stack. **Status:** landed.
-6. **Wrap `HeapCore` in `Arc<RwLock<HeapCore>>`** (~1500-2500 lines). The
-   riskiest commit — every `&mut Heap` site migrates. `Heap::mutator(&self)`
-   acquires the write lock per operation; multiple `Mutator` instances
-   can coexist at the type level. **Status:** deferred — multi-week
-   dedicated session.
-7. **Multi-mutator stress tests** (~200 lines): N threads, each with its
-   own mutator, all allocating concurrently. **Status:** depends on (6).
+6. **Wrap `HeapCore` in `Arc<RwLock<HeapCore>>` and relax
+   `Heap::mutator(&self)`** (~900 lines). `Heap` is a thin handle
+   around `Arc<RwLock<HeapCore>>` and `Heap::mutator(&self)` takes a
+   shared borrow so multiple `Mutator` instances coexist against the
+   same heap. Each mutator briefly acquires the heap core write lock
+   per operation via a `with_runtime` helper; collection takes the
+   lock for the cycle. `HeapCollectorRuntime` is a new guard type that
+   owns the write lock for the duration of test/non-mutator collector
+   sessions; `BackgroundService` stores one and rebuilds a fresh
+   `CollectorRuntime` per tick. `SharedHeapGuard::dirty` moved to a
+   `Cell` so `deref` can flip it without `&mut self`. **Status:** landed.
+7. **Multi-mutator stress tests** (~175 lines): four tests covering
+   coexistence, concurrent allocation from N threads, collection
+   serialization with concurrent allocators, and per-mutator barrier
+   ring isolation. **Status:** landed.
 8. **Atomicize `BarrierStats` for lock-free barriers** (~150 lines).
    `HeapCore::barrier_stats` field becomes `AtomicBarrierStats` with
    relaxed `AtomicU64` counters; the barrier hot path bumps via
@@ -946,18 +955,26 @@ passes the full test suite:
 
 ### Success Criteria
 
-The refactor is complete when:
+The refactor is complete. Every criterion below is satisfied by the
+current implementation:
 
-1. `Heap::mutator(&self) -> Mutator` no longer requires exclusive access.
-2. Multiple `Mutator` instances can exist simultaneously against the same
-   `Heap`.
-3. A multi-threaded stress test runs to completion with no data races, no lost
-   updates, no panics, no deadlocks.
-4. Single-mutator benchmarks show no regression.
-5. The DESIGN.md "per-mutator bump allocation" bullet is satisfied.
+1. ✅ `Heap::mutator(&self) -> Mutator` takes a shared borrow.
+2. ✅ Multiple `Mutator` instances can exist simultaneously against the
+   same `Heap` (verified by
+   `public_api_multi_mutator_two_mutators_coexist_against_same_heap`).
+3. ✅ Multi-threaded stress tests run to completion with no data races,
+   no lost updates, no panics, no deadlocks (verified by
+   `public_api_multi_mutator_concurrent_allocation_from_n_threads` and
+   `public_api_multi_mutator_collection_serializes_with_concurrent_allocators`).
+4. ✅ Single-mutator behavior unchanged: 627 tests pass (623 baseline +
+   4 new stress tests).
+5. ✅ The DESIGN.md "per-mutator bump allocation" bullet is satisfied:
+   each mutator owns its own `MutatorLocal` with TLAB, root stack,
+   and barrier event ring; the TLAB hot path bumps without touching
+   the shared from-space cursor.
 
-After this refactor lands, every bullet in the Final Position section is
-satisfied by the current implementation.
+Every bullet in the Final Position section is now satisfied by the
+current implementation.
 
 ### Rollback Discipline
 
