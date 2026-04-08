@@ -305,7 +305,7 @@ fn test_format_mode_line_in_state_with_eval_keeps_shared_buffer_context_around_e
         |form, buffers| {
             assert_eq!(*form, Value::symbol("mode-name"));
             let buffer = buffers.current_buffer().expect("mode-line buffer");
-            Ok(*buffer
+            Ok(buffer
                 .get_buffer_local("mode-name")
                 .expect("buffer-local mode-name"))
         },

@@ -1019,7 +1019,6 @@ fn face_remapping_for_buffer(eval: &super::eval::Context, buffer: &Buffer) -> Fa
     // Buffer-local binding takes priority
     let value = buffer
         .get_buffer_local("face-remapping-alist")
-        .copied()
         .or_else(|| eval.obarray().symbol_value("face-remapping-alist").copied())
         .unwrap_or(Value::NIL);
 

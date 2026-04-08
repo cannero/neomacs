@@ -481,8 +481,7 @@ fn uninterned_value_cells_ignore_buffer_local_namesakes() {
         eval.buffers
             .current_buffer()
             .expect("current buffer")
-            .get_buffer_local("depth-alist")
-            .copied(),
+            .get_buffer_local("depth-alist"),
         Some(Value::fixnum(7))
     );
 

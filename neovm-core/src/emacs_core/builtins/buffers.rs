@@ -275,7 +275,7 @@ pub(crate) fn builtin_find_buffer(eval: &mut super::eval::Context, args: Vec<Val
         // walking the alist directly.
         let observed = buf
             .find_in_local_var_alist(key)
-            .or_else(|| buf.get_buffer_local(name).cloned())
+            .or_else(|| buf.get_buffer_local(name))
             .unwrap_or(fallback_value);
         if eq_value(&observed, &target_value) {
             return Ok(Value::make_buffer(id));
@@ -1605,9 +1605,8 @@ pub(crate) fn builtin_compute_motion(
     let zv = buf.zv;
     let tab_width = buf
         .get_buffer_local("tab-width")
-        .copied()
         .or_else(|| obarray.symbol_value("tab-width").copied())
-        .and_then(|value| match value.kind() {
+        .and_then(|value: Value| match value.kind() {
             ValueKind::Fixnum(n) if n > 0 => Some(n as usize),
             _ => None,
         })

@@ -2181,18 +2181,67 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
             marker.insertion_type,
         );
     }
-    let locals = crate::buffer::BufferLocals::from_dump(
+    // Phase 10F: the legacy `BufferLocals` struct is gone.
+    // Reconstruct per-buffer state from the dump's properties list
+    // directly into the new storage model:
+    //
+    //   * `buffer-undo-list` → `SharedUndoState` (the one
+    //     always-present non-slot non-alist binding).
+    //   * Slot-backed names (BUFFER_OBJFWD) → already restored via
+    //     the `slots: ...` round-trip below; skip here.
+    //   * Everything else → `local_var_alist`, walked in the
+    //     original `local_binding_names` order so the dumped
+    //     ordering is preserved.
+    let loaded_keymap = load_value(&db.local_map);
+    let mut loaded_properties: std::collections::HashMap<String, RuntimeBindingValue> =
         db.properties
             .iter()
             .map(|(k, v)| (k.clone(), load_runtime_binding_value(v)))
-            .collect(),
-        &db.local_binding_names,
-        load_value(&db.local_map),
-    );
-    let undo_list = match locals.raw_binding("buffer-undo-list") {
-        Some(RuntimeBindingValue::Bound(value)) => value,
-        _ => Value::NIL,
+            .collect();
+    let mut loaded_undo_list = Value::NIL;
+    if let Some(RuntimeBindingValue::Bound(value)) =
+        loaded_properties.remove("buffer-undo-list")
+    {
+        loaded_undo_list = value;
+    }
+    // Reconstruct the alist in the ordered sequence the dump recorded,
+    // falling back to sorted remainder for any properties missing from
+    // the ordered list. Skip entries that map to BUFFER_OBJFWD slots
+    // (they live in the slot table).
+    let mut loaded_local_var_alist = Value::NIL;
+    let prepend_alist_entry = |alist: &mut Value, name: &str, binding: RuntimeBindingValue| {
+        if crate::buffer::buffer::lookup_buffer_slot(name).is_some() {
+            return;
+        }
+        let RuntimeBindingValue::Bound(value) = binding else {
+            return;
+        };
+        let key = Value::from_sym_id(crate::emacs_core::intern::intern(name));
+        let cell = Value::cons(key, value);
+        *alist = Value::cons(cell, *alist);
     };
+    // Walk ordered names first (preserves relative ordering).
+    // Because we prepend, iterate in reverse to restore the
+    // original head-first order.
+    for name in db.local_binding_names.iter().rev() {
+        if name == "buffer-undo-list" {
+            continue;
+        }
+        if let Some(binding) = loaded_properties.remove(name) {
+            prepend_alist_entry(&mut loaded_local_var_alist, name, binding);
+        }
+    }
+    // Any remaining unordered properties (older dumps that didn't
+    // carry `local_binding_names`) get appended in sorted order.
+    let mut remaining: Vec<_> = loaded_properties.into_iter().collect();
+    remaining.sort_by(|left, right| left.0.cmp(&right.0));
+    for (name, binding) in remaining.into_iter().rev() {
+        if name == "buffer-undo-list" {
+            continue;
+        }
+        prepend_alist_entry(&mut loaded_local_var_alist, &name, binding);
+    }
+    let undo_list = loaded_undo_list;
 
     let save_modified_tick = db.save_modified_tick.unwrap_or_else(|| {
         if db.modified {
@@ -2244,11 +2293,22 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
             }
             _ => None,
         },
-        locals,
-        // Phase 11: per-buffer alist for SYMBOL_LOCALIZED variables.
-        // Loaded from `db.local_var_alist`. The cons-cell graph
-        // already round-trips through the dump heap.
-        local_var_alist: load_value(&db.local_var_alist),
+        // Phase 10F: per-buffer alist for SYMBOL_LOCALIZED variables.
+        // Prefer the dump's `local_var_alist` field when present
+        // (new format). Fall back to the alist we rebuilt from the
+        // legacy `properties` table for older dumps that didn't
+        // carry the alist directly.
+        local_var_alist: {
+            let dumped = load_value(&db.local_var_alist);
+            if dumped.is_nil() && !loaded_local_var_alist.is_nil() {
+                loaded_local_var_alist
+            } else {
+                dumped
+            }
+        },
+        // Phase 10F: `BVAR(buf, keymap)` — the buffer's local
+        // keymap, previously stored inside `BufferLocals::local_map`.
+        keymap: loaded_keymap,
         // Phase 11.1: round-trip BUFFER_OBJFWD slots through pdump.
         // Previously blocked on the BLV GC trace bug (5699c3569);
         // with BLVs now traced as roots, slot Values stay live

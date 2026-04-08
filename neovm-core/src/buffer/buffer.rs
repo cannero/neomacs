@@ -7,7 +7,12 @@
 use std::collections::{HashMap, HashSet};
 
 use super::buffer_text::BufferText;
-use super::locals::BufferLocals;
+// Phase 10F: BufferLocals is gone. Per-buffer Lisp bindings now live
+// in `Buffer::local_var_alist` (for LOCALIZED), `Buffer::slots[]`
+// (for FORWARDED BUFFER_OBJFWD), and `Buffer::keymap` / the
+// `SharedUndoState` (for the two always-present slots that don't
+// match either pattern). Mirrors GNU's struct buffer layout in
+// buffer.h:330-462.
 use super::overlay::OverlayList;
 use super::shared::SharedUndoState;
 use super::text_props::TextPropertyTable;
@@ -1005,6 +1010,79 @@ pub fn lookup_buffer_slot(name: &str) -> Option<&'static BufferSlotInfo> {
 ///    and `enable-multibyte-characters` whose GNU equivalents are
 ///    declared `BVAR_PER_BUFFER_TYPE_BOOL`.
 ///  - Anything else (including `""`): store as-is.
+/// Look up `key` in a buffer-local alist. Returns the cdr of the
+/// matching `(key . val)` pair, or `None` if absent. Mirrors GNU
+/// `assq_no_quit` (`fns.c:1520-1543`) used by `Flocal_variable_p`
+/// at `data.c:2409`.
+pub(crate) fn find_local_var_alist_entry(
+    alist: crate::emacs_core::value::Value,
+    key: crate::emacs_core::value::Value,
+) -> Option<crate::emacs_core::value::Value> {
+    let mut cursor = alist;
+    while cursor.is_cons() {
+        let entry = cursor.cons_car();
+        cursor = cursor.cons_cdr();
+        if entry.is_cons()
+            && crate::emacs_core::value::eq_value(&entry.cons_car(), &key)
+        {
+            return Some(entry.cons_cdr());
+        }
+    }
+    None
+}
+
+/// Set `key` to `value` in a buffer-local alist. If `key` already
+/// has an entry, mutate its cdr in place so any BLV valcell
+/// pointing at the cell sees the new value without re-swapping.
+/// Otherwise prepend a fresh `(key . value)` cons to the alist.
+/// Mirrors the SYMBOL_LOCALIZED arm of GNU `set_internal` at
+/// `data.c:1687-1762`.
+pub(crate) fn set_local_var_alist_entry(
+    alist: &mut crate::emacs_core::value::Value,
+    key: crate::emacs_core::value::Value,
+    value: crate::emacs_core::value::Value,
+) {
+    use crate::emacs_core::value::{Value, eq_value};
+    let mut cursor = *alist;
+    while cursor.is_cons() {
+        let entry = cursor.cons_car();
+        cursor = cursor.cons_cdr();
+        if entry.is_cons() && eq_value(&entry.cons_car(), &key) {
+            entry.set_cdr(value);
+            return;
+        }
+    }
+    let cell = Value::cons(key, value);
+    *alist = Value::cons(cell, *alist);
+}
+
+/// Remove `key` from a buffer-local alist in place. Mirrors GNU's
+/// `Fdelq`-over-`Fassq` pattern in `Fkill_local_variable`
+/// (`data.c:2349-2378`).
+pub(crate) fn remove_local_var_alist_entry(
+    alist: &mut crate::emacs_core::value::Value,
+    key: crate::emacs_core::value::Value,
+) {
+    use crate::emacs_core::value::{Value, eq_value};
+    let mut head = *alist;
+    let mut prev: Option<Value> = None;
+    let mut cursor = head;
+    while cursor.is_cons() {
+        let entry = cursor.cons_car();
+        let next = cursor.cons_cdr();
+        if entry.is_cons() && eq_value(&entry.cons_car(), &key) {
+            match prev {
+                Some(p) => p.set_cdr(next),
+                None => head = next,
+            }
+        } else {
+            prev = Some(cursor);
+        }
+        cursor = next;
+    }
+    *alist = head;
+}
+
 /// Filter a `(perm-hook ...)` value to keep only entries that
 /// are themselves `permanent-local-hook` per their symbol property,
 /// plus the `t` element if present. Mirrors GNU
@@ -1195,16 +1273,16 @@ pub struct Buffer {
     pub inhibit_buffer_hooks: bool,
     /// GNU-style noncurrent PT/BEGV/ZV markers for buffers that share text.
     pub state_markers: Option<BufferStateMarkers>,
-    /// Buffer-local state, split between builtin slot-backed locals and
-    /// ordinary Lisp locals.
-    pub locals: BufferLocals,
     /// `local_var_alist` — list of `(SYMBOL . VALUE)` per-buffer
     /// bindings for `SYMBOL_LOCALIZED` variables. Mirrors GNU
-    /// `BVAR(buffer, local_var_alist)` (`buffer.h:362`). Phase 4 of
-    /// the symbol-redirect refactor adds this field; the legacy
-    /// [`Self::locals`] map stays in place during the transition
-    /// (Phase 10 deletes it).
+    /// `BVAR(buffer, local_var_alist)` (`buffer.h:362`). This is
+    /// the single source of truth for all Lisp-side per-buffer
+    /// bindings that are not slot-backed (FORWARDED) and not the
+    /// special buffer-undo-list (which has its own SharedUndoState).
     pub local_var_alist: crate::emacs_core::value::Value,
+    /// `BVAR(buffer, keymap)` — the buffer's local keymap
+    /// (`buffer.h:385`). `Value::NIL` when no local keymap is set.
+    pub keymap: crate::emacs_core::value::Value,
     /// `BUFFER_OBJFWD` slot table — per-buffer storage for variables
     /// that are forwarded into the C-side `struct buffer` in GNU.
     /// Mirrors the union of GNU's `Lisp_Object` slot fields in
@@ -1270,8 +1348,8 @@ impl Buffer {
             last_selected_window: None,
             inhibit_buffer_hooks: false,
             state_markers: None,
-            locals: BufferLocals::new(),
             local_var_alist: crate::emacs_core::value::Value::NIL,
+            keymap: crate::emacs_core::value::Value::NIL,
             slots: {
                 // Phase 10C: seed every slot from BUFFER_SLOT_INFO.
                 // Mirrors GNU's `reset_buffer` (`buffer.c:1188`)
@@ -1670,11 +1748,13 @@ impl Buffer {
         self.undo_state.list()
     }
 
-    /// Store the `buffer-undo-list` value into buffer-local properties.
+    /// Store the `buffer-undo-list` value into the shared undo
+    /// state. The SharedUndoState is the single source of truth —
+    /// reads of `buffer-undo-list` route through
+    /// [`Self::get_undo_list`] regardless of which Buffer in an
+    /// indirect-buffer chain is queried.
     pub fn set_undo_list(&mut self, value: Value) {
         self.undo_state.set_list(value);
-        self.locals
-            .set_raw_binding("buffer-undo-list", RuntimeBindingValue::Bound(value));
     }
 
     /// Prepare to record a buffer change: ensure the first-change sentinel
@@ -2027,18 +2107,22 @@ impl Buffer {
 
     // -- Buffer-local variables ----------------------------------------------
 
+    /// Write a per-buffer binding. Mirrors GNU `set_internal`
+    /// SYMBOL_FORWARDED arm (`data.c:1774-1786`) for slot-backed
+    /// names and the SYMBOL_LOCALIZED arm for everything else:
+    ///
+    /// * Slot-backed (BUFFER_OBJFWD) — write
+    ///   `slots[offset]`, setting the per-buffer local-flags bit
+    ///   for conditional slots (`SET_PER_BUFFER_VALUE_P`).
+    /// * `buffer-undo-list` — writes to [`SharedUndoState`], which
+    ///   is the single source of truth shared across indirect
+    ///   buffers.
+    /// * Everything else — intern `name` to a SymId and store the
+    ///   binding in [`Self::local_var_alist`]. Existing entries
+    ///   are mutated in place so any [`LispBufferLocalValue`]
+    ///   `valcell` still points at the same cons. New entries are
+    ///   prepended to the alist.
     pub fn set_buffer_local(&mut self, name: &str, value: Value) {
-        // Phase 10C: route writes to BUFFER_OBJFWD-style names through
-        // the slot table. Mirrors GNU's `store_symval_forwarding` for
-        // the BUFFER_OBJFWD arm: the slot is written, optionally
-        // gated by the predicate (currently we accept the value as-is
-        // and let the assign hot path handle predicate checks).
-        //
-        // Phase 10D: for conditional slots (`local_flags_idx >= 0`),
-        // also flip the per-buffer local-flags bit so subsequent
-        // reads observe the per-buffer value rather than the global
-        // default. Mirrors GNU `set_internal` SYMBOL_FORWARDED arm at
-        // `data.c:1774-1786` which calls `SET_PER_BUFFER_VALUE_P`.
         if let Some(info) = lookup_buffer_slot(name) {
             self.slots[info.offset] = coerce_to_slot(info, value, self.slots[info.offset]);
             if info.local_flags_idx >= 0 {
@@ -2051,15 +2135,18 @@ impl Buffer {
             if value.is_nil() {
                 self.undo_state.set_recorded_first_change(false);
             }
+            return;
         }
-        self.locals
-            .set_raw_binding(name, RuntimeBindingValue::Bound(value));
+        let key = Value::from_sym_id(crate::emacs_core::intern::intern(name));
+        set_local_var_alist_entry(&mut self.local_var_alist, key, value);
     }
 
+    /// Mark a per-buffer binding as void. Slot-backed names reset
+    /// to nil; `buffer-undo-list` clears the undo state; all other
+    /// names drop their entry from `local_var_alist` entirely.
+    /// GNU doesn't have a true "void per-buffer binding" — removing
+    /// the alist entry is the closest equivalent.
     pub fn set_buffer_local_void(&mut self, name: &str) {
-        // Phase 10C: BUFFER_OBJFWD slots never go void — clearing
-        // resolves to nil in the slot. Mirrors GNU semantics where
-        // C-side BVAR slots are always live.
         if let Some(info) = lookup_buffer_slot(name) {
             self.slots[info.offset] = Value::NIL;
             return;
@@ -2067,15 +2154,23 @@ impl Buffer {
         if name == "buffer-undo-list" {
             self.undo_state.set_list(Value::NIL);
             self.undo_state.set_recorded_first_change(false);
+            return;
         }
-        self.locals.set_raw_binding(name, RuntimeBindingValue::Void);
+        let key = Value::from_sym_id(crate::emacs_core::intern::intern(name));
+        remove_local_var_alist_entry(&mut self.local_var_alist, key);
     }
 
+    /// Drop a per-buffer binding. Returns the previous binding if
+    /// one existed. Mirrors the non-special path of GNU
+    /// `Fkill_local_variable` (`data.c:2314-2378`).
     pub fn kill_buffer_local(&mut self, name: &str) -> Option<RuntimeBindingValue> {
         if name == "buffer-undo-list" {
             return None;
         }
-        self.locals.remove(name)
+        let key = Value::from_sym_id(crate::emacs_core::intern::intern(name));
+        let existing = find_local_var_alist_entry(self.local_var_alist, key)?;
+        remove_local_var_alist_entry(&mut self.local_var_alist, key);
+        Some(RuntimeBindingValue::Bound(existing))
     }
 
     pub fn kill_all_local_variables(
@@ -2191,29 +2286,33 @@ impl Buffer {
             self.local_var_alist = new_head;
         }
 
-        self.locals
-            .kill_all_local_variables(obarray, kill_permanent);
+        // GNU `reset_buffer_local_variables` also clears the
+        // buffer's local keymap (`buffer.c:1337`).
+        self.keymap = Value::NIL;
     }
 
-    pub fn get_buffer_local(&self, name: &str) -> Option<&Value> {
-        // Phase 10C: BUFFER_OBJFWD-style names resolve to a borrow
-        // into the slot table so consumers see the live slot
-        // value, not a stale BufferLocals copy. Mirrors GNU's
-        // `BVAR(buf, …)` accessor returning a direct pointer into
-        // the C-side struct buffer slot.
-        //
-        // Phase 10D: conditional slots only expose a per-buffer
-        // borrow when the local-flags bit is set; otherwise the
-        // caller treats the variable as "no per-buffer binding"
-        // and falls through to the global default at a higher
-        // layer that has access to `BufferManager::buffer_defaults`.
+    pub fn get_buffer_local(&self, name: &str) -> Option<Value> {
+        // Slot-backed names resolve to the live slot value, mirroring
+        // GNU's `BVAR(buf, …)` accessor. Conditional slots only
+        // report a per-buffer binding when the local-flags bit is
+        // set; the caller falls through to the global default at a
+        // higher layer that has access to `BufferManager::buffer_defaults`.
         if let Some(info) = lookup_buffer_slot(name) {
             if info.local_flags_idx >= 0 && !self.slot_local_flag(info.offset) {
                 return None;
             }
-            return Some(&self.slots[info.offset]);
+            return Some(self.slots[info.offset]);
         }
-        self.locals.raw_value_ref(name)
+        // `buffer-undo-list` reads through `SharedUndoState` so
+        // indirect buffers see the root buffer's undo state.
+        if name == "buffer-undo-list" {
+            return Some(self.get_undo_list());
+        }
+        // Everything else: walk `local_var_alist`. Mirrors GNU's
+        // `assq_no_quit (var, BVAR (buf, local_var_alist))` at
+        // `data.c:2409`.
+        let key = Value::from_sym_id(crate::emacs_core::intern::intern(name));
+        find_local_var_alist_entry(self.local_var_alist, key)
     }
 
     /// Walk this buffer's `local_var_alist` for an `(sym . val)`
@@ -2239,57 +2338,56 @@ impl Buffer {
     }
 
     pub fn get_buffer_local_binding(&self, name: &str) -> Option<RuntimeBindingValue> {
-        // Phase 10C: BUFFER_OBJFWD slots are always live and bypass
-        // the `has_local` short-circuit. They never go void in GNU
-        // (a nil slot still resolves as bound-to-nil).
-        //
-        // Phase 10D: conditional slots return the per-buffer slot
-        // value only when the local-flag bit is set; otherwise the
-        // caller falls through to the global default. (NeoMacs's
-        // `get_buffer_local_binding` doesn't have access to
-        // `BufferManager::buffer_defaults`, so we delegate the
-        // fall-through to the higher layer that does.)
+        // BUFFER_OBJFWD slots are always live and bypass any
+        // "present/absent" short-circuit. They never go void in
+        // GNU — a nil slot still resolves as Bound(nil).
+        // Conditional slots (`local_flags_idx >= 0`) only report a
+        // per-buffer binding when the local-flag bit is set;
+        // otherwise the caller falls through to the global default.
         if let Some(info) = lookup_buffer_slot(name) {
             if info.local_flags_idx >= 0 && !self.slot_local_flag(info.offset) {
                 return None;
             }
             return Some(RuntimeBindingValue::Bound(self.slots[info.offset]));
         }
-        if !self.locals.has_local(name) {
-            return None;
-        }
         if name == "buffer-undo-list" {
             return Some(RuntimeBindingValue::Bound(self.get_undo_list()));
         }
-        self.locals.raw_binding(name)
+        let key = Value::from_sym_id(crate::emacs_core::intern::intern(name));
+        find_local_var_alist_entry(self.local_var_alist, key)
+            .map(RuntimeBindingValue::Bound)
     }
 
     pub fn has_buffer_local(&self, name: &str) -> bool {
-        // Phase 10C: BUFFER_OBJFWD-style names are conceptually
-        // always per-buffer (mirrors GNU's
-        // `local-variable-p` returning t for `DEFVAR_PER_BUFFER`
-        // variables regardless of whether the user explicitly
-        // called `make-local-variable`).
-        //
-        // Phase 10D: conditional slots (`local_flags_idx >= 0`) only
-        // count as local when the per-buffer flag bit is set.
-        // Mirrors GNU `local-variable-p` going through
-        // `PER_BUFFER_VALUE_P` in `data.c:2347-2380`.
+        // BUFFER_OBJFWD-style names are conceptually always
+        // per-buffer (mirrors GNU's `local-variable-p` returning t
+        // for DEFVAR_PER_BUFFER variables regardless of whether the
+        // user explicitly called `make-local-variable`).
+        // Conditional slots only count as local when the per-buffer
+        // flag bit is set — mirrors GNU `local-variable-p`
+        // dispatching through `PER_BUFFER_VALUE_P` at
+        // `data.c:2347-2380`.
         if let Some(info) = lookup_buffer_slot(name) {
             if info.local_flags_idx >= 0 {
                 return self.slot_local_flag(info.offset);
             }
             return true;
         }
-        self.locals.has_local(name)
+        // `buffer-undo-list` is always present (its SharedUndoState
+        // is unconditionally allocated; there's no "unset" state).
+        if name == "buffer-undo-list" {
+            return true;
+        }
+        let key = Value::from_sym_id(crate::emacs_core::intern::intern(name));
+        find_local_var_alist_entry(self.local_var_alist, key).is_some()
     }
 
     pub fn local_map(&self) -> Value {
-        self.locals.local_map()
+        self.keymap
     }
 
     pub fn set_local_map(&mut self, keymap: Value) {
-        self.locals.set_local_map(keymap);
+        self.keymap = keymap;
     }
 
     pub fn buffer_local_value(&self, name: &str) -> Option<Value> {
@@ -2300,17 +2398,14 @@ impl Buffer {
     }
 
     pub fn ordered_buffer_local_bindings(&self) -> Vec<(String, RuntimeBindingValue)> {
-        // Phase 10C: emit every BUFFER_OBJFWD slot from the slot
-        // table. Mirrors GNU's `buffer-local-variables` which
-        // always emits the C-side BVAR slots regardless of
-        // whether the user "made" them buffer-local.
-        //
-        // Phase 10D: conditional slots only appear when the
-        // per-buffer local-flag bit is set, mirroring GNU's
-        // `buffer_lisp_local_variables` walking
-        // `local_var_alist` (`buffer.c:1423-1450`) and the
-        // PER_BUFFER_VALUE_P-gated slot loop in
-        // `buffer.c:1485-1494`.
+        // Emit every BUFFER_OBJFWD slot from the slot table.
+        // Mirrors GNU's `buffer-local-variables` which always emits
+        // the C-side BVAR slots regardless of whether the user
+        // "made" them buffer-local. Conditional slots only appear
+        // when the per-buffer local-flag bit is set, mirroring GNU's
+        // `buffer_lisp_local_variables` walking `local_var_alist`
+        // (`buffer.c:1423-1450`) and the PER_BUFFER_VALUE_P-gated
+        // slot loop at `buffer.c:1485-1494`.
         //
         // Internal-only slots (`install_as_forwarder: false`) are
         // omitted — GNU's `buffer-local-variables` skips
@@ -2330,36 +2425,50 @@ impl Buffer {
                 )
             })
             .collect();
-        out.extend(
-            self.locals
-                .ordered_runtime_bindings()
-                .into_iter()
-                .map(|(name, binding)| {
-                    if name == "buffer-undo-list" {
-                        (name, RuntimeBindingValue::Bound(self.get_undo_list()))
-                    } else {
-                        (name, binding)
-                    }
-                }),
-        );
+        // Emit `buffer-undo-list` next, read from SharedUndoState.
+        out.push((
+            "buffer-undo-list".to_string(),
+            RuntimeBindingValue::Bound(self.get_undo_list()),
+        ));
+        // Walk `local_var_alist` for all LOCALIZED per-buffer
+        // bindings. Mirrors GNU `buffer_lisp_local_variables`.
+        let mut cursor = self.local_var_alist;
+        while cursor.is_cons() {
+            let entry = cursor.cons_car();
+            cursor = cursor.cons_cdr();
+            if !entry.is_cons() {
+                continue;
+            }
+            if let Some(name) = entry.cons_car().as_symbol_name() {
+                out.push((
+                    name.to_string(),
+                    RuntimeBindingValue::Bound(entry.cons_cdr()),
+                ));
+            }
+        }
         out
     }
 
     pub fn ordered_buffer_local_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = BUFFER_SLOT_INFO
-            .iter()
-            .filter(|info| {
-                info.install_as_forwarder
-                    && (info.local_flags_idx < 0 || self.slot_local_flag(info.offset))
-            })
-            .map(|info| info.name.to_string())
-            .collect();
-        names.extend(self.locals.ordered_binding_names());
-        names
+        self.ordered_buffer_local_bindings()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect()
     }
 
+    /// Walk the buffer's `local_var_alist` yielding a mutable
+    /// reference into each entry's value via the cons cell's cdr
+    /// field. Used by the GC-root visitor pipeline to avoid
+    /// traversing the alist twice.
     pub fn bound_buffer_local_values_mut(&mut self) -> impl Iterator<Item = &mut Value> {
-        self.locals.bound_values_mut()
+        // In the new design, local_var_alist IS the source of truth
+        // for non-slot per-buffer bindings. Its cons cells are
+        // already GC-traced via `Buffer::trace_roots` walking
+        // `self.local_var_alist`, so nothing else needs a mutable
+        // visitor. Keep the method signature for API compatibility
+        // but return an empty iterator — the roots are reached
+        // through the alist walk in `trace_roots`.
+        std::iter::empty()
     }
 }
 
@@ -2994,14 +3103,13 @@ impl BufferManager {
     }
 
     fn sync_shared_undo_binding_cache(&mut self, root_id: BufferId) -> Option<()> {
-        let shared_ids = self.buffers_sharing_root_ids(root_id);
-        let authoritative = self.buffers.get(&root_id)?.get_undo_list();
-        for shared_id in shared_ids {
-            self.buffers.get_mut(&shared_id)?.locals.set_raw_binding(
-                "buffer-undo-list",
-                RuntimeBindingValue::Bound(authoritative),
-            );
-        }
+        // After the Phase 10F deletion of BufferLocals::lisp_bindings,
+        // `buffer-undo-list` is read directly from `SharedUndoState`
+        // by every Buffer in the indirect-buffer chain — the shared
+        // undo state IS the cache. No per-buffer mirror needs to be
+        // refreshed. Left as a no-op stub so call sites don't need
+        // to be audited; can be fully removed in a follow-up.
+        let _ = root_id;
         Some(())
     }
 
@@ -3940,18 +4048,24 @@ impl Default for BufferManager {
 impl GcTrace for BufferManager {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         for buffer in self.buffers.values() {
-            buffer.locals.trace_roots(roots);
             buffer.text.trace_text_prop_roots(roots);
             buffer.undo_state.trace_roots(roots);
             buffer.overlays.trace_roots(roots);
-            // Phase 8b/Phase 10 sub-phase A: BUFFER_OBJFWD slot
-            // table holds Lisp values that must be GC-rooted.
-            // Mirrors GNU's `mark_buffer` walking the C-side
-            // BVAR slots in `alloc.c`.
+            // BUFFER_OBJFWD slot table holds Lisp values that must
+            // be GC-rooted. Mirrors GNU's `mark_buffer` walking the
+            // C-side BVAR slots in `alloc.c`.
             for slot in &buffer.slots {
                 roots.push(*slot);
             }
+            // Phase 10F: `local_var_alist` is the single source of
+            // truth for non-slot per-buffer bindings. The cons
+            // cells forming the alist must be rooted (along with
+            // every entry's value). A single push of the alist
+            // head is sufficient — the GC's reachability walk
+            // follows the spine.
             roots.push(buffer.local_var_alist);
+            // `local_map` (buffer's keymap) must also be rooted.
+            roots.push(buffer.keymap);
         }
         // Phase 10D: `buffer_defaults` holds the global default
         // values for every per-buffer slot. Mirrors GNU's
@@ -4773,7 +4887,14 @@ mod tests {
     }
 
     #[test]
-    fn switch_current_refreshes_indirect_undo_binding_cache() {
+    fn indirect_buffer_reads_undo_list_from_shared_state() {
+        // Phase 10F: `buffer-undo-list` now reads directly from
+        // `SharedUndoState` via `Buffer::get_undo_list`, so both
+        // base and indirect buffers observe the same value without
+        // any per-buffer cache. The previous version of this test
+        // verified the cache-refresh behavior that the old
+        // `BufferLocals::lisp_bindings` mirror needed — that
+        // mirror is gone, and so is the refresh dance.
         crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let base_id = mgr.current_buffer_id().expect("scratch buffer");
@@ -4782,27 +4903,15 @@ mod tests {
             .expect("indirect buffer");
         let _ = mgr.insert_into_buffer(base_id, "abc");
 
-        let stale = mgr
-            .get(indirect_id)
-            .expect("indirect buffer")
+        let shared = mgr
+            .get(base_id)
+            .expect("base buffer")
             .get_undo_list();
-        mgr.get_mut(indirect_id)
-            .expect("indirect buffer")
-            .locals
-            .set_raw_binding("buffer-undo-list", RuntimeBindingValue::Bound(Value::NIL));
         assert_eq!(
             mgr.get(indirect_id)
                 .expect("indirect buffer")
                 .get_buffer_local("buffer-undo-list"),
-            Some(&Value::NIL)
-        );
-
-        assert!(mgr.switch_current(indirect_id));
-        assert_eq!(
-            mgr.get(indirect_id)
-                .expect("indirect buffer")
-                .get_buffer_local("buffer-undo-list"),
-            Some(&stale)
+            Some(shared)
         );
     }
 

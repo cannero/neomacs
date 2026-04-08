@@ -1560,8 +1560,7 @@ fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
     assert_eq!(
         eval.buffers
             .get(cloned_id)
-            .and_then(|buf| buf.get_buffer_local("major-mode"))
-            .copied(),
+            .and_then(|buf| buf.get_buffer_local("major-mode")),
         Some(Value::symbol("neo-mode"))
     );
     assert_eq!(
@@ -1638,7 +1637,7 @@ fn make_indirect_buffer_clone_nil_resets_buffer_state() {
 
     let indirect_buf = eval.buffers.get(indirect_id).expect("indirect buffer");
     assert_eq!(
-        indirect_buf.get_buffer_local("major-mode").copied(),
+        indirect_buf.get_buffer_local("major-mode"),
         Some(Value::symbol("fundamental-mode"))
     );
     assert_eq!(
@@ -2308,13 +2307,13 @@ fn kill_all_local_variables_clears_buffer_locals() {
     assert_eq!(buf.get_read_only(), false);
     assert_eq!(
         buf.get_buffer_local("major-mode"),
-        Some(&Value::symbol("fundamental-mode"))
+        Some(Value::symbol("fundamental-mode"))
     );
     assert_eq!(
         buf.get_buffer_local("mode-name"),
-        Some(&Value::string("Fundamental"))
+        Some(Value::string("Fundamental"))
     );
-    assert_eq!(buf.get_buffer_local("buffer-undo-list"), Some(&Value::T));
+    assert_eq!(buf.get_buffer_local("buffer-undo-list"), Some(Value::T));
     assert!(eval.buffers.current_local_map().is_nil());
 }
 
@@ -2388,7 +2387,6 @@ fn kill_all_local_variables_preserves_partial_permanent_local_hooks() {
     let buf = eval.buffers.current_buffer().unwrap();
     let hook = buf
         .get_buffer_local("compat-mixed-hook")
-        .copied()
         .expect("partial permanent hook should remain local");
     let items =
         crate::emacs_core::value::list_to_vec(&hook).expect("hook value should stay a proper list");
@@ -3064,7 +3062,7 @@ fn buffer_undo_designators_match_deleted_and_missing_buffer_semantics() {
     ));
     assert_eq!(
         current.get_buffer_local("buffer-undo-list"),
-        Some(&Value::T)
+        Some(Value::T)
     );
 
     let enable_current =
@@ -3076,7 +3074,7 @@ fn buffer_undo_designators_match_deleted_and_missing_buffer_semantics() {
     ));
     assert_eq!(
         current.get_buffer_local("buffer-undo-list"),
-        Some(&Value::NIL)
+        Some(Value::NIL)
     );
 
     let enable_missing_name =

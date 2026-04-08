@@ -75,7 +75,7 @@ fn dynamic_or_global_symbol_value(eval: &super::eval::Context, name: &str) -> Op
 
     if let Some(buf) = eval.buffers.current_buffer() {
         if let Some(v) = buf.get_buffer_local(name) {
-            return Some(*v);
+            return Some(v);
         }
     }
 

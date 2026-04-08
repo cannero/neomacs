@@ -299,7 +299,7 @@ fn mode_line_symbol_value_in_state(
     if let Some(buf) = buffers.current_buffer()
         && let Some(value) = buf.get_buffer_local(name)
     {
-        return Some(*value);
+        return Some(value);
     }
 
     obarray.symbol_value(name).copied()

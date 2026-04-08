@@ -1198,7 +1198,7 @@ fn dynamic_buffer_or_global_symbol_value_in_state(
         && let Some(buf) = buffers.get(buffer_id)
         && let Some(value) = buf.get_buffer_local(name)
     {
-        return Some(*value);
+        return Some(value);
     }
     obarray.symbol_value(name).cloned()
 }

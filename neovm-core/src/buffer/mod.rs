@@ -1,7 +1,6 @@
 pub mod buffer;
 pub mod buffer_text;
 pub mod gap_buffer;
-pub mod locals;
 pub mod overlay;
 pub mod shared;
 pub mod text_props;
@@ -12,7 +11,6 @@ pub use buffer::{
     MarkerEntry, SavedRestrictionKind, SavedRestrictionState,
 };
 pub use buffer_text::BufferText;
-pub use locals::BufferLocals;
 pub use overlay::{Overlay, OverlayList};
 pub use shared::SharedUndoState;
 pub use text_props::TextPropertyTable;

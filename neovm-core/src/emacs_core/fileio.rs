@@ -2971,7 +2971,7 @@ fn resolve_write_coding_system(
     // 2. Check buffer-file-coding-system (buffer-local)
     if let Some(buf) = buffers.get(buffer_id) {
         if let Some(val) = buf.get_buffer_local("buffer-file-coding-system") {
-            if let Some(name) = coding_system_value_to_name(val) {
+            if let Some(name) = coding_system_value_to_name(&val) {
                 return name;
             }
         }

@@ -1253,7 +1253,7 @@ fn call_interactively_state_resolution_applies_shift_selection_prefix_in_state()
 
     let buf = ev.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.mark(), Some(2));
-    assert_eq!(buf.get_buffer_local("mark-active"), Some(&Value::T));
+    assert_eq!(buf.get_buffer_local("mark-active"), Some(Value::T));
 }
 
 #[test]
@@ -3503,7 +3503,7 @@ fn interactive_shift_selection_prefix_sets_mark_and_mark_active() {
 
     let buf = ev.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.mark(), Some(2));
-    assert_eq!(buf.get_buffer_local("mark-active"), Some(&Value::T));
+    assert_eq!(buf.get_buffer_local("mark-active"), Some(Value::T));
 }
 
 #[test]
