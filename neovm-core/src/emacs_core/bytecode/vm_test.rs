@@ -8818,8 +8818,17 @@ fn vm_documentation_and_help_builtins_use_shared_runtime_state() {
 #[test]
 fn vm_documentation_and_property_respect_raw_substitute_command_keys_semantics() {
     crate::test_utils::init_test_tracing();
+    // The VM runtime harness (`Context::new_vm_runtime_harness`) is
+    // a near-bare context — it has the C-level subrs but does not
+    // run loadup.el, so `substitute-command-keys' (defined in
+    // `lisp/help.el') is not bound. The test asserts that
+    // (documentation X) substitutes `\[command]', which requires
+    // help.el to have provided substitute-command-keys. Use the
+    // init helper to load enough of the GNU runtime for the
+    // substitute path to be reachable, mirroring R1's fix for the
+    // analogous doc_test.rs failures.
     assert_eq!(
-        vm_eval_str(
+        vm_eval_with_init_str(
             r#"(progn
                  (fset 'vm-doc-fn (lambda () t))
                  (put 'vm-doc-fn 'function-documentation "Press \\[save-buffer] to save.")
@@ -8831,7 +8840,10 @@ fn vm_documentation_and_property_respect_raw_substitute_command_keys_semantics()
                    (list (not (eq ?\\ (aref doc 6)))
                          (eq ?\\ (aref raw-doc 6))
                          (not (eq ?\\ (aref prop 6)))
-                         (eq ?\\ (aref raw-prop 6)))))"#
+                         (eq ?\\ (aref raw-prop 6)))))"#,
+            |eval| {
+                crate::test_utils::load_minimal_gnu_help_runtime(eval);
+            },
         ),
         "OK (t t t t)"
     );
