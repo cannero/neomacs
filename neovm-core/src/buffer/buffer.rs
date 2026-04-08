@@ -142,9 +142,12 @@ pub const BUFFER_SLOT_CTL_ARROW: usize = 27;
 /// `auto_fill_function_` (`buffer.h:367`). Default nil
 /// (`buffer.c:4837`).
 pub const BUFFER_SLOT_AUTO_FILL_FUNCTION: usize = 28;
-// Slots 29-31 reserved for mode-line-format, header-line-format,
-// tab-line-format. They will land in a follow-up sub-batch after
-// the redisplay readers stop hitting the legacy slot storage path.
+/// Slot index for `mode-line-format`. Default `"%-"`.
+pub const BUFFER_SLOT_MODE_LINE_FORMAT: usize = 29;
+/// Slot index for `header-line-format`. Default nil.
+pub const BUFFER_SLOT_HEADER_LINE_FORMAT: usize = 30;
+/// Slot index for `tab-line-format`. Default nil.
+pub const BUFFER_SLOT_TAB_LINE_FORMAT: usize = 31;
 //
 // Phase 10D step 5 batch 2 — display/bidi/fringe/scroll-bar slots.
 /// Slot index for `bidi-display-reordering`. Default t.
@@ -561,12 +564,35 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: false,
         local_flags_idx: BUFFER_SLOT_AUTO_FILL_FUNCTION as i16,
     },
-    // mode-line-format / header-line-format / tab-line-format are
-    // intentionally NOT migrated yet — the redisplay path reads them
-    // through the legacy storage and Phase 10D step 5 batch 1
-    // observed bootstrap timeouts when they were FORWARDED. Future
-    // step 5 sub-batches will migrate them after their callsites
-    // are audited.
+    BufferSlotInfo {
+        // GNU `buffer.c:4832` — mode-line-format defaults to "%-".
+        // Layout engine reads via `effective_buffer_value`, which
+        // was updated to consult the slot table directly.
+        name: "mode-line-format",
+        offset: BUFFER_SLOT_MODE_LINE_FORMAT,
+        default: SlotDefault::LazyString("%-"),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_MODE_LINE_FORMAT as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4833` — header-line-format defaults to nil.
+        name: "header-line-format",
+        offset: BUFFER_SLOT_HEADER_LINE_FORMAT,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_HEADER_LINE_FORMAT as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4834` — tab-line-format defaults to nil.
+        name: "tab-line-format",
+        offset: BUFFER_SLOT_TAB_LINE_FORMAT,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_TAB_LINE_FORMAT as i16,
+    },
     //
     // Phase 10D step 5 batch 2 — display/bidi/fringe/scroll-bar slots.
     BufferSlotInfo {

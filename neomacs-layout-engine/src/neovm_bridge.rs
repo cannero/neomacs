@@ -30,6 +30,18 @@ pub(crate) fn buffer_local_value<'a>(buffer: &'a Buffer, name: &str) -> Option<&
 }
 
 fn effective_buffer_value(buffer: &Buffer, obarray: &Obarray, name: &str) -> Option<Value> {
+    // Phase 10D: BUFFER_OBJFWD slots (always-local AND conditional)
+    // store the live value in `buffer.slots[offset]`. After
+    // `set-default` propagation, conditional slots whose
+    // local-flags bit is clear still reflect the latest global
+    // default in their per-buffer slot, so reading the slot
+    // directly is correct in both cases. The legacy
+    // `obarray.symbol_value` reader returns None for FORWARDED,
+    // which would otherwise treat every slot as void here and
+    // collapse `effective_buffer_bool` to false.
+    if let Some(info) = neovm_core::buffer::buffer::lookup_buffer_slot(name) {
+        return Some(buffer.slots[info.offset]);
+    }
     buffer
         .get_buffer_local_binding(name)
         .and_then(|binding| binding.as_value())
@@ -757,7 +769,7 @@ impl<'a> RustBufferAccess<'a> {
 
     /// Buffer file name, if any.
     pub fn file_name(&self) -> Option<&str> {
-        self.buffer.file_name.as_deref()
+        self.buffer.get_file_name()
     }
 
     /// Get the underlying neovm-core Buffer reference (for text property

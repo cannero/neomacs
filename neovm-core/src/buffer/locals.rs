@@ -55,18 +55,11 @@ const CONDITIONAL_SLOT_BUFFER_LOCAL_SPECS: &[ConditionalSlotSpec] = &[
     //     in GNU, not DEFVAR_PER_BUFFER (need different treatment)
     //   - syntax-table-object, category-table, case-table — non-trivial
     //     per-buffer object pointers in GNU
-    ConditionalSlotSpec {
-        name: "mode-line-format",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "header-line-format",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "tab-line-format",
-        permanent: false,
-    },
+    // Phase 10D step 5 batch 3 migrated:
+    //   mode-line-format, header-line-format, tab-line-format
+    // (the layout-engine `effective_buffer_value` reader was
+    // updated to consult `BufferSlotInfo` directly so the
+    // FORWARDED dispatch sees the right value.)
     ConditionalSlotSpec {
         name: "syntax-table-object",
         permanent: false,
