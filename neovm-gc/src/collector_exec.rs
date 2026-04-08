@@ -627,6 +627,7 @@ pub(crate) fn execute_collection_plan(
     mut record_phase: impl FnMut(CollectionPhase),
 ) -> Result<CollectionStats, AllocError> {
     let before_bytes = stats.total_live_bytes();
+    let nursery_bytes_before = stats.nursery.live_bytes;
     for object in objects.iter() {
         object.clear_mark();
     }
@@ -691,6 +692,13 @@ pub(crate) fn execute_collection_plan(
             // existed before the GC.
             old_gen.clear_all_dirty_cards();
             refresh_block_card_marks_after_minor(objects, &indexes.object_index, old_gen);
+            // Snapshot the post-rebuild nursery footprint BEFORE the
+            // semispace swap. Surviving records that aged into the
+            // next semispace are still counted in stats.nursery.live_bytes
+            // at this point — the swap below just retargets the
+            // bump-allocator, it does not move bytes or relabel
+            // survivors.
+            let nursery_bytes_after = stats.nursery.live_bytes;
             // Now that dead nursery records are dropped and survivors
             // have been copied into the to-space arena, swap from- and
             // to-spaces so new allocations bump-alloc from the same
@@ -701,6 +709,8 @@ pub(crate) fn execute_collection_plan(
                 mark_steps,
                 mark_rounds,
                 evacuation.promoted_bytes,
+                nursery_bytes_before,
+                nursery_bytes_after,
                 before_bytes,
                 rebuild.after_bytes,
                 rebuild.queued_finalizers,

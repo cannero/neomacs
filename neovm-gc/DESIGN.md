@@ -108,11 +108,13 @@ Still staging compromises:
 - finalization is now queued and drained explicitly through runtime surfaces, but
   it still retains whole `ObjectRecord`s rather than a lower-level VM-facing
   finalization handoff
-- telemetry covers most of the observability surface described below
-  (allocation by space, pause histogram, evacuated regions, pinned bytes,
+- telemetry covers the full observability surface described below:
+  allocation by space, pause histogram, evacuated regions, pinned bytes,
   remembered-set pressure, barrier traffic via `BarrierStats`, concurrent
-  mark duration via `CollectionStats::mark_nanos`); a true nursery
-  survival rate is still missing
+  mark duration via `CollectionStats::mark_nanos`, and nursery survival
+  inputs via `CollectionStats::nursery_bytes_before` /
+  `CollectionStats::nursery_survivor_bytes` (consumers compute the rate
+  from the raw inputs and can sum the cumulative counters across cycles)
 
 ## Core Principles
 

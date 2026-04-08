@@ -3303,6 +3303,65 @@ fn public_api_reports_reclaimed_bytes_on_major_gc() {
 }
 
 #[test]
+fn public_api_collection_stats_track_nursery_survival_inputs() {
+    let mut heap = Heap::new(HeapConfig::default());
+    for value in 0..32u64 {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        mutator
+            .alloc(&mut scope, Leaf(value))
+            .expect("alloc leaf");
+    }
+    let nursery_live_before_minor = heap.stats().nursery.live_bytes;
+    assert!(nursery_live_before_minor > 0);
+
+    let cycle = heap.collect(CollectionKind::Minor).expect("minor collect");
+
+    assert_eq!(cycle.minor_collections, 1);
+    assert_eq!(cycle.nursery_bytes_before as usize, nursery_live_before_minor);
+    // Every leaf above is unrooted by the time the minor cycle
+    // runs (the per-iteration scope already dropped), so no
+    // bytes should survive.
+    assert_eq!(cycle.nursery_survivor_bytes, 0);
+
+    // A second cycle with a rooted leaf must report a non-zero
+    // survivor byte count — the rooted record either ages into
+    // the next semispace or gets promoted out, but either way
+    // contributes to survivors. Drive the cycle through the
+    // mutator so the live root scope stays valid across the
+    // collection.
+    let kept_cycle = {
+        let mut mutator = heap.mutator();
+        let mut keep_scope = mutator.handle_scope();
+        let _kept = mutator
+            .alloc(&mut keep_scope, Leaf(99))
+            .expect("alloc kept leaf");
+        let kept_bytes = mutator.heap().stats().nursery.live_bytes;
+        let kept_cycle = mutator
+            .collect(CollectionKind::Minor)
+            .expect("minor collect");
+        assert_eq!(kept_cycle.minor_collections, 1);
+        assert_eq!(kept_cycle.nursery_bytes_before as usize, kept_bytes);
+        assert!(
+            kept_cycle.nursery_survivor_bytes > 0,
+            "rooted nursery leaf should appear in survivor bytes, got {}",
+            kept_cycle.nursery_survivor_bytes
+        );
+        kept_cycle
+    };
+
+    let cumulative = heap.stats().collections;
+    assert_eq!(
+        cumulative.nursery_bytes_before,
+        cycle.nursery_bytes_before + kept_cycle.nursery_bytes_before
+    );
+    assert_eq!(
+        cumulative.nursery_survivor_bytes,
+        cycle.nursery_survivor_bytes + kept_cycle.nursery_survivor_bytes
+    );
+}
+
+#[test]
 fn public_api_collection_stats_track_concurrent_mark_duration() {
     let mut heap = Heap::new(HeapConfig::default());
     for value in 0..16u64 {

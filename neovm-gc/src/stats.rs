@@ -27,6 +27,31 @@ pub struct CollectionStats {
     pub reclaim_prepare_nanos: u64,
     /// Bytes promoted from nursery to old generation.
     pub promoted_bytes: u64,
+    /// Bytes that were live in the nursery immediately before
+    /// this cycle's evacuation phase began.
+    ///
+    /// Populated by minor cycles only. Major cycles do not run a
+    /// nursery evacuation pass at this layer and report zero.
+    /// Together with [`nursery_survivor_bytes`](Self::nursery_survivor_bytes)
+    /// this gives the raw inputs callers need to compute a
+    /// nursery survival rate without losing precision to a fixed
+    /// floating-point form. The cumulative
+    /// `HeapStats.collections.nursery_bytes_before` counter is
+    /// the sum across every completed minor cycle and corresponds
+    /// to the "nursery survival rate" telemetry surface required
+    /// by `DESIGN.md`.
+    pub nursery_bytes_before: u64,
+    /// Bytes that survived the cycle's nursery evacuation, summed
+    /// across both the bytes that aged into the next semispace
+    /// and the bytes that were promoted out to the old generation
+    /// (or another non-nursery space).
+    ///
+    /// Populated by minor cycles only. The lifetime cumulative
+    /// counter on [`HeapStats::collections`] gives total nursery
+    /// survivors across the heap's life; consumers can divide it
+    /// by [`nursery_bytes_before`](Self::nursery_bytes_before) to
+    /// compute a long-term survival ratio.
+    pub nursery_survivor_bytes: u64,
     /// Number of mark slices drained across completed GC cycles.
     pub mark_steps: u64,
     /// Number of mark worker rounds drained across completed GC cycles.
@@ -48,11 +73,17 @@ impl CollectionStats {
         mark_steps: u64,
         mark_rounds: u64,
         promoted_bytes: usize,
+        nursery_bytes_before: usize,
+        nursery_bytes_after: usize,
         before_bytes: usize,
         after_bytes: usize,
         queued_finalizers: u64,
         old_region_stats: OldRegionCollectionStats,
     ) -> Self {
+        // Survivors include the bytes that aged into the next
+        // semispace plus the bytes promoted out to old/pinned.
+        let nursery_survivor_bytes = (nursery_bytes_after as u64)
+            .saturating_add(promoted_bytes as u64);
         Self {
             collections: 1,
             minor_collections: 1,
@@ -61,6 +92,8 @@ impl CollectionStats {
             mark_nanos: 0,
             reclaim_prepare_nanos: 0,
             promoted_bytes: promoted_bytes as u64,
+            nursery_bytes_before: nursery_bytes_before as u64,
+            nursery_survivor_bytes,
             mark_steps,
             mark_rounds,
             reclaimed_bytes: before_bytes.saturating_sub(after_bytes) as u64,
@@ -90,6 +123,8 @@ impl CollectionStats {
             mark_nanos: mark_elapsed_nanos,
             reclaim_prepare_nanos,
             promoted_bytes: promoted_bytes as u64,
+            nursery_bytes_before: 0,
+            nursery_survivor_bytes: 0,
             mark_steps,
             mark_rounds,
             reclaimed_bytes: before_bytes.saturating_sub(after_bytes) as u64,
@@ -114,6 +149,12 @@ impl CollectionStats {
             .reclaim_prepare_nanos
             .saturating_add(other.reclaim_prepare_nanos);
         self.promoted_bytes = self.promoted_bytes.saturating_add(other.promoted_bytes);
+        self.nursery_bytes_before = self
+            .nursery_bytes_before
+            .saturating_add(other.nursery_bytes_before);
+        self.nursery_survivor_bytes = self
+            .nursery_survivor_bytes
+            .saturating_add(other.nursery_survivor_bytes);
         self.mark_steps = self.mark_steps.saturating_add(other.mark_steps);
         self.mark_rounds = self.mark_rounds.saturating_add(other.mark_rounds);
         self.reclaimed_bytes = self.reclaimed_bytes.saturating_add(other.reclaimed_bytes);
