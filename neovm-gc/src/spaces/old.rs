@@ -909,6 +909,29 @@ impl OldGenState {
             .collect()
     }
 
+    /// Legacy logical-region candidate selector. Still reads
+    /// from `legacy_region_stats` (the regions vec) because
+    /// the planner uses its `estimated_compaction_bytes` /
+    /// `estimated_reclaim_bytes` outputs to populate the
+    /// matching plan fields, and the active major-mark commit
+    /// path consumes those plan fields downstream (the
+    /// `Heap::stats().collections.estimated_*` accumulators
+    /// flow through the same pipeline).
+    ///
+    /// The `selected_old_regions` field of the resulting plan
+    /// is no longer populated by the planner — that field is
+    /// always an empty Vec — so the legacy rebuild path has
+    /// nothing to do at major-cycle commit. The block-side
+    /// equivalent is [`Self::block_plan_selection`], which
+    /// the planner uses for `selected_old_blocks` and which
+    /// the public `Heap::major_block_candidates` accessor
+    /// surfaces.
+    ///
+    /// The final retirement step is migrating
+    /// `estimated_*_bytes` away from this legacy estimator
+    /// and onto the block-side selector. Once that lands the
+    /// `legacy_region_stats` reader and the `regions` vec
+    /// can be deleted together.
     pub(crate) fn major_plan_selection(&self, config: &OldGenConfig) -> OldGenPlanSelection {
         Self::run_major_plan_selection(self.legacy_region_stats(), config)
     }
