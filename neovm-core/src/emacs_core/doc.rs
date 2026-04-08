@@ -201,27 +201,21 @@ fn function_doc_or_error(func_val: Value) -> EvalResult {
                 .map_or(Value::NIL, Value::string))
         }
         ValueKind::Veclike(VecLikeType::Subr) => {
-            // Lookup order, mirroring the audit-v5 R5 plan (Option A):
+            // Look up the subr's GNU `DEFUN doc:' text in the central
+            // static table (`subr_docs::GNU_SUBR_DOCS', populated by
+            // Phase A2's bulk-import script from upstream GNU
+            // `src/*.c'). Subrs not in the table fall through to
+            // `"Built-in function."' -- this covers neomacs-specific
+            // primitives that don't exist in upstream GNU.
             //
-            //   1. `subr_docs::lookup(name)' — the central GNU
-            //      DEFUN doc: table populated by Phase A2's
-            //      bulk-import script. ~1,400 standard subrs.
-            //   2. `subr_documentation_stub(name)' — the legacy 13-
-            //      entry hand-typed shim. Will be deleted in Phase
-            //      A3 once A2 fills the central table.
-            //   3. `"Built-in function."' — final fallback for
-            //      neomacs-specific subrs that aren't in either.
-            //
-            // Lookups go through the symbol name (resolved from the
+            // Lookup goes through the symbol name (resolved from the
             // SubrObj's `name' SymId via the existing `as_subr_id'
-            // accessor). This avoids any new `unsafe' read path on
-            // SubrObj — the doc lives in a central static table,
-            // not on the SubrObj itself.
+            // accessor). The doc is NOT stored on `SubrObj' itself,
+            // which avoids any new `unsafe' read path through the
+            // tagged-pointer boundary.
             let id = func_val.as_subr_id().unwrap();
             let name = resolve_sym(id);
-            let doc = super::subr_docs::lookup(name)
-                .or_else(|| subr_documentation_stub(name))
-                .unwrap_or("Built-in function.");
+            let doc = super::subr_docs::lookup(name).unwrap_or("Built-in function.");
             Ok(Value::string(doc))
         }
         ValueKind::String | ValueKind::Veclike(VecLikeType::Vector) => {
@@ -235,152 +229,6 @@ fn function_doc_or_error(func_val: Value) -> EvalResult {
                 .map_or(Value::NIL, |doc| Value::string(doc.clone())))
         }
         other => Err(signal("invalid-function", vec![func_val])),
-    }
-}
-
-/// Hand-transcribed docstrings for a small set of standard subrs.
-///
-/// **These strings use raw grave-accent quoting** (e.g. `` `car-safe' ``)
-/// matching GNU's actual `DEFUN` `doc:` text. They are deliberately NOT
-/// pre-substituted with curly quotes — `substitute-command-keys' will
-/// convert grave/apostrophe pairs per `text-quoting-style' at display
-/// time. Pre-substituting here would lock in `'curve` regardless of the
-/// user's preference (audit v5 §2.4).
-///
-/// This stub is a placeholder until the documentation pipeline is
-/// rewired (audit v5 §4 R5). Each entry mirrors the corresponding
-/// `DEFUN ("name", ...)` block in GNU's `src/data.c`, `src/fns.c`,
-/// `src/alloc.c`, or `src/eval.c`. The trailing `(fn ARGS)` line is
-/// what GNU's `make-docfile` appends for usage info; only entries
-/// whose GNU source omits a `usage:` directive get the manual line.
-fn subr_documentation_stub(name: &str) -> Option<&'static str> {
-    match name {
-        // src/data.c — Fcar
-        "car" => Some(
-            "Return the car of LIST.  If LIST is nil, return nil.\n\
-Error if LIST is not nil and not a cons cell.  See also `car-safe'.\n\
-\n\
-See Info node `(elisp)Cons Cells' for a discussion of related basic\n\
-Lisp concepts such as car, cdr, cons cell and list.\n\
-\n\
-(fn LIST)",
-        ),
-        // src/data.c — Fcdr
-        "cdr" => Some(
-            "Return the cdr of LIST.  If LIST is nil, return nil.\n\
-Error if LIST is not nil and not a cons cell.  See also `cdr-safe'.\n\
-\n\
-See Info node `(elisp)Cons Cells' for a discussion of related basic\n\
-Lisp concepts such as cdr, car, cons cell and list.\n\
-\n\
-(fn LIST)",
-        ),
-        // src/alloc.c — Fcons
-        "cons" => Some(
-            "Create a new cons, give it CAR and CDR as components, and return it.\n\
-\n\
-(fn CAR CDR)",
-        ),
-        // src/alloc.c — Flist
-        "list" => Some(
-            "Return a newly created list with specified arguments as elements.\n\
-Allows any number of arguments, including zero.\n\
-\n\
-(fn &rest OBJECTS)",
-        ),
-        // src/data.c — Feq
-        "eq" => Some(
-            "Return t if the two args are the same Lisp object.\n\
-\n\
-(fn OBJ1 OBJ2)",
-        ),
-        // src/fns.c — Fequal
-        "equal" => Some(
-            "Return t if two Lisp objects have similar structure and contents.\n\
-They must have the same data type.\n\
-Conses are compared by comparing the cars and the cdrs.\n\
-Vectors and strings are compared element by element.\n\
-Numbers are compared via `eql', so integers do not equal floats.\n\
-\\(Use `=' if you want integers and floats to be able to be equal.)\n\
-Symbols must match exactly.\n\
-\n\
-(fn O1 O2)",
-        ),
-        // src/fns.c — Flength
-        "length" => Some(
-            "Return the length of vector, list or string SEQUENCE.\n\
-A byte-code function object is also allowed.\n\
-\n\
-If the string contains multibyte characters, this is not necessarily\n\
-the number of bytes in the string; it is the number of characters.\n\
-To get the number of bytes, use `string-bytes'.\n\
-\n\
-If the length of a list is being computed to compare to a (small)\n\
-number, the `length<', `length>' and `length=' functions may be more\n\
-efficient.\n\
-\n\
-(fn SEQUENCE)",
-        ),
-        // src/fns.c — Fappend
-        "append" => Some(
-            "Concatenate all the arguments and make the result a list.\n\
-The result is a list whose elements are the elements of all the arguments.\n\
-Each argument may be a list, vector or string.\n\
-\n\
-All arguments except the last argument are copied.  The last argument\n\
-is just used as the tail of the new list.  If the last argument is not\n\
-a list, this results in a dotted list.\n\
-\n\
-As an exception, if all the arguments except the last are nil, and the\n\
-last argument is not a list, the return value is that last argument\n\
-unaltered, not a list.\n\
-\n\
-(fn &rest SEQUENCES)",
-        ),
-        // src/fns.c — Fmapcar
-        "mapcar" => Some(
-            "Apply FUNCTION to each element of SEQUENCE, and make a list of the results.\n\
-The result is a list just as long as SEQUENCE.\n\
-SEQUENCE may be a list, a vector, a bool-vector, or a string.\n\
-\n\
-(fn FUNCTION SEQUENCE)",
-        ),
-        // src/fns.c — Fassoc
-        "assoc" => Some(
-            "Return non-nil if KEY is equal to the car of an element of ALIST.\n\
-The value is actually the first element of ALIST whose car equals KEY.\n\
-\n\
-Equality is defined by the function TESTFN, defaulting to `equal'.\n\
-TESTFN is called with 2 arguments: a car of an alist element and KEY.\n\
-\n\
-(fn KEY ALIST &optional TESTFN)",
-        ),
-        // src/fns.c — Fmember
-        "member" => Some(
-            "Return non-nil if ELT is an element of LIST.  Comparison done with `equal'.\n\
-The value is actually the tail of LIST whose car is ELT.\n\
-\n\
-(fn ELT LIST)",
-        ),
-        // src/data.c — Fsymbol_name
-        "symbol-name" => Some(
-            "Return SYMBOL's name, a string.\n\
-\n\
-Warning: never alter the string returned by `symbol-name'.\n\
-Doing that might make Emacs dysfunctional, and might even crash Emacs.\n\
-\n\
-(fn SYMBOL)",
-        ),
-        // src/eval.c — Fif (special form)
-        "if" => Some(
-            "If COND yields non-nil, do THEN, else do ELSE...\n\
-Returns the value of THEN or the value of the last of the ELSE's.\n\
-THEN must be one expression, but ELSE... can be zero or more expressions.\n\
-If COND yields nil, and there are no ELSE's, the value is nil.\n\
-\n\
-(fn COND THEN ELSE...)",
-        ),
-        _ => None,
     }
 }
 
