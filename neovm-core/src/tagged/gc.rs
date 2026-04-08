@@ -804,11 +804,12 @@ impl TaggedHeap {
 
     /// Allocate a canonical subr object.
     ///
-    /// `doc` is the GNU `DEFUN doc:` text for this subr, if known —
-    /// the caller (`Value::subr`) looks it up via
-    /// `lookup_gnu_subr_doc(resolve_sym(name))`. Pass `None` for
-    /// neomacs-specific subrs that don't have an entry in the GNU
-    /// doc table.
+    /// Documentation strings are NOT stored on the SubrObj — they live
+    /// in the central `subr_docs::GNU_SUBR_DOCS` table indexed by
+    /// symbol name. Lookup is done at documentation-query time via
+    /// `subr_docs::lookup(name)`. Keeping the doc out of `SubrObj`
+    /// avoids extending the struct (cache-line preserving) and avoids
+    /// any new `unsafe` reader path.
     pub fn alloc_subr(
         &mut self,
         name: crate::emacs_core::intern::SymId,
@@ -816,7 +817,6 @@ impl TaggedHeap {
         min_args: u16,
         max_args: Option<u16>,
         dispatch_kind: SubrDispatchKind,
-        doc: Option<&'static str>,
     ) -> TaggedValue {
         let obj = Box::new(SubrObj {
             header: VecLikeHeader::new(VecLikeType::Subr),
@@ -825,7 +825,6 @@ impl TaggedHeap {
             max_args,
             dispatch_kind,
             function,
-            doc,
         });
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);

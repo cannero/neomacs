@@ -3543,7 +3543,21 @@ pub(crate) fn builtin_internal_stack_stats(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_internal_subr_documentation(args: Vec<Value>) -> EvalResult {
     expect_args("internal-subr-documentation", &args, 1)?;
-    Ok(Value::T)
+    // Mirrors GNU `Fsubr_documentation' (`src/doc.c:383-400'). GNU
+    // returns a fixnum byte offset into etc/DOC; neomacs stores docs
+    // inline in `subr_docs::GNU_SUBR_DOCS' so we return the literal
+    // string. Returns `t' (the GNU sentinel for "invalid function")
+    // when the value isn't a subr at all -- the cl-defgeneric
+    // `function-documentation' caller checks for `t' and signals
+    // `invalid-function'.
+    let func = args[0];
+    let Some(id) = func.as_subr_id() else {
+        return Ok(Value::T);
+    };
+    let name = resolve_sym(id);
+    Ok(super::super::subr_docs::lookup(name)
+        .map(Value::string)
+        .unwrap_or(Value::NIL))
 }
 
 pub(crate) fn builtin_malloc_info(args: Vec<Value>) -> EvalResult {

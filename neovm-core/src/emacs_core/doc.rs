@@ -201,10 +201,28 @@ fn function_doc_or_error(func_val: Value) -> EvalResult {
                 .map_or(Value::NIL, Value::string))
         }
         ValueKind::Veclike(VecLikeType::Subr) => {
+            // Lookup order, mirroring the audit-v5 R5 plan (Option A):
+            //
+            //   1. `subr_docs::lookup(name)' — the central GNU
+            //      DEFUN doc: table populated by Phase A2's
+            //      bulk-import script. ~1,400 standard subrs.
+            //   2. `subr_documentation_stub(name)' — the legacy 13-
+            //      entry hand-typed shim. Will be deleted in Phase
+            //      A3 once A2 fills the central table.
+            //   3. `"Built-in function."' — final fallback for
+            //      neomacs-specific subrs that aren't in either.
+            //
+            // Lookups go through the symbol name (resolved from the
+            // SubrObj's `name' SymId via the existing `as_subr_id'
+            // accessor). This avoids any new `unsafe' read path on
+            // SubrObj — the doc lives in a central static table,
+            // not on the SubrObj itself.
             let id = func_val.as_subr_id().unwrap();
-            Ok(Value::string(
-                subr_documentation_stub(resolve_sym(id)).unwrap_or("Built-in function."),
-            ))
+            let name = resolve_sym(id);
+            let doc = super::subr_docs::lookup(name)
+                .or_else(|| subr_documentation_stub(name))
+                .unwrap_or("Built-in function.");
+            Ok(Value::string(doc))
         }
         ValueKind::String | ValueKind::Veclike(VecLikeType::Vector) => {
             Ok(Value::string("Keyboard macro."))
