@@ -145,6 +145,63 @@ pub const BUFFER_SLOT_AUTO_FILL_FUNCTION: usize = 28;
 // Slots 29-31 reserved for mode-line-format, header-line-format,
 // tab-line-format. They will land in a follow-up sub-batch after
 // the redisplay readers stop hitting the legacy slot storage path.
+//
+// Phase 10D step 5 batch 2 — display/bidi/fringe/scroll-bar slots.
+/// Slot index for `bidi-display-reordering`. Default t.
+pub const BUFFER_SLOT_BIDI_DISPLAY_REORDERING: usize = 32;
+/// Slot index for `bidi-paragraph-direction`. Default nil.
+pub const BUFFER_SLOT_BIDI_PARAGRAPH_DIRECTION: usize = 33;
+/// Slot index for `bidi-paragraph-start-re`. Default nil.
+pub const BUFFER_SLOT_BIDI_PARAGRAPH_START_RE: usize = 34;
+/// Slot index for `bidi-paragraph-separate-re`. Default nil.
+pub const BUFFER_SLOT_BIDI_PARAGRAPH_SEPARATE_RE: usize = 35;
+/// Slot index for `cursor-type`. Default t.
+pub const BUFFER_SLOT_CURSOR_TYPE: usize = 36;
+/// Slot index for `line-spacing`. Default nil.
+pub const BUFFER_SLOT_LINE_SPACING: usize = 37;
+/// Slot index for `text-conversion-style`. Default nil.
+pub const BUFFER_SLOT_TEXT_CONVERSION_STYLE: usize = 38;
+/// Slot index for `cursor-in-non-selected-windows`. Default t.
+pub const BUFFER_SLOT_CURSOR_IN_NON_SELECTED_WINDOWS: usize = 39;
+/// Slot index for `left-margin-width`. Default nil.
+pub const BUFFER_SLOT_LEFT_MARGIN_WIDTH: usize = 40;
+/// Slot index for `right-margin-width`. Default nil.
+pub const BUFFER_SLOT_RIGHT_MARGIN_WIDTH: usize = 41;
+/// Slot index for `left-fringe-width`. Default nil.
+pub const BUFFER_SLOT_LEFT_FRINGE_WIDTH: usize = 42;
+/// Slot index for `right-fringe-width`. Default nil.
+pub const BUFFER_SLOT_RIGHT_FRINGE_WIDTH: usize = 43;
+/// Slot index for `fringes-outside-margins`. Default nil.
+pub const BUFFER_SLOT_FRINGES_OUTSIDE_MARGINS: usize = 44;
+/// Slot index for `scroll-bar-width`. Default nil.
+pub const BUFFER_SLOT_SCROLL_BAR_WIDTH: usize = 45;
+/// Slot index for `scroll-bar-height`. Default nil.
+pub const BUFFER_SLOT_SCROLL_BAR_HEIGHT: usize = 46;
+/// Slot index for `vertical-scroll-bar`. Default t.
+pub const BUFFER_SLOT_VERTICAL_SCROLL_BAR: usize = 47;
+/// Slot index for `horizontal-scroll-bar`. Default t.
+pub const BUFFER_SLOT_HORIZONTAL_SCROLL_BAR: usize = 48;
+/// Slot index for `indicate-empty-lines`. Default nil.
+pub const BUFFER_SLOT_INDICATE_EMPTY_LINES: usize = 49;
+/// Slot index for `indicate-buffer-boundaries`. Default nil.
+pub const BUFFER_SLOT_INDICATE_BUFFER_BOUNDARIES: usize = 50;
+/// Slot index for `fringe-indicator-alist`. Default nil.
+pub const BUFFER_SLOT_FRINGE_INDICATOR_ALIST: usize = 51;
+/// Slot index for `fringe-cursor-alist`. Default nil.
+pub const BUFFER_SLOT_FRINGE_CURSOR_ALIST: usize = 52;
+/// Slot index for `scroll-up-aggressively`. Default nil.
+pub const BUFFER_SLOT_SCROLL_UP_AGGRESSIVELY: usize = 53;
+/// Slot index for `scroll-down-aggressively`. Default nil.
+pub const BUFFER_SLOT_SCROLL_DOWN_AGGRESSIVELY: usize = 54;
+/// Slot index for `cache-long-scans`. Default t.
+pub const BUFFER_SLOT_CACHE_LONG_SCANS: usize = 55;
+/// Slot index for `local-abbrev-table`. Default nil.
+pub const BUFFER_SLOT_LOCAL_ABBREV_TABLE: usize = 56;
+/// Slot index for `buffer-display-table`. Default nil.
+pub const BUFFER_SLOT_BUFFER_DISPLAY_TABLE: usize = 57;
+/// Slot index for `buffer-file-coding-system`. Default nil
+/// (permanent).
+pub const BUFFER_SLOT_BUFFER_FILE_CODING_SYSTEM: usize = 58;
 
 // ---------------------------------------------------------------------------
 // BUFFER_SLOT_INFO table — declarative metadata for every BUFFER_OBJFWD
@@ -510,6 +567,254 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
     // observed bootstrap timeouts when they were FORWARDED. Future
     // step 5 sub-batches will migrate them after their callsites
     // are audited.
+    //
+    // Phase 10D step 5 batch 2 — display/bidi/fringe/scroll-bar slots.
+    BufferSlotInfo {
+        // GNU `buffer.c:4852` — bidi-display-reordering defaults to t.
+        name: "bidi-display-reordering",
+        offset: BUFFER_SLOT_BIDI_DISPLAY_REORDERING,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::T),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_BIDI_DISPLAY_REORDERING as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4853` — bidi-paragraph-direction defaults to nil.
+        name: "bidi-paragraph-direction",
+        offset: BUFFER_SLOT_BIDI_PARAGRAPH_DIRECTION,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_BIDI_PARAGRAPH_DIRECTION as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4854` — bidi-paragraph-start-re defaults to nil.
+        name: "bidi-paragraph-start-re",
+        offset: BUFFER_SLOT_BIDI_PARAGRAPH_START_RE,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_BIDI_PARAGRAPH_START_RE as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4855` — bidi-paragraph-separate-re defaults to nil.
+        name: "bidi-paragraph-separate-re",
+        offset: BUFFER_SLOT_BIDI_PARAGRAPH_SEPARATE_RE,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_BIDI_PARAGRAPH_SEPARATE_RE as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4856` — cursor-type defaults to t.
+        name: "cursor-type",
+        offset: BUFFER_SLOT_CURSOR_TYPE,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::T),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_CURSOR_TYPE as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4857` — extra-line-spacing defaults to nil.
+        name: "line-spacing",
+        offset: BUFFER_SLOT_LINE_SPACING,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_LINE_SPACING as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4861` — text-conversion-style defaults to nil.
+        name: "text-conversion-style",
+        offset: BUFFER_SLOT_TEXT_CONVERSION_STYLE,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_TEXT_CONVERSION_STYLE as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4862` — cursor-in-non-selected-windows defaults to t.
+        name: "cursor-in-non-selected-windows",
+        offset: BUFFER_SLOT_CURSOR_IN_NON_SELECTED_WINDOWS,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::T),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_CURSOR_IN_NON_SELECTED_WINDOWS as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4871` — left-margin-cols defaults to 0.
+        name: "left-margin-width",
+        offset: BUFFER_SLOT_LEFT_MARGIN_WIDTH,
+        default: SlotDefault::LazyFixnum(0),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_LEFT_MARGIN_WIDTH as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4872` — right-margin-cols defaults to 0.
+        name: "right-margin-width",
+        offset: BUFFER_SLOT_RIGHT_MARGIN_WIDTH,
+        default: SlotDefault::LazyFixnum(0),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_RIGHT_MARGIN_WIDTH as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4873` — left-fringe-width defaults to nil.
+        name: "left-fringe-width",
+        offset: BUFFER_SLOT_LEFT_FRINGE_WIDTH,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_LEFT_FRINGE_WIDTH as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4874` — right-fringe-width defaults to nil.
+        name: "right-fringe-width",
+        offset: BUFFER_SLOT_RIGHT_FRINGE_WIDTH,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_RIGHT_FRINGE_WIDTH as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4875` — fringes-outside-margins defaults to nil.
+        name: "fringes-outside-margins",
+        offset: BUFFER_SLOT_FRINGES_OUTSIDE_MARGINS,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_FRINGES_OUTSIDE_MARGINS as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4876` — scroll-bar-width defaults to nil.
+        name: "scroll-bar-width",
+        offset: BUFFER_SLOT_SCROLL_BAR_WIDTH,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_SCROLL_BAR_WIDTH as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4877` — scroll-bar-height defaults to nil.
+        name: "scroll-bar-height",
+        offset: BUFFER_SLOT_SCROLL_BAR_HEIGHT,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_SCROLL_BAR_HEIGHT as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4878` — vertical-scroll-bar defaults to t.
+        name: "vertical-scroll-bar",
+        offset: BUFFER_SLOT_VERTICAL_SCROLL_BAR,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::T),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_VERTICAL_SCROLL_BAR as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4879` — horizontal-scroll-bar defaults to t.
+        name: "horizontal-scroll-bar",
+        offset: BUFFER_SLOT_HORIZONTAL_SCROLL_BAR,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::T),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_HORIZONTAL_SCROLL_BAR as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4880` — indicate-empty-lines defaults to nil.
+        name: "indicate-empty-lines",
+        offset: BUFFER_SLOT_INDICATE_EMPTY_LINES,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_INDICATE_EMPTY_LINES as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4881` — indicate-buffer-boundaries defaults to nil.
+        name: "indicate-buffer-boundaries",
+        offset: BUFFER_SLOT_INDICATE_BUFFER_BOUNDARIES,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_INDICATE_BUFFER_BOUNDARIES as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4882` — fringe-indicator-alist defaults to nil.
+        name: "fringe-indicator-alist",
+        offset: BUFFER_SLOT_FRINGE_INDICATOR_ALIST,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_FRINGE_INDICATOR_ALIST as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4883` — fringe-cursor-alist defaults to nil.
+        name: "fringe-cursor-alist",
+        offset: BUFFER_SLOT_FRINGE_CURSOR_ALIST,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_FRINGE_CURSOR_ALIST as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4884` — scroll-up-aggressively defaults to nil.
+        name: "scroll-up-aggressively",
+        offset: BUFFER_SLOT_SCROLL_UP_AGGRESSIVELY,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_SCROLL_UP_AGGRESSIVELY as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4885` — scroll-down-aggressively defaults to nil.
+        name: "scroll-down-aggressively",
+        offset: BUFFER_SLOT_SCROLL_DOWN_AGGRESSIVELY,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_SCROLL_DOWN_AGGRESSIVELY as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4868` — cache-long-scans defaults to t.
+        name: "cache-long-scans",
+        offset: BUFFER_SLOT_CACHE_LONG_SCANS,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::T),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_CACHE_LONG_SCANS as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4840` — abbrev-table defaults to nil.
+        name: "local-abbrev-table",
+        offset: BUFFER_SLOT_LOCAL_ABBREV_TABLE,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_LOCAL_ABBREV_TABLE as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4841` — display-table defaults to nil.
+        name: "buffer-display-table",
+        offset: BUFFER_SLOT_BUFFER_DISPLAY_TABLE,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_BUFFER_DISPLAY_TABLE as i16,
+    },
+    BufferSlotInfo {
+        // GNU `buffer.c:4865` — buffer-file-coding-system defaults to nil.
+        // GNU buffer.c:4767 flags this as `permanent_local`; the
+        // permanent semantics are deferred until step 5+ adds the
+        // dedicated field.
+        name: "buffer-file-coding-system",
+        offset: BUFFER_SLOT_BUFFER_FILE_CODING_SYSTEM,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_BUFFER_FILE_CODING_SYSTEM as i16,
+    },
 ];
 
 /// Look up a [`BufferSlotInfo`] by Lisp variable name. Returns `None`
@@ -1690,12 +1995,20 @@ impl Buffer {
     }
 
     pub fn ordered_buffer_local_bindings(&self) -> Vec<(String, RuntimeBindingValue)> {
-        // Phase 10C: prepend every BUFFER_OBJFWD-style entry from
-        // the slot table. Mirrors GNU's `buffer-local-variables`
-        // which always emits the C-side BVAR slots regardless of
+        // Phase 10C: emit every BUFFER_OBJFWD slot from the slot
+        // table. Mirrors GNU's `buffer-local-variables` which
+        // always emits the C-side BVAR slots regardless of
         // whether the user "made" them buffer-local.
+        //
+        // Phase 10D: conditional slots only appear when the
+        // per-buffer local-flag bit is set, mirroring GNU's
+        // `buffer_lisp_local_variables` walking
+        // `local_var_alist` (`buffer.c:1423-1450`) and the
+        // PER_BUFFER_VALUE_P-gated slot loop in
+        // `buffer.c:1485-1494`.
         let mut out: Vec<(String, RuntimeBindingValue)> = BUFFER_SLOT_INFO
             .iter()
+            .filter(|info| info.local_flags_idx < 0 || self.slot_local_flag(info.offset))
             .map(|info| {
                 (
                     info.name.to_string(),
@@ -1721,6 +2034,7 @@ impl Buffer {
     pub fn ordered_buffer_local_names(&self) -> Vec<String> {
         let mut names: Vec<String> = BUFFER_SLOT_INFO
             .iter()
+            .filter(|info| info.local_flags_idx < 0 || self.slot_local_flag(info.offset))
             .map(|info| info.name.to_string())
             .collect();
         names.extend(self.locals.ordered_binding_names());

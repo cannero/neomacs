@@ -31,15 +31,30 @@ const ALWAYS_LOCAL_BUFFER_LOCAL_NAMES: &[&str] = &[
 // GNU buffer.c init_buffer_once: slots assigned an idx in buffer_local_flags
 // are only buffer-local when the buffer's local flag is set.
 const CONDITIONAL_SLOT_BUFFER_LOCAL_SPECS: &[ConditionalSlotSpec] = &[
-    // Phase 10D step 4 migrated `fill-column`.
-    // Phase 10D step 5 batch 1 migrated:
-    //   tab-width, left-margin, abbrev-mode, overwrite-mode,
-    //   selective-display, selective-display-ellipses,
-    //   truncate-lines, word-wrap, ctl-arrow, auto-fill-function.
-    // mode-line-format / header-line-format / tab-line-format
-    // remain on the legacy storage until the redisplay path is
-    // audited (those names triggered bootstrap timeouts when
-    // routed through FORWARDED).
+    // Phase 10D migration tracker:
+    //   step 4 migrated: fill-column
+    //   step 5 batch 1 migrated: tab-width, left-margin, abbrev-mode,
+    //     overwrite-mode, selective-display, selective-display-ellipses,
+    //     truncate-lines, word-wrap, ctl-arrow, auto-fill-function
+    //   step 5 batch 2 migrated: bidi-{display-reordering,
+    //     paragraph-direction, paragraph-start-re, paragraph-separate-re},
+    //     cursor-type, line-spacing, text-conversion-style,
+    //     cursor-in-non-selected-windows, left/right-margin-width,
+    //     left/right-fringe-width, fringes-outside-margins,
+    //     scroll-bar-{width,height}, vertical/horizontal-scroll-bar,
+    //     indicate-{empty-lines,buffer-boundaries},
+    //     fringe-{indicator,cursor}-alist,
+    //     scroll-{up,down}-aggressively, cache-long-scans,
+    //     local-abbrev-table, buffer-display-table,
+    //     buffer-file-coding-system
+    //
+    // Held back from migration (need separate analysis):
+    //   - mode-line-format, header-line-format, tab-line-format —
+    //     redisplay path
+    //   - case-fold-search, indent-tabs-mode — DEFVAR_LISP / DEFVAR_BOOL
+    //     in GNU, not DEFVAR_PER_BUFFER (need different treatment)
+    //   - syntax-table-object, category-table, case-table — non-trivial
+    //     per-buffer object pointers in GNU
     ConditionalSlotSpec {
         name: "mode-line-format",
         permanent: false,
@@ -53,19 +68,7 @@ const CONDITIONAL_SLOT_BUFFER_LOCAL_SPECS: &[ConditionalSlotSpec] = &[
         permanent: false,
     },
     ConditionalSlotSpec {
-        name: "local-abbrev-table",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "buffer-display-table",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
         name: "syntax-table-object",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "cache-long-scans",
         permanent: false,
     },
     ConditionalSlotSpec {
@@ -78,110 +81,6 @@ const CONDITIONAL_SLOT_BUFFER_LOCAL_SPECS: &[ConditionalSlotSpec] = &[
     },
     ConditionalSlotSpec {
         name: "indent-tabs-mode",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "bidi-display-reordering",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "bidi-paragraph-direction",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "bidi-paragraph-separate-re",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "bidi-paragraph-start-re",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "buffer-file-coding-system",
-        permanent: true,
-    },
-    ConditionalSlotSpec {
-        name: "left-margin-width",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "right-margin-width",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "left-fringe-width",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "right-fringe-width",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "fringes-outside-margins",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "scroll-bar-width",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "scroll-bar-height",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "vertical-scroll-bar",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "horizontal-scroll-bar",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "indicate-empty-lines",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "indicate-buffer-boundaries",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "fringe-indicator-alist",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "fringe-cursor-alist",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "scroll-up-aggressively",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "scroll-down-aggressively",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "header-line-format",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "tab-line-format",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "cursor-type",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "line-spacing",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "text-conversion-style",
-        permanent: false,
-    },
-    ConditionalSlotSpec {
-        name: "cursor-in-non-selected-windows",
         permanent: false,
     },
     ConditionalSlotSpec {
