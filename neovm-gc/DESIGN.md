@@ -110,8 +110,9 @@ Still staging compromises:
   finalization handoff
 - telemetry covers most of the observability surface described below
   (allocation by space, pause histogram, evacuated regions, pinned bytes,
-  remembered-set pressure, barrier traffic via `BarrierStats`); concurrent
-  mark duration and a true nursery survival rate are still missing
+  remembered-set pressure, barrier traffic via `BarrierStats`, concurrent
+  mark duration via `CollectionStats::mark_nanos`); a true nursery
+  survival rate is still missing
 
 ## Core Principles
 

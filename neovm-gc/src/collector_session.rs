@@ -28,6 +28,7 @@ pub(crate) struct FinishedActiveCollection {
     pub(crate) completed_plan: CollectionPlan,
     pub(crate) mark_steps: u64,
     pub(crate) mark_rounds: u64,
+    pub(crate) mark_elapsed_nanos: u64,
     pub(crate) reclaim_prepare_nanos: u64,
     pub(crate) prepared_reclaim: PreparedReclaim,
 }
@@ -371,6 +372,7 @@ pub(crate) fn finish_active_collection(
         },
         mark_steps: state.mark_steps,
         mark_rounds: state.mark_rounds,
+        mark_elapsed_nanos: state.mark_elapsed_nanos,
         reclaim_prepare_nanos,
         prepared_reclaim,
     })

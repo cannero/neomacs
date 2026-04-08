@@ -731,6 +731,7 @@ impl<'heap> CollectorRuntime<'heap> {
             before_bytes,
             finished.mark_steps,
             finished.mark_rounds,
+            finished.mark_elapsed_nanos,
             finished.reclaim_prepare_nanos,
             finished.prepared_reclaim,
             move |object| runtime_state_for_callback.enqueue_pending_finalizer(object),

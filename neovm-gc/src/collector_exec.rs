@@ -642,9 +642,11 @@ pub(crate) fn execute_collection_plan(
             sources.push(objects[object_index].erased());
         }
     }
+    let mark_started_at = Instant::now();
     let (mark_steps, mark_rounds) = trace_collection(plan, objects, indexes, &sources, |phase| {
         record_phase(phase)
     });
+    let mark_elapsed_nanos = saturating_duration_nanos(mark_started_at.elapsed());
 
     match plan.kind {
         CollectionKind::Minor => {
@@ -720,6 +722,7 @@ pub(crate) fn execute_collection_plan(
                 before_bytes,
                 mark_steps,
                 mark_rounds,
+                mark_elapsed_nanos,
                 saturating_duration_nanos(reclaim_prepare_start.elapsed()),
                 prepared_reclaim,
                 move |object| runtime_state_for_callback.enqueue_pending_finalizer(object),
@@ -750,6 +753,7 @@ pub(crate) fn execute_collection_plan(
                 before_bytes,
                 mark_steps,
                 mark_rounds,
+                mark_elapsed_nanos,
                 saturating_duration_nanos(reclaim_prepare_start.elapsed()),
                 prepared_reclaim,
                 move |object| runtime_state_for_callback.enqueue_pending_finalizer(object),

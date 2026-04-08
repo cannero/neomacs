@@ -12,6 +12,17 @@ pub struct CollectionStats {
     pub major_collections: u64,
     /// Stop-the-world time spent inside the call that completed this cycle.
     pub pause_nanos: u64,
+    /// Concurrent mark wall-clock duration for this cycle.
+    ///
+    /// For a major/full cycle this is measured from
+    /// `begin_major_mark` to the moment the active session is
+    /// finished or its reclaim is prepared. For a minor cycle
+    /// this is zero (minor cycles do not run a concurrent mark
+    /// session). The cumulative `HeapStats.collections.mark_nanos`
+    /// counter is the sum across every completed major/full
+    /// cycle and corresponds to the "concurrent mark duration"
+    /// telemetry surface required by `DESIGN.md`.
+    pub mark_nanos: u64,
     /// Time spent preparing reclaim state ahead of the final commit for this cycle.
     pub reclaim_prepare_nanos: u64,
     /// Bytes promoted from nursery to old generation.
@@ -47,6 +58,7 @@ impl CollectionStats {
             minor_collections: 1,
             major_collections: 0,
             pause_nanos: 0,
+            mark_nanos: 0,
             reclaim_prepare_nanos: 0,
             promoted_bytes: promoted_bytes as u64,
             mark_steps,
@@ -63,6 +75,7 @@ impl CollectionStats {
         mark_steps: u64,
         mark_rounds: u64,
         promoted_bytes: usize,
+        mark_elapsed_nanos: u64,
         reclaim_prepare_nanos: u64,
         before_bytes: usize,
         after_bytes: usize,
@@ -74,6 +87,7 @@ impl CollectionStats {
             minor_collections: 0,
             major_collections: 1,
             pause_nanos: 0,
+            mark_nanos: mark_elapsed_nanos,
             reclaim_prepare_nanos,
             promoted_bytes: promoted_bytes as u64,
             mark_steps,
@@ -95,6 +109,7 @@ impl CollectionStats {
             .major_collections
             .saturating_add(other.major_collections);
         self.pause_nanos = self.pause_nanos.saturating_add(other.pause_nanos);
+        self.mark_nanos = self.mark_nanos.saturating_add(other.mark_nanos);
         self.reclaim_prepare_nanos = self
             .reclaim_prepare_nanos
             .saturating_add(other.reclaim_prepare_nanos);

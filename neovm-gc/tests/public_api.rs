@@ -3303,6 +3303,42 @@ fn public_api_reports_reclaimed_bytes_on_major_gc() {
 }
 
 #[test]
+fn public_api_collection_stats_track_concurrent_mark_duration() {
+    let mut heap = Heap::new(HeapConfig::default());
+    for value in 0..16u64 {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        mutator
+            .alloc(&mut scope, Leaf(value))
+            .expect("alloc leaf");
+    }
+
+    // Minor cycles do not run a concurrent mark session, so they
+    // contribute zero to mark_nanos. Run one to confirm.
+    let minor_cycle = heap.collect(CollectionKind::Minor).expect("minor collect");
+    assert_eq!(minor_cycle.minor_collections, 1);
+    assert_eq!(minor_cycle.mark_nanos, 0);
+    let after_minor_mark_nanos = heap.stats().collections.mark_nanos;
+
+    // A major cycle does run mark work; mark_nanos must be
+    // strictly greater than zero on a non-empty heap because the
+    // mark phase walks the surviving roots and edges.
+    let major_cycle = heap.collect(CollectionKind::Major).expect("major collect");
+    assert_eq!(major_cycle.major_collections, 1);
+    assert!(
+        major_cycle.mark_nanos > 0,
+        "major cycle mark_nanos should be positive, got {}",
+        major_cycle.mark_nanos
+    );
+    let after_major_mark_nanos = heap.stats().collections.mark_nanos;
+    assert_eq!(
+        after_major_mark_nanos,
+        after_minor_mark_nanos + major_cycle.mark_nanos,
+        "cumulative mark_nanos should equal the sum of per-cycle deltas"
+    );
+}
+
+#[test]
 fn public_api_clears_dead_weak_target_on_major_gc() {
     let mut heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
