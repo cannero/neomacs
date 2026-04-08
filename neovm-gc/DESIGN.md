@@ -116,10 +116,20 @@ Still staging compromises:
   insufficient fragmentation, or `max_passes == 0`) without
   ever taking the heap write lock. The main `RwLock` is now
   only taken for the actual mutation pass of those compaction
-  calls and for the `clear_*_stats` family. The final
-  data-plane split would target reducing write-side contention
-  next, e.g. by routing barrier-event recording and remembered-
-  set maintenance through their own locks.
+  calls and for the `clear_*_stats` family.
+
+  The `clear_compaction_stats` / `clear_barrier_stats` pair is
+  intentionally left taking the heap write lock: both methods
+  are rare (test setup, interval resets) and do not appear on
+  any hot path, while atomicizing `CompactionStats` /
+  `BarrierStats` would touch every mutation site, the snapshot
+  capture path, and the Heap construction path for near-zero
+  user-visible benefit. Revisit only if a profile shows the
+  clear call is contending with observers in production.
+
+  The final data-plane split would target reducing write-side
+  contention next, e.g. by routing barrier-event recording and
+  remembered-set maintenance through their own locks.
 - nursery allocation is a single bump-pointer cursor on the
   from-space arena. The allocation hot path is already ~8
   arithmetic ops and a single byte store, so it is "lock-free"

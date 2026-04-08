@@ -341,12 +341,11 @@ fn align_up_to(value: usize, align: usize) -> usize {
 /// GC roots so the trace can pull live young targets out of mutated
 /// old-gen objects.
 ///
-/// Phase 4 perf: uses the per-block per-card object-start index so the
-/// scan walks dirty cards in O(dirty_cards) plus O(objects-in-card)
-/// total work, instead of O(blocks * dirty_cards * objects) for the
-/// previous linear pass over every record per dirty card. The one-shot
-/// header-pointer -> objects-index map is built once at the start of
-/// the scan and is amortized over many dirty cards.
+/// The scan uses the per-block per-card object-start index so it
+/// walks dirty cards in O(dirty_cards) plus O(objects-in-card)
+/// total work, instead of O(blocks * dirty_cards * objects). The
+/// one-shot header-pointer -> objects-index map is built once at
+/// the start of the scan and is amortized over many dirty cards.
 pub(crate) fn collect_dirty_card_root_indices(
     objects: &[ObjectRecord],
     old_gen: &OldGenState,
@@ -633,10 +632,11 @@ pub(crate) fn execute_collection_plan(
     }
 
     let mut sources = collect_global_sources(roots, objects);
-    // Phase 4: dirty-card scan. For minor collections, walk every
-    // dirty card in every old-gen block and add the records living in
+    // Dirty-card scan for minor collections: walk every dirty
+    // card in every old-gen block and add the records living in
     // those cards as additional roots so the trace picks up any
-    // young-target edges that mutators marked since the last cycle.
+    // young-target edges that mutators marked since the last
+    // cycle.
     if matches!(plan.kind, CollectionKind::Minor) {
         let dirty_card_root_indices = collect_dirty_card_root_indices(objects, old_gen);
         for object_index in dirty_card_root_indices {
@@ -683,13 +683,13 @@ pub(crate) fn execute_collection_plan(
                 Some(plan.clone()),
                 move |object| runtime_state_for_callback.enqueue_pending_finalizer(object),
             );
-            // Phase 4: clear every per-block dirty card now that the
-            // minor scan has consumed them, then walk surviving block-
-            // backed old-gen objects and re-mark cards for any whose
-            // payload still references a nursery survivor. This
-            // re-establishes remembered tracking across cycles without
-            // requiring the mutator to redirty cards on edges that
-            // existed before the GC.
+            // Clear every per-block dirty card now that the minor
+            // scan has consumed them, then walk surviving block-
+            // backed old-gen objects and re-mark cards for any
+            // whose payload still references a nursery survivor.
+            // This re-establishes remembered tracking across cycles
+            // without requiring the mutator to redirty cards on
+            // edges that existed before the GC.
             old_gen.clear_all_dirty_cards();
             refresh_block_card_marks_after_minor(objects, &indexes.object_index, old_gen);
             // Snapshot the post-rebuild nursery footprint BEFORE the
@@ -768,8 +768,8 @@ pub(crate) fn execute_collection_plan(
                 prepared_reclaim,
                 move |object| runtime_state_for_callback.enqueue_pending_finalizer(object),
             );
-            // Phase 4: full collection rebuilt the old-gen block pool
-            // and the nursery. Clear every dirty card and re-mark
+            // Full collection rebuilt the old-gen block pool and
+            // the nursery. Clear every dirty card and re-mark
             // surviving block-backed owners that still reference a
             // young object so the next minor cycle starts with a
             // consistent card table.
@@ -983,9 +983,10 @@ impl<'a> MarkTracer<'a> {
             return (drained, u64::from(drained > 0));
         }
 
-        // Lock-free work-stealing path (Phase 3). The initial worklist is
-        // distributed across `workers` crossbeam deques; workers dynamically
-        // steal from each other whenever their local deque empties.
+        // Lock-free work-stealing path. The initial worklist is
+        // distributed across `workers` crossbeam deques; workers
+        // dynamically steal from each other whenever their local
+        // deque empties.
         run_stealing_round_major(
             self.objects,
             self.index,
@@ -1110,7 +1111,7 @@ impl<'a> MinorTracer<'a> {
             return (drained, u64::from(drained > 0));
         }
 
-        // Lock-free work-stealing path (Phase 3).
+        // Lock-free work-stealing path.
         run_stealing_round_minor(
             self.objects,
             self.index,
@@ -1151,7 +1152,7 @@ impl Tracer for MinorTracer<'_> {
 }
 
 // ---------------------------------------------------------------------------
-// Lock-free work-stealing mark workers (Phase 3)
+// Lock-free work-stealing mark workers
 // ---------------------------------------------------------------------------
 //
 // The stealing tracers wrap a `crossbeam_deque::Worker<usize>` and implement

@@ -1494,9 +1494,9 @@ fn execute_minor_plan_traces_on_multiple_threads_when_worker_count_is_high() {
     );
 }
 
-// Phase 3 work-stealing correctness smoke tests
+// Lock-free work-stealing correctness smoke tests
 //
-// These tests exercise the lock-free work-stealing path from Phase 3 on
+// These tests exercise the lock-free work-stealing path on
 // graphs where a single initial root owns most of the reachable set.
 // They verify that:
 //   - The stealing round produces no crashes or deadlocks
@@ -1603,7 +1603,7 @@ fn minor_mark_stealing_round_preserves_all_live_objects() {
     assert_eq!(mutator.heap().object_count(), object_count_before);
 }
 
-// Phase 6: parallel nursery evacuation with per-worker sub-arenas.
+// Parallel nursery evacuation with per-worker sub-arenas.
 //
 // These tests configure `parallel_minor_workers > 1` and exercise the
 // new parallel evacuation path. The workers partition the to-space
@@ -10330,7 +10330,7 @@ fn background_worker_publishes_one_round_snapshot_between_multi_round_ticks() {
 }
 
 // ---------------------------------------------------------------------
-// Phase 4: card-table write barrier and minor GC root scan
+// Card-table write barrier and minor GC root scan
 // ---------------------------------------------------------------------
 
 #[test]
@@ -10633,7 +10633,7 @@ fn dirty_card_scan_handles_object_at_card_boundary() {
     assert_eq!(unsafe { moved_b.as_non_null().as_ref() }.0, 51);
 }
 
-// ----- Phase 4 perf: per-card object-start index tests -----------------
+// ----- Per-card object-start index tests -------------------------------
 
 #[test]
 fn object_start_index_records_first_object_in_each_card() {
@@ -10995,7 +10995,7 @@ fn dirty_card_scan_index_avoids_linear_objects_walk() {
     );
 }
 
-// ----- Phase 5 ConcurrentMarker tests -----------------------------------
+// ----- ConcurrentMarker tests -------------------------------------------
 
 fn fresh_concurrent_marker_shared_heap() -> SharedHeap {
     Heap::new(HeapConfig {
@@ -11401,7 +11401,7 @@ fn concurrent_marker_join_stops_thread_cleanly() {
 }
 
 // ---------------------------------------------------------------------------
-// Adaptive pacer tests (Phase 7 completion).
+// Adaptive pacer tests.
 // ---------------------------------------------------------------------------
 
 #[test]

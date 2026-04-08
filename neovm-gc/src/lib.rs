@@ -116,7 +116,7 @@ mod collector_exec;
 mod collector_policy;
 mod collector_session;
 mod collector_state;
-/// Phase 5 dedicated concurrent-marker scaffold built on top of
+/// Dedicated concurrent-marker scaffold built on top of
 /// `BackgroundWorker`.
 pub mod concurrent_marker;
 /// Type descriptors and tracing/relocation traits the collector

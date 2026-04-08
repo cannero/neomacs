@@ -1,4 +1,4 @@
-//! Adaptive GC pacer (Phase 7 completion).
+//! Adaptive GC pacer.
 //!
 //! Layered on top of the static allocation-pressure thresholds. The pacer
 //! observes allocation and mark rates over recently completed cycles, then

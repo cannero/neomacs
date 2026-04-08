@@ -1,4 +1,4 @@
-//! Phase 5 dedicated concurrent-marker scaffold.
+//! Dedicated concurrent-marker scaffold.
 //!
 //! `ConcurrentMarker` is a thin focused wrapper around the existing
 //! [`BackgroundWorker`] infrastructure. It exposes a small, opinionated API
@@ -33,10 +33,11 @@
 //! * relocation/forwarding tables that mutators can read without taking the
 //!   heap lock.
 //!
-//! Phase 5 deliberately stops short of those changes. The goal here is to
-//! prove out a dedicated mark thread driving the existing tri-color marker
-//! to completion through brief read-lock slices, with progress observable
-//! via the existing [`SharedHeap`] background-status surface.
+//! The current concurrent marker deliberately stops short of those
+//! changes. The goal here is to prove out a dedicated mark thread
+//! driving the existing tri-color marker to completion through brief
+//! read-lock slices, with progress observable via the existing
+//! [`SharedHeap`] background-status surface.
 
 use crate::background::{
     BackgroundCollectorConfig, BackgroundWorker, BackgroundWorkerConfig, BackgroundWorkerError,
@@ -79,9 +80,10 @@ impl ConcurrentMarkerConfig {
     fn into_worker_config(self) -> BackgroundWorkerConfig {
         BackgroundWorkerConfig {
             collector: BackgroundCollectorConfig {
-                // Phase 5 only drives sessions that the mutator already
-                // started. Auto-starting concurrent sessions belongs to the
-                // background coordinator, not to the focused mark wrapper.
+                // This marker only drives sessions the mutator
+                // already started. Auto-starting concurrent sessions
+                // belongs to the background coordinator, not to the
+                // focused mark wrapper.
                 auto_start_concurrent: false,
                 // The mark thread should drive the session through to the
                 // ready-to-finish phase, but the final stop-the-world finish

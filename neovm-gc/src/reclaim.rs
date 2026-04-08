@@ -470,16 +470,15 @@ pub(crate) fn rebuild_line_marks_and_reclaim_empty_old_blocks(
     // marked even though their owning records are no longer in `objects`.
     let pending_placements = runtime_state.snapshot_pending_finalizer_block_placements();
     old_gen.clear_all_block_line_marks();
-    // Phase 4 perf: also rebuild the per-card object-start index from
-    // surviving block-backed records so the next minor cycle's dirty-card
-    // root scan can iterate dirty cards in O(dirty_cards) instead of doing
-    // a linear pass over every record per dirty card.
+    // Rebuild the per-card object-start index from surviving
+    // block-backed records so the next minor cycle's dirty-card
+    // root scan can iterate dirty cards in O(dirty_cards) instead
+    // of doing a linear pass over every record per dirty card.
     old_gen.clear_all_block_object_starts();
-    // OldRegion unification step 9: also reset per-block
-    // live_bytes / object_count / occupied_lines so the survivor
-    // walk below can re-populate them. Without this the counters
-    // stay at their pre-sweep monotonic values and over-report
-    // live bytes.
+    // Reset per-block live_bytes / object_count / occupied_lines
+    // so the survivor walk below can re-populate them. Without
+    // this the counters stay at their pre-sweep monotonic values
+    // and over-report live bytes.
     old_gen.clear_all_block_live_accounting();
     for object in objects.iter() {
         if let Some(placement) = object.old_block_placement() {

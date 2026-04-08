@@ -1,4 +1,4 @@
-//! Rolling pause-time histogram for GC observability (Phase 7).
+//! Rolling pause-time histogram for GC observability.
 //!
 //! Records recent STW pause durations (`pause_nanos`) captured by the
 //! runtime after each completed collection cycle. Exposes percentile

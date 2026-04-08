@@ -1,4 +1,4 @@
-//! Card-table remembered-set primitive (Phase 4 foundation).
+//! Card-table remembered-set primitive.
 //!
 //! A [`CardTable`] maps a contiguous address range to a dense byte
 //! array, one byte per `CARD_SIZE`-aligned card. The intended use is
@@ -6,12 +6,11 @@
 //! owner address inside the covered range, compute the card index in
 //! constant time and set the card byte to 1.
 //!
-//! This module is standalone infrastructure — Phase 4 will wire it
-//! into the write barrier path and minor GC root scan once the
-//! Immix old-generation has stable contiguous region addressing
-//! (Phase 2 delivers a block-based old-gen allocator as its MVP but
-//! blocks are allocated on demand; a per-block card table is a
-//! natural follow-up).
+//! Each old-gen block owns its own card table. The write barrier
+//! looks up the block via `OldGenState::find_block_for_addr` and
+//! marks the appropriate card in O(1). The minor GC's dirty-card
+//! scan walks every block's dirty cards to find the records that
+//! need to be treated as additional roots.
 //!
 //! Design notes:
 //! - Card size is 512 bytes by default (a common sweet spot: small

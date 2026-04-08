@@ -1,4 +1,4 @@
-//! Bump-pointer semispace arena for nursery allocation (Phase 1).
+//! Bump-pointer semispace arena for nursery allocation.
 //!
 //! Each `NurseryArena` owns a contiguous heap buffer and services
 //! allocation requests by bumping a local cursor. This replaces the

@@ -466,11 +466,12 @@ impl OldGenState {
         self.blocks.iter().map(|block| block.used_bytes()).sum()
     }
 
-    /// Phase 2 Immix-style block allocation. Walks every block looking for
-    /// a hole large enough to fit `layout` (hole-filling), and on failure
-    /// allocates a fresh block sized to the larger of `config.region_bytes`
-    /// and `layout.size()`. Returns the placement (block index plus byte
-    /// offset) and a `NonNull<u8>` to the placement slot.
+    /// Immix-style block allocation. Walks every block looking
+    /// for a hole large enough to fit `layout` (hole-filling), and
+    /// on failure allocates a fresh block sized to the larger of
+    /// `config.region_bytes` and `layout.size()`. Returns the
+    /// placement (block index plus byte offset) and a
+    /// `NonNull<u8>` to the placement slot.
     pub(crate) fn try_alloc_in_block(
         &mut self,
         config: &OldGenConfig,
