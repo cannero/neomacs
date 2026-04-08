@@ -159,3 +159,97 @@ fn nursery_state_swaps_from_and_to_spaces() {
     assert_eq!(state.from_space().used_bytes(), 32);
     assert_eq!(state.to_space().used_bytes(), 0);
 }
+
+#[test]
+fn nursery_tlab_reserve_carves_slab_from_from_space() {
+    let mut state = NurseryState::new(1024);
+    let before = state.from_space().used_bytes();
+    let tlab = state.reserve_tlab(256).expect("reserve tlab");
+    let after = state.from_space().used_bytes();
+    assert_eq!(tlab.capacity(), 256);
+    assert_eq!(tlab.free_bytes(), 256);
+    assert_eq!(tlab.used_bytes(), 0);
+    assert!(after > before, "reservation must advance the shared cursor");
+    assert_eq!(tlab.generation(), 0);
+    assert_eq!(state.generation(), 0);
+}
+
+#[test]
+fn nursery_tlab_try_alloc_bumps_local_cursor_without_touching_shared_cursor() {
+    let mut state = NurseryState::new(1024);
+    let mut tlab = state.reserve_tlab(256).expect("reserve tlab");
+    let used_after_reserve = state.from_space().used_bytes();
+    let generation = state.generation();
+
+    let layout = Layout::from_size_align(32, 16).unwrap();
+    let a = tlab
+        .try_alloc(generation, layout)
+        .expect("first tlab alloc");
+    let b = tlab
+        .try_alloc(generation, layout)
+        .expect("second tlab alloc");
+    assert_ne!(a.as_ptr(), b.as_ptr());
+    assert!(
+        (a.as_ptr() as usize).is_multiple_of(16),
+        "tlab alloc must honor layout alignment",
+    );
+    assert!((b.as_ptr() as usize).is_multiple_of(16));
+
+    // Bumps inside the slab must not change the shared
+    // from-space cursor.
+    assert_eq!(state.from_space().used_bytes(), used_after_reserve);
+    assert!(tlab.used_bytes() >= 64);
+}
+
+#[test]
+fn nursery_tlab_try_alloc_returns_none_when_slab_exhausted() {
+    let mut state = NurseryState::new(1024);
+    let mut tlab = state.reserve_tlab(64).expect("reserve tlab");
+    let layout = Layout::from_size_align(32, 8).unwrap();
+    let generation = state.generation();
+    assert!(tlab.try_alloc(generation, layout).is_some());
+    assert!(tlab.try_alloc(generation, layout).is_some());
+    assert!(
+        tlab.try_alloc(generation, layout).is_none(),
+        "third alloc should overflow a 64-byte slab",
+    );
+}
+
+#[test]
+fn nursery_tlab_becomes_stale_after_swap_and_reset() {
+    // The generation stamp must make a pre-swap TLAB reject
+    // alloc attempts after the nursery flips spaces.
+    let mut state = NurseryState::new(1024);
+    let mut tlab = state.reserve_tlab(256).expect("reserve tlab");
+    let pre_swap_generation = state.generation();
+    assert_eq!(tlab.generation(), pre_swap_generation);
+
+    state.swap_spaces_and_reset();
+    let post_swap_generation = state.generation();
+    assert_ne!(
+        post_swap_generation, pre_swap_generation,
+        "swap_spaces_and_reset must bump the generation",
+    );
+
+    let layout = Layout::from_size_align(32, 8).unwrap();
+    // A post-swap alloc against the stale TLAB must fail.
+    assert!(
+        tlab.try_alloc(post_swap_generation, layout).is_none(),
+        "stale TLAB must reject post-swap alloc",
+    );
+}
+
+#[test]
+fn nursery_tlab_reserve_returns_none_when_from_space_full() {
+    let mut state = NurseryState::new(128);
+    let _ = state.reserve_tlab(96).expect("reserve first tlab");
+    // 128-byte from-space minus ~96 reserved leaves room for a
+    // small second reservation but not another 96-byte slab.
+    assert!(state.reserve_tlab(96).is_none());
+}
+
+#[test]
+fn nursery_tlab_reserve_rejects_zero_size() {
+    let mut state = NurseryState::new(1024);
+    assert!(state.reserve_tlab(0).is_none());
+}

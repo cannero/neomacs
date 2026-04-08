@@ -194,6 +194,113 @@ pub(crate) struct NurseryState {
     from_space: NurseryArena,
     to_space: NurseryArena,
     capacity: usize,
+    /// Monotonic generation counter, incremented on every
+    /// [`swap_spaces_and_reset`] call. `NurseryTlab` stamps
+    /// itself with the current generation at reservation time
+    /// and uses the stamp to detect staleness after a minor
+    /// cycle. Staleness rejects the TLAB and forces the
+    /// caller to reserve a fresh one.
+    generation: u64,
+}
+
+/// A per-mutator bump slab carved out of the nursery from-space.
+///
+/// A `NurseryTlab` reserves a contiguous range `[base, base + len)`
+/// inside the from-space buffer and maintains its own bump cursor.
+/// The mutator can bump-allocate within the slab without touching
+/// the shared from-space cursor on every alloc: only refilling the
+/// slab requires a trip through [`NurseryState::reserve_tlab`].
+///
+/// TLABs become stale when the nursery flips its from-space /
+/// to-space via [`NurseryState::swap_spaces_and_reset`]. The
+/// [`NurseryTlab::generation`] stamp is compared against the
+/// current nursery generation on every alloc; a mismatch means the
+/// slab no longer lives inside the active from-space and the alloc
+/// fails (returning `None`) so the caller can drop the TLAB and
+/// request a fresh one.
+///
+/// This type is the structural seam for multi-mutator nursery
+/// allocation: today the crate only drives a single mutator at a
+/// time, but future multi-mutator support can give each mutator
+/// its own `NurseryTlab`, bump locally in the allocation hot path,
+/// and coordinate only on refill/reservation. The wiring into the
+/// mutator's allocation path is not yet in place; this type ships
+/// as a standalone primitive with its own unit coverage so the
+/// eventual wire-up has a tested foundation to build on.
+#[derive(Debug)]
+pub(crate) struct NurseryTlab {
+    base: NonNull<u8>,
+    len: usize,
+    cursor: usize,
+    generation: u64,
+}
+
+// Safety: `NurseryTlab` only stores a raw pointer plus scalars.
+// It is not thread-safe (the cursor is non-atomic), but it is
+// `Send` so a future multi-mutator refactor can move it onto a
+// worker thread. The invariant to uphold is the same as
+// [`WorkerEvacuationArena`]: a TLAB must not outlive the
+// `NurseryState::from_space` buffer it was carved from.
+unsafe impl Send for NurseryTlab {}
+
+impl NurseryTlab {
+    /// Bytes remaining in this slab.
+    #[allow(dead_code)]
+    pub(crate) fn free_bytes(&self) -> usize {
+        self.len.saturating_sub(self.cursor)
+    }
+
+    /// Bytes this slab has already bumped past.
+    #[allow(dead_code)]
+    pub(crate) fn used_bytes(&self) -> usize {
+        self.cursor
+    }
+
+    /// Total slab length in bytes.
+    #[allow(dead_code)]
+    pub(crate) fn capacity(&self) -> usize {
+        self.len
+    }
+
+    /// Nursery generation stamp captured at reservation time.
+    #[allow(dead_code)]
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// Attempt to bump-allocate `layout` from this slab.
+    ///
+    /// `current_generation` is the current nursery generation
+    /// (from [`NurseryState::generation`]). A mismatch means the
+    /// slab is stale (the nursery has flipped since reservation);
+    /// the call returns `None` and the caller must drop the TLAB.
+    ///
+    /// On success the returned pointer is valid for the lifetime
+    /// of the enclosing from-space buffer (until the next
+    /// swap-and-reset).
+    #[allow(dead_code)]
+    pub(crate) fn try_alloc(
+        &mut self,
+        current_generation: u64,
+        layout: Layout,
+    ) -> Option<NonNull<u8>> {
+        if self.generation != current_generation {
+            return None;
+        }
+        let size = layout.size();
+        let align = layout.align().max(1);
+        let base_addr = self.base.as_ptr() as usize;
+        let current = base_addr.checked_add(self.cursor)?;
+        let aligned = align_up(current, align)?;
+        let padding = aligned.checked_sub(base_addr)?;
+        let end = padding.checked_add(size)?;
+        if end > self.len {
+            return None;
+        }
+        let ptr = aligned as *mut u8;
+        self.cursor = end;
+        NonNull::new(ptr)
+    }
 }
 
 // `from_space` / `to_space` are standard semispace-collector
@@ -208,7 +315,48 @@ impl NurseryState {
             from_space: NurseryArena::new(capacity_bytes),
             to_space: NurseryArena::new(capacity_bytes),
             capacity: capacity_bytes,
+            generation: 0,
         }
+    }
+
+    /// Current nursery generation counter. Incremented on every
+    /// [`swap_spaces_and_reset`]. A `NurseryTlab` stamps itself
+    /// with this value at reservation time to detect staleness.
+    #[allow(dead_code)]
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// Reserve a per-mutator bump slab of `size` bytes out of the
+    /// from-space arena. Returns `None` if the from-space cannot
+    /// service the reservation. The reserved bytes are accounted
+    /// against the from-space cursor immediately, so the slab is
+    /// visible to the GC as used space even before any individual
+    /// allocation bumps within it.
+    ///
+    /// The returned [`NurseryTlab`] stamps itself with the
+    /// current [`generation`] so a subsequent minor-cycle swap
+    /// can invalidate the TLAB on the mutator side.
+    ///
+    /// `size` is rounded up to pointer alignment so the returned
+    /// slab honors the minimum alignment every subsequent alloc
+    /// will ask for. Callers should pass a slab size that is
+    /// large enough to amortize the reservation cost against
+    /// many subsequent TLAB bumps (e.g. a few kilobytes).
+    #[allow(dead_code)]
+    pub(crate) fn reserve_tlab(&mut self, size: usize) -> Option<NurseryTlab> {
+        if size == 0 {
+            return None;
+        }
+        let pointer_align = core::mem::align_of::<usize>().max(1);
+        let layout = core::alloc::Layout::from_size_align(size, pointer_align).ok()?;
+        let base = self.from_space.try_alloc(layout)?;
+        Some(NurseryTlab {
+            base,
+            len: size,
+            cursor: 0,
+            generation: self.generation,
+        })
     }
 
     #[allow(dead_code)]
@@ -249,9 +397,15 @@ impl NurseryState {
     /// Swap from-space and to-space, then reset the new to-space (the
     /// old from-space). Callers must have drained every record backed
     /// by the old from-space before calling this.
+    ///
+    /// Also increments the nursery generation counter so any
+    /// outstanding [`NurseryTlab`] reserved against the
+    /// pre-swap from-space becomes stale on its next alloc
+    /// attempt.
     pub(crate) fn swap_spaces_and_reset(&mut self) {
         core::mem::swap(&mut self.from_space, &mut self.to_space);
         self.to_space.reset();
+        self.generation = self.generation.saturating_add(1);
     }
 
     /// Partition the to-space into `worker_count` equal-sized slabs,
