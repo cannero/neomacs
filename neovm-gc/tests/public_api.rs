@@ -592,7 +592,9 @@ fn public_api_full_collection_prunes_remembered_edges_for_dead_old_owner() {
     assert_eq!(stats.remembered_edges, 1);
     assert_eq!(stats.remembered_owners, 1);
     assert_eq!(stats.remembered_dirty_cards, 1);
+    assert_eq!(stats.remembered_dirty_card_owners, 1);
     assert_eq!(stats.remembered_explicit_edges, 0);
+    assert_eq!(stats.remembered_explicit_owners, 0);
     drop(root_scope);
 
     let cycle = mutator.collect(CollectionKind::Full).expect("full collect");
@@ -602,7 +604,9 @@ fn public_api_full_collection_prunes_remembered_edges_for_dead_old_owner() {
     assert_eq!(stats.remembered_edges, 0);
     assert_eq!(stats.remembered_owners, 0);
     assert_eq!(stats.remembered_dirty_cards, 0);
+    assert_eq!(stats.remembered_dirty_card_owners, 0);
     assert_eq!(stats.remembered_explicit_edges, 0);
+    assert_eq!(stats.remembered_explicit_owners, 0);
 }
 
 #[test]
@@ -634,8 +638,16 @@ fn public_api_pinned_owner_nursery_edge_uses_explicit_fallback() {
         "pinned owner should force the explicit-edge fallback",
     );
     assert_eq!(
+        stats.remembered_explicit_owners, 1,
+        "owner-side fallback counter should match the edge fallback counter",
+    );
+    assert_eq!(
         stats.remembered_dirty_cards, 0,
         "pinned owner must not dirty any block card",
+    );
+    assert_eq!(
+        stats.remembered_dirty_card_owners, 0,
+        "pinned owner contributes nothing to the dirty-card owner approximation",
     );
     assert_eq!(
         stats.remembered_edges, 1,

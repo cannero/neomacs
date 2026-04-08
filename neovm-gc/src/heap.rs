@@ -135,6 +135,8 @@ impl Heap {
                 remembered_owners: 0,
                 remembered_explicit_edges: 0,
                 remembered_dirty_cards: 0,
+                remembered_explicit_owners: 0,
+                remembered_dirty_card_owners: 0,
                 old_gen_used_bytes: 0,
                 finalizable_candidates: 0,
                 weak_candidates: 0,

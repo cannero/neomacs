@@ -146,10 +146,13 @@ impl HeapIndexState {
 
     pub(crate) fn apply_storage_stats(&self, stats: &mut HeapStats) {
         let explicit_edges = self.remembered.edges.len();
+        let explicit_owners = self.remembered.owners.len();
         stats.remembered_explicit_edges = explicit_edges;
+        stats.remembered_explicit_owners = explicit_owners;
         stats.remembered_edges = explicit_edges;
-        stats.remembered_owners = self.remembered.owners.len();
+        stats.remembered_owners = explicit_owners;
         stats.remembered_dirty_cards = 0;
+        stats.remembered_dirty_card_owners = 0;
         stats.finalizable_candidates = self.finalizable_candidates.len();
         stats.weak_candidates = self.weak_candidates.len();
         stats.ephemeron_candidates = self.ephemeron_candidates.len();
@@ -171,6 +174,7 @@ impl HeapIndexState {
     ) {
         let dirty_cards = old_gen.dirty_card_count();
         stats.remembered_dirty_cards = dirty_cards;
+        stats.remembered_dirty_card_owners = dirty_cards;
         stats.remembered_edges = stats.remembered_edges.saturating_add(dirty_cards);
         stats.remembered_owners = stats.remembered_owners.saturating_add(dirty_cards);
     }

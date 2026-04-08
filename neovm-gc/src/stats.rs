@@ -324,6 +324,24 @@ pub struct HeapStats {
     /// barrier is an O(1) card byte store, and the minor GC
     /// scans O(dirty_cards) rather than O(recorded edges).
     pub remembered_dirty_cards: usize,
+    /// Number of distinct old owners represented in the explicit-
+    /// edge fallback path. Always equal to the unique owner-set
+    /// size of the `Vec<RememberedEdge>` fallback container.
+    ///
+    /// This is the owner-side companion to
+    /// [`Self::remembered_explicit_edges`]. Together with
+    /// [`Self::remembered_dirty_card_owners`] they sum (modulo
+    /// the dirty-card-as-owner approximation noted on the
+    /// dirty-card counter) to the unified
+    /// [`Self::remembered_owners`] view.
+    pub remembered_explicit_owners: usize,
+    /// Owner-side approximation for the per-block dirty-card
+    /// fast path: equal to [`Self::remembered_dirty_cards`].
+    /// Each dirty card represents at least one pending
+    /// old-to-young root in its covered byte range, so the dirty
+    /// card count is used as a conservative owner estimate when
+    /// a precise per-card object identity is not yet tracked.
+    pub remembered_dirty_card_owners: usize,
     /// Total bytes the old-generation block allocator has bumped
     /// past across every block in the pool. This is the sum of
     /// `block.used_bytes()` over every block, where `used_bytes`
