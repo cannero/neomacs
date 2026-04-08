@@ -6589,8 +6589,16 @@ fn background_worker_owns_autonomous_service_loop() {
 
     let stats = worker.join().expect("join background worker");
     assert!(stats.loops >= 1);
-    assert_eq!(stats.collector.sessions_started, 1);
-    assert_eq!(stats.collector.sessions_finished, 1);
+    // After the legacy logical-rebuild was retired, the
+    // planner reads candidate blocks from the per-block view
+    // and re-selects sparse blocks until physical compaction
+    // actually compacts them. With this fixture's default
+    // OldGenConfig (no physical compaction threshold), the
+    // worker can start multiple sessions before the test
+    // observes the first one finishing. Verify at least one
+    // session ran end-to-end.
+    assert!(stats.collector.sessions_started >= 1);
+    assert!(stats.collector.sessions_finished >= 1);
 
     assert_eq!(
         shared

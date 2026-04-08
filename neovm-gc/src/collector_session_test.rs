@@ -37,7 +37,6 @@ fn prepared_reclaim() -> PreparedReclaim {
         promoted_bytes: 0,
         old_gen: PreparedOldGenReclaim {
             region_stats: OldRegionCollectionStats::default(),
-            ..PreparedOldGenReclaim::default()
         },
         indexes: PreparedIndexReclaim::default(),
         survivors: vec![PreparedReclaimSurvivor {

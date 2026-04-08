@@ -332,7 +332,7 @@ pub(crate) fn prepare_reclaim(
     kind: CollectionKind,
     plan: &CollectionPlan,
 ) -> PreparedReclaim {
-    let mut rebuild = old_gen.prepare_rebuild_for_plan(plan);
+    let _ = (old_gen, old_config, plan);
     let mut survivors = Vec::new();
     let mut prepared_stats = PreparedHeapStats::default();
 
@@ -342,16 +342,14 @@ pub(crate) fn prepare_reclaim(
         }
 
         let total_size = object.total_size();
-
+        // Survivors keep their old_region_placement unchanged.
+        // Logical-region renumbering is retired; physical
+        // compaction (Heap::compact_old_gen_blocks /
+        // compact_old_gen_physical) is the only mechanism that
+        // moves bytes, and that updates old_block_placement
+        // directly.
         let old_region_placement = match object.space() {
-            SpaceKind::Old => OldGenState::prepare_reclaim_survivor(
-                &mut rebuild,
-                old_config,
-                object
-                    .old_region_placement()
-                    .expect("live old object should retain old-region placement"),
-                total_size,
-            ),
+            SpaceKind::Old => object.old_region_placement(),
             _ => None,
         };
         survivors.push(PreparedReclaimSurvivor {
@@ -361,11 +359,10 @@ pub(crate) fn prepare_reclaim(
         prepared_stats.record_live_object(object.space(), total_size);
     }
 
-    let prepared_old_gen = OldGenState::finish_prepared_rebuild(rebuild, &mut survivors);
     let prepared_indexes = indexes.prepare_reclaim_state(objects, &survivors, kind);
     PreparedReclaim {
         promoted_bytes: 0,
-        old_gen: prepared_old_gen,
+        old_gen: PreparedOldGenReclaim::default(),
         indexes: prepared_indexes,
         survivors,
         stats: prepared_stats,
@@ -554,12 +551,20 @@ pub(crate) fn apply_prepared_reclaim(
         ..
     } = prepared_reclaim;
     *objects = rebuilt_objects;
-    let old_region_stats = old_gen.apply_prepared_reclaim(prepared_old_gen);
+    let mut old_region_stats = old_gen.apply_prepared_reclaim(prepared_old_gen);
     indexes.apply_prepared_reclaim(prepared_indexes);
     // Rebuild line marks across surviving block-backed records (and any
     // pending finalizer placements that still pin a block), then drop
     // every block whose lines remain entirely free.
-    rebuild_line_marks_and_reclaim_empty_old_blocks(objects, old_gen, runtime_state);
+    let dropped_blocks =
+        rebuild_line_marks_and_reclaim_empty_old_blocks(objects, old_gen, runtime_state);
+    // Merge the physical block-reclaim count into the cycle's
+    // reclaimed_regions stat: this is the only reclamation
+    // event that happens in the major commit path now that
+    // the legacy logical rebuild is retired.
+    old_region_stats.reclaimed_regions = old_region_stats
+        .reclaimed_regions
+        .saturating_add(dropped_blocks as u64);
     let old_reserved_bytes = old_gen.reserved_bytes();
     let after_bytes = prepared_stats.apply_space_rebuild(stats, old_reserved_bytes);
     ReclaimCommitResult {
@@ -617,14 +622,14 @@ pub(crate) fn sweep_minor_and_rebuild_post_collection(
     completed_plan: Option<CollectionPlan>,
     mut enqueue_pending_finalizer: impl FnMut(ObjectRecord) -> u64,
 ) -> MinorRebuildResult {
+    let _ = (old_config, completed_plan);
     let old_objects = core::mem::take(objects);
-    let mut old_region_rebuild = old_gen.prepare_rebuild(completed_plan.as_ref());
     let post_sweep_indexes = indexes.begin_post_sweep_rebuild(old_objects.len());
     let mut rebuilt_stats = PreparedHeapStats::default();
 
     let mut rebuilt_objects = Vec::with_capacity(old_objects.len());
     let mut queued_finalizers = 0u64;
-    for mut object in old_objects {
+    for object in old_objects {
         if !keep_object_for_collection(kind, &object) {
             if post_sweep_indexes.should_enqueue_finalizer(&object) {
                 queued_finalizers =
@@ -638,14 +643,6 @@ pub(crate) fn sweep_minor_and_rebuild_post_collection(
         let desc = object.header().desc();
         let space = object.space();
         let total_size = object.total_size();
-        if space == SpaceKind::Old {
-            OldGenState::rebuild_post_sweep_object(
-                old_config,
-                &mut object,
-                total_size,
-                old_region_rebuild.as_mut(),
-            );
-        }
         let index = rebuilt_objects.len();
         rebuilt_objects.push(object);
         indexes.record_allocated_object(object_key, index, desc);
@@ -653,19 +650,22 @@ pub(crate) fn sweep_minor_and_rebuild_post_collection(
     }
 
     *objects = rebuilt_objects;
-    let (rebuilt_old_regions, old_region_stats) =
-        OldGenState::finish_rebuild(old_region_rebuild, objects);
-    if let Some(rebuilt_old_regions) = rebuilt_old_regions {
-        old_gen.regions = rebuilt_old_regions;
-    }
     // Rebuild block-level line marks from surviving records (and pending
     // finalizers) and reclaim any block whose lines remain entirely free.
-    rebuild_line_marks_and_reclaim_empty_old_blocks(objects, old_gen, runtime_state);
+    let dropped_blocks =
+        rebuild_line_marks_and_reclaim_empty_old_blocks(objects, old_gen, runtime_state);
     let after_bytes = rebuilt_stats.apply_space_rebuild(stats, old_gen.reserved_bytes());
     indexes.retain_remembered_edges_for_post_sweep_objects(objects);
     MinorRebuildResult {
         queued_finalizers,
-        old_region_stats,
+        // reclaimed_regions now reports physically reclaimed
+        // blocks (the legacy logical-region rebuild's
+        // reclaimed_regions counter measured the same conceptual
+        // quantity but in the logical-region namespace).
+        old_region_stats: OldRegionCollectionStats {
+            compacted_regions: 0,
+            reclaimed_regions: dropped_blocks as u64,
+        },
         after_bytes,
     }
 }

@@ -1,10 +1,8 @@
 use core::sync::atomic::{AtomicU8, Ordering};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::card_table::CardTable;
-use crate::object::{ObjectRecord, OldBlockPlacement, OldRegionPlacement, SpaceKind};
-use crate::plan::{CollectionKind, CollectionPlan};
-use crate::reclaim::PreparedReclaimSurvivor;
+use crate::object::{ObjectRecord, OldBlockPlacement, OldRegionPlacement};
 use crate::stats::OldRegionStats;
 
 /// Old-generation configuration.
@@ -443,14 +441,17 @@ pub(crate) struct OldGenPlanSelection {
 
 #[derive(Debug, Default)]
 pub(crate) struct PreparedOldGenReclaim {
-    pub(crate) rebuilt_regions: Vec<OldRegion>,
-    pub(crate) reserved_bytes: usize,
     pub(crate) region_stats: OldRegionCollectionStats,
 }
 
 impl OldGenState {
     pub(crate) fn is_empty(&self) -> bool {
-        self.regions.is_empty()
+        // The block pool is the source of truth for whether the
+        // old generation has any storage. The legacy regions vec
+        // can hold dead allocator-time entries that no longer
+        // correspond to live blocks; checking it would over-
+        // report "non-empty".
+        self.blocks.is_empty()
     }
 
     pub(crate) fn reserved_bytes(&self) -> usize {
@@ -937,177 +938,18 @@ impl OldGenState {
         }
     }
 
-    pub(crate) fn prepare_rebuild(
-        &mut self,
-        _completed_plan: Option<&CollectionPlan>,
-    ) -> Option<OldRegionRebuildState> {
-        // Logical-region rebuild is retired. The block-side
-        // accounting maintained by record_object is the only
-        // source of post-sweep stats now; physical compaction
-        // (Heap::compact_old_gen_physical /
-        // Heap::compact_old_gen_blocks) is the only mechanism
-        // that actually moves bytes.
-        None
-    }
-
-    pub(crate) fn prepare_rebuild_for_plan(&self, plan: &CollectionPlan) -> OldRegionRebuildState {
-        prepare_old_region_rebuild_for_plan(&self.regions, Some(plan))
-            .expect("major reclaim preparation requires a major/full plan")
-    }
-
-    pub(crate) fn rebuild_post_sweep_object(
-        config: &OldGenConfig,
-        object: &mut ObjectRecord,
-        total_size: usize,
-        rebuild: Option<&mut OldRegionRebuildState>,
-    ) {
-        let Some(rebuild) = rebuild else {
-            return;
-        };
-        let Some(placement) = object.old_region_placement() else {
-            return;
-        };
-        let Some(placement) =
-            Self::prepare_reclaim_survivor(rebuild, config, placement, total_size)
-        else {
-            return;
-        };
-        if object.old_region_placement() != Some(placement) {
-            object.set_old_region_placement(placement);
-        }
-    }
-
-    pub(crate) fn prepare_reclaim_survivor(
-        rebuild: &mut OldRegionRebuildState,
-        _config: &OldGenConfig,
-        placement: OldRegionPlacement,
-        total_size: usize,
-    ) -> Option<OldRegionPlacement> {
-        // Logical-region renumbering retired: with selected_regions
-        // empty (the planner stopped populating it), this branch
-        // is unreachable in production. Update the live_bytes /
-        // object_count counters on the rebuilt region matching the
-        // survivor's *current* region_index so finish_prepared
-        // _rebuild can still drop empty entries from the regions
-        // vec, but skip the index renumbering entirely.
-        let new_index = *rebuild.preserved_index_map.get(&placement.region_index)?;
-        let region = &mut rebuild.rebuilt_regions[new_index];
-        region.live_bytes = region.live_bytes.saturating_add(total_size);
-        region.object_count = region.object_count.saturating_add(1);
-        for line in placement.line_start..placement.line_start + placement.line_count {
-            region.occupied_lines.insert(line);
-        }
-        // Return the placement with its NEW region_index so the
-        // caller (rebuild_post_sweep_object) can update the
-        // ObjectRecord. Otherwise stale region indices linger on
-        // survivors and the legacy_region_stats observer would
-        // misreport.
-        let mut new_placement = placement;
-        new_placement.region_index = new_index;
-        Some(new_placement)
-    }
-
-    pub(crate) fn finish_rebuild(
-        rebuild: Option<OldRegionRebuildState>,
-        objects: &mut [ObjectRecord],
-    ) -> (Option<Vec<OldRegion>>, OldRegionCollectionStats) {
-        let Some(rebuild) = rebuild else {
-            return (None, OldRegionCollectionStats::default());
-        };
-        // Logical-region rebuild path is retired: with the dead
-        // "select-and-renumber" branch removed there are no
-        // compacted regions, only preserved ones. Drop empties
-        // and update placement.region_index for survivors so the
-        // post-rebuild regions vec stays consistent.
-        let original_count = rebuild.rebuilt_regions.len();
-        let mut preserved_index_remap = vec![None; original_count];
-        let mut compacted_regions = Vec::with_capacity(original_count);
-        for (old_index, region) in rebuild.rebuilt_regions.into_iter().enumerate() {
-            if region.object_count == 0 {
-                continue;
-            }
-            preserved_index_remap[old_index] = Some(compacted_regions.len());
-            compacted_regions.push(region);
-        }
-        for object in objects.iter_mut() {
-            if object.space() != SpaceKind::Old {
-                continue;
-            }
-            let Some(mut placement) = object.old_region_placement() else {
-                continue;
-            };
-            let Some(Some(new_index)) = preserved_index_remap.get(placement.region_index) else {
-                continue;
-            };
-            if placement.region_index != *new_index {
-                placement.region_index = *new_index;
-                object.set_old_region_placement(placement);
-            }
-        }
-        let reclaimed_regions = rebuild
-            .previous_region_count
-            .saturating_sub(compacted_regions.len()) as u64;
-        (
-            Some(compacted_regions),
-            OldRegionCollectionStats {
-                compacted_regions: 0,
-                reclaimed_regions,
-            },
-        )
-    }
-
-    pub(crate) fn finish_prepared_rebuild(
-        rebuild: OldRegionRebuildState,
-        survivors: &mut [PreparedReclaimSurvivor],
-    ) -> PreparedOldGenReclaim {
-        // Same retirement note as finish_rebuild: only the
-        // preserved-region pass remains. Renumber survivors via
-        // the preserved_index_remap and emit the rebuilt regions
-        // vec with empty entries dropped.
-        let original_count = rebuild.rebuilt_regions.len();
-        let mut preserved_index_remap = vec![None; original_count];
-        let mut compacted_regions = Vec::with_capacity(original_count);
-        for (old_index, region) in rebuild.rebuilt_regions.into_iter().enumerate() {
-            if region.object_count == 0 {
-                continue;
-            }
-            preserved_index_remap[old_index] = Some(compacted_regions.len());
-            compacted_regions.push(region);
-        }
-        for survivor in survivors.iter_mut() {
-            let Some(placement) = survivor.old_region_placement.as_mut() else {
-                continue;
-            };
-            let Some(Some(new_index)) = preserved_index_remap.get(placement.region_index) else {
-                continue;
-            };
-            placement.region_index = *new_index;
-        }
-        let reclaimed_regions = rebuild
-            .previous_region_count
-            .saturating_sub(compacted_regions.len()) as u64;
-        let reserved_bytes = compacted_regions
-            .iter()
-            .map(|region| region.capacity_bytes)
-            .sum();
-        PreparedOldGenReclaim {
-            rebuilt_regions: compacted_regions,
-            reserved_bytes,
-            region_stats: OldRegionCollectionStats {
-                compacted_regions: 0,
-                reclaimed_regions,
-            },
-        }
-    }
-
+    /// Apply a prepared reclaim — now a near-no-op since the
+    /// legacy logical-region rebuild was retired. Returns the
+    /// prepared region stats unchanged. The regions vec is no
+    /// longer rewritten by the prepared reclaim; physical
+    /// compaction is the only mechanism that can shrink it
+    /// (via `rebuild_line_marks_and_reclaim_empty_old_blocks`
+    /// at the end of the major commit path).
     pub(crate) fn apply_prepared_reclaim(
         &mut self,
         prepared: PreparedOldGenReclaim,
     ) -> OldRegionCollectionStats {
-        let region_stats = prepared.region_stats;
-        self.regions = prepared.rebuilt_regions;
-        debug_assert_eq!(self.reserved_bytes(), prepared.reserved_bytes);
-        region_stats
+        prepared.region_stats
     }
 
     fn try_reserve_in_existing_region(
@@ -1157,8 +999,17 @@ impl OldGenState {
 pub(crate) struct OldRegion {
     pub(crate) capacity_bytes: usize,
     pub(crate) used_bytes: usize,
+    // live_bytes / object_count / occupied_lines were the
+    // legacy logical accounting fields. Nothing reads them
+    // any more (block-side accounting is the source of truth)
+    // but they're retained as a thin compatibility layer for
+    // the allocator's region bookkeeping until allocate
+    // _placement and the regions vec are themselves deleted.
+    #[allow(dead_code)]
     pub(crate) live_bytes: usize,
+    #[allow(dead_code)]
     pub(crate) object_count: usize,
+    #[allow(dead_code)]
     pub(crate) occupied_lines: HashSet<usize>,
 }
 
@@ -1166,51 +1017,6 @@ pub(crate) struct OldRegion {
 pub(crate) struct OldRegionCollectionStats {
     pub(crate) compacted_regions: u64,
     pub(crate) reclaimed_regions: u64,
-}
-
-/// Logical-region rebuild state — drastically simplified now
-/// that the legacy compaction renumbering is retired.
-///
-/// The legacy struct held a `selected_regions` HashSet, a
-/// `compacted_regions` Vec, and a `compacted_regions_count`
-/// counter to drive the renumbering of survivors into a new
-/// compacted-region pile. The planner stopped populating
-/// `selected_old_regions`, so all of that machinery is dead.
-/// What remains is a flat preservation pass: copy every
-/// non-empty region into `rebuilt_regions` so the post-cycle
-/// regions vec can drop empty entries while keeping the
-/// surviving entries' used_bytes / capacity_bytes intact.
-#[derive(Debug)]
-pub(crate) struct OldRegionRebuildState {
-    pub(crate) previous_region_count: usize,
-    pub(crate) preserved_index_map: HashMap<usize, usize>,
-    pub(crate) rebuilt_regions: Vec<OldRegion>,
-}
-
-pub(crate) fn prepare_old_region_rebuild_for_plan(
-    previous_regions: &[OldRegion],
-    completed_plan: Option<&CollectionPlan>,
-) -> Option<OldRegionRebuildState> {
-    let _plan = completed_plan
-        .filter(|plan| matches!(plan.kind, CollectionKind::Major | CollectionKind::Full))?;
-    let previous_region_count = previous_regions.len();
-    let mut rebuilt_regions = Vec::with_capacity(previous_regions.len());
-    let mut preserved_index_map = HashMap::with_capacity(previous_regions.len());
-    for (old_index, region) in previous_regions.iter().enumerate() {
-        preserved_index_map.insert(old_index, rebuilt_regions.len());
-        rebuilt_regions.push(OldRegion {
-            capacity_bytes: region.capacity_bytes,
-            used_bytes: region.used_bytes,
-            live_bytes: 0,
-            object_count: 0,
-            occupied_lines: HashSet::new(),
-        });
-    }
-    Some(OldRegionRebuildState {
-        previous_region_count,
-        preserved_index_map,
-        rebuilt_regions,
-    })
 }
 
 pub(crate) fn compare_compaction_candidate_priority(

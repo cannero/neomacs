@@ -41,7 +41,6 @@ fn prepared_reclaim() -> PreparedReclaim {
                 compacted_regions: 1,
                 reclaimed_regions: 0,
             },
-            ..PreparedOldGenReclaim::default()
         },
         indexes: PreparedIndexReclaim::default(),
         survivors: vec![PreparedReclaimSurvivor {
