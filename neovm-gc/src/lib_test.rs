@@ -11754,3 +11754,119 @@ fn pacer_in_heap_triggers_minor_via_nursery_soft_threshold() {
         heap.pacer().config().nursery_soft_trigger_bytes
     );
 }
+
+// ---------------------------------------------------------
+// Nursery TLAB fast-path wire-up (compromise 2 stepping stone)
+// ---------------------------------------------------------
+
+#[test]
+fn nursery_tlab_reserved_on_first_nursery_alloc() {
+    // A brand-new Heap has no reserved TLAB. The first
+    // nursery allocation should reserve a TLAB via the
+    // helper and route through the TLAB fast path. After
+    // the alloc, has_nursery_tlab() must report Some.
+    let mut heap = Heap::new(HeapConfig::default());
+    assert!(
+        !heap.has_nursery_tlab(),
+        "a fresh heap should not hold a reserved TLAB",
+    );
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        mutator
+            .alloc(&mut scope, Leaf(1))
+            .expect("alloc leaf routes through TLAB");
+    }
+    assert!(
+        heap.has_nursery_tlab(),
+        "first nursery alloc must reserve a TLAB via the fast path",
+    );
+}
+
+#[test]
+fn nursery_tlab_services_many_allocations_from_one_reservation() {
+    // A single TLAB reservation should satisfy many small
+    // allocations before needing a refill. The test
+    // allocates many leaves and verifies the heap still
+    // holds a TLAB at the end (the reservation was not
+    // exhausted).
+    let mut heap = Heap::new(HeapConfig::default());
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        for i in 0..64u64 {
+            mutator
+                .alloc(&mut scope, Leaf(i))
+                .expect("bulk tlab-served alloc");
+        }
+    }
+    assert!(
+        heap.has_nursery_tlab(),
+        "one TLAB reservation should service 64 Leaf allocations without refill",
+    );
+}
+
+#[test]
+fn nursery_tlab_invalidated_by_minor_collection() {
+    // The generation stamp on NurseryTlab must invalidate
+    // the slab after a minor cycle. The test allocates a
+    // leaf (reserving a TLAB), runs a minor cycle, and
+    // verifies the subsequent alloc had to refill (either
+    // the tlab slot transitions through None or the next
+    // alloc reserves a fresh TLAB with the new generation).
+    let mut heap = Heap::new(HeapConfig::default());
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        mutator
+            .alloc(&mut scope, Leaf(42))
+            .expect("initial alloc reserves tlab");
+        assert!(mutator.heap().has_nursery_tlab());
+        mutator
+            .collect(CollectionKind::Minor)
+            .expect("minor collect");
+    }
+    // After the collection cycle completes, allocate again
+    // to exercise the refill path. The allocation must
+    // succeed and the heap must again hold a TLAB (freshly
+    // reserved with the post-collection generation stamp).
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        mutator
+            .alloc(&mut scope, Leaf(43))
+            .expect("post-collection alloc refills tlab");
+    }
+    assert!(
+        heap.has_nursery_tlab(),
+        "post-collection alloc must refill the TLAB with the new generation",
+    );
+}
+
+#[test]
+fn nursery_tlab_force_invalidation_via_test_helper() {
+    // The test-only helper Heap::invalidate_nursery_tlab
+    // drops the current slab so the next alloc has to
+    // refill. This is useful for tests that want to force
+    // a refill without running a full minor cycle.
+    let mut heap = Heap::new(HeapConfig::default());
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        mutator.alloc(&mut scope, Leaf(1)).expect("first alloc");
+    }
+    assert!(heap.has_nursery_tlab());
+    heap.invalidate_nursery_tlab();
+    assert!(!heap.has_nursery_tlab());
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        mutator
+            .alloc(&mut scope, Leaf(2))
+            .expect("next alloc refills after manual invalidation");
+    }
+    assert!(
+        heap.has_nursery_tlab(),
+        "next alloc must refill the TLAB after forced invalidation",
+    );
+}

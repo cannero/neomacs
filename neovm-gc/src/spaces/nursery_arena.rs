@@ -235,13 +235,26 @@ pub(crate) struct NurseryTlab {
     generation: u64,
 }
 
-// Safety: `NurseryTlab` only stores a raw pointer plus scalars.
-// It is not thread-safe (the cursor is non-atomic), but it is
-// `Send` so a future multi-mutator refactor can move it onto a
-// worker thread. The invariant to uphold is the same as
-// [`WorkerEvacuationArena`]: a TLAB must not outlive the
+// Safety: `NurseryTlab` only stores a raw pointer plus
+// scalars.
+//
+// `Send` lets a future multi-mutator refactor move a TLAB
+// onto a worker thread. The invariant to uphold is the same
+// as [`WorkerEvacuationArena`]: a TLAB must not outlive the
 // `NurseryState::from_space` buffer it was carved from.
+//
+// `Sync` is sound even though the `cursor` field is
+// non-atomic: every mutating method on `NurseryTlab` takes
+// `&mut self`, so Rust's borrow checker already prevents
+// any `&NurseryTlab` shared reference from mutating the
+// cursor concurrently. The type is then only `Sync` in the
+// same vacuous sense that `&mut u64` is `Sync` — there is
+// no observable shared-mutable state. Adding this impl lets
+// `NurseryTlab` live inside `Heap`, which is stored behind
+// `Arc<RwLock<Heap>>` in `SharedHeap` and therefore
+// requires `Heap: Sync`.
 unsafe impl Send for NurseryTlab {}
+unsafe impl Sync for NurseryTlab {}
 
 impl NurseryTlab {
     /// Bytes remaining in this slab.

@@ -30,6 +30,56 @@ pub struct CollectorRuntime<'heap> {
     heap: &'heap mut Heap,
 }
 
+/// Default per-heap nursery TLAB slab size. Sized as one
+/// percent of the default 16MB semispace so most workloads
+/// can service several thousand small allocations before a
+/// refill is needed, but small enough that a mutator that
+/// drops a TLAB (or one that gets invalidated by a minor
+/// cycle) does not leak an excessive amount of reserved-but-
+/// unused from-space capacity.
+const NURSERY_TLAB_DEFAULT_BYTES: usize = 16 * 1024;
+
+/// Try to bump-allocate `layout` through the heap's per-heap
+/// nursery TLAB slab. On TLAB miss (including the "no TLAB
+/// reserved yet" case and the "generation-stale" case after
+/// a minor cycle), refill the slab from the shared from-
+/// space cursor via `NurseryState::reserve_tlab` and retry
+/// the bump once. Returns `None` if neither the existing
+/// TLAB nor the refilled one can service the layout; the
+/// caller falls through to the shared-cursor bump path.
+///
+/// This is the single-mutator stepping-stone toward the
+/// multi-mutator refactor: the TLAB lives on the `Heap`
+/// today, but the allocation hot path already consults it
+/// through this helper, so the later migration only has to
+/// move the field from `Heap` to `MutatorLocal` without
+/// touching the alloc logic.
+fn try_bump_nursery_tlab_or_refill(
+    heap: &mut Heap,
+    layout: core::alloc::Layout,
+) -> Option<core::ptr::NonNull<u8>> {
+    let (tlab_slot, nursery) = heap.nursery_tlab_and_nursery_mut();
+    let current_generation = nursery.generation();
+
+    if let Some(tlab) = tlab_slot.as_mut()
+        && let Some(base) = tlab.try_alloc(current_generation, layout)
+    {
+        return Some(base);
+    }
+
+    // The existing TLAB (if any) is either exhausted or stale.
+    // Drop it and try to refill from the shared cursor. The
+    // refill size is `max(layout.size(), NURSERY_TLAB_DEFAULT_BYTES)`
+    // so a single oversized allocation still has a chance of
+    // fitting via the TLAB path.
+    *tlab_slot = None;
+    let refill_size = NURSERY_TLAB_DEFAULT_BYTES.max(layout.size());
+    let mut fresh = nursery.reserve_tlab(refill_size)?;
+    let base = fresh.try_alloc(current_generation, layout)?;
+    *tlab_slot = Some(fresh);
+    Some(base)
+}
+
 /// Collector-side runtime bound to one shared heap.
 #[derive(Clone, Debug)]
 pub struct SharedCollectorRuntime {
@@ -258,16 +308,22 @@ impl<'heap> CollectorRuntime<'heap> {
         }
         let (desc, space, _) = self.typed_allocation_profile::<T>()?;
 
-        // Phase 1: nursery allocations bump-allocate from the
-        // semispace arena.
-        // Phase 2: direct old-gen allocations bump-allocate from a
-        // block pool. Both fall back to system allocation if the
-        // relevant allocator cannot service the request.
+        // Nursery allocations bump-allocate from a per-heap
+        // TLAB slab first; on TLAB miss the slab is refilled
+        // from the shared from-space cursor via
+        // `NurseryState::reserve_tlab`. On refill failure the
+        // path falls through to the shared-cursor bump, and
+        // on shared-cursor failure it falls through to the
+        // system allocator. Direct old-gen allocations
+        // bump-allocate from a block pool with the same
+        // system-alloc fallback.
         let mut record = match space {
             SpaceKind::Nursery => {
                 let (layout, payload_offset) =
                     crate::object::allocation_layout_for::<T>()?;
-                match self.heap.nursery_mut().try_alloc(layout) {
+                let base = try_bump_nursery_tlab_or_refill(self.heap, layout)
+                    .or_else(|| self.heap.nursery_mut().try_alloc(layout));
+                match base {
                     Some(base) => unsafe {
                         crate::object::ObjectRecord::allocate_in_arena::<T>(
                             desc,
