@@ -100,23 +100,26 @@ Still staging compromises:
   `RwLock<Heap>` plus `Mutex<CollectorState>` rather than the final data-plane
   split
 - nursery allocation is not yet per-mutator TLAB/lock-free fast path
-- physical old-gen compaction is implemented and can run automatically
-  inside a major cycle when `OldGenConfig::physical_compaction_density_threshold > 0.0`,
-  but the legacy logical-region compaction still ships in parallel
-  because one test pair (`execute_major_plan_honors_exact_selected_old_regions`)
-  explicitly verifies the manual-plan path. The block-side surface
-  is the new default: `Heap::old_region_stats` reads from blocks;
-  `Heap::old_block_region_stats` is its alias; `Heap::major_block_candidates`
-  runs the same heuristic against blocks; the planner populates
-  `CollectionPlan::selected_old_blocks` alongside `selected_old_regions`;
-  `OldGenState::run_major_plan_selection` is shared between both
-  selectors. The legacy renumbering view is available via
-  `Heap::legacy_old_region_stats` for the one remaining holdout.
-  The final step is switching `prepare_reclaim_survivor` and
-  `finish_rebuild` to consume `selected_old_blocks` so the
-  manual-plan path can use block indices, after which the `regions`
-  vec, `prepare_rebuild`, `finish_rebuild`, `OldRegionPlacement`,
-  and `legacy_old_region_stats` can all be deleted together.
+- physical old-gen compaction is the manual-plan compaction surface
+  via `Heap::compact_old_gen_blocks(&[block_index])`. The block-side
+  observer surface is the only public API for old-gen stats:
+  `Heap::old_region_stats` reads from blocks, `Heap::major_block_candidates`
+  runs the same heuristic against blocks, and the planner populates
+  `CollectionPlan::selected_old_blocks` alongside `selected_old_regions`.
+  ZERO public-API tests still consume the legacy logical-renumbering
+  contract. The internal allocator still maintains the `regions` vec
+  in lockstep with the `blocks` vec, the rebuild path still runs
+  its logical renumbering on every major cycle, and several
+  per-cycle stats (`compacted_regions`, `reclaimed_regions`) still
+  measure logical-rebuild work rather than physical compaction work.
+  The final cleanup step is a coordinated commit that
+  (a) re-routes `compacted_regions`/`reclaimed_regions` to count
+  physical compaction events, (b) deletes `prepare_rebuild` /
+  `finish_rebuild` / `prepare_reclaim_survivor`, (c) deletes the
+  `regions` vec and `OldRegion` struct, (d) deletes `OldRegionPlacement`
+  from `ObjectRecord` and the legacy region-side accounting branch
+  in `record_object`, and (e) deletes `selected_old_regions` from
+  `CollectionPlan` and `OldGenState::legacy_region_stats`.
 - remembered tracking is still coarser than the final region/card-table model
 - finalization is now queued and drained explicitly through runtime surfaces, but
   it still retains whole `ObjectRecord`s rather than a lower-level VM-facing
