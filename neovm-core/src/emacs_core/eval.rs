@@ -6293,6 +6293,33 @@ impl Context {
             return Ok(Value::from_kw_id(resolved));
         }
 
+        // Phase 10E: route LOCALIZED reads through the BLV machinery
+        // so they observe writes from `set_internal_localized` (vm.rs
+        // assign_var_id and eval.rs set_runtime_binding). Without
+        // this, the legacy `get_buffer_local_binding` lisp_bindings
+        // fallback below returns stale data when the LOCALIZED hot
+        // path bypassed it. Mirrors GNU `find_symbol_value` LOCALIZED
+        // arm (`data.c:1620-1650`) — we use the immutable
+        // `read_localized` here because `eval_symbol_by_id` takes
+        // `&self` and can't run a mutable `swap_in_blv`.
+        if resolved_is_canonical
+            && let Some(buf) = self.buffers.current_buffer()
+        {
+            use crate::emacs_core::symbol::SymbolRedirect;
+            if let Some(sym) = self.obarray.get_by_id(resolved)
+                && sym.redirect() == SymbolRedirect::Localized
+            {
+                let target_buf = Value::make_buffer(buf.id);
+                if let Some(value) = self.obarray.read_localized(
+                    resolved,
+                    target_buf,
+                    buf.local_var_alist,
+                ) {
+                    return Ok(value);
+                }
+            }
+        }
+
         // Buffer-local bindings are name-based and must not intercept
         // uninterned symbols that merely share the same print name.
         // Phase 10D: `get_buffer_local_binding` returns None for
@@ -9369,12 +9396,92 @@ impl Context {
             }
         }
 
-        // Check if this is a buffer-local variable (GNU: SYMBOL_LOCALIZED path)
+        // Phase 10E: SYMBOL_LOCALIZED specbind. Mirrors GNU `specbind`
+        // SYMBOL_LOCALIZED arm at `eval.c:3641-3677`:
+        //
+        //   1. Read the current value (forces BLV swap-in to current
+        //      buffer).
+        //   2. Tentatively record SPECPDL_LET_LOCAL with the captured
+        //      value and buffer.
+        //   3. If !blv_found(blv) (the swap-in landed on defcell, not
+        //      a per-buffer alist entry), demote to SPECPDL_LET_DEFAULT.
+        //   4. Call set_internal_localized(BIND) to write the new
+        //      value into wherever the BLV cache currently points.
+        if let Some(sym_slot) = self.obarray.get_by_id(resolved)
+            && sym_slot.redirect() == crate::emacs_core::symbol::SymbolRedirect::Localized
+        {
+            if let Some(buf_id) = self.buffers.current_buffer_id() {
+                let (cur_val, alist) = match self.buffers.get(buf_id) {
+                    Some(buf) => (Value::make_buffer(buf.id), buf.local_var_alist),
+                    None => (Value::NIL, Value::NIL),
+                };
+                // Force a swap so blv.found / blv.valcell match the
+                // current buffer state. After this, blv.where_buf =
+                // cur_val.
+                let old_val = self
+                    .obarray
+                    .find_symbol_value_in_buffer(
+                        resolved, Some(buf_id), cur_val, alist, None, 0u64, None,
+                    )
+                    .unwrap_or(Value::NIL);
+                let blv_found = self
+                    .obarray
+                    .blv(resolved)
+                    .map(|b| b.found)
+                    .unwrap_or(false);
+                if blv_found {
+                    self.specpdl.push(SpecBinding::LetLocal {
+                        sym_id: resolved,
+                        old_value: old_val,
+                        buffer_id: buf_id,
+                    });
+                } else {
+                    self.specpdl.push(SpecBinding::LetDefault {
+                        sym_id: resolved,
+                        old_value: Some(old_val),
+                    });
+                }
+                if self.watchers.has_watchers(resolved) {
+                    let _ = self.run_variable_watchers_by_id(
+                        resolved,
+                        &value,
+                        &Value::NIL,
+                        "let",
+                    );
+                }
+                // Write the new value via set_internal_localized
+                // with bindflag=Bind. Bind never auto-creates a new
+                // alist entry, so a let on a non-buffer-local
+                // LOCALIZED symbol writes to defcell.cdr (the
+                // global default), matching GNU.
+                let new_alist = self.obarray.set_internal_localized(
+                    resolved,
+                    value,
+                    cur_val,
+                    alist,
+                    crate::emacs_core::symbol::SetInternalBind::Bind,
+                    false,
+                );
+                if let Some(buf) = self.buffers.get_mut(buf_id) {
+                    buf.local_var_alist = new_alist;
+                }
+                if resolved == self.noninteractive_symbol {
+                    self.noninteractive = value.is_truthy();
+                }
+                return;
+            }
+        }
+
+        // Legacy buffer-local fallback for symbols still on the
+        // CustomManager auto_buffer_local path (a transitional
+        // marker for variables tagged via Lisp `(make-variable-buffer-local)`
+        // before their redirect was flipped). Mirrors the previous
+        // lisp_bindings detour and is dead code once Phase 10E
+        // routes everything through the LOCALIZED arm above.
         if self.obarray.is_buffer_local(name) || self.custom.is_auto_buffer_local(name) {
             if let Some(buf_id) = self.buffers.current_buffer_id() {
                 if let Some(buf) = self.buffers.get(buf_id) {
                     if let Some(binding) = buf.get_buffer_local_binding(name) {
-                        // Buffer HAS local binding → SPECPDL_LET_LOCAL
                         let old_val = binding.as_value().unwrap_or(Value::NIL);
                         self.specpdl.push(SpecBinding::LetLocal {
                             sym_id: resolved,
@@ -9397,9 +9504,6 @@ impl Context {
                     }
                 }
             }
-            // Buffer has NO local binding → SPECPDL_LET_DEFAULT
-            // Save/restore the default value, don't create a buffer-local binding.
-            // This matches GNU: let-binding doesn't auto-create locals.
             let old_default = self.obarray.default_value_id(resolved).copied();
             self.specpdl.push(SpecBinding::LetDefault {
                 sym_id: resolved,
@@ -9487,12 +9591,47 @@ impl Context {
                             "unlet",
                         );
                     }
-                    // Restore only if the buffer is still live
-                    // (GNU: check Flocal_variable_p before restoring)
+                    // Restore only if the buffer is still live.
+                    // Mirrors GNU `do_one_unbind` SPECPDL_LET_LOCAL
+                    // arm at `eval.c:3838-3850`:
+                    //     if (!NILP (Flocal_variable_p (symbol, where)))
+                    //       set_internal (symbol, old_value, where, UNBIND);
                     if self.buffers.get(buffer_id).is_some() {
-                        let _ = self
-                            .buffers
-                            .set_buffer_local_property(buffer_id, name, old_value);
+                        // Phase 10E: for LOCALIZED symbols, restore via
+                        // set_internal_localized(UNBIND) targeting the
+                        // saved buffer. This walks the buffer's alist
+                        // and rewrites the cell's cdr in place,
+                        // matching GNU's set_internal LOCALIZED arm
+                        // and bypassing the legacy lisp_bindings path.
+                        use crate::emacs_core::symbol::{SetInternalBind, SymbolRedirect};
+                        let is_localized = self
+                            .obarray
+                            .get_by_id(sym_id)
+                            .map(|s| s.redirect() == SymbolRedirect::Localized)
+                            .unwrap_or(false);
+                        if is_localized {
+                            let buf_val = Value::make_buffer(buffer_id);
+                            let alist = self
+                                .buffers
+                                .get(buffer_id)
+                                .map(|b| b.local_var_alist)
+                                .unwrap_or(Value::NIL);
+                            let new_alist = self.obarray.set_internal_localized(
+                                sym_id,
+                                old_value,
+                                buf_val,
+                                alist,
+                                SetInternalBind::Unbind,
+                                false,
+                            );
+                            if let Some(buf) = self.buffers.get_mut(buffer_id) {
+                                buf.local_var_alist = new_alist;
+                            }
+                        } else {
+                            let _ = self
+                                .buffers
+                                .set_buffer_local_property(buffer_id, name, old_value);
+                        }
                         if sym_id == self.noninteractive_symbol {
                             self.noninteractive = old_value.is_truthy();
                         }
@@ -9690,10 +9829,47 @@ pub(crate) fn set_runtime_binding(
     sym_id: SymId,
     value: Value,
 ) -> Option<crate::buffer::BufferId> {
+    use crate::emacs_core::symbol::{SetInternalBind, SymbolRedirect};
+
     let name = resolve_sym(sym_id);
     let symbol_is_canonical = super::builtins::is_canonical_symbol_id(sym_id);
 
-    // If the buffer already has a local binding, always write to it.
+    // Phase 10E: route writes for LOCALIZED symbols through the BLV
+    // machinery. Mirrors GNU `set_internal` SYMBOL_LOCALIZED arm
+    // (`data.c:1687-1762`) and the vm.rs assign_var_id LOCALIZED
+    // path — keeps the eval.rs and vm.rs hot paths semantically
+    // identical so a buffer-local visible from the bytecode VM is
+    // also visible from the tree-walk interpreter and the `set`
+    // builtin.
+    let redirect = obarray.get_by_id(sym_id).map(|s| s.redirect());
+    if symbol_is_canonical
+        && matches!(redirect, Some(SymbolRedirect::Localized))
+        && let Some(buf_id) = buffers.current_buffer_id()
+    {
+        let (cur_val, alist) = match buffers.get(buf_id) {
+            Some(buf) => (Value::make_buffer(buf.id), buf.local_var_alist),
+            None => (Value::NIL, Value::NIL),
+        };
+        let let_shadows = specpdl.iter().rev().any(
+            |entry| matches!(entry, SpecBinding::LetDefault { sym_id: s, .. } if *s == sym_id),
+        );
+        let new_alist = obarray.set_internal_localized(
+            sym_id,
+            value,
+            cur_val,
+            alist,
+            SetInternalBind::Set,
+            let_shadows,
+        );
+        if let Some(buf) = buffers.get_mut(buf_id) {
+            buf.local_var_alist = new_alist;
+        }
+        return Some(buf_id);
+    }
+
+    // If the buffer already has a local binding (slot-backed), write
+    // to it. Mirrors GNU `set_internal` SYMBOL_FORWARDED arm for
+    // BUFFER_OBJFWD slots.
     if symbol_is_canonical
         && let Some(current_id) = buffers.current_buffer_id()
         && let Some(buf) = buffers.get(current_id)
@@ -9704,33 +9880,18 @@ pub(crate) fn set_runtime_binding(
         }
     }
 
-    // If the variable was made buffer-local-by-default (i.e. GNU
-    // `local_if_set` is true on the BLV — set by `make-variable-buffer-local`)
-    // and no per-buffer binding exists yet, auto-create one in the
-    // current buffer. UNLESS a `let` is currently shadowing the
-    // default value (GNU: let_shadows_buffer_binding_p).
-    //
-    // Mirrors GNU `set_internal` SYMBOL_LOCALIZED arm
-    // (`src/data.c:1687-1762`): the auto-create branch is gated on
-    // `blv->local_if_set`. A symbol that was only made local in some
-    // *other* buffer via `make-local-variable` is LOCALIZED but has
-    // `local_if_set=false`; setq in a different buffer must update
-    // the global default, NOT create a new local.
-    let local_if_set = obarray
-        .blv(sym_id)
-        .map(|blv| blv.local_if_set)
-        .unwrap_or(false)
-        || custom.is_auto_buffer_local(name);
-    if symbol_is_canonical && local_if_set {
-        // Check if a let is shadowing the default value
+    // CustomManager auto_buffer_local catches symbols tagged via
+    // `(make-variable-buffer-local)` whose redirect hasn't been
+    // flipped yet (transitional fallback for the legacy enum path).
+    if symbol_is_canonical && custom.is_auto_buffer_local(name) {
         let let_shadows = specpdl.iter().rev().any(
             |entry| matches!(entry, SpecBinding::LetDefault { sym_id: s, .. } if *s == sym_id),
         );
-        if !let_shadows {
-            if let Some(current_id) = buffers.current_buffer_id() {
-                let _ = buffers.set_buffer_local_property(current_id, name, value);
-                return Some(current_id);
-            }
+        if !let_shadows
+            && let Some(current_id) = buffers.current_buffer_id()
+        {
+            let _ = buffers.set_buffer_local_property(current_id, name, value);
+            return Some(current_id);
         }
     }
 

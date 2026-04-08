@@ -245,13 +245,19 @@ pub(crate) fn builtin_local_variable_p(
 ) -> EvalResult {
     expect_min_args("local-variable-p", &args, 1)?;
     expect_max_args("local-variable-p", &args, 2)?;
-    let name = args[0].as_symbol_name().ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("symbolp"), args[0]],
-        )
-    })?;
-    let resolved = super::builtins::resolve_variable_alias_name_in_obarray(&ctx.obarray, name)?;
+    let sym_id = match args[0].kind() {
+        ValueKind::Symbol(id) => id,
+        ValueKind::Nil => intern("nil"),
+        ValueKind::T => intern("t"),
+        _ => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("symbolp"), args[0]],
+            ));
+        }
+    };
+    let resolved_id = super::builtins::resolve_variable_alias_id_in_obarray(&ctx.obarray, sym_id)?;
+    let resolved_name = resolve_sym(resolved_id);
 
     let buf = if args.len() > 1 {
         match args[1].kind() {
@@ -259,7 +265,7 @@ pub(crate) fn builtin_local_variable_p(
             ValueKind::Veclike(VecLikeType::Buffer) => {
                 ctx.buffers.get(args[1].as_buffer_id().unwrap())
             }
-            other => {
+            _other => {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("bufferp"), args[1]],
@@ -270,10 +276,27 @@ pub(crate) fn builtin_local_variable_p(
         ctx.buffers.current_buffer()
     };
 
-    match buf {
-        Some(b) => Ok(Value::bool_val(b.has_buffer_local(&resolved))),
-        None => Ok(Value::NIL),
+    let Some(b) = buf else {
+        return Ok(Value::NIL);
+    };
+
+    // Phase 10E: route LOCALIZED checks through the BLV machinery.
+    // Mirrors GNU `Flocal_variable_p` SYMBOL_LOCALIZED arm at
+    // `data.c:2399-2412`: walk the buffer's local_var_alist (or
+    // trust the BLV cache if `where == buf`).
+    use crate::emacs_core::symbol::SymbolRedirect;
+    if let Some(sym_slot) = ctx.obarray.get_by_id(resolved_id)
+        && sym_slot.redirect() == SymbolRedirect::Localized
+    {
+        let target_buf = Value::make_buffer(b.id);
+        return Ok(Value::bool_val(ctx.obarray.has_per_buffer_binding(
+            resolved_id,
+            target_buf,
+            b.local_var_alist,
+        )));
     }
+
+    Ok(Value::bool_val(b.has_buffer_local(resolved_name)))
 }
 
 /// `(buffer-local-variables &optional BUFFER)` -- list all local variables.

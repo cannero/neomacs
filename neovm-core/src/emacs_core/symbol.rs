@@ -831,6 +831,68 @@ impl Obarray {
         Some(unsafe { &*sym.val.blv })
     }
 
+    /// Look up a LOCALIZED symbol's value in `target_buf` without
+    /// mutating the BLV cache. Mirrors the GNU `Flocal_variable_p`
+    /// fallback walk at `data.c:2399-2412`:
+    ///
+    /// 1. If the symbol isn't LOCALIZED, return `None`.
+    /// 2. If the BLV cache is currently swapped to `target_buf`,
+    ///    return `valcell.cdr` (the cached per-buffer or default
+    ///    value, depending on `blv.found`).
+    /// 3. Otherwise walk `target_alist` for an `(sym . val)` entry
+    ///    and return its cdr if present (per-buffer binding without
+    ///    swap-in).
+    /// 4. Otherwise return `defcell.cdr` (the global default).
+    ///
+    /// Read-only — safe for `&self` callers like `eval_symbol_by_id`
+    /// where the borrow checker can't accommodate the mutable
+    /// `swap_in_blv` path that vm.rs `lookup_var_id` uses.
+    pub fn read_localized(
+        &self,
+        id: SymId,
+        target_buf: Value,
+        target_alist: Value,
+    ) -> Option<Value> {
+        let blv = self.blv(id)?;
+        // BLV cache is loaded for this buffer — return cached value.
+        if !blv.where_buf.is_nil()
+            && super::value::eq_value(&blv.where_buf, &target_buf)
+        {
+            return Some(blv.valcell.cons_cdr());
+        }
+        // Walk the buffer's alist for an explicit per-buffer entry.
+        let key = Value::from_sym_id(id);
+        let cell = assq(key, target_alist);
+        if !cell.is_nil() {
+            return Some(cell.cons_cdr());
+        }
+        // Fall back to the global default.
+        Some(blv.defcell.cons_cdr())
+    }
+
+    /// Look up whether a LOCALIZED symbol has an explicit per-buffer
+    /// binding in `target_buf`. Mirrors GNU `Flocal_variable_p`
+    /// (`data.c:2380-2412`).
+    pub fn has_per_buffer_binding(
+        &self,
+        id: SymId,
+        target_buf: Value,
+        target_alist: Value,
+    ) -> bool {
+        let Some(blv) = self.blv(id) else {
+            return false;
+        };
+        // BLV cache is loaded for this buffer — trust `found`.
+        if !blv.where_buf.is_nil()
+            && super::value::eq_value(&blv.where_buf, &target_buf)
+        {
+            return blv.found;
+        }
+        // Walk the alist.
+        let key = Value::from_sym_id(id);
+        !assq(key, target_alist).is_nil()
+    }
+
     /// Mutable BLV access. Used by `set_internal` (Phase 5) and
     /// `swap_in_symval_forwarding` (Phase 4).
     pub fn blv_mut(&mut self, id: SymId) -> Option<&mut LispBufferLocalValue> {
@@ -1156,12 +1218,40 @@ impl Obarray {
 
     /// Inner helper: follow aliases and write the value at the resolved target.
     ///
-    /// Phase 1: keeps `value: SymbolValue` and `flags + val` in sync. The
-    /// new redirect machinery is the eventual source of truth (Phase 4-10);
-    /// for now both representations carry the same data.
+    /// For LOCALIZED symbols, writes to the BLV's defcell.cdr (the global
+    /// default). The redirect tag and BLV pointer are preserved — clobbering
+    /// them would orphan the BLV. Mirrors GNU `set_default_internal`'s
+    /// SYMBOL_LOCALIZED arm at `data.c:1853-1880` which writes through
+    /// `XSETCDR(blv->defcell, value)` and propagates to all buffers
+    /// without per-buffer entries.
     fn set_symbol_value_id_inner(&mut self, id: SymId, value: Value) {
         let target = self.resolve_alias_for_write(id);
         let sym = self.ensure_symbol_id(target);
+
+        // LOCALIZED: write to BLV defcell (the default). The legacy
+        // enum BufferLocal mirror's `default` field is updated to
+        // match. Do NOT touch the redirect or val.blv — that would
+        // orphan the BLV cache.
+        if sym.flags.redirect() == SymbolRedirect::Localized {
+            if let SymbolValue::BufferLocal { default, .. } = &mut sym.value {
+                *default = Some(value);
+            }
+            // Safety: redirect=Localized guarantees val.blv is a
+            // valid pointer to a BLV owned by self.blvs.
+            unsafe {
+                let blv = &mut *sym.val.blv;
+                blv.defcell.set_cdr(value);
+                // If the BLV cache is currently swapped to defcell
+                // (no per-buffer entry loaded), mirror the new value
+                // through valcell as well so subsequent reads
+                // observe it without re-swapping.
+                if super::value::eq_value(&blv.valcell, &blv.defcell) {
+                    blv.valcell.set_cdr(value);
+                }
+            }
+            return;
+        }
+
         match sym.value {
             SymbolValue::Plain(_) => {
                 sym.value = SymbolValue::Plain(Some(value));
@@ -1171,10 +1261,11 @@ impl Obarray {
             SymbolValue::BufferLocal {
                 ref mut default, ..
             } => {
+                // Legacy fallback: a symbol whose legacy enum is
+                // BufferLocal but whose redirect hasn't been flipped
+                // to Localized yet. Maintain the legacy default and
+                // rewrite the new shape as Plainval.
                 *default = Some(value);
-                // The new shape doesn't yet model BufferLocal — Phase 4
-                // introduces the BLV. For now keep the redirect on
-                // Plainval pointing at the default.
                 sym.flags.set_redirect(SymbolRedirect::Plainval);
                 sym.val = SymbolVal { plain: value };
             }

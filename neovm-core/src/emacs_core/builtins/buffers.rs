@@ -3304,9 +3304,11 @@ pub(crate) fn builtin_buffer_local_value(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let obarray = eval.obarray();
-    let buffers = &eval.buffers;
+    use crate::emacs_core::intern::intern;
+    use crate::emacs_core::symbol::SymbolRedirect;
+
     expect_args("buffer-local-value", &args, 2)?;
+    let original_arg = args[0];
     let name = args[0].as_symbol_name().ok_or_else(|| {
         signal(
             "wrong-type-argument",
@@ -3314,12 +3316,33 @@ pub(crate) fn builtin_buffer_local_value(
         )
     })?;
     let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_name_in_obarray(
-        obarray, name,
+        eval.obarray(),
+        name,
     )?;
+    let resolved_id = intern(&resolved);
     let id = expect_buffer_id(&args[1])?;
-    let buf = buffers
+    let buf = eval
+        .buffers
         .get(id)
         .ok_or_else(|| signal("error", vec![Value::string("No such buffer")]))?;
+
+    // Phase 10E: route LOCALIZED reads through the BLV machinery
+    // (immutable walker — buffer-local-value never swaps the cache).
+    // Mirrors GNU `Fbuffer_local_value` SYMBOL_LOCALIZED arm at
+    // `data.c:1696-1740` which uses `blv_value` (returning the
+    // already-loaded valcell.cdr if `where == buf`, else walks
+    // `BVAR(buf, local_var_alist)`).
+    if let Some(sym_slot) = eval.obarray().get_by_id(resolved_id)
+        && sym_slot.redirect() == SymbolRedirect::Localized
+    {
+        let target_buf = Value::make_buffer(buf.id);
+        if let Some(value) =
+            eval.obarray().read_localized(resolved_id, target_buf, buf.local_var_alist)
+        {
+            return Ok(value);
+        }
+    }
+
     match buf.get_buffer_local_binding(&resolved) {
         Some(binding) => binding
             .as_value()
@@ -3328,13 +3351,14 @@ pub(crate) fn builtin_buffer_local_value(
                     .then(|| buf.buffer_local_value(&resolved))
                     .flatten()
             })
-            .ok_or_else(|| signal("void-variable", vec![Value::symbol(name)])),
+            .ok_or_else(|| signal("void-variable", vec![original_arg])),
         None if resolved == "nil" => Ok(Value::NIL),
         None if resolved == "t" => Ok(Value::T),
         None if resolved.starts_with(':') => Ok(Value::symbol(resolved)),
-        None => obarray
+        None => eval
+            .obarray()
             .symbol_value(&resolved)
             .cloned()
-            .ok_or_else(|| signal("void-variable", vec![Value::symbol(name)])),
+            .ok_or_else(|| signal("void-variable", vec![original_arg])),
     }
 }
