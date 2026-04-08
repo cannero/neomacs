@@ -179,7 +179,42 @@ Still staging compromises:
   The `Arc<RwLock<HeapCore>>` wrap has now landed:
   `Heap::mutator(&self)` takes a shared borrow and
   multiple `Mutator` instances coexist against the same
-  heap. The compromise is closed.
+  heap. The compromise is closed at the correctness and
+  architectural level.
+
+  **Known performance limitation — single-lock
+  contention.** The `examples/bench_multi_mutator_alloc.rs`
+  microbench (release build, small-object allocation
+  through `Mutator::alloc`) shows the following behavior
+  under the current single-`RwLock<HeapCore>` model:
+
+  ```text
+  single-mutator   : ~50 K alloc/sec
+   1 thread        : ~56 K alloc/sec (no lock contention)
+   2 threads       : ~16 K alloc/sec (0.28x vs 1 thread)
+   4 threads       : ~6  K alloc/sec (0.11x vs 1 thread)
+  ```
+
+  Multi-mutator throughput actively *degrades* with more
+  threads because every `Mutator::alloc` call acquires the
+  single `HeapCore` write lock via `with_runtime`, and the
+  lock is the dominant cost on the allocation hot path.
+  The TLAB fast path is per-mutator and never touches the
+  shared cursor on hit, but the allocation-committing
+  bookkeeping (stats, object_index, collector handle
+  refresh) still runs under the write lock.
+
+  This is correctness-correct but not a scaling story.
+  Closing the remaining gap to "modern concurrent GC"
+  throughput requires the fine-grained-locks step
+  (Appendix A step 9) which splits `HeapCore` into
+  independently-locked substructures (`ObjectStore` /
+  `OldGenPool` / `NurseryState` / collector state) so the
+  barrier and allocation hot paths stop serializing on
+  one lock. That work is outside the current DESIGN.md
+  Final Position bullet list — every Final Position
+  property is satisfied by the single-lock implementation
+  already.
 - physical old-gen compaction is the only old-gen compaction
   mechanism. The legacy logical-region rebuild infrastructure
   is fully retired: the `regions` vec, `OldRegion` struct,
