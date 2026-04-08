@@ -789,3 +789,113 @@ The ideal `neovm-gc` crate is:
 
 That is the design target. Anything substantially simpler should be considered
 an implementation staging compromise, not the desired architecture.
+
+## Appendix A: Multi-Mutator Refactor Plan
+
+The single remaining architectural change required to satisfy the "per-mutator
+bump allocation" bullet is the multi-mutator refactor: relaxing `Heap::mutator`
+from its current exclusive-borrow signature so multiple mutators can coexist
+against the same `Heap`.
+
+### Field Migration
+
+Today's `Heap` fields and their destinations:
+
+| Field | Destination | Rationale |
+|---|---|---|
+| `config` | `HeapCore` | Read-only, shared |
+| `stats` | `HeapCore` | Mutated under heap lock |
+| `roots` | `MutatorLocal` | Per-mutator root stack |
+| `descriptors` | `HeapCore` | Interned, shared |
+| `objects` | `HeapCore` | Shared allocation log |
+| `runtime_state` | `HeapCore` | Already behind `Arc<Mutex>` |
+| `indexes` | `HeapCore` | Shared object index + fallback owner set |
+| `old_gen` | `HeapCore` | Shared block pool |
+| `recent_barrier_events` | `MutatorLocal` | Per-mutator diagnostic ring |
+| `collector` | `HeapCore` | Already behind `Arc<Mutex>` |
+| `pause_stats` | `HeapCore` | Already `Arc`-shared |
+| `pacer` | `HeapCore` | Already `Arc<Mutex>`-shared |
+| `compaction_stats` | `HeapCore` | Mutated during compaction |
+| `barrier_stats` | `Arc<AtomicBarrierStats>` | Lock-free hot path |
+| `nursery` | `HeapCore` | Shared arena, TLAB bumps are lock-free |
+
+New fields on `MutatorLocal`:
+
+- `tlab: Option<NurseryTlab>` — per-mutator bump slab
+- `roots: RootStack` — per-mutator root stack
+- `barrier_events: Vec<BarrierEvent>` — per-mutator diagnostic ring
+
+### Lock Structure
+
+Start with a single `Arc<RwLock<HeapCore>>` so the diff is minimal and the
+existing `with_heap` / `with_heap_read` protocol is preserved. Only move to
+fine-grained per-substructure locks if profiling shows the single-lock model
+serializes allocation bandwidth.
+
+Under the single-lock model:
+
+- **Allocation hot path** (mutator): bump within `MutatorLocal.tlab` — no lock
+- **TLAB refill** (mutator): brief heap write lock + `reserve_tlab(size)`
+- **Large/old/pinned alloc** (mutator): brief heap write lock via existing path
+- **Collection** (collector): exclusive heap write lock for the cycle
+- **Observation** (SharedHeap accessors): lock-free today, unchanged
+
+### Safepoint Protocol
+
+With the single-RwLock model, a mutator is "at a safepoint" whenever it is not
+holding the heap write lock. Since mutators only hold the write lock during
+TLAB refill, large/old/pinned alloc, or barrier path (microseconds each), the
+collector can simply request a write lock and wait. Once granted, no mutator is
+mid-critical-section. This is the standard "safepoint = lock boundary" model.
+
+**TLAB staleness invariant:** the `NurseryTlab` generation counter bumps on
+every `swap_spaces_and_reset`, so any post-collect `try_alloc` call against a
+stale TLAB returns `None` and the mutator refills. This is already implemented
+and tested in `nursery_arena.rs`.
+
+### Migration Order
+
+The refactor lands as a series of small commits, each of which compiles and
+passes the full test suite:
+
+1. **Extract `MutatorLocal`** (~30 lines). `Mutator` gains a `local:
+   MutatorLocal` field initialized to default. No behavioral change.
+2. **Wire `NurseryTlab` into the nursery alloc path** (~300 lines). `Mutator::
+   alloc` intercepts the nursery fast path, bumps within the TLAB on hit, refills
+   via `reserve_tlab` on miss. Still `&mut Heap`; stepping stone.
+3. **Move `RootStack` and `recent_barrier_events` onto `MutatorLocal`** (~200
+   lines).
+4. **Wrap `Heap` in `Arc<RwLock<HeapCore>>`** (~800-1200 lines). The riskiest
+   commit — every `&mut Heap` site migrates. Allocation is still serialized via
+   the write lock, but the type system now allows multiple `Mutator` instances.
+5. **Change `Heap::mutator` to a shared-handle factory** (~100 lines).
+6. **Multi-mutator stress tests** (~200 lines): N threads, each with its own
+   mutator, all allocating concurrently.
+7. **Atomicize `BarrierStats` for lock-free barriers** (~150 lines). Optional
+   but high-value: without it every barrier event serializes on the heap write
+   lock.
+8. **(Optional) Fine-grained locks** if profiling shows the single-lock model
+   is the bottleneck.
+
+### Success Criteria
+
+The refactor is complete when:
+
+1. `Heap::mutator(&self) -> Mutator` no longer requires exclusive access.
+2. Multiple `Mutator` instances can exist simultaneously against the same
+   `Heap`.
+3. A multi-threaded stress test runs to completion with no data races, no lost
+   updates, no panics, no deadlocks.
+4. Single-mutator benchmarks show no regression.
+5. The DESIGN.md "per-mutator bump allocation" bullet is satisfied.
+
+After this refactor lands, every bullet in the Final Position section is
+satisfied by the current implementation.
+
+### Rollback Discipline
+
+Each commit in the migration order above must compile and pass tests on its
+own. If commit 4 (the `Arc<RwLock<HeapCore>>` wrap) can't land cleanly after
+multiple attempts, revert commits 1-4 and split commit 4 into smaller slices
+(e.g. "extract HeapCore type" and "wrap in Arc<RwLock>" as separate commits).
+The migration discipline is to never leave the tree in a half-converted state.
