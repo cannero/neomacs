@@ -188,20 +188,26 @@ Still staging compromises:
   handoff API (`run`, `block_placement`, `rebind_block`). The
   reclaim path is the unique constructor and `RuntimeState` is
   the unique consumer; `runtime_state.rs` no longer touches
-  `ObjectRecord`. The drain surface now exposes both an
-  unbounded `drain_pending_finalizers()` and a bounded
-  `drain_pending_finalizers_bounded(max)` variant across every
+  `ObjectRecord`. The drain surface exposes both unbounded
+  (`drain_pending_finalizers`), bounded
+  (`drain_pending_finalizers_bounded(max)`), and non-blocking
+  (`try_drain_pending_finalizers` /
+  `try_drain_pending_finalizers_bounded`) variants across every
   layer (Heap, Mutator, CollectorRuntime, SharedHeap,
   SharedCollectorRuntime, BackgroundService,
   SharedBackgroundService) so VM hosts can drive finalization
   in cooperative slices instead of being forced to drain the
-  entire queue at once. Further work: the wrapped record still
-  owns the same fields as before (header, base, layout, block
-  placement, memory kind), so the carrier size hasn't shrunk —
-  the next iteration could split the carrier into a smaller
-  payload+descriptor pair for embedders that want to drive
-  finalization themselves on a separate thread without holding
-  any heap-side lock.
+  entire queue at once. Each layer's bounded surface is
+  end-to-end pinned by a public_api test that exercises the
+  slicing semantics through that specific entry point.
+
+  Carrier shrinking is not feasible without dropping a
+  feature: `PendingFinalizer` needs the header (descriptor and
+  payload pointer for `run()`), the block placement (line-mark
+  refresh), and the (base, layout, memory_kind) trio (so Drop
+  can dealloc the backing storage of system-allocated
+  records). All five fields of the wrapped `ObjectRecord` are
+  load-bearing. The compromise here is closed.
 - telemetry covers the full observability surface described below:
   allocation by space, pause histogram, evacuated regions, pinned bytes,
   remembered-set pressure, barrier traffic via `BarrierStats`, concurrent
