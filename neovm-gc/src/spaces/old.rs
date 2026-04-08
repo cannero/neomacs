@@ -1030,35 +1030,32 @@ impl OldGenState {
 
     pub(crate) fn prepare_reclaim_survivor(
         rebuild: &mut OldRegionRebuildState,
-        config: &OldGenConfig,
-        mut placement: OldRegionPlacement,
+        _config: &OldGenConfig,
+        placement: OldRegionPlacement,
         total_size: usize,
     ) -> Option<OldRegionPlacement> {
-        if rebuild.selected_regions.contains(&placement.region_index) {
-            let compacted =
-                Self::reserve_rebuild_placement(&mut rebuild.compacted_regions, config, total_size);
-            placement.region_index = rebuild.compacted_base_index + compacted.region_index;
-            placement.offset_bytes = compacted.offset_bytes;
-            placement.line_start = compacted.line_start;
-            placement.line_count = compacted.line_count;
-            let region = &mut rebuild.compacted_regions[compacted.region_index];
-            region.live_bytes = region.live_bytes.saturating_add(total_size);
-            region.object_count = region.object_count.saturating_add(1);
-            for line in placement.line_start..placement.line_start + placement.line_count {
-                region.occupied_lines.insert(line);
-            }
-            return Some(placement);
-        }
-
-        let &new_index = rebuild.preserved_index_map.get(&placement.region_index)?;
-        placement.region_index = new_index;
+        // Logical-region renumbering retired: with selected_regions
+        // empty (the planner stopped populating it), this branch
+        // is unreachable in production. Update the live_bytes /
+        // object_count counters on the rebuilt region matching the
+        // survivor's *current* region_index so finish_prepared
+        // _rebuild can still drop empty entries from the regions
+        // vec, but skip the index renumbering entirely.
+        let new_index = *rebuild.preserved_index_map.get(&placement.region_index)?;
         let region = &mut rebuild.rebuilt_regions[new_index];
         region.live_bytes = region.live_bytes.saturating_add(total_size);
         region.object_count = region.object_count.saturating_add(1);
         for line in placement.line_start..placement.line_start + placement.line_count {
             region.occupied_lines.insert(line);
         }
-        Some(placement)
+        // Return the placement with its NEW region_index so the
+        // caller (rebuild_post_sweep_object) can update the
+        // ObjectRecord. Otherwise stale region indices linger on
+        // survivors and the legacy_region_stats observer would
+        // misreport.
+        let mut new_placement = placement;
+        new_placement.region_index = new_index;
+        Some(new_placement)
     }
 
     pub(crate) fn finish_rebuild(
@@ -1068,14 +1065,14 @@ impl OldGenState {
         let Some(rebuild) = rebuild else {
             return (None, OldRegionCollectionStats::default());
         };
-        let provisional_compacted_base = rebuild.compacted_base_index;
-        let mut preserved_index_remap = vec![None; provisional_compacted_base];
-        let mut compacted_regions = Vec::with_capacity(
-            rebuild
-                .rebuilt_regions
-                .len()
-                .saturating_add(rebuild.compacted_regions.len()),
-        );
+        // Logical-region rebuild path is retired: with the dead
+        // "select-and-renumber" branch removed there are no
+        // compacted regions, only preserved ones. Drop empties
+        // and update placement.region_index for survivors so the
+        // post-rebuild regions vec stays consistent.
+        let original_count = rebuild.rebuilt_regions.len();
+        let mut preserved_index_remap = vec![None; original_count];
+        let mut compacted_regions = Vec::with_capacity(original_count);
         for (old_index, region) in rebuild.rebuilt_regions.into_iter().enumerate() {
             if region.object_count == 0 {
                 continue;
@@ -1083,8 +1080,6 @@ impl OldGenState {
             preserved_index_remap[old_index] = Some(compacted_regions.len());
             compacted_regions.push(region);
         }
-        let new_compacted_base = compacted_regions.len();
-        compacted_regions.extend(rebuild.compacted_regions);
         for object in objects.iter_mut() {
             if object.space() != SpaceKind::Old {
                 continue;
@@ -1092,23 +1087,11 @@ impl OldGenState {
             let Some(mut placement) = object.old_region_placement() else {
                 continue;
             };
-            if placement.region_index < provisional_compacted_base {
-                let Some(new_index) = preserved_index_remap[placement.region_index] else {
-                    continue;
-                };
-                if placement.region_index != new_index {
-                    placement.region_index = new_index;
-                    object.set_old_region_placement(placement);
-                }
+            let Some(Some(new_index)) = preserved_index_remap.get(placement.region_index) else {
                 continue;
-            }
-
-            let compacted_offset = placement
-                .region_index
-                .saturating_sub(provisional_compacted_base);
-            let new_index = new_compacted_base.saturating_add(compacted_offset);
-            if placement.region_index != new_index {
-                placement.region_index = new_index;
+            };
+            if placement.region_index != *new_index {
+                placement.region_index = *new_index;
                 object.set_old_region_placement(placement);
             }
         }
@@ -1118,7 +1101,7 @@ impl OldGenState {
         (
             Some(compacted_regions),
             OldRegionCollectionStats {
-                compacted_regions: rebuild.compacted_regions_count,
+                compacted_regions: 0,
                 reclaimed_regions,
             },
         )
@@ -1128,14 +1111,13 @@ impl OldGenState {
         rebuild: OldRegionRebuildState,
         survivors: &mut [PreparedReclaimSurvivor],
     ) -> PreparedOldGenReclaim {
-        let provisional_compacted_base = rebuild.compacted_base_index;
-        let mut preserved_index_remap = vec![None; provisional_compacted_base];
-        let mut compacted_regions = Vec::with_capacity(
-            rebuild
-                .rebuilt_regions
-                .len()
-                .saturating_add(rebuild.compacted_regions.len()),
-        );
+        // Same retirement note as finish_rebuild: only the
+        // preserved-region pass remains. Renumber survivors via
+        // the preserved_index_remap and emit the rebuilt regions
+        // vec with empty entries dropped.
+        let original_count = rebuild.rebuilt_regions.len();
+        let mut preserved_index_remap = vec![None; original_count];
+        let mut compacted_regions = Vec::with_capacity(original_count);
         for (old_index, region) in rebuild.rebuilt_regions.into_iter().enumerate() {
             if region.object_count == 0 {
                 continue;
@@ -1143,23 +1125,14 @@ impl OldGenState {
             preserved_index_remap[old_index] = Some(compacted_regions.len());
             compacted_regions.push(region);
         }
-        let new_compacted_base = compacted_regions.len();
-        compacted_regions.extend(rebuild.compacted_regions);
         for survivor in survivors.iter_mut() {
             let Some(placement) = survivor.old_region_placement.as_mut() else {
                 continue;
             };
-            if placement.region_index < provisional_compacted_base {
-                let Some(new_index) = preserved_index_remap[placement.region_index] else {
-                    continue;
-                };
-                placement.region_index = new_index;
-            } else {
-                placement.region_index = placement
-                    .region_index
-                    .saturating_sub(provisional_compacted_base)
-                    .saturating_add(new_compacted_base);
-            }
+            let Some(Some(new_index)) = preserved_index_remap.get(placement.region_index) else {
+                continue;
+            };
+            placement.region_index = *new_index;
         }
         let reclaimed_regions = rebuild
             .previous_region_count
@@ -1172,7 +1145,7 @@ impl OldGenState {
             rebuilt_regions: compacted_regions,
             reserved_bytes,
             region_stats: OldRegionCollectionStats {
-                compacted_regions: rebuild.compacted_regions_count,
+                compacted_regions: 0,
                 reclaimed_regions,
             },
         }
@@ -1186,33 +1159,6 @@ impl OldGenState {
         self.regions = prepared.rebuilt_regions;
         debug_assert_eq!(self.reserved_bytes(), prepared.reserved_bytes);
         region_stats
-    }
-
-    pub(crate) fn reserve_rebuild_placement(
-        regions: &mut Vec<OldRegion>,
-        config: &OldGenConfig,
-        bytes: usize,
-    ) -> OldRegionPlacement {
-        let align = config.line_bytes.max(8);
-
-        for (region_index, region) in regions.iter_mut().enumerate() {
-            let offset = align_up(region.used_bytes, align);
-            if offset.saturating_add(bytes) <= region.capacity_bytes {
-                region.used_bytes = offset.saturating_add(bytes);
-                return Self::make_placement_for_config(config, region_index, offset, bytes);
-            }
-        }
-
-        let capacity_bytes = config.region_bytes.max(bytes);
-        regions.push(OldRegion {
-            capacity_bytes,
-            used_bytes: bytes,
-            live_bytes: 0,
-            object_count: 0,
-            occupied_lines: HashSet::new(),
-        });
-        let region_index = regions.len() - 1;
-        Self::make_placement_for_config(config, region_index, 0, bytes)
     }
 
     fn try_reserve_in_existing_region(
@@ -1273,31 +1219,35 @@ pub(crate) struct OldRegionCollectionStats {
     pub(crate) reclaimed_regions: u64,
 }
 
+/// Logical-region rebuild state — drastically simplified now
+/// that the legacy compaction renumbering is retired.
+///
+/// The legacy struct held a `selected_regions` HashSet, a
+/// `compacted_regions` Vec, and a `compacted_regions_count`
+/// counter to drive the renumbering of survivors into a new
+/// compacted-region pile. The planner stopped populating
+/// `selected_old_regions`, so all of that machinery is dead.
+/// What remains is a flat preservation pass: copy every
+/// non-empty region into `rebuilt_regions` so the post-cycle
+/// regions vec can drop empty entries while keeping the
+/// surviving entries' used_bytes / capacity_bytes intact.
 #[derive(Debug)]
 pub(crate) struct OldRegionRebuildState {
     pub(crate) previous_region_count: usize,
     pub(crate) preserved_index_map: HashMap<usize, usize>,
-    pub(crate) selected_regions: HashSet<usize>,
-    pub(crate) compacted_base_index: usize,
-    pub(crate) compacted_regions_count: u64,
     pub(crate) rebuilt_regions: Vec<OldRegion>,
-    pub(crate) compacted_regions: Vec<OldRegion>,
 }
 
 pub(crate) fn prepare_old_region_rebuild_for_plan(
     previous_regions: &[OldRegion],
     completed_plan: Option<&CollectionPlan>,
 ) -> Option<OldRegionRebuildState> {
-    let plan = completed_plan
+    let _plan = completed_plan
         .filter(|plan| matches!(plan.kind, CollectionKind::Major | CollectionKind::Full))?;
     let previous_region_count = previous_regions.len();
-    let selected_regions: HashSet<_> = plan.selected_old_regions.iter().copied().collect();
-    let mut rebuilt_regions = Vec::new();
-    let mut preserved_index_map = HashMap::new();
+    let mut rebuilt_regions = Vec::with_capacity(previous_regions.len());
+    let mut preserved_index_map = HashMap::with_capacity(previous_regions.len());
     for (old_index, region) in previous_regions.iter().enumerate() {
-        if selected_regions.contains(&old_index) {
-            continue;
-        }
         preserved_index_map.insert(old_index, rebuilt_regions.len());
         rebuilt_regions.push(OldRegion {
             capacity_bytes: region.capacity_bytes,
@@ -1307,15 +1257,10 @@ pub(crate) fn prepare_old_region_rebuild_for_plan(
             occupied_lines: HashSet::new(),
         });
     }
-    let compacted_base_index = rebuilt_regions.len();
     Some(OldRegionRebuildState {
         previous_region_count,
         preserved_index_map,
-        selected_regions,
-        compacted_base_index,
-        compacted_regions_count: plan.selected_old_regions.len() as u64,
         rebuilt_regions,
-        compacted_regions: Vec::new(),
     })
 }
 
