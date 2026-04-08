@@ -119,9 +119,17 @@ Still staging compromises:
   and `compacted_regions` is hardcoded to zero (manual
   compaction telemetry lives in `Heap::compaction_stats()`).
 - remembered tracking is still coarser than the final region/card-table model
-- finalization is now queued and drained explicitly through runtime surfaces, but
-  it still retains whole `ObjectRecord`s rather than a lower-level VM-facing
-  finalization handoff
+- finalization queue interactions go through a `PendingFinalizer`
+  newtype that hides the wrapped `ObjectRecord` behind a focused
+  handoff API (`run`, `block_placement`, `rebind_block`). The
+  reclaim path is the unique constructor and `RuntimeState` is
+  the unique consumer; `runtime_state.rs` no longer touches
+  `ObjectRecord`. Further work: the wrapped record still owns
+  the same fields as before (header, base, layout, block
+  placement, memory kind), so the carrier size hasn't shrunk —
+  the next iteration could split the carrier into a smaller
+  payload+descriptor pair for embedders that want to drive
+  finalization themselves.
 - telemetry covers the full observability surface described below:
   allocation by space, pause histogram, evacuated regions, pinned bytes,
   remembered-set pressure, barrier traffic via `BarrierStats`, concurrent
