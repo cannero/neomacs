@@ -407,6 +407,30 @@ pub(crate) fn builtin_default_value(
     };
     let resolved = super::builtins::resolve_variable_alias_id_in_obarray(&eval.obarray, symbol)?;
     let resolved_name = resolve_sym(resolved);
+
+    // Phase 10D: FORWARDED BUFFER_OBJFWD reads consult
+    // `BufferManager::buffer_defaults` (the live default), not the
+    // legacy `symbol_value_id` reader which returns None for
+    // FORWARDED. Mirrors GNU `Fdefault_value` (`data.c:1834-1846`)
+    // dispatching through `do_default_value` for SYMBOL_FORWARDED.
+    {
+        use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
+        use crate::emacs_core::symbol::SymbolRedirect;
+        if let Some(sym) = eval.obarray().get_by_id(resolved)
+            && sym.redirect() == SymbolRedirect::Forwarded
+        {
+            let fwd = unsafe { &*sym.val.fwd };
+            if matches!(fwd.ty, LispFwdType::BufferObj) {
+                let buf_fwd = unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
+                let off = buf_fwd.offset as usize;
+                if off < eval.buffers.buffer_defaults.len() {
+                    return Ok(eval.buffers.buffer_defaults[off]);
+                }
+                return Ok(buf_fwd.default);
+            }
+        }
+    }
+
     // specbind writes directly to obarray, so no dynamic stack lookup needed.
     match eval.obarray.symbol_value_id(resolved) {
         Some(v) => Ok(*v),
@@ -447,7 +471,32 @@ pub(crate) fn builtin_set_default(eval: &mut super::eval::Context, args: Vec<Val
     }
     let value = args[1];
 
-    if !crate::emacs_core::eval::set_default_toplevel_value_in_state(
+    // Phase 10D: route FORWARDED BUFFER_OBJFWD writes through
+    // `BufferManager::set_buffer_default_slot`, which updates
+    // `buffer_defaults` AND propagates to every live buffer whose
+    // local_flags bit is clear. Mirrors GNU `set_default_internal`
+    // SYMBOL_FORWARDED arm (`data.c:2044-2078`).
+    let forwarded_slot = {
+        use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
+        use crate::emacs_core::symbol::SymbolRedirect;
+        eval.obarray()
+            .get_by_id(resolved)
+            .filter(|sym| sym.redirect() == SymbolRedirect::Forwarded)
+            .and_then(|sym| {
+                let fwd = unsafe { &*sym.val.fwd };
+                if matches!(fwd.ty, LispFwdType::BufferObj) {
+                    let buf_fwd = unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
+                    let info_name = crate::emacs_core::intern::resolve_sym(resolved);
+                    crate::buffer::buffer::lookup_buffer_slot(info_name)
+                        .map(|info| (info, buf_fwd.offset))
+                } else {
+                    None
+                }
+            })
+    };
+    if let Some((info, _off)) = forwarded_slot {
+        eval.buffers.set_buffer_default_slot(info, value);
+    } else if !crate::emacs_core::eval::set_default_toplevel_value_in_state(
         eval.specpdl.as_mut_slice(),
         resolved,
         value,

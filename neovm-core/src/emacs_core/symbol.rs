@@ -1340,14 +1340,26 @@ impl Obarray {
     pub fn boundp_id(&self, id: SymId) -> bool {
         let mut current = id;
         for _ in 0..50 {
-            match self.slot(current) {
-                Some(s) => match &s.value {
-                    SymbolValue::Plain(v) => return v.is_some(),
-                    SymbolValue::Alias(target) => current = *target,
-                    SymbolValue::BufferLocal { default, .. } => return default.is_some(),
-                    SymbolValue::Forwarded => return false,
-                },
-                None => return false,
+            let Some(s) = self.slot(current) else {
+                return false;
+            };
+            // Phase 10D: BUFFER_OBJFWD slots are never unbound;
+            // their value lives in the buffer/buffer_defaults slot
+            // and `boundp` should return t. Mirrors GNU `boundp`
+            // (`data.c:805-810`) which returns true for FORWARDED.
+            if s.flags.redirect() == SymbolRedirect::Forwarded {
+                use crate::emacs_core::forward::LispFwdType;
+                let fwd = unsafe { &*s.val.fwd };
+                if matches!(fwd.ty, LispFwdType::BufferObj) {
+                    return true;
+                }
+                return false;
+            }
+            match &s.value {
+                SymbolValue::Plain(v) => return v.is_some(),
+                SymbolValue::Alias(target) => current = *target,
+                SymbolValue::BufferLocal { default, .. } => return default.is_some(),
+                SymbolValue::Forwarded => return false,
             }
         }
         false // cycle

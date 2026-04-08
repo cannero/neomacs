@@ -323,6 +323,8 @@ pub(crate) fn builtin_default_boundp(
     expect_args("default-boundp", &args, 1)?;
     let obarray = eval.obarray();
     let resolved = resolve_variable_alias_id_in_obarray(obarray, expect_symbol_id(&args[0])?)?;
+    // boundp_id already returns true for BUFFER_OBJFWD slots
+    // (Phase 10D), so default-boundp picks that up automatically.
     Ok(Value::bool_val(
         obarray.boundp_id(resolved) || obarray.is_constant_id(resolved),
     ))

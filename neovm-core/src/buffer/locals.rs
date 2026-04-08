@@ -71,10 +71,10 @@ const CONDITIONAL_SLOT_BUFFER_LOCAL_SPECS: &[ConditionalSlotSpec] = &[
         name: "ctl-arrow",
         permanent: false,
     },
-    ConditionalSlotSpec {
-        name: "fill-column",
-        permanent: false,
-    },
+    // Phase 10D step 4: `fill-column` migrated to BUFFER_SLOT_INFO
+    // (`buffer.rs:BUFFER_SLOT_FILL_COLUMN`). The slot table is the
+    // single source of truth; the legacy entry would shadow the
+    // FORWARDED dispatch.
     ConditionalSlotSpec {
         name: "left-margin",
         permanent: false,

@@ -362,12 +362,19 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         reset_on_kill: true,
         local_flags_idx: -1,
     },
-    // Phase 10D conditional slots will be added here in step 4+
-    // once setq-default propagation and the legacy reader paths
-    // route through `BufferManager::buffer_defaults`. The slot
-    // constant `BUFFER_SLOT_FILL_COLUMN` is reserved for
-    // `fill-column` and will be the first conditional migration
-    // when the dispatch is fully wired.
+    // Phase 10D conditional slots --------------------------------
+    BufferSlotInfo {
+        // GNU `buffer.c:4866` — fill_column defaults to 70.
+        // GNU `buffer.c:4754` assigns this slot a positive index
+        // in `buffer_local_flags`. NeoMacs reuses `offset` as the
+        // bit index in `Buffer::local_flags`.
+        name: "fill-column",
+        offset: BUFFER_SLOT_FILL_COLUMN,
+        default: SlotDefault::LazyFixnum(70),
+        predicate: "integerp",
+        reset_on_kill: false,
+        local_flags_idx: BUFFER_SLOT_FILL_COLUMN as i16,
+    },
 ];
 
 /// Look up a [`BufferSlotInfo`] by Lisp variable name. Returns `None`
@@ -3040,6 +3047,30 @@ impl BufferManager {
         self.buffers
             .get(&buffer_id)
             .and_then(|buf| buf.marker_entry(marker_id).map(|marker| marker.char_pos))
+    }
+
+    /// Phase 10D: write the global default for a `BUFFER_OBJFWD`
+    /// slot, propagating the new default to every live buffer
+    /// whose `local_flags` bit for that slot is clear.
+    ///
+    /// Mirrors GNU `set_default_internal` SYMBOL_FORWARDED arm
+    /// (`data.c:2044-2078`): the new default is stored in
+    /// `buffer_defaults` and broadcast into every buffer that
+    /// shares the global value (i.e. has not made the variable
+    /// local). Always-local slots (`local_flags_idx == -1`) are
+    /// per-buffer in every buffer, so the propagation is a no-op
+    /// for them — only `buffer_defaults` is updated.
+    pub fn set_buffer_default_slot(&mut self, info: &BufferSlotInfo, value: Value) {
+        debug_assert!(info.offset < BUFFER_SLOT_COUNT);
+        self.buffer_defaults[info.offset] = value;
+        if info.local_flags_idx >= 0 {
+            // Conditional slot: propagate to non-local buffers.
+            for buf in self.buffers.values_mut() {
+                if !buf.slot_local_flag(info.offset) {
+                    buf.slots[info.offset] = value;
+                }
+            }
+        }
     }
 
     /// Remove a marker registration from any live buffer.

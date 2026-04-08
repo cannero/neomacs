@@ -6273,6 +6273,40 @@ impl Context {
             }
         }
 
+        // Phase 10D: for FORWARDED BUFFER_OBJFWD symbols, route the
+        // fall-through read through `BufferManager::buffer_defaults`
+        // rather than the forwarder's static `default` field. The
+        // static default is the install-time seed; `setq-default`
+        // mutates `buffer_defaults` (which the forwarder descriptor
+        // can't track because it lives in `'static` memory). Mirrors
+        // GNU `do_symval_forwarding` BUFFER_OBJFWD reading from
+        // either the per-buffer slot or `buffer_defaults`
+        // (`data.c:1330-1352`).
+        {
+            use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
+            use crate::emacs_core::symbol::SymbolRedirect;
+            if let Some(sym) = self.obarray.get_by_id(resolved)
+                && sym.redirect() == SymbolRedirect::Forwarded
+            {
+                let fwd = unsafe { &*sym.val.fwd };
+                if matches!(fwd.ty, LispFwdType::BufferObj) {
+                    let buf_fwd =
+                        unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
+                    let off = buf_fwd.offset as usize;
+                    // Conditional slot with the per-buffer flag set
+                    // already returned via get_buffer_local_binding
+                    // above; this branch only fires when the bit is
+                    // clear (or for always-local slots whose
+                    // get_buffer_local_binding short-circuits to
+                    // Some(...) — those won't reach here at all).
+                    if off < self.buffers.buffer_defaults.len() {
+                        return Ok(self.buffers.buffer_defaults[off]);
+                    }
+                    return Ok(buf_fwd.default);
+                }
+            }
+        }
+
         // Obarray value cell. Use `find_symbol_value` (not the
         // legacy `symbol_value_id`) so FORWARDED reads land on the
         // forwarder descriptor's default rather than returning None
@@ -9207,6 +9241,99 @@ impl Context {
             );
         }
 
+        // Phase 10D: handle FORWARDED BUFFER_OBJFWD specbind separately
+        // from the legacy LOCALIZED path. Mirrors GNU `specbind`
+        // SYMBOL_FORWARDED arm at `eval.c:3641-3677`.
+        {
+            use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
+            use crate::emacs_core::symbol::SymbolRedirect;
+            let forwarded = self
+                .obarray
+                .get_by_id(resolved)
+                .filter(|s| s.redirect() == SymbolRedirect::Forwarded)
+                .map(|s| unsafe { s.val.fwd });
+            if let Some(fwd_ptr) = forwarded {
+                let fwd = unsafe { &*fwd_ptr };
+                if matches!(fwd.ty, LispFwdType::BufferObj) {
+                    let buf_fwd =
+                        unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
+                    let off = buf_fwd.offset as usize;
+                    let flags_idx = buf_fwd.local_flags_idx;
+                    let buf_id_opt = self.buffers.current_buffer_id();
+                    let has_local = match buf_id_opt {
+                        Some(id) => self
+                            .buffers
+                            .get(id)
+                            .map(|buf| {
+                                flags_idx < 0 || buf.slot_local_flag(off)
+                            })
+                            .unwrap_or(false),
+                        None => false,
+                    };
+                    if has_local {
+                        // SPECPDL_LET_LOCAL — save the current
+                        // per-buffer slot value, then overwrite. On
+                        // unbind we restore via set_buffer_local
+                        // which writes back to the slot.
+                        let buf_id = buf_id_opt.expect("has_local implies current buffer");
+                        let old_val = self
+                            .buffers
+                            .get(buf_id)
+                            .map(|b| b.slots[off])
+                            .unwrap_or(Value::NIL);
+                        self.specpdl.push(SpecBinding::LetLocal {
+                            sym_id: resolved,
+                            old_value: old_val,
+                            buffer_id: buf_id,
+                        });
+                        if self.watchers.has_watchers(resolved) {
+                            let _ = self.run_variable_watchers_by_id(
+                                resolved,
+                                &value,
+                                &Value::NIL,
+                                "let",
+                            );
+                        }
+                        if let Some(buf) = self.buffers.get_mut(buf_id) {
+                            buf.slots[off] = value;
+                            // Always-local slots need no flag
+                            // change; conditional slots already
+                            // have the bit set (has_local check).
+                        }
+                        return;
+                    } else {
+                        // SPECPDL_LET_DEFAULT — save old default,
+                        // propagate the new value via
+                        // set_buffer_default_slot. On unbind we
+                        // propagate the saved default back.
+                        let old_default = if off < self.buffers.buffer_defaults.len() {
+                            Some(self.buffers.buffer_defaults[off])
+                        } else {
+                            Some(buf_fwd.default)
+                        };
+                        self.specpdl.push(SpecBinding::LetDefault {
+                            sym_id: resolved,
+                            old_value: old_default,
+                        });
+                        if self.watchers.has_watchers(resolved) {
+                            let _ = self.run_variable_watchers_by_id(
+                                resolved,
+                                &value,
+                                &Value::NIL,
+                                "let",
+                            );
+                        }
+                        let info_ref =
+                            crate::buffer::buffer::lookup_buffer_slot(name);
+                        if let Some(info) = info_ref {
+                            self.buffers.set_buffer_default_slot(info, value);
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+
         // Check if this is a buffer-local variable (GNU: SYMBOL_LOCALIZED path)
         if self.obarray.is_buffer_local(name) || self.custom.is_auto_buffer_local(name) {
             if let Some(buf_id) = self.buffers.current_buffer_id() {
@@ -9347,6 +9474,35 @@ impl Context {
                             &Value::NIL,
                             "unlet",
                         );
+                    }
+                    // Phase 10D: FORWARDED BUFFER_OBJFWD restores
+                    // through `set_buffer_default_slot` so the
+                    // change propagates to every non-local buffer's
+                    // slot, mirroring GNU `set_default_internal`
+                    // SYMBOL_FORWARDED arm.
+                    use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
+                    use crate::emacs_core::symbol::SymbolRedirect;
+                    let forwarded_slot = self
+                        .obarray
+                        .get_by_id(sym_id)
+                        .filter(|s| s.redirect() == SymbolRedirect::Forwarded)
+                        .and_then(|s| {
+                            let fwd = unsafe { &*s.val.fwd };
+                            if matches!(fwd.ty, LispFwdType::BufferObj) {
+                                let buf_fwd = unsafe {
+                                    &*(fwd as *const _ as *const LispBufferObjFwd)
+                                };
+                                crate::buffer::buffer::lookup_buffer_slot(name)
+                                    .map(|info| (info, buf_fwd))
+                            } else {
+                                None
+                            }
+                        });
+                    if let Some((info, _buf_fwd)) = forwarded_slot {
+                        if let Some(val) = old_value {
+                            self.buffers.set_buffer_default_slot(info, val);
+                        }
+                        continue;
                     }
                     match old_value {
                         Some(val) => {
@@ -10008,6 +10164,31 @@ impl Context {
             && let Some(binding) = buf.get_buffer_local_binding(resolved_name)
         {
             return binding.as_value();
+        }
+
+        // Phase 10D: FORWARDED BUFFER_OBJFWD reads consult
+        // `BufferManager::buffer_defaults` (the live default) rather
+        // than the legacy `symbol_value_id` reader, which is the
+        // legacy enum dispatcher and returns None for FORWARDED.
+        // Mirrors GNU `do_symval_forwarding` BUFFER_OBJFWD reading
+        // through `buffer_defaults` when there's no per-buffer local.
+        {
+            use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
+            use crate::emacs_core::symbol::SymbolRedirect;
+            if let Some(sym) = self.obarray.get_by_id(resolved)
+                && sym.redirect() == SymbolRedirect::Forwarded
+            {
+                let fwd = unsafe { &*sym.val.fwd };
+                if matches!(fwd.ty, LispFwdType::BufferObj) {
+                    let buf_fwd =
+                        unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
+                    let off = buf_fwd.offset as usize;
+                    if off < self.buffers.buffer_defaults.len() {
+                        return Some(self.buffers.buffer_defaults[off]);
+                    }
+                    return Some(buf_fwd.default);
+                }
+            }
         }
 
         if let Some(value) = self.obarray.symbol_value_id(resolved).copied() {
