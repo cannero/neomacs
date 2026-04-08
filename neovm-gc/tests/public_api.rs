@@ -9449,6 +9449,30 @@ fn public_api_shared_compact_old_gen_aggressive_zero_passes_returns_zero() {
 }
 
 #[test]
+fn public_api_shared_compact_old_gen_aggressive_skips_lock_when_empty() {
+    // Lock-free precheck: if the cached snapshot says the
+    // block pool is empty (or `max_passes == 0`), the
+    // aggressive compaction call must return 0 without ever
+    // taking the heap write lock. Pin both filters by parking
+    // a helper thread on the heap write lock.
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let (release_tx, waiter) = lock_shared_heap_on_other_thread(shared.clone());
+
+    let zero_passes = shared
+        .compact_old_gen_aggressive(1.0, 0)
+        .expect("aggressive compaction with zero passes while heap is write-locked");
+    assert_eq!(zero_passes, 0);
+
+    let empty_pool = shared
+        .compact_old_gen_aggressive(1.0, 4)
+        .expect("aggressive compaction on empty heap while heap is write-locked");
+    assert_eq!(empty_pool, 0);
+
+    release_tx.send(()).expect("release shared heap write lock");
+    waiter.join().expect("join write-lock helper thread");
+}
+
+#[test]
 fn public_api_shared_clear_compaction_stats_resets_to_zero() {
     let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
     shared
@@ -9578,6 +9602,25 @@ fn public_api_shared_compact_old_gen_physical_reports_zero_on_empty_heap() {
         .compact_old_gen_physical(1.0)
         .expect("compact_old_gen_physical on empty shared heap");
     assert_eq!(moved, 0);
+}
+
+#[test]
+fn public_api_shared_compact_old_gen_physical_skips_lock_when_pool_empty() {
+    // Lock-free precheck: when the cached snapshot reports an
+    // empty old-gen block pool, compact_old_gen_physical must
+    // return 0 without ever taking the heap write lock. Pin the
+    // contract by parking a helper thread on the heap write
+    // lock.
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let (release_tx, waiter) = lock_shared_heap_on_other_thread(shared.clone());
+
+    let moved = shared
+        .compact_old_gen_physical(1.0)
+        .expect("compact_old_gen_physical while heap is write-locked");
+    assert_eq!(moved, 0);
+
+    release_tx.send(()).expect("release shared heap write lock");
+    waiter.join().expect("join write-lock helper thread");
 }
 
 #[test]

@@ -1308,13 +1308,29 @@ impl SharedHeap {
     }
 
     /// Aggressive multi-pass compaction via the shared heap.
-    /// Takes the heap WRITE lock for the duration. See
-    /// [`Heap::compact_old_gen_aggressive`] for semantics.
+    ///
+    /// Performs a lock-free precheck through the cached
+    /// snapshot. The call returns `0` immediately without ever
+    /// taking the heap write lock when:
+    ///   * `max_passes == 0` (the inner method also short-circuits
+    ///     this case but we filter it before locking), or
+    ///   * the snapshot reports no reserved old-gen bytes
+    ///     (`stats.old.reserved_bytes == 0`), meaning the block
+    ///     pool is empty and there is nothing to compact.
+    /// Otherwise the call grabs the write lock and dispatches to
+    /// [`Heap::compact_old_gen_aggressive`].
     pub fn compact_old_gen_aggressive(
         &self,
         density_threshold: f64,
         max_passes: usize,
     ) -> Result<usize, SharedHeapError> {
+        if max_passes == 0 {
+            return Ok(0);
+        }
+        let stats = self.stats()?;
+        if stats.old.reserved_bytes == 0 {
+            return Ok(0);
+        }
         let mut heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
         Ok(heap.compact_old_gen_aggressive(density_threshold, max_passes))
     }
@@ -1393,11 +1409,17 @@ impl SharedHeap {
     ///
     /// Takes the heap write lock, calls
     /// [`Heap::compact_old_gen_physical`], and returns the number
-    /// of records physically evacuated. This is *not* lock-free —
-    /// physical compaction mutates the objects vec and the root
-    /// stack, which requires exclusive access. Background workers
-    /// and other observers must not be holding the heap lock while
-    /// this runs.
+    /// of records physically evacuated. Physical compaction
+    /// mutates the objects vec and the root stack, so the actual
+    /// compaction pass requires exclusive access.
+    ///
+    /// As an optimization, this method performs a lock-free
+    /// precheck through the cached snapshot first: when the
+    /// snapshot reports `stats.old.reserved_bytes == 0` (the
+    /// block pool is empty), the call returns `0` immediately
+    /// without ever taking the heap write lock. The common
+    /// "scheduler polled but no compaction is possible" case is
+    /// therefore contention-free.
     ///
     /// The density threshold applies the same semantics as the
     /// inner heap method: blocks with live-byte density at or
@@ -1406,6 +1428,10 @@ impl SharedHeap {
         &self,
         density_threshold: f64,
     ) -> Result<usize, SharedHeapError> {
+        let stats = self.stats()?;
+        if stats.old.reserved_bytes == 0 {
+            return Ok(0);
+        }
         let mut heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
         Ok(heap.compact_old_gen_physical(density_threshold))
     }
