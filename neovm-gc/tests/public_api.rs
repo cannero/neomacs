@@ -9188,6 +9188,79 @@ fn public_api_shared_nursery_fill_ratio_starts_zero_on_empty_heap() {
 }
 
 #[test]
+fn public_api_shared_drain_pending_finalizers_bounded_runs_while_heap_is_write_locked() {
+    // Cooperative finalization must work even when a mutator
+    // or background worker is holding the heap write lock,
+    // since the pending-finalizer queue lives behind its own
+    // RuntimeState mutex, separate from the heap RwLock. This
+    // test queues two finalizers, parks a helper thread on the
+    // heap write lock, and verifies the bounded drain still
+    // returns and runs the requested slice.
+    PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
+
+    let shared = neovm_gc::SharedHeap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    shared
+        .with_mutator(|mutator| {
+            for i in 0..2u64 {
+                let mut scope = mutator.handle_scope();
+                mutator
+                    .alloc(&mut scope, FinalizableLeaf(900 + i))
+                    .expect("alloc finalizable old leaf");
+            }
+            let cycle = mutator
+                .collect(CollectionKind::Major)
+                .expect("major collect");
+            assert_eq!(cycle.queued_finalizers, 2);
+        })
+        .expect("collect through shared mutator");
+    assert_eq!(
+        shared.pending_finalizer_count().expect("pending count"),
+        2
+    );
+
+    let (release_tx, waiter) = lock_shared_heap_on_other_thread(shared.clone());
+
+    // First slice while the heap is write-locked: budget 1.
+    assert_eq!(
+        shared
+            .drain_pending_finalizers_bounded(1)
+            .expect("bounded drain while heap is write-locked"),
+        1
+    );
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        shared.pending_finalizer_count().expect("pending count"),
+        1
+    );
+
+    // Second slice while the heap is write-locked: budget 5.
+    assert_eq!(
+        shared
+            .drain_pending_finalizers_bounded(5)
+            .expect("bounded drain while heap is write-locked"),
+        1
+    );
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        shared.pending_finalizer_count().expect("pending count"),
+        0
+    );
+
+    release_tx.send(()).expect("release shared heap write lock");
+    waiter.join().expect("join write-lock helper thread");
+}
+
+#[test]
 fn public_api_shared_drain_pending_finalizers_bounded_runs_in_slices() {
     // Same VM-driven cooperative finalization contract as the
     // CollectorRuntime test, but exercised via the SharedHeap
