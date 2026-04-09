@@ -971,15 +971,28 @@ impl Obarray {
                     continue;
                 }
                 SymbolRedirect::Localized => {
-                    // Phase 4: read the BLV's *currently loaded*
-                    // valcell. Without a buffer context to swap in,
-                    // we return whatever the cache currently holds —
-                    // the caller is `find_symbol_value_in_buffer` for
-                    // buffer-aware reads. For the bare obarray API
-                    // we expose the default.
+                    // Bare obarray reads of a LOCALIZED symbol return
+                    // the BLV `defcell` (default cell), NOT the
+                    // currently-loaded `valcell`. The valcell points
+                    // at whatever buffer most recently swapped its
+                    // per-buffer binding in via `swap_in_blv`, which
+                    // is irrelevant when there is no caller-supplied
+                    // buffer context.
+                    //
+                    // Buffer-local audit Medium 6 in
+                    // `drafts/buffer-local-variables-audit.md`: the
+                    // earlier code read `valcell.cons_cdr()` which
+                    // could leak the per-buffer binding from another
+                    // buffer when this function is called via
+                    // `default-value` / `symbol-value` outside a
+                    // buffer context.
+                    //
+                    // Mirrors GNU `find_symbol_value`
+                    // (`src/data.c:1591-1607`) for the case when
+                    // `current_buffer` is NULL: the SYMBOL_LOCALIZED
+                    // arm reads the BLV default cell.
                     let blv = unsafe { &*sym.val.blv };
-                    let cdr = blv.valcell.cons_cdr();
-                    return Some(cdr);
+                    return Some(blv.defcell.cons_cdr());
                 }
                 SymbolRedirect::Forwarded => {
                     // Phase 10D: bare-obarray reads of FORWARDED
