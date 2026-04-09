@@ -8,7 +8,7 @@ command = 'prlimit --as=8589934592 --'
 
 [profile.default]
 # Many tests use the bootstrap evaluator (which loads 122 .el files)
-# even without "bootstrap" in their name. 120s covers the ~63s
+# even without "bootstrap" in their name. 100s covers the ~63s
 # bootstrap initialization plus test execution time.
 slow-timeout = { period = "100s", terminate-after = 1, grace-period = "0s" }
 
