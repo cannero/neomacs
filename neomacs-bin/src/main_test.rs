@@ -60,6 +60,8 @@ fn gui_startup() -> StartupOptions {
         temacs_mode: None,
         dump_file_override: None,
         no_site_lisp: false,
+        no_loadup: false,
+        no_build_details: false,
     }
 }
 
@@ -74,6 +76,8 @@ fn gui_startup_with_args(args: &[&str]) -> StartupOptions {
         temacs_mode: None,
         dump_file_override: None,
         no_site_lisp: false,
+        no_loadup: false,
+        no_build_details: false,
     }
 }
 
@@ -88,6 +92,8 @@ fn tty_batch_startup_with_args(args: &[&str]) -> StartupOptions {
         temacs_mode: None,
         dump_file_override: None,
         no_site_lisp: false,
+        no_loadup: false,
+        no_build_details: false,
     }
 }
 
@@ -265,6 +271,87 @@ fn parse_startup_options_consumes_dash_x_with_scripteval_rewrite() {
 }
 
 #[test]
+fn parse_startup_options_consumes_no_loadup_flag() {
+    // GNU emacs.c:2031-2032: --no-loadup sets no_loadup, which gates the
+    // -l loadup splice in main(). Consumed entirely; not forwarded.
+    let startup = parse_startup_options([
+        "neomacs".to_string(),
+        "--no-loadup".to_string(),
+    ])
+    .expect("startup options should parse");
+    assert!(startup.no_loadup);
+    assert!(
+        !startup.forwarded_args.iter().any(|a| a == "--no-loadup" || a == "-nl"),
+        "--no-loadup should be consumed"
+    );
+}
+
+#[test]
+fn parse_startup_options_consumes_short_nl_flag() {
+    let startup = parse_startup_options(["neomacs".to_string(), "-nl".to_string()])
+        .expect("startup options should parse");
+    assert!(startup.no_loadup);
+}
+
+#[test]
+fn raw_loadup_command_line_skips_loadup_splice_when_no_loadup_set() {
+    // The user-visible effect of --no-loadup at RuntimeMode::Raw: the
+    // synthetic `-l loadup` splice is omitted, mirroring GNU
+    // emacs.c:2578 `if (!no_loadup) ... loadup.el`.
+    let startup = parse_startup_options([
+        "neomacs-temacs".to_string(),
+        "--no-loadup".to_string(),
+        "--temacs=pdump".to_string(),
+    ])
+    .expect("startup options should parse");
+    let argv = raw_loadup_command_line(&startup, Some(LoadupDumpMode::Pdump));
+    assert!(
+        !argv.windows(2).any(|w| w[0] == "-l" && w[1] == "loadup"),
+        "loadup splice should be skipped: {argv:?}"
+    );
+}
+
+#[test]
+fn parse_startup_options_consumes_no_site_lisp_flag() {
+    // GNU emacs.c:2034-2035: --no-site-lisp sets no_site_lisp.
+    let startup = parse_startup_options([
+        "neomacs".to_string(),
+        "--no-site-lisp".to_string(),
+    ])
+    .expect("startup options should parse");
+    assert!(startup.no_site_lisp);
+    assert!(
+        !startup.forwarded_args.iter().any(|a| a == "--no-site-lisp" || a == "-nsl"),
+        "--no-site-lisp should be consumed"
+    );
+}
+
+#[test]
+fn parse_startup_options_consumes_short_nsl_flag() {
+    let startup = parse_startup_options(["neomacs".to_string(), "-nsl".to_string()])
+        .expect("startup options should parse");
+    assert!(startup.no_site_lisp);
+}
+
+#[test]
+fn parse_startup_options_consumes_no_build_details_flag() {
+    // GNU emacs.c:2037-2038: --no-build-details inverts build_details.
+    let startup = parse_startup_options([
+        "neomacs".to_string(),
+        "--no-build-details".to_string(),
+    ])
+    .expect("startup options should parse");
+    assert!(startup.no_build_details);
+    assert!(
+        !startup
+            .forwarded_args
+            .iter()
+            .any(|a| a == "--no-build-details" || a == "-no-build-details"),
+        "--no-build-details should be consumed"
+    );
+}
+
+#[test]
 fn parse_startup_options_normalizes_display_args_to_gnu_form() {
     // GNU emacs.c:2110-2120 rewrites `--display=NAME` into the
     // equivalent `-d NAME` two-token form before passing argv on to
@@ -291,6 +378,11 @@ fn parse_startup_options_normalizes_display_args_to_gnu_form() {
 
 #[test]
 fn raw_loadup_command_line_inserts_internal_loadup_marker() {
+    // Phase 2 added sort_args to parse_startup_options, so flags now
+    // appear in GNU's standard_args[] priority order regardless of how
+    // they were typed. -Q (priority 55) sits ahead of --temacs / --dump-file
+    // (priority 1). The -l loadup splice from raw_loadup_command_line
+    // is then prepended.
     let startup = parse_startup_options([
         "neomacs-temacs".to_string(),
         "--temacs=pdump".to_string(),
@@ -305,9 +397,9 @@ fn raw_loadup_command_line_inserts_internal_loadup_marker() {
             "neomacs-temacs".to_string(),
             "-l".to_string(),
             "loadup".to_string(),
+            "-Q".to_string(),
             "--temacs=pdump".to_string(),
             "--dump-file=/tmp/custom.pdump".to_string(),
-            "-Q".to_string(),
         ]
     );
 }
@@ -676,6 +768,8 @@ fn configure_gnu_startup_state_clears_window_system_for_tty_boots() {
         temacs_mode: None,
         dump_file_override: None,
         no_site_lisp: false,
+        no_loadup: false,
+        no_build_details: false,
     };
     configure_gnu_startup_state(&mut eval, FrameId(7), &startup);
 
@@ -716,6 +810,8 @@ fn configure_gnu_startup_state_marks_batch_mode_noninteractive() {
         temacs_mode: None,
         dump_file_override: None,
         no_site_lisp: false,
+        no_loadup: false,
+        no_build_details: false,
     };
     configure_gnu_startup_state(&mut eval, FrameId(9), &startup);
 

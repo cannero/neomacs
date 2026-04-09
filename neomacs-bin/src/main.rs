@@ -104,6 +104,16 @@ struct StartupOptions {
     /// Set by `-Q` (peek) and `-x` (consumed). Mirrors GNU
     /// `no_site_lisp` at emacs.c:2126/2135.
     no_site_lisp: bool,
+    /// Set by `-nl` / `--no-loadup`. Mirrors GNU `no_loadup` at
+    /// emacs.c:2031. Only meaningful in `RuntimeMode::Raw`, where it
+    /// suppresses the `-l loadup` splice that would otherwise force
+    /// `loadup.el` to run.
+    no_loadup: bool,
+    /// Set by `-no-build-details` / `--no-build-details`. Mirrors GNU
+    /// `build_details` at emacs.c:2037 (where the negation is taken).
+    /// When true, build-time strings (e.g. `emacs-build-time`) should
+    /// be cleared rather than populated.
+    no_build_details: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -270,6 +280,8 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
     let mut temacs_mode = None;
     let mut dump_file_override = None;
     let mut no_site_lisp = false;
+    let mut no_loadup = false;
+    let mut no_build_details = false;
     let mut idx = 0usize;
 
     while idx + 1 < parsed.len() {
@@ -380,12 +392,61 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
             ArgMatch::Value(_) | ArgMatch::MissingValue => unreachable!(),
         }
 
-        // -temacs / --temacs (GNU emacs.c:1364)
+        // -nl / --no-loadup (GNU emacs.c:2031-2032). Skip loading
+        // loadup.el under RuntimeMode::Raw. Consumed entirely; no
+        // forwarding.
+        match argmatch(&parsed, &mut idx, "-nl", Some("--no-loadup"), 6, false) {
+            ArgMatch::Bare => {
+                no_loadup = true;
+                continue;
+            }
+            ArgMatch::NoMatch => {}
+            ArgMatch::Value(_) | ArgMatch::MissingValue => unreachable!(),
+        }
+
+        // -nsl / --no-site-lisp (GNU emacs.c:2034-2035). Drops site-lisp
+        // directories from load-path before lread.c builds it.
+        // Consumed entirely; no forwarding.
+        match argmatch(&parsed, &mut idx, "-nsl", Some("--no-site-lisp"), 11, false) {
+            ArgMatch::Bare => {
+                no_site_lisp = true;
+                continue;
+            }
+            ArgMatch::NoMatch => {}
+            ArgMatch::Value(_) | ArgMatch::MissingValue => unreachable!(),
+        }
+
+        // -no-build-details / --no-build-details (GNU emacs.c:2037-2038).
+        // Inverts the GNU `build_details` global; when set, build-time
+        // strings (e.g. `emacs-build-time`) should be cleared.
+        // Consumed entirely; no forwarding.
+        match argmatch(
+            &parsed,
+            &mut idx,
+            "-no-build-details",
+            Some("--no-build-details"),
+            7,
+            false,
+        ) {
+            ArgMatch::Bare => {
+                no_build_details = true;
+                continue;
+            }
+            ArgMatch::NoMatch => {}
+            ArgMatch::Value(_) | ArgMatch::MissingValue => unreachable!(),
+        }
+
+        // -temacs / --temacs (GNU emacs.c:1364). Forward the original
+        // token(s) verbatim so any later consumer (Lisp or another
+        // raw_loadup pass) sees the same shape GNU does — emacs.c
+        // does NOT rewrite this slot, only the display slot.
+        let pre_idx = idx;
         match argmatch(&parsed, &mut idx, "-temacs", Some("--temacs"), 8, true) {
             ArgMatch::Value(value) => {
                 temacs_mode = Some(parse_temacs_mode(&value)?);
-                forwarded_args.push("-temacs".to_string());
-                forwarded_args.push(value);
+                for slot in &parsed[pre_idx + 1..=idx] {
+                    forwarded_args.push(slot.clone());
+                }
                 continue;
             }
             ArgMatch::MissingValue => {
@@ -397,12 +458,15 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
             ArgMatch::Bare => unreachable!(),
         }
 
-        // -dump-file / --dump-file (GNU emacs.c:942, 991)
+        // -dump-file / --dump-file (GNU emacs.c:942, 991). Same forward-
+        // verbatim treatment as --temacs.
+        let pre_idx = idx;
         match argmatch(&parsed, &mut idx, "-dump-file", Some("--dump-file"), 6, true) {
             ArgMatch::Value(value) => {
                 dump_file_override = Some(PathBuf::from(&value));
-                forwarded_args.push("-dump-file".to_string());
-                forwarded_args.push(value);
+                for slot in &parsed[pre_idx + 1..=idx] {
+                    forwarded_args.push(slot.clone());
+                }
                 continue;
             }
             ArgMatch::MissingValue => {
@@ -479,6 +543,8 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
         temacs_mode,
         dump_file_override,
         no_site_lisp,
+        no_loadup,
+        no_build_details,
     })
 }
 
@@ -903,10 +969,14 @@ fn raw_loadup_command_line(
         args.push(RuntimeMode::Raw.binary_name().to_string());
     }
 
+    // GNU emacs.c:2578 — `if (!no_loadup) ... loadup.el`. We achieve the
+    // same effect at the argv level by skipping the `-l loadup` splice
+    // when --no-loadup is set. The `--temacs=...` mode below still
+    // appends so that the rest of dump bookkeeping continues to run.
     let has_internal_loadup_marker =
         matches!(args.get(1).map(String::as_str), Some("-l" | "--load"))
             && args.get(2).map(String::as_str) == Some("loadup");
-    if !has_internal_loadup_marker {
+    if !startup.no_loadup && !has_internal_loadup_marker {
         args.splice(1..1, ["-l".to_string(), "loadup".to_string()]);
     }
 
@@ -1674,6 +1744,30 @@ fn configure_gnu_startup_state(eval: &mut Context, frame_id: FrameId, startup: &
             Value::T
         } else {
             Value::NIL
+        },
+    );
+    // Mirror GNU's C-side `no_site_lisp` / `build_details` globals as
+    // Lisp variables. GNU itself does not expose them as Lisp vars (the
+    // load-path / version code reads the C globals directly), but
+    // surfacing them here lets oracle tests verify the parsed value
+    // and lets future load-path or version code observe the choice
+    // without re-walking argv. Defaults match GNU: no_site_lisp=false
+    // means site-lisp is included; build-details=t means build-time
+    // strings are populated.
+    eval.set_variable(
+        "no-site-lisp",
+        if startup.no_site_lisp {
+            Value::T
+        } else {
+            Value::NIL
+        },
+    );
+    eval.set_variable(
+        "build-details",
+        if startup.no_build_details {
+            Value::NIL
+        } else {
+            Value::T
         },
     );
     let (terminal_frame, frame_initial_frame, default_minibuffer_frame) = match startup.frontend {
