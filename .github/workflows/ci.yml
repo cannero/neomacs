@@ -69,6 +69,9 @@ jobs:
 
       - name: Cache cargo registry & target
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
 
       - name: Verify build with cargo xtask fresh-build
         run: cargo xtask fresh-build
