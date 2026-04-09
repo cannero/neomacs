@@ -515,7 +515,42 @@ pub(crate) fn upcase_initials_string(s: &str) -> String {
     result
 }
 
+/// Classify the original matched text to decide whether to leave
+/// REPLACEMENT as-is, upcase it entirely, or capitalize each word.
+///
+/// This is the backing logic for `replace-match`'s FIXEDCASE=nil
+/// behavior. It mirrors GNU `src/search.c:2460-2525`, including the
+/// `case-symbols-as-words` branch at search.c:2486/2495/2505.
+///
+/// `is_word_char` decides whether a character counts as a word
+/// constituent for the "start of word" check. GNU consults the
+/// buffer's syntax table (`SYNTAX(prevc) == Sword`) and, when
+/// `case-symbols-as-words` is non-nil, also accepts `Ssymbol`. The
+/// default closure below uses the standard syntax table defaults and
+/// honors `case-symbols-as-words` via the supplied flag so that
+/// callers who don't have a buffer handy still behave like GNU on
+/// the standard table. Callers who do have a buffer handy should
+/// pass a closure that consults `BVAR(current_buffer, syntax_table)`.
+///
+/// See audit findings #14 and #20 in `drafts/regex-search-audit.md`:
+/// the old code used Rust's Unicode `is_alphanumeric()` and ignored
+/// `case-symbols-as-words` entirely.
 pub(crate) fn apply_replace_match_case(replacement: &str, matched: &str) -> String {
+    apply_replace_match_case_with(replacement, matched, default_is_word_char)
+}
+
+/// Like `apply_replace_match_case`, but lets the caller supply the
+/// predicate used for the "previous character is a word constituent"
+/// check. Use this from paths that have a buffer syntax table in
+/// scope so per-mode definitions of word constituents apply.
+pub(crate) fn apply_replace_match_case_with<F>(
+    replacement: &str,
+    matched: &str,
+    mut is_word_char: F,
+) -> String
+where
+    F: FnMut(char) -> bool,
+{
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum CaseAction {
         NoChange,
@@ -546,7 +581,7 @@ pub(crate) fn apply_replace_match_case(replacement: &str, matched: &str) -> Stri
             some_nonuppercase_initial = true;
         }
 
-        prev_is_word = ch.is_alphanumeric();
+        prev_is_word = is_word_char(ch);
     }
 
     let case_action = if !some_lowercase && some_multiletter_word {
@@ -564,6 +599,26 @@ pub(crate) fn apply_replace_match_case(replacement: &str, matched: &str) -> Stri
         CaseAction::AllCaps => replacement.to_uppercase(),
         CaseAction::CapInitial => upcase_initials_string(replacement),
     }
+}
+
+/// Default "is this a word constituent?" predicate for
+/// `apply_replace_match_case`.
+///
+/// Mirrors GNU's standard syntax table: ASCII letters and digits are
+/// `Sword`, `_` is `Ssymbol`, so `_` is not a word constituent in
+/// the default baseline. Callers who want to honor
+/// `case-symbols-as-words` or per-mode syntax tables should use
+/// `apply_replace_match_case_with` with a closure that consults
+/// `BVAR(current_buffer, syntax_table)`. See audit findings #14 and
+/// #20 in `drafts/regex-search-audit.md`.
+fn default_is_word_char(ch: char) -> bool {
+    if ch.is_ascii_alphanumeric() {
+        return true;
+    }
+    // GNU standard-syntax-table puts `$` and `%` in Sword. Neomacs's
+    // `SyntaxTable::new_standard` agrees. Leave them inline here to
+    // keep this hot path allocation-free.
+    matches!(ch, '$' | '%')
 }
 
 pub(crate) fn builtin_downcase_region(

@@ -1456,6 +1456,19 @@ pub(crate) fn builtin_replace_match_with_state(
     match_data: &mut Option<super::regex::MatchData>,
     args: &[Value],
 ) -> EvalResult {
+    builtin_replace_match_with_state_and_flags(buffers, match_data, args, false)
+}
+
+/// Variant that also carries the current value of
+/// `case-symbols-as-words` into the case-preservation decision for
+/// `replace-match` with FIXEDCASE=nil. Audit findings #14/#20 in
+/// `drafts/regex-search-audit.md`.
+pub(crate) fn builtin_replace_match_with_state_and_flags(
+    buffers: &mut crate::buffer::BufferManager,
+    match_data: &mut Option<super::regex::MatchData>,
+    args: &[Value],
+    case_symbols_as_words: bool,
+) -> EvalResult {
     expect_min_args("replace-match", args, 1)?;
     if args.len() > 5 {
         return Err(signal(
@@ -1510,13 +1523,15 @@ pub(crate) fn builtin_replace_match_with_state(
         if md_snapshot.is_none() {
             return Err(missing_subexp_signal(raw_subexp));
         }
-        return match super::regex::replace_match_string(
+        return match super::regex::replace_match_string_with_syntax(
             &source,
             &newtext,
             fixedcase,
             literal,
             subexp,
             &md_snapshot,
+            None,
+            case_symbols_as_words,
         ) {
             Ok(result) => Ok(Value::string(result)),
             Err(msg) if msg == missing_subexp_error => Err(missing_subexp_signal(raw_subexp)),
@@ -1547,13 +1562,15 @@ pub(crate) fn builtin_replace_match_with_state(
             .get(current_id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         let source = buf.text.text_range(0, buf.text.len());
-        let replacement = super::regex::replace_match_string(
+        let replacement = super::regex::replace_match_string_with_syntax(
             &source,
             &newtext,
             fixedcase,
             literal,
             subexp,
             &md_snapshot,
+            Some(&buf.syntax_table),
+            case_symbols_as_words,
         )
         .map_err(|msg| {
             if msg == missing_subexp_error {
@@ -1570,7 +1587,15 @@ pub(crate) fn builtin_replace_match_with_state(
         let buf = buffers
             .get_mut(current_id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        super::regex::replace_match_buffer(buf, &newtext, fixedcase, literal, subexp, &md_snapshot)
+        super::regex::replace_match_buffer_with_syntax(
+            buf,
+            &newtext,
+            fixedcase,
+            literal,
+            subexp,
+            &md_snapshot,
+            case_symbols_as_words,
+        )
     };
     match result {
         Ok(()) => {
@@ -1587,6 +1612,14 @@ pub(crate) fn builtin_replace_match(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    // GNU `src/search.c:2485-2505` consults `case-symbols-as-words`
+    // when classifying the matched text for FIXEDCASE=nil. Read it
+    // from the current dynamic environment once and thread it down.
+    // See audit finding #20 in `drafts/regex-search-audit.md`.
+    let case_symbols_as_words = dynamic_or_global_symbol_value(eval, "case-symbols-as-words")
+        .map(|v| !v.is_nil())
+        .unwrap_or(false);
+
     // Determine whether this is a buffer replacement (4th arg nil/absent) so we
     // can fire modification hooks.  String replacements don't touch the buffer.
     let is_buffer_replace = args.len() < 4 || args[3].is_nil();
@@ -1603,10 +1636,11 @@ pub(crate) fn builtin_replace_match(
                 if let Some(Some((oldstart, oldend))) = md.groups.get(subexp) {
                     let (oldstart, oldend) = (*oldstart, *oldend);
                     super::editfns::signal_before_change(eval, oldstart, oldend)?;
-                    let result = builtin_replace_match_with_state(
+                    let result = builtin_replace_match_with_state_and_flags(
                         &mut eval.buffers,
                         &mut eval.match_data,
                         &args,
+                        case_symbols_as_words,
                     )?;
                     // After the replacement the new end = oldstart + replacement_len.
                     // Compute new buffer size at that region from match_data update.
@@ -1627,5 +1661,10 @@ pub(crate) fn builtin_replace_match(
     }
 
     // Fallback: string replacement or no match data — no buffer hooks needed.
-    builtin_replace_match_with_state(&mut eval.buffers, &mut eval.match_data, &args)
+    builtin_replace_match_with_state_and_flags(
+        &mut eval.buffers,
+        &mut eval.match_data,
+        &args,
+        case_symbols_as_words,
+    )
 }

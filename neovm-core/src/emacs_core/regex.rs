@@ -1538,9 +1538,35 @@ pub fn replace_match_buffer(
     subexp: usize,
     match_data: &Option<MatchData>,
 ) -> Result<(), String> {
+    replace_match_buffer_with_syntax(
+        buf, newtext, fixedcase, literal, subexp, match_data, false,
+    )
+}
+
+/// Variant that also honors `case-symbols-as-words` for the
+/// `fixedcase=nil` path. Mirrors GNU `src/search.c:2485,2494,2504`;
+/// the buffer's own syntax table is always consulted via `buf`.
+/// See audit findings #14/#20 in `drafts/regex-search-audit.md`.
+pub fn replace_match_buffer_with_syntax(
+    buf: &mut Buffer,
+    newtext: &str,
+    fixedcase: bool,
+    literal: bool,
+    subexp: usize,
+    match_data: &Option<MatchData>,
+    case_symbols_as_words: bool,
+) -> Result<(), String> {
     let source = buf.text.text_range(0, buf.text.len());
-    let (match_start, match_end, replacement) =
-        compute_replacement(newtext, fixedcase, literal, subexp, match_data, &source)?;
+    let (match_start, match_end, replacement) = compute_replacement_with_syntax(
+        newtext,
+        fixedcase,
+        literal,
+        subexp,
+        match_data,
+        &source,
+        Some(&buf.syntax_table),
+        case_symbols_as_words,
+    )?;
 
     buf.goto_byte(match_start);
     buf.delete_region(match_start, match_end);
@@ -1557,8 +1583,35 @@ pub fn replace_match_string(
     subexp: usize,
     match_data: &Option<MatchData>,
 ) -> Result<String, String> {
-    let (byte_start, byte_end, replacement) =
-        compute_replacement(newtext, fixedcase, literal, subexp, match_data, source)?;
+    replace_match_string_with_syntax(
+        source, newtext, fixedcase, literal, subexp, match_data, None, false,
+    )
+}
+
+/// Variant of [`replace_match_string`] that threads the syntax table
+/// and `case-symbols-as-words` into the case-preservation decision.
+/// For pure string replacement (no buffer in scope), pass `None` for
+/// the table to get GNU's standard-table baseline behavior.
+pub fn replace_match_string_with_syntax(
+    source: &str,
+    newtext: &str,
+    fixedcase: bool,
+    literal: bool,
+    subexp: usize,
+    match_data: &Option<MatchData>,
+    syntax_table: Option<&crate::emacs_core::syntax::SyntaxTable>,
+    case_symbols_as_words: bool,
+) -> Result<String, String> {
+    let (byte_start, byte_end, replacement) = compute_replacement_with_syntax(
+        newtext,
+        fixedcase,
+        literal,
+        subexp,
+        match_data,
+        source,
+        syntax_table,
+        case_symbols_as_words,
+    )?;
     if byte_end > source.len() || byte_start > byte_end {
         return Err(REPLACE_MATCH_SUBEXP_MISSING.to_string());
     }
@@ -1585,6 +1638,30 @@ fn compute_replacement(
     subexp: usize,
     match_data: &Option<MatchData>,
     source: &str,
+) -> Result<(usize, usize, String), String> {
+    compute_replacement_with_syntax(
+        newtext, fixedcase, literal, subexp, match_data, source, None, false,
+    )
+}
+
+/// Variant of [`compute_replacement`] that also threads a syntax
+/// table and the `case-symbols-as-words` flag into
+/// `apply_replace_match_case`.
+///
+/// GNU `src/search.c:2485-2505` checks `SYNTAX(prevc) == Sword` (or
+/// `Ssymbol` when `case-symbols-as-words` is non-nil) on the buffer
+/// syntax table. Audit findings #14 and #20 in
+/// `drafts/regex-search-audit.md` track neomacs's divergence; this
+/// helper is the threading point callers must hit to keep parity.
+fn compute_replacement_with_syntax(
+    newtext: &str,
+    fixedcase: bool,
+    literal: bool,
+    subexp: usize,
+    match_data: &Option<MatchData>,
+    source: &str,
+    syntax_table: Option<&crate::emacs_core::syntax::SyntaxTable>,
+    case_symbols_as_words: bool,
 ) -> Result<(usize, usize, String), String> {
     let md = match match_data {
         Some(md) => md,
@@ -1620,7 +1697,12 @@ fn compute_replacement(
 
     if !fixedcase {
         let matched = &source[byte_start..byte_end];
-        replacement = apply_match_case(&replacement, matched);
+        replacement = apply_match_case_with_syntax(
+            &replacement,
+            matched,
+            syntax_table,
+            case_symbols_as_words,
+        );
     }
 
     Ok((byte_start, byte_end, replacement))
@@ -1749,6 +1831,25 @@ fn build_replacement(
 
 fn apply_match_case(replacement: &str, matched: &str) -> String {
     apply_replace_match_case(replacement, matched)
+}
+
+fn apply_match_case_with_syntax(
+    replacement: &str,
+    matched: &str,
+    syntax_table: Option<&crate::emacs_core::syntax::SyntaxTable>,
+    case_symbols_as_words: bool,
+) -> String {
+    use crate::emacs_core::casefiddle::apply_replace_match_case_with;
+    use crate::emacs_core::syntax::SyntaxClass;
+
+    match syntax_table {
+        None => apply_replace_match_case(replacement, matched),
+        Some(table) => apply_replace_match_case_with(replacement, matched, move |ch| {
+            let class = table.char_syntax(ch);
+            class == SyntaxClass::Word
+                || (case_symbols_as_words && class == SyntaxClass::Symbol)
+        }),
+    }
 }
 
 // ---------------------------------------------------------------------------
