@@ -238,7 +238,7 @@ fn render_version_text() -> String {
 }
 
 fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<StartupOptions, String> {
-    use args::{ArgMatch, argmatch};
+    use args::{ArgMatch, argmatch, sort_args};
 
     // GNU `argmatch` works on a `(argc, argv)` pair plus a `*skipptr`
     // index that mirrors the consumed cursor in argv. We model the same
@@ -246,7 +246,16 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
     // `parsed[1..]` are the user-supplied tokens. The `idx` cursor below
     // is `*skipptr` — `argmatch` looks at `parsed[idx + 1]` so an idx of
     // 0 means "look at the first user token".
-    let parsed: Vec<String> = args.into_iter().collect();
+    let mut parsed: Vec<String> = args.into_iter().collect();
+
+    // GNU emacs.c:1502 — sort_args runs once before the main matching
+    // pass so the parser walks argv in canonical priority order. This
+    // also has the effect of moving option/value pairs in front of
+    // file-name args, matching how lisp/startup.el's `command-line` and
+    // `command-line-1` expect to see them regardless of how the user
+    // typed them on the command line.
+    sort_args(&mut parsed)?;
+
     let program = parsed
         .first()
         .cloned()

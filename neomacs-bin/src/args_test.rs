@@ -185,3 +185,135 @@ fn idx_threading_walks_argv_one_match_at_a_time() {
     );
     assert_eq!(idx, 2);
 }
+
+// ---------- sort_args ----------
+
+#[test]
+fn sort_args_keeps_program_name_at_index_zero() {
+    // GNU emacs.c:2895 — `new[0] = argv[0];` always.
+    let mut argv = args(&["neomacs"]);
+    sort_args(&mut argv).unwrap();
+    assert_eq!(argv, vec!["neomacs"]);
+}
+
+#[test]
+fn sort_args_brings_high_priority_options_before_files() {
+    // The headline behavior: a file name typed before a high-priority
+    // option still ends up after the option in the sorted result.
+    // GNU's `--no-splash` has priority 3; plain file args have priority 0.
+    let mut argv = args(&["neomacs", "file.txt", "--no-splash"]);
+    sort_args(&mut argv).unwrap();
+    assert_eq!(argv, vec!["neomacs", "--no-splash", "file.txt"]);
+}
+
+#[test]
+fn sort_args_respects_priority_ordering_among_options() {
+    // -nw priority 110 > --no-splash priority 3 > -L priority 0.
+    let mut argv = args(&["neomacs", "-L", "/lib", "--no-splash", "-nw"]);
+    sort_args(&mut argv).unwrap();
+    assert_eq!(
+        argv,
+        vec!["neomacs", "-nw", "--no-splash", "-L", "/lib"]
+    );
+}
+
+#[test]
+fn sort_args_keeps_option_value_pairs_glued() {
+    // -L /lib must travel together; -nw must come first.
+    let mut argv = args(&["neomacs", "-L", "/usr/lib", "-nw"]);
+    sort_args(&mut argv).unwrap();
+    assert_eq!(argv, vec!["neomacs", "-nw", "-L", "/usr/lib"]);
+}
+
+#[test]
+fn sort_args_dedupes_zero_arg_duplicate_options() {
+    // GNU emacs.c:2920 — duplicate zero-arg options collapse.
+    let mut argv = args(&["neomacs", "-nw", "-nw"]);
+    sort_args(&mut argv).unwrap();
+    assert_eq!(argv, vec!["neomacs", "-nw"]);
+}
+
+#[test]
+fn sort_args_does_not_dedupe_value_taking_options() {
+    // -L appears twice with different values — both must survive.
+    let mut argv = args(&["neomacs", "-L", "/a", "-L", "/b"]);
+    sort_args(&mut argv).unwrap();
+    assert_eq!(
+        argv,
+        vec!["neomacs", "-L", "/a", "-L", "/b"]
+    );
+}
+
+#[test]
+fn sort_args_stable_within_equal_priority() {
+    // -bg, -fg, -bd all share priority 10. Their relative order must
+    // be preserved. GNU's stable scan is "first in argv wins".
+    let mut argv = args(&["neomacs", "-bd", "blue", "-fg", "white", "-bg", "black"]);
+    sort_args(&mut argv).unwrap();
+    assert_eq!(
+        argv,
+        vec![
+            "neomacs",
+            "-bd", "blue",
+            "-fg", "white",
+            "-bg", "black",
+        ]
+    );
+}
+
+#[test]
+fn sort_args_long_form_inline_value_collapses_nargs() {
+    // --temacs=pdump must be treated as a 1-token slot (nargs=0 in the
+    // sort) — GNU emacs.c:2876-2877 sets options[from] = 0 when an
+    // equals sign is present.
+    let mut argv = args(&["neomacs", "file.el", "--temacs=pdump"]);
+    sort_args(&mut argv).unwrap();
+    // --temacs has priority 1, file.el has priority 0.
+    assert_eq!(argv, vec!["neomacs", "--temacs=pdump", "file.el"]);
+}
+
+#[test]
+fn sort_args_double_dash_terminator_pins_remaining_args_to_end() {
+    // Everything after `--` gets priority -100; -nw has 110.
+    let mut argv = args(&["neomacs", "--", "literal-arg", "-nw"]);
+    sort_args(&mut argv).unwrap();
+    // -nw is INSIDE the post-`--` region so it stays where it was.
+    // The `--` terminator sticks to the front of the post-region.
+    assert_eq!(
+        argv,
+        vec!["neomacs", "--", "literal-arg", "-nw"]
+    );
+}
+
+#[test]
+fn sort_args_kill_sinks_to_the_end() {
+    // `-kill` has priority -10, lower than file-name args at 0.
+    let mut argv = args(&["neomacs", "-kill", "file.txt"]);
+    sort_args(&mut argv).unwrap();
+    assert_eq!(argv, vec!["neomacs", "file.txt", "-kill"]);
+}
+
+#[test]
+fn sort_args_missing_value_returns_error() {
+    // `-L` declared as nargs=1; supplying it at the end of argv must
+    // surface a GNU-shaped error message.
+    let mut argv = args(&["neomacs", "-L"]);
+    let err = sort_args(&mut argv).unwrap_err();
+    assert!(err.contains("'-L'"), "error message: {err}");
+    assert!(err.contains("requires an argument"));
+}
+
+#[test]
+fn sort_args_unknown_flag_treated_as_plain_arg() {
+    // Unknown flags drop to priority 0 like plain file-name args, so
+    // they neither get reordered relative to other plain args nor
+    // crash the parser.
+    let mut argv = args(&["neomacs", "--no-splash", "--unknown", "file.txt"]);
+    sort_args(&mut argv).unwrap();
+    // --no-splash (priority 3) jumps ahead; --unknown and file.txt
+    // keep their relative order at priority 0.
+    assert_eq!(
+        argv,
+        vec!["neomacs", "--no-splash", "--unknown", "file.txt"]
+    );
+}
