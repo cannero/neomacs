@@ -25,7 +25,12 @@ pub(crate) enum DisplayLineNumbersMode {
     Visual,
 }
 
-pub(crate) fn buffer_local_value<'a>(buffer: &'a Buffer, name: &str) -> Option<&'a Value> {
+pub(crate) fn buffer_local_value(buffer: &Buffer, name: &str) -> Option<Value> {
+    // `Buffer::get_buffer_local` returns `Option<Value>` (by value)
+    // since the Qunbound-sentinel refactor in commit 4d34fbde3 (void
+    // buffer-local bindings): the value may come from an alist cons
+    // cell that the caller can no longer borrow a stable reference
+    // into. `Value` is `Copy` so this is zero-cost.
     buffer.get_buffer_local(name)
 }
 
@@ -139,8 +144,10 @@ fn chrome_face_pixel_height(face: &ResolvedFace, fallback_char_height: f32) -> f
 }
 
 pub(crate) fn buffer_local_list_values(buffer: &Buffer, name: &str) -> Vec<Value> {
+    // `list_to_vec' takes `&Value'; feed the borrowed form since
+    // `buffer_local_value' returns the `Copy' `Value' by value.
     buffer_local_value(buffer, name)
-        .and_then(list_to_vec)
+        .and_then(|v| list_to_vec(&v))
         .unwrap_or_default()
 }
 
@@ -275,7 +282,7 @@ fn effective_cursor_spec(
         if buffer_cursor_type.bits() == Value::T.bits() {
             Some(frame_cursor_spec(frame))
         } else {
-            parse_cursor_spec(buffer_cursor_type)
+            parse_cursor_spec(&buffer_cursor_type)
         }
     } else {
         Some(frame_cursor_spec(frame))
@@ -293,7 +300,7 @@ fn effective_cursor_spec(
     if let Some(value) = alt_cursor
         && value.bits() != Value::T.bits()
     {
-        return parse_cursor_spec(value);
+        return parse_cursor_spec(&value);
     }
 
     let mut adjusted = base;
