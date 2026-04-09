@@ -358,6 +358,67 @@ fn string_match_control_escape_uses_backref_engine_semantics() {
     assert_eq!(md.groups[0], Some((0, 3)));
 }
 
+// Regex audit #6: `\cX` category-spec covers the common Unicode
+// blocks (Han, Hiragana, Katakana, Hangul, Latin, ...) instead of
+// returning false for everything except `\c|`. GNU populates the
+// category table from `lisp/international/characters.el`; we
+// hardcode the same Unicode block ranges in
+// `default_char_has_category`.
+//
+// Verified against GNU Emacs 31.0.50:
+//
+//   (string-match "\\cC" "中") => 0     (Han ideograph)
+//   (string-match "\\cC" "a")  => nil
+//   (string-match "\\cH" "あ") => 0     (Hiragana)
+//   (string-match "\\cK" "ア") => 0     (Katakana)
+//   (string-match "\\ch" "한") => 0     (Korean Hangul)
+//   (string-match "\\cl" "a")  => 0     (Latin)
+
+#[test]
+fn category_han_matches_cjk_unified_ideographs() {
+    crate::test_utils::init_test_tracing();
+    let mut md = None;
+    assert_eq!(string_match_full("\\cC", "中", 0, &mut md), Ok(Some(0)));
+    let mut md = None;
+    assert_eq!(string_match_full("\\cC", "a", 0, &mut md), Ok(None));
+}
+
+#[test]
+fn category_hiragana_matches_japanese_hiragana() {
+    crate::test_utils::init_test_tracing();
+    let mut md = None;
+    assert_eq!(string_match_full("\\cH", "あ", 0, &mut md), Ok(Some(0)));
+    let mut md = None;
+    assert_eq!(string_match_full("\\cH", "ア", 0, &mut md), Ok(None));
+}
+
+#[test]
+fn category_katakana_matches_japanese_katakana() {
+    crate::test_utils::init_test_tracing();
+    let mut md = None;
+    assert_eq!(string_match_full("\\cK", "ア", 0, &mut md), Ok(Some(0)));
+    let mut md = None;
+    assert_eq!(string_match_full("\\cK", "あ", 0, &mut md), Ok(None));
+}
+
+#[test]
+fn category_hangul_matches_korean_hangul() {
+    crate::test_utils::init_test_tracing();
+    let mut md = None;
+    assert_eq!(string_match_full("\\ch", "한", 0, &mut md), Ok(Some(0)));
+    let mut md = None;
+    assert_eq!(string_match_full("\\ch", "中", 0, &mut md), Ok(None));
+}
+
+#[test]
+fn category_latin_matches_ascii_letters() {
+    crate::test_utils::init_test_tracing();
+    let mut md = None;
+    assert_eq!(string_match_full("\\cl", "a", 0, &mut md), Ok(Some(0)));
+    let mut md = None;
+    assert_eq!(string_match_full("\\cl", "中", 0, &mut md), Ok(None));
+}
+
 // Regex audit #2: POSIX longest-match. GNU's `posix-*` family passes
 // `posix = 1` through `compile_pattern` into `re_match_2_internal`;
 // the matcher then tracks the best (longest) match across all

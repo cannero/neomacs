@@ -1826,12 +1826,7 @@ impl SyntaxLookup for DefaultSyntaxLookup {
     }
 
     fn char_has_category(&self, c: char, cat: u8) -> bool {
-        // Minimal category support for standalone testing.
-        // Category '|' (0x7c) = multibyte characters
-        if cat == b'|' {
-            return !c.is_ascii();
-        }
-        false
+        default_char_has_category(c, cat)
     }
 }
 
@@ -1841,13 +1836,152 @@ impl<'a> SyntaxLookup for BufferSyntaxLookup<'a> {
     }
 
     fn char_has_category(&self, c: char, cat: u8) -> bool {
-        // Category '|' = multibyte characters (always available)
-        if cat == b'|' {
-            return !c.is_ascii();
+        // Neomacs has no per-buffer category table yet, so we
+        // share the same Unicode-block defaults as the default
+        // syntax lookup. Audit finding #6 in
+        // `drafts/regex-search-audit.md`.
+        default_char_has_category(c, cat)
+    }
+}
+
+/// Return whether character `c` belongs to the GNU regex category
+/// `cat` (`\cX`).
+///
+/// GNU's category mechanism (`src/category.c`) gives each character
+/// a 128-bit set of category memberships, populated at startup
+/// time from `lisp/international/characters.el`. We don't ship the
+/// full table; instead we hardcode the most common categories using
+/// Unicode block ranges. The category mnemonics here are taken
+/// directly from `lisp/international/characters.el` (the GNU
+/// `(define-category ?X "...")` lines starting at line 37).
+///
+/// Audit finding #6 in `drafts/regex-search-audit.md` flagged that
+/// only `\c|` worked. This implementation covers the categories the
+/// CJK font-lock and bidi paths actually use.
+fn default_char_has_category(c: char, cat: u8) -> bool {
+    let cp = c as u32;
+    match cat {
+        // |  -- "line breakable". GNU's `characters.el` adds this
+        // for most CJK and fullwidth ranges; we use the practical
+        // shortcut of "any non-ASCII char" which is what neomacs
+        // historically returned.
+        b'|' => !c.is_ascii(),
+
+        // a  -- ASCII (chars 32..126 in GNU; we accept the full
+        // ASCII range to avoid false negatives on control chars).
+        b'a' => c.is_ascii(),
+
+        // A  -- 2-byte alnum. GNU populates this from CJK Latin /
+        // fullwidth ASCII ranges. The practical shortcut is the
+        // fullwidth ASCII alphanumeric block.
+        b'A' => matches!(cp, 0xFF10..=0xFF19 | 0xFF21..=0xFF3A | 0xFF41..=0xFF5A),
+
+        // l  -- Latin (a-z, A-Z and Latin-1/Extended letters).
+        // r  -- Roman (Japanese context, same effective range).
+        b'l' | b'r' => {
+            c.is_ascii_alphabetic()
+                || matches!(cp, 0x00C0..=0x00FF | 0x0100..=0x024F | 0x1E00..=0x1EFF)
         }
-        // TODO: wire up actual category table lookup when
-        // category tables are passed through the matching context
-        false
+
+        // g  -- Greek (Greek and Coptic block).
+        b'g' => matches!(cp, 0x0370..=0x03FF | 0x1F00..=0x1FFF),
+
+        // G  -- 2-byte Greek (fullwidth Greek). Rare; use the
+        // same practical bounds as `g` for now.
+        b'G' => matches!(cp, 0x0370..=0x03FF | 0x1F00..=0x1FFF),
+
+        // y  -- Cyrillic.
+        b'y' | b'Y' => matches!(cp, 0x0400..=0x04FF | 0x0500..=0x052F),
+
+        // b  -- Arabic.
+        b'b' => matches!(cp, 0x0600..=0x06FF | 0x0750..=0x077F | 0xFB50..=0xFDFF),
+
+        // w  -- Hebrew.
+        b'w' => matches!(cp, 0x0590..=0x05FF | 0xFB1D..=0xFB4F),
+
+        // t  -- Thai.
+        b't' => matches!(cp, 0x0E00..=0x0E7F),
+
+        // o  -- Lao.
+        b'o' => matches!(cp, 0x0E80..=0x0EFF),
+
+        // q  -- Tibetan.
+        b'q' => matches!(cp, 0x0F00..=0x0FFF),
+
+        // i  -- Indian (Devanagari + related). GNU's actual table
+        // covers more scripts; this is the most common one.
+        b'i' => matches!(cp, 0x0900..=0x097F),
+
+        // I  -- Indian glyphs (broader Indic blocks).
+        b'I' => matches!(cp, 0x0900..=0x0DFF),
+
+        // e  -- Ethiopic (Ge'ez).
+        b'e' => matches!(cp, 0x1200..=0x137F),
+
+        // v  -- Vietnamese (Latin Extended Additional).
+        b'v' => matches!(cp, 0x1E00..=0x1EFF),
+
+        // h  -- Korean (Hangul Syllables + Jamo).
+        // N  -- 2-byte Korean (same range here).
+        b'h' | b'N' => {
+            matches!(cp, 0x1100..=0x11FF | 0xAC00..=0xD7A3 | 0xA960..=0xA97F | 0xD7B0..=0xD7FF)
+        }
+
+        // c  -- Chinese / Han ideographs (broad).
+        // C  -- 2-byte han (slightly narrower set).
+        b'c' | b'C' => matches!(
+            cp,
+            0x3400..=0x4DBF
+                | 0x4E00..=0x9FFF
+                | 0xF900..=0xFAFF
+                | 0x20000..=0x2FFFF
+                | 0x30000..=0x323AF
+        ),
+
+        // H  -- Hiragana (Japanese).
+        b'H' => matches!(cp, 0x3040..=0x309F | 0x1B000..=0x1B16F),
+
+        // K  -- Katakana (Japanese).
+        b'K' => matches!(
+            cp,
+            0x3099..=0x309C | 0x30A0..=0x30FF | 0x31F0..=0x31FF | 0x1AFF0..=0x1B16F
+        ),
+
+        // k  -- Katakana (lowercase mnemonic, same coverage).
+        b'k' => matches!(cp, 0x30A0..=0x30FF | 0x31F0..=0x31FF | 0xFF66..=0xFF9F),
+
+        // j  -- Japanese (Hiragana + Katakana + half-width Katakana
+        // + CJK punctuation + fullwidth ASCII).
+        b'j' => matches!(
+            cp,
+            0x3000..=0x303F
+                | 0x3040..=0x309F
+                | 0x30A0..=0x30FF
+                | 0xFF00..=0xFFEF
+        ),
+
+        // .  -- Base (Unicode L,N,P,S,Zs).
+        b'.' => match c.is_ascii() {
+            true => c.is_ascii_graphic() || c == ' ',
+            false => !matches!(cp, 0x0300..=0x036F | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF | 0x20D0..=0x20FF | 0xFE20..=0xFE2F),
+        },
+
+        // ^  -- Combining diacritic / mark (Unicode M).
+        b'^' => matches!(cp, 0x0300..=0x036F | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF | 0x20D0..=0x20FF | 0xFE20..=0xFE2F),
+
+        // R  -- Strong R2L (right-to-left). Practical heuristic:
+        // Hebrew and Arabic ranges.
+        b'R' => matches!(cp, 0x0590..=0x05FF | 0x0600..=0x06FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF),
+
+        // L  -- Strong L2R (everything else).
+        b'L' => !matches!(cp, 0x0590..=0x05FF | 0x0600..=0x06FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF),
+
+        // 6  -- digit (numeric).
+        b'6' => c.is_numeric(),
+
+        // Categories we don't recognize fall through as "no
+        // membership" — same as GNU's behavior for an unset bit.
+        _ => false,
     }
 }
 
