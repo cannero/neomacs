@@ -1328,7 +1328,13 @@ fn compile_charset(
                 if *p < plen && pattern[*p] == b']' {
                     *p += 1; // skip ]
                 }
-                apply_posix_class(class_name, &mut buf.buffer, bitmap_start, case_fold);
+                apply_posix_class(
+                    class_name,
+                    &mut buf.buffer,
+                    bitmap_start,
+                    &mut mb_ranges,
+                    case_fold,
+                )?;
                 last_char = None;
                 continue;
             }
@@ -1400,31 +1406,134 @@ fn set_bitmap_bit(buffer: &mut Vec<u8>, bitmap_start: usize, c: u8, case_fold: b
     }
 }
 
-/// Apply a POSIX character class to the bitmap.
-fn apply_posix_class(name: &str, buffer: &mut Vec<u8>, bitmap_start: usize, case_fold: bool) {
-    let chars: Vec<u8> = match name {
+/// Apply a POSIX character class to the bitmap and multibyte range list.
+///
+/// Mirrors GNU `regex-emacs.c:re_wctype_parse` (lines 1525-1601) and
+/// `re_iswctype` (lines 1603-1630). The full set of 17 classes is:
+/// `alnum`, `alpha`, `blank`, `cntrl`, `digit`, `graph`, `lower`,
+/// `print`, `punct`, `space`, `upper`, `xdigit`, `ascii`, `word`,
+/// `nonascii`, `unibyte`, `multibyte`.
+///
+/// Semantics are taken from GNU's header macros at `regex-emacs.c:98-153`:
+///
+/// - `IS_REAL_ASCII(c)` is `c < 0x80`.
+/// - `ISBLANK(c)` for ASCII is `c == ' ' || c == '\t'` only
+///   (space and tab; NOT newline, formfeed, carriage return).
+/// - `ISSPACE(c)` is `BUFFER_SYNTAX(c) == Swhitespace`; GNU's default
+///   standard syntax table treats space, tab, newline, formfeed, and
+///   carriage return as whitespace.
+/// - `ISGRAPH(c)` for single-byte is `c > ' '` AND NOT in
+///   `[0x7F..=0xA0]`.
+/// - `ISPRINT(c)` for single-byte is `c >= ' '` AND NOT in
+///   `[0x7F..=0x9F]`.
+/// - `ISWORD(c)` is `BUFFER_SYNTAX(c) == Sword`; GNU's default treats
+///   ASCII letters and digits as word constituents.
+/// - `IS_REAL_ASCII(c)` covers 0x00..=0x7F for `ascii`.
+/// - `nonascii` = `!IS_REAL_ASCII(c)` (>= 0x80).
+/// - `unibyte` matches any single-byte character (bytes 0x00..=0xFF
+///   in the bitmap, plus 8-bit raw byte chars).
+/// - `multibyte` = `!ISUNIBYTE(c)`; matches multibyte characters
+///   only (non-ASCII range via the multibyte range list).
+///
+/// Unknown class names mirror GNU's `RECC_ERROR` (regex-emacs.c:1600,
+/// consumed as `REG_ECTYPE` at line 2071). We signal the same error
+/// rather than silently ignoring the class as before.
+///
+/// Note: `word` and `space` semantically depend on the buffer's
+/// syntax table (see audit finding #8 in
+/// `drafts/regex-search-audit.md`). For now we bake in the standard
+/// default; threading the per-buffer syntax table through charset
+/// compilation is tracked as audit #8.
+fn apply_posix_class(
+    name: &str,
+    buffer: &mut Vec<u8>,
+    bitmap_start: usize,
+    mb_ranges: &mut Vec<(char, char)>,
+    case_fold: bool,
+) -> Result<(), RegexCompileError> {
+    // --- ASCII bitmap bits ------------------------------------------------
+    //
+    // Each class enumerates which bytes in 0x00..=0xFF should be
+    // marked in the ASCII-extended bitmap. For multibyte classes
+    // (`nonascii`, `multibyte`) the non-ASCII portion is added to
+    // `mb_ranges` so the matcher's multibyte dispatch path catches it.
+    let ascii_bytes: Vec<u8> = match name {
         "alpha" => (b'A'..=b'Z').chain(b'a'..=b'z').collect(),
         "digit" => (b'0'..=b'9').collect(),
         "alnum" => (b'A'..=b'Z')
             .chain(b'a'..=b'z')
             .chain(b'0'..=b'9')
             .collect(),
-        "space" | "blank" => vec![b' ', b'\t', b'\n', b'\r', 0x0B, 0x0C],
+        // GNU ISSPACE uses BUFFER_SYNTAX; default standard-syntax-table
+        // whitespace is space, tab, LF, CR, and FF. Vtab (0x0B) is NOT
+        // whitespace in GNU's default. See syntax.c standard init.
+        "space" => vec![b' ', b'\t', b'\n', b'\r', 0x0C],
+        // GNU ISBLANK is strictly ASCII space and tab.
+        "blank" => vec![b' ', b'\t'],
         "upper" => (b'A'..=b'Z').collect(),
         "lower" => (b'a'..=b'z').collect(),
         "punct" => b"!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~".to_vec(),
-        "print" | "graph" => (0x20u8..=0x7E).collect(),
+        // GNU ISPRINT single-byte: c >= ' ' and not in [0x7F..=0x9F].
+        // That's 0x20..=0x7E and 0xA0..=0xFF.
+        "print" => (0x20u8..=0x7E).chain(0xA0u8..=0xFF).collect(),
+        // GNU ISGRAPH single-byte: c > ' ' and not in [0x7F..=0xA0].
+        // That's 0x21..=0x7E and 0xA1..=0xFF.
+        "graph" => (0x21u8..=0x7E).chain(0xA1u8..=0xFF).collect(),
         "cntrl" => (0x00u8..=0x1F).chain(std::iter::once(0x7F)).collect(),
         "xdigit" => (b'0'..=b'9')
             .chain(b'A'..=b'F')
             .chain(b'a'..=b'f')
             .collect(),
         "ascii" => (0x00u8..=0x7F).collect(),
-        _ => return,
+        // GNU ISWORD(c) = BUFFER_SYNTAX(c) == Sword. Default standard
+        // syntax table has ASCII letters and digits as word
+        // constituents. Per-buffer syntax tables are audit #8.
+        "word" => (b'A'..=b'Z')
+            .chain(b'a'..=b'z')
+            .chain(b'0'..=b'9')
+            .collect(),
+        // IS_REAL_ASCII(c) is c < 0x80, so nonascii matches 0x80..=0xFF
+        // in the bitmap plus all non-ASCII multibyte characters.
+        "nonascii" => (0x80u8..=0xFF).collect(),
+        // ISUNIBYTE(c) = SINGLE_BYTE_CHAR_P(c); every byte 0..=0xFF
+        // qualifies. No multibyte range (multibyte chars are NOT
+        // unibyte by definition).
+        "unibyte" => (0x00u8..=0xFF).collect(),
+        // !ISUNIBYTE(c): only multibyte (non-ASCII) characters.
+        // Nothing in the bitmap; everything in the multibyte range.
+        "multibyte" => Vec::new(),
+        // GNU `re_wctype_parse` returns RECC_ERROR (regex-emacs.c:1600)
+        // for unknown names; the caller at regex-emacs.c:2071 then
+        // signals REG_ECTYPE. We raise the equivalent compile error
+        // here rather than silently continuing.
+        _ => {
+            return Err(RegexCompileError {
+                message: format!("Invalid character class name: {}", name),
+            });
+        }
     };
-    for c in chars {
+
+    for c in ascii_bytes {
         set_bitmap_bit(buffer, bitmap_start, c, case_fold);
     }
+
+    // --- Multibyte coverage ----------------------------------------------
+    //
+    // Classes that include non-ASCII code points need to reach the
+    // matcher's multibyte dispatch. GNU uses a range-table bit
+    // (`re_wctype_to_bit`) that triggers `re_iswctype` at match time;
+    // neomacs's equivalent is the `multibyte_charsets` map of
+    // (start, end) ranges built in `compile_charset`. We append the
+    // appropriate ranges here.
+    match name {
+        // Non-ASCII entirely: 0x80..=max Unicode scalar.
+        "nonascii" | "multibyte" => {
+            mb_ranges.push(('\u{80}', '\u{10FFFF}'));
+        }
+        _ => {}
+    }
+
+    Ok(())
 }
 
 /// Parse an interval \{n,m\} from the pattern.

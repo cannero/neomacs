@@ -480,6 +480,132 @@ fn string_match_posix_upper_class_folds_to_alpha_on_lisp_string() {
     assert_eq!(md.groups[0], Some((0, 13)));
 }
 
+// Regex audit #7: the 4 previously missing POSIX classes
+// (word, nonascii, unibyte, multibyte) and the space/blank and
+// print/graph splits must match GNU `regex-emacs.c:1525-1630`
+// (`re_wctype_parse` + `re_iswctype`) exactly.
+
+#[test]
+fn posix_class_word_matches_ascii_letters_and_digits_but_not_punct() {
+    crate::test_utils::init_test_tracing();
+    // Default standard-syntax word constituents: a-z A-Z 0-9. `_`,
+    // `-`, and ASCII space are NOT word constituents in the standard
+    // table so `[[:word:]]` must not match them. (Audit #8 tracks
+    // threading the per-buffer syntax table through the matcher; in
+    // default/standard syntax this is the GNU baseline.)
+    let mut md = None;
+    let r = string_match_full("[[:word:]]+", "foo42bar", 0, &mut md);
+    assert_eq!(r, Ok(Some(0)));
+    assert_eq!(md.unwrap().groups[0], Some((0, 8)));
+
+    let mut md = None;
+    let r = string_match_full("[[:word:]]+", "!!!abc!!!", 0, &mut md);
+    assert_eq!(r, Ok(Some(3)));
+    assert_eq!(md.unwrap().groups[0], Some((3, 6)));
+
+    // `_` is symbol, not word, in the standard table -> does not match.
+    let mut md = None;
+    let r = string_match_full("^[[:word:]]+$", "_", 0, &mut md);
+    assert_eq!(r, Ok(None));
+}
+
+#[test]
+fn posix_class_nonascii_matches_only_chars_at_or_above_u0080() {
+    crate::test_utils::init_test_tracing();
+    let mut md = None;
+    let r = string_match_full("[[:nonascii:]]+", "abcéfg", 0, &mut md);
+    assert_eq!(r, Ok(Some(3)));
+    // `é` occupies one character slot (md positions are char indices
+    // for string search).
+    assert_eq!(md.unwrap().groups[0], Some((3, 4)));
+
+    // Pure ASCII input -> no match.
+    let mut md = None;
+    let r = string_match_full("[[:nonascii:]]", "abc123", 0, &mut md);
+    assert_eq!(r, Ok(None));
+}
+
+#[test]
+fn posix_class_multibyte_matches_only_non_ascii_chars() {
+    crate::test_utils::init_test_tracing();
+    let mut md = None;
+    let r = string_match_full("[[:multibyte:]]+", "abcé", 0, &mut md);
+    assert_eq!(r, Ok(Some(3)));
+    assert_eq!(md.unwrap().groups[0], Some((3, 4)));
+
+    let mut md = None;
+    let r = string_match_full("[[:multibyte:]]", "x", 0, &mut md);
+    assert_eq!(r, Ok(None));
+}
+
+#[test]
+fn posix_class_unibyte_matches_every_ascii_char() {
+    crate::test_utils::init_test_tracing();
+    let mut md = None;
+    let r = string_match_full("[[:unibyte:]]+", "abc", 0, &mut md);
+    assert_eq!(r, Ok(Some(0)));
+    assert_eq!(md.unwrap().groups[0], Some((0, 3)));
+}
+
+#[test]
+fn posix_class_blank_is_only_space_and_tab_unlike_space() {
+    crate::test_utils::init_test_tracing();
+    // GNU ISBLANK: space and tab only. A newline must NOT match
+    // `[[:blank:]]` but MUST match `[[:space:]]`. Before the audit
+    // #7 fix, neomacs merged the two classes so this distinction was
+    // silently wrong.
+    let mut md = None;
+    let r = string_match_full("[[:blank:]]", "\n", 0, &mut md);
+    assert_eq!(r, Ok(None));
+
+    let mut md = None;
+    let r = string_match_full("[[:space:]]", "\n", 0, &mut md);
+    assert_eq!(r, Ok(Some(0)));
+
+    let mut md = None;
+    let r = string_match_full("[[:blank:]]", " ", 0, &mut md);
+    assert_eq!(r, Ok(Some(0)));
+
+    let mut md = None;
+    let r = string_match_full("[[:blank:]]", "\t", 0, &mut md);
+    assert_eq!(r, Ok(Some(0)));
+}
+
+#[test]
+fn posix_class_print_includes_space_but_graph_excludes_it() {
+    crate::test_utils::init_test_tracing();
+    // GNU ISPRINT: c >= ' '. GNU ISGRAPH: c > ' '. The two classes
+    // must differ on the space character. Before the fix neomacs
+    // merged them so `[[:graph:]]` matched space.
+    let mut md = None;
+    let r = string_match_full("[[:print:]]", " ", 0, &mut md);
+    assert_eq!(r, Ok(Some(0)));
+
+    let mut md = None;
+    let r = string_match_full("[[:graph:]]", " ", 0, &mut md);
+    assert_eq!(r, Ok(None));
+
+    // Both classes must still match `a`.
+    let mut md = None;
+    let r = string_match_full("[[:graph:]]", "a", 0, &mut md);
+    assert_eq!(r, Ok(Some(0)));
+    let mut md = None;
+    let r = string_match_full("[[:print:]]", "a", 0, &mut md);
+    assert_eq!(r, Ok(Some(0)));
+}
+
+#[test]
+fn posix_class_unknown_name_signals_compile_error_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    // GNU re_wctype_parse returns RECC_ERROR for unknown names and
+    // the caller signals REG_ECTYPE (regex-emacs.c:1600, 2071). We
+    // raise the equivalent Rust-level compile error instead of
+    // silently ignoring the unknown class name.
+    let mut md = None;
+    let r = string_match_full("[[:notaclass:]]", "abc", 0, &mut md);
+    assert!(r.is_err(), "expected compile error, got {:?}", r);
+}
+
 #[test]
 fn string_match_anchored_operator_char_class_mirrors_gnu_bracket_closing() {
     crate::test_utils::init_test_tracing();
