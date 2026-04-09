@@ -232,7 +232,28 @@ pub(crate) struct CompiledPattern {
     /// Key = bytecode position of the Charset/CharsetNot opcode.
     /// Value = list of inclusive (start_char, end_char) character ranges.
     pub multibyte_charsets: HashMap<usize, Vec<(char, char)>>,
+
+    /// Per-charset class flags for `[[:word:]]` and `[[:space:]]`,
+    /// which GNU resolves at match time via `BUFFER_SYNTAX(c)` and
+    /// not at compile time. Bit layout:
+    ///
+    ///   - bit 0 (`CHARSET_CLASS_BIT_WORD`)  → `[[:word:]]`
+    ///   - bit 1 (`CHARSET_CLASS_BIT_SPACE`) → `[[:space:]]`
+    ///
+    /// At match time the charset matcher takes the union of the
+    /// raw bitmap and the syntax-driven bits, so a per-buffer
+    /// override of `_` to `Sword` extends `[[:word:]]` correctly.
+    /// Mirrors GNU `regex-emacs.c:re_wctype_to_bit` (line 1635) +
+    /// `execute_charset` (regex-emacs.c:3795-3802). See audit
+    /// finding #8 in `drafts/regex-search-audit.md`.
+    pub charset_class_bits: HashMap<usize, u8>,
 }
+
+/// Bit set on a `Charset`/`CharsetNot` opcode for `[[:word:]]`. The
+/// matcher resolves it via the buffer syntax table at match time.
+pub const CHARSET_CLASS_BIT_WORD: u8 = 1 << 0;
+/// Bit set on a `Charset`/`CharsetNot` opcode for `[[:space:]]`.
+pub const CHARSET_CLASS_BIT_SPACE: u8 = 1 << 1;
 
 impl CompiledPattern {
     pub fn new() -> Self {
@@ -245,6 +266,7 @@ impl CompiledPattern {
             can_be_null: false,
             translate: None,
             multibyte_charsets: HashMap::new(),
+            charset_class_bits: HashMap::new(),
         }
     }
 }
@@ -1234,6 +1256,11 @@ fn compile_charset(
     // Collect multibyte (non-ASCII) ranges for this charset.
     let mut mb_ranges: Vec<(char, char)> = Vec::new();
 
+    // Bitmask of class flags for `[[:word:]]` / `[[:space:]]`. The
+    // matcher checks these against the buffer syntax table at run
+    // time so per-mode word/space definitions take effect.
+    let mut class_bits: u8 = 0;
+
     // Special case: ] at start is literal
     let mut first = true;
     let mut last_char: Option<char> = None; // Track last single char for ranges
@@ -1342,6 +1369,7 @@ fn compile_charset(
                     &mut buf.buffer,
                     bitmap_start,
                     &mut mb_ranges,
+                    &mut class_bits,
                     buf.translate.as_deref(),
                 )?;
                 last_char = None;
@@ -1367,6 +1395,13 @@ fn compile_charset(
     // Store multibyte ranges if any were collected.
     if !mb_ranges.is_empty() {
         buf.multibyte_charsets.insert(charset_opcode_pos, mb_ranges);
+    }
+
+    // Record class flags so the matcher can consult the buffer
+    // syntax table at run time for `[[:word:]]` and `[[:space:]]`.
+    if class_bits != 0 {
+        buf.charset_class_bits
+            .insert(charset_opcode_pos, class_bits);
     }
 
     Ok(())
@@ -1479,8 +1514,19 @@ fn apply_posix_class(
     buffer: &mut Vec<u8>,
     bitmap_start: usize,
     mb_ranges: &mut Vec<(char, char)>,
+    class_bits: &mut u8,
     translate: Option<&[char]>,
 ) -> Result<(), RegexCompileError> {
+    // GNU `regex-emacs.c:2100-2101` records `BIT_SPACE` and
+    // `BIT_WORD` on the charset so the matcher can later consult
+    // the buffer syntax table at run time. We do the same via
+    // `class_bits` and the `[[:word:]]`/`[[:space:]]` arms below.
+    // Audit finding #8 in `drafts/regex-search-audit.md`.
+    match name {
+        "word" => *class_bits |= CHARSET_CLASS_BIT_WORD,
+        "space" => *class_bits |= CHARSET_CLASS_BIT_SPACE,
+        _ => {}
+    }
     // --- ASCII bitmap bits ------------------------------------------------
     //
     // Each class enumerates which bytes in 0x00..=0xFF should be
@@ -2119,6 +2165,26 @@ pub(crate) fn re_match(
                         false
                     }
                 };
+
+                // GNU `regex-emacs.c:execute_charset` at lines
+                // 3795-3802 takes the union of the bitmap with the
+                // class flags consulted via the buffer syntax table.
+                // For `[[:word:]]`/`[[:space:]]` this lets per-mode
+                // overrides (e.g. `_` is `Sword` in `python-mode`)
+                // extend the charset at match time. Audit finding
+                // #8 in `drafts/regex-search-audit.md`.
+                let in_set = in_set
+                    || pattern
+                        .charset_class_bits
+                        .get(&charset_op_pos)
+                        .copied()
+                        .map(|bits| {
+                            (bits & CHARSET_CLASS_BIT_WORD != 0
+                                && syntax.char_syntax(ch) == SyntaxClass::Word)
+                                || (bits & CHARSET_CLASS_BIT_SPACE != 0
+                                    && syntax.char_syntax(ch) == SyntaxClass::Whitespace)
+                        })
+                        .unwrap_or(false);
 
                 let matched = if negate { !in_set } else { in_set };
                 pc += bitmap_len;

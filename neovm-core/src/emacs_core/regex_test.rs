@@ -631,6 +631,55 @@ fn string_match_posix_upper_class_folds_to_alpha_on_lisp_string() {
 // print/graph splits must match GNU `regex-emacs.c:1525-1630`
 // (`re_wctype_parse` + `re_iswctype`) exactly.
 
+// Regex audit #8: `[[:word:]]` (and `[[:space:]]`) consult the
+// buffer's syntax table at MATCH time, so per-mode overrides like
+// "`_` is Sword in python-mode" extend the charset. The matcher
+// takes the union of the bitmap and the class bits driven through
+// the buffer syntax table.
+//
+// Verified against GNU Emacs 31.0.50:
+//
+//   (with-temp-buffer
+//     (modify-syntax-entry ?_ "w")
+//     (insert "foo_bar")
+//     (goto-char 1)
+//     (looking-at "[[:word:]]+")
+//     (match-end 0))    ; => 8 (whole "foo_bar")
+#[test]
+fn posix_word_class_extends_via_buffer_syntax_table_override() {
+    crate::test_utils::init_test_tracing();
+    use crate::emacs_core::syntax::{SyntaxClass, SyntaxEntry};
+
+    let mut buf = make_test_buffer("foo_bar baz");
+    // Override `_` to Word in this buffer's syntax table.
+    buf.syntax_table
+        .modify_syntax_entry('_', SyntaxEntry::simple(SyntaxClass::Word));
+    buf.goto_byte(0);
+
+    let mut md = None;
+    let matched = looking_at(&buf, "[[:word:]]+", false, &mut md).expect("compile ok");
+    assert!(matched, "[[:word:]]+ should match `foo_bar`");
+    let md = md.unwrap();
+    assert_eq!(
+        md.groups[0],
+        Some((0, 7)),
+        "match should cover the whole `foo_bar`"
+    );
+
+    // Without the override, `_` is Symbol (not Word) in the
+    // standard syntax table, so the match stops at index 3.
+    let mut buf2 = make_test_buffer("foo_bar baz");
+    buf2.goto_byte(0);
+    let mut md = None;
+    let matched = looking_at(&buf2, "[[:word:]]+", false, &mut md).expect("compile ok");
+    assert!(matched);
+    assert_eq!(
+        md.unwrap().groups[0],
+        Some((0, 3)),
+        "without override, match stops at `_`"
+    );
+}
+
 #[test]
 fn posix_class_word_matches_ascii_letters_and_digits_but_not_punct() {
     crate::test_utils::init_test_tracing();
