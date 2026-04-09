@@ -10355,3 +10355,131 @@ fn public_api_multi_mutator_each_mutator_owns_independent_barrier_ring() {
     let after = heap.barrier_stats();
     assert_eq!(after.post_write, baseline.post_write + 2);
 }
+
+#[test]
+fn public_api_multi_mutator_concurrent_store_edge_fallback_dedupes_per_owner() {
+    // Phase-1 barrier read-lock regression guard. The barrier
+    // hot path now records fallback remembered-set owners
+    // through `RememberedSetState::record_owner_shared`, which
+    // appends to a `Mutex<Vec<ObjectKey>>` guarded by a
+    // relaxed `AtomicUsize` counter. Multiple mutators can
+    // enter the barrier concurrently under a `HeapCore` read
+    // lock.
+    //
+    // Spawn N threads, each pinning its own `PinnedOwner` and
+    // running `WRITES_PER_THREAD` `store_edge` calls from
+    // that owner to a thread-local nursery target. Every call
+    // hits `record_owner_shared`. The threads block on a
+    // "done writing" channel while their per-thread scopes
+    // (and thus the pinned owners) are still rooted, so the
+    // driver thread sees `N_WORKERS` distinct pinned owners
+    // deduped through the pending-inserts merge path.
+    //
+    // A race on `pending_inserts` that dropped entries would
+    // show up as a lower count; a dedup bug that double-
+    // counted pending entries would show up as a higher
+    // count. Both failure modes would indicate a
+    // concurrency regression in the shared-pending path.
+    const N_WORKERS: usize = 4;
+    const WRITES_PER_THREAD: usize = 256;
+
+    let heap = Heap::new(HeapConfig::default());
+    let (writes_done_tx, writes_done_rx) = mpsc::channel::<()>();
+    let release_channels: Vec<_> = (0..N_WORKERS)
+        .map(|_| mpsc::channel::<()>())
+        .collect();
+    let mut release_txs = Vec::with_capacity(N_WORKERS);
+    let mut release_rxs: Vec<_> = release_channels
+        .into_iter()
+        .map(|(tx, rx)| {
+            release_txs.push(tx);
+            rx
+        })
+        .collect();
+
+    let mut handles = Vec::with_capacity(N_WORKERS);
+    for worker_id in 0..N_WORKERS {
+        let heap = heap.clone();
+        let writes_done_tx = writes_done_tx.clone();
+        let release_rx = release_rxs.remove(0);
+        handles.push(thread::spawn(move || {
+            let mut mutator = heap.mutator();
+            let mut owner_scope = mutator.handle_scope();
+            let owner = mutator
+                .alloc(
+                    &mut owner_scope,
+                    PinnedOwner {
+                        child: EdgeCell::default(),
+                    },
+                )
+                .expect("alloc pinned owner");
+            // Each store_edge hits the fallback because the
+            // owner is in pinned space (not block-backed, so
+            // `old_gen.record_write_barrier` returns false)
+            // and the target is in nursery. Keep one
+            // nursery target alive through the whole test so
+            // the final edge stays valid when the driver
+            // reads stats.
+            let mut child_scope = mutator.handle_scope();
+            let final_child = mutator
+                .alloc(&mut child_scope, Leaf(worker_id as u64))
+                .expect("alloc final nursery target");
+            for _ in 0..WRITES_PER_THREAD {
+                mutator.store_edge(&owner, 0, |o| &o.child, Some(final_child.as_gc()));
+            }
+            // Report "done writing" to the driver and wait
+            // for the "release" signal before dropping
+            // scopes. While blocked on `release_rx.recv()`,
+            // the pinned owner and the nursery target are
+            // both still rooted on this thread's mutator
+            // local root stack, so the driver's stats read
+            // sees a stable fallback owner set.
+            writes_done_tx.send(()).expect("send writes done");
+            release_rx.recv().expect("wait for release");
+            drop(child_scope);
+            drop(owner_scope);
+        }));
+    }
+    drop(writes_done_tx);
+
+    // Wait for every worker to finish its writes.
+    for _ in 0..N_WORKERS {
+        writes_done_rx
+            .recv()
+            .expect("receive writes-done signal from worker");
+    }
+
+    // All N pinned owners are rooted on their worker threads
+    // and every `store_edge` call has landed in
+    // `pending_inserts`. The deduped effective count should
+    // be exactly N.
+    let stats = heap.stats();
+    assert_eq!(
+        stats.remembered_explicit_owners, N_WORKERS,
+        "expected exactly {} deduped pinned owners after {} concurrent writes",
+        N_WORKERS,
+        N_WORKERS * WRITES_PER_THREAD
+    );
+    assert_eq!(stats.remembered_owners, N_WORKERS);
+    assert_eq!(stats.remembered_edges, N_WORKERS);
+
+    // The cumulative barrier counter should reflect every
+    // store_edge call (one post-write per call), summed
+    // across all mutators through `AtomicBarrierStats`.
+    let expected_post_writes = (N_WORKERS * WRITES_PER_THREAD) as u64;
+    assert!(
+        heap.barrier_stats().post_write >= expected_post_writes,
+        "heap-wide barrier counter ({}) should reflect at least {} concurrent post-write barriers",
+        heap.barrier_stats().post_write,
+        expected_post_writes
+    );
+
+    // Release all workers so they can drop their scopes and
+    // exit cleanly.
+    for tx in release_txs {
+        tx.send(()).expect("release worker");
+    }
+    for handle in handles {
+        handle.join().expect("join worker");
+    }
+}
