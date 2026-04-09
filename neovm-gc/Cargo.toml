@@ -11,3 +11,22 @@ categories = ["memory-management"]
 [dependencies]
 bitflags.workspace = true
 crossbeam-deque.workspace = true
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false, features = ["plotters", "cargo_bench_support"] }
+
+[[bench]]
+name = "alloc_throughput"
+harness = false
+
+[[bench]]
+name = "barrier_cost"
+harness = false
+
+[[bench]]
+name = "collection_latency"
+harness = false
+
+[[bench]]
+name = "multi_mutator_scaling"
+harness = false
