@@ -530,3 +530,87 @@ fn collector_state_handle_record_completed_plan_updates_last_plan_and_recommenda
     assert_eq!(handle.recommended_plan().kind, CollectionKind::Minor);
     assert_eq!(handle.recommended_background_plan(), None);
 }
+
+#[test]
+fn collector_state_handle_atomic_mirrors_track_state_transitions() {
+    // Pin the invariant that `with_state` refreshes the
+    // has_active_major_mark / has_prepared_full_reclaim
+    // atomic mirrors after every mutation, so the hot-path
+    // lock-free readers reflect the same view the
+    // authoritative CollectorState methods would return.
+    //
+    // Without this invariant, the barrier hot path's
+    // shortcut on has_active_major_mark could permanently
+    // miss a state transition if the atomic was never
+    // refreshed. The invariant is load-bearing because
+    // Mutator::post_write_barrier uses the atomic to decide
+    // whether to push a local SATB diagnostic event and
+    // whether the prepared-full-reclaim assertion should
+    // fire.
+    let handle = CollectorStateHandle::default();
+    // Starting state: both flags false.
+    assert!(!handle.has_active_major_mark());
+    assert!(!handle.has_prepared_full_reclaim());
+
+    // Transition to active major-mark through with_state.
+    // The closure mutates the inner state; the mirror
+    // refresh happens at the end of `with_state` before the
+    // mutex is released.
+    handle.with_state(|state| {
+        state.begin_major_mark(major_plan(), MarkWorklist::default());
+    });
+    assert!(
+        handle.has_active_major_mark(),
+        "has_active_major_mark atomic should be true after begin_major_mark",
+    );
+    assert!(
+        !handle.has_prepared_full_reclaim(),
+        "has_prepared_full_reclaim remains false until the reclaim prep completes",
+    );
+
+    // Transition to prepared-full-reclaim by switching the
+    // active plan to Full and marking reclaim_prepared.
+    // has_prepared_full_reclaim is derived from both
+    // conditions (Full kind + reclaim_prepared).
+    handle.with_state(|state| {
+        state.take_major_mark_state();
+        state.begin_major_mark(full_plan(), MarkWorklist::default());
+        let _ = state.complete_active_major_reclaim_prep(
+            0,
+            0,
+            Duration::from_secs(0),
+            prepared_reclaim(),
+        );
+    });
+    assert!(handle.has_active_major_mark());
+    assert!(
+        handle.has_prepared_full_reclaim(),
+        "has_prepared_full_reclaim atomic should track Full + reclaim_prepared state",
+    );
+
+    // Clearing the major-mark state resets both mirrors.
+    handle.with_state(|state| {
+        state.take_major_mark_state();
+    });
+    assert!(
+        !handle.has_active_major_mark(),
+        "has_active_major_mark should reset after take_major_mark_state",
+    );
+    assert!(
+        !handle.has_prepared_full_reclaim(),
+        "has_prepared_full_reclaim should reset when major-mark state is gone",
+    );
+
+    // try_with_state must refresh the mirrors too, so the
+    // tryable fast path has the same invariant as the
+    // blocking one.
+    handle
+        .try_with_state(|state| {
+            state.begin_major_mark(major_plan(), MarkWorklist::default());
+        })
+        .expect("try_with_state should succeed on uncontended handle");
+    assert!(
+        handle.has_active_major_mark(),
+        "try_with_state must refresh has_active_major_mark mirror",
+    );
+}
