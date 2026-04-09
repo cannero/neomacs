@@ -106,7 +106,7 @@ fn run_gui(demo: &str) {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    let _logging_guard = neovm_core::logging::init();
+    let _logging_guard = neovm_core::logging::init(neovm_core::logging::LogTarget::Gui);
 
     // Use logical pixels (winit handles DPI scaling internally).
     // The render thread's scale_factor from winit converts logical → physical.

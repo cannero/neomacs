@@ -830,16 +830,24 @@ pub fn run(mode: RuntimeMode) {
         return;
     }
 
-    // Initialize tracing as early as the real startup path begins, so
-    // pdump load errors and other startup diagnostics are visible. The
-    // returned guard must live until `run` returns to flush the file
-    // appender on shutdown when `NEOMACS_LOG_TO_FILE=1`.
-    let _logging_guard = neovm_core::logging::init();
-
+    // Parse argv before initializing tracing so we know whether this is a
+    // GUI or TTY run — logging policy differs between the two (under TTY
+    // any tracing output would smash the alt-screen redisplay engine).
+    // `parse_startup_options` emits no tracing events, so delaying init
+    // past it costs no diagnostics.
     let startup = parse_startup_options(std::env::args()).unwrap_or_else(|message| {
         eprintln!("{message}");
         std::process::exit(1);
     });
+
+    // Initialize tracing with a target appropriate to the chosen frontend.
+    // The returned guard must live until `run` returns to flush the file
+    // appender on shutdown when `NEOMACS_LOG_FILE=<path>` is set.
+    let log_target = match startup.frontend {
+        FrontendKind::Gui => neovm_core::logging::LogTarget::Gui,
+        FrontendKind::Tty => neovm_core::logging::LogTarget::Tty,
+    };
+    let _logging_guard = neovm_core::logging::init(log_target);
 
     if mode == RuntimeMode::Raw
         && let Some(temacs_mode) = startup.temacs_mode
@@ -1034,8 +1042,6 @@ pub fn run(mode: RuntimeMode) {
     // 10. Enter GNU's outer command loop. This mirrors src/emacs.c, which
     //     enters recursive-edit and lets the outer command loop evaluate the
     //     `top-level` startup form before reading interactive input.
-    // Diagnostic: print startup state
-    eprintln!("PRE-RECURSIVE-EDIT: about to enter command loop");
     tracing::info!("Entering GNU command loop (recursive-edit)...");
     let exit_status = evaluator.recursive_edit();
     if exit_status.is_ok() {

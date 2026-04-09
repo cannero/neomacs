@@ -2,27 +2,56 @@
 //!
 //! Two entry points:
 //!
-//! - [`init`] — for binary entry points. Installs a stderr fmt
-//!   subscriber, bridges the `log` facade into tracing, and (if
-//!   `NEOMACS_LOG_TO_FILE=1`) also writes to `neomacs-{pid}.log` in the
-//!   current working directory via a non-blocking background appender.
-//!   Returns a [`LoggingGuard`] that must be kept alive until process
-//!   exit so the file appender can flush its queue.
+//! - [`init`] — for binary entry points. Takes a [`LogTarget`] describing
+//!   the runtime environment (GUI binary, TUI binary, or test runner) and
+//!   installs a fmt subscriber whose default writer matches the policy for
+//!   that target. See [`LogTarget`] for the per-target default and the
+//!   `NEOMACS_LOG_FILE` override. Returns a [`LoggingGuard`] that must be
+//!   kept alive until process exit so the file appender can flush its
+//!   queue.
 //!
-//! - [`init_for_tests`] — for unit/integration tests. Uses
-//!   `with_test_writer` so output is captured per-test by the test
-//!   harness, defaults to `info` filter, idempotent across many `#[test]`
-//!   calls.
+//! - [`init_for_tests`] — thin wrapper around [`init`] with
+//!   [`LogTarget::Test`] for unit/integration tests. Uses
+//!   `with_test_writer` so output is captured per-test by the test harness
+//!   and only appears on failure.
 //!
-//! Both honor `RUST_LOG` and bridge `log` → `tracing` so events from
-//! crates using the `log` facade (e.g. `cosmic-text`, `wgpu`) flow into
-//! the tracing subscriber.
+//! Both honor `RUST_LOG` and bridge the `log` facade into `tracing`, so
+//! events from crates using the `log` facade (e.g. `cosmic-text`, `wgpu`)
+//! flow into the tracing subscriber.
 
 use std::sync::OnceLock;
 
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::Layer;
+use tracing_subscriber::Registry;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+
+/// Which runtime environment the binary is running in.
+///
+/// This determines the default writer when `NEOMACS_LOG_FILE` is not set.
+/// When `NEOMACS_LOG_FILE` is set, a file layer is added (or replaces the
+/// default writer for [`LogTarget::Tty`] which would otherwise be silent).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogTarget {
+    /// GUI binary (winit/wgpu window). Default writer: stdout.
+    ///
+    /// With `NEOMACS_LOG_FILE=<path>`: stdout **and** file.
+    Gui,
+    /// TTY/TUI binary (`-nw`, `--batch`, `-t`). Default writer: none.
+    ///
+    /// Logging to stdout or stderr under TTY would smash the alt-screen
+    /// the redisplay engine is drawing into, so the default is silent.
+    ///
+    /// With `NEOMACS_LOG_FILE=<path>`: file only.
+    Tty,
+    /// Unit or integration test. Default writer: captured test writer
+    /// (`tracing_subscriber::fmt::TestWriter`, visible only on test
+    /// failure).
+    ///
+    /// With `NEOMACS_LOG_FILE=<path>`: test writer **and** file.
+    Test,
+}
 
 /// Held by the binary's `main` function for the duration of the process so
 /// the non-blocking file appender's background worker can flush on
@@ -35,101 +64,141 @@ pub struct LoggingGuard {
     _file: Option<tracing_appender::non_blocking::WorkerGuard>,
 }
 
+type BoxedLayer = Box<dyn Layer<Registry> + Send + Sync + 'static>;
+
 /// Initialize tracing for a binary entry point.
 ///
-/// Behavior:
+/// The `target` argument selects the default writer:
 ///
-/// - Always installs a stderr fmt subscriber filtered by `RUST_LOG`
-///   (default `info`).
-/// - Bridges crates using the `log` facade (e.g. `cosmic-text`, `wgpu`)
-///   into the tracing subscriber via `tracing_log::LogTracer`.
-/// - When `NEOMACS_LOG_TO_FILE=1`, also writes to `neomacs-{pid}.log`
-///   in the current working directory in append mode, via a non-blocking
-///   background writer. The same `RUST_LOG` filter applies.
+/// | target | default writer | with `NEOMACS_LOG_FILE=<path>` |
+/// |---|---|---|
+/// | [`LogTarget::Gui`] | stdout | stdout + file |
+/// | [`LogTarget::Tty`] | (silent) | file only |
+/// | [`LogTarget::Test`] | captured test writer | test writer + file |
+///
+/// Behavior shared across all targets:
+///
+/// - Filter comes from `RUST_LOG`; defaults to `info`.
+/// - Bridges crates using the `log` facade into tracing via
+///   `tracing_log::LogTracer`.
 /// - Idempotent — safe to call multiple times. Only the first call sets
 ///   up the global subscriber; subsequent calls return an empty guard.
+/// - If `NEOMACS_LOG_FILE=<path>` fails to open, a warning is printed to
+///   stderr and the function continues with the default writer only.
 ///
-/// If `NEOMACS_LOG_TO_FILE=1` is set but the file cannot be opened, a
-/// warning is printed to stderr and the function continues with stderr
-/// logging only.
-pub fn init() -> LoggingGuard {
+/// Legacy: `NEOMACS_LOG_TO_FILE=1` is still accepted and is equivalent to
+/// setting `NEOMACS_LOG_FILE=neomacs-{pid}.log` in the current directory.
+/// New call sites should prefer `NEOMACS_LOG_FILE`.
+pub fn init(target: LogTarget) -> LoggingGuard {
     static INIT: OnceLock<()> = OnceLock::new();
     let mut guard: Option<tracing_appender::non_blocking::WorkerGuard> = None;
     INIT.get_or_init(|| {
-        guard = init_inner();
+        guard = init_inner(target);
     });
     LoggingGuard { _file: guard }
 }
 
-fn init_inner() -> Option<tracing_appender::non_blocking::WorkerGuard> {
-    // Bridge `log` → `tracing` for crates using the log facade.
-    let _ = tracing_log::LogTracer::init();
+/// Initialize tracing for unit/integration tests.
+///
+/// Thin wrapper around [`init`] with [`LogTarget::Test`]. Idempotent — safe
+/// to call from every `#[test]` function. The returned guard is discarded
+/// because tests do not have a well-defined process shutdown boundary.
+pub fn init_for_tests() {
+    let _ = init(LogTarget::Test);
+}
 
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
-
-    let stderr_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
-
-    let want_file = std::env::var("NEOMACS_LOG_TO_FILE")
+fn resolve_log_file_path() -> Option<std::path::PathBuf> {
+    if let Some(path) = std::env::var_os("NEOMACS_LOG_FILE") {
+        let path = std::path::PathBuf::from(path);
+        if path.as_os_str().is_empty() {
+            return None;
+        }
+        return Some(path);
+    }
+    let legacy = std::env::var("NEOMACS_LOG_TO_FILE")
         .map(|v| v == "1")
         .unwrap_or(false);
-
-    if want_file {
+    if legacy {
         let pid = std::process::id();
-        let path = std::path::PathBuf::from(format!("neomacs-{pid}.log"));
-        match std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-        {
-            Ok(file) => {
-                let (writer, worker_guard) = tracing_appender::non_blocking(file);
-                let file_layer = tracing_subscriber::fmt::layer()
-                    .with_writer(writer)
-                    .with_ansi(false);
-                let result = tracing_subscriber::registry()
-                    .with(env_filter)
-                    .with(stderr_layer)
-                    .with(file_layer)
-                    .try_init();
-                if let Err(e) = result {
-                    eprintln!("warning: tracing subscriber init failed: {e}");
-                }
-                return Some(worker_guard);
-            }
-            Err(e) => {
-                eprintln!(
-                    "warning: NEOMACS_LOG_TO_FILE=1 but failed to open {}: {e}; continuing with stderr only",
-                    path.display(),
-                );
-            }
-        }
-    }
-
-    let result = tracing_subscriber::registry()
-        .with(env_filter)
-        .with(stderr_layer)
-        .try_init();
-    if let Err(e) = result {
-        eprintln!("warning: tracing subscriber init failed: {e}");
+        return Some(std::path::PathBuf::from(format!("neomacs-{pid}.log")));
     }
     None
 }
 
-/// Initialize tracing for unit/integration tests.
-///
-/// Uses `with_test_writer()` so output is captured per-test by the test
-/// harness (visible only on test failure). Default filter is `info`,
-/// overridable via `RUST_LOG`. Bridges the `log` facade into tracing.
-///
-/// Idempotent — safe to call from every `#[test]` function. Returns
-/// silently if a global subscriber is already installed.
-pub fn init_for_tests() {
+fn make_env_filter() -> EnvFilter {
+    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
+}
+
+fn default_layer(target: LogTarget) -> Option<BoxedLayer> {
+    match target {
+        LogTarget::Gui => Some(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stdout)
+                .with_filter(make_env_filter())
+                .boxed(),
+        ),
+        LogTarget::Tty => None,
+        LogTarget::Test => Some(
+            tracing_subscriber::fmt::layer()
+                .with_test_writer()
+                .with_filter(make_env_filter())
+                .boxed(),
+        ),
+    }
+}
+
+fn file_layer() -> (Option<BoxedLayer>, Option<tracing_appender::non_blocking::WorkerGuard>) {
+    let Some(path) = resolve_log_file_path() else {
+        return (None, None);
+    };
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        Ok(file) => {
+            let (writer, worker_guard) = tracing_appender::non_blocking(file);
+            let layer = tracing_subscriber::fmt::layer()
+                .with_writer(writer)
+                .with_ansi(false)
+                .with_filter(make_env_filter())
+                .boxed();
+            (Some(layer), Some(worker_guard))
+        }
+        Err(e) => {
+            eprintln!(
+                "warning: NEOMACS_LOG_FILE={} failed to open: {e}; continuing without file output",
+                path.display(),
+            );
+            (None, None)
+        }
+    }
+}
+
+fn init_inner(target: LogTarget) -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    // Bridge `log` → `tracing` for crates using the log facade.
     let _ = tracing_log::LogTracer::init();
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .with_test_writer()
-        .try_init();
+
+    let default = default_layer(target);
+    let (file, file_guard) = file_layer();
+
+    // Each layer carries its own `EnvFilter` (per-layer filter), so the
+    // registry is not wrapped in a global filter. We combine the
+    // (optional) default and file layers into a single `Vec<BoxedLayer>`:
+    // `Vec<L>` implements `Layer<S>` when each `L: Layer<S>`, so a single
+    // `.with(layers)` call stacks both atop the plain `Registry`. This
+    // avoids the trait-bound explosion that occurs when chaining
+    // `.with(Option<BoxedLayer>).with(Option<BoxedLayer>)`.
+    let mut layers: Vec<BoxedLayer> = Vec::new();
+    if let Some(layer) = default {
+        layers.push(layer);
+    }
+    if let Some(layer) = file {
+        layers.push(layer);
+    }
+    let result = tracing_subscriber::registry().with(layers).try_init();
+    if let Err(e) = result {
+        eprintln!("warning: tracing subscriber init failed: {e}");
+    }
+    file_guard
 }
