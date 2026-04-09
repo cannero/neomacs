@@ -59,6 +59,7 @@ fn gui_startup() -> StartupOptions {
         noninteractive: false,
         temacs_mode: None,
         dump_file_override: None,
+        no_site_lisp: false,
     }
 }
 
@@ -72,6 +73,7 @@ fn gui_startup_with_args(args: &[&str]) -> StartupOptions {
         noninteractive: false,
         temacs_mode: None,
         dump_file_override: None,
+        no_site_lisp: false,
     }
 }
 
@@ -85,6 +87,7 @@ fn tty_batch_startup_with_args(args: &[&str]) -> StartupOptions {
         noninteractive: true,
         temacs_mode: None,
         dump_file_override: None,
+        no_site_lisp: false,
     }
 }
 
@@ -191,6 +194,73 @@ fn parse_startup_options_chdir_missing_value_errors() {
     assert!(
         err.contains("requires an argument"),
         "expected requires-argument error, got: {err}"
+    );
+}
+
+#[test]
+fn parse_startup_options_consumes_script_flag_with_rewrite() {
+    // GNU emacs.c:1708-1717: --script FILE sets noninteractive and
+    // rewrites the matched flag to -scriptload (an internal flag that
+    // lisp/startup.el:2841 understands). The user's FILE follows
+    // -scriptload in argv.
+    let startup = parse_startup_options([
+        "neomacs".to_string(),
+        "--script".to_string(),
+        "/tmp/foo.el".to_string(),
+    ])
+    .expect("startup options should parse");
+
+    assert!(startup.noninteractive, "--script must imply noninteractive");
+    assert_eq!(startup.frontend, FrontendKind::Tty);
+    // The original --script flag must NOT appear in forwarded_args.
+    assert!(
+        !startup.forwarded_args.iter().any(|a| a == "--script" || a == "-script"),
+        "--script should be rewritten away: {:?}",
+        startup.forwarded_args
+    );
+    // -scriptload FILE must be present in the right order.
+    let pos = startup
+        .forwarded_args
+        .iter()
+        .position(|a| a == "-scriptload")
+        .expect("-scriptload should be in forwarded_args");
+    assert_eq!(
+        startup.forwarded_args.get(pos + 1).map(String::as_str),
+        Some("/tmp/foo.el"),
+        "FILE should follow -scriptload"
+    );
+}
+
+#[test]
+fn parse_startup_options_script_missing_value_errors() {
+    let err = parse_startup_options(["neomacs".to_string(), "--script".to_string()])
+        .expect_err("--script with no value should fail");
+    assert!(
+        err.contains("requires an argument"),
+        "expected requires-argument error, got: {err}"
+    );
+}
+
+#[test]
+fn parse_startup_options_consumes_dash_x_with_scripteval_rewrite() {
+    // GNU emacs.c:2132-2140: -x sets noninteractive AND no_site_lisp,
+    // and rewrites the matched flag to -scripteval (internal flag for
+    // shebang-style #!/usr/bin/neomacs -x scripts).
+    let startup = parse_startup_options(["neomacs".to_string(), "-x".to_string()])
+        .expect("startup options should parse");
+
+    assert!(startup.noninteractive, "-x must imply noninteractive");
+    assert!(startup.no_site_lisp, "-x must imply no-site-lisp");
+    assert_eq!(startup.frontend, FrontendKind::Tty);
+    assert!(
+        !startup.forwarded_args.iter().any(|a| a == "-x"),
+        "-x should be rewritten away: {:?}",
+        startup.forwarded_args
+    );
+    assert!(
+        startup.forwarded_args.iter().any(|a| a == "-scripteval"),
+        "-scripteval should be in forwarded_args: {:?}",
+        startup.forwarded_args
     );
 }
 
@@ -605,6 +675,7 @@ fn configure_gnu_startup_state_clears_window_system_for_tty_boots() {
         noninteractive: false,
         temacs_mode: None,
         dump_file_override: None,
+        no_site_lisp: false,
     };
     configure_gnu_startup_state(&mut eval, FrameId(7), &startup);
 
@@ -644,6 +715,7 @@ fn configure_gnu_startup_state_marks_batch_mode_noninteractive() {
         noninteractive: true,
         temacs_mode: None,
         dump_file_override: None,
+        no_site_lisp: false,
     };
     configure_gnu_startup_state(&mut eval, FrameId(9), &startup);
 

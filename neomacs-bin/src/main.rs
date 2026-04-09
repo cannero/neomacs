@@ -101,6 +101,9 @@ struct StartupOptions {
     noninteractive: bool,
     temacs_mode: Option<LoadupDumpMode>,
     dump_file_override: Option<PathBuf>,
+    /// Set by `-Q` (peek) and `-x` (consumed). Mirrors GNU
+    /// `no_site_lisp` at emacs.c:2126/2135.
+    no_site_lisp: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -266,6 +269,7 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
     let mut noninteractive = false;
     let mut temacs_mode = None;
     let mut dump_file_override = None;
+    let mut no_site_lisp = false;
     let mut idx = 0usize;
 
     while idx + 1 < parsed.len() {
@@ -328,6 +332,48 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
             ArgMatch::Bare => {
                 noninteractive = true;
                 frontend = FrontendKind::Tty;
+                continue;
+            }
+            ArgMatch::NoMatch => {}
+            ArgMatch::Value(_) | ArgMatch::MissingValue => unreachable!(),
+        }
+
+        // -script FILE / --script FILE (GNU emacs.c:1708-1717). GNU
+        // sets noninteractive, then rewrites the matched argv slot to
+        // -scriptload (an internal flag picked up later by
+        // lisp/startup.el's command-line-1) before re-sorting. We do
+        // the same: noninteractive + push -scriptload FILE into the
+        // forwarded args. Lisp's command-line-1 in startup.el:2841 will
+        // pick it up and load FILE.
+        match argmatch(&parsed, &mut idx, "-script", Some("--script"), 3, true) {
+            ArgMatch::Value(script_file) => {
+                noninteractive = true;
+                frontend = FrontendKind::Tty;
+                forwarded_args.push("-scriptload".to_string());
+                forwarded_args.push(script_file);
+                continue;
+            }
+            ArgMatch::MissingValue => {
+                return Err(
+                    "neomacs: option `-script' requires an argument".to_string(),
+                );
+            }
+            ArgMatch::NoMatch => {}
+            ArgMatch::Bare => unreachable!(),
+        }
+
+        // -x (GNU emacs.c:2132-2140). The `-x` form of shebang scripts:
+        //   #!/usr/bin/neomacs -x
+        // GNU sets noninteractive AND no_site_lisp, then rewrites argv
+        // by replacing `-x` with the internal `-scripteval` flag.
+        // lisp/startup.el:2841 picks up `-scripteval` and runs the
+        // following file as evaluated text rather than loaded code.
+        match argmatch(&parsed, &mut idx, "-x", None, 1, false) {
+            ArgMatch::Bare => {
+                noninteractive = true;
+                frontend = FrontendKind::Tty;
+                no_site_lisp = true;
+                forwarded_args.push("-scripteval".to_string());
                 continue;
             }
             ArgMatch::NoMatch => {}
@@ -432,6 +478,7 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
         noninteractive,
         temacs_mode,
         dump_file_override,
+        no_site_lisp,
     })
 }
 
