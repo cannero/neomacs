@@ -418,6 +418,17 @@ impl ReadKeySequenceState {
     pub fn snapshot(&self) -> (Vec<Value>, Vec<Value>) {
         (self.translated_events.clone(), self.raw_events.clone())
     }
+
+    /// Remove the last raw and translated event. Used by the
+    /// help-char dispatch path in `read_key_sequence` to strip
+    /// the help event from the sequence before running
+    /// `prefix-help-command`, matching GNU
+    /// `keyboard.c:10220-10230` which discards the help event so
+    /// `(this-command-keys)` reports the prefix only.
+    pub fn pop_last_events_for_help_char(&mut self) {
+        self.raw_events.pop();
+        self.translated_events.pop();
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -2108,6 +2119,97 @@ impl crate::emacs_core::eval::Context {
             .is_ok_and(|value| !value.is_nil())
     }
 
+    /// Fetch the effective value of `echo-keystrokes` as seconds.
+    /// Returns `None` when the variable is nil/unbound or of a
+    /// wrong type. Mirrors GNU `keyboard.c` consumers which call
+    /// `FIXNUMP` / `FLOATP` before using the value.
+    fn lisp_echo_keystrokes_seconds(&self) -> Option<f64> {
+        let value = self.eval_symbol("echo-keystrokes").ok()?;
+        if value.is_nil() {
+            return None;
+        }
+        value.as_number_f64()
+    }
+
+    /// Return true if EVENT matches `help-char` (default `Ctrl-h`
+    /// == 8) or any entry in `help-event-list`.
+    ///
+    /// Mirrors GNU `keyboard.c:3014-3031` (`help_char_p`): the
+    /// predicate used by `read_key_sequence` to decide whether an
+    /// incoming event is a "help event" for the purposes of
+    /// dispatching `prefix-help-command`.
+    fn event_matches_help_char(&self, event: &Value) -> bool {
+        let help_char = self.eval_symbol("help-char").unwrap_or(Value::NIL);
+        if !help_char.is_nil() && *event == help_char {
+            return true;
+        }
+        let help_event_list = self.eval_symbol("help-event-list").unwrap_or(Value::NIL);
+        if help_event_list.is_nil() {
+            return false;
+        }
+        let mut cursor = help_event_list;
+        while cursor.is_cons() {
+            if cursor.cons_car() == *event {
+                return true;
+            }
+            cursor = cursor.cons_cdr();
+        }
+        false
+    }
+
+    /// Dispatch `prefix-help-command` via `call-interactively`,
+    /// abandoning the current key sequence. Returns `Ok(Some(..))`
+    /// when the help command ran (the read_key_sequence caller
+    /// should forward the empty sequence to the command loop) or
+    /// `Ok(None)` when `prefix-help-command` is unbound (fall
+    /// back to the ordinary lookup path).
+    ///
+    /// Mirrors GNU `keyboard.c:10188-10250`: pop the help-char
+    /// from the current sequence so the help command sees the
+    /// prefix as `(this-command-keys)`, then run
+    /// `Fcall_interactively (Vprefix_help_command, Qnil, Qnil)`.
+    ///
+    /// Keyboard audit Finding 5.
+    fn dispatch_prefix_help_command(
+        &mut self,
+        delayed_selection_event: &mut Option<Value>,
+    ) -> Result<Option<(Vec<Value>, Value)>, crate::emacs_core::error::Flow> {
+        let prefix_help_command = self
+            .eval_symbol("prefix-help-command")
+            .unwrap_or(Value::NIL);
+        if prefix_help_command.is_nil() {
+            return Ok(None);
+        }
+        // Pop the trailing help-char event from the current raw
+        // sequence and from the translated event buffer. GNU's
+        // read_key_sequence removes the help event before running
+        // the help command so `(this-command-keys)` reports the
+        // prefix only — matching the classic "C-x ?" behaviour.
+        self.command_loop
+            .keyboard
+            .kboard
+            .current_key_sequence
+            .pop_last_events_for_help_char();
+
+        self.restore_delayed_selection_event(delayed_selection_event);
+
+        // Run the help command via call-interactively so advice
+        // and `this-command` bookkeeping in the Lisp interactive
+        // dispatcher stay consistent with every other interactive
+        // command.
+        let _ = self.apply(
+            Value::symbol("call-interactively"),
+            vec![prefix_help_command],
+        )?;
+
+        // Return an empty key sequence — command_loop_1 treats
+        // that as "nothing to dispatch this tick" and immediately
+        // reads the next key.
+        self.command_loop
+            .set_command_key_sequences(Vec::new(), Vec::new());
+        Ok(Some((Vec::new(), Value::NIL)))
+    }
+
     fn shift_translated_key_sequence_event(event: Value) -> Option<Value> {
         let key_event = crate::emacs_core::keymap::emacs_event_to_key_event(&event)?;
 
@@ -2547,6 +2649,47 @@ impl crate::emacs_core::eval::Context {
                     "read_key_sequence: event={} starting translation",
                     crate::emacs_core::print::print_value(&emacs_event)
                 );
+
+                // Keyboard audit Finding 5: help-char dispatch.
+                // GNU `keyboard.c:10188-10250` in `read_key_sequence`
+                // checks every incoming event against
+                // `Vhelp_char` / `Vhelp_event_list` and, if the
+                // current sequence already has a prefix, runs
+                // `Vprefix_help_command` (default
+                // `describe-prefix-bindings`) via
+                // `Fcall_interactively` instead of looking the
+                // resulting key up in the active keymap.
+                //
+                // We do the same here, after the raw event is
+                // pushed so `(this-command-keys)` sees the full
+                // sequence, but before translation/lookup — the
+                // help command must shadow any hypothetical
+                // binding for the help character under the prefix.
+                //
+                // `raw_events().len() > 1` is the analog of GNU's
+                // "in a prefix state" check: we only dispatch if
+                // there is at least one earlier event in the
+                // current sequence. A bare help-char at sequence
+                // start still goes through the ordinary keymap
+                // lookup so `C-h` etc. can be rebound or extended
+                // as a prefix itself.
+                if self.event_matches_help_char(&emacs_event)
+                    && self
+                        .command_loop
+                        .keyboard
+                        .kboard
+                        .current_key_sequence
+                        .raw_events()
+                        .len()
+                        > 1
+                {
+                    if let Some(result) =
+                        self.dispatch_prefix_help_command(&mut delayed_selection_event)?
+                    {
+                        self.restore_key_sequence_current_buffer(&mut saved_current_buffer);
+                        return Ok(result);
+                    }
+                }
             }
 
             let translation = match self.apply_translation_maps_to_current_key_sequence(options) {
@@ -2708,17 +2851,36 @@ impl crate::emacs_core::eval::Context {
                 resolve_prefix_keymap_binding_in_obarray(&self.obarray, &resolved.lookup).is_some();
 
             if is_prefix {
-                let key_vec = Value::vector(translated_events.clone());
-                if let Ok(desc) =
-                    crate::emacs_core::builtins::keymaps::builtin_key_description(vec![key_vec])
-                {
-                    if let Some(s) = desc.as_str() {
-                        let echo_msg = format!("{}-", s);
-                        let _ = crate::emacs_core::builtins::dispatch_builtin(
-                            self,
-                            "message",
-                            vec![Value::string(echo_msg)],
-                        );
+                // Keyboard audit Finding 6: consult `echo-keystrokes`.
+                // GNU `keyboard.c:2769,10206,10261` only echoes the
+                // pending prefix when `echo-keystrokes` is a
+                // positive number; a zero/nil value suppresses the
+                // echo entirely so fast typists never see a
+                // mid-sequence flash.
+                //
+                // Note: full GNU parity also *delays* the echo by
+                // `echo-keystrokes` seconds of no further input.
+                // neomacs currently echoes immediately when the
+                // variable is positive. The delay path is tracked
+                // separately as future work — the present fix
+                // corrects the "echo regardless of
+                // echo-keystrokes" bug but leaves the deadline
+                // scheduler for a later pass.
+                if self.lisp_echo_keystrokes_seconds().is_some_and(|s| s > 0.0) {
+                    let key_vec = Value::vector(translated_events.clone());
+                    if let Ok(desc) =
+                        crate::emacs_core::builtins::keymaps::builtin_key_description(vec![
+                            key_vec,
+                        ])
+                    {
+                        if let Some(s) = desc.as_str() {
+                            let echo_msg = format!("{}-", s);
+                            let _ = crate::emacs_core::builtins::dispatch_builtin(
+                                self,
+                                "message",
+                                vec![Value::string(echo_msg)],
+                            );
+                        }
                     }
                 }
                 continue;

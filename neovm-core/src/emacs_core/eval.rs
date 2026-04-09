@@ -2690,6 +2690,16 @@ impl Context {
         obarray.set_symbol_value("read-buffer-function", Value::NIL);
         obarray.set_symbol_value("minibuffer-prompt-properties", Value::NIL);
         obarray.set_symbol_value("help-event-list", Value::NIL);
+        // GNU `keyboard.c:14127`:
+        //   DEFVAR_LISP ("prefix-help-command", Vprefix_help_command, ...);
+        //   Vprefix_help_command = intern_c_string ("describe-prefix-bindings");
+        // The default is consulted by `read_key_sequence` when the
+        // help-char fires after a prefix. Keyboard audit Finding 5
+        // in `drafts/keyboard-command-loop-audit.md`.
+        obarray.set_symbol_value(
+            "prefix-help-command",
+            Value::symbol("describe-prefix-bindings"),
+        );
         obarray.set_symbol_value("debug-ignored-errors", Value::NIL);
         obarray.set_symbol_value("debug-on-event", Value::NIL);
         obarray.set_symbol_value("debug-on-signal", Value::NIL);
@@ -3380,7 +3390,14 @@ impl Context {
         obarray.set_symbol_value("input-method-deactivate-hook", Value::NIL);
         obarray.set_symbol_value("input-method-exit-on-first-char", Value::NIL);
         obarray.set_symbol_value("input-method-exit-on-invalid-key", Value::NIL);
-        obarray.set_symbol_value("input-method-function", Value::symbol("list"));
+        // GNU `keyboard.c:14147` initialises `Vinput_method_function`
+        // to `Qlist` as a placeholder, but that is a C-side
+        // representation of "no function". The observable default
+        // at the Lisp level is `nil` (checked via `(null
+        // input-method-function)` in `lisp/international/mule.el`
+        // and countless input-method packages). Keyboard audit
+        // Finding 10 in `drafts/keyboard-command-loop-audit.md`.
+        obarray.set_symbol_value("input-method-function", Value::NIL);
         obarray.set_symbol_value("input-method-highlight-flag", Value::T);
         obarray.set_symbol_value("input-method-history", Value::NIL);
         // input-method-previous-message is set by keyboard::pure::register_bootstrap_vars
