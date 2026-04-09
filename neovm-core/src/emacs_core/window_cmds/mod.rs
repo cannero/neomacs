@@ -1331,30 +1331,28 @@ pub(crate) fn builtin_set_window_cursor_type(
 
 /// `(window-cursor-info &optional WINDOW)` -> `[TYPE X Y W H ASCENT]` or nil.
 ///
-/// Mirrors GNU `src/window.c:8648-8716`. The vector is shaped:
+/// Mirrors GNU `src/window.c:8648-8716`:
 ///
-///   `[TYPE X Y WIDTH HEIGHT ASCENT]`
+///   if (!w->phys_cursor_on_p)
+///     return Qnil;
 ///
-/// where TYPE is the symbolic cursor-type value (`t`, `box`, `bar`,
-/// `(bar . N)`, ...) and the trailing five fields are pixel
-/// coordinates of the drawn cursor relative to the window text
-/// area. GNU's docstring explicitly allows any field after TYPE to
-/// be `-1` when "the actual value is currently unavailable", which
-/// is the path neomacs takes today: the renderer-side
-/// `CursorState` lives in `neomacs-display-runtime` and is not
-/// reachable from this builtin without the per-window
-/// `phys_cursor_*` fields tracked under cursor audit Finding 4 in
-/// `drafts/cursor-audit.md`. Once that lands the `-1` placeholders
-/// can be replaced with real geometry.
+/// `phys_cursor_on_p` is set when `display_and_set_cursor`
+/// (`src/xdisp.c:34698`) actually draws the cursor — it is false
+/// in batch mode, on a fresh frame before redisplay, and on every
+/// window where the cursor is suppressed.
 ///
-/// Until then, this function still returns a meaningful value
-/// (the cursor type plus -1 placeholders) instead of `nil`, so
-/// Lisp packages that test `(aref (window-cursor-info) 0)` for
-/// the cursor shape work correctly. The placeholder for
-/// `phys_cursor_on_p` is "the window has a non-nil cursor type",
-/// which closely matches GNU's behavior of always populating
-/// `phys_cursor_on_p` for live windows whose buffer enables a
-/// cursor.
+/// neomacs has no `Window::phys_cursor_on_p` field yet (cursor
+/// audit Finding 4 in `drafts/cursor-audit.md`), so we cannot
+/// distinguish "drawn" from "not drawn" the way GNU does. The
+/// only safe answer that matches GNU exactly across batch mode
+/// is `nil`. When Finding 4 lands, this builtin will look up the
+/// real `phys_cursor` and return the
+/// `[TYPE X Y WIDTH HEIGHT ASCENT]` vector for live cursors.
+///
+/// Verified against GNU Emacs 31.0.50 in batch:
+///
+///   $ emacs -Q --batch --eval '(princ (window-cursor-info))'
+///   nil
 pub(crate) fn builtin_window_cursor_info(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -1362,26 +1360,11 @@ pub(crate) fn builtin_window_cursor_info(
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("window-cursor-info", &args, 1)?;
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
-    let (_fid, wid) =
+    // The window argument is still validated via window-live-p so
+    // we get the GNU error shape on bad input.
+    let _ =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-
-    let cursor_type = frames.window_cursor_type(wid);
-    if cursor_type.is_nil() {
-        // GNU returns nil when `!w->phys_cursor_on_p`. The closest
-        // analogue we can compute today is "the window has cursor
-        // suppression on" which is the user setting `cursor-type`
-        // to nil per window.
-        return Ok(Value::NIL);
-    }
-
-    Ok(Value::vector(vec![
-        cursor_type,
-        Value::fixnum(-1),
-        Value::fixnum(-1),
-        Value::fixnum(-1),
-        Value::fixnum(-1),
-        Value::fixnum(-1),
-    ]))
+    Ok(Value::NIL)
 }
 
 /// Returns true if VALUE is a legal `cursor-type` per GNU
