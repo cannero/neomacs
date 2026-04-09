@@ -1527,6 +1527,22 @@ pub(crate) fn builtin_window_prev_sibling(
     Ok(window_prev_sibling_id(frame, wid).map_or(Value::NIL, window_value))
 }
 /// `(window-normal-size &optional WINDOW HORIZONTAL)` -> proportional size.
+///
+/// GNU `src/window.c::Fwindow_normal_size` returns the value of
+/// `w->normal_lines` (or `normal_cols` when HORIZONTAL is non-nil),
+/// which is a separate Lisp_Object slot that the resize machinery
+/// in `window-resize-apply` writes to. neomacs derives the ratio
+/// from pixel bounds because no `normal_lines` / `normal_cols`
+/// fields exist on `Window::Leaf` / `Window::Internal`.
+///
+/// This is mathematically equivalent for queries that immediately
+/// follow a `window-resize-apply` call (since neomacs's resize
+/// uses pixel bounds), but it loses fidelity when the Lisp side
+/// has set a normal-size that does not match the rendered pixel
+/// ratio — for example after `set-window-normal-size` followed
+/// by deferred application. Window audit Critical 7 in
+/// `drafts/window-system-audit.md` tracks adding the explicit
+/// fields and writing them from the resize path.
 pub(crate) fn builtin_window_normal_size(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -3224,6 +3240,25 @@ pub(crate) fn builtin_set_window_dedicated_p(
     Ok(Value::bool_val(flag))
 }
 /// `(windowp OBJ)` -> t if OBJ is a window object/designator that exists.
+///
+/// GNU `src/window.c::Fwindowp` is a pure type check on the
+/// Lisp value: `WINDOWP(obj)` checks the tag of the boxed Lisp
+/// object and returns immediately. neomacs walks the live frame
+/// manager because windows are stored as `WindowId(u64)` rather
+/// than as a tagged Lisp value, which means a window object that
+/// exists in the obarray but not in any frame's window tree
+/// returns `nil` here. Window audit Critical 6 in
+/// `drafts/window-system-audit.md` tracks adding a
+/// `VecLikeType::Window` so this becomes a tag check.
+///
+/// The semantic difference is observable in tests that hold a
+/// `Value` reference to a window, delete it, and then call
+/// `windowp` on the dangling reference. GNU returns `t` (it's
+/// still a window value, just not live); neomacs returns `nil`.
+/// `window-valid-p` and `window-live-p` correctly already test
+/// for liveness, so the divergence is restricted to the
+/// "exists at all" boundary that `windowp` is supposed to
+/// answer.
 pub(crate) fn builtin_windowp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let frames = &eval.frames;
     expect_args("windowp", &args, 1)?;

@@ -1336,6 +1336,26 @@ pub(crate) fn builtin_set_buffer_multibyte(
     Ok(args[0])
 }
 
+/// `(split-window-internal OLD PIXEL-SIZE SIDE NORMAL-SIZE &optional REFER)`
+///
+/// GNU `src/window.c::Fsplit_window_internal` honors all five
+/// arguments. The fourth argument NORMAL-SIZE seeds the new
+/// window's `normal_lines`/`normal_cols` slot so future
+/// proportional resizes preserve the requested ratio. The fifth
+/// argument REFER lets `set-window-configuration` revive a
+/// previously-deleted window by id, restoring its parameters,
+/// dedication, and history alists.
+///
+/// Window audit Critical 5 in `drafts/window-system-audit.md`:
+/// neomacs accepts both arguments for arity compatibility but
+/// drops them on the floor. NORMAL-SIZE is observable as soon as
+/// audit Critical 7 lands the per-window normal-size fields; REFER
+/// is observable when window.el's `display-buffer` falls back to
+/// reviving a deleted window inside `set-window-configuration`.
+///
+/// Both fixes are deferred until the structural prereqs land
+/// (per-window normal_lines/cols storage and a deleted-window
+/// revival registry).
 pub(crate) fn builtin_split_window_internal(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -1351,7 +1371,9 @@ pub(crate) fn builtin_split_window_internal(
         ));
     }
 
-    // NORMALIZE and REFER are accepted for arity compatibility and ignored in this subset.
+    // NORMAL-SIZE and REFER are accepted for arity compatibility
+    // and ignored — see the docstring above and window audit
+    // Critical 5 in drafts/window-system-audit.md.
     let _ = &args[3];
     if let Some(refer) = args.get(4) {
         let _ = refer;

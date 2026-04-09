@@ -192,6 +192,13 @@ pub enum Window {
         /// Pixel bounds within the frame.
         bounds: Rect,
         /// Character position of the first visible character.
+        ///
+        /// GNU stores this as a marker (`w->start`) so that
+        /// buffer edits before the start position auto-shift it.
+        /// neomacs uses a `usize` byte offset and patches it
+        /// manually. Window audit Critical 9 in
+        /// `drafts/window-system-audit.md` — see the matching
+        /// note on `point` below.
         window_start: usize,
         /// Offset of the last displayed character position from buffer `Z`.
         ///
@@ -208,6 +215,18 @@ pub enum Window {
         /// Whether the last completed redisplay recorded window-end state.
         window_end_valid: bool,
         /// Cursor (point) position in this window.
+        ///
+        /// GNU stores this as a marker (`w->pointm`, a
+        /// `Lisp_Marker`) so that buffer insertions before the
+        /// position auto-shift it. neomacs uses a `usize` byte
+        /// offset and patches it manually from the buffer edit
+        /// hooks. Window audit Critical 9 in
+        /// `drafts/window-system-audit.md`: any path that misses
+        /// the manual patching can leave a stale point that GNU
+        /// would have updated automatically. Converting to a
+        /// real marker is a multi-day cross-cutting change that
+        /// touches every read site, every edit hook, and the
+        /// pdump round-trip.
         point: usize,
         /// Previous point value mirrored from GNU `w->old_pointm`.
         old_point: usize,
