@@ -2031,6 +2031,75 @@ fn window_cursor_type_helpers_match_batch_defaults_and_set_get_semantics() {
     assert_eq!(out[2], "OK (wrong-type-argument wrong-type-argument)");
 }
 
+// Cursor audit Finding 2: window-cursor-info returns a vector of
+// length 6 instead of nil.
+//
+// Mirrors GNU src/window.c:8648-8716. The full GNU shape is
+// `[TYPE X Y WIDTH HEIGHT ASCENT]` and any field after TYPE may
+// legally be -1 when "the actual value is currently unavailable".
+// neomacs lacks per-window phys_cursor_* fields (cursor audit
+// Finding 4) so the geometry slots are -1 placeholders today, but
+// the TYPE slot is filled in correctly so Lisp code that introspects
+// (aref (window-cursor-info) 0) gets the right shape symbol back.
+#[test]
+fn window_cursor_info_returns_vector_with_cursor_type_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let out = ev
+        .eval_str_each(
+            "(progn
+               ;; Default cursor type is t (use buffer default).
+               (let ((info (window-cursor-info (selected-window))))
+                 (list (vectorp info)
+                       (length info)
+                       (aref info 0)
+                       (aref info 1))))",
+        )
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>();
+    assert_eq!(out[0], "OK (t 6 t -1)");
+}
+
+#[test]
+fn window_cursor_info_after_set_window_cursor_type_reflects_new_shape() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let out = ev
+        .eval_str_each(
+            "(progn
+               (set-window-cursor-type (selected-window) 'bar)
+               (let ((info (window-cursor-info (selected-window))))
+                 (list (aref info 0) (aref info 1) (length info))))",
+        )
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>();
+    assert_eq!(out[0], "OK (bar -1 6)");
+
+    // Reset to default.
+    let _ = ev.eval_str_each("(set-window-cursor-type (selected-window) t)");
+}
+
+#[test]
+fn window_cursor_info_returns_nil_when_cursor_type_is_nil() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let out = ev
+        .eval_str_each(
+            "(progn
+               (set-window-cursor-type (selected-window) nil)
+               (window-cursor-info (selected-window)))",
+        )
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>();
+    assert_eq!(out[0], "OK nil");
+
+    // Reset.
+    let _ = ev.eval_str_each("(set-window-cursor-type (selected-window) t)");
+}
+
 // Cursor audit Finding 3: set-window-cursor-type validates TYPE.
 //
 // Mirrors GNU src/window.c:8616-8627: TYPE must be one of

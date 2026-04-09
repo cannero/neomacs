@@ -6501,9 +6501,9 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "window-cursor-info",
-        |_ctx, args| super::window_cmds::builtin_window_cursor_info(args),
+        super::window_cmds::builtin_window_cursor_info,
         0,
-        None,
+        Some(1),
     );
     ctx.defsubr(
         "combine-windows",

@@ -2037,10 +2037,10 @@ pub(crate) fn builtin_window_discard_buffer_from_window(args: Vec<Value>) -> Eva
     Ok(Value::NIL)
 }
 
-pub(crate) fn builtin_window_cursor_info(args: Vec<Value>) -> EvalResult {
-    expect_range_args("window-cursor-info", &args, 0, 1)?;
-    Ok(Value::NIL)
-}
+// `window-cursor-info` is implemented in
+// `neovm-core/src/emacs_core/window_cmds/mod.rs::builtin_window_cursor_info`
+// (cursor audit Finding 2). The placeholder that lived here used to
+// return `nil` unconditionally.
 
 pub(crate) fn builtin_combine_windows(args: Vec<Value>) -> EvalResult {
     expect_args("combine-windows", &args, 2)?;
