@@ -855,6 +855,16 @@ impl HeapCore {
         self.collector.clone()
     }
 
+    /// Borrow the collector-state handle without cloning the
+    /// underlying `Arc`. Used by the hot allocation and
+    /// barrier paths where the handle is used immediately and
+    /// does not need to outlive the current stack frame. Each
+    /// saved clone avoids one atomic increment on the Arc
+    /// refcount.
+    pub(crate) fn collector_handle_ref(&self) -> &CollectorStateHandle {
+        &self.collector
+    }
+
     /// Build the list of global trace sources the collector
     /// walks alongside mutator roots. Mutator roots now live
     /// on per-mutator `MutatorLocal` instances; this helper

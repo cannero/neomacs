@@ -439,19 +439,22 @@ impl<'heap> CollectorRuntime<'heap> {
         let object_key = objects[index].object_key();
         let desc = objects[index].header().desc();
         indexes.record_allocated_object(object_key, index, desc);
-        let had_active_major_mark = self.heap.collector_handle().has_active_major_mark();
-        self.heap
-            .collector_handle()
-            .record_active_major_reachable_object_and_refresh(
-                self.heap.objects(),
-                &self.heap.indexes().object_index,
-                gc.erase(),
-                self.heap.config().old.mutator_assist_slices,
-                &self.heap.storage_stats(),
-                self.heap.old_gen(),
-                self.heap.old_config(),
-                |kind| self.heap.plan_for(kind),
-            )?;
+        // Borrow the collector handle once. Both calls below
+        // only need `&self` on the handle, so returning a
+        // reference instead of cloning the Arc saves one
+        // atomic increment on the hot allocation path.
+        let collector = self.heap.collector_handle_ref();
+        let had_active_major_mark = collector.has_active_major_mark();
+        collector.record_active_major_reachable_object_and_refresh(
+            self.heap.objects(),
+            &self.heap.indexes().object_index,
+            gc.erase(),
+            self.heap.config().old.mutator_assist_slices,
+            &self.heap.storage_stats(),
+            self.heap.old_gen(),
+            self.heap.old_config(),
+            |kind| self.heap.plan_for(kind),
+        )?;
         if !had_active_major_mark {
             self.heap.refresh_recommended_plans();
         }

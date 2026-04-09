@@ -472,7 +472,8 @@ impl<'heap> Mutator<'heap> {
             "cannot mutate heap edges while prepared full reclaim is active; finish the active full collection first"
         );
 
-        let active_major_mark = core.collector_handle().has_active_major_mark();
+        let collector = core.collector_handle_ref();
+        let active_major_mark = collector.has_active_major_mark();
         let record_satb = old_erased.is_some() && active_major_mark;
 
         core.bump_barrier_stats(BarrierKind::PostWrite);
@@ -494,7 +495,7 @@ impl<'heap> Mutator<'heap> {
             );
         }
 
-        core.collector_handle()
+        collector
             .record_active_major_post_write_and_refresh(
                 core.objects(),
                 &core.indexes().object_index,
