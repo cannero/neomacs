@@ -51,9 +51,39 @@ pub(crate) struct IteratedStringMatches {
 }
 
 thread_local! {
-    // Cache entry is (posix, case_fold, pattern, compiled). The key
-    // is extended with `posix` (audit #2) so a non-POSIX compile
-    // cannot silently satisfy a POSIX request or vice versa.
+    // Cache entry is (posix, case_fold, pattern, compiled).
+    //
+    // GNU `src/search.c:61` (`searchbuf_head`) uses a `regexp_cache`
+    // record keyed on:
+    //
+    //   - the pattern Lisp string,
+    //   - the buffer's syntax table (since `\sX`/`\<` etc. bake the
+    //     class membership into the bytecode),
+    //   - the `whitespace-regexp` transform flag,
+    //   - the `posix` flag,
+    //   - the `multibyte` flag,
+    //   - the translate table identity.
+    //
+    // Audit finding #15 in `drafts/regex-search-audit.md` calls out
+    // that neomacs's cache key is too narrow. For neomacs's current
+    // design the practical inputs collapse:
+    //
+    //   - We don't have buffer-local syntax table threading yet, so
+    //     every compiled pattern uses the standard table; tracking
+    //     identity adds nothing today (audit #8 will need this).
+    //   - We don't expose `whitespace-regexp`.
+    //   - The translate table is fully determined by `case_fold`
+    //     (we always compute the same table from
+    //     `to_lowercase()`), so `case_fold` suffices as a proxy for
+    //     translate identity until audit #5 lands a per-buffer
+    //     case-canon table.
+    //   - All neomacs strings are UTF-8 internally so there is no
+    //     separate `multibyte` axis to vary; switching it would
+    //     require an entire encoding-aware refactor.
+    //
+    // The cache key therefore tracks `(posix, case_fold, pattern)`
+    // which is GNU-equivalent for the current feature set. When
+    // audit #5 / #8 land, the key must be extended.
     static SEARCH_PATTERN_CACHE: RefCell<Vec<(bool, bool, String, CompiledSearchPattern)>> =
         const { RefCell::new(Vec::new()) };
 }
