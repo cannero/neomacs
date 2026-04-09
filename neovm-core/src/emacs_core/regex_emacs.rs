@@ -1248,68 +1248,21 @@ fn compile_charset(
             continue;
         }
 
-        // In GNU Emacs, backslash is NOT special inside [...].
-        // It's treated as a literal backslash character.
-        // However, NeoVM callers (from Rust) may pass \w, \s, \d
-        // inside [...] expecting them to work. We handle the most
-        // common cases but fall through to literal for unknown escapes.
-        if b == b'\\' && *p < plen {
-            let esc = pattern[*p];
-            match esc {
-                b'w' => {
-                    *p += 1;
-                    for ch in b'a'..=b'z' {
-                        set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, case_fold);
-                    }
-                    for ch in b'A'..=b'Z' {
-                        set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, case_fold);
-                    }
-                    for ch in b'0'..=b'9' {
-                        set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, false);
-                    }
-                    set_bitmap_bit(&mut buf.buffer, bitmap_start, b'_', false);
-                    last_char = None;
-                    continue;
-                }
-                b'W' => {
-                    *p += 1;
-                    for ch in 0u8..=127 {
-                        if !ch.is_ascii_alphanumeric() && ch != b'_' {
-                            set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, false);
-                        }
-                    }
-                    last_char = None;
-                    continue;
-                }
-                b's' if *p + 1 < plen => {
-                    let sc = pattern[*p + 1];
-                    if sc == b'-' || sc == b' ' {
-                        *p += 2;
-                        set_bitmap_bit(&mut buf.buffer, bitmap_start, b' ', false);
-                        set_bitmap_bit(&mut buf.buffer, bitmap_start, b'\t', false);
-                        set_bitmap_bit(&mut buf.buffer, bitmap_start, b'\n', false);
-                        set_bitmap_bit(&mut buf.buffer, bitmap_start, b'\r', false);
-                        set_bitmap_bit(&mut buf.buffer, bitmap_start, 0x0c, false);
-                        set_bitmap_bit(&mut buf.buffer, bitmap_start, 0x0b, false);
-                        last_char = None;
-                        continue;
-                    }
-                    // Fall through to treat \ as literal
-                }
-                b'd' => {
-                    *p += 1;
-                    for ch in b'0'..=b'9' {
-                        set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, false);
-                    }
-                    last_char = None;
-                    continue;
-                }
-                _ => {
-                    // In GNU Emacs, backslash inside [...] is literal.
-                    // Don't consume the next char — just set '\' bit.
-                }
-            }
-            // Treat backslash as literal character
+        // GNU `regex-emacs.c` treats backslash as a literal character
+        // inside a bracket expression: the parser at lines 2055-2140
+        // has no escape handling in the `[...]` loop, so `[\w]` is
+        // the character class containing `\` and `w`, and `\n` is
+        // the class containing `\` and `n`. Users who want a word
+        // character class inside a bracket expression must use the
+        // POSIX class `[[:word:]]`.
+        //
+        // Earlier versions of this file carried a workaround that
+        // expanded `\w`, `\W`, `\s-`, `\d`, `\D` to their out-of-
+        // bracket meanings for the convenience of Rust callers, at
+        // the cost of diverging from GNU. That divergence is audit
+        // finding #10 in `drafts/regex-search-audit.md`; it has
+        // been removed.
+        if b == b'\\' {
             set_bitmap_bit(&mut buf.buffer, bitmap_start, b'\\', case_fold);
             last_char = Some('\\');
             continue;

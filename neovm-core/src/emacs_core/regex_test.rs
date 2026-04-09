@@ -358,21 +358,77 @@ fn string_match_control_escape_uses_backref_engine_semantics() {
     assert_eq!(md.groups[0], Some((0, 3)));
 }
 
+// Regex audit #10: backslash is LITERAL inside a bracket expression
+// in GNU `regex-emacs.c` (see the charset parser at lines 2055-2140,
+// which has no escape handling). Before the fix neomacs expanded
+// `\w`, `\W`, `\s-`, `\d`, `\D` inside `[...]` to their out-of-
+// bracket meanings, and these tests asserted that divergent
+// behavior. They now assert the GNU meaning. For the union-with-dash
+// that the old tests were really trying to express, use the POSIX
+// class form as shown in the `posix_class_*` tests added for
+// audit #7. Verified with GNU Emacs 31.0.50:
+//
+//   (string-match "[\\w-]+" "foo-bar!") => 3
+//   (string-match "[\\s-]+" " \tfoo")   => nil
+//   (string-match "[[:word:]-]+" "foo-bar!") => 0
 #[test]
-fn string_match_char_class_word_escape_uses_backref_engine_semantics() {
+fn string_match_backslash_w_in_charset_is_literal_like_gnu() {
     crate::test_utils::init_test_tracing();
+    // `[\w-]+` is the set {`\`, `w`, `-`}. Against "foo-bar!" the
+    // first character in that set is the `-` at position 3.
     let mut md = None;
     let result = string_match_full_with_case_fold("[\\w-]+", "foo-bar!", 0, false, &mut md);
+    assert_eq!(result, Ok(Some(3)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((3, 4)));
+}
+
+#[test]
+fn string_match_backslash_w_in_charset_matches_literal_backslash_and_w() {
+    crate::test_utils::init_test_tracing();
+    // Sanity: `[\w]` matches a literal `\` or `w`.
+    let mut md = None;
+    let result = string_match_full_with_case_fold("[\\w]", "w", 0, false, &mut md);
+    assert_eq!(result, Ok(Some(0)));
+
+    let mut md = None;
+    let result = string_match_full_with_case_fold("[\\w]", "\\", 0, false, &mut md);
+    assert_eq!(result, Ok(Some(0)));
+
+    // A char that is neither `\` nor `w` must not match.
+    let mut md = None;
+    let result = string_match_full_with_case_fold("[\\w]", "a", 0, false, &mut md);
+    assert_eq!(result, Ok(None));
+}
+
+#[test]
+fn string_match_backslash_s_in_charset_is_literal_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    // `[\s-]+` is the set {`\`, `s`, `-`}. " \tfoo" contains none of
+    // those at any position, so GNU returns nil.
+    let mut md = None;
+    let result = string_match_full_with_case_fold("[\\s-]+", " \tfoo", 0, false, &mut md);
+    assert_eq!(result, Ok(None));
+}
+
+// The POSIX-class form is the GNU-sanctioned replacement for the
+// old `[\w-]+` / `[\s-]+` workaround patterns. These tests document
+// the supported way to express the same intent.
+#[test]
+fn string_match_posix_word_class_with_dash_range_matches_identifiers() {
+    crate::test_utils::init_test_tracing();
+    let mut md = None;
+    let result = string_match_full_with_case_fold("[[:word:]-]+", "foo-bar!", 0, false, &mut md);
     assert_eq!(result, Ok(Some(0)));
     let md = md.expect("match data");
     assert_eq!(md.groups[0], Some((0, 7)));
 }
 
 #[test]
-fn string_match_char_class_syntax_escape_uses_backref_engine_semantics() {
+fn string_match_posix_space_class_with_dash_range_matches_whitespace_runs() {
     crate::test_utils::init_test_tracing();
     let mut md = None;
-    let result = string_match_full_with_case_fold("[\\s-]+", " \tfoo", 0, false, &mut md);
+    let result = string_match_full_with_case_fold("[[:space:]-]+", " \tfoo", 0, false, &mut md);
     assert_eq!(result, Ok(Some(0)));
     let md = md.expect("match data");
     assert_eq!(md.groups[0], Some((0, 2)));
