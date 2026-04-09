@@ -129,8 +129,14 @@ fn line_start_at_or_before(source: &str, at: usize) -> usize {
     }
 }
 
+/// Route symbol-value reads through the full GNU lookup path so
+/// LOCALIZED BLV / FORWARDED slot / specpdl let-binding state is
+/// observed. See the extended comment on the identical helper in
+/// `builtins/misc_eval.rs` (audit finding #3 in
+/// `drafts/regex-search-audit.md`).
 fn dynamic_or_global_symbol_value(eval: &super::eval::Context, name: &str) -> Option<Value> {
-    eval.obarray.symbol_value(name).cloned()
+    let id = crate::emacs_core::intern::intern(name);
+    eval.eval_symbol_by_id(id).ok()
 }
 
 fn buffer_read_only_active(eval: &super::eval::Context, buf: &Buffer) -> bool {

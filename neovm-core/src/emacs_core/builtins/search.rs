@@ -6,6 +6,22 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
 // Search / Regex builtins (evaluator-dependent)
 // ===========================================================================
 
+/// GNU `search.c:282, 376, 1168, 2053` — every search path reads
+/// `Vinhibit_changing_match_data` at the top:
+///
+///     bool modify_match_data = NILP (Vinhibit_changing_match_data)
+///                              && modify_data;
+///
+/// When the variable is non-nil, the match data must stay pinned to
+/// its prior state across the search. Returns `true` when the
+/// variable is currently set (i.e. do NOT modify match data).
+/// Routes through `dynamic_or_global_symbol_value` so let-bindings
+/// and per-buffer overrides are observed, matching the audit #3 fix.
+fn read_inhibit_changing_match_data(eval: &super::eval::Context) -> bool {
+    dynamic_or_global_symbol_value(eval, "inhibit-changing-match-data")
+        .is_some_and(|v| !v.is_nil())
+}
+
 pub(crate) fn builtin_search_forward(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -13,7 +29,18 @@ pub(crate) fn builtin_search_forward(
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
         .map(|v| !v.is_nil())
         .unwrap_or(true);
-    builtin_search_forward_with_state(case_fold, &mut eval.buffers, &mut eval.match_data, &args)
+    let inhibit_changing = read_inhibit_changing_match_data(eval);
+    // GNU search.c:1168 — `search_buffer_non_re` checks
+    // `preserve_match_data = NILP(Vinhibit_changing_match_data)` at
+    // the top. When set, the search runs against a throwaway
+    // match-data slot so the evaluator's match data is untouched.
+    let mut throwaway: Option<super::regex::MatchData> = None;
+    let md_slot: &mut Option<super::regex::MatchData> = if inhibit_changing {
+        &mut throwaway
+    } else {
+        &mut eval.match_data
+    };
+    builtin_search_forward_with_state(case_fold, &mut eval.buffers, md_slot, &args)
 }
 
 pub(crate) fn builtin_search_forward_with_state(
@@ -267,7 +294,14 @@ pub(crate) fn builtin_search_backward(
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
         .map(|v| !v.is_nil())
         .unwrap_or(true);
-    builtin_search_backward_with_state(case_fold, &mut eval.buffers, &mut eval.match_data, &args)
+    let inhibit_changing = read_inhibit_changing_match_data(eval);
+    let mut throwaway: Option<super::regex::MatchData> = None;
+    let md_slot: &mut Option<super::regex::MatchData> = if inhibit_changing {
+        &mut throwaway
+    } else {
+        &mut eval.match_data
+    };
+    builtin_search_backward_with_state(case_fold, &mut eval.buffers, md_slot, &args)
 }
 
 pub(crate) fn builtin_search_backward_with_state(
@@ -328,7 +362,14 @@ pub(crate) fn builtin_re_search_forward(
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
         .map(|v| !v.is_nil())
         .unwrap_or(true);
-    builtin_re_search_forward_with_state(case_fold, &mut eval.buffers, &mut eval.match_data, &args)
+    let inhibit_changing = read_inhibit_changing_match_data(eval);
+    let mut throwaway: Option<super::regex::MatchData> = None;
+    let md_slot: &mut Option<super::regex::MatchData> = if inhibit_changing {
+        &mut throwaway
+    } else {
+        &mut eval.match_data
+    };
+    builtin_re_search_forward_with_state(case_fold, &mut eval.buffers, md_slot, &args)
 }
 
 pub(crate) fn builtin_re_search_forward_with_state(
@@ -394,7 +435,14 @@ pub(crate) fn builtin_re_search_backward(
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
         .map(|v| !v.is_nil())
         .unwrap_or(true);
-    builtin_re_search_backward_with_state(case_fold, &mut eval.buffers, &mut eval.match_data, &args)
+    let inhibit_changing = read_inhibit_changing_match_data(eval);
+    let mut throwaway: Option<super::regex::MatchData> = None;
+    let md_slot: &mut Option<super::regex::MatchData> = if inhibit_changing {
+        &mut throwaway
+    } else {
+        &mut eval.match_data
+    };
+    builtin_re_search_backward_with_state(case_fold, &mut eval.buffers, md_slot, &args)
 }
 
 pub(crate) fn builtin_re_search_backward_with_state(
@@ -507,7 +555,18 @@ pub(crate) fn builtin_looking_at(eval: &mut super::eval::Context, args: Vec<Valu
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
         .map(|v| !v.is_nil())
         .unwrap_or(true);
-    builtin_looking_at_with_state(case_fold, &eval.buffers, &mut eval.match_data, &args)
+    let inhibit_changing = read_inhibit_changing_match_data(eval);
+    // GNU search.c:282 `bool modify_match_data = NILP(Vinhibit_changing_match_data) && modify_data`
+    // — when the global is set, route the search through a throwaway
+    // match-data slot so neither the per-buffer match_data nor any
+    // match data stored on the evaluator changes.
+    let mut throwaway: Option<super::regex::MatchData> = None;
+    let md_slot: &mut Option<super::regex::MatchData> = if inhibit_changing {
+        &mut throwaway
+    } else {
+        &mut eval.match_data
+    };
+    builtin_looking_at_with_state(case_fold, &eval.buffers, md_slot, &args)
 }
 
 pub(crate) fn builtin_looking_at_with_state(
@@ -572,7 +631,14 @@ pub(crate) fn builtin_posix_looking_at(
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
         .map(|v| !v.is_nil())
         .unwrap_or(true);
-    builtin_posix_looking_at_with_state(case_fold, &eval.buffers, &mut eval.match_data, &args)
+    let inhibit_changing = read_inhibit_changing_match_data(eval);
+    let mut throwaway: Option<super::regex::MatchData> = None;
+    let md_slot: &mut Option<super::regex::MatchData> = if inhibit_changing {
+        &mut throwaway
+    } else {
+        &mut eval.match_data
+    };
+    builtin_posix_looking_at_with_state(case_fold, &eval.buffers, md_slot, &args)
 }
 
 pub(crate) fn builtin_posix_looking_at_with_state(
@@ -654,7 +720,14 @@ pub(crate) fn builtin_string_match(
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
         .map(|v| !v.is_nil())
         .unwrap_or(true);
-    builtin_string_match_with_state(case_fold, &mut eval.match_data, &args)
+    let inhibit_changing = read_inhibit_changing_match_data(eval);
+    let mut throwaway: Option<super::regex::MatchData> = None;
+    let md_slot: &mut Option<super::regex::MatchData> = if inhibit_changing {
+        &mut throwaway
+    } else {
+        &mut eval.match_data
+    };
+    builtin_string_match_with_state(case_fold, md_slot, &args)
 }
 
 pub(crate) fn builtin_posix_string_match_with_state(
@@ -726,7 +799,14 @@ pub(crate) fn builtin_posix_string_match(
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
         .map(|v| !v.is_nil())
         .unwrap_or(true);
-    builtin_posix_string_match_with_state(case_fold, &mut eval.match_data, &args)
+    let inhibit_changing = read_inhibit_changing_match_data(eval);
+    let mut throwaway: Option<super::regex::MatchData> = None;
+    let md_slot: &mut Option<super::regex::MatchData> = if inhibit_changing {
+        &mut throwaway
+    } else {
+        &mut eval.match_data
+    };
+    builtin_posix_string_match_with_state(case_fold, md_slot, &args)
 }
 
 pub(crate) fn builtin_match_string(

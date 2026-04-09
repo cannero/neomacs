@@ -369,8 +369,15 @@ fn replace_regexp_in_string_core(
     Ok(Value::string(out))
 }
 
+/// Route symbol-value reads through the full GNU lookup path so
+/// LOCALIZED BLV / FORWARDED slot / specpdl let-binding state is
+/// observed. Mirrors `find_symbol_value` at GNU `src/data.c:1584-1609`.
+/// See the extended comment on the identical helper in
+/// `builtins/misc_eval.rs` (audit finding #3 in
+/// `drafts/regex-search-audit.md`).
 fn dynamic_or_global_symbol_value(eval: &super::eval::Context, name: &str) -> Option<Value> {
-    eval.obarray.symbol_value(name).cloned()
+    let id = crate::emacs_core::intern::intern(name);
+    eval.eval_symbol_by_id(id).ok()
 }
 
 pub(crate) fn builtin_replace_regexp_in_string(

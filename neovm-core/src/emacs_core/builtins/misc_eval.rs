@@ -559,11 +559,34 @@ pub(crate) fn builtin_eval(eval: &mut super::eval::Context, args: Vec<Value>) ->
 // Misc builtins
 // ===========================================================================
 
+/// Resolve a symbol's current value in the current-buffer scope,
+/// honoring lexical environment, LOCALIZED BLV state, FORWARDED
+/// BUFFER_OBJFWD slots, and active specpdl let-bindings.
+///
+/// Mirrors GNU `find_symbol_value` at `src/data.c:1584-1609`, which
+/// walks the symbol's redirect chain, dispatches LOCALIZED via
+/// `swap_in_symval_forwarding`, and reads FORWARDED via
+/// `do_symval_forwarding`. Previously this helper called
+/// `obarray.symbol_value(name)` directly, which returns the
+/// BLV default cell unconditionally for `SymbolValue::BufferLocal`
+/// — silently ignoring `(setq-local VAR VAL)`, `(let ((VAR VAL)) …)`,
+/// and any per-buffer override. That divergence was audit finding
+/// #3 in `drafts/regex-search-audit.md` and caused `case-fold-search`,
+/// `search-upper-case`, `case-replace`, and every other buffer-local
+/// search variable to ignore user overrides.
+///
+/// This implementation routes through `Context::eval_symbol_by_id`,
+/// which goes through the full GNU lookup: lexenv → alias resolve
+/// → LOCALIZED `read_localized` → buffer-local-binding → FORWARDED
+/// `buffer_defaults` → obarray `find_symbol_value`. Any `Err`
+/// (void-variable) is normalized to `None` for the legacy
+/// `Option`-returning callsites.
 pub(super) fn dynamic_or_global_symbol_value(
     eval: &super::eval::Context,
     name: &str,
 ) -> Option<Value> {
-    eval.obarray.symbol_value(name).cloned()
+    let id = crate::emacs_core::intern::intern(name);
+    eval.eval_symbol_by_id(id).ok()
 }
 
 pub(super) fn dynamic_or_global_symbol_value_in_state(

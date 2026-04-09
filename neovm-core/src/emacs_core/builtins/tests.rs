@@ -6583,6 +6583,166 @@ fn looking_at_p_respects_case_fold_search() {
     assert!(insensitive_p.is_truthy());
 }
 
+/// Regression for `drafts/regex-search-audit.md` finding #3: the
+/// search builtins must honor per-buffer overrides of
+/// `case-fold-search`. Before the fix, the helper
+/// `dynamic_or_global_symbol_value` called
+/// `obarray.symbol_value("case-fold-search")` which returns the BLV
+/// default cell for `SymbolValue::BufferLocal`, silently ignoring the
+/// current buffer's per-buffer binding. The fix routes the read
+/// through `eval_symbol_by_id`, which walks lexenv → alias →
+/// LOCALIZED `read_localized` (with BLV swap-in to the current
+/// buffer's valcell) → buffer-local → FORWARDED → global, mirroring
+/// GNU `find_symbol_value` at `src/data.c:1584-1609`.
+///
+/// Scenario: the global default of `case-fold-search` stays `t`
+/// while the current buffer has a per-buffer binding of `nil` via
+/// `(setq-local case-fold-search nil)`. With the broken helper, the
+/// search reads the default (`t`) and matches case-insensitively;
+/// with the fix it reads the per-buffer binding (`nil`) and matches
+/// case-sensitively.
+#[test]
+fn looking_at_honors_per_buffer_case_fold_search() {
+    crate::test_utils::init_test_tracing();
+    use crate::emacs_core::eval::Context;
+
+    let mut eval = Context::new();
+    {
+        let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
+        buffer.insert("A");
+        buffer.goto_char(0);
+    }
+
+    // Confirm the global default is t.
+    eval.set_variable("case-fold-search", Value::T);
+
+    // Install a per-buffer binding of nil in the current buffer.
+    // `setq-local` is a macro not defined in a bare `Context::new()`,
+    // so expand it by hand: `make-local-variable` then `set`.
+    let make_local = Value::list(vec![
+        Value::symbol("make-local-variable"),
+        Value::list(vec![Value::symbol("quote"), Value::symbol("case-fold-search")]),
+    ]);
+    eval.eval_value(&make_local).expect("make-local-variable");
+    let set_form = Value::list(vec![
+        Value::symbol("set"),
+        Value::list(vec![Value::symbol("quote"), Value::symbol("case-fold-search")]),
+        Value::NIL,
+    ]);
+    eval.eval_value(&set_form)
+        .expect("set case-fold-search nil (per-buffer)");
+
+    // With the per-buffer binding in place, looking-at "a" against
+    // "A" must fail (case-sensitive match, no hit).
+    let result = builtin_looking_at(&mut eval, vec![Value::string("a"), Value::NIL])
+        .expect("looking-at after setq-local");
+    assert!(
+        result.is_nil(),
+        "per-buffer case-fold-search=nil should make pattern case-sensitive; got {:?}",
+        result,
+    );
+
+    // And `default-value` should still report the global default
+    // (`t`), verifying our per-buffer binding didn't leak into the
+    // default cell.
+    let default_form = Value::list(vec![
+        Value::symbol("default-value"),
+        Value::list(vec![Value::symbol("quote"), Value::symbol("case-fold-search")]),
+    ]);
+    let default_val = eval
+        .eval_value(&default_form)
+        .expect("default-value case-fold-search");
+    assert!(
+        default_val.is_truthy(),
+        "default-value should remain t; got {:?}",
+        default_val,
+    );
+}
+
+/// Regression for `drafts/regex-search-audit.md` finding #4:
+/// `inhibit-changing-match-data` was documented by GNU but never
+/// read anywhere in our source. GNU `src/search.c:282, 376, 1168,
+/// 2053` all start with
+///
+///     bool modify_match_data = NILP (Vinhibit_changing_match_data)
+///                              && modify_data;
+///
+/// so when the variable is non-nil the search runs against a
+/// throwaway match-data slot and the caller's match data stays
+/// frozen. The Rust fix: every Context-facing search wrapper
+/// (`looking-at`, `search-forward`, `re-search-forward`, etc.)
+/// checks the variable via `read_inhibit_changing_match_data` and
+/// redirects `match_data` to a local throwaway when set.
+///
+/// Scenario: run `re-search-forward` twice. The first call (with
+/// the variable nil) primes `eval.match_data` to match `"a"`. The
+/// second call (with the variable non-nil) runs against `"b"` in
+/// the same buffer; without the fix, this clobbers `eval.match_data`
+/// to the new match. With the fix, the new search result is not
+/// stored — `eval.match_data` still points at the `"a"` match.
+#[test]
+fn re_search_forward_honors_inhibit_changing_match_data() {
+    crate::test_utils::init_test_tracing();
+    use crate::emacs_core::eval::Context;
+
+    let mut eval = Context::new();
+    {
+        let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
+        buffer.insert("axxxxb");
+        buffer.goto_char(0);
+    }
+    eval.set_variable("case-fold-search", Value::T);
+    eval.set_variable("inhibit-changing-match-data", Value::NIL);
+
+    // Prime match data with a successful "a" search. The exact
+    // numeric form of `match_data.groups[0]` is an internal detail
+    // (1-based marker span over bytes); we only need a reference
+    // snapshot to compare against after the second search.
+    let first = builtin_re_search_forward(
+        &mut eval,
+        vec![Value::string("a")],
+    )
+    .expect("first re-search-forward 'a'");
+    // Marker positions are 1-based in our match_data layout, so the
+    // char position after the "a" match at buffer head is 2.
+    assert_eq!(first.as_fixnum(), Some(2), "point should be after 'a'");
+    let primed_span = eval
+        .match_data
+        .as_ref()
+        .and_then(|md| md.groups.first().copied().flatten())
+        .expect("match data should be populated after a successful search");
+
+    // Set the global and move point back to the start.
+    eval.set_variable("inhibit-changing-match-data", Value::T);
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("scratch");
+        buf.goto_char(0);
+    }
+
+    // Run a fresh search against "b" — the evaluator's match_data
+    // must NOT update. The return value of re-search-forward is
+    // still the character position of the match (GNU `search.c:422`
+    // documents the return being independent of match-data update).
+    let second = builtin_re_search_forward(
+        &mut eval,
+        vec![Value::string("b")],
+    )
+    .expect("second re-search-forward 'b' with inhibit set");
+    assert_eq!(second.as_fixnum(), Some(7), "search still returns position");
+
+    let span_after_second = eval
+        .match_data
+        .as_ref()
+        .and_then(|md| md.groups.first().copied().flatten())
+        .expect("match data snapshot after second search");
+    assert_eq!(
+        span_after_second, primed_span,
+        "inhibit-changing-match-data=t should freeze match_data at the 'a' span; \
+         expected {:?}, got {:?}",
+        primed_span, span_after_second,
+    );
+}
+
 #[test]
 fn dispatch_builtin_resolves_typed_only_pure_names() {
     crate::test_utils::init_test_tracing();

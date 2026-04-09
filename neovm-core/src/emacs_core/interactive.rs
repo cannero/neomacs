@@ -1164,8 +1164,14 @@ fn interactive_u_arg(context: &mut InteractiveInvocationContext) -> Value {
         .unwrap_or(Value::NIL)
 }
 
+/// Route symbol-value reads through the full GNU lookup path so
+/// LOCALIZED BLV / FORWARDED slot / specpdl let-binding state is
+/// observed. See the extended comment on the identical helper in
+/// `builtins/misc_eval.rs` (audit finding #3 in
+/// `drafts/regex-search-audit.md`).
 fn dynamic_or_global_symbol_value(eval: &Context, name: &str) -> Option<Value> {
-    eval.obarray.symbol_value(name).cloned()
+    let id = crate::emacs_core::intern::intern(name);
+    eval.eval_symbol_by_id(id).ok()
 }
 
 fn dynamic_or_global_symbol_value_in_state(
