@@ -800,6 +800,37 @@ pub struct KBoard {
     /// handle that `open-dribble-file` opens and
     /// `record_input_event` writes to. Keyboard audit Finding 11.
     dribble: Option<std::fs::File>,
+    /// Recursion guard for `input-method-function`. GNU
+    /// `keyboard.c` uses the `immediate_echo` flag to suppress
+    /// re-entry; we use a dedicated bool so an input-method that
+    /// calls `read-event` recursively does not re-translate the
+    /// character it was given. Keyboard audit Finding 10.
+    pub in_input_method_function: bool,
+    /// Last mouse down event seen by the event-ingest path. GNU
+    /// `keyboard.c:6041-6130` (`make_lispy_event` / the
+    /// `button_down_time` / `last_mouse_click` globals) tracks
+    /// the previous click's button, position, frame, and
+    /// timestamp so it can compute the click count for
+    /// `double-click-time` / `double-click-fuzz` comparisons.
+    /// Keyboard audit Finding 12.
+    pub last_mouse_click: Option<LastMouseClick>,
+}
+
+/// Snapshot of the most recent mouse click used for double/triple
+/// click detection. Mirrors the GNU `button_down_info` bundle.
+/// Keyboard audit Finding 12.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LastMouseClick {
+    pub button: MouseButton,
+    pub x: f32,
+    pub y: f32,
+    pub frame_id: u64,
+    pub timestamp: std::time::Instant,
+    /// Sequential click count: 1 = single, 2 = double, 3 = triple.
+    /// Reset to 1 whenever a click falls outside
+    /// `double-click-time` / `double-click-fuzz` of the previous
+    /// click. Capped at 3.
+    pub click_count: u32,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -831,6 +862,8 @@ impl KBoard {
             kbd_macro_index: 0,
             executing_kbd_macro_iterations: 0,
             dribble: None,
+            in_input_method_function: false,
+            last_mouse_click: None,
         }
     }
 
@@ -1478,6 +1511,17 @@ pub struct CommandLoop {
     idle_start_time: Option<std::time::Instant>,
     /// Last idle epoch preserved across non-user internal events.
     last_idle_start_time: Option<std::time::Instant>,
+    /// Number of non-macro input events that have been read by the
+    /// command loop. Mirrors GNU `num_nonmacro_input_events` at
+    /// `src/keyboard.c:106`, which is incremented from
+    /// `record_char` whenever the event did *not* come from an
+    /// executing keyboard macro. Used by the `auto-save-interval`
+    /// check in `command_loop_1` (audit Finding 9).
+    pub num_nonmacro_input_events: u64,
+    /// Value of `num_nonmacro_input_events` the last time an
+    /// auto-save fired from the command loop. GNU tracks this in
+    /// the global `last_auto_save` at `src/keyboard.c:107`.
+    pub last_auto_save_input_events: u64,
 }
 
 impl CommandLoop {
@@ -1493,6 +1537,8 @@ impl CommandLoop {
             inhibit_quit: false,
             idle_start_time: None,
             last_idle_start_time: None,
+            num_nonmacro_input_events: 0,
+            last_auto_save_input_events: 0,
         }
     }
 
@@ -1547,6 +1593,15 @@ impl CommandLoop {
     }
 
     pub fn record_input_event(&mut self, event: Value) {
+        // GNU `src/keyboard.c:11168-11175` (record_char) increments
+        // `num_nonmacro_input_events` only when the event did not
+        // come from an executing keyboard macro. We mirror that
+        // here so the command_loop_1 auto-save check (audit
+        // Finding 9) sees the same counter GNU does.
+        if self.keyboard.kboard.executing_kbd_macro.is_none() {
+            self.num_nonmacro_input_events =
+                self.num_nonmacro_input_events.saturating_add(1);
+        }
         self.keyboard.record_input_event(event);
     }
 
@@ -2157,6 +2212,77 @@ impl crate::emacs_core::eval::Context {
         false
     }
 
+    /// Invoke `input-method-function` on a just-read character
+    /// event. Returns `Ok(true)` when the character was consumed
+    /// by the input method (the translated events are now on the
+    /// `unread-command-events` queue and the caller should drop
+    /// the original event from the current key sequence), or
+    /// `Ok(false)` when the input method did not apply (no
+    /// function bound, non-character event, or function returned
+    /// a result that should flow through as-is).
+    ///
+    /// Mirrors GNU `keyboard.c:2707-2770`: when
+    /// `input-method-function` is non-nil and the event is a
+    /// printable character, call it with the character and
+    /// re-route the returned list of events via
+    /// `unread-command-events`.
+    ///
+    /// Keyboard audit Finding 10.
+    fn maybe_apply_input_method_function(
+        &mut self,
+        event: Value,
+    ) -> Result<bool, crate::emacs_core::error::Flow> {
+        // Only translate ordinary printable characters. GNU
+        // skips non-character events (function keys, mouse,
+        // etc.) and the NUL byte. We apply the same filter.
+        let Some(c) = event.as_fixnum() else {
+            return Ok(false);
+        };
+        if c <= 0 || c >= 0x3fff_ff {
+            return Ok(false);
+        }
+
+        let im_fn = self
+            .eval_symbol("input-method-function")
+            .unwrap_or(Value::NIL);
+        if im_fn.is_nil() {
+            return Ok(false);
+        }
+
+        // Guard against recursive input-method invocation. GNU
+        // uses the `immediate_echo` flag; we use a dedicated bool
+        // on CommandLoop so a pathological input-method that
+        // re-reads input via `read-event` does not re-enter.
+        if self.command_loop.keyboard.kboard.in_input_method_function {
+            return Ok(false);
+        }
+        self.command_loop.keyboard.kboard.in_input_method_function = true;
+        let call_result = self.apply(im_fn, vec![event]);
+        self.command_loop.keyboard.kboard.in_input_method_function = false;
+        let result = call_result?;
+
+        // A nil or empty-list result drops the event. A cons
+        // list is a queue of events to be re-read. Any other
+        // value is treated as a single event replacement.
+        let events: Vec<Value> = if result.is_nil() {
+            Vec::new()
+        } else if result.is_cons() {
+            crate::emacs_core::value::list_to_vec(&result).unwrap_or_else(|| vec![result])
+        } else {
+            vec![result]
+        };
+
+        // Prepend onto `unread-command-events` in reverse so the
+        // first translated event ends up at the head of the
+        // queue. `push_unread_command_event` is itself a
+        // prepending operation.
+        for ev in events.into_iter().rev() {
+            self.push_unread_command_event(ev);
+        }
+
+        Ok(true)
+    }
+
     /// Dispatch `prefix-help-command` via `call-interactively`,
     /// abandoning the current key sequence. Returns `Ok(Some(..))`
     /// when the help command ran (the read_key_sequence caller
@@ -2690,6 +2816,38 @@ impl crate::emacs_core::eval::Context {
                         return Ok(result);
                     }
                 }
+
+                // Keyboard audit Finding 10: input-method-function.
+                // GNU `keyboard.c:2707-2770` in `read_char`: when
+                // we just read a printable character at the start
+                // of a key sequence and `input-method-function`
+                // is bound, call it to let quail/robin/etc.
+                // translate the character into a (possibly empty)
+                // list of events. The translated events are
+                // re-queued via `unread-command-events` and the
+                // read_key_sequence loop re-reads from the top.
+                //
+                // We only fire at sequence start — GNU gates on
+                // `!current_kboard->immediate_echo` which is
+                // effectively the same condition, because a
+                // key-sequence in progress has already been
+                // echoed. Mid-sequence characters go straight
+                // through to keymap lookup untranslated.
+                if self
+                    .command_loop
+                    .keyboard
+                    .kboard
+                    .current_key_sequence
+                    .raw_events()
+                    .len()
+                    == 1
+                    && self.maybe_apply_input_method_function(emacs_event)?
+                {
+                    self.command_loop.reset_key_sequence();
+                    replay_current_sequence = false;
+                    shift_translation = None;
+                    continue;
+                }
             }
 
             let translation = match self.apply_translation_maps_to_current_key_sequence(options) {
@@ -3015,13 +3173,28 @@ impl crate::emacs_core::eval::Context {
                 target_frame_id,
             } => {
                 self.clear_current_message();
+                // Keyboard audit Finding 12: compute the click
+                // count for this press based on the previous
+                // click state and update `last_mouse_click` so
+                // the matching release can read the same count.
+                // Mirrors GNU `keyboard.c:6041-6130`.
+                let click_count = self.classify_mouse_click_on_press(
+                    button,
+                    x,
+                    y,
+                    target_frame_id,
+                );
+                let prefix = Self::mouse_event_prefix_for_click_count(
+                    "down-mouse",
+                    click_count,
+                );
                 let event = Self::make_mouse_event(
                     &button,
                     x,
                     y,
                     target_frame_id,
                     &modifiers,
-                    "down-mouse",
+                    &prefix,
                     self,
                 );
                 self.command_loop.store_kbd_macro_event(event);
@@ -3034,13 +3207,28 @@ impl crate::emacs_core::eval::Context {
                 target_frame_id,
             } => {
                 self.clear_current_message();
+                // Use the click count recorded on the matching
+                // press so the release event carries the same
+                // double/triple modifier. Keyboard audit F12.
+                let click_count = self
+                    .command_loop
+                    .keyboard
+                    .kboard
+                    .last_mouse_click
+                    .filter(|state| state.button == button)
+                    .map(|state| state.click_count)
+                    .unwrap_or(1);
+                let prefix = Self::mouse_event_prefix_for_click_count(
+                    "mouse",
+                    click_count,
+                );
                 let event = Self::make_mouse_event(
                     &button,
                     x,
                     y,
                     target_frame_id,
                     &Modifiers::none(),
-                    "mouse",
+                    &prefix,
                     self,
                 );
                 self.command_loop.store_kbd_macro_event(event);
@@ -3470,6 +3658,76 @@ impl crate::emacs_core::eval::Context {
     ///
     /// Returns `(EVENT-SYMBOL POSITION)` where EVENT-SYMBOL is e.g.
     /// `mouse-1`, `down-mouse-2`, `C-mouse-1`, etc.
+    /// Compute the click-count for a just-received
+    /// MousePress event and update `KBoard.last_mouse_click`.
+    /// Returns the 1-based click count (1 = single, 2 = double,
+    /// 3 = triple). Subsequent clicks beyond triple saturate at
+    /// 3, matching GNU `keyboard.c:6120-6128` where the count
+    /// wraps via `min (3, ...)`. Keyboard audit Finding 12.
+    fn classify_mouse_click_on_press(
+        &mut self,
+        button: MouseButton,
+        x: f32,
+        y: f32,
+        frame_id: u64,
+    ) -> u32 {
+        let now = std::time::Instant::now();
+        let double_click_time_ms = self
+            .eval_symbol("double-click-time")
+            .ok()
+            .and_then(|v| v.as_fixnum())
+            .filter(|&n| n > 0)
+            .map(|n| n as u64)
+            .unwrap_or(500);
+        let double_click_fuzz = self
+            .eval_symbol("double-click-fuzz")
+            .ok()
+            .and_then(|v| v.as_fixnum())
+            .filter(|&n| n >= 0)
+            .map(|n| n as f32)
+            .unwrap_or(3.0);
+
+        let count = match self.command_loop.keyboard.kboard.last_mouse_click {
+            Some(prev)
+                if prev.button == button
+                    && prev.frame_id == frame_id
+                    && (prev.x - x).abs() <= double_click_fuzz
+                    && (prev.y - y).abs() <= double_click_fuzz
+                    && now
+                        .saturating_duration_since(prev.timestamp)
+                        .as_millis()
+                        <= double_click_time_ms as u128 =>
+            {
+                (prev.click_count + 1).min(3)
+            }
+            _ => 1,
+        };
+
+        self.command_loop.keyboard.kboard.last_mouse_click = Some(LastMouseClick {
+            button,
+            x,
+            y,
+            frame_id,
+            timestamp: now,
+            click_count: count,
+        });
+        count
+    }
+
+    /// Build the event symbol prefix for a mouse click, taking
+    /// the click count into account. `base` is either
+    /// `down-mouse` (for presses) or `mouse` (for releases).
+    /// For `count == 1`, returns `base` unchanged. For 2, prefix
+    /// with `double-`; for 3, `triple-`. Keyboard audit Finding
+    /// 12.
+    fn mouse_event_prefix_for_click_count(base: &str, count: u32) -> String {
+        match count {
+            0 | 1 => base.to_string(),
+            2 => format!("double-{}", base),
+            _ => format!("triple-{}", base),
+        }
+    }
+
     pub(crate) fn make_mouse_event(
         button: &MouseButton,
         x: f32,

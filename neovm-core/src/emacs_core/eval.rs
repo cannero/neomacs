@@ -4795,7 +4795,78 @@ impl Context {
             {
                 self.finalize_kbd_macro_runtime_chars();
             }
+
+            // Keyboard audit Finding 9: auto-save-interval check.
+            // GNU `keyboard.c:1491-1506`:
+            //
+            //   if (INTEGERP (Vauto_save_interval)
+            //       && num_nonmacro_input_events - last_auto_save
+            //          > max (XFIXNUM (Vauto_save_interval), 20)
+            //       && !detect_input_pending_run_timers (0))
+            //     {
+            //       Fdo_auto_save (Qnil, Qnil);
+            //       last_auto_save = num_nonmacro_input_events;
+            //       ...
+            //     }
+            //
+            // The lower floor of 20 prevents saving too often if
+            // a user sets `auto-save-interval` to a tiny value.
+            // The `detect_input_pending` gate defers the save
+            // when the user is typing faster than the check
+            // interval — we approximate that with a "no pending
+            // events in the unread queue" probe.
+            self.command_loop_1_maybe_auto_save();
         }
+    }
+
+    /// Per-iteration `auto-save-interval` check, mirroring GNU
+    /// `keyboard.c:1491-1506`. Keyboard audit Finding 9.
+    fn command_loop_1_maybe_auto_save(&mut self) {
+        let interval = match self.eval_symbol("auto-save-interval").ok() {
+            Some(v) => match v.as_fixnum() {
+                Some(n) if n > 0 => n as u64,
+                _ => return,
+            },
+            None => return,
+        };
+        let threshold = interval.max(20);
+        let current = self.command_loop.num_nonmacro_input_events;
+        let last = self.command_loop.last_auto_save_input_events;
+        if current.saturating_sub(last) <= threshold {
+            return;
+        }
+        // Defer if input is pending (same spirit as GNU's
+        // `detect_input_pending_run_timers (0)` gate). A fast
+        // typist should not be interrupted by a save.
+        if self.input_pending_for_auto_save() {
+            return;
+        }
+        // Record the attempt *before* calling do-auto-save so a
+        // throw/signal from the save doesn't loop the check on
+        // every iteration. GNU writes `last_auto_save` after the
+        // call but also swallows errors via cmd_error; setting
+        // it first is safer in our flow-based error model.
+        self.command_loop.last_auto_save_input_events = current;
+        if let Err(flow) =
+            self.apply(Value::symbol("do-auto-save"), vec![Value::NIL, Value::NIL])
+        {
+            tracing::warn!("auto-save from command_loop_1 failed: {:?}", flow);
+        }
+    }
+
+    /// Approximation of GNU `detect_input_pending_run_timers (0)`
+    /// used by the command-loop auto-save gate. Returns true when
+    /// there is already-queued input that should run before an
+    /// expensive auto-save.
+    fn input_pending_for_auto_save(&self) -> bool {
+        if self.peek_unread_command_event().is_some() {
+            return true;
+        }
+        !self
+            .command_loop
+            .keyboard
+            .pending_input_events
+            .is_empty()
     }
 
     /// Apply `command-remapping` for the command-loop dispatch
