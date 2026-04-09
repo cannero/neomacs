@@ -1683,6 +1683,28 @@ fn compute_replacement(
 /// syntax table. Audit findings #14 and #20 in
 /// `drafts/regex-search-audit.md` track neomacs's divergence; this
 /// helper is the threading point callers must hit to keep parity.
+///
+/// # Multibyte / unibyte handling (audit #13)
+///
+/// GNU `src/search.c:2622-2720` runs an explicit re-encoding loop
+/// over `newtext`, branching on `str_multibyte` (the replacement
+/// string's representation) and `buf_multibyte` (the target
+/// buffer's `enable-multibyte-characters` flag). When the two
+/// disagree it converts each character with `make_char_multibyte`
+/// or `CHAR_TO_BYTE8` so that, for example, a unibyte byte 0xFE
+/// inserted into a multibyte buffer becomes the corresponding
+/// 8-bit raw character.
+///
+/// neomacs has no separate unibyte representation: every string
+/// and every buffer is held as UTF-8 internally, which is the
+/// equivalent of `enable-multibyte-characters` being permanently
+/// non-nil. The branches in GNU's loop all collapse to the
+/// "str_multibyte && buf_multibyte" case (read a multibyte char,
+/// emit it unchanged), which is exactly what straight UTF-8
+/// substring concatenation already does. We therefore do NOT
+/// reproduce GNU's loop here. The audit explicitly flagged this as
+/// finding #13 and the divergence is documented intentional until
+/// neomacs grows a unibyte buffer representation.
 fn compute_replacement_with_syntax(
     newtext: &str,
     fixedcase: bool,
