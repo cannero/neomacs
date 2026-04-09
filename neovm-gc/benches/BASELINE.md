@@ -62,6 +62,8 @@ A regression that slowed `linked_list_prepend` without slowing `allocation_heavy
 
 ## multi_mutator_scaling
 
+### `alloc/*` (single `HeapCore` write lock — unchanged by Phase 1)
+
 | Bench | Aggregate throughput | Scaling factor vs 1 thread |
 |---|---|---|
 | `alloc/1` | ~3.8 M elem/s | 1.00x |
@@ -70,6 +72,32 @@ A regression that slowed `linked_list_prepend` without slowing `allocation_heavy
 | `alloc/8` | ~2.1 M elem/s | 0.54x |
 
 **Scaling shape:** positive but sub-linear at 2 threads, then degrading from 4 threads upward. This is the expected cost of the single `HeapCore` write lock serializing allocation bookkeeping. An improvement over these numbers (e.g. 2x at 2 threads, 3x at 4 threads) is a sign that fine-grained locks landed. A regression is a sign that lock scope leaked.
+
+### `store_edge/*` (barrier path — Phase 1 read-lock improvement)
+
+Post-change baseline (post commits landing the read-lock barrier path). See *Phase 1 barrier read-lock improvement* below for the pre-change baseline.
+
+| Bench | Aggregate throughput | Scaling factor vs 1 thread |
+|---|---|---|
+| `store_edge/1` | ~1.04 M elem/s | 1.00x |
+| `store_edge/2` | ~1.35 M elem/s | 1.30x |
+| `store_edge/4` | ~1.98 M elem/s | 1.90x |
+| `store_edge/8` | ~2.51 M elem/s | 2.42x |
+
+**Scaling shape:** positive and roughly proportional through 4 threads, plateauing toward 8 threads. The remaining sub-linearity is the `collector_handle().with_state()` internal mutex (shared across mutators for active-major-mark bookkeeping) plus cache-line contention on the atomic barrier-stats counter. The headline improvement is that the barrier path no longer takes the `HeapCore` write lock, so concurrent mutators can run barriers truly in parallel.
+
+### Phase 1 barrier read-lock improvement — A/B comparison
+
+Same bench, same machine, measured immediately before and after the barrier path was moved onto a `HeapCore` read lock. The "before" column runs the stashed library code; the "after" column runs the post-change library code.
+
+| Threads | Before (write lock) | After (read lock) | Improvement |
+|---|---|---|---|
+| 1 | ~963 K elem/s (1.00x) | ~1.04 M elem/s (1.00x) | ~unchanged |
+| 2 | ~708 K elem/s (0.74x) | ~1.35 M elem/s (1.30x) | **+91%** |
+| 4 | ~688 K elem/s (0.71x) | ~1.98 M elem/s (1.90x) | **+187%** |
+| 8 | ~435 K elem/s (0.45x) | ~2.51 M elem/s (2.42x) | **+477%** |
+
+Before the change, multi-mutator barrier scaling was actively *degrading* at every thread count — 8 threads delivered less than half the per-thread throughput of 1 thread because every `store_edge` call serialized on the heap write lock. After the change, the barrier path runs under a read lock, so mutators only contend on the `collector_handle` internal mutex and the atomic stats counters. Scaling is now positive sub-linear through at least 8 threads.
 
 ## Pre-Stage-0 baseline (for historical context)
 
