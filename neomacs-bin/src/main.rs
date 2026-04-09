@@ -284,6 +284,25 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
             break;
         }
 
+        // -chdir / --chdir DIR (GNU emacs.c:1538-1561). Must run before
+        // any later parsing or file resolution: GNU calls chdir() at
+        // line 1549, so subsequent file-name args see the new cwd.
+        match argmatch(&parsed, &mut idx, "-chdir", Some("--chdir"), 4, true) {
+            ArgMatch::Value(dir) => {
+                if let Err(e) = std::env::set_current_dir(&dir) {
+                    return Err(format!("neomacs: Can't chdir to {dir}: {e}"));
+                }
+                continue;
+            }
+            ArgMatch::MissingValue => {
+                return Err(
+                    "neomacs: option `-chdir' requires an argument".to_string(),
+                );
+            }
+            ArgMatch::NoMatch => {}
+            ArgMatch::Bare => unreachable!(),
+        }
+
         // -nw / --no-window-system / --no-windows
         // (GNU emacs.c:1696-1697; the -nw row in standard_args[] declares
         // both long aliases with minlen 6.)

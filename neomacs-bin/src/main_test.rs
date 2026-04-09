@@ -121,6 +121,80 @@ fn parse_startup_options_accepts_dump_file_override() {
 }
 
 #[test]
+fn parse_startup_options_consumes_chdir_flag_and_changes_cwd() {
+    // GNU emacs.c:1538-1561 — `--chdir DIR` calls chdir(DIR) before
+    // any later parsing or file resolution. The flag is consumed (not
+    // forwarded) and a chdir failure aborts startup.
+    //
+    // nextest runs each #[test] in its own process so the cwd mutation
+    // does not leak into sibling tests.
+    let tmp = tempfile::TempDir::new().expect("tempdir");
+    let canonical = std::fs::canonicalize(tmp.path()).expect("canonicalize tempdir");
+
+    let startup = parse_startup_options([
+        "neomacs".to_string(),
+        "--chdir".to_string(),
+        canonical.to_string_lossy().into_owned(),
+    ])
+    .expect("startup options should parse");
+
+    let cwd = std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
+    assert_eq!(cwd, canonical);
+    // The flag must NOT appear in forwarded_args — GNU consumes it.
+    assert!(
+        !startup.forwarded_args.iter().any(|a| a == "--chdir" || a == "-chdir"),
+        "--chdir should be consumed, not forwarded: {:?}",
+        startup.forwarded_args
+    );
+}
+
+#[test]
+fn parse_startup_options_chdir_inline_value_form_works() {
+    let tmp = tempfile::TempDir::new().expect("tempdir");
+    let canonical = std::fs::canonicalize(tmp.path()).expect("canonicalize tempdir");
+
+    let startup = parse_startup_options([
+        "neomacs".to_string(),
+        format!("--chdir={}", canonical.display()),
+    ])
+    .expect("startup options should parse");
+
+    let cwd = std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
+    assert_eq!(cwd, canonical);
+    assert!(
+        !startup.forwarded_args.iter().any(|a| a.starts_with("--chdir")),
+        "--chdir=… should be consumed, not forwarded: {:?}",
+        startup.forwarded_args
+    );
+}
+
+#[test]
+fn parse_startup_options_chdir_to_nonexistent_dir_errors() {
+    // GNU emacs.c:1551 — `Can't chdir to %s: %s`. We match the prefix
+    // but use Rust's std::io::Error message for the suffix.
+    let err = parse_startup_options([
+        "neomacs".to_string(),
+        "--chdir".to_string(),
+        "/this/path/cannot/possibly/exist".to_string(),
+    ])
+    .expect_err("chdir to nonexistent should fail");
+    assert!(
+        err.starts_with("neomacs: Can't chdir to /this/path/cannot/possibly/exist"),
+        "unexpected error message: {err}"
+    );
+}
+
+#[test]
+fn parse_startup_options_chdir_missing_value_errors() {
+    let err = parse_startup_options(["neomacs".to_string(), "--chdir".to_string()])
+        .expect_err("chdir without value should fail");
+    assert!(
+        err.contains("requires an argument"),
+        "expected requires-argument error, got: {err}"
+    );
+}
+
+#[test]
 fn parse_startup_options_normalizes_display_args_to_gnu_form() {
     // GNU emacs.c:2110-2120 rewrites `--display=NAME` into the
     // equivalent `-d NAME` two-token form before passing argv on to

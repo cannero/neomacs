@@ -41,3 +41,6 @@ neovm-core.workspace = true
 tracing.workspace = true
 crossbeam-channel.workspace = true
 libc.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
