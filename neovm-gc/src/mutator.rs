@@ -18,6 +18,26 @@ use core::ptr::NonNull;
 /// they migrate to the mutator-side accessor.
 const MAX_BARRIER_EVENTS: usize = 1024;
 
+/// High-water mark at which
+/// [`MutatorLocal::push_barrier_event`] drains the ring
+/// back down to [`MAX_BARRIER_EVENTS`]. Set to `2 * MAX` so
+/// the O(MAX) `Vec::drain` (which shifts the surviving
+/// suffix forward) only fires once per `MAX` pushes,
+/// amortizing to O(1) per barrier event.
+///
+/// Before this amortization was introduced the drain fired
+/// on *every* push once the ring hit MAX, turning each
+/// barrier call into an O(MAX) `memmove`. A flamegraph of
+/// the `multi_mutator_scaling/store_edge` bench showed
+/// 88.5% of CPU cycles in `__memmove_avx_unaligned_erms`
+/// via `push_barrier_event`'s drain path. Amortizing the
+/// drain drops that overhead to O(1) per push at the cost
+/// of letting the ring grow to `BARRIER_EVENT_HIGH_WATER`
+/// before trimming — the visible ring size now varies
+/// between `MAX_BARRIER_EVENTS` and
+/// `BARRIER_EVENT_HIGH_WATER`, both bounded.
+const BARRIER_EVENT_HIGH_WATER: usize = 2 * MAX_BARRIER_EVENTS;
+
 /// Per-mutator local state.
 ///
 /// Holds data that in the final multi-mutator architecture
@@ -93,9 +113,14 @@ impl MutatorLocal {
 
 impl MutatorLocal {
     /// Append one barrier event to this mutator's recent
-    /// ring, dropping the oldest entries when the ring grows
-    /// past `MAX_BARRIER_EVENTS`. Mirrors the trimming the
-    /// heap-wide ring did before the move.
+    /// ring, dropping the oldest entries when the ring
+    /// exceeds [`BARRIER_EVENT_HIGH_WATER`]. The drain is
+    /// amortized: it runs once every `MAX_BARRIER_EVENTS`
+    /// pushes and trims the ring back down to
+    /// `MAX_BARRIER_EVENTS`, so the per-push cost is O(1)
+    /// on average. The ring size visible to external
+    /// observers therefore varies between `MAX_BARRIER_EVENTS`
+    /// and `BARRIER_EVENT_HIGH_WATER`.
     pub(crate) fn push_barrier_event(
         &mut self,
         kind: BarrierKind,
@@ -111,7 +136,7 @@ impl MutatorLocal {
             old_value: old_value.map(|value| unsafe { Gc::from_erased(value) }),
             new_value: new_value.map(|value| unsafe { Gc::from_erased(value) }),
         });
-        if self.barrier_events.len() > MAX_BARRIER_EVENTS {
+        if self.barrier_events.len() > BARRIER_EVENT_HIGH_WATER {
             let overflow = self.barrier_events.len() - MAX_BARRIER_EVENTS;
             self.barrier_events.drain(..overflow);
         }
