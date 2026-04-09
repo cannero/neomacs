@@ -535,6 +535,27 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
         idx += 1;
     }
 
+    // -Q / --quick / -quick PEEK (GNU emacs.c:2123-2130). GNU walks
+    // argv one more time looking for any of these three spellings; if
+    // found, it sets `no_site_lisp = 1` and leaves the flag in argv so
+    // lisp/startup.el (`command-line` at lisp/startup.el:1404) can also
+    // act on it. Critically the flag is NOT consumed — only `no_site_lisp`
+    // is updated as a side effect. This is the only "peek but do not
+    // consume" idiom in GNU's parser.
+    //
+    // We replicate the same scan over `forwarded_args` (the survivors
+    // of the consume pass) since that's what the rest of startup will
+    // see. Skip if `no_site_lisp` is already set (e.g. by an earlier
+    // -nsl or -x), matching GNU's `if (! no_site_lisp)` guard.
+    if !no_site_lisp
+        && forwarded_args
+            .iter()
+            .skip(1)
+            .any(|a| a == "-Q" || a == "--quick" || a == "-quick")
+    {
+        no_site_lisp = true;
+    }
+
     Ok(StartupOptions {
         frontend,
         forwarded_args,

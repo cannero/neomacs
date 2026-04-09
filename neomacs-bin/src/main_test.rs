@@ -352,6 +352,61 @@ fn parse_startup_options_consumes_no_build_details_flag() {
 }
 
 #[test]
+fn parse_startup_options_peeks_q_to_set_no_site_lisp() {
+    // GNU emacs.c:2126-2129 — `-Q` is peeked: it sets no_site_lisp=1
+    // AND remains in argv so lisp/startup.el's command-line at
+    // lisp/startup.el:1404 can also process it. We mirror both halves.
+    let startup = parse_startup_options(["neomacs".to_string(), "-Q".to_string()])
+        .expect("startup options should parse");
+    assert!(startup.no_site_lisp, "-Q peek should set no_site_lisp");
+    assert!(
+        startup.forwarded_args.iter().any(|a| a == "-Q"),
+        "-Q must remain in forwarded_args after peek: {:?}",
+        startup.forwarded_args
+    );
+}
+
+#[test]
+fn parse_startup_options_peeks_long_quick_alias() {
+    // GNU emacs.c:2126-2127 — `--quick` and `-quick` are equivalent
+    // peek aliases for -Q. The -quick spelling matches the same
+    // STANDARD_ARGS row that `-Q` does (priority 55).
+    for spelling in &["--quick", "-quick"] {
+        let startup = parse_startup_options([
+            "neomacs".to_string(),
+            (*spelling).to_string(),
+        ])
+        .expect("startup options should parse");
+        assert!(
+            startup.no_site_lisp,
+            "{spelling} peek should set no_site_lisp"
+        );
+        assert!(
+            startup.forwarded_args.iter().any(|a| a == spelling),
+            "{spelling} must remain in forwarded_args after peek: {:?}",
+            startup.forwarded_args
+        );
+    }
+}
+
+#[test]
+fn parse_startup_options_q_peek_redundant_when_nsl_already_set() {
+    // GNU emacs.c:2123 has an `if (! no_site_lisp)` guard around the
+    // peek block. Once -nsl has set the flag, peeking -Q is a no-op
+    // for state but the -Q token still remains in forwarded_args.
+    let startup = parse_startup_options([
+        "neomacs".to_string(),
+        "--no-site-lisp".to_string(),
+        "-Q".to_string(),
+    ])
+    .expect("startup options should parse");
+    assert!(startup.no_site_lisp);
+    assert!(startup.forwarded_args.iter().any(|a| a == "-Q"));
+    // --no-site-lisp itself was consumed (Phase 3c).
+    assert!(!startup.forwarded_args.iter().any(|a| a == "--no-site-lisp"));
+}
+
+#[test]
 fn parse_startup_options_normalizes_display_args_to_gnu_form() {
     // GNU emacs.c:2110-2120 rewrites `--display=NAME` into the
     // equivalent `-d NAME` two-token form before passing argv on to
