@@ -9,6 +9,57 @@ use crate::scroll_animation::{ScrollEasing, ScrollEffect};
 use crate::types::{Color, Rect};
 use std::collections::HashMap;
 
+/// GNU Emacs `enum text_cursor_kinds` (`src/dispextern.h:204-212`).
+///
+/// The discriminants match GNU exactly so anyone copying constants
+/// from `xdisp.c` does not get a silently re-numbered enum:
+///
+/// ```text
+/// DEFAULT_CURSOR    = -2
+/// NO_CURSOR         = -1
+/// FILLED_BOX_CURSOR =  0
+/// HOLLOW_BOX_CURSOR =  1
+/// BAR_CURSOR        =  2
+/// HBAR_CURSOR       =  3
+/// ```
+///
+/// Cursor audit Finding 1 in `drafts/cursor-audit.md`: an earlier
+/// internal `u8` encoding swapped slots 1/3 and used `4` as an
+/// out-of-band sentinel for `NO_CURSOR`. That divergence is
+/// removed; this enum is now the single canonical representation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i8)]
+pub enum CursorKind {
+    Default = -2,
+    NoCursor = -1,
+    FilledBox = 0,
+    HollowBox = 1,
+    Bar = 2,
+    Hbar = 3,
+}
+
+impl CursorKind {
+    /// Decode from GNU's signed `enum text_cursor_kinds` integer
+    /// representation. Returns `None` for any value outside the
+    /// six legal discriminants.
+    pub fn from_gnu_code(code: i8) -> Option<Self> {
+        match code {
+            -2 => Some(Self::Default),
+            -1 => Some(Self::NoCursor),
+            0 => Some(Self::FilledBox),
+            1 => Some(Self::HollowBox),
+            2 => Some(Self::Bar),
+            3 => Some(Self::Hbar),
+            _ => None,
+        }
+    }
+
+    /// GNU enum integer code (matches `enum text_cursor_kinds`).
+    pub fn gnu_code(self) -> i8 {
+        self as i8
+    }
+}
+
 /// Cursor visual style, carrying bar/hbar dimensions.
 ///
 /// The cursor glyph always stores full cell dimensions (char_width, face_height).
@@ -26,17 +77,33 @@ pub enum CursorStyle {
 }
 
 impl CursorStyle {
-    /// Convert from C cursor_type (0=box, 1=bar, 2=hbar, 3=hollow, 4+=none)
-    /// and bar_width parameter. Returns None for NO_CURSOR or unknown types.
-    pub fn from_type(cursor_type: u8, bar_width: i32) -> Option<CursorStyle> {
+    /// Convert a `CursorKind` plus bar width into a renderable
+    /// `CursorStyle`. `Default` collapses to `FilledBox` (its
+    /// resolved value when no buffer/window override is in effect)
+    /// and `NoCursor` returns `None`.
+    pub fn from_kind(kind: CursorKind, bar_width: i32) -> Option<CursorStyle> {
         let dim = bar_width.max(1) as f32;
-        match cursor_type {
-            0 => Some(CursorStyle::FilledBox),
-            1 => Some(CursorStyle::Bar(dim)),
-            2 => Some(CursorStyle::Hbar(dim)),
-            3 => Some(CursorStyle::Hollow),
-            _ => None,
+        match kind {
+            CursorKind::FilledBox | CursorKind::Default => Some(CursorStyle::FilledBox),
+            CursorKind::HollowBox => Some(CursorStyle::Hollow),
+            CursorKind::Bar => Some(CursorStyle::Bar(dim)),
+            CursorKind::Hbar => Some(CursorStyle::Hbar(dim)),
+            CursorKind::NoCursor => None,
         }
+    }
+
+    /// Legacy entry point that accepts the old `u8` encoding so any
+    /// out-of-tree caller still compiles. The body now decodes via
+    /// `CursorKind::from_gnu_code` and routes through `from_kind`,
+    /// so passing the old `0=box, 1=bar, 2=hbar, 3=hollow` byte
+    /// arrangement will silently produce the wrong shape — callers
+    /// must migrate to `CursorKind`.
+    #[deprecated(
+        note = "use CursorStyle::from_kind with CursorKind for GNU-parity encoding"
+    )]
+    pub fn from_type(cursor_type: u8, bar_width: i32) -> Option<CursorStyle> {
+        let kind = CursorKind::from_gnu_code(cursor_type as i8)?;
+        Self::from_kind(kind, bar_width)
     }
 
     /// Returns true if this is a hollow (unfocused) cursor

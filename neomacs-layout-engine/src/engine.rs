@@ -699,13 +699,18 @@ unsafe fn cursor_point_advance(
 
 #[inline]
 fn cursor_style_for_window(params: &WindowParams) -> Option<CursorStyle> {
+    use neomacs_display_protocol::frame_glyphs::CursorKind;
+
     if params.selected {
-        return CursorStyle::from_type(params.cursor_type, params.cursor_bar_width);
+        return CursorStyle::from_kind(params.cursor_kind, params.cursor_bar_width);
     }
 
-    // Keep Emacs behavior for non-selected minibuffer/echo-area paths where
-    // C side resolves cursor_type to NO_CURSOR (4).
-    if params.cursor_type == 4 {
+    // Mirrors GNU `xdisp.c::get_window_cursor_type`: a non-selected
+    // window with `NoCursor` resolved by the upper layers stays
+    // dark. Cursor audit Finding 1 in `drafts/cursor-audit.md`
+    // replaced the old `cursor_type == 4` sentinel with the proper
+    // GNU enum value.
+    if params.cursor_kind == CursorKind::NoCursor {
         return None;
     }
 
@@ -4484,7 +4489,7 @@ mod tests {
             mode_line_height: 0.0,
             header_line_height: 0.0,
             tab_line_height: 0.0,
-            cursor_type: 0,
+            cursor_kind: neomacs_display_protocol::frame_glyphs::CursorKind::FilledBox,
             cursor_bar_width: 2,
             cursor_color: 0xFFFFFF,
             left_fringe_width: 0.0,

@@ -190,7 +190,13 @@ pub(crate) fn buffer_selective_display(buffer: &Buffer) -> i32 {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct CursorSpec {
-    cursor_type: u8,
+    /// GNU `enum text_cursor_kinds` discriminant. Use the
+    /// `CursorKind` enum from `neomacs-display-protocol` rather
+    /// than the raw byte: the slot ordering matches GNU exactly
+    /// (FilledBox=0, HollowBox=1, Bar=2, Hbar=3, NoCursor=-1,
+    /// Default=-2). See cursor audit Finding 1 in
+    /// `drafts/cursor-audit.md`.
+    cursor_kind: neomacs_display_protocol::frame_glyphs::CursorKind,
     bar_width: i32,
 }
 
@@ -203,31 +209,33 @@ fn parse_color_pixel(value: &Value) -> Option<u32> {
 }
 
 fn parse_cursor_spec(value: &Value) -> Option<CursorSpec> {
+    use neomacs_display_protocol::frame_glyphs::CursorKind;
+
     if value.is_nil() {
         return None;
     }
 
     if value.bits() == Value::T.bits() || value.is_symbol_named("box") {
         return Some(CursorSpec {
-            cursor_type: 0,
+            cursor_kind: CursorKind::FilledBox,
             bar_width: 1,
         });
     }
     if value.is_symbol_named("hollow") {
         return Some(CursorSpec {
-            cursor_type: 3,
+            cursor_kind: CursorKind::HollowBox,
             bar_width: 1,
         });
     }
     if value.is_symbol_named("bar") {
         return Some(CursorSpec {
-            cursor_type: 1,
+            cursor_kind: CursorKind::Bar,
             bar_width: 2,
         });
     }
     if value.is_symbol_named("hbar") {
         return Some(CursorSpec {
-            cursor_type: 2,
+            cursor_kind: CursorKind::Hbar,
             bar_width: 2,
         });
     }
@@ -237,37 +245,38 @@ fn parse_cursor_spec(value: &Value) -> Option<CursorSpec> {
         let bar_width = cdr.as_int().unwrap_or(1).max(0) as i32;
         if car.is_symbol_named("box") {
             return Some(CursorSpec {
-                cursor_type: 0,
+                cursor_kind: CursorKind::FilledBox,
                 bar_width,
             });
         }
         if car.is_symbol_named("bar") {
             return Some(CursorSpec {
-                cursor_type: 1,
+                cursor_kind: CursorKind::Bar,
                 bar_width,
             });
         }
         if car.is_symbol_named("hbar") {
             return Some(CursorSpec {
-                cursor_type: 2,
+                cursor_kind: CursorKind::Hbar,
                 bar_width,
             });
         }
     }
 
     Some(CursorSpec {
-        cursor_type: 3,
+        cursor_kind: CursorKind::HollowBox,
         bar_width: 1,
     })
 }
 
 fn frame_cursor_spec(frame: &Frame) -> CursorSpec {
+    use neomacs_display_protocol::frame_glyphs::CursorKind;
     frame
         .parameters
         .get("cursor-type")
         .and_then(parse_cursor_spec)
         .unwrap_or(CursorSpec {
-            cursor_type: 0,
+            cursor_kind: CursorKind::FilledBox,
             bar_width: 1,
         })
 }
@@ -323,11 +332,15 @@ fn effective_cursor_spec(
         return parse_cursor_spec(&value);
     }
 
+    use neomacs_display_protocol::frame_glyphs::CursorKind;
+
+    // GNU `xdisp.c::get_window_cursor_type` only swaps the FilledBox
+    // shape for Hollow on non-selected windows. The earlier "subtract
+    // 1 from bar_width" tweak was a non-GNU visual nudge — see cursor
+    // audit Finding 12 in `drafts/cursor-audit.md`.
     let mut adjusted = base;
-    match adjusted.cursor_type {
-        0 => adjusted.cursor_type = 3,
-        1 | 2 if adjusted.bar_width > 1 => adjusted.bar_width -= 1,
-        _ => {}
+    if adjusted.cursor_kind == CursorKind::FilledBox {
+        adjusted.cursor_kind = CursorKind::HollowBox;
     }
     Some(adjusted)
 }
@@ -463,7 +476,7 @@ pub fn window_params_from_neovm(
         window_cursor_type,
     )
     .unwrap_or(CursorSpec {
-        cursor_type: 4,
+        cursor_kind: neomacs_display_protocol::frame_glyphs::CursorKind::NoCursor,
         bar_width: 1,
     });
     let cursor_color = frame_cursor_color_pixel(frame, face_table);
@@ -538,7 +551,7 @@ pub fn window_params_from_neovm(
         mode_line_height,
         header_line_height,
         tab_line_height,
-        cursor_type: cursor_spec.cursor_type,
+        cursor_kind: cursor_spec.cursor_kind,
         cursor_bar_width: cursor_spec.bar_width,
         cursor_color,
         left_fringe_width: left_fringe,
@@ -609,10 +622,10 @@ pub fn collect_layout_params(
             window_cursor_type,
         ) {
             tracing::debug!(
-                "layout window cursor: win={} selected={} minibuffer=false type={} width={} color=#{:06x} window-cursor-type={:?}",
+                "layout window cursor: win={} selected={} minibuffer=false kind={:?} width={} color=#{:06x} window-cursor-type={:?}",
                 wp.window_id,
                 wp.selected,
-                wp.cursor_type,
+                wp.cursor_kind,
                 wp.cursor_bar_width,
                 wp.cursor_color,
                 window_cursor_type,
@@ -651,10 +664,10 @@ pub fn collect_layout_params(
                 window_cursor_type,
             ) {
                 tracing::debug!(
-                    "layout window cursor: win={} selected={} minibuffer=true type={} width={} color=#{:06x} window-cursor-type={:?}",
+                    "layout window cursor: win={} selected={} minibuffer=true kind={:?} width={} color=#{:06x} window-cursor-type={:?}",
                     wp.window_id,
                     wp.selected,
-                    wp.cursor_type,
+                    wp.cursor_kind,
                     wp.cursor_bar_width,
                     wp.cursor_color,
                     window_cursor_type,

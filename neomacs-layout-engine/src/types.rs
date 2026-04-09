@@ -190,8 +190,12 @@ pub struct WindowParams {
     /// Tab-line height (0 if no tab-line)
     pub tab_line_height: f32,
 
-    /// Cursor type for this window: 0=box, 1=bar, 2=hbar, 3=hollow
-    pub cursor_type: u8,
+    /// Cursor kind for this window. The discriminant matches GNU's
+    /// `enum text_cursor_kinds` exactly (`FilledBox=0`, `HollowBox=1`,
+    /// `Bar=2`, `Hbar=3`, `NoCursor=-1`, `Default=-2`). Cursor audit
+    /// Finding 1 in `drafts/cursor-audit.md` flagged the previous
+    /// `u8` encoding as a silently re-numbered alias.
+    pub cursor_kind: neomacs_display_protocol::frame_glyphs::CursorKind,
     /// Cursor bar width (for bar cursor)
     pub cursor_bar_width: i32,
     /// Cursor color in sRGB pixel format.
@@ -653,7 +657,7 @@ mod tests {
             mode_line_height: 20.0,
             header_line_height: 0.0,
             tab_line_height: 0.0,
-            cursor_type: 0,
+            cursor_kind: neomacs_display_protocol::frame_glyphs::CursorKind::FilledBox,
             cursor_bar_width: 2,
             cursor_color: 0x00000000,
             left_fringe_width: 8.0,
@@ -717,7 +721,7 @@ mod tests {
             mode_line_height: 0.0,
             header_line_height: 0.0,
             tab_line_height: 0.0,
-            cursor_type: 0,
+            cursor_kind: neomacs_display_protocol::frame_glyphs::CursorKind::FilledBox,
             cursor_bar_width: 2,
             cursor_color: 0x00000000,
             left_fringe_width: 0.0,
@@ -773,7 +777,7 @@ mod tests {
             mode_line_height: 20.0,
             header_line_height: 20.0,
             tab_line_height: 20.0,
-            cursor_type: 1,
+            cursor_kind: neomacs_display_protocol::frame_glyphs::CursorKind::Bar,
             cursor_bar_width: 3,
             cursor_color: 0x00000000,
             left_fringe_width: 10.0,

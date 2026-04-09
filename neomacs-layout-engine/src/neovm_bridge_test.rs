@@ -234,7 +234,10 @@ fn test_effective_cursor_spec_prefers_window_cursor_type() {
     )
     .unwrap();
 
-    assert_eq!(spec.cursor_type, 1);
+    assert_eq!(
+        spec.cursor_kind,
+        neomacs_display_protocol::frame_glyphs::CursorKind::Bar
+    );
     assert_eq!(spec.bar_width, 5);
 }
 
@@ -250,7 +253,10 @@ fn test_effective_cursor_spec_nonselected_box_becomes_hollow() {
 
     let spec = effective_cursor_spec(frame, buffer, false, false, Value::T).unwrap();
 
-    assert_eq!(spec.cursor_type, 3);
+    assert_eq!(
+        spec.cursor_kind,
+        neomacs_display_protocol::frame_glyphs::CursorKind::HollowBox
+    );
 }
 
 #[test]
