@@ -482,15 +482,22 @@ pub(crate) fn trace_collection(
     mut record_phase: impl FnMut(CollectionPhase),
 ) -> (u64, u64) {
     match plan.kind {
-        CollectionKind::Minor => trace_minor(
-            objects,
-            &indexes.object_index,
-            &indexes.remembered.owners,
-            &indexes.candidate_indices(&indexes.ephemeron_candidates),
-            plan.worker_count.max(1),
-            plan.mark_slice_budget,
-            sources.iter().copied(),
-        ),
+        CollectionKind::Minor => {
+            // The hot barrier path appends to
+            // `remembered.pending_inserts` through `&self`;
+            // include those entries here so the minor cycle
+            // sees the same view the mutator just recorded.
+            let remembered_owners = indexes.remembered.owners_including_pending();
+            trace_minor(
+                objects,
+                &indexes.object_index,
+                &remembered_owners,
+                &indexes.candidate_indices(&indexes.ephemeron_candidates),
+                plan.worker_count.max(1),
+                plan.mark_slice_budget,
+                sources.iter().copied(),
+            )
+        }
         CollectionKind::Major | CollectionKind::Full => {
             record_phase(CollectionPhase::InitialMark);
             if plan.concurrent {

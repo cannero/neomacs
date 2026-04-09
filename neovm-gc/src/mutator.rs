@@ -441,6 +441,19 @@ impl<'heap> Mutator<'heap> {
     }
 
     /// Record a post-write barrier for one mutated GC edge.
+    ///
+    /// Runs entirely under a `HeapCore` read lock. All
+    /// operations the barrier needs — barrier stats
+    /// bookkeeping, per-mutator event ring, collector-handle
+    /// active-major-mark assist, and the owner-only
+    /// remembered-set fallback — are either atomic, use their
+    /// own internal mutex, or mutate per-mutator state. The
+    /// only historical reason the barrier held the write lock
+    /// was that `HeapCore::record_remembered_edge_if_needed`
+    /// took `&mut self`; since the fallback insert now goes
+    /// through `RememberedSetState::record_owner_shared`
+    /// (per-set mutex on `pending_inserts`), the whole barrier
+    /// can run concurrent with other mutators.
     pub fn post_write_barrier<Owner: ?Sized, Value: ?Sized>(
         &mut self,
         owner: Gc<Owner>,
@@ -448,16 +461,55 @@ impl<'heap> Mutator<'heap> {
         old_value: Option<Gc<Value>>,
         new_value: Option<Gc<Value>>,
     ) {
-        assert!(
-            !self.heap.read_core().prepared_full_reclaim_active(),
-            "cannot mutate heap edges while prepared full reclaim is active; finish the active full collection first"
-        );
         let owner_erased = owner.erase();
         let old_erased = old_value.map(Gc::erase);
         let new_erased = new_value.map(Gc::erase);
-        self.with_runtime(|runtime| {
-            runtime.record_post_write(owner_erased, slot, old_erased, new_erased)
-        });
+        let Self { heap, local } = self;
+        let core = heap.read_core();
+
+        assert!(
+            !core.prepared_full_reclaim_active(),
+            "cannot mutate heap edges while prepared full reclaim is active; finish the active full collection first"
+        );
+
+        let active_major_mark = core.collector_handle().has_active_major_mark();
+        let record_satb = old_erased.is_some() && active_major_mark;
+
+        core.bump_barrier_stats(BarrierKind::PostWrite);
+        local.push_barrier_event(
+            BarrierKind::PostWrite,
+            owner_erased,
+            slot,
+            old_erased,
+            new_erased,
+        );
+        if record_satb {
+            core.bump_barrier_stats(BarrierKind::SatbPreWrite);
+            local.push_barrier_event(
+                BarrierKind::SatbPreWrite,
+                owner_erased,
+                slot,
+                old_erased,
+                new_erased,
+            );
+        }
+
+        core.collector_handle()
+            .record_active_major_post_write_and_refresh(
+                core.objects(),
+                &core.indexes().object_index,
+                owner_erased,
+                old_erased,
+                new_erased,
+                core.config().old.mutator_assist_slices,
+                &core.storage_stats(),
+                core.old_gen(),
+                core.old_config(),
+                |kind| core.plan_for(kind),
+            )
+            .expect("post-write active major-mark assist should not fail");
+
+        core.record_remembered_edge_if_needed(owner_erased, new_erased);
     }
 
     /// Store a managed edge and record the required post-write barrier.
@@ -468,13 +520,13 @@ impl<'heap> Mutator<'heap> {
         project: impl FnOnce(&Owner) -> &EdgeCell<Value>,
         new_value: Option<Gc<Value>>,
     ) {
-        assert!(
-            !self.heap.read_core().prepared_full_reclaim_active(),
-            "cannot mutate heap edges while prepared full reclaim is active; finish the active full collection first"
-        );
         let owner_ref = unsafe { owner.as_gc().as_non_null().as_ref() };
         let edge = project(owner_ref);
         let old_value = edge.replace(new_value);
+        // The prepared-full-reclaim-active assertion now runs
+        // inside `post_write_barrier` under the same read lock
+        // the barrier path takes, so there is no point in
+        // duplicating it here.
         self.post_write_barrier(owner.as_gc(), Some(slot), old_value, new_value);
     }
 }

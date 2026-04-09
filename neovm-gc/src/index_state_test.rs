@@ -268,6 +268,13 @@ fn heap_index_state_record_remembered_edge_if_needed_only_keeps_old_to_nursery()
         Some(objects[2].erased()),
     );
 
+    // The barrier hot path records fallback owners through
+    // `record_owner_shared`, which queues into the
+    // `pending_inserts` mutex. Merge the pending entries into
+    // the canonical set before asserting so the test sees the
+    // same view the collector will during its next GC pass.
+    indexes.remembered.merge_pending_owners();
+
     // Only the old-to-nursery write recorded the owner. The
     // old-to-old write was filtered out by the
     // record_remembered_edge_if_needed predicate.

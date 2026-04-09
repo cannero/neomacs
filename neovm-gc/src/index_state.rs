@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::descriptor::{GcErased, ObjectKey, Tracer, TypeDesc, TypeFlags};
 use crate::object::{ObjectRecord, SpaceKind};
@@ -22,10 +24,47 @@ pub(crate) type ForwardingMap = HashMap<ObjectKey, GcErased>;
 ///
 /// Block-backed owners take the per-block dirty card fast path
 /// instead and never appear in this set.
-#[derive(Debug, Default)]
+///
+/// The `pending_inserts` mutex exists so the write-barrier hot
+/// path can record a new fallback owner without acquiring the
+/// `HeapCore` write lock. The canonical `owners`/`owner_set`
+/// fields are only mutated through `&mut self` methods (GC-time
+/// paths that already hold the `HeapCore` write lock); readers
+/// that need to see the combined set either call
+/// `owners_including_pending()` (for `&self`) or
+/// `merge_pending_owners()` first (for `&mut self`).
+///
+/// `pending_count` shadows `pending_inserts.len()` as a
+/// relaxed atomic so callers can test "is pending empty?"
+/// without acquiring the mutex. This matters because
+/// `storage_stats()` is called on the barrier hot path (via
+/// the active-major-mark refresh) and the old per-barrier
+/// cost was dominated by a hot-path mutex acquisition when
+/// the counter was added naively.
+#[derive(Debug)]
 pub(crate) struct RememberedSetState {
     pub(crate) owners: Vec<ObjectKey>,
     owner_set: HashSet<ObjectKey>,
+    /// Owners the barrier hot path appended without the
+    /// `HeapCore` write lock. Drained into `owners`/`owner_set`
+    /// by the next GC-time consumer via `merge_pending_owners`.
+    pending_inserts: Mutex<Vec<ObjectKey>>,
+    /// Relaxed mirror of `pending_inserts.len()` so readers can
+    /// skip the mutex on the empty fast path. Incremented under
+    /// the `pending_inserts` mutex on push and cleared via
+    /// `store(0)` during drain/clear.
+    pending_count: AtomicUsize,
+}
+
+impl Default for RememberedSetState {
+    fn default() -> Self {
+        Self {
+            owners: Vec::new(),
+            owner_set: HashSet::new(),
+            pending_inserts: Mutex::new(Vec::new()),
+            pending_count: AtomicUsize::new(0),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -57,12 +96,109 @@ impl RememberedSetState {
     /// Idempotent: a second call with the same key is a no-op.
     /// The caller is responsible for ensuring the owner is not
     /// block-backed (block-backed owners take the per-block
-    /// dirty card path instead).
+    /// dirty card path instead). Only used by tests that seed
+    /// the canonical set directly; production code uses
+    /// [`record_owner_shared`] + [`merge_pending_owners`].
+    #[cfg(test)]
     pub(crate) fn record_owner(&mut self, owner_key: ObjectKey) {
         if self.owner_set.insert(owner_key) {
             self.owners.push(owner_key);
         }
     }
+
+    /// Barrier hot-path insert: queue `owner_key` for merge into
+    /// the canonical owners set on the next GC-time visit.
+    /// Callable through `&self` because the only mutation is to
+    /// `pending_inserts`, which is guarded by its own mutex.
+    /// Dedup and idempotency are deferred to
+    /// [`merge_pending_owners`] so the hot path stays as cheap
+    /// as one atomic mutex acquisition plus one vec push.
+    pub(crate) fn record_owner_shared(&self, owner_key: ObjectKey) {
+        let mut pending = self
+            .pending_inserts
+            .lock()
+            .expect("remembered pending_inserts poisoned");
+        pending.push(owner_key);
+        self.pending_count.store(pending.len(), Ordering::Relaxed);
+    }
+
+    /// Drain `pending_inserts` into the canonical
+    /// `owners`/`owner_set`, preserving insertion order and
+    /// deduping new entries against both the existing canonical
+    /// set and the other pending entries.
+    pub(crate) fn merge_pending_owners(&mut self) {
+        let drained = std::mem::take(
+            self.pending_inserts
+                .get_mut()
+                .expect("remembered pending_inserts poisoned"),
+        );
+        self.pending_count.store(0, Ordering::Relaxed);
+        for key in drained {
+            if self.owner_set.insert(key) {
+                self.owners.push(key);
+            }
+        }
+    }
+
+    /// Fast-path length of the effective remembered set —
+    /// canonical `owners` plus any pending hot-path inserts —
+    /// that avoids allocating when pending is empty. The empty
+    /// check uses a relaxed atomic so the barrier hot path
+    /// (which calls `storage_stats` for the active-major-mark
+    /// assist) never acquires the pending mutex when there's
+    /// nothing queued. Marked `#[inline]` so the allocation
+    /// hot path (which calls `storage_stats` through the
+    /// collector plan refresh) folds the atomic load and the
+    /// `Vec::len` read into a single basic block.
+    #[inline]
+    pub(crate) fn effective_len(&self) -> usize {
+        if self.pending_count.load(Ordering::Relaxed) == 0 {
+            return self.owners.len();
+        }
+        // Slow path: dedup pending against canonical owners and
+        // against itself. Matches the dedup
+        // `owners_including_pending` would produce without
+        // allocating a full combined `Vec`.
+        let pending = self
+            .pending_inserts
+            .lock()
+            .expect("remembered pending_inserts poisoned");
+        let mut extra = 0usize;
+        let mut seen: HashSet<ObjectKey> = HashSet::new();
+        for key in pending.iter().copied() {
+            if !self.owner_set.contains(&key) && seen.insert(key) {
+                extra = extra.saturating_add(1);
+            }
+        }
+        self.owners.len().saturating_add(extra)
+    }
+
+    /// Snapshot of the remembered-owner set including any entries
+    /// the hot path has queued via `record_owner_shared` but not
+    /// yet merged. Callable through `&self`. Returns a freshly
+    /// allocated `Vec`; use the `&mut self` path when the caller
+    /// already holds exclusive access.
+    pub(crate) fn owners_including_pending(&self) -> Vec<ObjectKey> {
+        if self.pending_count.load(Ordering::Relaxed) == 0 {
+            return self.owners.clone();
+        }
+        let pending = self
+            .pending_inserts
+            .lock()
+            .expect("remembered pending_inserts poisoned");
+        if pending.is_empty() {
+            return self.owners.clone();
+        }
+        let mut combined = Vec::with_capacity(self.owners.len() + pending.len());
+        combined.extend(self.owners.iter().copied());
+        for key in pending.iter().copied() {
+            if !self.owner_set.contains(&key) && !combined[self.owners.len()..].contains(&key) {
+                combined.push(key);
+            }
+        }
+        combined
+    }
+
 
     /// Re-derive the current owner set by walking each tracked
     /// owner's record edges. Owners that are dead (no longer in
@@ -78,6 +214,7 @@ impl RememberedSetState {
         objects: &[ObjectRecord],
         object_index: &ObjectIndex,
     ) {
+        self.merge_pending_owners();
         let mut next_owners = Vec::with_capacity(self.owners.len());
         let mut next_set = HashSet::with_capacity(self.owners.len());
         for owner_key in &self.owners {
@@ -101,16 +238,18 @@ impl RememberedSetState {
     /// Filter the current owners against a `kind`-specific
     /// "keep" predicate (e.g. major drops unmarked owners) and
     /// the live-nursery-edge predicate. Returns the surviving
-    /// owner keys ordered by the original insertion order.
+    /// owner keys ordered by the original insertion order. Any
+    /// hot-path entries still sitting in `pending_inserts` are
+    /// merged into the result so the collection sees a
+    /// consistent view.
     pub(crate) fn owners_for_collection(
         &self,
         objects: &[ObjectRecord],
         object_index: &ObjectIndex,
         kind: CollectionKind,
     ) -> Vec<ObjectKey> {
-        self.owners
-            .iter()
-            .copied()
+        self.owners_including_pending()
+            .into_iter()
             .filter(|owner_key| {
                 let Some(&owner_index) = object_index.get(owner_key) else {
                     return false;
@@ -133,6 +272,15 @@ impl RememberedSetState {
     pub(crate) fn replace(&mut self, owners: Vec<ObjectKey>) {
         self.owners = owners;
         self.owner_set = self.owners.iter().copied().collect();
+        // Pending inserts were already folded into the prepared
+        // owner list during `owners_for_collection`, so clear
+        // them atomically here to avoid re-introducing stale
+        // entries on the next merge.
+        self.pending_inserts
+            .get_mut()
+            .expect("remembered pending_inserts poisoned")
+            .clear();
+        self.pending_count.store(0, Ordering::Relaxed);
     }
 }
 
@@ -202,7 +350,14 @@ impl HeapIndexState {
         // has at least one nursery edge). Each owner counts as
         // one entry in both the edge and owner stats since the
         // dense edge Vec was retired.
-        let explicit_owners = self.remembered.owners.len();
+        //
+        // `effective_len` folds the hot-path `pending_inserts`
+        // Vec into a deduped count without allocating. The
+        // empty-pending fast path is a single relaxed atomic
+        // load, which keeps this call cheap for the barrier
+        // hot path (which reaches here via
+        // `storage_stats()` → `apply_storage_stats`).
+        let explicit_owners = self.remembered.effective_len();
         stats.remembered_explicit_edges = explicit_owners;
         stats.remembered_explicit_owners = explicit_owners;
         stats.remembered_edges = explicit_owners;
@@ -268,12 +423,26 @@ impl HeapIndexState {
             .collect()
     }
 
+    /// Seed the canonical fallback owner set directly. Used by
+    /// tests and by the post-sweep rebuild path that replaces
+    /// the set wholesale. Production barrier code routes
+    /// through [`record_remembered_edge_if_needed`], which uses
+    /// [`RememberedSetState::record_owner_shared`] internally.
+    #[cfg(test)]
     pub(crate) fn record_remembered_owner(&mut self, owner: GcErased) {
         self.remembered.record_owner(owner.object_key());
     }
 
+    /// Barrier hot-path entry. Takes `&self` so the
+    /// `Mutator::store_edge` path only needs a `HeapCore` read
+    /// lock. Any fallback-set mutation is routed through
+    /// `RememberedSetState::record_owner_shared`, which appends
+    /// to a per-set mutex rather than the canonical owner list.
+    /// GC-time consumers merge the pending entries via
+    /// [`RememberedSetState::merge_pending_owners`] or
+    /// [`RememberedSetState::owners_for_collection`].
     pub(crate) fn record_remembered_edge_if_needed(
-        &mut self,
+        &self,
         objects: &[ObjectRecord],
         old_gen: &OldGenState,
         owner: GcErased,
@@ -303,7 +472,7 @@ impl HeapIndexState {
             if old_gen.record_write_barrier(owner_addr) {
                 return;
             }
-            self.record_remembered_owner(owner);
+            self.remembered.record_owner_shared(owner.object_key());
         }
     }
 

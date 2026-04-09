@@ -1497,12 +1497,17 @@ impl HeapCore {
     /// `HeapStats::remembered_explicit_*` counters report this
     /// path in isolation.
     pub fn remembered_edge_count(&self) -> usize {
-        self.indexes.remembered.owners.len()
+        // `effective_len` folds any hot-path inserts sitting in
+        // `pending_inserts` into a deduped count without
+        // allocating when pending is empty, so external
+        // observers see the same number GC-time consumers will
+        // see after `merge_pending_owners`.
+        self.indexes.remembered.effective_len()
     }
 
     #[cfg(test)]
     pub(crate) fn remembered_owner_count(&self) -> usize {
-        self.indexes.remembered.owners.len()
+        self.indexes.remembered.effective_len()
     }
 
     /// Sum live_bytes and object_count across every old-gen block
@@ -1594,8 +1599,13 @@ impl HeapCore {
         }
     }
 
+    /// Barrier hot-path entry. Takes `&self` so `store_edge` /
+    /// `post_write_barrier` can run under a `HeapCore` read
+    /// lock. The fallback set mutation is routed through
+    /// [`RememberedSetState::record_owner_shared`], which only
+    /// needs its own per-set mutex.
     pub(crate) fn record_remembered_edge_if_needed(
-        &mut self,
+        &self,
         owner: GcErased,
         new_value: Option<GcErased>,
     ) {

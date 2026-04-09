@@ -4,7 +4,6 @@ use crate::background::{
     SharedBackgroundService, SharedBackgroundStatus, SharedBackgroundWaitResult,
     SharedCollectorHandle, SharedHeap, SharedHeapError, SharedHeapStatus, SharedRuntimeHandle,
 };
-use crate::barrier::BarrierKind;
 use crate::collector_exec::{
     execute_collection_plan, prepare_major_reclaim_for_plan, trace_major_ephemerons_for_candidates,
 };
@@ -494,56 +493,11 @@ impl<'heap> CollectorRuntime<'heap> {
             .expect("rooting during active major-mark should not fail");
     }
 
-    /// Record a post-write barrier and push the diagnostic
-    /// event onto the runtime's carried mutator-local ring.
-    pub(crate) fn record_post_write(
-        &mut self,
-        owner: GcErased,
-        slot: Option<usize>,
-        old_value: Option<GcErased>,
-        new_value: Option<GcErased>,
-    ) {
-        assert!(
-            !self.heap.prepared_full_reclaim_active(),
-            "cannot mutate heap edges while prepared full reclaim is active"
-        );
-
-        let active_major_mark = self.heap.collector_handle().has_active_major_mark();
-        let record_satb = old_value.is_some() && active_major_mark;
-
-        self.heap.bump_barrier_stats(BarrierKind::PostWrite);
-        self.local
-            .get_mut()
-            .push_barrier_event(BarrierKind::PostWrite, owner, slot, old_value, new_value);
-        if record_satb {
-            self.heap.bump_barrier_stats(BarrierKind::SatbPreWrite);
-            self.local.get_mut().push_barrier_event(
-                BarrierKind::SatbPreWrite,
-                owner,
-                slot,
-                old_value,
-                new_value,
-            );
-        }
-
-        self.heap
-            .collector_handle()
-            .record_active_major_post_write_and_refresh(
-                self.heap.objects(),
-                &self.heap.indexes().object_index,
-                owner,
-                old_value,
-                new_value,
-                self.heap.config().old.mutator_assist_slices,
-                &self.heap.storage_stats(),
-                self.heap.old_gen(),
-                self.heap.old_config(),
-                |kind| self.heap.plan_for(kind),
-            )
-            .expect("post-write active major-mark assist should not fail");
-
-        self.heap.record_remembered_edge_if_needed(owner, new_value);
-    }
+    // NOTE: `record_post_write` was removed after the barrier
+    // fast path was moved onto the `HeapCore` read-lock path
+    // in `Mutator::post_write_barrier`. The old write-lock
+    // variant is no longer needed because the barrier no
+    // longer requires exclusive access to the heap core.
 
     /// Begin a persistent major-mark session for one scheduler-provided plan.
     pub fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
