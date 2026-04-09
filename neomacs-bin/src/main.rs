@@ -1062,12 +1062,36 @@ pub fn run(mode: RuntimeMode) {
         std::process::exit(1);
     });
 
-    // Initialize tracing with a target appropriate to the chosen frontend.
-    // The returned guard must live until `run` returns to flush the file
-    // appender on shutdown when `NEOMACS_LOG_FILE=<path>` is set.
-    let log_target = match startup.frontend {
-        FrontendKind::Gui => neovm_core::logging::LogTarget::Gui,
-        FrontendKind::Tty => neovm_core::logging::LogTarget::Tty,
+    // Initialize tracing with a writer target appropriate to the
+    // binary:
+    //
+    // - `neomacs-temacs` (RuntimeMode::Raw) and `bootstrap-neomacs`
+    //   (RuntimeMode::BootstrapUse) are build-time utilities whose
+    //   stdout is captured by the xtask driver — they MUST log to
+    //   stdout so the build log shows what they are doing. Frontend
+    //   is always `Tty` for them (they run with --batch), but they
+    //   have no TUI redisplay engine fighting for the pty, so
+    //   stdout logging is safe and useful.
+    //
+    // - `neomacs` (RuntimeMode::FinalRun) is the user-facing binary.
+    //   Under a GUI frontend, stdout is captured to a file by the
+    //   calling shell (e.g. `> /tmp/neomacs-gui.log 2>&1`), so
+    //   LogTarget::Stdout is fine. Under a TTY frontend (`-nw`,
+    //   `--batch`), stdout is the alt-screen pty the redisplay
+    //   engine is drawing into, so LogTarget::File routes tracing
+    //   to a file instead.
+    //
+    // In all cases `NEOMACS_LOG_FILE=<path>` overrides the file path
+    // (and, for LogTarget::Stdout, also adds a file layer alongside
+    // stdout).
+    let log_target = match mode {
+        RuntimeMode::Raw | RuntimeMode::BootstrapUse => {
+            neovm_core::logging::LogTarget::Stdout
+        }
+        RuntimeMode::FinalRun => match startup.frontend {
+            FrontendKind::Gui => neovm_core::logging::LogTarget::Stdout,
+            FrontendKind::Tty => neovm_core::logging::LogTarget::File,
+        },
     };
     let _logging_guard = neovm_core::logging::init(log_target);
 
