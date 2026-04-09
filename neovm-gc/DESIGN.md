@@ -183,38 +183,56 @@ Still staging compromises:
   architectural level.
 
   **Known performance limitation — single-lock
-  contention.** The `examples/bench_multi_mutator_alloc.rs`
-  microbench (release build, small-object allocation
-  through `Mutator::alloc`) shows the following behavior
-  under the current single-`RwLock<HeapCore>` model:
+  contention on the allocation commit.** The criterion
+  suite in `benches/` has a committed baseline in
+  `benches/BASELINE.md`. The post-Stage-0 post-Phase-1
+  numbers (small-object allocation through `Mutator::alloc`,
+  release build, same machine A/B) are:
 
   ```text
-  single-mutator   : ~50 K alloc/sec
-   1 thread        : ~56 K alloc/sec (no lock contention)
-   2 threads       : ~16 K alloc/sec (0.28x vs 1 thread)
-   4 threads       : ~6  K alloc/sec (0.11x vs 1 thread)
+  # alloc path (still under HeapCore write lock)
+  single-mutator    : ~6.9 M alloc/sec
+   1 thread         : ~3.8 M elem/s (uncontended baseline)
+   2 threads        : ~3.4 M elem/s (0.88x vs 1 thread)
+   4 threads        : ~2.4 M elem/s (0.61x vs 1 thread)
+   8 threads        : ~2.1 M elem/s (0.54x vs 1 thread)
+
+  # store_edge barrier path (moved onto HeapCore read lock
+  # in Phase 1, commit 22c68887e)
+   1 thread         : ~1.04 M elem/s (1.00x baseline)
+   2 threads        : ~1.35 M elem/s (1.30x)
+   4 threads        : ~1.98 M elem/s (1.90x)
+   8 threads        : ~2.51 M elem/s (2.42x)
   ```
 
-  Multi-mutator throughput actively *degrades* with more
-  threads because every `Mutator::alloc` call acquires the
-  single `HeapCore` write lock via `with_runtime`, and the
-  lock is the dominant cost on the allocation hot path.
-  The TLAB fast path is per-mutator and never touches the
-  shared cursor on hit, but the allocation-committing
-  bookkeeping (stats, object_index, collector handle
-  refresh) still runs under the write lock.
+  The session-3 numbers (~50 K alloc/sec single-mutator,
+  actively degrading past 1 thread) were fixed by the
+  Stage-0 O(n²) repair in `collector_policy::build_plan`
+  (commit 390303d36). Phase 1 then moved the write-barrier
+  path onto a `HeapCore` read lock so multi-mutator barrier
+  traffic no longer serializes on a single writer; pre-
+  Phase-1 multi-mutator barrier scaling was *negative*
+  (0.45x at 8 threads) and is now positive sub-linear.
 
-  This is correctness-correct but not a scaling story.
-  Closing the remaining gap to "modern concurrent GC"
-  throughput requires the fine-grained-locks step
+  The allocation path still takes the `HeapCore` write
+  lock because the commit block mutates `objects`,
+  `indexes`, `old_gen`, and `stats` simultaneously. Every
+  `Mutator::alloc` call briefly acquires the write lock
+  for that commit block. The TLAB bump itself is per-
+  mutator and never touches the shared cursor on hit, but
+  the commit bookkeeping still runs under the write lock.
+
+  This is correctness-correct, with positive multi-mutator
+  scaling on the barrier side and sub-linear-but-positive
+  scaling on the allocation side. Closing the remaining
+  alloc-side gap requires the fine-grained-locks step
   (Appendix A step 9) which splits `HeapCore` into
   independently-locked substructures (`ObjectStore` /
   `OldGenPool` / `NurseryState` / collector state) so the
-  barrier and allocation hot paths stop serializing on
-  one lock. That work is outside the current DESIGN.md
-  Final Position bullet list — every Final Position
-  property is satisfied by the single-lock implementation
-  already.
+  allocation commit path stops serializing on one lock.
+  That work is outside the current DESIGN.md Final
+  Position bullet list — every Final Position property is
+  satisfied by the single-lock implementation already.
 - physical old-gen compaction is the only old-gen compaction
   mechanism. The legacy logical-region rebuild infrastructure
   is fully retired: the `regions` vec, `OldRegion` struct,
