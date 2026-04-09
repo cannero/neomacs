@@ -1275,6 +1275,19 @@ pub(crate) fn builtin_window_cursor_type(
     Ok(frames.window_cursor_type(wid))
 }
 /// `(set-window-cursor-type WINDOW TYPE)` -> TYPE.
+///
+/// Mirrors GNU `src/window.c:8601-8635 (Fset_window_cursor_type)`,
+/// which validates TYPE before storing it on the window. The
+/// allowed shapes are:
+///
+///   nil | t | box | hollow | bar | hbar
+///   (box . INTEGERP)  (bar . INTEGERP)  (hbar . INTEGERP)
+///
+/// Anything else triggers `(error "Invalid cursor type")`. Cursor
+/// audit Finding 3 in `drafts/cursor-audit.md`: this builtin used
+/// to silently accept any value, which made invalid Lisp typos
+/// (e.g. a number, a random symbol, a cons with a non-integer
+/// width) look correct until the renderer hit them.
 pub(crate) fn builtin_set_window_cursor_type(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -1285,8 +1298,39 @@ pub(crate) fn builtin_set_window_cursor_type(
     let (_fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let cursor_type = args[1];
+
+    if !is_valid_cursor_type(cursor_type) {
+        return Err(crate::emacs_core::error::signal(
+            "error",
+            vec![Value::string("Invalid cursor type")],
+        ));
+    }
+
     frames.set_window_cursor_type(wid, cursor_type);
     Ok(cursor_type)
+}
+
+/// Returns true if VALUE is a legal `cursor-type` per GNU
+/// `src/window.c:8616-8626`.
+fn is_valid_cursor_type(value: Value) -> bool {
+    if value.is_nil() || value == Value::T {
+        return true;
+    }
+    if let Some(name) = value.as_symbol_name() {
+        if matches!(name, "box" | "hollow" | "bar" | "hbar") {
+            return true;
+        }
+    }
+    if matches!(value.kind(), crate::emacs_core::value::ValueKind::Cons) {
+        let head_ok = value
+            .cons_car()
+            .as_symbol_name()
+            .is_some_and(|n| matches!(n, "box" | "bar" | "hbar"));
+        let tail = value.cons_cdr();
+        let tail_ok = tail.is_integer();
+        return head_ok && tail_ok;
+    }
+    false
 }
 /// `(window-parameter WINDOW PARAMETER)` -> window parameter or nil.
 pub(crate) fn builtin_window_parameter(

@@ -2031,6 +2031,62 @@ fn window_cursor_type_helpers_match_batch_defaults_and_set_get_semantics() {
     assert_eq!(out[2], "OK (wrong-type-argument wrong-type-argument)");
 }
 
+// Cursor audit Finding 3: set-window-cursor-type validates TYPE.
+//
+// Mirrors GNU src/window.c:8616-8627: TYPE must be one of
+//   nil | t | box | hollow | bar | hbar
+//   (box . INTEGER) | (bar . INTEGER) | (hbar . INTEGER)
+// otherwise GNU signals (error "Invalid cursor type"). Before this
+// fix neomacs accepted any value silently.
+#[test]
+fn set_window_cursor_type_signals_error_on_invalid_type_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let out = ev
+        .eval_str_each(
+            "(list
+               ;; Symbol that isn't a recognized shape.
+               (condition-case err
+                   (set-window-cursor-type (selected-window) 'tunafish)
+                 (error err))
+               ;; A bare integer.
+               (condition-case err
+                   (set-window-cursor-type (selected-window) 42)
+                 (error err))
+               ;; A string.
+               (condition-case err
+                   (set-window-cursor-type (selected-window) \"box\")
+                 (error err))
+               ;; (box . NON-INTEGER) is rejected.
+               (condition-case err
+                   (set-window-cursor-type (selected-window) '(box . foo))
+                 (error err))
+               ;; (foo . 3) head must be box/bar/hbar.
+               (condition-case err
+                   (set-window-cursor-type (selected-window) '(foo . 3))
+                 (error err))
+               ;; (box . 5) is the canonical valid cons form.
+               (set-window-cursor-type (selected-window) '(box . 5))
+               (window-cursor-type (selected-window))
+               ;; Reset.
+               (set-window-cursor-type (selected-window) t))",
+        )
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        out[0],
+        "OK ((error \"Invalid cursor type\") \
+            (error \"Invalid cursor type\") \
+            (error \"Invalid cursor type\") \
+            (error \"Invalid cursor type\") \
+            (error \"Invalid cursor type\") \
+            (box . 5) \
+            (box . 5) \
+            t)"
+    );
+}
+
 #[test]
 fn window_metadata_shared_state_smoke() {
     crate::test_utils::init_test_tracing();
