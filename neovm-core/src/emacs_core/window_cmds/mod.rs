@@ -1012,19 +1012,32 @@ pub(crate) fn builtin_frame_selected_window(
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     Ok(window_value(frame.selected_window))
 }
-/// `(frame-old-selected-window &optional FRAME)` -> nil.
+/// `(frame-old-selected-window &optional FRAME)` -> the previously
+/// selected window of FRAME.
 ///
-/// Batch GNU Emacs reports nil for this accessor throughout startup and
-/// selection operations; keep frame designator validation aligned with
-/// `frame-live-p` semantics.
+/// Mirrors GNU `Fframe_old_selected_window` (`src/frame.c`):
+/// returns the value of `frame->old_selected_window`, which is
+/// updated by `select-window` / `set-frame-selected-window` /
+/// `set-window-configuration` whenever the live `selected_window`
+/// changes. Window audit Critical 8 in
+/// `drafts/window-system-audit.md`: this builtin used to be a
+/// stub returning `nil`, so blink-cursor-mode and other Lisp
+/// callers that branch on the previous selection always took the
+/// "no previous selection" path.
 pub(crate) fn builtin_frame_old_selected_window(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("frame-old-selected-window", &args, 1)?;
-    let _ = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
-    Ok(Value::NIL)
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
+    let frame = frames
+        .get(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    Ok(frame
+        .old_selected_window
+        .map(window_value)
+        .unwrap_or(Value::NIL))
 }
 /// `(set-frame-selected-window FRAME WINDOW &optional NORECORD)` -> WINDOW.
 pub(crate) fn builtin_set_frame_selected_window(
@@ -1081,6 +1094,13 @@ pub(crate) fn builtin_set_frame_selected_window(
         .frames
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    // GNU `Fset_frame_selected_window` (`src/frame.c`) saves the
+    // outgoing selection in `old_selected_window` before storing
+    // the new one. Window audit Critical 8 in
+    // `drafts/window-system-audit.md`.
+    if wid != frame.selected_window {
+        frame.old_selected_window = Some(frame.selected_window);
+    }
     frame.selected_window = wid;
     Ok(window_value(wid))
 }

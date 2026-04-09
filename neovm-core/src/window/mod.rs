@@ -799,6 +799,19 @@ pub struct Frame {
     pub root_window: Window,
     /// The selected (active) window.
     pub selected_window: WindowId,
+    /// The previously-selected window. GNU stores this as
+    /// `frame->old_selected_window` and returns it from
+    /// `frame-old-selected-window` (`src/frame.c`). Window audit
+    /// Critical 8 in `drafts/window-system-audit.md` flagged the
+    /// builtin as a stub returning nil because this field did not
+    /// exist; the builtin now reads it.
+    ///
+    /// Initialized to `None` (nil) on a fresh frame to match GNU
+    /// `make_frame_without_minibuffer`, then set to whichever
+    /// window was previously selected on every `select-window`,
+    /// `set-frame-selected-window`, and `set-window-configuration`
+    /// transition.
+    pub old_selected_window: Option<WindowId>,
     /// Minibuffer window (always a leaf).
     pub minibuffer_window: Option<WindowId>,
     /// Storage for the minibuffer leaf, which is not part of the split tree.
@@ -876,6 +889,10 @@ impl Frame {
             terminal_id,
             root_window,
             selected_window: selected,
+            // GNU `make_frame_without_minibuffer` leaves
+            // `old_selected_window` as Qnil. The first
+            // `select-window` records the outgoing selection.
+            old_selected_window: None,
             minibuffer_window: Some(minibuffer_window),
             minibuffer_leaf: Some(minibuffer_leaf),
             width,
@@ -1047,6 +1064,13 @@ impl Frame {
     /// Select a window by ID.
     pub fn select_window(&mut self, id: WindowId) -> bool {
         if self.find_window(id).is_some() {
+            // GNU Emacs `Fselect_window` (`src/window.c:425`) saves
+            // the previously-selected window before overwriting it.
+            // Window audit Critical 8 in
+            // `drafts/window-system-audit.md`.
+            if id != self.selected_window {
+                self.old_selected_window = Some(self.selected_window);
+            }
             self.selected_window = id;
             true
         } else {
@@ -1338,6 +1362,7 @@ impl FrameManager {
         if removed && frame.selected_window == window_id {
             // Select the first remaining leaf.
             if let Some(first) = frame.root_window.leaf_ids().first() {
+                frame.old_selected_window = Some(frame.selected_window);
                 frame.selected_window = *first;
             }
         }

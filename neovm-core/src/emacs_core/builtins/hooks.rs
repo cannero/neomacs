@@ -701,6 +701,14 @@ pub(crate) fn builtin_set_window_configuration(
     if let Some(snapshot) = snapshot {
         let selected_window_state = if let Some(frame) = eval.frames.get_mut(snapshot.frame_id) {
             frame.root_window = snapshot.root_window;
+            // GNU `Fset_window_configuration` saves the outgoing
+            // selection before applying the snapshot's selection,
+            // so `frame-old-selected-window` remembers the window
+            // we left when the configuration was restored. Window
+            // audit Critical 8 in `drafts/window-system-audit.md`.
+            if frame.selected_window != snapshot.selected_window {
+                frame.old_selected_window = Some(frame.selected_window);
+            }
             frame.selected_window = snapshot.selected_window;
             frame.minibuffer_window = snapshot.minibuffer_window;
             frame.minibuffer_leaf = snapshot.minibuffer_leaf;
