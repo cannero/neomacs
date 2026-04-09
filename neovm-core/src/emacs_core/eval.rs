@@ -2570,6 +2570,31 @@ impl Context {
             "x-stretch-cursor",
             "x-underline-at-descent-line",
             "x-use-underline-position-properties",
+            // Mouse pointer shapes — GNU defines these in
+            // src/xfns.c (and parallel files w32fns.c, pgtkfns.c,
+            // haikufns.c, androidfns.c) as integer Lisp_Object
+            // variables that hold X cursor font codes. neomacs has
+            // no native window-system bindings for these yet, so
+            // they default to nil. Cursor audit Finding 9 in
+            // drafts/cursor-audit.md flagged the symbols as
+            // missing entirely; Lisp code that tried
+            // (setq x-pointer-shape ...) hit void-variable.
+            "x-pointer-shape",
+            "x-nontext-pointer-shape",
+            "x-mode-pointer-shape",
+            "x-sensitive-text-pointer-shape",
+            "x-hourglass-pointer-shape",
+            "x-window-horizontal-drag-cursor",
+            "x-window-vertical-drag-cursor",
+            "x-window-left-edge-cursor",
+            "x-window-top-left-corner-cursor",
+            "x-window-top-edge-cursor",
+            "x-window-top-right-corner-cursor",
+            "x-window-right-edge-cursor",
+            "x-window-bottom-right-corner-cursor",
+            "x-window-bottom-edge-cursor",
+            "x-window-bottom-left-corner-cursor",
+            "x-cursor-fore-pixel",
         ] {
             obarray.set_symbol_value(name, Value::NIL);
         }
