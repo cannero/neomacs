@@ -2385,31 +2385,43 @@ pub(crate) fn builtin_set_mouse_position(
     Ok(Value::NIL)
 }
 
-pub(crate) fn builtin_set_window_new_normal(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_set_window_new_normal(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("set-window-new-normal", &args, 1, 2)?;
     expect_window_valid_or_nil(&args[0])?;
     Ok(super::stubs::set_window_new_normal_value(
+        eval,
         &args[0],
         args.get(1).cloned().unwrap_or(Value::NIL),
     ))
 }
 
-pub(crate) fn builtin_set_window_new_pixel(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_set_window_new_pixel(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("set-window-new-pixel", &args, 2, 3)?;
     expect_window_valid_or_nil(&args[0])?;
     let size = expect_int(&args[1])?;
     Ok(super::stubs::set_window_new_pixel_value(
+        eval,
         &args[0],
         size,
         args.get(2).is_some_and(|v| v.is_truthy()),
     ))
 }
 
-pub(crate) fn builtin_set_window_new_total(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_set_window_new_total(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("set-window-new-total", &args, 2, 3)?;
     expect_window_valid_or_nil(&args[0])?;
     let size = expect_fixnum(&args[1])?;
     Ok(super::stubs::set_window_new_total_value(
+        eval,
         &args[0],
         size,
         args.get(2).is_some_and(|v| v.is_truthy()),

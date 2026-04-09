@@ -5393,19 +5393,19 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "set-window-new-normal",
-        |_ctx, args| super::window_cmds::builtin_set_window_new_normal(args),
+        super::window_cmds::builtin_set_window_new_normal,
         1,
         Some(2),
     );
     ctx.defsubr(
         "set-window-new-pixel",
-        |_ctx, args| super::window_cmds::builtin_set_window_new_pixel(args),
+        super::window_cmds::builtin_set_window_new_pixel,
         2,
         Some(3),
     );
     ctx.defsubr(
         "set-window-new-total",
-        |_ctx, args| super::window_cmds::builtin_set_window_new_total(args),
+        super::window_cmds::builtin_set_window_new_total,
         2,
         Some(3),
     );
@@ -5698,19 +5698,19 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "window-new-normal",
-        |_ctx, args| super::window_cmds::builtin_window_new_normal(args),
+        super::window_cmds::builtin_window_new_normal,
         0,
         Some(1),
     );
     ctx.defsubr(
         "window-new-pixel",
-        |_ctx, args| super::window_cmds::builtin_window_new_pixel(args),
+        super::window_cmds::builtin_window_new_pixel,
         0,
         Some(1),
     );
     ctx.defsubr(
         "window-new-total",
-        |_ctx, args| super::window_cmds::builtin_window_new_total(args),
+        super::window_cmds::builtin_window_new_total,
         0,
         Some(1),
     );

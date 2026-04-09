@@ -6251,9 +6251,6 @@ pub(crate) fn builtin_window_resize_apply(
     let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
     let horflag = args.get(1).is_some_and(|v| v.is_truthy());
 
-    let new_pixel_map = super::builtins::snapshot_window_new_pixel();
-    let new_normal_map = super::builtins::snapshot_window_new_normal();
-
     let frame = frames
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
@@ -6262,13 +6259,12 @@ pub(crate) fn builtin_window_resize_apply(
     let ch = frame.char_height;
 
     // Validate: root's new_pixel must match the frame dimension.
-    if !crate::window::window_resize_check(&frame.root_window, horflag, &new_pixel_map) {
+    if !crate::window::window_resize_check(&frame.root_window, horflag) {
         return Ok(Value::NIL);
     }
 
     // Check root's new_pixel matches frame size.
-    let root_id = frame.root_window.id().0;
-    let root_new = new_pixel_map.get(&root_id).copied().unwrap_or_else(|| {
+    let root_new = frame.root_window.new_pixel().unwrap_or_else(|| {
         let b = frame.root_window.bounds();
         if horflag {
             b.width as i64
@@ -6285,15 +6281,9 @@ pub(crate) fn builtin_window_resize_apply(
         return Ok(Value::NIL);
     }
 
-    // Apply.
-    crate::window::window_resize_apply(
-        &mut frame.root_window,
-        horflag,
-        &new_pixel_map,
-        &new_normal_map,
-        cw,
-        ch,
-    );
+    // Apply. The recursive walk reads new_pixel directly from each
+    // node now (audit Structural 1).
+    crate::window::window_resize_apply(&mut frame.root_window, horflag, cw, ch);
 
     // Recalculate minibuffer position after tree resize.
     frame.recalculate_minibuffer_bounds();
@@ -6313,8 +6303,6 @@ pub(crate) fn builtin_window_resize_apply_total(
     let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
     let horflag = args.get(1).is_some_and(|v| v.is_truthy());
 
-    let new_total_map = super::builtins::snapshot_window_new_total();
-
     let frame = frames
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
@@ -6322,19 +6310,14 @@ pub(crate) fn builtin_window_resize_apply_total(
     let cw = frame.char_width;
     let ch = frame.char_height;
 
-    crate::window::window_resize_apply_total(
-        &mut frame.root_window,
-        horflag,
-        &new_total_map,
-        cw,
-        ch,
-    );
+    crate::window::window_resize_apply_total(&mut frame.root_window, horflag, cw, ch);
 
-    // Handle minibuffer window.
+    // Handle minibuffer window — its `new_total` lives on the
+    // minibuffer leaf itself now.
     if !horflag {
-        if let Some(mb_wid) = frame.minibuffer_window {
+        if frame.minibuffer_window.is_some() {
             if let Some(mb) = frame.minibuffer_leaf.as_mut() {
-                if let Some(&new_total) = new_total_map.get(&mb_wid.0) {
+                if let Some(new_total) = mb.new_total() {
                     let root_bounds = *frame.root_window.bounds();
                     let mb_top = root_bounds.y + root_bounds.height;
                     let mb_bounds = *mb.bounds();
@@ -6345,6 +6328,7 @@ pub(crate) fn builtin_window_resize_apply_total(
                         mb_bounds.width,
                         new_h,
                     ));
+                    mb.set_new_total(None);
                 }
             }
         }

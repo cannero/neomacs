@@ -439,9 +439,6 @@ pub(crate) fn builtin_neomacs_core_backend(args: Vec<Value>) -> EvalResult {
 pub(super) fn reset_stubs_thread_locals() {
     SQLITE_NEXT_HANDLE_ID.with(|slot| *slot.borrow_mut() = 0);
     SQLITE_OPEN_HANDLES.with(|slot| slot.borrow_mut().clear());
-    WINDOW_NEW_NORMAL.with(|slot| slot.borrow_mut().clear());
-    WINDOW_NEW_PIXEL.with(|slot| slot.borrow_mut().clear());
-    WINDOW_NEW_TOTAL.with(|slot| slot.borrow_mut().clear());
     NEOMACS_CLIPBOARD_TEXT.with(|slot| *slot.borrow_mut() = None);
     NEOMACS_PRIMARY_SELECTION_TEXT.with(|slot| *slot.borrow_mut() = None);
     NEOMACS_MONITORS.with(|slot| slot.borrow_mut().clear());
@@ -449,130 +446,93 @@ pub(super) fn reset_stubs_thread_locals() {
     INOTIFY_ACTIVE_WATCHES.with(|slot| slot.borrow_mut().clear());
 }
 
-/// Return a snapshot of the `new_pixel` map for `window-resize-apply`.
-pub(crate) fn snapshot_window_new_pixel() -> HashMap<u64, i64> {
-    WINDOW_NEW_PIXEL.with(|slot| slot.borrow().clone())
-}
-
-/// Return a snapshot of the `new_total` map for `window-resize-apply-total`.
-pub(crate) fn snapshot_window_new_total() -> HashMap<u64, i64> {
-    WINDOW_NEW_TOTAL.with(|slot| slot.borrow().clone())
-}
-
-/// Return a snapshot of the `new_normal` map for `window-resize-apply`.
-/// Returns only numeric (f64) entries since that's what the resize logic needs.
-pub(crate) fn snapshot_window_new_normal() -> HashMap<u64, f64> {
-    WINDOW_NEW_NORMAL.with(|slot| {
-        slot.borrow()
-            .iter()
-            .filter_map(|(&id, v)| match v.kind() {
-                ValueKind::Float => Some((id, v.as_float().unwrap())),
-                ValueKind::Fixnum(i) => Some((id, i as f64)),
-                _ => None,
-            })
-            .collect()
-    })
-}
-
 thread_local! {
     static SQLITE_NEXT_HANDLE_ID: RefCell<i64> = RefCell::new(0);
     static SQLITE_OPEN_HANDLES: RefCell<Vec<i64>> = RefCell::new(Vec::new());
-    // GNU keeps `new_pixel`, `new_total`, and `new_normal` as
-    // dedicated fields on `struct window` (`src/window.h:283-292`).
-    // neomacs sidetables them here pending Window audit Structural 1
-    // in `drafts/window-system-audit.md`, which moves them onto
-    // `Window::Leaf` / `Window::Internal` so window-configuration
-    // save/restore round-trips them automatically.
-    static WINDOW_NEW_NORMAL: RefCell<HashMap<u64, Value>> = RefCell::new(HashMap::new());
-    static WINDOW_NEW_PIXEL: RefCell<HashMap<u64, i64>> = RefCell::new(HashMap::new());
-    static WINDOW_NEW_TOTAL: RefCell<HashMap<u64, i64>> = RefCell::new(HashMap::new());
     static NEOMACS_CLIPBOARD_TEXT: RefCell<Option<String>> = const { RefCell::new(None) };
     static NEOMACS_PRIMARY_SELECTION_TEXT: RefCell<Option<String>> = const { RefCell::new(None) };
     static NEOMACS_MONITORS: RefCell<Vec<NeomacsMonitorInfo>> = const { RefCell::new(Vec::new()) };
 }
 
-fn window_state_id(value: &Value) -> Option<u64> {
+/// Resolve a Lisp window designator to a `WindowId`.
+///
+/// Mirrors GNU's `decode_any_window` for the new_pixel / new_total
+/// / new_normal accessor family. A bare integer is interpreted as a
+/// raw window id (matching the long-standing test fixtures), and a
+/// real window value is unwrapped via `as_window_id`.
+fn window_designator_to_id(value: &Value) -> Option<crate::window::WindowId> {
     if let Some(wid) = value.as_window_id() {
-        return Some(wid);
+        return Some(crate::window::WindowId(wid));
     }
     match value.kind() {
-        ValueKind::Fixnum(id) if id >= 0 => Some(id as u64),
+        ValueKind::Fixnum(id) if id >= 0 => Some(crate::window::WindowId(id as u64)),
         _ => None,
     }
 }
 
-pub(super) fn window_new_normal_value(window: Option<&Value>) -> Value {
-    let Some(id) = window.and_then(window_state_id) else {
+pub(super) fn window_new_normal_value(
+    eval: &super::eval::Context,
+    window: Option<&Value>,
+) -> Value {
+    let Some(id) = window.and_then(window_designator_to_id) else {
         return Value::NIL;
     };
-    WINDOW_NEW_NORMAL
-        .with(|slot| slot.borrow().get(&id).copied())
-        .unwrap_or(Value::NIL)
+    eval.frames.window_new_normal(id)
 }
 
-pub(super) fn set_window_new_normal_value(window: &Value, value: Value) -> Value {
-    if let Some(id) = window_state_id(window) {
-        WINDOW_NEW_NORMAL.with(|slot| {
-            slot.borrow_mut().insert(id, value);
-        });
+pub(super) fn set_window_new_normal_value(
+    eval: &mut super::eval::Context,
+    window: &Value,
+    value: Value,
+) -> Value {
+    if let Some(id) = window_designator_to_id(window) {
+        eval.frames.set_window_new_normal(id, value);
     }
     value
 }
 
-pub(super) fn window_new_pixel_value(window: Option<&Value>) -> Value {
-    let Some(id) = window.and_then(window_state_id) else {
+pub(super) fn window_new_pixel_value(
+    eval: &super::eval::Context,
+    window: Option<&Value>,
+) -> Value {
+    let Some(id) = window.and_then(window_designator_to_id) else {
         return Value::fixnum(0);
     };
-    Value::fixnum(
-        WINDOW_NEW_PIXEL
-            .with(|slot| slot.borrow().get(&id).copied())
-            .unwrap_or(0),
-    )
+    Value::fixnum(eval.frames.window_new_pixel(id).unwrap_or(0))
 }
 
-pub(super) fn set_window_new_pixel_value(window: &Value, size: i64, add: bool) -> Value {
-    let Some(id) = window_state_id(window) else {
+pub(super) fn set_window_new_pixel_value(
+    eval: &mut super::eval::Context,
+    window: &Value,
+    size: i64,
+    add: bool,
+) -> Value {
+    let Some(id) = window_designator_to_id(window) else {
         return Value::fixnum(size);
     };
-    let stored = WINDOW_NEW_PIXEL.with(|slot| {
-        let mut state = slot.borrow_mut();
-        let entry = state.entry(id).or_insert(0);
-        if add {
-            *entry += size;
-        } else {
-            *entry = size;
-        }
-        *entry
-    });
-    Value::fixnum(stored)
+    Value::fixnum(eval.frames.set_window_new_pixel(id, size, add))
 }
 
-pub(super) fn window_new_total_value(window: Option<&Value>) -> Value {
-    let Some(id) = window.and_then(window_state_id) else {
+pub(super) fn window_new_total_value(
+    eval: &super::eval::Context,
+    window: Option<&Value>,
+) -> Value {
+    let Some(id) = window.and_then(window_designator_to_id) else {
         return Value::fixnum(0);
     };
-    Value::fixnum(
-        WINDOW_NEW_TOTAL
-            .with(|slot| slot.borrow().get(&id).copied())
-            .unwrap_or(0),
-    )
+    Value::fixnum(eval.frames.window_new_total(id).unwrap_or(0))
 }
 
-pub(super) fn set_window_new_total_value(window: &Value, size: i64, add: bool) -> Value {
-    let Some(id) = window_state_id(window) else {
+pub(super) fn set_window_new_total_value(
+    eval: &mut super::eval::Context,
+    window: &Value,
+    size: i64,
+    add: bool,
+) -> Value {
+    let Some(id) = window_designator_to_id(window) else {
         return Value::fixnum(size);
     };
-    let stored = WINDOW_NEW_TOTAL.with(|slot| {
-        let mut state = slot.borrow_mut();
-        let entry = state.entry(id).or_insert(0);
-        if add {
-            *entry += size;
-        } else {
-            *entry = size;
-        }
-        *entry
-    });
-    Value::fixnum(stored)
+    Value::fixnum(eval.frames.set_window_new_total(id, size, add))
 }
 
 fn sqlite_handle_id(value: &Value) -> Option<i64> {
@@ -1796,28 +1756,37 @@ pub(crate) fn builtin_window_lines_pixel_dimensions(args: Vec<Value>) -> EvalRes
     Ok(Value::NIL)
 }
 
-pub(crate) fn builtin_window_new_normal(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_window_new_normal(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("window-new-normal", &args, 0, 1)?;
     if let Some(window) = args.first() {
         expect_window_valid_or_nil(window)?;
     }
-    Ok(window_new_normal_value(args.first()))
+    Ok(window_new_normal_value(eval, args.first()))
 }
 
-pub(crate) fn builtin_window_new_pixel(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_window_new_pixel(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("window-new-pixel", &args, 0, 1)?;
     if let Some(window) = args.first() {
         expect_window_valid_or_nil(window)?;
     }
-    Ok(window_new_pixel_value(args.first()))
+    Ok(window_new_pixel_value(eval, args.first()))
 }
 
-pub(crate) fn builtin_window_new_total(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_window_new_total(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("window-new-total", &args, 0, 1)?;
     if let Some(window) = args.first() {
         expect_window_valid_or_nil(window)?;
     }
-    Ok(window_new_total_value(args.first()))
+    Ok(window_new_total_value(eval, args.first()))
 }
 
 pub(crate) fn builtin_window_old_body_pixel_height(args: Vec<Value>) -> EvalResult {

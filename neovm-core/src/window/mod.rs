@@ -253,6 +253,24 @@ pub enum Window {
         margins: (usize, usize),
         /// Window-local display settings mirrored from GNU `struct window`.
         display: WindowDisplayState,
+        /// Pending pixel size queued by `set-window-new-pixel`. GNU
+        /// stores this as `w->new_pixel`
+        /// (`src/window.h:283`). Cleared by `window-resize-apply`
+        /// once committed. Window audit Structural 1 in
+        /// `drafts/window-system-audit.md` moved this off a
+        /// thread-local HashMap onto the window struct so
+        /// window-configuration save/restore round-trips it
+        /// automatically.
+        new_pixel: Option<i64>,
+        /// Pending total (line-cell) size queued by
+        /// `set-window-new-total`. GNU `w->new_total`
+        /// (`src/window.h:284`).
+        new_total: Option<i64>,
+        /// Pending normal-size fraction queued by
+        /// `set-window-new-normal`. GNU `w->new_normal`
+        /// (`src/window.h:285`). Stored as a `Value` to mirror
+        /// GNU's Lisp_Object slot — `Value::NIL` means "unset".
+        new_normal: Value,
     },
 
     /// Internal node: contains children split in a direction.
@@ -266,6 +284,14 @@ pub enum Window {
         /// Combination limit — prevents recombination when non-nil.
         /// Mirrors GNU Emacs `w->combination_limit`.
         combination_limit: bool,
+        /// Pending pixel size — see `Leaf::new_pixel`. GNU keeps
+        /// the same `new_pixel` slot on every `struct window`,
+        /// regardless of leaf/internal split state.
+        new_pixel: Option<i64>,
+        /// Pending total size — see `Leaf::new_total`.
+        new_total: Option<i64>,
+        /// Pending normal-size fraction — see `Leaf::new_normal`.
+        new_normal: Value,
     },
 }
 
@@ -293,6 +319,57 @@ impl Window {
             preserve_vscroll_p: false,
             margins: (0, 0),
             display: WindowDisplayState::default(),
+            new_pixel: None,
+            new_total: None,
+            new_normal: Value::NIL,
+        }
+    }
+
+    /// Read the pending `new_pixel` slot. GNU `w->new_pixel`.
+    pub fn new_pixel(&self) -> Option<i64> {
+        match self {
+            Window::Leaf { new_pixel, .. } | Window::Internal { new_pixel, .. } => *new_pixel,
+        }
+    }
+
+    /// Write the pending `new_pixel` slot. GNU `wset_new_pixel`.
+    pub fn set_new_pixel(&mut self, value: Option<i64>) {
+        match self {
+            Window::Leaf { new_pixel, .. } | Window::Internal { new_pixel, .. } => {
+                *new_pixel = value;
+            }
+        }
+    }
+
+    /// Read the pending `new_total` slot. GNU `w->new_total`.
+    pub fn new_total(&self) -> Option<i64> {
+        match self {
+            Window::Leaf { new_total, .. } | Window::Internal { new_total, .. } => *new_total,
+        }
+    }
+
+    /// Write the pending `new_total` slot. GNU `wset_new_total`.
+    pub fn set_new_total(&mut self, value: Option<i64>) {
+        match self {
+            Window::Leaf { new_total, .. } | Window::Internal { new_total, .. } => {
+                *new_total = value;
+            }
+        }
+    }
+
+    /// Read the pending `new_normal` Lisp slot. GNU `w->new_normal`.
+    pub fn new_normal(&self) -> Value {
+        match self {
+            Window::Leaf { new_normal, .. } | Window::Internal { new_normal, .. } => *new_normal,
+        }
+    }
+
+    /// Write the pending `new_normal` Lisp slot.
+    pub fn set_new_normal(&mut self, value: Value) {
+        match self {
+            Window::Leaf { new_normal, .. } | Window::Internal { new_normal, .. } => {
+                *new_normal = value;
+            }
         }
     }
 
@@ -1469,6 +1546,86 @@ impl FrameManager {
     pub fn is_window_object_id(&self, window_id: WindowId) -> bool {
         self.is_valid_window_id(window_id) || self.deleted_windows.contains(&window_id)
     }
+
+    /// Look up a window by id across every live frame, returning a
+    /// shared reference. Mirrors GNU's `decode_window` plus tree
+    /// walk.
+    pub fn lookup_window(&self, window_id: WindowId) -> Option<&Window> {
+        for frame in self.frames.values() {
+            if frame.minibuffer_window == Some(window_id) {
+                return frame.minibuffer_leaf.as_ref();
+            }
+            if let Some(w) = frame.find_window(window_id) {
+                return Some(w);
+            }
+        }
+        None
+    }
+
+    /// Look up a window by id across every live frame, returning a
+    /// mutable reference.
+    pub fn lookup_window_mut(&mut self, window_id: WindowId) -> Option<&mut Window> {
+        for frame in self.frames.values_mut() {
+            if frame.minibuffer_window == Some(window_id) {
+                return frame.minibuffer_leaf.as_mut();
+            }
+            if let Some(w) = frame.find_window_mut(window_id) {
+                return Some(w);
+            }
+        }
+        None
+    }
+
+    /// Read `w->new_pixel`. Mirrors GNU
+    /// `Fwindow_new_pixel` (`src/window.c`). Returns `None` if the
+    /// window doesn't exist or has no pending pixel size.
+    pub fn window_new_pixel(&self, window_id: WindowId) -> Option<i64> {
+        self.lookup_window(window_id).and_then(Window::new_pixel)
+    }
+
+    /// Read `w->new_total`. Mirrors GNU `Fwindow_new_total`.
+    pub fn window_new_total(&self, window_id: WindowId) -> Option<i64> {
+        self.lookup_window(window_id).and_then(Window::new_total)
+    }
+
+    /// Read `w->new_normal`. Mirrors GNU `Fwindow_new_normal`.
+    pub fn window_new_normal(&self, window_id: WindowId) -> Value {
+        self.lookup_window(window_id)
+            .map(Window::new_normal)
+            .unwrap_or(Value::NIL)
+    }
+
+    /// Write `w->new_pixel`. When `add` is true, accumulates onto
+    /// the existing slot (mirroring GNU
+    /// `Fset_window_new_pixel` ADD argument).
+    pub fn set_window_new_pixel(&mut self, window_id: WindowId, size: i64, add: bool) -> i64 {
+        if let Some(window) = self.lookup_window_mut(window_id) {
+            let stored = if add { window.new_pixel().unwrap_or(0) + size } else { size };
+            window.set_new_pixel(Some(stored));
+            stored
+        } else {
+            size
+        }
+    }
+
+    /// Write `w->new_total`. ADD semantics match GNU
+    /// `Fset_window_new_total`.
+    pub fn set_window_new_total(&mut self, window_id: WindowId, size: i64, add: bool) -> i64 {
+        if let Some(window) = self.lookup_window_mut(window_id) {
+            let stored = if add { window.new_total().unwrap_or(0) + size } else { size };
+            window.set_new_total(Some(stored));
+            stored
+        } else {
+            size
+        }
+    }
+
+    /// Write `w->new_normal`. Mirrors GNU `Fset_window_new_normal`.
+    pub fn set_window_new_normal(&mut self, window_id: WindowId, value: Value) {
+        if let Some(window) = self.lookup_window_mut(window_id) {
+            window.set_new_normal(value);
+        }
+    }
 }
 
 impl Default for FrameManager {
@@ -1592,6 +1749,9 @@ fn split_window_in_tree(
                 bounds: old_bounds,
                 parameters: Vec::new(),
                 combination_limit: false,
+                new_pixel: None,
+                new_total: None,
+                new_normal: Value::NIL,
             };
 
             return Some(());
@@ -1760,18 +1920,17 @@ pub fn window_prev_sibling_id(frame: &Frame, window_id: WindowId) -> Option<Wind
 /// - For horizontal combinations: accumulates horizontal edge
 ///
 /// `horflag`: true = applying horizontal sizes, false = applying vertical sizes.
-pub fn window_resize_apply(
-    window: &mut Window,
-    horflag: bool,
-    new_pixel_map: &HashMap<u64, i64>,
-    new_normal_map: &HashMap<u64, f64>,
-    char_width: f32,
-    char_height: f32,
-) {
-    let wid = window.id().0;
-    let new_px = new_pixel_map.get(&wid).copied();
-
+///
+/// The pending sizes are read from each window's own `new_pixel`
+/// slot (set previously via `set-window-new-pixel`), mirroring the
+/// way GNU `window_resize_apply` walks `w->new_pixel` on every
+/// node it visits. After audit Structural 1 in
+/// `drafts/window-system-audit.md`, the slot lives on
+/// `Window::Leaf` / `Window::Internal` directly so the resize
+/// function no longer needs a side-table HashMap.
+pub fn window_resize_apply(window: &mut Window, horflag: bool, _char_width: f32, _char_height: f32) {
     // Apply new_pixel to this window's bounds.
+    let new_px = window.new_pixel();
     let bounds = *window.bounds();
     if let Some(px) = new_px {
         let px = px.max(0) as f32;
@@ -1780,6 +1939,10 @@ pub fn window_resize_apply(
         } else {
             window.set_bounds(Rect::new(bounds.x, bounds.y, bounds.width, px));
         }
+        // Clear the pending slot to mirror GNU's
+        // `wset_new_pixel(w, make_fixnum(-1))` reset at the end of
+        // `window_resize_apply`.
+        window.set_new_pixel(None);
     }
 
     // Get updated bounds after applying new_pixel.
@@ -1804,14 +1967,7 @@ pub fn window_resize_apply(
             }
 
             // Recurse.
-            window_resize_apply(
-                child,
-                horflag,
-                new_pixel_map,
-                new_normal_map,
-                char_width,
-                char_height,
-            );
+            window_resize_apply(child, horflag, _char_width, _char_height);
 
             // Accumulate edge in the combination direction.
             let child_bounds = *child.bounds();
@@ -1826,13 +1982,11 @@ pub fn window_resize_apply(
 
 /// Check that a resize is valid: the sum of children's new_pixel values
 /// must equal the parent's new_pixel value in the combination direction.
-pub fn window_resize_check(
-    window: &Window,
-    horflag: bool,
-    new_pixel_map: &HashMap<u64, i64>,
-) -> bool {
-    let wid = window.id().0;
-    let my_new = new_pixel_map.get(&wid).copied().unwrap_or_else(|| {
+///
+/// Reads each window's own `new_pixel` slot, mirroring GNU's
+/// recursive walk in `window_resize_check`.
+pub fn window_resize_check(window: &Window, horflag: bool) -> bool {
+    let my_new = window.new_pixel().unwrap_or_else(|| {
         let b = window.bounds();
         if horflag {
             b.width as i64
@@ -1854,8 +2008,7 @@ pub fn window_resize_check(
                 let child_sum: i64 = children
                     .iter()
                     .map(|c| {
-                        let cid = c.id().0;
-                        new_pixel_map.get(&cid).copied().unwrap_or_else(|| {
+                        c.new_pixel().unwrap_or_else(|| {
                             let b = c.bounds();
                             if horflag {
                                 b.width as i64
@@ -1870,9 +2023,7 @@ pub fn window_resize_check(
                 }
             }
             // All children must also pass the check.
-            children
-                .iter()
-                .all(|c| window_resize_check(c, horflag, new_pixel_map))
+            children.iter().all(|c| window_resize_check(c, horflag))
         }
     }
 }
@@ -1888,15 +2039,16 @@ pub fn window_resize_check(
 /// Since neomacs uses pixel bounds as the source of truth, this function
 /// converts new_total back to pixels using char_width/char_height and
 /// applies the result to window bounds.
+///
+/// The pending size for each window is read from `w->new_total`
+/// (now stored on the Window enum after audit Structural 1).
 pub fn window_resize_apply_total(
     window: &mut Window,
     horflag: bool,
-    new_total_map: &HashMap<u64, i64>,
     char_width: f32,
     char_height: f32,
 ) {
-    let wid = window.id().0;
-    let new_total = new_total_map.get(&wid).copied();
+    let new_total = window.new_total();
 
     // Apply new_total converted to pixels.
     let bounds = *window.bounds();
@@ -1909,6 +2061,8 @@ pub fn window_resize_apply_total(
             let px = total * char_height;
             window.set_bounds(Rect::new(bounds.x, bounds.y, bounds.width, px));
         }
+        // Mirror GNU `wset_new_total(w, make_fixnum(-1))`.
+        window.set_new_total(None);
     }
 
     let bounds = *window.bounds();
@@ -1932,7 +2086,7 @@ pub fn window_resize_apply_total(
             }
 
             // Recurse.
-            window_resize_apply_total(child, horflag, new_total_map, char_width, char_height);
+            window_resize_apply_total(child, horflag, char_width, char_height);
 
             // Accumulate edge.
             let child_bounds = *child.bounds();
