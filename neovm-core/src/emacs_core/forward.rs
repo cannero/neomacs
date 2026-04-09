@@ -7,14 +7,32 @@
 //! `buffer-file-name`, `point`, `mark-active`, and `case-fold-search`
 //! get their backing storage in dedicated C-side slots.
 //!
-//! # Phase 1
+//! # Implementation status
 //!
-//! This file is a **skeleton**. The redirect dispatch in
-//! [`crate::emacs_core::symbol::SymbolRedirect::Forwarded`] does not yet
-//! reach this code; Phase 8 of the symbol-redirect refactor
-//! (`drafts/symbol-redirect-plan.md`) is where the forwarder family
-//! goes live. The types are declared here so the union variant on
-//! [`crate::emacs_core::symbol::SymbolVal::fwd`] can name them.
+//! Currently only `BufferObj` (per-buffer slots, GNU's
+//! `Lisp_Buffer_Objfwd`) is wired into the matcher. The other four
+//! GNU variants — `Int`, `Bool`, `Obj`, `KboardObj` — have descriptor
+//! types declared here and a stub fallback in
+//! [`crate::emacs_core::symbol::Obarray::find_symbol_value`] that
+//! routes to the legacy `Plainval` reader.
+//!
+//! Buffer-local audit HIGH 3 in
+//! `drafts/buffer-local-variables-audit.md` flags the missing arms.
+//! In practice the divergence has no observable impact because
+//! neomacs backs every `DEFVAR_INT` / `DEFVAR_BOOL` / `DEFVAR_LISP`
+//! variable as a `Plainval` symbol stored in the obarray rather than
+//! as a static C global. The Rust subsystems that GNU would consult
+//! via `Vgc_cons_threshold` / `Vinhibit_quit` / etc. all read the
+//! obarray directly through `eval.obarray.symbol_value(...)`, so
+//! there is no "C side reads stale static, Lisp side wrote to a
+//! different storage" desync to fix.
+//!
+//! Wiring the descriptors up to a real `Int`/`Bool`/`Obj`/`KboardObj`
+//! dispatch in `find_symbol_value` would be a code-organization
+//! improvement (and prerequisite for porting GNU's `variable-binding-locus`
+//! reading the kboard slot). It is tracked as audit HIGH 3 + Phase 8b
+//! of `drafts/symbol-redirect-plan.md`. The descriptor types below
+//! are kept ready for that work.
 
 use super::intern::SymId;
 use super::value::Value;
