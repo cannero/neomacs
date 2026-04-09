@@ -245,7 +245,24 @@ fn test_format_mode_line_in_state_uses_buffer_local_symbols_and_restores_buffer(
     .expect("format-mode-line shared state")
     .expect("non-:eval format should stay on shared state");
 
-    assert_eq!(rendered, Value::string("*mode-line* Neo  "));
+    // Expected shape:
+    //   "%b "                 -> "*mode-line* "        (buffer name + literal space)
+    //   'mode-name            -> "Neo"                 (buffer-local value via
+    //                                                   set_buffer_local_property)
+    //   " "                                             (literal)
+    //   'mode-line-front-space-> ""                    (unbound in bare
+    //                                                   Context::new(): bindings.el
+    //                                                   hasn't run, so the symbol
+    //                                                   resolves to nil and GNU
+    //                                                   xdisp.c:28438-28468 emits
+    //                                                   nothing)
+    //
+    // This used to be asserted as "*mode-line* Neo  " (with two trailing spaces)
+    // because the walker hardcoded mode-line-front-space to a space. That
+    // short-circuit diverged from GNU and silently dropped the real symbol
+    // value (e.g. bindings.el's `(:eval (if (display-graphic-p) " " "-"))`),
+    // so it was removed.
+    assert_eq!(rendered, Value::string("*mode-line* Neo "));
     assert_eq!(eval.buffers.current_buffer_id(), Some(saved_current));
 }
 

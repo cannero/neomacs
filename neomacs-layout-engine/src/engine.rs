@@ -45,8 +45,9 @@ fn eval_status_line_format(
     format_symbol: &str,
     window_id: i64,
     buffer_id: u64,
+    target_cols: usize,
 ) -> Option<String> {
-    eval_status_line_format_value(evaluator, format_symbol, window_id, buffer_id)
+    eval_status_line_format_value(evaluator, format_symbol, window_id, buffer_id, target_cols)
         .and_then(|val| val.as_str_owned())
         .filter(|s| !s.is_empty())
 }
@@ -56,13 +57,13 @@ fn eval_status_line_format_value(
     format_symbol: &str,
     window_id: i64,
     buffer_id: u64,
+    target_cols: usize,
 ) -> Option<Value> {
     evaluator.setup_thread_locals();
-    // GNU Emacs (xdisp.c:28187): format-mode-line reads the format variable
-    // from the TARGET buffer, not the caller's current buffer.  We must read
-    // the buffer-local value of mode-line-format from the specified buffer
-    // BEFORE calling format-mode-line, because format-mode-line evaluates
-    // its first argument in the caller's context.
+    // GNU Emacs (xdisp.c:28187): format-mode-line reads the format
+    // variable from the TARGET buffer, not the caller's current
+    // buffer. We must read the buffer-local value of mode-line-format
+    // from the specified buffer BEFORE calling the walker.
     let format_value = evaluator
         .buffer_manager()
         .get(BufferId(buffer_id))
@@ -75,28 +76,28 @@ fn eval_status_line_format_value(
                 .copied()
                 .unwrap_or(Value::NIL)
         });
-    // Quote the format value when building the `format-mode-line` call.
-    // Without the quote, Lisp's eval would try to evaluate the
-    // mode-line value as a function call: for the default rich list
-    // `("%e" mode-line-front-space …)`, eval would dispatch on the
-    // car and try to funcall the string `"%e"`, signalling
-    // `invalid-function`. Quoting makes eval pass the value through
-    // literally — the same shape GNU produces when you write
-    // `(format-mode-line mode-line-format)` in Lisp, where the
-    // symbol's value is resolved and passed as an argument, not
-    // re-evaluated as a form.
-    let quoted_format = Value::list(vec![Value::symbol("quote"), format_value]);
-    let form = Value::list(vec![
-        Value::symbol("format-mode-line"),
-        quoted_format,
-        Value::NIL,
+    // GNU `display_mode_line` (xdisp.c:27911) runs the mode-line
+    // walker in `MODE_LINE_DISPLAY` mode, which makes `%-` expand to
+    // dashes filling the remaining row width. Our layout engine is the
+    // equivalent redisplay path, so we call
+    // `format_mode_line_for_display` directly rather than going
+    // through the Lisp-facing `format-mode-line` builtin (which uses
+    // `MODE_LINE_STRING` and returns `"--"` for `%-`).
+    //
+    // `target_cols` is the window's width in character cells, which
+    // the DISPLAY walker uses to size the dash fill for `%-`.
+    let rendered = neovm_core::emacs_core::xdisp::format_mode_line_for_display(
+        evaluator,
+        format_value,
         Value::make_window(window_id as u64),
         Value::make_buffer(BufferId(buffer_id)),
-    ]);
-    evaluator
-        .eval_form(form)
-        .ok()
-        .filter(|val| val.as_str().is_some_and(|s| !s.is_empty()))
+        target_cols,
+    );
+    if rendered.as_str().is_some_and(|s| !s.is_empty()) {
+        Some(rendered)
+    } else {
+        None
+    }
 }
 
 fn tab_bar_menu_item_caption(entry: Value) -> Option<String> {
@@ -4067,12 +4068,19 @@ impl LayoutEngine {
                 .as_ref()
                 .expect("mode-line face should exist when mode-line height is positive");
 
+            // GNU `display_mode_line` walks the format in
+            // `MODE_LINE_DISPLAY` mode, so `%-` fills the remaining
+            // row width with dashes. Compute the row width in
+            // character cells and pass it through.
+            let mode_line_target_cols =
+                (params.bounds.width / char_w.max(1.0)).round().max(1.0) as usize;
             let mode_text = {
                 let result = eval_status_line_format_value(
                     evaluator,
                     "mode-line-format",
                     params.window_id,
                     params.buffer_id,
+                    mode_line_target_cols,
                 )
                 .unwrap_or_else(|| Value::string(format!(" {} ", buffer_name)));
                 tracing::debug!(
@@ -4115,11 +4123,14 @@ impl LayoutEngine {
                 .as_ref()
                 .expect("header-line face should exist when header-line height is positive");
 
+            let header_line_target_cols =
+                (params.bounds.width / char_w.max(1.0)).round().max(1.0) as usize;
             let header_text = eval_status_line_format_value(
                 evaluator,
                 "header-line-format",
                 params.window_id,
                 params.buffer_id,
+                header_line_target_cols,
             )
             .unwrap_or_else(|| Value::string(""));
 
@@ -4153,11 +4164,14 @@ impl LayoutEngine {
                 .as_ref()
                 .expect("tab-line face should exist when tab-line height is positive");
 
+            let tab_line_target_cols =
+                (params.bounds.width / char_w.max(1.0)).round().max(1.0) as usize;
             let tab_text = eval_status_line_format_value(
                 evaluator,
                 "tab-line-format",
                 params.window_id,
                 params.buffer_id,
+                tab_line_target_cols,
             )
             .unwrap_or_else(|| Value::string(""));
 

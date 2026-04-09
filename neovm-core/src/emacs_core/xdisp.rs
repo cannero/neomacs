@@ -161,6 +161,75 @@ pub(crate) fn builtin_format_mode_line_ctx(
     finish_format_mode_line_in_eval(eval, &args)
 }
 
+/// Render a mode-line format in GNU's `MODE_LINE_DISPLAY` mode.
+///
+/// This mirrors GNU's `display_mode_line` (xdisp.c:27911-27935) rather
+/// than its `Fformat_mode_line` string API: the walker runs with
+/// `mode_line_target = MODE_LINE_DISPLAY`, which makes `%-` expand to
+/// dashes that fill the remaining row width (as opposed to the literal
+/// `"--"` that string mode returns). The layout engine calls this
+/// entry point directly (bypassing the Lisp-facing
+/// `format-mode-line` builtin) when it needs a fully rendered TTY/GUI
+/// mode-line row.
+///
+/// Arguments:
+/// - `eval`       : evaluator context (for risky-local lookup and
+///                  `:eval` evaluation).
+/// - `format_val` : the mode-line format expression — the buffer's
+///                  `mode-line-format` slot value, already
+///                  resolved.
+/// - `window`     : target window (for %-spec position info).
+/// - `buffer`     : target buffer (for buffer-local percent specs).
+/// - `target_cols`: the row width in character cells. `%-` fills to
+///                  this width.
+///
+/// Returns the fully rendered mode-line as a propertized string. On
+/// any evaluator error the function returns an empty string; callers
+/// that need to distinguish failure from empty should check `as_str`.
+pub fn format_mode_line_for_display(
+    eval: &mut super::eval::Context,
+    format_val: Value,
+    window: Value,
+    buffer: Value,
+    target_cols: usize,
+) -> Value {
+    let args = [format_val, Value::NIL, window, buffer];
+    if validate_optional_window_designator(eval, args.get(2), "windowp").is_err() {
+        return Value::string("");
+    }
+    if validate_optional_buffer_designator(eval, args.get(3)).is_err() {
+        return Value::string("");
+    }
+    let target_buffer = resolve_mode_line_buffer(eval, args.get(2), args.get(3));
+    let saved_buffer = eval.buffers.current_buffer_id();
+    if let Some(buffer_id) = target_buffer
+        && eval.switch_current_buffer(buffer_id).is_err()
+    {
+        return Value::string("");
+    }
+
+    let result_value = if format_val.is_nil() {
+        Value::string("")
+    } else {
+        let face_spec = resolve_mode_line_face_spec(&args);
+        let mut pctx = build_mode_line_percent_context(
+            &eval.frames,
+            &eval.buffers,
+            &eval.obarray,
+            args.get(2),
+        );
+        pctx.target_width = Some(target_cols);
+        let mut rendered = ModeLineRendered::default();
+        format_mode_line_recursive(eval, &pctx, &format_val, &mut rendered, 0, false);
+        rendered.into_value(face_spec)
+    };
+
+    if let Some(buffer_id) = saved_buffer {
+        eval.restore_current_buffer_if_live(buffer_id);
+    }
+    result_value
+}
+
 pub(crate) fn finish_format_mode_line_in_eval(
     eval: &mut super::eval::Context,
     args: &[Value],
@@ -431,6 +500,20 @@ struct ModeLinePercentContext {
     coding_mnemonic: char,
     /// EOL type string for `%Z` (`:`, `\`, `/`, or undecided).
     eol_indicator: String,
+    /// When `Some(n)`, the walker is running in GNU's
+    /// `MODE_LINE_DISPLAY` mode with a target column width of `n`.
+    /// In that mode, the `%-` percent construct expands to enough
+    /// dashes to fill the remaining row width (GNU
+    /// `xdisp.c:29154-29172`: `lots_of_dashes`). Callers that want
+    /// GNU's `MODE_LINE_STRING` behavior (the Lisp-facing
+    /// `format-mode-line` builtin) leave this `None`, and `%-`
+    /// returns the literal two-dash string `"--"`.
+    ///
+    /// This mirrors GNU's internal `mode_line_target` state: the
+    /// string API `Fformat_mode_line` uses `MODE_LINE_STRING`, while
+    /// `display_mode_line` uses `MODE_LINE_DISPLAY`. The same walker
+    /// serves both; the only difference is the dispatch for `%-`.
+    target_width: Option<usize>,
 }
 
 /// Build a `ModeLinePercentContext` from frame/window/buffer state.
@@ -889,11 +972,15 @@ fn format_mode_line_recursive(
         }
 
         _ if format.is_symbol() => {
+            // GNU xdisp.c:28438-28468 (display_mode_element, Lisp_Symbol
+            // branch): resolve the symbol's value and recurse. There is
+            // no special case for mode-line-front-space or
+            // mode-line-end-spaces — GNU treats every mode-line symbol
+            // the same way. Previously this branch short-circuited those
+            // two names to a single hardcoded space, which silently
+            // discarded the `(:eval (unless (display-graphic-p) "-%-"))`
+            // dash-fill construct that bindings.el installs on TTY.
             if let Some(name) = format.as_symbol_name() {
-                if name == "mode-line-front-space" || name == "mode-line-end-spaces" {
-                    result.push_plain_char(' ');
-                    return;
-                }
                 if let Some(val) =
                     mode_line_symbol_value_in_state(&eval.obarray, &[], &eval.buffers, name)
                     && !val.is_nil()
@@ -1018,11 +1105,11 @@ fn format_mode_line_recursive_in_state(
         ValueKind::Fixnum(_) => {}
 
         _ if format.is_symbol() => {
+            // GNU xdisp.c:28438-28468 — symbol branch of display_mode_element.
+            // No special case for mode-line-front-space or
+            // mode-line-end-spaces; see the note on the equivalent
+            // branch in `format_mode_line_recursive`.
             if let Some(name) = format.as_symbol_name() {
-                if name == "mode-line-front-space" || name == "mode-line-end-spaces" {
-                    result.push_plain_char(' ');
-                    return false;
-                }
                 if let Some(val) = mode_line_symbol_value_in_state(obarray, dynamic, buffers, name)
                     && !val.is_nil()
                 {
@@ -1183,11 +1270,11 @@ fn format_mode_line_recursive_in_state_with_eval(
         ValueKind::Fixnum(_) => {}
 
         _ if format.is_symbol() => {
+            // GNU xdisp.c:28438-28468 — symbol branch of display_mode_element.
+            // No special case for mode-line-front-space or
+            // mode-line-end-spaces; they are ordinary symbols whose
+            // value must be resolved and recursed on.
             if let Some(name) = format.as_symbol_name() {
-                if name == "mode-line-front-space" || name == "mode-line-end-spaces" {
-                    result.push_plain_char(' ');
-                    return Ok(());
-                }
                 if let Some(val) = mode_line_symbol_value_in_state(obarray, dynamic, buffers, name)
                     && !val.is_nil()
                 {
@@ -1372,11 +1459,11 @@ fn format_mode_line_recursive_in_vm_runtime(
         ValueKind::Fixnum(_) => {}
 
         _ if format.is_symbol() => {
+            // GNU xdisp.c:28438-28468 — symbol branch of display_mode_element.
+            // No special case for mode-line-front-space or
+            // mode-line-end-spaces; see the equivalent comment in
+            // `format_mode_line_recursive`.
             if let Some(name) = format.as_symbol_name() {
-                if name == "mode-line-front-space" || name == "mode-line-end-spaces" {
-                    result.push_plain_char(' ');
-                    return Ok(());
-                }
                 let value = {
                     let obarray = &shared.obarray;
                     let dynamic = &[];
@@ -1665,7 +1752,43 @@ fn expand_mode_line_percent_in_state(
                 index += 1;
             }
             Some('-') => {
-                append_spec("--");
+                // GNU xdisp.c:29154-29172 — `%-` dispatch depends on
+                // mode_line_target. MODE_LINE_STRING (the default,
+                // used by `(format-mode-line FORMAT)`) returns the
+                // literal two-dash string "--". MODE_LINE_DISPLAY
+                // (used by the redisplay walker) returns
+                // `lots_of_dashes` — enough dashes to fill the
+                // remaining row width; GNU's caller trims at
+                // `it->last_visible_x`.
+                //
+                // We model this with `pctx.target_width`:
+                //   None    -> MODE_LINE_STRING, emit "--"
+                //   Some(w) -> MODE_LINE_DISPLAY, emit `w - current`
+                //              dashes. The entry point that enables
+                //              display mode is
+                //              `format_mode_line_for_display` below,
+                //              used by the layout engine for TTY and
+                //              GUI mode-line rendering.
+                // `%-` needs to read `result.char_len()` to compute
+                // the dash-fill width (in MODE_LINE_DISPLAY mode),
+                // but `append_spec` holds a captured mutable borrow
+                // on `result`. Drop the closure here by calling
+                // `append_mode_line_rendered_segment` directly with
+                // the pre-computed dash string.
+                let dash_string: String = match pctx.target_width {
+                    None => "--".to_string(),
+                    Some(target) => {
+                        let current = result.char_len();
+                        if target > current {
+                            "-".repeat(target - current)
+                        } else {
+                            "--".to_string()
+                        }
+                    }
+                };
+                let mut segment = ModeLineRendered::plain(&dash_string);
+                segment.overlay_property_map(props_at_percent.clone());
+                append_mode_line_rendered_segment(result, &segment, field_width, 0);
                 index += 1;
             }
             Some('%') => {
