@@ -4087,3 +4087,86 @@ fn split_window_below_keeps_selected_window_on_top_like_gnu() {
         "split-window-below must keep the original window selected, matching GNU"
     );
 }
+
+/// Second-layer verification that complements
+/// `split_window_below_keeps_selected_window_on_top_like_gnu`:
+/// checks the raw `Frame::selected_window` / leaf tree invariant
+/// at the `FrameManager` layer, matching what
+/// `collect_layout_params` in neomacs-layout-engine reads when
+/// deciding which window gets the active `mode-line` face vs
+/// `mode-line-inactive`.
+///
+/// The visible bug is: after `C-x 2` in an interactive `neomacs
+/// -nw -Q` session, BOTH mode lines render with
+/// `mode-line-inactive` colors. GNU Emacs's mode-line face is
+/// chosen by `frame->selected_window == window`
+/// (`src/xdisp.c::display_mode_line`), so the `Rust` analog is
+/// `frame.selected_window == win_id` at layout time. This test
+/// pins the contract that:
+///
+///   1. Exactly one leaf has `id == frame.selected_window`.
+///   2. That leaf is the ORIGINAL window, not the newly split
+///      sibling.
+///   3. `frame.selected_window` is a live leaf id, not a stale
+///      handle or an internal-node id.
+#[test]
+fn split_window_below_keeps_frame_selected_window_on_top_leaf() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = runtime_startup_context();
+
+    // Create a frame with a real buffer, mirroring what the
+    // other runtime-startup tests in this file do.
+    let scratch = ev.buffers.create_buffer("*m-x-target*");
+    ev.buffers.set_current(scratch);
+    let frame_id = ev.frames.create_frame("F1", 960, 640, scratch);
+    assert!(
+        ev.frames.select_frame(frame_id),
+        "should be able to select the newly created frame"
+    );
+    let selected_before = ev.frames.get(frame_id).unwrap().selected_window;
+
+    let out = ev
+        .eval_str_each("(split-window-below)")
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>();
+    assert!(
+        out[0].starts_with("OK "),
+        "split-window-below should succeed, got {}",
+        out[0]
+    );
+
+    let frame = ev.frames.get(frame_id).expect("frame still exists");
+    let selected_after = frame.selected_window;
+    let leaves: Vec<_> = frame.root_window.leaf_ids();
+
+    assert_eq!(
+        leaves.len(),
+        2,
+        "expected exactly two leaves after split, got {leaves:?}"
+    );
+    assert_eq!(
+        selected_after, selected_before,
+        "frame.selected_window must remain the original window after \
+         split-window-below (GNU src/window.c::Fsplit_window_internal \
+         does not reassign frame->selected_window)"
+    );
+    assert!(
+        leaves.contains(&selected_after),
+        "frame.selected_window {:?} must be a live leaf id among {:?}",
+        selected_after,
+        leaves
+    );
+
+    // The exact count `is_selected` would produce in
+    // collect_layout_params: comparison against each leaf.
+    let selected_count = leaves
+        .iter()
+        .filter(|id| **id == selected_after)
+        .count();
+    assert_eq!(
+        selected_count, 1,
+        "exactly ONE leaf must match frame.selected_window after split \
+         (the other gets mode-line-inactive face); got {selected_count}"
+    );
+}

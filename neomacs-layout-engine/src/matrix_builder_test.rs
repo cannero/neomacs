@@ -236,3 +236,93 @@ fn builder_set_cursor_at_row() {
     assert_eq!(matrix.rows[1].cursor_col, Some(0));
     assert_eq!(matrix.rows[1].cursor_type, Some(CursorStyle::FilledBox));
 }
+
+/// Regression test for the face-id-collision bug that caused
+/// both mode lines to render with mode-line-inactive colors
+/// after `C-x 2`.
+///
+/// Reproduction: insert TWO faces into the builder's shared
+/// `faces` HashMap at the SAME face_id. The first insertion (the
+/// active mode-line) is overwritten by the second (the inactive
+/// mode-line), and both window matrices that reference the id
+/// then read the inactive colors.
+///
+/// Fix: `LayoutEngine::frame_face_id_counter` is frame-scoped
+/// and NEVER resets per window, so sibling windows always get
+/// distinct face ids and their entries never overwrite each
+/// other. Mirrors GNU's single `face_cache->used` counter per
+/// frame at `src/xfaces.c::init_frame_faces` / `realize_face`.
+///
+/// This test verifies the invariant at the builder level: when
+/// the caller inserts two DIFFERENT faces at DIFFERENT ids, both
+/// faces remain readable in the finished frame state. That is
+/// the contract the face-id counter fix guarantees; without the
+/// fix, the caller accidentally uses the SAME id and the second
+/// insert wipes out the first.
+#[test]
+fn builder_preserves_distinct_mode_line_faces_across_sibling_windows() {
+    use neomacs_display_protocol::face::Face;
+    use neomacs_display_protocol::types::Color;
+
+    let mut builder = GlyphMatrixBuilder::new();
+
+    // Emulate the post-C-x-2 redisplay order: active mode-line
+    // for the TOP (selected) window, then inactive mode-line for
+    // the BOTTOM (non-selected) window. The `LayoutEngine`'s
+    // `frame_face_id_counter` guarantees these receive DIFFERENT
+    // ids; the builder must keep both in the `faces` HashMap.
+    let mut active = Face::new(10);
+    active.foreground = Color::rgb(0.0, 0.0, 0.0);
+    active.background = Color::rgb(0.75, 0.75, 0.75);
+    builder.insert_face(10, active.clone());
+
+    let mut inactive = Face::new(11);
+    inactive.foreground = Color::rgb(0.8, 0.8, 0.8);
+    inactive.background = Color::rgb(0.30, 0.30, 0.30);
+    builder.insert_face(11, inactive.clone());
+
+    // Window 1 (top, selected): references the active face on
+    // its mode-line row.
+    builder.begin_window(1, 12, 80, Rect::new(0.0, 0.0, 640.0, 192.0), true);
+    builder.begin_row(11, GlyphRowRole::ModeLine);
+    builder.push_char('-', 10, 0);
+    builder.end_row();
+    builder.end_window();
+
+    // Window 3 (bottom, not selected): references the inactive
+    // face on its mode-line row. Before the fix, the engine
+    // re-used face_id 10 here because `current_face_id` was a
+    // per-window `let` binding that reset to 1 for every window.
+    builder.begin_window(3, 12, 80, Rect::new(0.0, 192.0, 640.0, 192.0), false);
+    builder.begin_row(11, GlyphRowRole::ModeLine);
+    builder.push_char('-', 11, 0);
+    builder.end_row();
+    builder.end_window();
+
+    let state = builder.finish(80, 25, 8.0, 16.0);
+
+    // Both faces must survive into the finished frame state. If
+    // they were inserted at the same id, one would clobber the
+    // other and this assertion would fail.
+    let stored_active = state
+        .faces
+        .get(&10)
+        .expect("face id 10 (active mode-line) must remain in the faces map");
+    let stored_inactive = state
+        .faces
+        .get(&11)
+        .expect("face id 11 (inactive mode-line) must remain in the faces map");
+
+    assert_eq!(
+        stored_active.background, active.background,
+        "active mode-line background must not be overwritten by sibling window's face insertion"
+    );
+    assert_eq!(
+        stored_inactive.background, inactive.background,
+        "inactive mode-line background must remain distinct"
+    );
+    assert_ne!(
+        stored_active.background, stored_inactive.background,
+        "sibling mode lines must have different background colors"
+    );
+}

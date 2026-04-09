@@ -956,6 +956,24 @@ pub struct LayoutEngine {
     /// The last completed `FrameDisplayState`, produced by `layout_frame_rust()`.
     /// Used by the TTY redisplay path to drive `TtyRif` on the evaluator thread.
     pub last_frame_display_state: Option<neomacs_display_protocol::glyph_matrix::FrameDisplayState>,
+    /// Monotonic face-id allocator, frame-scoped.
+    ///
+    /// Mirrors GNU's frame-wide `face_cache->used` counter in
+    /// `src/xfaces.c::realize_face`, which grows within a frame and
+    /// never resets per window: windows on the same frame share a
+    /// single face cache so two windows referencing the same face
+    /// end up with the same `face_id`, and two windows referencing
+    /// DIFFERENT faces get different ids.
+    ///
+    /// Before this field existed, `layout_window_rust` used a
+    /// function-local `let mut current_face_id: u32 = 1;` which
+    /// reset to 1 for every window. That collided with the
+    /// frame-wide `matrix_builder.faces` HashMap: the first window
+    /// inserted `mode-line` at face_id=2, the second window then
+    /// inserted `mode-line-inactive` ALSO at face_id=2 and
+    /// overwrote the first entry, causing both mode lines to
+    /// render with the inactive face after `C-x 2`.
+    pub(crate) frame_face_id_counter: u32,
 }
 
 impl LayoutEngine {
@@ -977,6 +995,7 @@ impl LayoutEngine {
             prev_background: None,
             matrix_builder: crate::matrix_builder::GlyphMatrixBuilder::new(),
             last_frame_display_state: None,
+            frame_face_id_counter: 1,
         }
     }
 
@@ -1210,6 +1229,15 @@ impl LayoutEngine {
         evaluator: &mut neovm_core::emacs_core::Context,
         frame_id: neovm_core::window::FrameId,
     ) {
+        // Frame-wide face-id counter reset. Mirrors GNU
+        // `src/xfaces.c::init_frame_faces` which recreates the
+        // face cache per frame, with `cache->used` starting at the
+        // basic-face count and growing as faces are realized. We
+        // reset to 1 (0 is reserved for the default face) and let
+        // each `layout_window_rust` call extend the counter so
+        // face ids never collide between sibling windows.
+        self.frame_face_id_counter = 1;
+
         // Lazy-initialize FontMetricsService before collecting layout params so
         // the selected frame's default metrics can be refreshed first.
         if self.use_cosmic_metrics && self.font_metrics.is_none() {
@@ -1783,7 +1811,14 @@ impl LayoutEngine {
 
         // Face resolution state
         let mut face_next_check: usize = 0;
-        let mut current_face_id: u32 = 1; // 0 is reserved for default face
+        // Load the frame-wide face-id counter so this window's
+        // glyph/mode-line/header-line faces get IDs that do NOT
+        // collide with earlier siblings' faces in the frame-scoped
+        // `matrix_builder.faces` HashMap. Write back below before
+        // returning. Mirrors GNU's single `face_cache->used`
+        // counter per frame at `src/xfaces.c::lookup_face` /
+        // `init_frame_faces`.
+        let mut current_face_id: u32 = self.frame_face_id_counter.max(1);
         let mut current_fg: Color = default_fg; // tracks foreground across face changes
         let mut current_bg: Color = default_bg; // tracks background across face changes
         let mut current_font_family = if default_resolved.font_family.is_empty() {
@@ -3993,6 +4028,12 @@ impl LayoutEngine {
             let mut retry_params = params.clone();
             retry_params.window_start = new_window_start;
             retry_params.window_end = 0;
+            // Persist the counter BEFORE recursing so the retry
+            // call loads the parent's bumped value as its base.
+            // The retry will write back its final counter; the
+            // unconditional `return` below skips the bottom-of-
+            // function writeback path.
+            self.frame_face_id_counter = current_face_id;
             self.layout_window_rust(
                 evaluator,
                 frame_id,
@@ -4221,6 +4262,18 @@ impl LayoutEngine {
             points: display_points,
             rows: display_rows,
         });
+
+        // Persist the face-id counter back to the frame-wide
+        // slot so the NEXT window in this frame starts allocating
+        // face_ids past the ones we just used. Without this
+        // write-back every sibling window would reuse ids 1..N
+        // and overwrite this window's entries in the shared
+        // `matrix_builder.faces` HashMap — the original
+        // manifestation of the "C-x 2 paints both mode lines
+        // with mode-line-inactive colors" bug. Mirrors GNU's
+        // single `face_cache->used` counter at
+        // `src/xfaces.c::init_frame_faces`.
+        self.frame_face_id_counter = current_face_id;
     }
 
     /// Trigger fontification for a buffer region via the Rust Context.
