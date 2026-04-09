@@ -121,7 +121,12 @@ fn parse_startup_options_accepts_dump_file_override() {
 }
 
 #[test]
-fn parse_startup_options_preserves_display_args_for_gnu_lisp_processing() {
+fn parse_startup_options_normalizes_display_args_to_gnu_form() {
+    // GNU emacs.c:2110-2120 rewrites `--display=NAME` into the
+    // equivalent `-d NAME` two-token form before passing argv on to
+    // `lisp/startup.el`. We mirror that normalization in `parse_startup_options`
+    // so the Lisp side observes the same shape under both implementations.
+    // Other flags like `-Q` flow through unchanged.
     let startup = parse_startup_options([
         "neomacs".to_string(),
         "--display=:1".to_string(),
@@ -133,7 +138,8 @@ fn parse_startup_options_preserves_display_args_for_gnu_lisp_processing() {
         startup.forwarded_args,
         vec![
             "neomacs".to_string(),
-            "--display=:1".to_string(),
+            "-d".to_string(),
+            ":1".to_string(),
             "-Q".to_string()
         ]
     );

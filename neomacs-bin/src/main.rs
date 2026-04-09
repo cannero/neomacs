@@ -9,6 +9,7 @@
 //! (loaded .el files), just like GNU Emacs.  Only the core command loop and
 //! low-level primitives are implemented in Rust.
 
+mod args;
 mod input_bridge;
 mod tty_frontend;
 
@@ -237,108 +238,163 @@ fn render_version_text() -> String {
 }
 
 fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<StartupOptions, String> {
-    let mut iter = args.into_iter();
-    let program = iter.next().unwrap_or_else(|| "neomacs".to_string());
-    let args = iter.collect::<Vec<_>>();
+    use args::{ArgMatch, argmatch};
+
+    // GNU `argmatch` works on a `(argc, argv)` pair plus a `*skipptr`
+    // index that mirrors the consumed cursor in argv. We model the same
+    // shape: `parsed[0]` is the program name (matching argv[0]) and
+    // `parsed[1..]` are the user-supplied tokens. The `idx` cursor below
+    // is `*skipptr` — `argmatch` looks at `parsed[idx + 1]` so an idx of
+    // 0 means "look at the first user token".
+    let parsed: Vec<String> = args.into_iter().collect();
+    let program = parsed
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "neomacs".to_string());
     let mut forwarded_args = vec![program];
     let mut frontend = FrontendKind::Gui;
     let mut terminal_device = None;
     let mut noninteractive = false;
     let mut temacs_mode = None;
     let mut dump_file_override = None;
-    let mut index = 0usize;
+    let mut idx = 0usize;
 
-    while index < args.len() {
-        let arg = &args[index];
-        if arg == "--" {
-            forwarded_args.extend(args[index..].iter().cloned());
+    while idx + 1 < parsed.len() {
+        // GNU walks argv left-to-right inside `main()` after `sort_args`
+        // has reordered things. We don't reorder yet (that's Phase 2), so
+        // we walk the original token order. Each `argmatch` call looks at
+        // `parsed[idx + 1]`; on a match it advances `idx` past the
+        // consumed entry/entries. On no-match we drop to the catch-all
+        // forwarding branch and bump `idx` ourselves.
+        let next = parsed[idx + 1].as_str();
+
+        // `--` is the terminator: every following token is forwarded
+        // verbatim and parsing stops here.
+        if next == "--" {
+            forwarded_args.extend(parsed[idx + 1..].iter().cloned());
             break;
         }
 
-        if matches!(arg.as_str(), "-nw" | "--no-window-system" | "--no-windows") {
-            frontend = FrontendKind::Tty;
-            index += 1;
-            continue;
+        // -nw / --no-window-system / --no-windows
+        // (GNU emacs.c:1696-1697; the -nw row in standard_args[] declares
+        // both long aliases with minlen 6.)
+        match argmatch(&parsed, &mut idx, "-nw", Some("--no-window-system"), 6, false) {
+            ArgMatch::Bare => {
+                frontend = FrontendKind::Tty;
+                continue;
+            }
+            ArgMatch::NoMatch => {}
+            ArgMatch::Value(_) | ArgMatch::MissingValue => unreachable!(),
+        }
+        match argmatch(&parsed, &mut idx, "-nw", Some("--no-windows"), 6, false) {
+            ArgMatch::Bare => {
+                frontend = FrontendKind::Tty;
+                continue;
+            }
+            ArgMatch::NoMatch => {}
+            ArgMatch::Value(_) | ArgMatch::MissingValue => unreachable!(),
         }
 
-        if matches!(arg.as_str(), "--batch" | "-batch") {
-            noninteractive = true;
-            frontend = FrontendKind::Tty;
-            index += 1;
-            continue;
+        // -batch / --batch (GNU emacs.c:1702)
+        match argmatch(&parsed, &mut idx, "-batch", Some("--batch"), 5, false) {
+            ArgMatch::Bare => {
+                noninteractive = true;
+                frontend = FrontendKind::Tty;
+                continue;
+            }
+            ArgMatch::NoMatch => {}
+            ArgMatch::Value(_) | ArgMatch::MissingValue => unreachable!(),
         }
 
-        if arg == "-temacs" || arg == "--temacs" {
-            let Some(value) = args.get(index + 1) else {
-                return Err(format!("neomacs: option `{arg}` requires an argument"));
-            };
-            temacs_mode = Some(parse_temacs_mode(value)?);
-            forwarded_args.push(arg.clone());
-            forwarded_args.push(value.clone());
-            index += 2;
-            continue;
+        // -temacs / --temacs (GNU emacs.c:1364)
+        match argmatch(&parsed, &mut idx, "-temacs", Some("--temacs"), 8, true) {
+            ArgMatch::Value(value) => {
+                temacs_mode = Some(parse_temacs_mode(&value)?);
+                forwarded_args.push("-temacs".to_string());
+                forwarded_args.push(value);
+                continue;
+            }
+            ArgMatch::MissingValue => {
+                return Err(
+                    "neomacs: option `-temacs' requires an argument".to_string(),
+                );
+            }
+            ArgMatch::NoMatch => {}
+            ArgMatch::Bare => unreachable!(),
         }
 
-        if let Some(value) = arg.strip_prefix("--temacs=") {
-            temacs_mode = Some(parse_temacs_mode(value)?);
-            forwarded_args.push(arg.clone());
-            index += 1;
-            continue;
+        // -dump-file / --dump-file (GNU emacs.c:942, 991)
+        match argmatch(&parsed, &mut idx, "-dump-file", Some("--dump-file"), 6, true) {
+            ArgMatch::Value(value) => {
+                dump_file_override = Some(PathBuf::from(&value));
+                forwarded_args.push("-dump-file".to_string());
+                forwarded_args.push(value);
+                continue;
+            }
+            ArgMatch::MissingValue => {
+                return Err(
+                    "neomacs: option `-dump-file' requires an argument".to_string(),
+                );
+            }
+            ArgMatch::NoMatch => {}
+            ArgMatch::Bare => unreachable!(),
         }
 
-        if arg == "-dump-file" || arg == "--dump-file" {
-            let Some(value) = args.get(index + 1) else {
-                return Err(format!("neomacs: option `{arg}` requires an argument"));
-            };
-            dump_file_override = Some(PathBuf::from(value));
-            forwarded_args.push(arg.clone());
-            forwarded_args.push(value.clone());
-            index += 2;
-            continue;
+        // -t / --terminal (GNU emacs.c:1665)
+        match argmatch(&parsed, &mut idx, "-t", Some("--terminal"), 4, true) {
+            ArgMatch::Value(device) => {
+                frontend = FrontendKind::Tty;
+                terminal_device = Some(device);
+                continue;
+            }
+            ArgMatch::MissingValue => {
+                return Err(
+                    "neomacs: option `-t' requires an argument".to_string(),
+                );
+            }
+            ArgMatch::NoMatch => {}
+            ArgMatch::Bare => unreachable!(),
         }
 
-        if let Some(value) = arg.strip_prefix("--dump-file=") {
-            dump_file_override = Some(PathBuf::from(value));
-            forwarded_args.push(arg.clone());
-            index += 1;
-            continue;
+        // -d / --display / -display (GNU emacs.c:2097-2099 — peek + roll
+        // back). Our window backend uses winit which reads `DISPLAY` from
+        // the environment, so we don't need to act on the value, but we
+        // still consume it from argv structurally and re-forward it so
+        // Lisp's `command-line-1` sees it where GNU does.
+        match argmatch(&parsed, &mut idx, "-d", Some("--display"), 3, true) {
+            ArgMatch::Value(value) => {
+                forwarded_args.push("-d".to_string());
+                forwarded_args.push(value);
+                continue;
+            }
+            ArgMatch::MissingValue => {
+                return Err(
+                    "neomacs: option `-d' requires an argument".to_string(),
+                );
+            }
+            ArgMatch::NoMatch => {}
+            ArgMatch::Bare => unreachable!(),
+        }
+        // -display alone (no long form) — GNU emacs.c:2099 has lstr = 0
+        // for this row. Use a None lstr to match.
+        match argmatch(&parsed, &mut idx, "-display", None, 0, true) {
+            ArgMatch::Value(value) => {
+                forwarded_args.push("-display".to_string());
+                forwarded_args.push(value);
+                continue;
+            }
+            ArgMatch::MissingValue => {
+                return Err(
+                    "neomacs: option `-display' requires an argument".to_string(),
+                );
+            }
+            ArgMatch::NoMatch => {}
+            ArgMatch::Bare => unreachable!(),
         }
 
-        if arg == "-t" || arg == "--terminal" {
-            let Some(device) = args.get(index + 1) else {
-                return Err(format!("neomacs: option `{arg}` requires an argument"));
-            };
-            frontend = FrontendKind::Tty;
-            terminal_device = Some(device.clone());
-            index += 2;
-            continue;
-        }
-
-        if let Some(device) = arg.strip_prefix("--terminal=") {
-            frontend = FrontendKind::Tty;
-            terminal_device = Some(device.to_string());
-            index += 1;
-            continue;
-        }
-
-        if arg == "-d" || arg == "--display" {
-            let Some(value) = args.get(index + 1) else {
-                return Err(format!("neomacs: option `{arg}` requires an argument"));
-            };
-            forwarded_args.push(arg.clone());
-            forwarded_args.push(value.clone());
-            index += 2;
-            continue;
-        }
-
-        if arg.starts_with("--display=") {
-            forwarded_args.push(arg.clone());
-            index += 1;
-            continue;
-        }
-
-        forwarded_args.push(arg.clone());
-        index += 1;
+        // No flag matched at this position: forward verbatim.
+        forwarded_args.push(parsed[idx + 1].clone());
+        idx += 1;
     }
 
     Ok(StartupOptions {
