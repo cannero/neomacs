@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError, TryLockResult};
 use std::time::{Duration, Instant};
 
@@ -36,6 +37,23 @@ pub(crate) struct CollectorState {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct CollectorStateHandle {
     state: Arc<Mutex<CollectorState>>,
+    /// Lock-free mirror of [`CollectorState::has_active_major_mark`].
+    ///
+    /// Refreshed whenever the inner state is mutated through
+    /// [`with_state`] or [`try_with_state`], so the barrier
+    /// hot path can check "is there an active major-mark
+    /// session?" with a single relaxed atomic load instead
+    /// of acquiring the collector mutex. The single-digit-
+    /// nanosecond atomic load replaces an ~50 ns uncontended
+    /// mutex acquisition on every barrier call.
+    has_active_major_mark_mirror: Arc<AtomicBool>,
+    /// Lock-free mirror of [`CollectorState::has_prepared_full_reclaim`].
+    ///
+    /// Used by the barrier and allocation assertions that
+    /// verify no full reclaim is in progress. Same atomic-
+    /// load-instead-of-mutex-acquisition story as
+    /// [`Self::has_active_major_mark_mirror`].
+    has_prepared_full_reclaim_mirror: Arc<AtomicBool>,
 }
 
 impl CollectorStateHandle {
@@ -49,9 +67,25 @@ impl CollectorStateHandle {
         self.state.try_lock()
     }
 
+    /// Refresh the lock-free mirrors of `has_active_major_mark`
+    /// and `has_prepared_full_reclaim` from the currently-held
+    /// mutex guard. Called by `with_state` and
+    /// `try_with_state` after every mutation, so the mirrors
+    /// stay within one mutation of the authoritative state
+    /// and the hot-path checks can use relaxed atomic loads.
+    #[inline]
+    fn refresh_mirrors(&self, state: &CollectorState) {
+        self.has_active_major_mark_mirror
+            .store(state.has_active_major_mark(), Ordering::Relaxed);
+        self.has_prepared_full_reclaim_mirror
+            .store(state.has_prepared_full_reclaim(), Ordering::Relaxed);
+    }
+
     pub(crate) fn with_state<R>(&self, f: impl FnOnce(&mut CollectorState) -> R) -> R {
         let mut state = self.lock();
-        f(&mut state)
+        let result = f(&mut state);
+        self.refresh_mirrors(&state);
+        result
     }
 
     pub(crate) fn try_with_state<R>(
@@ -59,7 +93,9 @@ impl CollectorStateHandle {
         f: impl FnOnce(&mut CollectorState) -> R,
     ) -> Result<R, TryLockError<MutexGuard<'_, CollectorState>>> {
         let mut state = self.try_lock()?;
-        Ok(f(&mut state))
+        let result = f(&mut state);
+        self.refresh_mirrors(&state);
+        Ok(result)
     }
 
     pub(crate) fn shared_snapshot(&self) -> CollectorSharedSnapshot {
@@ -98,12 +134,25 @@ impl CollectorStateHandle {
         self.lock().major_mark_progress()
     }
 
+    /// Lock-free hot-path read. See
+    /// [`Self::has_active_major_mark_mirror`]. The mirror is
+    /// refreshed on every mutation through
+    /// [`Self::with_state`] / [`Self::try_with_state`], so
+    /// readers see a value that is at most one mutation
+    /// behind the authoritative state. That is sufficient
+    /// for the barrier path, which only uses the result to
+    /// decide whether to push an SATB diagnostic event and
+    /// whether to dispatch into the active-major-mark assist
+    /// (both paths are eventually-consistent).
     pub(crate) fn has_active_major_mark(&self) -> bool {
-        self.lock().has_active_major_mark()
+        self.has_active_major_mark_mirror.load(Ordering::Relaxed)
     }
 
+    /// Lock-free hot-path read. See
+    /// [`Self::has_prepared_full_reclaim_mirror`].
     pub(crate) fn has_prepared_full_reclaim(&self) -> bool {
-        self.lock().has_prepared_full_reclaim()
+        self.has_prepared_full_reclaim_mirror
+            .load(Ordering::Relaxed)
     }
 
     pub(crate) fn take_major_mark_state(&self) -> Option<MajorMarkState> {
