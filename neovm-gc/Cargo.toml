@@ -30,3 +30,7 @@ harness = false
 [[bench]]
 name = "multi_mutator_scaling"
 harness = false
+
+[[bench]]
+name = "workloads"
+harness = false

@@ -43,6 +43,23 @@ These numbers are dominated by the heap write lock acquisition inside `Mutator::
 
 **Pause shape:** a minor cycle that reclaims 1000 dead objects takes ~40 µs. A minor cycle that copies 1000 survivors takes ~340 µs (~10x slower because every object goes through the evacuation path). A major cycle on a small old-gen population is ~94 µs. Interactive workloads with these pause numbers should be comfortable — P99 ≤ 500 µs for realistic nursery sizes.
 
+## workloads
+
+| Bench | Median throughput | Range |
+|---|---|---|
+| `linked_list_prepend/1000` | ~3.5 M elem/s | `[2.80, 4.61]` |
+| `linked_list_prepend/10000` | ~5.6 M elem/s | `[4.27, 6.68]` |
+| `linked_list_append/1000` | ~1.5 M elem/s | `[1.12, 2.25]` |
+| `linked_list_append/10000` | ~1.1 M elem/s | `[0.93, 1.49]` |
+| `allocation_heavy_graph/1000` | ~4.1 M elem/s | `[3.04, 6.00]` |
+| `allocation_heavy_graph/10000` | ~5.2 M elem/s | `[4.65, 6.15]` |
+
+**Shape check:** `linked_list_append` is 3-4x slower than `linked_list_prepend` at both sizes. Prepend allocates a new nursery Node whose `next` cell is initialized at construction time (no barrier — the new head is in nursery). Append calls `mutator.store_edge(&tail, 0, ...)` on every iteration — after a few minor cycles the tail is promoted to old gen, so every barrier call goes through the full old-to-nursery path with a heap write lock. The 3x gap is the cost of that barrier call including lock acquisition.
+
+`allocation_heavy_graph` (pure flat allocation, no edges) matches `linked_list_prepend` closely: both are allocation-dominated with no barrier cost. This confirms the prepend path's per-element cost is essentially just one allocation plus an in-construction `EdgeCell::new`.
+
+A regression that slowed `linked_list_prepend` without slowing `allocation_heavy_graph` would indicate that `EdgeCell::new` stopped being a cheap nursery-local write. A regression that slowed `linked_list_append` more than `linked_list_prepend` would indicate the barrier fast path stopped firing or the heap lock got coarser.
+
 ## multi_mutator_scaling
 
 | Bench | Aggregate throughput | Scaling factor vs 1 thread |
