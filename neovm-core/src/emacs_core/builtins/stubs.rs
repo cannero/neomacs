@@ -477,6 +477,12 @@ pub(crate) fn snapshot_window_new_normal() -> HashMap<u64, f64> {
 thread_local! {
     static SQLITE_NEXT_HANDLE_ID: RefCell<i64> = RefCell::new(0);
     static SQLITE_OPEN_HANDLES: RefCell<Vec<i64>> = RefCell::new(Vec::new());
+    // GNU keeps `new_pixel`, `new_total`, and `new_normal` as
+    // dedicated fields on `struct window` (`src/window.h:283-292`).
+    // neomacs sidetables them here pending Window audit Structural 1
+    // in `drafts/window-system-audit.md`, which moves them onto
+    // `Window::Leaf` / `Window::Internal` so window-configuration
+    // save/restore round-trips them automatically.
     static WINDOW_NEW_NORMAL: RefCell<HashMap<u64, Value>> = RefCell::new(HashMap::new());
     static WINDOW_NEW_PIXEL: RefCell<HashMap<u64, i64>> = RefCell::new(HashMap::new());
     static WINDOW_NEW_TOTAL: RefCell<HashMap<u64, i64>> = RefCell::new(HashMap::new());
@@ -1764,6 +1770,24 @@ pub(crate) fn builtin_window_bottom_divider_width(args: Vec<Value>) -> EvalResul
     Ok(Value::fixnum(0))
 }
 
+/// `(window-lines-pixel-dimensions &optional WINDOW FIRST LAST BODY INVERSE NO-RESTRICT)`
+///
+/// GNU `src/window.c::Fwindow_lines_pixel_dimensions` walks the
+/// window's display matrix and returns a list of
+/// `(width . height)` pairs (one per glyph row) plus the
+/// total height. neomacs's display matrix lives in the layout
+/// engine, not in `neovm-core`, so this builtin cannot read it
+/// directly without going through the renderer round trip.
+///
+/// Window audit Low 13 in `drafts/window-system-audit.md`:
+/// returning `nil` is the GNU-documented "no information
+/// available" answer (the same value GNU uses on a TTY frame
+/// before any redisplay), so callers that probe with
+/// `(or (window-lines-pixel-dimensions ...) ...)` get the
+/// expected fallback. Building real glyph-row data requires
+/// piping the matrix builder snapshot back into neovm-core,
+/// which is part of the cursor audit Finding 11
+/// (`display_and_set_cursor` collapse) restructuring.
 pub(crate) fn builtin_window_lines_pixel_dimensions(args: Vec<Value>) -> EvalResult {
     expect_range_args("window-lines-pixel-dimensions", &args, 0, 6)?;
     if let Some(window) = args.first() {

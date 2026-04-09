@@ -842,6 +842,17 @@ pub struct Frame {
     /// than the mutable Lisp-visible frame parameter alist.
     pub window_system: Option<Value>,
     /// Frame parameters.
+    ///
+    /// Window audit Medium 12 in
+    /// `drafts/window-system-audit.md`: GNU's
+    /// `Fset_frame_parameter` calls into the per-toolkit
+    /// backend (`x_set_*`, `pgtk_set_*`, etc.) for each parameter
+    /// class (position, size, fonts, fullscreen, scroll bars).
+    /// neomacs writes to this HashMap unconditionally, so a
+    /// `(modify-frame-parameters f '((width . 100)))` call
+    /// updates the parameter alist but does not always reach the
+    /// active display backend. Wiring the dispatch is tracked as
+    /// audit Phase 6.
     pub parameters: HashMap<String, Value>,
     /// Whether the frame is visible.
     pub visible: bool,
@@ -860,6 +871,17 @@ pub struct Frame {
     /// Default character height.
     pub char_height: f32,
     /// Authoritative last-redisplay geometry keyed by live leaf window.
+    ///
+    /// Window audit Medium 10 / Medium 11 in
+    /// `drafts/window-system-audit.md`: GNU keeps `change_stamp`,
+    /// `use_time`, `sequence_number`, `old_pixel_width`,
+    /// `old_pixel_height`, `old_body_pixel_width`,
+    /// `old_body_pixel_height`, and `old_buffer` directly on
+    /// `struct window`. neomacs centralizes the redisplay-time
+    /// geometry inside `display_snapshots` and the change-detection
+    /// state inside `window_hook_record`. The fields below are the
+    /// neomacs-side equivalents — adding the GNU names verbatim is
+    /// tracked as future work in the audit's Phase 4 plan.
     pub display_snapshots: HashMap<WindowId, WindowDisplaySnapshot>,
     /// Last recorded redisplay state for GNU window change hooks.
     pub(crate) window_hook_record: FrameWindowHookRecord,
