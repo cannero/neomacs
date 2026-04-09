@@ -272,12 +272,14 @@ fn build_single(
         window_id: 1,
         matrix,
         pixel_bounds: Rect::new(0.0, 0.0, pixel_w, text_rows as f32 * char_h),
+        selected: true,
     });
     let ml = build_mode_line_width(c, " -:**-  *scratch*      Top L1     (Lisp Interaction)");
     state.window_matrices.push(WindowMatrixEntry {
         window_id: 10,
         matrix: ml,
         pixel_bounds: Rect::new(0.0, text_rows as f32 * char_h, pixel_w, char_h),
+        selected: true,
     });
     let mini = build_minibuffer(
         c,
@@ -287,6 +289,7 @@ fn build_single(
         window_id: 20,
         matrix: mini,
         pixel_bounds: Rect::new(0.0, (r - 1) as f32 * char_h, pixel_w, char_h),
+        selected: false,
     });
     state
 }
@@ -321,12 +324,14 @@ fn build_hsplit(
         window_id: 1,
         matrix: top,
         pixel_bounds: Rect::new(0.0, 0.0, pixel_w, top_text as f32 * char_h),
+        selected: true,
     });
     let top_ml = build_mode_line_width(c, " -:**-  *scratch*      Top L1     (Lisp Interaction)");
     state.window_matrices.push(WindowMatrixEntry {
         window_id: 10,
         matrix: top_ml,
         pixel_bounds: Rect::new(0.0, top_text as f32 * char_h, pixel_w, char_h),
+        selected: true,
     });
 
     let messages = messages_buffer_lines();
@@ -336,12 +341,14 @@ fn build_hsplit(
         window_id: 2,
         matrix: bot,
         pixel_bounds: Rect::new(0.0, bot_y, pixel_w, bot_text as f32 * char_h),
+        selected: true,
     });
     let bot_ml = build_mode_line_width(c, " -:---  *Messages*     Bot L1     (Messages)");
     state.window_matrices.push(WindowMatrixEntry {
         window_id: 11,
         matrix: bot_ml,
         pixel_bounds: Rect::new(0.0, bot_y + bot_text as f32 * char_h, pixel_w, char_h),
+        selected: true,
     });
 
     let mini = build_minibuffer(c, "");
@@ -349,6 +356,7 @@ fn build_hsplit(
         window_id: 20,
         matrix: mini,
         pixel_bounds: Rect::new(0.0, (r - 1) as f32 * char_h, pixel_w, char_h),
+        selected: false,
     });
     state
 }
@@ -388,6 +396,7 @@ fn build_vsplit(
             left_cols as f32 * char_w,
             text_rows as f32 * char_h,
         ),
+        selected: true,
     });
 
     let mut divider = GlyphMatrix::new(text_rows, 1);
@@ -405,6 +414,7 @@ fn build_vsplit(
             char_w,
             text_rows as f32 * char_h,
         ),
+        selected: true,
     });
 
     let help = help_buffer_lines();
@@ -419,6 +429,7 @@ fn build_vsplit(
             right_cols as f32 * char_w,
             text_rows as f32 * char_h,
         ),
+        selected: true,
     });
 
     let ml_left = format!(
@@ -436,6 +447,7 @@ fn build_vsplit(
         window_id: 10,
         matrix: ml,
         pixel_bounds: Rect::new(0.0, text_rows as f32 * char_h, pixel_w, char_h),
+        selected: true,
     });
 
     let mini = build_minibuffer(c, "C-x 3 ran the command split-window-right");
@@ -443,6 +455,7 @@ fn build_vsplit(
         window_id: 20,
         matrix: mini,
         pixel_bounds: Rect::new(0.0, (r - 1) as f32 * char_h, pixel_w, char_h),
+        selected: false,
     });
     state
 }
@@ -486,6 +499,7 @@ fn build_triple(
             left_cols as f32 * char_w,
             left_text as f32 * char_h,
         ),
+        selected: true,
     });
     let left_ml = build_mode_line_width(left_cols, " -:**-  *scratch*      (Lisp Interaction)");
     state.window_matrices.push(WindowMatrixEntry {
@@ -497,6 +511,7 @@ fn build_triple(
             left_cols as f32 * char_w,
             char_h,
         ),
+        selected: true,
     });
 
     // Vertical divider
@@ -515,6 +530,7 @@ fn build_triple(
             char_w,
             (r - 1) as f32 * char_h,
         ),
+        selected: false,
     });
 
     let rx = (left_cols + 1) as f32 * char_w;
@@ -531,6 +547,7 @@ fn build_triple(
             right_cols as f32 * char_w,
             top_right_text as f32 * char_h,
         ),
+        selected: true,
     });
     let tr_ml = build_mode_line_width(right_cols, " -:---  *Messages*     (Messages)");
     state.window_matrices.push(WindowMatrixEntry {
@@ -542,6 +559,7 @@ fn build_triple(
             right_cols as f32 * char_w,
             char_h,
         ),
+        selected: true,
     });
 
     // Bottom-right: *Help*
@@ -557,6 +575,7 @@ fn build_triple(
             right_cols as f32 * char_w,
             bot_right_text as f32 * char_h,
         ),
+        selected: true,
     });
     let br_ml = build_mode_line_width(right_cols, " -:---  *Help*         (Help)");
     state.window_matrices.push(WindowMatrixEntry {
@@ -568,6 +587,7 @@ fn build_triple(
             right_cols as f32 * char_w,
             char_h,
         ),
+        selected: true,
     });
 
     // Minibuffer
@@ -576,6 +596,7 @@ fn build_triple(
         window_id: 20,
         matrix: mini,
         pixel_bounds: Rect::new(0.0, (r - 1) as f32 * char_h, pixel_w, char_h),
+        selected: false,
     });
     state
 }

@@ -284,6 +284,16 @@ pub struct WindowMatrixEntry {
     pub window_id: u64,
     pub matrix: GlyphMatrix,
     pub pixel_bounds: Rect,
+    /// True when this window is the frame's selected window at the
+    /// time the display state was built. The TTY rasterizer uses
+    /// this to decide which window owns the physical terminal
+    /// cursor: only the selected window contributes a
+    /// `cursor_col` to the terminal cursor position, even though
+    /// other windows may still draw a hollow cursor glyph via
+    /// `cursor-in-non-selected-windows`. Mirrors GNU
+    /// `src/xdisp.c::display_and_set_cursor`, which only resolves
+    /// the frame cursor from the selected window's row.
+    pub selected: bool,
 }
 
 // ---------------------------------------------------------------------------

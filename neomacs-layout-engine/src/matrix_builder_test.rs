@@ -13,7 +13,7 @@ fn builder_starts_empty() {
 #[test]
 fn builder_tracks_single_window_single_row() {
     let mut builder = GlyphMatrixBuilder::new();
-    builder.begin_window(1, 24, 80, Rect::new(0.0, 0.0, 640.0, 384.0));
+    builder.begin_window(1, 24, 80, Rect::new(0.0, 0.0, 640.0, 384.0), true);
     builder.begin_row(0, GlyphRowRole::Text);
     builder.push_char('H', 0, 0);
     builder.push_char('i', 0, 1);
@@ -40,7 +40,7 @@ fn builder_tracks_single_window_single_row() {
 #[test]
 fn builder_tracks_multiple_rows() {
     let mut builder = GlyphMatrixBuilder::new();
-    builder.begin_window(1, 3, 10, Rect::new(0.0, 0.0, 80.0, 48.0));
+    builder.begin_window(1, 3, 10, Rect::new(0.0, 0.0, 80.0, 48.0), true);
 
     builder.begin_row(0, GlyphRowRole::Text);
     builder.push_char('a', 0, 0);
@@ -63,7 +63,7 @@ fn builder_tracks_multiple_rows() {
 #[test]
 fn builder_tracks_wide_chars() {
     let mut builder = GlyphMatrixBuilder::new();
-    builder.begin_window(1, 5, 20, Rect::new(0.0, 0.0, 160.0, 80.0));
+    builder.begin_window(1, 5, 20, Rect::new(0.0, 0.0, 160.0, 80.0), true);
     builder.begin_row(0, GlyphRowRole::Text);
     builder.push_wide_char('\u{4e16}', 0, 0);
     builder.push_char('x', 0, 3);
@@ -83,7 +83,7 @@ fn builder_tracks_wide_chars() {
 #[test]
 fn builder_handles_stretch_glyphs() {
     let mut builder = GlyphMatrixBuilder::new();
-    builder.begin_window(1, 5, 20, Rect::new(0.0, 0.0, 160.0, 80.0));
+    builder.begin_window(1, 5, 20, Rect::new(0.0, 0.0, 160.0, 80.0), true);
     builder.begin_row(0, GlyphRowRole::Text);
     builder.push_char('a', 0, 0);
     builder.push_stretch(4, 0);
@@ -100,7 +100,7 @@ fn builder_handles_stretch_glyphs() {
 #[test]
 fn builder_computes_row_hashes_on_finish() {
     let mut builder = GlyphMatrixBuilder::new();
-    builder.begin_window(1, 2, 10, Rect::new(0.0, 0.0, 80.0, 32.0));
+    builder.begin_window(1, 2, 10, Rect::new(0.0, 0.0, 80.0, 32.0), true);
     builder.begin_row(0, GlyphRowRole::Text);
     builder.push_char('x', 0, 0);
     builder.end_row();
@@ -114,7 +114,7 @@ fn builder_computes_row_hashes_on_finish() {
 #[test]
 fn builder_resets_on_new_frame() {
     let mut builder = GlyphMatrixBuilder::new();
-    builder.begin_window(1, 2, 10, Rect::new(0.0, 0.0, 80.0, 32.0));
+    builder.begin_window(1, 2, 10, Rect::new(0.0, 0.0, 80.0, 32.0), true);
     builder.begin_row(0, GlyphRowRole::Text);
     builder.push_char('x', 0, 0);
     builder.end_row();
@@ -129,7 +129,7 @@ fn builder_resets_on_new_frame() {
 #[test]
 fn builder_captures_status_line_chars_directly() {
     let mut builder = GlyphMatrixBuilder::new();
-    builder.begin_window(1, 3, 80, Rect::new(0.0, 0.0, 640.0, 48.0));
+    builder.begin_window(1, 3, 80, Rect::new(0.0, 0.0, 640.0, 48.0), true);
     builder.begin_row(0, GlyphRowRole::Text);
     builder.push_char('a', 0, 0);
     builder.end_row();
@@ -164,7 +164,7 @@ fn builder_captures_status_line_chars_directly() {
 #[test]
 fn builder_status_line_empty_row_when_no_chars_pushed() {
     let mut builder = GlyphMatrixBuilder::new();
-    builder.begin_window(1, 2, 40, Rect::new(0.0, 0.0, 320.0, 32.0));
+    builder.begin_window(1, 2, 40, Rect::new(0.0, 0.0, 320.0, 32.0), true);
     builder.end_window();
 
     // Begin a status-line row but push no characters
@@ -188,7 +188,7 @@ fn builder_status_line_no_window_is_noop() {
 #[test]
 fn builder_left_margin_chars() {
     let mut builder = GlyphMatrixBuilder::new();
-    builder.begin_window(1, 3, 80, Rect::new(0.0, 0.0, 640.0, 48.0));
+    builder.begin_window(1, 3, 80, Rect::new(0.0, 0.0, 640.0, 48.0), true);
     builder.begin_row(0, GlyphRowRole::Text);
     builder.push_left_margin_stretch(2, 1);
     builder.push_left_margin_char('4', 1);
@@ -217,7 +217,7 @@ fn builder_left_margin_chars() {
 #[test]
 fn builder_set_cursor_at_row() {
     let mut builder = GlyphMatrixBuilder::new();
-    builder.begin_window(1, 3, 80, Rect::new(0.0, 0.0, 640.0, 48.0));
+    builder.begin_window(1, 3, 80, Rect::new(0.0, 0.0, 640.0, 48.0), true);
     builder.begin_row(0, GlyphRowRole::Text);
     builder.push_char('a', 0, 0);
     builder.end_row();

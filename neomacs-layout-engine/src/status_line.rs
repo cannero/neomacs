@@ -1483,7 +1483,7 @@ mod tests {
         face.font_ascent = 12.0;
 
         // Need to begin a window in the builder first for the status-line row
-        builder.begin_window(42, 10, 25, Rect::new(10.0, 0.0, 200.0, 200.0));
+        builder.begin_window(42, 10, 25, Rect::new(10.0, 0.0, 200.0, 200.0), true);
         builder.begin_row(0, GlyphRowRole::Text);
         builder.end_row();
         builder.end_window();
@@ -1522,7 +1522,7 @@ mod tests {
         face.font_ascent = 9.0;
         face.font_line_height = 12.0;
 
-        builder.begin_window(42, 10, 25, Rect::new(10.0, 0.0, 200.0, 200.0));
+        builder.begin_window(42, 10, 25, Rect::new(10.0, 0.0, 200.0, 200.0), true);
         builder.begin_row(0, GlyphRowRole::Text);
         builder.end_row();
         builder.end_window();
@@ -1614,7 +1614,7 @@ mod tests {
             }],
         );
 
-        builder.begin_window(42, 10, 25, Rect::new(10.0, 0.0, 200.0, 200.0));
+        builder.begin_window(42, 10, 25, Rect::new(10.0, 0.0, 200.0, 200.0), true);
         builder.begin_row(0, GlyphRowRole::Text);
         builder.end_row();
         builder.end_window();

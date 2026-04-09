@@ -143,6 +143,7 @@ fn frame_display_state_add_window_matrix() {
         window_id: 1,
         matrix,
         pixel_bounds: Rect::new(0.0, 0.0, 640.0, 320.0),
+        selected: true,
     });
     assert_eq!(state.window_matrices.len(), 1);
     assert_eq!(state.window_matrices[0].window_id, 1);
@@ -173,6 +174,7 @@ fn state_with_text(text: &str) -> FrameDisplayState {
         window_id: 1,
         matrix,
         pixel_bounds: Rect::new(0.0, 0.0, cols as f32 * char_w, char_h),
+        selected: true,
     });
     state
 }
@@ -316,6 +318,7 @@ fn materialize_pixel_positions_from_grid() {
         window_id: 1,
         matrix,
         pixel_bounds: Rect::new(win_x, win_y, cols as f32 * char_w, rows as f32 * char_h),
+        selected: true,
     });
 
     let buf = state.materialize();
@@ -400,6 +403,7 @@ fn materialize_disabled_rows_are_skipped() {
         window_id: 1,
         matrix,
         pixel_bounds: Rect::new(0.0, 0.0, 24.0, 32.0),
+        selected: true,
     });
 
     let buf = state.materialize();
@@ -428,6 +432,7 @@ fn materialize_padding_glyphs_are_skipped() {
         window_id: 1,
         matrix,
         pixel_bounds: Rect::new(0.0, 0.0, 32.0, 16.0),
+        selected: true,
     });
 
     let buf = state.materialize();
@@ -464,6 +469,7 @@ fn materialize_stretch_glyph() {
         window_id: 1,
         matrix,
         pixel_bounds: Rect::new(0.0, 0.0, 80.0, 16.0),
+        selected: true,
     });
 
     let buf = state.materialize();

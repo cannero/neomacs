@@ -1823,6 +1823,7 @@ impl LayoutEngine {
                 max_rows_echo,
                 cols_echo,
                 params.bounds,
+                params.selected,
             );
             let mut builder = std::mem::replace(
                 &mut self.matrix_builder,
@@ -2106,6 +2107,7 @@ impl LayoutEngine {
             matrix_rows,
             matrix_cols,
             params.bounds,
+            params.selected,
         );
         self.matrix_builder.begin_row(
             0,

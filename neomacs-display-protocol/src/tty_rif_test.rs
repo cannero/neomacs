@@ -165,6 +165,7 @@ fn make_simple_state(text: &str) -> FrameDisplayState {
         window_id: 1,
         matrix,
         pixel_bounds: Rect::new(0.0, 0.0, cols as f32 * 8.0, 5.0 * 16.0),
+        selected: true,
     });
     state
 }
@@ -200,6 +201,7 @@ fn rasterize_respects_matrix_position() {
         window_id: 1,
         matrix,
         pixel_bounds: Rect::new(40.0, 32.0, 80.0, 48.0),
+        selected: true,
     });
 
     let mut rif = TtyRif::new(20, 10);
@@ -227,6 +229,7 @@ fn rasterize_disabled_rows_are_skipped() {
         window_id: 1,
         matrix,
         pixel_bounds: Rect::new(0.0, 0.0, 80.0, 80.0),
+        selected: true,
     });
 
     let mut rif = TtyRif::new(10, 5);
@@ -259,6 +262,7 @@ fn rasterize_wide_char_creates_padding() {
         window_id: 1,
         matrix,
         pixel_bounds: Rect::new(0.0, 0.0, 80.0, 80.0),
+        selected: true,
     });
 
     let mut rif = TtyRif::new(10, 5);
@@ -297,6 +301,7 @@ fn rasterize_tracks_cursor_position() {
         window_id: 1,
         matrix,
         pixel_bounds: Rect::new(0.0, 0.0, 80.0, 80.0),
+        selected: true,
     });
 
     let mut rif = TtyRif::new(10, 5);
@@ -305,6 +310,150 @@ fn rasterize_tracks_cursor_position() {
     assert!(rif.cursor_visible);
     assert_eq!(rif.cursor_row, 0);
     assert_eq!(rif.cursor_col, 1);
+}
+
+/// Regression test for a bug observed after `C-x 2` in an
+/// interactive `neomacs -nw -Q` session: the physical terminal
+/// cursor ended up inside the newly-created (non-selected)
+/// bottom window because the TTY RIF iterated both windows'
+/// glyph matrices and let the LAST `cursor_col` it saw win,
+/// clobbering the selected window's cursor with the hollow
+/// cursor hint drawn for the non-selected window.
+///
+/// GNU Emacs has a dedicated `tty_set_cursor` in
+/// `src/dispnew.c:5670-5751` that explicitly uses
+/// `FRAME_SELECTED_WINDOW (f)` and only calls `cursor_to` once,
+/// with this comment:
+///
+///   /* We have only one cursor on terminal frames. Use it to
+///      display the cursor of the selected window of the
+///      frame.  */
+///   struct window *w = XWINDOW (FRAME_SELECTED_WINDOW (f));
+///   ...
+///   cursor_to (f, y, x);
+///
+/// The `selected: bool` field on `WindowMatrixEntry` is the
+/// per-frame-state equivalent of GNU's `FRAME_SELECTED_WINDOW`
+/// check: only the selected window contributes `cursor_col` to
+/// the terminal cursor position. Non-selected windows may still
+/// mark `cursor_col` to draw a hollow cursor glyph (via
+/// `cursor-in-non-selected-windows`), but that stays a visual
+/// cue in the cell, not a terminal cursor move.
+#[test]
+fn rasterize_terminal_cursor_comes_from_selected_window_only() {
+    // Two vertically stacked 2-row windows at screen cols 0..10.
+    // Top window (w1) is selected; its cursor is in row 0, col 3.
+    // Bottom window (w2) is NOT selected but still draws a
+    // hollow cursor in its row 0, col 7 (the non-selected
+    // hint). The terminal cursor MUST come from w1.
+    let mut state = FrameDisplayState::new(10, 5, 8.0, 16.0);
+    state.background = Color::BLACK;
+
+    let mut top_matrix = GlyphMatrix::new(2, 10);
+    let mut top_row = GlyphRow::new(GlyphRowRole::Text);
+    for (i, ch) in "TOP-BUFFER".chars().enumerate() {
+        top_row.glyphs[GlyphArea::Text as usize].push(Glyph::char(ch, 0, i));
+    }
+    top_row.cursor_col = Some(3);
+    top_row.cursor_type = Some(CursorStyle::FilledBox);
+    top_matrix.rows[0] = top_row;
+
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 1,
+        matrix: top_matrix,
+        pixel_bounds: Rect::new(0.0, 0.0, 80.0, 32.0),
+        selected: true,
+    });
+
+    let mut bot_matrix = GlyphMatrix::new(2, 10);
+    let mut bot_row = GlyphRow::new(GlyphRowRole::Text);
+    for (i, ch) in "BOT-BUFFER".chars().enumerate() {
+        bot_row.glyphs[GlyphArea::Text as usize].push(Glyph::char(ch, 0, i));
+    }
+    // Non-selected window still marks a hollow cursor column via
+    // the same `cursor_col` slot, reflecting the `Hollow` style
+    // chosen by `cursor_style_for_window` for windows where
+    // `cursor-in-non-selected-windows` is non-nil.
+    bot_row.cursor_col = Some(7);
+    bot_row.cursor_type = Some(CursorStyle::Hollow);
+    bot_matrix.rows[0] = bot_row;
+
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 2,
+        matrix: bot_matrix,
+        // Bottom half of the screen.
+        pixel_bounds: Rect::new(0.0, 32.0, 80.0, 32.0),
+        selected: false,
+    });
+
+    let mut rif = TtyRif::new(10, 5);
+    rif.rasterize(&state);
+
+    assert!(rif.cursor_visible, "terminal cursor should be visible");
+    assert_eq!(
+        rif.cursor_row, 0,
+        "cursor row must come from selected (top) window"
+    );
+    assert_eq!(
+        rif.cursor_col, 3,
+        "cursor column must come from selected (top) window — \
+         the non-selected bottom window's hollow cursor at col 7 \
+         must NOT move the physical terminal cursor"
+    );
+}
+
+/// Complementary test: when the frame layout lists the selected
+/// window AFTER a non-selected window, the terminal cursor must
+/// still come from the selected window. Without the
+/// `entry.selected` guard this case happens to succeed by
+/// accident (last-writer-wins lands on the selected window), so
+/// we verify it explicitly to pin the intent rather than the
+/// iteration order.
+#[test]
+fn rasterize_terminal_cursor_comes_from_selected_window_regardless_of_order() {
+    let mut state = FrameDisplayState::new(10, 5, 8.0, 16.0);
+    state.background = Color::BLACK;
+
+    // First entry: non-selected window with a hollow cursor.
+    let mut w1_matrix = GlyphMatrix::new(2, 10);
+    let mut w1_row = GlyphRow::new(GlyphRowRole::Text);
+    for (i, ch) in "FIRST-WIN".chars().enumerate() {
+        w1_row.glyphs[GlyphArea::Text as usize].push(Glyph::char(ch, 0, i));
+    }
+    w1_row.cursor_col = Some(9);
+    w1_row.cursor_type = Some(CursorStyle::Hollow);
+    w1_matrix.rows[0] = w1_row;
+
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 1,
+        matrix: w1_matrix,
+        pixel_bounds: Rect::new(0.0, 0.0, 80.0, 32.0),
+        selected: false,
+    });
+
+    // Second entry: the selected window with its real cursor.
+    let mut w2_matrix = GlyphMatrix::new(2, 10);
+    let mut w2_row = GlyphRow::new(GlyphRowRole::Text);
+    for (i, ch) in "SECND-WIN".chars().enumerate() {
+        w2_row.glyphs[GlyphArea::Text as usize].push(Glyph::char(ch, 0, i));
+    }
+    w2_row.cursor_col = Some(2);
+    w2_row.cursor_type = Some(CursorStyle::FilledBox);
+    w2_matrix.rows[0] = w2_row;
+
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 2,
+        matrix: w2_matrix,
+        pixel_bounds: Rect::new(0.0, 32.0, 80.0, 32.0),
+        selected: true,
+    });
+
+    let mut rif = TtyRif::new(10, 5);
+    rif.rasterize(&state);
+
+    assert!(rif.cursor_visible);
+    assert_eq!(rif.cursor_row, 2, "selected window starts at screen row 2");
+    assert_eq!(rif.cursor_col, 2, "cursor col from selected window only");
 }
 
 // ---------------------------------------------------------------------------

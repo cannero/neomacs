@@ -4043,3 +4043,47 @@ fn scroll_up_down_updates_window_start_for_multibyte_content() {
     );
     assert_eq!(results[0], "OK (t t t t)");
 }
+
+/// Reproduces the observable bug reported after `C-x 2` in an
+/// interactive `neomacs -nw -Q` session: the cursor ends up on the
+/// *bottom* (newly-created) window, and both mode lines render in
+/// their active face.
+///
+/// GNU Emacs behavior (verified against `emacs -Q --batch` with
+/// 31.0.50 on 2026-04-09):
+///
+///   BEFORE: selected = #<window 1 on *scratch*>
+///   split-window-below returns #<window 4 on *scratch*>
+///   AFTER : selected = #<window 1 on *scratch*>          ;; UNCHANGED
+///   (eq new-window (selected-window)) = nil
+///
+/// The selected window must remain the ORIGINAL (top) window.
+/// Only one window at a time owns the active `mode-line` face;
+/// every other window uses `mode-line-inactive`. Matching GNU
+/// semantics is critical for visual focus cues.
+#[test]
+fn split_window_below_keeps_selected_window_on_top_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = runtime_startup_context();
+    let out = ev
+        .eval_str_each(
+            "(let ((before (selected-window)))
+               (let ((new-window (split-window-below)))
+                 (list
+                  ;; Selected window after split is still the ORIGINAL.
+                  (eq (selected-window) before)
+                  ;; `split-window-below` returns the new window.
+                  (windowp new-window)
+                  ;; The new window is NOT the selected window.
+                  (not (eq new-window (selected-window)))
+                  ;; Both windows show up in window-list.
+                  (= (length (window-list)) 2))))",
+        )
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        out[0], "OK (t t t t)",
+        "split-window-below must keep the original window selected, matching GNU"
+    );
+}
