@@ -1996,6 +1996,7 @@ dependencies = [
  "neomacs-display-runtime",
  "neomacs-layout-engine",
  "neovm-core",
+ "tempfile",
  "tracing",
 ]
 
