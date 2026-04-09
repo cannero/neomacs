@@ -396,7 +396,36 @@ pub(crate) fn regex_compile(
     let mut buf = CompiledPattern::new();
     buf.posix = posix;
 
-    // Build case-fold translation table if needed
+    // Build case-fold translation table if needed.
+    //
+    // GNU `compile_pattern` (search.c:287-289) passes the buffer's
+    // `case_canon_table` here, which is a full Unicode char-table
+    // configurable per buffer via `(set-case-table ...)`. neomacs's
+    // translate is a 256-entry `Vec<char>` populated from Rust's
+    // `to_lowercase()` on each ASCII byte, which:
+    //
+    //   - covers ASCII A-Z → a-z exactly (the only common case),
+    //   - is identity for the rest of the byte range (no
+    //     buffer-specific case folding for Latin-1 or higher),
+    //   - is unreachable for code points > 0xFF (the matcher's
+    //     `tr()` short-circuits when `c >= 256`).
+    //
+    // Audit finding #5 in `drafts/regex-search-audit.md` flags this
+    // as "translate table byte-only, no buffer case table". A
+    // GNU-parity refactor would require:
+    //
+    //   1. A char-keyed translate table (HashMap<char, char> or a
+    //      sparse char-table backed by the buffer's own case_canon).
+    //   2. Threading the buffer's case_canon table down through
+    //      `compile_search_pattern_with_posix`.
+    //   3. Decoding the input as full UTF-8 chars in `RegexOp::Exactn`
+    //      (instead of byte-by-byte) so non-ASCII chars can be
+    //      case-folded against the pattern.
+    //
+    // That is the audit's Phase B Task 2.1 (1-2 days). Until it
+    // lands, the byte-only table here is documented intentional; it
+    // matches GNU exactly for ASCII letters and silently no-ops for
+    // multibyte case folds.
     if case_fold {
         let mut table = Vec::with_capacity(256);
         for i in 0..256u32 {
