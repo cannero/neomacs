@@ -503,7 +503,13 @@ impl<'heap> Mutator<'heap> {
                 old_erased,
                 new_erased,
                 core.config().old.mutator_assist_slices,
-                &core.storage_stats(),
+                // The storage_stats closure is only called
+                // when the post-write actually updated
+                // collector state. In the common path (no
+                // active major-mark session) the closure is
+                // never invoked and the barrier skips the
+                // full HeapStats copy + block walk.
+                || core.storage_stats(),
                 core.old_gen(),
                 core.old_config(),
                 |kind| core.plan_for(kind),

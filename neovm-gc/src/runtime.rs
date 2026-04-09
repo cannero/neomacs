@@ -450,7 +450,11 @@ impl<'heap> CollectorRuntime<'heap> {
             &self.heap.indexes().object_index,
             gc.erase(),
             self.heap.config().old.mutator_assist_slices,
-            &self.heap.storage_stats(),
+            // Lazy: the closure only runs when the assist
+            // actually updated collector state. In the common
+            // path (no active major-mark session) the full
+            // HeapStats copy + block walk is skipped.
+            || self.heap.storage_stats(),
             self.heap.old_gen(),
             self.heap.old_config(),
             |kind| self.heap.plan_for(kind),
@@ -488,7 +492,7 @@ impl<'heap> CollectorRuntime<'heap> {
                 &self.heap.indexes().object_index,
                 object,
                 self.heap.config().old.mutator_assist_slices,
-                &self.heap.storage_stats(),
+                || self.heap.storage_stats(),
                 self.heap.old_gen(),
                 self.heap.old_config(),
                 |kind| self.heap.plan_for(kind),

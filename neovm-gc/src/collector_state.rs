@@ -213,13 +213,20 @@ impl CollectorStateHandle {
         })
     }
 
+    /// Hot-path variant: `stats_fn` is only called when the
+    /// post-write assist actually updated collector state and
+    /// therefore needs to refresh the cached plans. The common
+    /// case (no active major-mark session) takes the early
+    /// return inside `record_active_major_reachable_object`
+    /// and the closure is never invoked, so the caller avoids
+    /// computing a full `HeapStats` on every allocation.
     pub(crate) fn record_active_major_reachable_object_and_refresh(
         &self,
         objects: &[ObjectRecord],
         index: &ObjectIndex,
         object: crate::descriptor::GcErased,
         assist_slices: usize,
-        stats: &HeapStats,
+        stats_fn: impl FnOnce() -> HeapStats,
         old_gen: &OldGenState,
         old_config: &OldGenConfig,
         plan_for: impl FnMut(CollectionKind) -> CollectionPlan,
@@ -233,12 +240,18 @@ impl CollectorStateHandle {
                 assist_slices,
             )?;
             if recorded {
-                refresh_cached_collector_plans(state, stats, old_gen, old_config, plan_for);
+                let stats = stats_fn();
+                refresh_cached_collector_plans(state, &stats, old_gen, old_config, plan_for);
             }
             Ok(recorded)
         })
     }
 
+    /// Hot-path variant: same lazy-`stats` treatment as
+    /// `record_active_major_reachable_object_and_refresh`. In
+    /// the common case (no active major-mark session) the
+    /// closure is never invoked, so the barrier hot path
+    /// avoids computing a full `HeapStats` on every call.
     pub(crate) fn record_active_major_post_write_and_refresh(
         &self,
         objects: &[ObjectRecord],
@@ -247,7 +260,7 @@ impl CollectorStateHandle {
         old_value: Option<crate::descriptor::GcErased>,
         new_value: Option<crate::descriptor::GcErased>,
         assist_slices: usize,
-        stats: &HeapStats,
+        stats_fn: impl FnOnce() -> HeapStats,
         old_gen: &OldGenState,
         old_config: &OldGenConfig,
         plan_for: impl FnMut(CollectionKind) -> CollectionPlan,
@@ -263,7 +276,8 @@ impl CollectorStateHandle {
                 assist_slices,
             )?;
             if updated {
-                refresh_cached_collector_plans(state, stats, old_gen, old_config, plan_for);
+                let stats = stats_fn();
+                refresh_cached_collector_plans(state, &stats, old_gen, old_config, plan_for);
             }
             Ok(updated)
         })
