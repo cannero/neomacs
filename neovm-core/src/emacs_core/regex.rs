@@ -3,6 +3,39 @@
 //! Uses a direct translation of GNU Emacs's `regex-emacs.c` as the backend.
 //! All pattern compilation, matching, and searching goes through the
 //! `regex_emacs` module, ensuring 100% semantic compatibility with GNU.
+//!
+//! # Audit-tracked boundaries vs GNU
+//!
+//! The audit at `drafts/regex-search-audit.md` tracks divergences
+//! from GNU `src/search.c`. Audit findings 1, 2, 3, 4, 7, 8, 9, 10,
+//! 11, 12, 14, 16, and 20 have been addressed. The remaining
+//! intentionally-deferred items are:
+//!
+//! - **#5** (translate table byte-only) — full Unicode case-canon
+//!   table refactor; covered by a doc comment in `regex_compile`.
+//! - **#13** (replace-match multibyte/unibyte) — collapses for
+//!   neomacs because all strings are UTF-8; documented inline.
+//! - **#15** (cache key narrow) — extra cache axes (syntax table
+//!   identity, multibyte flag) are placeholders for features
+//!   neomacs does not have yet; documented inline.
+//! - **#17** (gap-aware `re_match_2`) — perf, not correctness.
+//!   Each search currently materializes the buffer text via
+//!   `text_range(0, buf.text.len())` instead of walking across
+//!   the gap boundary. GNU `regex-emacs.c:re_match_2` would save
+//!   a buffer-sized allocation per search. Audit Phase D Task 4.1.
+//! - **#18** (boyer_moore literal search) — perf, not correctness.
+//!   `literal_find` uses naive `str::find` instead of GNU's
+//!   Boyer-Moore-with-skip-table from `src/search.c:1761+`. Audit
+//!   Phase D Task 4.2.
+//! - **#19** (internal C helpers) — `save_search_regs`,
+//!   `update_search_regs`, `freeze_pattern` / `unfreeze_pattern`,
+//!   `find_newline1`, and `wordify` are GNU-internal helpers used
+//!   on the `running_asynch_code` path and during async-signal
+//!   handling. neomacs does not run user signal handlers in C
+//!   code or expose `running_asynch_code`, so these helpers have
+//!   no consumers. `wordify` (`\bword\b` from a literal word) is
+//!   already implemented in elisp via the `wordify` function
+//!   defined in `subr.el`.
 
 use std::cell::RefCell;
 
@@ -928,6 +961,16 @@ fn unicode_case_fold_literal_rfind(text: &str, literal: &str) -> Option<(usize, 
     Some((mapping[start_char].0, mapping[end_char].1))
 }
 
+/// Find LITERAL inside TEXT, optionally case-folded.
+///
+/// GNU `src/search.c:1761+` ports a Boyer-Moore implementation
+/// (`boyer_moore`) with case-fold-aware skip table generation. For
+/// long literal needles in large buffers Boyer-Moore is roughly
+/// O(n/m) instead of O(n). neomacs uses naive substring scanning
+/// here (delegating to `str::find` and a tiny ASCII case-fold
+/// helper). Audit finding #18 in `drafts/regex-search-audit.md`
+/// flags this as a perf gap, not a correctness gap; the audit's
+/// Phase D Task 4.2 covers porting boyer_moore (~1 day).
 fn literal_find(text: &str, literal: &str, case_fold: bool) -> Option<(usize, usize)> {
     crate::emacs_core::perf_trace::time_op(
         crate::emacs_core::perf_trace::HotpathOp::RegexLiteralFind,

@@ -3100,7 +3100,21 @@ fn compile_fastmap(pattern: &mut CompiledPattern) {
 
 /// Search for a match of the compiled pattern in text.
 ///
-/// Equivalent to GNU's `re_search_2()`.
+/// Equivalent to GNU's `re_search_2()` operating on a single
+/// contiguous string. GNU also exposes the two-string variant
+/// `re_match_2(pattern, string1, size1, string2, size2, ...)` which
+/// walks the buffer text across the gap boundary
+/// (`BEG..GPT` and `GPT..ZV`) without copying — for a 100MB buffer
+/// that saves a 100MB allocation per search. Audit finding #17 in
+/// `drafts/regex-search-audit.md` flags this as missing in neomacs.
+///
+/// We currently allocate the full buffer text via
+/// `buf.text.text_range(0, buf.text.len())` at the call site in
+/// `regex.rs::re_search_forward_with_posix` and friends, which is
+/// correctness-equivalent to GNU's `re_match_2_internal` running
+/// over a single string but is O(buffer-size) per search instead of
+/// O(match-length). Porting the gap-aware path is a separate
+/// optimization (audit Phase D Task 4.1, ~1 day).
 ///
 /// # Arguments
 /// * `pattern` - Compiled pattern
