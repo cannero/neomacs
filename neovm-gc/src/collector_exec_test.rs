@@ -6,7 +6,6 @@ use crate::root::RootStack;
 use crate::runtime_state::RuntimeStateHandle;
 use crate::spaces::{NurseryConfig, NurseryState, OldGenConfig, OldGenState};
 use crate::stats::{HeapStats, SpaceStats};
-use std::collections::HashMap;
 
 #[derive(Debug)]
 struct Leaf;
@@ -22,7 +21,7 @@ fn object_index_for(objects: &[ObjectRecord]) -> ObjectIndex {
         .iter()
         .enumerate()
         .map(|(index, object)| (object.object_key(), index))
-        .collect::<HashMap<_, _>>()
+        .collect()
 }
 
 #[test]

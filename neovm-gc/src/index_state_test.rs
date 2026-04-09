@@ -86,7 +86,7 @@ fn remembered_set_refresh_drops_owners_with_no_nursery_edges_when_index_lacks_ow
     let owner = ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate owner");
 
     let objects: Vec<ObjectRecord> = Vec::new();
-    let object_index = ObjectIndex::new();
+    let object_index = ObjectIndex::default();
 
     let mut remembered = RememberedSetState::default();
     remembered.record_owner(owner.object_key());

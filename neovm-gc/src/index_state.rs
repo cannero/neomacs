@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet};
+use std::hash::{BuildHasher, Hasher};
+use std::ops::BitXor;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -9,8 +11,86 @@ use crate::reclaim::PreparedReclaimSurvivor;
 use crate::spaces::OldGenState;
 use crate::stats::HeapStats;
 
-pub(crate) type ObjectIndex = HashMap<ObjectKey, usize>;
-pub(crate) type ForwardingMap = HashMap<ObjectKey, GcErased>;
+/// Fast non-cryptographic hasher specialized for
+/// [`ObjectKey`] and other `usize`-width keys that don't
+/// need HashDoS resistance. Uses the FxHash algorithm
+/// (rotate + XOR + multiply by a 64-bit seed), which is
+/// what rustc and clippy use internally for their own
+/// hot-path maps.
+///
+/// A flamegraph of `multi_mutator_scaling/alloc/1` showed
+/// ~16% of cycles in `SipHasher13::finish` called from
+/// `ObjectIndex::insert` on every allocation; swapping the
+/// default `RandomState` (SipHash13) hasher for this one
+/// eliminates almost all of that cost. ObjectKey is an
+/// internal crate type (wrapping a `NonNull<ObjectHeader>`
+/// pointer cast to `usize`) that is never exposed to
+/// untrusted input, so HashDoS resistance is not needed
+/// here.
+#[derive(Default)]
+pub(crate) struct ObjectKeyHasher(u64);
+
+const OBJECT_KEY_HASH_SEED: u64 = 0xf1f6_4f39_f27f_9fe1;
+const OBJECT_KEY_HASH_ROTATE: u32 = 5;
+
+impl ObjectKeyHasher {
+    #[inline]
+    fn add(&mut self, i: u64) {
+        self.0 = self
+            .0
+            .rotate_left(OBJECT_KEY_HASH_ROTATE)
+            .bitxor(i)
+            .wrapping_mul(OBJECT_KEY_HASH_SEED);
+    }
+}
+
+impl Hasher for ObjectKeyHasher {
+    #[inline]
+    fn write(&mut self, mut bytes: &[u8]) {
+        while bytes.len() >= 8 {
+            let (chunk, rest) = bytes.split_at(8);
+            self.add(u64::from_ne_bytes(chunk.try_into().unwrap()));
+            bytes = rest;
+        }
+        for &byte in bytes {
+            self.add(byte as u64);
+        }
+    }
+
+    #[inline]
+    fn write_usize(&mut self, i: usize) {
+        self.add(i as u64);
+    }
+
+    #[inline]
+    fn write_u64(&mut self, i: u64) {
+        self.add(i);
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+/// `BuildHasher` that produces fresh [`ObjectKeyHasher`]
+/// instances. `#[derive(Default, Clone)]` gives
+/// `HashMap::with_hasher` and clone-based rehashes a
+/// trivial zero-overhead setup; there is no seed state to
+/// carry.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ObjectKeyBuildHasher;
+
+impl BuildHasher for ObjectKeyBuildHasher {
+    type Hasher = ObjectKeyHasher;
+    #[inline]
+    fn build_hasher(&self) -> Self::Hasher {
+        ObjectKeyHasher(0)
+    }
+}
+
+pub(crate) type ObjectIndex = HashMap<ObjectKey, usize, ObjectKeyBuildHasher>;
+pub(crate) type ForwardingMap = HashMap<ObjectKey, GcErased, ObjectKeyBuildHasher>;
 
 /// Explicit-edge fallback remembered set, owner-only model.
 ///
@@ -516,7 +596,8 @@ impl HeapIndexState {
         let ephemeron_candidate_set: HashSet<_> =
             self.ephemeron_candidates.iter().copied().collect();
 
-        let mut rebuilt_object_index = HashMap::with_capacity(survivors.len());
+        let mut rebuilt_object_index =
+            ObjectIndex::with_capacity_and_hasher(survivors.len(), ObjectKeyBuildHasher);
         let mut survivor_keys = HashSet::with_capacity(survivors.len());
         let mut finalizable_candidates = Vec::new();
         let mut weak_candidates = Vec::new();

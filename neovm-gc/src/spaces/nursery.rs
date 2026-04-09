@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::thread;
 
 use crate::collector_exec::ForwardingRelocator;
@@ -117,7 +116,7 @@ fn evacuate_marked_nursery_serial(
     stats: &mut HeapStats,
     nursery: &mut NurseryState,
 ) -> Result<EvacuationOutcome, AllocError> {
-    let mut forwarding = HashMap::new();
+    let mut forwarding = crate::index_state::ForwardingMap::default();
     let mut evacuated: Vec<(ObjectRecord, SpaceKind)> = Vec::new();
     let mut promoted_bytes = 0usize;
 
@@ -301,7 +300,7 @@ fn evacuate_marked_nursery_parallel(
     });
 
     let mut survivors: Vec<(ObjectRecord, SpaceKind)> = Vec::new();
-    let mut forwarding = HashMap::new();
+    let mut forwarding = crate::index_state::ForwardingMap::default();
     let mut merged_arenas: Vec<WorkerEvacuationArena> = Vec::with_capacity(worker_count);
     for result in worker_results {
         let (output, arena) = result?;

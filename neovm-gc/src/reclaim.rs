@@ -116,7 +116,7 @@ pub(crate) fn compact_sparse_old_blocks(
     density_threshold: f64,
 ) -> ForwardingMap {
     if objects.is_empty() || old_gen.block_count() == 0 {
-        return ForwardingMap::new();
+        return ForwardingMap::default();
     }
 
     // Phase A: compute per-block live_bytes from the post-mark
@@ -128,7 +128,7 @@ pub(crate) fn compact_sparse_old_blocks(
         density_threshold,
     );
     if candidates.is_empty() {
-        return ForwardingMap::new();
+        return ForwardingMap::default();
     }
     let candidate_set: std::collections::HashSet<usize> = candidates.into_iter().collect();
     compact_specific_old_blocks(objects, old_gen, config, &candidate_set)
@@ -153,7 +153,7 @@ pub(crate) fn compact_specific_old_blocks(
     config: &OldGenConfig,
     candidate_set: &std::collections::HashSet<usize>,
 ) -> ForwardingMap {
-    let mut forwarding = ForwardingMap::new();
+    let mut forwarding = ForwardingMap::default();
     if objects.is_empty() || old_gen.block_count() == 0 || candidate_set.is_empty() {
         return forwarding;
     }

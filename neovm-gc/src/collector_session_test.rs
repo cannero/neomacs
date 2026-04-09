@@ -7,7 +7,7 @@ use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan};
 use crate::reclaim::{PreparedReclaim, PreparedReclaimSurvivor};
 use crate::spaces::{OldRegionCollectionStats, PreparedOldGenReclaim};
 use crate::stats::PreparedHeapStats;
-use std::collections::HashMap;
+use crate::index_state::ObjectIndex;
 
 fn major_plan() -> CollectionPlan {
     CollectionPlan {
@@ -60,7 +60,7 @@ fn begin_major_mark_seeds_sources_into_initial_worklist() {
         ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate pinned leaf");
     let index = [(object.object_key(), 0usize)]
         .into_iter()
-        .collect::<HashMap<_, _>>();
+        .collect::<ObjectIndex>();
     let objects = [object];
 
     begin_major_mark(
@@ -84,7 +84,7 @@ fn mark_active_major_session_object_marks_and_enqueues_existing_record() {
         ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate pinned leaf");
     let index = [(object.object_key(), 0usize)]
         .into_iter()
-        .collect::<HashMap<_, _>>();
+        .collect::<ObjectIndex>();
     let objects = [object];
     state.begin_major_mark(major_plan(), MarkWorklist::default());
 
@@ -119,7 +119,7 @@ fn assist_active_major_mark_slices_accumulates_progress_across_slices() {
         ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate second pinned leaf");
     let index = [(first.object_key(), 0usize), (second.object_key(), 1usize)]
         .into_iter()
-        .collect::<HashMap<_, _>>();
+        .collect::<ObjectIndex>();
     let objects = [first, second];
     let mut worklist = MarkWorklist::default();
     worklist.push(0);
@@ -147,7 +147,7 @@ fn record_active_major_reachable_object_marks_and_enqueues_object() {
         ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate pinned leaf");
     let index = [(object.object_key(), 0usize)]
         .into_iter()
-        .collect::<HashMap<_, _>>();
+        .collect::<ObjectIndex>();
     let objects = [object];
     state.begin_major_mark(major_plan(), MarkWorklist::default());
 
@@ -181,7 +181,7 @@ fn record_active_major_post_write_marks_satb_and_incremental_targets() {
         (new_value.object_key(), 2usize),
     ]
     .into_iter()
-    .collect::<HashMap<_, _>>();
+    .collect::<ObjectIndex>();
     let objects = [owner, old_value, new_value];
     objects[0].mark_if_unmarked();
     state.begin_major_mark(major_plan(), MarkWorklist::default());
