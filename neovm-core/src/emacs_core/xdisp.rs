@@ -3279,6 +3279,14 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
     obarray.set_symbol_value("inhibit-message", Value::NIL);
     obarray.set_symbol_value("make-cursor-line-fully-visible", Value::T);
     obarray.set_symbol_value("x-stretch-cursor", Value::NIL);
+    // GNU `src/xdisp.c:38708` (`DEFVAR_BOOL ("inhibit-try-cursor-movement", ...)`)
+    // controls the `try_cursor_movement` redisplay optimization. neomacs has
+    // no equivalent optimization (the layout engine recomputes per frame),
+    // so this knob is currently inert — but the symbol must exist so Lisp
+    // code that does `(boundp 'inhibit-try-cursor-movement)` or
+    // `(setq inhibit-try-cursor-movement ...)` does not raise void-variable.
+    // Cursor audit Finding 7 in `drafts/cursor-audit.md`.
+    obarray.set_symbol_value("inhibit-try-cursor-movement", Value::NIL);
     obarray.set_symbol_value("show-trailing-whitespace", Value::NIL);
     obarray.set_symbol_value("show-paren-context-when-offscreen", Value::NIL);
     obarray.set_symbol_value("nobreak-char-display", Value::T);
