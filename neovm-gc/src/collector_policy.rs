@@ -8,6 +8,16 @@ use crate::spaces::{
 };
 use crate::stats::HeapStats;
 
+/// Coarse average-object-size estimate used when deriving
+/// `mark_slice_budget` from `stats.nursery.live_bytes`. The
+/// budget is a scheduling hint for the work-stealing mark
+/// workers — a rough over-estimate is fine. 16 bytes is
+/// smaller than any `ObjectRecord` header, so
+/// `live_bytes / 16` always over-estimates the object count,
+/// which gives workers a larger batch before they yield to
+/// steal, favoring throughput over scheduling fairness.
+const MARK_SLICE_BUDGET_AVG_OBJECT_BYTES: usize = 16;
+
 pub(crate) fn build_plan(
     kind: CollectionKind,
     objects: &[ObjectRecord],
@@ -19,10 +29,18 @@ pub(crate) fn build_plan(
     match kind {
         CollectionKind::Minor => {
             let worker_count = nursery_config.parallel_minor_workers.max(1);
-            let mark_slice_budget = objects
-                .iter()
-                .filter(|object| object.space() == SpaceKind::Nursery)
-                .count()
+            // O(1) proxy for the nursery object count: divide
+            // the nursery live-bytes counter by a coarse
+            // average-object-size estimate. The previous code
+            // walked every `ObjectRecord` to count nursery
+            // residents, which made `refresh_recommended_plans`
+            // (called on every allocation) O(total allocations)
+            // and turned the whole allocation path into O(n^2).
+            // See `docs/` or `git log` for the investigation.
+            let mark_slice_budget = stats
+                .nursery
+                .live_bytes
+                .div_ceil(MARK_SLICE_BUDGET_AVG_OBJECT_BYTES)
                 .max(1)
                 .div_ceil(worker_count);
             CollectionPlan {
