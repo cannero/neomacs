@@ -271,6 +271,18 @@ pub enum Window {
         /// (`src/window.h:285`). Stored as a `Value` to mirror
         /// GNU's Lisp_Object slot — `Value::NIL` means "unset".
         new_normal: Value,
+        /// Authoritative proportional vertical size
+        /// (height fraction of parent). GNU `w->normal_lines`
+        /// (`src/window.h:128`). Initialized to 1.0 on the root
+        /// and updated by `window-resize-apply` from
+        /// `new_normal`. `(window-normal-size w nil)` returns
+        /// this value. Window audit Critical 7 in
+        /// `drafts/window-system-audit.md`.
+        normal_lines: Value,
+        /// Authoritative proportional horizontal size
+        /// (width fraction of parent). GNU `w->normal_cols`
+        /// (`src/window.h:129`).
+        normal_cols: Value,
     },
 
     /// Internal node: contains children split in a direction.
@@ -292,6 +304,12 @@ pub enum Window {
         new_total: Option<i64>,
         /// Pending normal-size fraction — see `Leaf::new_normal`.
         new_normal: Value,
+        /// Persistent normal-size fraction — see
+        /// `Leaf::normal_lines`.
+        normal_lines: Value,
+        /// Persistent normal-size fraction — see
+        /// `Leaf::normal_cols`.
+        normal_cols: Value,
     },
 }
 
@@ -322,6 +340,10 @@ impl Window {
             new_pixel: None,
             new_total: None,
             new_normal: Value::NIL,
+            // GNU `make_window` initializes `normal_lines` and
+            // `normal_cols` to 1.0 (`src/window.c:4603-4604`).
+            normal_lines: Value::make_float(1.0),
+            normal_cols: Value::make_float(1.0),
         }
     }
 
@@ -369,6 +391,46 @@ impl Window {
         match self {
             Window::Leaf { new_normal, .. } | Window::Internal { new_normal, .. } => {
                 *new_normal = value;
+            }
+        }
+    }
+
+    /// Read the persistent `normal_lines` Lisp slot. GNU
+    /// `w->normal_lines`.
+    pub fn normal_lines(&self) -> Value {
+        match self {
+            Window::Leaf { normal_lines, .. } | Window::Internal { normal_lines, .. } => {
+                *normal_lines
+            }
+        }
+    }
+
+    /// Write the persistent `normal_lines` Lisp slot. GNU
+    /// `wset_normal_lines`.
+    pub fn set_normal_lines(&mut self, value: Value) {
+        match self {
+            Window::Leaf { normal_lines, .. } | Window::Internal { normal_lines, .. } => {
+                *normal_lines = value;
+            }
+        }
+    }
+
+    /// Read the persistent `normal_cols` Lisp slot. GNU
+    /// `w->normal_cols`.
+    pub fn normal_cols(&self) -> Value {
+        match self {
+            Window::Leaf { normal_cols, .. } | Window::Internal { normal_cols, .. } => {
+                *normal_cols
+            }
+        }
+    }
+
+    /// Write the persistent `normal_cols` Lisp slot. GNU
+    /// `wset_normal_cols`.
+    pub fn set_normal_cols(&mut self, value: Value) {
+        match self {
+            Window::Leaf { normal_cols, .. } | Window::Internal { normal_cols, .. } => {
+                *normal_cols = value;
             }
         }
     }
@@ -1742,6 +1804,53 @@ fn split_window_in_tree(
                 *preserve_vscroll_p = false;
             }
 
+            // Capture the old leaf's pre-split normal-size
+            // fractions before we mutate the children. The new
+            // internal node will inherit them because it occupies
+            // the slot the old leaf used to fill.
+            let inherited_normal_lines = old_leaf.normal_lines();
+            let inherited_normal_cols = old_leaf.normal_cols();
+
+            // Compute the new normal-size fractions for both
+            // children, mirroring GNU `Fsplit_window_internal`
+            // (`src/window.c:5517-5644`). Each sibling's fraction
+            // in the split direction is its bounds divided by the
+            // parent. The orthogonal fraction is always 1.0
+            // because both children fill the parent in that
+            // direction.
+            let parent_size = match direction {
+                SplitDirection::Horizontal => old_bounds.width,
+                SplitDirection::Vertical => old_bounds.height,
+            };
+            let (old_fraction, new_fraction) = if parent_size > 0.0 {
+                let old_frac = match direction {
+                    SplitDirection::Horizontal => left_bounds.width / parent_size,
+                    SplitDirection::Vertical => left_bounds.height / parent_size,
+                };
+                let new_frac = match direction {
+                    SplitDirection::Horizontal => right_bounds.width / parent_size,
+                    SplitDirection::Vertical => right_bounds.height / parent_size,
+                };
+                (old_frac as f64, new_frac as f64)
+            } else {
+                (0.5, 0.5)
+            };
+
+            match direction {
+                SplitDirection::Horizontal => {
+                    old_leaf.set_normal_cols(Value::make_float(old_fraction));
+                    old_leaf.set_normal_lines(Value::make_float(1.0));
+                    new_leaf.set_normal_cols(Value::make_float(new_fraction));
+                    new_leaf.set_normal_lines(Value::make_float(1.0));
+                }
+                SplitDirection::Vertical => {
+                    old_leaf.set_normal_lines(Value::make_float(old_fraction));
+                    old_leaf.set_normal_cols(Value::make_float(1.0));
+                    new_leaf.set_normal_lines(Value::make_float(new_fraction));
+                    new_leaf.set_normal_cols(Value::make_float(1.0));
+                }
+            }
+
             *tree = Window::Internal {
                 id: internal_id,
                 direction,
@@ -1752,6 +1861,11 @@ fn split_window_in_tree(
                 new_pixel: None,
                 new_total: None,
                 new_normal: Value::NIL,
+                // The new internal node takes the slot that the
+                // old leaf used to fill, so it inherits the
+                // leaf's pre-split proportional fractions.
+                normal_lines: inherited_normal_lines,
+                normal_cols: inherited_normal_cols,
             };
 
             return Some(());
@@ -1943,6 +2057,26 @@ pub fn window_resize_apply(window: &mut Window, horflag: bool, _char_width: f32,
         // `wset_new_pixel(w, make_fixnum(-1))` reset at the end of
         // `window_resize_apply`.
         window.set_new_pixel(None);
+    }
+
+    // Commit the pending normal-size fraction. GNU
+    // `Fwindow_resize_apply` (`src/window.c:4826,4835`):
+    //
+    //   if (horflag) wset_normal_cols (w, w->new_normal);
+    //   else         wset_normal_lines (w, w->new_normal);
+    //
+    // Audit Critical 7 in `drafts/window-system-audit.md`:
+    // moving the persistent fraction onto the Window struct here
+    // means `window-normal-size` reads it back instead of
+    // re-deriving the ratio from current pixel bounds.
+    let pending_normal = window.new_normal();
+    if !pending_normal.is_nil() {
+        if horflag {
+            window.set_normal_cols(pending_normal);
+        } else {
+            window.set_normal_lines(pending_normal);
+        }
+        window.set_new_normal(Value::NIL);
     }
 
     // Get updated bounds after applying new_pixel.

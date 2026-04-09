@@ -1528,21 +1528,14 @@ pub(crate) fn builtin_window_prev_sibling(
 }
 /// `(window-normal-size &optional WINDOW HORIZONTAL)` -> proportional size.
 ///
-/// GNU `src/window.c::Fwindow_normal_size` returns the value of
-/// `w->normal_lines` (or `normal_cols` when HORIZONTAL is non-nil),
-/// which is a separate Lisp_Object slot that the resize machinery
-/// in `window-resize-apply` writes to. neomacs derives the ratio
-/// from pixel bounds because no `normal_lines` / `normal_cols`
-/// fields exist on `Window::Leaf` / `Window::Internal`.
+/// Mirrors GNU `src/window.c:973`:
 ///
-/// This is mathematically equivalent for queries that immediately
-/// follow a `window-resize-apply` call (since neomacs's resize
-/// uses pixel bounds), but it loses fidelity when the Lisp side
-/// has set a normal-size that does not match the rendered pixel
-/// ratio — for example after `set-window-normal-size` followed
-/// by deferred application. Window audit Critical 7 in
-/// `drafts/window-system-audit.md` tracks adding the explicit
-/// fields and writing them from the resize path.
+///   return NILP (horizontal) ? w->normal_lines : w->normal_cols;
+///
+/// The persistent `normal_lines` and `normal_cols` slots are
+/// stored on `Window::Leaf` / `Window::Internal` (initialized to
+/// 1.0, updated by `window-resize-apply` from `new_normal`). See
+/// audit Critical 7 in `drafts/window-system-audit.md`.
 pub(crate) fn builtin_window_normal_size(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -1559,31 +1552,11 @@ pub(crate) fn builtin_window_normal_size(
     let window = frame
         .find_window(wid)
         .ok_or_else(|| signal("error", vec![Value::string("Window not found")]))?;
-    let Some(parent_id) = window_parent_id(frame, wid) else {
-        return Ok(Value::make_float(1.0));
-    };
-    let parent = frame
-        .find_window(parent_id)
-        .ok_or_else(|| signal("error", vec![Value::string("Window not found")]))?;
-
-    let ratio = match parent {
-        Window::Internal {
-            direction,
-            bounds: parent_bounds,
-            ..
-        } => match (horizontal, direction) {
-            (true, SplitDirection::Horizontal) if parent_bounds.width > 0.0 => {
-                window.bounds().width / parent_bounds.width
-            }
-            (false, SplitDirection::Vertical) if parent_bounds.height > 0.0 => {
-                window.bounds().height / parent_bounds.height
-            }
-            _ => 1.0,
-        },
-        Window::Leaf { .. } => 1.0,
-    };
-
-    Ok(Value::make_float(ratio as f64))
+    Ok(if horizontal {
+        window.normal_cols()
+    } else {
+        window.normal_lines()
+    })
 }
 /// `(window-start &optional WINDOW)` -> integer position.
 pub(crate) fn builtin_window_start(
