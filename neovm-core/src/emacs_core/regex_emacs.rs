@@ -2583,6 +2583,39 @@ fn goto_fail(
 /// this to skip positions that cannot start a match, giving a significant
 /// speed-up for patterns that begin with a restricted set of characters.
 ///
+/// Populate `fastmap` for `\sX` (or `\SX` when `negate` is true) by
+/// querying the standard syntax table for every ASCII byte. Mirrors
+/// GNU regex-emacs.c:3170-3186 which iterates the same range and
+/// consults the buffer's actual syntax table. We don't have a per-
+/// buffer syntax table at compile time so we fall back to the
+/// standard one — that matches GNU's behavior for all the standard
+/// classes (Whitespace, Punctuation, Word, Symbol, Open, Close, ...)
+/// for ASCII bytes. Audit finding #16 in
+/// `drafts/regex-search-audit.md`.
+fn fastmap_for_syntax_class(fastmap: &mut [bool; 256], class_byte: u8, negate: bool) {
+    let target = match crate::emacs_core::syntax::SyntaxClass::from_code(class_byte as i64) {
+        Some(cls) => cls,
+        None => {
+            // Unknown class — conservatively allow every byte
+            // (matches GNU's "fall through to set all" behavior).
+            *fastmap = [true; 256];
+            return;
+        }
+    };
+    let table = crate::emacs_core::syntax::SyntaxTable::new_standard();
+    for c in 0u8..=127 {
+        let in_class = table.char_syntax(c as char) == target;
+        if in_class != negate {
+            fastmap[c as usize] = true;
+        }
+    }
+    // Conservatively allow every non-ASCII byte. The matcher will do
+    // the real per-character syntax lookup at match time.
+    for c in 128..256usize {
+        fastmap[c] = true;
+    }
+}
+
 /// Translated from GNU regex-emacs.c `re_compile_fastmap`.
 fn compile_fastmap(pattern: &mut CompiledPattern) {
     pattern.fastmap = [false; 256];
@@ -2712,35 +2745,16 @@ fn compile_fastmap(pattern: &mut CompiledPattern) {
                     if pc >= bytecode.len() {
                         break;
                     }
-                    let class_byte = bytecode[pc];
-                    // Set fastmap entries for all bytes whose ASCII char matches
-                    // this syntax class (approximation for the default syntax table).
-                    for c in 0u8..=127 {
-                        let ch = c as char;
-                        let matches_class = match class_byte {
-                            // Whitespace = 0
-                            0 => ch.is_whitespace(),
-                            // Punctuation = 1
-                            1 => ch.is_ascii_punctuation(),
-                            // Word = 2
-                            2 => ch.is_alphanumeric() || ch == '_',
-                            // Symbol = 3
-                            3 => {
-                                !ch.is_alphanumeric()
-                                    && !ch.is_whitespace()
-                                    && !ch.is_ascii_punctuation()
-                                    && ch != '_'
-                            }
-                            _ => false,
-                        };
-                        if matches_class {
-                            pattern.fastmap[c as usize] = true;
-                        }
-                    }
-                    // For non-ASCII bytes, conservatively set them all true.
-                    for c in 128..256usize {
-                        pattern.fastmap[c] = true;
-                    }
+                    // GNU `re_compile_fastmap` consults the buffer's
+                    // syntax table for `\sX` (regex-emacs.c:3170-3186).
+                    // We don't have a per-buffer table at compile
+                    // time so we use the standard one. The previous
+                    // body hardcoded Rust's Unicode `is_whitespace` /
+                    // `is_alphanumeric` and silently dropped classes
+                    // 4-15, so any pattern using `\s(`, `\s)`, `\s\"`
+                    // etc. went down a wrong fastmap path. See audit
+                    // finding #16 in `drafts/regex-search-audit.md`.
+                    fastmap_for_syntax_class(&mut pattern.fastmap, bytecode[pc], false);
                     break;
                 }
 
@@ -2748,28 +2762,7 @@ fn compile_fastmap(pattern: &mut CompiledPattern) {
                     if pc >= bytecode.len() {
                         break;
                     }
-                    let class_byte = bytecode[pc];
-                    for c in 0u8..=127 {
-                        let ch = c as char;
-                        let matches_class = match class_byte {
-                            0 => ch.is_whitespace(),
-                            1 => ch.is_ascii_punctuation(),
-                            2 => ch.is_alphanumeric() || ch == '_',
-                            3 => {
-                                !ch.is_alphanumeric()
-                                    && !ch.is_whitespace()
-                                    && !ch.is_ascii_punctuation()
-                                    && ch != '_'
-                            }
-                            _ => false,
-                        };
-                        if !matches_class {
-                            pattern.fastmap[c as usize] = true;
-                        }
-                    }
-                    for c in 128..256usize {
-                        pattern.fastmap[c] = true;
-                    }
+                    fastmap_for_syntax_class(&mut pattern.fastmap, bytecode[pc], true);
                     break;
                 }
 
