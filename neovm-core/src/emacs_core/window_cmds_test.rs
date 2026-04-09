@@ -2839,37 +2839,29 @@ fn frame_old_selected_window_matches_batch_and_arity_semantics() {
          (condition-case err (frame-old-selected-window 'foo) (error err))
          (condition-case err (frame-old-selected-window nil nil) (error (car err)))
          (let ((f (selected-frame)))
-           (list (eq (frame-old-selected-window)
-                     (frame-old-selected-window nil))
-                 (eq (frame-old-selected-window)
-                     (frame-old-selected-window f))
-                 (eq (frame-old-selected-window)
-                     (frame-old-selected-window (window-frame (selected-window))))))
+           (list (frame-old-selected-window)
+                 (frame-old-selected-window nil)
+                 (frame-old-selected-window f)
+                 (frame-old-selected-window (window-frame (selected-window)))))
          (let* ((w1 (selected-window))
                 (w2 (split-window-internal (selected-window) nil nil nil)))
-           ;; After audit Critical 8 fix, frame-old-selected-window
-           ;; is the previously selected window, so each select /
-           ;; set-frame-selected-window transition advances it.
+           ;; GNU `Fframe_old_selected_window` returns
+           ;; `frame->old_selected_window`, which is updated only
+           ;; by `window_change_record` (run from
+           ;; `run_window_change_functions` at redisplay time, see
+           ;; `src/window.c:3954-3990`). In batch mode the change
+           ;; hooks never run, so the field stays at its initial
+           ;; nil. Verified against GNU Emacs 31.0.50 with
+           ;; `(emacs -Q --batch ...)`. Window audit Critical 8 in
+           ;; `drafts/window-system-audit.md`.
            (prog1
-               (list
-                ;; select w2: old becomes w1
-                (progn (select-window w2) (eq (frame-old-selected-window) w1))
-                ;; other-window 1: cycles back, old becomes w2
-                (progn (other-window 1) (eq (frame-old-selected-window) w2))
-                ;; set-frame-selected-window w2: old becomes the
-                ;; current selection just before the set call
-                (progn (let ((prev (selected-window)))
-                         (set-frame-selected-window nil w2)
-                         (eq (frame-old-selected-window) prev)))
-                (progn (let ((prev (selected-window)))
-                         (set-frame-selected-window nil w1)
-                         (eq (frame-old-selected-window) prev)))
-                (progn (let ((prev (selected-window)))
-                         (set-frame-selected-window nil w2 t)
-                         (eq (frame-old-selected-window) prev)))
-                (progn (let ((prev (selected-window)))
-                         (set-frame-selected-window nil w1 t)
-                         (eq (frame-old-selected-window) prev))))
+               (list (eq (frame-old-selected-window) nil)
+                     (progn (select-window w2) (eq (frame-old-selected-window) nil))
+                     (progn (other-window 1) (eq (frame-old-selected-window) nil))
+                     (progn (set-frame-selected-window nil w2) (eq (frame-old-selected-window) nil))
+                     (progn (set-frame-selected-window nil w1) (eq (frame-old-selected-window) nil))
+                     (progn (set-frame-selected-window nil w2 t) (eq (frame-old-selected-window) nil))
+                     (progn (set-frame-selected-window nil w1 t) (eq (frame-old-selected-window) nil)))
              (select-window w1)
              (delete-window w2)))
          (list (condition-case err (funcall #'frame-old-selected-window nil nil) (error err))
@@ -2883,13 +2875,8 @@ fn frame_old_selected_window_matches_batch_and_arity_semantics() {
     assert_eq!(out[0], "OK (wrong-type-argument frame-live-p 999999)");
     assert_eq!(out[1], "OK (wrong-type-argument frame-live-p foo)");
     assert_eq!(out[2], "OK wrong-number-of-arguments");
-    // Cursor audit Finding 8 / Window audit Critical 8 follow-up:
-    // a single frame's frame-old-selected-window is consistent
-    // across designator forms.
-    assert_eq!(out[3], "OK (t t t)");
-    // After every selection change, the old slot points at the
-    // previously-current window.
-    assert_eq!(out[4], "OK (t t t t t t)");
+    assert_eq!(out[3], "OK (nil nil nil nil)");
+    assert_eq!(out[4], "OK (t t t t t t t)");
     assert_eq!(
         out[5],
         "OK ((wrong-number-of-arguments #<subr frame-old-selected-window> 2) (wrong-number-of-arguments #<subr frame-old-selected-window> 2) t t)"

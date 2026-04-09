@@ -1094,13 +1094,12 @@ pub(crate) fn builtin_set_frame_selected_window(
         .frames
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-    // GNU `Fset_frame_selected_window` (`src/frame.c`) saves the
-    // outgoing selection in `old_selected_window` before storing
-    // the new one. Window audit Critical 8 in
-    // `drafts/window-system-audit.md`.
-    if wid != frame.selected_window {
-        frame.old_selected_window = Some(frame.selected_window);
-    }
+    // GNU `Fset_frame_selected_window` does NOT touch
+    // `frame->old_selected_window`. The "old" snapshot is
+    // updated only by `window_change_record` (GNU
+    // `src/window.c:3954-3990`) at redisplay time. neomacs's
+    // analog runs from `frame_window_hook_record_from_live_state`
+    // in `builtins/hooks.rs`. Window audit Critical 8.
     frame.selected_window = wid;
     Ok(window_value(wid))
 }
@@ -3321,6 +3320,33 @@ pub(crate) fn split_window_internal_impl_in_state(
     size: Value,
     side: Value,
 ) -> EvalResult {
+    split_window_internal_impl_in_state_with_normal(
+        frames,
+        buffers,
+        window,
+        size,
+        side,
+        Value::NIL,
+    )
+}
+
+/// Variant of [`split_window_internal_impl_in_state`] that also
+/// honors the NORMAL-SIZE argument from `split-window-internal`.
+///
+/// Mirrors GNU `src/window.c::Fsplit_window_internal` (lines
+/// 5374-5644). The fourth argument NORMAL-SIZE seeds the new
+/// sibling's `normal_lines` (vertical split) or `normal_cols`
+/// (horizontal split), overriding the auto-computed fraction
+/// from the split bounds. Audit Critical 5 in
+/// `drafts/window-system-audit.md`.
+pub(crate) fn split_window_internal_impl_in_state_with_normal(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    window: Value,
+    size: Value,
+    side: Value,
+    normal_size: Value,
+) -> EvalResult {
     let (fid, wid) = resolve_window_id_or_error_in_state(frames, buffers, Some(&window))?;
 
     // Determine split direction from SIDE argument.
@@ -3347,6 +3373,43 @@ pub(crate) fn split_window_internal_impl_in_state(
     let new_wid = frames
         .split_window(fid, wid, direction, buf_id, size_opt)
         .ok_or_else(|| signal("error", vec![Value::string("Cannot split window")]))?;
+
+    // GNU `Fsplit_window_internal` (`src/window.c:5517-5644`)
+    // assigns `wset_normal_*` for the new sibling from the
+    // NORMAL-SIZE argument when supplied. The corresponding
+    // sibling fraction on the OTHER child is `1.0 - normal`,
+    // matching what GNU computes for the rebalanced parent.
+    if !normal_size.is_nil() {
+        let normal_f = match normal_size.kind() {
+            ValueKind::Float => normal_size.as_float().unwrap_or(0.5),
+            ValueKind::Fixnum(n) => n as f64,
+            _ => 0.5,
+        };
+        let other_f = (1.0 - normal_f).clamp(0.0, 1.0);
+        if let Some(frame) = frames.get_mut(fid) {
+            if let Some(new_window) = frame.find_window_mut(new_wid) {
+                match direction {
+                    SplitDirection::Horizontal => {
+                        new_window.set_normal_cols(Value::make_float(normal_f));
+                    }
+                    SplitDirection::Vertical => {
+                        new_window.set_normal_lines(Value::make_float(normal_f));
+                    }
+                }
+            }
+            if let Some(old_window) = frame.find_window_mut(wid) {
+                match direction {
+                    SplitDirection::Horizontal => {
+                        old_window.set_normal_cols(Value::make_float(other_f));
+                    }
+                    SplitDirection::Vertical => {
+                        old_window.set_normal_lines(Value::make_float(other_f));
+                    }
+                }
+            }
+        }
+    }
+
     Ok(window_value(new_wid))
 }
 /// `(delete-window &optional WINDOW)` -> nil.

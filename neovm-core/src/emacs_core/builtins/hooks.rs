@@ -462,6 +462,13 @@ pub(crate) fn run_redisplay_window_change_hooks(eval: &mut super::eval::Context)
     for frame_id in frame_ids {
         let was_selected_frame = selected_frame_id == Some(frame_id);
         if let Some(frame) = eval.frames.get_mut(frame_id) {
+            // GNU `window_change_record` (`src/window.c:3954-3990`)
+            // records the current selected_window into
+            // `frame->old_selected_window` exactly here, after
+            // running the change hooks. neomacs mirrors that
+            // step. Window audit Critical 8 in
+            // `drafts/window-system-audit.md`.
+            frame.old_selected_window = Some(frame.selected_window);
             frame.window_hook_record =
                 frame_window_hook_record_from_live_state(frame, was_selected_frame);
             frame.window_state_change = false;
@@ -701,14 +708,11 @@ pub(crate) fn builtin_set_window_configuration(
     if let Some(snapshot) = snapshot {
         let selected_window_state = if let Some(frame) = eval.frames.get_mut(snapshot.frame_id) {
             frame.root_window = snapshot.root_window;
-            // GNU `Fset_window_configuration` saves the outgoing
-            // selection before applying the snapshot's selection,
-            // so `frame-old-selected-window` remembers the window
-            // we left when the configuration was restored. Window
-            // audit Critical 8 in `drafts/window-system-audit.md`.
-            if frame.selected_window != snapshot.selected_window {
-                frame.old_selected_window = Some(frame.selected_window);
-            }
+            // GNU `Fset_window_configuration` does NOT touch
+            // `frame->old_selected_window` directly — that field
+            // is updated by `window_change_record` from the next
+            // `run_window_change_functions` cycle. neomacs's
+            // analog is `frame_window_hook_record_from_live_state`.
             frame.selected_window = snapshot.selected_window;
             frame.minibuffer_window = snapshot.minibuffer_window;
             frame.minibuffer_leaf = snapshot.minibuffer_leaf;

@@ -1244,13 +1244,16 @@ impl Frame {
     /// Select a window by ID.
     pub fn select_window(&mut self, id: WindowId) -> bool {
         if self.find_window(id).is_some() {
-            // GNU Emacs `Fselect_window` (`src/window.c:425`) saves
-            // the previously-selected window before overwriting it.
-            // Window audit Critical 8 in
+            // GNU `Fselect_window` does NOT touch
+            // `frame->old_selected_window`. That field is only
+            // updated by `window_change_record`, which runs from
+            // `run_window_change_functions` at redisplay time
+            // (`src/window.c:3954-3990`). neomacs's analog lives
+            // in `builtins/hooks.rs::frame_window_hook_record_from_live_state`
+            // — it stores the new "old" inside `window_hook_record`
+            // and propagates it back to `Frame::old_selected_window`
+            // there. Window audit Critical 8 in
             // `drafts/window-system-audit.md`.
-            if id != self.selected_window {
-                self.old_selected_window = Some(self.selected_window);
-            }
             self.selected_window = id;
             true
         } else {
@@ -1540,9 +1543,12 @@ impl FrameManager {
         }
 
         if removed && frame.selected_window == window_id {
-            // Select the first remaining leaf.
+            // Select the first remaining leaf. We do NOT touch
+            // `old_selected_window` here — that field is recorded
+            // by `window_change_record` (GNU
+            // `src/window.c:3954-3990`) at redisplay time, not
+            // immediately on deletion.
             if let Some(first) = frame.root_window.leaf_ids().first() {
-                frame.old_selected_window = Some(frame.selected_window);
                 frame.selected_window = *first;
             }
         }
