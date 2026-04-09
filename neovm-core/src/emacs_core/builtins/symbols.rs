@@ -3084,6 +3084,24 @@ pub(crate) fn builtin_interactive_form(
     }
 }
 
+/// `(local-variable-if-set-p VARIABLE &optional BUFFER)` — non-nil
+/// if VARIABLE either already has a local binding in BUFFER (the
+/// `local-variable-p` test) or is automatically buffer-local
+/// (`local_if_set` flag set on its BLV).
+///
+/// Mirrors GNU `src/data.c:2429-2462`. The two non-trivial cases:
+///
+/// - SYMBOL_LOCALIZED: if `blv->local_if_set` is set, return `t`.
+///   Otherwise fall through to `Flocal_variable_p(variable, buffer)`,
+///   which checks for an actual binding in BUFFER. Buffer-local
+///   audit Medium 5 in `drafts/buffer-local-variables-audit.md`
+///   flagged that the BUFFER argument was previously dropped on
+///   the floor here, so a per-buffer check always answered against
+///   the current buffer.
+///
+/// - SYMBOL_FORWARDED with BUFFER_OBJFWD: always return `t` per
+///   GNU `data.c:2459`, since BUFFER_OBJFWD slots become local
+///   automatically when set.
 pub(crate) fn builtin_local_variable_if_set_p(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
@@ -3099,9 +3117,38 @@ pub(crate) fn builtin_local_variable_if_set_p(
     if resolved == "nil" || resolved == "t" || resolved.starts_with(':') {
         return Ok(Value::NIL);
     }
-    Ok(Value::bool_val(
-        ctx.obarray.is_buffer_local(&resolved) || ctx.custom.is_auto_buffer_local(&resolved),
-    ))
+
+    // Mirror the GNU switch on `sym->u.s.redirect` at
+    // src/data.c:2445-2461 exactly. PLAINVAL short-circuits to nil
+    // *before* the BUFFER argument is validated, which is what
+    // makes `(local-variable-if-set-p 'plain-var (some bad buffer))`
+    // legitimately return nil rather than signaling
+    // wrong-type-argument.
+    use crate::emacs_core::symbol::SymbolRedirect;
+    let resolved_id = crate::emacs_core::intern::intern(&resolved);
+    let Some(sym) = ctx.obarray.get_by_id(resolved_id) else {
+        return Ok(Value::NIL);
+    };
+    match sym.redirect() {
+        SymbolRedirect::Plainval => Ok(Value::NIL),
+        SymbolRedirect::Localized => {
+            // GNU `if (blv->local_if_set) return Qt;` short circuit.
+            if ctx.custom.is_auto_buffer_local(&resolved) {
+                return Ok(Value::T);
+            }
+            // Otherwise defer to local-variable-p with BUFFER
+            // forwarded so a per-buffer check answers against the
+            // requested buffer rather than the current one.
+            crate::emacs_core::custom::builtin_local_variable_p(ctx, args)
+        }
+        SymbolRedirect::Forwarded => {
+            // GNU returns Qt unconditionally for BUFFER_OBJFWD
+            // slots since they auto-localize on set
+            // (data.c:2459).
+            Ok(Value::bool_val(ctx.obarray.is_buffer_local(&resolved)))
+        }
+        _ => Ok(Value::NIL),
+    }
 }
 
 pub(crate) fn builtin_lock_buffer(args: Vec<Value>) -> EvalResult {
