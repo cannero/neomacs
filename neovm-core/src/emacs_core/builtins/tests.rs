@@ -6457,6 +6457,86 @@ fn replace_match_missing_subexp_signals_error() {
     ));
 }
 
+// Regex audit #11 / #12: `replace-match` must reject `\0` and unknown
+// `\X` sequences with the same `"Invalid use of `\\' in replacement
+// text"` error GNU raises at src/search.c:2584 and 2713. This is the
+// builtin-facing sibling of the unit tests in `regex_test.rs`; it
+// verifies the error actually propagates through `builtin_replace_match`
+// as a Lisp signal rather than being stringified into successful output.
+#[test]
+fn replace_match_rejects_backslash_zero_and_unknown_escape_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    use crate::emacs_core::eval::Context;
+
+    let mut eval = Context::new();
+
+    // Seed match data via string-match against a plain string so the
+    // replacement path is the Fstring-based one.
+    builtin_string_match(
+        &mut eval,
+        vec![Value::string("foo"), Value::string("foo")],
+    )
+    .expect("seed match data");
+
+    // `\0` must signal, not return the whole match.
+    let result = builtin_replace_match(
+        &mut eval,
+        vec![
+            Value::string("\\0"),
+            Value::NIL,
+            Value::NIL,
+            Value::string("foo"),
+        ],
+    );
+    assert!(
+        matches!(
+            &result,
+            Err(Flow::Signal(sig))
+                if sig.symbol_name() == "error"
+                    && sig.data
+                        == vec![Value::string("Invalid use of `\\' in replacement text")]
+        ),
+        "expected Invalid use of backslash error for \\0, got {:?}",
+        result
+    );
+
+    // `\n` (unknown escape) must signal.
+    let result = builtin_replace_match(
+        &mut eval,
+        vec![
+            Value::string("a\\nb"),
+            Value::NIL,
+            Value::NIL,
+            Value::string("foo"),
+        ],
+    );
+    assert!(
+        matches!(
+            &result,
+            Err(Flow::Signal(sig))
+                if sig.symbol_name() == "error"
+                    && sig.data
+                        == vec![Value::string("Invalid use of `\\' in replacement text")]
+        ),
+        "expected Invalid use of backslash error for \\n, got {:?}",
+        result
+    );
+
+    // `\?` is GNU's exception (search.c:2583) and must be accepted,
+    // passing through literally.
+    let result = builtin_replace_match(
+        &mut eval,
+        vec![
+            Value::string("a\\?b"),
+            Value::NIL,
+            Value::NIL,
+            Value::string("foo"),
+        ],
+    )
+    .expect("\\? must be accepted in replacement template");
+    assert_eq!(result, Value::string("a\\?b"));
+}
+
 #[test]
 fn replace_match_without_active_match_data_signals_missing_subexp_like_gnu() {
     crate::test_utils::init_test_tracing();

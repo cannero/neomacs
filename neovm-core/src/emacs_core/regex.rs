@@ -1484,7 +1484,7 @@ fn compute_replacement(
     let mut replacement = if literal {
         newtext.to_string()
     } else {
-        build_replacement(newtext, md, source, is_string_search)
+        build_replacement(newtext, md, source, is_string_search)?
     };
 
     if !fixedcase {
@@ -1495,8 +1495,44 @@ fn compute_replacement(
     Ok((byte_start, byte_end, replacement))
 }
 
-/// Build a replacement string handling `\&` (whole match) and `\N` (group N).
-fn build_replacement(template: &str, md: &MatchData, source: &str, char_positions: bool) -> String {
+/// Build a replacement string handling `\&` (whole match) and
+/// `\N` (group N, 1-9 only).
+///
+/// Error semantics mirror GNU `src/search.c:2545-2714` exactly:
+///
+/// - `\&` → the whole match (`md.groups[0]`). See search.c:2560
+///   and search.c:2701.
+/// - `\1`..`\9` → the Nth subgroup. `\0` is NOT accepted: GNU's
+///   `Freplace_match` loop at search.c:2565 explicitly checks
+///   `c >= '1' && c <= '9'`, mirrored at search.c:2703. Any `\0`
+///   falls into the `"Invalid use of \\ in replacement text"`
+///   error branch at search.c:2584 and 2713. This was audit
+///   finding #11 in `drafts/regex-search-audit.md`: before this
+///   fix, our `'0'..='9'` range accepted `\0` and returned the
+///   whole match.
+/// - `\\` → a literal backslash (search.c:2581-2582 and 2708-2709).
+/// - `\?` → GNU's string path at search.c:2583 has an explicit
+///   `else if (c != '?')` exception: when `c == '?'` neither
+///   `substart >= 0` nor `delbackslash` is set, so `lastpos`
+///   doesn't advance and the `\?` bytes fall through into the
+///   next "middle" copy, effectively emitting the literal `\?`.
+///   We mirror that here for both code paths (buffer/string).
+/// - Any other `\X` → the same "Invalid use of `\\' in replacement
+///   text" error. This was audit finding #12: before this fix, our
+///   catch-all silently emitted the literal `\X`.
+///
+/// The caller (`compute_replacement`) propagates the error; the
+/// outer search builtin signals a Lisp error with the GNU-shaped
+/// message.
+fn build_replacement(
+    template: &str,
+    md: &MatchData,
+    source: &str,
+    char_positions: bool,
+) -> Result<String, String> {
+    const INVALID_BACKSLASH_MSG: &str =
+        "Invalid use of `\\' in replacement text";
+
     fn next_char_at(s: &str, byte_idx: usize) -> Option<(char, usize)> {
         s.get(byte_idx..)
             .and_then(|tail| tail.chars().next().map(|ch| (ch, ch.len_utf8())))
@@ -1538,7 +1574,9 @@ fn build_replacement(template: &str, md: &MatchData, source: &str, char_position
                     }
                     i += 1 + next_len;
                 }
-                '0'..='9' => {
+                '1'..='9' => {
+                    // GNU search.c:2549 — explicit `c >= '1' && c <= '9'`.
+                    // `\0` intentionally falls through to the error arm.
                     let group = (next as u8 - b'0') as usize;
                     if let Some(Some((s, e))) = md.groups.get(group) {
                         if let Some(text) = extract_group(source, *s, *e, char_positions) {
@@ -1548,13 +1586,24 @@ fn build_replacement(template: &str, md: &MatchData, source: &str, char_position
                     i += 1 + next_len;
                 }
                 '\\' => {
+                    // GNU search.c:2581-2582, 2708-2709.
                     out.push('\\');
                     i += 1 + next_len;
                 }
-                _ => {
+                '?' => {
+                    // GNU search.c:2583 `else if (c != '?')`.
+                    // `\?` is passed through literally in the
+                    // string path; we honor that for both paths.
                     out.push('\\');
-                    out.push(next);
+                    out.push('?');
                     i += 1 + next_len;
+                }
+                _ => {
+                    // GNU search.c:2584, 2713 — any other backslash
+                    // sequence (`\0`, `\n`, `\X`, …) signals an
+                    // `error ("Invalid use of `\\' in replacement
+                    // text")`.
+                    return Err(INVALID_BACKSLASH_MSG.to_string());
                 }
             }
         } else {
@@ -1564,7 +1613,7 @@ fn build_replacement(template: &str, md: &MatchData, source: &str, char_position
         }
     }
 
-    out
+    Ok(out)
 }
 
 fn apply_match_case(replacement: &str, matched: &str) -> String {

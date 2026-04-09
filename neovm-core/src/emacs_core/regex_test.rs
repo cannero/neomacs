@@ -1352,6 +1352,70 @@ fn replace_match_preserves_multibyte_replacement_with_backref() {
     assert_eq!(replaced, "xé");
 }
 
+// Regex audit #11: GNU `Freplace_match` rejects `\0` in the non-literal
+// replacement template. search.c:2565 and search.c:2703 both require
+// `c >= '1' && c <= '9'`; `\0` falls through to the
+// `"Invalid use of `\\' in replacement text"` error at search.c:2584
+// and search.c:2713. Before the fix neomacs's `build_replacement`
+// matched `'0'..='9'` and returned the whole match for `\0`.
+#[test]
+fn replace_match_rejects_backslash_zero_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut md = None;
+    let _ = string_match_full("foo", "foo", 0, &mut md);
+    let err = replace_match_string("foo", "\\0", false, false, 0, &md)
+        .expect_err("\\0 must be rejected by replace-match");
+    assert_eq!(err, "Invalid use of `\\' in replacement text");
+}
+
+// Regex audit #12: GNU signals an error on unknown backslash escapes
+// in the replacement template (search.c:2584 and search.c:2713).
+// Before the fix neomacs's catch-all silently emitted the literal
+// `\X`. `\?` is the sole exception (search.c:2583) and is passed
+// through literally — see `replace_match_passes_backslash_question_literally`.
+#[test]
+fn replace_match_rejects_unknown_backslash_escape_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut md = None;
+    let _ = string_match_full("foo", "foo", 0, &mut md);
+
+    // `\n` must error, not emit literal `\n`.
+    let err = replace_match_string("foo", "a\\nb", false, false, 0, &md)
+        .expect_err("\\n in replacement must be rejected");
+    assert_eq!(err, "Invalid use of `\\' in replacement text");
+
+    // An arbitrary ASCII letter must error too.
+    let err = replace_match_string("foo", "\\x", false, false, 0, &md)
+        .expect_err("\\x in replacement must be rejected");
+    assert_eq!(err, "Invalid use of `\\' in replacement text");
+
+    // A non-ASCII character must error too.
+    let err = replace_match_string("foo", "\\é", false, false, 0, &md)
+        .expect_err("\\<non-ascii> in replacement must be rejected");
+    assert_eq!(err, "Invalid use of `\\' in replacement text");
+}
+
+// GNU's `\?` escape is the one exception to audit #12: search.c:2583
+// has `else if (c != '?')` which lets `\?` fall through the
+// `substart/delbackslash` branches so the bytes are copied into the
+// output verbatim by the following `middle`/concat path. We mirror
+// that behavior in both code paths.
+#[test]
+fn replace_match_passes_backslash_question_literally() {
+    crate::test_utils::init_test_tracing();
+    let mut md = None;
+    let _ = string_match_full("foo", "foo", 0, &mut md);
+    let replaced = replace_match_string("foo", "\\?", false, true, 0, &md)
+        .expect("\\? must be accepted in non-literal replacement");
+    // With `literal=true` the template is copied verbatim, matching
+    // GNU's pass-through semantics from the other path.
+    assert_eq!(replaced, "\\?");
+
+    let replaced = replace_match_string("foo", "a\\?b", false, false, 0, &md)
+        .expect("\\? must be accepted in non-literal replacement");
+    assert_eq!(replaced, "a\\?b");
+}
+
 // -----------------------------------------------------------------------
 // Integration: search + match data
 // -----------------------------------------------------------------------
