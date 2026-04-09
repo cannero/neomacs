@@ -927,7 +927,7 @@ pub(crate) fn regex_compile(
                         let bitmap_start = buf.buffer.len();
                         buf.buffer.extend_from_slice(&[0u8; 32]);
                         for ch in b'0'..=b'9' {
-                            set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, false);
+                            set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, None);
                         }
                     }
                     // \D — non-digit [^0-9]
@@ -939,7 +939,7 @@ pub(crate) fn regex_compile(
                         let bitmap_start = buf.buffer.len();
                         buf.buffer.extend_from_slice(&[0u8; 32]);
                         for ch in b'0'..=b'9' {
-                            set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, false);
+                            set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, None);
                         }
                     }
 
@@ -1227,10 +1227,11 @@ fn compile_charset(
                 let (range_end, rlen) =
                     decode_utf8_char(pattern, *p).unwrap_or((pattern[*p] as char, 1));
                 *p += rlen;
+                let translate = buf.translate.as_deref();
                 if range_start.is_ascii() && range_end.is_ascii() {
                     // Both ASCII — use the bitmap
                     for ch in (range_start as u8)..=(range_end as u8) {
-                        set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, case_fold);
+                        set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, translate);
                     }
                 } else {
                     // At least one endpoint is non-ASCII.
@@ -1242,7 +1243,7 @@ fn compile_charset(
                     if start_u32 <= 127 {
                         let ascii_end = end_u32.min(127) as u8;
                         for ch in (start_u32 as u8)..=ascii_end {
-                            set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, case_fold);
+                            set_bitmap_bit(&mut buf.buffer, bitmap_start, ch, translate);
                         }
                     }
                     // Multibyte portion: codepoints >= 128
@@ -1259,7 +1260,12 @@ fn compile_charset(
                 continue;
             }
             // '-' at start or after a range → literal '-'
-            set_bitmap_bit(&mut buf.buffer, bitmap_start, b'-', case_fold);
+            set_bitmap_bit(
+                &mut buf.buffer,
+                bitmap_start,
+                b'-',
+                buf.translate.as_deref(),
+            );
             last_char = Some('-');
             continue;
         }
@@ -1279,7 +1285,12 @@ fn compile_charset(
         // finding #10 in `drafts/regex-search-audit.md`; it has
         // been removed.
         if b == b'\\' {
-            set_bitmap_bit(&mut buf.buffer, bitmap_start, b'\\', case_fold);
+            set_bitmap_bit(
+                &mut buf.buffer,
+                bitmap_start,
+                b'\\',
+                buf.translate.as_deref(),
+            );
             last_char = Some('\\');
             continue;
         }
@@ -1302,7 +1313,7 @@ fn compile_charset(
                     &mut buf.buffer,
                     bitmap_start,
                     &mut mb_ranges,
-                    case_fold,
+                    buf.translate.as_deref(),
                 )?;
                 last_char = None;
                 continue;
@@ -1311,7 +1322,12 @@ fn compile_charset(
 
         // Regular character
         if c.is_ascii() {
-            set_bitmap_bit(&mut buf.buffer, bitmap_start, c as u8, case_fold);
+            set_bitmap_bit(
+                &mut buf.buffer,
+                bitmap_start,
+                c as u8,
+                buf.translate.as_deref(),
+            );
         } else {
             // Non-ASCII character — add as a single-char range to multibyte list
             add_multibyte_range(&mut mb_ranges, c, c, case_fold);
@@ -1353,25 +1369,41 @@ fn add_multibyte_range(ranges: &mut Vec<(char, char)>, start: char, end: char, c
     }
 }
 
-/// Set a bit in the charset bitmap (and its case-fold partner).
-fn set_bitmap_bit(buffer: &mut Vec<u8>, bitmap_start: usize, c: u8, case_fold: bool) {
-    let byte_idx = bitmap_start + (c as usize / 8);
-    let bit_idx = c as usize % 8;
+/// Set a bit in the charset bitmap, translating through TRANSLATE if
+/// supplied.
+///
+/// GNU `regex-emacs.c:SETUP_ASCII_RANGE` (lines 1397-1412) runs
+/// `C1 = TRANSLATE(C0)` and then `SET_LIST_BIT(C1)` — it translates
+/// each individual character as the range is walked and only stores
+/// the translated bit. The matcher at regex-emacs.c:4553 does the
+/// same TRANSLATE on the input character before the bitmap lookup,
+/// so matches work out for any case-equivalent input.
+///
+/// Earlier versions of this function instead set the bit for both
+/// the raw character and its Rust-derived upper/lower partners,
+/// regardless of what translate table the pattern was compiled with.
+/// That was audit finding #9 in `drafts/regex-search-audit.md`:
+/// "charset case-fold range translation is eager (not lazy)". The
+/// practical difference only shows up when Rust's Unicode case
+/// mapping disagrees with Emacs's case canon table, but the GNU-
+/// parity fix is to consult the same translate table both sides.
+fn set_bitmap_bit(
+    buffer: &mut Vec<u8>,
+    bitmap_start: usize,
+    c: u8,
+    translate: Option<&[char]>,
+) {
+    let target = match translate {
+        Some(table) => table
+            .get(c as usize)
+            .map(|ch| *ch as u32 as u8)
+            .unwrap_or(c),
+        None => c,
+    };
+    let byte_idx = bitmap_start + (target as usize / 8);
+    let bit_idx = target as usize % 8;
     if byte_idx < buffer.len() {
         buffer[byte_idx] |= 1 << bit_idx;
-    }
-    if case_fold {
-        let upper = (c as char).to_uppercase().next().unwrap_or(c as char) as u8;
-        let lower = (c as char).to_lowercase().next().unwrap_or(c as char) as u8;
-        for alt in [upper, lower] {
-            if alt != c {
-                let byte_idx2 = bitmap_start + (alt as usize / 8);
-                let bit_idx2 = alt as usize % 8;
-                if byte_idx2 < buffer.len() {
-                    buffer[byte_idx2] |= 1 << bit_idx2;
-                }
-            }
-        }
     }
 }
 
@@ -1418,7 +1450,7 @@ fn apply_posix_class(
     buffer: &mut Vec<u8>,
     bitmap_start: usize,
     mb_ranges: &mut Vec<(char, char)>,
-    case_fold: bool,
+    translate: Option<&[char]>,
 ) -> Result<(), RegexCompileError> {
     // --- ASCII bitmap bits ------------------------------------------------
     //
@@ -1482,8 +1514,20 @@ fn apply_posix_class(
         }
     };
 
+    // GNU regex-emacs.c:2081-2092 sets the bit for the raw class
+    // member AND also the bit for its TRANSLATE-mapped partner when
+    // a translate table is in effect. Our set_bitmap_bit always
+    // applies the translation (so it already sets the translated
+    // bit); we additionally set the raw bit here to cover inputs
+    // that match the raw form without going through the translate.
     for c in ascii_bytes {
-        set_bitmap_bit(buffer, bitmap_start, c, case_fold);
+        // Raw bit (no translation).
+        set_bitmap_bit(buffer, bitmap_start, c, None);
+        // Translated bit, when a translate table is active. This is
+        // a no-op when `translate` is `None` or `translate[c] == c`.
+        if translate.is_some() {
+            set_bitmap_bit(buffer, bitmap_start, c, translate);
+        }
     }
 
     // --- Multibyte coverage ----------------------------------------------
@@ -2023,8 +2067,15 @@ pub(crate) fn re_match(
                 let (ch, ch_len) = text_char(d).unwrap_or((text[d] as char, 1));
 
                 let in_set = if ch.is_ascii() {
-                    // ASCII path: check the bitmap
-                    let c = ch as u8;
+                    // ASCII path: translate the input byte (case-fold),
+                    // then check the bitmap. GNU `regex-emacs.c:executing
+                    // charset` at regex-emacs.c:4626-4650 applies
+                    // TRANSLATE before the bitmap lookup — see audit #9
+                    // in `drafts/regex-search-audit.md`. Compile-time
+                    // translation of bitmap bits is lazy (the comment
+                    // at regex-emacs.c:2107-2110 explains why), so the
+                    // matcher must do the translation here.
+                    let c = tr(ch as u8);
                     if (c as usize / 8) < bitmap_len {
                         let byte = bytecode[pc + c as usize / 8];
                         (byte >> (c as usize % 8)) & 1 != 0
@@ -2850,6 +2901,20 @@ pub(crate) fn re_search(
 ) -> Option<(usize, MatchRegisters)> {
     let text_len = text.len();
 
+    // Translate a byte through the compiled pattern's translate
+    // table, mirroring GNU `regex-emacs.c:TRANSLATE` used at
+    // regex-emacs.c:3568 inside the fastmap loop.
+    let fastmap_tr = |b: u8| -> u8 {
+        match &pattern.translate {
+            Some(table) => table
+                .get(b as usize)
+                .copied()
+                .map(|ch| ch as u32 as u8)
+                .unwrap_or(b),
+            None => b,
+        }
+    };
+
     if range >= 0 {
         // Forward search
         let end = (start + range as usize).min(text_len);
@@ -2866,8 +2931,13 @@ pub(crate) fn re_search(
             }
             // GNU disables fastmap skipping for nullable patterns so zero-width
             // matches like `\\(?:...\\)\\=` are still considered at every point.
+            //
+            // GNU regex-emacs.c:3568 applies TRANSLATE to the input
+            // byte before indexing the fastmap. Under case-fold that
+            // is what lets a fastmap built for a bitmap of lowercase
+            // characters still catch uppercase input (audit #9).
             if pattern.fastmap_accurate && !pattern.can_be_null && pos < text_len {
-                if !pattern.fastmap[text[pos] as usize] {
+                if !pattern.fastmap[fastmap_tr(text[pos]) as usize] {
                     pos += 1;
                     continue;
                 }
@@ -2888,7 +2958,7 @@ pub(crate) fn re_search(
             // GNU disables fastmap skipping for nullable patterns so zero-width
             // matches like `\\(?:...\\)\\=` are still considered at every point.
             if pattern.fastmap_accurate && !pattern.can_be_null && pos < text_len {
-                if !pattern.fastmap[text[pos] as usize] {
+                if !pattern.fastmap[fastmap_tr(text[pos]) as usize] {
                     continue;
                 }
             }
