@@ -88,6 +88,39 @@ pub enum SplitDirection {
 // ---------------------------------------------------------------------------
 
 /// Per-window display settings that GNU Emacs stores on `struct window`.
+///
+/// # Cursor audit deferred fields
+///
+/// Cursor audit Finding 4 in `drafts/cursor-audit.md` calls out
+/// that this struct is missing GNU's per-window physical cursor
+/// state:
+///
+/// - `cursor`, `phys_cursor`, `output_cursor` (`struct cursor_pos`)
+/// - `phys_cursor_type`, `phys_cursor_width`, `phys_cursor_ascent`,
+///   `phys_cursor_height`
+/// - `phys_cursor_on_p`
+/// - `cursor_off_p` (driven by `internal-show-cursor`)
+/// - `last_cursor_vpos`
+///
+/// Adding these fields here is the prerequisite for several other
+/// findings:
+///
+/// - **Finding 2** (`window-cursor-info` returns real geometry).
+/// - **Finding 5** (`blink-cursor-mode` toggles `cursor_off_p`
+///   instead of an orphan thread-local `Vec`).
+/// - **Finding 6** (delete the `CURSOR_VISIBLE_WINDOWS`
+///   thread-local in `dispnew/pure.rs`).
+/// - **Finding 10** (per-frame cursor state on `struct window`,
+///   not a single global `CursorState` in the render thread).
+/// - **Finding 11** (single canonical `display_and_set_cursor`
+///   helper instead of the four-layer split across `neovm_bridge`,
+///   `engine`, `matrix_builder`, and the wgpu renderer).
+///
+/// The fields are intentionally NOT added in this commit because
+/// the matrix builder + render-thread plumbing has to be ported
+/// alongside, which is a multi-day cross-crate change. The audit's
+/// suggested remediation order in Section E lists Finding 4 as the
+/// blocker for the rest of the cluster.
 #[derive(Clone, Debug)]
 pub struct WindowDisplayState {
     /// Window-local display table; nil means inherit from the buffer/frame.

@@ -196,6 +196,14 @@ pub const BUFFER_SLOT_INDICATE_BUFFER_BOUNDARIES: usize = 50;
 /// Slot index for `fringe-indicator-alist`. Default nil.
 pub const BUFFER_SLOT_FRINGE_INDICATOR_ALIST: usize = 51;
 /// Slot index for `fringe-cursor-alist`. Default nil.
+///
+/// Cursor audit Finding 14 in `drafts/cursor-audit.md`: this
+/// buffer-local slot exists and is registered as a forwarder, but
+/// nothing in the layout engine or wgpu renderer reads it. GNU
+/// uses it in `draw_fringe_bitmap_1` /
+/// `get_logical_cursor_bitmap` to map fringe indicator types to
+/// cursor bitmaps. Wiring it requires the fringe bitmap resolver,
+/// which is itself still mostly stubbed.
 pub const BUFFER_SLOT_FRINGE_CURSOR_ALIST: usize = 52;
 /// Slot index for `scroll-up-aggressively`. Default nil.
 pub const BUFFER_SLOT_SCROLL_UP_AGGRESSIVELY: usize = 53;

@@ -18,6 +18,23 @@ use std::cell::{Cell, RefCell};
 // ---------------------------------------------------------------------------
 // Thread-local cursor state
 // ---------------------------------------------------------------------------
+//
+// CURSOR_VISIBLE_WINDOWS is the side-table that
+// `internal-show-cursor` writes into and `internal-show-cursor-p`
+// reads back. Cursor audit Finding 6 in
+// `drafts/cursor-audit.md` flags it as orphaned state: nothing
+// in the layout engine, matrix builder, or render thread reads
+// it, so writes from `blink-cursor-mode` have no effect.
+//
+// The audit's recommended fix is to delete this thread-local and
+// route `internal-show-cursor` through a new
+// `WindowDisplayState::cursor_off_p` field added under cursor
+// audit Finding 4. That structural change is intentionally
+// deferred (it requires multi-day matrix-builder + render-thread
+// porting) — see the long comment on
+// `crate::window::WindowDisplayState`. Until that lands the
+// thread-local stays so the API shape of `internal-show-cursor`
+// (one writer, one reader, no panics) is preserved.
 
 thread_local! {
     static CURSOR_VISIBLE_WINDOWS: RefCell<Vec<(u64, bool)>> = const { RefCell::new(Vec::new()) };
@@ -25,6 +42,10 @@ thread_local! {
 }
 
 /// Reset cursor visibility state (called from `reset_display_thread_locals`).
+///
+/// Cursor audit Finding 17 in `drafts/cursor-audit.md` notes this
+/// helper becomes dead code once the thread-local is deleted.
+/// Tracked alongside Finding 6.
 pub(crate) fn reset_dispnew_thread_locals() {
     CURSOR_VISIBLE_WINDOWS.with(|slot| slot.borrow_mut().clear());
     CURSOR_VISIBLE.with(|slot| slot.set(true));
