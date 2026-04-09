@@ -129,6 +129,26 @@ pub(crate) fn buffer_local_string_owned(buffer: &Buffer, name: &str) -> Option<S
 }
 
 fn chrome_face_pixel_height(face: &ResolvedFace, fallback_char_height: f32) -> f32 {
+    // GNU Emacs frame.c:1184-1185 — non-window (TTY) frames have
+    //   f->column_width = 1;
+    //   f->line_height  = 1;
+    // and chrome rows (mode-line, header-line, tab-line) are exactly
+    // one character cell tall. Face font_line_height is a GUI pixel
+    // measurement and must not contribute to row sizing on a TTY
+    // frame: `fallback_char_height` is set to 1.0 by
+    // `bootstrap_buffers` (main.rs:1691-1694) when the frame is a
+    // TTY, so detect the TTY context by the 1.0-cell marker and
+    // return the cell height directly.
+    //
+    // Without this early return, a mode-line face with a non-zero
+    // `font_line_height` (e.g. 3 from the realized Hack font under
+    // cosmic-text) produced a 3-row-tall mode-line region on TTY.
+    // The mode-line text painted on the first row and the remaining
+    // two rows rendered as blank padding, which looked like the
+    // echo area having "3 lines" instead of GNU's single row.
+    if fallback_char_height <= 1.0 {
+        return fallback_char_height.max(1.0);
+    }
     let line_height = if face.font_line_height > 0.0 {
         face.font_line_height.ceil()
     } else {

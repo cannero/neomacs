@@ -494,6 +494,24 @@ impl LayoutEngine {
         fallback_ascent: f32,
         fallback_row_height: f32,
     ) -> f32 {
+        // GNU Emacs frame.c:1184-1185 — non-window (TTY) frames have
+        //   f->column_width = 1;
+        //   f->line_height  = 1;
+        // and every row (including mode-line, header-line, tab-line) is
+        // exactly one character cell tall. Face font metrics are GUI
+        // pixel measurements and must not contribute to row sizing on
+        // a TTY frame: the layout engine's `char_w` and
+        // `fallback_row_height` are both 1.0 in that case
+        // (set by `bootstrap_buffers` at neomacs-bin/src/main.rs:1691-1694),
+        // so detect the TTY context by the 1.0-cell markers and return
+        // the cell height directly. Without this early return, the
+        // face-derived `line_height` above was producing a 3-row-tall
+        // mode-line region in the TTY pty capture: the mode-line text
+        // painted on the first row and the remaining two rows showed up
+        // as blank padding that looked like extra echo-area rows.
+        if char_w <= 1.0 && fallback_row_height <= 1.0 {
+            return fallback_row_height.max(1.0);
+        }
         let face =
             self.realize_status_line_face(0, face, char_w, fallback_ascent, fallback_row_height);
         let line_height = (face.font_ascent + face.font_descent as f32)
