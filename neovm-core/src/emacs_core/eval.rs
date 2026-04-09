@@ -9614,15 +9614,26 @@ impl Context {
         }
     }
 
-    /// Check if a `let` is currently shadowing a buffer-local variable's
-    /// default value. Matches GNU's `let_shadows_buffer_binding_p()`.
-    /// When true, `setq` inside the `let` should modify the default,
-    /// NOT auto-create a buffer-local binding.
+    /// Check if a `let` is currently shadowing a buffer-local
+    /// variable's binding. Matches GNU
+    /// `eval.c:3559-3577 (let_shadows_buffer_binding_p)`.
+    ///
+    /// When true, `setq` inside the let should modify the existing
+    /// binding (whichever specpdl record is on top) rather than
+    /// auto-creating a brand-new per-buffer binding.
+    ///
+    /// GNU walks the specpdl looking for either SPECPDL_LET_LOCAL
+    /// or SPECPDL_LET_DEFAULT records keyed to the symbol; both
+    /// trigger the shadow behavior. neomacs's Phase 7 stub used to
+    /// only check `LetDefault`, missing the LetLocal arm. Buffer-
+    /// local audit Medium 4 in
+    /// `drafts/buffer-local-variables-audit.md`.
     pub(crate) fn let_shadows_buffer_binding_p(&self, sym_id: SymId) -> bool {
-        self.specpdl
-            .iter()
-            .rev()
-            .any(|entry| matches!(entry, SpecBinding::LetDefault { sym_id: s, .. } if *s == sym_id))
+        self.specpdl.iter().rev().any(|entry| match entry {
+            SpecBinding::LetDefault { sym_id: s, .. } => *s == sym_id,
+            SpecBinding::LetLocal { sym_id: s, .. } => *s == sym_id,
+            SpecBinding::Let { .. } => false,
+        })
     }
 
     /// Restore all specpdl bindings back to `count`.

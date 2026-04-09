@@ -2282,10 +2282,14 @@ impl<'a> Vm<'a> {
                     }
                     None => (Value::NIL, Value::NIL),
                 };
-                // Phase 7 stub always returns false; Phase 11 or
-                // later will walk specpdl for LET_LOCAL records.
-                let let_shadows =
-                    crate::emacs_core::symbol::let_shadows_buffer_binding_p(resolved);
+                // GNU `eval.c:3559-3577 (let_shadows_buffer_binding_p)`
+                // walks the specpdl looking for SPECPDL_LET_LOCAL or
+                // SPECPDL_LET_DEFAULT records bound to this symbol.
+                // The Context-side version on `eval::Context` already
+                // handles this; route through it instead of the
+                // free-function stub. Buffer-local audit Medium 4 in
+                // `drafts/buffer-local-variables-audit.md`.
+                let let_shadows = self.ctx.let_shadows_buffer_binding_p(resolved);
                 let new_alist = self.ctx.obarray.set_internal_localized(
                     resolved,
                     value,

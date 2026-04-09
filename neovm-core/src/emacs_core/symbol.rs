@@ -991,8 +991,11 @@ impl Obarray {
                     // (`src/data.c:1591-1607`) for the case when
                     // `current_buffer` is NULL: the SYMBOL_LOCALIZED
                     // arm reads the BLV default cell.
-                    let blv = unsafe { &*sym.val.blv };
-                    return Some(blv.defcell.cons_cdr());
+                    //
+                    // Use the safe `Obarray::blv` accessor instead
+                    // of dereferencing `sym.val.blv` directly so this
+                    // code path stays out of `unsafe` blocks.
+                    return self.blv(current).map(|blv| blv.defcell.cons_cdr());
                 }
                 SymbolRedirect::Forwarded => {
                     // Phase 10D: bare-obarray reads of FORWARDED
