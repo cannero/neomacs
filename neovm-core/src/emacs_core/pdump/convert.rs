@@ -820,6 +820,12 @@ pub(crate) fn dump_buffer_manager(bm: &BufferManager) -> DumpBufferManager {
         current: bm.dump_current().map(|id| DumpBufferId(id.0)),
         next_id: bm.dump_next_id(),
         next_marker_id: bm.dump_next_marker_id(),
+        // Mirror GNU's `buffer_defaults` C-static struct through the
+        // dump. Without this, `setq-default` writes during loadup
+        // (notably bindings.el's rich `mode-line-format`) are lost
+        // on pdump-load, and `reset_buffer_local_variables` reverts
+        // every conditional slot to its install-time seed.
+        buffer_defaults: bm.buffer_defaults.iter().map(dump_value).collect(),
     }
 }
 
@@ -2379,11 +2385,24 @@ pub(crate) fn load_buffer_manager(dbm: &DumpBufferManager) -> BufferManager {
         .iter()
         .map(|(id, buf)| (BufferId(id.0), load_buffer(buf)))
         .collect();
+    // New in the current dump format: `buffer_defaults` ride through
+    // pdump so runtime `setq-default` writes survive. Older dumps
+    // (no `buffer_defaults` field) deserialize as an empty Vec via
+    // `#[serde(default)]`, and `BufferManager::from_dump` then falls
+    // back to the install-time seeds from `BUFFER_SLOT_INFO`.
+    let defaults_values: Vec<crate::emacs_core::value::Value> =
+        dbm.buffer_defaults.iter().map(load_value).collect();
+    let dumped_defaults = if defaults_values.is_empty() {
+        None
+    } else {
+        Some(defaults_values.as_slice())
+    };
     BufferManager::from_dump(
         buffers,
         dbm.current.map(|id| BufferId(id.0)),
         dbm.next_id,
         dbm.next_marker_id,
+        dumped_defaults,
     )
 }
 

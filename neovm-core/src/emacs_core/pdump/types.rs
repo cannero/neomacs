@@ -566,6 +566,22 @@ pub struct DumpBufferManager {
     pub current: Option<DumpBufferId>,
     pub next_id: u64,
     pub next_marker_id: u64,
+    /// Runtime `buffer-defaults` slot table — one DumpValue per
+    /// `BufferManager::buffer_defaults[]` entry in offset order.
+    /// Mirrors GNU's static `struct buffer buffer_defaults` that
+    /// pdump preserves as part of the dumped image.
+    ///
+    /// Bindings.el's `setq-default mode-line-format <rich-list>` at
+    /// load time mutates this table; before this field was added to
+    /// the dump schema, the mutation was lost on pdump-load and the
+    /// layout engine saw the install-time `"%-"` seed. See
+    /// `project_modeline_buffer_defaults_dump.md`.
+    ///
+    /// `#[serde(default)]` so older pdumps (no field present) keep
+    /// loading and fall back to the install-time seeds via
+    /// `BUFFER_SLOT_INFO` in `load_buffer_manager`.
+    #[serde(default)]
+    pub buffer_defaults: Vec<DumpValue>,
 }
 
 // ---------------------------------------------------------------------------

@@ -2253,6 +2253,7 @@ impl Buffer {
         &mut self,
         obarray: &mut crate::emacs_core::symbol::Obarray,
         kill_permanent: bool,
+        buffer_defaults: &[crate::emacs_core::value::Value; BUFFER_SLOT_COUNT],
     ) {
         // Mirrors GNU `reset_buffer_local_variables'
         // (`buffer.c:1135-1234'). Three things happen:
@@ -2298,10 +2299,24 @@ impl Buffer {
                     continue;
                 }
                 self.set_slot_local_flag(info.offset, false);
-                self.slots[info.offset] = info.default.to_value();
+                // GNU `buffer.c:1242` — `set_per_buffer_value(b, offset,
+                // per_buffer_default(offset))`. The reset target is the
+                // CURRENT runtime buffer-defaults slot, NOT the
+                // install-time `BufferSlotInfo::default` seed. The
+                // distinction matters for any slot whose default got
+                // updated by `setq-default` (e.g. bindings.el sets the
+                // rich `mode-line-format` list — before this fix, the
+                // reset here would clobber it back to the install-time
+                // "%-" seed after any kill-all-local-variables call,
+                // leaving the layout engine to render only the buffer
+                // name).
+                self.slots[info.offset] = buffer_defaults[info.offset];
             } else if info.reset_on_kill {
                 // Always-local slot in GNU's explicit reset list
-                // (major-mode, mode-name, invisibility-spec).
+                // (major-mode, mode-name, invisibility-spec). These are
+                // hardcoded resets in GNU (Qfundamental_mode, QSFundamental,
+                // Qt) that don't participate in buffer-defaults, so the
+                // install-time seed is the right value here.
                 self.slots[info.offset] = info.default.to_value();
             }
         }
@@ -2505,7 +2520,32 @@ impl Buffer {
         self.keymap = keymap;
     }
 
+    /// Mirror of GNU `buffer_local_value` at `buffer.c:1359-1413`.
+    ///
+    /// For `SYMBOL_FORWARDED` BUFFER_OBJFWD vars (our `BufferSlotInfo`
+    /// slot-backed names), GNU unconditionally reads
+    /// `per_buffer_value(buf, offset)` at `buffer.c:1405` — it does NOT
+    /// check `PER_BUFFER_VALUE_P`. The flag only distinguishes "this
+    /// buffer has a local override" from "this buffer uses the
+    /// runtime default"; the slot itself is always populated.
+    ///
+    /// `get_buffer_local_binding` returns `None` when the flag is
+    /// clear (it's the lower-level "is there a local override?"
+    /// primitive), which is correct for callers like `local-variable-p`.
+    /// But `buffer_local_value` should NOT return `None` in that
+    /// case — it should return the slot value. Before this fix, the
+    /// layout engine's mode-line read was getting `None` for every
+    /// conditional slot in its "virgin" state, falling back to the
+    /// obarray value cell (which for forwarded vars is `nil`), and
+    /// therefore asking `format-mode-line` to render `nil`, which
+    /// produced an empty mode-line containing only the buffer name.
     pub fn buffer_local_value(&self, name: &str) -> Option<Value> {
+        if let Some(info) = lookup_buffer_slot(name) {
+            return Some(self.slots[info.offset]);
+        }
+        if name == "buffer-undo-list" {
+            return Some(self.get_undo_list());
+        }
         match self.get_buffer_local_binding(name) {
             Some(RuntimeBindingValue::Bound(value)) => Some(value),
             Some(RuntimeBindingValue::Void) | None => None,
@@ -3525,8 +3565,14 @@ impl BufferManager {
         obarray: &mut crate::emacs_core::symbol::Obarray,
         kill_permanent: bool,
     ) -> Option<()> {
+        // Snapshot the runtime buffer_defaults before we take a
+        // mutable borrow of the individual buffer. Mirrors GNU's
+        // `reset_buffer_local_variables` at `buffer.c:1242`, which
+        // reads `per_buffer_default(offset)` (the runtime default)
+        // rather than the C-level static initializer.
+        let defaults_snapshot = self.buffer_defaults;
         let buf = self.buffers.get_mut(&id)?;
-        buf.kill_all_local_variables(obarray, kill_permanent);
+        buf.kill_all_local_variables(obarray, kill_permanent, &defaults_snapshot);
         Some(())
     }
 
@@ -4143,6 +4189,7 @@ impl BufferManager {
         current: Option<BufferId>,
         next_id: u64,
         next_marker_id: u64,
+        dumped_buffer_defaults: Option<&[crate::emacs_core::value::Value]>,
     ) -> Self {
         let indirect_buffers: Vec<(BufferId, BufferId)> = buffers
             .iter()
@@ -4167,13 +4214,24 @@ impl BufferManager {
             buffer.undo_state = shared_undo;
         }
 
-        // Phase 10D: rebuild `buffer_defaults` from BUFFER_SLOT_INFO
-        // (mirror of `BufferManager::new`). Pdump round-trip will
-        // serialize this in Phase 11; until then we re-seed from
-        // the const table.
+        // Seed `buffer_defaults` from BUFFER_SLOT_INFO's install-time
+        // defaults, then overlay any values the dump carried. The
+        // overlay preserves runtime defaults set by `setq-default`
+        // during pdump creation (e.g. bindings.el's rich
+        // `mode-line-format` list); the seed provides backward
+        // compatibility for older dumps that didn't carry the
+        // `buffer_defaults` field.
         let mut buffer_defaults = [crate::emacs_core::value::Value::NIL; BUFFER_SLOT_COUNT];
         for info in BUFFER_SLOT_INFO {
             buffer_defaults[info.offset] = info.default.to_value();
+        }
+        if let Some(dumped) = dumped_buffer_defaults {
+            for (idx, value) in dumped.iter().enumerate() {
+                if idx >= BUFFER_SLOT_COUNT {
+                    break;
+                }
+                buffer_defaults[idx] = *value;
+            }
         }
         let mut manager = Self {
             buffers,
@@ -4390,6 +4448,7 @@ mod tests {
             mgr.dump_current(),
             mgr.dump_next_id(),
             mgr.dump_next_marker_id(),
+            None,
         );
 
         let base = restored.get(base_id).expect("base buffer");

@@ -75,9 +75,20 @@ fn eval_status_line_format_value(
                 .copied()
                 .unwrap_or(Value::NIL)
         });
+    // Quote the format value when building the `format-mode-line` call.
+    // Without the quote, Lisp's eval would try to evaluate the
+    // mode-line value as a function call: for the default rich list
+    // `("%e" mode-line-front-space …)`, eval would dispatch on the
+    // car and try to funcall the string `"%e"`, signalling
+    // `invalid-function`. Quoting makes eval pass the value through
+    // literally — the same shape GNU produces when you write
+    // `(format-mode-line mode-line-format)` in Lisp, where the
+    // symbol's value is resolved and passed as an argument, not
+    // re-evaluated as a form.
+    let quoted_format = Value::list(vec![Value::symbol("quote"), format_value]);
     let form = Value::list(vec![
         Value::symbol("format-mode-line"),
-        format_value,
+        quoted_format,
         Value::NIL,
         Value::make_window(window_id as u64),
         Value::make_buffer(BufferId(buffer_id)),
