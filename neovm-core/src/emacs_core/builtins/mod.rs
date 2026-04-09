@@ -3859,13 +3859,13 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "posix-search-forward",
-        builtin_re_search_forward,
+        super::builtins::search::builtin_posix_search_forward,
         1,
         Some(4),
     );
     ctx.defsubr(
         "posix-search-backward",
-        builtin_re_search_backward,
+        super::builtins::search::builtin_posix_search_backward,
         1,
         Some(4),
     );

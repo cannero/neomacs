@@ -6463,6 +6463,90 @@ fn replace_match_missing_subexp_signals_error() {
 // builtin-facing sibling of the unit tests in `regex_test.rs`; it
 // verifies the error actually propagates through `builtin_replace_match`
 // as a Lisp signal rather than being stringified into successful output.
+// Regex audit #2: `posix-string-match` must use POSIX longest-match
+// semantics. GNU `src/search.c:Fposix_string_match` calls
+// `string_match_1` with `posix = 1`, which threads through
+// `compile_pattern` into `re_match_2_internal`. The matcher tracks
+// the best (longest) match across all backtracks
+// (regex-emacs.c:4143-4344) and returns it via `restore_best_regs`.
+// Before the fix `posix-string-match` was a silent alias for
+// `string-match` and returned leftmost-first.
+//
+// Reference shape from GNU Emacs 31.0.50:
+//   (string-match "a\\|aa\\|aaa" "aaaa")       => 0, m0="a"
+//   (posix-string-match "a\\|aa\\|aaa" "aaaa") => 0, m0="aaa"
+#[test]
+fn posix_string_match_returns_longest_alternative_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    use crate::emacs_core::eval::Context;
+
+    let mut eval = Context::new();
+
+    // Baseline: non-POSIX `string-match` returns the leftmost-first
+    // alternative and sets match data accordingly.
+    let result = builtin_string_match(
+        &mut eval,
+        vec![Value::string("a\\|aa\\|aaa"), Value::string("aaaa")],
+    )
+    .expect("string-match should succeed");
+    assert_eq!(result, Value::fixnum(0));
+    let observed = builtin_match_end(&mut eval, vec![Value::fixnum(0)])
+        .expect("match-end 0");
+    assert_eq!(observed, Value::fixnum(1), "non-POSIX matches 1 char 'a'");
+
+    // POSIX: `posix-string-match` explores every alternative and
+    // picks the longest.
+    let result = builtin_posix_string_match(
+        &mut eval,
+        vec![Value::string("a\\|aa\\|aaa"), Value::string("aaaa")],
+    )
+    .expect("posix-string-match should succeed");
+    assert_eq!(result, Value::fixnum(0));
+    let observed = builtin_match_end(&mut eval, vec![Value::fixnum(0)])
+        .expect("match-end 0");
+    assert_eq!(
+        observed,
+        Value::fixnum(3),
+        "POSIX picks the 3-character 'aaa' alternative"
+    );
+}
+
+#[test]
+fn posix_string_match_grouped_alternation_picks_longest_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    use crate::emacs_core::eval::Context;
+
+    let mut eval = Context::new();
+
+    // Non-POSIX: m0="a", m1="a"
+    let result = builtin_string_match(
+        &mut eval,
+        vec![
+            Value::string("\\(a\\|ab\\|abc\\)"),
+            Value::string("abcdef"),
+        ],
+    )
+    .expect("string-match should succeed");
+    assert_eq!(result, Value::fixnum(0));
+    let end0 = builtin_match_end(&mut eval, vec![Value::fixnum(0)]).expect("match-end 0");
+    assert_eq!(end0, Value::fixnum(1));
+
+    // POSIX: m0="abc", m1="abc"
+    let result = builtin_posix_string_match(
+        &mut eval,
+        vec![
+            Value::string("\\(a\\|ab\\|abc\\)"),
+            Value::string("abcdef"),
+        ],
+    )
+    .expect("posix-string-match should succeed");
+    assert_eq!(result, Value::fixnum(0));
+    let end0 = builtin_match_end(&mut eval, vec![Value::fixnum(0)]).expect("match-end 0");
+    assert_eq!(end0, Value::fixnum(3));
+    let end1 = builtin_match_end(&mut eval, vec![Value::fixnum(1)]).expect("match-end 1");
+    assert_eq!(end1, Value::fixnum(3));
+}
+
 #[test]
 fn replace_match_rejects_backslash_zero_and_unknown_escape_like_gnu() {
     crate::test_utils::init_test_tracing();

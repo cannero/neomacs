@@ -51,7 +51,10 @@ pub(crate) struct IteratedStringMatches {
 }
 
 thread_local! {
-    static SEARCH_PATTERN_CACHE: RefCell<Vec<(bool, String, CompiledSearchPattern)>> =
+    // Cache entry is (posix, case_fold, pattern, compiled). The key
+    // is extended with `posix` (audit #2) so a non-POSIX compile
+    // cannot silently satisfy a POSIX request or vice versa.
+    static SEARCH_PATTERN_CACHE: RefCell<Vec<(bool, bool, String, CompiledSearchPattern)>> =
         const { RefCell::new(Vec::new()) };
 }
 
@@ -608,19 +611,45 @@ fn literal_from_trivial_regexp(pattern: &str) -> Option<String> {
 }
 
 fn compile_search_pattern(pattern: &str, case_fold: bool) -> Result<CompiledSearchPattern, String> {
+    compile_search_pattern_with_posix(pattern, case_fold, false)
+}
+
+/// Compile PATTERN for a `posix-*` search builtin.
+///
+/// GNU's `posix-looking-at`, `posix-search-forward`, `posix-search-backward`,
+/// and `posix-string-match` all pass `posix=1` to the underlying
+/// `looking_at_1` / `search_buffer` / `string_match_1` helpers
+/// (see GNU `src/search.c:Fposix_looking_at` etc.). That flag is then
+/// threaded through `compile_pattern` into `regex_compile` and
+/// ultimately into `re_match_2_internal`, where the POSIX longest-
+/// match algorithm (regex-emacs.c:4143-4344, 5278) kicks in.
+///
+/// Neomacs's `compile_search_pattern` used to hardcode `posix=false`
+/// on the call to `regex_emacs::regex_compile`, which is audit
+/// finding #2 in `drafts/regex-search-audit.md`. Callers that want
+/// POSIX semantics must go through this helper. The pattern cache is
+/// keyed on `(posix, case_fold, pattern)` so a non-POSIX entry never
+/// satisfies a POSIX request or vice versa.
+fn compile_search_pattern_with_posix(
+    pattern: &str,
+    case_fold: bool,
+    posix: bool,
+) -> Result<CompiledSearchPattern, String> {
     if let Some(cached) = crate::emacs_core::perf_trace::time_op(
         crate::emacs_core::perf_trace::HotpathOp::RegexCompileHit,
         || {
             SEARCH_PATTERN_CACHE.with(|cache| {
                 let mut cache = cache.borrow_mut();
-                let index = cache
-                    .iter()
-                    .position(|(cached_case_fold, cached_pattern, _)| {
-                        *cached_case_fold == case_fold && cached_pattern == pattern
-                    })?;
+                let index = cache.iter().position(
+                    |(cached_posix, cached_case_fold, cached_pattern, _)| {
+                        *cached_posix == posix
+                            && *cached_case_fold == case_fold
+                            && cached_pattern == pattern
+                    },
+                )?;
                 let entry = cache.remove(index);
                 cache.insert(0, entry.clone());
-                Some(entry.2)
+                Some(entry.3)
             })
         },
     ) {
@@ -632,12 +661,16 @@ fn compile_search_pattern(pattern: &str, case_fold: bool) -> Result<CompiledSear
         || {
             // Use the GNU-translated engine for all patterns.
             // Only optimize plain literals (no regex metacharacters).
+            // A trivial literal is unaffected by POSIX vs non-POSIX
+            // semantics because there is nothing to backtrack over,
+            // so we can keep the Literal fast-path even when posix
+            // is requested.
             if let Some(literal) = literal_from_trivial_regexp(pattern)
                 && (!case_fold || literal.is_ascii())
             {
                 Ok(CompiledSearchPattern::Literal(literal))
             } else {
-                regex_emacs::regex_compile(pattern, false, case_fold)
+                regex_emacs::regex_compile(pattern, posix, case_fold)
                     .map(CompiledSearchPattern::Emacs)
                     .map_err(|e| format!("Invalid regexp: {}", e.message))
             }
@@ -646,7 +679,7 @@ fn compile_search_pattern(pattern: &str, case_fold: bool) -> Result<CompiledSear
 
     SEARCH_PATTERN_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        cache.insert(0, (case_fold, pattern.to_string(), compiled.clone()));
+        cache.insert(0, (posix, case_fold, pattern.to_string(), compiled.clone()));
         if cache.len() > SEARCH_PATTERN_CACHE_SIZE {
             cache.truncate(SEARCH_PATTERN_CACHE_SIZE);
         }
@@ -1033,6 +1066,20 @@ pub fn re_search_forward(
     case_fold: bool,
     match_data: &mut Option<MatchData>,
 ) -> Result<Option<usize>, String> {
+    re_search_forward_with_posix(buf, pattern, bound, noerror, case_fold, false, match_data)
+}
+
+/// POSIX longest-match variant of [`re_search_forward`] used by
+/// `posix-search-forward`. See GNU `src/search.c:Fposix_search_forward`.
+pub fn re_search_forward_with_posix(
+    buf: &mut Buffer,
+    pattern: &str,
+    bound: Option<usize>,
+    noerror: bool,
+    case_fold: bool,
+    posix: bool,
+    match_data: &mut Option<MatchData>,
+) -> Result<Option<usize>, String> {
     let start = buf.pt;
     let limit = bound.unwrap_or(buf.zv).min(buf.zv);
 
@@ -1048,7 +1095,7 @@ pub fn re_search_forward(
     let start_rel = start - region_start;
     let limit_rel = limit - region_start;
 
-    let md_opt = match compile_search_pattern(pattern, case_fold)? {
+    let md_opt = match compile_search_pattern_with_posix(pattern, case_fold, posix)? {
         CompiledSearchPattern::Literal(literal) => {
             literal_find(&text[start_rel..limit_rel], &literal, case_fold).map(
                 |(rel_start, rel_end)| MatchData {
@@ -1104,6 +1151,20 @@ pub fn re_search_backward(
     case_fold: bool,
     match_data: &mut Option<MatchData>,
 ) -> Result<Option<usize>, String> {
+    re_search_backward_with_posix(buf, pattern, bound, noerror, case_fold, false, match_data)
+}
+
+/// POSIX longest-match variant of [`re_search_backward`] used by
+/// `posix-search-backward`. See GNU `src/search.c:Fposix_search_backward`.
+pub fn re_search_backward_with_posix(
+    buf: &mut Buffer,
+    pattern: &str,
+    bound: Option<usize>,
+    noerror: bool,
+    case_fold: bool,
+    posix: bool,
+    match_data: &mut Option<MatchData>,
+) -> Result<Option<usize>, String> {
     let end = buf.pt;
     let limit = bound.unwrap_or(buf.begv).max(buf.begv);
 
@@ -1119,7 +1180,7 @@ pub fn re_search_backward(
     let start_rel = end - region_start;
     let limit_rel = limit - region_start;
 
-    let md_opt = match compile_search_pattern(pattern, case_fold)? {
+    let md_opt = match compile_search_pattern_with_posix(pattern, case_fold, posix)? {
         CompiledSearchPattern::Literal(literal) => {
             literal_rfind(&text[limit_rel..start_rel], &literal, case_fold).map(
                 |(rel_start, rel_end)| MatchData {
@@ -1168,6 +1229,18 @@ pub fn looking_at(
     case_fold: bool,
     match_data: &mut Option<MatchData>,
 ) -> Result<bool, String> {
+    looking_at_with_posix(buf, pattern, case_fold, false, match_data)
+}
+
+/// POSIX longest-match variant of [`looking_at`] used by
+/// `posix-looking-at`. See GNU `src/search.c:Fposix_looking_at`.
+pub fn looking_at_with_posix(
+    buf: &Buffer,
+    pattern: &str,
+    case_fold: bool,
+    posix: bool,
+    match_data: &mut Option<MatchData>,
+) -> Result<bool, String> {
     let start = buf.pt;
     if start > buf.zv {
         return Ok(false);
@@ -1177,7 +1250,7 @@ pub fn looking_at(
     let text = buf.text.text_range(region_start, buf.zv);
     let start_rel = start - region_start;
 
-    match compile_search_pattern(pattern, case_fold)? {
+    match compile_search_pattern_with_posix(pattern, case_fold, posix)? {
         CompiledSearchPattern::Literal(literal) => {
             let tail = &text[start_rel..];
             let matched = literal_find(tail, &literal, case_fold)
@@ -1274,12 +1347,26 @@ pub fn string_match_full_with_case_fold(
     case_fold: bool,
     match_data: &mut Option<MatchData>,
 ) -> Result<Option<usize>, String> {
-    string_match_full_with_case_fold_source(
+    string_match_full_with_case_fold_and_posix(pattern, string, start, case_fold, false, match_data)
+}
+
+/// POSIX longest-match variant of [`string_match_full_with_case_fold`]
+/// used by `posix-string-match`. See GNU `src/search.c:Fposix_string_match`.
+pub fn string_match_full_with_case_fold_and_posix(
+    pattern: &str,
+    string: &str,
+    start: usize,
+    case_fold: bool,
+    posix: bool,
+    match_data: &mut Option<MatchData>,
+) -> Result<Option<usize>, String> {
+    string_match_full_with_case_fold_source_posix(
         pattern,
         string,
         SearchedString::Owned(string.to_string()),
         start,
         case_fold,
+        posix,
         match_data,
     )
 }
@@ -1292,11 +1379,35 @@ pub(crate) fn string_match_full_with_case_fold_source_lisp(
     case_fold: bool,
     match_data: &mut Option<MatchData>,
 ) -> Result<Option<usize>, String> {
+    string_match_full_with_case_fold_source_lisp_posix(
+        pattern,
+        string,
+        searched_string,
+        start,
+        case_fold,
+        false,
+        match_data,
+    )
+}
+
+/// POSIX longest-match variant of
+/// [`string_match_full_with_case_fold_source_lisp`] used by
+/// `posix-string-match` on Lisp strings. See GNU
+/// `src/search.c:Fposix_string_match`.
+pub(crate) fn string_match_full_with_case_fold_source_lisp_posix(
+    pattern: &str,
+    string: &crate::heap_types::LispString,
+    searched_string: SearchedString,
+    start: usize,
+    case_fold: bool,
+    posix: bool,
+    match_data: &mut Option<MatchData>,
+) -> Result<Option<usize>, String> {
     if start > string.byte_len() {
         return Ok(None);
     }
 
-    match compile_search_pattern(pattern, case_fold)? {
+    match compile_search_pattern_with_posix(pattern, case_fold, posix)? {
         CompiledSearchPattern::Literal(literal) => {
             if let Some((byte_start, byte_end)) =
                 literal_find_lisp_string(string, &literal, start, case_fold)
@@ -1331,12 +1442,32 @@ pub(crate) fn string_match_full_with_case_fold_source(
     case_fold: bool,
     match_data: &mut Option<MatchData>,
 ) -> Result<Option<usize>, String> {
+    string_match_full_with_case_fold_source_posix(
+        pattern,
+        string,
+        searched_string,
+        start,
+        case_fold,
+        false,
+        match_data,
+    )
+}
+
+pub(crate) fn string_match_full_with_case_fold_source_posix(
+    pattern: &str,
+    string: &str,
+    searched_string: SearchedString,
+    start: usize,
+    case_fold: bool,
+    posix: bool,
+    match_data: &mut Option<MatchData>,
+) -> Result<Option<usize>, String> {
     if start > string.len() {
         return Ok(None);
     }
 
     string_match_full_with_case_fold_source_compiled(
-        compile_search_pattern(pattern, case_fold)?,
+        compile_search_pattern_with_posix(pattern, case_fold, posix)?,
         string,
         searched_string,
         start,

@@ -378,7 +378,27 @@ pub(crate) fn builtin_re_search_forward_with_state(
     match_data: &mut Option<super::regex::MatchData>,
     args: &[Value],
 ) -> EvalResult {
-    expect_range_args("re-search-forward", args, 1, 4)?;
+    re_search_forward_with_state_posix(case_fold, false, buffers, match_data, args)
+}
+
+/// Shared body for `re-search-forward` and `posix-search-forward`.
+/// When `posix` is true, the matcher runs the GNU POSIX longest-match
+/// algorithm (regex-emacs.c:4143-4344). See audit #2 in
+/// `drafts/regex-search-audit.md`; before this fix the posix builtins
+/// were silent aliases.
+pub(crate) fn re_search_forward_with_state_posix(
+    case_fold: bool,
+    posix: bool,
+    buffers: &mut crate::buffer::BufferManager,
+    match_data: &mut Option<super::regex::MatchData>,
+    args: &[Value],
+) -> EvalResult {
+    let name = if posix {
+        "posix-search-forward"
+    } else {
+        "re-search-forward"
+    };
+    expect_range_args(name, args, 1, 4)?;
     let pattern = expect_string(&args[0])?;
     let (current_id, opts, start_pt, start_char) =
         current_search_context_in_manager(buffers, args, SearchKind::ForwardRegexp)?;
@@ -393,11 +413,11 @@ pub(crate) fn builtin_re_search_forward_with_state(
                 .get_mut(current_id)
                 .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
             match opts.direction {
-                SearchDirection::Forward => super::regex::re_search_forward(
-                    buf, &pattern, opts.bound, false, case_fold, match_data,
+                SearchDirection::Forward => super::regex::re_search_forward_with_posix(
+                    buf, &pattern, opts.bound, false, case_fold, posix, match_data,
                 ),
-                SearchDirection::Backward => super::regex::re_search_backward(
-                    buf, &pattern, opts.bound, false, case_fold, match_data,
+                SearchDirection::Backward => super::regex::re_search_backward_with_posix(
+                    buf, &pattern, opts.bound, false, case_fold, posix, match_data,
                 ),
             }
         };
@@ -451,7 +471,25 @@ pub(crate) fn builtin_re_search_backward_with_state(
     match_data: &mut Option<super::regex::MatchData>,
     args: &[Value],
 ) -> EvalResult {
-    expect_range_args("re-search-backward", args, 1, 4)?;
+    re_search_backward_with_state_posix(case_fold, false, buffers, match_data, args)
+}
+
+/// Shared body for `re-search-backward` and `posix-search-backward`.
+/// See [`re_search_forward_with_state_posix`] for the POSIX longest-
+/// match rationale (audit #2).
+pub(crate) fn re_search_backward_with_state_posix(
+    case_fold: bool,
+    posix: bool,
+    buffers: &mut crate::buffer::BufferManager,
+    match_data: &mut Option<super::regex::MatchData>,
+    args: &[Value],
+) -> EvalResult {
+    let name = if posix {
+        "posix-search-backward"
+    } else {
+        "re-search-backward"
+    };
+    expect_range_args(name, args, 1, 4)?;
     let pattern = expect_string(&args[0])?;
     let (current_id, opts, start_pt, start_char) =
         current_search_context_in_manager(buffers, args, SearchKind::BackwardRegexp)?;
@@ -466,11 +504,11 @@ pub(crate) fn builtin_re_search_backward_with_state(
                 .get_mut(current_id)
                 .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
             match opts.direction {
-                SearchDirection::Forward => super::regex::re_search_forward(
-                    buf, &pattern, opts.bound, false, case_fold, match_data,
+                SearchDirection::Forward => super::regex::re_search_forward_with_posix(
+                    buf, &pattern, opts.bound, false, case_fold, posix, match_data,
                 ),
-                SearchDirection::Backward => super::regex::re_search_backward(
-                    buf, &pattern, opts.bound, false, case_fold, match_data,
+                SearchDirection::Backward => super::regex::re_search_backward_with_posix(
+                    buf, &pattern, opts.bound, false, case_fold, posix, match_data,
                 ),
             }
         };
@@ -499,6 +537,40 @@ pub(crate) fn builtin_re_search_backward_with_state(
 
     let end = last_pos.expect("search loop should produce at least one match");
     buffer_byte_to_char_result_in_manager(buffers, current_id, end)
+}
+
+pub(crate) fn builtin_posix_search_forward(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
+        .map(|v| !v.is_nil())
+        .unwrap_or(true);
+    let inhibit_changing = read_inhibit_changing_match_data(eval);
+    let mut throwaway: Option<super::regex::MatchData> = None;
+    let md_slot: &mut Option<super::regex::MatchData> = if inhibit_changing {
+        &mut throwaway
+    } else {
+        &mut eval.match_data
+    };
+    re_search_forward_with_state_posix(case_fold, true, &mut eval.buffers, md_slot, &args)
+}
+
+pub(crate) fn builtin_posix_search_backward(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
+        .map(|v| !v.is_nil())
+        .unwrap_or(true);
+    let inhibit_changing = read_inhibit_changing_match_data(eval);
+    let mut throwaway: Option<super::regex::MatchData> = None;
+    let md_slot: &mut Option<super::regex::MatchData> = if inhibit_changing {
+        &mut throwaway
+    } else {
+        &mut eval.match_data
+    };
+    re_search_backward_with_state_posix(case_fold, true, &mut eval.buffers, md_slot, &args)
 }
 
 pub(crate) fn builtin_search_forward_regexp(
@@ -647,8 +719,36 @@ pub(crate) fn builtin_posix_looking_at_with_state(
     match_data: &mut Option<super::regex::MatchData>,
     args: &[Value],
 ) -> EvalResult {
+    // GNU `src/search.c:Fposix_looking_at` calls `looking_at_1`
+    // with `posix = 1`, which threads into `compile_pattern` and
+    // ultimately into `re_match_2_internal` to enable POSIX
+    // longest-match (regex-emacs.c:4143-4344). See audit #2 in
+    // `drafts/regex-search-audit.md`; this wrapper used to be a
+    // silent alias for `looking-at`.
     expect_range_args("posix-looking-at", args, 1, 2)?;
-    builtin_looking_at_with_state(case_fold, buffers, match_data, args)
+    let pattern = expect_string(&args[0])?;
+    let inhibit_modify = args.get(1).is_some_and(|arg| !arg.is_nil());
+
+    let buf = buffers
+        .current_buffer()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let result = if inhibit_modify {
+        let mut preserved_match_data = match_data.clone();
+        super::regex::looking_at_with_posix(
+            buf,
+            &pattern,
+            case_fold,
+            true,
+            &mut preserved_match_data,
+        )
+    } else {
+        super::regex::looking_at_with_posix(buf, &pattern, case_fold, true, match_data)
+    };
+
+    match result {
+        Ok(matched) => Ok(Value::bool_val(matched)),
+        Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
+    }
 }
 
 pub(crate) fn builtin_string_match_with_state(
@@ -735,8 +835,67 @@ pub(crate) fn builtin_posix_string_match_with_state(
     match_data: &mut Option<super::regex::MatchData>,
     args: &[Value],
 ) -> EvalResult {
-    expect_range_args("posix-string-match", args, 2, 4)?;
-    builtin_string_match_with_state(case_fold, match_data, args)
+    // GNU `src/search.c:Fposix_string_match` calls `string_match_1`
+    // with `posix = 1`. Before this fix the neomacs builtin was a
+    // silent alias for `string-match` (audit #2). We duplicate the
+    // body of `builtin_string_match_with_state` and route through
+    // the `*_posix` compile helpers so `CompiledPattern::posix` is
+    // set for the matcher.
+    crate::emacs_core::perf_trace::time_op(
+        crate::emacs_core::perf_trace::HotpathOp::StringMatch,
+        || {
+            expect_range_args("posix-string-match", args, 2, 4)?;
+            let inhibit_modify = args.get(3).is_some_and(|v| v.is_truthy());
+
+            match (args[0].kind(), args[1].kind()) {
+                (ValueKind::String, ValueKind::String) => {
+                    let pattern = args[0].as_str().unwrap();
+                    let string = args[1].as_lisp_string().unwrap();
+                    let start = crate::emacs_core::search::normalize_lisp_string_start_arg(
+                        string,
+                        args.get(2),
+                    )?;
+                    let mut throwaway = None;
+                    let target = if inhibit_modify {
+                        &mut throwaway
+                    } else {
+                        match_data
+                    };
+                    match super::regex::string_match_full_with_case_fold_source_lisp_posix(
+                        pattern,
+                        string,
+                        super::regex::SearchedString::Heap(args[1]),
+                        start,
+                        case_fold,
+                        true,
+                        target,
+                    ) {
+                        Ok(Some(char_pos)) => Ok(Value::fixnum(char_pos as i64)),
+                        Ok(None) => Ok(Value::NIL),
+                        Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
+                    }
+                }
+                _ => {
+                    let pattern = expect_string(&args[0])?;
+                    let s = expect_string(&args[1])?;
+                    let start = normalize_string_start_arg(&s, args.get(2))?;
+                    let mut throwaway = None;
+                    let target = if inhibit_modify {
+                        &mut throwaway
+                    } else {
+                        match_data
+                    };
+                    match super::regex::string_match_full_with_case_fold_and_posix(
+                        &pattern, &s, start, case_fold, true, target,
+                    ) {
+                        Ok(Some(char_pos)) => Ok(Value::fixnum(char_pos as i64)),
+                        Ok(None) => Ok(Value::NIL),
+                        Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
+                    }
+                }
+            }
+        },
+    )
 }
 
 pub(crate) fn builtin_string_match_p_with_case_fold(case_fold: bool, args: &[Value]) -> EvalResult {

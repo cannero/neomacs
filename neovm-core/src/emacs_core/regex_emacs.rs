@@ -972,8 +972,24 @@ pub(crate) fn regex_compile(
         store_number(&mut buf.buffer, fixup, target);
     }
 
-    // Emit final succeed
-    emit_op!(RegexOp::Succeed);
+    // Emit final succeed — but only for non-POSIX patterns.
+    //
+    // GNU regex-emacs.c:2683-2686:
+    //
+    //     /* If we don't want backtracking, force success
+    //        the first time we reach the end of the compiled pattern.  */
+    //     if (!posix_backtracking)
+    //       BUF_PUSH (succeed);
+    //
+    // When `posix_backtracking` is true the matcher must see the
+    // natural "fell off the end of the bytecode" path so the POSIX
+    // longest-match logic at regex-emacs.c:4272-4344 can run. Emitting
+    // `succeed` unconditionally (as an earlier version of this file
+    // did) made every pattern jump to `succeed_label`, bypassing the
+    // longest-match code entirely.
+    if !posix {
+        emit_op!(RegexOp::Succeed);
+    }
 
     // Populate the fastmap for search-time position skipping.
     compile_fastmap(&mut buf);
@@ -1753,11 +1769,21 @@ pub(crate) fn re_match(
     let mut regstart: Vec<Option<usize>> = vec![None; num_regs];
     let mut regend: Vec<Option<usize>> = vec![None; num_regs];
 
-    // Best match tracking (for POSIX)
-    let _best_regs_set = false;
-    let _best_regstart: Vec<Option<usize>> = vec![None; num_regs];
-    let _best_regend: Vec<Option<usize>> = vec![None; num_regs];
-    let _match_end: usize = pos;
+    // Best match tracking for POSIX longest-match (audit #2).
+    //
+    // Mirrors GNU regex-emacs.c:4143-4154 and the main loop handling
+    // at lines 4268-4345. When the pattern reaches its end with the
+    // matcher positioned before the end of the searchable region
+    // (`d < stop`), we save the current register state as the "best
+    // so far" and force a backtrack to explore alternative paths.
+    // After all backtracks have been exhausted, the best saved match
+    // is restored. See GNU regex-emacs.c:5278-5279 for the
+    // equivalent "restore after total failure" path.
+    let posix_longest = pattern.posix;
+    let mut best_regs_set = false;
+    let mut best_match_end: usize = pos;
+    let mut best_regstart: Vec<Option<usize>> = vec![None; num_regs];
+    let mut best_regend: Vec<Option<usize>> = vec![None; num_regs];
 
     let mut pc = 0usize; // Bytecode program counter
     let mut d = pos; // Data position in text
@@ -1845,10 +1871,71 @@ pub(crate) fn re_match(
         prev_sym != curr_sym
     };
 
-    loop {
-        // End of pattern = potential match
+    // `try_fail!()` is the in-function replacement for GNU's
+    // `goto fail`: pop the failure stack and resume there. If the
+    // stack is empty, every backtracking avenue has been exhausted.
+    // GNU's re_match_2_internal checks `best_regs_set` at that point
+    // (regex-emacs.c:5278) and restores the saved best match instead
+    // of returning -1. We do the same by setting `total_failure` and
+    // breaking to the outer finalization block, which consults
+    // `best_regs_set` to decide between returning None and restoring
+    // the best registers.
+    let mut total_failure = false;
+    // `macro_rules!` labels are hygienic, so the label has to be
+    // passed in explicitly as a `lifetime` metavariable.
+    macro_rules! try_fail {
+        ($label:lifetime) => {
+            if goto_fail(
+                &mut pc,
+                &mut d,
+                &mut fail_stack,
+                &mut regstart,
+                &mut regend,
+                &mut counters,
+            )
+            .is_none()
+            {
+                total_failure = true;
+                break $label;
+            }
+        };
+    }
+
+    'main_loop: loop {
+        // End of pattern = potential match.
+        //
+        // GNU regex-emacs.c:4272-4345: if we haven't consumed the
+        // full match region and POSIX longest-match is requested,
+        // save the current registers as the best seen so far and
+        // force another backtrack. When no more backtracks remain,
+        // restore whichever saved best is better than the final
+        // candidate (regex-emacs.c:4323-4344).
         if pc >= bytecode.len() {
-            break;
+            if posix_longest && d < stop {
+                let better_than_best = !best_regs_set || d > best_match_end;
+                if !fail_stack.is_empty() {
+                    if better_than_best {
+                        best_regs_set = true;
+                        best_match_end = d;
+                        best_regstart.clone_from_slice(&regstart);
+                        best_regend.clone_from_slice(&regend);
+                    }
+                    // Force a backtrack to explore alternative paths.
+                    // The stack is non-empty so goto_fail cannot fail.
+                    try_fail!('main_loop);
+                    continue 'main_loop;
+                } else if best_regs_set && !better_than_best {
+                    // No more backtracks; the previously saved best
+                    // beats the current finishing position.  Restore
+                    // it before finalizing.
+                    d = best_match_end;
+                    for i in 1..num_regs {
+                        regstart[i] = best_regstart[i];
+                        regend[i] = best_regend[i];
+                    }
+                }
+            }
+            break 'main_loop;
         }
 
         let op_byte = bytecode[pc];
@@ -1864,8 +1951,16 @@ pub(crate) fn re_match(
             }
 
             RegexOp::Succeed => {
-                // Immediate success
-                break;
+                // GNU regex-emacs.c:4429-4431 jumps directly to
+                // `succeed_label`, bypassing the POSIX longest-match
+                // check. For non-POSIX patterns, neomacs's compiler
+                // emits a trailing `Succeed` so the matcher exits as
+                // soon as the pattern completes (mirroring GNU's
+                // `if (!posix_backtracking) BUF_PUSH(succeed)` at
+                // regex-emacs.c:2685). In POSIX mode the trailing
+                // `Succeed` is NOT emitted, so the matcher instead
+                // falls through to the end-of-bytecode check above.
+                break 'main_loop;
             }
 
             RegexOp::Exactn => {
@@ -1890,39 +1985,18 @@ pub(crate) fn re_match(
                 if matched {
                     pc += count;
                 } else {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                 }
             }
 
             RegexOp::AnyChar => {
                 if d >= stop {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 }
                 // Match any character except newline
                 if text[d] == b'\n' {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 }
                 // Advance past one UTF-8 character
@@ -1941,14 +2015,7 @@ pub(crate) fn re_match(
 
                 if d >= stop {
                     pc += bitmap_len;
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 }
 
@@ -1977,14 +2044,7 @@ pub(crate) fn re_match(
                 pc += bitmap_len;
 
                 if !matched {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 }
                 d += ch_len;
@@ -2011,38 +2071,17 @@ pub(crate) fn re_match(
                 pc += 1;
 
                 let Some(start) = regstart.get(group).copied().flatten() else {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 };
                 let Some(end) = regend.get(group).copied().flatten() else {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 };
 
                 let ref_len = end - start;
                 if d + ref_len > stop {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 }
 
@@ -2055,14 +2094,7 @@ pub(crate) fn re_match(
                     }
                 }
                 if !matched {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 }
                 d += ref_len;
@@ -2072,14 +2104,7 @@ pub(crate) fn re_match(
                 if d == 0 || (d > 0 && text[d - 1] == b'\n') {
                     // At beginning of line — succeed
                 } else {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                 }
             }
 
@@ -2087,79 +2112,37 @@ pub(crate) fn re_match(
                 if d >= stop || text[d] == b'\n' {
                     // At end of line — succeed
                 } else {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                 }
             }
 
             RegexOp::BegBuf => {
                 if d != 0 {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                 }
             }
 
             RegexOp::EndBuf => {
                 if d != stop {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                 }
             }
 
             RegexOp::AtDot => {
                 if d != point {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                 }
             }
 
             RegexOp::WordBound => {
                 if !at_word_boundary(d) {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                 }
             }
 
             RegexOp::NotWordBound => {
                 if at_word_boundary(d) {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                 }
             }
 
@@ -2173,14 +2156,7 @@ pub(crate) fn re_match(
                     .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
                     .unwrap_or(false);
                 if prev_word || !curr_word {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                 }
             }
 
@@ -2193,14 +2169,7 @@ pub(crate) fn re_match(
                     .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
                     .unwrap_or(false);
                 if !prev_word || curr_word {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                 }
             }
 
@@ -2215,14 +2184,7 @@ pub(crate) fn re_match(
                     .unwrap_or(false);
                 let curr_sym = text_char(d).map(|(c, _)| is_sym(c)).unwrap_or(false);
                 if prev_sym || !curr_sym {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                 }
             }
 
@@ -2237,14 +2199,7 @@ pub(crate) fn re_match(
                     .unwrap_or(false);
                 let curr_sym = text_char(d).map(|(c, _)| is_sym(c)).unwrap_or(false);
                 if !prev_sym || curr_sym {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                 }
             }
 
@@ -2252,36 +2207,15 @@ pub(crate) fn re_match(
                 let class_byte = bytecode[pc];
                 pc += 1;
                 if d >= stop {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 }
                 let Some((c, len)) = text_char(d) else {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 };
                 if syntax.char_syntax(c) as u8 != class_byte {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 }
                 d += len;
@@ -2291,36 +2225,15 @@ pub(crate) fn re_match(
                 let class_byte = bytecode[pc];
                 pc += 1;
                 if d >= stop {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 }
                 let Some((c, len)) = text_char(d) else {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 };
                 if syntax.char_syntax(c) as u8 == class_byte {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 }
                 d += len;
@@ -2330,36 +2243,15 @@ pub(crate) fn re_match(
                 let cat = bytecode[pc];
                 pc += 1;
                 if d >= stop {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 }
                 let Some((c, len)) = text_char(d) else {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 };
                 if !syntax.char_has_category(c, cat) {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 }
                 d += len;
@@ -2369,36 +2261,15 @@ pub(crate) fn re_match(
                 let cat = bytecode[pc];
                 pc += 1;
                 if d >= stop {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 }
                 let Some((c, len)) = text_char(d) else {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 };
                 if syntax.char_has_category(c, cat) {
-                    goto_fail(
-                        &mut pc,
-                        &mut d,
-                        &mut fail_stack,
-                        &mut regstart,
-                        &mut regend,
-                        &mut counters,
-                    )?;
+                    try_fail!('main_loop);
                     continue;
                 }
                 d += len;
@@ -2547,6 +2418,23 @@ pub(crate) fn re_match(
                 let target_pos = ((pc as i64) - 2 + (rel_offset as i64)) as usize;
                 set_counter(&mut counters, target_pos, value);
             }
+        }
+    }
+
+    // GNU regex-emacs.c:5278-5279: when the matcher breaks out of
+    // the main loop due to total backtracking exhaustion, if a best
+    // match was previously saved for POSIX longest-match, restore it
+    // and fall through to the success path; otherwise there is no
+    // match at all.
+    if total_failure {
+        if best_regs_set {
+            d = best_match_end;
+            for i in 1..num_regs {
+                regstart[i] = best_regstart[i];
+                regend[i] = best_regend[i];
+            }
+        } else {
+            return None;
         }
     }
 
