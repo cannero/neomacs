@@ -1991,10 +1991,37 @@ pub(crate) fn builtin_open_font(args: Vec<Value>) -> EvalResult {
     Ok(Value::NIL)
 }
 
-pub(crate) fn builtin_open_dribble_file(args: Vec<Value>) -> EvalResult {
+/// `(open-dribble-file FILE)` -> nil
+///
+/// Mirrors GNU `src/keyboard.c:12327-12367`. Opens FILE for
+/// writing as the dribble file, where every input event will be
+/// logged for debugging. Passing nil closes the current dribble
+/// file. Keyboard audit Finding 11 in
+/// `drafts/keyboard-command-loop-audit.md`: the previous body
+/// validated the argument and silently dropped it.
+///
+/// The actual writes happen in the keyboard event-ingest path
+/// (`KBoard::record_input_event`), which calls
+/// `dribble_write_event` whenever the dribble file handle is
+/// open.
+pub(crate) fn builtin_open_dribble_file(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("open-dribble-file", &args, 1)?;
-    if !args[0].is_nil() {
-        let _ = expect_strict_string(&args[0])?;
+    if args[0].is_nil() {
+        eval.command_loop.keyboard.kboard.close_dribble_file();
+        return Ok(Value::NIL);
+    }
+    let path = expect_strict_string(&args[0])?;
+    if let Err(err) = eval.command_loop.keyboard.kboard.open_dribble_file(&path) {
+        return Err(signal(
+            "file-error",
+            vec![
+                Value::string("Cannot open dribble file"),
+                Value::string(err.to_string()),
+            ],
+        ));
     }
     Ok(Value::NIL)
 }
@@ -3411,6 +3438,15 @@ pub(crate) fn builtin_internal_handle_focus_in(
         .keyboard
         .kboard
         .set_internal_last_event_frame(frame_id);
+
+    // GNU `kbd_buffer_get_event` (`src/keyboard.c:4033-4045`)
+    // assigns Vlast_event_frame whenever the frame of the
+    // current event is known. We mirror that here at the
+    // focus-in entry point and via the standard event ingest
+    // path. Keyboard audit Finding 8 in
+    // `drafts/keyboard-command-loop-audit.md`.
+    eval.obarray
+        .set_symbol_value("last-event-frame", frame_value);
 
     if switching
         || eval

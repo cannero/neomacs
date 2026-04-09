@@ -1653,6 +1653,47 @@ pub(crate) fn builtin_discard_input(
 }
 
 // ---------------------------------------------------------------------------
+// 11b. insert-special-event
+// ---------------------------------------------------------------------------
+
+/// `(insert-special-event EVENT)` -> nil
+///
+/// Prepend EVENT to the front of `unread-command-events`, so that
+/// the next key-reading operation consumes it immediately without
+/// waiting for a user keystroke.
+///
+/// Mirrors GNU `Finsert_special_event` at
+/// `src/keyboard.c:12060`:
+///
+///   DEFUN ("insert-special-event", Finsert_special_event, ...)
+///     (Lisp_Object event)
+///   {
+///     kbd_buffer_store_event (event);
+///     return Qnil;
+///   }
+///
+/// GNU pushes into the kernel kbd_buffer (which is a ring of
+/// `struct input_event` records) so the event is delivered via the
+/// same path as hardware input. neomacs does not keep a separate
+/// kbd_buffer ring — every lisp-visible event funnels through
+/// `unread-command-events`, so we route insertions there. This is
+/// the same choice made elsewhere in the reader (`read-event`,
+/// `push_unread_command_event`, etc.), and preserves the observable
+/// "run this event next" semantic that callers rely on.
+///
+/// Keyboard audit Finding 16 in
+/// `drafts/keyboard-command-loop-audit.md`.
+pub(crate) fn builtin_insert_special_event(
+    ctx: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("insert-special-event", &args, 1)?;
+    let event = args[0];
+    ctx.push_unread_command_event(event);
+    Ok(Value::NIL)
+}
+
+// ---------------------------------------------------------------------------
 // 12. current-input-mode / set-input-mode
 // ---------------------------------------------------------------------------
 

@@ -784,6 +784,11 @@ pub struct KBoard {
     pub kbd_macro_index: usize,
     /// Number of successful iterations for the innermost executing macro.
     pub executing_kbd_macro_iterations: usize,
+    /// Open dribble file handle. GNU
+    /// `src/keyboard.c:64 (FILE *dribble)` is the global file
+    /// handle that `open-dribble-file` opens and
+    /// `record_input_event` writes to. Keyboard audit Finding 11.
+    dribble: Option<std::fs::File>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -814,7 +819,64 @@ impl KBoard {
             executing_kbd_macro: None,
             kbd_macro_index: 0,
             executing_kbd_macro_iterations: 0,
+            dribble: None,
         }
+    }
+
+    /// Open the dribble file at PATH for input event logging.
+    /// Closes any previously open file. Mirrors GNU
+    /// `Fopen_dribble_file` (`src/keyboard.c:12327-12367`):
+    ///
+    ///   if (dribble) fclose (dribble);
+    ///   dribble = fopen (file, "w");
+    ///   if (! dribble) report_file_error ("Opening dribble", file);
+    ///
+    /// Keyboard audit Finding 11.
+    pub fn open_dribble_file(&mut self, path: &str) -> std::io::Result<()> {
+        self.close_dribble_file();
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(path)?;
+        self.dribble = Some(file);
+        Ok(())
+    }
+
+    /// Close the dribble file. Mirrors GNU's
+    /// `Fopen_dribble_file (Qnil)` path.
+    pub fn close_dribble_file(&mut self) {
+        if let Some(mut f) = self.dribble.take() {
+            use std::io::Write;
+            let _ = f.flush();
+        }
+    }
+
+    /// Write an input event to the dribble file. Mirrors GNU
+    /// `dribble_event` / the inline writes inside
+    /// `kbd_buffer_get_event` (`src/keyboard.c:4053-4087`).
+    /// A nil event is logged as `nil`; ASCII printable characters
+    /// are written as themselves; other events are formatted via
+    /// the standard event-to-string fallback. The dribble is
+    /// flushed after every event so a crash leaves a complete
+    /// record on disk.
+    pub fn dribble_event(&mut self, event: Value) {
+        let Some(file) = self.dribble.as_mut() else {
+            return;
+        };
+        use std::io::Write;
+        if let Some(ch) = event.as_fixnum() {
+            if (32..127).contains(&ch) {
+                let _ = write!(file, "{}", ch as u8 as char);
+                let _ = file.flush();
+                return;
+            }
+            let _ = write!(file, " 0x{:x}", ch);
+            let _ = file.flush();
+            return;
+        }
+        let _ = write!(file, " {}", event);
+        let _ = file.flush();
     }
 
     pub fn set_terminal_translation_maps(
@@ -923,6 +985,11 @@ impl KBoard {
         if self.recent_input_events.len() > crate::emacs_core::eval::RECENT_INPUT_EVENT_LIMIT {
             self.recent_input_events.remove(0);
         }
+        // GNU `kbd_buffer_get_event` writes every read event to
+        // the dribble file (if open). Mirroring that here at the
+        // canonical lossage-ring entry point captures every event
+        // that flows through the keyboard module.
+        self.dribble_event(event);
     }
 
     pub fn recent_input_events(&self) -> &[Value] {

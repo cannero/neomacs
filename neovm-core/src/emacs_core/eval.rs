@@ -2417,6 +2417,11 @@ impl Context {
             super::builtins_extra::operating_system_release_value(),
         );
         obarray.set_symbol_value("delayed-warnings-list", Value::NIL);
+        // GNU `keyboard.c:14070` (`DEFVAR_LISP ("delayed-warnings-hook", ...)`)
+        // — Lisp callers `display-warning` etc. expect this symbol
+        // to exist as a hook list. Keyboard audit Finding 17 in
+        // `drafts/keyboard-command-loop-audit.md`.
+        obarray.set_symbol_value("delayed-warnings-hook", Value::NIL);
         obarray.set_symbol_value(
             "command-line-ns-option-alist",
             Value::list(vec![Value::list(vec![
@@ -4605,8 +4610,15 @@ impl Context {
                 return Ok(Value::NIL);
             }
 
-            // Transfer prefix-arg → current-prefix-arg before each command
-            // (mirrors keyboard.c command_loop_1 logic).
+            // Transfer prefix-arg → current-prefix-arg, saving the
+            // outgoing current-prefix-arg into last-prefix-arg
+            // first. Mirrors GNU `keyboard.c:1329`:
+            //
+            //   Vlast_prefix_arg = Vcurrent_prefix_arg;
+            //
+            // Keyboard audit Finding 15.
+            let outgoing_prefix_arg = self.eval_symbol("current-prefix-arg").unwrap_or(Value::NIL);
+            self.assign("last-prefix-arg", outgoing_prefix_arg);
             let prefix_arg = self.eval_symbol("prefix-arg").unwrap_or(Value::NIL);
             self.assign("current-prefix-arg", prefix_arg);
             self.assign("prefix-arg", Value::NIL);
@@ -4627,9 +4639,50 @@ impl Context {
                 continue;
             }
 
-            // Set this-command, last-command-event, this-command-keys
+            // Set this-command, real-this-command, last-command-event,
+            // this-command-keys. Mirrors GNU `keyboard.c:1336-1353`:
+            //
+            //   Vreal_last_command = KVAR (current_kboard, Vreal_last_command);
+            //   Vreal_this_command = cmd;
+            //   /* Now do the remap. */
+            //   cmd = Fcommand_remapping (cmd, Qnil, Qnil);
+            //   ...
+            //   Vthis_command = cmd;
+            //   if (NILP (Vthis_original_command))
+            //     Vthis_original_command = cmd;
+            //
+            // Keyboard audit Findings 1, 2, 3, 4 in
+            // `drafts/keyboard-command-loop-audit.md`.
             tracing::info!("command_loop_1: dispatching binding={}", binding);
-            self.assign("this-command", binding);
+
+            // Snapshot the previous this-command into real-last-command
+            // before we overwrite (Finding 3 — GNU
+            // `keyboard.c:1336-1339`).
+            let previous_this_command =
+                self.eval_symbol("this-command").unwrap_or(Value::NIL);
+            self.assign("real-last-command", previous_this_command);
+
+            // The unmapped command (real-this-command) is the binding
+            // we read from the keymap, before any remapping is applied.
+            self.assign("real-this-command", binding);
+
+            // Apply command remapping per GNU
+            // `keyboard.c:1340-1343`. The remapped command becomes
+            // this-command for execution. Finding 4.
+            let remapped = self.command_remapping_for_loop(binding);
+            self.assign("this-command", remapped);
+
+            // Finding 2: this-original-command stays at the original
+            // (pre-remap) command for the duration of the iteration
+            // unless a pre-command-hook explicitly cleared it.
+            if self
+                .eval_symbol("this-original-command")
+                .unwrap_or(Value::NIL)
+                .is_nil()
+            {
+                self.assign("this-original-command", binding);
+            }
+
             if let Some(last) = keys.last() {
                 self.assign("last-command-event", *last);
             }
@@ -4640,11 +4693,18 @@ impl Context {
                 self.active_minibuffer_window
             );
 
-            // Run pre-command-hook
-            let _ = self.run_hook_if_bound("pre-command-hook");
+            // Run pre-command-hook via safe-run-hooks so a broken
+            // hook function is removed instead of re-firing on every
+            // command. Finding 7 — GNU `keyboard.c:1361`
+            // (`safe_run_hooks (Qpre_command_hook)`).
+            self.safe_run_hook_if_bound("pre-command-hook");
 
-            // Execute the Lisp-owned command-execute function like GNU Emacs.
-            let exec_result = self.apply(Value::symbol("command-execute"), vec![binding]);
+            // Execute the command. Finding 13: GNU calls
+            // `Fcall_interactively` directly from the loop. We do
+            // the same by routing through the call-interactively
+            // builtin instead of the Lisp-side command-execute
+            // wrapper.
+            let exec_result = self.dispatch_command_in_loop(binding);
 
             if let Err(ref flow) = exec_result {
                 match flow {
@@ -4673,14 +4733,41 @@ impl Context {
                 }
             }
 
-            // Update last-command
+            // Update last-command (GNU `keyboard.c:1473`).
             if let Ok(this_cmd) = self.eval_symbol("this-command") {
                 self.assign("last-command", this_cmd);
             }
 
-            // Run post-command-hook
-            let _ = self.run_hook_if_bound("post-command-hook");
+            // Update last-repeatable-command per GNU
+            // `keyboard.c:1467-1470`. Finding 3.
+            //
+            //   KVAR (current_kboard, Vlast_repeatable_command)
+            //     = (EQ (Vreal_this_command, Qself_insert_command)
+            //        ? Vreal_last_command
+            //        : Vreal_this_command);
+            let real_this = self.eval_symbol("real-this-command").unwrap_or(Value::NIL);
+            let is_self_insert = real_this
+                .as_symbol_name()
+                .is_some_and(|n| n == "self-insert-command");
+            let last_repeatable = if is_self_insert {
+                self.eval_symbol("real-last-command").unwrap_or(Value::NIL)
+            } else {
+                real_this
+            };
+            self.assign("last-repeatable-command", last_repeatable);
+
+            // GNU runs deactivate-mark handling BEFORE
+            // post-command-hook (`keyboard.c:1471-1484`), so the
+            // hook sees the post-deactivate state. Finding 14.
             let _ = self.update_active_region_selection_after_command();
+
+            // Run post-command-hook via safe-run-hooks (Finding 7).
+            self.safe_run_hook_if_bound("post-command-hook");
+
+            // Reset this-original-command for the next iteration so
+            // a fresh command starts the cycle clean (mirroring
+            // GNU's clear at the bottom of command_loop_1).
+            self.assign("this-original-command", Value::NIL);
 
             if exec_result.is_ok()
                 && self.command_loop.keyboard.kboard.defining_kbd_macro
@@ -4691,6 +4778,62 @@ impl Context {
             {
                 self.finalize_kbd_macro_runtime_chars();
             }
+        }
+    }
+
+    /// Apply `command-remapping` for the command-loop dispatch
+    /// path. Mirrors GNU `keyboard.c:1340-1343` calling
+    /// `Fcommand_remapping (cmd, Qnil, Qnil)` and substituting the
+    /// result when non-nil. Keyboard audit Finding 4.
+    fn command_remapping_for_loop(&mut self, command: Value) -> Value {
+        if command.is_nil() {
+            return command;
+        }
+        match self.apply(Value::symbol("command-remapping"), vec![command]) {
+            Ok(remapped) if !remapped.is_nil() => remapped,
+            _ => command,
+        }
+    }
+
+    /// Dispatch the current `this-command` via `call-interactively`,
+    /// matching GNU's direct `Fcall_interactively (cmd, ...)` call
+    /// at `keyboard.c:1449-1457`.
+    ///
+    /// Routing through the Rust builtin (instead of the Lisp
+    /// `command-execute` wrapper) removes a layer of indirection
+    /// and prevents user-side advice on `command-execute` from
+    /// silently changing command-loop behavior. Keyboard audit
+    /// Finding 13.
+    fn dispatch_command_in_loop(&mut self, command: Value) -> EvalResult {
+        // Re-resolve `this-command` from the obarray so a
+        // pre-command-hook that mutated the symbol takes effect.
+        let cmd = self.eval_symbol("this-command").unwrap_or(command);
+        if cmd.is_nil() {
+            return Ok(Value::NIL);
+        }
+        // GNU `Fcall_interactively (cmd, Qnil, Qnil)` —
+        // `record-flag = nil`, `keys = nil`. The first arg is the
+        // command, the optional record-flag selects whether to
+        // record into command-history.
+        self.apply(Value::symbol("call-interactively"), vec![cmd])
+    }
+
+    /// Run a hook with `safe-run-hooks` semantics: each hook
+    /// function is wrapped in a `condition-case` so a broken
+    /// function is removed from the hook instead of re-firing on
+    /// every subsequent command. Mirrors GNU
+    /// `safe_run_hooks (Qhook_name)` at
+    /// `src/keyboard.c:1361,1485` and `src/eval.c:2779-2830`.
+    /// Keyboard audit Finding 7.
+    fn safe_run_hook_if_bound(&mut self, hook_name: &str) {
+        match self.eval_symbol(hook_name) {
+            Ok(hook_val) if !hook_val.is_nil() => {
+                let _ = self.apply(
+                    Value::symbol("safe-run-hooks"),
+                    vec![Value::symbol(hook_name)],
+                );
+            }
+            _ => {}
         }
     }
 

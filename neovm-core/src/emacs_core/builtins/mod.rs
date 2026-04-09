@@ -3118,6 +3118,17 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         1,
         Some(1),
     );
+    // Keyboard audit Finding 16: register insert-special-event
+    // (mirrors GNU `Finsert_special_event` at
+    // `src/keyboard.c:12060`). Routes to the same unread queue
+    // helper as `unread-command-events`, since neomacs treats
+    // every Lisp-side event push the same way.
+    ctx.defsubr(
+        "insert-special-event",
+        super::reader::builtin_insert_special_event,
+        1,
+        Some(1),
+    );
     ctx.defsubr(
         "read-key-sequence",
         super::reader::builtin_read_key_sequence,
@@ -5150,12 +5161,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         1,
         Some(1),
     );
-    ctx.defsubr(
-        "open-dribble-file",
-        |_ctx, args| builtin_open_dribble_file(args),
-        1,
-        Some(1),
-    );
+    ctx.defsubr("open-dribble-file", builtin_open_dribble_file, 1, Some(1));
     ctx.defsubr(
         "open-font",
         |_ctx, args| builtin_open_font(args),
