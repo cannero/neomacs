@@ -4655,17 +4655,26 @@ fn pure_dispatch_reconsider_redirect_placeholders_match_compat_contracts() {
         .expect("builtin remove-pos-from-symbol should evaluate");
     assert_eq!(remove_pos, Value::symbol("x"));
 
-    let resize_mini =
+    // Wrong-type argument (not a window) → wrong-type-argument signal.
+    let resize_mini_bad_type =
+        dispatch_builtin_pure("resize-mini-window-internal", vec![Value::fixnum(42)])
+            .expect("builtin resize-mini-window-internal should resolve")
+            .expect_err("resize-mini-window-internal should reject non-window args");
+    match resize_mini_bad_type {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "wrong-type-argument");
+        }
+        other => panic!("expected signal, got: {other:?}"),
+    }
+    // Valid window handle but no frame in the bare context → "Window not found".
+    let resize_mini_no_frame =
         dispatch_builtin_pure("resize-mini-window-internal", vec![Value::make_window(1)])
             .expect("builtin resize-mini-window-internal should resolve")
-            .expect_err("resize-mini-window-internal should reject non-minibuffer windows");
-    match resize_mini {
+            .expect_err("resize-mini-window-internal should signal when window has no frame");
+    match resize_mini_no_frame {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "error");
-            assert_eq!(
-                sig.data,
-                vec![Value::string("Not a valid minibuffer window")]
-            );
+            assert_eq!(sig.data, vec![Value::string("Window not found")]);
         }
         other => panic!("expected signal, got: {other:?}"),
     }

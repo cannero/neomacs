@@ -5327,7 +5327,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "resize-mini-window-internal",
-        |_ctx, args| super::window_cmds::builtin_resize_mini_window_internal(args),
+        super::window_cmds::builtin_resize_mini_window_internal,
         1,
         Some(1),
     );

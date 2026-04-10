@@ -2200,26 +2200,30 @@ pub(crate) fn builtin_remove_pos_from_symbol(args: Vec<Value>) -> EvalResult {
     Ok(args[0])
 }
 
-pub(crate) fn builtin_resize_mini_window_internal(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_resize_mini_window_internal(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("resize-mini-window-internal", &args, 1)?;
-    match args[0].kind() {
-        ValueKind::Veclike(VecLikeType::Window)
-            if args[0].as_window_id().unwrap() >= crate::window::MINIBUFFER_WINDOW_ID_BASE =>
-        {
-            Err(signal(
-                "error",
-                vec![Value::string("Cannot resize mini window")],
-            ))
-        }
-        ValueKind::Veclike(VecLikeType::Window) => Err(signal(
-            "error",
-            vec![Value::string("Not a valid minibuffer window")],
-        )),
-        _ => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("window-live-p"), args[0]],
-        )),
+    let wid = args[0]
+        .as_window_id()
+        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("window-live-p"), args[0]]))?;
+    let window_id = crate::window::WindowId(wid);
+    let fid = eval
+        .frames
+        .find_window_frame_id(window_id)
+        .ok_or_else(|| signal("error", vec![Value::string("Window not found")]))?;
+    let frame = eval
+        .frames
+        .get(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    if frame.minibuffer_window != Some(window_id) {
+        return Err(signal("error", vec![Value::string("Not a minibuffer window")]));
     }
+    // The layout engine drives the actual resize via
+    // grow_mini_window/shrink_mini_window during redisplay.
+    // This Lisp-callable entry point acknowledges the request.
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_restore_buffer_modified_p(args: Vec<Value>) -> EvalResult {
