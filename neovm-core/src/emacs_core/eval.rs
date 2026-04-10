@@ -3675,6 +3675,40 @@ impl Context {
             }
         }
 
+        // -----------------------------------------------------------------
+        // C-level DEFVAR registrations: mirrors GNU's syms_of_*() functions.
+        //
+        // GNU Emacs declares hundreds of C-backed Lisp variables via
+        // DEFVAR_LISP / DEFVAR_BOOL / DEFVAR_INT in its src/*.c files.
+        // Each becomes a globally-visible symbol with a default value.
+        // Elisp code reads/writes them freely; many are let-bound in
+        // standard .el files during bootstrap and normal operation.
+        //
+        // If a variable is declared via DEFVAR in GNU's C code, it
+        // MUST be registered here. Otherwise any elisp code that
+        // reads or let-binds it will get void-variable.
+        // -----------------------------------------------------------------
+
+        // --- src/search.c: syms_of_search ---
+        // DEFVAR_LISP, default nil. Let-bound extensively in subr.el,
+        // custom.el, widget.el, mule.el, etc. to freeze match data
+        // during internal string-match calls.
+        obarray.set_symbol_value("inhibit-changing-match-data", Value::NIL);
+        obarray.make_special("inhibit-changing-match-data");
+
+        // --- src/casefiddle.c: syms_of_casefiddle ---
+        // DEFVAR_BOOL + Fmake_variable_buffer_local, default 0 (nil).
+        // Checked by case-conversion functions. Buffer-local via
+        // make-variable-buffer-local (NOT defvar_per_buffer).
+        obarray.set_symbol_value("case-symbols-as-words", Value::NIL);
+        obarray.make_special("case-symbols-as-words");
+        custom.make_variable_buffer_local("case-symbols-as-words");
+
+        // --- src/emacs.c: syms_of_emacs ---
+        // DEFVAR_LISP, default nil. Run by kill-emacs.
+        obarray.set_symbol_value("kill-emacs-hook", Value::NIL);
+        obarray.make_special("kill-emacs-hook");
+
         let mut command_loop = crate::keyboard::CommandLoop::new();
         command_loop
             .keyboard
