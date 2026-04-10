@@ -2995,31 +2995,14 @@ impl Context {
                 ]),
             ]),
         );
-        obarray.set_symbol_value(
-            "completion-styles-alist",
-            Value::list(vec![
-                Value::list(vec![
-                    Value::symbol("basic"),
-                    Value::symbol("completion-basic-try-completion"),
-                    Value::symbol("completion-basic-all-completions"),
-                    Value::string(
-                        "Completion of the prefix before point and the suffix after point.",
-                    ),
-                ]),
-                Value::list(vec![
-                    Value::symbol("partial-completion"),
-                    Value::symbol("completion-pcm-try-completion"),
-                    Value::symbol("completion-pcm-all-completions"),
-                    Value::string("Completion of multiple words, each one taken as a prefix."),
-                ]),
-                Value::list(vec![
-                    Value::symbol("emacs22"),
-                    Value::symbol("completion-emacs22-try-completion"),
-                    Value::symbol("completion-emacs22-all-completions"),
-                    Value::string("Prefix completion that only operates on the text before point."),
-                ]),
-            ]),
-        );
+        // Do NOT hardcode completion-styles-alist here.
+        // GNU defines it via (defvar completion-styles-alist ...)
+        // in lisp/minibuffer.el:1158 with all 8 styles including
+        // flex, substring, initials, shorthand. defvar only sets
+        // the value when the symbol is void, so pre-setting it
+        // here would shadow the Lisp definition and lose styles
+        // like flex — breaking fido-vertical-mode which requires
+        // the flex completion style.
         obarray.set_symbol_value("completion-category-overrides", Value::NIL);
         obarray.set_symbol_value("completion-cycle-threshold", Value::NIL);
         obarray.set_symbol_value("completions-detailed", Value::NIL);
