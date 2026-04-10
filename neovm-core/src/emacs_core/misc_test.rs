@@ -270,27 +270,26 @@ fn string_to_multibyte_identity() {
 #[test]
 fn string_to_multibyte_converts_unibyte_high_bytes_to_raw_byte_chars() {
     crate::test_utils::init_test_tracing();
-    let mut s = String::new();
-    s.push(char::from_u32(0xE3FF).expect("valid unibyte sentinel"));
-    let result = builtin_string_to_multibyte(vec![Value::string(s)]).unwrap();
-    let out = result.as_str().unwrap();
-    assert_eq!(string_escape::storage_byte_len(out), 2);
-    assert_eq!(
-        string_escape::decode_storage_char_codes(out),
-        vec![0x3FFFFF]
-    );
+    // Create a unibyte string with byte 0xFF
+    let v = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let result = builtin_string_to_multibyte(vec![v]).unwrap();
+    let ls = result.as_lisp_string().unwrap();
+    assert!(ls.is_multibyte());
+    assert_eq!(ls.sbytes(), 2); // raw byte 0xFF -> 2-byte overlong
+    assert_eq!(ls.schars(), 1);
+    // Decode: should be 0x3FFFFF (byte8_to_char(0xFF))
+    let codes: Vec<u32> = crate::emacs_core::builtins::lisp_string_char_codes(ls);
+    assert_eq!(codes, vec![0x3FFFFF]);
 }
 
 #[test]
 fn string_to_unibyte_ascii_storage() {
     crate::test_utils::init_test_tracing();
     let result = builtin_string_to_unibyte(vec![Value::string("world")]).unwrap();
-    let s = result.as_str().unwrap();
-    assert_eq!(string_escape::storage_byte_len(s), 5);
-    assert_eq!(
-        string_escape::decode_storage_char_codes(s),
-        vec![119, 111, 114, 108, 100]
-    );
+    let ls = result.as_lisp_string().unwrap();
+    assert!(!ls.is_multibyte());
+    assert_eq!(ls.sbytes(), 5);
+    assert_eq!(ls.as_bytes(), b"world");
 }
 
 #[test]
@@ -314,44 +313,45 @@ fn string_to_unibyte_rejects_unicode_scalar() {
 #[test]
 fn string_to_unibyte_preserves_existing_unibyte_storage() {
     crate::test_utils::init_test_tracing();
-    let mut s = String::new();
-    s.push(char::from_u32(0xE3FF).expect("valid unibyte sentinel"));
-    let result = builtin_string_to_unibyte(vec![Value::string(s)]).unwrap();
-    let out = result.as_str().unwrap();
-    assert_eq!(string_escape::storage_byte_len(out), 1);
-    assert_eq!(string_escape::decode_storage_char_codes(out), vec![255]);
+    // Create a unibyte string with byte 0xFF
+    let v = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let result = builtin_string_to_unibyte(vec![v]).unwrap();
+    let ls = result.as_lisp_string().unwrap();
+    assert!(!ls.is_multibyte());
+    assert_eq!(ls.sbytes(), 1);
+    assert_eq!(ls.as_bytes(), &[0xFF]);
 }
 
 #[test]
 fn string_as_unibyte_utf8_bytes_for_unicode() {
     crate::test_utils::init_test_tracing();
     let result = builtin_string_as_unibyte(vec![Value::string("é")]).unwrap();
-    let s = result.as_str().unwrap();
-    assert_eq!(string_escape::storage_byte_len(s), 2);
-    assert_eq!(string_escape::decode_storage_char_codes(s), vec![195, 169]);
+    let ls = result.as_lisp_string().unwrap();
+    assert!(!ls.is_multibyte());
+    assert_eq!(ls.sbytes(), 2);
+    assert_eq!(ls.as_bytes(), &[0xC3, 0xA9]); // UTF-8 encoding of é
 }
 
 #[test]
 fn string_as_unibyte_ascii_passthrough_bytes() {
     crate::test_utils::init_test_tracing();
     let result = builtin_string_as_unibyte(vec![Value::string("test")]).unwrap();
-    let s = result.as_str().unwrap();
-    assert_eq!(string_escape::storage_byte_len(s), 4);
-    assert_eq!(
-        string_escape::decode_storage_char_codes(s),
-        vec![116, 101, 115, 116]
-    );
+    let ls = result.as_lisp_string().unwrap();
+    assert!(!ls.is_multibyte());
+    assert_eq!(ls.sbytes(), 4);
+    assert_eq!(ls.as_bytes(), b"test");
 }
 
 #[test]
 fn string_as_unibyte_preserves_unibyte_storage_bytes() {
     crate::test_utils::init_test_tracing();
-    let mut s = String::new();
-    s.push(char::from_u32(0xE3FF).expect("valid unibyte sentinel"));
-    let result = builtin_string_as_unibyte(vec![Value::string(s)]).unwrap();
-    let out = result.as_str().unwrap();
-    assert_eq!(string_escape::storage_byte_len(out), 1);
-    assert_eq!(string_escape::decode_storage_char_codes(out), vec![255]);
+    // Create a unibyte string with byte 0xFF
+    let v = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let result = builtin_string_as_unibyte(vec![v]).unwrap();
+    let ls = result.as_lisp_string().unwrap();
+    assert!(!ls.is_multibyte());
+    assert_eq!(ls.sbytes(), 1);
+    assert_eq!(ls.as_bytes(), &[0xFF]);
 }
 
 #[test]
@@ -365,15 +365,14 @@ fn string_as_multibyte_identity_for_multibyte_input() {
 #[test]
 fn string_as_multibyte_converts_unibyte_high_bytes_to_raw_byte_chars() {
     crate::test_utils::init_test_tracing();
-    let mut s = String::new();
-    s.push(char::from_u32(0xE3FF).expect("valid unibyte sentinel"));
-    let result = builtin_string_as_multibyte(vec![Value::string(s)]).unwrap();
-    let out = result.as_str().unwrap();
-    assert_eq!(string_escape::storage_byte_len(out), 2);
-    assert_eq!(
-        string_escape::decode_storage_char_codes(out),
-        vec![0x3FFFFF]
-    );
+    // Create a unibyte string with byte 0xFF
+    let v = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let result = builtin_string_as_multibyte(vec![v]).unwrap();
+    let ls = result.as_lisp_string().unwrap();
+    assert!(ls.is_multibyte());
+    assert_eq!(ls.sbytes(), 2); // raw byte 0xFF -> 2-byte overlong
+    let codes: Vec<u32> = crate::emacs_core::builtins::lisp_string_char_codes(ls);
+    assert_eq!(codes, vec![0x3FFFFF]);
 }
 
 // ----- char encoding conversions -----

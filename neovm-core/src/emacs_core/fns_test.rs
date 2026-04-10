@@ -611,14 +611,11 @@ fn secure_hash_binary_string_uses_unibyte_storage() {
     )
     .unwrap();
 
-    let s = r
-        .as_str()
+    let ls = r
+        .as_lisp_string()
         .expect("binary secure-hash should return a string");
-    assert_eq!(string_escape::storage_byte_len(s), 20);
-    assert_eq!(
-        string_escape::decode_storage_char_codes(s).first(),
-        Some(&169)
-    );
+    assert_eq!(ls.sbytes(), 20);
+    assert_eq!(ls.as_bytes().first(), Some(&169u8));
 
     let printed = print::print_value_bytes(&r);
     assert_eq!(printed.first(), Some(&b'"'));
@@ -878,34 +875,31 @@ fn string_make_multibyte_passthrough_ascii() {
 #[test]
 fn string_make_multibyte_promotes_unibyte_byte() {
     crate::test_utils::init_test_tracing();
-    let r = builtin_string_make_multibyte(vec![Value::string(bytes_to_unibyte_storage_string(&[
-        0xFF,
-    ]))])
-    .unwrap();
-    assert_eq!(
-        string_escape::decode_storage_char_codes(r.as_str().unwrap()),
-        vec![0x3FFFFF]
-    );
+    let v = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let r = builtin_string_make_multibyte(vec![v]).unwrap();
+    let ls = r.as_lisp_string().unwrap();
+    assert!(ls.is_multibyte());
+    let codes: Vec<u32> = crate::emacs_core::builtins::lisp_string_char_codes(ls);
+    assert_eq!(codes, vec![0x3FFFFF]);
 }
 
 #[test]
 fn string_make_unibyte_passthrough_ascii() {
     crate::test_utils::init_test_tracing();
     let r = builtin_string_make_unibyte(vec![Value::string("abc")]).unwrap();
-    assert_eq!(
-        string_escape::decode_storage_char_codes(r.as_str().unwrap()),
-        vec![97, 98, 99]
-    );
+    let ls = r.as_lisp_string().unwrap();
+    assert!(!ls.is_multibyte());
+    assert_eq!(ls.as_bytes(), b"abc");
 }
 
 #[test]
 fn string_make_unibyte_truncates_unicode_char_code() {
     crate::test_utils::init_test_tracing();
     let r = builtin_string_make_unibyte(vec![Value::string("😀")]).unwrap();
-    assert_eq!(
-        string_escape::decode_storage_char_codes(r.as_str().unwrap()),
-        vec![0]
-    );
+    let ls = r.as_lisp_string().unwrap();
+    assert!(!ls.is_multibyte());
+    // 😀 is U+1F600, truncated to byte: low byte is 0x00
+    assert_eq!(ls.as_bytes(), &[0]);
 }
 
 // ---- compare-strings ----

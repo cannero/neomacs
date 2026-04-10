@@ -7,17 +7,14 @@
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
-use super::string_escape::{
-    bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage,
-};
+// bytes_to_unibyte_storage_string and encode_nonunicode_char_for_storage
+// imports removed — using emacs_char + LispString directly
 use super::value::*;
 use crate::buffer::BufferManager;
 use sha1::Sha1;
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 
-const UNIBYTE_BYTE_SENTINEL_BASE: u32 = 0xE300;
-const UNIBYTE_BYTE_SENTINEL_MIN: u32 = 0xE300;
-const UNIBYTE_BYTE_SENTINEL_MAX: u32 = 0xE3FF;
+// Sentinel constants removed — no longer needed with Vec<u8> LispString
 
 // ---------------------------------------------------------------------------
 // Argument helpers
@@ -732,8 +729,8 @@ fn invalid_object_payload(val: &Value) -> Value {
     }
 }
 
-fn bytes_to_lisp_binary_string(bytes: &[u8]) -> String {
-    bytes_to_unibyte_storage_string(bytes)
+fn bytes_to_lisp_binary_value(bytes: &[u8]) -> Value {
+    Value::heap_string(crate::heap_types::LispString::from_unibyte(bytes.to_vec()))
 }
 
 fn hash_slice_for_string(
@@ -845,7 +842,7 @@ pub(crate) fn builtin_secure_hash(eval: &mut super::eval::Context, args: Vec<Val
     let digest = secure_hash_digest_bytes(&algo_name, &input)?;
     let binary = args.get(4).is_some_and(|v| v.is_truthy());
     if binary {
-        Ok(Value::string(bytes_to_lisp_binary_string(&digest)))
+        Ok(bytes_to_lisp_binary_value(&digest))
     } else {
         Ok(Value::string(bytes_to_hex(&digest)))
     }
@@ -1032,34 +1029,24 @@ pub(crate) fn builtin_widget_apply(
 
 /// (string-make-multibyte STRING) -- convert unibyte storage bytes to multibyte chars.
 pub(crate) fn builtin_string_make_multibyte(args: Vec<Value>) -> EvalResult {
+    use crate::emacs_core::emacs_char;
     expect_args("string-make-multibyte", &args, 1)?;
-    match args[0].kind() {
-        ValueKind::String => {
-            let s = args[0].as_str().unwrap().to_owned();
-            let mut out = String::with_capacity(s.len());
-            for ch in s.chars() {
-                let cp = ch as u32;
-                if (UNIBYTE_BYTE_SENTINEL_MIN..=UNIBYTE_BYTE_SENTINEL_MAX).contains(&cp) {
-                    let byte = cp - UNIBYTE_BYTE_SENTINEL_BASE;
-                    if byte <= 0x7F {
-                        out.push(char::from_u32(byte).expect("ascii scalar"));
-                    } else {
-                        let raw_code = 0x3FFF00 + byte;
-                        let encoded = encode_nonunicode_char_for_storage(raw_code)
-                            .expect("raw-byte code should be encodable");
-                        out.push_str(&encoded);
-                    }
-                    continue;
-                }
-                out.push(ch);
-            }
-            Ok(Value::multibyte_string(out))
-        }
-        _ => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("stringp"), args[0]],
-        )),
+    let ls = args[0]
+        .as_lisp_string()
+        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]]))?;
+    if ls.is_multibyte() {
+        return Ok(args[0]);
     }
+    // Unibyte -> multibyte: each byte 0x80..0xFF becomes a raw-byte char.
+    let src = ls.as_bytes();
+    let mut out = Vec::with_capacity(src.len() * 2);
+    for &b in src {
+        let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+        let c = emacs_char::byte8_to_char(b);
+        let len = emacs_char::char_string(c, &mut buf);
+        out.extend_from_slice(&buf[..len]);
+    }
+    Ok(Value::heap_string(crate::heap_types::LispString::from_emacs_bytes(out)))
 }
 
 /// (string-make-unibyte STRING) -- convert each character code to a single byte.

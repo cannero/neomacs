@@ -10,11 +10,11 @@
 //! bool-vector literals, byte-code literals, read labels (#N= / #N#),
 //! radix integers (#x, #o, #b), propertized strings, reader skip (#@N).
 
-use super::emacs_char;
 use super::eval::{push_scratch_gc_root, restore_scratch_gc_roots, save_scratch_gc_roots};
 use super::intern::{intern, intern_uninterned, resolve_sym};
-use super::string_escape::{bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage};
-use crate::heap_types::LispString;
+// bytes_to_unibyte_storage_string and encode_nonunicode_char_for_storage
+// imports removed — using emacs_char + Vec<u8> directly
+use super::emacs_char;
 use std::cell::RefCell;
 
 thread_local! {
@@ -317,37 +317,41 @@ impl<'a> Reader<'a> {
 
     fn read_string(&mut self) -> Result<Value, ReadError> {
         self.expect('"')?;
-        let mut s = String::new();
+        let mut buf = Vec::new();
         loop {
             let Some(ch) = self.current() else {
                 return Err(self.error("unterminated string"));
             };
             self.bump();
             match ch {
-                '"' => return Ok(latin1_aware_string_value(s)),
+                '"' => {
+                    return Ok(Value::heap_string(
+                        maybe_recombine_latin1_emacs(buf),
+                    ));
+                }
                 '\\' => {
                     let Some(esc) = self.current() else {
                         return Err(self.error("unterminated escape in string"));
                     };
                     self.bump();
                     match esc {
-                        'n' => s.push('\n'),
-                        'r' => s.push('\r'),
-                        't' => s.push('\t'),
-                        '\\' => s.push('\\'),
-                        '"' => s.push('"'),
-                        'a' => s.push('\x07'), // bell
-                        'b' => s.push('\x08'), // backspace
-                        'f' => s.push('\x0C'), // form feed
-                        'e' => s.push('\x1B'), // escape
-                        'v' => s.push('\x0B'), // vertical tab
+                        'n' => buf.push(b'\n'),
+                        'r' => buf.push(b'\r'),
+                        't' => buf.push(b'\t'),
+                        '\\' => buf.push(b'\\'),
+                        '"' => buf.push(b'"'),
+                        'a' => buf.push(0x07), // bell
+                        'b' => buf.push(0x08), // backspace
+                        'f' => buf.push(0x0C), // form feed
+                        'e' => buf.push(0x1B), // escape
+                        'v' => buf.push(0x0B), // vertical tab
                         // Modifier escapes in strings
                         's' if self.current() == Some('-') => {
                             self.bump(); // consume '-'
                             let val = self.parse_string_char_value(1 << 23)?;
-                            Self::push_modified_char(&mut s, val);
+                            Self::push_modified_char_bytes(&mut buf, val);
                         }
-                        's' => s.push(' '), // space
+                        's' => buf.push(b' '), // space
                         'C' if self.current() == Some('-') => {
                             self.bump(); // consume '-'
                             let base = self.parse_string_char_value(0)?;
@@ -362,37 +366,35 @@ impl<'a> Reader<'a> {
                             } else {
                                 base_char | mods | (1u32 << 26)
                             };
-                            Self::push_modified_char(&mut s, result);
+                            Self::push_modified_char_bytes(&mut buf, result);
                         }
                         'M' if self.current() == Some('-') => {
                             self.bump(); // consume '-'
                             let val = self.parse_string_char_value(1 << 27)?;
-                            Self::push_modified_char(&mut s, val);
+                            Self::push_modified_char_bytes(&mut buf, val);
                         }
                         'S' if self.current() == Some('-') => {
                             self.bump(); // consume '-'
                             let val = self.parse_string_char_value(1 << 25)?;
-                            Self::push_modified_char(&mut s, val);
+                            Self::push_modified_char_bytes(&mut buf, val);
                         }
                         'A' if self.current() == Some('-') => {
                             self.bump(); // consume '-'
                             let val = self.parse_string_char_value(1 << 22)?;
-                            Self::push_modified_char(&mut s, val);
+                            Self::push_modified_char_bytes(&mut buf, val);
                         }
                         'H' if self.current() == Some('-') => {
                             self.bump(); // consume '-'
                             let val = self.parse_string_char_value(1 << 24)?;
-                            Self::push_modified_char(&mut s, val);
+                            Self::push_modified_char_bytes(&mut buf, val);
                         }
-                        'd' => s.push('\x7F'), // delete
+                        'd' => buf.push(0x7F), // delete
                         'x' => {
-                            let (hex, digit_count) = self.read_hex_digits()?;
-                            if digit_count < 3 && (0x80..0x100).contains(&hex) {
-                                s.push_str(&bytes_to_unibyte_storage_string(&[hex as u8]));
-                            } else if let Some(c) = char::from_u32(hex) {
-                                s.push(c);
-                            } else if hex <= 0x3FFFFF {
-                                Self::push_emacs_extended_char(&mut s, hex);
+                            let (hex, _digit_count) = self.read_hex_digits()?;
+                            if hex <= emacs_char::MAX_CHAR {
+                                let mut tmp = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+                                let len = emacs_char::char_string(hex, &mut tmp);
+                                buf.extend_from_slice(&tmp[..len]);
                             } else {
                                 return Err(self.error(
                                     "invalid codepoint in \\x escape (exceeds Emacs 22-bit limit)",
@@ -401,16 +403,16 @@ impl<'a> Reader<'a> {
                         }
                         'u' => {
                             let hex = self.read_fixed_hex(4)?;
-                            if let Some(c) = char::from_u32(hex) {
-                                s.push(c);
-                            } else {
-                                return Err(self.error("invalid unicode codepoint in \\u escape"));
-                            }
+                            let mut tmp = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+                            let len = emacs_char::char_string(hex, &mut tmp);
+                            buf.extend_from_slice(&tmp[..len]);
                         }
                         'U' => {
                             let hex = self.read_fixed_hex(8)?;
-                            if let Some(c) = char::from_u32(hex) {
-                                s.push(c);
+                            if hex <= emacs_char::MAX_CHAR {
+                                let mut tmp = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+                                let len = emacs_char::char_string(hex, &mut tmp);
+                                buf.extend_from_slice(&tmp[..len]);
                             } else {
                                 return Err(self.error("invalid unicode codepoint in \\U escape"));
                             }
@@ -418,7 +420,8 @@ impl<'a> Reader<'a> {
                         'N' if self.current() == Some('{') => {
                             let value = self.read_unicode_name_escape()?;
                             if let Some(c) = char::from_u32(value) {
-                                s.push(c);
+                                let mut tmp = [0u8; 4];
+                                buf.extend_from_slice(c.encode_utf8(&mut tmp).as_bytes());
                             } else {
                                 return Err(self.error("invalid unicode codepoint in \\N{...}"));
                             }
@@ -435,24 +438,27 @@ impl<'a> Reader<'a> {
                                     _ => break,
                                 }
                             }
-                            if (0x80..0x100).contains(&val) {
-                                s.push_str(&bytes_to_unibyte_storage_string(&[val as u8]));
-                            } else if let Some(c) = char::from_u32(val) {
-                                s.push(c);
-                            } else if val <= 0x3FFFFF {
-                                Self::push_emacs_extended_char(&mut s, val);
+                            if val <= emacs_char::MAX_CHAR {
+                                let mut tmp = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+                                let len = emacs_char::char_string(val, &mut tmp);
+                                buf.extend_from_slice(&tmp[..len]);
                             }
                         }
                         '\n' => {
                             // Line continuation — skip newline
                         }
                         other => {
-                            // Unknown escape — keep the character
-                            s.push(other);
+                            // Unknown escape — keep the character as UTF-8
+                            let mut tmp = [0u8; 4];
+                            buf.extend_from_slice(other.encode_utf8(&mut tmp).as_bytes());
                         }
                     }
                 }
-                other => s.push(other),
+                other => {
+                    // Normal character — encode as UTF-8 (== Emacs encoding for Unicode)
+                    let mut tmp = [0u8; 4];
+                    buf.extend_from_slice(other.encode_utf8(&mut tmp).as_bytes());
+                }
             }
         }
     }
@@ -534,27 +540,21 @@ impl<'a> Reader<'a> {
         }
     }
 
-    /// Push an Emacs extended character (above Unicode U+10FFFF) into a string.
-    fn push_emacs_extended_char(s: &mut String, val: u32) {
-        if let Some(encoded) = encode_nonunicode_char_for_storage(val) {
-            s.push_str(&encoded);
-        } else if let Some(c) = char::from_u32(val) {
-            s.push(c);
-        } else {
-            s.push('\u{FFFD}');
-        }
-    }
-
-    /// Push a character value (possibly with modifier bits) into a string.
-    fn push_modified_char(s: &mut String, val: u32) {
+    /// Push a character value (possibly with modifier bits) into a byte buffer.
+    fn push_modified_char_bytes(buf: &mut Vec<u8>, val: u32) {
         let meta = val & (1 << 27) != 0;
         let base = val & !(1u32 << 27); // strip meta bit
         if meta && base < 128 {
-            s.push_str(&bytes_to_unibyte_storage_string(&[(base | 0x80) as u8]));
-        } else if let Some(c) = char::from_u32(val & 0x3FFFFF) {
-            s.push(c);
+            // Meta + ASCII: encode as raw byte (base | 0x80)
+            let mut tmp = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+            let c = emacs_char::byte8_to_char((base | 0x80) as u8);
+            let len = emacs_char::char_string(c, &mut tmp);
+            buf.extend_from_slice(&tmp[..len]);
         } else {
-            Self::push_emacs_extended_char(s, val & 0x3FFFFF);
+            let code = val & 0x3FFFFF;
+            let mut tmp = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+            let len = emacs_char::char_string(code, &mut tmp);
+            buf.extend_from_slice(&tmp[..len]);
         }
     }
 
@@ -1416,129 +1416,8 @@ fn parse_emacs_special_float(token: &str) -> Option<f64> {
 }
 
 // ---------------------------------------------------------------------------
-// Latin-1 → Emacs-internal-encoding for .elc string constants
+// Latin-1 → UTF-8 recombination for .elc string constants
 // ---------------------------------------------------------------------------
-
-// Sentinel constants from string_escape.rs (replicated here to avoid
-// re-exporting internal details).
-const UNIBYTE_BYTE_SENTINEL_BASE: u32 = 0xE300;
-const UNIBYTE_BYTE_SENTINEL_MAX: u32 = 0xE3FF;
-const RAW_BYTE_SENTINEL_BASE: u32 = 0xE000;
-const RAW_BYTE_SENTINEL_MAX: u32 = 0xE0FF;
-
-/// Build a `Value` from the string `s` accumulated by `read_string`.
-///
-/// When the reader processes `.elc` content, the file bytes have been
-/// Latin-1-expanded (`b as char`), so non-ASCII bytes 0x80–0xFF become
-/// individual Rust chars in that range.  We detect this case, convert
-/// each char back to its byte value, and then decide:
-///
-///  - If those bytes form valid UTF-8 (and are shorter after recombination),
-///    they represent a multibyte string constant → store as Emacs multibyte.
-///  - Otherwise the bytes are raw (bytecode instructions, unibyte data, etc.)
-///    → encode each 0x80–0xFF byte as an Emacs raw-byte character (2-byte
-///    overlong sequence) to produce valid Emacs-internal multibyte encoding.
-///
-/// Strings that contain only ASCII, or that have chars > U+00FF (proper
-/// Unicode from `\u`/`\U` escapes, or sentinels), go through the normal
-/// `Value::string` path.
-fn latin1_aware_string_value(s: String) -> Value {
-    // Fast path: pure ASCII — no Latin-1 high bytes, no sentinels.
-    if s.chars().all(|c| (c as u32) < 0x80) {
-        return Value::string(s);
-    }
-
-    // Check whether the string contains Latin-1 high chars (0x80–0xFF)
-    // which signal that the input came from a `.elc` loader Latin-1
-    // expansion.
-    let has_latin1_high = s.chars().any(|c| {
-        let cp = c as u32;
-        (0x80..0x100).contains(&cp)
-    });
-
-    if !has_latin1_high {
-        // No Latin-1 high bytes — the string may contain sentinels or
-        // plain Unicode.  Let the normal path handle it (sentinels will
-        // be resolved downstream when the string is consumed).
-        return Value::string(s);
-    }
-
-    // Check if every char fits in a single byte.  If any char is > U+00FF
-    // (e.g. a sentinel or true Unicode from \u escapes), we need a mixed
-    // path.
-    let all_latin1 = s.chars().all(|c| (c as u32) <= 0xFF);
-
-    if all_latin1 {
-        // All chars are 0x00–0xFF.  Convert back to raw bytes and try
-        // UTF-8 re-interpretation (like the old maybe_recombine path).
-        let raw_bytes: Vec<u8> = s.chars().map(|c| c as u8).collect();
-
-        if let Ok(decoded) = std::str::from_utf8(&raw_bytes) {
-            // Valid UTF-8 — check if recombination happened.
-            if decoded.chars().count() < s.chars().count() {
-                // Successful recombination: these bytes *are* the
-                // Emacs internal encoding (UTF-8 for Unicode codepoints).
-                return Value::heap_string(LispString::from_emacs_bytes(raw_bytes));
-            }
-            // Same char count — no multi-byte sequences were present.
-            // The raw_bytes are all single bytes, and since they include
-            // some >= 0x80, treat them as raw bytes below.
-        }
-
-        // Not valid UTF-8 or no recombination: the 0x80–0xFF bytes are
-        // genuine raw bytes (bytecode instructions, unibyte data).
-        // Encode each non-ASCII byte as an Emacs raw-byte character
-        // (2-byte overlong sequence C0/C1).
-        let mut emacs_bytes: Vec<u8> = Vec::with_capacity(raw_bytes.len() * 2);
-        let mut buf = [0u8; 5];
-        for &b in &raw_bytes {
-            if b < 0x80 {
-                emacs_bytes.push(b);
-            } else {
-                let ch = emacs_char::byte8_to_char(b);
-                let n = emacs_char::char_string(ch, &mut buf);
-                emacs_bytes.extend_from_slice(&buf[..n]);
-            }
-        }
-        return Value::heap_string(LispString::from_emacs_bytes(emacs_bytes));
-    }
-
-    // Mixed case: some chars in 0x80–0xFF AND some chars > 0xFF
-    // (sentinels from \xNN/\NNN escapes, or Unicode from \u/\U).
-    // Convert each char to its proper Emacs internal encoding.
-    let mut bytes: Vec<u8> = Vec::with_capacity(s.len() * 2);
-    let mut buf = [0u8; 5];
-    for c in s.chars() {
-        let cp = c as u32;
-        if cp < 0x80 {
-            bytes.push(cp as u8);
-        } else if cp <= 0xFF {
-            // Latin-1 high byte from .elc — encode as raw byte char.
-            let ch = emacs_char::byte8_to_char(cp as u8);
-            let n = emacs_char::char_string(ch, &mut buf);
-            bytes.extend_from_slice(&buf[..n]);
-        } else if (UNIBYTE_BYTE_SENTINEL_BASE..=UNIBYTE_BYTE_SENTINEL_MAX).contains(&cp) {
-            // Unibyte-byte sentinel from \xNN / \NNN escapes.
-            let raw = (cp - UNIBYTE_BYTE_SENTINEL_BASE) as u8;
-            let ch = emacs_char::byte8_to_char(raw);
-            let n = emacs_char::char_string(ch, &mut buf);
-            bytes.extend_from_slice(&buf[..n]);
-        } else if (RAW_BYTE_SENTINEL_BASE..=RAW_BYTE_SENTINEL_MAX).contains(&cp) {
-            // Raw-byte sentinel.
-            let raw = (cp - RAW_BYTE_SENTINEL_BASE) as u8;
-            let ch = emacs_char::byte8_to_char(raw);
-            let n = emacs_char::char_string(ch, &mut buf);
-            bytes.extend_from_slice(&buf[..n]);
-        } else {
-            // Standard Unicode char — encode as Emacs internal encoding
-            // (UTF-8 for Unicode codepoints).
-            let n = emacs_char::char_string(cp, &mut buf);
-            bytes.extend_from_slice(&buf[..n]);
-        }
-    }
-
-    Value::heap_string(LispString::from_emacs_bytes(bytes))
-}
 
 /// Re-decode a string that may contain Latin-1 codepoints (0x80–0xFF)
 /// which are actually UTF-8 byte sequences decomposed by the `.elc`
@@ -1559,49 +1438,22 @@ fn latin1_aware_string_value(s: String) -> Value {
 /// This mirrors GNU Emacs `lread.c` which reads `.elc` strings in
 /// unibyte mode and then re-encodes multibyte strings via
 /// `string_to_multibyte`.
-#[allow(dead_code)]
-fn maybe_recombine_latin1_as_utf8(s: String) -> String {
-    // Fast path: pure ASCII — nothing to recombine.
-    if s.bytes().all(|b| b < 0x80) {
-        // All chars are ASCII; no Latin-1 high bytes present.
-        // (Rust String is UTF-8, so checking bytes < 0x80 means
-        // all chars are in 0x00–0x7F.)
-        return s;
+/// Build a LispString from reader-produced bytes (Emacs internal encoding).
+///
+/// The reader produces bytes in Emacs encoding directly. For pure ASCII
+/// strings, we create multibyte (which is the same as UTF-8). If there
+/// are non-ASCII bytes, we create a multibyte LispString using
+/// `from_emacs_bytes` which correctly counts characters.
+fn maybe_recombine_latin1_emacs(data: Vec<u8>) -> crate::heap_types::LispString {
+    use crate::emacs_core::emacs_char;
+    if data.is_empty() || data.iter().all(|&b| b < 0x80) {
+        // Pure ASCII — multibyte and unibyte are identical.
+        // Use from_emacs_bytes to get correct schars.
+        return crate::heap_types::LispString::from_emacs_bytes(data);
     }
-
-    // Check if every char fits in a single byte (0x00–0xFF).
-    // If any char is > U+00FF, this wasn't a Latin-1 decomposed string —
-    // it already contains proper multibyte characters.
-    let all_latin1 = s.chars().all(|ch| (ch as u32) <= 0xFF);
-    if !all_latin1 {
-        return s;
-    }
-
-    // Convert chars back to bytes (truncate each char to u8).
-    let bytes: Vec<u8> = s.chars().map(|ch| ch as u8).collect();
-
-    // Attempt UTF-8 decode.
-    match std::str::from_utf8(&bytes) {
-        Ok(decoded) => {
-            // Valid UTF-8. If the decoded string has fewer chars,
-            // we successfully recombined multi-byte sequences.
-            let decoded_chars = decoded.chars().count();
-            let original_chars = s.chars().count();
-            if decoded_chars < original_chars {
-                decoded.to_owned()
-            } else {
-                // Same char count — no recombination happened.
-                // Keep original to avoid unnecessary allocation.
-                s
-            }
-        }
-        Err(_) => {
-            // Not valid UTF-8 — this is genuine unibyte data
-            // (bytecode instructions, raw byte strings, etc.).
-            // Keep the Latin-1 representation.
-            s
-        }
-    }
+    // The bytes are in Emacs internal encoding (may contain C0/C1 overlong
+    // for raw bytes, or standard multi-byte UTF-8 for Unicode).
+    crate::heap_types::LispString::from_emacs_bytes(data)
 }
 
 // ---------------------------------------------------------------------------

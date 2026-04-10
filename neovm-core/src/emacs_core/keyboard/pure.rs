@@ -1,7 +1,6 @@
 use crate::emacs_core::{
     error::{Flow, signal},
     intern::resolve_sym,
-    string_escape::{bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage},
     value::{Value, ValueKind, VecLikeType, list_to_vec},
 };
 
@@ -45,7 +44,7 @@ pub(crate) fn make_event_array_value(events: &[Value]) -> Value {
         bytes.push(byte);
     }
 
-    Value::unibyte_string(bytes_to_unibyte_storage_string(&bytes))
+    Value::heap_string(crate::heap_types::LispString::from_unibyte(bytes))
 }
 
 fn invalid_single_key_error() -> Flow {
@@ -203,8 +202,10 @@ fn describe_int_key(code: i64) -> Result<String, Flow> {
     push_prefixes(&mut out, ctrl);
     if let Some(ch) = char::from_u32(base as u32) {
         out.push(ch);
-    } else if let Some(encoded) = encode_nonunicode_char_for_storage(base as u32) {
-        out.push_str(&encoded);
+    } else if (base as u32) <= crate::emacs_core::emacs_char::MAX_CHAR {
+        let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+        let len = crate::emacs_core::emacs_char::char_string(base as u32, &mut buf);
+        out.push_str(&crate::emacs_core::emacs_char::to_utf8_lossy(&buf[..len]));
     } else {
         return Err(invalid_single_key_error());
     }

@@ -25,9 +25,7 @@ pub(super) use super::keyboard::pure::{
     event_modifier_prefix, key_sequence_values, resolve_control_code, symbol_has_modifier_prefix,
 };
 pub(super) use super::string_escape::{
-    bytes_to_storage_string, bytes_to_unibyte_storage_string, decode_storage_char_codes,
-    encode_char_code_for_string_storage, encode_nonunicode_char_for_storage, storage_char_len,
-    storage_string_display_width, storage_substring,
+    bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage,
 };
 pub(super) use super::value::*;
 pub(super) use ::regex::Regex;

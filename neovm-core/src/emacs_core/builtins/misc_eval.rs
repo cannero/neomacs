@@ -1338,11 +1338,14 @@ pub(super) fn print_value_princ_eval(eval: &super::eval::Context, value: &Value)
 fn prin1_to_string_value(value: &Value, noescape: bool) -> String {
     if noescape {
         match value.kind() {
-            ValueKind::String => value.as_str().unwrap().to_owned(),
-            other => super::print::print_value(value),
+            ValueKind::String => {
+                let ls = value.as_lisp_string().unwrap();
+                crate::emacs_core::emacs_char::to_utf8_lossy(ls.as_bytes())
+            }
+            _other => super::print::print_value(value),
         }
     } else {
-        bytes_to_storage_string(&super::print::print_value_bytes(value))
+        String::from_utf8_lossy(&super::print::print_value_bytes(value)).into_owned()
     }
 }
 
@@ -1361,17 +1364,21 @@ pub(crate) fn prin1_to_string_value_in_state(
 ) -> String {
     if noescape {
         match value.kind() {
-            ValueKind::String => value.as_str().unwrap().to_owned(),
-            other => super::error::print_value_in_state(ctx, value),
+            ValueKind::String => {
+                let ls = value.as_lisp_string().unwrap();
+                crate::emacs_core::emacs_char::to_utf8_lossy(ls.as_bytes())
+            }
+            _other => super::error::print_value_in_state(ctx, value),
         }
     } else {
-        bytes_to_storage_string(&super::error::print_value_bytes_in_state(
+        String::from_utf8_lossy(&super::error::print_value_bytes_in_state(
             &ctx.obarray,
             &ctx.buffers,
             &ctx.frames,
             &ctx.threads,
             value,
         ))
+        .into_owned()
     }
 }
 
@@ -1502,13 +1509,19 @@ pub(crate) fn finish_terpri_in_eval(eval: &mut super::eval::Context, args: &[Val
 }
 
 pub(super) fn write_char_rendered_text(char_code: i64) -> Option<String> {
-    if !(0..=u32::MAX as i64).contains(&char_code) {
+    use crate::emacs_core::emacs_char;
+    if !(0..=emacs_char::MAX_CHAR as i64).contains(&char_code) {
         return None;
     }
     let code = char_code as u32;
-    char::from_u32(code)
-        .map(|ch| ch.to_string())
-        .or_else(|| encode_nonunicode_char_for_storage(code))
+    if let Some(ch) = char::from_u32(code) {
+        Some(ch.to_string())
+    } else {
+        // Non-Unicode Emacs char: encode to Emacs bytes, then lossy UTF-8 for display
+        let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+        let len = emacs_char::char_string(code, &mut buf);
+        Some(emacs_char::to_utf8_lossy(&buf[..len]))
+    }
 }
 
 pub(crate) fn builtin_write_char(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {

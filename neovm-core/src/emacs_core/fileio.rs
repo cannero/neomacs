@@ -2618,9 +2618,7 @@ fn decode_insert_file_contents(
     }
 
     let decoded = crate::encoding::builtin_decode_coding_string(vec![
-        Value::unibyte_string(
-            crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(bytes),
-        ),
+        Value::heap_string(crate::heap_types::LispString::from_unibyte(bytes.to_vec())),
         Value::symbol(coding),
     ])?;
 

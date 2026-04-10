@@ -8,15 +8,8 @@
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
-use super::string_escape::{bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage};
 use super::value::*;
 
-const RAW_BYTE_SENTINEL_BASE: u32 = 0xE000;
-const RAW_BYTE_SENTINEL_MIN: u32 = 0xE080;
-const RAW_BYTE_SENTINEL_MAX: u32 = 0xE0FF;
-const UNIBYTE_BYTE_SENTINEL_BASE: u32 = 0xE300;
-const UNIBYTE_BYTE_SENTINEL_MIN: u32 = 0xE300;
-const UNIBYTE_BYTE_SENTINEL_MAX: u32 = 0xE3FF;
 const MAX_EMACS_CHAR: i64 = 0x3FFFFF;
 
 // ---------------------------------------------------------------------------
@@ -96,23 +89,15 @@ fn expect_character_code(val: &Value) -> Result<i64, Flow> {
     }
 }
 
-fn convert_unibyte_storage_to_multibyte(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for ch in s.chars() {
-        let cp = ch as u32;
-        if (UNIBYTE_BYTE_SENTINEL_MIN..=UNIBYTE_BYTE_SENTINEL_MAX).contains(&cp) {
-            let byte = cp - UNIBYTE_BYTE_SENTINEL_BASE;
-            if byte <= 0x7F {
-                out.push(char::from_u32(byte).expect("ascii scalar"));
-            } else {
-                let raw_code = 0x3FFF00 + byte;
-                let encoded = encode_nonunicode_char_for_storage(raw_code)
-                    .expect("raw-byte code should be encodable");
-                out.push_str(&encoded);
-            }
-            continue;
-        }
-        out.push(ch);
+/// Convert unibyte LispString bytes to multibyte Emacs encoding.
+fn convert_unibyte_to_multibyte_bytes(src: &[u8]) -> Vec<u8> {
+    use crate::emacs_core::emacs_char;
+    let mut out = Vec::with_capacity(src.len() * 2);
+    for &b in src {
+        let c = emacs_char::byte8_to_char(b);
+        let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+        let len = emacs_char::char_string(c, &mut buf);
+        out.extend_from_slice(&buf[..len]);
     }
     out
 }
@@ -306,104 +291,89 @@ pub(crate) fn builtin_subst_char_in_string(args: Vec<Value>) -> EvalResult {
 /// `(string-to-multibyte STRING)` -- convert unibyte storage bytes to multibyte chars.
 pub(crate) fn builtin_string_to_multibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-to-multibyte", &args, 1)?;
-    if args[0].is_string() {
-        if args[0].string_is_multibyte() {
-            return Ok(args[0]);
-        }
+    let ls = args[0]
+        .as_lisp_string()
+        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]]))?;
+    if ls.is_multibyte() {
+        return Ok(args[0]);
     }
-    let s = expect_string(&args[0])?;
-    Ok(Value::multibyte_string(
-        convert_unibyte_storage_to_multibyte(&s),
-    ))
+    let out = convert_unibyte_to_multibyte_bytes(ls.as_bytes());
+    Ok(Value::heap_string(crate::heap_types::LispString::from_emacs_bytes(out)))
 }
 
 /// `(string-to-unibyte STRING)` -- convert to unibyte storage.
 pub(crate) fn builtin_string_to_unibyte(args: Vec<Value>) -> EvalResult {
+    use crate::emacs_core::emacs_char;
     expect_args("string-to-unibyte", &args, 1)?;
-    if args[0].is_string() {
-        if !args[0].string_is_multibyte() {
-            return Ok(args[0]);
-        }
+    let ls = args[0]
+        .as_lisp_string()
+        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]]))?;
+    if !ls.is_multibyte() {
+        return Ok(args[0]);
     }
-    let s = expect_string(&args[0])?;
-
-    let mut bytes = Vec::with_capacity(s.chars().count());
-    for (idx, ch) in s.chars().enumerate() {
-        let cp = ch as u32;
+    let src = ls.as_bytes();
+    let mut bytes = Vec::with_capacity(ls.schars());
+    let mut pos = 0;
+    let mut idx = 0usize;
+    while pos < src.len() {
+        let (cp, len) = emacs_char::string_char(&src[pos..]);
+        pos += len;
         if cp <= 0x7F {
             bytes.push(cp as u8);
-            continue;
+        } else if emacs_char::char_byte8_p(cp) {
+            bytes.push(emacs_char::char_to_byte8(cp));
+        } else {
+            return Err(signal(
+                "error",
+                vec![Value::string(format!(
+                    "Cannot convert character at index {idx} to unibyte"
+                ))],
+            ));
         }
-        if (RAW_BYTE_SENTINEL_MIN..=RAW_BYTE_SENTINEL_MAX).contains(&cp) {
-            bytes.push((cp - RAW_BYTE_SENTINEL_BASE) as u8);
-            continue;
-        }
-        if (UNIBYTE_BYTE_SENTINEL_MIN..=UNIBYTE_BYTE_SENTINEL_MAX).contains(&cp) {
-            bytes.push((cp - UNIBYTE_BYTE_SENTINEL_BASE) as u8);
-            continue;
-        }
-
-        return Err(signal(
-            "error",
-            vec![Value::string(format!(
-                "Cannot convert character at index {idx} to unibyte"
-            ))],
-        ));
+        idx += 1;
     }
-
-    Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(
-        &bytes,
-    )))
+    Ok(Value::heap_string(crate::heap_types::LispString::from_unibyte(bytes)))
 }
 
 /// `(string-as-unibyte STRING)` -- reinterpret as unibyte byte sequence.
 pub(crate) fn builtin_string_as_unibyte(args: Vec<Value>) -> EvalResult {
+    use crate::emacs_core::emacs_char;
     expect_args("string-as-unibyte", &args, 1)?;
-    if args[0].is_string() {
-        if !args[0].string_is_multibyte() {
-            return Ok(args[0]);
-        }
+    let ls = args[0]
+        .as_lisp_string()
+        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]]))?;
+    if !ls.is_multibyte() {
+        return Ok(args[0]);
     }
-    let s = expect_string(&args[0])?;
-
-    let mut bytes = Vec::with_capacity(s.len());
-    for ch in s.chars() {
-        let cp = ch as u32;
-        if cp <= 0x7F {
-            bytes.push(cp as u8);
-            continue;
+    // Reinterpret: raw-byte chars become their byte value, other chars keep
+    // their UTF-8 encoding as raw bytes.
+    let src = ls.as_bytes();
+    let mut bytes = Vec::with_capacity(src.len());
+    let mut pos = 0;
+    while pos < src.len() {
+        let (cp, len) = emacs_char::string_char(&src[pos..]);
+        if emacs_char::char_byte8_p(cp) {
+            bytes.push(emacs_char::char_to_byte8(cp));
+        } else {
+            // Keep the raw encoding bytes
+            bytes.extend_from_slice(&src[pos..pos + len]);
         }
-        if (RAW_BYTE_SENTINEL_MIN..=RAW_BYTE_SENTINEL_MAX).contains(&cp) {
-            bytes.push((cp - RAW_BYTE_SENTINEL_BASE) as u8);
-            continue;
-        }
-        if (UNIBYTE_BYTE_SENTINEL_MIN..=UNIBYTE_BYTE_SENTINEL_MAX).contains(&cp) {
-            bytes.push((cp - UNIBYTE_BYTE_SENTINEL_BASE) as u8);
-            continue;
-        }
-
-        let mut utf8 = [0u8; 4];
-        let encoded = ch.encode_utf8(&mut utf8);
-        bytes.extend_from_slice(encoded.as_bytes());
+        pos += len;
     }
-
-    Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(
-        &bytes,
-    )))
+    Ok(Value::heap_string(crate::heap_types::LispString::from_unibyte(bytes)))
 }
 
 /// `(string-as-multibyte STRING)` -- reinterpret unibyte storage as multibyte.
 pub(crate) fn builtin_string_as_multibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-as-multibyte", &args, 1)?;
-    if args[0].is_string() {
-        if args[0].string_is_multibyte() {
-            return Ok(args[0]);
-        }
+    let ls = args[0]
+        .as_lisp_string()
+        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]]))?;
+    if ls.is_multibyte() {
+        return Ok(args[0]);
     }
-    let s = expect_string(&args[0])?;
-    Ok(Value::multibyte_string(
-        convert_unibyte_storage_to_multibyte(&s),
-    ))
+    let out = convert_unibyte_to_multibyte_bytes(ls.as_bytes());
+    Ok(Value::heap_string(crate::heap_types::LispString::from_emacs_bytes(out)))
 }
 
 /// `(unibyte-char-to-multibyte CHAR)` -- map 0..255 to multibyte/raw-byte char code.

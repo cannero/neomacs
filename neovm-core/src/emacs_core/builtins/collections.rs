@@ -125,21 +125,29 @@ pub(crate) fn aset_string_replacement(
     }
     codes[idx] = replacement_code;
 
-    let mut rebuilt = String::new();
+    use crate::emacs_core::emacs_char;
+    let mut rebuilt = Vec::new();
     for code in codes {
-        let encoded = encode_char_code_for_string_storage(code, multibyte).ok_or_else(|| {
-            signal(
-                "wrong-type-argument",
-                vec![Value::symbol("characterp"), *new_element],
-            )
-        })?;
-        rebuilt.push_str(&encoded);
+        if multibyte {
+            let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+            let len = emacs_char::char_string(code, &mut buf);
+            rebuilt.extend_from_slice(&buf[..len]);
+        } else {
+            if code > 0xff {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("characterp"), *new_element],
+                ));
+            }
+            rebuilt.push(code as u8);
+        }
     }
     // Modify the string in-place on the heap so identity (eq) is preserved.
     let _ = array.with_lisp_string_mut(|s| {
-        let mut s = s.make_mut();
-        s.clear();
-        s.push_str(&rebuilt);
+        let data = s.data_mut();
+        data.clear();
+        data.extend_from_slice(&rebuilt);
+        s.recompute_size();
     });
     Ok(*array)
 }

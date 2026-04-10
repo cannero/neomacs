@@ -7,8 +7,8 @@ use std::fmt::Write as _;
 use super::chartable::{bool_vector_length, char_table_external_slots};
 use super::intern::{SymId, lookup_interned, resolve_sym};
 use super::string_escape::{
-    format_lisp_string, format_lisp_string_bytes, format_lisp_string_bytes_inner,
-    format_lisp_string_with_options,
+    format_lisp_string, format_lisp_string_bytes, format_lisp_string_bytes_emacs,
+    format_lisp_string_bytes_inner, format_lisp_string_emacs, format_lisp_string_with_options,
 };
 use super::value::{
     HashTableTest, StringTextPropertyRun, Value, get_string_text_properties_for_value, list_to_vec,
@@ -280,12 +280,12 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
         ValueKind::Float => out.push_str(&format_float(value.xfloat())),
         ValueKind::Symbol(id) => out.push_str(&format_symbol(id, state.options)),
         ValueKind::String => {
-            let s = value.as_str().unwrap().to_owned();
+            let ls = value.as_lisp_string().unwrap();
             match get_string_text_properties_for_value(*value) {
                 Some(runs) => {
-                    out.push_str(&format_lisp_propertized_string(&s, &runs, state.options))
+                    out.push_str(&format_lisp_propertized_string_emacs(ls, &runs, state.options))
                 }
-                None => out.push_str(&format_lisp_string_with_options(&s, &state.options)),
+                None => out.push_str(&format_lisp_string_emacs(ls, &state.options)),
             }
         }
         ValueKind::Cons => {
@@ -789,6 +789,25 @@ fn format_lisp_propertized_string(
     out
 }
 
+fn format_lisp_propertized_string_emacs(
+    ls: &crate::heap_types::LispString,
+    runs: &[StringTextPropertyRun],
+    options: PrintOptions,
+) -> String {
+    let mut out = String::from("#(");
+    out.push_str(&format_lisp_string_emacs(ls, &options));
+    for run in runs {
+        out.push(' ');
+        out.push_str(&run.start.to_string());
+        out.push(' ');
+        out.push_str(&run.end.to_string());
+        out.push(' ');
+        out.push_str(&print_value_with_options(&run.plist, options));
+    }
+    out.push(')');
+    out
+}
+
 /// Print a `Value` as a Lisp string, with buffer-manager awareness for
 /// proper buffer name / killed-buffer rendering.
 pub fn print_value_with_buffers(value: &Value, buffers: &crate::buffer::BufferManager) -> String {
@@ -958,10 +977,10 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
         ValueKind::Float => format_float(value.xfloat()),
         ValueKind::Symbol(id) => format_symbol(id, options),
         ValueKind::String => {
-            let s = value.as_str().unwrap().to_owned();
+            let ls = value.as_lisp_string().unwrap();
             match get_string_text_properties_for_value(*value) {
-                Some(runs) => format_lisp_propertized_string(&s, &runs, options),
-                None => format_lisp_string_with_options(&s, &options),
+                Some(runs) => format_lisp_propertized_string_emacs(ls, &runs, options),
+                None => format_lisp_string_emacs(ls, &options),
             }
         }
         // Emacs chars are integer values, so print as codepoint.
@@ -1091,8 +1110,8 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
         ValueKind::Float => out.extend_from_slice(format_float(value.xfloat()).as_bytes()),
         ValueKind::Symbol(id) => append_symbol_bytes(id, out, options),
         ValueKind::String => {
-            let s = value.as_str().unwrap().to_owned();
-            let str_bytes = format_lisp_string_bytes_inner(&s, &options);
+            let ls = value.as_lisp_string().unwrap();
+            let str_bytes = format_lisp_string_bytes_emacs(ls, &options);
             if let Some(runs) = get_string_text_properties_for_value(*value) {
                 out.extend_from_slice(b"#(");
                 out.extend_from_slice(&str_bytes);
@@ -1482,7 +1501,8 @@ fn format_interpreted_closure(value: &Value, options: PrintOptions) -> String {
     {
         slots.push("nil".to_string());
         slots.push(if doc_value.is_string() {
-            format_lisp_string(doc_value.as_str().unwrap())
+            let ls = doc_value.as_lisp_string().unwrap();
+            format_lisp_string_emacs(ls, &PrintOptions::default())
         } else {
             print_value_with_options(&doc_value, options)
         });

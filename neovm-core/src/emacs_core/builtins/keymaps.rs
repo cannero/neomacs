@@ -799,7 +799,17 @@ pub(super) fn builtin_text_char_description(args: Vec<Value>) -> EvalResult {
         _ => match char::from_u32(code as u32) {
             Some(ch) => ch.to_string(),
             None => {
-                if let Some(encoded) = encode_nonunicode_char_for_storage(code as u32) {
+                if let Some(encoded) = {
+                    use crate::emacs_core::emacs_char;
+                    let c = code as u32;
+                    if c > emacs_char::MAX_UNICODE_CHAR && c <= emacs_char::MAX_CHAR {
+                        let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+                        let len = emacs_char::char_string(c, &mut buf);
+                        Some(emacs_char::to_utf8_lossy(&buf[..len]))
+                    } else {
+                        None
+                    }
+                } {
                     encoded
                 } else {
                     return Err(signal(

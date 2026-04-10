@@ -217,7 +217,9 @@ pub(crate) fn builtin_substring_no_properties(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
     crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Concat, || {
-        fn push_concat_int(result: &mut String, n: i64) -> Result<(), Flow> {
+        use crate::emacs_core::emacs_char;
+
+        fn push_concat_int(result: &mut Vec<u8>, n: i64) -> Result<(), Flow> {
             if !(0..=0x3FFFFF).contains(&n) {
                 return Err(signal(
                     "wrong-type-argument",
@@ -226,46 +228,14 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
             }
 
             let cp = n as u32;
-            if let Some(c) = char::from_u32(cp) {
-                result.push(c);
-                return Ok(());
-            }
-
-            // Emacs concat path for raw-byte non-Unicode chars uses byte->multibyte encoding.
-            if (0x3FFF00..=0x3FFFFF).contains(&cp) {
-                let b = (cp - 0x3FFF00) as u8;
-                let bytes = if b < 0x80 {
-                    vec![b]
-                } else {
-                    vec![0xC0 | ((b >> 6) & 0x01), 0x80 | (b & 0x3F)]
-                };
-                result.push_str(&bytes_to_storage_string(&bytes));
-                return Ok(());
-            }
-
-            if let Some(encoded) = encode_nonunicode_char_for_storage(cp) {
-                result.push_str(&encoded);
-                return Ok(());
-            }
-
-            Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("characterp"), Value::fixnum(n)],
-            ))
+            let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+            let len = emacs_char::char_string(cp, &mut buf);
+            result.extend_from_slice(&buf[..len]);
+            Ok(())
         }
 
-        fn push_concat_element(result: &mut String, value: &Value) -> Result<(), Flow> {
+        fn push_concat_element(result: &mut Vec<u8>, value: &Value) -> Result<(), Flow> {
             match value.kind() {
-                // Route through push_concat_int so raw-byte character codes
-                // 0x3FFF80..=0x3FFFFF (BYTE8_TO_CHAR range, see GNU
-                // character.h) are encoded into the string storage instead
-                // of being silently mapped to NUL by char::from_u32(...
-                // ).unwrap_or('\0'). The buggy fast path was the audit's
-                // §3.1/§3.2/§3.3/§3.12 raw-byte corruption finding —
-                // push_concat_int is the correctly-written helper that
-                // handles both Unicode codepoints and the raw-byte range,
-                // and was already defined just above this function but
-                // never called from anywhere.
                 ValueKind::Fixnum(c) => push_concat_int(result, c),
                 _ => Err(signal(
                     "wrong-type-argument",
@@ -280,24 +250,33 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
                     .is_some_and(|table| !table.is_empty())
             });
             if !has_text_props {
-                let mut combined = String::new();
+                let mut combined = Vec::new();
                 let mut multibyte = false;
                 for arg in &args {
                     if let Some(string) = arg.as_lisp_string() {
-                        combined.push_str(string.as_str().unwrap_or(""));
+                        combined.extend_from_slice(string.as_bytes());
                         multibyte |= string.is_multibyte();
                     }
                 }
-                let result = crate::heap_types::LispString::new(combined, multibyte);
+                let result = if multibyte {
+                    crate::heap_types::LispString::from_emacs_bytes(combined)
+                } else {
+                    crate::heap_types::LispString::from_unibyte(combined)
+                };
                 return Ok(Value::heap_string(result));
             }
         }
 
         let preallocated_len = args.iter().fold(0usize, |acc, arg| match arg.kind() {
-            ValueKind::String => acc + arg.as_str().unwrap().len(),
+            ValueKind::String => {
+                acc + arg
+                    .as_lisp_string()
+                    .map(|ls| ls.sbytes())
+                    .unwrap_or(0)
+            }
             _ => acc,
         });
-        let mut result = String::with_capacity(preallocated_len);
+        let mut result: Vec<u8> = Vec::with_capacity(preallocated_len);
         // Track string sources with their byte offsets for property preservation
         let mut string_sources: Vec<(Value, usize)> = Vec::new();
 
@@ -305,7 +284,9 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
             match arg.kind() {
                 ValueKind::String => {
                     let offset = result.len();
-                    result.push_str(arg.as_str().unwrap());
+                    if let Some(ls) = arg.as_lisp_string() {
+                        result.extend_from_slice(ls.as_bytes());
+                    }
                     string_sources.push((*arg, offset));
                 }
                 ValueKind::Nil => {}
@@ -320,7 +301,7 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
                                 push_concat_element(&mut result, &pair_car)?;
                                 cursor = pair_cdr;
                             }
-                            tail => {
+                            _tail => {
                                 return Err(signal(
                                     "wrong-type-argument",
                                     vec![Value::symbol("listp"), cursor],
@@ -344,7 +325,7 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
             }
         }
 
-        let new_val = Value::string(&result);
+        let new_val = Value::heap_string(crate::heap_types::LispString::from_emacs_bytes(result));
 
         // Preserve text properties from string sources
         if new_val.is_string() {
@@ -1238,26 +1219,45 @@ pub(crate) fn builtin_make_string(args: Vec<Value>) -> EvalResult {
     // initializer is ASCII and the optional MULTIBYTE arg is nil/omitted.
     let multibyte = args.get(2).is_some_and(|v| v.is_truthy()) || ch > 0x7f;
 
-    let unit = encode_char_code_for_string_storage(ch, multibyte).ok_or_else(|| {
-        signal(
+    use crate::emacs_core::emacs_char;
+    if ch > emacs_char::MAX_CHAR {
+        return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), args[1]],
-        )
-    })?;
-    let result = unit.repeat(count);
-    Ok(if multibyte {
-        Value::multibyte_string(result)
+        ));
+    }
+    if multibyte {
+        let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+        let len = emacs_char::char_string(ch, &mut buf);
+        let unit = &buf[..len];
+        let mut data = Vec::with_capacity(len * count);
+        for _ in 0..count {
+            data.extend_from_slice(unit);
+        }
+        Ok(Value::heap_string(crate::heap_types::LispString::from_emacs_bytes(data)))
     } else {
-        Value::unibyte_string(result)
-    })
+        if ch > 0xff {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("characterp"), args[1]],
+            ));
+        }
+        let data = vec![ch as u8; count];
+        Ok(Value::heap_string(crate::heap_types::LispString::from_unibyte(data)))
+    }
 }
 
 pub(crate) fn builtin_string(args: Vec<Value>) -> EvalResult {
-    let mut result = String::new();
+    use crate::emacs_core::emacs_char;
+    let mut result = Vec::new();
     for arg in args {
         match arg.kind() {
-            ValueKind::Fixnum(c) => result.push(char::from_u32(c as u32).unwrap_or('\0')),
-            other => {
+            ValueKind::Fixnum(c) => {
+                let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+                let len = emacs_char::char_string(c as u32, &mut buf);
+                result.extend_from_slice(&buf[..len]);
+            }
+            _other => {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("characterp"), arg],
@@ -1265,7 +1265,7 @@ pub(crate) fn builtin_string(args: Vec<Value>) -> EvalResult {
             }
         }
     }
-    Ok(Value::string(result))
+    Ok(Value::heap_string(crate::heap_types::LispString::from_emacs_bytes(result)))
 }
 
 /// `(unibyte-string &rest BYTES)` -> unibyte storage string.
@@ -1319,7 +1319,11 @@ pub(crate) fn builtin_clear_buffer_auto_save_failure(args: Vec<Value>) -> EvalRe
 pub(crate) fn builtin_string_width(args: Vec<Value>) -> EvalResult {
     expect_min_args("string-width", &args, 1)?;
     expect_max_args("string-width", &args, 3)?;
-    let s = expect_string(&args[0])?;
+    let ls = args[0]
+        .as_lisp_string()
+        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]]))?;
+    let data = ls.as_bytes();
+    let is_multibyte = ls.is_multibyte();
     if args.len() <= 1
         || (args.len() == 2 && args[1] == Value::NIL)
         || (args.len() <= 3
@@ -1327,10 +1331,12 @@ pub(crate) fn builtin_string_width(args: Vec<Value>) -> EvalResult {
             && (args.len() < 3 || args[2] == Value::NIL))
     {
         // Fast path: full string width
-        return Ok(Value::fixnum(storage_string_display_width(&s) as i64));
+        return Ok(Value::fixnum(
+            super::super::string_escape::display_width_emacs(data, is_multibyte) as i64,
+        ));
     }
     // Substring range specified — decode units and sum width for [from, to)
-    let units = super::super::string_escape::decode_storage_units(&s);
+    let units = super::super::string_escape::decode_units_emacs(data, is_multibyte);
     let from = if args.len() > 1 && args[1] != Value::NIL {
         expect_int(&args[1])? as usize
     } else {
