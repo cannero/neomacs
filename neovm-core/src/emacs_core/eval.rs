@@ -134,6 +134,13 @@ pub(crate) enum SpecBinding {
         sym_id: SymId,
         old_value: Option<Value>,
     },
+    /// Lexical environment save/restore. Mirrors GNU's
+    /// `specbind(Qinternal_interpreter_environment, ...)` which saves
+    /// the current `Vinternal_interpreter_environment` on the specpdl.
+    /// `unbind_to` restores `self.lexenv` to this value.
+    LexicalEnv {
+        old_lexenv: Value,
+    },
 }
 
 #[derive(Debug)]
@@ -1439,46 +1446,52 @@ fn is_top_level_lexenv_sentinel(lexenv: Value) -> bool {
 }
 
 pub(crate) struct ActiveEvalLexicalArgState {
-    has_saved_lexenv: bool,
+    specpdl_count: usize,
 }
 
 pub(crate) fn begin_eval_with_lexical_arg_in_state(
     _obarray: &mut Obarray,
     lexenv: &mut Value,
-    saved_lexenvs: &mut Vec<Value>,
+    specpdl: &mut Vec<SpecBinding>,
     lexical_arg: Option<Value>,
 ) -> Result<ActiveEvalLexicalArgState, Flow> {
     let (_use_lexical, lexenv_value) = parse_eval_lexical_arg(lexical_arg)?;
-    // GNU eval.c Feval: specbind(Qinternal_interpreter_environment, ...).
-    // GNU NEVER writes `lexical-binding`; it only saves/restores the
-    // internal interpreter environment. We mirror that: only touch
-    // self.lexenv, leave the obarray `lexical-binding` symbol alone
-    // (it reflects the file-level setting, not eval nesting).
+    // Mirrors GNU eval.c Feval:
+    //   specbind(Qinternal_interpreter_environment, new_env);
+    //   return unbind_to(count, eval_sub(form));
     //
-    // After Change 1, parse_eval_lexical_arg always returns Some(...)
-    // so this branch always fires — matching GNU's unconditional specbind.
-    let has_saved_lexenv = if let Some(env) = lexenv_value {
-        saved_lexenvs.push(*lexenv);
+    // We push a SpecBinding::LexicalEnv entry (saving the old lexenv)
+    // and set lexenv to the new value. unbind_to restores it
+    // automatically, providing unwind-safe cleanup on non-local exits.
+    let specpdl_count = specpdl.len();
+    if let Some(env) = lexenv_value {
+        specpdl.push(SpecBinding::LexicalEnv { old_lexenv: *lexenv });
         *lexenv = env;
-        true
-    } else {
-        false
-    };
-    Ok(ActiveEvalLexicalArgState {
-        has_saved_lexenv,
-    })
+    }
+    Ok(ActiveEvalLexicalArgState { specpdl_count })
 }
 
 pub(crate) fn finish_eval_with_lexical_arg_in_state(
     _obarray: &mut Obarray,
     lexenv: &mut Value,
-    saved_lexenvs: &mut Vec<Value>,
+    specpdl: &mut Vec<SpecBinding>,
     state: ActiveEvalLexicalArgState,
 ) {
-    // Mirror GNU: only restore the internal interpreter environment.
-    // Do NOT restore `lexical-binding` in the obarray (we never wrote it).
-    if state.has_saved_lexenv {
-        *lexenv = saved_lexenvs.pop().expect("saved_lexenvs underflow");
+    // Mirrors GNU: unbind_to(count, result) which pops the
+    // SpecBinding::LexicalEnv entry and restores self.lexenv.
+    while specpdl.len() > state.specpdl_count {
+        let binding = specpdl.pop().unwrap();
+        match binding {
+            SpecBinding::LexicalEnv { old_lexenv } => {
+                *lexenv = old_lexenv;
+            }
+            other => {
+                // Should not happen — begin only pushes LexicalEnv.
+                // Put it back if it does.
+                specpdl.push(other);
+                break;
+            }
+        }
     }
 }
 
@@ -1556,7 +1569,7 @@ fn begin_lambda_call_in_state(
     obarray: &mut Obarray,
     specpdl: &mut Vec<SpecBinding>,
     lexenv: &mut Value,
-    saved_lexenvs: &mut Vec<Value>,
+    _saved_lexenvs: &mut Vec<Value>,
     temp_roots: &mut Vec<Value>,
     params: &LambdaParams,
     env: Option<Value>,
@@ -1599,7 +1612,9 @@ fn begin_lambda_call_in_state(
             );
         }
         let old = std::mem::replace(lexenv, env);
-        saved_lexenvs.push(old);
+        // Mirrors GNU funcall_lambda:
+        //   specbind(Qinternal_interpreter_environment, lexenv);
+        specpdl.push(SpecBinding::LexicalEnv { old_lexenv: old });
         let env_root_index = temp_roots.len();
         temp_roots.push(env);
 
@@ -1683,15 +1698,34 @@ fn finish_lambda_call_in_state(
     obarray: &mut Obarray,
     specpdl: &mut Vec<SpecBinding>,
     lexenv: &mut Value,
-    saved_lexenvs: &mut Vec<Value>,
+    _saved_lexenvs: &mut Vec<Value>,
     temp_roots: &mut Vec<Value>,
     state: ActiveLambdaCallState,
 ) {
-    if state.has_lexenv {
-        let old_lexenv = saved_lexenvs.pop().expect("saved_lexenvs underflow");
-        *lexenv = old_lexenv;
-    } else {
-        unbind_to_in_state(obarray, specpdl, state.specpdl_count);
+    // Unwind all specpdl entries back to the count saved at begin.
+    // For lexical closures, this pops the SpecBinding::LexicalEnv
+    // entry (restoring self.lexenv) plus any dynamic bindings.
+    // For dynamic lambdas, this pops the specbind entries.
+    // Mirrors GNU: unbind_to(count, val) in funcall_lambda.
+    while specpdl.len() > state.specpdl_count {
+        let binding = specpdl.pop().unwrap();
+        match binding {
+            SpecBinding::LexicalEnv { old_lexenv } => {
+                *lexenv = old_lexenv;
+            }
+            SpecBinding::Let { sym_id, old_value } => {
+                match old_value {
+                    Some(val) => obarray.set_symbol_value_id(sym_id, val),
+                    None => obarray.makunbound_id(sym_id),
+                }
+            }
+            other => {
+                // LetLocal/LetDefault shouldn't appear here in the
+                // standalone path, but handle gracefully.
+                specpdl.push(other);
+                break;
+            }
+        }
     }
     temp_roots.truncate(state.saved_temp_roots_len);
 }
@@ -1728,6 +1762,7 @@ fn begin_macro_expansion_scope_in_state(
             SpecBinding::Let { sym_id, .. }
             | SpecBinding::LetLocal { sym_id, .. }
             | SpecBinding::LetDefault { sym_id, .. } => sym_id,
+            SpecBinding::LexicalEnv { .. } => continue,
         };
         let name = resolve_sym(*sym_id);
         if name == "t" || name == "nil" {
@@ -5892,14 +5927,14 @@ impl Context {
         let state = begin_eval_with_lexical_arg_in_state(
             &mut self.obarray,
             &mut self.lexenv,
-            &mut self.saved_lexenvs,
+            &mut self.specpdl,
             lexical_arg,
         )?;
         let result = self.eval_value(&form);
         finish_eval_with_lexical_arg_in_state(
             &mut self.obarray,
             &mut self.lexenv,
-            &mut self.saved_lexenvs,
+            &mut self.specpdl,
             state,
         );
         result
@@ -7226,25 +7261,22 @@ impl Context {
         }
 
         let specpdl_count = self.specpdl.len();
-        let saved_lexenv = if !lexical_bindings.is_empty() {
+        // Mirrors GNU Flet: specbind(Qinternal_interpreter_environment, new_env)
+        // BEFORE the dynamic variable specbinds. unbind_to pops in
+        // reverse: dynamic vars first, then lexenv — same as GNU.
+        if !lexical_bindings.is_empty() {
             let saved = self.lexenv;
-            self.saved_lexenvs.push(saved);
+            self.specpdl.push(SpecBinding::LexicalEnv { old_lexenv: saved });
             for (sym_id, val) in &lexical_bindings {
                 self.lexenv = lexenv_prepend(self.lexenv, *sym_id, *val);
             }
-            true
-        } else {
-            false
-        };
+        }
         for (sym_id, value) in &dynamic_sym_ids {
             self.specbind(*sym_id, *value);
         }
 
         let result = self.sf_progn_value(body);
         self.unbind_to(specpdl_count);
-        if saved_lexenv {
-            self.lexenv = self.saved_lexenvs.pop().unwrap();
-        }
         result
     }
 
@@ -7267,13 +7299,11 @@ impl Context {
         let body = tail.cons_cdr();
         let use_lexical = self.lexical_binding();
         let specpdl_count = self.specpdl.len();
-        let saved_lexenv = if use_lexical {
-            let saved = self.lexenv;
-            self.saved_lexenvs.push(saved);
-            true
-        } else {
-            false
-        };
+        // Mirrors GNU Flet_star: specbind(Qinternal_interpreter_environment, lexenv)
+        // before any per-variable specbinds. unbind_to pops everything.
+        if use_lexical {
+            self.specpdl.push(SpecBinding::LexicalEnv { old_lexenv: self.lexenv });
+        }
 
         let init_result: Result<(), Flow> = (|| {
             let mut bindings = varlist;
@@ -7332,18 +7362,12 @@ impl Context {
             Ok(())
         })();
         if let Err(error) = init_result {
-            if saved_lexenv {
-                self.lexenv = self.saved_lexenvs.pop().unwrap();
-            }
             self.unbind_to(specpdl_count);
             return Err(error);
         }
 
         let result = self.sf_progn_value(body);
         self.unbind_to(specpdl_count);
-        if saved_lexenv {
-            self.lexenv = self.saved_lexenvs.pop().unwrap();
-        }
         result
     }
 
@@ -7909,22 +7933,14 @@ impl Context {
                         && !self.lexenv_declares_special_cached_in(self.lexenv, var_id);
 
                     let specpdl_count = self.specpdl.len();
-                    let pushed_lexenv = if use_lexical_binding {
-                        let saved = self.lexenv;
-                        self.saved_lexenvs.push(saved);
+                    if use_lexical_binding {
+                        self.specpdl.push(SpecBinding::LexicalEnv { old_lexenv: self.lexenv });
                         self.bind_lexical_value_rooted(var_id, binding_value);
-                        true
-                    } else {
-                        if bind_var {
-                            self.specbind(var_id, binding_value);
-                        }
-                        false
-                    };
+                    } else if bind_var {
+                        self.specbind(var_id, binding_value);
+                    }
                     let result = self.sf_progn_value(handler.cons_cdr());
                     self.unbind_to(specpdl_count);
-                    if pushed_lexenv {
-                        self.lexenv = self.saved_lexenvs.pop().unwrap();
-                    }
                     return result;
                 }
                 Err(Flow::Signal(sig))
@@ -9871,7 +9887,7 @@ impl Context {
         self.specpdl.iter().rev().any(|entry| match entry {
             SpecBinding::LetDefault { sym_id: s, .. } => *s == sym_id,
             SpecBinding::LetLocal { sym_id: s, .. } => *s == sym_id,
-            SpecBinding::Let { .. } => false,
+            SpecBinding::Let { .. } | SpecBinding::LexicalEnv { .. } => false,
         })
     }
 
@@ -10023,6 +10039,11 @@ impl Context {
                         }
                     }
                 }
+                SpecBinding::LexicalEnv { old_lexenv } => {
+                    // Mirrors GNU unbind_to for
+                    // specbind(Qinternal_interpreter_environment, ...).
+                    self.lexenv = old_lexenv;
+                }
             }
         }
     }
@@ -10079,6 +10100,13 @@ pub(crate) fn unbind_to_in_state(
                 Some(val) => obarray.set_symbol_value_id(sym_id, val),
                 None => obarray.makunbound_id(sym_id),
             },
+            SpecBinding::LexicalEnv { .. } => {
+                // Standalone path doesn't have self.lexenv access.
+                // This variant should not appear on the standalone
+                // specpdl (used by bytecode VM which has its own
+                // VmUnwindEntry::LexicalBinding mechanism).
+                tracing::warn!("unbind_to_in_state: LexicalEnv without Context");
+            }
         }
     }
 }
@@ -10093,7 +10121,7 @@ fn default_toplevel_binding(specpdl: &[SpecBinding], sym_id: SymId) -> Option<&S
             sym_id: binding_sym,
             ..
         } => *binding_sym == sym_id,
-        SpecBinding::LetLocal { .. } => false,
+        SpecBinding::LetLocal { .. } | SpecBinding::LexicalEnv { .. } => false,
     })
 }
 
@@ -10105,7 +10133,9 @@ pub(crate) fn default_toplevel_value_in_state(
     match default_toplevel_binding(specpdl, sym_id) {
         Some(SpecBinding::Let { old_value, .. })
         | Some(SpecBinding::LetDefault { old_value, .. }) => *old_value,
-        Some(SpecBinding::LetLocal { .. }) => unreachable!("local bindings are excluded above"),
+        Some(SpecBinding::LetLocal { .. }) | Some(SpecBinding::LexicalEnv { .. }) => {
+            unreachable!("non-variable bindings are excluded above")
+        }
         None => obarray.default_value_id(sym_id).copied(),
     }
 }
@@ -10130,7 +10160,8 @@ pub(crate) fn set_default_toplevel_value_in_state(
             }
             SpecBinding::Let { .. }
             | SpecBinding::LetDefault { .. }
-            | SpecBinding::LetLocal { .. } => {}
+            | SpecBinding::LetLocal { .. }
+            | SpecBinding::LexicalEnv { .. } => {}
         }
     }
     false
@@ -10448,7 +10479,7 @@ impl Context {
         begin_eval_with_lexical_arg_in_state(
             &mut self.obarray,
             &mut self.lexenv,
-            &mut self.saved_lexenvs,
+            &mut self.specpdl,
             lexical_arg,
         )
     }
@@ -10457,7 +10488,7 @@ impl Context {
         finish_eval_with_lexical_arg_in_state(
             &mut self.obarray,
             &mut self.lexenv,
-            &mut self.saved_lexenvs,
+            &mut self.specpdl,
             state,
         );
     }
