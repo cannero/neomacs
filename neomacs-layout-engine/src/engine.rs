@@ -2611,6 +2611,11 @@ impl LayoutEngine {
                         row_extra_y += row_max_height - char_h;
                     }
                     x = content_x;
+                    // Record newline position on the row (see main \n handler).
+                    row_last_display_pos = Some(charpos as usize);
+                    if row_first_display_pos.is_none() {
+                        row_first_display_pos = Some(charpos as usize);
+                    }
                     // Record hit-test row (hscroll newline)
                     hit_rows.push(HitRow {
                         y_start: y,
@@ -2917,6 +2922,17 @@ impl LayoutEngine {
                 }
 
                 x = content_x;
+                // Record the newline position so the row's
+                // end_buffer_pos includes it. GNU's redisplay engine
+                // counts newlines as part of the row they terminate,
+                // so window-end reflects the position AFTER the last
+                // newline. Without this, trailing empty rows have
+                // end_buffer_pos=None and window-end falls short of
+                // point-max, causing %p to show "Top" instead of "All".
+                row_last_display_pos = Some(charpos as usize);
+                if row_first_display_pos.is_none() {
+                    row_first_display_pos = Some(charpos as usize);
+                }
                 // Record hit-test row (newline ends the row)
                 hit_rows.push(HitRow {
                     y_start: y,
