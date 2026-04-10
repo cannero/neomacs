@@ -6,8 +6,7 @@
 
 use crate::emacs_core::intern::resolve_sym;
 use crate::emacs_core::string_escape::{
-    bytes_to_unibyte_storage_string, decode_storage_char_codes, encode_nonunicode_char_for_storage,
-    storage_byte_len,
+    bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage,
 };
 use crate::emacs_core::value::{StringTextPropertyRun, Value, ValueKind};
 
@@ -453,9 +452,13 @@ fn encode_emacs_utf8_codepoint(code: u32, out: &mut Vec<u8>) {
 }
 
 fn encode_utf8_emacs_text(s: &str) -> Vec<u8> {
+    // For standard UTF-8 strings (which is what we get from as_str()),
+    // the Emacs internal encoding for Unicode chars IS UTF-8, so we
+    // just need to iterate the chars and encode them via the Emacs
+    // UTF-8 encoder (which handles extended codepoints).
     let mut out = Vec::with_capacity(s.len());
-    for code in decode_storage_char_codes(s) {
-        encode_emacs_utf8_codepoint(code, &mut out);
+    for ch in s.chars() {
+        encode_emacs_utf8_codepoint(ch as u32, &mut out);
     }
     out
 }
@@ -687,8 +690,10 @@ pub(crate) fn builtin_char_width(args: Vec<Value>) -> EvalResult {
 /// `(string-bytes STRING)` -> integer byte length of STRING.
 pub(crate) fn builtin_string_bytes(args: Vec<Value>) -> EvalResult {
     expect_args("string-bytes", &args, 1)?;
-    let s = expect_string(&args[0])?;
-    Ok(Value::fixnum(storage_byte_len(&s) as i64))
+    let string = args[0].as_lisp_string().ok_or_else(|| {
+        signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]])
+    })?;
+    Ok(Value::fixnum(string.sbytes() as i64))
 }
 
 /// `(multibyte-string-p STRING)` -> t or nil

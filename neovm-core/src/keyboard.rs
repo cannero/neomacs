@@ -11,7 +11,7 @@
 //! - Prefix argument handling
 
 use crate::emacs_core::keyboard::pure::KEY_CHAR_META;
-use crate::emacs_core::string_escape::decode_storage_char_codes;
+// decode_storage_char_codes import removed — now using emacs_char directly
 use crate::emacs_core::value::{Value, ValueKind, VecLikeType};
 use std::collections::{HashMap, VecDeque};
 
@@ -4629,14 +4629,29 @@ impl crate::emacs_core::eval::Context {
         &mut self,
         keys: &str,
     ) -> Result<(), crate::emacs_core::error::Flow> {
-        let mut translated = Vec::with_capacity(keys.chars().count());
-        for (idx, code) in decode_storage_char_codes(keys).into_iter().enumerate() {
+        let key_bytes = keys.as_bytes();
+        let mut translated = Vec::new();
+        let mut pos = 0;
+        let mut idx = 0;
+        while pos < key_bytes.len() {
+            let (mut code, len) =
+                crate::emacs_core::emacs_char::string_char(&key_bytes[pos..]);
+            // Translate sentinel codepoints to Emacs character codes.
+            if (0xE080..=0xE0FF).contains(&code) {
+                let byte = (code - 0xE000) as u8;
+                code = crate::emacs_core::emacs_char::byte8_to_char(byte);
+            } else if (0xE300..=0xE3FF).contains(&code) {
+                // Unibyte sentinel: raw byte value
+                code = (code - 0xE300) as u32;
+            }
             let event = if idx == 0 && code == 248 {
                 Value::fixnum(('x' as i64) | KEY_CHAR_META)
             } else {
-                Value::fixnum(i64::from(code))
+                Value::fixnum(code as i64)
             };
             translated.push(event);
+            pos += len;
+            idx += 1;
         }
         self.set_command_key_sequences(translated, Vec::new());
         Ok(())

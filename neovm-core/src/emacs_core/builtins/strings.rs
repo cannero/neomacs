@@ -88,7 +88,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                     ));
                 }
 
-                let len = storage_char_len(s) as i64;
+                let len = src.schars() as i64;
                 let from = if args.len() > 1 {
                     normalize_index(&args[1], 0, len)?
                 } else {
@@ -111,19 +111,24 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                         ],
                     ));
                 }
-                let (byte_from, byte_to) = super::super::string_escape::storage_substring_bounds(
-                    s, from, to,
-                )
-                .ok_or_else(|| {
-                    signal(
+                let src_bytes = src.as_bytes();
+                let (byte_from, byte_to) = if src.is_multibyte() {
+                    let bf = crate::emacs_core::emacs_char::char_to_byte_pos(src_bytes, from);
+                    let bt = crate::emacs_core::emacs_char::char_to_byte_pos(src_bytes, to);
+                    (bf, bt)
+                } else {
+                    (from, to)
+                };
+                if byte_to > src_bytes.len() {
+                    return Err(signal(
                         "args-out-of-range",
                         vec![
                             args[0],
                             args.get(1).cloned().unwrap_or(Value::fixnum(0)),
                             args.get(2).cloned().unwrap_or(Value::NIL),
                         ],
-                    )
-                })?;
+                    ));
+                }
                 let result = src
                     .slice(byte_from, byte_to)
                     .expect("validated storage substring bounds");
@@ -1284,9 +1289,7 @@ pub(crate) fn builtin_unibyte_string(args: Vec<Value>) -> EvalResult {
         }
         bytes.push(n as u8);
     }
-    Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(
-        &bytes,
-    )))
+    Ok(Value::heap_string(crate::heap_types::LispString::from_unibyte(bytes)))
 }
 
 pub(crate) fn builtin_byte_to_string(args: Vec<Value>) -> EvalResult {
@@ -1295,9 +1298,7 @@ pub(crate) fn builtin_byte_to_string(args: Vec<Value>) -> EvalResult {
     if !(0..=255).contains(&byte) {
         return Err(signal("error", vec![Value::string("Invalid byte")]));
     }
-    Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(&[
-        byte as u8,
-    ])))
+    Ok(Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![byte as u8])))
 }
 
 pub(crate) fn builtin_bitmap_spec_p(args: Vec<Value>) -> EvalResult {

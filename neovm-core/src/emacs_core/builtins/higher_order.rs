@@ -150,8 +150,8 @@ where
             Ok(())
         }
         ValueKind::String => {
-            let s = seq.as_str().unwrap().to_owned();
-            for cp in decode_storage_char_codes(&s) {
+            let string = seq.as_lisp_string().expect("string");
+            for cp in super::lisp_string_char_codes(string) {
                 f(Value::fixnum(cp as i64))?;
             }
             Ok(())

@@ -4,7 +4,7 @@
 use super::custom::CustomManager;
 use super::error::{EvalResult, Flow, signal};
 use super::intern::{SymId, intern, resolve_sym};
-use super::string_escape::{storage_byte_to_char, storage_char_len, storage_char_to_byte};
+// storage imports removed — now using emacs_char directly
 use super::symbol::Obarray;
 use super::value::*;
 use std::time::Duration;
@@ -314,7 +314,8 @@ pub(crate) fn read_from_string_impl(
     // UTF-8 byte length here was a long-standing bug (audit §11.6) that
     // would either panic on multibyte input (slicing mid-codepoint) or
     // return a byte offset where elisp expected a character count.
-    let char_count = storage_char_len(&full_string);
+    let full_string_bytes = full_string.as_bytes();
+    let char_count = crate::emacs_core::emacs_char::chars_in_multibyte(full_string_bytes);
 
     let start_arg = args.get(1).cloned().unwrap_or(Value::NIL);
     let end_arg = args.get(2).cloned().unwrap_or(Value::NIL);
@@ -359,8 +360,8 @@ pub(crate) fn read_from_string_impl(
         ));
     }
 
-    let start_byte = storage_char_to_byte(&full_string, start_char);
-    let end_byte = storage_char_to_byte(&full_string, end_char);
+    let start_byte = crate::emacs_core::emacs_char::char_to_byte_pos(full_string_bytes, start_char);
+    let end_byte = crate::emacs_core::emacs_char::char_to_byte_pos(full_string_bytes, end_char);
 
     let substring = &full_string[start_byte..end_byte];
     if starts_with_hash_skip_dispatch(substring) {
@@ -413,7 +414,7 @@ pub(crate) fn read_from_string_impl(
     // into a character index in the original STRING so the returned
     // FINAL-STRING-INDEX matches GNU's contract.
     let absolute_end_byte = start_byte + end_pos;
-    let absolute_end_char = storage_byte_to_char(&full_string, absolute_end_byte);
+    let absolute_end_char = crate::emacs_core::emacs_char::byte_to_char_pos(full_string_bytes, absolute_end_byte);
 
     Ok(Value::cons(value, Value::fixnum(absolute_end_char as i64)))
 }

@@ -62,11 +62,11 @@ pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
         }
         ValueKind::String => {
             let idx = idx_fixnum as usize;
-            let s = args[0].as_str().unwrap().to_owned();
-            let codes = decode_storage_char_codes(&s);
+            let string = args[0].as_lisp_string().expect("string");
+            let codes = super::lisp_string_char_codes(string);
             codes
                 .get(idx)
-                .map(|cp| Value::fixnum(*cp as i64))
+                .map(|&cp| Value::fixnum(cp as i64))
                 .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))
         }
         // In official Emacs, closures support aref for oclosure slot access.
@@ -109,7 +109,9 @@ pub(crate) fn aset_string_replacement(
     let idx = expect_fixnum(index)? as usize;
     let original_str = array.as_str().unwrap().to_owned();
     let multibyte = array.string_is_multibyte();
-    let mut codes = decode_storage_char_codes(&original_str);
+    let mut codes = super::lisp_string_char_codes(
+        array.as_lisp_string().expect("string"),
+    );
     if idx >= codes.len() {
         return Err(signal("args-out-of-range", vec![*array, *index]));
     }
@@ -253,12 +255,10 @@ pub(crate) fn builtin_vconcat(args: Vec<Value>) -> EvalResult {
                 result.extend(arg.as_vector_data().unwrap().clone().into_iter())
             }
             ValueKind::String => {
-                let s = arg.as_str().unwrap().to_owned();
-                result.extend(
-                    decode_storage_char_codes(&s)
-                        .into_iter()
-                        .map(|cp| Value::fixnum(cp as i64)),
-                );
+                let string = arg.as_lisp_string().expect("string");
+                super::for_each_lisp_string_char(string, |cp| {
+                    result.push(Value::fixnum(cp as i64));
+                });
             }
             ValueKind::Nil => {}
             ValueKind::Cons => extend_from_proper_list(&mut result, arg)?,
@@ -627,27 +627,28 @@ pub(crate) fn builtin_hash_table_count(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_char_to_string(args: Vec<Value>) -> EvalResult {
     expect_args("char-to-string", &args, 1)?;
     let code = expect_character_code(&args[0])? as u32;
-    let multibyte = code > 0x7f;
-    let encoded = encode_char_code_for_string_storage(code, multibyte).ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("characterp"), args[0]],
-        )
-    })?;
-    Ok(if multibyte {
-        Value::multibyte_string(encoded)
+    if crate::emacs_core::emacs_char::char_byte8_p(code) {
+        // Raw byte → unibyte string with the actual byte value
+        let byte = crate::emacs_core::emacs_char::char_to_byte8(code);
+        Ok(Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![byte])))
+    } else if code <= 0x7f {
+        // ASCII → unibyte
+        Ok(Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![code as u8])))
     } else {
-        Value::unibyte_string(encoded)
-    })
+        // Non-ASCII Unicode → multibyte
+        let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+        let len = crate::emacs_core::emacs_char::char_string(code, &mut buf);
+        Ok(Value::heap_string(crate::heap_types::LispString::from_emacs_bytes(buf[..len].to_vec())))
+    }
 }
 
 pub(crate) fn builtin_string_to_char(args: Vec<Value>) -> EvalResult {
     expect_args("string-to-char", &args, 1)?;
-    let s = expect_string(&args[0])?;
-    let first = decode_storage_char_codes(&s)
-        .into_iter()
-        .next()
-        .unwrap_or(0);
+    let string = args[0].as_lisp_string().ok_or_else(|| {
+        signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]])
+    })?;
+    let codes = super::lisp_string_char_codes(string);
+    let first = codes.into_iter().next().unwrap_or(0);
     Ok(Value::fixnum(first as i64))
 }
 

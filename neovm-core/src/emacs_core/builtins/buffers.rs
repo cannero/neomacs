@@ -3250,15 +3250,23 @@ pub(crate) fn builtin_get_byte(eval: &mut super::eval::Context, args: Vec<Value>
     // STRING path: POSITION is a zero-based character index.
     if args.get(1).is_some_and(|v| !v.is_nil()) {
         let string_value = args[1];
-        let s = expect_string(&args[1])?;
+        // Validate that arg is a string (without extracting as &str, which
+        // would fail for non-UTF-8 unibyte strings).
+        if !args[1].is_string() {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("stringp"), args[1]],
+            ));
+        }
         let pos = if args.is_empty() || args[0].is_nil() {
             0usize
         } else {
             expect_wholenump(&args[0])? as usize
         };
 
-        let char_len = storage_char_len(&s);
-        if pos >= char_len && !s.is_empty() {
+        let string = args[1].as_lisp_string().expect("string");
+        let char_len = string.schars();
+        if pos >= char_len && !string.is_empty() {
             return Err(signal(
                 "args-out-of-range",
                 vec![string_value, Value::fixnum(pos as i64)],
@@ -3270,10 +3278,13 @@ pub(crate) fn builtin_get_byte(eval: &mut super::eval::Context, args: Vec<Value>
             return Ok(Value::fixnum(0));
         }
 
-        let code = decode_storage_char_codes(&s)[pos];
-        if is_unibyte_storage_string(&s) {
-            return Ok(Value::fixnum((code & 0xFF) as i64));
+        if !string.is_multibyte() {
+            // Unibyte: direct byte access
+            return Ok(Value::fixnum((string.as_bytes()[pos] & 0xFF) as i64));
         }
+        // Use lisp_string_char_codes which handles sentinel translation
+        let codes = super::lisp_string_char_codes(string);
+        let code = codes[pos];
         return get_byte_from_multibyte_char_code(code);
     }
 

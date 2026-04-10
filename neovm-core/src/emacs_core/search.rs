@@ -93,7 +93,8 @@ fn normalize_string_start_arg(string: &str, start: Option<&Value>) -> Result<usi
     }
 
     let raw_start = expect_int(start_val)?;
-    let len = super::string_escape::storage_char_len(string) as i64;
+    let string_bytes = string.as_bytes();
+    let len = crate::emacs_core::emacs_char::chars_in_multibyte(string_bytes) as i64;
     let normalized = if raw_start < 0 {
         len.checked_add(raw_start)
     } else {
@@ -119,8 +120,8 @@ fn normalize_string_start_arg(string: &str, start: Option<&Value>) -> Result<usi
         return Ok(string.len());
     }
 
-    Ok(super::string_escape::storage_char_to_byte(
-        string,
+    Ok(crate::emacs_core::emacs_char::char_to_byte_pos(
+        string_bytes,
         start_char_idx,
     ))
 }

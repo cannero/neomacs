@@ -11,7 +11,7 @@
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
-use super::string_escape::{storage_byte_to_char, storage_char_len, storage_char_to_byte};
+// storage imports removed — now using emacs_char + LispString directly
 use super::value::{Value, ValueKind, VecLikeType};
 #[cfg(unix)]
 use std::ffi::CStr;
@@ -251,9 +251,13 @@ pub(crate) fn builtin_take(args: Vec<Value>) -> EvalResult {
 /// is also a character position, matching GNU Emacs semantics.
 pub(crate) fn builtin_string_search(args: Vec<Value>) -> EvalResult {
     expect_min_args("string-search", &args, 2)?;
-    let needle = expect_string(&args[0])?;
-    let haystack = expect_string(&args[1])?;
-    let char_len = storage_char_len(&haystack);
+    let needle_ls = args[0].as_lisp_string().ok_or_else(|| {
+        signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]])
+    })?;
+    let haystack_ls = args[1].as_lisp_string().ok_or_else(|| {
+        signal("wrong-type-argument", vec![Value::symbol("stringp"), args[1]])
+    })?;
+    let char_len = haystack_ls.schars();
     let start_char = if args.len() > 2 {
         let n = expect_int(&args[2])?;
         if n < 0 || n as usize > char_len {
@@ -267,18 +271,37 @@ pub(crate) fn builtin_string_search(args: Vec<Value>) -> EvalResult {
         0
     };
 
+    let haystack_bytes = haystack_ls.as_bytes();
+    let needle_bytes = needle_ls.as_bytes();
+
     // Convert the start character position to a byte offset for slicing.
-    let start_byte = storage_char_to_byte(&haystack, start_char);
-    let search_in = &haystack[start_byte..];
-    match search_in.find(&needle) {
-        Some(byte_pos) => {
-            // Convert the absolute byte position back to a character position.
-            let abs_byte = start_byte + byte_pos;
-            let char_pos = storage_byte_to_char(&haystack, abs_byte);
-            Ok(Value::fixnum(char_pos as i64))
-        }
-        None => Ok(Value::NIL),
+    let start_byte = if haystack_ls.is_multibyte() {
+        crate::emacs_core::emacs_char::char_to_byte_pos(haystack_bytes, start_char)
+    } else {
+        start_char
+    };
+    let search_in = &haystack_bytes[start_byte..];
+
+    // Search for needle bytes in haystack bytes
+    if let Some(byte_pos) = find_subsequence(search_in, needle_bytes) {
+        let abs_byte = start_byte + byte_pos;
+        let char_pos = if haystack_ls.is_multibyte() {
+            crate::emacs_core::emacs_char::byte_to_char_pos(haystack_bytes, abs_byte)
+        } else {
+            abs_byte
+        };
+        Ok(Value::fixnum(char_pos as i64))
+    } else {
+        Ok(Value::NIL)
     }
+}
+
+/// Find the first occurrence of `needle` in `haystack` (byte slice search).
+fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() {
+        return Some(0);
+    }
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 // ---------------------------------------------------------------------------

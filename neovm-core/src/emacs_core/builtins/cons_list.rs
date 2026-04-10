@@ -399,9 +399,10 @@ pub(crate) fn builtin_length(args: Vec<Value>) -> EvalResult {
                 ))
             }
         },
-        ValueKind::String => Ok(Value::fixnum(
-            storage_char_len(args[0].as_str().unwrap()) as i64
-        )),
+        ValueKind::String => {
+            let s = args[0].as_lisp_string().expect("string");
+            Ok(Value::fixnum(s.schars() as i64))
+        }
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             Ok(Value::fixnum(vector_sequence_length(&args[0])))
         }
@@ -424,7 +425,7 @@ fn sequence_length_less_than(sequence: &Value, target: i64) -> Result<bool, Flow
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
             Ok(closure_vector_length(sequence).unwrap() < target)
         }
-        ValueKind::String => Ok((storage_char_len(sequence.as_str().unwrap()) as i64) < target),
+        ValueKind::String => Ok((sequence.as_lisp_string().expect("string").schars() as i64) < target),
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             Ok(vector_sequence_length(sequence) < target)
         }
@@ -458,7 +459,7 @@ fn sequence_length_equal(sequence: &Value, target: i64) -> Result<bool, Flow> {
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
             Ok(closure_vector_length(sequence).unwrap() == target)
         }
-        ValueKind::String => Ok((storage_char_len(sequence.as_str().unwrap()) as i64) == target),
+        ValueKind::String => Ok((sequence.as_lisp_string().expect("string").schars() as i64) == target),
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             Ok(vector_sequence_length(sequence) == target)
         }
@@ -492,7 +493,7 @@ fn sequence_length_greater_than(sequence: &Value, target: i64) -> Result<bool, F
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
             Ok(closure_vector_length(sequence).unwrap() > target)
         }
-        ValueKind::String => Ok((storage_char_len(sequence.as_str().unwrap()) as i64) > target),
+        ValueKind::String => Ok((sequence.as_lisp_string().expect("string").schars() as i64) > target),
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             Ok(vector_sequence_length(sequence) > target)
         }
@@ -637,12 +638,10 @@ pub(crate) fn builtin_append(args: Vec<Value>) -> EvalResult {
                 elements.extend(arg.as_vector_data().unwrap().clone().into_iter())
             }
             ValueKind::String => {
-                let s = arg.as_str().unwrap().to_owned();
-                elements.extend(
-                    decode_storage_char_codes(&s)
-                        .into_iter()
-                        .map(|cp| Value::fixnum(cp as i64)),
-                );
+                let string = arg.as_lisp_string().expect("string");
+                super::for_each_lisp_string_char(string, |cp| {
+                    elements.push(Value::fixnum(cp as i64));
+                });
             }
             _ => {
                 return Err(signal(
@@ -1114,8 +1113,8 @@ pub(crate) fn builtin_delete(args: Vec<Value>) -> EvalResult {
         ValueKind::String => {
             let mut changed = false;
             let mut kept = Vec::new();
-            let s = args[1].as_str().unwrap().to_owned();
-            for cp in decode_storage_char_codes(&s) {
+            let string = args[1].as_lisp_string().expect("string");
+            for cp in super::lisp_string_char_codes(string) {
                 let ch = Value::fixnum(cp as i64);
                 if equal_value(elt, &ch, 0) {
                     changed = true;

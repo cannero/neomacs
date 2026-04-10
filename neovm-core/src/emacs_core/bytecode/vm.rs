@@ -13,7 +13,7 @@ use crate::emacs_core::error::*;
 use crate::emacs_core::eval::{ConditionFrame, Context, ResumeTarget};
 use crate::emacs_core::intern::{SymId, intern, intern_uninterned, resolve_sym};
 use crate::emacs_core::regex::MatchData;
-use crate::emacs_core::string_escape::{storage_char_len, storage_substring};
+// storage_char_len and storage_substring no longer needed here — using emacs_char + LispString
 use crate::emacs_core::value::*;
 use crate::window::{FrameId, FrameManager, Window};
 
@@ -5081,7 +5081,10 @@ fn number_or_marker_as_f64(vm: &Vm<'_>, value: &Value) -> Result<f64, Flow> {
 fn length_value(val: &Value) -> EvalResult {
     match val.kind() {
         ValueKind::Nil => Ok(Value::fixnum(0)),
-        ValueKind::String => Ok(Value::fixnum(val.as_str().unwrap().chars().count() as i64)),
+        ValueKind::String => {
+            let s = val.as_lisp_string().expect("string");
+            Ok(Value::fixnum(s.schars() as i64))
+        }
         ValueKind::Veclike(VecLikeType::Vector) => {
             Ok(Value::fixnum(val.as_vector_data().unwrap().len() as i64))
         }
@@ -5116,7 +5119,10 @@ fn length_value(val: &Value) -> EvalResult {
 
 fn substring_value(array: &Value, from: &Value, to: &Value) -> EvalResult {
     let len = match array.kind() {
-        ValueKind::String => storage_char_len(array.as_str().unwrap()) as i64,
+        ValueKind::String => {
+            let s = array.as_lisp_string().expect("string");
+            s.schars() as i64
+        }
         ValueKind::Veclike(VecLikeType::Vector) => array.as_vector_data().unwrap().len() as i64,
         _ => {
             return Err(signal(
@@ -5155,10 +5161,18 @@ fn substring_value(array: &Value, from: &Value, to: &Value) -> EvalResult {
 
     match array.kind() {
         ValueKind::String => {
-            let s = array.as_str().unwrap().to_owned();
-            let result = storage_substring(&s, start, end)
+            let string = array.as_lisp_string().expect("string");
+            let bytes = string.as_bytes();
+            let (byte_from, byte_to) = if string.is_multibyte() {
+                let bf = crate::emacs_core::emacs_char::char_to_byte_pos(bytes, start);
+                let bt = crate::emacs_core::emacs_char::char_to_byte_pos(bytes, end);
+                (bf, bt)
+            } else {
+                (start, end)
+            };
+            let result = string.slice(byte_from, byte_to)
                 .ok_or_else(|| signal("args-out-of-range", vec![*array, *from, *to]))?;
-            Ok(Value::string(result))
+            Ok(Value::heap_string(result))
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
             let data = array.as_vector_data().unwrap().clone();

@@ -8,8 +8,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::string_escape::{
-    bytes_to_unibyte_storage_string, decode_storage_char_codes, encode_nonunicode_char_for_storage,
-    storage_char_len, storage_substring,
+    bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage,
 };
 use super::value::*;
 use crate::buffer::BufferManager;
@@ -588,11 +587,8 @@ fn md5_hex_for_string(
     start_raw: Option<&Value>,
     end_raw: Option<&Value>,
 ) -> Result<String, Flow> {
-    let input = match object.kind() {
-        ValueKind::String => object.as_str().unwrap().to_owned(),
-        _ => unreachable!("md5_hex_for_string only accepts string object"),
-    };
-    let len = storage_char_len(&input) as i64;
+    let string = object.as_lisp_string().expect("md5_hex_for_string only accepts string object");
+    let len = string.schars() as i64;
     let start_arg = start_raw.cloned().unwrap_or(Value::NIL);
     let end_arg = end_raw.cloned().unwrap_or(Value::NIL);
     let start =
@@ -607,9 +603,19 @@ fn md5_hex_for_string(
         ));
     }
 
-    let slice = storage_substring(&input, start, end)
-        .ok_or_else(|| signal("args-out-of-range", vec![*object, start_arg, end_arg]))?;
-    Ok(md5_hash(slice.as_bytes()))
+    let bytes = string.as_bytes();
+    let (byte_from, byte_to) = if string.is_multibyte() {
+        (
+            crate::emacs_core::emacs_char::char_to_byte_pos(bytes, start),
+            crate::emacs_core::emacs_char::char_to_byte_pos(bytes, end),
+        )
+    } else {
+        (start, end)
+    };
+    if byte_to > bytes.len() {
+        return Err(signal("args-out-of-range", vec![*object, start_arg, end_arg]));
+    }
+    Ok(md5_hash(&bytes[byte_from..byte_to]))
 }
 
 fn normalize_md5_buffer_position(
@@ -661,8 +667,16 @@ fn hash_slice_for_buffer_in_manager(
     };
     let lo_idx = (lo - point_min) as usize;
     let hi_idx = (hi - point_min) as usize;
-    storage_substring(&text, lo_idx, hi_idx)
-        .ok_or_else(|| signal("args-out-of-range", vec![start_arg, end_arg]))
+    // Buffer text is UTF-8; convert character indices to byte offsets
+    let text_bytes = text.as_bytes();
+    let byte_lo = crate::emacs_core::emacs_char::char_to_byte_pos(text_bytes, lo_idx);
+    let byte_hi = crate::emacs_core::emacs_char::char_to_byte_pos(text_bytes, hi_idx);
+    if byte_hi > text_bytes.len() {
+        return Err(signal("args-out-of-range", vec![start_arg, end_arg]));
+    }
+    std::str::from_utf8(&text_bytes[byte_lo..byte_hi])
+        .map(|s| s.to_owned())
+        .map_err(|_| signal("args-out-of-range", vec![start_arg, end_arg]))
 }
 
 fn md5_hex_for_buffer_in_manager(
@@ -727,11 +741,8 @@ fn hash_slice_for_string(
     start_raw: Option<&Value>,
     end_raw: Option<&Value>,
 ) -> Result<String, Flow> {
-    let input = match object.kind() {
-        ValueKind::String => object.as_str().unwrap().to_owned(),
-        _ => unreachable!("hash_slice_for_string only accepts string object"),
-    };
-    let len = storage_char_len(&input) as i64;
+    let string = object.as_lisp_string().expect("hash_slice_for_string only accepts string object");
+    let len = string.schars() as i64;
     let start_arg = start_raw.cloned().unwrap_or(Value::NIL);
     let end_arg = end_raw.cloned().unwrap_or(Value::NIL);
     let start =
@@ -746,8 +757,24 @@ fn hash_slice_for_string(
         ));
     }
 
-    storage_substring(&input, start, end)
-        .ok_or_else(|| signal("args-out-of-range", vec![*object, start_arg, end_arg]))
+    let bytes = string.as_bytes();
+    let (byte_from, byte_to) = if string.is_multibyte() {
+        (
+            crate::emacs_core::emacs_char::char_to_byte_pos(bytes, start),
+            crate::emacs_core::emacs_char::char_to_byte_pos(bytes, end),
+        )
+    } else {
+        (start, end)
+    };
+    if byte_to > bytes.len() {
+        return Err(signal("args-out-of-range", vec![*object, start_arg, end_arg]));
+    }
+    let slice_bytes = &bytes[byte_from..byte_to];
+    // Return the slice as a String for downstream hashing.
+    // If it's valid UTF-8, use it directly; otherwise lossy-convert.
+    Ok(std::str::from_utf8(slice_bytes)
+        .map(|s| s.to_owned())
+        .unwrap_or_else(|_| crate::emacs_core::emacs_char::to_utf8_lossy(slice_bytes)))
 }
 
 fn secure_hash_digest_bytes(algo_name: &str, input: &str) -> Result<Vec<u8>, Flow> {
@@ -1040,14 +1067,22 @@ pub(crate) fn builtin_string_make_unibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-make-unibyte", &args, 1)?;
     match args[0].kind() {
         ValueKind::String => {
-            let s = args[0].as_str().unwrap().to_owned();
-            let bytes: Vec<u8> = decode_storage_char_codes(&s)
-                .into_iter()
-                .map(|cp| (cp & 0xFF) as u8)
-                .collect();
-            Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(
-                &bytes,
-            )))
+            let string = args[0].as_lisp_string().expect("string");
+            let src_bytes = string.as_bytes();
+            let result_bytes: Vec<u8> = if string.is_multibyte() {
+                let mut out = Vec::with_capacity(string.schars());
+                let mut pos = 0;
+                while pos < src_bytes.len() {
+                    let (cp, len) = crate::emacs_core::emacs_char::string_char(&src_bytes[pos..]);
+                    out.push((cp & 0xFF) as u8);
+                    pos += len;
+                }
+                out
+            } else {
+                // Already unibyte
+                src_bytes.to_vec()
+            };
+            Ok(Value::heap_string(crate::heap_types::LispString::from_unibyte(result_bytes)))
         }
         _ => Err(signal(
             "wrong-type-argument",

@@ -6,7 +6,7 @@
 use super::builtins::builtin_copy_sequence;
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
-use super::string_escape::{storage_byte_to_char, storage_char_len, storage_char_to_byte};
+// storage imports removed — now using emacs_char directly
 use super::symbol::Obarray;
 use super::value::*;
 use crate::buffer::overlay::plist_put_eq;
@@ -448,13 +448,15 @@ pub(crate) fn is_string_object(object: Option<&Value>) -> Option<Value> {
 /// Convert a 0-based Elisp string char position to a byte offset.
 pub(crate) fn string_elisp_pos_to_byte(s: &str, pos: i64) -> usize {
     let char_pos = if pos < 0 { 0usize } else { pos as usize };
-    let clamped = char_pos.min(storage_char_len(s));
-    storage_char_to_byte(s, clamped)
+    let s_bytes = s.as_bytes();
+    let char_count = crate::emacs_core::emacs_char::chars_in_multibyte(s_bytes);
+    let clamped = char_pos.min(char_count);
+    crate::emacs_core::emacs_char::char_to_byte_pos(s_bytes, clamped)
 }
 
 /// Convert a byte offset to a 0-based Elisp string char position.
 pub(crate) fn string_byte_to_elisp_pos(s: &str, byte_pos: usize) -> i64 {
-    storage_byte_to_char(s, byte_pos) as i64
+    crate::emacs_core::emacs_char::byte_to_char_pos(s.as_bytes(), byte_pos) as i64
 }
 
 /// Write back a modified TextPropertyTable to string text properties.
