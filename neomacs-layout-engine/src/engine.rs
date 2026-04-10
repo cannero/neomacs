@@ -4332,9 +4332,16 @@ impl LayoutEngine {
         }
 
         let window_start_lisp = (window_start as usize).saturating_add(1);
+        // Use the last row that actually has a buffer position, not
+        // just the last row.  Empty trailing rows (e.g. the blank
+        // line after a buffer ending with `\n`) have
+        // end_buffer_pos = None.  Using `.last()` hit that None and
+        // fell back to 1, making the %p mode-line construct show
+        // "Top" instead of "All" for short buffers.
         let window_end_lisp = display_rows
-            .last()
-            .and_then(|row| row.end_buffer_pos)
+            .iter()
+            .rev()
+            .find_map(|row| row.end_buffer_pos)
             .map(|pos| pos.saturating_add(1))
             .unwrap_or(1);
         let window_end_byte = text_start_byte.saturating_add(byte_idx);

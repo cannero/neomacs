@@ -1685,7 +1685,11 @@ fn bootstrap_buffers(
         frame
             .parameters
             .insert("font-parameter".to_string(), default_font);
-        frame.title = "Neomacs".to_string();
+        // GNU frame.c: initial frame title is NULL (unset). The %F
+        // mode-line construct falls through to frame->name ("F1") when
+        // title is unset. Don't set a title here — let %F show the
+        // frame name, matching GNU behaviour.
+
         frame.font_pixel_size = frame_metrics.font_pixel_size;
         if display.frontend == FrontendKind::Tty {
             // TTY frames use 1x1 character cell metrics
