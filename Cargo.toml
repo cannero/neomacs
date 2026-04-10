@@ -10,6 +10,7 @@ members = [
     "neovm-host-abi",
     "neovm-oracle-tests",
     "neovm-worker",
+    "neomacs-tui-tests",
     "xtask",
 ]
 default-members = ["neomacs-bin"]

@@ -1,0 +1,18 @@
+[package]
+name = "neomacs-tui-tests"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+# This crate exists only for its integration tests.
+# `src/lib.rs` provides the shared test harness (TuiSession, screen
+# diffing, key translation). Each file in `tests/` is a test binary
+# that exercises a specific area of TUI behaviour and compares the
+# rendered output of GNU Emacs against Neomacs.
+
+[dependencies]
+vt100 = "0.15"
+pty-process = "0.5"
+libc = { workspace = true }

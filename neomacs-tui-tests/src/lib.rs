@@ -1,0 +1,346 @@
+//! TUI comparison test harness for Neomacs vs GNU Emacs.
+//!
+//! Spawns both editors in isolated pseudo-terminals, feeds identical
+//! keystrokes, and compares the rendered screen cell by cell using the
+//! `vt100` virtual terminal emulator.
+//!
+//! # Architecture
+//!
+//! - [`TuiSession`] wraps a child process in a PTY with a `vt100::Parser`.
+//!   Call [`TuiSession::send`] to type keys and [`TuiSession::read`] to
+//!   advance the parser. [`TuiSession::screen`] returns the current
+//!   virtual screen.
+//!
+//! - [`emacs_key`] translates Emacs key descriptions (`"C-x"`, `"M-x"`,
+//!   `"RET"`) into the raw bytes a terminal would send.
+//!
+//! - [`diff_screens`] compares two `vt100::Screen` snapshots and returns
+//!   a list of [`CellDiff`] entries for every mismatched cell.
+//!
+//! - [`diff_screens_text`] is a simpler text-only comparison that ignores
+//!   face attributes and normalises product names.
+
+use std::io::{Read, Write};
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
+// ── Session ──────────────────────────────────────────────────────────
+
+/// Default terminal size for tests.
+pub const COLS: u16 = 80;
+pub const ROWS: u16 = 24;
+
+/// A TUI editor session running inside an isolated PTY.
+pub struct TuiSession {
+    pty: pty_process::blocking::Pty,
+    _child: std::process::Child,
+    parser: vt100::Parser,
+    pub name: String,
+}
+
+impl TuiSession {
+    /// Spawn `cmd` (e.g. `"emacs -nw -Q"`) in a new PTY.
+    pub fn spawn(cmd: &str, name: &str) -> Self {
+        let (pty, pts) = pty_process::blocking::open().expect("open pty");
+        pty.resize(pty_process::Size::new(ROWS, COLS))
+            .expect("resize pty");
+
+        let parts: Vec<&str> = cmd.split_whitespace().collect();
+        let mut command = pty_process::blocking::Command::new(parts[0]);
+        for arg in &parts[1..] {
+            command = command.arg(arg);
+        }
+        command = command
+            .env("TERM", "xterm-256color")
+            .env("COLUMNS", COLS.to_string())
+            .env("LINES", ROWS.to_string())
+            // Prevent user config from interfering.
+            // Create the temp home so neither editor warns about missing dirs.
+            .env("HOME", {
+                let home = std::path::PathBuf::from("/tmp/neomacs-tui-test-home");
+                let emacs_d = home.join(".emacs.d");
+                let _ = std::fs::create_dir_all(&emacs_d);
+                home
+            });
+
+        let child = command.spawn(pts).expect("spawn");
+
+        let parser = vt100::Parser::new(ROWS, COLS, 0);
+
+        TuiSession {
+            pty,
+            _child: child,
+            parser,
+            name: name.to_string(),
+        }
+    }
+
+    /// Spawn GNU Emacs in TUI mode.
+    pub fn gnu_emacs(extra_args: &str) -> Self {
+        let cmd = if extra_args.is_empty() {
+            "emacs -nw -Q".to_string()
+        } else {
+            format!("emacs -nw -Q {extra_args}")
+        };
+        Self::spawn(&cmd, "GNU")
+    }
+
+    /// Spawn Neomacs in TUI mode.
+    ///
+    /// Looks for the binary at `./target/debug/neomacs` relative to
+    /// the workspace root (found via `CARGO_MANIFEST_DIR`).
+    pub fn neomacs(extra_args: &str) -> Self {
+        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let workspace = manifest.parent().expect("workspace root");
+        let bin = workspace.join("target/debug/neomacs");
+        assert!(
+            bin.exists(),
+            "neomacs binary not found at {}\nRun `cargo build -p neomacs-bin` first.",
+            bin.display()
+        );
+        let cmd = if extra_args.is_empty() {
+            format!("{} -nw -Q", bin.display())
+        } else {
+            format!("{} -nw -Q {extra_args}", bin.display())
+        };
+        Self::spawn(&cmd, "NEO")
+    }
+
+    /// Read available output from the PTY and feed it to the vt100
+    /// parser. Blocks for up to `timeout`.
+    pub fn read(&mut self, timeout: Duration) {
+        let deadline = Instant::now() + timeout;
+        let mut buf = [0u8; 65536];
+        while Instant::now() < deadline {
+            // Use a short non-blocking read via set_nonblocking or poll.
+            // For simplicity we set a small read timeout.
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let poll_ms = remaining.as_millis().min(100) as u64;
+            // set_nonblocking is not portable; use poll via libc.
+            let fd = std::os::fd::AsRawFd::as_raw_fd(&self.pty);
+            let ready = unsafe {
+                let mut pfd = libc::pollfd {
+                    fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                libc::poll(&mut pfd, 1, poll_ms as i32) > 0
+                    && (pfd.revents & libc::POLLIN) != 0
+            };
+            if ready {
+                match self.pty.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => self.parser.process(&buf[..n]),
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(_) => break,
+                }
+            }
+        }
+    }
+
+    /// Send raw bytes to the PTY.
+    pub fn send(&mut self, data: &[u8]) {
+        let _ = self.pty.write_all(data);
+    }
+
+    /// Send an Emacs key description (e.g. `"C-x"`, `"M-x"`, `"RET"`).
+    pub fn send_key(&mut self, key: &str) {
+        self.send(&emacs_key(key));
+    }
+
+    /// Send a sequence of keys separated by spaces (e.g. `"C-x 2"`).
+    pub fn send_keys(&mut self, keys: &str) {
+        for part in keys.split_whitespace() {
+            self.send_key(part);
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    /// Get the current virtual terminal screen.
+    pub fn screen(&self) -> &vt100::Screen {
+        self.parser.screen()
+    }
+
+    /// Get the text content of a single row (0-indexed).
+    pub fn row_text(&self, row: u16) -> String {
+        self.screen()
+            .contents_between(row, 0, row, COLS)
+    }
+
+    /// Get all rows as a Vec of strings.
+    pub fn text_grid(&self) -> Vec<String> {
+        (0..ROWS).map(|r| self.row_text(r)).collect()
+    }
+}
+
+impl Drop for TuiSession {
+    fn drop(&mut self) {
+        // Best-effort kill
+        let _ = self._child.kill();
+        let _ = self._child.wait();
+    }
+}
+
+// ── Key translation ──────────────────────────────────────────────────
+
+/// Translate an Emacs-style key name to the bytes a terminal sends.
+///
+/// Supports: `C-x`, `M-x`, `C-M-x`, `RET`, `TAB`, `ESC`, `SPC`,
+/// `DEL`, and plain characters.
+pub fn emacs_key(key: &str) -> Vec<u8> {
+    match key {
+        "RET" | "Enter" => return vec![b'\r'],
+        "TAB" => return vec![b'\t'],
+        "ESC" => return vec![0x1b],
+        "SPC" => return vec![b' '],
+        "DEL" => return vec![0x7f],
+        "BS" => return vec![0x08],
+        _ => {}
+    }
+
+    // C-M-x  →  ESC + Ctrl(x)
+    if let Some(ch) = key.strip_prefix("C-M-").and_then(|s| s.chars().next()) {
+        let ctrl = (ch.to_ascii_lowercase() as u8).wrapping_sub(b'a').wrapping_add(1);
+        return vec![0x1b, ctrl];
+    }
+    // C-x  →  Ctrl(x)
+    if let Some(ch) = key.strip_prefix("C-").and_then(|s| s.chars().next()) {
+        if ch == '@' {
+            return vec![0x00];
+        }
+        let ctrl = (ch.to_ascii_lowercase() as u8).wrapping_sub(b'a').wrapping_add(1);
+        return vec![ctrl];
+    }
+    // M-x  →  ESC x
+    if let Some(ch) = key.strip_prefix("M-").and_then(|s| s.chars().next()) {
+        return vec![0x1b, ch as u8];
+    }
+
+    // Plain character or multi-byte
+    key.as_bytes().to_vec()
+}
+
+// ── Screen diffing ───────────────────────────────────────────────────
+
+/// A single cell difference between two screens.
+#[derive(Debug)]
+pub struct CellDiff {
+    pub row: u16,
+    pub col: u16,
+    pub gnu_char: String,
+    pub neo_char: String,
+    pub gnu_fg: vt100::Color,
+    pub neo_fg: vt100::Color,
+    pub gnu_bg: vt100::Color,
+    pub neo_bg: vt100::Color,
+    pub kind: DiffKind,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum DiffKind {
+    Char,
+    Color,
+    Both,
+}
+
+/// Compare two screens cell by cell, returning all differences.
+pub fn diff_screens(gnu: &vt100::Screen, neo: &vt100::Screen) -> Vec<CellDiff> {
+    let mut diffs = Vec::new();
+    for row in 0..ROWS {
+        for col in 0..COLS {
+            let gc = gnu.cell(row, col);
+            let nc = neo.cell(row, col);
+            let (gc, nc) = match (gc, nc) {
+                (Some(g), Some(n)) => (g, n),
+                _ => continue,
+            };
+
+            let char_diff = gc.contents() != nc.contents();
+            let color_diff = gc.fgcolor() != nc.fgcolor() || gc.bgcolor() != nc.bgcolor();
+
+            if char_diff || color_diff {
+                diffs.push(CellDiff {
+                    row,
+                    col,
+                    gnu_char: gc.contents().to_string(),
+                    neo_char: nc.contents().to_string(),
+                    gnu_fg: gc.fgcolor(),
+                    neo_fg: nc.fgcolor(),
+                    gnu_bg: gc.bgcolor(),
+                    neo_bg: nc.bgcolor(),
+                    kind: match (char_diff, color_diff) {
+                        (true, true) => DiffKind::Both,
+                        (true, false) => DiffKind::Char,
+                        (false, true) => DiffKind::Color,
+                        _ => unreachable!(),
+                    },
+                });
+            }
+        }
+    }
+    diffs
+}
+
+/// A row-level text difference.
+#[derive(Debug)]
+pub struct RowDiff {
+    pub row: usize,
+    pub gnu: String,
+    pub neo: String,
+}
+
+/// Compare two text grids, normalising known product-name differences.
+///
+/// Returns only rows where meaningful differences remain after
+/// replacing "GNU Emacs" ↔ "Neomacs" and stripping trailing whitespace.
+pub fn diff_text_grids(gnu: &[String], neo: &[String]) -> Vec<RowDiff> {
+    let mut diffs = Vec::new();
+    let norm = |s: &str| -> String {
+        s.replace("GNU Emacs", "EDITOR__")
+            .replace("*GNU Emacs*", "*EDITOR__*")
+            .replace("Neomacs", "EDITOR__")
+            .replace("*Neomacs*", "*EDITOR__*")
+            .trim_end()
+            .to_string()
+    };
+    for (i, (g, n)) in gnu.iter().zip(neo.iter()).enumerate() {
+        if norm(g) != norm(n) {
+            diffs.push(RowDiff {
+                row: i,
+                gnu: g.trim_end().to_string(),
+                neo: n.trim_end().to_string(),
+            });
+        }
+    }
+    diffs
+}
+
+/// Check whether a row difference is just boot-screen informational text
+/// that we expect to differ (welcome message, copyright, etc.).
+pub fn is_boot_info_row(gnu_text: &str, neo_text: &str) -> bool {
+    let patterns = [
+        "information about GNU",
+        "Welcome to GNU",
+        "tutorial",
+        "Copyright",
+        "Free Software",
+        "warranty",
+        "C-h C-a",
+        "Appl",
+    ];
+    for p in &patterns {
+        if gnu_text.contains(p) || neo_text.contains(p) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Pretty-print row diffs to stderr (useful in test assertions).
+pub fn print_row_diffs(diffs: &[RowDiff]) {
+    for d in diffs {
+        eprintln!("  row {:2}:", d.row);
+        eprintln!("    GNU: |{}|", d.gnu);
+        eprintln!("    NEO: |{}|", d.neo);
+    }
+}
