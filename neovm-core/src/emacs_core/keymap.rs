@@ -990,8 +990,26 @@ fn store_in_keymap(keymap: Value, event: Value, def: Value, remove: bool) {
     }
 
     // Scan the keymap for existing bindings, tracking insertion point.
-    // GNU keymap.c: insertion_point starts at keymap; if a char-table or
-    // vector is found, insertion_point is updated to point after it.
+    //
+    // GNU `keymap.c:779-880`: `insertion_point` starts at `keymap`
+    // (the head cons holding the `keymap` symbol). It is **only**
+    // advanced when a vector or char-table element is encountered, so
+    // that those high-density elements stay at the front of the alist
+    // and character lookups stay fast. For ordinary alist bindings
+    // `insertion_point` stays at the head, which means the final
+    // `XSETCDR (insertion_point, Fcons (elt, XCDR (insertion_point)))`
+    // **prepends** the new entry right after the `keymap` symbol —
+    // i.e. newest binding first.
+    //
+    // The previous neomacs implementation advanced `insertion_point`
+    // on every iteration (including alist entries), so new bindings
+    // were appended at the **tail** instead. That divergence is
+    // observable: it inverts the order produced by `map_keymap_canonical`
+    // / `list_keymap_for_each_binding`, which surfaces e.g. as a
+    // backwards menu bar (`menu-bar.el` calls `define-key global-map
+    // [menu-bar tools]` then `[menu-bar buffer]` etc., and walking
+    // the resulting keymap should yield them in reverse insertion
+    // order — newest first — to match GNU's `display_menu_bar`).
     let mut insertion_point = keymap;
     let mut cursor = root_cdr;
     while cursor.is_cons() {
@@ -1025,6 +1043,8 @@ fn store_in_keymap(keymap: Value, event: Value, def: Value, remove: bool) {
                     }
                 }
             }
+            // GNU keymap.c:829: char-table found, advance insertion_point
+            // so a future prepend lands AFTER the char-table.
             insertion_point = cursor;
             cursor = entry_cdr;
             continue;
@@ -1043,6 +1063,8 @@ fn store_in_keymap(keymap: Value, event: Value, def: Value, remove: bool) {
                     return;
                 }
             }
+            // GNU keymap.c:803: vector found, advance insertion_point
+            // so a future prepend lands AFTER the vector.
             insertion_point = cursor;
             cursor = entry_cdr;
             continue;
@@ -1071,11 +1093,17 @@ fn store_in_keymap(keymap: Value, event: Value, def: Value, remove: bool) {
             break;
         }
 
-        insertion_point = cursor;
+        // NOTE: deliberately do NOT advance `insertion_point` here.
+        // GNU keeps it pointing at the keymap head (or the last
+        // vector/char-table) for ordinary alist entries, so that the
+        // prepend at the end of the function inserts the new binding
+        // at the front of the alist.
         cursor = entry_cdr;
     }
 
-    // No existing binding found. Append new entry after insertion_point.
+    // No existing binding found. Prepend the new entry right after
+    // `insertion_point`, matching GNU `keymap.c:898`:
+    //   XSETCDR (insertion_point, Fcons (elt, XCDR (insertion_point)));
     if !remove {
         let binding = Value::cons(event, def);
         let old_cdr = match insertion_point.kind() {
