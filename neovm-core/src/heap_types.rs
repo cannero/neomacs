@@ -51,6 +51,17 @@ impl LispString {
         }
     }
 
+    /// Reconstruct a `LispString` from pdump data with pre-computed fields.
+    /// The caller is responsible for passing consistent `data`, `size`, and
+    /// `size_byte` values (as stored in the dump file).
+    pub fn from_dump(data: Vec<u8>, size: usize, size_byte: i64) -> Self {
+        Self {
+            data,
+            size,
+            size_byte,
+        }
+    }
+
     /// Create a unibyte string.  Each byte is one character; `size_byte` = -1.
     pub fn from_unibyte(data: Vec<u8>) -> Self {
         let size = data.len();

@@ -2318,10 +2318,22 @@ fn collect_insert_pieces(args: &[Value]) -> Result<Vec<InsertPiece>, Flow> {
     let mut pieces = Vec::with_capacity(args.len());
     for arg in args {
         match arg.kind() {
-            ValueKind::String => pieces.push(InsertPiece {
-                text: arg.as_str().unwrap().to_owned(),
-                text_props: get_string_text_properties_table_for_value(*arg),
-            }),
+            ValueKind::String => {
+                let text = match arg.as_str() {
+                    Some(s) => s.to_owned(),
+                    None => {
+                        // String contains raw-byte sequences (non-UTF-8 Emacs
+                        // encoding).  Convert lossy for the buffer layer which
+                        // still uses `String`-based `GapBuffer::insert`.
+                        let ls = arg.as_lisp_string().unwrap();
+                        crate::emacs_core::emacs_char::to_utf8_lossy(ls.as_bytes())
+                    }
+                };
+                pieces.push(InsertPiece {
+                    text,
+                    text_props: get_string_text_properties_table_for_value(*arg),
+                });
+            }
             ValueKind::Fixnum(c) => {
                 let code = u32::try_from(c).ok();
                 let text = code

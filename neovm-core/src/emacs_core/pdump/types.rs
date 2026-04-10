@@ -77,8 +77,9 @@ pub enum DumpHeapObject {
     Vector(Vec<DumpValue>),
     HashTable(DumpLispHashTable),
     Str {
-        text: String,
-        multibyte: bool,
+        data: Vec<u8>,
+        size: usize,
+        size_byte: i64,
         #[serde(default)]
         text_props: Vec<DumpStringTextPropertyRun>,
     },

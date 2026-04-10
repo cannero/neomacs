@@ -35,11 +35,10 @@ use crate::emacs_core::intern;
 use crate::emacs_core::value;
 
 const MAGIC: &[u8; 8] = b"NEOPDUMP";
-// Phase 11 bump (11): DumpBuffer now round-trips `slots`,
-// `local_flags`, and `local_var_alist` so the BUFFER_OBJFWD slot
-// table and SYMBOL_LOCALIZED per-buffer alist survive dump/load
-// without leaning on the legacy `properties` blob.
-const FORMAT_VERSION: u32 = 11;
+// Phase 12 bump (12): DumpHeapObject::Str stores raw Vec<u8> data
+// with size/size_byte instead of String + multibyte bool, matching
+// the LispString internal representation (Emacs encoding).
+const FORMAT_VERSION: u32 = 12;
 
 /// Errors from dump/load operations.
 #[derive(Debug)]

@@ -472,8 +472,13 @@ fn dump_heap_object_from_value(value: Value) -> DumpHeapObject {
         ValueKind::String => {
             let string = value.as_lisp_string().expect("string");
             DumpHeapObject::Str {
-                text: string.as_str().unwrap_or("").to_owned(),
-                multibyte: string.is_multibyte(),
+                data: string.as_bytes().to_vec(),
+                size: string.schars(),
+                size_byte: if string.is_multibyte() {
+                    string.sbytes() as i64
+                } else {
+                    -1
+                },
                 text_props: get_string_text_properties_for_value(value)
                     .unwrap_or_default()
                     .into_iter()
@@ -1577,8 +1582,11 @@ fn allocate_tagged_placeholder(
             ))
         }),
         DumpHeapObject::Str {
-            text, multibyte, ..
-        } => Value::heap_string(LispString::new(text.clone(), *multibyte)),
+            data,
+            size,
+            size_byte,
+            ..
+        } => Value::heap_string(LispString::from_dump(data.clone(), *size, *size_byte)),
         DumpHeapObject::Float(value) => Value::make_float(*value),
         DumpHeapObject::Lambda(slots) => with_tagged_heap(|heap| {
             heap.alloc_lambda(vec![Value::NIL; slots.len().max(CLOSURE_MIN_SLOTS)])
