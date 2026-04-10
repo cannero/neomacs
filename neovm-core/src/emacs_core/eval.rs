@@ -1386,23 +1386,27 @@ pub(crate) fn builtin_provide_in_vm_runtime(
 }
 
 pub(crate) fn parse_eval_lexical_arg(arg: Option<Value>) -> Result<(bool, Option<Value>), Flow> {
-    let Some(arg) = arg else {
-        return Ok((false, None));
-    };
-    if arg.is_nil() {
-        return Ok((false, None));
-    }
-
-    // GNU eval.c:
+    // GNU eval.c Feval (src/eval.c:2527):
     //   specbind(Qinternal_interpreter_environment,
     //            CONSP(lexical) || NILP(lexical) ? lexical : list_of_t);
-    // - non-nil atom (like t) => lexical mode, env = (t)  [the list!]
-    // - cons                  => lexical mode, env = lexical
+    //
+    // GNU ALWAYS specbinds — no case leaves the environment untouched.
+    // We must always return Some(...) so the caller saves/restores lexenv.
+    let Some(arg) = arg else {
+        // No LEXICAL arg: clear lexical env (dynamic mode).
+        return Ok((false, Some(Value::NIL)));
+    };
+    if arg.is_nil() {
+        // LEXICAL is nil: clear lexical env (dynamic mode).
+        return Ok((false, Some(Value::NIL)));
+    }
+
+    // Non-nil atom (like t) => lexical mode, env = (t)  [the list!]
     if !arg.is_cons() {
-        // Non-nil non-cons: set env to (t) matching GNU's list_of_t
         return Ok((true, Some(Value::list(vec![Value::T]))));
     };
 
+    // Cons (alist) => lexical mode, env = the alist
     if list_to_vec(&arg).is_none() {
         return Err(signal(
             "wrong-type-argument",
@@ -1435,19 +1439,24 @@ fn is_top_level_lexenv_sentinel(lexenv: Value) -> bool {
 }
 
 pub(crate) struct ActiveEvalLexicalArgState {
-    saved_lexical_mode: bool,
     has_saved_lexenv: bool,
 }
 
 pub(crate) fn begin_eval_with_lexical_arg_in_state(
-    obarray: &mut Obarray,
+    _obarray: &mut Obarray,
     lexenv: &mut Value,
     saved_lexenvs: &mut Vec<Value>,
     lexical_arg: Option<Value>,
 ) -> Result<ActiveEvalLexicalArgState, Flow> {
-    let (use_lexical, lexenv_value) = parse_eval_lexical_arg(lexical_arg)?;
-    let saved_lexical_mode = lexical_binding_in_obarray(obarray);
-    obarray.set_symbol_value_id(lexical_binding_symbol(), Value::bool_val(use_lexical));
+    let (_use_lexical, lexenv_value) = parse_eval_lexical_arg(lexical_arg)?;
+    // GNU eval.c Feval: specbind(Qinternal_interpreter_environment, ...).
+    // GNU NEVER writes `lexical-binding`; it only saves/restores the
+    // internal interpreter environment. We mirror that: only touch
+    // self.lexenv, leave the obarray `lexical-binding` symbol alone
+    // (it reflects the file-level setting, not eval nesting).
+    //
+    // After Change 1, parse_eval_lexical_arg always returns Some(...)
+    // so this branch always fires — matching GNU's unconditional specbind.
     let has_saved_lexenv = if let Some(env) = lexenv_value {
         saved_lexenvs.push(*lexenv);
         *lexenv = env;
@@ -1456,24 +1465,21 @@ pub(crate) fn begin_eval_with_lexical_arg_in_state(
         false
     };
     Ok(ActiveEvalLexicalArgState {
-        saved_lexical_mode,
         has_saved_lexenv,
     })
 }
 
 pub(crate) fn finish_eval_with_lexical_arg_in_state(
-    obarray: &mut Obarray,
+    _obarray: &mut Obarray,
     lexenv: &mut Value,
     saved_lexenvs: &mut Vec<Value>,
     state: ActiveEvalLexicalArgState,
 ) {
+    // Mirror GNU: only restore the internal interpreter environment.
+    // Do NOT restore `lexical-binding` in the obarray (we never wrote it).
     if state.has_saved_lexenv {
         *lexenv = saved_lexenvs.pop().expect("saved_lexenvs underflow");
     }
-    obarray.set_symbol_value_id(
-        lexical_binding_symbol(),
-        Value::bool_val(state.saved_lexical_mode),
-    );
 }
 
 pub(crate) fn builtin_eval_in_vm_runtime(
@@ -1500,7 +1506,6 @@ pub(crate) fn builtin_eval_in_vm_runtime(
 pub(crate) struct ActiveLambdaCallState {
     saved_temp_roots_len: usize,
     has_lexenv: bool,
-    saved_lexical_mode: Option<bool>,
     specpdl_count: usize,
 }
 
@@ -1662,20 +1667,14 @@ fn begin_lambda_call_in_state(
         }
     }
 
-    let saved_lexical_mode = if has_lexenv {
-        let old = obarray
-            .symbol_value_id(lexical_binding_symbol())
-            .is_some_and(|value| value.is_truthy());
-        obarray.set_symbol_value_id(lexical_binding_symbol(), Value::T);
-        Some(old)
-    } else {
-        None
-    };
+    // GNU never writes `lexical-binding` during lambda/closure calls.
+    // The closure's captured env is installed in self.lexenv (above),
+    // which is the single source of truth for "is lexical mode active?"
+    // via lexical_binding() -> !self.lexenv.is_nil().
 
     Ok(ActiveLambdaCallState {
         saved_temp_roots_len,
         has_lexenv,
-        saved_lexical_mode,
         specpdl_count,
     })
 }
@@ -1688,9 +1687,6 @@ fn finish_lambda_call_in_state(
     temp_roots: &mut Vec<Value>,
     state: ActiveLambdaCallState,
 ) {
-    if let Some(old_mode) = state.saved_lexical_mode {
-        obarray.set_symbol_value_id(lexical_binding_symbol(), Value::bool_val(old_mode));
-    }
     if state.has_lexenv {
         let old_lexenv = saved_lexenvs.pop().expect("saved_lexenvs underflow");
         *lexenv = old_lexenv;
@@ -5790,7 +5786,18 @@ impl Context {
         self.assign("unread-command-events", Value::list(vec![event]));
     }
 
-    /// Enable or disable lexical binding.
+    /// Set the file-level `lexical-binding` and sync the top-level
+    /// lexical environment.
+    ///
+    /// Called at file-loading boundaries (load.rs, lread.rs) and test
+    /// setup. Mirrors GNU Emacs where the file loader both sets the
+    /// `lexical-binding` buffer-local AND specbinds
+    /// `Vinternal_interpreter_environment` to `(t)` or `nil`.
+    ///
+    /// Note: `Feval` (begin_eval_with_lexical_arg) does NOT call this.
+    /// `Feval` only saves/restores `self.lexenv` without touching the
+    /// obarray `lexical-binding` symbol, matching GNU where nested
+    /// eval calls never clobber the file-level setting.
     pub fn set_lexical_binding(&mut self, enabled: bool) {
         self.obarray
             .set_symbol_value_id(lexical_binding_symbol(), Value::bool_val(enabled));
@@ -8798,17 +8805,13 @@ impl Context {
                 let Some(params_value) = items.get(1).copied() else {
                     return Err(signal("invalid-function", vec![function]));
                 };
-                let env_value = if self
-                    .obarray
-                    .symbol_value_id(lexical_binding_symbol())
-                    .is_some_and(|value| value.is_truthy())
-                    || !self.lexenv.is_nil()
-                {
-                    if self.lexenv.is_nil() {
-                        Value::list(vec![Value::T])
-                    } else {
-                        self.lexenv
-                    }
+                // Mirrors GNU eval_sub lambda handling: a lambda gets
+                // a lexical closure env only when
+                // Vinternal_interpreter_environment is non-nil (i.e.
+                // lexical mode is active). We use self.lexenv as the
+                // single source of truth, matching GNU.
+                let env_value = if !self.lexenv.is_nil() {
+                    self.lexenv
                 } else {
                     Value::NIL
                 };
