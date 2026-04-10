@@ -852,27 +852,61 @@ fn check_glyphless_char(ch: char) -> u8 {
 }
 
 /// Render overlay string bytes into the layout.
-/// Returns the number of pixels advanced in x.
+///
+/// On `\n`: ends the current glyph row, advances `row`/`y`, begins a new row,
+/// and resets `x`/`col` — matching GNU `display_line()` behaviour for overlay
+/// strings that contain newlines (e.g. fido-vertical-mode completions).
 fn render_overlay_string(
     text_bytes: &[u8],
     x: &mut f32,
-    _y: f32,
+    y: &mut f32,
     col: &mut usize,
+    row: &mut usize,
     face_char_w: f32,
-    _char_h: f32,
+    char_h: f32,
     _font_ascent: f32,
     max_x: f32,
-    _overlay_face: Option<&super::neovm_bridge::ResolvedFace>,
+    content_x: f32,
+    text_y: f32,
+    row_extra_y: f32,
+    max_rows: usize,
+    overlay_face: Option<&super::neovm_bridge::ResolvedFace>,
     current_face_id: &mut u32,
+    builder: &mut crate::matrix_builder::GlyphMatrixBuilder,
 ) {
     // Overlay face is now handled by the builder; just track the face_id bump.
-    if _overlay_face.is_some() {
+    let face_id = if overlay_face.is_some() {
         *current_face_id += 1;
-    }
+        current_face_id.saturating_sub(1)
+    } else {
+        current_face_id.saturating_sub(1)
+    };
 
     let mut idx = 0;
     while idx < text_bytes.len() {
+        if *row >= max_rows {
+            break;
+        }
         let (ch, ch_len) = decode_utf8(&text_bytes[idx..]);
+        idx += ch_len;
+
+        if ch == '\n' {
+            // End current row, start a new one — mirrors the main text loop.
+            builder.end_row();
+            *row += 1;
+            if *row >= max_rows {
+                break;
+            }
+            *y = text_y + *row as f32 * char_h + row_extra_y;
+            builder.begin_row(
+                *row,
+                neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text,
+            );
+            *x = content_x;
+            *col = 0;
+            continue;
+        }
+
         let ch_advance = if is_wide_char(ch) {
             2.0 * face_char_w
         } else {
@@ -881,10 +915,14 @@ fn render_overlay_string(
         if *x + ch_advance > max_x {
             break;
         }
-        idx += ch_len;
-        if ch == '\n' {
-            continue; // Skip newlines in overlay strings
+
+        // Push glyph into the matrix builder (charpos=0 for overlay text).
+        if is_wide_char(ch) {
+            builder.push_wide_char(ch, face_id, 0);
+        } else {
+            builder.push_char(ch, face_id, 0);
         }
+
         *x += ch_advance;
         *col += if is_wide_char(ch) { 2 } else { 1 };
     }
@@ -2391,14 +2429,20 @@ impl LayoutEngine {
                                 render_overlay_string(
                                     string_bytes,
                                     &mut x,
-                                    y + raise_y_offset,
+                                    &mut y,
                                     &mut col,
+                                    &mut row,
                                     face_char_w,
                                     char_h,
                                     face_ascent_val,
                                     right_limit,
+                                    content_x,
+                                    text_y,
+                                    row_extra_y,
+                                    max_rows,
                                     ov_face.as_ref(),
                                     &mut current_face_id,
+                                    &mut self.matrix_builder,
                                 );
                             }
                         }
@@ -3389,14 +3433,20 @@ impl LayoutEngine {
                         render_overlay_string(
                             string_bytes,
                             &mut x,
-                            y + raise_y_offset,
+                            &mut y,
                             &mut col,
+                            &mut row,
                             face_char_w,
                             char_h,
                             face_ascent_val,
                             right_limit,
+                            content_x,
+                            text_y,
+                            row_extra_y,
+                            max_rows,
                             ov_face.as_ref(),
                             &mut current_face_id,
+                            &mut self.matrix_builder,
                         );
                     }
                 }
@@ -3474,14 +3524,20 @@ impl LayoutEngine {
                         render_overlay_string(
                             string_bytes,
                             &mut x,
-                            y + raise_y_offset,
+                            &mut y,
                             &mut col,
+                            &mut row,
                             face_char_w,
                             char_h,
                             face_ascent_val,
                             right_limit,
+                            content_x,
+                            text_y,
+                            row_extra_y,
+                            max_rows,
                             ov_face.as_ref(),
                             &mut current_face_id,
+                            &mut self.matrix_builder,
                         );
                     }
                 }
@@ -3554,14 +3610,20 @@ impl LayoutEngine {
                 render_overlay_string(
                     string_bytes,
                     &mut x,
-                    y + raise_y_offset,
+                    &mut y,
                     &mut col,
+                    &mut row,
                     face_char_w,
                     char_h,
                     face_ascent_val,
                     right_limit,
+                    content_x,
+                    text_y,
+                    row_extra_y,
+                    max_rows,
                     ov_face.as_ref(),
                     &mut current_face_id,
+                    &mut self.matrix_builder,
                 );
             }
         }
