@@ -524,11 +524,31 @@ pub fn window_params_from_neovm(
         } else {
             0
         },
-        // Redisplay must honor the window's own point marker, not whichever
-        // buffer happens to be current while layout runs.  Window::point is a
-        // GNU/Lisp-visible marker position, so normalize it into the layout
-        // engine's internal 0-based char positions just like window_start.
-        point: point.saturating_sub(1) as i64,
+        // Mirror GNU `window.c:window_point` (around line 1782):
+        //
+        //   return (w == XWINDOW (selected_window)
+        //           ? BUF_PT (XBUFFER (w->contents))
+        //           : XMARKER (w->pointm)->charpos);
+        //
+        // For the selected window, the authoritative point lives in the
+        // buffer (`BUF_PT`), because editing commands like
+        // self-insert-command advance `buf->pt` but do not touch
+        // `w->pointm` until the window is later deselected (via
+        // `select_window`, which saves the live buffer point into the
+        // outgoing window's pointm marker).  Reading `Window::point` here
+        // would see a stale pre-command value and place the cursor one
+        // character behind where typing just landed.  For non-selected
+        // windows, `Window::point` is the right source (it was snapshotted
+        // from `buf->pt` the last time the window was deselected).
+        //
+        // `buffer.pt_char` is already 0-based (matches the layout engine's
+        // internal coordinate system); `Window::point` is GNU/Lisp 1-based
+        // and gets normalized with the usual `-1`.
+        point: if is_selected {
+            buffer.pt_char as i64
+        } else {
+            point.saturating_sub(1) as i64
+        },
         buffer_size: buffer.point_max_char() as i64,
         buffer_begv: buffer.point_min_char() as i64,
         hscroll: hscroll as i32,
