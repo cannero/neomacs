@@ -4916,8 +4916,26 @@ impl Context {
     fn safe_run_hook_if_bound(&mut self, hook_name: &str) {
         match self.eval_symbol(hook_name) {
             Ok(hook_val) if !hook_val.is_nil() => {
+                // GNU `keyboard.c:1361,1485` calls the C function
+                // `safe_run_hooks` from `eval.c:2779-2830`, which
+                // wraps each hook function in a `condition-case`
+                // and removes broken entries. The Lisp wrapper
+                // `safe-run-hooks` in `subr.el` does the same.
+                //
+                // If `safe-run-hooks` is available, use it.
+                // Otherwise fall back to the builtin `run-hooks`
+                // so the hook fires at all. `safe-run-hooks` may
+                // not be loaded yet early in bootstrap (before
+                // subr.el). Without the fallback, the previous
+                // code silently dropped post-command-hook, which
+                // broke icomplete/fido-vertical-mode.
+                let hook_runner = if self.obarray.fboundp("safe-run-hooks") {
+                    "safe-run-hooks"
+                } else {
+                    "run-hooks"
+                };
                 let _ = self.apply(
-                    Value::symbol("safe-run-hooks"),
+                    Value::symbol(hook_runner),
                     vec![Value::symbol(hook_name)],
                 );
             }
