@@ -1899,6 +1899,26 @@ impl LayoutEngine {
             } else {
                 max_rows
             };
+        // GNU `resize_mini_window` (`xdisp.c:13161-13301`) pre-grows
+        // the minibuffer BEFORE layout by running `move_it_to` to
+        // compute the needed display height. neomacs computes the
+        // height DURING layout and resizes afterwards (see the
+        // auto-resize check in `layout_frame_rust`). To allow the
+        // overlay after-string content (e.g. fido-vertical-mode
+        // completion candidates separated by `\n`) to produce
+        // multiple rows, the minibuffer's max_rows must be large
+        // enough for the overlay text to render fully. We use
+        // `max-mini-window-height` (default 0.25 = 25% of frame)
+        // as the upper bound, matching GNU's `max_height` clamp in
+        // `resize_mini_window`. The auto-resize code then measures
+        // the actual rows used and grows/shrinks the window.
+        let max_rows = if params.is_minibuffer && max_rows <= 1 {
+            let frame_rows = _frame_params.height / char_h;
+            let max_mini_rows = (frame_rows * 0.25).ceil().max(1.0) as usize;
+            max_mini_rows.max(max_rows)
+        } else {
+            max_rows
+        };
         let cols = ((text_width - lnum_pixel_width) / char_w).floor() as usize;
         let content_x = text_x + lnum_pixel_width;
 
