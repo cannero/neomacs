@@ -696,6 +696,19 @@ fn lookup_in_keymap_level(keymap: &Value, event: &Value, t_ok: bool) -> Option<V
             continue;
         }
 
+        // Sub-keymap embedded in spine: composed keymaps created by
+        // `internal-push-keymap` / `set-transient-map` look like
+        // (keymap <sub-keymap> ...).  When an entry in the spine is
+        // itself a keymap, GNU keymap.c `access_keymap_1` recursively
+        // looks up the event in that sub-keymap before continuing.
+        if entry_car.is_cons() && is_list_keymap(&entry_car) {
+            if let Some(found) = lookup_in_keymap_level(&entry_car, event, t_ok) {
+                return Some(found);
+            }
+            cursor = entry_cdr;
+            continue;
+        }
+
         // Alist entry: (EVENT . DEF)
         if entry_car.is_cons() {
             let binding_car = entry_car.cons_car();

@@ -161,18 +161,26 @@ fn universal_argument() {
     let gl = gnu.text_grid();
     let nl = neo.text_grid();
 
-    // First row should contain "aaaaaaaa" (8 a's)
-    // The menu bar is row 0, buffer starts at row 1
-    let gnu_buf = &gl[1];
-    let neo_buf = &nl[1];
-    assert!(
-        gnu_buf.contains("aaaaaaaa"),
-        "GNU buffer should have 8 a's: {gnu_buf:?}"
-    );
-    assert!(
-        neo_buf.contains("aaaaaaaa"),
-        "NEO buffer should have 8 a's: {neo_buf:?}"
-    );
+    // The 8 a's are inserted at point (end of buffer, after comments).
+    // Check that SOME row contains "aaaaaaaa".
+    let gnu_has_8a = gl.iter().any(|r| r.contains("aaaaaaaa"));
+    let neo_has_8a = nl.iter().any(|r| r.contains("aaaaaaaa"));
+    if !gnu_has_8a {
+        eprintln!("GNU screen (no 8 a's found):");
+        for (i, r) in gl.iter().enumerate() {
+            let t = r.trim();
+            if !t.is_empty() { eprintln!("  {i:2}: |{t}|"); }
+        }
+    }
+    if !neo_has_8a {
+        eprintln!("NEO screen (no 8 a's found):");
+        for (i, r) in nl.iter().enumerate() {
+            let t = r.trim();
+            if !t.is_empty() { eprintln!("  {i:2}: |{t}|"); }
+        }
+    }
+    assert!(gnu_has_8a, "GNU buffer should have 8 a's somewhere");
+    assert!(neo_has_8a, "NEO buffer should have 8 a's somewhere");
 }
 
 #[test]
