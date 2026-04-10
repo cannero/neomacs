@@ -1899,23 +1899,47 @@ impl LayoutEngine {
             } else {
                 max_rows
             };
-        // GNU `resize_mini_window` (`xdisp.c:13161-13301`) pre-grows
-        // the minibuffer BEFORE layout by running `move_it_to` to
-        // compute the needed display height. neomacs computes the
-        // height DURING layout and resizes afterwards (see the
-        // auto-resize check in `layout_frame_rust`). To allow the
-        // overlay after-string content (e.g. fido-vertical-mode
-        // completion candidates separated by `\n`) to produce
-        // multiple rows, the minibuffer's max_rows must be large
-        // enough for the overlay text to render fully. We use
-        // `max-mini-window-height` (default 0.25 = 25% of frame)
-        // as the upper bound, matching GNU's `max_height` clamp in
-        // `resize_mini_window`. The auto-resize code then measures
-        // the actual rows used and grows/shrinks the window.
+        // GNU `resize_mini_window` (`xdisp.c:13161-13301`) pre-
+        // grows the minibuffer BEFORE layout by running
+        // `move_it_to` to walk ALL content (buffer text + overlay
+        // strings) and measuring the resulting pixel height.
+        //
+        // neomacs approximation: count `\n` in the buffer text
+        // plus all overlay `after-string` properties to estimate
+        // the display line count. Pre-expand max_rows to that
+        // count (clamped to max-mini-window-height = 25% of
+        // frame). This avoids the boot-time "tall echo area" bug
+        // (single-line content stays at 1 row) while allowing
+        // fido-vertical-mode's multi-line overlay to render.
         let max_rows = if params.is_minibuffer && max_rows <= 1 {
+            let buf_id = neovm_core::buffer::BufferId(params.buffer_id);
+            let content_lines = evaluator
+                .buffer_manager()
+                .get(buf_id)
+                .map(|b| {
+                    // Count newlines in buffer text
+                    let text_lines = b.buffer_string().chars()
+                        .filter(|&c| c == '\n').count();
+                    // Count newlines in overlay after-strings.
+                    // Scan all overlays in the buffer's full range.
+                    let overlay_lines: usize = b.overlays
+                        .overlays_in(0, b.text.len())
+                        .iter()
+                        .filter_map(|ov| {
+                            b.overlays
+                                .overlay_get_named(*ov, "after-string")
+                                .and_then(|v| v.as_str().map(|s|
+                                    s.chars().filter(|&c| c == '\n').count()))
+                        })
+                        .sum();
+                    // Total lines = text lines + overlay lines + 1
+                    // (the first line doesn't need a preceding \n)
+                    text_lines + overlay_lines + 1
+                })
+                .unwrap_or(1);
             let frame_rows = _frame_params.height / char_h;
-            let max_mini_rows = (frame_rows * 0.25).ceil().max(1.0) as usize;
-            max_mini_rows.max(max_rows)
+            let max_mini = (frame_rows * 0.25).ceil().max(1.0) as usize;
+            content_lines.clamp(max_rows, max_mini)
         } else {
             max_rows
         };
