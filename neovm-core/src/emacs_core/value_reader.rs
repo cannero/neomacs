@@ -10,9 +10,11 @@
 //! bool-vector literals, byte-code literals, read labels (#N= / #N#),
 //! radix integers (#x, #o, #b), propertized strings, reader skip (#@N).
 
+use super::emacs_char;
 use super::eval::{push_scratch_gc_root, restore_scratch_gc_roots, save_scratch_gc_roots};
 use super::intern::{intern, intern_uninterned, resolve_sym};
 use super::string_escape::{bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage};
+use crate::heap_types::LispString;
 use std::cell::RefCell;
 
 thread_local! {
@@ -322,7 +324,7 @@ impl<'a> Reader<'a> {
             };
             self.bump();
             match ch {
-                '"' => return Ok(Value::string(maybe_recombine_latin1_as_utf8(s))),
+                '"' => return Ok(latin1_aware_string_value(s)),
                 '\\' => {
                     let Some(esc) = self.current() else {
                         return Err(self.error("unterminated escape in string"));
@@ -1414,8 +1416,129 @@ fn parse_emacs_special_float(token: &str) -> Option<f64> {
 }
 
 // ---------------------------------------------------------------------------
-// Latin-1 → UTF-8 recombination for .elc string constants
+// Latin-1 → Emacs-internal-encoding for .elc string constants
 // ---------------------------------------------------------------------------
+
+// Sentinel constants from string_escape.rs (replicated here to avoid
+// re-exporting internal details).
+const UNIBYTE_BYTE_SENTINEL_BASE: u32 = 0xE300;
+const UNIBYTE_BYTE_SENTINEL_MAX: u32 = 0xE3FF;
+const RAW_BYTE_SENTINEL_BASE: u32 = 0xE000;
+const RAW_BYTE_SENTINEL_MAX: u32 = 0xE0FF;
+
+/// Build a `Value` from the string `s` accumulated by `read_string`.
+///
+/// When the reader processes `.elc` content, the file bytes have been
+/// Latin-1-expanded (`b as char`), so non-ASCII bytes 0x80–0xFF become
+/// individual Rust chars in that range.  We detect this case, convert
+/// each char back to its byte value, and then decide:
+///
+///  - If those bytes form valid UTF-8 (and are shorter after recombination),
+///    they represent a multibyte string constant → store as Emacs multibyte.
+///  - Otherwise the bytes are raw (bytecode instructions, unibyte data, etc.)
+///    → encode each 0x80–0xFF byte as an Emacs raw-byte character (2-byte
+///    overlong sequence) to produce valid Emacs-internal multibyte encoding.
+///
+/// Strings that contain only ASCII, or that have chars > U+00FF (proper
+/// Unicode from `\u`/`\U` escapes, or sentinels), go through the normal
+/// `Value::string` path.
+fn latin1_aware_string_value(s: String) -> Value {
+    // Fast path: pure ASCII — no Latin-1 high bytes, no sentinels.
+    if s.chars().all(|c| (c as u32) < 0x80) {
+        return Value::string(s);
+    }
+
+    // Check whether the string contains Latin-1 high chars (0x80–0xFF)
+    // which signal that the input came from a `.elc` loader Latin-1
+    // expansion.
+    let has_latin1_high = s.chars().any(|c| {
+        let cp = c as u32;
+        (0x80..0x100).contains(&cp)
+    });
+
+    if !has_latin1_high {
+        // No Latin-1 high bytes — the string may contain sentinels or
+        // plain Unicode.  Let the normal path handle it (sentinels will
+        // be resolved downstream when the string is consumed).
+        return Value::string(s);
+    }
+
+    // Check if every char fits in a single byte.  If any char is > U+00FF
+    // (e.g. a sentinel or true Unicode from \u escapes), we need a mixed
+    // path.
+    let all_latin1 = s.chars().all(|c| (c as u32) <= 0xFF);
+
+    if all_latin1 {
+        // All chars are 0x00–0xFF.  Convert back to raw bytes and try
+        // UTF-8 re-interpretation (like the old maybe_recombine path).
+        let raw_bytes: Vec<u8> = s.chars().map(|c| c as u8).collect();
+
+        if let Ok(decoded) = std::str::from_utf8(&raw_bytes) {
+            // Valid UTF-8 — check if recombination happened.
+            if decoded.chars().count() < s.chars().count() {
+                // Successful recombination: these bytes *are* the
+                // Emacs internal encoding (UTF-8 for Unicode codepoints).
+                return Value::heap_string(LispString::from_emacs_bytes(raw_bytes));
+            }
+            // Same char count — no multi-byte sequences were present.
+            // The raw_bytes are all single bytes, and since they include
+            // some >= 0x80, treat them as raw bytes below.
+        }
+
+        // Not valid UTF-8 or no recombination: the 0x80–0xFF bytes are
+        // genuine raw bytes (bytecode instructions, unibyte data).
+        // Encode each non-ASCII byte as an Emacs raw-byte character
+        // (2-byte overlong sequence C0/C1).
+        let mut emacs_bytes: Vec<u8> = Vec::with_capacity(raw_bytes.len() * 2);
+        let mut buf = [0u8; 5];
+        for &b in &raw_bytes {
+            if b < 0x80 {
+                emacs_bytes.push(b);
+            } else {
+                let ch = emacs_char::byte8_to_char(b);
+                let n = emacs_char::char_string(ch, &mut buf);
+                emacs_bytes.extend_from_slice(&buf[..n]);
+            }
+        }
+        return Value::heap_string(LispString::from_emacs_bytes(emacs_bytes));
+    }
+
+    // Mixed case: some chars in 0x80–0xFF AND some chars > 0xFF
+    // (sentinels from \xNN/\NNN escapes, or Unicode from \u/\U).
+    // Convert each char to its proper Emacs internal encoding.
+    let mut bytes: Vec<u8> = Vec::with_capacity(s.len() * 2);
+    let mut buf = [0u8; 5];
+    for c in s.chars() {
+        let cp = c as u32;
+        if cp < 0x80 {
+            bytes.push(cp as u8);
+        } else if cp <= 0xFF {
+            // Latin-1 high byte from .elc — encode as raw byte char.
+            let ch = emacs_char::byte8_to_char(cp as u8);
+            let n = emacs_char::char_string(ch, &mut buf);
+            bytes.extend_from_slice(&buf[..n]);
+        } else if (UNIBYTE_BYTE_SENTINEL_BASE..=UNIBYTE_BYTE_SENTINEL_MAX).contains(&cp) {
+            // Unibyte-byte sentinel from \xNN / \NNN escapes.
+            let raw = (cp - UNIBYTE_BYTE_SENTINEL_BASE) as u8;
+            let ch = emacs_char::byte8_to_char(raw);
+            let n = emacs_char::char_string(ch, &mut buf);
+            bytes.extend_from_slice(&buf[..n]);
+        } else if (RAW_BYTE_SENTINEL_BASE..=RAW_BYTE_SENTINEL_MAX).contains(&cp) {
+            // Raw-byte sentinel.
+            let raw = (cp - RAW_BYTE_SENTINEL_BASE) as u8;
+            let ch = emacs_char::byte8_to_char(raw);
+            let n = emacs_char::char_string(ch, &mut buf);
+            bytes.extend_from_slice(&buf[..n]);
+        } else {
+            // Standard Unicode char — encode as Emacs internal encoding
+            // (UTF-8 for Unicode codepoints).
+            let n = emacs_char::char_string(cp, &mut buf);
+            bytes.extend_from_slice(&buf[..n]);
+        }
+    }
+
+    Value::heap_string(LispString::from_emacs_bytes(bytes))
+}
 
 /// Re-decode a string that may contain Latin-1 codepoints (0x80–0xFF)
 /// which are actually UTF-8 byte sequences decomposed by the `.elc`
@@ -1436,6 +1559,7 @@ fn parse_emacs_special_float(token: &str) -> Option<f64> {
 /// This mirrors GNU Emacs `lread.c` which reads `.elc` strings in
 /// unibyte mode and then re-encodes multibyte strings via
 /// `string_to_multibyte`.
+#[allow(dead_code)]
 fn maybe_recombine_latin1_as_utf8(s: String) -> String {
     // Fast path: pure ASCII — nothing to recombine.
     if s.bytes().all(|b| b < 0x80) {
