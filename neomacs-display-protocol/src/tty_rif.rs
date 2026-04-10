@@ -462,12 +462,37 @@ impl TtyRif {
 // ANSI helper functions
 // ---------------------------------------------------------------------------
 
-/// Convert a display-protocol `Color` (f32 0.0-1.0) to 8-bit RGB tuple.
+/// Convert a display-protocol `Color` (linear f32 0.0-1.0) to an 8-bit
+/// sRGB tuple suitable for a 24-bit ANSI color escape sequence.
+///
+/// `Color` values in the display protocol are stored in **linear
+/// space** because the wgpu GPU surface (`Bgra8UnormSrgb`)
+/// expects linear input and applies the linear-to-sRGB
+/// conversion automatically at the framebuffer. The TTY output
+/// path has no such automatic conversion — terminals interpret
+/// the 8-bit values as **sRGB** — so we must apply
+/// `linear_to_srgb` here to undo the `srgb_to_linear` that
+/// `Color::from_pixel` applied when the Emacs pixel value was
+/// loaded.
+///
+/// Without this conversion every face color is darker than
+/// GNU's by an exact gamma-2.4 amount:
+///
+///   mode-line bg:  GNU=grey75 (191) neomacs=grey52 (132)
+///   vertical-border fg: GNU=grey20 (51) neomacs=8
+///
+/// With the conversion the emitted bytes match GNU's sRGB pixel
+/// values exactly, since `linear_to_srgb(srgb_to_linear(x)) ≈ x`
+/// (modulo f32 rounding).
+///
+/// Mirrors GNU `src/term.c::tty_defined_color` which stores and
+/// emits face colors as sRGB pixel values with no conversion.
 fn color_to_rgb8(c: &Color) -> (u8, u8, u8) {
+    let srgb = c.linear_to_srgb();
     (
-        (c.r.clamp(0.0, 1.0) * 255.0) as u8,
-        (c.g.clamp(0.0, 1.0) * 255.0) as u8,
-        (c.b.clamp(0.0, 1.0) * 255.0) as u8,
+        (srgb.r.clamp(0.0, 1.0) * 255.0).round() as u8,
+        (srgb.g.clamp(0.0, 1.0) * 255.0).round() as u8,
+        (srgb.b.clamp(0.0, 1.0) * 255.0).round() as u8,
     )
 }
 

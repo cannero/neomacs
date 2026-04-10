@@ -64,6 +64,38 @@ impl Color {
         }
     }
 
+    /// Convert a single linear component (0.0-1.0) back to sRGB.
+    /// Inverse of `srgb_component_to_linear`.
+    fn linear_component_to_srgb(c: f32) -> f32 {
+        if c <= 0.0031308 {
+            c * 12.92
+        } else {
+            1.055 * c.powf(1.0 / 2.4) - 0.055
+        }
+    }
+
+    /// Convert this color from linear space back to sRGB.
+    ///
+    /// Use at output boundaries that expect sRGB values, such as
+    /// the TTY rasterizer which emits 24-bit ANSI color codes
+    /// interpreted as sRGB by terminals. The GPU surface
+    /// (`Bgra8UnormSrgb`) handles this conversion automatically,
+    /// so only non-GPU outputs need it.
+    ///
+    /// Mirrors the architectural boundary in GNU Emacs where
+    /// face pixel values (sRGB) are emitted directly to the TTY
+    /// via terminfo `setab`/`setaf` with no conversion
+    /// (`src/term.c::tty_defined_color`), while the X11/Cairo
+    /// backend lets the server apply gamma at draw time.
+    pub fn linear_to_srgb(self) -> Self {
+        Self {
+            r: Self::linear_component_to_srgb(self.r),
+            g: Self::linear_component_to_srgb(self.g),
+            b: Self::linear_component_to_srgb(self.b),
+            a: self.a,
+        }
+    }
+
     // Common colors
     pub const BLACK: Self = Self::rgb(0.0, 0.0, 0.0);
     pub const WHITE: Self = Self::rgb(1.0, 1.0, 1.0);

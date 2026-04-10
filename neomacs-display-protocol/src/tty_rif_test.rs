@@ -125,12 +125,15 @@ fn glyph_to_char_returns_space_for_stretch() {
 // color_to_rgb8
 // ---------------------------------------------------------------------------
 
+/// `color_to_rgb8` applies `linear_to_srgb` before quantizing, so
+/// a linear input of 0.5 becomes sRGB ~0.735 → 188 (not 127).
 #[test]
 fn color_to_rgb8_converts_correctly() {
     let c = Color::rgb(1.0, 0.5, 0.0);
     let (r, g, b) = color_to_rgb8(&c);
     assert_eq!(r, 255);
-    assert_eq!(g, 127); // 0.5 * 255 = 127.5 -> 127
+    // linear 0.5 → sRGB: 1.055 * 0.5^(1/2.4) - 0.055 ≈ 0.735 → 188
+    assert_eq!(g, 188);
     assert_eq!(b, 0);
 }
 
@@ -140,7 +143,31 @@ fn color_to_rgb8_clamps_out_of_range() {
     let (r, g, b) = color_to_rgb8(&c);
     assert_eq!(r, 255);
     assert_eq!(g, 0);
-    assert_eq!(b, 127);
+    // linear 0.5 → sRGB ≈ 188
+    assert_eq!(b, 188);
+}
+
+/// Round-trip: an sRGB pixel value → Color::from_pixel (srgb→linear)
+/// → color_to_rgb8 (linear→srgb) should recover the original byte
+/// values. This is the contract that makes TTY face colors match
+/// GNU Emacs exactly.
+#[test]
+fn color_to_rgb8_round_trips_srgb_pixel() {
+    // grey75 = sRGB 191 = 0xbfbfbf (GNU mode-line bg)
+    let pixel = 0x00bfbfbf_u32;
+    let linear = Color::from_pixel(pixel);
+    let (r, g, b) = color_to_rgb8(&linear);
+    assert_eq!(r, 191, "grey75 round-trip red channel");
+    assert_eq!(g, 191, "grey75 round-trip green channel");
+    assert_eq!(b, 191, "grey75 round-trip blue channel");
+
+    // grey30 = sRGB 77 = 0x4d4d4d (GNU mode-line-inactive bg, dark)
+    let pixel2 = 0x004d4d4d_u32;
+    let linear2 = Color::from_pixel(pixel2);
+    let (r2, g2, b2) = color_to_rgb8(&linear2);
+    assert_eq!(r2, 77, "grey30 round-trip red channel");
+    assert_eq!(g2, 77, "grey30 round-trip green channel");
+    assert_eq!(b2, 77, "grey30 round-trip blue channel");
 }
 
 // ---------------------------------------------------------------------------
