@@ -1368,6 +1368,55 @@ impl Frame {
         self.parameters
             .insert("height".to_string(), Value::fixnum(total_lines));
     }
+
+    /// Grow the minibuffer window by `delta_rows` character-cell rows.
+    ///
+    /// Mirrors GNU `grow_mini_window` at `src/window.c:5896-5930`.
+    /// The minibuffer height is clamped to the range [1 row,
+    /// `max-mini-window-height` fraction of frame inner height].
+    /// After adjusting the minibuffer bounds,
+    /// `sync_window_area_bounds` propagates the change to the root
+    /// window tree (the root shrinks by the same delta).
+    pub fn grow_mini_window(&mut self, delta_rows: i32) {
+        // Snapshot scalar values before taking mutable borrow of minibuffer_leaf.
+        let char_h = self.char_height.max(1.0);
+        let unit = char_h;
+        let frame_inner_h = (self.height as f32) - self.chrome_top_height();
+        // GNU default: max-mini-window-height = 0.25
+        let max_h = (frame_inner_h * 0.25).max(unit);
+
+        let Some(mini) = self.minibuffer_leaf.as_mut() else {
+            return;
+        };
+        let current_h = mini.bounds().height;
+        let new_h = (current_h + delta_rows as f32 * unit).clamp(unit, max_h);
+        if (new_h - current_h).abs() < 0.5 {
+            return;
+        }
+        let mut bounds = *mini.bounds();
+        bounds.height = new_h;
+        mini.set_bounds(bounds);
+        self.sync_window_area_bounds();
+    }
+
+    /// Shrink the minibuffer window to its minimum height (1 row).
+    ///
+    /// Mirrors GNU `shrink_mini_window` at `src/window.c:5938-5960`.
+    /// The freed space is returned to the root window via
+    /// `sync_window_area_bounds`.
+    pub fn shrink_mini_window(&mut self) {
+        let Some(mini) = self.minibuffer_leaf.as_mut() else {
+            return;
+        };
+        let unit = self.char_height.max(1.0);
+        let mut bounds = *mini.bounds();
+        if (bounds.height - unit).abs() < 0.5 {
+            return;
+        }
+        bounds.height = unit;
+        mini.set_bounds(bounds);
+        self.sync_window_area_bounds();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2911,5 +2960,64 @@ mod tests {
             Rect::new(0.0, 244.0, 400.0, 16.0)
         );
         assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(12)));
+    }
+
+    #[test]
+    fn grow_and_shrink_mini_window_adjusts_bounds() {
+        crate::test_utils::init_test_tracing();
+        let mut mgr = FrameManager::new();
+        let fid = mgr.create_frame("F1", 80, 24, BufferId(1));
+        // Treat the frame as a TTY-style frame where 1 px == 1 character row.
+        // char_height=1.0 means `grow_mini_window` grows by 1 row per delta,
+        // and max-mini-window-height (25% of 24 rows = 6 rows) is comfortably
+        // above the 1-row minimum.
+        // Re-initialize the minibuffer to exactly 1 row so that it starts at
+        // the minimum height and has room to grow.
+        {
+            let frame = mgr.get_mut(fid).unwrap();
+            frame.char_height = 1.0;
+            frame.char_width = 1.0;
+            if let Some(mini) = frame.minibuffer_leaf.as_mut() {
+                let mut b = *mini.bounds();
+                b.height = 1.0;
+                mini.set_bounds(b);
+            }
+            frame.sync_window_area_bounds();
+        }
+        let frame = mgr.get(fid).unwrap();
+        let initial_mini_h = frame
+            .minibuffer_leaf
+            .as_ref()
+            .unwrap()
+            .bounds()
+            .height;
+
+        mgr.get_mut(fid).unwrap().grow_mini_window(3);
+        let grown_h = mgr
+            .get(fid)
+            .unwrap()
+            .minibuffer_leaf
+            .as_ref()
+            .unwrap()
+            .bounds()
+            .height;
+        assert!(
+            grown_h > initial_mini_h,
+            "minibuffer should grow: initial={initial_mini_h} grown={grown_h}"
+        );
+
+        mgr.get_mut(fid).unwrap().shrink_mini_window();
+        let shrunk_h = mgr
+            .get(fid)
+            .unwrap()
+            .minibuffer_leaf
+            .as_ref()
+            .unwrap()
+            .bounds()
+            .height;
+        assert!(
+            shrunk_h < grown_h,
+            "minibuffer should shrink: grown={grown_h} shrunk={shrunk_h}"
+        );
     }
 }
