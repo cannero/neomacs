@@ -502,6 +502,87 @@ impl GlyphMatrixBuilder {
         }
     }
 
+    /// Patch the last-closed window matrix so its rightmost
+    /// column shows a vertical-border glyph on every enabled row.
+    ///
+    /// Mirrors GNU `src/dispnew.c::build_frame_matrix_from_leaf_window`
+    /// (2568-2697), which — for every window that is not the
+    /// rightmost in the frame — takes the window's row slice and
+    /// overwrites its last glyph with `right_border_glyph`
+    /// (default `|`, face `VERTICAL_BORDER_FACE_ID`):
+    ///
+    ///   if (!WINDOW_RIGHTMOST_P (w))
+    ///     SET_GLYPH_FROM_CHAR (right_border_glyph, '|');
+    ///   ...
+    ///   if (GLYPH_CHAR (right_border_glyph) != 0) {
+    ///     struct glyph *border = window_row->glyphs[LAST_AREA] - 1;
+    ///     SET_CHAR_GLYPH_FROM_GLYPH (f, *border, right_border_glyph);
+    ///   }
+    ///
+    /// The window's text has already been laid out to fill all
+    /// `ncols` columns; the last glyph position is then replaced
+    /// with the border character. On TTY, the column corresponds
+    /// to one character cell.
+    ///
+    /// This helper operates on the LAST window pushed into
+    /// `self.windows`, which is the window most recently closed
+    /// by `end_window`. Callers (`engine.rs::layout_frame_rust`)
+    /// invoke this after `layout_window_rust` returns for a
+    /// non-rightmost window.
+    pub fn overwrite_last_window_right_border(&mut self, ch: char, face_id: u32) {
+        let Some(entry) = self.windows.last_mut() else {
+            return;
+        };
+        let ncols = entry.matrix.ncols;
+        if ncols == 0 {
+            return;
+        }
+        let target_col = ncols - 1;
+
+        for row in &mut entry.matrix.rows {
+            if !row.enabled {
+                continue;
+            }
+
+            // Count existing glyphs across the three areas
+            // (LeftMargin, Text, RightMargin). We treat every
+            // glyph as one column advance — matching the TTY
+            // RIF's `col += 1` in rasterize.
+            let left_count = row.glyphs[GlyphArea::LeftMargin as usize].len();
+            let right_count = row.glyphs[GlyphArea::RightMargin as usize].len();
+            let current_total: usize = left_count
+                + row.glyphs[GlyphArea::Text as usize].len()
+                + right_count;
+
+            // Truncate anything in the text area that pushes
+            // the glyph count past `target_col`. Left/right
+            // margin columns belong to the caller — we only
+            // touch the text area.
+            if current_total > target_col {
+                let overshoot = current_total - target_col;
+                let text_area = &mut row.glyphs[GlyphArea::Text as usize];
+                let drop = overshoot.min(text_area.len());
+                text_area.truncate(text_area.len() - drop);
+            }
+
+            // Pad the text area with spaces until the combined
+            // count reaches `target_col`.
+            let combined = |row: &GlyphRow| -> usize {
+                row.glyphs[GlyphArea::LeftMargin as usize].len()
+                    + row.glyphs[GlyphArea::Text as usize].len()
+                    + row.glyphs[GlyphArea::RightMargin as usize].len()
+            };
+            while combined(row) < target_col {
+                row.glyphs[GlyphArea::Text as usize].push(Glyph::char(' ', face_id, 0));
+            }
+
+            // Push the border glyph as the final glyph of the
+            // text area so it lands at absolute column
+            // `target_col = ncols - 1`.
+            row.glyphs[GlyphArea::Text as usize].push(Glyph::char(ch, face_id, 0));
+        }
+    }
+
     pub fn finish(
         mut self,
         frame_cols: usize,

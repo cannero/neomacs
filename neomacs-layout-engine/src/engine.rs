@@ -1457,7 +1457,41 @@ impl LayoutEngine {
                     };
                 let _mid_fg = Color::from_pixel(frame_params.divider_fg);
             } else if !is_rightmost {
-                let _border_color = Color::from_pixel(frame_params.vertical_border_fg);
+                // TTY / GUI-without-divider vertical border.
+                //
+                // Mirrors GNU `src/dispnew.c:2568-2697`
+                // (`build_frame_matrix_from_leaf_window`) which,
+                // for every non-rightmost window, overwrites the
+                // LAST glyph of each enabled row with a `|`
+                // character in the `vertical-border` face before
+                // the frame matrix is written to the terminal:
+                //
+                //   if (!WINDOW_RIGHTMOST_P (w))
+                //     SET_GLYPH_FROM_CHAR (right_border_glyph, '|');
+                //   ...
+                //   if (GLYPH_FACE (right_border_glyph) <= 0)
+                //     SET_GLYPH_FACE (right_border_glyph,
+                //                     VERTICAL_BORDER_FACE_ID);
+                //
+                // Without this patch two horizontally-split
+                // windows in `neomacs -nw` rendered with no
+                // visible divider between them; the user could
+                // not tell where one window ended and the next
+                // began. The `vertical-border` face on TTY
+                // inherits from `mode-line-inactive` per
+                // `lisp/faces.el::vertical-border`.
+                let border_face = face_resolver.resolve_named_face("vertical-border");
+                let border_face_id = self.frame_face_id_counter;
+                self.frame_face_id_counter += 1;
+                let realized_face =
+                    crate::status_line::StatusLineFace::from_resolved(
+                        border_face_id,
+                        &border_face,
+                    );
+                self.matrix_builder
+                    .insert_face(border_face_id, realized_face.render_face());
+                self.matrix_builder
+                    .overwrite_last_window_right_border('|', border_face_id);
             }
 
             if frame_params.bottom_divider_width > 0 && !is_bottommost {

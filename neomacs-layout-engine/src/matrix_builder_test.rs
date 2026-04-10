@@ -326,3 +326,149 @@ fn builder_preserves_distinct_mode_line_faces_across_sibling_windows() {
         "sibling mode lines must have different background colors"
     );
 }
+
+/// Regression test for the missing TTY vertical border between
+/// horizontally-split windows. After `C-x 3` in `neomacs -nw -Q`
+/// the rasterized output had no `|` character between the two
+/// halves; the left window's last text column ran straight into
+/// the right window's first text column.
+///
+/// GNU Emacs's TTY frame matrix builder
+/// (`src/dispnew.c::build_frame_matrix_from_leaf_window` lines
+/// 2568-2697) overwrites the LAST glyph of every enabled row in
+/// any non-rightmost window with a `|` character in the
+/// `vertical-border` face:
+///
+///   if (!WINDOW_RIGHTMOST_P (w))
+///     SET_GLYPH_FROM_CHAR (right_border_glyph, '|');
+///   ...
+///   struct glyph *border = window_row->glyphs[LAST_AREA] - 1;
+///   SET_CHAR_GLYPH_FROM_GLYPH (f, *border, right_border_glyph);
+///
+/// `GlyphMatrixBuilder::overwrite_last_window_right_border` is
+/// the neomacs analog: after the layout engine closes a window
+/// matrix that is not the rightmost in the frame, it patches
+/// every enabled row of that window's matrix to end with a
+/// border glyph at column `ncols - 1`. The `vertical-border`
+/// face on TTY inherits from `mode-line-inactive`
+/// (`lisp/faces.el::vertical-border`).
+#[test]
+fn overwrite_last_window_right_border_pads_and_replaces_text() {
+    let mut builder = GlyphMatrixBuilder::new();
+
+    // Window with ncols=10, two rows of text. The first row has
+    // exactly 10 glyphs (full width), the second has 5 glyphs
+    // (short text — needs padding before the border).
+    builder.begin_window(1, 2, 10, Rect::new(0.0, 0.0, 80.0, 32.0), true);
+    builder.begin_row(0, GlyphRowRole::Text);
+    for ch in "0123456789".chars() {
+        builder.push_char(ch, 0, 0);
+    }
+    builder.end_row();
+    builder.begin_row(1, GlyphRowRole::Text);
+    for ch in "abcde".chars() {
+        builder.push_char(ch, 0, 0);
+    }
+    builder.end_row();
+    builder.end_window();
+
+    // Border glyph: '|' with face_id 99.
+    builder.overwrite_last_window_right_border('|', 99);
+
+    let state = builder.finish(20, 5, 8.0, 16.0);
+    assert_eq!(state.window_matrices.len(), 1);
+    let matrix = &state.window_matrices[0].matrix;
+
+    // Row 0: full-width text, the last glyph must be '|'
+    // (replacing the original '9'); the preceding 9 glyphs
+    // remain '0'..'8'.
+    let row0_text = &matrix.rows[0].glyphs[GlyphArea::Text as usize];
+    assert_eq!(
+        row0_text.len(),
+        10,
+        "row 0 must still have ncols=10 glyphs after border patch"
+    );
+    let row0_chars: String = row0_text
+        .iter()
+        .map(|g| match &g.glyph_type {
+            GlyphType::Char { ch } => *ch,
+            _ => '?',
+        })
+        .collect();
+    assert_eq!(
+        row0_chars, "012345678|",
+        "row 0 last glyph must be replaced with the border character"
+    );
+    assert_eq!(
+        row0_text[9].face_id, 99,
+        "row 0 border glyph must use the supplied face_id"
+    );
+
+    // Row 1: short text, padded with spaces to reach 9 glyphs
+    // then a '|' as the 10th. Original 'a'..'e' must remain.
+    let row1_text = &matrix.rows[1].glyphs[GlyphArea::Text as usize];
+    assert_eq!(
+        row1_text.len(),
+        10,
+        "row 1 must be padded to ncols=10 glyphs"
+    );
+    let row1_chars: String = row1_text
+        .iter()
+        .map(|g| match &g.glyph_type {
+            GlyphType::Char { ch } => *ch,
+            _ => '?',
+        })
+        .collect();
+    assert_eq!(
+        row1_chars, "abcde    |",
+        "row 1 must keep original text, pad with spaces, end with border"
+    );
+    assert_eq!(
+        row1_text[9].face_id, 99,
+        "row 1 border glyph must use the supplied face_id"
+    );
+    // Padding spaces must also use the border face id (so the
+    // tty backend renders them with mode-line-inactive bg, not
+    // default bg).
+    assert_eq!(row1_text[5].face_id, 99);
+    assert_eq!(row1_text[8].face_id, 99);
+}
+
+/// Disabled rows (e.g. unrendered scratch rows below text) must
+/// not get a border glyph — GNU only patches enabled rows so
+/// scrolling and clear-to-eob behave correctly.
+#[test]
+fn overwrite_last_window_right_border_skips_disabled_rows() {
+    let mut builder = GlyphMatrixBuilder::new();
+    builder.begin_window(1, 3, 5, Rect::new(0.0, 0.0, 40.0, 48.0), true);
+    builder.begin_row(0, GlyphRowRole::Text);
+    builder.push_char('A', 0, 0);
+    builder.end_row();
+    // Row 1 is never begun, stays disabled.
+    builder.begin_row(2, GlyphRowRole::Text);
+    builder.push_char('Z', 0, 0);
+    builder.end_row();
+    builder.end_window();
+
+    builder.overwrite_last_window_right_border('|', 7);
+
+    let state = builder.finish(10, 3, 8.0, 16.0);
+    let matrix = &state.window_matrices[0].matrix;
+
+    // Row 0 enabled: padded + border.
+    let row0 = &matrix.rows[0].glyphs[GlyphArea::Text as usize];
+    assert_eq!(
+        row0.len(),
+        5,
+        "enabled row must be padded to ncols glyphs"
+    );
+    // Row 1 disabled: untouched, still empty.
+    let row1 = &matrix.rows[1].glyphs[GlyphArea::Text as usize];
+    assert!(
+        row1.is_empty(),
+        "disabled row must not have a border glyph injected"
+    );
+    // Row 2 enabled: padded + border.
+    let row2 = &matrix.rows[2].glyphs[GlyphArea::Text as usize];
+    assert_eq!(row2.len(), 5);
+}
