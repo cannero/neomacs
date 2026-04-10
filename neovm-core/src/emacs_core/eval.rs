@@ -4914,33 +4914,29 @@ impl Context {
     /// `src/keyboard.c:1361,1485` and `src/eval.c:2779-2830`.
     /// Keyboard audit Finding 7.
     fn safe_run_hook_if_bound(&mut self, hook_name: &str) {
-        match self.eval_symbol(hook_name) {
-            Ok(hook_val) if !hook_val.is_nil() => {
-                // GNU `keyboard.c:1361,1485` calls the C function
-                // `safe_run_hooks` from `eval.c:2779-2830`, which
-                // wraps each hook function in a `condition-case`
-                // and removes broken entries. The Lisp wrapper
-                // `safe-run-hooks` in `subr.el` does the same.
-                //
-                // If `safe-run-hooks` is available, use it.
-                // Otherwise fall back to the builtin `run-hooks`
-                // so the hook fires at all. `safe-run-hooks` may
-                // not be loaded yet early in bootstrap (before
-                // subr.el). Without the fallback, the previous
-                // code silently dropped post-command-hook, which
-                // broke icomplete/fido-vertical-mode.
-                let hook_runner = if self.obarray.fboundp("safe-run-hooks") {
-                    "safe-run-hooks"
-                } else {
-                    "run-hooks"
-                };
-                let _ = self.apply(
-                    Value::symbol(hook_runner),
-                    vec![Value::symbol(hook_name)],
-                );
-            }
-            _ => {}
-        }
+        // GNU `keyboard.c:1970-1978` (`safe_run_hooks`):
+        //
+        //   void safe_run_hooks (Lisp_Object hook) {
+        //     specbind (Qinhibit_quit, Qt);
+        //     run_hook_with_args (2, {hook, hook}, safe_run_hook_funcall);
+        //     unbind_to (count, Qnil);
+        //   }
+        //
+        // This is a C function — NOT the Lisp `safe-run-hooks` from
+        // `subr.el`. It calls `run_hook_with_args` with a custom
+        // funcall wrapper (`safe_run_hook_funcall`) that wraps each
+        // hook function in `internal_condition_case_n` and removes
+        // broken entries on error.
+        //
+        // neomacs mirrors this by calling
+        // `hook_runtime::safe_run_named_hook` directly from Rust,
+        // which resolves the hook value (including buffer-local
+        // bindings + the `t` global marker), calls each hook
+        // function, and swallows Signal errors. This never goes
+        // through Lisp — matching GNU's keyboard.c which calls the
+        // C function, not the Lisp wrapper.
+        let hook_sym = super::intern::intern(hook_name);
+        let _ = super::hook_runtime::safe_run_named_hook(self, hook_sym, &[]);
     }
 
     fn executing_kbd_macro_iteration_complete_for_command_loop(&self) -> bool {
