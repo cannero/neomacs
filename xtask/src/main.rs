@@ -184,6 +184,50 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
         &envs,
     )?;
 
+    // ---------------------------------------------------------------
+    // COMPILE_FIRST: byte-compile the compiler infrastructure.
+    //
+    // GNU lisp/Makefile.in compiles COMPILE_FIRST files ONE AT A TIME,
+    // each in a SEPARATE emacs process, in the listed order:
+    //   macroexp.elc → cconv.elc → byte-opt.elc → bytecomp.elc
+    //   → loaddefs-gen.elc → radix-tree.elc
+    //
+    // This ordering is critical: each file is compiled with a compiler
+    // that already has the previously-compiled .elc files loaded,
+    // making each successive compilation faster.  The comment in GNU's
+    // Makefile explains: "They're ordered by size, so we use the
+    // slowest-compiler on the smallest file and move to larger files
+    // as the compiler gets faster."
+    //
+    // This MUST run before loaddefs generation, because
+    // loaddefs-generate--emacs-batch loads bytecomp.el which loads
+    // byte-opt.el.  Without compiled .elc files, the pcase macro
+    // expansion in byte-opt.el runs as interpreted elisp and hangs.
+    // ---------------------------------------------------------------
+    let compile_first_sources =
+        parse_compile_first_sources(&paths.makefile_in, &paths.lisp_root, options.native_comp)?;
+    let compile_first_sources: Vec<PathBuf> = compile_first_sources
+        .into_iter()
+        .filter(|source| compile_first_needs_rebuild(source))
+        .collect();
+    // Compile one file at a time, each in its own bootstrap-neomacs
+    // process.  This matches GNU's make suffix rule which runs
+    // `$(emacs) -f batch-byte-compile $<` per file.  Each process
+    // picks up the .elc files from previous compilations.
+    for source in &compile_first_sources {
+        let compile_args = compile_first_args_for_source(options.native_comp, source);
+        run_command(
+            options,
+            &options.repo_root,
+            &paths.bootstrap,
+            &compile_args,
+            &envs,
+        )?;
+    }
+
+    // ---------------------------------------------------------------
+    // Loaddefs generation: uses the now-compiled .elc files.
+    // ---------------------------------------------------------------
     let loaddefs_gen = paths.lisp_root.join("emacs-lisp/loaddefs-gen.el");
     let loaddefs_dirs = loaddefs_dirs(&paths.lisp_root)?;
     let mut loaddefs_args = vec![
@@ -215,35 +259,6 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
     ));
     if !options.dry_run {
         write_ldefs_boot(&loaddefs_el, &ldefs_boot)?;
-    }
-
-    let compile_first_sources =
-        parse_compile_first_sources(&paths.makefile_in, &paths.lisp_root, options.native_comp)?;
-    // Match GNU lisp/Makefile.in: a COMPILE_FIRST .el is rebuilt only when
-    // its .elc sibling is missing or older.  GNU's make handles this via
-    // pattern rules; xtask isn't make, so check timestamps explicitly.
-    // Skipping unchanged sources lets a fresh checkout reuse pre-built
-    // .elc files (e.g. those compiled by GNU Emacs externally) without
-    // paying the per-file bootstrap-neomacs startup cost.
-    let compile_first_sources: Vec<PathBuf> = compile_first_sources
-        .into_iter()
-        .filter(|source| compile_first_needs_rebuild(source))
-        .collect();
-    if !compile_first_sources.is_empty() {
-        // batch-byte-compile accepts multiple FILE arguments and processes
-        // them in a single Lisp loop, so we can amortize the bootstrap-
-        // neomacs startup cost (loading bytecomp / cconv / byte-opt /
-        // their dependencies) across the entire COMPILE_FIRST set instead
-        // of paying it once per file.
-        let compile_first_args =
-            compile_first_args_for_sources(options.native_comp, &compile_first_sources);
-        run_command(
-            options,
-            &options.repo_root,
-            &paths.bootstrap,
-            &compile_first_args,
-            &envs,
-        )?;
     }
 
     run_command(
