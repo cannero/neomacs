@@ -751,7 +751,8 @@ impl TaggedValue {
 
     // -- String extraction --
 
-    /// Get the string content. Returns None if not a string.
+    /// Get the string content as `&str`. Returns `None` if not a string
+    /// **or** if the bytes are not valid UTF-8 (e.g. raw-byte Emacs encoding).
     pub fn as_str(self) -> Option<&'static str> {
         if self.is_string() {
             let ptr = self.as_string_ptr().unwrap();
@@ -768,7 +769,7 @@ impl TaggedValue {
                         ptr,
                     );
                 }
-                Some((*ptr).data.as_str())
+                (*ptr).data.as_str()
             }
         } else {
             None

@@ -1685,7 +1685,7 @@ impl TaggedHeap {
                             let ptr = current as *const StringObj;
                             let s = &(*ptr).data;
                             // Check string data pointer is reasonable
-                            let str_ptr = s.as_str().as_ptr() as usize;
+                            let str_ptr = s.as_bytes().as_ptr() as usize;
                             if str_ptr != 0 && str_ptr < 0x1000 {
                                 tracing::error!(
                                     "GC VERIFY: marked StringObj at {:p} has \

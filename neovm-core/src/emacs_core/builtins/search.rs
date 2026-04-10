@@ -995,7 +995,7 @@ pub(crate) fn builtin_match_string(
     // If an optional second arg is a string, use that first.
     if args.len() > 1 {
         if let Some(string) = args[1].as_lisp_string() {
-            let text = string.as_str();
+            let text = string.as_str().unwrap_or("");
             let (byte_start, byte_end) = if md.searched_string.is_some() {
                 (char_pos_to_byte(text, start), char_pos_to_byte(text, end))
             } else {
@@ -1026,7 +1026,7 @@ pub(crate) fn builtin_match_string(
     if let Some(ref searched) = md.searched_string {
         if let super::regex::SearchedString::Heap(val) = searched {
             if let Some(string) = val.as_lisp_string() {
-                let text = string.as_str();
+                let text = string.as_str().unwrap_or("");
                 let byte_start = char_pos_to_byte(text, start);
                 let byte_end = char_pos_to_byte(text, end);
                 if byte_end <= text.len() && byte_start <= byte_end {

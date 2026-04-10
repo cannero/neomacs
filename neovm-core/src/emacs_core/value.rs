@@ -767,7 +767,7 @@ impl TaggedValue {
     /// Allocate a string from a pre-built LispString.
     pub fn heap_string(s: LispString) -> Self {
         add_wrapping(&STRINGS_CONSED, 1);
-        add_wrapping(&STRING_CHARS_CONSED, s.as_str().len() as u64);
+        add_wrapping(&STRING_CHARS_CONSED, s.sbytes() as u64);
         with_tagged_heap(|h| h.alloc_string(s))
     }
 
@@ -1105,7 +1105,7 @@ impl TaggedValue {
 
     /// Check if a string is multibyte.
     pub fn string_is_multibyte(self) -> bool {
-        self.as_lisp_string().map_or(false, |s| s.multibyte)
+        self.as_lisp_string().map_or(false, |s| s.is_multibyte())
     }
 
     /// Get the closure slot vector for a Lambda or Macro.

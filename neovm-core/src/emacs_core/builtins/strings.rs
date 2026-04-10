@@ -42,7 +42,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
             };
             let src = args[0].as_lisp_string().unwrap();
             let (result, sliced_props) = (|| {
-                let s = src.as_str();
+                let s = src.as_str().unwrap_or("");
                 let normalize_index =
                     |value: &Value, default: i64, len: i64| -> Result<i64, Flow> {
                         let raw = if value.is_nil() {
@@ -279,8 +279,8 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
                 let mut multibyte = false;
                 for arg in &args {
                     if let Some(string) = arg.as_lisp_string() {
-                        combined.push_str(string.as_str());
-                        multibyte |= string.multibyte;
+                        combined.push_str(string.as_str().unwrap_or(""));
+                        multibyte |= string.is_multibyte();
                     }
                 }
                 let result = crate::heap_types::LispString::new(combined, multibyte);

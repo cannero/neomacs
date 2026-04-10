@@ -135,7 +135,7 @@ pub(crate) fn aset_string_replacement(
     }
     // Modify the string in-place on the heap so identity (eq) is preserved.
     let _ = array.with_lisp_string_mut(|s| {
-        let s = s.make_mut();
+        let mut s = s.make_mut();
         s.clear();
         s.push_str(&rebuilt);
     });

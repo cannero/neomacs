@@ -472,8 +472,8 @@ fn dump_heap_object_from_value(value: Value) -> DumpHeapObject {
         ValueKind::String => {
             let string = value.as_lisp_string().expect("string");
             DumpHeapObject::Str {
-                text: string.as_str().to_owned(),
-                multibyte: string.multibyte,
+                text: string.as_str().unwrap_or("").to_owned(),
+                multibyte: string.is_multibyte(),
                 text_props: get_string_text_properties_for_value(value)
                     .unwrap_or_default()
                     .into_iter()

@@ -1001,7 +1001,7 @@ fn literal_find_lisp_string(
                 return None;
             }
 
-            literal_find(&text.as_str()[start..], literal, case_fold)
+            literal_find(&text.as_str().unwrap_or("")[start..], literal, case_fold)
                 .map(|(match_start, match_end)| (start + match_start, start + match_end))
         },
     )
@@ -1498,7 +1498,7 @@ pub(crate) fn string_match_full_with_case_fold_source_lisp_posix(
         }
         other => string_match_full_with_case_fold_source_compiled(
             other,
-            string.as_str(),
+            string.as_str().unwrap_or(""),
             searched_string,
             start,
             case_fold,
