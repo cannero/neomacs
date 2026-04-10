@@ -1598,13 +1598,13 @@ fn bootstrap_buffers(
         .clear_buffer_labeled_restrictions(scratch_id);
     if let Some(buf) = eval.buffer_manager_mut().get_mut(scratch_id) {
         buf.widen();
-        let content = ";; This buffer is for text that is not saved, and for Lisp evaluation.\n\
-                       ;; To create a file, visit it with C-x C-f and enter text in its buffer.\n\n";
-        if buf.text.len() == 0 {
-            buf.goto_byte(0);
-            buf.insert(content);
-            buf.set_modified(false);
-        }
+        // Don't insert scratch content here. GNU Emacs populates
+        // *scratch* from startup.el:2948 via
+        //   (insert (substitute-command-keys initial-scratch-message))
+        // which handles \\[...] key-binding expansion and backtick →
+        // curly-quote conversion via text-quoting-style. Hardcoding
+        // the content in Rust bypassed both of those, producing bare
+        // "C-x C-f" instead of quoted "'C-x C-f'".
         buf.goto_byte(buf.point_max());
     }
 
