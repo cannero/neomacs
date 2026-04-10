@@ -386,14 +386,38 @@ pub(crate) fn builtin_commandp_interactive(eval: &mut Context, args: Vec<Value>)
 
     // Slow path: call `(interactive-form fun)` which handles genfun
     // dispatch (oclosures, advice wrappers, etc.)
-    // GNU Emacs (eval.c:2348-2364): genfun path calls interactive-form.
-    if let Ok(iform) = eval.apply(Value::symbol("interactive-form"), vec![args[0]]) {
-        if !iform.is_nil() {
-            return Ok(if for_call_interactively {
-                Value::NIL
-            } else {
-                Value::T
-            });
+    //
+    // GNU Emacs (eval.c:2348-2364): the genfun path calls
+    // interactive-form ONLY for closures/bytecode whose doc slot
+    // indicates an oclosure. It NEVER calls interactive-form for
+    // autoloads — autoloads are handled entirely by the fast path
+    // via the 4th element check. Calling interactive-form for
+    // autoloads triggers autoload-do-load which loads the file,
+    // causing a massive cascade during M-x completion when every
+    // non-interactive autoload in the obarray gets loaded.
+    //
+    // Guard: skip the slow path if the resolved function is an
+    // autoload. The fast path already checked the interactive flag;
+    // if it returned false, the autoload is genuinely not a command.
+    let resolved_fun = args[0]
+        .as_symbol_name()
+        .and_then(|name| {
+            crate::emacs_core::builtins::symbols::resolve_indirect_symbol_by_id_in_obarray(
+                &eval.obarray,
+                super::intern::intern(name),
+            )
+        })
+        .map(|(_, v)| v)
+        .unwrap_or(args[0]);
+    if !super::autoload::is_autoload_value(&resolved_fun) {
+        if let Ok(iform) = eval.apply(Value::symbol("interactive-form"), vec![args[0]]) {
+            if !iform.is_nil() {
+                return Ok(if for_call_interactively {
+                    Value::NIL
+                } else {
+                    Value::T
+                });
+            }
         }
     }
 
