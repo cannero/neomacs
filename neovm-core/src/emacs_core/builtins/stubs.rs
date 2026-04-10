@@ -879,11 +879,9 @@ pub(crate) fn builtin_define_fringe_bitmap(args: Vec<Value>) -> EvalResult {
             let _ = expect_fixnum(width)?;
         }
     }
-    if let Some(align) = args.get(4) {
-        if !align.is_nil() && align.as_symbol_name().is_none() {
-            return Err(signal("error", vec![Value::string("Bad align argument")]));
-        }
-    }
+    // GNU fringe.c: ALIGN can be a symbol (top, bottom, center) or a
+    // list of alignment flags like (top repeat). Accept any non-nil value.
+    // The actual fringe rendering is a stub; just validate minimally.
 
     Ok(args[0])
 }
