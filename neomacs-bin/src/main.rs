@@ -1199,12 +1199,21 @@ pub fn run(mode: RuntimeMode) {
             FrontendHandle::Gui(render_thread)
         }
         FrontendKind::Tty => {
-            // Single-thread TTY path: terminal init here, rendering via TtyRif
-            // on the evaluator thread, input reader on a background thread.
-            tty_init_terminal();
-            let input_reader = tty_frontend::TtyInputReader::spawn(render_comms);
-            tracing::info!("TTY frontend spawned (TtyRif single-thread redisplay)");
-            FrontendHandle::TtyRifInput(input_reader)
+            if startup.noninteractive {
+                // Batch mode: no terminal I/O, matching GNU which
+                // skips init_display() for --batch (emacs.c:1835).
+                tracing::info!("TTY batch mode — skipping terminal init");
+                FrontendHandle::TtyRifInput(
+                    tty_frontend::TtyInputReader::spawn(render_comms),
+                )
+            } else {
+                // Single-thread TTY path: terminal init here, rendering via TtyRif
+                // on the evaluator thread, input reader on a background thread.
+                tty_init_terminal();
+                let input_reader = tty_frontend::TtyInputReader::spawn(render_comms);
+                tracing::info!("TTY frontend spawned (TtyRif single-thread redisplay)");
+                FrontendHandle::TtyRifInput(input_reader)
+            }
         }
     };
 
@@ -1217,29 +1226,38 @@ pub fn run(mode: RuntimeMode) {
     // it visible until some later input or timer happens to trigger a
     // redisplay.  Keep the frontend window alive, but let the first real frame
     // come from the command loop's redisplay path.
-    // 7. Create input bridge: convert display runtime events → keyboard events
-    let (input_tx, input_rx) = crossbeam_channel::unbounded();
-    let display_input_rx = emacs_comms.input_rx;
-    let primary_window_size_for_input = Arc::clone(&primary_window_size);
-    std::thread::Builder::new()
-        .name("input-bridge".to_string())
-        .spawn(move || {
-            while let Ok(event) = display_input_rx.recv() {
-                tracing::info!("input-bridge: received event");
-                record_primary_window_resize(&primary_window_size_for_input, &event);
-                if let Some(kb_event) = input_bridge::convert_display_event(event) {
-                    tracing::info!("input-bridge: converted to kb event");
-                    if input_tx.send(kb_event).is_err() {
-                        break; // Context dropped
+    // 7. Create input bridge: convert display runtime events → keyboard events.
+    //
+    // GNU Emacs does NOT initialize terminal I/O in --batch mode.
+    // The evaluator runs without any input receiver, so
+    // `input_rx.is_none()` correctly signals batch mode throughout
+    // the keyboard/command-loop code. This prevents blocking on
+    // `rx.recv()` in read_char_with_timeout and avoids spawning
+    // unnecessary threads.
+    if !startup.noninteractive {
+        let (input_tx, input_rx) = crossbeam_channel::unbounded();
+        let display_input_rx = emacs_comms.input_rx;
+        let primary_window_size_for_input = Arc::clone(&primary_window_size);
+        std::thread::Builder::new()
+            .name("input-bridge".to_string())
+            .spawn(move || {
+                while let Ok(event) = display_input_rx.recv() {
+                    tracing::info!("input-bridge: received event");
+                    record_primary_window_resize(&primary_window_size_for_input, &event);
+                    if let Some(kb_event) = input_bridge::convert_display_event(event) {
+                        tracing::info!("input-bridge: converted to kb event");
+                        if input_tx.send(kb_event).is_err() {
+                            break; // Context dropped
+                        }
                     }
                 }
-            }
-        })
-        .expect("Failed to spawn input bridge thread");
+            })
+            .expect("Failed to spawn input bridge thread");
 
-    // 8. Connect evaluator to input system
-    let wakeup_fd = emacs_comms.wakeup_read_fd;
-    evaluator.init_input_system(input_rx, wakeup_fd);
+        // 8. Connect evaluator to input system
+        let wakeup_fd = emacs_comms.wakeup_read_fd;
+        evaluator.init_input_system(input_rx, wakeup_fd);
+    }
 
     // 9. Set up redisplay callback (layout engine + send frame)
     match startup.frontend {
