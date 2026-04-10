@@ -1085,7 +1085,7 @@ pub struct Context {
     /// Minibuffer runtime state — active minibuffer stack, prompt metadata, and history.
     pub(crate) minibuffers: MinibufferManager,
     /// Current echo-area message text, mirroring GNU `current-message`.
-    current_message: Option<String>,
+    pub(crate) current_message: Option<String>,
     /// Window that was selected when the active minibuffer session began.
     pub(crate) minibuffer_selected_window: Option<crate::window::WindowId>,
     /// Currently active minibuffer window, if any.

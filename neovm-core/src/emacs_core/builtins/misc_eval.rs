@@ -979,11 +979,21 @@ pub(crate) fn resolve_print_target_in_state(
 
 fn write_print_output_to_target(
     buffers: &mut crate::buffer::BufferManager,
+    echo_area: &mut Option<String>,
     target: Value,
     text: &str,
 ) -> Result<(), Flow> {
     match target.kind() {
-        ValueKind::T | ValueKind::Nil => Ok(()),
+        // GNU print.c: when printcharfun is t, output goes to the echo
+        // area via printchar_stdout_last → echo_char.  Accumulate
+        // characters into current_message so the echo area displays them.
+        ValueKind::T | ValueKind::Nil => {
+            match echo_area {
+                Some(msg) => msg.push_str(text),
+                None => *echo_area = Some(text.to_string()),
+            }
+            Ok(())
+        }
         ValueKind::Veclike(VecLikeType::Buffer) => {
             let id = target.as_buffer_id().unwrap();
             if buffers.get(id).is_none() {
@@ -1101,7 +1111,7 @@ fn write_print_output(
     text: &str,
 ) -> Result<(), Flow> {
     let target = resolve_print_target(eval, printcharfun);
-    write_print_output_to_target(&mut eval.buffers, target, text)
+    write_print_output_to_target(&mut eval.buffers, &mut eval.current_message, target, text)
 }
 
 fn write_print_output_from_ctx(
@@ -1110,12 +1120,18 @@ fn write_print_output_from_ctx(
     text: &str,
 ) -> Result<(), Flow> {
     let target = resolve_print_target_in_state(ctx, printcharfun);
-    write_print_output_to_target(&mut ctx.buffers, target, text)
+    write_print_output_to_target(&mut ctx.buffers, &mut ctx.current_message, target, text)
 }
 
 fn write_terpri_output(eval: &mut super::eval::Context, target: Value) -> Result<(), Flow> {
     match target.kind() {
-        ValueKind::T | ValueKind::Nil => Ok(()),
+        ValueKind::T | ValueKind::Nil => {
+            match eval.current_message {
+                Some(ref mut msg) => msg.push('\n'),
+                None => eval.current_message = Some("\n".to_string()),
+            }
+            Ok(())
+        }
         ValueKind::Veclike(VecLikeType::Buffer) => {
             let id = target.as_buffer_id().unwrap();
             if eval.buffers.get(id).is_none() {
@@ -1472,7 +1488,7 @@ pub(crate) fn builtin_terpri_impl(
     expect_max_args("terpri", &args, 2)?;
     let target = resolve_print_target_in_state(ctx, args.first());
     if print_target_is_direct(target) {
-        write_print_output_to_target(&mut ctx.buffers, target, "\n")?;
+        write_print_output_to_target(&mut ctx.buffers, &mut ctx.current_message, target, "\n")?;
         return Ok(Some(Value::T));
     }
     Ok(None)
@@ -1564,7 +1580,7 @@ pub(crate) fn builtin_write_char_impl(
 
     if print_target_is_direct(target) {
         if let Some(text) = write_char_rendered_text(char_code) {
-            write_print_output_to_target(&mut ctx.buffers, target, &text)?;
+            write_print_output_to_target(&mut ctx.buffers, &mut ctx.current_message, target, &text)?;
         }
         return Ok(Some(Value::fixnum(char_code)));
     }
