@@ -1241,6 +1241,28 @@ impl Frame {
         self.sync_window_area_bounds();
     }
 
+    /// Recompute `menu_bar_height` from the `menu-bar-lines` frame parameter.
+    ///
+    /// Mirrors GNU `frame.c` (`x_set_menu_bar_lines` / TTY frame init at
+    /// frame.c:1307-1309): `FRAME_MENU_BAR_LINES (f) = NILP (Vmenu_bar_mode) ? 0 : 1`.
+    /// On TTY the menu bar takes one character row, identical to GNU's
+    /// behaviour, so the resulting pixel height is `lines * char_height`
+    /// where `char_height` is 1 for TTY frames.
+    ///
+    /// `chrome_top_height()` already adds `menu_bar_height` into the
+    /// reserved top region used by `window_text_area_bounds()`, so calling
+    /// `sync_window_area_bounds()` here is enough to push the root window
+    /// (and its mode line / minibuffer) down to make room.
+    pub fn sync_menu_bar_height_from_parameters(&mut self) {
+        let lines = self
+            .frame_parameter_int("menu-bar-lines")
+            .unwrap_or(0)
+            .max(0) as u32;
+        let char_height = self.char_height.max(1.0).round() as u32;
+        self.menu_bar_height = lines.saturating_mul(char_height);
+        self.sync_window_area_bounds();
+    }
+
     /// Select a window by ID.
     pub fn select_window(&mut self, id: WindowId) -> bool {
         if self.find_window(id).is_some() {

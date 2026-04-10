@@ -78,6 +78,7 @@ pub fn frame_params_from_neovm(frame: &Frame, face_table: &FaceTable) -> FramePa
     FrameParams {
         width: frame.width as f32,
         height: frame.height as f32,
+        menu_bar_height: frame.menu_bar_height as f32,
         tab_bar_height: frame.tab_bar_height as f32,
         char_width: frame.char_width,
         char_height: frame.char_height,

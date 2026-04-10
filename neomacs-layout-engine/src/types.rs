@@ -246,6 +246,13 @@ pub struct FrameParams {
     /// Frame pixel dimensions
     pub width: f32,
     pub height: f32,
+    /// Frame-level menu-bar height in pixels.
+    ///
+    /// Mirrors GNU `FRAME_MENU_BAR_HEIGHT (f)`. On TTY frames this is
+    /// `menu-bar-lines * char_height` (with `char_height = 1`); the
+    /// layout engine reserves this many pixels at the top of the frame
+    /// for the menu bar row, mirroring `display_menu_bar()` in xdisp.c.
+    pub menu_bar_height: f32,
     /// Frame-level tab-bar height in pixels.
     pub tab_bar_height: f32,
     /// Default character cell dimensions

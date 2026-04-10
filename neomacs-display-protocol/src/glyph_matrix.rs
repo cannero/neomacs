@@ -425,6 +425,59 @@ pub struct FrameDisplayState {
     pub stipple_patterns: HashMap<i32, StipplePattern>,
     /// Effect hints for the renderer.
     pub effect_hints: Vec<WindowEffectHint>,
+    /// Frame-level menu bar (TTY only, GNU `display_menu_bar` analog).
+    ///
+    /// `Some` when `(frame-parameter nil 'menu-bar-lines)` > 0 on a TTY
+    /// frame.  Carries the items collected by walking the active
+    /// `[menu-bar]` keymaps (mirroring GNU `keyboard.c:menu_bar_items`).
+    /// The TTY rasterizer paints these into row 0; the GUI runtime has
+    /// its own menu-bar machinery and ignores this field.
+    pub menu_bar: Option<TtyMenuBarState>,
+}
+
+/// One label entry in the TTY menu bar (one top-level menu like "File").
+///
+/// Mirrors the per-item slot of GNU's `f->menu_bar_items` vector
+/// (4 slots per item: key, string, def, hpos — see
+/// `keyboard.c:menu_bar_items`). We only need the visible label and the
+/// key (for future activation hit-testing); `def` is intentionally not
+/// carried across the display-protocol boundary because the renderer
+/// doesn't need it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TtyMenuBarItem {
+    /// Display label, e.g. `"File"`.
+    pub label: String,
+    /// Key symbol the user invokes to open this menu, e.g. `file`.
+    pub key: String,
+    /// 0-based screen column where this item starts (filled by layout).
+    pub hpos: u16,
+}
+
+/// Per-frame menu bar state passed from layout to the TTY rasterizer.
+///
+/// Carries the resolved attributes of the GNU `menu` face directly so
+/// the rasterizer doesn't have to look anything up in the per-glyph
+/// `faces` HashMap (which is populated dynamically as text glyphs are
+/// emitted, and may not contain a `menu` entry at all when the menu
+/// bar holds the only references to that face).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TtyMenuBarState {
+    /// Items in display order, left-to-right.
+    pub items: Vec<TtyMenuBarItem>,
+    /// Number of menu-bar lines (today: always 1 on TTY, mirrors
+    /// `FRAME_MENU_BAR_LINES` in GNU).
+    pub lines: u16,
+    /// Foreground RGB pixel (`0x00RRGGBB`) for the `menu` face.
+    ///
+    /// Already accounts for `:inverse-video` if set in the face spec —
+    /// the layout-engine `FaceResolver` swaps fg/bg in that case
+    /// (matching GNU's `realize_basic_faces` behaviour). The TTY
+    /// rasterizer just uses these values as-is.
+    pub fg: u32,
+    /// Background RGB pixel (`0x00RRGGBB`) for the `menu` face.
+    pub bg: u32,
+    /// Bold attribute from the `menu` face.
+    pub bold: bool,
 }
 
 impl FrameDisplayState {
@@ -462,6 +515,7 @@ impl FrameDisplayState {
             cursor_inverse: None,
             stipple_patterns: HashMap::new(),
             effect_hints: Vec::new(),
+            menu_bar: None,
         }
     }
 

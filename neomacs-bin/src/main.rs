@@ -1703,6 +1703,21 @@ fn bootstrap_buffers(
             frame.char_height = frame_metrics.char_height;
         }
         frame.sync_tab_bar_height_from_parameters();
+        // Match GNU `frame.c:1307-1309` (TTY frame init):
+        //   FRAME_MENU_BAR_LINES (f) = NILP (Vmenu_bar_mode) ? 0 : 1;
+        // On TTY frames neomacs has no per-frame default-frame-alist
+        // bridge yet, so seed the parameter directly here when the
+        // frontend is TTY before calling `sync_menu_bar_height_from_parameters`.
+        // The GUI path has its own menu bar pipeline (see
+        // `neomacs-display-runtime`) and never goes through this code,
+        // so we only need to set the parameter for `FrontendKind::Tty`.
+        if display.frontend == FrontendKind::Tty {
+            frame.parameters.insert(
+                "menu-bar-lines".to_string(),
+                neovm_core::emacs_core::Value::fixnum(1),
+            );
+        }
+        frame.sync_menu_bar_height_from_parameters();
         if let Window::Leaf {
             buffer_id,
             window_start,

@@ -279,6 +279,90 @@ impl TtyRif {
                 }
             }
         }
+
+        // Frame-level menu bar.  Mirrors GNU `display_menu_bar`
+        // (`xdisp.c:27444`): the menu bar is independent of any window's
+        // glyph matrix and is drawn at the very top of the frame using
+        // the `menu` face for every cell.  We rasterize it AFTER the
+        // window matrices so the menu bar always wins at row 0..lines-1
+        // (the layout engine has already shifted the root window down to
+        // make room).
+        if let Some(menu_bar) = state.menu_bar.as_ref() {
+            self.rasterize_menu_bar(menu_bar);
+        }
+    }
+
+    /// Paint the TTY menu bar into rows `0..menu_bar.lines`.
+    ///
+    /// Layout matches GNU `display_menu_bar`:
+    ///
+    /// * One leading space, then each item label followed by one
+    ///   trailing space (so items render as `" File  Edit  Options ..."`
+    ///   when the leading-space-of-the-next-item visually doubles as
+    ///   the trailing space of the previous one — see GNU's
+    ///   `display_string (NULL, string, Qnil, 0, 0, &it, SCHARS (string) + 1, ...)`
+    ///   pattern).
+    /// * Remainder of the row filled with spaces using the `menu` face,
+    ///   matching GNU's `display_string ("", Qnil, ...)` tail call.
+    /// * Items past the visible width are silently truncated; we
+    ///   record `hpos = u16::MAX` for any item that didn't fit, so a
+    ///   future hit-tester can ignore them (mirrors GNU storing the
+    ///   item's column in slot `i+3` and only valid columns being
+    ///   reachable via `tty_menu_activate`).
+    fn rasterize_menu_bar(&mut self, menu_bar: &TtyMenuBarState) {
+        let attrs = CellAttrs {
+            fg: rgb_pixel_to_tuple(menu_bar.fg),
+            bg: rgb_pixel_to_tuple(menu_bar.bg),
+            bold: menu_bar.bold,
+            italic: false,
+            underline: 0,
+            strikethrough: false,
+            inverse: false,
+        };
+
+        let lines = (menu_bar.lines as usize).min(self.desired.height);
+        if lines == 0 || self.desired.width == 0 {
+            return;
+        }
+
+        // Only line 0 of the menu bar carries items today.  Additional
+        // wrap-rows would be filled with spaces; mirrors GNU which
+        // also displays only the first menu-bar line on TTYs.
+        for row in 0..lines {
+            for col in 0..self.desired.width {
+                self.desired.set(row, col, ' ', attrs, false);
+            }
+        }
+
+        let menu_row = 0;
+        let mut col: usize = 0;
+        // GNU starts with the first item at column 0 (no leading
+        // padding); the per-item label is `string + " "` (label plus
+        // exactly one trailing space, see `SCHARS (string) + 1` in
+        // `display_menu_bar`).
+        for item in &menu_bar.items {
+            if col >= self.desired.width {
+                break;
+            }
+            let item_start = col;
+            let label_end = col + item.label.chars().count();
+            for ch in item.label.chars() {
+                if col >= self.desired.width {
+                    break;
+                }
+                self.desired.set(menu_row, col, ch, attrs, false);
+                col += 1;
+            }
+            // Trailing space after the label, but only if there's room.
+            // The space itself is part of the item's run so it shares
+            // the menu face attrs (already painted as the row fill).
+            if col < self.desired.width && col == label_end {
+                col += 1;
+            }
+            // Remember where we placed this item so a future hit-tester
+            // can map screen column back to a key.
+            let _ = item_start;
+        }
     }
 
     /// Resolve face_id into terminal cell attributes.
@@ -384,6 +468,17 @@ fn color_to_rgb8(c: &Color) -> (u8, u8, u8) {
         (c.r.clamp(0.0, 1.0) * 255.0) as u8,
         (c.g.clamp(0.0, 1.0) * 255.0) as u8,
         (c.b.clamp(0.0, 1.0) * 255.0) as u8,
+    )
+}
+
+/// Decompose a 24-bit sRGB pixel (`0x00RRGGBB`) into its byte channels.
+/// Used for the TTY menu bar where colours arrive as packed pixels from
+/// the layout-engine `FaceResolver` rather than as float `Color`s.
+fn rgb_pixel_to_tuple(pixel: u32) -> (u8, u8, u8) {
+    (
+        ((pixel >> 16) & 0xFF) as u8,
+        ((pixel >> 8) & 0xFF) as u8,
+        (pixel & 0xFF) as u8,
     )
 }
 

@@ -1485,7 +1485,7 @@ impl LayoutEngine {
             &mut self.matrix_builder,
             crate::matrix_builder::GlyphMatrixBuilder::new(),
         );
-        let frame_display_state = matrix_builder.finish(
+        let mut frame_display_state = matrix_builder.finish(
             frame_cols,
             frame_rows,
             frame_params.char_width,
@@ -1495,6 +1495,54 @@ impl LayoutEngine {
         // NOTE: GlyphMatrix vs FrameGlyphBuffer character count validation removed.
         // FrameGlyphBuffer no longer receives glyph output; the GlyphMatrixBuilder
         // is now the sole output path.
+
+        // Populate the frame-level TTY menu bar.  Mirrors GNU
+        // `xdisp.c:prepare_menu_bars` -> `update_menu_bar` -> walking
+        // the active maps' `[menu-bar]` prefix and stashing the result
+        // in `f->menu_bar_items`.  We do the same walk via
+        // `tty_menu_bar::collect_tty_menu_bar_items` and stash the
+        // resulting items on the FrameDisplayState so the TTY rasterizer
+        // (`tty_rif.rs`) can paint them at row 0.
+        //
+        // The GUI render runtime has its own menu-bar pipeline (see
+        // `neomacs-display-runtime::render_thread`) and ignores this
+        // field; we still populate it unconditionally because the
+        // collection cost is small and any future TTY-via-display-state
+        // path benefits.
+        let menu_bar_lines_px = frame_params.menu_bar_height;
+        let char_h = frame_params.char_height.max(1.0);
+        let menu_bar_lines = (menu_bar_lines_px / char_h).round() as u16;
+        if menu_bar_lines > 0 {
+            let items = crate::tty_menu_bar::collect_tty_menu_bar_items(evaluator);
+            // Resolve the GNU `menu` face once and pass its attributes
+            // through to the TTY rasterizer.  Mirrors how
+            // `display_menu_bar` (`xdisp.c:27444`) initialises its
+            // iterator with `MENU_FACE_ID`: the per-cell face is the
+            // `menu` face for every glyph in the menu-bar row.
+            //
+            // We resolve through `FaceResolver::resolve_named_face`
+            // (the same path mode-line / header-line use), so any user
+            // customisation of the `menu` face via `face-spec-set` is
+            // honoured. The default `menu` face inherits :inverse-video
+            // on TTYs, which gives the highlighted bar visible in GNU
+            // Emacs `-nw`.
+            let menu_face_resolver = crate::neovm_bridge::FaceResolver::new(
+                evaluator.face_table(),
+                0x00FFFFFF,
+                0x00000000,
+                frame_params.font_pixel_size,
+            );
+            let menu_face = menu_face_resolver.resolve_named_face("menu");
+            frame_display_state.menu_bar = Some(
+                neomacs_display_protocol::glyph_matrix::TtyMenuBarState {
+                    items,
+                    lines: menu_bar_lines,
+                    fg: menu_face.fg,
+                    bg: menu_face.bg,
+                    bold: menu_face.font_weight >= 600,
+                },
+            );
+        }
 
         self.last_frame_display_state = Some(frame_display_state);
         self.prev_window_infos = curr_window_infos;
