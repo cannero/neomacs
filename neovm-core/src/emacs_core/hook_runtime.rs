@@ -128,6 +128,14 @@ pub(crate) fn run_hook_value<R: HookRuntime>(
     })
 }
 
+/// Run a hook with error recovery. Mirrors GNU
+/// `keyboard.c:1908-1941` (`safe_run_hooks_error`) which logs
+/// the error via `(message "Error in %s (%S): %S" hook fun error)`
+/// and removes the broken function from the hook list. neomacs
+/// currently logs via tracing::warn and does NOT remove the broken
+/// function (that requires per-function error wrapping which is
+/// tracked as future work). The important contract: the error is
+/// VISIBLE, not silently swallowed.
 pub(crate) fn safe_run_hook_value<R: HookRuntime>(
     runtime: &mut R,
     hook_sym: SymId,
@@ -137,7 +145,22 @@ pub(crate) fn safe_run_hook_value<R: HookRuntime>(
 ) -> EvalResult {
     match run_hook_value(runtime, hook_sym, hook_value, hook_args, inherit_global) {
         Ok(value) => Ok(value),
-        Err(Flow::Signal(_)) => Ok(Value::NIL),
+        Err(Flow::Signal(ref sig)) => {
+            // GNU keyboard.c:1911-1914 logs:
+            //   (message "Error in %s (%S): %S" hook fun error)
+            let hook_name = super::intern::resolve_sym(hook_sym);
+            tracing::warn!(
+                "Error in {}: ({} {})",
+                hook_name,
+                sig.symbol_name(),
+                sig.data
+                    .iter()
+                    .map(|v| format!("{}", v))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
+            Ok(Value::NIL)
+        }
         Err(flow) => Err(flow),
     }
 }
