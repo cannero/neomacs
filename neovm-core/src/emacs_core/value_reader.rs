@@ -455,9 +455,17 @@ impl<'a> Reader<'a> {
                     }
                 }
                 other => {
-                    // Normal character — encode as UTF-8 (== Emacs encoding for Unicode)
-                    let mut tmp = [0u8; 4];
-                    buf.extend_from_slice(other.encode_utf8(&mut tmp).as_bytes());
+                    let cp = other as u32;
+                    if cp >= 0x80 && cp <= 0xFF {
+                        // Latin-1 high byte from .elc loading (b as char).
+                        // Push raw byte directly — these form Emacs internal
+                        // encoding sequences (e.g. [E2, 80, 98] for U+2018).
+                        buf.push(cp as u8);
+                    } else {
+                        // Normal Unicode — encode as UTF-8 (== Emacs encoding)
+                        let mut tmp = [0u8; 4];
+                        buf.extend_from_slice(other.encode_utf8(&mut tmp).as_bytes());
+                    }
                 }
             }
         }

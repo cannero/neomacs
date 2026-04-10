@@ -462,7 +462,7 @@ pub(crate) fn register_autoload_in_state(
 
     let docstring_val = args.get(2).cloned().unwrap_or(Value::NIL);
     let docstring = match docstring_val.kind() {
-        ValueKind::String => Some(docstring_val.as_str().unwrap().to_owned()),
+        ValueKind::String => Some(docstring_val.as_str().unwrap_or("").to_owned()),
         _ => None,
     };
 

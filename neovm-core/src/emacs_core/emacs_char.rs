@@ -172,34 +172,45 @@ pub fn string_char(bytes: &[u8]) -> (u32, usize) {
     if b0 < 0x80 {
         // ASCII
         (b0 as u32, 1)
-    } else if is_raw_byte_lead(b0) {
+    } else if is_raw_byte_lead(b0) && bytes.len() >= 2 && (bytes[1] & 0xC0) == 0x80 {
         // Raw-byte overlong: 2 bytes → eight-bit character.
         let raw = ((b0 & 0x01) << 6) | (bytes[1] & 0x3F);
         (byte8_to_char(raw | 0x80), 2)
-    } else if b0 < 0xE0 {
+    } else if b0 < 0xE0 && bytes.len() >= 2 && (bytes[1] & 0xC0) == 0x80 {
         // 2-byte standard UTF-8
         let c = ((b0 as u32 & 0x1F) << 6) | (bytes[1] as u32 & 0x3F);
         (c, 2)
-    } else if b0 < 0xF0 {
+    } else if b0 < 0xF0 && bytes.len() >= 3
+        && (bytes[1] & 0xC0) == 0x80 && (bytes[2] & 0xC0) == 0x80
+    {
         // 3-byte
         let c = ((b0 as u32 & 0x0F) << 12)
             | ((bytes[1] as u32 & 0x3F) << 6)
             | (bytes[2] as u32 & 0x3F);
         (c, 3)
-    } else if b0 < 0xF8 {
+    } else if b0 < 0xF8 && bytes.len() >= 4
+        && (bytes[1] & 0xC0) == 0x80 && (bytes[2] & 0xC0) == 0x80
+        && (bytes[3] & 0xC0) == 0x80
+    {
         // 4-byte
         let c = ((b0 as u32 & 0x07) << 18)
             | ((bytes[1] as u32 & 0x3F) << 12)
             | ((bytes[2] as u32 & 0x3F) << 6)
             | (bytes[3] as u32 & 0x3F);
         (c, 4)
-    } else {
-        // 5-byte (F8 lead)
+    } else if b0 == 0xF8 && bytes.len() >= 5
+        && (bytes[1] & 0xC0) == 0x80 && (bytes[2] & 0xC0) == 0x80
+        && (bytes[3] & 0xC0) == 0x80 && (bytes[4] & 0xC0) == 0x80
+    {
+        // 5-byte (F8 lead, Emacs extension)
         let c = ((bytes[1] as u32 & 0x3F) << 18)
             | ((bytes[2] as u32 & 0x3F) << 12)
             | ((bytes[3] as u32 & 0x3F) << 6)
             | (bytes[4] as u32 & 0x3F);
         (c, 5)
+    } else {
+        // Invalid or truncated sequence — treat lead byte as raw byte
+        (byte8_to_char(b0), 1)
     }
 }
 
