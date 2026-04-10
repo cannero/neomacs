@@ -3409,7 +3409,7 @@ impl Context {
         for name in &[
             "debug-on-error",
             "debugger",
-            "lexical-binding",
+            // "lexical-binding" — now registered via defvar_per_buffer!
             "load-prefer-newer",
             "load-path",
             "load-history",
@@ -3536,6 +3536,10 @@ impl Context {
             defvar_per_buffer!("abbrev-mode", Value::NIL);
             defvar_per_buffer!("overwrite-mode", Value::NIL);
             defvar_per_buffer!("auto-fill-function", Value::NIL);
+
+            // Lexical binding (GNU buffer.c DEFVAR_PER_BUFFER).
+            // Default is nil; each file sets it from -*- cookie.
+            defvar_per_buffer!("lexical-binding", Value::NIL);
 
             // Search (GNU buffer.c DEFVAR_PER_BUFFER)
             defvar_per_buffer!("case-fold-search", Value::T);
@@ -5786,21 +5790,25 @@ impl Context {
         self.assign("unread-command-events", Value::list(vec![event]));
     }
 
-    /// Set the file-level `lexical-binding` and sync the top-level
-    /// lexical environment.
+    /// Set the file-level `lexical-binding` (per-buffer) and sync the
+    /// top-level lexical environment.
     ///
     /// Called at file-loading boundaries (load.rs, lread.rs) and test
     /// setup. Mirrors GNU Emacs where the file loader both sets the
     /// `lexical-binding` buffer-local AND specbinds
     /// `Vinternal_interpreter_environment` to `(t)` or `nil`.
     ///
+    /// Uses `set_variable` which routes through the buffer-local
+    /// FORWARDED dispatch (matching GNU where `lexical-binding` is
+    /// `DEFVAR_PER_BUFFER` in buffer.c). Each buffer gets its own
+    /// `lexical-binding` value from its file's -*- cookie.
+    ///
     /// Note: `Feval` (begin_eval_with_lexical_arg) does NOT call this.
     /// `Feval` only saves/restores `self.lexenv` without touching the
-    /// obarray `lexical-binding` symbol, matching GNU where nested
-    /// eval calls never clobber the file-level setting.
+    /// per-buffer `lexical-binding`, matching GNU where nested eval
+    /// calls never clobber the file-level setting.
     pub fn set_lexical_binding(&mut self, enabled: bool) {
-        self.obarray
-            .set_symbol_value_id(lexical_binding_symbol(), Value::bool_val(enabled));
+        self.set_variable("lexical-binding", Value::bool_val(enabled));
         if enabled {
             if self.lexenv.is_nil() {
                 self.lexenv = top_level_lexenv_sentinel();
