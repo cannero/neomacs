@@ -498,6 +498,13 @@ struct ModeLinePercentContext {
     /// Coding system mnemonic character for `%z`/`%Z`.
     /// GNU: `CODING_ATTR_MNEMONIC` from the coding system spec.
     coding_mnemonic: char,
+    /// Terminal output coding mnemonic (TTY only). For `%z` on TTY
+    /// frames, GNU outputs 3 chars: terminal + keyboard + buffer.
+    terminal_coding_mnemonic: char,
+    /// Keyboard input coding mnemonic (TTY only).
+    keyboard_coding_mnemonic: char,
+    /// True when the selected frame is a TTY (no window-system).
+    is_tty_frame: bool,
     /// EOL type string for `%Z` (`:`, `\`, `/`, or undecided).
     eol_indicator: String,
     /// When `Some(n)`, the walker is running in GNU's
@@ -573,6 +580,11 @@ fn build_mode_line_percent_context(
         ctx.window_end = buf.point_max_char();
     }
 
+    // --- TTY detection (GNU: FRAME_WINDOW_P) ---
+    if let Some(frame) = frames.selected_frame() {
+        ctx.is_tty_frame = frame.effective_window_system().is_none();
+    }
+
     // --- Coding system mnemonic (GNU: decode_mode_spec_coding) ---
     let cs_name = context_buffer
         .and_then(|b| b.get_buffer_local("buffer-file-coding-system"))
@@ -580,6 +592,28 @@ fn build_mode_line_percent_context(
     if let Some(ref name) = cs_name {
         ctx.coding_mnemonic = coding_system_mnemonic_char(name);
         ctx.eol_indicator = coding_system_eol_indicator(obarray, name);
+    }
+
+    // --- Terminal and keyboard coding mnemonics (TTY only) ---
+    // GNU xdisp.c:29494: on TTY, %z outputs 3 chars —
+    // terminal-coding-system mnemonic, keyboard-coding-system mnemonic,
+    // and buffer-file-coding-system mnemonic.
+    if ctx.is_tty_frame {
+        let term_cs = obarray
+            .symbol_value("terminal-coding-system")
+            .and_then(|v| v.as_symbol_name().map(|s| s.to_string()));
+        ctx.terminal_coding_mnemonic = term_cs
+            .as_deref()
+            .map(coding_system_mnemonic_char)
+            .unwrap_or('-');
+
+        let kbd_cs = obarray
+            .symbol_value("keyboard-coding-system")
+            .and_then(|v| v.as_symbol_name().map(|s| s.to_string()));
+        ctx.keyboard_coding_mnemonic = kbd_cs
+            .as_deref()
+            .map(coding_system_mnemonic_char)
+            .unwrap_or('-');
     }
 
     ctx
@@ -1938,7 +1972,18 @@ fn expand_mode_line_percent_in_state(
             }
             Some('z') => {
                 // GNU xdisp.c:29494 — coding system mnemonic without EOL indicator.
-                append_spec(&pctx.coding_mnemonic.to_string());
+                // On TTY: 3 chars (terminal + keyboard + buffer).
+                // On GUI: 1 char (buffer only).
+                if pctx.is_tty_frame {
+                    append_spec(&format!(
+                        "{}{}{}",
+                        pctx.terminal_coding_mnemonic,
+                        pctx.keyboard_coding_mnemonic,
+                        pctx.coding_mnemonic,
+                    ));
+                } else {
+                    append_spec(&pctx.coding_mnemonic.to_string());
+                }
                 index += 1;
             }
             Some('@') => {
