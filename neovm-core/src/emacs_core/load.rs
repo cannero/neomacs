@@ -3111,6 +3111,7 @@ pub fn load_runtime_image_with_features(
         tracing::error!("finalize_cached_bootstrap_eval failed: {e:?}");
         e
     })?;
+
     Ok(eval)
 }
 

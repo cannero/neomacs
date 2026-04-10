@@ -322,7 +322,7 @@ impl<'a> Reader<'a> {
             };
             self.bump();
             match ch {
-                '"' => return Ok(Value::string(s)),
+                '"' => return Ok(Value::string(maybe_recombine_latin1_as_utf8(s))),
                 '\\' => {
                     let Some(esc) = self.current() else {
                         return Err(self.error("unterminated escape in string"));
@@ -1410,6 +1410,73 @@ fn parse_emacs_special_float(token: &str) -> Option<f64> {
             Some(f64::from_bits(bits))
         }
         _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Latin-1 → UTF-8 recombination for .elc string constants
+// ---------------------------------------------------------------------------
+
+/// Re-decode a string that may contain Latin-1 codepoints (0x80–0xFF)
+/// which are actually UTF-8 byte sequences decomposed by the `.elc`
+/// loader's `b as char` mapping.
+///
+/// `.elc` files are loaded as Latin-1 (`load.rs:1418`) because bytecode
+/// instruction strings contain raw bytes 0x00–0xFF that aren't valid
+/// UTF-8. However, this also decomposes multibyte string *constants*
+/// — e.g., the 3-byte UTF-8 for U+2018 (LEFT SINGLE QUOTATION MARK)
+/// becomes three Latin-1 codepoints U+00E2 U+0080 U+0098.
+///
+/// This function detects strings whose chars ≤ U+00FF form valid UTF-8
+/// when treated as raw bytes, and recombines them into proper Unicode
+/// codepoints. Strings that are pure ASCII or contain chars > U+00FF
+/// are returned unchanged. Strings whose bytes don't form valid UTF-8
+/// (genuine unibyte/bytecode data) are also returned unchanged.
+///
+/// This mirrors GNU Emacs `lread.c` which reads `.elc` strings in
+/// unibyte mode and then re-encodes multibyte strings via
+/// `string_to_multibyte`.
+fn maybe_recombine_latin1_as_utf8(s: String) -> String {
+    // Fast path: pure ASCII — nothing to recombine.
+    if s.bytes().all(|b| b < 0x80) {
+        // All chars are ASCII; no Latin-1 high bytes present.
+        // (Rust String is UTF-8, so checking bytes < 0x80 means
+        // all chars are in 0x00–0x7F.)
+        return s;
+    }
+
+    // Check if every char fits in a single byte (0x00–0xFF).
+    // If any char is > U+00FF, this wasn't a Latin-1 decomposed string —
+    // it already contains proper multibyte characters.
+    let all_latin1 = s.chars().all(|ch| (ch as u32) <= 0xFF);
+    if !all_latin1 {
+        return s;
+    }
+
+    // Convert chars back to bytes (truncate each char to u8).
+    let bytes: Vec<u8> = s.chars().map(|ch| ch as u8).collect();
+
+    // Attempt UTF-8 decode.
+    match std::str::from_utf8(&bytes) {
+        Ok(decoded) => {
+            // Valid UTF-8. If the decoded string has fewer chars,
+            // we successfully recombined multi-byte sequences.
+            let decoded_chars = decoded.chars().count();
+            let original_chars = s.chars().count();
+            if decoded_chars < original_chars {
+                decoded.to_owned()
+            } else {
+                // Same char count — no recombination happened.
+                // Keep original to avoid unnecessary allocation.
+                s
+            }
+        }
+        Err(_) => {
+            // Not valid UTF-8 — this is genuine unibyte data
+            // (bytecode instructions, raw byte strings, etc.).
+            // Keep the Latin-1 representation.
+            s
+        }
     }
 }
 
