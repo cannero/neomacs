@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use crate::object::SpaceKind;
 use crate::spaces::OldRegionCollectionStats;
 
@@ -268,6 +270,121 @@ impl AtomicBarrierStats {
             .store(0, std::sync::atomic::Ordering::Relaxed);
         self.satb_pre_write
             .store(0, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Atomic counterpart of the per-space `live_bytes` and
+/// `reserved_bytes` fields in [`HeapStats`]. The allocation
+/// hot path bumps these counters with plain `Relaxed`
+/// atomic adds so it does not need exclusive access to
+/// `HeapStats`. Observers read a consistent snapshot
+/// overlaid onto a `HeapStats` via
+/// [`AtomicAllocationCounters::apply_to`].
+///
+/// The counters are authoritative for the five
+/// `{nursery,old,pinned,large,immortal}.live_bytes` fields
+/// and the three `{old,large,immortal}.reserved_bytes`
+/// fields. GC-time paths that rewrite these counters
+/// (e.g. [`PreparedHeapStats::apply_space_rebuild`]) must
+/// also update these atomics via [`Self::sync_from`] so
+/// the hot-path readers see the post-cycle values.
+#[derive(Debug, Default)]
+pub(crate) struct AtomicAllocationCounters {
+    nursery_live_bytes: AtomicUsize,
+    old_live_bytes: AtomicUsize,
+    old_reserved_bytes: AtomicUsize,
+    pinned_live_bytes: AtomicUsize,
+    large_live_bytes: AtomicUsize,
+    large_reserved_bytes: AtomicUsize,
+    immortal_live_bytes: AtomicUsize,
+    immortal_reserved_bytes: AtomicUsize,
+}
+
+impl AtomicAllocationCounters {
+    /// Record one allocation. Mirrors the logic of
+    /// [`HeapStats::record_allocation`] but uses atomic
+    /// fetch_add / store so the caller only needs `&self`.
+    pub(crate) fn record_allocation(
+        &self,
+        space: SpaceKind,
+        bytes: usize,
+        old_reserved_bytes: usize,
+    ) {
+        match space {
+            SpaceKind::Nursery => {
+                self.nursery_live_bytes
+                    .fetch_add(bytes, Ordering::Relaxed);
+            }
+            SpaceKind::Old => {
+                self.old_live_bytes.fetch_add(bytes, Ordering::Relaxed);
+                self.old_reserved_bytes
+                    .store(old_reserved_bytes, Ordering::Relaxed);
+            }
+            SpaceKind::Pinned => {
+                self.pinned_live_bytes
+                    .fetch_add(bytes, Ordering::Relaxed);
+            }
+            SpaceKind::Large => {
+                self.large_live_bytes
+                    .fetch_add(bytes, Ordering::Relaxed);
+                self.large_reserved_bytes
+                    .fetch_add(bytes, Ordering::Relaxed);
+            }
+            SpaceKind::Immortal => {
+                self.immortal_live_bytes
+                    .fetch_add(bytes, Ordering::Relaxed);
+                self.immortal_reserved_bytes
+                    .fetch_add(bytes, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// Overlay the atomic counter values onto the given
+    /// `HeapStats` snapshot. Called by
+    /// [`crate::heap::HeapCore::storage_stats`] so that
+    /// observers see the latest allocation counters without
+    /// needing exclusive access.
+    pub(crate) fn apply_to(&self, stats: &mut HeapStats) {
+        stats.nursery.live_bytes =
+            self.nursery_live_bytes.load(Ordering::Relaxed);
+        stats.old.live_bytes =
+            self.old_live_bytes.load(Ordering::Relaxed);
+        stats.old.reserved_bytes =
+            self.old_reserved_bytes.load(Ordering::Relaxed);
+        stats.pinned.live_bytes =
+            self.pinned_live_bytes.load(Ordering::Relaxed);
+        stats.large.live_bytes =
+            self.large_live_bytes.load(Ordering::Relaxed);
+        stats.large.reserved_bytes =
+            self.large_reserved_bytes.load(Ordering::Relaxed);
+        stats.immortal.live_bytes =
+            self.immortal_live_bytes.load(Ordering::Relaxed);
+        stats.immortal.reserved_bytes =
+            self.immortal_reserved_bytes.load(Ordering::Relaxed);
+    }
+
+    /// Synchronize the atomics from a `HeapStats` snapshot.
+    /// Called by GC-time paths that rewrite the space
+    /// counters (e.g. after `apply_space_rebuild`) so the
+    /// hot-path atomic view stays in sync with the
+    /// post-cycle ground truth.
+    pub(crate) fn sync_from(&self, stats: &HeapStats) {
+        self.nursery_live_bytes
+            .store(stats.nursery.live_bytes, Ordering::Relaxed);
+        self.old_live_bytes
+            .store(stats.old.live_bytes, Ordering::Relaxed);
+        self.old_reserved_bytes
+            .store(stats.old.reserved_bytes, Ordering::Relaxed);
+        self.pinned_live_bytes
+            .store(stats.pinned.live_bytes, Ordering::Relaxed);
+        self.large_live_bytes
+            .store(stats.large.live_bytes, Ordering::Relaxed);
+        self.large_reserved_bytes
+            .store(stats.large.reserved_bytes, Ordering::Relaxed);
+        self.immortal_live_bytes
+            .store(stats.immortal.live_bytes, Ordering::Relaxed);
+        self.immortal_reserved_bytes
+            .store(stats.immortal.reserved_bytes, Ordering::Relaxed);
     }
 }
 

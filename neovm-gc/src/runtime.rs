@@ -428,12 +428,15 @@ impl<'heap> CollectorRuntime<'heap> {
             _ => crate::object::ObjectRecord::allocate(desc, space, value)?,
         };
         let total_size = record.header().total_size();
-        let (objects, indexes, old_gen, stats, old_config) = self.heap.allocation_commit_parts();
+        let (objects, indexes, old_gen, stats, old_config, alloc_counters) =
+            self.heap.allocation_commit_parts();
         if space == SpaceKind::Old {
             stats.old.reserved_bytes = old_gen.record_allocated_object(old_config, &mut record);
         }
         let gc = unsafe { crate::root::Gc::from_erased(record.erased()) };
-        stats.record_allocation(space, total_size, old_gen.reserved_bytes());
+        let old_reserved = old_gen.reserved_bytes();
+        stats.record_allocation(space, total_size, old_reserved);
+        alloc_counters.record_allocation(space, total_size, old_reserved);
         objects.push(record);
         let index = objects.len() - 1;
         let object_key = objects[index].object_key();
@@ -858,6 +861,11 @@ impl<'heap> CollectorRuntime<'heap> {
 
     fn record_completed_cycle(&mut self, cycle: CollectionStats, completed_plan: CollectionPlan) {
         self.heap.record_collection_stats(cycle);
+        // Sync the atomic allocation counters from the
+        // post-cycle HeapStats so the hot-path readers see
+        // the GC-rebuilt values (apply_space_rebuild rewrites
+        // all five per-space live_bytes/reserved_bytes).
+        self.heap.sync_alloc_counters();
         self.heap.collector_handle().record_completed_plan(
             completed_plan,
             &self.heap.storage_stats(),

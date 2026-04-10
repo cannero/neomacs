@@ -92,6 +92,14 @@ pub enum AllocError {
 pub(crate) struct HeapCore {
     config: HeapConfig,
     stats: HeapStats,
+    /// Atomic mirror of the per-space `live_bytes` and
+    /// `reserved_bytes` fields in [`Self::stats`]. The
+    /// allocation hot path bumps these counters with relaxed
+    /// atomic adds so it can eventually run without the
+    /// `HeapCore` write lock. [`Self::storage_stats`]
+    /// overlays the atomics onto the snapshot so observers
+    /// always see the latest allocation counts.
+    alloc_counters: crate::stats::AtomicAllocationCounters,
     descriptors: HashMap<TypeId, &'static TypeDesc>,
     // --- record storage (drops first, before nursery) ---
     objects: Vec<ObjectRecord>,
@@ -832,8 +840,13 @@ impl HeapCore {
             pacer,
             compaction_stats: crate::stats::CompactionStats::default(),
             barrier_stats: crate::stats::AtomicBarrierStats::new(),
+            alloc_counters: crate::stats::AtomicAllocationCounters::default(),
             nursery,
         };
+        // Seed the atomic counters from the initial stats so
+        // the nursery reserved_bytes (set above) is visible
+        // through the atomic mirror.
+        heap.alloc_counters.sync_from(&heap.stats);
         heap.refresh_recommended_plans();
         heap
     }
@@ -1318,6 +1331,7 @@ impl HeapCore {
         &mut OldGenState,
         &mut HeapStats,
         &OldGenConfig,
+        &crate::stats::AtomicAllocationCounters,
     ) {
         let Self {
             config,
@@ -1325,9 +1339,20 @@ impl HeapCore {
             indexes,
             old_gen,
             stats,
+            alloc_counters,
             ..
         } = self;
-        (objects, indexes, old_gen, stats, &config.old)
+        (objects, indexes, old_gen, stats, &config.old, alloc_counters)
+    }
+
+    /// Synchronize the atomic allocation counters from the
+    /// current `self.stats`. Called after GC-time paths that
+    /// rewrite the per-space counters (e.g. after
+    /// `apply_space_rebuild` inside a reclaim commit) so the
+    /// hot-path atomic view stays in sync with the post-cycle
+    /// ground truth.
+    pub(crate) fn sync_alloc_counters(&self) {
+        self.alloc_counters.sync_from(&self.stats);
     }
 
     /// Return the heap configuration.
@@ -1344,6 +1369,11 @@ impl HeapCore {
 
     pub(crate) fn storage_stats(&self) -> HeapStats {
         let mut stats = self.stats;
+        // Overlay the atomic allocation counters so observers
+        // see the latest live_bytes / reserved_bytes even if
+        // the non-atomic `self.stats` copy is stale (it is
+        // only refreshed at GC-time boundaries).
+        self.alloc_counters.apply_to(&mut stats);
         self.indexes.apply_storage_stats(&mut stats);
         // Fold dirty card counts into the unified
         // remembered_edges / remembered_owners counters so
