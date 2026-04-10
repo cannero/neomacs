@@ -1267,15 +1267,6 @@ impl LayoutEngine {
         evaluator: &mut neovm_core::emacs_core::Context,
         frame_id: neovm_core::window::FrameId,
     ) {
-        // Frame-wide face-id counter reset. Mirrors GNU
-        // `src/xfaces.c::init_frame_faces` which recreates the
-        // face cache per frame, with `cache->used` starting at the
-        // basic-face count and growing as faces are realized. We
-        // reset to 1 (0 is reserved for the default face) and let
-        // each `layout_window_rust` call extend the counter so
-        // face ids never collide between sibling windows.
-        self.frame_face_id_counter = 1;
-
         // Lazy-initialize FontMetricsService before collecting layout params so
         // the selected frame's default metrics can be refreshed first.
         if self.use_cosmic_metrics && self.font_metrics.is_none() {
@@ -1333,222 +1324,325 @@ impl LayoutEngine {
             }
         }
 
-        // Collect window and frame params from neovm-core
-        let (frame_params, window_params_list) = match super::neovm_bridge::collect_layout_params(
-            evaluator,
-            frame_id,
-            default_metrics.map(|metrics| metrics.ascent),
-        ) {
-            Some(data) => data,
-            None => {
-                tracing::error!("layout_frame_rust: frame {:?} not found", frame_id);
-                return;
+        // --- Minibuffer auto-resize retry loop (GNU xdisp.c:13161-13301) ---
+        //
+        // After laying out all windows we check whether the minibuffer
+        // used more (or fewer) display rows than its allocated height.
+        // If so we call grow_mini_window / shrink_mini_window and
+        // re-layout the entire frame.  The `mini_resize_attempted` flag
+        // limits this to a single retry to prevent infinite loops.
+        let mut mini_resize_attempted = false;
+
+        let (frame_params, curr_window_infos) = loop {
+            // Collect window and frame params from neovm-core
+            let (frame_params, window_params_list) =
+                match super::neovm_bridge::collect_layout_params(
+                    evaluator,
+                    frame_id,
+                    default_metrics.map(|metrics| metrics.ascent),
+                ) {
+                    Some(data) => data,
+                    None => {
+                        tracing::error!("layout_frame_rust: frame {:?} not found", frame_id);
+                        return;
+                    }
+                };
+
+            // --- Fontification pass ---
+            // Run fontification for each window's visible region BEFORE the
+            // read-only layout pass.  This triggers jit-lock / font-lock to set
+            // font-lock-face text properties that the FaceResolver later reads.
+            evaluator.setup_thread_locals();
+            for params in &window_params_list {
+                let buf_id = neovm_core::buffer::BufferId(params.buffer_id);
+                let window_start = params.window_start.max(params.buffer_begv);
+                let text_height = params.bounds.height - params.mode_line_height;
+                let max_rows = if params.char_height > 0.0 {
+                    (text_height / params.char_height).ceil() as i64
+                } else {
+                    50 // fallback
+                };
+                // Estimate the end of the visible region (generous: 200 chars/line).
+                let fontify_end = (window_start + max_rows * 200).min(params.buffer_size);
+                Self::ensure_fontified_rust(evaluator, buf_id, window_start, fontify_end);
             }
-        };
 
-        // --- Fontification pass ---
-        // Run fontification for each window's visible region BEFORE the
-        // read-only layout pass.  This triggers jit-lock / font-lock to set
-        // font-lock-face text properties that the FaceResolver later reads.
-        evaluator.setup_thread_locals();
-        for params in &window_params_list {
-            let buf_id = neovm_core::buffer::BufferId(params.buffer_id);
-            let window_start = params.window_start.max(params.buffer_begv);
-            let text_height = params.bounds.height - params.mode_line_height;
-            let max_rows = if params.char_height > 0.0 {
-                (text_height / params.char_height).ceil() as i64
-            } else {
-                50 // fallback
-            };
-            // Estimate the end of the visible region (generous: 200 chars/line).
-            let fontify_end = (window_start + max_rows * 200).min(params.buffer_size);
-            Self::ensure_fontified_rust(evaluator, buf_id, window_start, fontify_end);
-        }
+            // Reset builder for new frame
+            self.matrix_builder.reset();
+            self.frame_face_id_counter = 1;
+            let mut curr_window_infos: std::collections::HashMap<i64, WindowInfo> =
+                std::collections::HashMap::new();
 
-        // Reset builder for new frame
-        self.matrix_builder.reset();
-        let mut curr_window_infos: std::collections::HashMap<i64, WindowInfo> =
-            std::collections::HashMap::new();
-
-        // Set up frame dimensions in the builder
-        self.matrix_builder
-            .set_background_color(Color::from_pixel(frame_params.background));
-        self.matrix_builder
-            .set_font_pixel_size(frame_params.font_pixel_size);
-
-        // Clear hit-test data for new frame
-        self.hit_data.clear();
-        self.display_snapshots.clear();
-        let default_resolved = face_resolver.default_face();
-
-        apply_resolved_face(
-            &mut self.matrix_builder,
-            0,
-            default_resolved,
-            default_metrics,
-        );
-
-        let tab_bar_height = frame_params.tab_bar_height;
-        if tab_bar_height > 0.0 {
-            self.render_frame_tab_bar_rust(
-                evaluator,
-                frame_id.0 as i64,
-                &face_resolver,
-                &frame_params,
-                tab_bar_height,
-            );
-        }
-
-        tracing::debug!(
-            "layout_frame_rust: {}x{} char={}x{} windows={}",
-            frame_params.width,
-            frame_params.height,
-            frame_params.char_width,
-            frame_params.char_height,
-            window_params_list.len()
-        );
-
-        for params in &window_params_list {
-            tracing::debug!(
-                "layout window: id={} buf={} bounds=({:.0},{:.0},{:.0},{:.0}) mini={} selected={} mode_line_h={:.0}",
-                params.window_id,
-                params.buffer_id,
-                params.bounds.x,
-                params.bounds.y,
-                params.bounds.width,
-                params.bounds.height,
-                params.is_minibuffer,
-                params.selected,
-                params.mode_line_height,
-            );
-            // Add window background
+            // Set up frame dimensions in the builder
             self.matrix_builder
-                .push_background(params.bounds, Color::from_pixel(params.default_bg));
+                .set_background_color(Color::from_pixel(frame_params.background));
+            self.matrix_builder
+                .set_font_pixel_size(frame_params.font_pixel_size);
 
-            // Add window info for animation detection
-            let buffer_file_name = {
-                let buf_id = neovm_core::buffer::BufferId(params.buffer_id);
-                evaluator
-                    .buffer_manager()
-                    .get(buf_id)
-                    .and_then(|b| b.file_name_owned())
-                    .unwrap_or_default()
-            };
-            let modified = {
-                let buf_id = neovm_core::buffer::BufferId(params.buffer_id);
-                evaluator
-                    .buffer_manager()
-                    .get(buf_id)
-                    .map(|b| b.modified)
-                    .unwrap_or(false)
-            };
-            let window_info = neomacs_display_protocol::frame_glyphs::WindowInfo {
-                window_id: params.window_id,
-                buffer_id: params.buffer_id,
-                window_start: params.window_start,
-                window_end: 0, // filled after layout
-                buffer_size: params.buffer_size,
-                bounds: Rect::new(
+            // Clear hit-test data for new frame
+            self.hit_data.clear();
+            self.display_snapshots.clear();
+            let default_resolved = face_resolver.default_face();
+
+            apply_resolved_face(
+                &mut self.matrix_builder,
+                0,
+                default_resolved,
+                default_metrics,
+            );
+
+            let tab_bar_height = frame_params.tab_bar_height;
+            if tab_bar_height > 0.0 {
+                self.render_frame_tab_bar_rust(
+                    evaluator,
+                    frame_id.0 as i64,
+                    &face_resolver,
+                    &frame_params,
+                    tab_bar_height,
+                );
+            }
+
+            tracing::debug!(
+                "layout_frame_rust: {}x{} char={}x{} windows={}",
+                frame_params.width,
+                frame_params.height,
+                frame_params.char_width,
+                frame_params.char_height,
+                window_params_list.len()
+            );
+
+            for params in &window_params_list {
+                tracing::debug!(
+                    "layout window: id={} buf={} bounds=({:.0},{:.0},{:.0},{:.0}) mini={} selected={} mode_line_h={:.0}",
+                    params.window_id,
+                    params.buffer_id,
                     params.bounds.x,
                     params.bounds.y,
                     params.bounds.width,
                     params.bounds.height,
-                ),
-                mode_line_height: params.mode_line_height,
-                header_line_height: params.header_line_height,
-                tab_line_height: params.tab_line_height,
-                selected: params.selected,
-                is_minibuffer: params.is_minibuffer,
-                char_height: params.char_height,
-                buffer_file_name,
-                modified,
-            };
-            self.matrix_builder.push_window_info(window_info);
-            self.record_transition_hint_from_latest_window_info(&mut curr_window_infos);
-            self.record_effect_hints_from_latest_window_info();
+                    params.is_minibuffer,
+                    params.selected,
+                    params.mode_line_height,
+                );
+                // Add window background
+                self.matrix_builder
+                    .push_background(params.bounds, Color::from_pixel(params.default_bg));
 
-            // Simplified layout for this window (no face resolution, no overlays)
-            self.layout_window_rust(
-                evaluator,
-                frame_id,
-                params,
-                &frame_params,
-                &face_resolver,
-                MAX_WINDOW_VISIBILITY_RETRIES,
+                // Add window info for animation detection
+                let buffer_file_name = {
+                    let buf_id = neovm_core::buffer::BufferId(params.buffer_id);
+                    evaluator
+                        .buffer_manager()
+                        .get(buf_id)
+                        .and_then(|b| b.file_name_owned())
+                        .unwrap_or_default()
+                };
+                let modified = {
+                    let buf_id = neovm_core::buffer::BufferId(params.buffer_id);
+                    evaluator
+                        .buffer_manager()
+                        .get(buf_id)
+                        .map(|b| b.modified)
+                        .unwrap_or(false)
+                };
+                let window_info = neomacs_display_protocol::frame_glyphs::WindowInfo {
+                    window_id: params.window_id,
+                    buffer_id: params.buffer_id,
+                    window_start: params.window_start,
+                    window_end: 0, // filled after layout
+                    buffer_size: params.buffer_size,
+                    bounds: Rect::new(
+                        params.bounds.x,
+                        params.bounds.y,
+                        params.bounds.width,
+                        params.bounds.height,
+                    ),
+                    mode_line_height: params.mode_line_height,
+                    header_line_height: params.header_line_height,
+                    tab_line_height: params.tab_line_height,
+                    selected: params.selected,
+                    is_minibuffer: params.is_minibuffer,
+                    char_height: params.char_height,
+                    buffer_file_name,
+                    modified,
+                };
+                self.matrix_builder.push_window_info(window_info);
+                self.record_transition_hint_from_latest_window_info(&mut curr_window_infos);
+                self.record_effect_hints_from_latest_window_info();
+
+                // Simplified layout for this window (no face resolution, no overlays)
+                self.layout_window_rust(
+                    evaluator,
+                    frame_id,
+                    params,
+                    &frame_params,
+                    &face_resolver,
+                    MAX_WINDOW_VISIBILITY_RETRIES,
+                );
+
+                // Draw window dividers
+                let right_edge = params.bounds.x + params.bounds.width;
+                let bottom_edge = params.bounds.y + params.bounds.height;
+                let is_rightmost = right_edge >= frame_params.width - 1.0;
+                let is_bottommost = bottom_edge >= frame_params.height - 1.0;
+
+                if frame_params.right_divider_width > 0 && !is_rightmost {
+                    let dw = frame_params.right_divider_width as f32;
+                    let _x0 = right_edge - dw;
+                    let _y0 = params.bounds.y;
+                    let _h = params.bounds.height
+                        - if frame_params.bottom_divider_width > 0 && !is_bottommost {
+                            frame_params.bottom_divider_width as f32
+                        } else {
+                            0.0
+                        };
+                    let _mid_fg = Color::from_pixel(frame_params.divider_fg);
+                } else if !is_rightmost {
+                    // TTY / GUI-without-divider vertical border.
+                    //
+                    // Mirrors GNU `src/dispnew.c:2568-2697`
+                    // (`build_frame_matrix_from_leaf_window`) which,
+                    // for every non-rightmost window, overwrites the
+                    // LAST glyph of each enabled row with a `|`
+                    // character in the `vertical-border` face before
+                    // the frame matrix is written to the terminal:
+                    //
+                    //   if (!WINDOW_RIGHTMOST_P (w))
+                    //     SET_GLYPH_FROM_CHAR (right_border_glyph, '|');
+                    //   ...
+                    //   if (GLYPH_FACE (right_border_glyph) <= 0)
+                    //     SET_GLYPH_FACE (right_border_glyph,
+                    //                     VERTICAL_BORDER_FACE_ID);
+                    //
+                    // Without this patch two horizontally-split
+                    // windows in `neomacs -nw` rendered with no
+                    // visible divider between them; the user could
+                    // not tell where one window ended and the next
+                    // began. The `vertical-border` face on TTY
+                    // inherits from `mode-line-inactive` per
+                    // `lisp/faces.el::vertical-border`.
+                    let border_face = face_resolver.resolve_named_face("vertical-border");
+                    let border_face_id = self.frame_face_id_counter;
+                    self.frame_face_id_counter += 1;
+                    let realized_face =
+                        crate::status_line::StatusLineFace::from_resolved(
+                            border_face_id,
+                            &border_face,
+                        );
+                    self.matrix_builder
+                        .insert_face(border_face_id, realized_face.render_face());
+                    self.matrix_builder
+                        .overwrite_last_window_right_border('|', border_face_id);
+                }
+
+                if frame_params.bottom_divider_width > 0 && !is_bottommost {
+                    let dw = frame_params.bottom_divider_width as f32;
+                    let _x0 = params.bounds.x;
+                    let _y0 = bottom_edge - dw;
+                    let _w = params.bounds.width;
+                    let _mid_fg = Color::from_pixel(frame_params.divider_fg);
+                }
+            }
+
+            // --- Minibuffer auto-resize check (GNU xdisp.c:13161-13301) ---
+            //
+            // After laying out all windows, check if the minibuffer used
+            // more display rows than its allocated height. If so, grow
+            // the minibuffer and re-layout the entire frame (one retry).
+            // Also shrink back when the minibuffer content fits in fewer
+            // rows than currently allocated.
+            if !mini_resize_attempted {
+                if let Some(mini_entry) = self.matrix_builder.windows().last() {
+                    if let Some(mini_params) = window_params_list.last() {
+                        if mini_params.is_minibuffer {
+                            let mini_rows_used = mini_entry
+                                .matrix
+                                .rows
+                                .iter()
+                                .filter(|r| r.enabled)
+                                .count();
+                            let char_h = frame_params.char_height.max(1.0);
+                            let allocated_rows =
+                                (mini_params.bounds.height / char_h).floor().max(1.0) as usize;
+
+                            if mini_rows_used > allocated_rows {
+                                // --- Grow ---
+                                let delta =
+                                    (mini_rows_used as i32) - (allocated_rows as i32);
+
+                                // Check resize-mini-windows variable
+                                let resize_policy = evaluator
+                                    .obarray()
+                                    .symbol_value("resize-mini-windows")
+                                    .copied();
+                                let should_resize = match resize_policy {
+                                    Some(v) if v.is_nil() => false,
+                                    _ => true, // grow-only or t
+                                };
+
+                                if should_resize {
+                                    tracing::debug!(
+                                        "minibuffer auto-resize: grow by {} rows \
+                                         (used={}, allocated={})",
+                                        delta,
+                                        mini_rows_used,
+                                        allocated_rows,
+                                    );
+                                    if let Some(frame) =
+                                        evaluator.frame_manager_mut().get_mut(frame_id)
+                                    {
+                                        frame.grow_mini_window(delta);
+                                    }
+                                    mini_resize_attempted = true;
+                                    continue; // restart the layout loop
+                                }
+                            } else if mini_rows_used < allocated_rows && allocated_rows > 1 {
+                                // --- Shrink ---
+                                let resize_policy = evaluator
+                                    .obarray()
+                                    .symbol_value("resize-mini-windows")
+                                    .copied();
+                                let should_shrink = match resize_policy {
+                                    Some(v) if v.is_symbol_named("grow-only") => {
+                                        // Shrink only if buffer is empty
+                                        mini_params.buffer_size <= 1
+                                    }
+                                    Some(v) if v.is_nil() => false,
+                                    _ => true, // t = always resize
+                                };
+
+                                if should_shrink {
+                                    tracing::debug!(
+                                        "minibuffer auto-resize: shrink \
+                                         (used={}, allocated={})",
+                                        mini_rows_used,
+                                        allocated_rows,
+                                    );
+                                    if let Some(frame) =
+                                        evaluator.frame_manager_mut().get_mut(frame_id)
+                                    {
+                                        frame.shrink_mini_window();
+                                    }
+                                    mini_resize_attempted = true;
+                                    continue; // restart the layout loop
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            self.add_line_animation_hints(&curr_window_infos);
+            self.update_window_switch_hint();
+            self.update_theme_transition_hint(frame_params.width, frame_params.height);
+            self.maybe_add_topology_transition_hint(
+                frame_params.width,
+                frame_params.height,
+                &curr_window_infos,
             );
 
-            // Draw window dividers
-            let right_edge = params.bounds.x + params.bounds.width;
-            let bottom_edge = params.bounds.y + params.bounds.height;
-            let is_rightmost = right_edge >= frame_params.width - 1.0;
-            let is_bottommost = bottom_edge >= frame_params.height - 1.0;
-
-            if frame_params.right_divider_width > 0 && !is_rightmost {
-                let dw = frame_params.right_divider_width as f32;
-                let _x0 = right_edge - dw;
-                let _y0 = params.bounds.y;
-                let _h = params.bounds.height
-                    - if frame_params.bottom_divider_width > 0 && !is_bottommost {
-                        frame_params.bottom_divider_width as f32
-                    } else {
-                        0.0
-                    };
-                let _mid_fg = Color::from_pixel(frame_params.divider_fg);
-            } else if !is_rightmost {
-                // TTY / GUI-without-divider vertical border.
-                //
-                // Mirrors GNU `src/dispnew.c:2568-2697`
-                // (`build_frame_matrix_from_leaf_window`) which,
-                // for every non-rightmost window, overwrites the
-                // LAST glyph of each enabled row with a `|`
-                // character in the `vertical-border` face before
-                // the frame matrix is written to the terminal:
-                //
-                //   if (!WINDOW_RIGHTMOST_P (w))
-                //     SET_GLYPH_FROM_CHAR (right_border_glyph, '|');
-                //   ...
-                //   if (GLYPH_FACE (right_border_glyph) <= 0)
-                //     SET_GLYPH_FACE (right_border_glyph,
-                //                     VERTICAL_BORDER_FACE_ID);
-                //
-                // Without this patch two horizontally-split
-                // windows in `neomacs -nw` rendered with no
-                // visible divider between them; the user could
-                // not tell where one window ended and the next
-                // began. The `vertical-border` face on TTY
-                // inherits from `mode-line-inactive` per
-                // `lisp/faces.el::vertical-border`.
-                let border_face = face_resolver.resolve_named_face("vertical-border");
-                let border_face_id = self.frame_face_id_counter;
-                self.frame_face_id_counter += 1;
-                let realized_face =
-                    crate::status_line::StatusLineFace::from_resolved(
-                        border_face_id,
-                        &border_face,
-                    );
-                self.matrix_builder
-                    .insert_face(border_face_id, realized_face.render_face());
-                self.matrix_builder
-                    .overwrite_last_window_right_border('|', border_face_id);
-            }
-
-            if frame_params.bottom_divider_width > 0 && !is_bottommost {
-                let dw = frame_params.bottom_divider_width as f32;
-                let _x0 = params.bounds.x;
-                let _y0 = bottom_edge - dw;
-                let _w = params.bounds.width;
-                let _mid_fg = Color::from_pixel(frame_params.divider_fg);
-            }
-        }
-
-        self.add_line_animation_hints(&curr_window_infos);
-        self.update_window_switch_hint();
-        self.update_theme_transition_hint(frame_params.width, frame_params.height);
-        self.maybe_add_topology_transition_hint(
-            frame_params.width,
-            frame_params.height,
-            &curr_window_infos,
-        );
+            break (frame_params, curr_window_infos);
+        };
 
         // Build parallel GlyphMatrix output for validation
         let frame_cols = (frame_params.width / frame_params.char_width.max(1.0)) as usize;

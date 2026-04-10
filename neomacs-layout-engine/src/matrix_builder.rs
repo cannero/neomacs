@@ -413,6 +413,10 @@ impl GlyphMatrixBuilder {
         self.font_pixel_size = size;
     }
 
+    pub fn windows(&self) -> &[WindowMatrixEntry] {
+        &self.windows
+    }
+
     pub fn window_infos(&self) -> &[WindowInfo] {
         &self.window_infos
     }
