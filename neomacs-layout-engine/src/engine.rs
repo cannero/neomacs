@@ -1604,11 +1604,15 @@ impl LayoutEngine {
                                     .copied();
                                 let should_shrink = match resize_policy {
                                     Some(v) if v.is_symbol_named("grow-only") => {
-                                        // Shrink only if buffer is empty
-                                        mini_params.buffer_size <= 1
+                                        // GNU xdisp.c:13283: with grow-only,
+                                        // shrink when BEGV == ZV (buffer
+                                        // visible region empty). Approximate
+                                        // with mini_rows_used <= 1: if the
+                                        // content fits in 1 row, shrink.
+                                        mini_rows_used <= 1
                                     }
                                     Some(v) if v.is_nil() => false,
-                                    _ => true, // t = always resize
+                                    _ => true,
                                 };
 
                                 if should_shrink {
@@ -1911,7 +1915,7 @@ impl LayoutEngine {
         // frame). This avoids the boot-time "tall echo area" bug
         // (single-line content stays at 1 row) while allowing
         // fido-vertical-mode's multi-line overlay to render.
-        let max_rows = if params.is_minibuffer && max_rows <= 1 {
+        let max_rows = if params.is_minibuffer {
             let buf_id = neovm_core::buffer::BufferId(params.buffer_id);
             let content_lines = evaluator
                 .buffer_manager()
@@ -1939,7 +1943,7 @@ impl LayoutEngine {
                 .unwrap_or(1);
             let frame_rows = _frame_params.height / char_h;
             let max_mini = (frame_rows * 0.25).ceil().max(1.0) as usize;
-            content_lines.clamp(max_rows, max_mini)
+            content_lines.clamp(1, max_mini)
         } else {
             max_rows
         };
