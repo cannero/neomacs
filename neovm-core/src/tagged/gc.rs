@@ -1425,6 +1425,17 @@ impl TaggedHeap {
                 }
             }
         }
+
+        // Prune marker_ptrs: remove dangling pointers to freed MarkerObj
+        // allocations. Without this, clear_markers_for_buffers() would
+        // write to freed memory, corrupting the heap. Mirrors GNU Emacs
+        // where markers are unlinked from the buffer's marker chain
+        // before being freed (buffer.c unchain_marker).
+        self.marker_ptrs.retain(|ptr| unsafe {
+            let header = &(*(*ptr)).header;
+            header.gc.marked
+        });
+
         live_bytes
     }
 
