@@ -8,6 +8,7 @@
 pub mod bidi;
 pub mod bidi_layout;
 pub mod display_backend;
+pub mod display_iterator;
 pub mod display_pixel_calc;
 pub mod emacs_types;
 pub mod engine;
