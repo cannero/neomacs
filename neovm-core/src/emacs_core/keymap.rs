@@ -1106,11 +1106,27 @@ fn store_in_keymap(keymap: Value, event: Value, def: Value, remove: bool) {
             break;
         }
 
+        // String prompt: GNU's store_in_keymap treats the leading
+        // string (the keymap "prompt", set by `evil-set-keymap-prompt`
+        // and friends, used for menu titles and aux-keymap names) as
+        // part of the header, not the alist. Advance insertion_point
+        // past it so prepended bindings land *after* the prompt, not
+        // before — otherwise the prompt becomes the cadr's cdr and
+        // `(keymap-prompt MAP)` returns nil. This is the bug that
+        // hides every evil-collection auxiliary keymap prompt after
+        // the first define-key on the underlying mode-map.
+        if entry_car.is_string() {
+            insertion_point = cursor;
+            cursor = entry_cdr;
+            continue;
+        }
+
         // NOTE: deliberately do NOT advance `insertion_point` here.
         // GNU keeps it pointing at the keymap head (or the last
-        // vector/char-table) for ordinary alist entries, so that the
-        // prepend at the end of the function inserts the new binding
-        // at the front of the alist.
+        // vector/char-table/prompt) for ordinary alist entries, so
+        // that the prepend at the end of the function inserts the
+        // new binding at the front of the alist (but after any header
+        // elements).
         cursor = entry_cdr;
     }
 

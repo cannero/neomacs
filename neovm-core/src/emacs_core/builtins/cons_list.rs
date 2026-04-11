@@ -377,20 +377,6 @@ pub(crate) fn builtin_setcdr(args: Vec<Value>) -> EvalResult {
     expect_args("setcdr", &args, 2)?;
     match args[0].kind() {
         ValueKind::Cons => {
-            // DEBUG: trace setcdr on cells whose car is the symbol `keymap`
-            // (the head of a keymap object).
-            let car = args[0].cons_car();
-            if car.as_symbol_name() == Some("keymap") {
-                let map_id = args[0].bits();
-                let new_cdr = args[1];
-                // Check if new cdr's first element is a string (prompt) or not
-                let new_first_is_string = new_cdr.is_cons()
-                    && new_cdr.cons_car().as_str().is_some();
-                tracing::warn!(
-                    "SETCDR-KEYMAP: map_id=0x{:x} new_first_is_string={}",
-                    map_id, new_first_is_string,
-                );
-            }
             args[0].set_cdr(args[1]);
             Ok(args[1])
         }

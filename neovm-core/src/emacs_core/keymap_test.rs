@@ -569,6 +569,40 @@ fn list_keymap_copy_preserves_direct_sparse_parent_without_inlining_parent_bindi
 }
 
 #[test]
+fn store_in_keymap_preserves_string_prompt_when_prepending_binding() {
+    // Regression: doom-dashboard / evil-collection lose their
+    // `[normal-state]` aux keymap prompt because the first define-key
+    // on a keymap with a string prompt used to insert the new binding
+    // BEFORE the prompt, hiding it from `keymap-prompt`. After this
+    // fix, prompts survive define-key.
+    crate::test_utils::init_test_tracing();
+    let prompt = Value::string("Auxiliary keymap for Normal state");
+    let map = Value::list(vec![Value::symbol("keymap"), prompt]);
+
+    list_keymap_define(map, Value::fixnum('x' as i64), Value::symbol("foo"));
+
+    // Prompt must still be the cadr of the keymap.
+    let cdr = map.cons_cdr();
+    assert!(cdr.is_cons(), "expected non-empty cdr after define-key");
+    let head = cdr.cons_car();
+    assert!(
+        head.is_string(),
+        "expected first cdr element to remain the prompt string after \
+         define-key, got {head:?}"
+    );
+    assert_eq!(
+        head.as_str(),
+        Some("Auxiliary keymap for Normal state"),
+        "prompt string was clobbered or replaced"
+    );
+
+    // The new binding must still exist and be reachable.
+    let bound =
+        list_keymap_lookup_one(&map, &Value::fixnum('x' as i64));
+    assert_eq!(bound.as_symbol_name(), Some("foo"));
+}
+
+#[test]
 fn list_keymap_event_conversion_roundtrip() {
     crate::test_utils::init_test_tracing();
     let key = KeyEvent::Char {
