@@ -313,31 +313,49 @@ pub(crate) fn builtin_cdr_1(_eval: &mut super::eval::Context, arg: Value) -> Eva
 
 pub(crate) fn builtin_car_safe(args: Vec<Value>) -> EvalResult {
     expect_args("car-safe", &args, 1)?;
-    match args[0].kind() {
-        ValueKind::Cons => Ok(args[0].cons_car()),
-        _ => Ok(Value::NIL),
-    }
+    Ok(car_safe_value(&args[0]))
 }
 
 pub(crate) fn builtin_car_safe_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
-    match arg.kind() {
-        ValueKind::Cons => Ok(arg.cons_car()),
-        _ => Ok(Value::NIL),
-    }
+    Ok(car_safe_value(&arg))
 }
 
 pub(crate) fn builtin_cdr_safe(args: Vec<Value>) -> EvalResult {
     expect_args("cdr-safe", &args, 1)?;
-    match args[0].kind() {
-        ValueKind::Cons => Ok(args[0].cons_cdr()),
-        _ => Ok(Value::NIL),
-    }
+    Ok(cdr_safe_value(&args[0]))
 }
 
 pub(crate) fn builtin_cdr_safe_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
-    match arg.kind() {
-        ValueKind::Cons => Ok(arg.cons_cdr()),
-        _ => Ok(Value::NIL),
+    Ok(cdr_safe_value(&arg))
+}
+
+// Treats neomacs Lambda values as their cons-list equivalents to match
+// GNU semantics where lambdas are actual cons lists.
+fn car_safe_value(val: &Value) -> Value {
+    match val.kind() {
+        ValueKind::Cons => val.cons_car(),
+        ValueKind::Veclike(VecLikeType::Lambda) => {
+            if val.closure_env().flatten().is_some() {
+                Value::symbol("closure")
+            } else {
+                Value::symbol("lambda")
+            }
+        }
+        _ => Value::NIL,
+    }
+}
+
+fn cdr_safe_value(val: &Value) -> Value {
+    match val.kind() {
+        ValueKind::Cons => val.cons_cdr(),
+        ValueKind::Veclike(VecLikeType::Lambda) => {
+            let list = super::lambda_to_cons_list(val).unwrap_or(Value::NIL);
+            match list.kind() {
+                ValueKind::Cons => list.cons_cdr(),
+                _ => Value::NIL,
+            }
+        }
+        _ => Value::NIL,
     }
 }
 
@@ -359,6 +377,20 @@ pub(crate) fn builtin_setcdr(args: Vec<Value>) -> EvalResult {
     expect_args("setcdr", &args, 2)?;
     match args[0].kind() {
         ValueKind::Cons => {
+            // DEBUG: trace setcdr on cells whose car is the symbol `keymap`
+            // (the head of a keymap object).
+            let car = args[0].cons_car();
+            if car.as_symbol_name() == Some("keymap") {
+                let map_id = args[0].bits();
+                let new_cdr = args[1];
+                // Check if new cdr's first element is a string (prompt) or not
+                let new_first_is_string = new_cdr.is_cons()
+                    && new_cdr.cons_car().as_str().is_some();
+                tracing::warn!(
+                    "SETCDR-KEYMAP: map_id=0x{:x} new_first_is_string={}",
+                    map_id, new_first_is_string,
+                );
+            }
             args[0].set_cdr(args[1]);
             Ok(args[1])
         }

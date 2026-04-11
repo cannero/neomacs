@@ -753,126 +753,150 @@ impl<'a> Vm<'a> {
                     let b = stk!().pop().unwrap_or(Value::fixnum(0));
                     let a = stk!().pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "+",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(vm_try!(arith_add(self, &call_args[0], &call_args[1])));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "+", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Sub => {
                     let b = stk!().pop().unwrap_or(Value::fixnum(0));
                     let a = stk!().pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "-",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(vm_try!(arith_sub(self, &call_args[0], &call_args[1])));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "-", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Mul => {
                     let b = stk!().pop().unwrap_or(Value::fixnum(1));
                     let a = stk!().pop().unwrap_or(Value::fixnum(1));
                     let call_args = vec![a, b];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "*",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(vm_try!(arith_mul(self, &call_args[0], &call_args[1])));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "*", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Div => {
                     let b = stk!().pop().unwrap_or(Value::fixnum(1));
                     let a = stk!().pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "/",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(vm_try!(arith_div(self, &call_args[0], &call_args[1])));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "/", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Rem => {
                     let b = stk!().pop().unwrap_or(Value::fixnum(1));
                     let a = stk!().pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "%",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(vm_try!(arith_rem(self, &call_args[0], &call_args[1])));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "%", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Add1 => {
                     let a = stk!().pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "1+",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(vm_try!(arith_add1(self, &call_args[0])));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "1+", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Sub1 => {
                     let a = stk!().pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "1-",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(vm_try!(arith_sub1(self, &call_args[0])));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "1-", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Negate => {
                     let a = stk!().pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "-",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(vm_try!(arith_negate(self, &call_args[0])));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "-", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
 
                 // -- Comparison --
@@ -880,135 +904,134 @@ impl<'a> Vm<'a> {
                     let b = stk!().pop().unwrap_or(Value::fixnum(0));
                     let a = stk!().pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "=",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(Value::bool_val(vm_try!(num_eq(
-                            self,
-                            &call_args[0],
-                            &call_args[1],
-                        ))));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "=", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Gtr => {
                     let b = stk!().pop().unwrap_or(Value::fixnum(0));
                     let a = stk!().pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         ">",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(Value::bool_val(
-                            vm_try!(num_cmp(self, &call_args[0], &call_args[1],)) > 0,
-                        ));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, ">", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Lss => {
                     let b = stk!().pop().unwrap_or(Value::fixnum(0));
                     let a = stk!().pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "<",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(Value::bool_val(
-                            vm_try!(num_cmp(self, &call_args[0], &call_args[1],)) < 0,
-                        ));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "<", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Leq => {
                     let b = stk!().pop().unwrap_or(Value::fixnum(0));
                     let a = stk!().pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "<=",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(Value::bool_val(
-                            vm_try!(num_cmp(self, &call_args[0], &call_args[1],)) <= 0,
-                        ));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "<=", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Geq => {
                     let b = stk!().pop().unwrap_or(Value::fixnum(0));
                     let a = stk!().pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         ">=",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(Value::bool_val(
-                            vm_try!(num_cmp(self, &call_args[0], &call_args[1],)) >= 0,
-                        ));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, ">=", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Max => {
                     let b = stk!().pop().unwrap_or(Value::fixnum(0));
                     let a = stk!().pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "max",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        let max_val = if vm_try!(num_cmp(self, &call_args[0], &call_args[1])) >= 0 {
-                                call_args[0]
-                            } else {
-                                call_args[1]
-                            };
-                        stk_push!(max_val);
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "max", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Min => {
                     let b = stk!().pop().unwrap_or(Value::fixnum(0));
                     let a = stk!().pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![a, b];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "min",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        let min_val = if vm_try!(num_cmp(self, &call_args[0], &call_args[1])) <= 0 {
-                                call_args[0]
-                            } else {
-                                call_args[1]
-                            };
-                        stk_push!(min_val);
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "min", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
 
                 // -- List operations --
@@ -1051,108 +1074,94 @@ impl<'a> Vm<'a> {
                 Op::CarSafe => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "car-safe",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        match call_args[0].kind() {
-                            ValueKind::Cons => {
-                                stk_push!(call_args[0].cons_car());
-                            }
-                            // Closures are cons lists in official Emacs.
-                            ValueKind::Veclike(VecLikeType::Lambda) => {
-                                stk_push!(if call_args[0].closure_env().flatten().is_some() {
-                                    Value::symbol("closure")
-                                } else {
-                                    Value::symbol("lambda")
-                                });
-                            }
-                            _ => stk_push!(Value::NIL),
-                        }
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "car-safe", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::CdrSafe => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "cdr-safe",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        match call_args[0].kind() {
-                            ValueKind::Cons => {
-                                stk_push!(call_args[0].cons_cdr());
-                            }
-                            // Closures are cons lists in official Emacs.
-                            ValueKind::Veclike(VecLikeType::Lambda) => {
-                                use crate::emacs_core::builtins::lambda_to_cons_list;
-                                let list = lambda_to_cons_list(&call_args[0]).unwrap_or(Value::NIL);
-                                match list.kind() {
-                                    ValueKind::Cons => {
-                                        stk_push!(list.cons_cdr());
-                                    }
-                                    _ => stk_push!(Value::NIL),
-                                }
-                            }
-                            _ => stk_push!(Value::NIL),
-                        }
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "cdr-safe", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Cons => {
                     let cdr_val = stk!().pop().unwrap_or(Value::NIL);
                     let car_val = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![car_val, cdr_val];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "cons",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(Value::cons(call_args[0], call_args[1]));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "cons", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::List(n) => {
                     let n = *n as usize;
                     let start = stk!().len().saturating_sub(n);
                     let items: Vec<Value> = stk!().drain(start..).collect();
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "list",
                         items.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(Value::list(items));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "list", items,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Length => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "length",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(vm_try!(length_value(&call_args[0])));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "length", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Nth => {
                     let list = stk!().pop().unwrap_or(Value::NIL);
@@ -1214,28 +1223,40 @@ impl<'a> Vm<'a> {
                 Op::Setcar => {
                     let newcar = stk!().pop().unwrap_or(Value::NIL);
                     let cell = stk!().pop().unwrap_or(Value::NIL);
-                    if cell.is_cons() {
-                        cell.set_car(newcar);
-                        stk_push!(newcar);
+                    let call_args = vec![cell, newcar];
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                        func,
+                        handlers,
+                        specpdl,
+                        "setcar",
+                        call_args.clone(),
+                    )) {
+                        result
                     } else {
-                        vm_try!(Err(signal(
-                            "wrong-type-argument",
-                            vec![Value::symbol("consp"), cell],
-                        )));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "setcar", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Setcdr => {
                     let newcdr = stk!().pop().unwrap_or(Value::NIL);
                     let cell = stk!().pop().unwrap_or(Value::NIL);
-                    if cell.is_cons() {
-                        cell.set_cdr(newcdr);
-                        stk_push!(newcdr);
+                    let call_args = vec![cell, newcdr];
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                        func,
+                        handlers,
+                        specpdl,
+                        "setcdr",
+                        call_args.clone(),
+                    )) {
+                        result
                     } else {
-                        vm_try!(Err(signal(
-                            "wrong-type-argument",
-                            vec![Value::symbol("consp"), cell],
-                        )));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "setcdr", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Nconc => {
                     let b = stk!().pop().unwrap_or(Value::NIL);
@@ -1336,92 +1357,110 @@ impl<'a> Vm<'a> {
                 Op::Symbolp => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "symbolp",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(Value::bool_val(call_args[0].is_symbol()));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "symbolp", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Consp => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "consp",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(Value::bool_val(call_args[0].is_cons()));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "consp", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Stringp => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "stringp",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(Value::bool_val(call_args[0].is_string()));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "stringp", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Listp => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "listp",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(Value::bool_val(call_args[0].is_list()));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "listp", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Integerp => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "integerp",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(Value::bool_val(call_args[0].is_integer()));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "integerp", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Numberp => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "numberp",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(Value::bool_val(call_args[0].is_number()));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "numberp", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Null | Op::Not => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
@@ -1431,53 +1470,58 @@ impl<'a> Vm<'a> {
                         "not"
                     };
                     let call_args = vec![val];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         opname,
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(Value::bool_val(call_args[0].is_nil()));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, opname, call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Eq => {
                     let b = stk!().pop().unwrap_or(Value::NIL);
                     let a = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![a, b];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "eq",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(Value::bool_val(eq_value(&call_args[0], &call_args[1])));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "eq", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
                 Op::Equal => {
                     let b = stk!().pop().unwrap_or(Value::NIL);
                     let a = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![a, b];
-                    if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         handlers,
                         specpdl,
                         "equal",
                         call_args.clone(),
                     )) {
-                        stk_push!(result);
+                        result
                     } else {
-                        stk_push!(Value::bool_val(equal_value(
-                            &call_args[0],
-                            &call_args[1],
-                            0,
-                        )));
-                    }
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "equal", call_args,
+                        ))
+                    };
+                    stk_push!(result);
                 }
 
                 // -- String operations --
@@ -1514,7 +1558,9 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(substring_value(&call_args[0], &call_args[1], &call_args[2]))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, handlers, specpdl, "substring", call_args,
+                        ))
                     };
                     stk_push!(result);
                 }
@@ -4740,448 +4786,6 @@ fn normalize_vm_builtin_error(name: &str, flow: Flow) -> Flow {
             Flow::Signal(sig)
         }
         other => other,
-    }
-}
-
-/// Convert an integer-valued operand to `rug::Integer` for the bignum
-/// slow path. Accepts fixnum, bignum, and marker.
-fn rug_from_value_vm(vm: &Vm<'_>, value: &Value) -> Result<rug::Integer, Flow> {
-    match value.kind() {
-        ValueKind::Fixnum(n) => Ok(rug::Integer::from(n)),
-        ValueKind::Veclike(VecLikeType::Bignum) => Ok(value.as_bignum().unwrap().clone()),
-        _ if value.is_marker() => Ok(rug::Integer::from(
-            crate::emacs_core::marker::marker_position_as_int_with_buffers(&vm.ctx.buffers, value)?,
-        )),
-        _ => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("number-or-marker-p"), *value],
-        )),
-    }
-}
-
-/// 2-arg `+` for the bytecode VM. Mirrors GNU `arith_driver` (Aadd):
-/// fixnum fast path with `ckd_add`-equivalent overflow check, GMP
-/// promotion on overflow or bignum operand, float fast path otherwise.
-///
-/// Note: i64 has 64 bits but fixnums get only 62 (the low 2 are tag),
-/// so a non-overflowing i64 result still has to clear the fixnum-range
-/// hurdle — we route everything through `Value::make_integer`.
-fn arith_add(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
-    match (a.kind(), b.kind()) {
-        (ValueKind::Fixnum(x), ValueKind::Fixnum(y)) => match x.checked_add(y) {
-            Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
-            None => Ok(Value::make_integer(rug::Integer::from(x) + y)),
-        },
-        (ValueKind::Float, _) | (_, ValueKind::Float) => {
-            let a = number_or_marker_as_f64(vm, a)?;
-            let b = number_or_marker_as_f64(vm, b)?;
-            Ok(Value::make_float(a + b))
-        }
-        _ => {
-            let av = rug_from_value_vm(vm, a)?;
-            let bv = rug_from_value_vm(vm, b)?;
-            Ok(Value::make_integer(av + bv))
-        }
-    }
-}
-
-fn arith_sub(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
-    match (a.kind(), b.kind()) {
-        (ValueKind::Fixnum(x), ValueKind::Fixnum(y)) => match x.checked_sub(y) {
-            Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
-            None => Ok(Value::make_integer(rug::Integer::from(x) - y)),
-        },
-        (ValueKind::Float, _) | (_, ValueKind::Float) => {
-            let a = number_or_marker_as_f64(vm, a)?;
-            let b = number_or_marker_as_f64(vm, b)?;
-            Ok(Value::make_float(a - b))
-        }
-        _ => {
-            let av = rug_from_value_vm(vm, a)?;
-            let bv = rug_from_value_vm(vm, b)?;
-            Ok(Value::make_integer(av - bv))
-        }
-    }
-}
-
-fn arith_mul(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
-    match (a.kind(), b.kind()) {
-        (ValueKind::Fixnum(x), ValueKind::Fixnum(y)) => match x.checked_mul(y) {
-            Some(p) => Ok(Value::make_integer(rug::Integer::from(p))),
-            None => Ok(Value::make_integer(rug::Integer::from(x) * y)),
-        },
-        (ValueKind::Float, _) | (_, ValueKind::Float) => {
-            let a = number_or_marker_as_f64(vm, a)?;
-            let b = number_or_marker_as_f64(vm, b)?;
-            Ok(Value::make_float(a * b))
-        }
-        _ => {
-            let av = rug_from_value_vm(vm, a)?;
-            let bv = rug_from_value_vm(vm, b)?;
-            Ok(Value::make_integer(av * bv))
-        }
-    }
-}
-
-/// 2-arg `/` for the VM. Mirrors GNU `Fquo` truncation semantics with
-/// bignum promotion on `i64::MIN / -1`.
-fn arith_div(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
-    match (a.kind(), b.kind()) {
-        (ValueKind::Float, _) | (_, ValueKind::Float) => {
-            let a = number_or_marker_as_f64(vm, a)?;
-            let b = number_or_marker_as_f64(vm, b)?;
-            if b == 0.0 {
-                return Err(signal(
-                    "arith-error",
-                    vec![Value::string("Division by zero")],
-                ));
-            }
-            Ok(Value::make_float(a / b))
-        }
-        (ValueKind::Fixnum(_), ValueKind::Fixnum(0)) => Err(signal(
-            "arith-error",
-            vec![Value::string("Division by zero")],
-        )),
-        (ValueKind::Fixnum(x), ValueKind::Fixnum(y)) => match x.checked_div(y) {
-            Some(q) => Ok(Value::make_integer(rug::Integer::from(q))),
-            None => Ok(Value::make_integer(rug::Integer::from(x) / y)),
-        },
-        _ => {
-            let av = rug_from_value_vm(vm, a)?;
-            let bv = rug_from_value_vm(vm, b)?;
-            if bv.is_zero() {
-                return Err(signal(
-                    "arith-error",
-                    vec![Value::string("Division by zero")],
-                ));
-            }
-            Ok(Value::make_integer(av / bv))
-        }
-    }
-}
-
-/// 2-arg `%` for the VM. Mirrors GNU `Frem` remainder semantics
-/// (`mpz_tdiv_r`-style: result has the dividend's sign).
-fn arith_rem(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
-    match (a.kind(), b.kind()) {
-        (ValueKind::Fixnum(_), ValueKind::Fixnum(0)) => Err(signal(
-            "arith-error",
-            vec![Value::string("Division by zero")],
-        )),
-        (ValueKind::Fixnum(x), ValueKind::Fixnum(y)) => {
-            // i64::MIN % -1 is 0 mathematically; checked_rem returns None.
-            let r = x.checked_rem(y).unwrap_or(0);
-            Ok(Value::make_integer(rug::Integer::from(r)))
-        }
-        _ if (a.is_fixnum() || a.is_bignum() || a.is_marker())
-            && (b.is_fixnum() || b.is_bignum() || b.is_marker()) =>
-        {
-            let av = rug_from_value_vm(vm, a)?;
-            let bv = rug_from_value_vm(vm, b)?;
-            if bv.is_zero() {
-                return Err(signal(
-                    "arith-error",
-                    vec![Value::string("Division by zero")],
-                ));
-            }
-            Ok(Value::make_integer(rug::Integer::from(av % bv)))
-        }
-        _ => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("integerp"), *a],
-        )),
-    }
-}
-
-fn arith_add1(vm: &Vm<'_>, a: &Value) -> EvalResult {
-    match a.kind() {
-        ValueKind::Fixnum(n) => match n.checked_add(1) {
-            Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
-            None => Ok(Value::make_integer(rug::Integer::from(n) + 1)),
-        },
-        ValueKind::Float => Ok(Value::make_float(a.xfloat() + 1.0)),
-        ValueKind::Veclike(VecLikeType::Bignum) => {
-            Ok(Value::make_integer(a.as_bignum().unwrap().clone() + 1))
-        }
-        _ if a.is_marker() => {
-            let n = crate::emacs_core::marker::marker_position_as_int_with_buffers(
-                &vm.ctx.buffers,
-                a,
-            )?;
-            match n.checked_add(1) {
-                Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
-                None => Ok(Value::make_integer(rug::Integer::from(n) + 1)),
-            }
-        }
-        _ => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("number-or-marker-p"), *a],
-        )),
-    }
-}
-
-fn arith_sub1(vm: &Vm<'_>, a: &Value) -> EvalResult {
-    match a.kind() {
-        ValueKind::Fixnum(n) => match n.checked_sub(1) {
-            Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
-            None => Ok(Value::make_integer(rug::Integer::from(n) - 1)),
-        },
-        ValueKind::Float => Ok(Value::make_float(a.xfloat() - 1.0)),
-        ValueKind::Veclike(VecLikeType::Bignum) => {
-            Ok(Value::make_integer(a.as_bignum().unwrap().clone() - 1))
-        }
-        _ if a.is_marker() => {
-            let n = crate::emacs_core::marker::marker_position_as_int_with_buffers(
-                &vm.ctx.buffers,
-                a,
-            )?;
-            match n.checked_sub(1) {
-                Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
-                None => Ok(Value::make_integer(rug::Integer::from(n) - 1)),
-            }
-        }
-        _ => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("number-or-marker-p"), *a],
-        )),
-    }
-}
-
-fn arith_negate(vm: &Vm<'_>, a: &Value) -> EvalResult {
-    match a.kind() {
-        ValueKind::Fixnum(n) => match n.checked_neg() {
-            Some(neg) => Ok(Value::make_integer(rug::Integer::from(neg))),
-            None => Ok(Value::make_integer(-rug::Integer::from(n))),
-        },
-        ValueKind::Float => Ok(Value::make_float(-a.xfloat())),
-        ValueKind::Veclike(VecLikeType::Bignum) => {
-            Ok(Value::make_integer(-a.as_bignum().unwrap().clone()))
-        }
-        _ if a.is_marker() => {
-            let n = crate::emacs_core::marker::marker_position_as_int_with_buffers(
-                &vm.ctx.buffers,
-                a,
-            )?;
-            match n.checked_neg() {
-                Some(neg) => Ok(Value::make_integer(rug::Integer::from(neg))),
-                None => Ok(Value::make_integer(-rug::Integer::from(n))),
-            }
-        }
-        _ => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("number-or-marker-p"), *a],
-        )),
-    }
-}
-
-/// Numeric equality and ordering for the VM. Mirrors GNU
-/// `arithcompare` (`src/data.c:2682`): exact for any pair of integers
-/// (fixnum and bignum) and exact for bignum-vs-float (rug::Integer
-/// implements `PartialOrd<f64>` correctly across the full range).
-fn num_eq(vm: &Vm<'_>, a: &Value, b: &Value) -> Result<bool, Flow> {
-    Ok(num_compare(vm, a, b)? == std::cmp::Ordering::Equal)
-}
-
-fn num_cmp(vm: &Vm<'_>, a: &Value, b: &Value) -> Result<i32, Flow> {
-    Ok(match num_compare(vm, a, b)? {
-        std::cmp::Ordering::Less => -1,
-        std::cmp::Ordering::Equal => 0,
-        std::cmp::Ordering::Greater => 1,
-    })
-}
-
-fn num_compare(
-    vm: &Vm<'_>,
-    a: &Value,
-    b: &Value,
-) -> Result<std::cmp::Ordering, Flow> {
-    use std::cmp::Ordering;
-    // Float-on-either-side: stay exact when the other side is a bignum.
-    if a.is_float() || b.is_float() {
-        if let Some(big) = a.as_bignum() {
-            let f = number_or_marker_as_f64(vm, b)?;
-            if f.is_nan() {
-                return Ok(Ordering::Equal);
-            }
-            return Ok(big.partial_cmp(&f).unwrap_or(Ordering::Equal));
-        }
-        if let Some(big) = b.as_bignum() {
-            let f = number_or_marker_as_f64(vm, a)?;
-            if f.is_nan() {
-                return Ok(Ordering::Equal);
-            }
-            return Ok(big
-                .partial_cmp(&f)
-                .map(|o| o.reverse())
-                .unwrap_or(Ordering::Equal));
-        }
-        let af = number_or_marker_as_f64(vm, a)?;
-        let bf = number_or_marker_as_f64(vm, b)?;
-        return Ok(af.partial_cmp(&bf).unwrap_or(Ordering::Equal));
-    }
-    // Both integer-or-marker. Stay on i64 if neither is a bignum.
-    if !a.is_bignum() && !b.is_bignum() {
-        if let (ValueKind::Fixnum(x), ValueKind::Fixnum(y)) = (a.kind(), b.kind()) {
-            return Ok(x.cmp(&y));
-        }
-        // At least one is a marker; coerce both to i64.
-        let xi = match a.kind() {
-            ValueKind::Fixnum(n) => n,
-            _ if a.is_marker() => {
-                crate::emacs_core::marker::marker_position_as_int_with_buffers(
-                    &vm.ctx.buffers,
-                    a,
-                )?
-            }
-            _ => {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("number-or-marker-p"), *a],
-                ));
-            }
-        };
-        let yi = match b.kind() {
-            ValueKind::Fixnum(n) => n,
-            _ if b.is_marker() => {
-                crate::emacs_core::marker::marker_position_as_int_with_buffers(
-                    &vm.ctx.buffers,
-                    b,
-                )?
-            }
-            _ => {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("number-or-marker-p"), *b],
-                ));
-            }
-        };
-        return Ok(xi.cmp(&yi));
-    }
-    // Bignum-aware integer compare.
-    let ai = rug_from_value_vm(vm, a)?;
-    let bi = rug_from_value_vm(vm, b)?;
-    Ok(ai.cmp(&bi))
-}
-
-fn number_or_marker_as_f64(vm: &Vm<'_>, value: &Value) -> Result<f64, Flow> {
-    match value.kind() {
-        ValueKind::Fixnum(n) => Ok(n as f64),
-        ValueKind::Float => Ok(value.xfloat()),
-        _ if value.is_marker() => Ok(
-            crate::emacs_core::marker::marker_position_as_int_with_buffers(&vm.ctx.buffers, value)?
-                as f64,
-        ),
-        _other => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("number-or-marker-p"), *value],
-        )),
-    }
-}
-
-fn length_value(val: &Value) -> EvalResult {
-    match val.kind() {
-        ValueKind::Nil => Ok(Value::fixnum(0)),
-        ValueKind::String => {
-            let s = val.as_lisp_string().expect("string");
-            Ok(Value::fixnum(s.schars() as i64))
-        }
-        ValueKind::Veclike(VecLikeType::Vector) => {
-            Ok(Value::fixnum(val.as_vector_data().unwrap().len() as i64))
-        }
-        ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
-            Ok(Value::fixnum(builtins::closure_vector_length(val).unwrap()))
-        }
-        ValueKind::Cons => {
-            let mut len: i64 = 0;
-            let mut cursor = *val;
-            loop {
-                match cursor.kind() {
-                    ValueKind::Cons => {
-                        len += 1;
-                        cursor = cursor.cons_cdr();
-                    }
-                    ValueKind::Nil => return Ok(Value::fixnum(len)),
-                    _tail => {
-                        return Err(signal(
-                            "wrong-type-argument",
-                            vec![Value::symbol("listp"), cursor],
-                        ));
-                    }
-                }
-            }
-        }
-        _ => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("sequencep"), *val],
-        )),
-    }
-}
-
-fn substring_value(array: &Value, from: &Value, to: &Value) -> EvalResult {
-    let len = match array.kind() {
-        ValueKind::String => {
-            let s = array.as_lisp_string().expect("string");
-            s.schars() as i64
-        }
-        ValueKind::Veclike(VecLikeType::Vector) => array.as_vector_data().unwrap().len() as i64,
-        _ => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("arrayp"), *array],
-            ));
-        }
-    };
-
-    let normalize_index = |value: &Value, default: i64| -> Result<i64, Flow> {
-        let raw = if value.is_nil() {
-            default
-        } else {
-            match value.kind() {
-                ValueKind::Fixnum(i) => i,
-                _ => {
-                    return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("integerp"), *value],
-                    ));
-                }
-            }
-        };
-        let idx = if raw < 0 { len + raw } else { raw };
-        if idx < 0 || idx > len {
-            return Err(signal("args-out-of-range", vec![*array, *from, *to]));
-        }
-        Ok(idx)
-    };
-
-    let start = normalize_index(from, 0)? as usize;
-    let end = normalize_index(to, len)? as usize;
-    if start > end {
-        return Err(signal("args-out-of-range", vec![*array, *from, *to]));
-    }
-
-    match array.kind() {
-        ValueKind::String => {
-            let string = array.as_lisp_string().expect("string");
-            let bytes = string.as_bytes();
-            let (byte_from, byte_to) = if string.is_multibyte() {
-                let bf = crate::emacs_core::emacs_char::char_to_byte_pos(bytes, start);
-                let bt = crate::emacs_core::emacs_char::char_to_byte_pos(bytes, end);
-                (bf, bt)
-            } else {
-                (start, end)
-            };
-            let result = string.slice(byte_from, byte_to)
-                .ok_or_else(|| signal("args-out-of-range", vec![*array, *from, *to]))?;
-            Ok(Value::heap_string(result))
-        }
-        ValueKind::Veclike(VecLikeType::Vector) => {
-            let data = array.as_vector_data().unwrap().clone();
-            if end > data.len() {
-                return Err(signal("args-out-of-range", vec![*array, *from, *to]));
-            }
-            Ok(Value::vector(data[start..end].to_vec()))
-        }
-        _ => unreachable!(),
     }
 }
 

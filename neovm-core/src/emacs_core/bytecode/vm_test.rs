@@ -1618,7 +1618,10 @@ fn vm_length_accepts_plain_bytecode_closure_shape() {
         crate::emacs_core::value::LambdaParams::simple(vec![intern("x")]),
     ));
 
-    assert_eq!(length_value(&bc).unwrap(), Value::fixnum(4));
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_length(vec![bc]).unwrap(),
+        Value::fixnum(4)
+    );
 }
 
 #[test]
@@ -1662,7 +1665,7 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
         interactive: None,
     };
 
-    let mut eval = Context::new_minimal_vm_harness();
+    let mut eval = Context::new_vm_runtime_harness();
     let mut vm = new_vm(&mut eval);
 
     let result = vm.execute(&func, vec![]).expect("vm catch should execute");
@@ -8471,7 +8474,7 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
         interactive: None,
     };
 
-    let mut eval = Context::new_minimal_vm_harness();
+    let mut eval = Context::new_vm_runtime_harness();
     let mut vm = new_vm(&mut eval);
 
     let result = vm
