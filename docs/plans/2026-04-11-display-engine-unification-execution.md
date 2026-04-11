@@ -1,7 +1,7 @@
 # Display Engine Unification: Execution Plan
 
 **Date:** 2026-04-11
-**Status:** Step 3 (TUI unification) **complete**. Steps 1, 2, 3.1, 3.2, 3.3′, 3.4 (foundation + wire-up + tab-bar), 3.5, 3.6, plus the bridge-elimination cleanup and the `status_line.rs` → `display_status_line.rs` file rename have all landed on `main`. The divergent status-line emission path is gone; every production status-line call site routes through `TtyDisplayBackend`, and `TtyDisplayBackend` is now the sole producer of status-line glyphs (no more per-glyph bridge). Steps 4.1, 4.2 (GUI backend, `use_cosmic_metrics` deletion) remain as a future session.
+**Status:** Steps 1, 2, 3.1, 3.2, 3.3′, 3.4, 3.5, 3.6, bridge-elim, rename, **4.2**, and tab-bar-install / matrix-enabled cleanup all landed on `main`. The divergent status-line emission path is gone; `TtyDisplayBackend` is the sole producer of status-line glyphs; the `use_cosmic_metrics` runtime flag is deleted in favor of constructor-time dispatch. Step 4.1 (active `GuiDisplayBackend` trait-object dispatch for the GUI render path — requires restructuring the wgpu/cosmic-text render thread) remains deferred as a separate project.
 **Companion doc:** `docs/plans/2026-04-11-display-engine-unification.md` — the proposal (the "why"). This doc is the "what/how".
 
 ## Progress log
@@ -21,8 +21,35 @@
 | 2026-04-11 | **3.6** | `bf515ad25` | Deletes 453 lines from `status_line.rs`: the legacy `render_rust_status_line_plain`, `render_rust_status_line_value`, `render_status_line_spec` (original), and `render_text_run` methods, plus their four tests. After Steps 3.4 and 3.5, none of these had remaining callers. **What is truly gone:** the divergent "builder-direct emission" path that was the root of the display-engine unification problem. |
 | 2026-04-11 | **bridge elim.** | `c433be5a9` | Replaces `push_status_line_char` and `push_status_line_stretch` with a single wholesale `install_status_line_row_glyphs(Vec<Glyph>)` API. The two `_via_backend` walkers now install the backend's produced text-area glyphs in one call instead of iterating and pushing per-glyph. This formalizes `TtyDisplayBackend` as the sole producer of status-line glyphs in the TTY path; the per-glyph bridge is gone. |
 | 2026-04-11 | **rename** | `6c08ad8b5` | `git mv status_line.rs → display_status_line.rs`. Updates `mod` declaration in `lib.rs` and the `use super::status_line::*;` path in `engine.rs`. Rewrites the file's module doc comment to reflect its current role (display-walker status-line rendering routing through `TtyDisplayBackend`). Pure rename — no behavior change. |
+| 2026-04-11 | **4.2** | `af4ca78a5` | **Delete `use_cosmic_metrics` flag.** Replaces the runtime boolean with constructor-time dispatch: `LayoutEngine::new()` now eagerly creates `FontMetricsService`; TTY binaries call a new `disable_cosmic_metrics()` method to drop it. `main.rs` TTY branch switched from flipping the flag to calling the new method. Deletes the field, the init default, the two lazy-init blocks (`layout_frame_rust` and `status_line_font_metrics`), and the main.rs flip site. |
+| 2026-04-11 | **tab-bar install** | `3d52c7030` | Replaces the "drop rows on floor" no-op in `render_frame_tab_bar_rust` with a deferred-install path: glyphs are stashed in a new `pending_tab_bar_glyphs` field and installed into the first window's matrix via `install_status_line_row_glyphs` after its `end_window` call. The failing test `layout_frame_rust_renders_tab_bar_text_from_lisp_tab_bar_keymap` is NOT fixed by this (it panics at `selected_frame()` in test setup before any of this code runs — a separate bootstrap issue). |
+| 2026-04-11 | **matrix enabled** | `f2a1f275a` | `GlyphMatrix::new` now defaults rows to `enabled=false`, matching GNU's `MATRIX_ROW_ENABLED_P` discipline. Fixes two pre-existing failures: `overwrite_last_window_right_border_skips_disabled_rows` (matrix_builder) and `layout_frame_rust_reads_far_enough_for_last_visible_truncated_line` (layout-engine). Seven glyph_matrix_test.rs tests updated to explicitly enable rows they populate; one renamed from `are_enabled_by_default` to `are_disabled_by_default` with inverted assertion. |
 
-**Session total (Apr 11, 2026):** 14 commits (7 prior + 7 this session), ~2850 lines added / ~580 removed, 49 new tests (all passing), 0 new regressions. Baseline remains 9 pre-existing layout-engine test failures.
+**Session total (Apr 11, 2026):** 18 commits (7 prior + 11 this session), ~3000 lines added / ~610 removed, 49 new tests (all passing), 2 pre-existing tests now passing. Baseline is **7 pre-existing layout-engine test failures** (down from 9).
+
+## Pre-existing failures remaining
+
+After this session, 7 layout-engine tests still fail:
+
+1. `layout_frame_rust_converges_visibility_for_wrapped_rows_in_one_redisplay` — redisplay convergence for wrapped rows, point 433 not in snapshot.
+2. `layout_frame_rust_formats_mode_line_from_current_redisplay_geometry` — window-start not advancing when point is at EOB.
+3. `layout_frame_rust_keeps_face_positions_after_truncated_multibyte_line` — truncate-lines + multibyte interaction drops the 4th sample char from the snapshot.
+4. `layout_frame_rust_renders_tab_bar_text_from_lisp_tab_bar_keymap` — panics at `selected_frame()` during test setup, before any rendering code runs. Bootstrap issue, not a tab-bar bug.
+5. `layout_frame_rust_retries_window_when_point_starts_below_visible_span` — retry logic doesn't republish geometry for point 161.
+6. `neovm_bridge::tests::test_window_params_from_neovm_uses_window_point_not_buffer_point` — **design conflict**: the test expects `params.point` to use `Window::point`, but the implementation deliberately uses `buffer.pt_char` for the selected window to handle the self-insert-command stale-pointm case (comment in `neovm_bridge.rs:540` explains the rationale). Fixing requires choosing a side and updating the other.
+7. `neovm_bridge::tests::window_params_from_neovm_uses_default_header_line_and_tab_line_values` — BUFFER_OBJFWD slot propagation bug: `set_symbol_value("header-line-format", ...)` on the obarray doesn't propagate to the buffer slot, so `effective_buffer_value` reads nil from the slot and returns 0 for `header_line_height`.
+
+Each of these needs a focused session with deep knowledge of the affected subsystem. Not worth chasing during display-engine unification cleanup.
+
+## Pre-existing "200×60 pty panic" status
+
+The plan originally described a "200×60 pty panic in `tracing-core::field.rs:945` ~5s after start". This **no longer reproduces as described**. Direct testing shows:
+
+- 200×60 and 80×25 both exhibit the same flakiness: ~40% of `drive_neomacs.py` runs produce only 18 bytes (the initial `[?1049h[?25l[2J` terminal init sequences) before the child exits with empty stderr.
+- `wrap2.err` (stderr redirect) is empty on every early-exit run — no panic message is captured.
+- Size is not the factor: 80×25 is equally flaky.
+
+Either my Step 3 / Step 4.2 commits incidentally fixed the tracing-core path, or the original description was a misdiagnosis and the current behavior is a silent early-exit startup race. Deep investigation needed but out of scope.
 
 ## What's left
 
