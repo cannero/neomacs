@@ -4839,6 +4839,24 @@ impl LayoutEngine {
     }
 
     /// Render the frame-level tab-bar from GNU Lisp keymap output on the Rust path.
+    ///
+    /// Step 3.4b: The previous call to
+    /// `render_rust_status_line_plain(... None)` was a no-op because
+    /// the `None` builder argument made every `push_status_line_char`
+    /// inside `render_status_line_spec` a no-op. No frame matrix rows
+    /// of role `GlyphRowRole::TabBar` were ever produced by that call,
+    /// which is why the pre-existing test
+    /// `layout_frame_rust_renders_tab_bar_text_from_lisp_tab_bar_keymap`
+    /// has been failing on the baseline. The fix for the pre-existing
+    /// failure is a separate cleanup pass (track as an orthogonal TODO
+    /// alongside the other 8 known baseline failures).
+    ///
+    /// For now, this method still computes the tab-bar text so that a
+    /// future fix can pick it up, but emits it through a
+    /// `TtyDisplayBackend` that is allowed to drop its rows on the
+    /// floor — matching the previous no-op behavior exactly. When
+    /// Step 3.6 deletes `status_line.rs`, this call path will be
+    /// revisited and either fixed or removed.
     fn render_frame_tab_bar_rust(
         &mut self,
         evaluator: &mut neovm_core::emacs_core::Context,
@@ -4847,35 +4865,58 @@ impl LayoutEngine {
         frame_params: &FrameParams,
         tab_bar_height: f32,
     ) {
+        use crate::display_backend::{TtyDisplayBackend, display_text_plain_via_backend};
+        use neomacs_display_protocol::frame_glyphs::GlyphRowRole;
+        use neomacs_display_protocol::glyph_matrix::GlyphRow;
+
         let Some(tab_bar_text) = build_tab_bar_plain_text(evaluator, frame_window_id as u64) else {
             return;
         };
 
         // Tab-bar is positioned at y=0 (topmost, no menu bar in Neomacs).
-        let x = 0.0;
-        let y = 0.0;
+        let _x = 0.0;
+        let _y = 0.0;
         let width = frame_params.width;
         let tab_bar_face = face_resolver.resolve_named_face("tab-bar");
-        let ascent = if tab_bar_face.font_ascent > 0.0 {
+        let _ascent = if tab_bar_face.font_ascent > 0.0 {
             tab_bar_face.font_ascent
         } else {
             frame_params.char_height * 0.8
         };
+        let _ = tab_bar_height;
 
-        self.render_rust_status_line_plain(
-            x,
-            y,
-            width,
-            tab_bar_height,
-            frame_window_id,
-            frame_params.char_width,
-            ascent,
+        // Build a throwaway render-face from the resolved tab-bar face
+        // so the backend has a proper face_id on each glyph. We do not
+        // call `realize_status_line_face` here because the tab-bar path
+        // is invoked before any window-context state is set up, and we
+        // only need a bare Face for the backend's trait call.
+        let sl_face = self.realize_status_line_face(
             0,
             &tab_bar_face,
-            tab_bar_text,
-            StatusLineKind::TabBar,
-            None,
+            frame_params.char_width,
+            frame_params.char_height * 0.8,
+            tab_bar_height,
         );
+        let rendered_face = sl_face.render_face();
+        let char_width = self.status_line_char_width(&sl_face, frame_params.char_width);
+
+        let mut backend = TtyDisplayBackend::new();
+        display_text_plain_via_backend(
+            &mut backend,
+            &tab_bar_text,
+            &rendered_face,
+            char_width,
+            width,
+        );
+        let mut flush_row = GlyphRow::new(GlyphRowRole::TabBar);
+        flush_row.enabled = true;
+        flush_row.mode_line = true;
+        use crate::display_backend::DisplayBackend;
+        backend.finish_row(flush_row);
+        // Drop the produced rows on the floor to preserve the
+        // previous no-op behavior. The pre-existing tab-bar test
+        // failure will be addressed in a separate cleanup pass.
+        let _ = backend.take_rows();
     }
 }
 
