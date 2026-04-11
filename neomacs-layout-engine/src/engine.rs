@@ -1076,6 +1076,15 @@ pub struct LayoutEngine {
     /// overwrote the first entry, causing both mode lines to
     /// render with the inactive face after `C-x 2`.
     pub(crate) frame_face_id_counter: u32,
+    /// Stash for frame-level tab-bar glyphs produced by
+    /// `render_frame_tab_bar_rust`. The tab-bar is rendered before
+    /// any per-window `begin_window`, but the test
+    /// `layout_frame_rust_renders_tab_bar_text_from_lisp_tab_bar_keymap`
+    /// expects a `GlyphRowRole::TabBar` row inside
+    /// `window_matrices[*]`. We deposit the glyphs here and install
+    /// them into the first window's matrix after that window's
+    /// `end_window` call.
+    pending_tab_bar_glyphs: Option<Vec<neomacs_display_protocol::glyph_matrix::Glyph>>,
 }
 
 impl LayoutEngine {
@@ -1103,6 +1112,7 @@ impl LayoutEngine {
             matrix_builder: crate::matrix_builder::GlyphMatrixBuilder::new(),
             last_frame_display_state: None,
             frame_face_id_counter: 1,
+            pending_tab_bar_glyphs: None,
         }
     }
 
@@ -4510,6 +4520,24 @@ impl LayoutEngine {
         self.matrix_builder.end_row();
         self.matrix_builder.end_window();
 
+        // Install the frame-level tab-bar row into the first window's
+        // matrix. `render_frame_tab_bar_rust` stashed the produced
+        // glyphs in `pending_tab_bar_glyphs` before the window loop
+        // started (no window context existed then). We now have a
+        // closed window in `matrix_builder.windows.last()`, so we can
+        // append a TabBar status-line row and install the stashed
+        // glyphs wholesale. `take()` ensures subsequent windows don't
+        // re-install the same row.
+        if let Some(glyphs) = self.pending_tab_bar_glyphs.take() {
+            use neomacs_display_protocol::frame_glyphs::GlyphRowRole;
+            if self
+                .matrix_builder
+                .begin_status_line_row(GlyphRowRole::TabBar)
+            {
+                self.matrix_builder.install_status_line_row_glyphs(glyphs);
+            }
+        }
+
         // Mode-line: evaluate format-mode-line or fall back to buffer name
         if params.mode_line_height > 0.0 {
             let ml_y = params.bounds.y + params.bounds.height - mode_line_height;
@@ -4874,6 +4902,17 @@ impl LayoutEngine {
     /// floor — matching the previous no-op behavior exactly. When
     /// Step 3.6 deletes `status_line.rs`, this call path will be
     /// revisited and either fixed or removed.
+    /// Build the frame-level tab-bar glyph row via `TtyDisplayBackend`
+    /// and stash the produced glyphs in `pending_tab_bar_glyphs` so
+    /// they can be installed into the first window's matrix after
+    /// that window's `end_window` call.
+    ///
+    /// Called from `layout_frame_rust` BEFORE the window loop
+    /// begins, so there is no window context for
+    /// `begin_status_line_row` to target. The installation is
+    /// deferred to the first `end_window` inside the loop; the test
+    /// `layout_frame_rust_renders_tab_bar_text_from_lisp_tab_bar_keymap`
+    /// then finds the TabBar row in `window_matrices[0].matrix.rows`.
     fn render_frame_tab_bar_rust(
         &mut self,
         evaluator: &mut neovm_core::emacs_core::Context,
@@ -4883,30 +4922,15 @@ impl LayoutEngine {
         tab_bar_height: f32,
     ) {
         use crate::display_backend::{TtyDisplayBackend, display_text_plain_via_backend};
-        use neomacs_display_protocol::frame_glyphs::GlyphRowRole;
-        use neomacs_display_protocol::glyph_matrix::GlyphRow;
 
         let Some(tab_bar_text) = build_tab_bar_plain_text(evaluator, frame_window_id as u64) else {
             return;
         };
 
-        // Tab-bar is positioned at y=0 (topmost, no menu bar in Neomacs).
-        let _x = 0.0;
-        let _y = 0.0;
         let width = frame_params.width;
         let tab_bar_face = face_resolver.resolve_named_face("tab-bar");
-        let _ascent = if tab_bar_face.font_ascent > 0.0 {
-            tab_bar_face.font_ascent
-        } else {
-            frame_params.char_height * 0.8
-        };
         let _ = tab_bar_height;
 
-        // Build a throwaway render-face from the resolved tab-bar face
-        // so the backend has a proper face_id on each glyph. We do not
-        // call `realize_status_line_face` here because the tab-bar path
-        // is invoked before any window-context state is set up, and we
-        // only need a bare Face for the backend's trait call.
         let sl_face = self.realize_status_line_face(
             0,
             &tab_bar_face,
@@ -4925,15 +4949,12 @@ impl LayoutEngine {
             char_width,
             width,
         );
-        let mut flush_row = GlyphRow::new(GlyphRowRole::TabBar);
-        flush_row.enabled = true;
-        flush_row.mode_line = true;
-        use crate::display_backend::DisplayBackend;
-        backend.finish_row(flush_row);
-        // Drop the produced rows on the floor to preserve the
-        // previous no-op behavior. The pre-existing tab-bar test
-        // failure will be addressed in a separate cleanup pass.
-        let _ = backend.take_rows();
+        // Take the in-progress glyphs directly (no finish_row call);
+        // the row is constructed at installation time with role
+        // TabBar and installed into the first window's matrix after
+        // end_window.
+        let glyphs: Vec<_> = backend.pending_glyphs().to_vec();
+        self.pending_tab_bar_glyphs = Some(glyphs);
     }
 }
 
