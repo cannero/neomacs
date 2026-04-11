@@ -242,8 +242,20 @@ pub struct GlyphMatrix {
 
 impl GlyphMatrix {
     pub fn new(nrows: usize, ncols: usize) -> Self {
+        // Matrix rows start disabled. `begin_row` and
+        // `begin_status_line_row` flip `enabled = true` for rows
+        // that are actually populated during a frame. Rows the
+        // walker skips (below-the-text scratch rows, unused
+        // slots) stay disabled so `overwrite_last_window_right_border`
+        // and `TtyRif::rasterize` know not to touch them. Matches
+        // GNU's `MATRIX_ROW_ENABLED_P` discipline where disabled
+        // rows are inert until the walker marks them valid.
         let rows = (0..nrows)
-            .map(|_| GlyphRow::new(GlyphRowRole::Text))
+            .map(|_| {
+                let mut row = GlyphRow::new(GlyphRowRole::Text);
+                row.enabled = false;
+                row
+            })
             .collect();
         Self {
             rows,
@@ -263,8 +275,11 @@ impl GlyphMatrix {
     }
 
     pub fn resize(&mut self, nrows: usize, ncols: usize) {
-        self.rows
-            .resize_with(nrows, || GlyphRow::new(GlyphRowRole::Text));
+        self.rows.resize_with(nrows, || {
+            let mut row = GlyphRow::new(GlyphRowRole::Text);
+            row.enabled = false;
+            row
+        });
         self.rows.truncate(nrows);
         self.nrows = nrows;
         self.ncols = ncols;

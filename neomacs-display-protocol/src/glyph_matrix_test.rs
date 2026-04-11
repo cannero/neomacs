@@ -86,10 +86,15 @@ fn matrix_new_has_correct_dimensions() {
 }
 
 #[test]
-fn matrix_rows_are_enabled_by_default() {
+fn matrix_rows_are_disabled_by_default() {
+    // Rows in a freshly constructed GlyphMatrix start disabled,
+    // matching GNU's MATRIX_ROW_ENABLED_P discipline: the walker
+    // marks rows enabled as it populates them, and rows never
+    // populated stay inert so scroll / clear-to-eob helpers
+    // (e.g. overwrite_last_window_right_border) skip them.
     let matrix = GlyphMatrix::new(3, 10);
     for row in &matrix.rows {
-        assert!(row.enabled);
+        assert!(!row.enabled);
         assert_eq!(row.role, GlyphRowRole::Text);
     }
 }
@@ -166,6 +171,7 @@ fn state_with_text(text: &str) -> FrameDisplayState {
     state.faces.insert(0, Face::new(0));
 
     let mut matrix = GlyphMatrix::new(1, cols);
+    matrix.rows[0].enabled = true;
     for (i, ch) in text.chars().enumerate() {
         matrix.rows[0].glyphs[GlyphArea::Text as usize].push(Glyph::char(ch, 0, i));
     }
@@ -306,6 +312,8 @@ fn materialize_pixel_positions_from_grid() {
     state.faces.insert(0, Face::new(0));
 
     let mut matrix = GlyphMatrix::new(2, cols);
+    matrix.rows[0].enabled = true;
+    matrix.rows[1].enabled = true;
     // Row 0: "AB"
     matrix.rows[0].glyphs[GlyphArea::Text as usize].push(Glyph::char('A', 0, 0));
     matrix.rows[0].glyphs[GlyphArea::Text as usize].push(Glyph::char('B', 0, 1));
@@ -395,9 +403,10 @@ fn materialize_disabled_rows_are_skipped() {
     state.faces.insert(0, Face::new(0));
 
     let mut matrix = GlyphMatrix::new(2, 3);
+    matrix.rows[0].enabled = true;
     matrix.rows[0].glyphs[GlyphArea::Text as usize].push(Glyph::char('A', 0, 0));
+    // Row 1 stays disabled (default), so its glyph is filtered out.
     matrix.rows[1].glyphs[GlyphArea::Text as usize].push(Glyph::char('B', 0, 1));
-    matrix.rows[1].enabled = false; // Disable row 1
 
     state.window_matrices.push(WindowMatrixEntry {
         window_id: 1,
@@ -421,6 +430,7 @@ fn materialize_padding_glyphs_are_skipped() {
     state.faces.insert(0, Face::new(0));
 
     let mut matrix = GlyphMatrix::new(1, 4);
+    matrix.rows[0].enabled = true;
     // Wide char 'W' followed by padding
     let mut wide_glyph = Glyph::char('W', 0, 0);
     wide_glyph.wide = true;
@@ -463,6 +473,7 @@ fn materialize_stretch_glyph() {
     state.faces.insert(0, Face::new(0));
 
     let mut matrix = GlyphMatrix::new(1, 10);
+    matrix.rows[0].enabled = true;
     matrix.rows[0].glyphs[GlyphArea::Text as usize].push(Glyph::stretch(4, 0));
 
     state.window_matrices.push(WindowMatrixEntry {
