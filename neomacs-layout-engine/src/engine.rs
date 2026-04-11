@@ -521,41 +521,100 @@ fn is_display_space_spec(val: &neovm_core::emacs_core::Value) -> bool {
     false
 }
 
-/// Parse width from a space display spec.
-/// Handles `(space :width N)` and `(space :align-to COL)`.
-/// `current_x` and `content_x` are used for `:align-to` calculations.
-fn parse_display_space_width(
-    val: &neovm_core::emacs_core::Value,
-    char_w: f32,
+/// Evaluate a `(space :width …)` or `(space :align-to …)` display
+/// spec into a pixel width relative to `current_x`.
+///
+/// Replaces the old `parse_display_space_width` helper. Delegates the
+/// actual expression evaluation to
+/// [`crate::display_pixel_calc::calc_pixel_width_or_height`], the
+/// faithful port of GNU `xdisp.c:30102`. Supports the full GNU
+/// expression grammar: fixnum/float, symbols (`right`, `text`,
+/// `left-fringe`, etc.), arithmetic forms `(+ …)`/`(- …)`,
+/// pixel-literal `(NUM)`, and unit-scaled `(NUM . UNIT)`.
+///
+/// The caller passes the face's char width as the numeric base unit
+/// to preserve the pre-refactor behavior; GNU's xdisp.c uses
+/// `FRAME_COLUMN_WIDTH` (frame default) here, which is a stricter
+/// match we can switch to in a follow-up.
+/// TODO(verify): use frame_params.char_width once regression tests
+/// confirm no buffer-text scaling changes.
+///
+/// Returns `face_char_w` as a conservative default when the spec is
+/// invalid or the evaluator can't resolve it (matching the old
+/// function's fallback behavior).
+fn eval_display_space_as_width(
+    spec: &neovm_core::emacs_core::Value,
     current_x: f32,
     content_x: f32,
+    face_char_w: f32,
+    params: &WindowParams,
 ) -> f32 {
-    if let Some(items) = neovm_core::emacs_core::value::list_to_vec(val) {
-        // items[0] is the symbol 'space', rest is plist
-        let mut i = 1;
-        while i + 1 < items.len() {
-            if items[i].is_symbol_named(":width") {
-                let item = items[i + 1];
-                if let Some(n) = item.as_fixnum() {
-                    return n as f32 * char_w;
-                } else if item.is_float() {
-                    return item.xfloat() as f32 * char_w;
-                }
+    use crate::display_pixel_calc::{PixelCalcContext, calc_pixel_width_or_height};
+
+    let Some(items) = neovm_core::emacs_core::value::list_to_vec(spec) else {
+        return face_char_w;
+    };
+
+    let pctx = PixelCalcContext {
+        frame_column_width: face_char_w as f64,
+        frame_line_height: face_char_w as f64,
+        frame_res_x: 96.0,
+        frame_res_y: 96.0,
+        face_font_height: face_char_w as f64,
+        face_font_width: face_char_w as f64,
+        text_area_left: params.text_bounds.x as f64,
+        text_area_right: (params.text_bounds.x + params.text_bounds.width) as f64,
+        text_area_width: params.text_bounds.width as f64,
+        left_margin_left: (params.text_bounds.x
+            - params.left_fringe_width
+            - params.left_margin_width) as f64,
+        left_margin_width: params.left_margin_width as f64,
+        right_margin_left: (params.text_bounds.x
+            + params.text_bounds.width
+            + params.right_fringe_width) as f64,
+        right_margin_width: params.right_margin_width as f64,
+        left_fringe_width: params.left_fringe_width as f64,
+        right_fringe_width: params.right_fringe_width as f64,
+        fringes_outside_margins: false,
+        scroll_bar_width: 0.0,
+        scroll_bar_on_left: false,
+        line_number_pixel_width: 0.0,
+    };
+
+    // items[0] is the `space` symbol; walk the keyword-value plist
+    // starting at index 1.
+    let mut i = 1;
+    while i + 1 < items.len() {
+        let key = items[i];
+        let val = items[i + 1];
+        if key.is_symbol_named(":width") {
+            if let Some(pixels) = calc_pixel_width_or_height(&pctx, &val, true, None) {
+                return pixels as f32;
             }
-            if items[i].is_symbol_named(":align-to") {
-                let item = items[i + 1];
-                if let Some(n) = item.as_fixnum() {
-                    let target_x = content_x + n as f32 * char_w;
-                    return (target_x - current_x).max(0.0);
-                } else if item.is_float() {
-                    let target_x = content_x + item.xfloat() as f32 * char_w;
-                    return (target_x - current_x).max(0.0);
-                }
-            }
-            i += 2;
+            return face_char_w;
         }
+        if key.is_symbol_named(":align-to") {
+            let mut align_to: i32 = -1;
+            if let Some(pixels) =
+                calc_pixel_width_or_height(&pctx, &val, true, Some(&mut align_to))
+            {
+                // If the expression contained a symbol like `right`,
+                // `align_to` was updated to that position and `pixels`
+                // is the offset from it. Otherwise (numeric-only
+                // :align-to N), `align_to` is still -1 and `pixels`
+                // is a column-relative offset from `content_x`.
+                let target_x = if align_to >= 0 {
+                    align_to as f32 + pixels as f32
+                } else {
+                    content_x + pixels as f32
+                };
+                return (target_x - current_x).max(0.0);
+            }
+            return face_char_w;
+        }
+        i += 2;
     }
-    char_w // default: one character width
+    face_char_w
 }
 
 /// Check if a Value is an image display spec: a cons whose car is the symbol `image`.
@@ -2711,10 +2770,11 @@ impl LayoutEngine {
                         continue;
                     }
 
-                    // Case 2: Space spec — (space :width N) or (space :align-to COL)
+                    // Case 2: Space spec — (space :width …) or (space :align-to …)
                     if is_display_space_spec(&prop_val) {
-                        let space_width =
-                            parse_display_space_width(&prop_val, face_char_w, x, content_x);
+                        let space_width = eval_display_space_as_width(
+                            &prop_val, x, content_x, face_char_w, params,
+                        );
                         if space_width > 0.0 {
                             let _bg = Color::from_pixel(default_resolved.bg);
                             x += space_width;
@@ -4086,11 +4146,12 @@ impl LayoutEngine {
                                 }
                                 continue;
                             } else if is_display_space_spec(&prop_val) {
-                                let space_width = parse_display_space_width(
+                                let space_width = eval_display_space_as_width(
                                     &prop_val,
-                                    cursor_char_w,
                                     cx,
                                     content_x,
+                                    cursor_char_w,
+                                    params,
                                 );
                                 cx += space_width;
                                 ccol += (space_width / cursor_char_w).ceil() as usize;
