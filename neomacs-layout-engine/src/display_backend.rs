@@ -25,7 +25,7 @@
 //! for the full plan.
 
 use neomacs_display_protocol::face::Face;
-use neomacs_display_protocol::glyph_matrix::GlyphRow;
+use neomacs_display_protocol::glyph_matrix::{Glyph, GlyphRow};
 
 /// Which kind of glyph the display walker is asking the backend to
 /// produce. Mirrors GNU's `enum it_method` values that feed through
@@ -133,13 +133,21 @@ pub trait DisplayBackend {
 /// level: synchronous, single-threaded, emits glyphs into a row buffer
 /// that is later diffed and written as ANSI escape sequences.
 ///
-/// **Dormant at introduction.** The struct holds the rows that the
-/// walker produces but no code calls it yet. Step 3.3 wires it up to
-/// the buffer-text walker path; Step 3.4 wires it up to mode-line.
+/// The backend accumulates glyphs in `pending_glyphs` as the walker
+/// calls `produce_glyph`. When the walker calls `finish_row`, the
+/// buffered glyphs are flushed into the caller-supplied
+/// `GlyphRow::glyphs[Text]` and the row is pushed onto `pending_rows`.
+/// Callers drain the completed rows via `take_rows`.
+///
+/// **Dormant at introduction.** Unit tests cover the basic push/drain
+/// cycle; no existing code routes glyphs through this backend yet.
+/// Steps 3.4+ wire it into the minibuffer-echo, tab-bar, and
+/// mode-line paths incrementally.
 pub struct TtyDisplayBackend {
-    /// Accumulated rows from the current frame. Drained by
-    /// `finish_frame` into whatever output pipeline the caller
-    /// provides.
+    /// Glyphs accumulated for the row currently being walked.
+    /// Flushed to `pending_rows` on `finish_row`.
+    pending_glyphs: Vec<Glyph>,
+    /// Completed rows from the current frame. Drained via `take_rows`.
     pending_rows: Vec<GlyphRow>,
     /// Default cell width in pixels, used for stretch-glyph width
     /// computation. Normally 1.0 for pure cell-grid TUI.
@@ -151,6 +159,7 @@ pub struct TtyDisplayBackend {
 impl TtyDisplayBackend {
     pub fn new() -> Self {
         Self {
+            pending_glyphs: Vec::new(),
             pending_rows: Vec::new(),
             cell_width_px: 1.0,
             cell_height_px: 1.0,
@@ -162,6 +171,13 @@ impl TtyDisplayBackend {
     /// or a similar output stage.
     pub fn take_rows(&mut self) -> Vec<GlyphRow> {
         std::mem::take(&mut self.pending_rows)
+    }
+
+    /// Read-only view of the in-progress glyphs (before `finish_row`).
+    /// Useful for tests and for walkers that want to measure the
+    /// current row width mid-walk.
+    pub fn pending_glyphs(&self) -> &[Glyph] {
+        &self.pending_glyphs
     }
 }
 
@@ -192,15 +208,44 @@ impl DisplayBackend for TtyDisplayBackend {
         self.cell_width_px
     }
 
-    fn produce_glyph(&mut self, _kind: GlyphKind, _face: &Face, _charpos: usize) {
-        // TODO(Step 3.3): append the glyph to the in-progress row.
-        // The current `GlyphRow` API is built up by
-        // `GlyphMatrixBuilder` in `matrix_builder.rs`; we'll route
-        // through the same builder from here or take ownership of
-        // a row-in-progress directly.
+    fn produce_glyph(&mut self, kind: GlyphKind, _face: &Face, charpos: usize) {
+        // Build a `Glyph` from the kind and append to the in-progress
+        // row. For TTY we use the same glyph representation the rest
+        // of the layout engine uses, so downstream rasterization via
+        // TtyRif continues to work unchanged. Face handling is
+        // deferred to the caller (status-line harvesting currently);
+        // a future commit will plumb face_ids through here.
+        //
+        // TODO(face): use `face.face_id` once we have a resolved
+        // integer face id at this call site. The current DisplayBackend
+        // trait takes a `&Face` which is the full face table entry;
+        // resolving it to a face_id requires engine context that the
+        // backend doesn't currently have. Passing 0 (default face)
+        // for now matches what `push_status_line_char` does in the
+        // single-face fast path.
+        let face_id: u32 = 0;
+        let glyph = match kind {
+            GlyphKind::Char(ch) => Glyph::char(ch, face_id, charpos),
+            GlyphKind::Glyphless(ch) => Glyph::char(ch, face_id, charpos),
+            GlyphKind::Stretch { width_px, .. } => {
+                // Convert pixel width to cell count using this
+                // backend's cell width (normally 1.0 for TTY).
+                let cols = (width_px / self.cell_width_px.max(1.0)).round() as u16;
+                Glyph::stretch(cols.max(1), face_id)
+            }
+        };
+        self.pending_glyphs.push(glyph);
     }
 
-    fn finish_row(&mut self, row: GlyphRow) {
+    fn finish_row(&mut self, mut row: GlyphRow) {
+        // Move the accumulated glyphs into the row's Text area and
+        // push the row onto the completed-rows queue. The row's
+        // three glyph areas are [left_margin, text, right_margin]
+        // matching GNU's glyph_row layout (`dispextern.h`).
+        let text_glyphs = std::mem::take(&mut self.pending_glyphs);
+        // Index 1 is the text area (matches
+        // `neomacs_display_protocol::glyph_matrix::GlyphArea::Text`).
+        row.glyphs[1] = text_glyphs;
         self.pending_rows.push(row);
     }
 
@@ -283,5 +328,95 @@ mod tests {
         let _ = be.char_advance(&f, 'x');
         let _ = be.font_height(&f);
         let _ = be.font_width(&f);
+    }
+
+    // ----------- produce_glyph / finish_row -----------
+
+    use neomacs_display_protocol::frame_glyphs::GlyphRowRole;
+    use neomacs_display_protocol::glyph_matrix::GlyphType;
+
+    fn empty_row(role: GlyphRowRole) -> GlyphRow {
+        let mut row = GlyphRow::new(role);
+        row.mode_line = matches!(role, GlyphRowRole::ModeLine);
+        row
+    }
+
+    #[test]
+    fn produce_char_glyph_accumulates_in_pending() {
+        let mut be = TtyDisplayBackend::new();
+        let f = default_face();
+        be.produce_glyph(GlyphKind::Char('A'), &f, 0);
+        be.produce_glyph(GlyphKind::Char('B'), &f, 1);
+        be.produce_glyph(GlyphKind::Char('C'), &f, 2);
+        assert_eq!(be.pending_glyphs().len(), 3);
+        assert!(matches!(
+            be.pending_glyphs()[0].glyph_type,
+            GlyphType::Char { ch: 'A' }
+        ));
+        assert!(matches!(
+            be.pending_glyphs()[1].glyph_type,
+            GlyphType::Char { ch: 'B' }
+        ));
+    }
+
+    #[test]
+    fn produce_stretch_glyph_converts_pixels_to_cells() {
+        let mut be = TtyDisplayBackend::new();
+        let f = default_face();
+        be.produce_glyph(
+            GlyphKind::Stretch {
+                width_px: 14.0,
+                ascent: 1.0,
+                descent: 0.0,
+            },
+            &f,
+            0,
+        );
+        assert_eq!(be.pending_glyphs().len(), 1);
+        match be.pending_glyphs()[0].glyph_type {
+            GlyphType::Stretch { width_cols } => assert_eq!(width_cols, 14),
+            _ => panic!("expected stretch glyph"),
+        }
+    }
+
+    #[test]
+    fn finish_row_flushes_glyphs_into_text_area() {
+        let mut be = TtyDisplayBackend::new();
+        let f = default_face();
+        be.produce_glyph(GlyphKind::Char('x'), &f, 0);
+        be.produce_glyph(GlyphKind::Char('y'), &f, 1);
+        be.produce_glyph(GlyphKind::Char('z'), &f, 2);
+        be.finish_row(empty_row(GlyphRowRole::Text));
+        // In-progress buffer drained.
+        assert_eq!(be.pending_glyphs().len(), 0);
+        let rows = be.take_rows();
+        assert_eq!(rows.len(), 1);
+        // The glyphs landed in the Text area (index 1).
+        assert_eq!(rows[0].glyphs[1].len(), 3);
+        assert_eq!(rows[0].glyphs[0].len(), 0); // left margin untouched
+        assert_eq!(rows[0].glyphs[2].len(), 0); // right margin untouched
+    }
+
+    #[test]
+    fn finish_row_preserves_mode_line_flag() {
+        let mut be = TtyDisplayBackend::new();
+        be.finish_row(empty_row(GlyphRowRole::ModeLine));
+        let rows = be.take_rows();
+        assert!(rows[0].mode_line);
+        assert!(matches!(rows[0].role, GlyphRowRole::ModeLine));
+    }
+
+    #[test]
+    fn multiple_rows_queue_in_order() {
+        let mut be = TtyDisplayBackend::new();
+        let f = default_face();
+        be.produce_glyph(GlyphKind::Char('a'), &f, 0);
+        be.finish_row(empty_row(GlyphRowRole::Text));
+        be.produce_glyph(GlyphKind::Char('b'), &f, 0);
+        be.finish_row(empty_row(GlyphRowRole::Text));
+        let rows = be.take_rows();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].glyphs[1].len(), 1);
+        assert_eq!(rows[1].glyphs[1].len(), 1);
     }
 }
