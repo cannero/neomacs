@@ -170,7 +170,19 @@ fn window_params_from_neovm_uses_default_header_line_and_tab_line_values() {
 }
 
 #[test]
-fn test_window_params_from_neovm_uses_window_point_not_buffer_point() {
+fn test_window_params_nonselected_reads_window_point() {
+    // For NON-selected windows, `params.point` comes from
+    // `Window::point` (the snapshotted pointm marker), NOT
+    // `buffer.pt_char`. Mirrors GNU `window.c:window_point`:
+    //
+    //   return (w == XWINDOW (selected_window)
+    //           ? BUF_PT (XBUFFER (w->contents))
+    //           : XMARKER (w->pointm)->charpos);
+    //
+    // The selected-window branch is exercised elsewhere; this
+    // test specifically verifies the non-selected branch so a
+    // future refactor of `window_params_from_neovm` can't
+    // silently collapse both branches to read from the buffer.
     let mut evaluator = neovm_core::emacs_core::Context::new();
     let buf_id = evaluator.buffer_manager_mut().create_buffer("*test*");
     {
@@ -203,6 +215,9 @@ fn test_window_params_from_neovm_uses_window_point_not_buffer_point() {
 
     let frame = evaluator.frame_manager().get(frame_id).expect("frame");
     let buffer = evaluator.buffer_manager().get(buf_id).expect("buffer");
+    // Pass `is_selected = false` to exercise the non-selected
+    // branch of window_params_from_neovm. We're testing the
+    // window_point_not_buffer_point rule for *this* branch.
     let params = window_params_from_neovm(
         frame.find_window(selected_window).expect("selected window"),
         buffer,
@@ -210,12 +225,15 @@ fn test_window_params_from_neovm_uses_window_point_not_buffer_point() {
         evaluator.obarray(),
         evaluator.face_table(),
         None,
-        true,
+        false, // is_selected
         false,
         Value::T,
     )
     .expect("window params");
 
+    // Window::point = 5 (1-based); params.point is 0-based, so 4.
+    // buffer.pt_char = 0 (we called goto_byte(0)). The non-selected
+    // branch must NOT use the buffer's point.
     assert_ne!(buffer.point_char() as i64, params.point);
     assert_eq!(params.point, 4);
 }
