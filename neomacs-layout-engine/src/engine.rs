@@ -1038,10 +1038,15 @@ pub struct LayoutEngine {
     /// Face ID for which current_resolved_family was computed.
     /// Used to avoid re-resolving on every character.
     resolved_family_face_id: u32,
-    /// Cosmic-text font metrics service (lazily initialized on first use)
+    /// Cosmic-text font metrics service.
+    ///
+    /// Populated by `enable_cosmic_metrics()` at GUI startup. Left
+    /// `None` for TTY mode, where all measurements go through the
+    /// character-cell grid. Replaces the previous
+    /// `use_cosmic_metrics: bool` runtime flag — the decision is
+    /// now made once at startup by the binary that constructs the
+    /// layout engine.
     font_metrics: Option<FontMetricsService>,
-    /// Whether to use cosmic-text for font metrics instead of C FFI
-    pub use_cosmic_metrics: bool,
     /// Previous frame's per-window metadata for transition hint derivation.
     prev_window_infos: std::collections::HashMap<i64, WindowInfo>,
     /// Previous selected window id for switch-fade detection.
@@ -1075,6 +1080,12 @@ pub struct LayoutEngine {
 
 impl LayoutEngine {
     /// Create a new layout engine.
+    ///
+    /// Defaults to cosmic-text font measurement (GUI mode). TTY
+    /// binaries should call `disable_cosmic_metrics()` after
+    /// construction to drop the `FontMetricsService` and fall back
+    /// to the character-cell grid. Matches the previous default of
+    /// `use_cosmic_metrics: true` now that the runtime flag is gone.
     pub fn new() -> Self {
         Self {
             text_buf: Vec::with_capacity(64 * 1024), // 64KB initial
@@ -1085,14 +1096,42 @@ impl LayoutEngine {
             ligatures_enabled: false,
             current_resolved_family: String::new(),
             resolved_family_face_id: u32::MAX,
-            font_metrics: None,
-            use_cosmic_metrics: true,
+            font_metrics: Some(FontMetricsService::new()),
             prev_window_infos: std::collections::HashMap::new(),
             prev_selected_window_id: 0,
             prev_background: None,
             matrix_builder: crate::matrix_builder::GlyphMatrixBuilder::new(),
             last_frame_display_state: None,
             frame_face_id_counter: 1,
+        }
+    }
+
+    /// Disable cosmic-text font measurement (TTY mode).
+    ///
+    /// Drops the `FontMetricsService` so all measurements fall back
+    /// to the character-cell grid. Called once at TTY startup from
+    /// the binary that constructs the layout engine.
+    pub fn disable_cosmic_metrics(&mut self) {
+        self.font_metrics = None;
+    }
+
+    /// Enable cosmic-text font measurement for GUI rendering.
+    ///
+    /// Constructs the `FontMetricsService` if it hasn't already been
+    /// constructed. Called once at GUI startup from the binary that
+    /// sets up the layout engine. TTY mode skips this call and
+    /// leaves `font_metrics` as `None`, so all measurements fall
+    /// back to the character-cell grid (GNU Emacs frame.c:1184-1185:
+    /// TTY frames have column_width=1 and line_height=1).
+    ///
+    /// This replaces the previous `use_cosmic_metrics: bool` runtime
+    /// flag. The decision of which measurement strategy to use is
+    /// now made once at startup by which binary constructs the
+    /// engine, matching GNU's per-frame redisplay_interface vtable
+    /// dispatch.
+    pub fn enable_cosmic_metrics(&mut self) {
+        if self.font_metrics.is_none() {
+            self.font_metrics = Some(FontMetricsService::new());
         }
     }
 
@@ -1326,13 +1365,10 @@ impl LayoutEngine {
         evaluator: &mut neovm_core::emacs_core::Context,
         frame_id: neovm_core::window::FrameId,
     ) {
-        // Lazy-initialize FontMetricsService before collecting layout params so
-        // the selected frame's default metrics can be refreshed first.
-        if self.use_cosmic_metrics && self.font_metrics.is_none() {
-            self.font_metrics = Some(FontMetricsService::new());
-        } else if !self.use_cosmic_metrics && self.font_metrics.is_some() {
-            self.font_metrics = None;
-        }
+        // FontMetricsService is set up once at startup via
+        // `enable_cosmic_metrics()` (GUI mode) or left as `None`
+        // (TTY mode). No per-frame flag check; the backend choice
+        // is frame-invariant.
 
         let (bootstrap_bg, bootstrap_font_size) = {
             let Some(frame) = evaluator.frame_manager().get(frame_id) else {
@@ -4773,13 +4809,10 @@ impl LayoutEngine {
         &mut self,
         face: &StatusLineFace,
     ) -> crate::font_metrics::FontMetrics {
-        // Only create font metrics service when cosmic metrics are enabled
-        // (GUI mode).  TTY mode uses 1x1 character cells and should not
-        // create pixel-based font metrics here.
-        if self.use_cosmic_metrics && self.font_metrics.is_none() {
-            self.font_metrics = Some(FontMetricsService::new());
-        }
-
+        // If the engine was started in TTY mode (no
+        // `enable_cosmic_metrics()` call), `self.font_metrics` is
+        // None and we return the face's cell-based fallback
+        // metrics. GUI mode populated the service at startup.
         if let Some(ref mut svc) = self.font_metrics {
             return svc.font_metrics(
                 &face.font_family,
@@ -4946,7 +4979,7 @@ unsafe fn char_advance(
     };
     let min_grid_advance = char_cols as f32 * face_w;
 
-    // TTY mode: when no font metrics service exists (use_cosmic_metrics=false),
+    // TTY mode: when no font metrics service exists (enable_cosmic_metrics not called),
     // use char-cell grid advance directly.  Don't auto-create pixel-based metrics.
     let svc = match font_metrics_svc.as_mut() {
         Some(svc) => svc,

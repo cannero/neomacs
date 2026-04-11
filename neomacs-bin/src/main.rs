@@ -1262,6 +1262,8 @@ pub fn run(mode: RuntimeMode) {
     // 9. Set up redisplay callback (layout engine + send frame)
     match startup.frontend {
         FrontendKind::Gui => {
+            // GUI mode: LayoutEngine::new() already enabled cosmic
+            // metrics by default, so there is nothing to do here.
             let frame_tx = emacs_comms.frame_tx;
             evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
                 eval.setup_thread_locals();
@@ -1282,10 +1284,13 @@ pub fn run(mode: RuntimeMode) {
             let (cols, rows) = query_terminal_size_cells().unwrap_or((80, 25));
             let mut tty_rif =
                 neomacs_display_protocol::tty_rif::TtyRif::new(cols as usize, rows as usize);
-            // TTY frames use 1x1 character cell metrics (GNU Emacs frame.c:1184-1185),
-            // not pixel-based cosmic-text font metrics.
+            // TTY frames use 1x1 character cell metrics (GNU Emacs
+            // frame.c:1184-1185). Drop the layout engine's cosmic-text
+            // FontMetricsService so char_advance,
+            // status_line_font_metrics, etc. fall back to the
+            // char-cell grid.
             LAYOUT_ENGINE.with(|engine| {
-                engine.borrow_mut().use_cosmic_metrics = false;
+                engine.borrow_mut().disable_cosmic_metrics();
             });
             evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
                 eval.setup_thread_locals();
