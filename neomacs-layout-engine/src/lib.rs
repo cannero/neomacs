@@ -19,7 +19,7 @@ pub mod fontconfig;
 pub mod hit_test;
 pub mod matrix_builder;
 pub mod neovm_bridge;
-pub mod status_line;
+pub mod display_status_line;
 pub mod tty_menu_bar;
 pub mod types;
 pub mod unicode;

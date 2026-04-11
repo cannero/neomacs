@@ -1,7 +1,24 @@
-//! Status line types and rendering for the Rust layout engine.
+//! Display-walker status-line rendering.
 //!
-//! Handles mode-line, header-line, and tab-line: type definitions,
-//! face run parsing, and rendering into GlyphMatrixBuilder.
+//! Mode-line, header-line, tab-line, tab-bar, and minibuffer echo
+//! all flow through the walker defined here. The walker produces
+//! glyphs via TtyDisplayBackend::produce_glyph and installs the
+//! completed row into GlyphMatrixBuilder wholesale; above the
+//! backend trait boundary the code is frontend-agnostic, matching
+//! GNU Emacs's display_mode_line -> display_mode_element ->
+//! display_line -> PRODUCE_GLYPHS architecture.
+//!
+//! Housed types include StatusLineKind, StatusLineFace,
+//! StatusLineSpec, OverlayFaceRun, and the
+//! build_rust_status_line_spec property harvester that walks
+//! text-property intervals (face, font-lock-face, display).
+//!
+//! History: this module started as status_line.rs, a divergent
+//! parallel implementation of display-line rendering that did not
+//! process display properties and dropped doom-modeline's
+//! (space :align-to ...) forms. Steps 3.3' through 3.6 of the
+//! display-engine unification plan merged it into the backend
+//! trait and renamed the file to reflect its new role.
 
 use super::engine::LayoutEngine;
 use super::neovm_bridge::{FaceResolver, ResolvedFace};

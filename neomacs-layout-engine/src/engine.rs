@@ -6,7 +6,7 @@
 
 use super::font_metrics::{FontMetrics, FontMetricsService};
 use super::hit_test::*;
-use super::status_line::*;
+use super::display_status_line::*;
 use super::types::*;
 use super::unicode::*;
 use neomacs_display_protocol::frame_glyphs::{
@@ -1584,7 +1584,7 @@ impl LayoutEngine {
                     let border_face_id = self.frame_face_id_counter;
                     self.frame_face_id_counter += 1;
                     let realized_face =
-                        crate::status_line::StatusLineFace::from_resolved(
+                        crate::display_status_line::StatusLineFace::from_resolved(
                             border_face_id,
                             &border_face,
                         );
