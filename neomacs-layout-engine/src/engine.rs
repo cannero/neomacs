@@ -2185,19 +2185,14 @@ impl LayoutEngine {
                 &mut self.matrix_builder,
                 crate::matrix_builder::GlyphMatrixBuilder::new(),
             );
-            self.render_rust_status_line_plain(
-                text_x,
-                text_y,
+            self.render_minibuffer_echo_via_backend(
                 text_width,
-                text_height.max(char_h),
-                params.window_id,
                 char_w,
                 default_face_ascent,
-                0,
+                text_height.max(char_h),
                 default_resolved,
                 echo_message,
-                StatusLineKind::Minibuffer,
-                Some(&mut builder),
+                &mut builder,
             );
             self.matrix_builder = builder;
             self.matrix_builder.end_window();
@@ -4690,6 +4685,86 @@ impl LayoutEngine {
 
 impl LayoutEngine {
     /// Resolve the character width used by the Rust-native status-line path.
+    /// Step 3.4 wire-up: minibuffer echo through `TtyDisplayBackend`.
+    ///
+    /// Replaces the previous call to `render_rust_status_line_plain`
+    /// for the echo-message path. Realizes the default face, begins a
+    /// minibuffer status-line row in the builder, routes the plain
+    /// echo text through a `TtyDisplayBackend` via
+    /// `display_text_plain_via_backend`, then bridges the resulting
+    /// glyph row back into the matrix builder via
+    /// `push_status_line_char` / `push_status_line_stretch`.
+    ///
+    /// The bridging step is intentional ugliness — it exists so this
+    /// commit is a pure refactor with no visible-output change. Step
+    /// 3.6 will delete `status_line.rs` and the matrix-builder
+    /// `push_status_line_*` helpers, at which point the glyphs will
+    /// flow directly from the backend into whatever replaces them.
+    pub(crate) fn render_minibuffer_echo_via_backend(
+        &mut self,
+        text_width: f32,
+        char_w: f32,
+        ascent: f32,
+        row_height: f32,
+        default_resolved: &crate::neovm_bridge::ResolvedFace,
+        echo_message: String,
+        builder: &mut crate::matrix_builder::GlyphMatrixBuilder,
+    ) {
+        use crate::display_backend::{
+            DisplayBackend, TtyDisplayBackend, display_text_plain_via_backend,
+        };
+        use neomacs_display_protocol::frame_glyphs::GlyphRowRole;
+        use neomacs_display_protocol::glyph_matrix::{GlyphRow, GlyphType};
+
+        // Realize the face and insert it into the builder so face ids
+        // resolve at rasterization time. The face id 0 matches the
+        // previous `render_rust_status_line_plain(... 0, default_resolved, ...)`
+        // call — minibuffer echo has always used face id 0 historically.
+        let sl_face = self.realize_status_line_face(0, default_resolved, char_w, ascent, row_height);
+        let rendered_face = sl_face.render_face();
+        let char_width = self.status_line_char_width(&sl_face, char_w);
+
+        builder.begin_status_line_row(GlyphRowRole::Minibuffer);
+        builder.insert_face(sl_face.face_id, rendered_face.clone());
+
+        // Walk the plain string through the backend. No display-property
+        // harvesting, no face runs, no align-to entries — minibuffer
+        // echo is a single face and a single string.
+        let mut backend = TtyDisplayBackend::new();
+        display_text_plain_via_backend(
+            &mut backend,
+            &echo_message,
+            &rendered_face,
+            char_width,
+            text_width,
+        );
+
+        // Flush the walker's pending glyphs into a GlyphRow so
+        // `take_rows` returns them. The role/mode-line flags match
+        // what `begin_status_line_row` sets on the builder side.
+        let mut flush_row = GlyphRow::new(GlyphRowRole::Minibuffer);
+        flush_row.enabled = true;
+        flush_row.mode_line = true;
+        backend.finish_row(flush_row);
+
+        // Bridge produced glyphs back into the matrix builder so
+        // downstream rasterization picks them up. This conversion is
+        // temporary; Step 3.6 will delete the matrix_builder side.
+        for row in backend.take_rows() {
+            for glyph in &row.glyphs[1] {
+                match glyph.glyph_type {
+                    GlyphType::Char { ch } => {
+                        builder.push_status_line_char(ch, glyph.face_id);
+                    }
+                    GlyphType::Stretch { width_cols } => {
+                        builder.push_status_line_stretch(width_cols, glyph.face_id);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
     pub(crate) fn status_line_char_width(
         &mut self,
         face: &StatusLineFace,

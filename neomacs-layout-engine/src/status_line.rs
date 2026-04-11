@@ -474,7 +474,7 @@ fn underline_style_from_code(code: u8) -> UnderlineStyle {
 }
 
 impl LayoutEngine {
-    fn realize_status_line_face(
+    pub(crate) fn realize_status_line_face(
         &mut self,
         face_id: u32,
         face: &ResolvedFace,

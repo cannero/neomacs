@@ -208,22 +208,13 @@ impl DisplayBackend for TtyDisplayBackend {
         self.cell_width_px
     }
 
-    fn produce_glyph(&mut self, kind: GlyphKind, _face: &Face, charpos: usize) {
+    fn produce_glyph(&mut self, kind: GlyphKind, face: &Face, charpos: usize) {
         // Build a `Glyph` from the kind and append to the in-progress
         // row. For TTY we use the same glyph representation the rest
         // of the layout engine uses, so downstream rasterization via
-        // TtyRif continues to work unchanged. Face handling is
-        // deferred to the caller (status-line harvesting currently);
-        // a future commit will plumb face_ids through here.
-        //
-        // TODO(face): use `face.face_id` once we have a resolved
-        // integer face id at this call site. The current DisplayBackend
-        // trait takes a `&Face` which is the full face table entry;
-        // resolving it to a face_id requires engine context that the
-        // backend doesn't currently have. Passing 0 (default face)
-        // for now matches what `push_status_line_char` does in the
-        // single-face fast path.
-        let face_id: u32 = 0;
+        // TtyRif continues to work unchanged. The face_id comes from
+        // the caller's resolved face.
+        let face_id: u32 = face.id;
         let glyph = match kind {
             GlyphKind::Char(ch) => Glyph::char(ch, face_id, charpos),
             GlyphKind::Glyphless(ch) => Glyph::char(ch, face_id, charpos),
@@ -279,6 +270,60 @@ fn is_wide_char_inline(ch: char) -> bool {
             | 0x20000..=0x2FFFD // CJK Extension B-F
             | 0x30000..=0x3FFFD
     )
+}
+
+// ---------------------------------------------------------------------------
+// Plain-text walker helper
+// ---------------------------------------------------------------------------
+
+/// Emit a plain (non-propertized) text string into a `DisplayBackend`
+/// as character glyphs, stopping when the accumulated pixel width
+/// would exceed `max_width`. The backend produces glyphs; the caller
+/// is responsible for `finish_row` and draining the rows.
+///
+/// This mirrors the inner loop of GNU's `display_string` for the
+/// simplest case: one face, no display properties, no align-to
+/// entries. The minibuffer-echo and frame-tab-bar callers use this
+/// because they receive a plain `String`, not a propertized `Value`.
+///
+/// Returns the total pixel advance actually produced (useful for
+/// callers that need to know how much of the string was consumed).
+///
+/// Line terminators (`\n`, `\r`) are skipped — status lines never
+/// produce more than one row, matching the behavior of the
+/// `render_text_run` method in `status_line.rs`.
+pub fn display_text_plain_via_backend(
+    backend: &mut dyn DisplayBackend,
+    text: &str,
+    face: &Face,
+    char_width: f32,
+    max_width: f32,
+) -> f32 {
+    let mut x_offset = 0.0f32;
+    let mut charpos: usize = 0;
+    for ch in text.chars() {
+        if ch == '\n' || ch == '\r' {
+            charpos += 1;
+            continue;
+        }
+        let advance = {
+            // Prefer the backend's per-face char advance when it
+            // returns a positive value (cell-based TTY or cosmic-text
+            // GUI). Fall back to the caller-supplied `char_width` —
+            // for TTY backends that treat all cells as width=1.0 but
+            // the status-line fallback width may be a different
+            // number when fonts report explicit `font_char_width`.
+            let a = backend.char_advance(face, ch);
+            if a > 0.0 { a } else { char_width.max(1.0) }
+        };
+        if x_offset + advance > max_width {
+            break;
+        }
+        backend.produce_glyph(GlyphKind::Char(ch), face, charpos);
+        x_offset += advance;
+        charpos += 1;
+    }
+    x_offset
 }
 
 // ---------------------------------------------------------------------------
@@ -360,6 +405,15 @@ mod tests {
     }
 
     #[test]
+    fn produce_char_glyph_uses_face_id() {
+        let mut be = TtyDisplayBackend::new();
+        let mut f = default_face();
+        f.id = 42;
+        be.produce_glyph(GlyphKind::Char('Z'), &f, 0);
+        assert_eq!(be.pending_glyphs()[0].face_id, 42);
+    }
+
+    #[test]
     fn produce_stretch_glyph_converts_pixels_to_cells() {
         let mut be = TtyDisplayBackend::new();
         let f = default_face();
@@ -404,6 +458,42 @@ mod tests {
         let rows = be.take_rows();
         assert!(rows[0].mode_line);
         assert!(matches!(rows[0].role, GlyphRowRole::ModeLine));
+    }
+
+    #[test]
+    fn display_text_plain_emits_chars_up_to_max_width() {
+        let mut be = TtyDisplayBackend::new();
+        let f = default_face();
+        let advance = display_text_plain_via_backend(&mut be, "hello", &f, 1.0, 100.0);
+        assert_eq!(advance, 5.0);
+        assert_eq!(be.pending_glyphs().len(), 5);
+    }
+
+    #[test]
+    fn display_text_plain_stops_at_max_width() {
+        let mut be = TtyDisplayBackend::new();
+        let f = default_face();
+        let advance = display_text_plain_via_backend(&mut be, "hello world", &f, 1.0, 5.0);
+        assert_eq!(advance, 5.0);
+        assert_eq!(be.pending_glyphs().len(), 5);
+    }
+
+    #[test]
+    fn display_text_plain_skips_newlines() {
+        let mut be = TtyDisplayBackend::new();
+        let f = default_face();
+        display_text_plain_via_backend(&mut be, "a\nb\rc", &f, 1.0, 100.0);
+        assert_eq!(be.pending_glyphs().len(), 3);
+    }
+
+    #[test]
+    fn display_text_plain_preserves_face_id() {
+        let mut be = TtyDisplayBackend::new();
+        let mut f = default_face();
+        f.id = 7;
+        display_text_plain_via_backend(&mut be, "ab", &f, 1.0, 100.0);
+        assert_eq!(be.pending_glyphs()[0].face_id, 7);
+        assert_eq!(be.pending_glyphs()[1].face_id, 7);
     }
 
     #[test]
