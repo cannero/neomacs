@@ -2103,9 +2103,34 @@ impl LayoutEngine {
                     params.point
                 );
             } else if params.point > 0
-                && params.window_end > 0
-                && params.point > params.window_end
                 && !params.is_minibuffer
+                && {
+                    // Forward-scroll trigger: either
+                    //   (a) we have a previous window_end and
+                    //       point is past it (standard
+                    //       scroll-below-previous case), or
+                    //   (b) we have no previous window_end (first
+                    //       layout after construction) and point
+                    //       is far enough past window_start that
+                    //       a first-pass layout starting from ws
+                    //       could not plausibly reach it.
+                    //
+                    // Case (b) handles the
+                    // `converges_visibility_for_wrapped_rows` and
+                    // `retries_window_when_point_starts_below_visible_span`
+                    // tests, which construct a fresh window with
+                    // window_start=1 and point far below, and
+                    // expect layout_frame_rust to publish geometry
+                    // that includes point without a second
+                    // redisplay pass.
+                    let has_prev_end =
+                        params.window_end > 0 && params.point > params.window_end;
+                    let max_visible_chars =
+                        (max_rows.max(1) as i64) * (params.bounds.width.max(1.0) as i64);
+                    let far_below_without_prev_end = params.window_end == 0
+                        && params.point - ws > max_visible_chars;
+                    has_prev_end || far_below_without_prev_end
+                }
             {
                 // Mirror GNU/legacy forward scroll: when point moved below the
                 // previous visible end, choose a new start before layout so the
@@ -6320,7 +6345,11 @@ mod tests {
         {
             let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
             buf.insert(&text);
-            buf.goto_byte(0);
+            // Selected-window point lives in the buffer; see
+            // window.c:window_point. Set buffer pt_char to
+            // target_pos so window_params_from_neovm reads it as
+            // params.point.
+            buf.goto_byte(target_pos - 1);
         }
         let frame_id = eval
             .frame_manager_mut()
@@ -6707,7 +6736,14 @@ mod tests {
         {
             let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
             buf.insert(&text);
-            buf.goto_byte(0);
+            // Move the buffer point to target_pos so the selected
+            // window reads it as params.point (GNU
+            // window.c:window_point says selected windows use
+            // BUF_PT, not pointm). Without this, the Window::point
+            // assignment below would be shadowed by buffer.pt_char
+            // during window_params_from_neovm and layout would
+            // never see the target.
+            buf.goto_byte(target_pos - 1);
             buf.set_buffer_local("word-wrap", Value::T);
         }
         let frame_id = eval
@@ -6911,8 +6947,11 @@ mod tests {
             let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
             buf.insert(&text);
             buf.set_buffer_local("mode-line-format", Value::string("%o|%p|%P"));
-            buf.goto_byte(0);
-            buf.point_max_char() + 1
+            let point = buf.point_max_char() + 1;
+            // Selected-window point lives in the buffer; see
+            // window.c:window_point.
+            buf.goto_byte(point - 1);
+            point
         };
         let frame_id =
             eval.frame_manager_mut()
