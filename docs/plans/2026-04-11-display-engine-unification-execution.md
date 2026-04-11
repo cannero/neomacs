@@ -1,7 +1,7 @@
 # Display Engine Unification: Execution Plan
 
 **Date:** 2026-04-11
-**Status:** In progress — Steps 1, 2, 3.1, 3.2, 3.3′ and Step 3.4 (foundation) landed on `main`. Steps 3.4 wire-up, 3.5, 3.6, 4.1, 4.2 pending.
+**Status:** Step 3 (TUI unification) **substantially complete**. Steps 1, 2, 3.1, 3.2, 3.3′, 3.4 (foundation + wire-up + tab-bar), 3.5, and 3.6 all landed on `main`. The divergent status-line emission path is gone; every production status-line call site routes through `TtyDisplayBackend`. Steps 4.1, 4.2 (GUI backend, `use_cosmic_metrics` deletion) remain as a future session. A pure-rename cleanup of `status_line.rs` → `display_status_line.rs` is also deferred.
 **Companion doc:** `docs/plans/2026-04-11-display-engine-unification.md` — the proposal (the "why"). This doc is the "what/how".
 
 ## Progress log
@@ -15,8 +15,20 @@
 | 2026-04-11 | **3.2** | `254b0aaa2` | `struct It` iterator port. New module `neomacs-layout-engine/src/display_iterator.rs`. Bidi fields (`bidi_p`, `paragraph_embedding`, `bidi_it`) included explicitly — **not** X-specific; GNU supports TTY bidi. Dormant. |
 | 2026-04-11 | **3.3′** | `33bb2d6ea` | **Escape-hatch variant — user-visible mode-line fix.** Extended `build_rust_status_line_spec` at `status_line.rs:803` to harvest `display` text-property intervals and call `calc_pixel_width_or_height` for `(space :align-to …)` / `(space :width …)`. Populates the existing `align_entries` and `display_props` buffers on `StatusLineSpec`. The render loop at `status_line.rs:651` (which already knew how to consume them) now sees populated data and produces the correct right-aligned mode-line. Verified: doom-modeline on TTY renders with a gap between LHS path and RHS `DOOM v3.0.0-pre`, confirming right-alignment works. |
 | 2026-04-11 | **3.4 (foundation)** | `fac50f4e9` | `TtyDisplayBackend::produce_glyph` and `finish_row` implemented. Glyphs accumulate in `pending_glyphs`; `finish_row` flushes them into the row's text area. 9 new unit tests. **Dormant** — no wire-up to existing callers yet. This is the piece Step 3.4's walker will emit into. |
+| 2026-04-11 | **3.4 (wire-up minibuf)** | `1cf7cb383` | New `render_minibuffer_echo_via_backend` on `LayoutEngine` replaces the `render_rust_status_line_plain` call at the echo path. Glyphs flow: `display_text_plain_via_backend` → `TtyDisplayBackend::produce_glyph` → bridge via `push_status_line_char`/`push_status_line_stretch`. Also fixes `TtyDisplayBackend::produce_glyph` to honor `face.id` rather than hardcoding 0 (needed for 3.5 multi-face mode-line). Adds `display_text_plain_via_backend` helper + 5 new tests. |
+| 2026-04-11 | **3.4b (tab-bar)** | `ba9b584d2` | Replaces the `render_rust_status_line_plain(... None)` call in `render_frame_tab_bar_rust` with a `TtyDisplayBackend`-based no-op that drops the produced rows on the floor. Preserves the previous no-op behavior exactly (the tab-bar test failure `layout_frame_rust_renders_tab_bar_text_from_lisp_tab_bar_keymap` is pre-existing and belongs to a separate cleanup pass). Removes another caller of `status_line.rs`. |
+| 2026-04-11 | **3.5** | `60c9aca1e` | Adds `render_status_line_spec_via_backend` (backend-routed twin of `render_status_line_spec`) and `render_rust_status_line_value_via_backend` entry point. Switches the three value-path callers — mode-line (`engine.rs:4519` area), header-line (`:4559`), tab-line (`:4600`) — to the new path. Glyphs traverse `DisplayBackend::produce_glyph` before being bridged back via `push_status_line_char`/`push_status_line_stretch`. Preserves Step 3.3′ behavior bit-for-bit: align-to gaps emit N individual space glyphs, display-prop stretch entries advance `sl_x_offset` silently, face runs rebuild `current_render_face` on each transition. Byte-equivalent pty snapshot (2008 printable chars, `DOOM v3.0.0-pre` still right-aligned). |
+| 2026-04-11 | **3.6** | `bf515ad25` | Deletes 453 lines from `status_line.rs`: the legacy `render_rust_status_line_plain`, `render_rust_status_line_value`, `render_status_line_spec` (original), and `render_text_run` methods, plus their four tests. After Steps 3.4 and 3.5, none of these had remaining callers. **What is truly gone:** the divergent "builder-direct emission" path that was the root of the display-engine unification problem. **What is deferred:** the physical file rename `status_line.rs` → `display_status_line.rs` (pure mechanical movement, no behavior change). The remaining ~1200 lines of `status_line.rs` still house the property harvester, face realizer, spec/face types, and the new `_via_backend` walker. |
 
-**Session total:** 7 commits, ~2200 lines added / 38 removed, 44 new tests (all passing), 0 new regressions. The pre-existing 9 layout-engine test failures remain pre-existing.
+**Session total (Apr 11, 2026):** 12 commits (7 prior + 5 this session), ~2800 lines added / 497 removed, 49 new tests (all passing), 0 new regressions. Baseline remains 9 pre-existing layout-engine test failures.
+
+## What's left
+
+After this session:
+- **Physical file rename** `status_line.rs` → `display_status_line.rs` (or similar). Pure mechanical movement. Not strictly required for the unification goal; the file contents are now architecturally correct even if the filename doesn't reflect that.
+- **Bridge elimination.** The `_via_backend` walkers still bridge their produced glyphs back to `matrix_builder` via `push_status_line_char` / `push_status_line_stretch`. A future commit could add `install_status_line_row_glyphs(Vec<Glyph>)` on `GlyphMatrixBuilder` to install the backend's complete row wholesale, then delete the per-glyph push APIs. This would formalize the backend as the sole glyph producer.
+- **Step 4 (`GuiDisplayBackend`).** Implement the trait for the GUI side, delete the `use_cosmic_metrics` flag. Separate session.
+- **Pre-existing test failures** (9 total). Unrelated to display-engine unification. Separate cleanup pass.
 
 ## Significant plan divergence: Step 3.3 → Step 3.3′
 
