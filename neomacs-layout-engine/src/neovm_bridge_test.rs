@@ -110,6 +110,11 @@ fn test_window_params_from_neovm_internal_returns_none() {
         bounds: NeoRect::new(0.0, 0.0, 100.0, 100.0),
         parameters: Vec::new(),
         combination_limit: false,
+        new_pixel: None,
+        new_total: None,
+        new_normal: Value::NIL,
+        normal_lines: Value::NIL,
+        normal_cols: Value::NIL,
     };
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
     let frame = evaluator.frame_manager().get(frame_id).unwrap();
@@ -444,7 +449,7 @@ fn test_rust_buffer_access_metadata() {
         buf.zv = buf.text.len();
         buf.zv_char = buf.text.char_count();
         buf.modified = true;
-        buf.file_name = Some("/tmp/test.el".to_string());
+        buf.set_file_name_value(Some("/tmp/test.el".to_string()));
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();

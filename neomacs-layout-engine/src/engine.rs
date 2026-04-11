@@ -6756,6 +6756,7 @@ mod tests {
             "mode-line-format",
             selected_window.0 as i64,
             buf_id.0,
+            80,
         )
         .expect("mode-line text");
 

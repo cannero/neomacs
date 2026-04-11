@@ -826,6 +826,7 @@ mod tests {
         let fp = FrameParams {
             width: 1920.0,
             height: 1080.0,
+            menu_bar_height: 0.0,
             tab_bar_height: 0.0,
             char_width: 8.0,
             char_height: 16.0,
@@ -853,6 +854,7 @@ mod tests {
         let fp = FrameParams {
             width: 800.0,
             height: 600.0,
+            menu_bar_height: 0.0,
             tab_bar_height: 0.0,
             char_width: 7.0,
             char_height: 14.0,
@@ -874,6 +876,7 @@ mod tests {
         let fp = FrameParams {
             width: 1024.0,
             height: 768.0,
+            menu_bar_height: 0.0,
             tab_bar_height: 0.0,
             char_width: 9.0,
             char_height: 18.0,
@@ -898,6 +901,7 @@ mod tests {
         let fp = FrameParams {
             width: 800.0,
             height: 600.0,
+            menu_bar_height: 0.0,
             tab_bar_height: 0.0,
             char_width: 8.0,
             char_height: 16.0,
