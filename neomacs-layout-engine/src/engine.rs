@@ -4685,21 +4685,13 @@ impl LayoutEngine {
 
 impl LayoutEngine {
     /// Resolve the character width used by the Rust-native status-line path.
-    /// Step 3.4 wire-up: minibuffer echo through `TtyDisplayBackend`.
+    /// Minibuffer echo rendered through `TtyDisplayBackend`.
     ///
-    /// Replaces the previous call to `render_rust_status_line_plain`
-    /// for the echo-message path. Realizes the default face, begins a
-    /// minibuffer status-line row in the builder, routes the plain
-    /// echo text through a `TtyDisplayBackend` via
-    /// `display_text_plain_via_backend`, then bridges the resulting
-    /// glyph row back into the matrix builder via
-    /// `push_status_line_char` / `push_status_line_stretch`.
-    ///
-    /// The bridging step is intentional ugliness — it exists so this
-    /// commit is a pure refactor with no visible-output change. Step
-    /// 3.6 will delete `status_line.rs` and the matrix-builder
-    /// `push_status_line_*` helpers, at which point the glyphs will
-    /// flow directly from the backend into whatever replaces them.
+    /// Realizes the default face, begins a minibuffer status-line
+    /// row in the builder, routes the plain echo text through a
+    /// `TtyDisplayBackend` via `display_text_plain_via_backend`,
+    /// then installs the completed glyph row into the matrix
+    /// builder via `install_status_line_row_glyphs`.
     pub(crate) fn render_minibuffer_echo_via_backend(
         &mut self,
         text_width: f32,
@@ -4714,7 +4706,7 @@ impl LayoutEngine {
             DisplayBackend, TtyDisplayBackend, display_text_plain_via_backend,
         };
         use neomacs_display_protocol::frame_glyphs::GlyphRowRole;
-        use neomacs_display_protocol::glyph_matrix::{GlyphRow, GlyphType};
+        use neomacs_display_protocol::glyph_matrix::GlyphRow;
 
         // Realize the face and insert it into the builder so face ids
         // resolve at rasterization time. The face id 0 matches the
@@ -4747,21 +4739,13 @@ impl LayoutEngine {
         flush_row.mode_line = true;
         backend.finish_row(flush_row);
 
-        // Bridge produced glyphs back into the matrix builder so
-        // downstream rasterization picks them up. This conversion is
-        // temporary; Step 3.6 will delete the matrix_builder side.
-        for row in backend.take_rows() {
-            for glyph in &row.glyphs[1] {
-                match glyph.glyph_type {
-                    GlyphType::Char { ch } => {
-                        builder.push_status_line_char(ch, glyph.face_id);
-                    }
-                    GlyphType::Stretch { width_cols } => {
-                        builder.push_status_line_stretch(width_cols, glyph.face_id);
-                    }
-                    _ => {}
-                }
-            }
+        // Install the completed row's text-area glyphs into the
+        // builder's current status-line row wholesale. The backend
+        // is now the sole producer of status-line glyphs for the
+        // TTY path.
+        for mut row in backend.take_rows() {
+            let text_glyphs = std::mem::take(&mut row.glyphs[1]);
+            builder.install_status_line_row_glyphs(text_glyphs);
         }
     }
 

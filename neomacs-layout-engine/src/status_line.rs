@@ -592,7 +592,7 @@ impl LayoutEngine {
         mut builder: Option<&mut crate::matrix_builder::GlyphMatrixBuilder>,
     ) {
         use crate::display_backend::{DisplayBackend, GlyphKind, TtyDisplayBackend};
-        use neomacs_display_protocol::glyph_matrix::{GlyphRow, GlyphType};
+        use neomacs_display_protocol::glyph_matrix::GlyphRow;
 
         // Face registration on the matrix builder runs on the same
         // schedule as the old path so the builder's face cache has
@@ -773,26 +773,17 @@ impl LayoutEngine {
             byte_idx = end_byte;
         }
 
-        // Flush the row through the backend and bridge produced
-        // glyphs back into the caller's matrix builder.
+        // Flush the row through the backend and install the
+        // produced text-area glyphs into the caller's matrix
+        // builder wholesale. The backend is the sole producer.
         let mut flush_row = GlyphRow::new(spec.kind.row_role());
         flush_row.enabled = true;
         flush_row.mode_line = true;
         backend.finish_row(flush_row);
-        let produced = backend.take_rows();
         if let Some(ref mut b) = builder {
-            for row in &produced {
-                for glyph in &row.glyphs[1] {
-                    match glyph.glyph_type {
-                        GlyphType::Char { ch } => {
-                            b.push_status_line_char(ch, glyph.face_id);
-                        }
-                        GlyphType::Stretch { width_cols } => {
-                            b.push_status_line_stretch(width_cols, glyph.face_id);
-                        }
-                        _ => {}
-                    }
-                }
+            for mut row in backend.take_rows() {
+                let text_glyphs = std::mem::take(&mut row.glyphs[1]);
+                b.install_status_line_row_glyphs(text_glyphs);
             }
         }
     }

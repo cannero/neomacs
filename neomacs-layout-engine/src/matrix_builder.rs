@@ -493,38 +493,24 @@ impl GlyphMatrixBuilder {
         true
     }
 
-    /// Push a single character glyph into the current (last) status-line row
-    /// of the most recently stored window.
+    /// Install a complete set of text-area glyphs into the current
+    /// (last) status-line row of the most recently stored window.
+    ///
+    /// This is the post-Step-3.6 replacement for the old per-glyph
+    /// `push_status_line_char` / `push_status_line_stretch` helpers.
+    /// The `_via_backend` walkers in `status_line.rs` accumulate
+    /// their glyphs inside a `TtyDisplayBackend`; on flush, the
+    /// completed row's text-area `Vec<Glyph>` is installed here
+    /// wholesale, which formalizes `TtyDisplayBackend` as the sole
+    /// producer of status-line glyphs in the TTY path.
     ///
     /// Must be called after `begin_status_line_row`.
-    pub fn push_status_line_char(&mut self, ch: char, face_id: u32) {
+    pub fn install_status_line_row_glyphs(&mut self, glyphs: Vec<Glyph>) {
         let Some(entry) = self.windows.last_mut() else {
             return;
         };
         if let Some(row) = entry.matrix.rows.last_mut() {
-            row.glyphs[GlyphArea::Text as usize].push(Glyph::char(ch, face_id, 0));
-        }
-    }
-
-    /// Push a stretch glyph into the last status-line row of the most
-    /// recently closed window. Mirrors `push_status_line_char` but
-    /// emits a stretch (filler) glyph of `width_cols` cells using the
-    /// given face — used by the status-line render loop when a
-    /// `(space :align-to …)` display spec forces the walker to jump
-    /// forward; the gap between the current position and the jump
-    /// target is filled with a stretch glyph so that subsequent chars
-    /// appear at the correct column in the final output.
-    ///
-    /// Mirrors GNU's `produce_stretch_glyph` (xdisp.c:32510) in the
-    /// sense that a stretch glyph encodes "empty space of N cells"
-    /// without any rasterized bitmap.
-    pub fn push_status_line_stretch(&mut self, width_cols: u16, face_id: u32) {
-        let Some(entry) = self.windows.last_mut() else {
-            return;
-        };
-        if let Some(row) = entry.matrix.rows.last_mut() {
-            row.glyphs[GlyphArea::Text as usize]
-                .push(Glyph::stretch(width_cols, face_id));
+            row.glyphs[GlyphArea::Text as usize] = glyphs;
         }
     }
 

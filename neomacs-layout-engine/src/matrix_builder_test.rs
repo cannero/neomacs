@@ -127,7 +127,7 @@ fn builder_resets_on_new_frame() {
 }
 
 #[test]
-fn builder_captures_status_line_chars_directly() {
+fn builder_installs_status_line_row_glyphs_wholesale() {
     let mut builder = GlyphMatrixBuilder::new();
     builder.begin_window(1, 3, 80, Rect::new(0.0, 0.0, 640.0, 48.0), true);
     builder.begin_row(0, GlyphRowRole::Text);
@@ -135,11 +135,16 @@ fn builder_captures_status_line_chars_directly() {
     builder.end_row();
     builder.end_window();
 
-    // Push status-line characters directly
+    // Install a complete set of text-area glyphs (the post-
+    // Step-3.6 replacement for the old per-glyph
+    // push_status_line_char API).
     builder.begin_status_line_row(GlyphRowRole::ModeLine);
-    builder.push_status_line_char('-', 5);
-    builder.push_status_line_char('U', 5);
-    builder.push_status_line_char(':', 5);
+    let glyphs = vec![
+        Glyph::char('-', 5, 0),
+        Glyph::char('U', 5, 0),
+        Glyph::char(':', 5, 0),
+    ];
+    builder.install_status_line_row_glyphs(glyphs);
 
     let state = builder.finish(80, 3, 8.0, 16.0);
     let matrix = &state.window_matrices[0].matrix;
@@ -180,7 +185,9 @@ fn builder_status_line_no_window_is_noop() {
     let mut builder = GlyphMatrixBuilder::new();
     // No window started — should not panic
     assert!(!builder.begin_status_line_row(GlyphRowRole::ModeLine));
-    builder.push_status_line_char('x', 0); // should be a no-op too
+    // install_status_line_row_glyphs is also a no-op when no
+    // window is pushed.
+    builder.install_status_line_row_glyphs(vec![Glyph::char('x', 0, 0)]);
     let state = builder.finish(80, 24, 8.0, 16.0);
     assert!(state.window_matrices.is_empty());
 }
