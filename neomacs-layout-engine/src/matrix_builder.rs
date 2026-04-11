@@ -506,6 +506,28 @@ impl GlyphMatrixBuilder {
         }
     }
 
+    /// Push a stretch glyph into the last status-line row of the most
+    /// recently closed window. Mirrors `push_status_line_char` but
+    /// emits a stretch (filler) glyph of `width_cols` cells using the
+    /// given face — used by the status-line render loop when a
+    /// `(space :align-to …)` display spec forces the walker to jump
+    /// forward; the gap between the current position and the jump
+    /// target is filled with a stretch glyph so that subsequent chars
+    /// appear at the correct column in the final output.
+    ///
+    /// Mirrors GNU's `produce_stretch_glyph` (xdisp.c:32510) in the
+    /// sense that a stretch glyph encodes "empty space of N cells"
+    /// without any rasterized bitmap.
+    pub fn push_status_line_stretch(&mut self, width_cols: u16, face_id: u32) {
+        let Some(entry) = self.windows.last_mut() else {
+            return;
+        };
+        if let Some(row) = entry.matrix.rows.last_mut() {
+            row.glyphs[GlyphArea::Text as usize]
+                .push(Glyph::stretch(width_cols, face_id));
+        }
+    }
+
     /// Patch the last-closed window matrix so its rightmost
     /// column shows a vertical-border glyph on every enabled row.
     ///

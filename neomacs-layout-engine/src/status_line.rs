@@ -650,11 +650,47 @@ impl LayoutEngine {
 
         while byte_idx < spec.text.len() && sl_x_offset < spec.width {
             // --- Handle align-to entries ---
+            //
+            // The align-to jump advances the local sl_x_offset counter
+            // and also emits a stretch glyph of the gap width into the
+            // matrix builder. Without the stretch glyph, the matrix
+            // builder would append subsequent chars directly after the
+            // LHS content (sequentially), ignoring the logical jump —
+            // the matrix builder is positionless.
+            //
+            // GNU's produce_stretch_glyph at xdisp.c:32510 emits a
+            // stretch glyph into the glyph row; the same approach works
+            // here since GlyphMatrixBuilder::push_stretch inserts a
+            // stretch glyph with the given column count into the
+            // current row's text area. Mirrors the GNU behavior.
             if align_idx < spec.align_entries.len()
                 && byte_idx == spec.align_entries[align_idx].byte_offset as usize
             {
                 let target_x = spec.align_entries[align_idx].align_to_px;
                 if target_x > sl_x_offset {
+                    let gap = target_x - sl_x_offset;
+                    let cols = (gap / spec.char_width.max(1.0)).round() as usize;
+                    // Emit `cols` individual space glyphs to fill the
+                    // gap. The matrix builder is positionless, and
+                    // TtyRif's `glyph_to_char` renders a `Stretch`
+                    // glyph as a SINGLE space regardless of its
+                    // `width_cols` field (tty_rif.rs:563), so pushing
+                    // one stretch glyph would not visibly reserve the
+                    // gap. Pushing individual space chars advances the
+                    // output grid by one cell each, which is what we
+                    // actually need for TTY output.
+                    //
+                    // GUI paths should use a single stretch glyph
+                    // instead once neomacs-display-runtime's rasterizer
+                    // honors width_cols; at that point this will be
+                    // branched on the active DisplayBackend kind.
+                    if cols > 0 {
+                        if let Some(ref mut b) = builder {
+                            for _ in 0..cols {
+                                b.push_status_line_char(' ', spec.face.face_id);
+                            }
+                        }
+                    }
                     sl_x_offset = target_x;
                 }
                 align_idx += 1;
@@ -663,13 +699,23 @@ impl LayoutEngine {
                 continue;
             }
 
-            // --- Handle display properties (images) ---
+            // --- Handle display properties (images and stretch) ---
+            //
+            // Two cases:
+            // 1. Images: gpu_id != 0 && width > 0 && height > 0.
+            //    Advance by the image's pixel width.
+            // 2. Stretch: gpu_id == 0 && width > 0. These come from
+            //    (space :width N) display specs harvested in
+            //    build_rust_status_line_spec; they advance x by the
+            //    evaluated pixel width with no rasterization. Match
+            //    GNU's produce_stretch_glyph (xdisp.c:32510) which
+            //    treats stretch glyphs as pure space-advance with no
+            //    bitmap output.
             if dp_idx < spec.display_props.len() {
                 let dp = &spec.display_props[dp_idx];
                 if byte_idx == dp.byte_offset as usize {
-                    if dp.gpu_id != 0 && dp.width > 0 && dp.height > 0 {
-                        let img_w = dp.width as f32;
-                        sl_x_offset += img_w;
+                    if dp.width > 0 {
+                        sl_x_offset += dp.width as f32;
                     }
                     byte_idx = (dp.byte_offset + dp.covers_bytes) as usize;
                     dp_idx += 1;
@@ -849,6 +895,142 @@ impl LayoutEngine {
             }
             current_face = resolved;
         }
+
+        // ----- Display property harvesting for (space :width N) and
+        // (space :align-to E) -----
+        //
+        // Mirrors GNU's handle_display_prop → produce_stretch_glyph
+        // chain (xdisp.c:5858 → 32510): when the walker encounters a
+        // string byte whose `display` text property is a `(space …)`
+        // spec, it emits a stretch glyph of the evaluated width/
+        // position. For neomacs, we evaluate the spec here at harvest
+        // time and feed the result into the existing align_entries /
+        // display_props buffers that the render loop already knows
+        // how to consume (status_line.rs:651+).
+        //
+        // The older harvester at lines 803-812 intentionally only
+        // scanned for `face` and `font-lock-face` — `display` was
+        // silently dropped, which caused doom-modeline's
+        // `(space :align-to (- right rhs-width))` to collapse to zero
+        // width and the mode-line to render without right-aligned
+        // content. Step 2 of the unification plan landed the
+        // calc_pixel_width_or_height port; this harvester extension
+        // is what actually wires it into the mode-line path.
+        //
+        // Coordinate system: the align_entries/display_props fields
+        // on StatusLineSpec use status-line-local pixel offsets
+        // (0 = left edge of the status line). We build a
+        // PixelCalcContext where `text_area_*` reflect the status
+        // line's own width, so a form like `(- right 200)` resolves
+        // to `spec.width - 200` in the same coordinate system.
+        use crate::display_pixel_calc::{
+            PixelCalcContext, calc_pixel_width_or_height,
+        };
+        let pctx = PixelCalcContext {
+            frame_column_width: char_width as f64,
+            frame_line_height: height as f64,
+            frame_res_x: 96.0,
+            frame_res_y: 96.0,
+            face_font_height: height as f64,
+            face_font_width: char_width as f64,
+            text_area_left: 0.0,
+            text_area_right: width as f64,
+            text_area_width: width as f64,
+            left_margin_left: 0.0,
+            left_margin_width: 0.0,
+            right_margin_left: width as f64,
+            right_margin_width: 0.0,
+            left_fringe_width: 0.0,
+            right_fringe_width: 0.0,
+            fringes_outside_margins: false,
+            scroll_bar_width: 0.0,
+            scroll_bar_on_left: false,
+            line_number_pixel_width: 0.0,
+        };
+
+        for interval in props.intervals_snapshot() {
+            let Some(disp_prop) = interval.properties.get("display") else {
+                continue;
+            };
+            // Only handle (space …) specs here. Other display values
+            // (strings, images, margin specs) follow their own paths
+            // that status_line.rs does not yet support; they remain
+            // TODO for future commits.
+            if !disp_prop.is_cons() {
+                continue;
+            }
+            if !disp_prop.cons_car().is_symbol_named("space") {
+                continue;
+            }
+            let Some(items) =
+                neovm_core::emacs_core::value::list_to_vec(disp_prop)
+            else {
+                continue;
+            };
+            // items[0] = 'space; walk the keyword-value plist.
+            let mut i = 1usize;
+            let mut done = false;
+            while i + 1 < items.len() && !done {
+                let key = items[i];
+                let val = items[i + 1];
+                if key.is_symbol_named(":width") {
+                    if let Some(pixels) =
+                        calc_pixel_width_or_height(&pctx, &val, true, None)
+                    {
+                        let byte_offset = (interval.start as u16)
+                            .min(spec.text.len().saturating_sub(1) as u16);
+                        spec.display_props.push(DisplayPropRecord {
+                            byte_offset,
+                            covers_bytes: interval.end.saturating_sub(interval.start)
+                                as u16,
+                            gpu_id: 0,
+                            width: (pixels as u16).max(0),
+                            height: 0,
+                            ascent: 0,
+                        });
+                        done = true;
+                    }
+                } else if key.is_symbol_named(":align-to") {
+                    let mut align_to: i32 = -1;
+                    if let Some(pixels) = calc_pixel_width_or_height(
+                        &pctx,
+                        &val,
+                        true,
+                        Some(&mut align_to),
+                    ) {
+                        // See the buffer-text analogue in
+                        // engine.rs::eval_display_space_as_width for
+                        // the same shape of post-processing: if the
+                        // expression contained a window-box symbol
+                        // (`right`, `text`, …) it resolved a base
+                        // position and `pixels` is the offset from it;
+                        // otherwise `pixels` is a column-relative
+                        // offset and the caller adds content_x. For
+                        // status-line-local coordinates, content_x is
+                        // 0.
+                        let target_x = if align_to >= 0 {
+                            align_to as f32 + pixels as f32
+                        } else {
+                            pixels as f32
+                        };
+                        let byte_offset = (interval.start as u16)
+                            .min(spec.text.len().saturating_sub(1) as u16);
+                        spec.align_entries.push(OverlayAlignEntry {
+                            byte_offset,
+                            align_to_px: target_x,
+                        });
+                        done = true;
+                    }
+                }
+                i += 2;
+            }
+        }
+
+        // The render loop expects align_entries and display_props
+        // sorted by byte_offset so its single-pass walker can advance
+        // through them in order.
+        spec.align_entries.sort_by_key(|e| e.byte_offset);
+        spec.display_props.sort_by_key(|d| d.byte_offset);
 
         Some(spec)
     }
