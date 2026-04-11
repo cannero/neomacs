@@ -795,6 +795,277 @@ impl LayoutEngine {
         }
     }
 
+    /// Step 3.5: backend-routed twin of `render_status_line_spec`.
+    ///
+    /// Walks a pre-built `StatusLineSpec` the same way
+    /// `render_status_line_spec` does, but emits every character and
+    /// stretch glyph through a `TtyDisplayBackend` before bridging
+    /// the produced `GlyphRow` back into the caller's
+    /// `GlyphMatrixBuilder` via `push_status_line_char` /
+    /// `push_status_line_stretch`.
+    ///
+    /// The bridging step is intentional architectural scaffolding:
+    /// the glyphs traverse the `DisplayBackend::produce_glyph` call
+    /// (exercising the trait-object boundary that GNU's `RIF`
+    /// abstracts), and the bridge feeds them into the matrix
+    /// builder in the same shape the old path produced. Step 3.6
+    /// will delete `push_status_line_*` and have the backend feed
+    /// the frame matrix directly.
+    ///
+    /// Preserves every 3.3′ behavior bit-for-bit: align-to gaps
+    /// emit `N` individual space glyphs (matching `TtyRif::glyph_to_char`
+    /// which renders a `Stretch` glyph as a single cell regardless of
+    /// `width_cols`), display-property stretch entries advance
+    /// `sl_x_offset` without producing a visible glyph, face runs
+    /// update `active_run_face` exactly as before.
+    pub(crate) fn render_status_line_spec_via_backend(
+        &mut self,
+        spec: &StatusLineSpec,
+        mut builder: Option<&mut crate::matrix_builder::GlyphMatrixBuilder>,
+    ) {
+        use crate::display_backend::{DisplayBackend, GlyphKind, TtyDisplayBackend};
+        use neomacs_display_protocol::glyph_matrix::{GlyphRow, GlyphType};
+
+        // Face registration on the matrix builder runs on the same
+        // schedule as the old path so the builder's face cache has
+        // the right entries when rasterization resolves face ids.
+        if let Some(ref mut b) = builder {
+            b.begin_status_line_row(spec.kind.row_role());
+        }
+
+        {
+            let rendered = spec.face.render_face();
+            if let Some(ref mut b) = builder {
+                b.insert_face(spec.face.face_id, rendered);
+            }
+        }
+
+        if spec.text.is_empty() {
+            return;
+        }
+
+        // The backend collects all character / stretch glyphs for
+        // the row. Face ids are set on each produced glyph via the
+        // TtyDisplayBackend::produce_glyph path (which now honors
+        // `face.id` after the Step 3.4 fix), so no per-glyph face id
+        // bookkeeping is needed outside the backend.
+        let mut backend = TtyDisplayBackend::new();
+        // The backend Face we feed into produce_glyph — rebuilt on
+        // each face change so that `face.id` on the produced glyph
+        // matches the active run face.
+        let mut current_render_face = spec.face.render_face();
+
+        let mut sl_x_offset = 0.0f32;
+        let mut byte_idx = 0usize;
+        let mut current_run = 0usize;
+        let mut dp_idx = 0usize;
+        let mut align_idx = 0usize;
+        let mut active_run_face: Option<StatusLineFace> = None;
+
+        // Text-geometry fields mirror the original; they are unused
+        // for glyph emission (the backend produces cell glyphs with
+        // no per-glyph y coordinate) but computed here so future
+        // GUI backends can receive them through the same walker.
+        let _ascent = if spec.face.font_ascent > 0.0 {
+            spec.face.font_ascent
+        } else {
+            spec.ascent
+        };
+        let _inset = if spec.face.box_h_line_width > 0 {
+            spec.face.box_h_line_width as f32
+        } else {
+            0.0
+        };
+
+        while byte_idx < spec.text.len() && sl_x_offset < spec.width {
+            // --- align-to entries ---
+            if align_idx < spec.align_entries.len()
+                && byte_idx == spec.align_entries[align_idx].byte_offset as usize
+            {
+                let target_x = spec.align_entries[align_idx].align_to_px;
+                if target_x > sl_x_offset {
+                    let gap = target_x - sl_x_offset;
+                    let cols = (gap / spec.char_width.max(1.0)).round() as usize;
+                    // Emit `cols` individual space glyphs via the
+                    // backend. The TtyDisplayBackend then materializes
+                    // them as Char(' ') glyphs, matching the 3.3′
+                    // workaround for TtyRif::glyph_to_char's
+                    // single-cell Stretch rendering.
+                    for _ in 0..cols {
+                        backend.produce_glyph(
+                            GlyphKind::Char(' '),
+                            &current_render_face,
+                            0,
+                        );
+                    }
+                    sl_x_offset = target_x;
+                }
+                align_idx += 1;
+                let (_ch, ch_len) = decode_utf8(&spec.text[byte_idx..]);
+                byte_idx += ch_len;
+                continue;
+            }
+
+            // --- display-prop entries (stretch / image) ---
+            if dp_idx < spec.display_props.len() {
+                let dp = &spec.display_props[dp_idx];
+                if byte_idx == dp.byte_offset as usize {
+                    if dp.width > 0 {
+                        sl_x_offset += dp.width as f32;
+                    }
+                    byte_idx = (dp.byte_offset + dp.covers_bytes) as usize;
+                    dp_idx += 1;
+                    continue;
+                }
+            }
+
+            // --- resolve face for current run ---
+            if current_run < spec.face_runs.len() {
+                while current_run + 1 < spec.face_runs.len()
+                    && byte_idx >= spec.face_runs[current_run + 1].byte_offset as usize
+                {
+                    current_run += 1;
+                }
+                if byte_idx >= spec.face_runs[current_run].byte_offset as usize {
+                    let run = &spec.face_runs[current_run];
+                    if run.fg != 0 || run.bg != 0 {
+                        if let Some(run_face) = spec.run_faces.get(&run.face_id) {
+                            if let Some(ref mut b) = builder {
+                                b.insert_face(run_face.face_id, run_face.render_face());
+                            }
+                            current_render_face = run_face.render_face();
+                            active_run_face = Some(run_face.clone());
+                        } else if run.face_id != 0 {
+                            let rf = spec.face.with_color_override(
+                                run.face_id,
+                                Some(Color::from_pixel(run.fg)),
+                                Some(Color::from_pixel(run.bg)),
+                            );
+                            if let Some(ref mut b) = builder {
+                                b.insert_face(run.face_id, rf.render_face());
+                            }
+                            current_render_face = rf.render_face();
+                            active_run_face = Some(rf);
+                        } else {
+                            current_render_face = spec.face.render_face();
+                            active_run_face = None;
+                        }
+                    }
+                }
+            }
+
+            // --- compute end of current text segment ---
+            let mut end_byte = spec.text.len();
+            if align_idx < spec.align_entries.len() {
+                end_byte = end_byte.min(spec.align_entries[align_idx].byte_offset as usize);
+            }
+            if dp_idx < spec.display_props.len() {
+                end_byte = end_byte.min(spec.display_props[dp_idx].byte_offset as usize);
+            }
+            if current_run < spec.face_runs.len() {
+                let current_run_offset = spec.face_runs[current_run].byte_offset as usize;
+                if byte_idx < current_run_offset {
+                    end_byte = end_byte.min(current_run_offset);
+                } else if current_run + 1 < spec.face_runs.len() {
+                    end_byte = end_byte.min(spec.face_runs[current_run + 1].byte_offset as usize);
+                }
+            }
+            end_byte = end_byte.max(byte_idx);
+
+            // --- emit text run through the backend ---
+            //
+            // Walks the text slice char-by-char, measuring via the
+            // backend's own char_advance and stopping when the
+            // remaining width is exhausted. Mirrors the inner loop of
+            // `render_text_run` for the backend path.
+            let effective_face = active_run_face.as_ref().unwrap_or(&spec.face);
+            let fallback_width = spec.char_width.max(1.0);
+            let mut run_offset = 0usize;
+            let mut run_advance = 0.0f32;
+            while run_offset < (end_byte - byte_idx)
+                && sl_x_offset + run_advance < spec.width
+            {
+                let (ch, ch_len) = decode_utf8(&spec.text[byte_idx + run_offset..end_byte]);
+                run_offset += ch_len;
+                if ch == '\n' || ch == '\r' {
+                    continue;
+                }
+                let advance = unsafe {
+                    self.status_line_advance(
+                        &spec.advance_mode,
+                        effective_face,
+                        fallback_width,
+                        ch,
+                    )
+                };
+                backend.produce_glyph(GlyphKind::Char(ch), &current_render_face, 0);
+                run_advance += advance;
+            }
+            sl_x_offset += run_advance;
+            byte_idx = end_byte;
+        }
+
+        // Flush the row through the backend and bridge produced
+        // glyphs back into the caller's matrix builder.
+        let mut flush_row = GlyphRow::new(spec.kind.row_role());
+        flush_row.enabled = true;
+        flush_row.mode_line = true;
+        backend.finish_row(flush_row);
+        let produced = backend.take_rows();
+        if let Some(ref mut b) = builder {
+            for row in &produced {
+                for glyph in &row.glyphs[1] {
+                    match glyph.glyph_type {
+                        GlyphType::Char { ch } => {
+                            b.push_status_line_char(ch, glyph.face_id);
+                        }
+                        GlyphType::Stretch { width_cols } => {
+                            b.push_status_line_stretch(width_cols, glyph.face_id);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    /// Step 3.5 entry point: equivalent to `render_rust_status_line_value`
+    /// but routes glyph emission through `TtyDisplayBackend` via
+    /// `render_status_line_spec_via_backend`.
+    pub(crate) fn render_rust_status_line_value_via_backend(
+        &mut self,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        window_id: i64,
+        char_w: f32,
+        ascent: f32,
+        next_face_id: &mut u32,
+        face: &ResolvedFace,
+        rendered: Value,
+        face_resolver: &FaceResolver,
+        kind: StatusLineKind,
+        builder: Option<&mut crate::matrix_builder::GlyphMatrixBuilder>,
+    ) {
+        if let Some(spec) = self.build_rust_status_line_spec(
+            x,
+            y,
+            width,
+            height,
+            window_id,
+            char_w,
+            ascent,
+            next_face_id,
+            face,
+            rendered,
+            face_resolver,
+            kind,
+        ) {
+            self.render_status_line_spec_via_backend(&spec, builder);
+        }
+    }
+
     fn resolved_status_line_face_at_string_byte(
         face_resolver: &FaceResolver,
         base_face: &ResolvedFace,
@@ -815,7 +1086,7 @@ impl LayoutEngine {
         face
     }
 
-    fn build_rust_status_line_spec(
+    pub(crate) fn build_rust_status_line_spec(
         &mut self,
         x: f32,
         y: f32,

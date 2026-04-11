@@ -4511,7 +4511,7 @@ impl LayoutEngine {
                 &mut self.matrix_builder,
                 crate::matrix_builder::GlyphMatrixBuilder::new(),
             );
-            self.render_rust_status_line_value(
+            self.render_rust_status_line_value_via_backend(
                 params.bounds.x,
                 ml_y,
                 params.bounds.width,
@@ -4551,7 +4551,7 @@ impl LayoutEngine {
                 &mut self.matrix_builder,
                 crate::matrix_builder::GlyphMatrixBuilder::new(),
             );
-            self.render_rust_status_line_value(
+            self.render_rust_status_line_value_via_backend(
                 params.bounds.x,
                 hl_y,
                 params.bounds.width,
@@ -4592,7 +4592,7 @@ impl LayoutEngine {
                 &mut self.matrix_builder,
                 crate::matrix_builder::GlyphMatrixBuilder::new(),
             );
-            self.render_rust_status_line_value(
+            self.render_rust_status_line_value_via_backend(
                 params.bounds.x,
                 tl_y,
                 params.bounds.width,
