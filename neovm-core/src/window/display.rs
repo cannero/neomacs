@@ -326,6 +326,28 @@ impl FrameManager {
         }
     }
 
+    /// Return whether WINDOW-ID's cursor is logically visible.
+    pub fn window_cursor_visible(&self, window_id: WindowId) -> bool {
+        self.window_display_state(window_id)
+            .map(|(_, display, _)| !display.cursor_off_p)
+            .unwrap_or(true)
+    }
+
+    /// Set whether WINDOW-ID's cursor is logically visible.
+    ///
+    /// This mirrors GNU's `w->cursor_off_p`: redisplay may continue to own a
+    /// physical cursor geometry while Lisp has requested that it stay hidden.
+    pub fn set_window_cursor_visible(&mut self, window_id: WindowId, visible: bool) {
+        if let Some((frame_id, _)) = self.window_display_location(window_id)
+            && let Some(display) = self
+                .get_mut(frame_id)
+                .and_then(|frame| frame.find_window_mut(window_id))
+                .and_then(Window::display_mut)
+        {
+            display.cursor_off_p = !visible;
+        }
+    }
+
     /// Return the effective fringe widths and raw flags for WINDOW-ID.
     pub fn window_fringes(&self, window_id: WindowId) -> Option<(i64, i64, bool, bool)> {
         let (frame, display, _) = self.window_display_state(window_id)?;

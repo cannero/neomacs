@@ -2113,6 +2113,58 @@ fn window_cursor_info_returns_last_redisplay_cursor_geometry() {
 }
 
 #[test]
+fn window_cursor_info_hides_and_restores_live_cursor_geometry() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buf);
+    let fid = ev.frames.create_frame("F1", 800, 600, buf);
+    let wid = ev.frames.get(fid).expect("frame").selected_window;
+
+    ev.frames.set_window_cursor_type(wid, Value::symbol("bar"));
+    {
+        let frame = ev.frames.get_mut(fid).expect("frame");
+        frame.replace_display_snapshots(vec![crate::window::WindowDisplaySnapshot {
+            window_id: wid,
+            cursor: Some(crate::window::WindowCursorSnapshot {
+                x: 11,
+                y: 29,
+                width: 3,
+                height: 16,
+                ascent: 12,
+                row: 1,
+                col: 4,
+            }),
+            ..crate::window::WindowDisplaySnapshot::default()
+        }]);
+    }
+
+    crate::emacs_core::dispnew::pure::builtin_internal_show_cursor(
+        &mut ev,
+        vec![Value::NIL, Value::NIL],
+    )
+    .expect("hide cursor");
+    assert_eq!(
+        super::builtin_window_cursor_info(&mut ev, vec![]).expect("window-cursor-info"),
+        Value::NIL
+    );
+
+    crate::emacs_core::dispnew::pure::builtin_internal_show_cursor(
+        &mut ev,
+        vec![Value::NIL, Value::T],
+    )
+    .expect("show cursor");
+    let out = super::builtin_window_cursor_info(&mut ev, vec![]).expect("window-cursor-info");
+    let items = out.as_vector_data().expect("cursor-info vector");
+    assert_eq!(items[0], Value::symbol("bar"));
+    assert_eq!(items[1], Value::fixnum(11));
+    assert_eq!(items[2], Value::fixnum(29));
+    assert_eq!(items[3], Value::fixnum(3));
+    assert_eq!(items[4], Value::fixnum(16));
+    assert_eq!(items[5], Value::fixnum(12));
+}
+
+#[test]
 fn window_cursor_info_validates_window_designator_like_gnu() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

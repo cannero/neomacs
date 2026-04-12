@@ -99,8 +99,8 @@ pub enum SplitDirection {
 /// Remaining deferred GNU fields are:
 ///
 /// - `phys_cursor_type`
-/// - `cursor_off_p` semantics driven by `internal-show-cursor`
-/// - `last_cursor_vpos`/blink plumbing used by the classic redisplay loop
+/// - `last_cursor_off_p`/blink plumbing used by the classic redisplay loop
+/// - `last_cursor_vpos` parity with the classic redisplay loop
 /// - the full `cursor`/`output_cursor` split from GNU `struct cursor_pos`
 ///
 /// Those still need follow-up work, but Finding 4's core ownership bug is

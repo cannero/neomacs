@@ -76,16 +76,39 @@ fn internal_show_cursor_tracks_visibility() {
     crate::test_utils::init_test_tracing();
     reset_dispnew_thread_locals();
     let mut eval = crate::emacs_core::eval::Context::new();
+    let fid = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+    let wid = eval.frames.get(fid).expect("frame").selected_window;
     let default_visible = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
     assert_eq!(default_visible, Value::T);
+    assert!(
+        eval.frames
+            .get(fid)
+            .and_then(|frame| frame.find_window(wid))
+            .and_then(|window| window.display())
+            .is_some_and(|display| !display.cursor_off_p)
+    );
 
     builtin_internal_show_cursor(&mut eval, vec![Value::NIL, Value::NIL]).unwrap();
     let hidden = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
     assert!(hidden.is_nil());
+    assert!(
+        eval.frames
+            .get(fid)
+            .and_then(|frame| frame.find_window(wid))
+            .and_then(|window| window.display())
+            .is_some_and(|display| display.cursor_off_p)
+    );
 
     builtin_internal_show_cursor(&mut eval, vec![Value::NIL, Value::T]).unwrap();
     let visible = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
     assert_eq!(visible, Value::T);
+    assert!(
+        eval.frames
+            .get(fid)
+            .and_then(|frame| frame.find_window(wid))
+            .and_then(|window| window.display())
+            .is_some_and(|display| !display.cursor_off_p)
+    );
 }
 
 #[test]

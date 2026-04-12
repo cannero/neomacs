@@ -13,43 +13,12 @@ use crate::emacs_core::terminal::pure::{
 use crate::emacs_core::value::*;
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::window::WindowId;
-use std::cell::{Cell, RefCell};
-
-// ---------------------------------------------------------------------------
-// Thread-local cursor state
-// ---------------------------------------------------------------------------
-//
-// CURSOR_VISIBLE_WINDOWS is the side-table that
-// `internal-show-cursor` writes into and `internal-show-cursor-p`
-// reads back. Cursor audit Finding 6 in
-// `drafts/cursor-audit.md` flags it as orphaned state: nothing
-// in the layout engine, matrix builder, or render thread reads
-// it, so writes from `blink-cursor-mode` have no effect.
-//
-// The audit's recommended fix is to delete this thread-local and
-// route `internal-show-cursor` through a new
-// `WindowDisplayState::cursor_off_p` field added under cursor
-// audit Finding 4. That structural change is intentionally
-// deferred (it requires multi-day matrix-builder + render-thread
-// porting) — see the long comment on
-// `crate::window::WindowDisplayState`. Until that lands the
-// thread-local stays so the API shape of `internal-show-cursor`
-// (one writer, one reader, no panics) is preserved.
-
-thread_local! {
-    static CURSOR_VISIBLE_WINDOWS: RefCell<Vec<(u64, bool)>> = const { RefCell::new(Vec::new()) };
-    static CURSOR_VISIBLE: Cell<bool> = const { Cell::new(true) };
-}
 
 /// Reset cursor visibility state (called from `reset_display_thread_locals`).
 ///
-/// Cursor audit Finding 17 in `drafts/cursor-audit.md` notes this
-/// helper becomes dead code once the thread-local is deleted.
-/// Tracked alongside Finding 6.
-pub(crate) fn reset_dispnew_thread_locals() {
-    CURSOR_VISIBLE_WINDOWS.with(|slot| slot.borrow_mut().clear());
-    CURSOR_VISIBLE.with(|slot| slot.set(true));
-}
+/// Cursor visibility now lives on `WindowDisplayState::cursor_off_p`, so
+/// there is no longer any dispnew-specific thread-local state to clear.
+pub(crate) fn reset_dispnew_thread_locals() {}
 
 // ---------------------------------------------------------------------------
 // Argument helpers (local copies — originals are pub(crate) in display.rs)
@@ -202,35 +171,6 @@ fn resolve_internal_show_cursor_window_id_in_state(
     }
 }
 
-fn set_window_cursor_visible(window_id: WindowId, visible: bool) {
-    CURSOR_VISIBLE_WINDOWS.with(|slot| {
-        let mut states = slot.borrow_mut();
-        if let Some((_, existing)) = states
-            .iter_mut()
-            .find(|(stored_window_id, _)| *stored_window_id == window_id.0)
-        {
-            *existing = visible;
-        } else {
-            states.push((window_id.0, visible));
-        }
-    });
-}
-
-fn window_cursor_visible(window_id: WindowId) -> bool {
-    CURSOR_VISIBLE_WINDOWS.with(|slot| {
-        slot.borrow()
-            .iter()
-            .find_map(|(stored_window_id, visible)| {
-                if *stored_window_id == window_id.0 {
-                    Some(*visible)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(true)
-    })
-}
-
 // ---------------------------------------------------------------------------
 // Dispnew builtins
 // ---------------------------------------------------------------------------
@@ -310,9 +250,7 @@ pub(crate) fn builtin_internal_show_cursor(
     expect_window_designator_eval(eval, &args[0])?;
     let visible = !args[1].is_nil();
     if let Some(window_id) = resolve_internal_show_cursor_window_id(eval, &args[0]) {
-        set_window_cursor_visible(window_id, visible);
-    } else {
-        CURSOR_VISIBLE.with(|slot| slot.set(visible));
+        eval.frames.set_window_cursor_visible(window_id, visible);
     }
     Ok(Value::NIL)
 }
@@ -330,9 +268,11 @@ pub(crate) fn builtin_internal_show_cursor_p(
     }
     let query_window = args.first().unwrap_or(&Value::NIL);
     if let Some(window_id) = resolve_internal_show_cursor_window_id(eval, query_window) {
-        return Ok(Value::bool_val(window_cursor_visible(window_id)));
+        return Ok(Value::bool_val(
+            eval.frames.window_cursor_visible(window_id),
+        ));
     }
-    Ok(Value::bool_val(CURSOR_VISIBLE.with(|slot| slot.get())))
+    Ok(Value::T)
 }
 
 /// (force-window-update &optional OBJECT) -> t/nil
