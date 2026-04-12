@@ -135,18 +135,30 @@ fn test_window_params_from_neovm_internal_returns_none() {
 
 #[test]
 fn window_params_from_neovm_uses_default_header_line_and_tab_line_values() {
+    use neovm_core::buffer::buffer::lookup_buffer_slot;
+
     let mut evaluator = neovm_core::emacs_core::Context::new();
     let buf_id = evaluator.buffer_manager_mut().create_buffer("*test*");
     let frame_id = evaluator
         .frame_manager_mut()
         .create_frame("test", 800, 600, buf_id);
 
+    // Set global defaults via the Phase 10D Vbuffer_defaults API.
+    // `obarray.set_symbol_value` is a no-op for Forwarded symbols
+    // (see symbol.rs:1303); `BufferManager::set_buffer_default_slot`
+    // is the correct path -- it updates `buffer_defaults[offset]`
+    // AND propagates to all buffers whose `local_flags` bit is
+    // clear. Mirrors GNU `set_default_internal` SYMBOL_FORWARDED
+    // arm (data.c:2044-2078) that the `(set-default ...)` builtin
+    // routes through.
+    let header_slot = lookup_buffer_slot("header-line-format").expect("header-line-format slot");
+    let tab_slot = lookup_buffer_slot("tab-line-format").expect("tab-line-format slot");
     evaluator
-        .obarray_mut()
-        .set_symbol_value("header-line-format", Value::string("Header sample"));
+        .buffer_manager_mut()
+        .set_buffer_default_slot(header_slot, Value::string("Header sample"));
     evaluator
-        .obarray_mut()
-        .set_symbol_value("tab-line-format", Value::string("Tab sample"));
+        .buffer_manager_mut()
+        .set_buffer_default_slot(tab_slot, Value::string("Tab sample"));
 
     let frame = evaluator.frame_manager().get(frame_id).unwrap();
     let buffer = evaluator.buffer_manager().get(buf_id).unwrap();
