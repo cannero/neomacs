@@ -7448,9 +7448,12 @@ impl Context {
             {
                 return Err(signal("setting-constant", vec![Value::symbol(name)]));
             }
-            // Debug: catch multibyte assignment to default-directory
+            // Debug probe for multibyte assignments to default-directory.
+            // Kept at debug level so it doesn't pollute normal error
+            // output (Doom always fires this with pure-ASCII paths that
+            // happen to carry the multibyte flag from string decoding).
             if name == "default-directory" && value.is_string() && value.string_is_multibyte() {
-                tracing::error!(
+                tracing::debug!(
                     "SETQ default-directory to MULTIBYTE string: {:?}",
                     value.as_str().unwrap_or("<?>"),
                 );
