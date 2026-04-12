@@ -1341,10 +1341,16 @@ pub(crate) fn builtin_window_cursor_info(
     let Some(frame) = frames.get(fid) else {
         return Ok(Value::NIL);
     };
-    let Some(snapshot) = frame.window_display_snapshot(wid) else {
+    let Some(window) = frame.find_window(wid) else {
         return Ok(Value::NIL);
     };
-    let Some(cursor) = snapshot.cursor.as_ref() else {
+    let Some(display) = window.display() else {
+        return Ok(Value::NIL);
+    };
+    if !display.phys_cursor_on_p || display.cursor_off_p {
+        return Ok(Value::NIL);
+    }
+    let Some(cursor) = display.phys_cursor.as_ref() else {
         return Ok(Value::NIL);
     };
     Ok(Value::vector(vec![

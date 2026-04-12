@@ -89,44 +89,41 @@ pub enum SplitDirection {
 
 /// Per-window display settings that GNU Emacs stores on `struct window`.
 ///
-/// # Cursor audit deferred fields
+/// # Cursor audit follow-through
 ///
-/// Cursor audit Finding 4 in `drafts/cursor-audit.md` calls out
-/// that this struct is missing GNU's per-window physical cursor
-/// state:
+/// neomacs now stores the last physical cursor geometry on the live
+/// window, not only inside the per-frame snapshot map. This mirrors
+/// GNU's `struct window` ownership model closely enough for
+/// `window-cursor-info` and related stateful cursor queries.
 ///
-/// - `cursor`, `phys_cursor`, `output_cursor` (`struct cursor_pos`)
-/// - `phys_cursor_type`, `phys_cursor_width`, `phys_cursor_ascent`,
-///   `phys_cursor_height`
-/// - `phys_cursor_on_p`
-/// - `cursor_off_p` (driven by `internal-show-cursor`)
-/// - `last_cursor_vpos`
+/// Remaining deferred GNU fields are:
 ///
-/// Adding these fields here is the prerequisite for several other
-/// findings:
+/// - `phys_cursor_type`
+/// - `cursor_off_p` semantics driven by `internal-show-cursor`
+/// - `last_cursor_vpos`/blink plumbing used by the classic redisplay loop
+/// - the full `cursor`/`output_cursor` split from GNU `struct cursor_pos`
 ///
-/// - **Finding 2** (`window-cursor-info` returns real geometry).
-/// - **Finding 5** (`blink-cursor-mode` toggles `cursor_off_p`
-///   instead of an orphan thread-local `Vec`).
-/// - **Finding 6** (delete the `CURSOR_VISIBLE_WINDOWS`
-///   thread-local in `dispnew/pure.rs`).
-/// - **Finding 10** (per-frame cursor state on `struct window`,
-///   not a single global `CursorState` in the render thread).
-/// - **Finding 11** (single canonical `display_and_set_cursor`
-///   helper instead of the four-layer split across `neovm_bridge`,
-///   `engine`, `matrix_builder`, and the wgpu renderer).
-///
-/// The fields are intentionally NOT added in this commit because
-/// the matrix builder + render-thread plumbing has to be ported
-/// alongside, which is a multi-day cross-crate change. The audit's
-/// suggested remediation order in Section E lists Finding 4 as the
-/// blocker for the rest of the cluster.
+/// Those still need follow-up work, but Finding 4's core ownership bug is
+/// now addressed: live windows own the most recent physical cursor geometry.
 #[derive(Clone, Debug)]
 pub struct WindowDisplayState {
     /// Window-local display table; nil means inherit from the buffer/frame.
     pub display_table: Value,
     /// Window-local cursor type; t means use the buffer-local value.
     pub cursor_type: Value,
+    /// Last physical cursor geometry produced by redisplay for this window.
+    pub phys_cursor: Option<WindowCursorSnapshot>,
+    /// Last cursor geometry actually emitted to the active output path.
+    ///
+    /// For now neomacs keeps this identical to `phys_cursor`; the split is
+    /// preserved because GNU stores both.
+    pub output_cursor: Option<WindowCursorSnapshot>,
+    /// Whether the window currently owns a live physical cursor.
+    pub phys_cursor_on_p: bool,
+    /// Whether the cursor is hidden without invalidating the geometry.
+    pub cursor_off_p: bool,
+    /// Last visual row where redisplay placed the cursor.
+    pub last_cursor_vpos: i64,
     /// Raw fringe widths; `-1` means use the frame default.
     pub left_fringe_width: i32,
     pub right_fringe_width: i32,
@@ -145,6 +142,11 @@ impl Default for WindowDisplayState {
         Self {
             display_table: Value::NIL,
             cursor_type: Value::T,
+            phys_cursor: None,
+            output_cursor: None,
+            phys_cursor_on_p: false,
+            cursor_off_p: false,
+            last_cursor_vpos: 0,
             left_fringe_width: -1,
             right_fringe_width: -1,
             fringes_outside_margins: false,
@@ -155,6 +157,22 @@ impl Default for WindowDisplayState {
             horizontal_scroll_bar_type: Value::T,
             scroll_bars_persistent: false,
         }
+    }
+}
+
+impl WindowDisplayState {
+    pub fn clear_physical_cursor_state(&mut self) {
+        self.phys_cursor = None;
+        self.output_cursor = None;
+        self.phys_cursor_on_p = false;
+        self.last_cursor_vpos = 0;
+    }
+
+    pub fn apply_physical_cursor_snapshot(&mut self, cursor: Option<WindowCursorSnapshot>) {
+        self.phys_cursor = cursor.clone();
+        self.output_cursor = cursor.clone();
+        self.phys_cursor_on_p = cursor.is_some();
+        self.last_cursor_vpos = cursor.as_ref().map(|c| c.row).unwrap_or(0);
     }
 }
 
@@ -732,9 +750,12 @@ impl Window {
     pub fn invalidate_display_state(&mut self) {
         match self {
             Window::Leaf {
-                window_end_valid, ..
+                window_end_valid,
+                display,
+                ..
             } => {
                 *window_end_valid = false;
+                display.clear_physical_cursor_state();
             }
             Window::Internal { children, .. } => {
                 for child in children {
@@ -1359,8 +1380,25 @@ impl Frame {
     /// Replace the last-redisplay geometry for this frame's live windows.
     pub fn replace_display_snapshots(&mut self, snapshots: Vec<WindowDisplaySnapshot>) {
         self.display_snapshots.clear();
+        for wid in self.window_list() {
+            if let Some(window) = self.find_window_mut(wid)
+                && let Some(display) = window.display_mut()
+            {
+                display.clear_physical_cursor_state();
+            }
+        }
+        if let Some(mini) = self.minibuffer_leaf.as_mut()
+            && let Some(display) = mini.display_mut()
+        {
+            display.clear_physical_cursor_state();
+        }
         for snapshot in snapshots {
             if self.find_window(snapshot.window_id).is_some() {
+                if let Some(window) = self.find_window_mut(snapshot.window_id)
+                    && let Some(display) = window.display_mut()
+                {
+                    display.apply_physical_cursor_snapshot(snapshot.cursor.clone());
+                }
                 self.display_snapshots.insert(snapshot.window_id, snapshot);
             }
         }
@@ -2920,6 +2958,15 @@ mod tests {
         frame.char_height = 20.0;
         frame.replace_display_snapshots(vec![WindowDisplaySnapshot {
             window_id: w1,
+            cursor: Some(WindowCursorSnapshot {
+                x: 7,
+                y: 13,
+                width: 9,
+                height: 17,
+                ascent: 12,
+                row: 2,
+                col: 5,
+            }),
             ..WindowDisplaySnapshot::default()
         }]);
 
@@ -2937,6 +2984,13 @@ mod tests {
         assert_eq!(frame.width, 400);
         assert_eq!(frame.height, 260);
         assert!(frame.display_snapshots.is_empty());
+        assert!(
+            frame
+                .find_window(w1)
+                .and_then(|window| window.display())
+                .and_then(|display| display.phys_cursor.as_ref())
+                .is_none()
+        );
         assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(40)));
         assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(13)));
 
@@ -2966,6 +3020,38 @@ mod tests {
             frame.minibuffer_leaf.as_ref().unwrap().window_end_valid(),
             Some(false)
         );
+    }
+
+    #[test]
+    fn replace_display_snapshots_syncs_live_window_cursor_state() {
+        let mut mgr = FrameManager::new();
+        let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+        let wid = mgr.get(fid).unwrap().selected_window;
+        let cursor = WindowCursorSnapshot {
+            x: 11,
+            y: 29,
+            width: 3,
+            height: 16,
+            ascent: 12,
+            row: 1,
+            col: 4,
+        };
+
+        let frame = mgr.get_mut(fid).unwrap();
+        frame.replace_display_snapshots(vec![WindowDisplaySnapshot {
+            window_id: wid,
+            cursor: Some(cursor.clone()),
+            ..WindowDisplaySnapshot::default()
+        }]);
+
+        let display = frame
+            .find_window(wid)
+            .and_then(|window| window.display())
+            .expect("window display state");
+        assert!(display.phys_cursor_on_p);
+        assert_eq!(display.last_cursor_vpos, cursor.row);
+        assert_eq!(display.phys_cursor.as_ref(), Some(&cursor));
+        assert_eq!(display.output_cursor.as_ref(), Some(&cursor));
     }
 
     #[test]
