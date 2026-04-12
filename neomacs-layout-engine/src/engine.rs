@@ -4344,7 +4344,7 @@ impl LayoutEngine {
                 };
                 let cursor_w = if cursor.stretch_like
                     && !params.x_stretch_cursor
-                    && !matches!(style, CursorStyle::Bar(_) | CursorStyle::Hbar(_))
+                    && !matches!(style, CursorStyle::Bar(_))
                 {
                     char_w.max(1.0)
                 } else {
@@ -5824,7 +5824,7 @@ mod tests {
         assert_eq!(cursor.col, 0);
     }
 
-    fn assert_layout_frame_rust_tab_cursor_width(x_stretch_cursor: bool) {
+    fn assert_layout_frame_rust_tab_cursor_width(x_stretch_cursor: bool, cursor_type: Value) {
         let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
@@ -5835,6 +5835,7 @@ mod tests {
             let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
             buf.insert("a\tb");
             buf.goto_byte(1);
+            buf.set_buffer_local("cursor-type", cursor_type);
         }
         eval.set_variable(
             "x-stretch-cursor",
@@ -5895,12 +5896,22 @@ mod tests {
 
     #[test]
     fn layout_frame_rust_clamps_tab_cursor_width_when_x_stretch_cursor_is_nil() {
-        assert_layout_frame_rust_tab_cursor_width(false);
+        assert_layout_frame_rust_tab_cursor_width(false, Value::T);
     }
 
     #[test]
     fn layout_frame_rust_expands_tab_cursor_width_when_x_stretch_cursor_is_t() {
-        assert_layout_frame_rust_tab_cursor_width(true);
+        assert_layout_frame_rust_tab_cursor_width(true, Value::T);
+    }
+
+    #[test]
+    fn layout_frame_rust_clamps_tab_hbar_cursor_width_when_x_stretch_cursor_is_nil() {
+        assert_layout_frame_rust_tab_cursor_width(false, Value::symbol("hbar"));
+    }
+
+    #[test]
+    fn layout_frame_rust_expands_tab_hbar_cursor_width_when_x_stretch_cursor_is_t() {
+        assert_layout_frame_rust_tab_cursor_width(true, Value::symbol("hbar"));
     }
 
     fn display_space_width_spec(columns: i64) -> Value {
@@ -5922,7 +5933,10 @@ mod tests {
         ])
     }
 
-    fn assert_layout_frame_rust_display_space_cursor_width(x_stretch_cursor: bool) {
+    fn assert_layout_frame_rust_display_space_cursor_width(
+        x_stretch_cursor: bool,
+        cursor_type: Value,
+    ) {
         let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
@@ -5948,6 +5962,7 @@ mod tests {
                 "face",
                 scaled_face_plist(),
             );
+            buf.set_buffer_local("cursor-type", cursor_type);
         }
         eval.set_variable(
             "x-stretch-cursor",
@@ -6075,12 +6090,22 @@ mod tests {
 
     #[test]
     fn layout_frame_rust_clamps_display_space_cursor_width_when_x_stretch_cursor_is_nil() {
-        assert_layout_frame_rust_display_space_cursor_width(false);
+        assert_layout_frame_rust_display_space_cursor_width(false, Value::T);
     }
 
     #[test]
     fn layout_frame_rust_expands_display_space_cursor_width_when_x_stretch_cursor_is_t() {
-        assert_layout_frame_rust_display_space_cursor_width(true);
+        assert_layout_frame_rust_display_space_cursor_width(true, Value::T);
+    }
+
+    #[test]
+    fn layout_frame_rust_clamps_display_space_hbar_cursor_width_when_x_stretch_cursor_is_nil() {
+        assert_layout_frame_rust_display_space_cursor_width(false, Value::symbol("hbar"));
+    }
+
+    #[test]
+    fn layout_frame_rust_expands_display_space_hbar_cursor_width_when_x_stretch_cursor_is_t() {
+        assert_layout_frame_rust_display_space_cursor_width(true, Value::symbol("hbar"));
     }
 
     #[test]
