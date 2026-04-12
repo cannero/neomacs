@@ -310,7 +310,7 @@ fn rasterize_wide_char_creates_padding() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn rasterize_tracks_cursor_position() {
+fn rasterize_tracks_phys_cursor_position() {
     let mut state = FrameDisplayState::new(10, 5, 8.0, 16.0);
     state.background = Color::BLACK;
 
@@ -320,8 +320,6 @@ fn rasterize_tracks_cursor_position() {
     let mut row = GlyphRow::new(GlyphRowRole::Text);
     row.glyphs[GlyphArea::Text as usize].push(Glyph::char('a', 0, 0));
     row.glyphs[GlyphArea::Text as usize].push(Glyph::char('b', 0, 1));
-    row.cursor_col = Some(1);
-    row.cursor_type = Some(CursorStyle::FilledBox);
     matrix.rows[0] = row;
 
     state.window_matrices.push(WindowMatrixEntry {
@@ -329,6 +327,25 @@ fn rasterize_tracks_cursor_position() {
         matrix,
         pixel_bounds: Rect::new(0.0, 0.0, 80.0, 80.0),
         selected: true,
+    });
+    state.phys_cursor = Some(PhysCursor {
+        window_id: 1,
+        charpos: 1,
+        row: 0,
+        col: 1,
+        x: 8.0,
+        y: 0.0,
+        width: 8.0,
+        height: 16.0,
+        ascent: 12.0,
+        style: CursorStyle::FilledBox,
+        color: Color::WHITE,
+        slot_id: DisplaySlotId {
+            window_id: 1,
+            row: 0,
+            col: 1,
+        },
+        cursor_fg: Color::BLACK,
     });
 
     let mut rif = TtyRif::new(10, 5);
@@ -389,6 +406,31 @@ fn rasterize_prefers_phys_cursor_over_matrix_cursor_columns() {
     assert_eq!(rif.cursor_col, 4);
 }
 
+#[test]
+fn rasterize_ignores_matrix_cursor_columns_without_phys_cursor() {
+    let mut state = FrameDisplayState::new(10, 5, 8.0, 16.0);
+    state.background = Color::BLACK;
+
+    let mut matrix = GlyphMatrix::new(5, 10);
+    let mut row = GlyphRow::new(GlyphRowRole::Text);
+    row.glyphs[GlyphArea::Text as usize].push(Glyph::char('a', 0, 0));
+    row.cursor_col = Some(1);
+    row.cursor_type = Some(CursorStyle::FilledBox);
+    matrix.rows[0] = row;
+
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 1,
+        matrix,
+        pixel_bounds: Rect::new(0.0, 0.0, 80.0, 80.0),
+        selected: true,
+    });
+
+    let mut rif = TtyRif::new(10, 5);
+    rif.rasterize(&state);
+
+    assert!(!rif.cursor_visible);
+}
+
 /// Regression test for a bug observed after `C-x 2` in an
 /// interactive `neomacs -nw -Q` session: the physical terminal
 /// cursor ended up inside the newly-created (non-selected)
@@ -411,11 +453,12 @@ fn rasterize_prefers_phys_cursor_over_matrix_cursor_columns() {
 ///
 /// The `selected: bool` field on `WindowMatrixEntry` is the
 /// per-frame-state equivalent of GNU's `FRAME_SELECTED_WINDOW`
-/// check: only the selected window contributes `cursor_col` to
-/// the terminal cursor position. Non-selected windows may still
-/// mark `cursor_col` to draw a hollow cursor glyph (via
-/// `cursor-in-non-selected-windows`), but that stays a visual
-/// cue in the cell, not a terminal cursor move.
+/// check: only the selected window contributes the frame-level
+/// `phys_cursor` used for the terminal cursor position.
+/// Non-selected windows may still mark `cursor_col` to draw a
+/// hollow cursor glyph (via `cursor-in-non-selected-windows`),
+/// but that stays a visual cue in the cell, not a terminal
+/// cursor move.
 #[test]
 fn rasterize_terminal_cursor_comes_from_selected_window_only() {
     // Two vertically stacked 2-row windows at screen cols 0..10.
@@ -461,6 +504,25 @@ fn rasterize_terminal_cursor_comes_from_selected_window_only() {
         // Bottom half of the screen.
         pixel_bounds: Rect::new(0.0, 32.0, 80.0, 32.0),
         selected: false,
+    });
+    state.phys_cursor = Some(PhysCursor {
+        window_id: 1,
+        charpos: 3,
+        row: 0,
+        col: 3,
+        x: 24.0,
+        y: 0.0,
+        width: 8.0,
+        height: 16.0,
+        ascent: 12.0,
+        style: CursorStyle::FilledBox,
+        color: Color::WHITE,
+        slot_id: DisplaySlotId {
+            window_id: 1,
+            row: 0,
+            col: 3,
+        },
+        cursor_fg: Color::BLACK,
     });
 
     let mut rif = TtyRif::new(10, 5);
@@ -523,6 +585,25 @@ fn rasterize_terminal_cursor_comes_from_selected_window_regardless_of_order() {
         matrix: w2_matrix,
         pixel_bounds: Rect::new(0.0, 32.0, 80.0, 32.0),
         selected: true,
+    });
+    state.phys_cursor = Some(PhysCursor {
+        window_id: 2,
+        charpos: 2,
+        row: 2,
+        col: 2,
+        x: 16.0,
+        y: 32.0,
+        width: 8.0,
+        height: 16.0,
+        ascent: 12.0,
+        style: CursorStyle::FilledBox,
+        color: Color::WHITE,
+        slot_id: DisplaySlotId {
+            window_id: 2,
+            row: 2,
+            col: 2,
+        },
+        cursor_fg: Color::BLACK,
     });
 
     let mut rif = TtyRif::new(10, 5);

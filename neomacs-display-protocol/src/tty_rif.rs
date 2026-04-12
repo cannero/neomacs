@@ -259,38 +259,6 @@ impl TtyRif {
                         }
                     }
                 }
-
-                // Handle cursor position. Only the SELECTED
-                // window contributes to the physical terminal
-                // cursor. Non-selected windows may still mark a
-                // `cursor_col` in their glyph rows (for the
-                // hollow cursor hint drawn via
-                // `cursor-in-non-selected-windows`), but that is
-                // a visual cue at the character cell, not a
-                // terminal cursor position.
-                //
-                // Mirrors GNU `src/dispnew.c:5670-5751`
-                // (`tty_set_cursor`), which explicitly comments:
-                //
-                //   /* We have only one cursor on terminal
-                //      frames. Use it to display the cursor of
-                //      the selected window of the frame. */
-                //   struct window *w = XWINDOW (FRAME_SELECTED_WINDOW (f));
-                //   ...
-                //   cursor_to (f, y, x);
-                //
-                // Before this guard, the TTY RIF iterated every
-                // window's matrix and let the LAST cursor_col it
-                // saw win, so after `C-x 2` the hollow cursor in
-                // the newly created bottom window overwrote the
-                // real cursor in the still-selected top window.
-                if !self.cursor_visible && entry.selected {
-                    if let Some(cursor_col_in_row) = glyph_row.cursor_col {
-                        self.cursor_row = screen_row as u16;
-                        self.cursor_col = (win_col + cursor_col_in_row as usize) as u16;
-                        self.cursor_visible = true;
-                    }
-                }
             }
         }
 

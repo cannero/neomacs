@@ -725,23 +725,12 @@ fn terminal_cursor_position(frame: &FrameGlyphBuffer) -> Option<((u16, u16), boo
     let cw = frame.char_width.max(1.0);
     let ch = frame.char_height.max(1.0);
 
-    if let Some(cursor) = frame.phys_cursor.as_ref() {
+    frame.phys_cursor.as_ref().map(|cursor| {
         let col = (cursor.x / cw) as u16;
         let row = (cursor.y / ch) as u16;
         let visible = matches!(cursor.style, CursorStyle::Bar(_) | CursorStyle::Hbar(_));
-        return Some(((col, row), visible));
-    }
-
-    for glyph in &frame.glyphs {
-        if let FrameGlyph::Cursor { x, y, style, .. } = glyph {
-            let col = (*x / cw) as u16;
-            let row = (*y / ch) as u16;
-            let visible = matches!(style, CursorStyle::Bar(_) | CursorStyle::Hbar(_));
-            return Some(((col, row), visible));
-        }
-    }
-
-    None
+        ((col, row), visible)
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -2211,6 +2200,37 @@ mod tests {
 
         assert_eq!(backend.cursor_position, Some((3, 2)));
         assert!(backend.cursor_visible);
+    }
+
+    #[test]
+    fn test_render_does_not_derive_terminal_cursor_from_cursor_glyphs() {
+        let mut backend = TtyBackend::new();
+        backend.initialized = true;
+        backend.width = 10;
+        backend.height = 5;
+        backend.current = TtyGrid::new(10, 5);
+        backend.previous = TtyGrid::new(10, 5);
+        backend.force_full_render = false;
+
+        let mut frame = FrameGlyphBuffer::with_size(80.0, 80.0);
+        frame.char_width = 8.0;
+        frame.char_height = 16.0;
+        frame.add_cursor(
+            0,
+            24.0,
+            32.0,
+            8.0,
+            16.0,
+            CursorStyle::FilledBox,
+            Color::GREEN,
+        );
+        backend.set_frame_glyphs(frame);
+
+        let scene = Scene::new(80.0, 80.0);
+        backend.render(&scene).unwrap();
+
+        assert_eq!(backend.cursor_position, None);
+        assert!(!backend.cursor_visible);
     }
 
     // -------------------------------------------------------------------
