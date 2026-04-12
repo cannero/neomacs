@@ -198,6 +198,10 @@ pub struct WindowParams {
     pub cursor_kind: neomacs_display_protocol::frame_glyphs::CursorKind,
     /// Cursor bar width (for bar cursor)
     pub cursor_bar_width: i32,
+    /// Whether stretch slots may use their full displayed width for box cursors.
+    ///
+    /// Mirrors GNU `x-stretch-cursor`.
+    pub x_stretch_cursor: bool,
     /// Cursor color in sRGB pixel format.
     pub cursor_color: u32,
 
@@ -666,6 +670,7 @@ mod tests {
             tab_line_height: 0.0,
             cursor_kind: neomacs_display_protocol::frame_glyphs::CursorKind::FilledBox,
             cursor_bar_width: 2,
+            x_stretch_cursor: false,
             cursor_color: 0x00000000,
             left_fringe_width: 8.0,
             right_fringe_width: 8.0,
@@ -730,6 +735,7 @@ mod tests {
             tab_line_height: 0.0,
             cursor_kind: neomacs_display_protocol::frame_glyphs::CursorKind::FilledBox,
             cursor_bar_width: 2,
+            x_stretch_cursor: false,
             cursor_color: 0x00000000,
             left_fringe_width: 0.0,
             right_fringe_width: 0.0,
@@ -786,6 +792,7 @@ mod tests {
             tab_line_height: 20.0,
             cursor_kind: neomacs_display_protocol::frame_glyphs::CursorKind::Bar,
             cursor_bar_width: 3,
+            x_stretch_cursor: false,
             cursor_color: 0x00000000,
             left_fringe_width: 10.0,
             right_fringe_width: 10.0,

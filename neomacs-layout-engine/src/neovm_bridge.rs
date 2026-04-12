@@ -125,6 +125,12 @@ fn effective_buffer_bool(buffer: &Buffer, obarray: &Obarray, name: &str) -> bool
     }
 }
 
+fn global_bool(obarray: &Obarray, name: &str) -> bool {
+    obarray
+        .symbol_value(name)
+        .is_some_and(|value| !value.is_nil())
+}
+
 pub(crate) fn buffer_local_string_owned(buffer: &Buffer, name: &str) -> Option<String> {
     buffer_local_value(buffer, name).and_then(|v| v.as_str_owned())
 }
@@ -481,6 +487,7 @@ pub fn window_params_from_neovm(
         bar_width: 1,
     });
     let cursor_color = frame_cursor_color_pixel(frame, face_table);
+    let x_stretch_cursor = global_bool(obarray, "x-stretch-cursor");
 
     // Header-line: show if header-line-format is non-nil
     let header_line_height = if effective_buffer_bool(buffer, obarray, "header-line-format") {
@@ -574,6 +581,7 @@ pub fn window_params_from_neovm(
         tab_line_height,
         cursor_kind: cursor_spec.cursor_kind,
         cursor_bar_width: cursor_spec.bar_width,
+        x_stretch_cursor,
         cursor_color,
         left_fringe_width: left_fringe,
         right_fringe_width: right_fringe,

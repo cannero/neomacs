@@ -55,6 +55,7 @@ struct CapturedCursorInfo {
     face_space_w: f32,
     matrix_row: usize,
     slot_width: Option<f32>,
+    stretch_like: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -75,6 +76,20 @@ fn capture_cursor_info(target: &mut Option<CapturedCursorInfo>, info: CapturedCu
     if target.is_none() {
         *target = Some(info);
     }
+}
+
+fn update_cursor_info_for_main_char(
+    target: &mut Option<CapturedCursorInfo>,
+    byte_idx: usize,
+    advance: f32,
+) {
+    let Some(cursor) = target.as_mut() else {
+        return;
+    };
+    if cursor.byte_idx != byte_idx {
+        return;
+    }
+    cursor.slot_width = Some(advance.max(1.0));
 }
 
 fn slot_char_width(ch: char, face_char_w: f32) -> f32 {
@@ -754,7 +769,18 @@ fn cursor_width_for_style(
 ) -> f32 {
     match style {
         CursorStyle::Bar(w) => w,
-        _ => cursor_point_columns(text, byte_idx, col, params) as f32 * face_char_w,
+        CursorStyle::Hbar(_) => {
+            cursor_point_columns(text, byte_idx, col, params) as f32 * face_char_w
+        }
+        _ => {
+            if !params.x_stretch_cursor && byte_idx < text.len() {
+                let (ch, _) = decode_utf8(&text[byte_idx..]);
+                if ch == '\t' {
+                    return params.char_width.max(1.0);
+                }
+            }
+            cursor_point_columns(text, byte_idx, col, params) as f32 * face_char_w
+        }
     }
 }
 
@@ -2748,6 +2774,7 @@ impl LayoutEngine {
                                 face_space_w,
                                 matrix_row: row,
                                 slot_width: Some(face_char_w.max(1.0)),
+                                stretch_like: false,
                             },
                         );
                     }
@@ -2890,6 +2917,7 @@ impl LayoutEngine {
                                 face_space_w,
                                 matrix_row: row,
                                 slot_width: Some(face_char_w.max(1.0)),
+                                stretch_like: false,
                             },
                         );
                     }
@@ -2926,6 +2954,7 @@ impl LayoutEngine {
                                 face_space_w,
                                 matrix_row: row,
                                 slot_width: Some(face_char_w.max(1.0)),
+                                stretch_like: false,
                             },
                         );
                     }
@@ -2972,6 +3001,7 @@ impl LayoutEngine {
                                     face_space_w,
                                     matrix_row: row,
                                     slot_width: Some(slot_width.max(1.0)),
+                                    stretch_like: false,
                                 },
                             );
                         }
@@ -3025,6 +3055,7 @@ impl LayoutEngine {
                                     face_space_w,
                                     matrix_row: row,
                                     slot_width: Some(space_width.max(face_char_w).max(1.0)),
+                                    stretch_like: true,
                                 },
                             );
                         }
@@ -3061,6 +3092,7 @@ impl LayoutEngine {
                                     face_space_w,
                                     matrix_row: row,
                                     slot_width: Some(face_char_w.max(1.0)),
+                                    stretch_like: false,
                                 },
                             );
                         }
@@ -3395,6 +3427,26 @@ impl LayoutEngine {
                 // Ensure tab advances at least one column
                 let next_tab = next_tab.max(col + 1);
                 let spaces = next_tab - col;
+                if cursor_info.is_none() && params.point == charpos {
+                    capture_cursor_info(
+                        &mut cursor_info,
+                        CapturedCursorInfo {
+                            x: x_before_tab,
+                            y,
+                            face_w: face_char_w,
+                            face_h,
+                            face_ascent: face_ascent_val,
+                            bg: current_bg,
+                            byte_idx: ch_start_byte_idx,
+                            col,
+                            face_id: current_face_id.saturating_sub(1),
+                            face_space_w,
+                            matrix_row: row,
+                            slot_width: Some((spaces as f32 * face_space_w).max(1.0)),
+                            stretch_like: true,
+                        },
+                    );
+                }
                 push_display_point(
                     &mut display_points,
                     &mut row_first_display_pos,
@@ -3715,6 +3767,7 @@ impl LayoutEngine {
                     current_font_italic,
                 )
             };
+            update_cursor_info_for_main_char(&mut cursor_info, ch_start_byte_idx, advance);
             if x + advance > content_x + avail_width {
                 flush_run(&self.run_buf, ligatures);
                 self.run_buf.clear();
@@ -3928,6 +3981,7 @@ impl LayoutEngine {
                         face_space_w,
                         matrix_row: row,
                         slot_width: None,
+                        stretch_like: false,
                     },
                 );
             }
@@ -4107,6 +4161,7 @@ impl LayoutEngine {
                     face_space_w,
                     matrix_row: row,
                     slot_width: Some(face_char_w.max(1.0)),
+                    stretch_like: false,
                 },
             );
         }
@@ -4252,20 +4307,9 @@ impl LayoutEngine {
                 && cursor.y >= text_y
                 && cursor.y + cursor.face_h <= text_y + text_height
             {
-                let fallback_cursor_w = cursor
-                    .slot_width
-                    .unwrap_or_else(|| {
-                        cursor_width_for_style(
-                            style,
-                            text,
-                            cursor.byte_idx,
-                            cursor.col as i32,
-                            params,
-                            cursor.face_w,
-                        )
-                    })
-                    .max(1.0);
-                let cursor_w = if matches!(style, CursorStyle::Bar(_)) {
+                let computed_slot_width = if let Some(slot_width) = cursor.slot_width {
+                    slot_width.max(1.0)
+                } else {
                     cursor_width_for_style(
                         style,
                         text,
@@ -4275,8 +4319,10 @@ impl LayoutEngine {
                         cursor.face_w,
                     )
                     .max(1.0)
-                } else if let Some(slot_width) = cursor.slot_width {
-                    slot_width.max(1.0)
+                };
+                let fallback_cursor_w = computed_slot_width.max(1.0);
+                let actual_cursor_w = if cursor.slot_width.is_some() {
+                    computed_slot_width
                 } else if let Some(face) = self.matrix_builder.faces().get(&cursor.face_id) {
                     unsafe {
                         cursor_point_advance(
@@ -4299,6 +4345,14 @@ impl LayoutEngine {
                     .max(1.0)
                 } else {
                     fallback_cursor_w
+                };
+                let cursor_w = if cursor.stretch_like
+                    && !params.x_stretch_cursor
+                    && !matches!(style, CursorStyle::Bar(_) | CursorStyle::Hbar(_))
+                {
+                    char_w.max(1.0)
+                } else {
+                    actual_cursor_w
                 };
                 let resolved_cursor = ResolvedCursorGeometry {
                     x: cursor.x,
@@ -5134,6 +5188,7 @@ mod tests {
             tab_line_height: 0.0,
             cursor_kind: neomacs_display_protocol::frame_glyphs::CursorKind::FilledBox,
             cursor_bar_width: 2,
+            x_stretch_cursor: false,
             cursor_color: 0xFFFFFF,
             left_fringe_width: 0.0,
             right_fringe_width: 0.0,
@@ -5771,6 +5826,85 @@ mod tests {
         assert_eq!(cursor.x, 0);
         assert_eq!(cursor.row, 0);
         assert_eq!(cursor.col, 0);
+    }
+
+    fn assert_layout_frame_rust_tab_cursor_width(x_stretch_cursor: bool) {
+        let mut eval = Context::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert("a\tb");
+            buf.goto_byte(1);
+        }
+        eval.set_variable(
+            "x-stretch-cursor",
+            if x_stretch_cursor {
+                Value::T
+            } else {
+                Value::NIL
+            },
+        );
+
+        let frame_id = eval
+            .frame_manager_mut()
+            .create_frame("layout-tab-cursor", 320, 120, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *point = 2;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        engine.layout_frame_rust(&mut eval, frame_id);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        let cursor = snapshot.cursor.as_ref().expect("cursor");
+        let a = snapshot.point_for_buffer_pos(1).expect("a");
+        let b = snapshot.point_for_buffer_pos(3).expect("b");
+        let full_tab_slot_width = b.x - (a.x + a.width);
+        let single_column_width = frame.char_width.round() as i64;
+
+        assert_eq!(cursor.x, a.x + a.width);
+        assert_eq!(cursor.row, a.row);
+        assert_eq!(b.x - cursor.x, full_tab_slot_width);
+        assert!(full_tab_slot_width > single_column_width);
+        if x_stretch_cursor {
+            assert_eq!(cursor.width, full_tab_slot_width);
+        } else {
+            assert_eq!(cursor.width, single_column_width);
+        }
+    }
+
+    #[test]
+    fn layout_frame_rust_clamps_tab_cursor_width_when_x_stretch_cursor_is_nil() {
+        assert_layout_frame_rust_tab_cursor_width(false);
+    }
+
+    #[test]
+    fn layout_frame_rust_expands_tab_cursor_width_when_x_stretch_cursor_is_t() {
+        assert_layout_frame_rust_tab_cursor_width(true);
     }
 
     #[test]
@@ -7706,6 +7840,25 @@ mod tests {
 
         let width = cursor_width_for_style(CursorStyle::Bar(2.5), text, 0, 0, &params, 7.0);
         assert_eq!(width, 2.5);
+    }
+
+    #[test]
+    fn test_cursor_width_for_style_tab_clamps_when_x_stretch_cursor_is_nil() {
+        let params = test_window_params();
+        let text = b"\t";
+
+        let width = cursor_width_for_style(CursorStyle::FilledBox, text, 0, 1, &params, 8.0);
+        assert_eq!(width, 8.0);
+    }
+
+    #[test]
+    fn test_cursor_width_for_style_tab_expands_when_x_stretch_cursor_is_t() {
+        let mut params = test_window_params();
+        params.x_stretch_cursor = true;
+        let text = b"\t";
+
+        let width = cursor_width_for_style(CursorStyle::FilledBox, text, 0, 1, &params, 8.0);
+        assert_eq!(width, 56.0);
     }
 
     #[test]
