@@ -1,5 +1,4 @@
 use super::{ImeCursorArea, RenderApp};
-use crate::core::frame_glyphs::FrameGlyph;
 use crate::render_thread::cursor::CursorTarget;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 
@@ -55,12 +54,7 @@ impl RenderApp {
         let has_cursor = self
             .current_frame
             .as_ref()
-            .map(|f| {
-                f.phys_cursor.is_some()
-                    || f.glyphs
-                        .iter()
-                        .any(|g| matches!(g, FrameGlyph::Cursor { .. }))
-            })
+            .map(|f| f.phys_cursor.is_some())
             .unwrap_or(false);
         if !has_cursor {
             return false;

@@ -1119,19 +1119,6 @@ pub(super) fn emit_focus_mode(ctx: &EffectCtx) -> Vec<RectVertex> {
     } else if let Some(cursor) = ctx.frame_glyphs.phys_cursor.as_ref() {
         cursor_y = Some(cursor.y);
         cursor_h = cursor.height;
-    } else {
-        for glyph in &ctx.frame_glyphs.glyphs {
-            if let FrameGlyph::Cursor {
-                y, height, style, ..
-            } = glyph
-            {
-                if !style.is_hollow() {
-                    cursor_y = Some(*y);
-                    cursor_h = *height;
-                    break;
-                }
-            }
-        }
     }
 
     let cy = match cursor_y {

@@ -92,6 +92,7 @@ pub(super) fn find_cursor_pos(
 mod tests {
     use super::*;
     use neomacs_display_protocol::CursorStyle;
+    use neomacs_display_protocol::{DisplaySlotId, FrameGlyph, PhysCursor};
 
     #[test]
     fn test_push_rect_single() {
@@ -191,19 +192,24 @@ mod tests {
     }
 
     #[test]
-    fn test_find_cursor_pos_from_glyphs() {
+    fn test_find_cursor_pos_from_phys_cursor() {
         let animated = None;
         let mut frame_glyphs = FrameGlyphBuffer::new();
 
-        // Add a non-hollow cursor (style FilledBox)
-        frame_glyphs.glyphs.push(FrameGlyph::Cursor {
+        frame_glyphs.phys_cursor = Some(PhysCursor {
             window_id: 1,
+            charpos: 12,
+            row: 3,
+            col: 5,
+            slot_id: DisplaySlotId::from_pixels(1, 50.0, 60.0, 8.0, 16.0),
             x: 50.0,
             y: 60.0,
             width: 8.0,
             height: 16.0,
+            ascent: 12.0,
             style: CursorStyle::FilledBox,
             color: Color::new(1.0, 1.0, 1.0, 1.0),
+            cursor_fg: Color::new(0.0, 0.0, 0.0, 1.0),
         });
 
         let result = find_cursor_pos(&animated, &frame_glyphs);
@@ -212,44 +218,36 @@ mod tests {
     }
 
     #[test]
-    fn test_find_cursor_pos_skips_hollow() {
+    fn test_find_cursor_pos_prefers_phys_cursor() {
         let animated = None;
         let mut frame_glyphs = FrameGlyphBuffer::new();
 
-        // Add hollow cursor (Hollow = inactive window)
-        frame_glyphs.glyphs.push(FrameGlyph::Cursor {
-            window_id: 1,
-            x: 10.0,
-            y: 20.0,
-            width: 8.0,
-            height: 16.0,
-            style: CursorStyle::Hollow,
-            color: Color::new(1.0, 1.0, 1.0, 1.0),
-        });
-
-        // Add non-hollow cursor
-        frame_glyphs.glyphs.push(FrameGlyph::Cursor {
+        frame_glyphs.phys_cursor = Some(PhysCursor {
             window_id: 2,
+            charpos: 20,
+            row: 4,
+            col: 7,
+            slot_id: DisplaySlotId::from_pixels(2, 30.0, 40.0, 2.0, 16.0),
             x: 30.0,
             y: 40.0,
             width: 2.0,
             height: 16.0,
-            style: CursorStyle::Bar(2.0), // bar cursor
+            ascent: 12.0,
+            style: CursorStyle::Bar(2.0),
             color: Color::new(1.0, 1.0, 1.0, 1.0),
+            cursor_fg: Color::new(0.0, 0.0, 0.0, 1.0),
         });
 
         let result = find_cursor_pos(&animated, &frame_glyphs);
 
-        // Should return the non-hollow cursor, not the hollow one
         assert_eq!(result, Some((30.0, 40.0, 2.0, 16.0)));
     }
 
     #[test]
-    fn test_find_cursor_pos_first_non_hollow() {
+    fn test_find_cursor_pos_ignores_legacy_cursor_glyphs_without_phys_cursor() {
         let animated = None;
         let mut frame_glyphs = FrameGlyphBuffer::new();
 
-        // Add first non-hollow cursor
         frame_glyphs.glyphs.push(FrameGlyph::Cursor {
             window_id: 1,
             x: 100.0,
@@ -260,7 +258,6 @@ mod tests {
             color: Color::new(1.0, 1.0, 1.0, 1.0),
         });
 
-        // Add second non-hollow cursor
         frame_glyphs.glyphs.push(FrameGlyph::Cursor {
             window_id: 2,
             x: 300.0,
@@ -273,8 +270,7 @@ mod tests {
 
         let result = find_cursor_pos(&animated, &frame_glyphs);
 
-        // Should return the first non-hollow cursor
-        assert_eq!(result, Some((100.0, 200.0, 8.0, 16.0)));
+        assert_eq!(result, None);
     }
 
     #[test]

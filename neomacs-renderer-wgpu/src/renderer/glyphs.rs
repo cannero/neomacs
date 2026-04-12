@@ -692,31 +692,6 @@ impl WgpuRenderer {
                         break;
                     }
                 }
-            } else {
-                // Legacy fallback while older producers still emit cursor glyphs only.
-                for glyph in &frame_glyphs.glyphs {
-                    if let FrameGlyph::Cursor {
-                        y, height, style, ..
-                    } = glyph
-                    {
-                        if !style.is_hollow() {
-                            for info in &frame_glyphs.window_infos {
-                                if info.selected {
-                                    self.add_rect(
-                                        &mut non_overlay_rect_vertices,
-                                        info.bounds.x,
-                                        *y,
-                                        info.bounds.width,
-                                        *height,
-                                        &hl_color,
-                                    );
-                                    break;
-                                }
-                            }
-                            break;
-                        }
-                    }
-                }
             }
         }
 
