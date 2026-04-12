@@ -2946,7 +2946,10 @@ pub(crate) fn builtin_self_insert_command(eval: &mut Context, args: Vec<Value>) 
             }
         }
         _ => {
-            tracing::warn!("self-insert-command: last-command-event is not a character: {}", c);
+            tracing::warn!(
+                "self-insert-command: last-command-event is not a character: {}",
+                c
+            );
             return Ok(Value::NIL);
         }
     };
@@ -2959,7 +2962,12 @@ pub(crate) fn builtin_self_insert_command(eval: &mut Context, args: Vec<Value>) 
     if let Some(current_id) = eval.buffers.current_buffer_id() {
         let insert_pos = eval.buffers.get(current_id).map(|b| b.pt).unwrap_or(0);
         let text_len = text.len();
-        tracing::info!("self-insert-command: inserting {:?} at pos {} in buffer {:?}", text, insert_pos, current_id);
+        tracing::info!(
+            "self-insert-command: inserting {:?} at pos {} in buffer {:?}",
+            text,
+            insert_pos,
+            current_id
+        );
         super::editfns::signal_before_change(eval, insert_pos, insert_pos)?;
         let _ = eval.buffers.insert_into_buffer(current_id, &text);
         super::editfns::signal_after_change(eval, insert_pos, insert_pos + text_len, 0)?;
@@ -3005,10 +3013,7 @@ pub(crate) fn builtin_key_binding_impl(
             let lisp_max = buf.point_max_char() as i64 + 1;
             if pos_int < lisp_min || pos_int > lisp_max {
                 let buffer_value = Value::make_buffer(buf_id);
-                return Err(signal(
-                    "args-out-of-range",
-                    vec![buffer_value, *position],
-                ));
+                return Err(signal("args-out-of-range", vec![buffer_value, *position]));
             }
         }
     }

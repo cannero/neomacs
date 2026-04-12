@@ -2219,11 +2219,7 @@ pub(crate) fn builtin_find_file_name_handler(eval: &mut Context, args: Vec<Value
 /// handler is only used when `OPERATION` is in that list. This lets
 /// handlers declare a restricted operation set without writing
 /// trampolines for everything else.
-pub(crate) fn find_file_name_handler(
-    obarray: &Obarray,
-    filename: &str,
-    operation: Value,
-) -> Value {
+pub(crate) fn find_file_name_handler(obarray: &Obarray, filename: &str, operation: Value) -> Value {
     // Read the alist. If unbound or non-list, no handlers apply.
     let alist = match obarray.symbol_value("file-name-handler-alist") {
         Some(v) if v.is_cons() => *v,
@@ -2235,9 +2231,7 @@ pub(crate) fn find_file_name_handler(
     let mut inhibited: Option<Value> = None;
     if let Some(inh_op) = obarray.symbol_value("inhibit-file-name-operation").copied() {
         if !inh_op.is_nil() && super::value::eq_value(&inh_op, &operation) {
-            inhibited = obarray
-                .symbol_value("inhibit-file-name-handlers")
-                .copied();
+            inhibited = obarray.symbol_value("inhibit-file-name-handlers").copied();
         }
     }
 
@@ -2285,11 +2279,11 @@ pub(crate) fn find_file_name_handler(
 
         // Match the regexp against the filename.
         let mut match_data: Option<crate::emacs_core::regex::MatchData> = None;
-        let match_pos =
-            match super::regex::string_match_full(regexp, filename, 0, &mut match_data) {
-                Ok(Some(pos)) => pos as i64,
-                _ => continue,
-            };
+        let match_pos = match super::regex::string_match_full(regexp, filename, 0, &mut match_data)
+        {
+            Ok(Some(pos)) => pos as i64,
+            _ => continue,
+        };
 
         if match_pos > best_pos {
             // Skip if this handler is inhibited for the current operation.
@@ -3038,10 +3032,9 @@ pub(crate) fn builtin_write_region(
     };
     let visit_path = match args.get(4) {
         Some(v) if v.is_t() => Some(resolved.clone()),
-        Some(v) if v.is_string() => Some(resolve_filename_for_eval(
-            eval,
-            &expect_string_strict(v)?,
-        )),
+        Some(v) if v.is_string() => {
+            Some(resolve_filename_for_eval(eval, &expect_string_strict(v)?))
+        }
         _ => None,
     };
     let current_id = current_buffer_id_or_error(&eval.buffers)?;
@@ -3067,8 +3060,7 @@ pub(crate) fn builtin_write_region(
         backup_file_before_save(&eval.obarray, &mut eval.buffers, current_id, &resolved);
     }
 
-    let content =
-        write_region_content_in_state(&eval.buffers, current_id, &args[0], args.get(1))?;
+    let content = write_region_content_in_state(&eval.buffers, current_id, &args[0], args.get(1))?;
 
     // --- Encode using the appropriate coding system ---
     // Priority: coding-system-for-write > buffer-file-coding-system > utf-8
@@ -3091,7 +3083,9 @@ pub(crate) fn builtin_write_region(
     drop(file);
 
     if let Some(visit_path) = visit_path {
-        let _ = eval.buffers.set_buffer_file_name(current_id, Some(visit_path));
+        let _ = eval
+            .buffers
+            .set_buffer_file_name(current_id, Some(visit_path));
         let _ = eval.buffers.set_buffer_modified_flag(current_id, false);
     }
 

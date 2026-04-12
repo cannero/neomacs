@@ -433,7 +433,10 @@ fn test_builtin_delete_directory_eval_resolves_default_directory() {
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(&base).unwrap();
     let mut eval = Context::new();
-    eval.set_variable("default-directory", Value::string(format!("{}/", base.to_string_lossy())));
+    eval.set_variable(
+        "default-directory",
+        Value::string(format!("{}/", base.to_string_lossy())),
+    );
 
     let child = base.join("child");
     fs::create_dir_all(&child).unwrap();
@@ -502,7 +505,10 @@ fn test_builtin_make_symbolic_link_eval_uses_default_directory() {
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(&base).unwrap();
     let mut eval = Context::new();
-    eval.set_variable("default-directory", Value::string(format!("{}/", base.to_string_lossy())));
+    eval.set_variable(
+        "default-directory",
+        Value::string(format!("{}/", base.to_string_lossy())),
+    );
 
     fs::write(base.join("target.txt"), b"x").unwrap();
     builtin_make_symbolic_link(
@@ -970,7 +976,10 @@ fn test_builtin_file_truename_counter_validation() {
 fn test_builtin_file_truename_eval_uses_default_directory() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
-    eval.set_variable("default-directory", Value::string("/tmp/neovm-file-truename/"));
+    eval.set_variable(
+        "default-directory",
+        Value::string("/tmp/neovm-file-truename/"),
+    );
 
     let value = builtin_file_truename(&mut eval, vec![Value::string("alpha.txt")]).unwrap();
     assert_eq!(value.as_str(), Some("/tmp/neovm-file-truename/alpha.txt"));
@@ -1099,7 +1108,10 @@ fn test_builtin_make_nearby_temp_file_eval_relative_prefix_uses_temp_dir() {
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(&sub).unwrap();
     let mut eval = Context::new();
-    eval.set_variable("default-directory", Value::string(format!("{}/", base.to_string_lossy())));
+    eval.set_variable(
+        "default-directory",
+        Value::string(format!("{}/", base.to_string_lossy())),
+    );
 
     let err =
         builtin_make_nearby_temp_file(&mut eval, vec![Value::string("sub/child-")]).unwrap_err();
@@ -1224,7 +1236,10 @@ fn test_builtin_file_modes_eval_respects_default_directory() {
     fs::write(&file, b"x").unwrap();
 
     let mut eval = Context::new();
-    eval.set_variable("default-directory", Value::string(format!("{}/", base.to_string_lossy())));
+    eval.set_variable(
+        "default-directory",
+        Value::string(format!("{}/", base.to_string_lossy())),
+    );
     let mode = builtin_file_modes(&mut eval, vec![Value::string("alpha.txt")]).unwrap();
     assert!(mode.is_fixnum());
 
@@ -1277,7 +1292,10 @@ fn test_builtin_set_file_modes_eval_respects_default_directory() {
     fs::write(&file, b"x").unwrap();
 
     let mut eval = Context::new();
-    eval.set_variable("default-directory", Value::string(format!("{}/", base.to_string_lossy())));
+    eval.set_variable(
+        "default-directory",
+        Value::string(format!("{}/", base.to_string_lossy())),
+    );
     builtin_set_file_modes(
         &mut eval,
         vec![Value::string("alpha.txt"), Value::fixnum(0o600)],
@@ -1593,12 +1611,10 @@ fn test_builtin_copy_file_eval_optional_arg_semantics() {
 fn test_builtin_file_name_ops() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let result =
-        builtin_file_name_directory(&mut ev, vec![Value::string("/home/user/test.el")]);
+    let result = builtin_file_name_directory(&mut ev, vec![Value::string("/home/user/test.el")]);
     assert_eq!(result.unwrap().as_str(), Some("/home/user/"));
 
-    let result =
-        builtin_file_name_nondirectory(&mut ev, vec![Value::string("/home/user/test.el")]);
+    let result = builtin_file_name_nondirectory(&mut ev, vec![Value::string("/home/user/test.el")]);
     assert_eq!(result.unwrap().as_str(), Some("test.el"));
 
     let result = builtin_file_name_as_directory(&mut ev, vec![Value::string("/home/user")]);
@@ -1910,7 +1926,10 @@ fn test_file_name_case_insensitive_eval_respects_default_directory() {
     .expect("absolute case-insensitive query");
 
     let mut eval = Context::new();
-    eval.set_variable("default-directory", Value::string(format!("{}/", dir.to_string_lossy())));
+    eval.set_variable(
+        "default-directory",
+        Value::string(format!("{}/", dir.to_string_lossy())),
+    );
     let relative =
         builtin_file_name_case_insensitive_p(&mut eval, vec![Value::string("alpha.txt")])
             .expect("relative case-insensitive query");
@@ -1996,7 +2015,10 @@ fn test_file_newer_than_file_p_eval_respects_default_directory() {
     fs::write(&new, b"new").expect("write new file");
 
     let mut eval = Context::new();
-    eval.set_variable("default-directory", Value::string(format!("{}/", dir.to_string_lossy())));
+    eval.set_variable(
+        "default-directory",
+        Value::string(format!("{}/", dir.to_string_lossy())),
+    );
 
     let result = builtin_file_newer_than_file_p(
         &mut eval,
@@ -2061,7 +2083,10 @@ fn test_set_file_times_eval_respects_default_directory() {
     fs::write(&file, b"alpha").expect("write file");
 
     let mut eval = Context::new();
-    eval.set_variable("default-directory", Value::string(format!("{}/", dir.to_string_lossy())));
+    eval.set_variable(
+        "default-directory",
+        Value::string(format!("{}/", dir.to_string_lossy())),
+    );
 
     assert_eq!(
         builtin_set_file_times(

@@ -4,9 +4,9 @@
 //! computes line breaks, positions glyphs on a fixed-width grid, and
 //! produces FrameGlyphBuffer compatible with the existing wgpu renderer.
 
+use super::display_status_line::*;
 use super::font_metrics::{FontMetrics, FontMetricsService};
 use super::hit_test::*;
-use super::display_status_line::*;
 use super::types::*;
 use super::unicode::*;
 use neomacs_display_protocol::frame_glyphs::{
@@ -595,8 +595,7 @@ fn eval_display_space_as_width(
         }
         if key.is_symbol_named(":align-to") {
             let mut align_to: i32 = -1;
-            if let Some(pixels) =
-                calc_pixel_width_or_height(&pctx, &val, true, Some(&mut align_to))
+            if let Some(pixels) = calc_pixel_width_or_height(&pctx, &val, true, Some(&mut align_to))
             {
                 // If the expression contained a symbol like `right`,
                 // `align_to` was updated to that position and `pixels`
@@ -1655,11 +1654,10 @@ impl LayoutEngine {
                     let border_face = face_resolver.resolve_named_face("vertical-border");
                     let border_face_id = self.frame_face_id_counter;
                     self.frame_face_id_counter += 1;
-                    let realized_face =
-                        crate::display_status_line::StatusLineFace::from_resolved(
-                            border_face_id,
-                            &border_face,
-                        );
+                    let realized_face = crate::display_status_line::StatusLineFace::from_resolved(
+                        border_face_id,
+                        &border_face,
+                    );
                     self.matrix_builder
                         .insert_face(border_face_id, realized_face.render_face());
                     self.matrix_builder
@@ -1686,20 +1684,15 @@ impl LayoutEngine {
                 if let Some(mini_entry) = self.matrix_builder.windows().last() {
                     if let Some(mini_params) = window_params_list.last() {
                         if mini_params.is_minibuffer {
-                            let mini_rows_used = mini_entry
-                                .matrix
-                                .rows
-                                .iter()
-                                .filter(|r| r.enabled)
-                                .count();
+                            let mini_rows_used =
+                                mini_entry.matrix.rows.iter().filter(|r| r.enabled).count();
                             let char_h = frame_params.char_height.max(1.0);
                             let allocated_rows =
                                 (mini_params.bounds.height / char_h).floor().max(1.0) as usize;
 
                             if mini_rows_used > allocated_rows {
                                 // --- Grow ---
-                                let delta =
-                                    (mini_rows_used as i32) - (allocated_rows as i32);
+                                let delta = (mini_rows_used as i32) - (allocated_rows as i32);
 
                                 // Check resize-mini-windows variable
                                 let resize_policy = evaluator
@@ -1834,15 +1827,14 @@ impl LayoutEngine {
                 frame_params.font_pixel_size,
             );
             let menu_face = menu_face_resolver.resolve_named_face("menu");
-            frame_display_state.menu_bar = Some(
-                neomacs_display_protocol::glyph_matrix::TtyMenuBarState {
+            frame_display_state.menu_bar =
+                Some(neomacs_display_protocol::glyph_matrix::TtyMenuBarState {
                     items,
                     lines: menu_bar_lines,
                     fg: menu_face.fg,
                     bg: menu_face.bg,
                     bold: menu_face.font_weight >= 600,
-                },
-            );
+                });
         }
 
         self.last_frame_display_state = Some(frame_display_state);
@@ -2053,18 +2045,19 @@ impl LayoutEngine {
                 .get(buf_id)
                 .map(|b| {
                     // Count newlines in buffer text
-                    let text_lines = b.buffer_string().chars()
-                        .filter(|&c| c == '\n').count();
+                    let text_lines = b.buffer_string().chars().filter(|&c| c == '\n').count();
                     // Count newlines in overlay after-strings.
                     // Scan all overlays in the buffer's full range.
-                    let overlay_lines: usize = b.overlays
+                    let overlay_lines: usize = b
+                        .overlays
                         .overlays_in(0, b.text.len())
                         .iter()
                         .filter_map(|ov| {
                             b.overlays
                                 .overlay_get_named(*ov, "after-string")
-                                .and_then(|v| v.as_str().map(|s|
-                                    s.chars().filter(|&c| c == '\n').count()))
+                                .and_then(|v| {
+                                    v.as_str().map(|s| s.chars().filter(|&c| c == '\n').count())
+                                })
                         })
                         .sum();
                     // Total lines = text lines + overlay lines + 1
@@ -2128,36 +2121,32 @@ impl LayoutEngine {
                     ws,
                     params.point
                 );
-            } else if params.point > 0
-                && !params.is_minibuffer
-                && {
-                    // Forward-scroll trigger: either
-                    //   (a) we have a previous window_end and
-                    //       point is past it (standard
-                    //       scroll-below-previous case), or
-                    //   (b) we have no previous window_end (first
-                    //       layout after construction) and point
-                    //       is far enough past window_start that
-                    //       a first-pass layout starting from ws
-                    //       could not plausibly reach it.
-                    //
-                    // Case (b) handles the
-                    // `converges_visibility_for_wrapped_rows` and
-                    // `retries_window_when_point_starts_below_visible_span`
-                    // tests, which construct a fresh window with
-                    // window_start=1 and point far below, and
-                    // expect layout_frame_rust to publish geometry
-                    // that includes point without a second
-                    // redisplay pass.
-                    let has_prev_end =
-                        params.window_end > 0 && params.point > params.window_end;
-                    let max_visible_chars =
-                        (max_rows.max(1) as i64) * (params.bounds.width.max(1.0) as i64);
-                    let far_below_without_prev_end = params.window_end == 0
-                        && params.point - ws > max_visible_chars;
-                    has_prev_end || far_below_without_prev_end
-                }
-            {
+            } else if params.point > 0 && !params.is_minibuffer && {
+                // Forward-scroll trigger: either
+                //   (a) we have a previous window_end and
+                //       point is past it (standard
+                //       scroll-below-previous case), or
+                //   (b) we have no previous window_end (first
+                //       layout after construction) and point
+                //       is far enough past window_start that
+                //       a first-pass layout starting from ws
+                //       could not plausibly reach it.
+                //
+                // Case (b) handles the
+                // `converges_visibility_for_wrapped_rows` and
+                // `retries_window_when_point_starts_below_visible_span`
+                // tests, which construct a fresh window with
+                // window_start=1 and point far below, and
+                // expect layout_frame_rust to publish geometry
+                // that includes point without a second
+                // redisplay pass.
+                let has_prev_end = params.window_end > 0 && params.point > params.window_end;
+                let max_visible_chars =
+                    (max_rows.max(1) as i64) * (params.bounds.width.max(1.0) as i64);
+                let far_below_without_prev_end =
+                    params.window_end == 0 && params.point - ws > max_visible_chars;
+                has_prev_end || far_below_without_prev_end
+            } {
                 // Mirror GNU/legacy forward scroll: when point moved below the
                 // previous visible end, choose a new start before layout so the
                 // current redisplay already includes point.
@@ -2266,9 +2255,8 @@ impl LayoutEngine {
         };
 
         if let Some(echo_message) = echo_message {
-            // Begin window in the builder so glyphs get added to the matrix.
-            // The minibuffer echo_message replaces all normal content, so we
-            // begin the window, render the message, then close the window.
+            // The echo area is minibuffer content, not post-window chrome.
+            // Render it into the open minibuffer window's first text row.
             let max_rows_echo = (text_height / char_h).ceil().max(1.0) as usize;
             let cols_echo = (text_width / char_w).ceil().max(1.0) as usize;
             self.matrix_builder.begin_window(
@@ -2278,20 +2266,22 @@ impl LayoutEngine {
                 params.bounds,
                 params.selected,
             );
-            let mut builder = std::mem::replace(
-                &mut self.matrix_builder,
-                crate::matrix_builder::GlyphMatrixBuilder::new(),
+            self.matrix_builder.begin_row(
+                0,
+                neomacs_display_protocol::frame_glyphs::GlyphRowRole::Minibuffer,
             );
-            self.render_minibuffer_echo_via_backend(
+            let (rendered_face, glyphs) = self.render_minibuffer_echo_via_backend(
                 text_width,
                 char_w,
                 default_face_ascent,
                 text_height.max(char_h),
                 default_resolved,
                 echo_message,
-                &mut builder,
             );
-            self.matrix_builder = builder;
+            self.matrix_builder
+                .insert_face(rendered_face.id, rendered_face);
+            self.matrix_builder.install_current_row_glyphs(glyphs);
+            self.matrix_builder.end_row();
             self.matrix_builder.end_window();
             return;
         }
@@ -2865,7 +2855,11 @@ impl LayoutEngine {
                     // Case 2: Space spec — (space :width …) or (space :align-to …)
                     if is_display_space_spec(&prop_val) {
                         let space_width = eval_display_space_as_width(
-                            &prop_val, x, content_x, face_char_w, params,
+                            &prop_val,
+                            x,
+                            content_x,
+                            face_char_w,
+                            params,
                         );
                         if space_width > 0.0 {
                             let _bg = Color::from_pixel(default_resolved.bg);
@@ -4810,14 +4804,10 @@ impl LayoutEngine {
 }
 
 impl LayoutEngine {
-    /// Resolve the character width used by the Rust-native status-line path.
-    /// Minibuffer echo rendered through `TtyDisplayBackend`.
+    /// Build the minibuffer echo row through the shared DisplayBackend path.
     ///
-    /// Realizes the default face, begins a minibuffer status-line
-    /// row in the builder, routes the plain echo text through a
-    /// `TtyDisplayBackend` via `display_text_plain_via_backend`,
-    /// then installs the completed glyph row into the matrix
-    /// builder via `install_status_line_row_glyphs`.
+    /// This returns the realized face plus the row's text glyphs so the
+    /// caller can install them into the currently open minibuffer window.
     pub(crate) fn render_minibuffer_echo_via_backend(
         &mut self,
         text_width: f32,
@@ -4826,31 +4816,25 @@ impl LayoutEngine {
         row_height: f32,
         default_resolved: &crate::neovm_bridge::ResolvedFace,
         echo_message: String,
-        builder: &mut crate::matrix_builder::GlyphMatrixBuilder,
+    ) -> (
+        neomacs_display_protocol::face::Face,
+        Vec<neomacs_display_protocol::glyph_matrix::Glyph>,
     ) {
         use crate::display_backend::{
-            DisplayBackend, GuiDisplayBackend, TtyDisplayBackend,
-            display_text_plain_via_backend,
+            DisplayBackend, GuiDisplayBackend, TtyDisplayBackend, display_text_plain_via_backend,
         };
-        use neomacs_display_protocol::frame_glyphs::GlyphRowRole;
         use neomacs_display_protocol::glyph_matrix::GlyphRow;
 
-        // Realize the face and insert it into the builder so face ids
-        // resolve at rasterization time. The face id 0 matches the
-        // previous `render_rust_status_line_plain(... 0, default_resolved, ...)`
-        // call — minibuffer echo has always used face id 0 historically.
-        let sl_face = self.realize_status_line_face(0, default_resolved, char_w, ascent, row_height);
+        // Reuse the shared face realization so GUI and TTY echo text use the
+        // same measured face data as the rest of redisplay.
+        let sl_face =
+            self.realize_status_line_face(0, default_resolved, char_w, ascent, row_height);
         let rendered_face = sl_face.render_face();
         let char_width = self.status_line_char_width(&sl_face, char_w);
 
-        builder.begin_status_line_row(GlyphRowRole::Minibuffer);
-        builder.insert_face(sl_face.face_id, rendered_face.clone());
-
         // Walk the plain string through the backend. No display-property
-        // harvesting, no face runs, no align-to entries — minibuffer
-        // echo is a single face and a single string. Dispatch between
-        // the GUI (cosmic-text) and TTY (cell-grid) backends based on
-        // whether cosmic metrics are enabled on this LayoutEngine.
+        // harvesting, no face runs, no align-to entries: echo-area text is
+        // a single minibuffer row rendered with the default face.
         let mut tty_backend = TtyDisplayBackend::new();
         let mut gui_backend = self.font_metrics.as_mut().map(GuiDisplayBackend::new);
         let backend: &mut dyn DisplayBackend = match gui_backend {
@@ -4865,22 +4849,17 @@ impl LayoutEngine {
             text_width,
         );
 
-        // Flush the walker's pending glyphs into a GlyphRow so
-        // `take_rows` returns them. The role/mode-line flags match
-        // what `begin_status_line_row` sets on the builder side.
-        let mut flush_row = GlyphRow::new(GlyphRowRole::Minibuffer);
+        let mut flush_row =
+            GlyphRow::new(neomacs_display_protocol::frame_glyphs::GlyphRowRole::Minibuffer);
         flush_row.enabled = true;
-        flush_row.mode_line = true;
         backend.finish_row(flush_row);
-
-        // Install the completed row's text-area glyphs into the
-        // builder's current status-line row wholesale. The backend
-        // is now the sole producer of status-line glyphs for the
-        // TTY path.
-        for mut row in backend.take_rows() {
-            let text_glyphs = std::mem::take(&mut row.glyphs[1]);
-            builder.install_status_line_row_glyphs(text_glyphs);
-        }
+        let glyphs = backend
+            .take_rows()
+            .into_iter()
+            .next()
+            .map(|mut row| std::mem::take(&mut row.glyphs[1]))
+            .unwrap_or_default();
+        (rendered_face, glyphs)
     }
 
     pub(crate) fn status_line_char_width(
@@ -4992,8 +4971,7 @@ impl LayoutEngine {
         tab_bar_height: f32,
     ) {
         use crate::display_backend::{
-            DisplayBackend, GuiDisplayBackend, TtyDisplayBackend,
-            display_text_plain_via_backend,
+            DisplayBackend, GuiDisplayBackend, TtyDisplayBackend, display_text_plain_via_backend,
         };
 
         let Some(tab_bar_text) = build_tab_bar_plain_text(evaluator, frame_window_id as u64) else {
@@ -5023,13 +5001,7 @@ impl LayoutEngine {
             Some(ref mut g) => g,
             None => &mut tty_backend,
         };
-        display_text_plain_via_backend(
-            backend,
-            &tab_bar_text,
-            &rendered_face,
-            char_width,
-            width,
-        );
+        display_text_plain_via_backend(backend, &tab_bar_text, &rendered_face, char_width, width);
         // Take the in-progress glyphs directly (no finish_row call);
         // the row is constructed at installation time with role
         // TabBar and installed into the first window's matrix after
@@ -5172,6 +5144,105 @@ mod tests {
             left_margin_width: 0.0,
             right_margin_width: 0.0,
         }
+    }
+
+    fn window_matrix_text(
+        entry: &neomacs_display_protocol::glyph_matrix::WindowMatrixEntry,
+    ) -> String {
+        entry
+            .matrix
+            .rows
+            .iter()
+            .filter(|row| row.enabled)
+            .flat_map(|row| row.glyphs[1].iter())
+            .filter_map(|glyph| match &glyph.glyph_type {
+                neomacs_display_protocol::glyph_matrix::GlyphType::Char { ch } => Some(*ch),
+                neomacs_display_protocol::glyph_matrix::GlyphType::Composite { text } => {
+                    text.chars().next()
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn assert_echo_message_renders_in_minibuffer_window(use_gui_metrics: bool) {
+        let mut eval = Context::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert("body line\n");
+        }
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-minibuffer-echo", 640, 160, buf_id);
+        let echo = "Echo lives in minibuffer";
+        eval.set_current_message(Some(echo.to_string()));
+
+        let mut engine = LayoutEngine::new();
+        if use_gui_metrics {
+            engine.enable_cosmic_metrics();
+        }
+        engine.layout_frame_rust(&mut eval, frame_id);
+
+        let state = engine
+            .last_frame_display_state
+            .as_ref()
+            .expect("display state");
+        let minibuffer_window_id = state
+            .window_infos
+            .iter()
+            .find(|info| info.is_minibuffer)
+            .expect("minibuffer window info")
+            .window_id as u64;
+        let root_window_id = state
+            .window_infos
+            .iter()
+            .find(|info| !info.is_minibuffer)
+            .expect("root window info")
+            .window_id as u64;
+
+        let minibuffer_entry = state
+            .window_matrices
+            .iter()
+            .find(|entry| entry.window_id == minibuffer_window_id)
+            .expect("minibuffer matrix");
+        let root_entry = state
+            .window_matrices
+            .iter()
+            .find(|entry| entry.window_id == root_window_id)
+            .expect("root matrix");
+
+        let minibuffer_text = window_matrix_text(minibuffer_entry);
+        let root_text = window_matrix_text(root_entry);
+
+        assert!(
+            minibuffer_text.contains(echo),
+            "expected echo text in minibuffer matrix, got {minibuffer_text:?}"
+        );
+        assert!(
+            !root_text.contains(echo),
+            "echo text leaked into root window matrix: {root_text:?}"
+        );
+        assert!(
+            minibuffer_entry
+                .matrix
+                .rows
+                .iter()
+                .any(|row| row.enabled && row.role == GlyphRowRole::Minibuffer && !row.mode_line),
+            "expected a non-chrome minibuffer row for echo text"
+        );
+        assert!(
+            !root_entry
+                .matrix
+                .rows
+                .iter()
+                .any(|row| row.enabled && row.role == GlyphRowRole::Minibuffer),
+            "root window should not own minibuffer echo rows"
+        );
     }
 
     #[test]
@@ -7170,19 +7241,15 @@ mod tests {
             Value::NIL,
         ]))
         .expect("select target frame for tab-bar debug");
-        let keymap_debug = match eval.eval_form(Value::list(vec![Value::symbol(
-            "tab-bar-make-keymap-1",
-        )])) {
-            Ok(value) => eval
-                .eval_form(Value::list(vec![
-                    Value::symbol("prin1-to-string"),
-                    value,
-                ]))
-                .ok()
-                .and_then(|rendered| rendered.as_str_owned())
-                .unwrap_or_else(|| "<render-unavailable>".to_string()),
-            Err(err) => format!("<error: {err}>"),
-        };
+        let keymap_debug =
+            match eval.eval_form(Value::list(vec![Value::symbol("tab-bar-make-keymap-1")])) {
+                Ok(value) => eval
+                    .eval_form(Value::list(vec![Value::symbol("prin1-to-string"), value]))
+                    .ok()
+                    .and_then(|rendered| rendered.as_str_owned())
+                    .unwrap_or_else(|| "<render-unavailable>".to_string()),
+                Err(err) => format!("<error: {err}>"),
+            };
         let tabs_debug = eval
             .eval_str("(prin1-to-string (frame-parameter nil 'tabs))")
             .ok()
@@ -7244,6 +7311,16 @@ mod tests {
         // primary "renders any target-frame text at all" check
         // and leaves frame-scoped tab isolation as a separate
         // concern.
+    }
+
+    #[test]
+    fn layout_frame_rust_keeps_echo_message_in_minibuffer_window_for_tty() {
+        assert_echo_message_renders_in_minibuffer_window(false);
+    }
+
+    #[test]
+    fn layout_frame_rust_keeps_echo_message_in_minibuffer_window_for_gui() {
+        assert_echo_message_renders_in_minibuffer_window(true);
     }
 
     #[test]

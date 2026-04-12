@@ -631,15 +631,7 @@ fn find_symbol_value_forwarded_reads_buffer_slot() {
     // Synthetic buffer slot table.
     let mut slots = vec![Value::NIL; 10];
     slots[3] = Value::fixnum(99);
-    let v = ob.find_symbol_value_in_buffer(
-        id,
-        None,
-        Value::NIL,
-        Value::NIL,
-        Some(&slots),
-        0,
-        None,
-    );
+    let v = ob.find_symbol_value_in_buffer(id, None, Value::NIL, Value::NIL, Some(&slots), 0, None);
     assert_eq!(v, Some(Value::fixnum(99)));
 }
 

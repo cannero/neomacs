@@ -4,11 +4,11 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use neovm_core::emacs_core::format_eval_result_with_eval;
 use neovm_core::emacs_core::load::{
     apply_runtime_startup_state, create_bootstrap_evaluator_cached,
 };
 use neovm_core::emacs_core::pdump;
-use neovm_core::emacs_core::format_eval_result_with_eval;
 
 thread_local! {
     static RUNTIME_TEMPLATE: RefCell<Option<neovm_core::emacs_core::pdump::types::DumpContextState>> =

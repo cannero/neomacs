@@ -597,8 +597,7 @@ fn store_in_keymap_preserves_string_prompt_when_prepending_binding() {
     );
 
     // The new binding must still exist and be reachable.
-    let bound =
-        list_keymap_lookup_one(&map, &Value::fixnum('x' as i64));
+    let bound = list_keymap_lookup_one(&map, &Value::fixnum('x' as i64));
     assert_eq!(bound.as_symbol_name(), Some("foo"));
 }
 

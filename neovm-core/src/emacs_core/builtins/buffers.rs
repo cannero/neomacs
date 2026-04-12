@@ -1148,9 +1148,9 @@ pub(crate) fn builtin_kill_all_local_variables(
     // - resets only a small fixed reset-on-kill-all subset
     // - clears conditional slot locals unless they are permanent-local
     // - walks local_var_alist for LOCALIZED entries (Phase 10E)
-    let _ = eval
-        .buffers
-        .clear_buffer_local_properties(current_id, &mut eval.obarray, kill_permanent);
+    let _ =
+        eval.buffers
+            .clear_buffer_local_properties(current_id, &mut eval.obarray, kill_permanent);
     Ok(Value::NIL)
 }
 
@@ -3389,7 +3389,8 @@ pub(crate) fn builtin_buffer_local_value(
     {
         let target_buf = Value::make_buffer(buf.id);
         if let Some(value) =
-            eval.obarray().read_localized(resolved_id, target_buf, buf.local_var_alist)
+            eval.obarray()
+                .read_localized(resolved_id, target_buf, buf.local_var_alist)
         {
             if value.is_unbound() {
                 return Err(signal("void-variable", vec![original_arg]));

@@ -347,7 +347,9 @@ fn gnu_sit_for_interactive_timeout_returns_t() {
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
     let start = Instant::now();
-    let result = ev.eval_str("(sit-for 0.01 t)").expect("eval interactive sit-for");
+    let result = ev
+        .eval_str("(sit-for 0.01 t)")
+        .expect("eval interactive sit-for");
     drop(tx);
 
     assert!(result.is_truthy());
@@ -381,7 +383,9 @@ fn gnu_sit_for_with_pending_input_does_not_run_timers_first() {
     ))
     .expect("queue keypress");
     ev.input_rx = Some(rx);
-    let result = ev.eval_str("(sit-for 0.5 t)").expect("eval interactive sit-for");
+    let result = ev
+        .eval_str("(sit-for 0.5 t)")
+        .expect("eval interactive sit-for");
 
     assert!(result.is_nil());
     assert!(
@@ -410,7 +414,9 @@ fn gnu_sit_for_pending_input_returns_nil_without_redisplay() {
     ))
     .expect("queue keypress");
     ev.input_rx = Some(rx);
-    let result = ev.eval_str("(sit-for 0.5)").expect("eval interactive sit-for");
+    let result = ev
+        .eval_str("(sit-for 0.5)")
+        .expect("eval interactive sit-for");
 
     assert!(result.is_nil());
     assert_eq!(*redisplays.borrow(), 0);
@@ -431,7 +437,9 @@ fn gnu_sit_for_zero_without_nodisp_redisplays_once() {
 
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
-    let result = ev.eval_str("(sit-for 0)").expect("eval zero-second sit-for");
+    let result = ev
+        .eval_str("(sit-for 0)")
+        .expect("eval zero-second sit-for");
     drop(tx);
 
     assert!(result.is_truthy());
@@ -471,7 +479,9 @@ fn gnu_sit_for_zero_nodisp_runs_due_gnu_timer_without_redisplay() {
 
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
-    let result = ev.eval_str("(sit-for 0 t)").expect("eval zero-second sit-for");
+    let result = ev
+        .eval_str("(sit-for 0 t)")
+        .expect("eval zero-second sit-for");
     drop(tx);
 
     assert!(result.is_truthy());

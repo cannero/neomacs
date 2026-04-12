@@ -211,10 +211,7 @@ fn sort_args_respects_priority_ordering_among_options() {
     // -nw priority 110 > --no-splash priority 3 > -L priority 0.
     let mut argv = args(&["neomacs", "-L", "/lib", "--no-splash", "-nw"]);
     sort_args(&mut argv).unwrap();
-    assert_eq!(
-        argv,
-        vec!["neomacs", "-nw", "--no-splash", "-L", "/lib"]
-    );
+    assert_eq!(argv, vec!["neomacs", "-nw", "--no-splash", "-L", "/lib"]);
 }
 
 #[test]
@@ -238,10 +235,7 @@ fn sort_args_does_not_dedupe_value_taking_options() {
     // -L appears twice with different values — both must survive.
     let mut argv = args(&["neomacs", "-L", "/a", "-L", "/b"]);
     sort_args(&mut argv).unwrap();
-    assert_eq!(
-        argv,
-        vec!["neomacs", "-L", "/a", "-L", "/b"]
-    );
+    assert_eq!(argv, vec!["neomacs", "-L", "/a", "-L", "/b"]);
 }
 
 #[test]
@@ -252,12 +246,7 @@ fn sort_args_stable_within_equal_priority() {
     sort_args(&mut argv).unwrap();
     assert_eq!(
         argv,
-        vec![
-            "neomacs",
-            "-bd", "blue",
-            "-fg", "white",
-            "-bg", "black",
-        ]
+        vec!["neomacs", "-bd", "blue", "-fg", "white", "-bg", "black",]
     );
 }
 
@@ -279,10 +268,7 @@ fn sort_args_double_dash_terminator_pins_remaining_args_to_end() {
     sort_args(&mut argv).unwrap();
     // -nw is INSIDE the post-`--` region so it stays where it was.
     // The `--` terminator sticks to the front of the post-region.
-    assert_eq!(
-        argv,
-        vec!["neomacs", "--", "literal-arg", "-nw"]
-    );
+    assert_eq!(argv, vec!["neomacs", "--", "literal-arg", "-nw"]);
 }
 
 #[test]

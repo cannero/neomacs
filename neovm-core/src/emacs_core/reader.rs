@@ -323,11 +323,7 @@ pub(crate) fn read_from_string_impl(
         match value.kind() {
             ValueKind::Nil => Ok(0),
             ValueKind::Fixnum(n) => {
-                let idx = if n < 0 {
-                    (char_count as i64) + n
-                } else {
-                    n
-                };
+                let idx = if n < 0 { (char_count as i64) + n } else { n };
                 if idx < 0 || idx > char_count as i64 {
                     return Err(signal(
                         "args-out-of-range",
@@ -414,7 +410,8 @@ pub(crate) fn read_from_string_impl(
     // into a character index in the original STRING so the returned
     // FINAL-STRING-INDEX matches GNU's contract.
     let absolute_end_byte = start_byte + end_pos;
-    let absolute_end_char = crate::emacs_core::emacs_char::byte_to_char_pos(full_string_bytes, absolute_end_byte);
+    let absolute_end_char =
+        crate::emacs_core::emacs_char::byte_to_char_pos(full_string_bytes, absolute_end_byte);
 
     Ok(Value::cons(value, Value::fixnum(absolute_end_char as i64)))
 }

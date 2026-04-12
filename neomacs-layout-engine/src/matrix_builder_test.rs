@@ -464,11 +464,7 @@ fn overwrite_last_window_right_border_skips_disabled_rows() {
 
     // Row 0 enabled: padded + border.
     let row0 = &matrix.rows[0].glyphs[GlyphArea::Text as usize];
-    assert_eq!(
-        row0.len(),
-        5,
-        "enabled row must be padded to ncols glyphs"
-    );
+    assert_eq!(row0.len(), 5, "enabled row must be padded to ncols glyphs");
     // Row 1 disabled: untouched, still empty.
     let row1 = &matrix.rows[1].glyphs[GlyphArea::Text as usize];
     assert!(

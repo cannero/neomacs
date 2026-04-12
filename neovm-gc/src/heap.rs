@@ -1876,7 +1876,8 @@ impl Heap {
             let object_key = object.object_key();
             let desc = object.header().desc();
             if !Self::keep_object_for_collection(kind, object) {
-                if !object.header().is_moved_out() && finalizable_candidate_set.contains(&object_key)
+                if !object.header().is_moved_out()
+                    && finalizable_candidate_set.contains(&object_key)
                 {
                     finalize_indices.push(object_index);
                 }

@@ -1611,9 +1611,7 @@ pub fn replace_match_buffer(
     subexp: usize,
     match_data: &Option<MatchData>,
 ) -> Result<(), String> {
-    replace_match_buffer_with_syntax(
-        buf, newtext, fixedcase, literal, subexp, match_data, false,
-    )
+    replace_match_buffer_with_syntax(buf, newtext, fixedcase, literal, subexp, match_data, false)
 }
 
 /// Variant that also honors `case-symbols-as-words` for the
@@ -1838,8 +1836,7 @@ fn build_replacement(
     source: &str,
     char_positions: bool,
 ) -> Result<String, String> {
-    const INVALID_BACKSLASH_MSG: &str =
-        "Invalid use of `\\' in replacement text";
+    const INVALID_BACKSLASH_MSG: &str = "Invalid use of `\\' in replacement text";
 
     fn next_char_at(s: &str, byte_idx: usize) -> Option<(char, usize)> {
         s.get(byte_idx..)
@@ -1941,8 +1938,7 @@ fn apply_match_case_with_syntax(
         None => apply_replace_match_case(replacement, matched),
         Some(table) => apply_replace_match_case_with(replacement, matched, move |ch| {
             let class = table.char_syntax(ch);
-            class == SyntaxClass::Word
-                || (case_symbols_as_words && class == SyntaxClass::Symbol)
+            class == SyntaxClass::Word || (case_symbols_as_words && class == SyntaxClass::Symbol)
         }),
     }
 }

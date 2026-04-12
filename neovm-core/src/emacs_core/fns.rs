@@ -584,7 +584,9 @@ fn md5_hex_for_string(
     start_raw: Option<&Value>,
     end_raw: Option<&Value>,
 ) -> Result<String, Flow> {
-    let string = object.as_lisp_string().expect("md5_hex_for_string only accepts string object");
+    let string = object
+        .as_lisp_string()
+        .expect("md5_hex_for_string only accepts string object");
     let len = string.schars() as i64;
     let start_arg = start_raw.cloned().unwrap_or(Value::NIL);
     let end_arg = end_raw.cloned().unwrap_or(Value::NIL);
@@ -610,7 +612,10 @@ fn md5_hex_for_string(
         (start, end)
     };
     if byte_to > bytes.len() {
-        return Err(signal("args-out-of-range", vec![*object, start_arg, end_arg]));
+        return Err(signal(
+            "args-out-of-range",
+            vec![*object, start_arg, end_arg],
+        ));
     }
     Ok(md5_hash(&bytes[byte_from..byte_to]))
 }
@@ -738,7 +743,9 @@ fn hash_slice_for_string(
     start_raw: Option<&Value>,
     end_raw: Option<&Value>,
 ) -> Result<String, Flow> {
-    let string = object.as_lisp_string().expect("hash_slice_for_string only accepts string object");
+    let string = object
+        .as_lisp_string()
+        .expect("hash_slice_for_string only accepts string object");
     let len = string.schars() as i64;
     let start_arg = start_raw.cloned().unwrap_or(Value::NIL);
     let end_arg = end_raw.cloned().unwrap_or(Value::NIL);
@@ -764,7 +771,10 @@ fn hash_slice_for_string(
         (start, end)
     };
     if byte_to > bytes.len() {
-        return Err(signal("args-out-of-range", vec![*object, start_arg, end_arg]));
+        return Err(signal(
+            "args-out-of-range",
+            vec![*object, start_arg, end_arg],
+        ));
     }
     let slice_bytes = &bytes[byte_from..byte_to];
     // Return the slice as a String for downstream hashing.
@@ -1031,9 +1041,12 @@ pub(crate) fn builtin_widget_apply(
 pub(crate) fn builtin_string_make_multibyte(args: Vec<Value>) -> EvalResult {
     use crate::emacs_core::emacs_char;
     expect_args("string-make-multibyte", &args, 1)?;
-    let ls = args[0]
-        .as_lisp_string()
-        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]]))?;
+    let ls = args[0].as_lisp_string().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[0]],
+        )
+    })?;
     if ls.is_multibyte() {
         return Ok(args[0]);
     }
@@ -1046,7 +1059,9 @@ pub(crate) fn builtin_string_make_multibyte(args: Vec<Value>) -> EvalResult {
         let len = emacs_char::char_string(c, &mut buf);
         out.extend_from_slice(&buf[..len]);
     }
-    Ok(Value::heap_string(crate::heap_types::LispString::from_emacs_bytes(out)))
+    Ok(Value::heap_string(
+        crate::heap_types::LispString::from_emacs_bytes(out),
+    ))
 }
 
 /// (string-make-unibyte STRING) -- convert each character code to a single byte.
@@ -1069,7 +1084,9 @@ pub(crate) fn builtin_string_make_unibyte(args: Vec<Value>) -> EvalResult {
                 // Already unibyte
                 src_bytes.to_vec()
             };
-            Ok(Value::heap_string(crate::heap_types::LispString::from_unibyte(result_bytes)))
+            Ok(Value::heap_string(
+                crate::heap_types::LispString::from_unibyte(result_bytes),
+            ))
         }
         _ => Err(signal(
             "wrong-type-argument",

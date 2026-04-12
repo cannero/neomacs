@@ -10,45 +10,86 @@
 // `text-quoting-style' at display time.
 
 pub(crate) static GNU_SUBR_DOCS: &[(&str, &str)] = &[
-    (r#"%"#, r#"Return remainder of X divided by Y.
+    (
+        r#"%"#,
+        r#"Return remainder of X divided by Y.
 Both must be integers or markers.
 
-(fn X Y)"#),
-    (r#"*"#, r#"Return product of any number of arguments, which are numbers or markers.
-(fn &rest NUMBERS-OR-MARKERS)"#),
-    (r#"+"#, r#"Return sum of any number of arguments, which are numbers or markers.
-(fn &rest NUMBERS-OR-MARKERS)"#),
-    (r#"-"#, r#"Negate number or subtract numbers or markers and return the result.
+(fn X Y)"#,
+    ),
+    (
+        r#"*"#,
+        r#"Return product of any number of arguments, which are numbers or markers.
+(fn &rest NUMBERS-OR-MARKERS)"#,
+    ),
+    (
+        r#"+"#,
+        r#"Return sum of any number of arguments, which are numbers or markers.
+(fn &rest NUMBERS-OR-MARKERS)"#,
+    ),
+    (
+        r#"-"#,
+        r#"Negate number or subtract numbers or markers and return the result.
 With one arg, negates it.  With more than one arg,
 subtracts all but the first from the first.
-(fn &optional NUMBER-OR-MARKER &rest MORE-NUMBERS-OR-MARKERS)"#),
-    (r#"/"#, r#"Divide number by divisors and return the result.
+(fn &optional NUMBER-OR-MARKER &rest MORE-NUMBERS-OR-MARKERS)"#,
+    ),
+    (
+        r#"/"#,
+        r#"Divide number by divisors and return the result.
 With two or more arguments, return first argument divided by the rest.
 With one argument, return 1 divided by the argument.
 The arguments must be numbers or markers.
-(fn NUMBER &rest DIVISORS)"#),
-    (r#"/="#, r#"Return t if first arg is not equal to second arg.  Both must be numbers or markers.
+(fn NUMBER &rest DIVISORS)"#,
+    ),
+    (
+        r#"/="#,
+        r#"Return t if first arg is not equal to second arg.  Both must be numbers or markers.
 
-(fn NUM1 NUM2)"#),
-    (r#"1+"#, r#"Return NUMBER plus one.  NUMBER may be a number or a marker.
+(fn NUM1 NUM2)"#,
+    ),
+    (
+        r#"1+"#,
+        r#"Return NUMBER plus one.  NUMBER may be a number or a marker.
 Markers are converted to integers.
 
-(fn NUMBER)"#),
-    (r#"1-"#, r#"Return NUMBER minus one.  NUMBER may be a number or a marker.
+(fn NUMBER)"#,
+    ),
+    (
+        r#"1-"#,
+        r#"Return NUMBER minus one.  NUMBER may be a number or a marker.
 Markers are converted to integers.
 
-(fn NUMBER)"#),
-    (r#"<"#, r#"Return t if each arg (a number or marker), is less than the next arg.
-(fn NUMBER-OR-MARKER &rest NUMBERS-OR-MARKERS)"#),
-    (r#"<="#, r#"Return t if each arg (a number or marker) is less than or equal to the next.
-(fn NUMBER-OR-MARKER &rest NUMBERS-OR-MARKERS)"#),
-    (r#"="#, r#"Return t if args, all numbers or markers, are equal.
-(fn NUMBER-OR-MARKER &rest NUMBERS-OR-MARKERS)"#),
-    (r#">"#, r#"Return t if each arg (a number or marker) is greater than the next arg.
-(fn NUMBER-OR-MARKER &rest NUMBERS-OR-MARKERS)"#),
-    (r#">="#, r#"Return t if each arg (a number or marker) is greater than or equal to the next.
-(fn NUMBER-OR-MARKER &rest NUMBERS-OR-MARKERS)"#),
-    (r#"Snarf-documentation"#, r#"Used during Emacs initialization to scan the `etc/DOC...' file.
+(fn NUMBER)"#,
+    ),
+    (
+        r#"<"#,
+        r#"Return t if each arg (a number or marker), is less than the next arg.
+(fn NUMBER-OR-MARKER &rest NUMBERS-OR-MARKERS)"#,
+    ),
+    (
+        r#"<="#,
+        r#"Return t if each arg (a number or marker) is less than or equal to the next.
+(fn NUMBER-OR-MARKER &rest NUMBERS-OR-MARKERS)"#,
+    ),
+    (
+        r#"="#,
+        r#"Return t if args, all numbers or markers, are equal.
+(fn NUMBER-OR-MARKER &rest NUMBERS-OR-MARKERS)"#,
+    ),
+    (
+        r#">"#,
+        r#"Return t if each arg (a number or marker) is greater than the next arg.
+(fn NUMBER-OR-MARKER &rest NUMBERS-OR-MARKERS)"#,
+    ),
+    (
+        r#">="#,
+        r#"Return t if each arg (a number or marker) is greater than or equal to the next.
+(fn NUMBER-OR-MARKER &rest NUMBERS-OR-MARKERS)"#,
+    ),
+    (
+        r#"Snarf-documentation"#,
+        r#"Used during Emacs initialization to scan the `etc/DOC...' file.
 This searches the `etc/DOC...' file for doc strings and
 records them in function and variable definitions.
 The function takes one argument, FILENAME, a string;
@@ -56,19 +97,31 @@ it specifies the file name (without a directory) of the DOC file.
 That file is found in `../etc' now; later, when the dumped Emacs is run,
 the same file name is found in the `doc-directory'.
 
-(fn FILENAME)"#),
-    (r#"abort-minibuffers"#, r#"Abort the current minibuffer.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"abort-minibuffers"#,
+        r#"Abort the current minibuffer.
 If we are not currently in the innermost minibuffer, prompt the user to
 confirm the aborting of the current minibuffer and all contained ones.
 
-(fn)"#),
-    (r#"abort-recursive-edit"#, r#"Abort the command that requested this recursive edit or minibuffer input.
+(fn)"#,
+    ),
+    (
+        r#"abort-recursive-edit"#,
+        r#"Abort the command that requested this recursive edit or minibuffer input.
 
-(fn)"#),
-    (r#"abs"#, r#"Return the absolute value of ARG.
+(fn)"#,
+    ),
+    (
+        r#"abs"#,
+        r#"Return the absolute value of ARG.
 
-(fn ARG)"#),
-    (r#"accept-process-output"#, r#"Allow any pending output from subprocesses to be read by Emacs.
+(fn ARG)"#,
+    ),
+    (
+        r#"accept-process-output"#,
+        r#"Allow any pending output from subprocesses to be read by Emacs.
 The subprocess output is given to the respective process filter functions.
 Optional argument PROCESS means to return only after output is
 received from PROCESS or PROCESS closes the connection.
@@ -92,27 +145,42 @@ the function should not be expected to return before the timeout
 expires.  The main purpose of this function is to allow process output
 to be read by Emacs, not to return as soon as any output is read.
 
-(fn PROCESS SECONDS MILLISEC JUST-THIS-ONE)"#),
-    (r#"access-file"#, r#"Access file FILENAME, and get an error if that does not work.
+(fn PROCESS SECONDS MILLISEC JUST-THIS-ONE)"#,
+    ),
+    (
+        r#"access-file"#,
+        r#"Access file FILENAME, and get an error if that does not work.
 The second argument STRING is prepended to the error message.
 If there is no error, returns nil.
 
-(fn FILENAME STRING)"#),
-    (r#"accessible-keymaps"#, r#"Find all keymaps accessible via prefix characters from KEYMAP.
+(fn FILENAME STRING)"#,
+    ),
+    (
+        r#"accessible-keymaps"#,
+        r#"Find all keymaps accessible via prefix characters from KEYMAP.
 Returns a list of elements of the form (KEYS . MAP), where the sequence
 KEYS starting from KEYMAP gets you to MAP.  These elements are ordered
 so that the KEYS increase in length.  The first element is ([] . KEYMAP).
 An optional argument PREFIX, if non-nil, should be a key sequence;
 then the value includes only maps for prefixes that start with PREFIX.
 
-(fn KEYMAP PREFIX)"#),
-    (r#"acos"#, r#"Return the inverse cosine of ARG.
+(fn KEYMAP PREFIX)"#,
+    ),
+    (
+        r#"acos"#,
+        r#"Return the inverse cosine of ARG.
 
-(fn ARG)"#),
-    (r#"active-minibuffer-window"#, r#"Return the currently active minibuffer window, or nil if none.
+(fn ARG)"#,
+    ),
+    (
+        r#"active-minibuffer-window"#,
+        r#"Return the currently active minibuffer window, or nil if none.
 
-(fn)"#),
-    (r#"add-face-text-property"#, r#"Add the face property to the text from START to END.
+(fn)"#,
+    ),
+    (
+        r#"add-face-text-property"#,
+        r#"Add the face property to the text from START to END.
 FACE specifies the face to add.  It should be a valid value of the
 `face' property (typically a face name or a plist of face attributes
 and values).
@@ -130,8 +198,11 @@ current buffer), START and END are buffer positions (integers or
 markers).  If OBJECT is a string, START and END are 0-based indices
 into it.
 
-(fn START END FACE APPEND OBJECT)"#),
-    (r#"add-name-to-file"#, r#"Give FILE additional name NEWNAME.  Both args must be strings.
+(fn START END FACE APPEND OBJECT)"#,
+    ),
+    (
+        r#"add-name-to-file"#,
+        r#"Give FILE additional name NEWNAME.  Both args must be strings.
 If NEWNAME is a directory name, give FILE a like-named new name under
 NEWNAME.
 
@@ -140,8 +211,11 @@ unless optional third argument OK-IF-ALREADY-EXISTS is non-nil.
 An integer third arg means request confirmation if NEWNAME already exists.
 This is what happens in interactive use with M-x.
 
-(fn FILE NEWNAME OK-IF-ALREADY-EXISTS)"#),
-    (r#"add-text-properties"#, r#"Add properties to the text from START to END.
+(fn FILE NEWNAME OK-IF-ALREADY-EXISTS)"#,
+    ),
+    (
+        r#"add-text-properties"#,
+        r#"Add properties to the text from START to END.
 The third argument PROPERTIES is a property list
 specifying the property values to add.  If the optional fourth argument
 OBJECT is a buffer (or nil, which means the current buffer),
@@ -149,8 +223,11 @@ START and END are buffer positions (integers or markers).
 If OBJECT is a string, START and END are 0-based indices into it.
 Return t if any property value actually changed, nil otherwise.
 
-(fn START END PROPERTIES OBJECT)"#),
-    (r#"add-variable-watcher"#, r#"Cause WATCH-FUNCTION to be called when SYMBOL is about to be set.
+(fn START END PROPERTIES OBJECT)"#,
+    ),
+    (
+        r#"add-variable-watcher"#,
+        r#"Cause WATCH-FUNCTION to be called when SYMBOL is about to be set.
 
 It will be called with 4 arguments: (SYMBOL NEWVAL OPERATION WHERE).
 SYMBOL is the variable being changed.
@@ -163,8 +240,11 @@ changed, nil otherwise.
 
 All writes to aliases of SYMBOL will call WATCH-FUNCTION too.
 
-(fn SYMBOL WATCH-FUNCTION)"#),
-    (r#"all-completions"#, r#"Search for partial matches of STRING in COLLECTION.
+(fn SYMBOL WATCH-FUNCTION)"#,
+    ),
+    (
+        r#"all-completions"#,
+        r#"Search for partial matches of STRING in COLLECTION.
 
 Test each possible completion specified by COLLECTION
 to see if it begins with STRING.  The possible completions may be
@@ -198,15 +278,24 @@ To be acceptable, a possible completion must also match all the regexps
 in `completion-regexp-list' (unless COLLECTION is a function, in
 which case that function should itself handle `completion-regexp-list').
 
-(fn STRING COLLECTION PREDICATE)"#),
-    (r#"all-threads"#, r#"Return a list of all the live threads.
+(fn STRING COLLECTION PREDICATE)"#,
+    ),
+    (
+        r#"all-threads"#,
+        r#"Return a list of all the live threads.
 
-(fn)"#),
-    (r#"and"#, r#"Eval args until one of them yields nil, then return nil.
+(fn)"#,
+    ),
+    (
+        r#"and"#,
+        r#"Eval args until one of them yields nil, then return nil.
 The remaining args are not evalled at all.
 If no arg yields nil, return the last arg's value.
-(fn CONDITIONS...)"#),
-    (r#"android-browse-url-internal"#, r#"Open URL in an external application.
+(fn CONDITIONS...)"#,
+    ),
+    (
+        r#"android-browse-url-internal"#,
+        r#"Open URL in an external application.
 
 URL should be a URL-encoded URL with a scheme specified unless SEND is
 non-nil.  Signal an error upon failure.
@@ -220,26 +309,41 @@ other programs.  Files inside the /content or /assets directories cannot
 be opened through such addresses, which this function does not provide
 for.  Use `android-browse-url' instead.
 
-(fn URL SEND)"#),
-    (r#"android-clipboard-exists-p"#, r#"Return whether or not clipboard contents exist.
+(fn URL SEND)"#,
+    ),
+    (
+        r#"android-clipboard-exists-p"#,
+        r#"Return whether or not clipboard contents exist.
 
-(fn)"#),
-    (r#"android-clipboard-owner-p"#, r#"Return whether or not Emacs owns the clipboard.
+(fn)"#,
+    ),
+    (
+        r#"android-clipboard-owner-p"#,
+        r#"Return whether or not Emacs owns the clipboard.
 Alternatively, return the symbol `lambda' if that could not be
 determined.
 
-(fn)"#),
-    (r#"android-detect-keyboard"#, r#"Return whether a keyboard is connected.
+(fn)"#,
+    ),
+    (
+        r#"android-detect-keyboard"#,
+        r#"Return whether a keyboard is connected.
 Return non-nil if a key is connected to this computer, or nil
 if there is no keyboard.
 
-(fn)"#),
-    (r#"android-detect-mouse"#, r#"Figure out whether or not there is a mouse.
+(fn)"#,
+    ),
+    (
+        r#"android-detect-mouse"#,
+        r#"Figure out whether or not there is a mouse.
 Return non-nil if a mouse is connected to this computer, and nil if
 there is no mouse.
 
-(fn)"#),
-    (r#"android-display-monitor-attributes-list"#, r#"Return a list of physical monitor attributes on the X display TERMINAL.
+(fn)"#,
+    ),
+    (
+        r#"android-display-monitor-attributes-list"#,
+        r#"Return a list of physical monitor attributes on the X display TERMINAL.
 
 The optional argument TERMINAL specifies which display to ask about.
 TERMINAL should be a terminal object, a frame or a display name (a string).
@@ -247,15 +351,21 @@ If omitted or nil, that stands for the selected frame's display.
 
 Internal use only, use `display-monitor-attributes-list' instead.
 
-(fn TERMINAL)"#),
-    (r#"android-enumerate-fonts"#, r#"Enumerate fonts present on the system.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"android-enumerate-fonts"#,
+        r#"Enumerate fonts present on the system.
 
 Signal an error if fonts have already been enumerated.  This would
 normally have been done in C, but reading fonts require Lisp to be
 loaded before character sets are made available.
 
-(fn)"#),
-    (r#"android-external-storage-available-p"#, r#"Return non-nil if Emacs is entitled to access external storage.
+(fn)"#,
+    ),
+    (
+        r#"android-external-storage-available-p"#,
+        r#"Return non-nil if Emacs is entitled to access external storage.
 Return nil if the requisite permissions for external storage access
 have not been granted to Emacs, t otherwise.  Such permissions can be
 requested by means of the `android-request-storage-access'
@@ -265,8 +375,11 @@ External storage on Android encompasses the `/sdcard' and
 `/storage/emulated' directories, access to which is denied to programs
 absent these permissions.
 
-(fn)"#),
-    (r#"android-frame-edges"#, r#"Return edge coordinates of FRAME.
+(fn)"#,
+    ),
+    (
+        r#"android-frame-edges"#,
+        r#"Return edge coordinates of FRAME.
 FRAME must be a live frame and defaults to the selected one.  The return
 value is a list of the form (LEFT, TOP, RIGHT, BOTTOM).  All values are
 in pixels relative to the origin - the position (0, 0) - of FRAME's
@@ -282,8 +395,11 @@ menu or tool bar of FRAME.  If TYPE is the symbol `inner-edges', return
 the inner edges of FRAME.  These edges exclude title bar, any borders,
 menu bar or tool bar of FRAME.
 
-(fn FRAME TYPE)"#),
-    (r#"android-frame-geometry"#, r#"Return geometric attributes of FRAME.
+(fn FRAME TYPE)"#,
+    ),
+    (
+        r#"android-frame-geometry"#,
+        r#"Return geometric attributes of FRAME.
 FRAME must be a live frame and defaults to the selected one.  The return
 value is an association list of the attributes listed below.  All height
 and width values are in pixels.
@@ -322,8 +438,11 @@ and width values are in pixels.
 `internal-border-width' is the width of the internal border of
   FRAME.
 
-(fn FRAME)"#),
-    (r#"android-frame-list-z-order"#, r#"Return list of Emacs's frames, in Z (stacking) order.
+(fn FRAME)"#,
+    ),
+    (
+        r#"android-frame-list-z-order"#,
+        r#"Return list of Emacs's frames, in Z (stacking) order.
 The optional argument TERMINAL specifies which display to ask about.
 TERMINAL should be either a frame or a display name (a string).  If
 omitted or nil, that stands for the selected frame's display.  Return
@@ -337,8 +456,11 @@ Frames are listed from topmost (first) to bottommost (last).
 On Android, the order of the frames returned is undefined unless
 TERMINAL is a frame.
 
-(fn TERMINAL)"#),
-    (r#"android-frame-restack"#, r#"Restack FRAME1 below FRAME2.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"android-frame-restack"#,
+        r#"Restack FRAME1 below FRAME2.
 This means that if both frames are visible and the display areas of
 these frames overlap, FRAME2 (partially) obscures FRAME1.  If optional
 third argument ABOVE is non-nil, restack FRAME1 above FRAME2.  This
@@ -358,14 +480,20 @@ children of different parents.  Consequently, this function only
 functions when FRAME1 and FRAME2 are both child frames subordinate to
 the same parent frame.
 
-(fn FRAME1 FRAME2 ABOVE)"#),
-    (r#"android-get-clipboard"#, r#"Return the current contents of the clipboard.
+(fn FRAME1 FRAME2 ABOVE)"#,
+    ),
+    (
+        r#"android-get-clipboard"#,
+        r#"Return the current contents of the clipboard.
 Value is a multibyte string containing decoded clipboard
 text.
 Alternatively, return nil if the clipboard is empty.
 
-(fn)"#),
-    (r#"android-get-clipboard-data"#, r#"Return the clipboard data of the given MIME TYPE.
+(fn)"#,
+    ),
+    (
+        r#"android-get-clipboard-data"#,
+        r#"Return the clipboard data of the given MIME TYPE.
 Value is a unibyte string containing the entire contents of the
 clipboard, after its owner has converted the data to the given
 MIME type.  Value is nil if the conversion fails, or if the data
@@ -375,26 +503,38 @@ Value is also nil if the clipboard data consists of a single URL which
 does not have any corresponding data.  In that case, use
 `android-get-clipboard' instead.
 
-(fn TYPE)"#),
-    (r#"android-get-clipboard-targets"#, r#"Return a list of data types in the clipboard.
+(fn TYPE)"#,
+    ),
+    (
+        r#"android-get-clipboard-targets"#,
+        r#"Return a list of data types in the clipboard.
 Value is a list of MIME types as strings, each defining a single extra
 data type available from the clipboard.
 
-(fn)"#),
-    (r#"android-get-connection"#, r#"Get the connection to the display server.
+(fn)"#,
+    ),
+    (
+        r#"android-get-connection"#,
+        r#"Get the connection to the display server.
 Return the terminal if it exists, else nil.
 
 Emacs cannot open a connection to the display server itself under
 Android, so there is no equivalent of `x-open-connection'.
 
-(fn)"#),
-    (r#"android-mouse-absolute-pixel-position"#, r#"Return absolute position of mouse cursor in pixels.
+(fn)"#,
+    ),
+    (
+        r#"android-mouse-absolute-pixel-position"#,
+        r#"Return absolute position of mouse cursor in pixels.
 The position is returned as a cons cell (X . Y) of the coordinates of
 the mouse cursor position in pixels relative to a position (0, 0) of the
 selected frame's display.  This does not work on Android.
 
-(fn)"#),
-    (r#"android-query-battery"#, r#"Perform a query for battery information.
+(fn)"#,
+    ),
+    (
+        r#"android-query-battery"#,
+        r#"Perform a query for battery information.
 Value is nil upon failure, or a list of the form:
 
   (CAPACITY CHARGE-COUNTER CURRENT-AVERAGE CURRENT-NOW STATUS
@@ -409,20 +549,29 @@ See the documentation at
 
 for more details about these values.
 
-(fn)"#),
-    (r#"android-recreate-activity"#, r#"Recreate the activity attached to the current frame.
+(fn)"#,
+    ),
+    (
+        r#"android-recreate-activity"#,
+        r#"Recreate the activity attached to the current frame.
 This function exists for debugging purposes and is of no interest to
 users.
 
-(fn)"#),
-    (r#"android-relinquish-directory-access"#, r#"Relinquish access to the provided directory.
+(fn)"#,
+    ),
+    (
+        r#"android-relinquish-directory-access"#,
+        r#"Relinquish access to the provided directory.
 DIRECTORY must be the toplevel directory of an open SAF volume (i.e., a
 file under /content/storage), or one of its inferiors.  Once the command
 completes, the SAF directory holding this directory will vanish, but no
 files will be removed.
 
-(fn FILE)"#),
-    (r#"android-request-directory-access"#, r#"Request access to a directory within external storage.
+(fn FILE)"#,
+    ),
+    (
+        r#"android-request-directory-access"#,
+        r#"Request access to a directory within external storage.
 On Android 5.0 and later, prompt for a directory within external or
 application storage, and grant access to it; some of these directories
 cannot be accessed through the regular `/sdcard' filesystem.
@@ -430,8 +579,11 @@ cannot be accessed through the regular `/sdcard' filesystem.
 If access to the directory is granted, it will eventually appear
 within the directory `/content/storage'.
 
-(fn)"#),
-    (r#"android-request-storage-access"#, r#"Request permissions to access external storage.
+(fn)"#,
+    ),
+    (
+        r#"android-request-storage-access"#,
+        r#"Request permissions to access external storage.
 
 Return nil regardless of whether access permissions are granted or not,
 immediately after displaying the permissions request dialog.
@@ -439,23 +591,35 @@ immediately after displaying the permissions request dialog.
 Use `android-external-storage-available-p' (which see) to verify
 whether Emacs has actually received such access permissions.
 
-(fn)"#),
-    (r#"android-set-clipboard"#, r#"Set the clipboard text to STRING.
+(fn)"#,
+    ),
+    (
+        r#"android-set-clipboard"#,
+        r#"Set the clipboard text to STRING.
 
-(fn STRING)"#),
-    (r#"android-set-mouse-absolute-pixel-position"#, r#"Move mouse pointer to a pixel position at (X, Y).  The
+(fn STRING)"#,
+    ),
+    (
+        r#"android-set-mouse-absolute-pixel-position"#,
+        r#"Move mouse pointer to a pixel position at (X, Y).  The
 coordinates X and Y are interpreted to start from the top-left corner
 of the screen.  This does not work on Android.
 
-(fn X Y)"#),
-    (r#"android-toggle-on-screen-keyboard"#, r#"Display or hide the on-screen keyboard.
+(fn X Y)"#,
+    ),
+    (
+        r#"android-toggle-on-screen-keyboard"#,
+        r#"Display or hide the on-screen keyboard.
 If HIDE is non-nil, hide the on screen keyboard if it is currently
 being displayed.  Else, request that the system display it on behalf
 of FRAME.  This request may be rejected if FRAME does not have the
 input focus.
 
-(fn FRAME HIDE)"#),
-    (r#"append"#, r#"Concatenate all the arguments and make the result a list.
+(fn FRAME HIDE)"#,
+    ),
+    (
+        r#"append"#,
+        r#"Concatenate all the arguments and make the result a list.
 The result is a list whose elements are the elements of all the arguments.
 Each argument may be a list, vector or string.
 
@@ -467,30 +631,45 @@ As an exception, if all the arguments except the last are nil, and the
 last argument is not a list, the return value is that last argument
 unaltered, not a list.
 
-(fn &rest SEQUENCES)"#),
-    (r#"apply"#, r#"Call FUNCTION with our remaining args, using our last arg as list of args.
+(fn &rest SEQUENCES)"#,
+    ),
+    (
+        r#"apply"#,
+        r#"Call FUNCTION with our remaining args, using our last arg as list of args.
 Then return the value FUNCTION returns.
 With a single argument, call the argument's first element using the
 other elements as args.
 Thus, (apply \\='+ 1 2 \\='(3 4)) returns 10.
-(fn FUNCTION &rest ARGUMENTS)"#),
-    (r#"aref"#, r#"Return the element of ARRAY at index IDX.
+(fn FUNCTION &rest ARGUMENTS)"#,
+    ),
+    (
+        r#"aref"#,
+        r#"Return the element of ARRAY at index IDX.
 ARRAY may be a vector, a string, a char-table, a bool-vector, a record,
 or a byte-code object.  IDX starts at 0.
 
-(fn ARRAY IDX)"#),
-    (r#"arrayp"#, r#"Return t if OBJECT is an array (string or vector).
+(fn ARRAY IDX)"#,
+    ),
+    (
+        r#"arrayp"#,
+        r#"Return t if OBJECT is an array (string or vector).
 
-(fn OBJECT)"#),
-    (r#"aset"#, r#"Store into the element of ARRAY at index IDX the value NEWELT.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"aset"#,
+        r#"Store into the element of ARRAY at index IDX the value NEWELT.
 Return NEWELT.  ARRAY may be a vector, a string, a char-table or a
 bool-vector.  IDX starts at 0.
 If ARRAY is a unibyte string, NEWELT must be a single byte (0-255).
 If ARRAY is a multibyte string, NEWELT and the previous character at
 index IDX must both be ASCII (0-127).
 
-(fn ARRAY IDX NEWELT)"#),
-    (r#"ash"#, r#"Return integer VALUE with its bits shifted left by COUNT bit positions.
+(fn ARRAY IDX NEWELT)"#,
+    ),
+    (
+        r#"ash"#,
+        r#"Return integer VALUE with its bits shifted left by COUNT bit positions.
 If COUNT is negative, shift VALUE to the right instead.
 VALUE and COUNT must be integers.
 Mathematically, the return value is VALUE multiplied by 2 to the
@@ -501,18 +680,27 @@ the bits of VALUE to the left, adding zero bits on the right; when
 COUNT is negative, it moves the bits of VALUE to the right,
 discarding bits.
 
-(fn VALUE COUNT)"#),
-    (r#"asin"#, r#"Return the inverse sine of ARG.
+(fn VALUE COUNT)"#,
+    ),
+    (
+        r#"asin"#,
+        r#"Return the inverse sine of ARG.
 
-(fn ARG)"#),
-    (r#"assoc"#, r#"Return non-nil if KEY is equal to the car of an element of ALIST.
+(fn ARG)"#,
+    ),
+    (
+        r#"assoc"#,
+        r#"Return non-nil if KEY is equal to the car of an element of ALIST.
 The value is actually the first element of ALIST whose car equals KEY.
 
 Equality is defined by the function TESTFN, defaulting to `equal'.
 TESTFN is called with 2 arguments: a car of an alist element and KEY.
 
-(fn KEY ALIST TESTFN)"#),
-    (r#"assoc-string"#, r#"Like `assoc' but specifically for strings (and symbols).
+(fn KEY ALIST TESTFN)"#,
+    ),
+    (
+        r#"assoc-string"#,
+        r#"Like `assoc' but specifically for strings (and symbols).
 
 This returns the first element of LIST whose car matches the string or
 symbol KEY, or nil if no match exists.  When performing the
@@ -523,23 +711,35 @@ KEY and the elements of LIST are upcased for comparison.
 Unlike `assoc', KEY can also match an entry in LIST consisting of a
 single string, rather than a cons cell whose car is a string.
 
-(fn KEY LIST CASE-FOLD)"#),
-    (r#"assq"#, r#"Return non-nil if KEY is `eq' to the car of an element of ALIST.
+(fn KEY LIST CASE-FOLD)"#,
+    ),
+    (
+        r#"assq"#,
+        r#"Return non-nil if KEY is `eq' to the car of an element of ALIST.
 The value is actually the first element of ALIST whose car is KEY.
 Elements of ALIST that are not conses are ignored.
 
-(fn KEY ALIST)"#),
-    (r#"atan"#, r#"Return the inverse tangent of the arguments.
+(fn KEY ALIST)"#,
+    ),
+    (
+        r#"atan"#,
+        r#"Return the inverse tangent of the arguments.
 If only one argument Y is given, return the inverse tangent of Y.
 If two arguments Y and X are given, return the inverse tangent of Y
 divided by X, i.e. the angle in radians between the vector (X, Y)
 and the x-axis.
 
-(fn Y X)"#),
-    (r#"atom"#, r#"Return t if OBJECT is not a cons cell.  This includes nil.
+(fn Y X)"#,
+    ),
+    (
+        r#"atom"#,
+        r#"Return t if OBJECT is not a cons cell.  This includes nil.
 
-(fn OBJECT)"#),
-    (r#"autoload"#, r#"Define FUNCTION to autoload from FILE.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"autoload"#,
+        r#"Define FUNCTION to autoload from FILE.
 FUNCTION is a symbol; FILE is a file name string to pass to `load'.
 
 Third arg DOCSTRING is documentation for the function.
@@ -559,15 +759,21 @@ They default to nil.
 If FUNCTION is already defined other than as an autoload,
 this does nothing and returns nil.
 
-(fn FUNCTION FILE DOCSTRING INTERACTIVE TYPE)"#),
-    (r#"autoload-do-load"#, r#"Load FUNDEF which should be an autoload.
+(fn FUNCTION FILE DOCSTRING INTERACTIVE TYPE)"#,
+    ),
+    (
+        r#"autoload-do-load"#,
+        r#"Load FUNDEF which should be an autoload.
 If non-nil, FUNNAME should be the symbol whose function value is FUNDEF,
 in which case the function returns the new autoloaded function value.
 If equal to `macro', MACRO-ONLY specifies that FUNDEF should only be loaded if
 it defines a macro.
 
-(fn FUNDEF FUNNAME MACRO-ONLY)"#),
-    (r#"backtrace--frames-from-thread"#, r#"Return the list of backtrace frames from current execution point in THREAD.
+(fn FUNDEF FUNNAME MACRO-ONLY)"#,
+    ),
+    (
+        r#"backtrace--frames-from-thread"#,
+        r#"Return the list of backtrace frames from current execution point in THREAD.
 If a frame has not evaluated the arguments yet (or is a special form),
 the value of the list element is (nil FUNCTION ARG-FORMS...).
 If a frame has evaluated its arguments and called its function already,
@@ -576,25 +782,40 @@ A &rest arg is represented as the tail of the list ARG-VALUES.
 FUNCTION is whatever was supplied as car of evaluated list,
 or a lambda expression for macro calls.
 
-(fn THREAD)"#),
-    (r#"backtrace--locals"#, r#"Return names and values of local variables of a stack frame.
+(fn THREAD)"#,
+    ),
+    (
+        r#"backtrace--locals"#,
+        r#"Return names and values of local variables of a stack frame.
 NFRAMES and BASE specify the activation frame to use, as in `backtrace-frame'.
 
-(fn NFRAMES BASE)"#),
-    (r#"backtrace-debug"#, r#"Set the debug-on-exit flag of eval frame LEVEL levels down to FLAG.
+(fn NFRAMES BASE)"#,
+    ),
+    (
+        r#"backtrace-debug"#,
+        r#"Set the debug-on-exit flag of eval frame LEVEL levels down to FLAG.
 LEVEL and BASE specify the activation frame to use, as in `backtrace-frame'.
 The debugger is entered when that frame exits, if the flag is non-nil.
 
-(fn LEVEL FLAG BASE)"#),
-    (r#"backtrace-eval"#, r#"Evaluate EXP in the context of some activation frame.
+(fn LEVEL FLAG BASE)"#,
+    ),
+    (
+        r#"backtrace-eval"#,
+        r#"Evaluate EXP in the context of some activation frame.
 NFRAMES and BASE specify the activation frame to use, as in `backtrace-frame'.
 
-(fn EXP NFRAMES BASE)"#),
-    (r#"backtrace-frame--internal"#, r#"Call FUNCTION on stack frame NFRAMES away from BASE.
+(fn EXP NFRAMES BASE)"#,
+    ),
+    (
+        r#"backtrace-frame--internal"#,
+        r#"Call FUNCTION on stack frame NFRAMES away from BASE.
 Return the result of FUNCTION, or nil if no matching frame could be found.
 
-(fn FUNCTION NFRAMES BASE)"#),
-    (r#"backward-char"#, r#"Move point N characters backward (forward if N is negative).
+(fn FUNCTION NFRAMES BASE)"#,
+    ),
+    (
+        r#"backward-char"#,
+        r#"Move point N characters backward (forward if N is negative).
 On attempt to pass beginning or end of buffer, stop and signal error.
 Interactively, N is the numeric prefix argument.
 If N is omitted or nil, move point 1 character backward.
@@ -603,27 +824,42 @@ Depending on the bidirectional context, the movement may be to the
 right or to the left on the screen.  This is in contrast with
 \\[left-char], which see.
 
-(fn N)"#),
-    (r#"backward-prefix-chars"#, r#"Move point backward over any number of chars with prefix syntax.
+(fn N)"#,
+    ),
+    (
+        r#"backward-prefix-chars"#,
+        r#"Move point backward over any number of chars with prefix syntax.
 This includes chars with expression prefix syntax class (\\=') and those with
 the prefix syntax flag (p).
 
-(fn)"#),
-    (r#"bare-symbol"#, r#"Extract, if need be, the bare symbol from SYM.
+(fn)"#,
+    ),
+    (
+        r#"bare-symbol"#,
+        r#"Extract, if need be, the bare symbol from SYM.
 SYM must be either a symbol or a symbol with position, otherwise
 the function will signal the `wrong-type-argument' error.
 This function ignores `symbols-with-pos-enabled'.
 
-(fn SYM)"#),
-    (r#"bare-symbol-p"#, r#"Return t if OBJECT is a symbol, but not a symbol together with position.
+(fn SYM)"#,
+    ),
+    (
+        r#"bare-symbol-p"#,
+        r#"Return t if OBJECT is a symbol, but not a symbol together with position.
 
-(fn OBJECT)"#),
-    (r#"barf-if-buffer-read-only"#, r#"Signal a `buffer-read-only' error if the current buffer is read-only.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"barf-if-buffer-read-only"#,
+        r#"Signal a `buffer-read-only' error if the current buffer is read-only.
 If the text under POSITION (which defaults to point) has the
 `inhibit-read-only' text property set, the error will not be raised.
 
-(fn POSITION)"#),
-    (r#"base64-decode-region"#, r#"Base64-decode the region between BEG and END.
+(fn POSITION)"#,
+    ),
+    (
+        r#"base64-decode-region"#,
+        r#"Base64-decode the region between BEG and END.
 Return the length of the decoded data.
 
 Note that after calling this function, the data in the region will
@@ -637,15 +873,21 @@ of the base 64 encoding, as defined in RFC 4648.
 If optional fourth argument IGNORE-INVALID is non-nil invalid characters
 are ignored instead of signaling an error.
 
-(fn BEG END BASE64URL IGNORE-INVALID)"#),
-    (r#"base64-decode-string"#, r#"Base64-decode STRING and return the result as a string.
+(fn BEG END BASE64URL IGNORE-INVALID)"#,
+    ),
+    (
+        r#"base64-decode-string"#,
+        r#"Base64-decode STRING and return the result as a string.
 Optional argument BASE64URL determines whether to use the URL variant of
 the base 64 encoding, as defined in RFC 4648.
 If optional third argument IGNORE-INVALID is non-nil invalid characters are
 ignored instead of signaling an error.
 
-(fn STRING BASE64URL IGNORE-INVALID)"#),
-    (r#"base64-encode-region"#, r#"Base64-encode the region between BEG and END.
+(fn STRING BASE64URL IGNORE-INVALID)"#,
+    ),
+    (
+        r#"base64-encode-region"#,
+        r#"Base64-encode the region between BEG and END.
 The data in the region is assumed to represent bytes, not text.  If
 you want to base64-encode text, the text has to be converted into data
 first by using `encode-coding-region' with the appropriate coding
@@ -656,26 +898,38 @@ Return the length of the encoded data.
 Optional third argument NO-LINE-BREAK means do not break long lines
 into shorter lines.
 
-(fn BEG END NO-LINE-BREAK)"#),
-    (r#"base64-encode-string"#, r#"Base64-encode STRING and return the result.
+(fn BEG END NO-LINE-BREAK)"#,
+    ),
+    (
+        r#"base64-encode-string"#,
+        r#"Base64-encode STRING and return the result.
 Optional second argument NO-LINE-BREAK means do not break long lines
 into shorter lines.
 
-(fn STRING NO-LINE-BREAK)"#),
-    (r#"base64url-encode-region"#, r#"Base64url-encode the region between BEG and END.
+(fn STRING NO-LINE-BREAK)"#,
+    ),
+    (
+        r#"base64url-encode-region"#,
+        r#"Base64url-encode the region between BEG and END.
 Return the length of the encoded text.
 Optional second argument NO-PAD means do not add padding char =.
 
 This produces the URL variant of base 64 encoding defined in RFC 4648.
 
-(fn BEG END NO-PAD)"#),
-    (r#"base64url-encode-string"#, r#"Base64url-encode STRING and return the result.
+(fn BEG END NO-PAD)"#,
+    ),
+    (
+        r#"base64url-encode-string"#,
+        r#"Base64url-encode STRING and return the result.
 Optional second argument NO-PAD means do not add padding char =.
 
 This produces the URL variant of base 64 encoding defined in RFC 4648.
 
-(fn STRING NO-PAD)"#),
-    (r#"beginning-of-line"#, r#"Move point to beginning of current line (in the logical order).
+(fn STRING NO-PAD)"#,
+    ),
+    (
+        r#"beginning-of-line"#,
+        r#"Move point to beginning of current line (in the logical order).
 With argument N not nil or 1, move forward N - 1 lines first.
 If point reaches the beginning or end of buffer, it stops there.
 
@@ -687,8 +941,11 @@ does not move.  To ignore field boundaries bind
 instead.  For instance, `(forward-line 0)' does the same thing as
 `(beginning-of-line)', except that it ignores field boundaries.
 
-(fn N)"#),
-    (r#"bidi-find-overridden-directionality"#, r#"Return position between FROM and TO where directionality was overridden.
+(fn N)"#,
+    ),
+    (
+        r#"bidi-find-overridden-directionality"#,
+        r#"Return position between FROM and TO where directionality was overridden.
 
 This function returns the first character position in the specified
 region of OBJECT where characters have their bidirectional
@@ -727,8 +984,11 @@ text confuse the user regarding what the text says.
 Also see the `highlight-confusing-reorderings' function, which can be
 useful in similar circumstances as this function.
 
-(fn FROM TO OBJECT BASE-DIR)"#),
-    (r#"bidi-resolved-levels"#, r#"Return the resolved bidirectional levels of characters at VPOS.
+(fn FROM TO OBJECT BASE-DIR)"#,
+    ),
+    (
+        r#"bidi-resolved-levels"#,
+        r#"Return the resolved bidirectional levels of characters at VPOS.
 
 The resolved levels are produced by the Emacs bidi reordering engine
 that implements the UBA, the Unicode Bidirectional Algorithm.  Please
@@ -756,82 +1016,130 @@ in order to avoid these problems.
 This function exists mainly for testing the correctness of the
 Emacs UBA implementation, in particular with the test suite.
 
-(fn VPOS)"#),
-    (r#"bitmap-spec-p"#, r#"Value is non-nil if OBJECT is a valid bitmap specification.
+(fn VPOS)"#,
+    ),
+    (
+        r#"bitmap-spec-p"#,
+        r#"Value is non-nil if OBJECT is a valid bitmap specification.
 A bitmap specification is either a string, a file name, or a list
 \(WIDTH HEIGHT DATA) where WIDTH is the pixel width of the bitmap,
 HEIGHT is its height, and DATA is a string containing the bits of
 the pixmap.  Bits are stored row by row, each row occupies
 \(WIDTH + 7)/8 bytes.
 
-(fn OBJECT)"#),
-    (r#"bobp"#, r#"Return t if point is at the beginning of the buffer.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"bobp"#,
+        r#"Return t if point is at the beginning of the buffer.
 If the buffer is narrowed, this means the beginning of the narrowed part.
 
-(fn)"#),
-    (r#"bolp"#, r#"Return t if point is at the beginning of a line.
+(fn)"#,
+    ),
+    (
+        r#"bolp"#,
+        r#"Return t if point is at the beginning of a line.
 
-(fn)"#),
-    (r#"bool-vector"#, r#"Return a new bool-vector with specified arguments as elements.
+(fn)"#,
+    ),
+    (
+        r#"bool-vector"#,
+        r#"Return a new bool-vector with specified arguments as elements.
 Allows any number of arguments, including zero.
-(fn &rest OBJECTS)"#),
-    (r#"bool-vector-count-consecutive"#, r#"Count how many consecutive elements in A equal B starting at I.
+(fn &rest OBJECTS)"#,
+    ),
+    (
+        r#"bool-vector-count-consecutive"#,
+        r#"Count how many consecutive elements in A equal B starting at I.
 A is a bool vector, B is t or nil, and I is an index into A.
 
-(fn A B I)"#),
-    (r#"bool-vector-count-population"#, r#"Count how many elements in A are t.
+(fn A B I)"#,
+    ),
+    (
+        r#"bool-vector-count-population"#,
+        r#"Count how many elements in A are t.
 A is a bool vector.  To count A's nil elements, subtract the return
 value from A's length.
 
-(fn A)"#),
-    (r#"bool-vector-exclusive-or"#, r#"Return A ^ B, bitwise exclusive or.
+(fn A)"#,
+    ),
+    (
+        r#"bool-vector-exclusive-or"#,
+        r#"Return A ^ B, bitwise exclusive or.
 If optional third argument C is given, store result into C.
 A, B, and C must be bool vectors of the same length.
 Return the destination vector if it changed or nil otherwise.
 
-(fn A B C)"#),
-    (r#"bool-vector-intersection"#, r#"Return A & B, bitwise and.
+(fn A B C)"#,
+    ),
+    (
+        r#"bool-vector-intersection"#,
+        r#"Return A & B, bitwise and.
 If optional third argument C is given, store result into C.
 A, B, and C must be bool vectors of the same length.
 Return the destination vector if it changed or nil otherwise.
 
-(fn A B C)"#),
-    (r#"bool-vector-not"#, r#"Compute ~A, set complement.
+(fn A B C)"#,
+    ),
+    (
+        r#"bool-vector-not"#,
+        r#"Compute ~A, set complement.
 If optional second argument B is given, store result into B.
 A and B must be bool vectors of the same length.
 Return the destination vector.
 
-(fn A B)"#),
-    (r#"bool-vector-p"#, r#"Return t if OBJECT is a bool-vector.
+(fn A B)"#,
+    ),
+    (
+        r#"bool-vector-p"#,
+        r#"Return t if OBJECT is a bool-vector.
 
-(fn OBJECT)"#),
-    (r#"bool-vector-set-difference"#, r#"Return A &~ B, set difference.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"bool-vector-set-difference"#,
+        r#"Return A &~ B, set difference.
 If optional third argument C is given, store result into C.
 A, B, and C must be bool vectors of the same length.
 Return the destination vector if it changed or nil otherwise.
 
-(fn A B C)"#),
-    (r#"bool-vector-subsetp"#, r#"Return t if every t value in A is also t in B, nil otherwise.
+(fn A B C)"#,
+    ),
+    (
+        r#"bool-vector-subsetp"#,
+        r#"Return t if every t value in A is also t in B, nil otherwise.
 A and B must be bool vectors of the same length.
 
-(fn A B)"#),
-    (r#"bool-vector-union"#, r#"Return A | B, bitwise or.
+(fn A B)"#,
+    ),
+    (
+        r#"bool-vector-union"#,
+        r#"Return A | B, bitwise or.
 If optional third argument C is given, store result into C.
 A, B, and C must be bool vectors of the same length.
 Return the destination vector if it changed or nil otherwise.
 
-(fn A B C)"#),
-    (r#"boundp"#, r#"Return t if SYMBOL's value is not void.
+(fn A B C)"#,
+    ),
+    (
+        r#"boundp"#,
+        r#"Return t if SYMBOL's value is not void.
 Note that if `lexical-binding' is in effect, this refers to the
 global value outside of any lexical scope.
 
-(fn SYMBOL)"#),
-    (r#"buffer-base-buffer"#, r#"Return the base buffer of indirect buffer BUFFER.
+(fn SYMBOL)"#,
+    ),
+    (
+        r#"buffer-base-buffer"#,
+        r#"Return the base buffer of indirect buffer BUFFER.
 If BUFFER is not indirect, return nil.
 BUFFER defaults to the current buffer.
 
-(fn BUFFER)"#),
-    (r#"buffer-chars-modified-tick"#, r#"Return BUFFER's character-change tick counter.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"buffer-chars-modified-tick"#,
+        r#"Return BUFFER's character-change tick counter.
 Each buffer has a character-change tick counter, which is set to the
 value of the buffer's tick counter (see `buffer-modified-tick'), each
 time text in that buffer is inserted or deleted.  By comparing the
@@ -840,16 +1148,25 @@ you can tell whether a character change occurred in that buffer in
 between these calls.  No argument or nil as argument means use current
 buffer as BUFFER.
 
-(fn BUFFER)"#),
-    (r#"buffer-enable-undo"#, r#"Start keeping undo information for buffer BUFFER.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"buffer-enable-undo"#,
+        r#"Start keeping undo information for buffer BUFFER.
 No argument or nil as argument means do this for the current buffer.
 
-(fn BUFFER)"#),
-    (r#"buffer-file-name"#, r#"Return name of file BUFFER is visiting, or nil if none.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"buffer-file-name"#,
+        r#"Return name of file BUFFER is visiting, or nil if none.
 No argument or nil as argument means use the current buffer.
 
-(fn BUFFER)"#),
-    (r#"buffer-hash"#, r#"Return a hash of the contents of BUFFER-OR-NAME.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"buffer-hash"#,
+        r#"Return a hash of the contents of BUFFER-OR-NAME.
 This hash is performed on the raw internal format of the buffer,
 disregarding any coding systems.  If nil, use the current buffer.
 
@@ -861,68 +1178,101 @@ buffers than `secure-hash' is, and should not allocate more memory.
 It should not be used for anything security-related.  See
 `secure-hash' for these applications.
 
-(fn BUFFER-OR-NAME)"#),
-    (r#"buffer-last-name"#, r#"Return last name of BUFFER, as a string.
+(fn BUFFER-OR-NAME)"#,
+    ),
+    (
+        r#"buffer-last-name"#,
+        r#"Return last name of BUFFER, as a string.
 BUFFER defaults to the current buffer.
 
 This is the name BUFFER had before the last time it was renamed or
 immediately before it was killed.
 
-(fn BUFFER)"#),
-    (r#"buffer-line-statistics"#, r#"Return data about lines in BUFFER.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"buffer-line-statistics"#,
+        r#"Return data about lines in BUFFER.
 The data is returned as a list, and the first element is the number of
 lines in the buffer, the second is the length of the longest line, and
 the third is the mean line length.  The lengths returned are in bytes, not
 characters.
 
-(fn BUFFER-OR-NAME)"#),
-    (r#"buffer-list"#, r#"Return a list of all live buffers.
+(fn BUFFER-OR-NAME)"#,
+    ),
+    (
+        r#"buffer-list"#,
+        r#"Return a list of all live buffers.
 If the optional arg FRAME is a frame, return the buffer list in the
 proper order for that frame: the buffers shown in FRAME come first,
 followed by the rest of the buffers.
 
-(fn FRAME)"#),
-    (r#"buffer-live-p"#, r#"Return t if OBJECT is a buffer which has not been killed.
+(fn FRAME)"#,
+    ),
+    (
+        r#"buffer-live-p"#,
+        r#"Return t if OBJECT is a buffer which has not been killed.
 Value is nil if OBJECT is not a buffer or if it has been killed.
 
-(fn OBJECT)"#),
-    (r#"buffer-local-toplevel-value"#, r#"Return SYMBOL's toplevel buffer-local value in BUFFER.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"buffer-local-toplevel-value"#,
+        r#"Return SYMBOL's toplevel buffer-local value in BUFFER.
 "Toplevel" means outside of any let binding.
 BUFFER defaults to the current buffer.
 If SYMBOL has no local value in BUFFER, signals an error.
 
-(fn SYMBOL BUFFER)"#),
-    (r#"buffer-local-value"#, r#"Return the value of VARIABLE in BUFFER.
+(fn SYMBOL BUFFER)"#,
+    ),
+    (
+        r#"buffer-local-value"#,
+        r#"Return the value of VARIABLE in BUFFER.
 If VARIABLE does not have a buffer-local binding in BUFFER, the value
 is the default binding of the variable.
 
-(fn VARIABLE BUFFER)"#),
-    (r#"buffer-local-variables"#, r#"Return an alist of variables that are buffer-local in BUFFER.
+(fn VARIABLE BUFFER)"#,
+    ),
+    (
+        r#"buffer-local-variables"#,
+        r#"Return an alist of variables that are buffer-local in BUFFER.
 Most elements look like (SYMBOL . VALUE), describing one variable.
 For a symbol that is locally unbound, just the symbol appears in the value.
 Note that storing new VALUEs in these elements doesn't change the variables.
 No argument or nil as argument means use current buffer as BUFFER.
 
-(fn BUFFER)"#),
-    (r#"buffer-modified-p"#, r#"Return non-nil if BUFFER was modified since its file was last read or saved.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"buffer-modified-p"#,
+        r#"Return non-nil if BUFFER was modified since its file was last read or saved.
 No argument or nil as argument means use current buffer as BUFFER.
 
 If BUFFER was autosaved since it was last modified, this function
 returns the symbol `autosaved'.
 
-(fn BUFFER)"#),
-    (r#"buffer-modified-tick"#, r#"Return BUFFER's tick counter, incremented for each change in text.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"buffer-modified-tick"#,
+        r#"Return BUFFER's tick counter, incremented for each change in text.
 Each buffer has a tick counter which is incremented each time the
 text in that buffer is changed.  No argument or nil as argument means
 use current buffer as BUFFER.
 
-(fn BUFFER)"#),
-    (r#"buffer-name"#, r#"Return the name of BUFFER, as a string.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"buffer-name"#,
+        r#"Return the name of BUFFER, as a string.
 BUFFER defaults to the current buffer.
 Return nil if BUFFER has been killed.
 
-(fn BUFFER)"#),
-    (r#"buffer-size"#, r#"Return the number of characters in the current buffer.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"buffer-size"#,
+        r#"Return the number of characters in the current buffer.
 If BUFFER is not nil, return the number of characters in that buffer
 instead.
 
@@ -932,8 +1282,11 @@ characters in the accessible portion of the current buffer, use
 in the accessible portion of some other BUFFER, use
 `(with-current-buffer BUFFER (- (point-max) (point-min)))'.
 
-(fn BUFFER)"#),
-    (r#"buffer-string"#, r#"Return the contents of the current buffer as a string.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"buffer-string"#,
+        r#"Return the contents of the current buffer as a string.
 If narrowing is in effect, this function returns only the visible part
 of the buffer.
 
@@ -941,8 +1294,11 @@ This function copies the text properties of that part of the buffer
 into the result string; if you don't want the text properties,
 use `buffer-substring-no-properties' instead.
 
-(fn)"#),
-    (r#"buffer-substring"#, r#"Return the contents of part of the current buffer as a string.
+(fn)"#,
+    ),
+    (
+        r#"buffer-substring"#,
+        r#"Return the contents of part of the current buffer as a string.
 The two arguments START and END are character positions;
 they can be in either order.
 The string returned is multibyte if the buffer is multibyte.
@@ -951,18 +1307,27 @@ This function copies the text properties of that part of the buffer
 into the result string; if you don't want the text properties,
 use `buffer-substring-no-properties' instead.
 
-(fn START END)"#),
-    (r#"buffer-substring-no-properties"#, r#"Return the characters of part of the buffer, without the text properties.
+(fn START END)"#,
+    ),
+    (
+        r#"buffer-substring-no-properties"#,
+        r#"Return the characters of part of the buffer, without the text properties.
 The two arguments START and END are character positions;
 they can be in either order.
 
-(fn START END)"#),
-    (r#"buffer-swap-text"#, r#"Swap the text between current buffer and BUFFER.
+(fn START END)"#,
+    ),
+    (
+        r#"buffer-swap-text"#,
+        r#"Swap the text between current buffer and BUFFER.
 Using this function from `save-excursion' might produce surprising
 results, see Info node `(elisp)Swapping Text'.
 
-(fn BUFFER)"#),
-    (r#"buffer-text-pixel-size"#, r#"Return the dimensions of whole text of BUFFER-OR-NAME in WINDOW.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"buffer-text-pixel-size"#,
+        r#"Return the dimensions of whole text of BUFFER-OR-NAME in WINDOW.
 BUFFER-OR-NAME must specify a live buffer or the name of a live buffer
 and defaults to the current buffer.  WINDOW must be a live window and
 defaults to the selected one.  The return value is a cons of the maximum
@@ -977,36 +1342,60 @@ already displayed in WINDOW.  `window-text-pixel-size' is cheaper in
 that case because it does not have to temporarily show that buffer in
 WINDOW.
 
-(fn BUFFER-OR-NAME WINDOW X-LIMIT Y-LIMIT)"#),
-    (r#"bufferp"#, r#"Return t if OBJECT is an editor buffer.
+(fn BUFFER-OR-NAME WINDOW X-LIMIT Y-LIMIT)"#,
+    ),
+    (
+        r#"bufferp"#,
+        r#"Return t if OBJECT is an editor buffer.
 
-(fn OBJECT)"#),
-    (r#"bury-buffer-internal"#, r#"Move BUFFER to the end of the buffer list.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"bury-buffer-internal"#,
+        r#"Move BUFFER to the end of the buffer list.
 
-(fn BUFFER)"#),
-    (r#"byte-code"#, r#"Function used internally in byte-compiled code.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"byte-code"#,
+        r#"Function used internally in byte-compiled code.
 The first argument, BYTESTR, is a string of byte code;
 the second, VECTOR, a vector of constants;
 the third, MAXDEPTH, the maximum stack depth used in this function.
 If the third argument is incorrect, Emacs may crash.
 
-(fn BYTESTR VECTOR MAXDEPTH)"#),
-    (r#"byte-code-function-p"#, r#"Return t if OBJECT is a byte-compiled function object.
+(fn BYTESTR VECTOR MAXDEPTH)"#,
+    ),
+    (
+        r#"byte-code-function-p"#,
+        r#"Return t if OBJECT is a byte-compiled function object.
 
-(fn OBJECT)"#),
-    (r#"byte-to-position"#, r#"Return the character position for byte position BYTEPOS.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"byte-to-position"#,
+        r#"Return the character position for byte position BYTEPOS.
 If BYTEPOS is out of range, the value is nil.
 
-(fn BYTEPOS)"#),
-    (r#"byte-to-string"#, r#"Convert arg BYTE to a unibyte string containing that byte.
+(fn BYTEPOS)"#,
+    ),
+    (
+        r#"byte-to-string"#,
+        r#"Convert arg BYTE to a unibyte string containing that byte.
 
-(fn BYTE)"#),
-    (r#"byteorder"#, r#"Return the byteorder for the machine.
+(fn BYTE)"#,
+    ),
+    (
+        r#"byteorder"#,
+        r#"Return the byteorder for the machine.
 Returns 66 (ASCII uppercase B) for big endian machines or 108 (ASCII
 lowercase l) for small endian machines.
 
-(fn)"#),
-    (r#"call-interactively"#, r#"Call FUNCTION, providing args according to its interactive calling specs.
+(fn)"#,
+    ),
+    (
+        r#"call-interactively"#,
+        r#"Call FUNCTION, providing args according to its interactive calling specs.
 Return the value FUNCTION returns.
 The function contains a specification of how to do the argument reading.
 In the case of user-defined functions, this is specified by placing a call
@@ -1023,8 +1412,11 @@ invoke it (via an `interactive' spec that contains, for instance, an
 \"e\" code letter).  If KEYS is omitted or nil, the return value of
 `this-command-keys-vector' is used.
 
-(fn FUNCTION RECORD-FLAG KEYS)"#),
-    (r#"call-last-kbd-macro"#, r#"Call the last keyboard macro that you defined with \\[start-kbd-macro].
+(fn FUNCTION RECORD-FLAG KEYS)"#,
+    ),
+    (
+        r#"call-last-kbd-macro"#,
+        r#"Call the last keyboard macro that you defined with \\[start-kbd-macro].
 
 A prefix argument serves as a repeat count.  Zero means repeat until error.
 
@@ -1034,8 +1426,11 @@ defining others, use \\[name-last-kbd-macro].
 In Lisp, optional second arg LOOPFUNC may be a function that is called prior to
 each iteration of the macro.  Iteration stops if LOOPFUNC returns nil.
 
-(fn PREFIX LOOPFUNC)"#),
-    (r#"call-process"#, r#"Call PROGRAM synchronously in separate process.
+(fn PREFIX LOOPFUNC)"#,
+    ),
+    (
+        r#"call-process"#,
+        r#"Call PROGRAM synchronously in separate process.
 The remaining arguments are optional.
 
 The program's input comes from file INFILE (nil means `null-device').
@@ -1078,8 +1473,11 @@ The process runs in `default-directory' if that is local (as
 determined by `unhandled-file-name-directory'), or "~" otherwise.  If
 you want to run a process in a remote directory use `process-file'.
 
-(fn PROGRAM &optional INFILE DESTINATION DISPLAY &rest ARGS)"#),
-    (r#"call-process-region"#, r#"Send text from START to END to a synchronous process running PROGRAM.
+(fn PROGRAM &optional INFILE DESTINATION DISPLAY &rest ARGS)"#,
+    ),
+    (
+        r#"call-process-region"#,
+        r#"Send text from START to END to a synchronous process running PROGRAM.
 
 START and END are normally buffer positions specifying the part of the
 buffer to send to the process.
@@ -1113,11 +1511,17 @@ Otherwise it waits for PROGRAM to terminate
 and returns a numeric exit status or a signal description string.
 If you quit, the process is killed with SIGINT, or SIGKILL if you quit again.
 
-(fn START END PROGRAM &optional DELETE BUFFER DISPLAY &rest ARGS)"#),
-    (r#"cancel-kbd-macro-events"#, r#"Cancel the events added to a keyboard macro for this command.
+(fn START END PROGRAM &optional DELETE BUFFER DISPLAY &rest ARGS)"#,
+    ),
+    (
+        r#"cancel-kbd-macro-events"#,
+        r#"Cancel the events added to a keyboard macro for this command.
 
-(fn)"#),
-    (r#"capitalize"#, r#"Convert argument to capitalized form and return that.
+(fn)"#,
+    ),
+    (
+        r#"capitalize"#,
+        r#"Convert argument to capitalized form and return that.
 This means that each word's first character is converted to either
 title case or upper case, and the rest to lower case.
 
@@ -1128,15 +1532,21 @@ The argument object is not altered--the value is a copy.  If argument
 is a character, characters which map to multiple code points when
 cased, e.g. ﬁ, are returned unchanged.
 
-(fn OBJ)"#),
-    (r#"capitalize-region"#, r#"Convert the region to capitalized form.
+(fn OBJ)"#,
+    ),
+    (
+        r#"capitalize-region"#,
+        r#"Convert the region to capitalized form.
 This means that each word's first character is converted to either
 title case or upper case, and the rest to lower case.
 In programs, give two arguments, the starting and ending
 character positions to operate on.
 
-(fn BEG END REGION-NONCONTIGUOUS-P)"#),
-    (r#"capitalize-word"#, r#"Capitalize from point to the end of word, moving over.
+(fn BEG END REGION-NONCONTIGUOUS-P)"#,
+    ),
+    (
+        r#"capitalize-word"#,
+        r#"Capitalize from point to the end of word, moving over.
 With numerical argument ARG, capitalize the next ARG-1 words as well.
 This gives the word(s) a first character in upper case
 and the rest lower case.
@@ -1146,51 +1556,81 @@ is ignored when moving forward.
 
 With negative argument, capitalize previous words but do not move.
 
-(fn ARG)"#),
-    (r#"car"#, r#"Return the car of LIST.  If LIST is nil, return nil.
+(fn ARG)"#,
+    ),
+    (
+        r#"car"#,
+        r#"Return the car of LIST.  If LIST is nil, return nil.
 Error if LIST is not nil and not a cons cell.  See also `car-safe'.
 
 See Info node `(elisp)Cons Cells' for a discussion of related basic
 Lisp concepts such as car, cdr, cons cell and list.
 
-(fn LIST)"#),
-    (r#"car-less-than-car"#, r#"Return t if (car A) is numerically less than (car B).
+(fn LIST)"#,
+    ),
+    (
+        r#"car-less-than-car"#,
+        r#"Return t if (car A) is numerically less than (car B).
 
-(fn A B)"#),
-    (r#"car-safe"#, r#"Return the car of OBJECT if it is a cons cell, or else nil.
+(fn A B)"#,
+    ),
+    (
+        r#"car-safe"#,
+        r#"Return the car of OBJECT if it is a cons cell, or else nil.
 
-(fn OBJECT)"#),
-    (r#"case-table-p"#, r#"Return t if OBJECT is a case table.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"case-table-p"#,
+        r#"Return t if OBJECT is a case table.
 See `set-case-table' for more information on these data structures.
 
-(fn OBJECT)"#),
-    (r#"catch"#, r#"Eval BODY allowing nonlocal exits using `throw'.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"catch"#,
+        r#"Eval BODY allowing nonlocal exits using `throw'.
 TAG is evalled to get the tag to use; it must not be nil.
 
 Then the BODY is executed.
 Within BODY, a call to `throw' with the same TAG exits BODY and this `catch'.
 If no throw happens, `catch' returns the value of the last BODY form.
 If a throw happens, it specifies the value to return from `catch'.
-(fn TAG BODY...)"#),
-    (r#"category-docstring"#, r#"Return the documentation string of CATEGORY, as defined in TABLE.
+(fn TAG BODY...)"#,
+    ),
+    (
+        r#"category-docstring"#,
+        r#"Return the documentation string of CATEGORY, as defined in TABLE.
 TABLE should be a category table and defaults to the current buffer's
 category table.
 
-(fn CATEGORY TABLE)"#),
-    (r#"category-set-mnemonics"#, r#"Return a string containing mnemonics of the categories in CATEGORY-SET.
+(fn CATEGORY TABLE)"#,
+    ),
+    (
+        r#"category-set-mnemonics"#,
+        r#"Return a string containing mnemonics of the categories in CATEGORY-SET.
 CATEGORY-SET is a bool-vector, and the categories \"in\" it are those
 that are indexes where t occurs in the bool-vector.
 The return value is a string containing those same categories.
 
-(fn CATEGORY-SET)"#),
-    (r#"category-table"#, r#"Return the current category table.
+(fn CATEGORY-SET)"#,
+    ),
+    (
+        r#"category-table"#,
+        r#"Return the current category table.
 This is the one specified by the current buffer.
 
-(fn)"#),
-    (r#"category-table-p"#, r#"Return t if ARG is a category table.
+(fn)"#,
+    ),
+    (
+        r#"category-table-p"#,
+        r#"Return t if ARG is a category table.
 
-(fn ARG)"#),
-    (r#"ccl-execute"#, r#"Execute CCL-PROGRAM with registers initialized by REGISTERS.
+(fn ARG)"#,
+    ),
+    (
+        r#"ccl-execute"#,
+        r#"Execute CCL-PROGRAM with registers initialized by REGISTERS.
 
 CCL-PROGRAM is a CCL program name (symbol)
 or compiled code generated by `ccl-compile' (for backward compatibility.
@@ -1206,8 +1646,11 @@ the corresponding register after the execution.
 See the documentation of `define-ccl-program' for a definition of CCL
 programs.
 
-(fn CCL-PROG REG)"#),
-    (r#"ccl-execute-on-string"#, r#"Execute CCL-PROGRAM with initial STATUS on STRING.
+(fn CCL-PROG REG)"#,
+    ),
+    (
+        r#"ccl-execute-on-string"#,
+        r#"Execute CCL-PROGRAM with initial STATUS on STRING.
 
 CCL-PROGRAM is a symbol registered by `register-ccl-program',
 or a compiled code generated by `ccl-compile' (for backward compatibility,
@@ -1231,51 +1674,84 @@ If the optional 5th arg UNIBYTE-P is non-nil, the returned string
 is a unibyte string.  By default it is a multibyte string.
 
 See the documentation of `define-ccl-program' for the detail of CCL program.
-(fn CCL-PROGRAM STATUS STRING &optional CONTINUE UNIBYTE-P)"#),
-    (r#"ccl-program-p"#, r#"Return t if OBJECT is a CCL program name or a compiled CCL program code.
+(fn CCL-PROGRAM STATUS STRING &optional CONTINUE UNIBYTE-P)"#,
+    ),
+    (
+        r#"ccl-program-p"#,
+        r#"Return t if OBJECT is a CCL program name or a compiled CCL program code.
 See the documentation of `define-ccl-program' for the detail of CCL program.
 
-(fn OBJECT)"#),
-    (r#"cdr"#, r#"Return the cdr of LIST.  If LIST is nil, return nil.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"cdr"#,
+        r#"Return the cdr of LIST.  If LIST is nil, return nil.
 Error if LIST is not nil and not a cons cell.  See also `cdr-safe'.
 
 See Info node `(elisp)Cons Cells' for a discussion of related basic
 Lisp concepts such as cdr, car, cons cell and list.
 
-(fn LIST)"#),
-    (r#"cdr-safe"#, r#"Return the cdr of OBJECT if it is a cons cell, or else nil.
+(fn LIST)"#,
+    ),
+    (
+        r#"cdr-safe"#,
+        r#"Return the cdr of OBJECT if it is a cons cell, or else nil.
 
-(fn OBJECT)"#),
-    (r#"ceiling"#, r#"Return the smallest integer no less than ARG.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"ceiling"#,
+        r#"Return the smallest integer no less than ARG.
 This rounds the value towards +inf.
 With optional DIVISOR, return the smallest integer no less than ARG/DIVISOR.
 
-(fn ARG DIVISOR)"#),
-    (r#"char-after"#, r#"Return character in current buffer at position POS.
+(fn ARG DIVISOR)"#,
+    ),
+    (
+        r#"char-after"#,
+        r#"Return character in current buffer at position POS.
 POS is an integer or a marker and defaults to point.
 If POS is out of range, the value is nil.
 
-(fn POS)"#),
-    (r#"char-before"#, r#"Return character in current buffer preceding position POS.
+(fn POS)"#,
+    ),
+    (
+        r#"char-before"#,
+        r#"Return character in current buffer preceding position POS.
 POS is an integer or a marker and defaults to point.
 If POS is out of range, the value is nil.
 
-(fn POS)"#),
-    (r#"char-category-set"#, r#"Return the category set of CHAR.
-(fn CHAR)"#),
-    (r#"char-equal"#, r#"Return t if two characters match, optionally ignoring case.
+(fn POS)"#,
+    ),
+    (
+        r#"char-category-set"#,
+        r#"Return the category set of CHAR.
+(fn CHAR)"#,
+    ),
+    (
+        r#"char-equal"#,
+        r#"Return t if two characters match, optionally ignoring case.
 Both arguments must be characters (i.e. integers).
 Case is ignored if `case-fold-search' is non-nil in the current buffer.
 
-(fn C1 C2)"#),
-    (r#"char-or-string-p"#, r#"Return t if OBJECT is a character or a string.
+(fn C1 C2)"#,
+    ),
+    (
+        r#"char-or-string-p"#,
+        r#"Return t if OBJECT is a character or a string.
 
-(fn OBJECT)"#),
-    (r#"char-resolve-modifiers"#, r#"Resolve modifiers in the character CHAR.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"char-resolve-modifiers"#,
+        r#"Resolve modifiers in the character CHAR.
 The value is a character with modifiers resolved into the character
 code.  Unresolved modifiers are kept in the value.
-(fn CHAR)"#),
-    (r#"char-syntax"#, r#"Return the syntax code of CHARACTER, described by a character.
+(fn CHAR)"#,
+    ),
+    (
+        r#"char-syntax"#,
+        r#"Return the syntax code of CHARACTER, described by a character.
 For example, if CHARACTER is a word constituent, the
 character `w' (119) is returned.
 The characters that correspond to various syntax codes
@@ -1286,72 +1762,117 @@ this is probably the wrong function to use, because it can't take
 `syntax-table' text properties into account.  Consider using
 `syntax-after' instead.
 
-(fn CHARACTER)"#),
-    (r#"char-table-extra-slot"#, r#"Return the value of CHAR-TABLE's extra-slot number N.
+(fn CHARACTER)"#,
+    ),
+    (
+        r#"char-table-extra-slot"#,
+        r#"Return the value of CHAR-TABLE's extra-slot number N.
 
-(fn CHAR-TABLE N)"#),
-    (r#"char-table-p"#, r#"Return t if OBJECT is a char-table.
+(fn CHAR-TABLE N)"#,
+    ),
+    (
+        r#"char-table-p"#,
+        r#"Return t if OBJECT is a char-table.
 
-(fn OBJECT)"#),
-    (r#"char-table-parent"#, r#"Return the parent char-table of CHAR-TABLE.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"char-table-parent"#,
+        r#"Return the parent char-table of CHAR-TABLE.
 The value is either nil or another char-table.
 If CHAR-TABLE holds nil for a given character,
 then the actual applicable value is inherited from the parent char-table
 \(or from its parents, if necessary).
 
-(fn CHAR-TABLE)"#),
-    (r#"char-table-range"#, r#"Return the value in CHAR-TABLE for a range of characters RANGE.
+(fn CHAR-TABLE)"#,
+    ),
+    (
+        r#"char-table-range"#,
+        r#"Return the value in CHAR-TABLE for a range of characters RANGE.
 RANGE should be nil (for the default value),
 a cons of character codes (for characters in the range), or a character code.
 If RANGE is a cons (FROM . TO), the function returns the value for FROM.
 
-(fn CHAR-TABLE RANGE)"#),
-    (r#"char-table-subtype"#, r#"
+(fn CHAR-TABLE RANGE)"#,
+    ),
+    (
+        r#"char-table-subtype"#,
+        r#"
 Return the subtype of char-table CHAR-TABLE.  The value is a symbol.
 
-(fn CHAR-TABLE)"#),
-    (r#"char-to-string"#, r#"Convert arg CHAR to a string containing that character.
-(fn CHAR)"#),
-    (r#"char-width"#, r#"Return width of CHAR in columns when displayed in the current buffer.
+(fn CHAR-TABLE)"#,
+    ),
+    (
+        r#"char-to-string"#,
+        r#"Convert arg CHAR to a string containing that character.
+(fn CHAR)"#,
+    ),
+    (
+        r#"char-width"#,
+        r#"Return width of CHAR in columns when displayed in the current buffer.
 The width of CHAR is measured by how many columns it will occupy on the screen.
 This is based on data in `char-width-table', and ignores the actual
 metrics of the character's glyph as determined by its font.
 If the display table in effect replaces CHAR on display with
 something else, the function returns the width of the replacement.
 Tab is taken to occupy `tab-width' columns.
-(fn CHAR)"#),
-    (r#"characterp"#, r#"Return non-nil if OBJECT is a character.
+(fn CHAR)"#,
+    ),
+    (
+        r#"characterp"#,
+        r#"Return non-nil if OBJECT is a character.
 In Emacs Lisp, characters are represented by character codes, which
 are non-negative integers.  The function `max-char' returns the
 maximum character code.
-(fn OBJECT)"#),
-    (r#"charset-after"#, r#"
+(fn OBJECT)"#,
+    ),
+    (
+        r#"charset-after"#,
+        r#"
 Return charset of a character in the current buffer at position POS.
 If POS is nil, it defaults to the current point.
 If POS is out of range, the value is nil.
 
-(fn POS)"#),
-    (r#"charset-id-internal"#, r#"Internal use only.
+(fn POS)"#,
+    ),
+    (
+        r#"charset-id-internal"#,
+        r#"Internal use only.
 Return charset identification number of CHARSET.
 
-(fn CHARSET)"#),
-    (r#"charset-plist"#, r#"Return the property list of CHARSET.
+(fn CHARSET)"#,
+    ),
+    (
+        r#"charset-plist"#,
+        r#"Return the property list of CHARSET.
 
-(fn CHARSET)"#),
-    (r#"charset-priority-list"#, r#"Return the list of charsets ordered by priority.
+(fn CHARSET)"#,
+    ),
+    (
+        r#"charset-priority-list"#,
+        r#"Return the list of charsets ordered by priority.
 HIGHESTP non-nil means just return the highest priority one.
 
-(fn HIGHESTP)"#),
-    (r#"charsetp"#, r#"Return non-nil if and only if OBJECT is a charset.
+(fn HIGHESTP)"#,
+    ),
+    (
+        r#"charsetp"#,
+        r#"Return non-nil if and only if OBJECT is a charset.
 
-(fn OBJECT)"#),
-    (r#"check-coding-system"#, r#"Check validity of CODING-SYSTEM.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"check-coding-system"#,
+        r#"Check validity of CODING-SYSTEM.
 If valid, return CODING-SYSTEM, else signal a `coding-system-error' error.
 It is valid if it is nil or a symbol defined as a coding system by the
 function `define-coding-system'.
 
-(fn CODING-SYSTEM)"#),
-    (r#"check-coding-systems-region"#, r#"Check if text between START and END is encodable by CODING-SYSTEM-LIST.
+(fn CODING-SYSTEM)"#,
+    ),
+    (
+        r#"check-coding-systems-region"#,
+        r#"Check if text between START and END is encodable by CODING-SYSTEM-LIST.
 
 START and END are buffer positions specifying the region.
 CODING-SYSTEM-LIST is a list of coding systems to check.
@@ -1371,8 +1892,11 @@ instead of buffer positions.  END is ignored in this case.
 If the current buffer (or START if it is a string) is unibyte, the value
 is nil.
 
-(fn START END CODING-SYSTEM-LIST)"#),
-    (r#"cl-type-of"#, r#"Return a symbol representing the type of OBJECT.
+(fn START END CODING-SYSTEM-LIST)"#,
+    ),
+    (
+        r#"cl-type-of"#,
+        r#"Return a symbol representing the type of OBJECT.
 The returned symbol names the most specific possible type of the object.
 for example, (cl-type-of nil) returns `null'.
 The specific type returned may change depending on Emacs versions,
@@ -1380,28 +1904,46 @@ so we recommend you use `cl-typep', `cl-typecase', or other predicates
 rather than compare the return value of this function against
 a fixed set of types.
 
-(fn OBJECT)"#),
-    (r#"clear-buffer-auto-save-failure"#, r#"Clear any record of a recent auto-save failure in the current buffer.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"clear-buffer-auto-save-failure"#,
+        r#"Clear any record of a recent auto-save failure in the current buffer.
 
-(fn)"#),
-    (r#"clear-charset-maps"#, r#"
+(fn)"#,
+    ),
+    (
+        r#"clear-charset-maps"#,
+        r#"
 Internal use only.
 Clear temporary charset mapping tables.
 It should be called only from temacs invoked for dumping.
 
-(fn)"#),
-    (r#"clear-composition-cache"#, r#"Internal use only.
+(fn)"#,
+    ),
+    (
+        r#"clear-composition-cache"#,
+        r#"Internal use only.
 Clear composition cache.
 
-(fn)"#),
-    (r#"clear-face-cache"#, r#"Clear face caches on all frames.
+(fn)"#,
+    ),
+    (
+        r#"clear-face-cache"#,
+        r#"Clear face caches on all frames.
 Optional THOROUGHLY non-nil means try to free unused fonts, too.
 
-(fn THOROUGHLY)"#),
-    (r#"clear-font-cache"#, r#"Clear font cache of each frame.
+(fn THOROUGHLY)"#,
+    ),
+    (
+        r#"clear-font-cache"#,
+        r#"Clear font cache of each frame.
 
-(fn)"#),
-    (r#"clear-image-cache"#, r#"Clear the image and animation caches.
+(fn)"#,
+    ),
+    (
+        r#"clear-image-cache"#,
+        r#"Clear the image and animation caches.
 FILTER nil or a frame means clear all images in the selected frame.
 FILTER t means clear the image caches of all frames.
 Anything else means clear only those images that refer to FILTER,
@@ -1414,34 +1956,58 @@ from the animation cache, and do not clear any image caches.
 This can help reduce memory usage after an animation is stopped
 but the image is still displayed.
 
-(fn FILTER ANIMATION-FILTER)"#),
-    (r#"clear-string"#, r#"Clear the contents of STRING.
+(fn FILTER ANIMATION-FILTER)"#,
+    ),
+    (
+        r#"clear-string"#,
+        r#"Clear the contents of STRING.
 This makes STRING unibyte, clears its contents to null characters, and
 removes all text properties.  This may change its length.
 
-(fn STRING)"#),
-    (r#"clear-this-command-keys"#, r#"Clear out the vector that `this-command-keys' returns.
+(fn STRING)"#,
+    ),
+    (
+        r#"clear-this-command-keys"#,
+        r#"Clear out the vector that `this-command-keys' returns.
 Also clear the record of the last 300 input events, unless optional arg
 KEEP-RECORD is non-nil.
 
-(fn KEEP-RECORD)"#),
-    (r#"close-font"#, r#"Close FONT-OBJECT.
+(fn KEEP-RECORD)"#,
+    ),
+    (
+        r#"close-font"#,
+        r#"Close FONT-OBJECT.
 
-(fn FONT-OBJECT FRAME)"#),
-    (r#"closurep"#, r#"Return t if OBJECT is a function of type `closure'.
+(fn FONT-OBJECT FRAME)"#,
+    ),
+    (
+        r#"closurep"#,
+        r#"Return t if OBJECT is a function of type `closure'.
 
-(fn OBJECT)"#),
-    (r#"clrhash"#, r#"Clear hash table TABLE and return it.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"clrhash"#,
+        r#"Clear hash table TABLE and return it.
 
-(fn TABLE)"#),
-    (r#"coding-system-aliases"#, r#"Return the list of aliases of CODING-SYSTEM.
+(fn TABLE)"#,
+    ),
+    (
+        r#"coding-system-aliases"#,
+        r#"Return the list of aliases of CODING-SYSTEM.
 
-(fn CODING-SYSTEM)"#),
-    (r#"coding-system-base"#, r#"Return the base of CODING-SYSTEM.
+(fn CODING-SYSTEM)"#,
+    ),
+    (
+        r#"coding-system-base"#,
+        r#"Return the base of CODING-SYSTEM.
 Any alias or subsidiary coding system is not a base coding system.
 
-(fn CODING-SYSTEM)"#),
-    (r#"coding-system-eol-type"#, r#"Return eol-type of CODING-SYSTEM.
+(fn CODING-SYSTEM)"#,
+    ),
+    (
+        r#"coding-system-eol-type"#,
+        r#"Return eol-type of CODING-SYSTEM.
 An eol-type is an integer 0, 1, 2, or a vector of coding systems.
 
 Integer values 0, 1, and 2 indicate a format of end-of-line; LF, CRLF,
@@ -1451,23 +2017,35 @@ A vector value indicates that a format of end-of-line should be
 detected automatically.  Nth element of the vector is the subsidiary
 coding system whose eol-type is N.
 
-(fn CODING-SYSTEM)"#),
-    (r#"coding-system-p"#, r#"Return t if OBJECT is nil or a coding-system.
+(fn CODING-SYSTEM)"#,
+    ),
+    (
+        r#"coding-system-p"#,
+        r#"Return t if OBJECT is nil or a coding-system.
 See the documentation of `define-coding-system' for information
 about coding-system objects.
 
-(fn OBJECT)"#),
-    (r#"coding-system-plist"#, r#"Return the property list of CODING-SYSTEM.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"coding-system-plist"#,
+        r#"Return the property list of CODING-SYSTEM.
 
-(fn CODING-SYSTEM)"#),
-    (r#"coding-system-priority-list"#, r#"Return a list of coding systems ordered by their priorities.
+(fn CODING-SYSTEM)"#,
+    ),
+    (
+        r#"coding-system-priority-list"#,
+        r#"Return a list of coding systems ordered by their priorities.
 The list contains a subset of coding systems; i.e. coding systems
 assigned to each coding category (see `coding-category-list').
 
 HIGHESTP non-nil means just return the highest priority one.
 
-(fn HIGHESTP)"#),
-    (r#"coding-system-put"#, r#"Change value of CODING-SYSTEM's property PROP to VAL.
+(fn HIGHESTP)"#,
+    ),
+    (
+        r#"coding-system-put"#,
+        r#"Change value of CODING-SYSTEM's property PROP to VAL.
 
 The following properties, if set by this function, override the values
 of the corresponding attributes set by `define-coding-system':
@@ -1480,8 +2058,11 @@ See `define-coding-system' for the description of these properties.
 See `coding-system-get' and `coding-system-plist' for accessing the
 property list of a coding-system.
 
-(fn CODING-SYSTEM PROP VAL)"#),
-    (r#"color-distance"#, r#"Return an integer distance between COLOR1 and COLOR2 on FRAME.
+(fn CODING-SYSTEM PROP VAL)"#,
+    ),
+    (
+        r#"color-distance"#,
+        r#"Return an integer distance between COLOR1 and COLOR2 on FRAME.
 COLOR1 and COLOR2 may be either strings containing the color name,
 or lists of the form (RED GREEN BLUE), each in the range 0 to 65535 inclusive.
 If FRAME is unspecified or nil, the current frame is used.
@@ -1490,20 +2071,29 @@ two lists of the form (RED GREEN BLUE) aforementioned.
 Despite the name, this is not a true distance metric as it does not satisfy
 the triangle inequality.
 
-(fn COLOR1 COLOR2 FRAME METRIC)"#),
-    (r#"color-gray-p"#, r#"Return non-nil if COLOR is a shade of gray (or white or black).
+(fn COLOR1 COLOR2 FRAME METRIC)"#,
+    ),
+    (
+        r#"color-gray-p"#,
+        r#"Return non-nil if COLOR is a shade of gray (or white or black).
 FRAME specifies the frame and thus the display for interpreting COLOR.
 If FRAME is nil or omitted, use the selected frame.
 
-(fn COLOR FRAME)"#),
-    (r#"color-supported-p"#, r#"Return non-nil if COLOR can be displayed on FRAME.
+(fn COLOR FRAME)"#,
+    ),
+    (
+        r#"color-supported-p"#,
+        r#"Return non-nil if COLOR can be displayed on FRAME.
 BACKGROUND-P non-nil means COLOR is used as a background.
 Otherwise, this function tells whether it can be used as a foreground.
 If FRAME is nil or omitted, use the selected frame.
 COLOR must be a valid color name.
 
-(fn COLOR FRAME BACKGROUND-P)"#),
-    (r#"color-values-from-color-spec"#, r#"Parse color SPEC as a numeric color and return (RED GREEN BLUE).
+(fn COLOR FRAME BACKGROUND-P)"#,
+    ),
+    (
+        r#"color-values-from-color-spec"#,
+        r#"Parse color SPEC as a numeric color and return (RED GREEN BLUE).
 This function recognizes the following formats for SPEC:
 
  #RGB, where R, G and B are hex numbers of equal length, 1-4 digits each.
@@ -1515,11 +2105,17 @@ If SPEC is not in one of the above forms, return nil.
 Each of the 3 integer members of the resulting list, RED, GREEN, and BLUE,
 is normalized to have its value in [0,65535].
 
-(fn SPEC)"#),
-    (r#"combine-after-change-execute"#, r#"This function is for use internally in the function `combine-after-change-calls'.
+(fn SPEC)"#,
+    ),
+    (
+        r#"combine-after-change-execute"#,
+        r#"This function is for use internally in the function `combine-after-change-calls'.
 
-(fn)"#),
-    (r#"combine-windows"#, r#"Combine windows from FIRST to LAST inclusive.
+(fn)"#,
+    ),
+    (
+        r#"combine-windows"#,
+        r#"Combine windows from FIRST to LAST inclusive.
 FIRST and LAST must be different, valid windows in the same combination,
 that is, windows with the same parent window.  If LAST is not reachable
 from FIRST by applying `window-next-sibling' repeatedly, invert FIRST
@@ -1531,17 +2127,26 @@ FIRST and whose last child window becomes LAST, insert that parent
 window in the window tree in lieu of the windows starting with FIRST and
 ending with LAST and return the new parent window.
 
-(fn FIRST LAST)"#),
-    (r#"command-error-default-function"#, r#"Produce default output for unhandled error message.
+(fn FIRST LAST)"#,
+    ),
+    (
+        r#"command-error-default-function"#,
+        r#"Produce default output for unhandled error message.
 Default value of `command-error-function'.
 
-(fn DATA CONTEXT SIGNAL)"#),
-    (r#"command-modes"#, r#"Return the modes COMMAND is defined for.
+(fn DATA CONTEXT SIGNAL)"#,
+    ),
+    (
+        r#"command-modes"#,
+        r#"Return the modes COMMAND is defined for.
 If COMMAND is not a command, the return value is nil.
 The value, if non-nil, is a list of mode name symbols.
 
-(fn COMMAND)"#),
-    (r#"command-remapping"#, r#"Return the remapping for command COMMAND.
+(fn COMMAND)"#,
+    ),
+    (
+        r#"command-remapping"#,
+        r#"Return the remapping for command COMMAND.
 Returns nil if COMMAND is not remapped (or not a symbol).
 
 If the optional argument POSITION is non-nil, it specifies a mouse
@@ -1555,8 +2160,11 @@ If the optional argument KEYMAPS is non-nil, it should be a keymap or list of
 keymaps to search for command remapping.  Otherwise, search for the
 remapping in all currently active keymaps.
 
-(fn COMMAND POSITION KEYMAPS)"#),
-    (r#"commandp"#, r#"Non-nil if FUNCTION makes provisions for interactive calling.
+(fn COMMAND POSITION KEYMAPS)"#,
+    ),
+    (
+        r#"commandp"#,
+        r#"Non-nil if FUNCTION makes provisions for interactive calling.
 This means it contains a description for how to read arguments to give it.
 The value is nil for an invalid function or a symbol with no function
 definition.
@@ -1571,37 +2179,64 @@ Also, a symbol satisfies `commandp' if its function definition does so.
 If the optional argument FOR-CALL-INTERACTIVELY is non-nil,
 then strings and vectors are not accepted.
 
-(fn FUNCTION FOR-CALL-INTERACTIVELY)"#),
-    (r#"comp--compile-ctxt-to-file0"#, r#"Compile the current context as native code to file FILENAME.
+(fn FUNCTION FOR-CALL-INTERACTIVELY)"#,
+    ),
+    (
+        r#"comp--compile-ctxt-to-file0"#,
+        r#"Compile the current context as native code to file FILENAME.
 
-(fn FILENAME)"#),
-    (r#"comp--init-ctxt"#, r#"Initialize the native compiler context.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"comp--init-ctxt"#,
+        r#"Initialize the native compiler context.
 Return t on success.
 
-(fn)"#),
-    (r#"comp--install-trampoline"#, r#"Install a TRAMPOLINE for primitive SUBR-NAME.
+(fn)"#,
+    ),
+    (
+        r#"comp--install-trampoline"#,
+        r#"Install a TRAMPOLINE for primitive SUBR-NAME.
 
-(fn SUBR-NAME TRAMPOLINE)"#),
-    (r#"comp--late-register-subr"#, r#"Register exported subr.
+(fn SUBR-NAME TRAMPOLINE)"#,
+    ),
+    (
+        r#"comp--late-register-subr"#,
+        r#"Register exported subr.
 This gets called by late_top_level_run during the load phase.
 
-(fn NAME C-NAME MINARG MAXARG TYPE REST COMP-U)"#),
-    (r#"comp--register-lambda"#, r#"Register anonymous lambda.
+(fn NAME C-NAME MINARG MAXARG TYPE REST COMP-U)"#,
+    ),
+    (
+        r#"comp--register-lambda"#,
+        r#"Register anonymous lambda.
 This gets called by top_level_run during the load phase.
 
-(fn RELOC-IDX C-NAME MINARG MAXARG TYPE REST COMP-U)"#),
-    (r#"comp--register-subr"#, r#"Register exported subr.
+(fn RELOC-IDX C-NAME MINARG MAXARG TYPE REST COMP-U)"#,
+    ),
+    (
+        r#"comp--register-subr"#,
+        r#"Register exported subr.
 This gets called by top_level_run during the load phase.
 
-(fn NAME C-NAME MINARG MAXARG TYPE REST COMP-U)"#),
-    (r#"comp--release-ctxt"#, r#"Release the native compiler context.
+(fn NAME C-NAME MINARG MAXARG TYPE REST COMP-U)"#,
+    ),
+    (
+        r#"comp--release-ctxt"#,
+        r#"Release the native compiler context.
 
-(fn)"#),
-    (r#"comp--subr-signature"#, r#"Support function to hash_native_abi.
+(fn)"#,
+    ),
+    (
+        r#"comp--subr-signature"#,
+        r#"Support function to hash_native_abi.
 For internal use.
 
-(fn SUBR)"#),
-    (r#"comp-el-to-eln-filename"#, r#"Return the absolute .eln file name for source FILENAME.
+(fn SUBR)"#,
+    ),
+    (
+        r#"comp-el-to-eln-filename"#,
+        r#"Return the absolute .eln file name for source FILENAME.
 The resulting .eln file name is intended to be used for natively
 compiling FILENAME.  FILENAME must exist and be readable, but other
 than that, its leading directories are ignored when constructing
@@ -1618,8 +2253,11 @@ the value of `comp-file-preloaded-p' is non-nil, or if FILENAME
 appears in the value of the environment variable LISP_PRELOADED;
 the latter is supposed to be used by the Emacs build procedure.
 
-(fn FILENAME BASE-DIR)"#),
-    (r#"comp-el-to-eln-rel-filename"#, r#"Return the relative name of the .eln file for FILENAME.
+(fn FILENAME BASE-DIR)"#,
+    ),
+    (
+        r#"comp-el-to-eln-rel-filename"#,
+        r#"Return the relative name of the .eln file for FILENAME.
 FILENAME must exist, and if it's a symlink, the target must exist.
 If FILENAME is compressed, it must have the \".gz\" extension,
 and Emacs must have been compiled with zlib; the file will be
@@ -1627,20 +2265,32 @@ uncompressed on the fly to hash its contents.
 Value includes the original base name, followed by 2 hash values,
 one for the file name and another for its contents, followed by .eln.
 
-(fn FILENAME)"#),
-    (r#"comp-libgccjit-version"#, r#"Return libgccjit version in use.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"comp-libgccjit-version"#,
+        r#"Return libgccjit version in use.
 
 The return value has the form (MAJOR MINOR PATCHLEVEL) or nil if
 unknown (before GCC version 10).
 
-(fn)"#),
-    (r#"comp-native-compiler-options-effective-p"#, r#"Return t if `comp-native-compiler-options' is effective.
+(fn)"#,
+    ),
+    (
+        r#"comp-native-compiler-options-effective-p"#,
+        r#"Return t if `comp-native-compiler-options' is effective.
 
-(fn)"#),
-    (r#"comp-native-driver-options-effective-p"#, r#"Return t if `comp-native-driver-options' is effective.
+(fn)"#,
+    ),
+    (
+        r#"comp-native-driver-options-effective-p"#,
+        r#"Return t if `comp-native-driver-options' is effective.
 
-(fn)"#),
-    (r#"compare-buffer-substrings"#, r#"Compare two substrings of two buffers; return result as number.
+(fn)"#,
+    ),
+    (
+        r#"compare-buffer-substrings"#,
+        r#"Compare two substrings of two buffers; return result as number.
 Return -N if first string is less after N-1 chars, +N if first string is
 greater after N-1 chars, or 0 if strings match.
 The first substring is in BUFFER1 from START1 to END1 and the second
@@ -1652,8 +2302,11 @@ of `point-max' in the respective buffers is used.
 The value of `case-fold-search' in the current buffer
 determines whether case is significant or ignored.
 
-(fn BUFFER1 START1 END1 BUFFER2 START2 END2)"#),
-    (r#"compare-strings"#, r#"Compare the contents of two strings, converting to multibyte if needed.
+(fn BUFFER1 START1 END1 BUFFER2 START2 END2)"#,
+    ),
+    (
+        r#"compare-strings"#,
+        r#"Compare the contents of two strings, converting to multibyte if needed.
 The arguments START1, END1, START2, and END2, if non-nil, are
 positions specifying which parts of STR1 or STR2 to compare.  In
 string STR1, compare the part between START1 (inclusive) and END1
@@ -1674,8 +2327,11 @@ If string STR1 is less, the value is a negative number N;
 If string STR1 is greater, the value is a positive number N;
   N - 1 is the number of characters that match at the beginning.
 
-(fn STR1 START1 END1 STR2 START2 END2 IGNORE-CASE)"#),
-    (r#"completing-read"#, r#"Read a string in the minibuffer, with completion.
+(fn STR1 START1 END1 STR2 START2 END2 IGNORE-CASE)"#,
+    ),
+    (
+        r#"completing-read"#,
+        r#"Read a string in the minibuffer, with completion.
 While in the minibuffer, you can use \\<minibuffer-local-completion-map>\\[minibuffer-complete] and \\[minibuffer-complete-word] to complete your input.
 You can also use \\<minibuffer-local-map>\\[minibuffer-complete-history] to complete using history items in the
 input history HIST, and you can use \\[minibuffer-complete-defaults] to complete using
@@ -1743,23 +2399,32 @@ Completion ignores case if the ambient value of
 
 See also `completing-read-function'.
 
-(fn PROMPT COLLECTION PREDICATE REQUIRE-MATCH INITIAL-INPUT HIST DEF INHERIT-INPUT-METHOD)"#),
-    (r#"compose-region-internal"#, r#"Internal use only.
+(fn PROMPT COLLECTION PREDICATE REQUIRE-MATCH INITIAL-INPUT HIST DEF INHERIT-INPUT-METHOD)"#,
+    ),
+    (
+        r#"compose-region-internal"#,
+        r#"Internal use only.
 
 Compose text in the region between START and END.
 Optional 3rd and 4th arguments are COMPONENTS and MODIFICATION-FUNC
 for the composition.  See `compose-region' for more details.
 
-(fn START END COMPONENTS MODIFICATION-FUNC)"#),
-    (r#"compose-string-internal"#, r#"Internal use only.
+(fn START END COMPONENTS MODIFICATION-FUNC)"#,
+    ),
+    (
+        r#"compose-string-internal"#,
+        r#"Internal use only.
 
 Compose text between indices START and END of STRING, where
 START and END are treated as in `substring'.  Optional 4th
 and 5th arguments are COMPONENTS and MODIFICATION-FUNC
 for the composition.  See `compose-string' for more details.
 
-(fn STRING START END COMPONENTS MODIFICATION-FUNC)"#),
-    (r#"composition-get-gstring"#, r#"Return a glyph-string for characters between FROM and TO.
+(fn STRING START END COMPONENTS MODIFICATION-FUNC)"#,
+    ),
+    (
+        r#"composition-get-gstring"#,
+        r#"Return a glyph-string for characters between FROM and TO.
 If the glyph string is for graphic display, FONT-OBJECT must be
 a font-object to use for those characters.
 Otherwise (for terminal display), FONT-OBJECT must be a terminal ID, a
@@ -1799,8 +2464,11 @@ where
 If GLYPH is nil, the remaining elements of the glyph-string vector
 should be ignored.
 
-(fn FROM TO FONT-OBJECT STRING)"#),
-    (r#"composition-sort-rules"#, r#"Sort composition RULES by their LOOKBACK parameter.
+(fn FROM TO FONT-OBJECT STRING)"#,
+    ),
+    (
+        r#"composition-sort-rules"#,
+        r#"Sort composition RULES by their LOOKBACK parameter.
 
 If RULES include just one rule, return RULES.
 Otherwise, return a new list of rules where all the rules are
@@ -1809,8 +2477,11 @@ rules (the second element of the rule's vector).  This is required
 when combining composition rules from different sources, because
 of the way buffer text is examined for matching one of the rules.
 
-(fn RULES)"#),
-    (r#"compute-motion"#, r#"Scan through the current buffer, calculating screen position.
+(fn RULES)"#,
+    ),
+    (
+        r#"compute-motion"#,
+        r#"Scan through the current buffer, calculating screen position.
 Scan the current buffer forward from offset FROM,
 assuming it is at position FROMPOS--a cons of the form (HPOS . VPOS)--
 to position TO or position TOPOS--another cons of the form (HPOS . VPOS)--
@@ -1852,15 +2523,21 @@ and the window's upper-left coordinates as FROMPOS.
 Pass the buffer's (point-max) as TO, to limit the scan to the end of the
 visible section of the buffer, and pass LINE and COL as TOPOS.
 
-(fn FROM FROMPOS TO TOPOS WIDTH OFFSETS WINDOW)"#),
-    (r#"concat"#, r#"Concatenate all the arguments and make the result a string.
+(fn FROM FROMPOS TO TOPOS WIDTH OFFSETS WINDOW)"#,
+    ),
+    (
+        r#"concat"#,
+        r#"Concatenate all the arguments and make the result a string.
 The result is a string whose elements are the elements of all the arguments.
 Each argument may be a string or a list or vector of characters (integers).
 
 Values of the `composition' property of the result are not guaranteed
 to be `eq'.
-(fn &rest SEQUENCES)"#),
-    (r#"cond"#, r#"Try each clause until one succeeds.
+(fn &rest SEQUENCES)"#,
+    ),
+    (
+        r#"cond"#,
+        r#"Try each clause until one succeeds.
 Each clause looks like (CONDITION BODY...).  CONDITION is evaluated
 and, if the value is non-nil, this clause succeeds:
 then the expressions in BODY are evaluated and the last one's
@@ -1868,8 +2545,11 @@ value is the value of the cond-form.
 If a clause has one element, as in (CONDITION), then the cond-form
 returns CONDITION's value, if that is non-nil.
 If no clause succeeds, cond returns nil.
-(fn CLAUSES...)"#),
-    (r#"condition-case"#, r#"Regain control when an error is signaled.
+(fn CLAUSES...)"#,
+    ),
+    (
+        r#"condition-case"#,
+        r#"Regain control when an error is signaled.
 Executes BODYFORM and returns its value if no error happens.
 Each element of HANDLERS looks like (CONDITION-NAME BODY...)
 or (:success BODY...), where the BODY is made of Lisp expressions.
@@ -1899,15 +2579,24 @@ without signaling an error.  BODY is then evaluated with VAR bound to
 the value returned by BODYFORM.
 
 See also the function `signal' for more info.
-(fn VAR BODYFORM &rest HANDLERS)"#),
-    (r#"condition-mutex"#, r#"Return the mutex associated with condition variable COND.
+(fn VAR BODYFORM &rest HANDLERS)"#,
+    ),
+    (
+        r#"condition-mutex"#,
+        r#"Return the mutex associated with condition variable COND.
 
-(fn COND)"#),
-    (r#"condition-name"#, r#"Return the name of condition variable COND.
+(fn COND)"#,
+    ),
+    (
+        r#"condition-name"#,
+        r#"Return the name of condition variable COND.
 If no name was given when COND was created, return nil.
 
-(fn COND)"#),
-    (r#"condition-notify"#, r#"Notify COND, a condition variable.
+(fn COND)"#,
+    ),
+    (
+        r#"condition-notify"#,
+        r#"Notify COND, a condition variable.
 This wakes a thread waiting on COND.
 If ALL is non-nil, all waiting threads are awoken.
 
@@ -1918,11 +2607,17 @@ This releases COND's mutex when notifying COND.  When
 `condition-notify' returns, the mutex will again be locked by this
 thread.
 
-(fn COND ALL)"#),
-    (r#"condition-variable-p"#, r#"Return t if OBJECT is a condition variable.
+(fn COND ALL)"#,
+    ),
+    (
+        r#"condition-variable-p"#,
+        r#"Return t if OBJECT is a condition variable.
 
-(fn OBJECT)"#),
-    (r#"condition-wait"#, r#"Wait for the condition variable COND to be notified.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"condition-wait"#,
+        r#"Wait for the condition variable COND to be notified.
 COND is the condition variable to wait on.
 
 The mutex associated with COND must be held when this is called.
@@ -1933,14 +2628,23 @@ this thread to be signaled with `thread-signal'.  When
 `condition-wait' returns, COND's mutex will again be locked by
 this thread.
 
-(fn COND)"#),
-    (r#"cons"#, r#"Create a new cons, give it CAR and CDR as components, and return it.
+(fn COND)"#,
+    ),
+    (
+        r#"cons"#,
+        r#"Create a new cons, give it CAR and CDR as components, and return it.
 
-(fn CAR CDR)"#),
-    (r#"consp"#, r#"Return t if OBJECT is a cons cell.
+(fn CAR CDR)"#,
+    ),
+    (
+        r#"consp"#,
+        r#"Return t if OBJECT is a cons cell.
 
-(fn OBJECT)"#),
-    (r#"constrain-to-field"#, r#"Return the position closest to NEW-POS that is in the same field as OLD-POS.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"constrain-to-field"#,
+        r#"Return the position closest to NEW-POS that is in the same field as OLD-POS.
 A field is a region of text with the same `field' property.
 
 If NEW-POS is nil, then use the current point instead, and move point
@@ -1968,21 +2672,30 @@ a non-nil property of that name, then any field boundaries are ignored.
 
 Field boundaries are not noticed if `inhibit-field-text-motion' is non-nil.
 
-(fn NEW-POS OLD-POS ESCAPE-FROM-EDGE ONLY-IN-LINE INHIBIT-CAPTURE-PROPERTY)"#),
-    (r#"continue-process"#, r#"Continue process PROCESS.  May be process or name of one.
+(fn NEW-POS OLD-POS ESCAPE-FROM-EDGE ONLY-IN-LINE INHIBIT-CAPTURE-PROPERTY)"#,
+    ),
+    (
+        r#"continue-process"#,
+        r#"Continue process PROCESS.  May be process or name of one.
 See function `interrupt-process' for more details on usage.
 If PROCESS is a network or serial process, resume handling of incoming
 traffic.
 
-(fn PROCESS CURRENT-GROUP)"#),
-    (r#"controlling-tty-p"#, r#"Return non-nil if TERMINAL is the controlling tty of the Emacs process.
+(fn PROCESS CURRENT-GROUP)"#,
+    ),
+    (
+        r#"controlling-tty-p"#,
+        r#"Return non-nil if TERMINAL is the controlling tty of the Emacs process.
 
 TERMINAL can be a terminal object, a frame, or nil (meaning the
 selected frame's terminal).  This function always returns nil if
 TERMINAL is not on a tty device.
 
-(fn TERMINAL)"#),
-    (r#"coordinates-in-window-p"#, r#"Return non-nil if COORDINATES are in WINDOW.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"coordinates-in-window-p"#,
+        r#"Return non-nil if COORDINATES are in WINDOW.
 WINDOW must be a live window and defaults to the selected one.
 COORDINATES is a cons of the form (X . Y), X and Y being distances
 measured in characters from the upper-left corner of the frame.
@@ -2002,20 +2715,29 @@ If they are on the border between WINDOW and its right sibling,
 If they are in the windows's left or right marginal areas, `left-margin'\n\
   or `right-margin' is returned.
 
-(fn COORDINATES WINDOW)"#),
-    (r#"copy-alist"#, r#"Return a copy of ALIST.
+(fn COORDINATES WINDOW)"#,
+    ),
+    (
+        r#"copy-alist"#,
+        r#"Return a copy of ALIST.
 This is an alist which represents the same mapping from objects to objects,
 but does not share the alist structure with ALIST.
 The objects mapped (cars and cdrs of elements of the alist)
 are shared, however.
 Elements of ALIST that are not conses are also shared.
 
-(fn ALIST)"#),
-    (r#"copy-category-table"#, r#"Construct a new category table and return it.
+(fn ALIST)"#,
+    ),
+    (
+        r#"copy-category-table"#,
+        r#"Construct a new category table and return it.
 It is a copy of the TABLE, which defaults to the standard category table.
 
-(fn TABLE)"#),
-    (r#"copy-file"#, r#"Copy FILE to NEWNAME.  Both args must be strings.
+(fn TABLE)"#,
+    ),
+    (
+        r#"copy-file"#,
+        r#"Copy FILE to NEWNAME.  Both args must be strings.
 If NEWNAME is a directory name, copy FILE to a like-named file under
 NEWNAME.  For NEWNAME to be recognized as a directory name, it should
 end in a slash.
@@ -2045,11 +2767,17 @@ context if present.  Otherwise, if NEWNAME is created its file
 permission bits are those of FILE, masked by the default file
 permissions.
 
-(fn FILE NEWNAME OK-IF-ALREADY-EXISTS KEEP-TIME PRESERVE-UID-GID PRESERVE-PERMISSIONS)"#),
-    (r#"copy-hash-table"#, r#"Return a copy of hash table TABLE.
+(fn FILE NEWNAME OK-IF-ALREADY-EXISTS KEEP-TIME PRESERVE-UID-GID PRESERVE-PERMISSIONS)"#,
+    ),
+    (
+        r#"copy-hash-table"#,
+        r#"Return a copy of hash table TABLE.
 
-(fn TABLE)"#),
-    (r#"copy-keymap"#, r#"Return a copy of the keymap KEYMAP.
+(fn TABLE)"#,
+    ),
+    (
+        r#"copy-keymap"#,
+        r#"Return a copy of the keymap KEYMAP.
 
 Note that this is almost never needed.  If you want a keymap that's like
 another yet with a few changes, you should use keymap inheritance rather
@@ -2072,42 +2800,63 @@ Any key definitions that are subkeymaps are recursively copied.
 However, a key definition which is a symbol whose definition is a keymap
 is not copied.
 
-(fn KEYMAP)"#),
-    (r#"copy-marker"#, r#"Return a new marker pointing at the same place as MARKER.
+(fn KEYMAP)"#,
+    ),
+    (
+        r#"copy-marker"#,
+        r#"Return a new marker pointing at the same place as MARKER.
 If argument is a number, makes a new marker pointing
 at that position in the current buffer.
 If MARKER is not specified, the new marker does not point anywhere.
 The optional argument TYPE specifies the insertion type of the new marker;
 see `marker-insertion-type'.
 
-(fn MARKER TYPE)"#),
-    (r#"copy-sequence"#, r#"Return a copy of a list, vector, string, char-table or record.
+(fn MARKER TYPE)"#,
+    ),
+    (
+        r#"copy-sequence"#,
+        r#"Return a copy of a list, vector, string, char-table or record.
 The elements of a list, vector or record are not copied; they are
 shared with the original.  See Info node `(elisp) Sequence Functions'
 for more details about this sharing and its effects.
 If the original sequence is empty, this function may return
 the same empty object instead of its copy.
 
-(fn ARG)"#),
-    (r#"copy-syntax-table"#, r#"Construct a new syntax table and return it.
+(fn ARG)"#,
+    ),
+    (
+        r#"copy-syntax-table"#,
+        r#"Construct a new syntax table and return it.
 It is a copy of the TABLE, which defaults to the standard syntax table.
 
-(fn TABLE)"#),
-    (r#"copysign"#, r#"Copy sign of X2 to value of X1, and return the result.
+(fn TABLE)"#,
+    ),
+    (
+        r#"copysign"#,
+        r#"Copy sign of X2 to value of X1, and return the result.
 Cause an error if X1 or X2 is not a float.
 
-(fn X1 X2)"#),
-    (r#"cos"#, r#"Return the cosine of ARG.
+(fn X1 X2)"#,
+    ),
+    (
+        r#"cos"#,
+        r#"Return the cosine of ARG.
 
-(fn ARG)"#),
-    (r#"current-active-maps"#, r#"Return a list of the currently active keymaps.
+(fn ARG)"#,
+    ),
+    (
+        r#"current-active-maps"#,
+        r#"Return a list of the currently active keymaps.
 OLP if non-nil indicates that we should obey `overriding-local-map' and
 `overriding-terminal-local-map'.  POSITION can specify a click position
 like in the respective argument of `key-binding' or a live window which
 means to return the active maps for that window's buffer.
 
-(fn OLP POSITION)"#),
-    (r#"current-bidi-paragraph-direction"#, r#"Return paragraph direction at point in BUFFER.
+(fn OLP POSITION)"#,
+    ),
+    (
+        r#"current-bidi-paragraph-direction"#,
+        r#"Return paragraph direction at point in BUFFER.
 Value is either `left-to-right' or `right-to-left'.
 If BUFFER is omitted or nil, it defaults to the current buffer.
 
@@ -2118,14 +2867,23 @@ paragraphs, text begins at the right margin and is read from right to left.
 
 See also `bidi-paragraph-direction'.
 
-(fn BUFFER)"#),
-    (r#"current-buffer"#, r#"Return the current buffer as a Lisp object.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"current-buffer"#,
+        r#"Return the current buffer as a Lisp object.
 
-(fn)"#),
-    (r#"current-case-table"#, r#"Return the case table of the current buffer.
+(fn)"#,
+    ),
+    (
+        r#"current-case-table"#,
+        r#"Return the case table of the current buffer.
 
-(fn)"#),
-    (r#"current-column"#, r#"Return the horizontal position of point.  Beginning of line is column 0.
+(fn)"#,
+    ),
+    (
+        r#"current-column"#,
+        r#"Return the horizontal position of point.  Beginning of line is column 0.
 This is calculated by adding together the widths of all the displayed
 representations of the character between the start of the previous line
 and point (e.g., control characters will have a width of 2 or 4, tabs
@@ -2139,17 +2897,26 @@ however, ^M is treated as end of line when `selective-display' is t.
 Text that has an invisible property is considered as having width 0, unless
 `buffer-invisibility-spec' specifies that it is replaced by an ellipsis.
 
-(fn)"#),
-    (r#"current-cpu-time"#, r#"Return the current CPU time along with its resolution.
+(fn)"#,
+    ),
+    (
+        r#"current-cpu-time"#,
+        r#"Return the current CPU time along with its resolution.
 The return value is a pair (CPU-TICKS . TICKS-PER-SEC).
 The CPU-TICKS counter can wrap around, so values cannot be meaningfully
 compared if too much time has passed between them.
 
-(fn)"#),
-    (r#"current-global-map"#, r#"Return the current global keymap.
+(fn)"#,
+    ),
+    (
+        r#"current-global-map"#,
+        r#"Return the current global keymap.
 
-(fn)"#),
-    (r#"current-idle-time"#, r#"Return the current length of Emacs idleness, or nil.
+(fn)"#,
+    ),
+    (
+        r#"current-idle-time"#,
+        r#"Return the current length of Emacs idleness, or nil.
 The value when Emacs is idle is a Lisp timestamp in the style of
 `current-time'.
 
@@ -2158,15 +2925,21 @@ The value when Emacs is not idle is nil.
 If the value is a list of four integers (HIGH LOW USEC PSEC), then PSEC
 is a multiple of the system clock resolution.
 
-(fn)"#),
-    (r#"current-indentation"#, r#"Return the indentation of the current line.
+(fn)"#,
+    ),
+    (
+        r#"current-indentation"#,
+        r#"Return the indentation of the current line.
 This is the horizontal position of the character following any initial
 whitespace.
 Text that has an invisible property is considered as having width 0, unless
 `buffer-invisibility-spec' specifies that it is replaced by an ellipsis.
 
-(fn)"#),
-    (r#"current-input-mode"#, r#"Return information about the way Emacs currently reads keyboard input.
+(fn)"#,
+    ),
+    (
+        r#"current-input-mode"#,
+        r#"Return information about the way Emacs currently reads keyboard input.
 The value is a list of the form (INTERRUPT FLOW META QUIT), where
   INTERRUPT is non-nil if Emacs is using interrupt-driven input; if
     nil, Emacs is using CBREAK mode.
@@ -2183,21 +2956,36 @@ The value is a list of the form (INTERRUPT FLOW META QUIT), where
 The elements of this list correspond to the arguments of
 `set-input-mode'.
 
-(fn)"#),
-    (r#"current-local-map"#, r#"Return current buffer's local keymap, or nil if it has none.
+(fn)"#,
+    ),
+    (
+        r#"current-local-map"#,
+        r#"Return current buffer's local keymap, or nil if it has none.
 Normally the local keymap is set by the major mode with `use-local-map'.
 
-(fn)"#),
-    (r#"current-message"#, r#"Return the string currently displayed in the echo area, or nil if none.
+(fn)"#,
+    ),
+    (
+        r#"current-message"#,
+        r#"Return the string currently displayed in the echo area, or nil if none.
 
-(fn)"#),
-    (r#"current-minor-mode-maps"#, r#"Return a list of keymaps for the minor modes of the current buffer.
+(fn)"#,
+    ),
+    (
+        r#"current-minor-mode-maps"#,
+        r#"Return a list of keymaps for the minor modes of the current buffer.
 
-(fn)"#),
-    (r#"current-thread"#, r#"Return the current thread.
+(fn)"#,
+    ),
+    (
+        r#"current-thread"#,
+        r#"Return the current thread.
 
-(fn)"#),
-    (r#"current-time"#, r#"Return the current time, as the number of seconds since 1970-01-01 00:00:00.
+(fn)"#,
+    ),
+    (
+        r#"current-time"#,
+        r#"Return the current time, as the number of seconds since 1970-01-01 00:00:00.
 If the variable `current-time-list' is nil, the time is returned as a
 pair of integers (TICKS . HZ), where TICKS counts clock ticks and HZ
 is the clock ticks per second.  Otherwise, the time is returned as a
@@ -2208,8 +2996,11 @@ bits, and USEC and PSEC are the microsecond and picosecond counts.
 You can use `time-convert' to get a particular timestamp form
 regardless of the value of `current-time-list'.
 
-(fn)"#),
-    (r#"current-time-string"#, r#"Return the current local time, as a human-readable string.
+(fn)"#,
+    ),
+    (
+        r#"current-time-string"#,
+        r#"Return the current local time, as a human-readable string.
 Programs can use this function to decode a time,
 since the number of columns in each field is fixed
 if the year is in the range 1000-9999.
@@ -2227,8 +3018,11 @@ the TZ environment variable.  It can also be a list (as from
 `current-time-zone') or an integer (as from `decode-time') applied
 without consideration for daylight saving time.
 
-(fn SPECIFIED-TIME ZONE)"#),
-    (r#"current-time-zone"#, r#"Return the offset and name for the local time zone.
+(fn SPECIFIED-TIME ZONE)"#,
+    ),
+    (
+        r#"current-time-zone"#,
+        r#"Return the offset and name for the local time zone.
 This returns a list of the form (OFFSET NAME).
 OFFSET is an integer number of seconds ahead of UTC (east of Greenwich).
     A negative value means west of Greenwich.
@@ -2248,8 +3042,11 @@ Some operating systems cannot provide all this information to Emacs;
 in this case, `current-time-zone' returns a list containing nil for
 the data it can't find.
 
-(fn SPECIFIED-TIME ZONE)"#),
-    (r#"current-window-configuration"#, r#"Return an object representing the current window configuration of FRAME.
+(fn SPECIFIED-TIME ZONE)"#,
+    ),
+    (
+        r#"current-window-configuration"#,
+        r#"Return an object representing the current window configuration of FRAME.
 If FRAME is nil or omitted, use the selected frame.
 This describes the number of windows, their sizes and current buffers,
 and for each displayed buffer, where display starts, and the position of
@@ -2260,27 +3057,42 @@ redirection (see `redirect-frame-focus').  The variable
 `window-persistent-parameters' specifies which window parameters are
 saved by this function.
 
-(fn FRAME)"#),
-    (r#"cygwin-convert-file-name-from-windows"#, r#"Convert a Windows-style file name FILE to a Cygwin file name.
+(fn FRAME)"#,
+    ),
+    (
+        r#"cygwin-convert-file-name-from-windows"#,
+        r#"Convert a Windows-style file name FILE to a Cygwin file name.
 If ABSOLUTE-P is non-nil, return an absolute file name.
 For the reverse operation, see `cygwin-convert-file-name-to-windows'.
 
-(fn FILE ABSOLUTE-P)"#),
-    (r#"cygwin-convert-file-name-to-windows"#, r#"Convert a Cygwin file name FILE to a Windows-style file name.
+(fn FILE ABSOLUTE-P)"#,
+    ),
+    (
+        r#"cygwin-convert-file-name-to-windows"#,
+        r#"Convert a Cygwin file name FILE to a Windows-style file name.
 If ABSOLUTE-P is non-nil, return an absolute file name.
 For the reverse operation, see `cygwin-convert-file-name-from-windows'.
 
-(fn FILE ABSOLUTE-P)"#),
-    (r#"daemon-initialized"#, r#"Mark the Emacs daemon as being initialized.
+(fn FILE ABSOLUTE-P)"#,
+    ),
+    (
+        r#"daemon-initialized"#,
+        r#"Mark the Emacs daemon as being initialized.
 This finishes the daemonization process by doing the other half of detaching
 from the parent process and its tty file descriptors.
 
-(fn)"#),
-    (r#"daemonp"#, r#"Return non-nil if the current emacs process is a daemon.
+(fn)"#,
+    ),
+    (
+        r#"daemonp"#,
+        r#"Return non-nil if the current emacs process is a daemon.
 If the daemon was given a name argument, return that name.
 
-(fn)"#),
-    (r#"dbus--init-bus"#, r#"Establish the connection to D-Bus BUS.
+(fn)"#,
+    ),
+    (
+        r#"dbus--init-bus"#,
+        r#"Establish the connection to D-Bus BUS.
 
 This function is dbus internal.  You almost certainly want to use
 `dbus-init-bus'.
@@ -2310,8 +3122,11 @@ GTK+.  It should be used with care for at least the `:system' and
 `:session' buses, because other Emacs Lisp packages might already use
 this connection to those buses.
 
-(fn BUS PRIVATE)"#),
-    (r#"dbus-close-inhibitor-lock"#, r#"Close inhibitor lock file descriptor.
+(fn BUS PRIVATE)"#,
+    ),
+    (
+        r#"dbus-close-inhibitor-lock"#,
+        r#"Close inhibitor lock file descriptor.
 
 LOCK, a file descriptor, must be the result of a `dbus-make-inhibitor-lock'
 call.  It returns t in case of success, or nil if it isn't be possible
@@ -2319,11 +3134,17 @@ to close the lock, or if the lock is closed already.
 
 For details, see Info node `(dbus)Inhibitor Locks'.
 
-(fn LOCK)"#),
-    (r#"dbus-get-unique-name"#, r#"Return the unique name of Emacs registered at D-Bus BUS.
+(fn LOCK)"#,
+    ),
+    (
+        r#"dbus-get-unique-name"#,
+        r#"Return the unique name of Emacs registered at D-Bus BUS.
 
-(fn BUS)"#),
-    (r#"dbus-make-inhibitor-lock"#, r#"Inhibit system shutdowns and sleep states.
+(fn BUS)"#,
+    ),
+    (
+        r#"dbus-make-inhibitor-lock"#,
+        r#"Inhibit system shutdowns and sleep states.
 
 WHAT is a colon-separated string of lock types, i.e. "shutdown",
 "sleep", "idle", "handle-power-key", "handle-suspend-key",
@@ -2341,8 +3162,11 @@ lock is returned.
 
 For details of the arguments, see Info node `(dbus)Inhibitor Locks'.
 
-(fn WHAT WHY BLOCK)"#),
-    (r#"dbus-message-internal"#, r#"Send a D-Bus message.
+(fn WHAT WHY BLOCK)"#,
+    ),
+    (
+        r#"dbus-message-internal"#,
+        r#"Send a D-Bus message.
 This is an internal function, it shall not be used outside dbus.el.
 
 The following usages are expected:
@@ -2368,8 +3192,11 @@ The following usages are expected:
   (dbus-message-internal
     dbus-message-type-invalid BUS SERVICE &rest ARGS)
 
-(fn &rest REST)"#),
-    (r#"dbus-registered-inhibitor-locks"#, r#"Return registered inhibitor locks, an alist.
+(fn &rest REST)"#,
+    ),
+    (
+        r#"dbus-registered-inhibitor-locks"#,
+        r#"Return registered inhibitor locks, an alist.
 This allows to check, whether other packages of the running Emacs
 instance have acquired an inhibitor lock as well.
 An entry in this list is a list (FD WHAT WHY BLOCK).
@@ -2377,12 +3204,18 @@ The car of the list is the file descriptor retrieved from a
 'dbus-make-inhibitor-lock` call.  The cdr of the list represents the
 three arguments 'dbus-make-inhibitor-lock` was called with.
 
-(fn)"#),
-    (r#"debug-timer-check"#, r#"Run internal self-tests to check timers subsystem.
+(fn)"#,
+    ),
+    (
+        r#"debug-timer-check"#,
+        r#"Run internal self-tests to check timers subsystem.
 Return t if all self-tests are passed, nil otherwise.
 
-(fn)"#),
-    (r#"debugger-trap"#, r#"Stop Emacs and hand over control to GDB.
+(fn)"#,
+    ),
+    (
+        r#"debugger-trap"#,
+        r#"Stop Emacs and hand over control to GDB.
 The Emacs source file src/.gdbinit sets a breakpoint in this function.
 
 This function does nothing.  It is not called by Emacs otherwise, and
@@ -2392,26 +3225,38 @@ GDB to kick in.
 For Lisp debugging see `debug', as well as `edebug', in the manual:
 "(elisp) Debugging".
 
-(fn)"#),
-    (r#"declare-equiv-charset"#, r#"Declare an equivalent charset for ISO-2022 decoding.
+(fn)"#,
+    ),
+    (
+        r#"declare-equiv-charset"#,
+        r#"Declare an equivalent charset for ISO-2022 decoding.
 
 On decoding by an ISO-2022 base coding system, when a charset
 specified by DIMENSION, CHARS, and FINAL-CHAR is designated, behave as
 if CHARSET is designated instead.
 
-(fn DIMENSION CHARS FINAL-CHAR CHARSET)"#),
-    (r#"decode-big5-char"#, r#"Decode a Big5 character which has CODE in BIG5 coding system.
+(fn DIMENSION CHARS FINAL-CHAR CHARSET)"#,
+    ),
+    (
+        r#"decode-big5-char"#,
+        r#"Decode a Big5 character which has CODE in BIG5 coding system.
 Return the corresponding character.
 
-(fn CODE)"#),
-    (r#"decode-char"#, r#"Decode the pair of CHARSET and CODE-POINT into a character.
+(fn CODE)"#,
+    ),
+    (
+        r#"decode-char"#,
+        r#"Decode the pair of CHARSET and CODE-POINT into a character.
 Return nil if CODE-POINT is not valid in CHARSET.
 
 CODE-POINT may be a cons (HIGHER-16-BIT-VALUE . LOWER-16-BIT-VALUE),
 although this usage is obsolescent.
 
-(fn CHARSET CODE-POINT)"#),
-    (r#"decode-coding-region"#, r#"Decode the current region using the specified coding system.
+(fn CHARSET CODE-POINT)"#,
+    ),
+    (
+        r#"decode-coding-region"#,
+        r#"Decode the current region using the specified coding system.
 Interactively, prompt for the coding system to decode the region, and
 replace the region with the decoded text.
 
@@ -2437,8 +3282,11 @@ This function sets `last-coding-system-used' to the precise coding system
 used (which may be different from CODING-SYSTEM if CODING-SYSTEM is
 not fully specified.)
 
-(fn START END CODING-SYSTEM DESTINATION)"#),
-    (r#"decode-coding-string"#, r#"Decode STRING which is encoded in CODING-SYSTEM, and return the result.
+(fn START END CODING-SYSTEM DESTINATION)"#,
+    ),
+    (
+        r#"decode-coding-string"#,
+        r#"Decode STRING which is encoded in CODING-SYSTEM, and return the result.
 
 Optional third arg NOCOPY non-nil means it is OK to return STRING itself
 if the decoding operation is trivial.
@@ -2453,12 +3301,18 @@ This function sets `last-coding-system-used' to the precise coding system
 used (which may be different from CODING-SYSTEM if CODING-SYSTEM is
 not fully specified.)  The function does not change the match data.
 
-(fn STRING CODING-SYSTEM NOCOPY BUFFER)"#),
-    (r#"decode-sjis-char"#, r#"Decode a Japanese character which has CODE in shift_jis encoding.
+(fn STRING CODING-SYSTEM NOCOPY BUFFER)"#,
+    ),
+    (
+        r#"decode-sjis-char"#,
+        r#"Decode a Japanese character which has CODE in shift_jis encoding.
 Return the corresponding character.
 
-(fn CODE)"#),
-    (r#"decode-time"#, r#"Decode a timestamp into (SEC MINUTE HOUR DAY MONTH YEAR DOW DST UTCOFF).
+(fn CODE)"#,
+    ),
+    (
+        r#"decode-time"#,
+        r#"Decode a timestamp into (SEC MINUTE HOUR DAY MONTH YEAR DOW DST UTCOFF).
 The optional TIME is the time value to convert.  See
 `format-time-string' for the various forms of a time value.
 
@@ -2493,8 +3347,11 @@ seconds, i.e., the number of seconds east of Greenwich.  (Note that
 Common Lisp has different meanings for DOW and UTCOFF, and its
 SEC is always an integer between 0 and 59.)
 
-(fn &optional TIME ZONE FORM)"#),
-    (r#"defalias"#, r#"Set SYMBOL's function definition to DEFINITION.
+(fn &optional TIME ZONE FORM)"#,
+    ),
+    (
+        r#"defalias"#,
+        r#"Set SYMBOL's function definition to DEFINITION.
 Associates the function with the current load file, if any.
 The optional third argument DOCSTRING specifies the documentation string
 for SYMBOL; if it is omitted or nil, SYMBOL uses the documentation string
@@ -2505,28 +3362,43 @@ Internally, this normally uses `fset', but if SYMBOL has a
 
 The return value is undefined.
 
-(fn SYMBOL DEFINITION DOCSTRING)"#),
-    (r#"default-boundp"#, r#"Return t if SYMBOL has a non-void default value.
+(fn SYMBOL DEFINITION DOCSTRING)"#,
+    ),
+    (
+        r#"default-boundp"#,
+        r#"Return t if SYMBOL has a non-void default value.
 A variable may have a buffer-local value.  This function says whether
 the variable has a non-void value outside of the current buffer
 context.  Also see `default-value'.
 
-(fn SYMBOL)"#),
-    (r#"default-file-modes"#, r#"Return the default file protection for created files.
+(fn SYMBOL)"#,
+    ),
+    (
+        r#"default-file-modes"#,
+        r#"Return the default file protection for created files.
 The value is an integer.
 
-(fn)"#),
-    (r#"default-toplevel-value"#, r#"Return SYMBOL's toplevel default value.
+(fn)"#,
+    ),
+    (
+        r#"default-toplevel-value"#,
+        r#"Return SYMBOL's toplevel default value.
 "Toplevel" means outside of any let binding.
 
-(fn SYMBOL)"#),
-    (r#"default-value"#, r#"Return SYMBOL's default value.
+(fn SYMBOL)"#,
+    ),
+    (
+        r#"default-value"#,
+        r#"Return SYMBOL's default value.
 This is the value that is seen in buffers that do not have their own values
 for this variable.  The default value is meaningful for variables with
 local bindings in certain buffers.
 
-(fn SYMBOL)"#),
-    (r#"defconst"#, r#"Define SYMBOL as a constant variable.
+(fn SYMBOL)"#,
+    ),
+    (
+        r#"defconst"#,
+        r#"Define SYMBOL as a constant variable.
 This declares that neither programs nor users should ever change the
 value.  This constancy is not actually enforced by Emacs Lisp, but
 SYMBOL is marked as a special variable so that it is never lexically
@@ -2540,12 +3412,18 @@ However, you should normally not make local bindings for variables
 defined with this form.
 
 The optional DOCSTRING specifies the variable's documentation string.
-(fn SYMBOL INITVALUE [DOCSTRING])"#),
-    (r#"defconst-1"#, r#"Like `defconst' but as a function.
+(fn SYMBOL INITVALUE [DOCSTRING])"#,
+    ),
+    (
+        r#"defconst-1"#,
+        r#"Like `defconst' but as a function.
 More specifically, behaves like (defconst SYM \\='INITVALUE DOCSTRING).
 
-(fn SYM INITVALUE DOCSTRING)"#),
-    (r#"define-category"#, r#"Define CATEGORY as a category which is described by DOCSTRING.
+(fn SYM INITVALUE DOCSTRING)"#,
+    ),
+    (
+        r#"define-category"#,
+        r#"Define CATEGORY as a category which is described by DOCSTRING.
 CATEGORY should be an ASCII printing character in the range ` ' to `~'.
 DOCSTRING is the documentation string of the category.  The first line
 should be a terse text (preferably less than 16 characters),
@@ -2553,14 +3431,23 @@ and the rest lines should be the full description.
 The category is defined only in category table TABLE, which defaults to
 the current buffer's category table.
 
-(fn CATEGORY DOCSTRING TABLE)"#),
-    (r#"define-charset-alias"#, r#"Define ALIAS as an alias for charset CHARSET.
+(fn CATEGORY DOCSTRING TABLE)"#,
+    ),
+    (
+        r#"define-charset-alias"#,
+        r#"Define ALIAS as an alias for charset CHARSET.
 
-(fn ALIAS CHARSET)"#),
-    (r#"define-coding-system-alias"#, r#"Define ALIAS as an alias for CODING-SYSTEM.
+(fn ALIAS CHARSET)"#,
+    ),
+    (
+        r#"define-coding-system-alias"#,
+        r#"Define ALIAS as an alias for CODING-SYSTEM.
 
-(fn ALIAS CODING-SYSTEM)"#),
-    (r#"define-fringe-bitmap"#, r#"Define fringe bitmap BITMAP from BITS of size HEIGHT x WIDTH.
+(fn ALIAS CODING-SYSTEM)"#,
+    ),
+    (
+        r#"define-fringe-bitmap"#,
+        r#"Define fringe bitmap BITMAP from BITS of size HEIGHT x WIDTH.
 BITMAP is a symbol identifying the new fringe bitmap.
 BITS is either a string or a vector of integers.
 HEIGHT is height of bitmap.  If HEIGHT is nil, use length of BITS.
@@ -2573,8 +3460,11 @@ list (ALIGN PERIODIC) where PERIODIC non-nil specifies that the bitmap
 should be repeated.
 If BITMAP already exists, the existing definition is replaced.
 
-(fn BITMAP BITS HEIGHT WIDTH ALIGN)"#),
-    (r#"define-hash-table-test"#, r#"Define a new hash table test with name NAME, a symbol.
+(fn BITMAP BITS HEIGHT WIDTH ALIGN)"#,
+    ),
+    (
+        r#"define-hash-table-test"#,
+        r#"Define a new hash table test with name NAME, a symbol.
 
 In hash tables created with NAME specified as test, use TEST to
 compare keys, and HASH for computing hash codes of keys.
@@ -2585,8 +3475,11 @@ argument and returning an object that is the hash code of the argument.
 It should be the case that if (eq (funcall HASH x1) (funcall HASH x2))
 returns nil, then (funcall TEST x1 x2) also returns nil.
 
-(fn NAME TEST HASH)"#),
-    (r#"define-key"#, r#"In KEYMAP, define key sequence KEY as DEF.
+(fn NAME TEST HASH)"#,
+    ),
+    (
+        r#"define-key"#,
+        r#"In KEYMAP, define key sequence KEY as DEF.
 This is a legacy function; see `keymap-set' for the recommended
 function to use instead.
 
@@ -2626,8 +3519,11 @@ If KEYMAP is a sparse keymap with a binding for KEY, the existing
 binding is altered.  If there is no binding for KEY, the new pair
 binding KEY to DEF is added at the front of KEYMAP.
 
-(fn KEYMAP KEY DEF REMOVE)"#),
-    (r#"defvar"#, r#"Define SYMBOL as a variable, and return SYMBOL.
+(fn KEYMAP KEY DEF REMOVE)"#,
+    ),
+    (
+        r#"defvar"#,
+        r#"Define SYMBOL as a variable, and return SYMBOL.
 You are not required to define a variable in order to use it, but
 defining it lets you supply an initial value and documentation, which
 can be referred to by the Emacs help facilities and other programming
@@ -2657,12 +3553,18 @@ variable.
 To define a user option, use `defcustom' instead of `defvar'.
 
 To define a buffer-local variable, use `defvar-local'.
-(fn SYMBOL &optional INITVALUE DOCSTRING)"#),
-    (r#"defvar-1"#, r#"Like `defvar' but as a function.
+(fn SYMBOL &optional INITVALUE DOCSTRING)"#,
+    ),
+    (
+        r#"defvar-1"#,
+        r#"Like `defvar' but as a function.
 More specifically behaves like (defvar SYM \\='INITVALUE DOCSTRING).
 
-(fn SYM INITVALUE DOCSTRING)"#),
-    (r#"defvaralias"#, r#"Make NEW-ALIAS a variable alias for symbol BASE-VARIABLE.
+(fn SYM INITVALUE DOCSTRING)"#,
+    ),
+    (
+        r#"defvaralias"#,
+        r#"Make NEW-ALIAS a variable alias for symbol BASE-VARIABLE.
 Aliased variables always have the same value; setting one sets the other.
 Third arg DOCSTRING, if non-nil, is documentation for NEW-ALIAS.  If it is
 omitted or nil, NEW-ALIAS gets the documentation string of BASE-VARIABLE,
@@ -2674,8 +3576,11 @@ The return value is BASE-VARIABLE.
 If the resulting chain of variable definitions would contain a loop,
 signal a `cyclic-variable-indirection' error.
 
-(fn NEW-ALIAS BASE-VARIABLE DOCSTRING)"#),
-    (r#"delete"#, r#"Delete members of SEQ which are `equal' to ELT, and return the result.
+(fn NEW-ALIAS BASE-VARIABLE DOCSTRING)"#,
+    ),
+    (
+        r#"delete"#,
+        r#"Delete members of SEQ which are `equal' to ELT, and return the result.
 SEQ must be a sequence (i.e. a list, a vector, or a string).
 The return value is a sequence of the same type.
 
@@ -2690,16 +3595,25 @@ Write `(setq foo (delete element foo))' to be sure of correctly
 changing the value of a sequence `foo'.  See also `remove', which
 does not modify the argument.
 
-(fn ELT SEQ)"#),
-    (r#"delete-all-overlays"#, r#"Delete all overlays of BUFFER.
+(fn ELT SEQ)"#,
+    ),
+    (
+        r#"delete-all-overlays"#,
+        r#"Delete all overlays of BUFFER.
 BUFFER omitted or nil means delete all overlays of the current
 buffer.
 
-(fn BUFFER)"#),
-    (r#"delete-and-extract-region"#, r#"Delete the text between START and END and return it.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"delete-and-extract-region"#,
+        r#"Delete the text between START and END and return it.
 
-(fn START END)"#),
-    (r#"delete-char"#, r#"Delete the following N characters (previous if N is negative).
+(fn START END)"#,
+    ),
+    (
+        r#"delete-char"#,
+        r#"Delete the following N characters (previous if N is negative).
 Optional second arg KILLFLAG non-nil means kill instead (save in kill ring).
 Interactively, N is the prefix arg, and KILLFLAG is set if
 N was explicitly specified.
@@ -2707,21 +3621,33 @@ N was explicitly specified.
 The command `delete-forward-char' is preferable for interactive use, e.g.
 because it respects values of `delete-active-region' and `overwrite-mode'.
 
-(fn N KILLFLAG)"#),
-    (r#"delete-directory-internal"#, r#"Delete the directory named DIRECTORY.  Does not follow symlinks.
+(fn N KILLFLAG)"#,
+    ),
+    (
+        r#"delete-directory-internal"#,
+        r#"Delete the directory named DIRECTORY.  Does not follow symlinks.
 
-(fn DIRECTORY)"#),
-    (r#"delete-field"#, r#"Delete the field surrounding POS.
+(fn DIRECTORY)"#,
+    ),
+    (
+        r#"delete-field"#,
+        r#"Delete the field surrounding POS.
 A field is a region of text with the same `field' property.
 If POS is nil, the value of point is used for POS.
 
-(fn POS)"#),
-    (r#"delete-file-internal"#, r#"Delete file named FILENAME; internal use only.
+(fn POS)"#,
+    ),
+    (
+        r#"delete-file-internal"#,
+        r#"Delete file named FILENAME; internal use only.
 If it is a symlink, remove the symlink.
 If file has multiple names, it continues to exist with the other names.
 
-(fn FILENAME)"#),
-    (r#"delete-frame"#, r#"Delete FRAME, eliminating it from use.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"delete-frame"#,
+        r#"Delete FRAME, eliminating it from use.
 FRAME must be a live frame and defaults to the selected one.
 
 When `undelete-frame-mode' is enabled, the 16 most recently deleted
@@ -2737,8 +3663,11 @@ This function runs `delete-frame-functions' before actually
 deleting the frame, unless the frame is a tooltip.
 The functions are run with one argument, the frame to be deleted.
 
-(fn FRAME FORCE)"#),
-    (r#"delete-other-windows-internal"#, r#"Make WINDOW fill its frame.
+(fn FRAME FORCE)"#,
+    ),
+    (
+        r#"delete-other-windows-internal"#,
+        r#"Make WINDOW fill its frame.
 Only the frame WINDOW is on is affected.  WINDOW must be a valid window
 and defaults to the selected one.
 
@@ -2752,36 +3681,54 @@ depends on the value of (window-start WINDOW), so if calling this
 function in a program gives strange scrolling, make sure the
 window-start value is reasonable when this function is called.
 
-(fn WINDOW ROOT)"#),
-    (r#"delete-overlay"#, r#"Delete the overlay OVERLAY from its buffer.
+(fn WINDOW ROOT)"#,
+    ),
+    (
+        r#"delete-overlay"#,
+        r#"Delete the overlay OVERLAY from its buffer.
 
-(fn OVERLAY)"#),
-    (r#"delete-process"#, r#"Delete PROCESS: kill it and forget about it immediately.
+(fn OVERLAY)"#,
+    ),
+    (
+        r#"delete-process"#,
+        r#"Delete PROCESS: kill it and forget about it immediately.
 PROCESS may be a process, a buffer, the name of a process or buffer, or
 nil, indicating the current buffer's process.
 
 Interactively, it will kill the current buffer's process.
 
-(fn PROCESS)"#),
-    (r#"delete-region"#, r#"Delete the text between START and END.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"delete-region"#,
+        r#"Delete the text between START and END.
 If called interactively, delete the region between point and mark.
 This command deletes buffer text without modifying the kill ring.
 
-(fn START END)"#),
-    (r#"delete-terminal"#, r#"Delete TERMINAL by deleting all frames on it and closing the terminal.
+(fn START END)"#,
+    ),
+    (
+        r#"delete-terminal"#,
+        r#"Delete TERMINAL by deleting all frames on it and closing the terminal.
 TERMINAL may be a terminal object, a frame, or nil (meaning the
 selected frame's terminal).
 
 Normally, you may not delete a display if all other displays are suspended,
 but if the second argument FORCE is non-nil, you may do so.
 
-(fn TERMINAL FORCE)"#),
-    (r#"delete-window-internal"#, r#"Remove WINDOW from its frame.
+(fn TERMINAL FORCE)"#,
+    ),
+    (
+        r#"delete-window-internal"#,
+        r#"Remove WINDOW from its frame.
 WINDOW defaults to the selected window.  Return nil.
 Signal an error when WINDOW is the only window on its frame.
 
-(fn WINDOW)"#),
-    (r#"delq"#, r#"Delete members of LIST which are `eq' to ELT, and return the result.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"delq"#,
+        r#"Delete members of LIST which are `eq' to ELT, and return the result.
 More precisely, this function skips any members `eq' to ELT at the
 front of LIST, then removes members `eq' to ELT from the remaining
 sublist by modifying its list structure, then returns the resulting
@@ -2791,8 +3738,11 @@ Write `(setq foo (delq element foo))' to be sure of correctly changing
 the value of a list `foo'.  See also `remq', which does not modify the
 argument.
 
-(fn ELT LIST)"#),
-    (r#"describe-buffer-bindings"#, r#"Insert the list of all defined keys and their definitions.
+(fn ELT LIST)"#,
+    ),
+    (
+        r#"describe-buffer-bindings"#,
+        r#"Insert the list of all defined keys and their definitions.
 The list is inserted in the current buffer, while the bindings are
 looked up in BUFFER.
 The optional argument PREFIX, if non-nil, should be a key sequence;
@@ -2800,17 +3750,26 @@ then we display only bindings that start with that prefix.
 The optional argument MENUS, if non-nil, says to mention menu bindings.
 \(Ordinarily these are omitted from the output.)
 
-(fn BUFFER PREFIX MENUS)"#),
-    (r#"describe-vector"#, r#"Insert a description of contents of VECTOR.
+(fn BUFFER PREFIX MENUS)"#,
+    ),
+    (
+        r#"describe-vector"#,
+        r#"Insert a description of contents of VECTOR.
 This is text showing the elements of vector matched against indices.
 DESCRIBER is the output function used; nil means use `princ'.
 
-(fn VECTOR DESCRIBER)"#),
-    (r#"destroy-fringe-bitmap"#, r#"Destroy fringe bitmap BITMAP.
+(fn VECTOR DESCRIBER)"#,
+    ),
+    (
+        r#"destroy-fringe-bitmap"#,
+        r#"Destroy fringe bitmap BITMAP.
 If BITMAP overrides a standard fringe bitmap, the original bitmap is restored.
 
-(fn BITMAP)"#),
-    (r#"detect-coding-region"#, r#"Detect coding system of the text in the region between START and END.
+(fn BITMAP)"#,
+    ),
+    (
+        r#"detect-coding-region"#,
+        r#"Detect coding system of the text in the region between START and END.
 Return a list of possible coding systems ordered by priority.
 The coding systems to try and their priorities follows what
 the function `coding-system-priority-list' (which see) returns.
@@ -2823,8 +3782,11 @@ format.
 If optional argument HIGHEST is non-nil, return the coding system of
 highest priority.
 
-(fn START END HIGHEST)"#),
-    (r#"detect-coding-string"#, r#"Detect coding system of the text in STRING.
+(fn START END HIGHEST)"#,
+    ),
+    (
+        r#"detect-coding-string"#,
+        r#"Detect coding system of the text in STRING.
 Return a list of possible coding systems ordered by priority.
 The coding systems to try and their priorities follows what
 the function `coding-system-priority-list' (which see) returns.
@@ -2837,20 +3799,29 @@ format.
 If optional argument HIGHEST is non-nil, return the coding system of
 highest priority.
 
-(fn STRING HIGHEST)"#),
-    (r#"ding"#, r#"Beep, or flash the screen.
+(fn STRING HIGHEST)"#,
+    ),
+    (
+        r#"ding"#,
+        r#"Beep, or flash the screen.
 Also, unless an argument is given,
 terminate any keyboard macro currently executing.
 
-(fn ARG)"#),
-    (r#"directory-file-name"#, r#"Returns the file name of the directory named DIRECTORY.
+(fn ARG)"#,
+    ),
+    (
+        r#"directory-file-name"#,
+        r#"Returns the file name of the directory named DIRECTORY.
 This is the name of the file that holds the data for the directory DIRECTORY.
 This operation exists because a directory is also a file, but its name as
 a directory is different from its name as a file.
 In Unix-syntax, this function just removes the final slash.
 
-(fn DIRECTORY)"#),
-    (r#"directory-files"#, r#"Return a list of names of files in DIRECTORY.
+(fn DIRECTORY)"#,
+    ),
+    (
+        r#"directory-files"#,
+        r#"Return a list of names of files in DIRECTORY.
 There are four optional arguments:
 If FULL is non-nil, return absolute file names.  Otherwise return names
  that are relative to the specified directory.
@@ -2862,8 +3833,11 @@ If NOSORT is non-nil, the list is not sorted--its order is unpredictable.
 If COUNT is non-nil and a natural number, the function will return
  COUNT number of file names (if so many are present).
 
-(fn DIRECTORY FULL MATCH NOSORT COUNT)"#),
-    (r#"directory-files-and-attributes"#, r#"Return a list of names of files and their attributes in DIRECTORY.
+(fn DIRECTORY FULL MATCH NOSORT COUNT)"#,
+    ),
+    (
+        r#"directory-files-and-attributes"#,
+        r#"Return a list of names of files and their attributes in DIRECTORY.
 Value is a list of the form:
 
   ((FILE1 . FILE1-ATTRS) (FILE2 . FILE2-ATTRS) ...)
@@ -2885,26 +3859,41 @@ If COUNT is non-nil and a natural number, the function will return
 On MS-Windows, performance depends on `w32-get-true-file-attributes',
 which see.
 
-(fn DIRECTORY FULL MATCH NOSORT ID-FORMAT COUNT)"#),
-    (r#"directory-name-p"#, r#"Return non-nil if NAME ends with a directory separator character.
+(fn DIRECTORY FULL MATCH NOSORT ID-FORMAT COUNT)"#,
+    ),
+    (
+        r#"directory-name-p"#,
+        r#"Return non-nil if NAME ends with a directory separator character.
 
-(fn NAME)"#),
-    (r#"discard-input"#, r#"Discard the contents of the terminal input buffer.
+(fn NAME)"#,
+    ),
+    (
+        r#"discard-input"#,
+        r#"Discard the contents of the terminal input buffer.
 Also end any kbd macro being defined.
 
-(fn)"#),
-    (r#"display--line-is-continued-p"#, r#"Return non-nil if the current screen line is continued on display.
+(fn)"#,
+    ),
+    (
+        r#"display--line-is-continued-p"#,
+        r#"Return non-nil if the current screen line is continued on display.
 
-(fn)"#),
-    (r#"display--update-for-mouse-movement"#, r#"Handle mouse movement detected by Lisp code.
+(fn)"#,
+    ),
+    (
+        r#"display--update-for-mouse-movement"#,
+        r#"Handle mouse movement detected by Lisp code.
 
 This function should be called when Lisp code detects the mouse has
 moved, even if `track-mouse' is nil.  This handles updates that do not
 rely on input events such as updating display for mouse-face
 properties or updating the help echo text.
 
-(fn MOUSE-FRAME MOUSE-X MOUSE-Y)"#),
-    (r#"display-supports-face-attributes-p"#, r#"Return non-nil if all the face attributes in ATTRIBUTES are supported.
+(fn MOUSE-FRAME MOUSE-X MOUSE-Y)"#,
+    ),
+    (
+        r#"display-supports-face-attributes-p"#,
+        r#"Return non-nil if all the face attributes in ATTRIBUTES are supported.
 The optional argument DISPLAY can be a display name, a frame, or
 nil (meaning the selected frame's display).
 
@@ -2925,8 +3914,11 @@ as it can display a yellowish color, but `:slant italic' will _not_ be
 satisfied by the tty display code's automatic substitution of a `dim'
 face for italic.
 
-(fn ATTRIBUTES DISPLAY)"#),
-    (r#"do-auto-save"#, r#"Auto-save all buffers that need it.
+(fn ATTRIBUTES DISPLAY)"#,
+    ),
+    (
+        r#"do-auto-save"#,
+        r#"Auto-save all buffers that need it.
 This auto-saves all buffers that have auto-saving enabled and
 were changed since last auto-saved.
 
@@ -2942,13 +3934,19 @@ A non-nil NO-MESSAGE argument means do not print any message if successful.
 
 A non-nil CURRENT-ONLY argument means save only current buffer.
 
-(fn NO-MESSAGE CURRENT-ONLY)"#),
-    (r#"documentation"#, r#"Return the documentation string of FUNCTION.
+(fn NO-MESSAGE CURRENT-ONLY)"#,
+    ),
+    (
+        r#"documentation"#,
+        r#"Return the documentation string of FUNCTION.
 Unless a non-nil second argument RAW is given, the
 string is passed through `substitute-command-keys'.
 
-(fn FUNCTION RAW)"#),
-    (r#"documentation-property"#, r#"Return the documentation string that is SYMBOL's PROP property.
+(fn FUNCTION RAW)"#,
+    ),
+    (
+        r#"documentation-property"#,
+        r#"Return the documentation string that is SYMBOL's PROP property.
 Third argument RAW omitted or nil means pass the result through
 `substitute-command-keys' if it is a string.
 
@@ -2956,12 +3954,18 @@ This differs from `get' in that it can refer to strings stored in the
 `etc/DOC' file; and that it evaluates documentation properties that
 aren't strings.
 
-(fn SYMBOL PROP RAW)"#),
-    (r#"documentation-stringp"#, r#"Return non-nil if OBJECT is a well-formed docstring object.
+(fn SYMBOL PROP RAW)"#,
+    ),
+    (
+        r#"documentation-stringp"#,
+        r#"Return non-nil if OBJECT is a well-formed docstring object.
 OBJECT can be either a string or a reference if it's kept externally.
 
-(fn OBJECT)"#),
-    (r#"downcase"#, r#"Convert argument to lower case and return that.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"downcase"#,
+        r#"Convert argument to lower case and return that.
 The argument may be a character or string.  The result has the same type,
 including the multibyteness of the string.
 
@@ -2973,42 +3977,66 @@ locale, the string must be converted into multibyte first.
 
 The argument object is not altered--the value is a copy.
 
-(fn OBJ)"#),
-    (r#"downcase-region"#, r#"Convert the region to lower case.  In programs, wants two arguments.
+(fn OBJ)"#,
+    ),
+    (
+        r#"downcase-region"#,
+        r#"Convert the region to lower case.  In programs, wants two arguments.
 These arguments specify the starting and ending character numbers of
 the region to operate on.  When used as a command, the text between
 point and the mark is operated on.
 
-(fn BEG END REGION-NONCONTIGUOUS-P)"#),
-    (r#"downcase-word"#, r#"Convert to lower case from point to end of word, moving over.
+(fn BEG END REGION-NONCONTIGUOUS-P)"#,
+    ),
+    (
+        r#"downcase-word"#,
+        r#"Convert to lower case from point to end of word, moving over.
 
 If point is in the middle of a word, the part of that word before point
 is ignored when moving forward.
 
 With negative argument, convert previous words but do not move.
 
-(fn ARG)"#),
-    (r#"draw-string"#, r#" Draw STRING by FONT-OBJECT on the top left corner of the current frame.
+(fn ARG)"#,
+    ),
+    (
+        r#"draw-string"#,
+        r#" Draw STRING by FONT-OBJECT on the top left corner of the current frame.
 The value is a number of glyphs drawn.
 Type C-l to recover what previously shown.
 
-(fn FONT-OBJECT STRING)"#),
-    (r#"dump-colors"#, r#"Dump currently allocated colors to stderr.
+(fn FONT-OBJECT STRING)"#,
+    ),
+    (
+        r#"dump-colors"#,
+        r#"Dump currently allocated colors to stderr.
 
-(fn)"#),
-    (r#"dump-emacs-portable"#, r#"Dump current state of Emacs into dump file FILENAME.
+(fn)"#,
+    ),
+    (
+        r#"dump-emacs-portable"#,
+        r#"Dump current state of Emacs into dump file FILENAME.
 If TRACK-REFERRERS is non-nil, keep additional debugging information
 that can help track down the provenance of unsupported object
 types.
 
-(fn FILENAME TRACK-REFERRERS)"#),
-    (r#"dump-emacs-portable--sort-predicate"#, r#"Internal relocation sorting function.
+(fn FILENAME TRACK-REFERRERS)"#,
+    ),
+    (
+        r#"dump-emacs-portable--sort-predicate"#,
+        r#"Internal relocation sorting function.
 
-(fn A B)"#),
-    (r#"dump-emacs-portable--sort-predicate-copied"#, r#"Internal relocation sorting function.
+(fn A B)"#,
+    ),
+    (
+        r#"dump-emacs-portable--sort-predicate-copied"#,
+        r#"Internal relocation sorting function.
 
-(fn A B)"#),
-    (r#"dump-glyph-matrix"#, r#"Dump the current matrix of the selected window to stderr.
+(fn A B)"#,
+    ),
+    (
+        r#"dump-glyph-matrix"#,
+        r#"Dump the current matrix of the selected window to stderr.
 Shows contents of glyph row structures.  With non-nil
 parameter GLYPHS, dump glyphs as well.  If GLYPHS is 1 show
 glyphs in short form, otherwise show glyphs in long form.
@@ -3016,19 +4044,28 @@ glyphs in short form, otherwise show glyphs in long form.
 Interactively, no argument means show glyphs in short form;
 with numeric argument, its value is passed as the GLYPHS flag.
 
-(fn GLYPHS)"#),
-    (r#"dump-glyph-row"#, r#"Dump glyph row ROW to stderr.
+(fn GLYPHS)"#,
+    ),
+    (
+        r#"dump-glyph-row"#,
+        r#"Dump glyph row ROW to stderr.
 Interactively, ROW is the prefix numeric argument and defaults to
 the row which displays point.
 Optional argument GLYPHS 0 means don't dump glyphs.
 GLYPHS 1 means dump glyphs in short form.
 GLYPHS > 1 or omitted means dump glyphs in long form.
 
-(fn ROW GLYPHS)"#),
-    (r#"dump-redisplay-history"#, r#"Dump redisplay history to stderr.
+(fn ROW GLYPHS)"#,
+    ),
+    (
+        r#"dump-redisplay-history"#,
+        r#"Dump redisplay history to stderr.
 
-(fn)"#),
-    (r#"dump-tab-bar-row"#, r#"Dump glyph row ROW of the tab-bar of the current frame to stderr.
+(fn)"#,
+    ),
+    (
+        r#"dump-tab-bar-row"#,
+        r#"Dump glyph row ROW of the tab-bar of the current frame to stderr.
 Interactively, ROW is the prefix numeric argument and defaults to zero.
 GLYPHS 0 means don't dump glyphs.
 GLYPHS 1 means dump glyphs in short form.
@@ -3037,8 +4074,11 @@ GLYPHS > 1 or omitted means dump glyphs in long form.
 If there's no tab-bar, or if the tab-bar is not drawn by Emacs,
 do nothing.
 
-(fn ROW GLYPHS)"#),
-    (r#"dump-tool-bar-row"#, r#"Dump glyph row ROW of the tool-bar of the current frame to stderr.
+(fn ROW GLYPHS)"#,
+    ),
+    (
+        r#"dump-tool-bar-row"#,
+        r#"Dump glyph row ROW of the tool-bar of the current frame to stderr.
 Interactively, ROW is the prefix numeric argument and defaults to zero.
 GLYPHS 0 means don't dump glyphs.
 GLYPHS 1 means dump glyphs in short form.
@@ -3047,23 +4087,38 @@ GLYPHS > 1 or omitted means dump glyphs in long form.
 If there's no tool-bar, or if the tool-bar is not drawn by Emacs,
 do nothing.
 
-(fn ROW GLYPHS)"#),
-    (r#"elt"#, r#"Return element of SEQUENCE at index N.
+(fn ROW GLYPHS)"#,
+    ),
+    (
+        r#"elt"#,
+        r#"Return element of SEQUENCE at index N.
 
-(fn SEQUENCE N)"#),
-    (r#"emacs-pid"#, r#"Return the process ID of Emacs, as an integer.
+(fn SEQUENCE N)"#,
+    ),
+    (
+        r#"emacs-pid"#,
+        r#"Return the process ID of Emacs, as an integer.
 
-(fn)"#),
-    (r#"encode-big5-char"#, r#"Encode the Big5 character CH to BIG5 coding system.
+(fn)"#,
+    ),
+    (
+        r#"encode-big5-char"#,
+        r#"Encode the Big5 character CH to BIG5 coding system.
 Return the corresponding character code in Big5.
 
-(fn CH)"#),
-    (r#"encode-char"#, r#"Encode the character CH into a code-point of CHARSET.
+(fn CH)"#,
+    ),
+    (
+        r#"encode-char"#,
+        r#"Encode the character CH into a code-point of CHARSET.
 Return the encoded code-point as an integer,
 or nil if CHARSET doesn't support CH.
 
-(fn CH CHARSET)"#),
-    (r#"encode-coding-region"#, r#"Encode the current region using the specified coding system.
+(fn CH CHARSET)"#,
+    ),
+    (
+        r#"encode-coding-region"#,
+        r#"Encode the current region using the specified coding system.
 Interactively, prompt for the coding system to encode the region, and
 replace the region with the bytes that are the result of the encoding.
 
@@ -3088,8 +4143,11 @@ This function sets `last-coding-system-used' to the precise coding system
 used (which may be different from CODING-SYSTEM if CODING-SYSTEM is
 not fully specified.)
 
-(fn START END CODING-SYSTEM DESTINATION)"#),
-    (r#"encode-coding-string"#, r#"Encode STRING to CODING-SYSTEM, and return the result.
+(fn START END CODING-SYSTEM DESTINATION)"#,
+    ),
+    (
+        r#"encode-coding-string"#,
+        r#"Encode STRING to CODING-SYSTEM, and return the result.
 
 Optional third arg NOCOPY non-nil means it is OK to return STRING
 itself if the encoding operation is trivial.
@@ -3102,12 +4160,18 @@ This function sets `last-coding-system-used' to the precise coding system
 used (which may be different from CODING-SYSTEM if CODING-SYSTEM is
 not fully specified.)  The function does not change the match data.
 
-(fn STRING CODING-SYSTEM NOCOPY BUFFER)"#),
-    (r#"encode-sjis-char"#, r#"Encode a Japanese character CH to shift_jis encoding.
+(fn STRING CODING-SYSTEM NOCOPY BUFFER)"#,
+    ),
+    (
+        r#"encode-sjis-char"#,
+        r#"Encode a Japanese character CH to shift_jis encoding.
 Return the corresponding code in SJIS.
 
-(fn CH)"#),
-    (r#"encode-time"#, r#"Convert TIME to a timestamp.
+(fn CH)"#,
+    ),
+    (
+        r#"encode-time"#,
+        r#"Convert TIME to a timestamp.
 
 TIME is a list (SECOND MINUTE HOUR DAY MONTH YEAR IGNORED DST ZONE)
 in the style of `decode-time', so that (encode-time (decode-time ...)) works.
@@ -3136,8 +4200,11 @@ Out-of-range values for SECOND through MONTH are brought into range
 via date arithmetic.  This can be tricky especially when combined with
 DST; see Info node `(elisp)Time Conversion' for details and caveats.
 
-(fn TIME &rest OBSOLESCENT-ARGUMENTS)"#),
-    (r#"end-kbd-macro"#, r#"Finish defining a keyboard macro.
+(fn TIME &rest OBSOLESCENT-ARGUMENTS)"#,
+    ),
+    (
+        r#"end-kbd-macro"#,
+        r#"Finish defining a keyboard macro.
 The definition was started by \\[start-kbd-macro].
 The macro is now available for use via \\[call-last-kbd-macro],
 or it can be given a name with \\[name-last-kbd-macro] and then invoked
@@ -3150,8 +4217,11 @@ An argument of zero means repeat until error.
 In Lisp, optional second arg LOOPFUNC may be a function that is called prior to
 each iteration of the macro.  Iteration stops if LOOPFUNC returns nil.
 
-(fn REPEAT LOOPFUNC)"#),
-    (r#"end-of-line"#, r#"Move point to end of current line (in the logical order).
+(fn REPEAT LOOPFUNC)"#,
+    ),
+    (
+        r#"end-of-line"#,
+        r#"Move point to end of current line (in the logical order).
 With argument N not nil or 1, move forward N - 1 lines first.
 If point reaches the beginning or end of buffer, it stops there.
 To ignore intangibility, bind `inhibit-point-motion-hooks' to t.
@@ -3162,26 +4232,41 @@ N is nil or 1, and a rear-sticky field ends at point, the point does
 not move.  To ignore field boundaries bind `inhibit-field-text-motion'
 to t.
 
-(fn N)"#),
-    (r#"eobp"#, r#"Return t if point is at the end of the buffer.
+(fn N)"#,
+    ),
+    (
+        r#"eobp"#,
+        r#"Return t if point is at the end of the buffer.
 If the buffer is narrowed, this means the end of the narrowed part.
 
-(fn)"#),
-    (r#"eolp"#, r#"Return t if point is at the end of a line.
+(fn)"#,
+    ),
+    (
+        r#"eolp"#,
+        r#"Return t if point is at the end of a line.
 `End of a line' includes point being at the end of the buffer.
 
-(fn)"#),
-    (r#"eq"#, r#"Return t if the two args are the same Lisp object.
+(fn)"#,
+    ),
+    (
+        r#"eq"#,
+        r#"Return t if the two args are the same Lisp object.
 
-(fn OBJ1 OBJ2)"#),
-    (r#"eql"#, r#"Return t if the two args are `eq' or are indistinguishable numbers.
+(fn OBJ1 OBJ2)"#,
+    ),
+    (
+        r#"eql"#,
+        r#"Return t if the two args are `eq' or are indistinguishable numbers.
 Integers with the same value are `eql'.
 Floating-point values with the same sign, exponent and fraction are `eql'.
 This differs from numeric comparison: (eql 0.0 -0.0) returns nil and
 \(eql 0.0e+NaN 0.0e+NaN) returns t, whereas `=' does the opposite.
 
-(fn OBJ1 OBJ2)"#),
-    (r#"equal"#, r#"Return t if two Lisp objects have similar structure and contents.
+(fn OBJ1 OBJ2)"#,
+    ),
+    (
+        r#"equal"#,
+        r#"Return t if two Lisp objects have similar structure and contents.
 They must have the same data type.
 Conses are compared by comparing the cars and the cdrs.
 Vectors and strings are compared element by element.
@@ -3189,23 +4274,35 @@ Numbers are compared via `eql', so integers do not equal floats.
 \(Use `=' if you want integers and floats to be able to be equal.)
 Symbols must match exactly.
 
-(fn O1 O2)"#),
-    (r#"equal-including-properties"#, r#"Return t if two Lisp objects have similar structure and contents.
+(fn O1 O2)"#,
+    ),
+    (
+        r#"equal-including-properties"#,
+        r#"Return t if two Lisp objects have similar structure and contents.
 This is like `equal' except that it compares the text properties
 of strings.  (`equal' ignores text properties.)
 
-(fn O1 O2)"#),
-    (r#"erase-buffer"#, r#"Delete the entire contents of the current buffer.
+(fn O1 O2)"#,
+    ),
+    (
+        r#"erase-buffer"#,
+        r#"Delete the entire contents of the current buffer.
 Any narrowing restriction in effect (see `narrow-to-region') is removed,
 so the buffer is truly empty after this.
 
-(fn)"#),
-    (r#"error-message-string"#, r#"Convert an error value (ERROR-SYMBOL . DATA) to an error message.
+(fn)"#,
+    ),
+    (
+        r#"error-message-string"#,
+        r#"Convert an error value (ERROR-SYMBOL . DATA) to an error message.
 See Info anchor `(elisp)Definition of signal' for some details on how this
 error message is constructed.
 
-(fn OBJ)"#),
-    (r#"eval"#, r#"Evaluate FORM and return its value.
+(fn OBJ)"#,
+    ),
+    (
+        r#"eval"#,
+        r#"Evaluate FORM and return its value.
 If LEXICAL is `t', evaluate using lexical binding by default.
 This is the recommended value.
 
@@ -3214,8 +4311,11 @@ If absent or `nil', use dynamic scoping only.
 LEXICAL can also represent an actual lexical environment; see the Info
 node `(elisp)Eval' for details.
 
-(fn FORM LEXICAL)"#),
-    (r#"eval-buffer"#, r#"Execute the accessible portion of current buffer as Lisp code.
+(fn FORM LEXICAL)"#,
+    ),
+    (
+        r#"eval-buffer"#,
+        r#"Execute the accessible portion of current buffer as Lisp code.
 You can use \\[narrow-to-region] to limit the part of buffer to be evaluated.
 When called from a Lisp program (i.e., not interactively), this
 function accepts up to five optional arguments:
@@ -3242,8 +4342,11 @@ top-level default value, as returned by `default-toplevel-value'.
 
 This function preserves the position of point.
 
-(fn BUFFER PRINTFLAG FILENAME UNIBYTE DO-ALLOW-PRINT)"#),
-    (r#"eval-region"#, r#"Execute the region as Lisp code.
+(fn BUFFER PRINTFLAG FILENAME UNIBYTE DO-ALLOW-PRINT)"#,
+    ),
+    (
+        r#"eval-region"#,
+        r#"Execute the region as Lisp code.
 When called from programs, expects two arguments,
 giving starting and ending indices in the current buffer
 of the text to be executed.
@@ -3256,8 +4359,11 @@ which is the input stream for reading characters.
 
 This function does not move point.
 
-(fn START END PRINTFLAG READ-FUNCTION)"#),
-    (r#"event-convert-list"#, r#"Convert the event description list EVENT-DESC to an event type.
+(fn START END PRINTFLAG READ-FUNCTION)"#,
+    ),
+    (
+        r#"event-convert-list"#,
+        r#"Convert the event description list EVENT-DESC to an event type.
 EVENT-DESC should contain one base event type (a character or symbol)
 and zero or more modifier names (control, meta, hyper, super, shift, alt,
 drag, down, double or triple).  The base must be last.
@@ -3267,8 +4373,11 @@ essentially the same base event type and all the specified modifiers.
 (Some compatibility base types, like symbols that represent a
 character, are not returned verbatim.)
 
-(fn EVENT-DESC)"#),
-    (r#"execute-kbd-macro"#, r#"Execute MACRO as a sequence of events.
+(fn EVENT-DESC)"#,
+    ),
+    (
+        r#"execute-kbd-macro"#,
+        r#"Execute MACRO as a sequence of events.
 If MACRO is a string or vector, then the events in it are executed
 exactly as if they had been input by the user.
 
@@ -3285,14 +4394,23 @@ each iteration of the macro.  Iteration stops if LOOPFUNC returns nil.
 The buffer shown in the currently selected window will be made the current
 buffer before the macro is executed.
 
-(fn MACRO COUNT LOOPFUNC)"#),
-    (r#"exit-recursive-edit"#, r#"Exit from the innermost recursive edit or minibuffer.
+(fn MACRO COUNT LOOPFUNC)"#,
+    ),
+    (
+        r#"exit-recursive-edit"#,
+        r#"Exit from the innermost recursive edit or minibuffer.
 
-(fn)"#),
-    (r#"exp"#, r#"Return the exponential base e of ARG.
+(fn)"#,
+    ),
+    (
+        r#"exp"#,
+        r#"Return the exponential base e of ARG.
 
-(fn ARG)"#),
-    (r#"expand-file-name"#, r#"Convert filename NAME to absolute, and canonicalize it.
+(fn ARG)"#,
+    ),
+    (
+        r#"expand-file-name"#,
+        r#"Convert filename NAME to absolute, and canonicalize it.
 Second arg DEFAULT-DIRECTORY is directory to start with if NAME is relative
 \(does not start with slash or tilde); both the directory name and
 a directory's file name are accepted.  If DEFAULT-DIRECTORY is nil or
@@ -3324,16 +4442,25 @@ filesystem tree, not (expand-file-name ".." dirname).  Note: make
 sure DIRNAME in this example doesn't end in a slash, unless it's
 the root directory.
 
-(fn NAME DEFAULT-DIRECTORY)"#),
-    (r#"expt"#, r#"Return the exponential ARG1 ** ARG2.
+(fn NAME DEFAULT-DIRECTORY)"#,
+    ),
+    (
+        r#"expt"#,
+        r#"Return the exponential ARG1 ** ARG2.
 
-(fn ARG1 ARG2)"#),
-    (r#"external-debugging-output"#, r#"Write CHARACTER to stderr.
+(fn ARG1 ARG2)"#,
+    ),
+    (
+        r#"external-debugging-output"#,
+        r#"Write CHARACTER to stderr.
 You can call `print' while debugging emacs, and pass it this function
 to make it write to the debugging output.
 
-(fn CHARACTER)"#),
-    (r#"face-attribute-relative-p"#, r#"Check whether a face attribute value is relative.
+(fn CHARACTER)"#,
+    ),
+    (
+        r#"face-attribute-relative-p"#,
+        r#"Check whether a face attribute value is relative.
 Specifically, this function returns t if the attribute ATTRIBUTE
 with the value VALUE is relative.
 
@@ -3342,11 +4469,17 @@ inherited from another face.  For most possible attributes,
 the only relative value that users see is `unspecified'.
 However, for :height, floating point values are also relative.
 
-(fn ATTRIBUTE VALUE)"#),
-    (r#"face-attributes-as-vector"#, r#"Return a vector of face attributes corresponding to PLIST.
+(fn ATTRIBUTE VALUE)"#,
+    ),
+    (
+        r#"face-attributes-as-vector"#,
+        r#"Return a vector of face attributes corresponding to PLIST.
 
-(fn PLIST)"#),
-    (r#"face-font"#, r#"Return the font name of face FACE, or nil if it is unspecified.
+(fn PLIST)"#,
+    ),
+    (
+        r#"face-font"#,
+        r#"Return the font name of face FACE, or nil if it is unspecified.
 The font name is, by default, for ASCII characters.
 If the optional argument FRAME is given, report on face FACE in that frame.
 If FRAME is t, report on the defaults for face FACE (for new frames).
@@ -3356,15 +4489,24 @@ If FRAME is omitted or nil, use the selected frame.
 If FRAME is anything but t, and the optional third argument CHARACTER
 is given, return the font name used by FACE for CHARACTER on FRAME.
 
-(fn FACE FRAME CHARACTER)"#),
-    (r#"fboundp"#, r#"Return t if SYMBOL's function definition is not nil.
+(fn FACE FRAME CHARACTER)"#,
+    ),
+    (
+        r#"fboundp"#,
+        r#"Return t if SYMBOL's function definition is not nil.
 
-(fn SYMBOL)"#),
-    (r#"fceiling"#, r#"Return the smallest integer no less than ARG, as a float.
+(fn SYMBOL)"#,
+    ),
+    (
+        r#"fceiling"#,
+        r#"Return the smallest integer no less than ARG, as a float.
 \(Round toward +inf.)
 
-(fn ARG)"#),
-    (r#"featurep"#, r#"Return t if FEATURE is present in this Emacs.
+(fn ARG)"#,
+    ),
+    (
+        r#"featurep"#,
+        r#"Return t if FEATURE is present in this Emacs.
 
 Use this to conditionalize execution of lisp code based on the
 presence or absence of Emacs or environment extensions.
@@ -3372,12 +4514,18 @@ Use `provide' to declare that a feature is available.  This function
 looks at the value of the variable `features'.  The optional argument
 SUBFEATURE can be used to check a specific subfeature of FEATURE.
 
-(fn FEATURE SUBFEATURE)"#),
-    (r#"ffloor"#, r#"Return the largest integer no greater than ARG, as a float.
+(fn FEATURE SUBFEATURE)"#,
+    ),
+    (
+        r#"ffloor"#,
+        r#"Return the largest integer no greater than ARG, as a float.
 \(Round toward -inf.)
 
-(fn ARG)"#),
-    (r#"field-beginning"#, r#"Return the beginning of the field surrounding POS.
+(fn ARG)"#,
+    ),
+    (
+        r#"field-beginning"#,
+        r#"Return the beginning of the field surrounding POS.
 A field is a region of text with the same `field' property.
 If POS is nil, the value of point is used for POS.
 If ESCAPE-FROM-EDGE is non-nil and POS is at the beginning of its
@@ -3385,8 +4533,11 @@ field, then the beginning of the *previous* field is returned.
 If LIMIT is non-nil, it is a buffer position; if the beginning of the field
 is before LIMIT, then LIMIT will be returned instead.
 
-(fn POS ESCAPE-FROM-EDGE LIMIT)"#),
-    (r#"field-end"#, r#"Return the end of the field surrounding POS.
+(fn POS ESCAPE-FROM-EDGE LIMIT)"#,
+    ),
+    (
+        r#"field-end"#,
+        r#"Return the end of the field surrounding POS.
 A field is a region of text with the same `field' property.
 If POS is nil, the value of point is used for POS.
 If ESCAPE-FROM-EDGE is non-nil and POS is at the end of its field,
@@ -3394,18 +4545,27 @@ then the end of the *following* field is returned.
 If LIMIT is non-nil, it is a buffer position; if the end of the field
 is after LIMIT, then LIMIT will be returned instead.
 
-(fn POS ESCAPE-FROM-EDGE LIMIT)"#),
-    (r#"field-string"#, r#"Return the contents of the field surrounding POS as a string.
+(fn POS ESCAPE-FROM-EDGE LIMIT)"#,
+    ),
+    (
+        r#"field-string"#,
+        r#"Return the contents of the field surrounding POS as a string.
 A field is a region of text with the same `field' property.
 If POS is nil, the value of point is used for POS.
 
-(fn POS)"#),
-    (r#"field-string-no-properties"#, r#"Return the contents of the field around POS, without text properties.
+(fn POS)"#,
+    ),
+    (
+        r#"field-string-no-properties"#,
+        r#"Return the contents of the field around POS, without text properties.
 A field is a region of text with the same `field' property.
 If POS is nil, the value of point is used for POS.
 
-(fn POS)"#),
-    (r#"file-accessible-directory-p"#, r#"Return t if FILENAME names a directory you can open.
+(fn POS)"#,
+    ),
+    (
+        r#"file-accessible-directory-p"#,
+        r#"Return t if FILENAME names a directory you can open.
 This means that FILENAME must specify the name of a directory, and the
 directory must allow you to open files in it.  If this isn't the case,
 return nil.
@@ -3417,14 +4577,20 @@ the final slash).
 In order to use a directory as a buffer's current directory, this
 predicate must return true.
 
-(fn FILENAME)"#),
-    (r#"file-acl"#, r#"Return ACL entries of file named FILENAME.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"file-acl"#,
+        r#"Return ACL entries of file named FILENAME.
 The entries are returned in a format suitable for use in `set-file-acl'
 but is otherwise undocumented and subject to change.
 Return nil if file does not exist.
 
-(fn FILENAME)"#),
-    (r#"file-attributes"#, r#"Return a list of attributes of file FILENAME.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"file-attributes"#,
+        r#"Return a list of attributes of file FILENAME.
 Value is nil if specified file does not exist.
 
 ID-FORMAT specifies the preferred format of attributes uid and gid (see
@@ -3469,12 +4635,18 @@ which see.
 On some FAT-based filesystems, only the date of last access is recorded,
 so last access time will always be midnight of that day.
 
-(fn FILENAME ID-FORMAT)"#),
-    (r#"file-attributes-lessp"#, r#"Return t if first arg file attributes list is less than second.
+(fn FILENAME ID-FORMAT)"#,
+    ),
+    (
+        r#"file-attributes-lessp"#,
+        r#"Return t if first arg file attributes list is less than second.
 Comparison is in lexicographic order and case is significant.
 
-(fn F1 F2)"#),
-    (r#"file-directory-p"#, r#"Return t if FILENAME names an existing directory.
+(fn F1 F2)"#,
+    ),
+    (
+        r#"file-directory-p"#,
+        r#"Return t if FILENAME names an existing directory.
 Return nil if FILENAME does not name a directory, or if there
 was trouble determining whether FILENAME is a directory.
 
@@ -3485,46 +4657,67 @@ empty string (in some cases) as the current directory.
 Symbolic links to directories count as directories.
 See `file-symlink-p' to distinguish symlinks.
 
-(fn FILENAME)"#),
-    (r#"file-executable-p"#, r#"Return t if FILENAME can be executed by you.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"file-executable-p"#,
+        r#"Return t if FILENAME can be executed by you.
 For a directory, this means you can access files in that directory.
 \(It is generally better to use `file-accessible-directory-p' for that
 purpose, though.)
 
-(fn FILENAME)"#),
-    (r#"file-exists-p"#, r#"Return t if file FILENAME exists (whether or not you can read it).
+(fn FILENAME)"#,
+    ),
+    (
+        r#"file-exists-p"#,
+        r#"Return t if file FILENAME exists (whether or not you can read it).
 Return nil if FILENAME does not exist, or if there was trouble
 determining whether the file exists.
 See also `file-readable-p' and `file-attributes'.
 This returns nil for a symlink to a nonexistent file.
 Use `file-symlink-p' to test for such links.
 
-(fn FILENAME)"#),
-    (r#"file-locked-p"#, r#"Return a value indicating whether FILENAME is locked.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"file-locked-p"#,
+        r#"Return a value indicating whether FILENAME is locked.
 The value is nil if the FILENAME is not locked,
 t if it is locked by you, else a string saying which user has locked it.
 
-(fn FILENAME)"#),
-    (r#"file-modes"#, r#"Return mode bits of file named FILENAME, as an integer.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"file-modes"#,
+        r#"Return mode bits of file named FILENAME, as an integer.
 Return nil if FILENAME does not exist.  If optional FLAG is `nofollow',
 do not follow FILENAME if it is a symbolic link.
 
-(fn FILENAME FLAG)"#),
-    (r#"file-name-absolute-p"#, r#"Return t if FILENAME is an absolute file name.
+(fn FILENAME FLAG)"#,
+    ),
+    (
+        r#"file-name-absolute-p"#,
+        r#"Return t if FILENAME is an absolute file name.
 On Unix, absolute file names start with `/'.  In Emacs, an absolute
 file name can also start with an initial `~' or `~USER' component,
 where USER is a valid login name.
 
-(fn FILENAME)"#),
-    (r#"file-name-all-completions"#, r#"Return a list of all completions of file name FILE in directory DIRECTORY.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"file-name-all-completions"#,
+        r#"Return a list of all completions of file name FILE in directory DIRECTORY.
 These are all file names in directory DIRECTORY which begin with FILE.
 
 This function ignores some of the possible completions as determined
 by `completion-regexp-list', which see.  `completion-regexp-list'
 is matched against file and directory names relative to DIRECTORY.
 
-(fn FILE DIRECTORY)"#),
-    (r#"file-name-as-directory"#, r#"Return a string representing the file name FILE interpreted as a directory.
+(fn FILE DIRECTORY)"#,
+    ),
+    (
+        r#"file-name-as-directory"#,
+        r#"Return a string representing the file name FILE interpreted as a directory.
 This operation exists because a directory is also a file, but its name as
 a directory is different from its name as a file.
 The result can be used as the value of `default-directory'
@@ -3532,14 +4725,20 @@ or passed as second argument to `expand-file-name'.
 For a Unix-syntax file name, just appends a slash unless a trailing slash
 is already present.
 
-(fn FILE)"#),
-    (r#"file-name-case-insensitive-p"#, r#"Return t if file FILENAME is on a case-insensitive filesystem.
+(fn FILE)"#,
+    ),
+    (
+        r#"file-name-case-insensitive-p"#,
+        r#"Return t if file FILENAME is on a case-insensitive filesystem.
 Return nil if FILENAME does not exist or is not on a case-insensitive
 filesystem, or if there was trouble determining whether the filesystem
 is case-insensitive.
 
-(fn FILENAME)"#),
-    (r#"file-name-completion"#, r#"Complete file name FILE in directory DIRECTORY.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"file-name-completion"#,
+        r#"Complete file name FILE in directory DIRECTORY.
 Returns the longest string
 common to all file names in DIRECTORY that start with FILE.
 If there is only one and FILE matches it exactly, returns t.
@@ -3553,8 +4752,11 @@ by the variables `completion-regexp-list' and
 `completion-ignored-extensions', which see.  `completion-regexp-list'
 is matched against file and directory names relative to DIRECTORY.
 
-(fn FILE DIRECTORY PREDICATE)"#),
-    (r#"file-name-concat"#, r#"Append COMPONENTS to DIRECTORY and return the resulting string.
+(fn FILE DIRECTORY PREDICATE)"#,
+    ),
+    (
+        r#"file-name-concat"#,
+        r#"Append COMPONENTS to DIRECTORY and return the resulting string.
 Each element in COMPONENTS must be a string or nil.
 DIRECTORY or the non-final elements in COMPONENTS may or may not end
 with a slash -- if they don't end with a slash, a slash will be
@@ -3563,38 +4765,56 @@ In most cases, one or more calls to `expand-file-name' are better
 suited for the job than this function.  Use this function only if
 some of the special expansions done by `expand-file-name' get in
 the way of what your program needs to do.
-(fn DIRECTORY &rest COMPONENTS)"#),
-    (r#"file-name-directory"#, r#"Return the directory component in file name FILENAME.
+(fn DIRECTORY &rest COMPONENTS)"#,
+    ),
+    (
+        r#"file-name-directory"#,
+        r#"Return the directory component in file name FILENAME.
 Return nil if FILENAME does not include a directory.
 Otherwise return a directory name.
 Given a Unix syntax file name, returns a string ending in slash.
 
-(fn FILENAME)"#),
-    (r#"file-name-nondirectory"#, r#"Return file name FILENAME sans its directory.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"file-name-nondirectory"#,
+        r#"Return file name FILENAME sans its directory.
 For example, in a Unix-syntax file name,
 this is everything after the last slash,
 or the entire name if it contains no slash.
 
-(fn FILENAME)"#),
-    (r#"file-newer-than-file-p"#, r#"Return t if file FILE1 is newer than file FILE2.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"file-newer-than-file-p"#,
+        r#"Return t if file FILE1 is newer than file FILE2.
 If FILE1 does not exist, the return value is nil;
 if FILE2 does not exist, the return value is t.
 For existing files, this compares their last-modified times.
 
-(fn FILE1 FILE2)"#),
-    (r#"file-readable-p"#, r#"Return t if file FILENAME exists and you can read it.
+(fn FILE1 FILE2)"#,
+    ),
+    (
+        r#"file-readable-p"#,
+        r#"Return t if file FILENAME exists and you can read it.
 See also `file-exists-p' and `file-attributes'.
 
-(fn FILENAME)"#),
-    (r#"file-regular-p"#, r#"Return t if FILENAME names a regular file.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"file-regular-p"#,
+        r#"Return t if FILENAME names a regular file.
 This is the sort of file that holds an ordinary stream of data bytes.
 Return nil if FILENAME does not exist or is not a regular file,
 or there was trouble determining whether FILENAME is a regular file.
 Symbolic links to regular files count as regular files.
 See `file-symlink-p' to distinguish symlinks.
 
-(fn FILENAME)"#),
-    (r#"file-selinux-context"#, r#"Return SELinux context of file named FILENAME.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"file-selinux-context"#,
+        r#"Return SELinux context of file named FILENAME.
 The return value is a list (USER ROLE TYPE RANGE), where the list
 elements are strings naming the user, role, type, and range of the
 file's SELinux security context.
@@ -3602,55 +4822,85 @@ file's SELinux security context.
 Return (nil nil nil nil) if the file is nonexistent,
 or if SELinux is disabled, or if Emacs lacks SELinux support.
 
-(fn FILENAME)"#),
-    (r#"file-symlink-p"#, r#"Return non-nil if file FILENAME is the name of a symbolic link.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"file-symlink-p"#,
+        r#"Return non-nil if file FILENAME is the name of a symbolic link.
 The value is the link target, as a string.
 Return nil if FILENAME does not exist or is not a symbolic link,
 of there was trouble determining whether the file is a symbolic link.
 
 This function does not check whether the link target exists.
 
-(fn FILENAME)"#),
-    (r#"file-system-info"#, r#"SKIP: real doc in fileio.c.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"file-system-info"#,
+        r#"SKIP: real doc in fileio.c.
 
-(fn FILENAME)"#),
-    (r#"file-writable-p"#, r#"Return t if file FILENAME can be written or created by you.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"file-writable-p"#,
+        r#"Return t if file FILENAME can be written or created by you.
 
-(fn FILENAME)"#),
-    (r#"fillarray"#, r#"Store each element of ARRAY with ITEM.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"fillarray"#,
+        r#"Store each element of ARRAY with ITEM.
 ARRAY is a vector, string, char-table, or bool-vector.
 
-(fn ARRAY ITEM)"#),
-    (r#"find-buffer"#, r#"Return the buffer with buffer-local VARIABLE `equal' to VALUE.
+(fn ARRAY ITEM)"#,
+    ),
+    (
+        r#"find-buffer"#,
+        r#"Return the buffer with buffer-local VARIABLE `equal' to VALUE.
 If there is no such live buffer, return nil.
 See also `find-buffer-visiting'.
 
-(fn VARIABLE VALUE)"#),
-    (r#"find-charset-region"#, r#"Return a list of charsets in the region between BEG and END.
+(fn VARIABLE VALUE)"#,
+    ),
+    (
+        r#"find-charset-region"#,
+        r#"Return a list of charsets in the region between BEG and END.
 BEG and END are buffer positions.
 Optional arg TABLE if non-nil is a translation table to look up.
 
 If the current buffer is unibyte, the returned list may contain
 only `ascii', `eight-bit-control', and `eight-bit-graphic'.
 
-(fn BEG END TABLE)"#),
-    (r#"find-charset-string"#, r#"Return a list of charsets in STR.
+(fn BEG END TABLE)"#,
+    ),
+    (
+        r#"find-charset-string"#,
+        r#"Return a list of charsets in STR.
 Optional arg TABLE if non-nil is a translation table to look up.
 
 If STR is unibyte, the returned list may contain
 only `ascii', `eight-bit-control', and `eight-bit-graphic'.
 
-(fn STR TABLE)"#),
-    (r#"find-coding-systems-region-internal"#, r#"Internal use only.
+(fn STR TABLE)"#,
+    ),
+    (
+        r#"find-coding-systems-region-internal"#,
+        r#"Internal use only.
 
-(fn START END EXCLUDE)"#),
-    (r#"find-composition-internal"#, r#"Internal use only.
+(fn START END EXCLUDE)"#,
+    ),
+    (
+        r#"find-composition-internal"#,
+        r#"Internal use only.
 
 Return information about composition at or nearest to position POS.
 See `find-composition' for more details.
 
-(fn POS LIMIT STRING DETAIL-P)"#),
-    (r#"find-file-name-handler"#, r#"Return FILENAME's handler function for OPERATION, if it has one.
+(fn POS LIMIT STRING DETAIL-P)"#,
+    ),
+    (
+        r#"find-file-name-handler"#,
+        r#"Return FILENAME's handler function for OPERATION, if it has one.
 Otherwise, return nil.
 A file name is handled if one of the regular expressions in
 `file-name-handler-alist' matches it.
@@ -3660,12 +4910,18 @@ any handlers that are members of `inhibit-file-name-handlers',
 but still do run any other handlers.  This lets handlers
 use the standard functions without calling themselves recursively.
 
-(fn FILENAME OPERATION)"#),
-    (r#"find-font"#, r#"Return a font-entity matching with FONT-SPEC on the current frame.
+(fn FILENAME OPERATION)"#,
+    ),
+    (
+        r#"find-font"#,
+        r#"Return a font-entity matching with FONT-SPEC on the current frame.
 Optional 2nd argument FRAME, if non-nil, specifies the target frame.
 
-(fn FONT-SPEC FRAME)"#),
-    (r#"find-operation-coding-system"#, r#"Choose a coding system for an operation based on the target name.
+(fn FONT-SPEC FRAME)"#,
+    ),
+    (
+        r#"find-operation-coding-system"#,
+        r#"Choose a coding system for an operation based on the target name.
 The value names a pair of coding systems: (DECODING-SYSTEM . ENCODING-SYSTEM).
 DECODING-SYSTEM is the coding system to use for decoding
 \(in case OPERATION does decoding), and ENCODING-SYSTEM is the coding system
@@ -3703,11 +4959,17 @@ contents (not yet decoded).  If `file-coding-system-alist' specifies a
 function to call for FILENAME, that function should examine the
 contents of BUFFER instead of reading the file.
 
-(fn OPERATION ARGUMENTS...)"#),
-    (r#"float"#, r#"Return the floating point number equal to ARG.
+(fn OPERATION ARGUMENTS...)"#,
+    ),
+    (
+        r#"float"#,
+        r#"Return the floating point number equal to ARG.
 
-(fn ARG)"#),
-    (r#"float-time"#, r#"Return the current time, as a float number of seconds since the epoch.
+(fn ARG)"#,
+    ),
+    (
+        r#"float-time"#,
+        r#"Return the current time, as a float number of seconds since the epoch.
 If SPECIFIED-TIME is given, it is a time value to convert to float
 instead of the current time.  See `format-time-string' for the various
 forms of a time value.
@@ -3716,20 +4978,32 @@ WARNING: Since the result is floating point, it may not be exact.
 If precise time stamps are required, use either `time-convert',
 or (if you need time as a string) `format-time-string'.
 
-(fn SPECIFIED-TIME)"#),
-    (r#"floatp"#, r#"Return t if OBJECT is a floating point number.
+(fn SPECIFIED-TIME)"#,
+    ),
+    (
+        r#"floatp"#,
+        r#"Return t if OBJECT is a floating point number.
 
-(fn OBJECT)"#),
-    (r#"floor"#, r#"Return the largest integer no greater than ARG.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"floor"#,
+        r#"Return the largest integer no greater than ARG.
 This rounds the value towards -inf.
 With optional DIVISOR, return the largest integer no greater than ARG/DIVISOR.
 
-(fn ARG DIVISOR)"#),
-    (r#"flush-standard-output"#, r#"Flush standard-output.
+(fn ARG DIVISOR)"#,
+    ),
+    (
+        r#"flush-standard-output"#,
+        r#"Flush standard-output.
 This can be useful after using `princ' and the like in scripts.
 
-(fn)"#),
-    (r#"fmakunbound"#, r#"Make SYMBOL's function definition be nil.
+(fn)"#,
+    ),
+    (
+        r#"fmakunbound"#,
+        r#"Make SYMBOL's function definition be nil.
 Return SYMBOL.
 
 If a function definition is nil, trying to call a function by
@@ -3738,19 +5012,28 @@ Info node `(elisp) Function Cells'.
 
 See also `makunbound'.
 
-(fn SYMBOL)"#),
-    (r#"following-char"#, r#"Return the character following point, as a number.
+(fn SYMBOL)"#,
+    ),
+    (
+        r#"following-char"#,
+        r#"Return the character following point, as a number.
 At the end of the buffer or accessible region, return 0.
 
-(fn)"#),
-    (r#"font-at"#, r#"Return a font-object for displaying a character at POSITION.
+(fn)"#,
+    ),
+    (
+        r#"font-at"#,
+        r#"Return a font-object for displaying a character at POSITION.
 Optional second arg WINDOW, if non-nil, is a window displaying
 the current buffer.  It defaults to the currently selected window.
 Optional third arg STRING, if non-nil, is a string containing the target
 character at index specified by POSITION.
 
-(fn POSITION WINDOW STRING)"#),
-    (r#"font-drive-otf"#, r#"Apply OpenType features on glyph-string GSTRING-IN.
+(fn POSITION WINDOW STRING)"#,
+    ),
+    (
+        r#"font-drive-otf"#,
+        r#"Apply OpenType features on glyph-string GSTRING-IN.
 OTF-FEATURES specifies which features to apply in this format:
   (SCRIPT LANGSYS GSUB GPOS)
 where
@@ -3782,8 +5065,11 @@ produced in GSTRING-OUT, and the value is nil.
 See the documentation of `composition-get-gstring' for the format of
 glyph-string.
 
-(fn OTF-FEATURES GSTRING-IN FROM TO GSTRING-OUT INDEX)"#),
-    (r#"font-face-attributes"#, r#"Return a plist of face attributes generated by FONT.
+(fn OTF-FEATURES GSTRING-IN FROM TO GSTRING-OUT INDEX)"#,
+    ),
+    (
+        r#"font-face-attributes"#,
+        r#"Return a plist of face attributes generated by FONT.
 FONT is a font name, a font-spec, a font-entity, or a font-object.
 The return value is a list of the form
 
@@ -3796,12 +5082,18 @@ may be omitted from the list if they are not specified by FONT.
 The optional argument FRAME specifies the frame that the face attributes
 are to be displayed on.  If omitted, the selected frame is used.
 
-(fn FONT FRAME)"#),
-    (r#"font-family-list"#, r#"List available font families on the current frame.
+(fn FONT FRAME)"#,
+    ),
+    (
+        r#"font-family-list"#,
+        r#"List available font families on the current frame.
 If FRAME is omitted or nil, the selected frame is used.
 
-(fn FRAME)"#),
-    (r#"font-get"#, r#"Return the value of FONT's property KEY.
+(fn FRAME)"#,
+    ),
+    (
+        r#"font-get"#,
+        r#"Return the value of FONT's property KEY.
 FONT is a font-spec, a font-entity, or a font-object.
 KEY can be any symbol, but these are reserved for specific meanings:
   :foundry, :family, :adstyle, :registry, :weight, :slant, :width,
@@ -3831,18 +5123,30 @@ for the specific meanings as below:
   The value of :combining-capability is non-nil if the font-backend of
   FONT supports rendering of combining characters for non-OTF fonts.
 
-(fn FONT KEY)"#),
-    (r#"font-get-system-font"#, r#"SKIP: real doc in xsettings.c.
+(fn FONT KEY)"#,
+    ),
+    (
+        r#"font-get-system-font"#,
+        r#"SKIP: real doc in xsettings.c.
 
-(fn)"#),
-    (r#"font-get-system-normal-font"#, r#"SKIP: real doc in xsettings.c.
+(fn)"#,
+    ),
+    (
+        r#"font-get-system-normal-font"#,
+        r#"SKIP: real doc in xsettings.c.
 
-(fn)"#),
-    (r#"font-has-char-p"#, r#"Return t if and only if font-spec SPEC matches with FONT.
+(fn)"#,
+    ),
+    (
+        r#"font-has-char-p"#,
+        r#"Return t if and only if font-spec SPEC matches with FONT.
 FONT is a font-spec, font-entity, or font-object.
 
-(fn SPEC FONT)"#),
-    (r#"font-info"#, r#"Return information about a font named NAME on frame FRAME.
+(fn SPEC FONT)"#,
+    ),
+    (
+        r#"font-info"#,
+        r#"Return information about a font named NAME on frame FRAME.
 If FRAME is omitted or nil, use the selected frame.
 
 The returned value is a vector of 14 elements:
@@ -3885,8 +5189,11 @@ where
 
 If the named font cannot be opened and loaded, return nil.
 
-(fn NAME FRAME)"#),
-    (r#"font-otf-alternates"#, r#"Return a list of alternate glyphs of CHARACTER in FONT-OBJECT.
+(fn NAME FRAME)"#,
+    ),
+    (
+        r#"font-otf-alternates"#,
+        r#"Return a list of alternate glyphs of CHARACTER in FONT-OBJECT.
 OTF-FEATURES specifies which features of the font FONT-OBJECT to apply
 in this format:
   (SCRIPT LANGSYS FEATURE ...)
@@ -3897,8 +5204,11 @@ where GLYPH-ID is a glyph index of the font, and CHARACTER is a
 character code corresponding to the glyph or nil if there's no
 corresponding character.
 
-(fn FONT-OBJECT CHARACTER OTF-FEATURES)"#),
-    (r#"font-put"#, r#"Set one property of FONT: give property KEY value VAL.
+(fn FONT-OBJECT CHARACTER OTF-FEATURES)"#,
+    ),
+    (
+        r#"font-put"#,
+        r#"Set one property of FONT: give property KEY value VAL.
 FONT is a font-spec, a font-entity, or a font-object.
 
 If FONT is a font-spec, KEY can be any symbol.  But if KEY is the one
@@ -3910,8 +5220,11 @@ accepted by `font-spec'.
 
 See also `font-get' for KEYs that have special meanings.
 
-(fn FONT PROP VAL)"#),
-    (r#"font-shape-gstring"#, r#"Shape the glyph-string GSTRING subject to bidi DIRECTION.
+(fn FONT PROP VAL)"#,
+    ),
+    (
+        r#"font-shape-gstring"#,
+        r#"Shape the glyph-string GSTRING subject to bidi DIRECTION.
 Shaping means substituting glyphs and/or adjusting positions of glyphs
 to get the correct visual image of character sequences set in the
 header of the glyph-string.
@@ -3926,8 +5239,11 @@ created glyph-string.  Otherwise, the value is nil.
 See the documentation of `composition-get-gstring' for the format of
 GSTRING.
 
-(fn GSTRING DIRECTION)"#),
-    (r#"font-spec"#, r#"Return a newly created font-spec with arguments as properties.
+(fn GSTRING DIRECTION)"#,
+    ),
+    (
+        r#"font-spec"#,
+        r#"Return a newly created font-spec with arguments as properties.
 
 ARGS must come in pairs KEY VALUE of font properties.  KEY must be a
 valid font property name listed below:
@@ -4011,16 +5327,22 @@ For instance, if the VALUE is `(thai nil nil (mark))', the font must
 be an OpenType font whose GPOS table of `thai' script's default
 language system must contain `mark' feature.
 
-(fn ARGS...)"#),
-    (r#"font-variation-glyphs"#, r#"Return a list of variation glyphs for CHARACTER in FONT-OBJECT.
+(fn ARGS...)"#,
+    ),
+    (
+        r#"font-variation-glyphs"#,
+        r#"Return a list of variation glyphs for CHARACTER in FONT-OBJECT.
 Each element of the value is a cons (VARIATION-SELECTOR . GLYPH-ID),
 where
   VARIATION-SELECTOR is a character code of variation selector
     (#xFE00..#xFE0F or #xE0100..#xE01EF).
   GLYPH-ID is a glyph code of the corresponding variation glyph, an integer.
 
-(fn FONT-OBJECT CHARACTER)"#),
-    (r#"font-xlfd-name"#, r#" Return XLFD name of FONT.
+(fn FONT-OBJECT CHARACTER)"#,
+    ),
+    (
+        r#"font-xlfd-name"#,
+        r#" Return XLFD name of FONT.
 FONT is a font-spec, font-entity, or font-object.
 
 If the name is too long to be represented as an XLFD (maximum 255
@@ -4029,15 +5351,21 @@ chars) and LONG_XLFDS is nil, return nil.
 If the 2nd optional arg FOLD-WILDCARDS is non-nil,
 the consecutive wildcards are folded into one.
 
-(fn FONT FOLD-WILDCARDS LONG-XLFDS)"#),
-    (r#"fontp"#, r#"Return t if OBJECT is a font-spec, font-entity, or font-object.
+(fn FONT FOLD-WILDCARDS LONG-XLFDS)"#,
+    ),
+    (
+        r#"fontp"#,
+        r#"Return t if OBJECT is a font-spec, font-entity, or font-object.
 Return nil otherwise.
 Optional 2nd argument EXTRA-TYPE, if non-nil, specifies to check
 which kind of font it is.  It must be one of `font-spec', `font-entity',
 `font-object'.
 
-(fn OBJECT EXTRA-TYPE)"#),
-    (r#"fontset-font"#, r#"Return a font name pattern for character CH in fontset NAME.
+(fn OBJECT EXTRA-TYPE)"#,
+    ),
+    (
+        r#"fontset-font"#,
+        r#"Return a font name pattern for character CH in fontset NAME.
 If NAME is t, find a pattern in the default fontset.
 If NAME is nil, find a pattern in the fontset of the selected frame.
 
@@ -4049,8 +5377,11 @@ fontset.
 If the 2nd optional arg ALL is non-nil, return a list of all font name
 patterns.
 
-(fn NAME CH ALL)"#),
-    (r#"fontset-info"#, r#"Return information about a fontset FONTSET on frame FRAME.
+(fn NAME CH ALL)"#,
+    ),
+    (
+        r#"fontset-info"#,
+        r#"Return information about a fontset FONTSET on frame FRAME.
 
 FONTSET is a fontset name string, nil for the fontset of FRAME, or t
 for the default fontset.  FRAME nil means the selected frame.
@@ -4068,26 +5399,41 @@ fontset, the value the extra slot is a char-table containing the
 information about the derived fonts from the default fontset.  The
 format is the same as above.
 
-(fn FONTSET FRAME)"#),
-    (r#"fontset-list"#, r#"Return a list of all defined fontset names.
+(fn FONTSET FRAME)"#,
+    ),
+    (
+        r#"fontset-list"#,
+        r#"Return a list of all defined fontset names.
 
-(fn)"#),
-    (r#"fontset-list-all"#, r#"Return a brief summary of all fontsets for debug use.
+(fn)"#,
+    ),
+    (
+        r#"fontset-list-all"#,
+        r#"Return a brief summary of all fontsets for debug use.
 
-(fn)"#),
-    (r#"force-mode-line-update"#, r#"Force redisplay of the current buffer's mode line and header line.
+(fn)"#,
+    ),
+    (
+        r#"force-mode-line-update"#,
+        r#"Force redisplay of the current buffer's mode line and header line.
 With optional non-nil ALL, force redisplay of all mode lines, tab lines and
 header lines.  This function also forces recomputation of the
 menu bar menus and the frame title.
 
-(fn ALL)"#),
-    (r#"force-window-update"#, r#"Force all windows to be updated on next redisplay.
+(fn ALL)"#,
+    ),
+    (
+        r#"force-window-update"#,
+        r#"Force all windows to be updated on next redisplay.
 If optional arg OBJECT is a window, force redisplay of that window only.
 If OBJECT is a buffer or buffer name, force redisplay of all windows
 displaying that buffer.
 
-(fn OBJECT)"#),
-    (r#"format"#, r#"Format a string out of a format-string and arguments.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"format"#,
+        r#"Format a string out of a format-string and arguments.
 The first argument is a format control string.
 The other arguments are substituted into it to make the result, a string.
 
@@ -4157,8 +5503,11 @@ given width.
 Text properties, if any, are copied from the format-string to the
 produced text.
 
-(fn STRING &rest OBJECTS)"#),
-    (r#"format-message"#, r#"Format a string out of a format-string and arguments.
+(fn STRING &rest OBJECTS)"#,
+    ),
+    (
+        r#"format-message"#,
+        r#"Format a string out of a format-string and arguments.
 The first argument is a format control string.
 The other arguments are substituted into it to make the result, a string.
 
@@ -4167,8 +5516,11 @@ by a left quote, and each apostrophe (\\=') by a right quote.  The left
 and right quote replacement characters are specified by
 `text-quoting-style'.
 
-(fn STRING &rest OBJECTS)"#),
-    (r#"format-mode-line"#, r#"Return a string formatted according to mode-line format specification.
+(fn STRING &rest OBJECTS)"#,
+    ),
+    (
+        r#"format-mode-line"#,
+        r#"Return a string formatted according to mode-line format specification.
 First arg FORMAT specifies the mode line format (see `mode-line-format'
 for details) to use.
 
@@ -4186,16 +5538,22 @@ Optional third and fourth args WINDOW and BUFFER specify the window
 and buffer to use as the context for the formatting (defaults
 are the selected window and the WINDOW's buffer).
 
-(fn FORMAT FACE WINDOW BUFFER)"#),
-    (r#"format-network-address"#, r#"Convert network ADDRESS from internal format to a string.
+(fn FORMAT FACE WINDOW BUFFER)"#,
+    ),
+    (
+        r#"format-network-address"#,
+        r#"Convert network ADDRESS from internal format to a string.
 A 4 or 5 element vector represents an IPv4 address (with port number).
 An 8 or 9 element vector represents an IPv6 address (with port number).
 If optional second argument OMIT-PORT is non-nil, don't include a port
 number in the string, even when present in ADDRESS.
 Return nil if format of ADDRESS is invalid.
 
-(fn ADDRESS OMIT-PORT)"#),
-    (r#"format-time-string"#, r#"Use FORMAT-STRING to format the time value TIME.
+(fn ADDRESS OMIT-PORT)"#,
+    ),
+    (
+        r#"format-time-string"#,
+        r#"Use FORMAT-STRING to format the time value TIME.
 A time value that is omitted or nil stands for the current time,
 a number stands for that many seconds, an integer pair (TICKS . HZ)
 stands for TICKS/HZ seconds, and an integer list (HI LO US PS) stands
@@ -4269,8 +5627,11 @@ The modifiers are:
 
 For example, to produce full ISO 8601 format, use "%FT%T%z".
 
-(fn FORMAT-STRING &optional TIME ZONE)"#),
-    (r#"forward-char"#, r#"Move point N characters forward (backward if N is negative).
+(fn FORMAT-STRING &optional TIME ZONE)"#,
+    ),
+    (
+        r#"forward-char"#,
+        r#"Move point N characters forward (backward if N is negative).
 On reaching end or beginning of buffer, stop and signal error.
 Interactively, N is the numeric prefix argument.
 If N is omitted or nil, move point 1 character forward.
@@ -4279,16 +5640,22 @@ Depending on the bidirectional context, the movement may be to the
 right or to the left on the screen.  This is in contrast with
 \\[right-char], which see.
 
-(fn N)"#),
-    (r#"forward-comment"#, r#"
+(fn N)"#,
+    ),
+    (
+        r#"forward-comment"#,
+        r#"
 Move forward across up to COUNT comments.  If COUNT is negative, move backward.
 Stop scanning if we find something other than a comment or whitespace.
 Set point to where scanning stops.
 If COUNT comments are found as expected, with nothing except whitespace
 between them, return t; otherwise return nil.
 
-(fn COUNT)"#),
-    (r#"forward-line"#, r#"Move N lines forward (backward if N is negative).
+(fn COUNT)"#,
+    ),
+    (
+        r#"forward-line"#,
+        r#"Move N lines forward (backward if N is negative).
 Precisely, if point is on line I, move to the start of line I + N
 \("start of line" in the logical order).
 If there isn't room, go as far as possible (no error).
@@ -4305,8 +5672,11 @@ function will move point to the end of such a line and will count
 it as a line moved across, even though there is no next line to
 go to its beginning.
 
-(fn N)"#),
-    (r#"forward-word"#, r#"Move point forward ARG words (backward if ARG is negative).
+(fn N)"#,
+    ),
+    (
+        r#"forward-word"#,
+        r#"Move point forward ARG words (backward if ARG is negative).
 If ARG is omitted or nil, move point forward one word.
 Normally returns t.
 If an edge of the buffer or a field boundary is reached, point is
@@ -4320,16 +5690,25 @@ can change that.  If a Lisp program needs to move by words determined
 strictly by the syntax table, it should use `forward-word-strictly'
 instead.  See Info node `(elisp) Word Motion' for details.
 
-(fn ARG)"#),
-    (r#"frame--face-hash-table"#, r#"Return a hash table of frame-local faces defined on FRAME.
+(fn ARG)"#,
+    ),
+    (
+        r#"frame--face-hash-table"#,
+        r#"Return a hash table of frame-local faces defined on FRAME.
 For internal use only.
 
-(fn FRAME)"#),
-    (r#"frame--set-was-invisible"#, r#"Set FRAME's was-invisible flag if WAS-INVISIBLE is non-nil.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame--set-was-invisible"#,
+        r#"Set FRAME's was-invisible flag if WAS-INVISIBLE is non-nil.
 This function is for internal use only.
 
-(fn FRAME WAS-INVISIBLE)"#),
-    (r#"frame-after-make-frame"#, r#"Mark FRAME as made.
+(fn FRAME WAS-INVISIBLE)"#,
+    ),
+    (
+        r#"frame-after-make-frame"#,
+        r#"Mark FRAME as made.
 FRAME nil means use the selected frame.  Second argument MADE non-nil
 means functions on `window-configuration-change-hook' are called
 whenever the window configuration of FRAME changes.  MADE nil means
@@ -4339,73 +5718,115 @@ This function is currently called by `make-frame' only and should be
 otherwise used with utter care to avoid that running functions on
 `window-configuration-change-hook' is impeded forever.
 
-(fn FRAME MADE)"#),
-    (r#"frame-ancestor-p"#, r#"Return non-nil if ANCESTOR is an ancestor of DESCENDANT.
+(fn FRAME MADE)"#,
+    ),
+    (
+        r#"frame-ancestor-p"#,
+        r#"Return non-nil if ANCESTOR is an ancestor of DESCENDANT.
 ANCESTOR is an ancestor of DESCENDANT when it is either DESCENDANT's
 parent frame or it is an ancestor of DESCENDANT's parent frame.  Both,
 ANCESTOR and DESCENDANT must be live frames and default to the selected
 frame.
 
-(fn ANCESTOR DESCENDANT)"#),
-    (r#"frame-bottom-divider-width"#, r#"Return width (in pixels) of horizontal window dividers on FRAME.
+(fn ANCESTOR DESCENDANT)"#,
+    ),
+    (
+        r#"frame-bottom-divider-width"#,
+        r#"Return width (in pixels) of horizontal window dividers on FRAME.
 
-(fn FRAME)"#),
-    (r#"frame-char-height"#, r#"Height in pixels of a line in the font in frame FRAME.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-char-height"#,
+        r#"Height in pixels of a line in the font in frame FRAME.
 If FRAME is omitted or nil, the selected frame is used.
 For a terminal frame, the value is always 1.
 
-(fn FRAME)"#),
-    (r#"frame-char-width"#, r#"Width in pixels of characters in the font in frame FRAME.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-char-width"#,
+        r#"Width in pixels of characters in the font in frame FRAME.
 If FRAME is omitted or nil, the selected frame is used.
 On a graphical screen, the width is the standard width of the default font.
 For a terminal screen, the value is always 1.
 
-(fn FRAME)"#),
-    (r#"frame-child-frame-border-width"#, r#"Return width of FRAME's child-frame border in pixels.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-child-frame-border-width"#,
+        r#"Return width of FRAME's child-frame border in pixels.
  If FRAME's `child-frame-border-width' parameter is nil, return FRAME's
  internal border width instead.
 
-(fn FRAME)"#),
-    (r#"frame-first-window"#, r#"Return the topmost, leftmost live window on FRAME-OR-WINDOW.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-first-window"#,
+        r#"Return the topmost, leftmost live window on FRAME-OR-WINDOW.
 If omitted, FRAME-OR-WINDOW defaults to the currently selected frame.
 Else if FRAME-OR-WINDOW denotes a valid window, return the first window
 of that window's frame.  If FRAME-OR-WINDOW denotes a live frame, return
 the first window of that frame.
 
-(fn FRAME-OR-WINDOW)"#),
-    (r#"frame-focus"#, r#"Return the frame to which FRAME's keystrokes are currently being sent.
+(fn FRAME-OR-WINDOW)"#,
+    ),
+    (
+        r#"frame-focus"#,
+        r#"Return the frame to which FRAME's keystrokes are currently being sent.
 If FRAME is omitted or nil, the selected frame is used.
 Return nil if FRAME's focus is not redirected.
 See `redirect-frame-focus'.
 
-(fn FRAME)"#),
-    (r#"frame-font-cache"#, r#"Return FRAME's font cache.  Mainly used for debugging.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-font-cache"#,
+        r#"Return FRAME's font cache.  Mainly used for debugging.
 If FRAME is omitted or nil, use the selected frame.
 
-(fn FRAME)"#),
-    (r#"frame-fringe-width"#, r#"Return fringe width of FRAME in pixels.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-fringe-width"#,
+        r#"Return fringe width of FRAME in pixels.
 
-(fn FRAME)"#),
-    (r#"frame-id"#, r#"Return FRAME's id.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-id"#,
+        r#"Return FRAME's id.
 If FRAME is nil, use the selected frame.
 Return nil if the id has not been set.
 
-(fn FRAME)"#),
-    (r#"frame-internal-border-width"#, r#"Return width of FRAME's internal border in pixels.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-internal-border-width"#,
+        r#"Return width of FRAME's internal border in pixels.
 
-(fn FRAME)"#),
-    (r#"frame-list"#, r#"Return a list of all live frames.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-list"#,
+        r#"Return a list of all live frames.
 The return value does not include any tooltip frame.
 
-(fn)"#),
-    (r#"frame-live-p"#, r#"Return non-nil if OBJECT is a frame which has not been deleted.
+(fn)"#,
+    ),
+    (
+        r#"frame-live-p"#,
+        r#"Return non-nil if OBJECT is a frame which has not been deleted.
 Value is nil if OBJECT is not a live frame.  If object is a live
 frame, the return value indicates what sort of terminal device it is
 displayed on.  See the documentation of `framep' for possible
 return values.
 
-(fn OBJECT)"#),
-    (r#"frame-native-height"#, r#"Return FRAME's native height in pixels.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"frame-native-height"#,
+        r#"Return FRAME's native height in pixels.
 If FRAME is omitted or nil, the selected frame is used.  The exact value
 of the result depends on the window-system and toolkit in use:
 
@@ -4421,23 +5842,32 @@ For a text terminal, it includes the menu bar.  In this case, the
 result is really in characters rather than pixels (i.e., is identical
 to `frame-height').
 
-(fn FRAME)"#),
-    (r#"frame-native-width"#, r#"Return FRAME's native width in pixels.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-native-width"#,
+        r#"Return FRAME's native width in pixels.
 For a terminal frame, the result really gives the width in characters.
 If FRAME is omitted or nil, the selected frame is used.
 
 If you're interested only in the width of the text portion of the
 frame, see `frame-text-width' instead.
 
-(fn FRAME)"#),
-    (r#"frame-old-selected-window"#, r#"Return old selected window of FRAME.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-old-selected-window"#,
+        r#"Return old selected window of FRAME.
 FRAME must be a live frame and defaults to the selected one.
 
 The return value is the window selected on FRAME the last time window
 change functions were run for FRAME.
 
-(fn FRAME)"#),
-    (r#"frame-or-buffer-changed-p"#, r#"Return non-nil if the frame and buffer state appears to have changed.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-or-buffer-changed-p"#,
+        r#"Return non-nil if the frame and buffer state appears to have changed.
 VARIABLE is a variable name whose value is either nil or a state vector
 that will be updated to contain all frames and buffers,
 aside from buffers whose names start with space,
@@ -4449,18 +5879,27 @@ the current state.
 If VARIABLE is nil, an internal variable is used.  Users should not
 pass nil for VARIABLE.
 
-(fn VARIABLE)"#),
-    (r#"frame-parameter"#, r#"Return FRAME's value for parameter PARAMETER.
+(fn VARIABLE)"#,
+    ),
+    (
+        r#"frame-parameter"#,
+        r#"Return FRAME's value for parameter PARAMETER.
 If FRAME is nil, describe the currently selected frame.
 
-(fn FRAME PARAMETER)"#),
-    (r#"frame-parameters"#, r#"Return the parameters-alist of frame FRAME.
+(fn FRAME PARAMETER)"#,
+    ),
+    (
+        r#"frame-parameters"#,
+        r#"Return the parameters-alist of frame FRAME.
 It is a list of elements of the form (PARM . VALUE), where PARM is a symbol.
 The meaningful PARMs depend on the kind of frame.
 If FRAME is omitted or nil, return information on the currently selected frame.
 
-(fn FRAME)"#),
-    (r#"frame-parent"#, r#"Return the parent frame of FRAME.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-parent"#,
+        r#"Return the parent frame of FRAME.
 The parent frame of FRAME is the Emacs frame whose window-system window
 is the parent window of FRAME's window-system window.  When such a frame
 exists, FRAME is considered a child frame of that frame.
@@ -4470,13 +5909,19 @@ window-system window is either a "top-level" window (a window whose
 parent window is the window-system's root window) or an embedded window
 \(a window whose parent window is owned by some other application).
 
-(fn FRAME)"#),
-    (r#"frame-pointer-visible-p"#, r#"Return t if the mouse pointer displayed on FRAME is visible.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-pointer-visible-p"#,
+        r#"Return t if the mouse pointer displayed on FRAME is visible.
 Otherwise it returns nil.  FRAME omitted or nil means the
 selected frame.  This is useful when `make-pointer-invisible' is set.
 
-(fn FRAME)"#),
-    (r#"frame-position"#, r#"Return top left corner of FRAME in pixels.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-position"#,
+        r#"Return top left corner of FRAME in pixels.
 FRAME must be a live frame and defaults to the selected one.  The return
 value is a cons (x, y) of the coordinates of the top left corner of
 FRAME's outer frame, in pixels relative to an origin (0, 0) of FRAME's
@@ -4486,74 +5931,122 @@ Note that the values returned are not guaranteed to be accurate: The
 values depend on the underlying window system, and some systems add a
 constant offset to the values.
 
-(fn FRAME)"#),
-    (r#"frame-right-divider-width"#, r#"Return width (in pixels) of vertical window dividers on FRAME.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-right-divider-width"#,
+        r#"Return width (in pixels) of vertical window dividers on FRAME.
 
-(fn FRAME)"#),
-    (r#"frame-root-frame"#, r#"Return root frame of specified FRAME.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-root-frame"#,
+        r#"Return root frame of specified FRAME.
 FRAME must be a live frame and defaults to the selected one.  The root
 frame of FRAME is the frame obtained by following the chain of parent
 frames starting with FRAME until a frame is reached that has no parent.
 If FRAME has no parent, its root frame is FRAME.
 
-(fn FRAME)"#),
-    (r#"frame-root-window"#, r#"Return the root window of FRAME-OR-WINDOW.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-root-window"#,
+        r#"Return the root window of FRAME-OR-WINDOW.
 If omitted, FRAME-OR-WINDOW defaults to the currently selected frame.
 With a frame argument, return that frame's root window.
 With a window argument, return the root window of that window's frame.
 
-(fn FRAME-OR-WINDOW)"#),
-    (r#"frame-scale-factor"#, r#"Return FRAMEs scale factor.
+(fn FRAME-OR-WINDOW)"#,
+    ),
+    (
+        r#"frame-scale-factor"#,
+        r#"Return FRAMEs scale factor.
 If FRAME is omitted or nil, the selected frame is used.
 The scale factor is the amount by which a logical pixel size must be
 multiplied to find the real number of pixels.
 
-(fn FRAME)"#),
-    (r#"frame-scroll-bar-height"#, r#"Return scroll bar height of FRAME in pixels.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-scroll-bar-height"#,
+        r#"Return scroll bar height of FRAME in pixels.
 
-(fn FRAME)"#),
-    (r#"frame-scroll-bar-width"#, r#"Return scroll bar width of FRAME in pixels.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-scroll-bar-width"#,
+        r#"Return scroll bar width of FRAME in pixels.
 
-(fn FRAME)"#),
-    (r#"frame-selected-window"#, r#"Return the selected window of FRAME-OR-WINDOW.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-selected-window"#,
+        r#"Return the selected window of FRAME-OR-WINDOW.
 If omitted, FRAME-OR-WINDOW defaults to the currently selected frame.
 Else if FRAME-OR-WINDOW denotes a valid window, return the selected
 window of that window's frame.  If FRAME-OR-WINDOW denotes a live frame,
 return the selected window of that frame.
 
-(fn FRAME-OR-WINDOW)"#),
-    (r#"frame-terminal"#, r#"Return the terminal that FRAME is displayed on.
+(fn FRAME-OR-WINDOW)"#,
+    ),
+    (
+        r#"frame-terminal"#,
+        r#"Return the terminal that FRAME is displayed on.
 If FRAME is nil, use the selected frame.
 
 The terminal device is represented by its integer identifier.
 
-(fn FRAME)"#),
-    (r#"frame-text-cols"#, r#"Return width in columns of FRAME's text area.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-text-cols"#,
+        r#"Return width in columns of FRAME's text area.
 
-(fn FRAME)"#),
-    (r#"frame-text-height"#, r#"Return text area height of FRAME in pixels.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-text-height"#,
+        r#"Return text area height of FRAME in pixels.
 
-(fn FRAME)"#),
-    (r#"frame-text-lines"#, r#"Return height in lines of FRAME's text area.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-text-lines"#,
+        r#"Return height in lines of FRAME's text area.
 
-(fn FRAME)"#),
-    (r#"frame-text-width"#, r#"Return text area width of FRAME in pixels.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-text-width"#,
+        r#"Return text area width of FRAME in pixels.
 
-(fn FRAME)"#),
-    (r#"frame-total-cols"#, r#"Return number of total columns of FRAME.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-total-cols"#,
+        r#"Return number of total columns of FRAME.
 
-(fn FRAME)"#),
-    (r#"frame-total-lines"#, r#"Return number of total lines of FRAME.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-total-lines"#,
+        r#"Return number of total lines of FRAME.
 
-(fn FRAME)"#),
-    (r#"frame-visible-p"#, r#"Return t if FRAME is \"visible\" (actually in use for display).
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-visible-p"#,
+        r#"Return t if FRAME is \"visible\" (actually in use for display).
 Return the symbol `icon' if FRAME is iconified or \"minimized\".
 Return nil if FRAME was made invisible, via `make-frame-invisible'.
 On graphical displays, invisible frames are not updated and are
 usually not displayed at all, even in a window system's \"taskbar\".
 
-(fn FRAME)"#),
-    (r#"frame-window-state-change"#, r#"Return t if FRAME's window state change flag is set, nil otherwise.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-window-state-change"#,
+        r#"Return t if FRAME's window state change flag is set, nil otherwise.
 FRAME must be a live frame and defaults to the selected one.
 
 If FRAME's window state change flag is set, the default values of
@@ -4562,11 +6055,17 @@ run during next redisplay, regardless of whether a window state change
 actually occurred on FRAME or not.  After that, the value of this flag
 is reset.
 
-(fn FRAME)"#),
-    (r#"frame-windows-min-size"#, r#"SKIP: real doc in window.el.
+(fn FRAME)"#,
+    ),
+    (
+        r#"frame-windows-min-size"#,
+        r#"SKIP: real doc in window.el.
 
-(fn FRAME HORIZONTAL IGNORE PIXELWISE)"#),
-    (r#"framep"#, r#"Return non-nil if OBJECT is a frame.
+(fn FRAME HORIZONTAL IGNORE PIXELWISE)"#,
+    ),
+    (
+        r#"framep"#,
+        r#"Return non-nil if OBJECT is a frame.
 Value is:
   t for a termcap frame (a character-only terminal),
  `x' for an Emacs frame that is really an X window,
@@ -4578,8 +6077,11 @@ Value is:
  `android' for an Emacs frame running in Android.
 See also `frame-live-p'.
 
-(fn OBJECT)"#),
-    (r#"frexp"#, r#"Get significand and exponent of a floating point number.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"frexp"#,
+        r#"Get significand and exponent of a floating point number.
 Breaks the floating point number X into its binary significand SGNFCAND
 \(a floating point value between 0.5 (included) and 1.0 (excluded))
 and an integral exponent EXP for 2, such that:
@@ -4589,8 +6091,11 @@ and an integral exponent EXP for 2, such that:
 The function returns the cons cell (SGNFCAND . EXP).
 If X is zero, both parts (SGNFCAND and EXP) are zero.
 
-(fn X)"#),
-    (r#"fringe-bitmaps-at-pos"#, r#"Return fringe bitmaps of row containing position POS in window WINDOW.
+(fn X)"#,
+    ),
+    (
+        r#"fringe-bitmaps-at-pos"#,
+        r#"Return fringe bitmaps of row containing position POS in window WINDOW.
 If WINDOW is nil, use selected window.  If POS is nil, use value of point
 in that window.  Return value is a list (LEFT RIGHT OV), where LEFT
 is the symbol for the bitmap in the left fringe (or nil if no bitmap),
@@ -4598,20 +6103,32 @@ RIGHT is similar for the right fringe, and OV is non-nil if there is an
 overlay arrow in the left fringe.
 Return nil if POS is not visible in WINDOW.
 
-(fn POS WINDOW)"#),
-    (r#"fround"#, r#"Return the nearest integer to ARG, as a float.
+(fn POS WINDOW)"#,
+    ),
+    (
+        r#"fround"#,
+        r#"Return the nearest integer to ARG, as a float.
 
-(fn ARG)"#),
-    (r#"fset"#, r#"Set SYMBOL's function definition to DEFINITION, and return DEFINITION.
+(fn ARG)"#,
+    ),
+    (
+        r#"fset"#,
+        r#"Set SYMBOL's function definition to DEFINITION, and return DEFINITION.
 If the resulting chain of function definitions would contain a loop,
 signal a `cyclic-function-indirection' error.
 
-(fn SYMBOL DEFINITION)"#),
-    (r#"ftruncate"#, r#"Truncate a floating point number to an integral float value.
+(fn SYMBOL DEFINITION)"#,
+    ),
+    (
+        r#"ftruncate"#,
+        r#"Truncate a floating point number to an integral float value.
 \(Round toward zero.)
 
-(fn ARG)"#),
-    (r#"func-arity"#, r#"Return minimum and maximum number of args allowed for FUNCTION.
+(fn ARG)"#,
+    ),
+    (
+        r#"func-arity"#,
+        r#"Return minimum and maximum number of args allowed for FUNCTION.
 FUNCTION must be a function of some kind.
 The returned value is a cons cell (MIN . MAX).  MIN is the minimum number
 of args.  MAX is the maximum number, or the symbol `many', for a
@@ -4622,32 +6139,47 @@ such as with functions defined using `apply-partially', functions
 advised using `advice-add', and functions that determine their arg
 list dynamically.
 
-(fn FUNCTION)"#),
-    (r#"funcall"#, r#"Call first argument as a function, passing remaining arguments to it.
+(fn FUNCTION)"#,
+    ),
+    (
+        r#"funcall"#,
+        r#"Call first argument as a function, passing remaining arguments to it.
 Return the value that function returns.
 Thus, (funcall \\='cons \\='x \\='y) returns (x . y).
-(fn FUNCTION &rest ARGUMENTS)"#),
-    (r#"funcall-with-delayed-message"#, r#"Like `funcall', but display MESSAGE if FUNCTION takes longer than TIMEOUT.
+(fn FUNCTION &rest ARGUMENTS)"#,
+    ),
+    (
+        r#"funcall-with-delayed-message"#,
+        r#"Like `funcall', but display MESSAGE if FUNCTION takes longer than TIMEOUT.
 TIMEOUT is a number of seconds, and can be an integer or a floating
 point number.
 
 If FUNCTION takes less time to execute than TIMEOUT seconds, MESSAGE
 is not displayed.
 
-(fn TIMEOUT MESSAGE FUNCTION)"#),
-    (r#"function"#, r#"Like `quote', but preferred for objects which are functions.
+(fn TIMEOUT MESSAGE FUNCTION)"#,
+    ),
+    (
+        r#"function"#,
+        r#"Like `quote', but preferred for objects which are functions.
 In byte compilation, `function' causes its argument to be handled by
 the byte compiler.  Similarly, when expanding macros and expressions,
 ARG can be examined and possibly expanded.  If `quote' is used
 instead, this doesn't happen.
 
-(fn ARG)"#),
-    (r#"function-equal"#, r#"Return non-nil if F1 and F2 come from the same source.
+(fn ARG)"#,
+    ),
+    (
+        r#"function-equal"#,
+        r#"Return non-nil if F1 and F2 come from the same source.
 Used to determine if different closures are just different instances of
 the same lambda expression, or are really unrelated function.
 
-(fn F1 F2)"#),
-    (r#"functionp"#, r#"Return t if OBJECT is a function.
+(fn F1 F2)"#,
+    ),
+    (
+        r#"functionp"#,
+        r#"Return t if OBJECT is a function.
 
 An object is a function if it is callable via `funcall'; this includes
 symbols with function bindings, but excludes macros and special forms.
@@ -4655,16 +6187,25 @@ symbols with function bindings, but excludes macros and special forms.
 Ordinarily return nil if OBJECT is not a function, although t might be
 returned in rare cases.
 
-(fn OBJECT)"#),
-    (r#"gap-position"#, r#"Return the position of the gap, in the current buffer.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"gap-position"#,
+        r#"Return the position of the gap, in the current buffer.
 See also `gap-size'.
 
-(fn)"#),
-    (r#"gap-size"#, r#"Return the size of the current buffer's gap.
+(fn)"#,
+    ),
+    (
+        r#"gap-size"#,
+        r#"Return the size of the current buffer's gap.
 See also `gap-position'.
 
-(fn)"#),
-    (r#"garbage-collect"#, r#"Reclaim storage for Lisp objects no longer needed.
+(fn)"#,
+    ),
+    (
+        r#"garbage-collect"#,
+        r#"Reclaim storage for Lisp objects no longer needed.
 Garbage collection happens automatically if you cons more than
 `gc-cons-threshold' bytes of Lisp data since previous garbage collection.
 It returns the same info as `garbage-collect-heapsize'.
@@ -4676,8 +6217,11 @@ collecting objects in some circumstances.
 
 For further details, see Info node `(elisp)Garbage Collection'.
 
-(fn)"#),
-    (r#"garbage-collect-heapsize"#, r#"Return a list with info on amount of space in use.
+(fn)"#,
+    ),
+    (
+        r#"garbage-collect-heapsize"#,
+        r#"Return a list with info on amount of space in use.
 This info may not be fully up to date unless it is called right after
 a full garbage collection cycle.
 Each entry has the form (NAME SIZE USED FREE), where:
@@ -4688,8 +6232,11 @@ Each entry has the form (NAME SIZE USED FREE), where:
   keeps around for future allocations (maybe because it does not know how
   to return them to the OS).
 
-(fn)"#),
-    (r#"garbage-collect-maybe"#, r#"Call `garbage-collect' if enough allocation happened.
+(fn)"#,
+    ),
+    (
+        r#"garbage-collect-maybe"#,
+        r#"Call `garbage-collect' if enough allocation happened.
 FACTOR determines what "enough" means here:
 If FACTOR is a positive number N, it means to run GC if more than
 1/Nth of the allocations needed to trigger automatic allocation took
@@ -4697,8 +6244,11 @@ place.
 Therefore, as N gets higher, this is more likely to perform a GC.
 Returns non-nil if GC happened, and nil otherwise.
 
-(fn FACTOR)"#),
-    (r#"generate-new-buffer-name"#, r#"Return a string that is the name of no existing buffer based on NAME.
+(fn FACTOR)"#,
+    ),
+    (
+        r#"generate-new-buffer-name"#,
+        r#"Return a string that is the name of no existing buffer based on NAME.
 If there is no live buffer named NAME, then return NAME.
 Otherwise modify name by appending `<NUMBER>', incrementing NUMBER
 \(starting at 2) until an unused name is found, and then return that name.
@@ -4709,18 +6259,27 @@ If NAME begins with a space (i.e., a buffer that is not normally
 visible to users), then if buffer NAME already exists a random number
 is first appended to NAME, to speed up finding a non-existent buffer.
 
-(fn NAME IGNORE)"#),
-    (r#"get"#, r#"Return the value of SYMBOL's PROPNAME property.
+(fn NAME IGNORE)"#,
+    ),
+    (
+        r#"get"#,
+        r#"Return the value of SYMBOL's PROPNAME property.
 This is the last value stored with `(put SYMBOL PROPNAME VALUE)'.
 
-(fn SYMBOL PROPNAME)"#),
-    (r#"get-buffer"#, r#"Return the buffer named BUFFER-OR-NAME.
+(fn SYMBOL PROPNAME)"#,
+    ),
+    (
+        r#"get-buffer"#,
+        r#"Return the buffer named BUFFER-OR-NAME.
 BUFFER-OR-NAME must be either a string or a buffer.  If BUFFER-OR-NAME
 is a string and there is no buffer with that name, return nil.  If
 BUFFER-OR-NAME is a buffer, return it as given.
 
-(fn BUFFER-OR-NAME)"#),
-    (r#"get-buffer-create"#, r#"Return the buffer specified by BUFFER-OR-NAME, creating a new one if needed.
+(fn BUFFER-OR-NAME)"#,
+    ),
+    (
+        r#"get-buffer-create"#,
+        r#"Return the buffer specified by BUFFER-OR-NAME, creating a new one if needed.
 If BUFFER-OR-NAME is a string and a live buffer with that name exists,
 return that buffer.  If no such buffer exists, create a new buffer with
 that name and return it.
@@ -4735,14 +6294,20 @@ presented to users or passed on to other applications.
 If BUFFER-OR-NAME is a buffer instead of a string, return it as given,
 even if it is dead.  The return value is never nil.
 
-(fn BUFFER-OR-NAME INHIBIT-BUFFER-HOOKS)"#),
-    (r#"get-buffer-process"#, r#"Return the (or a) live process associated with BUFFER.
+(fn BUFFER-OR-NAME INHIBIT-BUFFER-HOOKS)"#,
+    ),
+    (
+        r#"get-buffer-process"#,
+        r#"Return the (or a) live process associated with BUFFER.
 BUFFER may be a buffer or the name of one.
 Return nil if all processes associated with BUFFER have been
 deleted or killed.
 
-(fn BUFFER)"#),
-    (r#"get-buffer-window"#, r#"Return a window currently displaying BUFFER-OR-NAME, or nil if none.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"get-buffer-window"#,
+        r#"Return a window currently displaying BUFFER-OR-NAME, or nil if none.
 BUFFER-OR-NAME may be a buffer or a buffer name and defaults to
 the current buffer.
 
@@ -4760,12 +6325,18 @@ The optional argument ALL-FRAMES specifies the frames to consider:
 Any other value of ALL-FRAMES means consider all windows on the
 selected frame and no others.
 
-(fn BUFFER-OR-NAME ALL-FRAMES)"#),
-    (r#"get-buffer-xwidgets"#, r#"Return a list of xwidgets associated with BUFFER.
+(fn BUFFER-OR-NAME ALL-FRAMES)"#,
+    ),
+    (
+        r#"get-buffer-xwidgets"#,
+        r#"Return a list of xwidgets associated with BUFFER.
 BUFFER may be a buffer or the name of one.
 
-(fn BUFFER)"#),
-    (r#"get-byte"#, r#"Return a byte value of a character at point.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"get-byte"#,
+        r#"Return a byte value of a character at point.
 Optional 1st arg POSITION, if non-nil, is a position of a character to get
 a byte value.
 Optional 2nd arg STRING, if non-nil, is a string of which first
@@ -4775,8 +6346,11 @@ non-nil, is an index of a target character in the string.
 If the current buffer (or STRING) is multibyte, and the target
 character is not ASCII nor 8-bit character, an error is signaled.
 
-(fn POSITION STRING)"#),
-    (r#"get-char-property"#, r#"Return the value of POSITION's property PROP, in OBJECT.
+(fn POSITION STRING)"#,
+    ),
+    (
+        r#"get-char-property"#,
+        r#"Return the value of POSITION's property PROP, in OBJECT.
 Both overlay properties and text properties are checked.
 OBJECT is optional and defaults to the current buffer.
 If POSITION is at the end of OBJECT, the value is nil.
@@ -4785,8 +6359,11 @@ text properties.
 If OBJECT is a window, then that window's buffer is used, but window-specific
 overlays are considered only if they are associated with OBJECT.
 
-(fn POSITION PROP OBJECT)"#),
-    (r#"get-char-property-and-overlay"#, r#"Like `get-char-property', but with extra overlay information.
+(fn POSITION PROP OBJECT)"#,
+    ),
+    (
+        r#"get-char-property-and-overlay"#,
+        r#"Like `get-char-property', but with extra overlay information.
 The value is a cons cell.  Its car is the return value of `get-char-property'
 with the same arguments--that is, the value of POSITION's property
 PROP in OBJECT.  Its cdr is the overlay in which the property was
@@ -4799,8 +6376,11 @@ a window, then that window's buffer is used, but window-specific
 overlays are considered only if they are associated with OBJECT.  If
 POSITION is at the end of OBJECT, both car and cdr are nil.
 
-(fn POSITION PROP OBJECT)"#),
-    (r#"get-display-property"#, r#"Get the value of the display specification SPEC at POSITION.
+(fn POSITION PROP OBJECT)"#,
+    ),
+    (
+        r#"get-display-property"#,
+        r#"Get the value of the display specification SPEC at POSITION.
 SPEC is the car of the display specification to fetch, e.g. `height'.
 
 OBJECT is either a string or a buffer to fetch the specification from.
@@ -4809,26 +6389,38 @@ If omitted, OBJECT defaults to the current buffer.
 If PROPERTIES is non-nil, look for value of SPEC in PROPERTIES instead
 of the properties at POSITION.
 
-(fn POSITION SPEC OBJECT PROPERTIES)"#),
-    (r#"get-file-buffer"#, r#"Return the buffer visiting file FILENAME (a string).
+(fn POSITION SPEC OBJECT PROPERTIES)"#,
+    ),
+    (
+        r#"get-file-buffer"#,
+        r#"Return the buffer visiting file FILENAME (a string).
 The buffer's `buffer-file-name' must match exactly the expansion of FILENAME.
 If there is no such live buffer, return nil.
 See also `find-buffer-visiting'.
 
-(fn FILENAME)"#),
-    (r#"get-internal-run-time"#, r#"Return the current run time used by Emacs.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"get-internal-run-time"#,
+        r#"Return the current run time used by Emacs.
 The time is returned as in the style of `current-time'.
 
 On systems that can't determine the run time, `get-internal-run-time'
 does the same thing as `current-time'.
 
-(fn)"#),
-    (r#"get-load-suffixes"#, r#"Return the suffixes that `load' should try if a suffix is \
+(fn)"#,
+    ),
+    (
+        r#"get-load-suffixes"#,
+        r#"Return the suffixes that `load' should try if a suffix is \
 required.
 This uses the variables `load-suffixes' and `load-file-rep-suffixes'.
 
-(fn)"#),
-    (r#"get-pos-property"#, r#"Return the value of POSITION's property PROP, in OBJECT.
+(fn)"#,
+    ),
+    (
+        r#"get-pos-property"#,
+        r#"Return the value of POSITION's property PROP, in OBJECT.
 Almost identical to `get-char-property' except for the following difference:
 Whereas `get-char-property' returns the property of the char at (i.e. right
 after) POSITION, this pays attention to properties's stickiness and overlays's
@@ -4836,18 +6428,27 @@ advancement settings, in order to find the property of POSITION itself,
 i.e. the property that a char would inherit if it were inserted
 at POSITION.
 
-(fn POSITION PROP OBJECT)"#),
-    (r#"get-process"#, r#"Return the process named NAME, or nil if there is none.
+(fn POSITION PROP OBJECT)"#,
+    ),
+    (
+        r#"get-process"#,
+        r#"Return the process named NAME, or nil if there is none.
 
-(fn NAME)"#),
-    (r#"get-screen-color"#, r#"Get color indices of the current screen foreground and background.
+(fn NAME)"#,
+    ),
+    (
+        r#"get-screen-color"#,
+        r#"Get color indices of the current screen foreground and background.
 
 The colors are returned as a list of 2 indices (FOREGROUND BACKGROUND).
 See w32console.el and `tty-defined-color-alist' for mapping of indices
 to colors.
 
-(fn)"#),
-    (r#"get-text-property"#, r#"Return the value of POSITION's property PROP, in OBJECT.
+(fn)"#,
+    ),
+    (
+        r#"get-text-property"#,
+        r#"Return the value of POSITION's property PROP, in OBJECT.
 OBJECT should be a buffer or a string; if omitted or nil, it defaults
 to the current buffer.
 
@@ -4856,23 +6457,35 @@ buffer narrowing does not affect the value.  That is, if the buffer is
 narrowed and POSITION is at the end of the narrowed buffer, the result
 may be non-nil.
 
-(fn POSITION PROP OBJECT)"#),
-    (r#"get-truename-buffer"#, r#"Return the buffer with `file-truename' equal to FILENAME (a string).
+(fn POSITION PROP OBJECT)"#,
+    ),
+    (
+        r#"get-truename-buffer"#,
+        r#"Return the buffer with `file-truename' equal to FILENAME (a string).
 If there is no such live buffer, return nil.
 See also `find-buffer-visiting'.
 
-(fn FILENAME)"#),
-    (r#"get-unicode-property-internal"#, r#"Return an element of CHAR-TABLE for character CH.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"get-unicode-property-internal"#,
+        r#"Return an element of CHAR-TABLE for character CH.
 CHAR-TABLE must be what returned by `unicode-property-table-internal'.
 
-(fn CHAR-TABLE CH)"#),
-    (r#"get-unused-category"#, r#"Return a category which is not yet defined in TABLE.
+(fn CHAR-TABLE CH)"#,
+    ),
+    (
+        r#"get-unused-category"#,
+        r#"Return a category which is not yet defined in TABLE.
 If no category remains available, return nil.
 The optional argument TABLE specifies which category table to modify;
 it defaults to the current buffer's category table.
 
-(fn TABLE)"#),
-    (r#"get-unused-iso-final-char"#, r#"
+(fn TABLE)"#,
+    ),
+    (
+        r#"get-unused-iso-final-char"#,
+        r#"
 Return an unused ISO final char for a charset of DIMENSION and CHARS.
 DIMENSION is the number of bytes to represent a character: 1 or 2.
 CHARS is the number of characters in a dimension: 94 or 96.
@@ -4881,11 +6494,17 @@ This final char is for private use, thus the range is `0' (48) .. `?' (63).
 If there's no unused final char for the specified kind of charset,
 return nil.
 
-(fn DIMENSION CHARS)"#),
-    (r#"get-variable-watchers"#, r#"Return a list of SYMBOL's active watchers.
+(fn DIMENSION CHARS)"#,
+    ),
+    (
+        r#"get-variable-watchers"#,
+        r#"Return a list of SYMBOL's active watchers.
 
-(fn SYMBOL)"#),
-    (r#"getenv-internal"#, r#"Get the value of environment variable VARIABLE.
+(fn SYMBOL)"#,
+    ),
+    (
+        r#"getenv-internal"#,
+        r#"Get the value of environment variable VARIABLE.
 VARIABLE should be a string.  Value is nil if VARIABLE is undefined in
 the environment.  Otherwise, value is a string.
 
@@ -4895,13 +6514,19 @@ If optional parameter ENV is a list, then search this list instead of
 `process-environment', and return t when encountering a negative entry
 \(an entry for a variable with no value).
 
-(fn VARIABLE ENV)"#),
-    (r#"gethash"#, r#"Look up KEY in TABLE and return its associated value.
+(fn VARIABLE ENV)"#,
+    ),
+    (
+        r#"gethash"#,
+        r#"Look up KEY in TABLE and return its associated value.
 If KEY is not found in table, return DEFAULT, or nil if DEFAULT is not
 provided.
 
-(fn KEY TABLE &optional DEFAULT)"#),
-    (r#"gfile-add-watch"#, r#"Add a watch for filesystem events pertaining to FILE.
+(fn KEY TABLE &optional DEFAULT)"#,
+    ),
+    (
+        r#"gfile-add-watch"#,
+        r#"Add a watch for filesystem events pertaining to FILE.
 
 This arranges for filesystem events pertaining to FILE to be reported
 to Emacs.  Use `gfile-rm-watch' to cancel the watch.
@@ -4942,8 +6567,11 @@ following:
 FILE is the name of the file whose event is being reported.  FILE1
 will be reported only in case of the `moved' event.
 
-(fn FILE FLAGS CALLBACK)"#),
-    (r#"gfile-monitor-name"#, r#"Return the internal monitor name for WATCH-DESCRIPTOR.
+(fn FILE FLAGS CALLBACK)"#,
+    ),
+    (
+        r#"gfile-monitor-name"#,
+        r#"Return the internal monitor name for WATCH-DESCRIPTOR.
 
 The result is a symbol, either `GInotifyFileMonitor',
 `GKqueueFileMonitor', `GFamFileMonitor', or `GPollFileMonitor'.
@@ -4951,13 +6579,19 @@ The result is a symbol, either `GInotifyFileMonitor',
 WATCH-DESCRIPTOR should be an object returned by `gfile-add-watch'.
 If WATCH-DESCRIPTOR is not valid, nil is returned.
 
-(fn WATCH-DESCRIPTOR)"#),
-    (r#"gfile-rm-watch"#, r#"Remove an existing WATCH-DESCRIPTOR.
+(fn WATCH-DESCRIPTOR)"#,
+    ),
+    (
+        r#"gfile-rm-watch"#,
+        r#"Remove an existing WATCH-DESCRIPTOR.
 
 WATCH-DESCRIPTOR should be an object returned by `gfile-add-watch'.
 
-(fn WATCH-DESCRIPTOR)"#),
-    (r#"gfile-valid-p"#, r#"Check a watch specified by its WATCH-DESCRIPTOR.
+(fn WATCH-DESCRIPTOR)"#,
+    ),
+    (
+        r#"gfile-valid-p"#,
+        r#"Check a watch specified by its WATCH-DESCRIPTOR.
 
 WATCH-DESCRIPTOR should be an object returned by `gfile-add-watch'.
 
@@ -4966,13 +6600,19 @@ deleted, or if the watcher thread exits abnormally for any other
 reason.  Removing the watch by calling `gfile-rm-watch' also makes it
 invalid.
 
-(fn WATCH-DESCRIPTOR)"#),
-    (r#"gnutls-asynchronous-parameters"#, r#"Mark this process as being a pre-init GnuTLS process.
+(fn WATCH-DESCRIPTOR)"#,
+    ),
+    (
+        r#"gnutls-asynchronous-parameters"#,
+        r#"Mark this process as being a pre-init GnuTLS process.
 The second parameter is the list of parameters to feed to gnutls-boot
 to finish setting up the connection.
 
-(fn PROC PARAMS)"#),
-    (r#"gnutls-available-p"#, r#"Return list of capabilities if GnuTLS is available in this instance of Emacs.
+(fn PROC PARAMS)"#,
+    ),
+    (
+        r#"gnutls-available-p"#,
+        r#"Return list of capabilities if GnuTLS is available in this instance of Emacs.
 
 ...if supported         : then...
 GnuTLS 3 or higher      : the list will contain `gnutls3'.
@@ -4984,8 +6624,11 @@ GnuTLS AEAD ciphers     : the list will contain `AEAD-ciphers'.
 Any GnuTLS extension with ID up to 100
                         : the list will contain its name.
 
-(fn)"#),
-    (r#"gnutls-boot"#, r#"Initialize GnuTLS client for process PROC with TYPE+PROPLIST.
+(fn)"#,
+    ),
+    (
+        r#"gnutls-boot"#,
+        r#"Initialize GnuTLS client for process PROC with TYPE+PROPLIST.
 Currently only client mode is supported.  Return a success/failure
 value you can check with `gnutls-errorp'.
 
@@ -5061,8 +6704,11 @@ Each authentication type may need additional information in order to
 work.  For X.509 PKI (`gnutls-x509pki'), you probably need at least
 one trustfile (usually a CA bundle).
 
-(fn PROC TYPE PROPLIST)"#),
-    (r#"gnutls-bye"#, r#"Terminate current GnuTLS connection for process PROC.
+(fn PROC TYPE PROPLIST)"#,
+    ),
+    (
+        r#"gnutls-bye"#,
+        r#"Terminate current GnuTLS connection for process PROC.
 The connection should have been initiated using `gnutls-handshake'.
 
 If CONT is not nil the TLS connection gets terminated and further
@@ -5075,44 +6721,71 @@ should wait for an EOF from the peer.
 This function may also return `gnutls-e-again', or
 `gnutls-e-interrupted'.
 
-(fn PROC CONT)"#),
-    (r#"gnutls-ciphers"#, r#"Return alist of GnuTLS symmetric cipher descriptions as plists.
+(fn PROC CONT)"#,
+    ),
+    (
+        r#"gnutls-ciphers"#,
+        r#"Return alist of GnuTLS symmetric cipher descriptions as plists.
 The alist key is the cipher name.
 
-(fn)"#),
-    (r#"gnutls-deinit"#, r#"Deallocate GnuTLS resources associated with process PROC.
+(fn)"#,
+    ),
+    (
+        r#"gnutls-deinit"#,
+        r#"Deallocate GnuTLS resources associated with process PROC.
 See also `gnutls-boot'.
 
-(fn PROC)"#),
-    (r#"gnutls-digests"#, r#"Return alist of GnuTLS digest-algorithm method descriptions as plists.
+(fn PROC)"#,
+    ),
+    (
+        r#"gnutls-digests"#,
+        r#"Return alist of GnuTLS digest-algorithm method descriptions as plists.
 
 Use the value of the alist (extract it with `alist-get' for instance)
 with `gnutls-hash-digest'.  The alist key is the digest-algorithm
 method name.
 
-(fn)"#),
-    (r#"gnutls-error-fatalp"#, r#"Return non-nil if ERROR is fatal.
+(fn)"#,
+    ),
+    (
+        r#"gnutls-error-fatalp"#,
+        r#"Return non-nil if ERROR is fatal.
 ERROR is an integer or a symbol with an integer `gnutls-code' property.
 Usage: (gnutls-error-fatalp ERROR)
 
-(fn ERR)"#),
-    (r#"gnutls-error-string"#, r#"Return a description of ERROR.
+(fn ERR)"#,
+    ),
+    (
+        r#"gnutls-error-string"#,
+        r#"Return a description of ERROR.
 ERROR is an integer or a symbol with an integer `gnutls-code' property.
-(fn ERROR)"#),
-    (r#"gnutls-errorp"#, r#"Return t if ERROR indicates a GnuTLS problem.
+(fn ERROR)"#,
+    ),
+    (
+        r#"gnutls-errorp"#,
+        r#"Return t if ERROR indicates a GnuTLS problem.
 ERROR is an integer or a symbol with an integer `gnutls-code' property.
-(fn ERROR)"#),
-    (r#"gnutls-format-certificate"#, r#"Format a X.509 certificate to a string.
+(fn ERROR)"#,
+    ),
+    (
+        r#"gnutls-format-certificate"#,
+        r#"Format a X.509 certificate to a string.
 
 Given a PEM-encoded X.509 certificate CERT, returns a human-readable
 string representation.
 
-(fn CERT)"#),
-    (r#"gnutls-get-initstage"#, r#"Return the GnuTLS init stage of process PROC.
+(fn CERT)"#,
+    ),
+    (
+        r#"gnutls-get-initstage"#,
+        r#"Return the GnuTLS init stage of process PROC.
 See also `gnutls-boot'.
 
-(fn PROC)"#),
-    (r#"gnutls-hash-digest"#, r#"Digest INPUT with DIGEST-METHOD into a unibyte string.
+(fn PROC)"#,
+    ),
+    (
+        r#"gnutls-hash-digest"#,
+        r#"Digest INPUT with DIGEST-METHOD into a unibyte string.
 
 Return nil on error.
 
@@ -5124,8 +6797,11 @@ The DIGEST-METHOD may be a string or symbol matching a key in that
 alist, or a plist with the `:digest-algorithm-id' numeric property, or
 the number itself.
 
-(fn DIGEST-METHOD INPUT)"#),
-    (r#"gnutls-hash-mac"#, r#"Hash INPUT with HASH-METHOD and KEY into a unibyte string.
+(fn DIGEST-METHOD INPUT)"#,
+    ),
+    (
+        r#"gnutls-hash-mac"#,
+        r#"Hash INPUT with HASH-METHOD and KEY into a unibyte string.
 
 Return nil on error.
 
@@ -5141,15 +6817,21 @@ HASH-METHOD may be a string or symbol matching a key in that alist, or
 a plist with the `:mac-algorithm-id' numeric property, or the number
 itself.
 
-(fn HASH-METHOD KEY INPUT)"#),
-    (r#"gnutls-macs"#, r#"Return alist of GnuTLS mac-algorithm method descriptions as plists.
+(fn HASH-METHOD KEY INPUT)"#,
+    ),
+    (
+        r#"gnutls-macs"#,
+        r#"Return alist of GnuTLS mac-algorithm method descriptions as plists.
 
 Use the value of the alist (extract it with `alist-get' for instance)
 with `gnutls-hash-mac'.  The alist key is the mac-algorithm method
 name.
 
-(fn)"#),
-    (r#"gnutls-peer-status"#, r#"Describe a GnuTLS PROC peer certificate and any warnings about it.
+(fn)"#,
+    ),
+    (
+        r#"gnutls-peer-status"#,
+        r#"Describe a GnuTLS PROC peer certificate and any warnings about it.
 
 The return value is a property list with top-level keys :warnings and
 :certificates.
@@ -5162,11 +6844,17 @@ first, and intermediary certificates (if any) following it.
 In addition, for backwards compatibility, the host certificate is also
 returned as the :certificate entry.
 
-(fn PROC)"#),
-    (r#"gnutls-peer-status-warning-describe"#, r#"Describe the warning of a GnuTLS peer status from `gnutls-peer-status'.
+(fn PROC)"#,
+    ),
+    (
+        r#"gnutls-peer-status-warning-describe"#,
+        r#"Describe the warning of a GnuTLS peer status from `gnutls-peer-status'.
 
-(fn STATUS-SYMBOL)"#),
-    (r#"gnutls-symmetric-decrypt"#, r#"Decrypt INPUT with symmetric CIPHER, KEY+AEAD_AUTH, and IV to a unibyte string.
+(fn STATUS-SYMBOL)"#,
+    ),
+    (
+        r#"gnutls-symmetric-decrypt"#,
+        r#"Decrypt INPUT with symmetric CIPHER, KEY+AEAD_AUTH, and IV to a unibyte string.
 
 Return nil on error.
 
@@ -5185,8 +6873,11 @@ AEAD ciphers: these ciphers will have a `gnutls-ciphers' entry with
 :cipher-aead-capable set to t.  AEAD_AUTH can be supplied for
 these AEAD ciphers, but it may still be omitted (nil) as well.
 
-(fn CIPHER KEY IV INPUT AEAD-AUTH)"#),
-    (r#"gnutls-symmetric-encrypt"#, r#"Encrypt INPUT with symmetric CIPHER, KEY+AEAD_AUTH, and IV to a unibyte string.
+(fn CIPHER KEY IV INPUT AEAD-AUTH)"#,
+    ),
+    (
+        r#"gnutls-symmetric-encrypt"#,
+        r#"Encrypt INPUT with symmetric CIPHER, KEY+AEAD_AUTH, and IV to a unibyte string.
 
 Return nil on error.
 
@@ -5205,8 +6896,11 @@ AEAD ciphers: these ciphers will have a `gnutls-ciphers' entry with
 :cipher-aead-capable set to t.  AEAD_AUTH can be supplied for
 these AEAD ciphers, but it may still be omitted (nil) as well.
 
-(fn CIPHER KEY IV INPUT AEAD-AUTH)"#),
-    (r#"goto-char"#, r#"Set point to POSITION, a number or marker.
+(fn CIPHER KEY IV INPUT AEAD-AUTH)"#,
+    ),
+    (
+        r#"goto-char"#,
+        r#"Set point to POSITION, a number or marker.
 Beginning of buffer is position (point-min), end is (point-max).
 
 The return value is POSITION.
@@ -5215,26 +6909,44 @@ If called interactively, a numeric prefix argument specifies
 POSITION; without a numeric prefix argument, read POSITION from the
 minibuffer.  The default value is the number at point (if any).
 
-(fn POSITION)"#),
-    (r#"gpm-mouse-start"#, r#"Open a connection to Gpm.
+(fn POSITION)"#,
+    ),
+    (
+        r#"gpm-mouse-start"#,
+        r#"Open a connection to Gpm.
 Gpm-mouse can only be activated for one tty at a time.
 
-(fn)"#),
-    (r#"gpm-mouse-stop"#, r#"Close a connection to Gpm.
+(fn)"#,
+    ),
+    (
+        r#"gpm-mouse-stop"#,
+        r#"Close a connection to Gpm.
 
-(fn)"#),
-    (r#"group-gid"#, r#"Return the effective gid of Emacs, as an integer.
+(fn)"#,
+    ),
+    (
+        r#"group-gid"#,
+        r#"Return the effective gid of Emacs, as an integer.
 
-(fn)"#),
-    (r#"group-name"#, r#"Return the name of the group whose numeric group ID is GID.
+(fn)"#,
+    ),
+    (
+        r#"group-name"#,
+        r#"Return the name of the group whose numeric group ID is GID.
 The argument GID should be an integer or a float.
 Return nil if a group with such GID does not exists or is not known.
 
-(fn GID)"#),
-    (r#"group-real-gid"#, r#"Return the real gid of Emacs, as an integer.
+(fn GID)"#,
+    ),
+    (
+        r#"group-real-gid"#,
+        r#"Return the real gid of Emacs, as an integer.
 
-(fn)"#),
-    (r#"haiku-display-monitor-attributes-list"#, r#"Return a list of physical monitor attributes on the display TERMINAL.
+(fn)"#,
+    ),
+    (
+        r#"haiku-display-monitor-attributes-list"#,
+        r#"Return a list of physical monitor attributes on the display TERMINAL.
 
 The optional argument TERMINAL specifies which display to ask about.
 TERMINAL should be a terminal object, a frame or a display name (a string).
@@ -5242,8 +6954,11 @@ If omitted or nil, that stands for the selected frame's display.
 
 Internal use only, use `display-monitor-attributes-list' instead.
 
-(fn TERMINAL)"#),
-    (r#"haiku-drag-message"#, r#"Begin dragging MESSAGE from FRAME.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"haiku-drag-message"#,
+        r#"Begin dragging MESSAGE from FRAME.
 
 MESSAGE an alist of strings, denoting message field names, to a list
 the form (TYPE DATA ...), where TYPE is an integer denoting the system
@@ -5281,8 +6996,11 @@ ignored if it is dropped on top of FRAME.
 FOLLOW-TOOLTIP, if non-nil, will cause any non-system tooltip
 currently being displayed to move along with the mouse pointer.
 
-(fn FRAME MESSAGE ALLOW-SAME-FRAME FOLLOW-TOOLTIP)"#),
-    (r#"haiku-frame-edges"#, r#"Return edge coordinates of FRAME.
+(fn FRAME MESSAGE ALLOW-SAME-FRAME FOLLOW-TOOLTIP)"#,
+    ),
+    (
+        r#"haiku-frame-edges"#,
+        r#"Return edge coordinates of FRAME.
 FRAME must be a live frame and defaults to the selected one.  The return
 value is a list of the form (LEFT, TOP, RIGHT, BOTTOM).  All values are
 in pixels relative to the origin - the position (0, 0) - of FRAME's
@@ -5298,8 +7016,11 @@ menu or tool bar of FRAME.  If TYPE is the symbol `inner-edges', return
 the inner edges of FRAME.  These edges exclude title bar, any borders,
 menu bar or tool bar of FRAME.
 
-(fn FRAME TYPE)"#),
-    (r#"haiku-frame-geometry"#, r#"Return geometric attributes of FRAME.
+(fn FRAME TYPE)"#,
+    ),
+    (
+        r#"haiku-frame-geometry"#,
+        r#"Return geometric attributes of FRAME.
 FRAME must be a live frame and defaults to the selected one.  The return
 value is an association list of the attributes listed below.  All height
 and width values are in pixels.
@@ -5338,8 +7059,11 @@ and width values are in pixels.
 `internal-border-width' is the width of the internal border of
   FRAME.
 
-(fn FRAME)"#),
-    (r#"haiku-frame-list-z-order"#, r#"Return list of Emacs's frames, in Z (stacking) order.
+(fn FRAME)"#,
+    ),
+    (
+        r#"haiku-frame-list-z-order"#,
+        r#"Return list of Emacs's frames, in Z (stacking) order.
 If TERMINAL is non-nil and specifies a live frame, return the child
 frames of that frame in Z (stacking) order.
 
@@ -5349,8 +7073,11 @@ list, while the rest are not guaranteed to be in any particular order.
 
 Frames are listed from topmost (first) to bottommost (last).
 
-(fn TERMINAL)"#),
-    (r#"haiku-frame-restack"#, r#"Restack FRAME1 below FRAME2.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"haiku-frame-restack"#,
+        r#"Restack FRAME1 below FRAME2.
 This means that if both frames are visible and the display areas of
 these frames overlap, FRAME2 (partially) obscures FRAME1.  If optional
 third argument ABOVE is non-nil, restack FRAME1 above FRAME2.  This
@@ -5359,25 +7086,37 @@ frames overlap, FRAME1 (partially) obscures FRAME2.
 
 Some window managers may refuse to restack windows.
 
-(fn FRAME1 FRAME2 ABOVE)"#),
-    (r#"haiku-get-version-string"#, r#"Return a string describing the current Haiku version.
+(fn FRAME1 FRAME2 ABOVE)"#,
+    ),
+    (
+        r#"haiku-get-version-string"#,
+        r#"Return a string describing the current Haiku version.
 
-(fn)"#),
-    (r#"haiku-menu-bar-open"#, r#"Show and start key navigation of the menu bar in FRAME.
+(fn)"#,
+    ),
+    (
+        r#"haiku-menu-bar-open"#,
+        r#"Show and start key navigation of the menu bar in FRAME.
 This initially opens the first menu bar item and you can then navigate
 with the arrow keys, select a menu entry with the return key, or
 cancel with the escape key.  If FRAME is nil or not given, use the
 selected frame.  If FRAME has no menu bar, a pop-up is displayed at
 the position of the last non-menu event instead.
 
-(fn FRAME)"#),
-    (r#"haiku-mouse-absolute-pixel-position"#, r#"Return absolute position of mouse cursor in pixels.
+(fn FRAME)"#,
+    ),
+    (
+        r#"haiku-mouse-absolute-pixel-position"#,
+        r#"Return absolute position of mouse cursor in pixels.
 The position is returned as a cons cell (X . Y) of the coordinates of
 the mouse cursor position in pixels relative to a position (0, 0) of the
 selected frame's display.
 
-(fn)"#),
-    (r#"haiku-read-file-name"#, r#"Use a graphical panel to read a file name, using prompt PROMPT.
+(fn)"#,
+    ),
+    (
+        r#"haiku-read-file-name"#,
+        r#"Use a graphical panel to read a file name, using prompt PROMPT.
 Optional arg FRAME specifies a frame on which to display the file panel.
 If it is nil, the current frame is used instead.
 The frame being used will be brought to the front of
@@ -5388,8 +7127,11 @@ directory must exist.
 Optional arg DIR_ONLY_P, if non-nil, means choose only directories.
 Optional arg SAVE_TEXT, if non-nil, specifies some text to show in the entry field.
 
-(fn PROMPT FRAME DIR MUSTMATCH DIR-ONLY-P SAVE-TEXT)"#),
-    (r#"haiku-roster-launch"#, r#"Launch an application associated with FILE-OR-TYPE.
+(fn PROMPT FRAME DIR MUSTMATCH DIR-ONLY-P SAVE-TEXT)"#,
+    ),
+    (
+        r#"haiku-roster-launch"#,
+        r#"Launch an application associated with FILE-OR-TYPE.
 Return the process ID of any process created, the symbol
 `already-running' if ARGS was sent to a program that's already
 running, or nil if launching the application failed because no
@@ -5407,8 +7149,11 @@ will be passed to the application, or a system message in the form
 accepted by `haiku-drag-message' that will be sent to the application
 after it starts.
 
-(fn FILE-OR-TYPE ARGS)"#),
-    (r#"haiku-save-session-reply"#, r#"Reply to a `save-session' event.
+(fn FILE-OR-TYPE ARGS)"#,
+    ),
+    (
+        r#"haiku-save-session-reply"#,
+        r#"Reply to a `save-session' event.
 QUIT-REPLY means whether or not all files were saved and program
 termination should proceed.
 
@@ -5416,21 +7161,30 @@ Calls to this function must be balanced by the amount of
 `save-session' events received.  This is done automatically, so do not
 call this function yourself.
 
-(fn QUIT-REPLY)"#),
-    (r#"haiku-selection-data"#, r#"Retrieve content typed as NAME from the clipboard
+(fn QUIT-REPLY)"#,
+    ),
+    (
+        r#"haiku-selection-data"#,
+        r#"Retrieve content typed as NAME from the clipboard
 CLIPBOARD.  CLIPBOARD is the symbol `PRIMARY', `SECONDARY' or
 `CLIPBOARD'.  NAME is a string describing the MIME type denoting the
 type of the data to fetch.  If NAME is nil, then the entire contents
 of the clipboard will be returned instead, as a serialized system
 message in the format accepted by `haiku-drag-message', which see.
 
-(fn CLIPBOARD NAME)"#),
-    (r#"haiku-selection-owner-p"#, r#"Whether the current Emacs process owns the given SELECTION.
+(fn CLIPBOARD NAME)"#,
+    ),
+    (
+        r#"haiku-selection-owner-p"#,
+        r#"Whether the current Emacs process owns the given SELECTION.
 The arg should be the name of the selection in question, typically one
 of the symbols `PRIMARY', `SECONDARY', or `CLIPBOARD'.
 
-(fn SELECTION)"#),
-    (r#"haiku-selection-put"#, r#"Add or remove content from the clipboard CLIPBOARD.
+(fn SELECTION)"#,
+    ),
+    (
+        r#"haiku-selection-put"#,
+        r#"Add or remove content from the clipboard CLIPBOARD.
 CLIPBOARD is the symbol `PRIMARY', `SECONDARY' or `CLIPBOARD'.  NAME
 is a MIME type denoting the type of the data to add.  DATA is the
 string that will be placed in the clipboard, or nil if the content is
@@ -5441,35 +7195,50 @@ Alternatively, NAME can be a system message in the format accepted by
 `haiku-drag-message', which will replace the contents of CLIPBOARD.
 In that case, the arguments after NAME are ignored.
 
-(fn CLIPBOARD NAME DATA CLEAR)"#),
-    (r#"haiku-selection-timestamp"#, r#"Retrieve the "timestamp" of the clipboard CLIPBOARD.
+(fn CLIPBOARD NAME DATA CLEAR)"#,
+    ),
+    (
+        r#"haiku-selection-timestamp"#,
+        r#"Retrieve the "timestamp" of the clipboard CLIPBOARD.
 CLIPBOARD can either be the symbol `PRIMARY', `SECONDARY' or
 `CLIPBOARD'.  The timestamp is returned as a number describing the
 number of times programs have put data into CLIPBOARD.
 
-(fn CLIPBOARD)"#),
-    (r#"haiku-send-message"#, r#"Send a system message to PROGRAM.
+(fn CLIPBOARD)"#,
+    ),
+    (
+        r#"haiku-send-message"#,
+        r#"Send a system message to PROGRAM.
 PROGRAM must be the name of the application to which the message will
 be sent.  MESSAGE is the system message, serialized in the format
 accepted by `haiku-drag-message', that will be sent to the application
 specified by PROGRAM.  There is no guarantee that the message will
 arrive after this function is called.
 
-(fn PROGRAM MESSAGE)"#),
-    (r#"haiku-set-mouse-absolute-pixel-position"#, r#"Move mouse pointer to a pixel position at (X, Y).  The
+(fn PROGRAM MESSAGE)"#,
+    ),
+    (
+        r#"haiku-set-mouse-absolute-pixel-position"#,
+        r#"Move mouse pointer to a pixel position at (X, Y).  The
 coordinates X and Y are interpreted to start from the top-left
 corner of the screen.
 
-(fn X Y)"#),
-    (r#"haiku-write-node-attribute"#, r#"Write a message as a file-system attribute of NODE.
+(fn X Y)"#,
+    ),
+    (
+        r#"haiku-write-node-attribute"#,
+        r#"Write a message as a file-system attribute of NODE.
 FILE should be a file name of a file on a Be File System volume, NAME
 should be a string describing the name of the attribute that will be
 written, and MESSAGE will be the attribute written to FILE, as a
 system message in the format accepted by `haiku-drag-message', which
 see.
 
-(fn FILE NAME MESSAGE)"#),
-    (r#"handle-save-session"#, r#"Handle the save_yourself event from a session manager.
+(fn FILE NAME MESSAGE)"#,
+    ),
+    (
+        r#"handle-save-session"#,
+        r#"Handle the save_yourself event from a session manager.
 A session manager can tell Emacs that the window system is shutting down
 by sending Emacs a save_yourself message.  Emacs executes this function when
 such an event occurs.  This function then executes `emacs-session-save'.
@@ -5480,15 +7249,21 @@ is told to abort the window system shutdown.
 
 Do not call this function yourself.
 
-(fn EVENT)"#),
-    (r#"handle-switch-frame"#, r#"Handle a switch-frame event EVENT.
+(fn EVENT)"#,
+    ),
+    (
+        r#"handle-switch-frame"#,
+        r#"Handle a switch-frame event EVENT.
 Switch-frame events are usually bound to this function.
 A switch-frame event is an event Emacs sends itself to
 indicate that input is arriving in a new frame. It does not
 necessarily represent user-visible input focus.
 
-(fn EVENT)"#),
-    (r#"handler-bind-1"#, r#"Set up error handlers around execution of BODYFUN.
+(fn EVENT)"#,
+    ),
+    (
+        r#"handler-bind-1"#,
+        r#"Set up error handlers around execution of BODYFUN.
 BODYFUN should be a function and it is called with no arguments.
 CONDITIONS should be a list of condition names (symbols).
 When an error is signaled during execution of BODYFUN, if that
@@ -5499,24 +7274,39 @@ or return normally.
 If it returns normally, the search for an error handler continues
 from where it left off.
 
-(fn BODYFUN [CONDITIONS HANDLER]...)"#),
-    (r#"hash-table-count"#, r#"Return the number of elements in TABLE.
+(fn BODYFUN [CONDITIONS HANDLER]...)"#,
+    ),
+    (
+        r#"hash-table-count"#,
+        r#"Return the number of elements in TABLE.
 
-(fn TABLE)"#),
-    (r#"hash-table-p"#, r#"Return t if OBJ is a Lisp hash table object.
+(fn TABLE)"#,
+    ),
+    (
+        r#"hash-table-p"#,
+        r#"Return t if OBJ is a Lisp hash table object.
 
-(fn OBJ)"#),
-    (r#"hash-table-rehash-size"#, r#"Return the rehash size of TABLE.
+(fn OBJ)"#,
+    ),
+    (
+        r#"hash-table-rehash-size"#,
+        r#"Return the rehash size of TABLE.
 This function is for compatibility only; it returns a nominal value
 without current significance.
 
-(fn TABLE)"#),
-    (r#"hash-table-rehash-threshold"#, r#"Return the rehash threshold of TABLE.
+(fn TABLE)"#,
+    ),
+    (
+        r#"hash-table-rehash-threshold"#,
+        r#"Return the rehash threshold of TABLE.
 This function is for compatibility only; it returns a nominal value
 without current significance.
 
-(fn TABLE)"#),
-    (r#"hash-table-size"#, r#"Return the current allocation size of TABLE.
+(fn TABLE)"#,
+    ),
+    (
+        r#"hash-table-size"#,
+        r#"Return the current allocation size of TABLE.
 
 This is probably not the function that you are looking for.  To get the
 number of entries in a table, use `hash-table-count' instead.
@@ -5525,14 +7315,23 @@ The returned value is the number of entries that TABLE can currently
 hold without growing, but since hash tables grow automatically, this
 number is rarely of interest.
 
-(fn TABLE)"#),
-    (r#"hash-table-test"#, r#"Return the test TABLE uses.
+(fn TABLE)"#,
+    ),
+    (
+        r#"hash-table-test"#,
+        r#"Return the test TABLE uses.
 
-(fn TABLE)"#),
-    (r#"hash-table-weakness"#, r#"Return the weakness of TABLE.
+(fn TABLE)"#,
+    ),
+    (
+        r#"hash-table-weakness"#,
+        r#"Return the weakness of TABLE.
 
-(fn TABLE)"#),
-    (r#"help--describe-vector"#, r#"Insert in the current buffer a description of the contents of VECTOR.
+(fn TABLE)"#,
+    ),
+    (
+        r#"help--describe-vector"#,
+        r#"Insert in the current buffer a description of the contents of VECTOR.
 Call DESCRIBER to insert the description of one value found in VECTOR.
 
 PREFIX is a string describing the key which leads to the keymap that
@@ -5548,26 +7347,41 @@ ENTIRE-MAP is the keymap in which this vector appears.
 If the definition in effect in the whole map does not match
 the one in this keymap, we ignore this one.
 
-(fn VECTOR PREFIX DESCRIBER PARTIAL SHADOW ENTIRE-MAP MENTION-SHADOW)"#),
-    (r#"iconify-frame"#, r#"Make the frame FRAME into an icon.
+(fn VECTOR PREFIX DESCRIBER PARTIAL SHADOW ENTIRE-MAP MENTION-SHADOW)"#,
+    ),
+    (
+        r#"iconify-frame"#,
+        r#"Make the frame FRAME into an icon.
 If omitted, FRAME defaults to the currently selected frame.
 
 If FRAME is a child frame, consult the variable `iconify-child-frame'
 for how to proceed.
 
-(fn FRAME)"#),
-    (r#"identity"#, r#"Return the ARGUMENT unchanged.
+(fn FRAME)"#,
+    ),
+    (
+        r#"identity"#,
+        r#"Return the ARGUMENT unchanged.
 
-(fn ARGUMENT)"#),
-    (r#"if"#, r#"If COND yields non-nil, do THEN, else do ELSE...
+(fn ARGUMENT)"#,
+    ),
+    (
+        r#"if"#,
+        r#"If COND yields non-nil, do THEN, else do ELSE...
 Returns the value of THEN or the value of the last of the ELSE's.
 THEN must be one expression, but ELSE... can be zero or more expressions.
 If COND yields nil, and there are no ELSE's, the value is nil.
-(fn COND THEN ELSE...)"#),
-    (r#"image-cache-size"#, r#"Return the size of the image cache.
+(fn COND THEN ELSE...)"#,
+    ),
+    (
+        r#"image-cache-size"#,
+        r#"Return the size of the image cache.
 
-(fn)"#),
-    (r#"image-flush"#, r#"Flush the image with specification SPEC on frame FRAME.
+(fn)"#,
+    ),
+    (
+        r#"image-flush"#,
+        r#"Flush the image with specification SPEC on frame FRAME.
 This removes the image from the Emacs image cache.  If SPEC specifies
 an image file, the next redisplay of this image will read from the
 current contents of that file.
@@ -5575,18 +7389,27 @@ current contents of that file.
 FRAME nil or omitted means use the selected frame.
 FRAME t means refresh the image on all frames.
 
-(fn SPEC FRAME)"#),
-    (r#"image-mask-p"#, r#"Return t if image SPEC has a mask bitmap.
+(fn SPEC FRAME)"#,
+    ),
+    (
+        r#"image-mask-p"#,
+        r#"Return t if image SPEC has a mask bitmap.
 FRAME is the frame on which the image will be displayed.  FRAME nil
 or omitted means use the selected frame.
 
-(fn SPEC FRAME)"#),
-    (r#"image-metadata"#, r#"Return metadata for image SPEC.
+(fn SPEC FRAME)"#,
+    ),
+    (
+        r#"image-metadata"#,
+        r#"Return metadata for image SPEC.
 FRAME is the frame on which the image will be displayed.  FRAME nil
 or omitted means use the selected frame.
 
-(fn SPEC FRAME)"#),
-    (r#"image-size"#, r#"Return the size of image SPEC as pair (WIDTH . HEIGHT).
+(fn SPEC FRAME)"#,
+    ),
+    (
+        r#"image-size"#,
+        r#"Return the size of image SPEC as pair (WIDTH . HEIGHT).
 PIXELS non-nil means return the size in pixels, otherwise return the
 size in canonical character units.
 
@@ -5597,8 +7420,11 @@ Calling this function will result in the image being stored in the
 image cache.  If this is not desirable, call `image-flush' after
 calling this function.
 
-(fn SPEC PIXELS FRAME)"#),
-    (r#"image-transforms-p"#, r#"Test whether FRAME supports image transformation.
+(fn SPEC PIXELS FRAME)"#,
+    ),
+    (
+        r#"image-transforms-p"#,
+        r#"Test whether FRAME supports image transformation.
 Return list of capabilities if FRAME supports native transforms, nil otherwise.
 FRAME defaults to the selected frame.
 The list of capabilities can include one or more of the following:
@@ -5607,8 +7433,11 @@ The list of capabilities can include one or more of the following:
  - the symbol `rotate90' if FRAME supports image rotation only by angles
     that are integral multiples of 90 degrees.
 
-(fn FRAME)"#),
-    (r#"imagemagick-types"#, r#"Return a list of image types supported by ImageMagick.
+(fn FRAME)"#,
+    ),
+    (
+        r#"imagemagick-types"#,
+        r#"Return a list of image types supported by ImageMagick.
 Each entry in this list is a symbol named after an ImageMagick format
 tag.  See the ImageMagick manual for a list of ImageMagick formats and
 their descriptions (https://www.imagemagick.org/script/formats.php).
@@ -5618,11 +7447,17 @@ Note that ImageMagick recognizes many file-types that Emacs does not
 recognize as images, such as C.  See `imagemagick-enabled-types'
 and `imagemagick-types-inhibit'.
 
-(fn)"#),
-    (r#"imagep"#, r#"Value is non-nil if SPEC is a valid image specification.
+(fn)"#,
+    ),
+    (
+        r#"imagep"#,
+        r#"Value is non-nil if SPEC is a valid image specification.
 
-(fn SPEC)"#),
-    (r#"indent-to"#, r#"Indent from point with tabs and spaces until COLUMN is reached.
+(fn SPEC)"#,
+    ),
+    (
+        r#"indent-to"#,
+        r#"Indent from point with tabs and spaces until COLUMN is reached.
 Optional second argument MINIMUM says always do at least MINIMUM spaces
 even if that goes past COLUMN; by default, MINIMUM is zero.
 
@@ -5630,33 +7465,48 @@ Whether this uses tabs or spaces depends on `indent-tabs-mode'.
 
 The return value is the column where the insertion ends.
 
-(fn COLUMN MINIMUM)"#),
-    (r#"indirect-function"#, r#"Return the function at the end of OBJECT's function chain.
+(fn COLUMN MINIMUM)"#,
+    ),
+    (
+        r#"indirect-function"#,
+        r#"Return the function at the end of OBJECT's function chain.
 If OBJECT is not a symbol, just return it.  Otherwise, follow all
 function indirections to find the final function binding and return it.
 
-(fn OBJECT NOERROR)"#),
-    (r#"indirect-variable"#, r#"Return the variable at the end of OBJECT's variable chain.
+(fn OBJECT NOERROR)"#,
+    ),
+    (
+        r#"indirect-variable"#,
+        r#"Return the variable at the end of OBJECT's variable chain.
 If OBJECT is a symbol, follow its variable indirections (if any), and
 return the variable at the end of the chain of aliases.  See Info node
 `(elisp)Variable Aliases'.
 
 If OBJECT is not a symbol, just return it.
 
-(fn OBJECT)"#),
-    (r#"init-image-library"#, r#"Initialize image library implementing image type TYPE.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"init-image-library"#,
+        r#"Initialize image library implementing image type TYPE.
 Return t if TYPE is a supported image type.
 
 If image libraries are loaded dynamically (currently the case only on
 MS-Windows), load the library for TYPE if it is not yet loaded, using
 the library file(s) specified by `dynamic-library-alist'.
 
-(fn TYPE)"#),
-    (r#"innermost-minibuffer-p"#, r#"Return t if BUFFER is the most nested active minibuffer.
+(fn TYPE)"#,
+    ),
+    (
+        r#"innermost-minibuffer-p"#,
+        r#"Return t if BUFFER is the most nested active minibuffer.
 No argument or nil as argument means use the current buffer as BUFFER.
 
-(fn BUFFER)"#),
-    (r#"inotify-add-watch"#, r#"Add a watch for FILE-NAME to inotify.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"inotify-add-watch"#,
+        r#"Add a watch for FILE-NAME to inotify.
 
 Return a watch descriptor.  The watch will look for ASPECT events and
 invoke CALLBACK when an event occurs.
@@ -5717,18 +7567,27 @@ IN_EXCL_UNLINK
 IN_MASK_ADD
 IN_ONESHOT
 
-(fn FILENAME ASPECT CALLBACK)"#),
-    (r#"inotify-allocated-p"#, r#"Return non-nil, if an inotify instance is allocated.
+(fn FILENAME ASPECT CALLBACK)"#,
+    ),
+    (
+        r#"inotify-allocated-p"#,
+        r#"Return non-nil, if an inotify instance is allocated.
 
-(fn)"#),
-    (r#"inotify-rm-watch"#, r#"Remove an existing WATCH-DESCRIPTOR.
+(fn)"#,
+    ),
+    (
+        r#"inotify-rm-watch"#,
+        r#"Remove an existing WATCH-DESCRIPTOR.
 
 WATCH-DESCRIPTOR should be an object returned by `inotify-add-watch'.
 
 See inotify_rm_watch(2) for more information.
 
-(fn WATCH-DESCRIPTOR)"#),
-    (r#"inotify-valid-p"#, r#"Check a watch specified by its WATCH-DESCRIPTOR.
+(fn WATCH-DESCRIPTOR)"#,
+    ),
+    (
+        r#"inotify-valid-p"#,
+        r#"Check a watch specified by its WATCH-DESCRIPTOR.
 
 WATCH-DESCRIPTOR should be an object returned by `inotify-add-watch'.
 
@@ -5737,18 +7596,27 @@ deleted, or if the watcher thread exits abnormally for any other
 reason.  Removing the watch by calling `inotify-rm-watch' also makes
 it invalid.
 
-(fn WATCH-DESCRIPTOR)"#),
-    (r#"inotify-watch-list"#, r#"Return a copy of the internal watch_list.
+(fn WATCH-DESCRIPTOR)"#,
+    ),
+    (
+        r#"inotify-watch-list"#,
+        r#"Return a copy of the internal watch_list.
 
-(fn)"#),
-    (r#"input-pending-p"#, r#"Return t if command input is currently available with no wait.
+(fn)"#,
+    ),
+    (
+        r#"input-pending-p"#,
+        r#"Return t if command input is currently available with no wait.
 Actually, the value is nil only if we can be sure that no input is available;
 if there is a doubt, the value is t.
 
 If CHECK-TIMERS is non-nil, timers that are ready to run will do so.
 
-(fn CHECK-TIMERS)"#),
-    (r#"insert"#, r#"Insert the arguments, either strings or characters, at point.
+(fn CHECK-TIMERS)"#,
+    ),
+    (
+        r#"insert"#,
+        r#"Insert the arguments, either strings or characters, at point.
 Point and after-insertion markers move forward to end up
  after the inserted text.
 Any other markers at the point of insertion remain before the text.
@@ -5763,8 +7631,11 @@ original bytes of a unibyte string when inserting it into a multibyte
 buffer; to accomplish this, apply `decode-coding-string' with the
 `no-conversion' coding system to the string and insert the result.
 
-(fn &rest ARGS)"#),
-    (r#"insert-and-inherit"#, r#"Insert the arguments at point, inheriting properties from adjoining text.
+(fn &rest ARGS)"#,
+    ),
+    (
+        r#"insert-and-inherit"#,
+        r#"Insert the arguments at point, inheriting properties from adjoining text.
 Point and after-insertion markers move forward to end up
  after the inserted text.
 Any other markers at the point of insertion remain before the text.
@@ -5774,8 +7645,11 @@ to multibyte for insertion (see `unibyte-char-to-multibyte').
 If the current buffer is unibyte, multibyte strings are converted
 to unibyte for insertion.
 
-(fn &rest ARGS)"#),
-    (r#"insert-before-markers"#, r#"Insert strings or characters at point, relocating markers after the text.
+(fn &rest ARGS)"#,
+    ),
+    (
+        r#"insert-before-markers"#,
+        r#"Insert strings or characters at point, relocating markers after the text.
 Point and all markers at or after the insertion point move forward to
 end up after the inserted text.  This is unlike with `insert' and other
 insertion functions, where before-insertion markers remain before the
@@ -5790,8 +7664,11 @@ If an overlay begins at the insertion point, the inserted text falls
 outside the overlay; if a nonempty overlay ends at the insertion
 point, the inserted text falls inside that overlay.
 
-(fn &rest ARGS)"#),
-    (r#"insert-before-markers-and-inherit"#, r#"Insert text at point, relocating markers and inheriting properties.
+(fn &rest ARGS)"#,
+    ),
+    (
+        r#"insert-before-markers-and-inherit"#,
+        r#"Insert text at point, relocating markers and inheriting properties.
 Point and all markers at or after the insertion point move forward to
 end up after the inserted text.  This is unlike with `insert' and other
 insertion functions, where before-insertion markers remain before the
@@ -5802,8 +7679,11 @@ to multibyte for insertion (see `unibyte-char-to-multibyte').
 If the current buffer is unibyte, multibyte strings are converted
 to unibyte for insertion.
 
-(fn &rest ARGS)"#),
-    (r#"insert-buffer-substring"#, r#"Insert before point a substring of the contents of BUFFER.
+(fn &rest ARGS)"#,
+    ),
+    (
+        r#"insert-buffer-substring"#,
+        r#"Insert before point a substring of the contents of BUFFER.
 BUFFER may be a buffer or a buffer name.
 Arguments START and END are character positions specifying the substring.
 They default to the values of (point-min) and (point-max) in BUFFER.
@@ -5814,8 +7694,11 @@ If the current buffer is multibyte and BUFFER is unibyte, or vice
 versa, strings are converted from unibyte to multibyte or vice versa
 using `string-make-multibyte' or `string-make-unibyte', which see.
 
-(fn BUFFER START END)"#),
-    (r#"insert-byte"#, r#"Insert COUNT (second arg) copies of BYTE (first arg).
+(fn BUFFER START END)"#,
+    ),
+    (
+        r#"insert-byte"#,
+        r#"Insert COUNT (second arg) copies of BYTE (first arg).
 Both arguments are required.
 BYTE is a number of the range 0..255.
 
@@ -5827,8 +7710,11 @@ Point and markers are relocated as in the function `insert'.
 The optional third arg INHERIT, if non-nil, says to inherit text properties
 from adjoining text, if those properties are sticky.
 
-(fn BYTE COUNT INHERIT)"#),
-    (r#"insert-char"#, r#"Insert COUNT copies of CHARACTER.
+(fn BYTE COUNT INHERIT)"#,
+    ),
+    (
+        r#"insert-char"#,
+        r#"Insert COUNT copies of CHARACTER.
 
 Interactively, prompt for CHARACTER using `read-char-by-name'.
 You can specify CHARACTER at the prompt in one of these ways:
@@ -5859,8 +7745,11 @@ The optional third argument INHERIT, if non-nil, says to inherit text
 properties from adjoining text, if those properties are sticky.  When
 called interactively, INHERIT is t.
 
-(fn CHARACTER COUNT INHERIT)"#),
-    (r#"insert-file-contents"#, r#"Insert contents of file FILENAME after point.
+(fn CHARACTER COUNT INHERIT)"#,
+    ),
+    (
+        r#"insert-file-contents"#,
+        r#"Insert contents of file FILENAME after point.
 Returns list of absolute file name and number of characters inserted.
 If second argument VISIT is non-nil, the buffer's visited filename and
 last save file modtime are set, and it is marked unmodified.  Signal an
@@ -5897,30 +7786,48 @@ variable `last-coding-system-used' to the coding system actually used.
 In addition, this function decodes the inserted text from known formats
 by calling `format-decode', which see.
 
-(fn FILENAME VISIT BEG END REPLACE)"#),
-    (r#"insert-special-event"#, r#"Insert the special EVENT into the input event queue.
+(fn FILENAME VISIT BEG END REPLACE)"#,
+    ),
+    (
+        r#"insert-special-event"#,
+        r#"Insert the special EVENT into the input event queue.
 Only 'input_event' slots KIND and ARG are set.
 
-(fn EVENT)"#),
-    (r#"insert-startup-screen"#, r#"Insert copy of screen contents prior to starting Emacs.
+(fn EVENT)"#,
+    ),
+    (
+        r#"insert-startup-screen"#,
+        r#"Insert copy of screen contents prior to starting Emacs.
 Return nil if startup screen is not available.
 
-(fn)"#),
-    (r#"int86"#, r#"Call specific MS-DOS interrupt number INTERRUPT with REGISTERS.
+(fn)"#,
+    ),
+    (
+        r#"int86"#,
+        r#"Call specific MS-DOS interrupt number INTERRUPT with REGISTERS.
 Return the updated REGISTER vector.
 
 INTERRUPT should be an integer in the range 0 to 255.
 REGISTERS should be a vector produced by `dos-make-register' and
 `dos-set-register-value'.
 
-(fn INTERRUPT REGISTERS)"#),
-    (r#"integer-or-marker-p"#, r#"Return t if OBJECT is an integer or a marker (editor pointer).
+(fn INTERRUPT REGISTERS)"#,
+    ),
+    (
+        r#"integer-or-marker-p"#,
+        r#"Return t if OBJECT is an integer or a marker (editor pointer).
 
-(fn OBJECT)"#),
-    (r#"integerp"#, r#"Return t if OBJECT is an integer.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"integerp"#,
+        r#"Return t if OBJECT is an integer.
 
-(fn OBJECT)"#),
-    (r#"interactive"#, r#"Specify a way of parsing arguments for interactive use of a function.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"interactive"#,
+        r#"Specify a way of parsing arguments for interactive use of a function.
 For example, write
  (defun foo (arg buf) "Doc string" (interactive "P\\nbbuffer: ") .... )
  to make ARG be the raw prefix argument, and set BUF to an existing buffer,
@@ -5999,72 +7906,117 @@ Which commands are excluded from the list of completion
 candidates based on this information is controlled by the value
 of `read-extended-command-predicate', which see.
 
-(fn &optional ARG-DESCRIPTOR &rest MODES)"#),
-    (r#"interactive-form"#, r#"Return the interactive form of CMD or nil if none.
+(fn &optional ARG-DESCRIPTOR &rest MODES)"#,
+    ),
+    (
+        r#"interactive-form"#,
+        r#"Return the interactive form of CMD or nil if none.
 If CMD is not a command, the return value is nil.
 Value, if non-nil, is a list (interactive SPEC).
 
-(fn CMD)"#),
-    (r#"intern"#, r#"Return the canonical symbol whose name is STRING.
+(fn CMD)"#,
+    ),
+    (
+        r#"intern"#,
+        r#"Return the canonical symbol whose name is STRING.
 If there is none, one is created by this function and returned.
 A second optional argument specifies the obarray to use;
 it defaults to the value of `obarray'.
 
-(fn STRING OBARRAY)"#),
-    (r#"intern-soft"#, r#"Return the canonical symbol named NAME, or nil if none exists.
+(fn STRING OBARRAY)"#,
+    ),
+    (
+        r#"intern-soft"#,
+        r#"Return the canonical symbol named NAME, or nil if none exists.
 NAME may be a string or a symbol.  If it is a symbol, that exact
 symbol is searched for.
 A second optional argument specifies the obarray to use;
 it defaults to the value of `obarray'.
 
-(fn NAME OBARRAY)"#),
-    (r#"internal--define-uninitialized-variable"#, r#"Define SYMBOL as a variable, with DOC as its docstring.
+(fn NAME OBARRAY)"#,
+    ),
+    (
+        r#"internal--define-uninitialized-variable"#,
+        r#"Define SYMBOL as a variable, with DOC as its docstring.
 This is like `defvar' and `defconst' but without affecting the variable's
 value.
 
-(fn SYMBOL DOC)"#),
-    (r#"internal--hash-table-buckets"#, r#"(KEY . HASH) in HASH-TABLE, grouped by bucket.
+(fn SYMBOL DOC)"#,
+    ),
+    (
+        r#"internal--hash-table-buckets"#,
+        r#"(KEY . HASH) in HASH-TABLE, grouped by bucket.
 Internal use only.
 
-(fn HASH-TABLE)"#),
-    (r#"internal--hash-table-histogram"#, r#"Bucket size histogram of HASH-TABLE.  Internal use only.
+(fn HASH-TABLE)"#,
+    ),
+    (
+        r#"internal--hash-table-histogram"#,
+        r#"Bucket size histogram of HASH-TABLE.  Internal use only.
 
-(fn HASH-TABLE)"#),
-    (r#"internal--hash-table-index-size"#, r#"Index size of HASH-TABLE.  Internal use only.
+(fn HASH-TABLE)"#,
+    ),
+    (
+        r#"internal--hash-table-index-size"#,
+        r#"Index size of HASH-TABLE.  Internal use only.
 
-(fn HASH-TABLE)"#),
-    (r#"internal--labeled-narrow-to-region"#, r#"Restrict this buffer to START-END, and label the restriction with LABEL.
+(fn HASH-TABLE)"#,
+    ),
+    (
+        r#"internal--labeled-narrow-to-region"#,
+        r#"Restrict this buffer to START-END, and label the restriction with LABEL.
 
 This is an internal function used by `with-restriction'.
 
-(fn START END LABEL)"#),
-    (r#"internal--labeled-widen"#, r#"Remove the current restriction if it is labeled with LABEL, and widen.
+(fn START END LABEL)"#,
+    ),
+    (
+        r#"internal--labeled-widen"#,
+        r#"Remove the current restriction if it is labeled with LABEL, and widen.
 
 This is an internal function used by `without-restriction'.
 
-(fn LABEL)"#),
-    (r#"internal--obarray-buckets"#, r#"Symbols in each bucket of OBARRAY.  Internal use only.
+(fn LABEL)"#,
+    ),
+    (
+        r#"internal--obarray-buckets"#,
+        r#"Symbols in each bucket of OBARRAY.  Internal use only.
 
-(fn OBARRAY)"#),
-    (r#"internal--set-buffer-modified-tick"#, r#"Set BUFFER's tick counter to TICK.
+(fn OBARRAY)"#,
+    ),
+    (
+        r#"internal--set-buffer-modified-tick"#,
+        r#"Set BUFFER's tick counter to TICK.
 No argument or nil as argument means use current buffer as BUFFER.
 
-(fn TICK BUFFER)"#),
-    (r#"internal--track-mouse"#, r#"Call BODYFUN with mouse movement events enabled.
+(fn TICK BUFFER)"#,
+    ),
+    (
+        r#"internal--track-mouse"#,
+        r#"Call BODYFUN with mouse movement events enabled.
 
-(fn BODYFUN)"#),
-    (r#"internal-char-font"#, r#"For internal use only.
+(fn BODYFUN)"#,
+    ),
+    (
+        r#"internal-char-font"#,
+        r#"For internal use only.
 
-(fn POSITION CH)"#),
-    (r#"internal-complete-buffer"#, r#"Perform completion on buffer names.
+(fn POSITION CH)"#,
+    ),
+    (
+        r#"internal-complete-buffer"#,
+        r#"Perform completion on buffer names.
 STRING and PREDICATE have the same meanings as in `try-completion',
 `all-completions', and `test-completion'.
 
 If FLAG is nil, invoke `try-completion'; if it is t, invoke
 `all-completions'; otherwise invoke `test-completion'.
 
-(fn STRING PREDICATE FLAG)"#),
-    (r#"internal-copy-lisp-face"#, r#"Copy face FROM to TO.
+(fn STRING PREDICATE FLAG)"#,
+    ),
+    (
+        r#"internal-copy-lisp-face"#,
+        r#"Copy face FROM to TO.
 If FRAME is t, copy the global face definition of FROM.
 Otherwise, copy the frame-local definition of FROM on FRAME.
 If NEW-FRAME is a frame, copy that data into the frame-local
@@ -6073,111 +8025,177 @@ FRAME controls where the data is copied to.
 
 The value is TO.
 
-(fn FROM TO FRAME NEW-FRAME)"#),
-    (r#"internal-decode-string-utf-8"#, r#"Internal use only.
+(fn FROM TO FRAME NEW-FRAME)"#,
+    ),
+    (
+        r#"internal-decode-string-utf-8"#,
+        r#"Internal use only.
 
-(fn STRING BUFFER NOCOPY HANDLE-8-BIT HANDLE-OVER-UNI DECODE-METHOD COUNT)"#),
-    (r#"internal-default-interrupt-process"#, r#"Default function to interrupt process PROCESS.
+(fn STRING BUFFER NOCOPY HANDLE-8-BIT HANDLE-OVER-UNI DECODE-METHOD COUNT)"#,
+    ),
+    (
+        r#"internal-default-interrupt-process"#,
+        r#"Default function to interrupt process PROCESS.
 It shall be the last element in list `interrupt-process-functions'.
 See function `interrupt-process' for more details on usage.
 
-(fn PROCESS CURRENT-GROUP)"#),
-    (r#"internal-default-process-filter"#, r#"Function used as default process filter.
+(fn PROCESS CURRENT-GROUP)"#,
+    ),
+    (
+        r#"internal-default-process-filter"#,
+        r#"Function used as default process filter.
 This inserts the process's output into its buffer, if there is one.
 Otherwise it discards the output.
 
-(fn PROC TEXT)"#),
-    (r#"internal-default-process-sentinel"#, r#"Function used as default sentinel for processes.
+(fn PROC TEXT)"#,
+    ),
+    (
+        r#"internal-default-process-sentinel"#,
+        r#"Function used as default sentinel for processes.
 This inserts a status message into the process's buffer, if there is one.
 
-(fn PROC MSG)"#),
-    (r#"internal-default-signal-process"#, r#"Default function to send PROCESS the signal with code SIGCODE.
+(fn PROC MSG)"#,
+    ),
+    (
+        r#"internal-default-signal-process"#,
+        r#"Default function to send PROCESS the signal with code SIGCODE.
 It shall be the last element in list `signal-process-functions'.
 See function `signal-process' for more details on usage.
 
-(fn PROCESS SIGCODE REMOTE)"#),
-    (r#"internal-delete-indirect-variable"#, r#"Undeclare SYMBOL as variable alias, then unbind it.
+(fn PROCESS SIGCODE REMOTE)"#,
+    ),
+    (
+        r#"internal-delete-indirect-variable"#,
+        r#"Undeclare SYMBOL as variable alias, then unbind it.
 Return SYMBOL.
 Internal use only.
 
-(fn SYMBOL)"#),
-    (r#"internal-describe-syntax-value"#, r#"Insert a description of the internal syntax description SYNTAX at point.
+(fn SYMBOL)"#,
+    ),
+    (
+        r#"internal-describe-syntax-value"#,
+        r#"Insert a description of the internal syntax description SYNTAX at point.
 
-(fn SYNTAX)"#),
-    (r#"internal-encode-string-utf-8"#, r#"Internal use only.
+(fn SYNTAX)"#,
+    ),
+    (
+        r#"internal-encode-string-utf-8"#,
+        r#"Internal use only.
 
-(fn STRING BUFFER NOCOPY HANDLE-8-BIT HANDLE-OVER-UNI ENCODE-METHOD COUNT)"#),
-    (r#"internal-event-symbol-parse-modifiers"#, r#"Parse the event symbol.  For internal use.
+(fn STRING BUFFER NOCOPY HANDLE-8-BIT HANDLE-OVER-UNI ENCODE-METHOD COUNT)"#,
+    ),
+    (
+        r#"internal-event-symbol-parse-modifiers"#,
+        r#"Parse the event symbol.  For internal use.
 
-(fn SYMBOL)"#),
-    (r#"internal-face-x-get-resource"#, r#"Get the value of X resource RESOURCE, class CLASS.
+(fn SYMBOL)"#,
+    ),
+    (
+        r#"internal-face-x-get-resource"#,
+        r#"Get the value of X resource RESOURCE, class CLASS.
 Returned value is for the display of frame FRAME.  If FRAME is not
 specified or nil, use selected frame.  This function exists because
 ordinary `x-get-resource' doesn't take a frame argument.
 
-(fn RESOURCE CLASS FRAME)"#),
-    (r#"internal-get-lisp-face-attribute"#, r#"Return face attribute KEYWORD of face SYMBOL.
+(fn RESOURCE CLASS FRAME)"#,
+    ),
+    (
+        r#"internal-get-lisp-face-attribute"#,
+        r#"Return face attribute KEYWORD of face SYMBOL.
 If SYMBOL does not name a valid Lisp face or KEYWORD isn't a valid
 face attribute name, signal an error.
 If the optional argument FRAME is given, report on face SYMBOL in that
 frame.  If FRAME is t, report on the defaults for face SYMBOL (for new
 frames).  If FRAME is omitted or nil, use the selected frame.
 
-(fn SYMBOL KEYWORD FRAME)"#),
-    (r#"internal-handle-focus-in"#, r#"Internally handle focus-in events.
+(fn SYMBOL KEYWORD FRAME)"#,
+    ),
+    (
+        r#"internal-handle-focus-in"#,
+        r#"Internally handle focus-in events.
 This function potentially generates an artificial switch-frame event.
 
-(fn EVENT)"#),
-    (r#"internal-lisp-face-attribute-values"#, r#"Return a list of valid discrete values for face attribute ATTR.
+(fn EVENT)"#,
+    ),
+    (
+        r#"internal-lisp-face-attribute-values"#,
+        r#"Return a list of valid discrete values for face attribute ATTR.
 Value is nil if ATTR doesn't have a discrete set of valid values.
 
-(fn ATTR)"#),
-    (r#"internal-lisp-face-empty-p"#, r#"True if FACE has no attribute specified.
+(fn ATTR)"#,
+    ),
+    (
+        r#"internal-lisp-face-empty-p"#,
+        r#"True if FACE has no attribute specified.
 If the optional argument FRAME is given, report on face FACE in that frame.
 If FRAME is t, report on the defaults for face FACE (for new frames).
 If FRAME is omitted or nil, use the selected frame.
 
-(fn FACE FRAME)"#),
-    (r#"internal-lisp-face-equal-p"#, r#"True if FACE1 and FACE2 are equal.
+(fn FACE FRAME)"#,
+    ),
+    (
+        r#"internal-lisp-face-equal-p"#,
+        r#"True if FACE1 and FACE2 are equal.
 If the optional argument FRAME is given, report on FACE1 and FACE2 in that frame.
 If FRAME is t, report on the defaults for FACE1 and FACE2 (for new frames).
 If FRAME is omitted or nil, use the selected frame.
 
-(fn FACE1 FACE2 FRAME)"#),
-    (r#"internal-lisp-face-p"#, r#"Return non-nil if FACE names a face.
+(fn FACE1 FACE2 FRAME)"#,
+    ),
+    (
+        r#"internal-lisp-face-p"#,
+        r#"Return non-nil if FACE names a face.
 FACE should be a symbol or string.
 If optional second argument FRAME is non-nil, check for the
 existence of a frame-local face with name FACE on that frame.
 Otherwise check for the existence of a global face.
 
-(fn FACE FRAME)"#),
-    (r#"internal-make-lisp-face"#, r#"Make FACE, a symbol, a Lisp face with all attributes nil.
+(fn FACE FRAME)"#,
+    ),
+    (
+        r#"internal-make-lisp-face"#,
+        r#"Make FACE, a symbol, a Lisp face with all attributes nil.
 If FACE was not known as a face before, create a new one.
 If optional argument FRAME is specified, make a frame-local face
 for that frame.  Otherwise operate on the global face definition.
 Value is a vector of face attributes.
 
-(fn FACE FRAME)"#),
-    (r#"internal-make-var-non-special"#, r#"Internal function.
+(fn FACE FRAME)"#,
+    ),
+    (
+        r#"internal-make-var-non-special"#,
+        r#"Internal function.
 
-(fn SYMBOL)"#),
-    (r#"internal-merge-in-global-face"#, r#"Add attributes from frame-default definition of FACE to FACE on FRAME.
+(fn SYMBOL)"#,
+    ),
+    (
+        r#"internal-merge-in-global-face"#,
+        r#"Add attributes from frame-default definition of FACE to FACE on FRAME.
 Default face attributes override any local face attributes.
 
-(fn FACE FRAME)"#),
-    (r#"internal-set-alternative-font-family-alist"#, r#"Define alternative font families to try in face font selection.
+(fn FACE FRAME)"#,
+    ),
+    (
+        r#"internal-set-alternative-font-family-alist"#,
+        r#"Define alternative font families to try in face font selection.
 ALIST is an alist of (FAMILY ALTERNATIVE1 ALTERNATIVE2 ...) entries.
 Each ALTERNATIVE is tried in order if no fonts of font family FAMILY can
 be found.  Value is ALIST.
 
-(fn ALIST)"#),
-    (r#"internal-set-alternative-font-registry-alist"#, r#"Define alternative font registries to try in face font selection.
+(fn ALIST)"#,
+    ),
+    (
+        r#"internal-set-alternative-font-registry-alist"#,
+        r#"Define alternative font registries to try in face font selection.
 ALIST is an alist of (REGISTRY ALTERNATIVE1 ALTERNATIVE2 ...) entries.
 Each ALTERNATIVE is tried in order if no fonts of font registry REGISTRY can
 be found.  Value is ALIST.
 
-(fn ALIST)"#),
-    (r#"internal-set-font-selection-order"#, r#"Set font selection order for face font selection to ORDER.
+(fn ALIST)"#,
+    ),
+    (
+        r#"internal-set-font-selection-order"#,
+        r#"Set font selection order for face font selection to ORDER.
 ORDER must be a list of length 4 containing the symbols `:width',
 `:height', `:weight', and `:slant'.  Face attributes appearing
 first in ORDER are matched first, e.g. if `:height' appears before
@@ -6185,35 +8203,56 @@ first in ORDER are matched first, e.g. if `:height' appears before
 a suitable height, and then tries to match the font weight.
 Value is ORDER.
 
-(fn ORDER)"#),
-    (r#"internal-set-lisp-face-attribute"#, r#"Set attribute ATTR of FACE to VALUE.
+(fn ORDER)"#,
+    ),
+    (
+        r#"internal-set-lisp-face-attribute"#,
+        r#"Set attribute ATTR of FACE to VALUE.
 FRAME being a frame means change the face on that frame.
 FRAME nil means change the face of the selected frame.
 FRAME t means change the default for new frames.
 FRAME 0 means change the face on all frames, and change the default
   for new frames.
 
-(fn FACE ATTR VALUE FRAME)"#),
-    (r#"internal-show-cursor"#, r#"Set the cursor-visibility flag of WINDOW to SHOW.
+(fn FACE ATTR VALUE FRAME)"#,
+    ),
+    (
+        r#"internal-show-cursor"#,
+        r#"Set the cursor-visibility flag of WINDOW to SHOW.
 WINDOW nil means use the selected window.  SHOW non-nil means
 show a cursor in WINDOW in the next redisplay.  SHOW nil means
 don't show a cursor.
 
-(fn WINDOW SHOW)"#),
-    (r#"internal-show-cursor-p"#, r#"Value is non-nil if next redisplay will display a cursor in WINDOW.
+(fn WINDOW SHOW)"#,
+    ),
+    (
+        r#"internal-show-cursor-p"#,
+        r#"Value is non-nil if next redisplay will display a cursor in WINDOW.
 WINDOW nil or omitted means report on the selected window.
 
-(fn WINDOW)"#),
-    (r#"internal-stack-stats"#, r#"internal
+(fn WINDOW)"#,
+    ),
+    (
+        r#"internal-stack-stats"#,
+        r#"internal
 
-(fn)"#),
-    (r#"internal-subr-documentation"#, r#"Return the raw documentation info of a C primitive.
+(fn)"#,
+    ),
+    (
+        r#"internal-subr-documentation"#,
+        r#"Return the raw documentation info of a C primitive.
 
-(fn FUNCTION)"#),
-    (r#"interpreted-function-p"#, r#"Return t if OBJECT is a function of type `interpreted-function'.
+(fn FUNCTION)"#,
+    ),
+    (
+        r#"interpreted-function-p"#,
+        r#"Return t if OBJECT is a function of type `interpreted-function'.
 
-(fn OBJECT)"#),
-    (r#"interrupt-process"#, r#"Interrupt process PROCESS.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"interrupt-process"#,
+        r#"Interrupt process PROCESS.
 PROCESS may be a process, a buffer, or the name of a process or buffer.
 No arg or nil means current buffer's process.
 Second arg CURRENT-GROUP non-nil means send signal to
@@ -6228,8 +8267,11 @@ don't send the signal.
 This function calls the functions of `interrupt-process-functions' in
 the order of the list, until one of them returns non-nil.
 
-(fn PROCESS CURRENT-GROUP)"#),
-    (r#"invisible-p"#, r#"Non-nil if text properties at POS cause text there to be currently invisible.
+(fn PROCESS CURRENT-GROUP)"#,
+    ),
+    (
+        r#"invisible-p"#,
+        r#"Non-nil if text properties at POS cause text there to be currently invisible.
 POS should be a marker or a buffer position; the value of the `invisible'
 property at that position in the current buffer is examined.
 POS can also be the actual value of the `invisible' text or overlay
@@ -6243,18 +8285,30 @@ text is replaced by an ellipsis.
 Note that whether text with `invisible' property is actually hidden on
 display may depend on `buffer-invisibility-spec', which see.
 
-(fn POS)"#),
-    (r#"invocation-directory"#, r#"Return the directory name in which the Emacs executable was located.
+(fn POS)"#,
+    ),
+    (
+        r#"invocation-directory"#,
+        r#"Return the directory name in which the Emacs executable was located.
 
-(fn)"#),
-    (r#"invocation-name"#, r#"Return the program name that was used to run Emacs.
+(fn)"#,
+    ),
+    (
+        r#"invocation-name"#,
+        r#"Return the program name that was used to run Emacs.
 Any directory names are omitted.
 
-(fn)"#),
-    (r#"isnan"#, r#"Return non-nil if argument X is a NaN.
+(fn)"#,
+    ),
+    (
+        r#"isnan"#,
+        r#"Return non-nil if argument X is a NaN.
 
-(fn X)"#),
-    (r#"iso-charset"#, r#"
+(fn X)"#,
+    ),
+    (
+        r#"iso-charset"#,
+        r#"
 Return charset of ISO's specification DIMENSION, CHARS, and FINAL-CHAR.
 
 ISO 2022's designation sequence (escape sequence) distinguishes charsets
@@ -6263,15 +8317,21 @@ whereas Emacs distinguishes them by charset symbol.
 See the documentation of the function `charset-info' for the meanings of
 DIMENSION, CHARS, and FINAL-CHAR.
 
-(fn DIMENSION CHARS FINAL-CHAR)"#),
-    (r#"json-insert"#, r#"Insert the JSON representation of OBJECT before point.
+(fn DIMENSION CHARS FINAL-CHAR)"#,
+    ),
+    (
+        r#"json-insert"#,
+        r#"Insert the JSON representation of OBJECT before point.
 This is the same as (insert (json-serialize OBJECT ...)), but potentially
 faster, and with the difference that Unicode characters are inserted as
 themselves into multibyte buffers, and as UTF-8 byte sequences into
 unibyte buffers.
 See the function `json-serialize' for allowed values of OBJECT and ARGS.
-(fn OBJECT &rest ARGS)"#),
-    (r#"json-parse-buffer"#, r#"Read a JSON value from current buffer starting at point.
+(fn OBJECT &rest ARGS)"#,
+    ),
+    (
+        r#"json-parse-buffer"#,
+        r#"Read a JSON value from current buffer starting at point.
 Move point after the end of the value if parsing was successful.
 On error, don't move point.
 
@@ -6299,8 +8359,11 @@ The arguments ARGS are a list of keyword/argument pairs:
 
 :false-object OBJ -- use OBJ to represent a JSON false value.
   It defaults to `:false'.
-(fn &rest args)"#),
-    (r#"json-parse-string"#, r#"Parse the JSON STRING into a Lisp value.
+(fn &rest args)"#,
+    ),
+    (
+        r#"json-parse-string"#,
+        r#"Parse the JSON STRING into a Lisp value.
 This is essentially the reverse operation of `json-serialize', which
 see.  The returned value will be the JSON null value, the JSON false
 value, t, a number, a string, a vector, a list, a hash-table, an alist,
@@ -6324,8 +8387,11 @@ The arguments ARGS are a list of keyword/argument pairs:
 
 :false-object OBJ -- use OBJ to represent a JSON false value.
   It defaults to `:false'.
-(fn STRING &rest ARGS)"#),
-    (r#"json-serialize"#, r#"Return the JSON representation of OBJECT as a unibyte string.
+(fn STRING &rest ARGS)"#,
+    ),
+    (
+        r#"json-serialize"#,
+        r#"Return the JSON representation of OBJECT as a unibyte string.
 
 OBJECT is translated as follows:
 
@@ -6352,8 +8418,11 @@ configurable in the arguments ARGS, a list of keyword/argument pairs:
 In you specify the same value for `:null-object' and `:false-object',
 a potentially ambiguous situation, the JSON output will not contain
 any JSON false values.
-(fn OBJECT &rest ARGS)"#),
-    (r#"key-binding"#, r#"Return the binding for command KEY in current keymaps.
+(fn OBJECT &rest ARGS)"#,
+    ),
+    (
+        r#"key-binding"#,
+        r#"Return the binding for command KEY in current keymaps.
 KEY is a string or vector, a sequence of keystrokes.
 The binding is probably a symbol with a function definition.
 
@@ -6378,18 +8447,27 @@ occurs in the keymaps associated with it instead of KEY.  It can also
 be a number or marker, in which case the keymap properties at the
 specified buffer position instead of point are used.
 
-(fn KEY ACCEPT-DEFAULT NO-REMAP POSITION)"#),
-    (r#"key-description"#, r#"Return a pretty description of key-sequence KEYS.
+(fn KEY ACCEPT-DEFAULT NO-REMAP POSITION)"#,
+    ),
+    (
+        r#"key-description"#,
+        r#"Return a pretty description of key-sequence KEYS.
 Optional arg PREFIX is the sequence of keys leading up to KEYS.
 For example, [?\\C-x ?l] is converted into the string \"C-x l\".
 
 For an approximate inverse of this, see `kbd'.
 
-(fn KEYS PREFIX)"#),
-    (r#"keyboard-coding-system"#, r#"Return coding system specified for decoding keyboard input.
+(fn KEYS PREFIX)"#,
+    ),
+    (
+        r#"keyboard-coding-system"#,
+        r#"Return coding system specified for decoding keyboard input.
 
-(fn TERMINAL)"#),
-    (r#"keymap--get-keyelt"#, r#"Given OBJECT which was found in a slot in a keymap,
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"keymap--get-keyelt"#,
+        r#"Given OBJECT which was found in a slot in a keymap,
 trace indirect definitions to get the actual definition of that slot.
 An indirect definition is a list of the form
 (KEYMAP . INDEX), where KEYMAP is a keymap or a symbol defined as one
@@ -6401,17 +8479,26 @@ remove that.  Also remove a menu help string as second element.
 If AUTOLOAD, load autoloadable keymaps
 that are referred to with indirection.
 
-(fn OBJECT AUTOLOAD)"#),
-    (r#"keymap-parent"#, r#"Return the parent keymap of KEYMAP.
+(fn OBJECT AUTOLOAD)"#,
+    ),
+    (
+        r#"keymap-parent"#,
+        r#"Return the parent keymap of KEYMAP.
 If KEYMAP has no parent, return nil.
 
-(fn KEYMAP)"#),
-    (r#"keymap-prompt"#, r#"Return the prompt-string of a keymap MAP.
+(fn KEYMAP)"#,
+    ),
+    (
+        r#"keymap-prompt"#,
+        r#"Return the prompt-string of a keymap MAP.
 If non-nil, the prompt is shown in the echo-area
 when reading a key-sequence to be looked-up in this keymap.
 
-(fn MAP)"#),
-    (r#"keymapp"#, r#"Return t if OBJECT is a keymap.
+(fn MAP)"#,
+    ),
+    (
+        r#"keymapp"#,
+        r#"Return t if OBJECT is a keymap.
 
 A keymap is a list (keymap . ALIST),
 or a symbol whose function definition is itself a keymap.
@@ -6419,13 +8506,19 @@ ALIST elements look like (CHAR . DEFN) or (SYMBOL . DEFN);
 a vector of densely packed bindings for small character codes
 is also allowed as an element.
 
-(fn OBJECT)"#),
-    (r#"keywordp"#, r#"Return t if OBJECT is a keyword.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"keywordp"#,
+        r#"Return t if OBJECT is a keyword.
 This means that it is a symbol with a print name beginning with `:'
 interned in the initial obarray.
 
-(fn OBJECT)"#),
-    (r#"kill-all-local-variables"#, r#"Switch to Fundamental mode by killing current buffer's local variables.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"kill-all-local-variables"#,
+        r#"Switch to Fundamental mode by killing current buffer's local variables.
 Most local variable bindings are eliminated so that the default values
 become effective once more.  Also, the syntax table is set from
 `standard-syntax-table', the local keymap is set to nil,
@@ -6443,8 +8536,11 @@ variables, too.
 The first thing this function does is run
 the normal hook `change-major-mode-hook'.
 
-(fn KILL-PERMANENT)"#),
-    (r#"kill-buffer"#, r#"Kill the buffer specified by BUFFER-OR-NAME.
+(fn KILL-PERMANENT)"#,
+    ),
+    (
+        r#"kill-buffer"#,
+        r#"Kill the buffer specified by BUFFER-OR-NAME.
 The argument may be a buffer or the name of an existing buffer.
 Argument nil or omitted means kill the current buffer.  Return t if the
 buffer is actually killed, nil otherwise.
@@ -6462,8 +8558,11 @@ Any processes that have this buffer as the `process-buffer' are killed
 with SIGHUP.  This function calls `replace-buffer-in-windows' for
 cleaning up all windows currently displaying the buffer to be killed.
 
-(fn BUFFER-OR-NAME)"#),
-    (r#"kill-emacs"#, r#"Exit the Emacs job and kill it.
+(fn BUFFER-OR-NAME)"#,
+    ),
+    (
+        r#"kill-emacs"#,
+        r#"Exit the Emacs job and kill it.
 If ARG is an integer, return ARG as the exit program code.
 If ARG is a string, stuff it as keyboard input.
 Any other value of ARG, or ARG omitted, means return an
@@ -6481,21 +8580,33 @@ The value of `kill-emacs-hook', if not void, is a list of functions
 (of no args), all of which are called before Emacs is actually
 killed.
 
-(fn ARG RESTART)"#),
-    (r#"kill-local-variable"#, r#"Make VARIABLE no longer have a separate value in the current buffer.
+(fn ARG RESTART)"#,
+    ),
+    (
+        r#"kill-local-variable"#,
+        r#"Make VARIABLE no longer have a separate value in the current buffer.
 From now on the default value will apply in this buffer.  Return VARIABLE.
 
-(fn VARIABLE)"#),
-    (r#"kill-process"#, r#"Kill process PROCESS.  May be process or name of one.
+(fn VARIABLE)"#,
+    ),
+    (
+        r#"kill-process"#,
+        r#"Kill process PROCESS.  May be process or name of one.
 See function `interrupt-process' for more details on usage.
 
-(fn PROCESS CURRENT-GROUP)"#),
-    (r#"kill-xwidget"#, r#"Kill the specified XWIDGET.
+(fn PROCESS CURRENT-GROUP)"#,
+    ),
+    (
+        r#"kill-xwidget"#,
+        r#"Kill the specified XWIDGET.
 This releases all window system resources associated with XWIDGET,
 removes it from `xwidget-list', and detaches it from its buffer.
 
-(fn XWIDGET)"#),
-    (r#"kqueue-add-watch"#, r#"Add a watch for filesystem events pertaining to FILE.
+(fn XWIDGET)"#,
+    ),
+    (
+        r#"kqueue-add-watch"#,
+        r#"Add a watch for filesystem events pertaining to FILE.
 
 This arranges for filesystem events pertaining to FILE to be reported
 to Emacs.  Use `kqueue-rm-watch' to cancel the watch.
@@ -6527,13 +8638,19 @@ FILE is the name of the file whose event is being reported.  FILE1
 will be reported only in case of the `rename' event.  This is possible
 only when the upper directory of the renamed file is watched.
 
-(fn FILE FLAGS CALLBACK)"#),
-    (r#"kqueue-rm-watch"#, r#"Remove an existing WATCH-DESCRIPTOR.
+(fn FILE FLAGS CALLBACK)"#,
+    ),
+    (
+        r#"kqueue-rm-watch"#,
+        r#"Remove an existing WATCH-DESCRIPTOR.
 
 WATCH-DESCRIPTOR should be an object returned by `kqueue-add-watch'.
 
-(fn WATCH-DESCRIPTOR)"#),
-    (r#"kqueue-valid-p"#, r#"Check a watch specified by its WATCH-DESCRIPTOR.
+(fn WATCH-DESCRIPTOR)"#,
+    ),
+    (
+        r#"kqueue-valid-p"#,
+        r#"Check a watch specified by its WATCH-DESCRIPTOR.
 
 WATCH-DESCRIPTOR should be an object returned by `kqueue-add-watch'.
 
@@ -6542,11 +8659,17 @@ deleted, or if the watcher thread exits abnormally for any other
 reason.  Removing the watch by calling `kqueue-rm-watch' also makes it
 invalid.
 
-(fn WATCH-DESCRIPTOR)"#),
-    (r#"last-nonminibuffer-frame"#, r#"Return last non-minibuffer frame selected.
+(fn WATCH-DESCRIPTOR)"#,
+    ),
+    (
+        r#"last-nonminibuffer-frame"#,
+        r#"Return last non-minibuffer frame selected.
 
-(fn)"#),
-    (r#"lcms-cam02-ucs"#, r#"Compute CAM02-UCS metric distance between COLOR1 and COLOR2.
+(fn)"#,
+    ),
+    (
+        r#"lcms-cam02-ucs"#,
+        r#"Compute CAM02-UCS metric distance between COLOR1 and COLOR2.
 Each color is a list of XYZ tristimulus values, with Y scaled about unity.
 Optional argument WHITEPOINT is the XYZ white point, which defaults to
 illuminant D65.
@@ -6558,51 +8681,78 @@ is of the form (YB LA SURROUND DVALUE) where SURROUND corresponds to
   4   CUTSHEET_SURROUND
 The default viewing conditions are (20 100 1 1).
 
-(fn COLOR1 COLOR2 WHITEPOINT VIEW)"#),
-    (r#"lcms-cie-de2000"#, r#"Compute CIEDE2000 metric distance between COLOR1 and COLOR2.
+(fn COLOR1 COLOR2 WHITEPOINT VIEW)"#,
+    ),
+    (
+        r#"lcms-cie-de2000"#,
+        r#"Compute CIEDE2000 metric distance between COLOR1 and COLOR2.
 Each color is a list of L*a*b* coordinates, where the L* channel ranges from
 0 to 100, and the a* and b* channels range from -128 to 128.
 Optional arguments KL, KC, KH are weighting parameters for lightness,
 chroma, and hue, respectively. The parameters each default to 1.
 
-(fn COLOR1 COLOR2 KL KC KH)"#),
-    (r#"lcms-jab->jch"#, r#"Convert CAM02-UCS J'a'b' to CIE CAM02 JCh.
+(fn COLOR1 COLOR2 KL KC KH)"#,
+    ),
+    (
+        r#"lcms-jab->jch"#,
+        r#"Convert CAM02-UCS J'a'b' to CIE CAM02 JCh.
 COLOR is a list (J' a' b'), where white corresponds to lightness J equal to 100.
 Optional arguments WHITEPOINT and VIEW are the same as in `lcms-cam02-ucs',
 which see.
 
-(fn COLOR WHITEPOINT VIEW)"#),
-    (r#"lcms-jch->jab"#, r#"Convert CIE CAM02 JCh to CAM02-UCS J'a'b'.
+(fn COLOR WHITEPOINT VIEW)"#,
+    ),
+    (
+        r#"lcms-jch->jab"#,
+        r#"Convert CIE CAM02 JCh to CAM02-UCS J'a'b'.
 COLOR is a list (J C h) as described in `lcms-jch->xyz', which see.
 Optional arguments WHITEPOINT and VIEW are the same as in `lcms-cam02-ucs',
 which see.
 
-(fn COLOR WHITEPOINT VIEW)"#),
-    (r#"lcms-jch->xyz"#, r#"Convert CIE CAM02 JCh to CIE XYZ.
+(fn COLOR WHITEPOINT VIEW)"#,
+    ),
+    (
+        r#"lcms-jch->xyz"#,
+        r#"Convert CIE CAM02 JCh to CIE XYZ.
 COLOR is a list (J C h), where lightness of white is equal to 100, and hue
 is given in degrees.
 Optional arguments WHITEPOINT and VIEW are the same as in `lcms-cam02-ucs',
 which see.
 
-(fn COLOR WHITEPOINT VIEW)"#),
-    (r#"lcms-temp->white-point"#, r#"Return XYZ black body chromaticity from TEMPERATURE given in K.
+(fn COLOR WHITEPOINT VIEW)"#,
+    ),
+    (
+        r#"lcms-temp->white-point"#,
+        r#"Return XYZ black body chromaticity from TEMPERATURE given in K.
 Valid range of TEMPERATURE is from 4000K to 25000K.
 
-(fn TEMPERATURE)"#),
-    (r#"lcms-xyz->jch"#, r#"Convert CIE XYZ to CIE CAM02 JCh.
+(fn TEMPERATURE)"#,
+    ),
+    (
+        r#"lcms-xyz->jch"#,
+        r#"Convert CIE XYZ to CIE CAM02 JCh.
 COLOR is a list (X Y Z), with Y scaled about unity.
 Optional arguments WHITEPOINT and VIEW are the same as in `lcms-cam02-ucs',
 which see.
 
-(fn COLOR WHITEPOINT VIEW)"#),
-    (r#"lcms2-available-p"#, r#"Return t if lcms2 color calculations are available in this instance of Emacs.
+(fn COLOR WHITEPOINT VIEW)"#,
+    ),
+    (
+        r#"lcms2-available-p"#,
+        r#"Return t if lcms2 color calculations are available in this instance of Emacs.
 
-(fn)"#),
-    (r#"ldexp"#, r#"Return SGNFCAND * 2**EXPONENT, as a floating point number.
+(fn)"#,
+    ),
+    (
+        r#"ldexp"#,
+        r#"Return SGNFCAND * 2**EXPONENT, as a floating point number.
 EXPONENT must be an integer.
 
-(fn SGNFCAND EXPONENT)"#),
-    (r#"length"#, r#"Return the length of vector, list or string SEQUENCE.
+(fn SGNFCAND EXPONENT)"#,
+    ),
+    (
+        r#"length"#,
+        r#"Return the length of vector, list or string SEQUENCE.
 A byte-code function object is also allowed.
 
 If the string contains multibyte characters, this is not necessarily
@@ -6613,38 +8763,59 @@ If the length of a list is being computed to compare to a (small)
 number, the `length<', `length>' and `length=' functions may be more
 efficient.
 
-(fn SEQUENCE)"#),
-    (r#"length<"#, r#"Return non-nil if SEQUENCE is shorter than LENGTH.
+(fn SEQUENCE)"#,
+    ),
+    (
+        r#"length<"#,
+        r#"Return non-nil if SEQUENCE is shorter than LENGTH.
 See `length' for allowed values of SEQUENCE and how elements are
 counted.
 
-(fn SEQUENCE LENGTH)"#),
-    (r#"length="#, r#"Return non-nil if SEQUENCE has length equal to LENGTH.
+(fn SEQUENCE LENGTH)"#,
+    ),
+    (
+        r#"length="#,
+        r#"Return non-nil if SEQUENCE has length equal to LENGTH.
 See `length' for allowed values of SEQUENCE and how elements are
 counted.
 
-(fn SEQUENCE LENGTH)"#),
-    (r#"length>"#, r#"Return non-nil if SEQUENCE is longer than LENGTH.
+(fn SEQUENCE LENGTH)"#,
+    ),
+    (
+        r#"length>"#,
+        r#"Return non-nil if SEQUENCE is longer than LENGTH.
 See `length' for allowed values of SEQUENCE and how elements are
 counted.
 
-(fn SEQUENCE LENGTH)"#),
-    (r#"let"#, r#"Bind variables according to VARLIST then eval BODY.
+(fn SEQUENCE LENGTH)"#,
+    ),
+    (
+        r#"let"#,
+        r#"Bind variables according to VARLIST then eval BODY.
 The value of the last form in BODY is returned.
 Each element of VARLIST is a symbol (which is bound to nil)
 or a list (SYMBOL VALUEFORM) (which binds SYMBOL to the value of VALUEFORM).
 All the VALUEFORMs are evalled before any symbols are bound.
-(fn VARLIST BODY...)"#),
-    (r#"let*"#, r#"Bind variables according to VARLIST then eval BODY.
+(fn VARLIST BODY...)"#,
+    ),
+    (
+        r#"let*"#,
+        r#"Bind variables according to VARLIST then eval BODY.
 The value of the last form in BODY is returned.
 Each element of VARLIST is a symbol (which is bound to nil)
 or a list (SYMBOL VALUEFORM) (which binds SYMBOL to the value of VALUEFORM).
 Each VALUEFORM can refer to the symbols already bound by this VARLIST.
-(fn VARLIST BODY...)"#),
-    (r#"libxml-available-p"#, r#"Return t if libxml2 support is available in this instance of Emacs.
+(fn VARLIST BODY...)"#,
+    ),
+    (
+        r#"libxml-available-p"#,
+        r#"Return t if libxml2 support is available in this instance of Emacs.
 
-(fn)"#),
-    (r#"libxml-parse-html-region"#, r#"Parse the region as an HTML document and return the parse tree.
+(fn)"#,
+    ),
+    (
+        r#"libxml-parse-html-region"#,
+        r#"Parse the region as an HTML document and return the parse tree.
 If START is nil, it defaults to `point-min'.  If END is nil, it
 defaults to `point-max'.
 
@@ -6656,8 +8827,11 @@ ignored.
 If you want comments to be stripped, use the `xml-remove-comments'
 function to strip comments before calling this function.
 
-(fn START END BASE-URL DISCARD-COMMENTS)"#),
-    (r#"libxml-parse-xml-region"#, r#"Parse the region as an XML document and return the parse tree.
+(fn START END BASE-URL DISCARD-COMMENTS)"#,
+    ),
+    (
+        r#"libxml-parse-xml-region"#,
+        r#"Parse the region as an XML document and return the parse tree.
 If START is nil, it defaults to `point-min'.  If END is nil, it
 defaults to `point-max'.
 
@@ -6669,8 +8843,11 @@ ignored.
 If you want comments to be stripped, use the `xml-remove-comments'
 function to strip comments before calling this function.
 
-(fn START END BASE-URL DISCARD-COMMENTS)"#),
-    (r#"line-beginning-position"#, r#"Return the position of the first character in the current line/field.
+(fn START END BASE-URL DISCARD-COMMENTS)"#,
+    ),
+    (
+        r#"line-beginning-position"#,
+        r#"Return the position of the first character in the current line/field.
 With optional argument N non-nil, move forward N - 1 lines first.
 This function is like `pos-bol' (which see), but respects fields.
 
@@ -6682,8 +8859,11 @@ boundaries, bind `inhibit-field-text-motion' to t.
 
 This function does not move point.
 
-(fn N)"#),
-    (r#"line-end-position"#, r#"Return the position of the last character in the current line/field.
+(fn N)"#,
+    ),
+    (
+        r#"line-end-position"#,
+        r#"Return the position of the last character in the current line/field.
 With argument N not nil or 1, move forward N - 1 lines first.
 If scan reaches end of buffer, return that position.
 
@@ -6697,8 +8877,11 @@ boundaries bind `inhibit-field-text-motion' to t.
 
 This function does not move point.
 
-(fn N)"#),
-    (r#"line-number-at-pos"#, r#"Return the line number at POSITION in the current buffer.
+(fn N)"#,
+    ),
+    (
+        r#"line-number-at-pos"#,
+        r#"Return the line number at POSITION in the current buffer.
 If POSITION is nil or omitted, it defaults to point's position in the
 current buffer.
 
@@ -6707,8 +8890,11 @@ from the beginning of the accessible portion of the buffer.  But if the
 second optional argument ABSOLUTE is non-nil, the value counts the lines
 from the absolute start of the buffer, disregarding the narrowing.
 
-(fn POSITION ABSOLUTE)"#),
-    (r#"line-number-display-width"#, r#"Return the width used for displaying line numbers in the selected window.
+(fn POSITION ABSOLUTE)"#,
+    ),
+    (
+        r#"line-number-display-width"#,
+        r#"Return the width used for displaying line numbers in the selected window.
 If optional argument PIXELWISE is the symbol `columns', return the width
 in units of the frame's canonical character width.  In this case, the
 value is a float.
@@ -6719,16 +8905,25 @@ used to display line numbers, `line-number'.  Note that in the latter
 case, the value doesn't include the 2 columns used for padding the
 numbers on display.
 
-(fn PIXELWISE)"#),
-    (r#"line-pixel-height"#, r#"Return height in pixels of text line in the selected window.
+(fn PIXELWISE)"#,
+    ),
+    (
+        r#"line-pixel-height"#,
+        r#"Return height in pixels of text line in the selected window.
 
 Value is the height in pixels of the line at point.
 
-(fn)"#),
-    (r#"list"#, r#"Return a newly created list with specified arguments as elements.
+(fn)"#,
+    ),
+    (
+        r#"list"#,
+        r#"Return a newly created list with specified arguments as elements.
 Allows any number of arguments, including zero.
-(fn &rest OBJECTS)"#),
-    (r#"list-fonts"#, r#"List available fonts matching FONT-SPEC on FRAME.
+(fn &rest OBJECTS)"#,
+    ),
+    (
+        r#"list-fonts"#,
+        r#"List available fonts matching FONT-SPEC on FRAME.
 If FRAME is nil or omitted, it defaults to the selected frame,
 Optional 3rd argument NUM, if non-nil, limits the number of returned fonts.
 Optional 4th argument PREFER, if non-nil, is a font-spec to
@@ -6738,19 +8933,28 @@ how close they are to PREFER.
 The return value is a list of font-entity objects describing available
 fonts which match FONT-SPEC.
 
-(fn FONT-SPEC FRAME NUM PREFER)"#),
-    (r#"list-system-processes"#, r#"Return a list of numerical process IDs of all running processes.
+(fn FONT-SPEC FRAME NUM PREFER)"#,
+    ),
+    (
+        r#"list-system-processes"#,
+        r#"Return a list of numerical process IDs of all running processes.
 If this functionality is unsupported, return nil.
 If `default-directory' is remote, return process IDs of the respective remote host.
 
 See `process-attributes' for getting attributes of a process given its ID.
 
-(fn)"#),
-    (r#"listp"#, r#"Return t if OBJECT is a list, that is, a cons cell or nil.
+(fn)"#,
+    ),
+    (
+        r#"listp"#,
+        r#"Return t if OBJECT is a list, that is, a cons cell or nil.
 Otherwise, return nil.
 
-(fn OBJECT)"#),
-    (r#"load"#, r#"Execute a file of Lisp code named FILE.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"load"#,
+        r#"Execute a file of Lisp code named FILE.
 First try FILE with `.elc' appended, then try with `.el', then try
 with a system-dependent suffix of dynamic modules (see `load-suffixes'),
 then try FILE unmodified (the exact suffixes in the exact order are
@@ -6795,8 +8999,11 @@ is bound to the file's name.
 
 Return t if the file exists and loads successfully.
 
-(fn FILE NOERROR NOMESSAGE NOSUFFIX MUST-SUFFIX)"#),
-    (r#"load-average"#, r#"Return list of 1 minute, 5 minute and 15 minute load averages.
+(fn FILE NOERROR NOMESSAGE NOSUFFIX MUST-SUFFIX)"#,
+    ),
+    (
+        r#"load-average"#,
+        r#"Return list of 1 minute, 5 minute and 15 minute load averages.
 
 Each of the three load averages is multiplied by 100, then converted
 to integer.
@@ -6812,22 +9019,31 @@ cases making it work would require Emacs being installed setuid or
 setgid so that it can read kernel information, and that usually isn't
 advisable.
 
-(fn USE-FLOATS)"#),
-    (r#"local-variable-if-set-p"#, r#"Non-nil if VARIABLE is local in buffer BUFFER when set there.
+(fn USE-FLOATS)"#,
+    ),
+    (
+        r#"local-variable-if-set-p"#,
+        r#"Non-nil if VARIABLE is local in buffer BUFFER when set there.
 BUFFER defaults to the current buffer.
 
 More precisely, return non-nil if either VARIABLE already has a local
 value in BUFFER, or if VARIABLE is automatically buffer-local (see
 `make-variable-buffer-local').
 
-(fn VARIABLE BUFFER)"#),
-    (r#"local-variable-p"#, r#"Non-nil if VARIABLE has a local binding in buffer BUFFER.
+(fn VARIABLE BUFFER)"#,
+    ),
+    (
+        r#"local-variable-p"#,
+        r#"Non-nil if VARIABLE has a local binding in buffer BUFFER.
 BUFFER defaults to the current buffer.
 
 Also see `buffer-local-boundp'.
 
-(fn VARIABLE BUFFER)"#),
-    (r#"locale-info"#, r#"Access locale data ITEM for the current C locale, if available.
+(fn VARIABLE BUFFER)"#,
+    ),
+    (
+        r#"locale-info"#,
+        r#"Access locale data ITEM for the current C locale, if available.
 ITEM should be one of the following:
 
 `codeset', returning the character set as a string (locale item CODESET);
@@ -6847,8 +9063,11 @@ See also Info node `(libc)Locales'.
 
 The data read from the system are decoded using `locale-coding-system'.
 
-(fn ITEM)"#),
-    (r#"locate-file-internal"#, r#"Search for FILENAME through PATH.
+(fn ITEM)"#,
+    ),
+    (
+        r#"locate-file-internal"#,
+        r#"Search for FILENAME through PATH.
 Returns the file's name in absolute form, or nil if not found.
 If SUFFIXES is non-nil, it should be a list of suffixes to append to
 file name when searching.
@@ -6858,62 +9077,101 @@ in which case file-name-handlers are ignored.
 This function will normally skip directories, so if you want it to find
 directories, make sure the PREDICATE function returns `dir-ok' for them.
 
-(fn FILENAME PATH SUFFIXES PREDICATE)"#),
-    (r#"lock-buffer"#, r#"Lock FILE, if current buffer is modified.
+(fn FILENAME PATH SUFFIXES PREDICATE)"#,
+    ),
+    (
+        r#"lock-buffer"#,
+        r#"Lock FILE, if current buffer is modified.
 FILE defaults to current buffer's visited file,
 or else nothing is done if current buffer isn't visiting a file.
 
 If the option `create-lockfiles' is nil, this does nothing.
 
-(fn FILE)"#),
-    (r#"lock-file"#, r#"Check whether FILE was modified since it was visited, and lock it.
+(fn FILE)"#,
+    ),
+    (
+        r#"lock-file"#,
+        r#"Check whether FILE was modified since it was visited, and lock it.
 If user option `create-lockfiles' is nil, this does not create
 a lock file for FILE, but it still checks whether FILE was modified
 outside of the current Emacs session, and if so, asks the user
 whether to modify FILE.
 
-(fn FILE)"#),
-    (r#"log"#, r#"Return the natural logarithm of ARG.
+(fn FILE)"#,
+    ),
+    (
+        r#"log"#,
+        r#"Return the natural logarithm of ARG.
 If the optional argument BASE is given, return log ARG using that base.
 
-(fn ARG BASE)"#),
-    (r#"logand"#, r#"Return bitwise-and of all the arguments.
+(fn ARG BASE)"#,
+    ),
+    (
+        r#"logand"#,
+        r#"Return bitwise-and of all the arguments.
 Arguments may be integers, or markers converted to integers.
-(fn &rest INTS-OR-MARKERS)"#),
-    (r#"logb"#, r#"Returns largest integer <= the base 2 log of the magnitude of ARG.
+(fn &rest INTS-OR-MARKERS)"#,
+    ),
+    (
+        r#"logb"#,
+        r#"Returns largest integer <= the base 2 log of the magnitude of ARG.
 This is the same as the exponent of a float.
 
-(fn ARG)"#),
-    (r#"logcount"#, r#"Return population count of VALUE.
+(fn ARG)"#,
+    ),
+    (
+        r#"logcount"#,
+        r#"Return population count of VALUE.
 This is the number of one bits in the two's complement representation
 of VALUE.  If VALUE is negative, return the number of zero bits in the
 representation.
 
-(fn VALUE)"#),
-    (r#"logior"#, r#"Return bitwise-or of all the arguments.
+(fn VALUE)"#,
+    ),
+    (
+        r#"logior"#,
+        r#"Return bitwise-or of all the arguments.
 Arguments may be integers, or markers converted to integers.
-(fn &rest INTS-OR-MARKERS)"#),
-    (r#"lognot"#, r#"Return the bitwise complement of NUMBER.  NUMBER must be an integer.
+(fn &rest INTS-OR-MARKERS)"#,
+    ),
+    (
+        r#"lognot"#,
+        r#"Return the bitwise complement of NUMBER.  NUMBER must be an integer.
 
-(fn NUMBER)"#),
-    (r#"logxor"#, r#"Return bitwise-exclusive-or of all the arguments.
+(fn NUMBER)"#,
+    ),
+    (
+        r#"logxor"#,
+        r#"Return bitwise-exclusive-or of all the arguments.
 Arguments may be integers, or markers converted to integers.
-(fn &rest INTS-OR-MARKERS)"#),
-    (r#"long-line-optimizations-p"#, r#"Return non-nil if long-line optimizations are in effect in current buffer.
+(fn &rest INTS-OR-MARKERS)"#,
+    ),
+    (
+        r#"long-line-optimizations-p"#,
+        r#"Return non-nil if long-line optimizations are in effect in current buffer.
 See `long-line-threshold' and `large-hscroll-threshold' for what these
 optimizations mean and when they are in effect.
 
-(fn)"#),
-    (r#"looking-at"#, r#"Return t if text after point matches regular expression REGEXP.
+(fn)"#,
+    ),
+    (
+        r#"looking-at"#,
+        r#"Return t if text after point matches regular expression REGEXP.
 By default, this function modifies the match data that
 `match-beginning', `match-end' and `match-data' access.  If
 INHIBIT-MODIFY is non-nil, don't modify the match data.
 
-(fn REGEXP INHIBIT-MODIFY)"#),
-    (r#"lookup-image"#, r#"
+(fn REGEXP INHIBIT-MODIFY)"#,
+    ),
+    (
+        r#"lookup-image"#,
+        r#"
 
-(fn SPEC)"#),
-    (r#"lookup-image-map"#, r#"Lookup in image map MAP coordinates X and Y.
+(fn SPEC)"#,
+    ),
+    (
+        r#"lookup-image-map"#,
+        r#"Lookup in image map MAP coordinates X and Y.
 An image map is an alist where each element has the format (AREA ID PLIST).
 An AREA is specified as either a rectangle, a circle, or a polygon:
 A rectangle is a cons (rect . ((x0 . y0) . (x1 . y1))) specifying the
@@ -6924,8 +9182,11 @@ A polygon is a cons (poly . [x0 y0 x1 y1 ...]) where each pair in the
 vector describes one corner in the polygon.
 Returns the alist element for the first matching AREA in MAP.
 
-(fn MAP X Y)"#),
-    (r#"lookup-key"#, r#"Look up key sequence KEY in KEYMAP.  Return the definition.
+(fn MAP X Y)"#,
+    ),
+    (
+        r#"lookup-key"#,
+        r#"Look up key sequence KEY in KEYMAP.  Return the definition.
 This is a legacy function; see `keymap-lookup' for the recommended
 function to use instead.
 
@@ -6945,26 +9206,38 @@ usable as a general function for probing keymaps.  However, if the
 third optional argument ACCEPT-DEFAULT is non-nil, `lookup-key' will
 recognize the default bindings, just as `read-key-sequence' does.
 
-(fn KEYMAP KEY ACCEPT-DEFAULT)"#),
-    (r#"lossage-size"#, r#"Return or set the maximum number of keystrokes to save.
+(fn KEYMAP KEY ACCEPT-DEFAULT)"#,
+    ),
+    (
+        r#"lossage-size"#,
+        r#"Return or set the maximum number of keystrokes to save.
 If called with a non-nil ARG, set the limit to ARG and return it.
 Otherwise, return the current limit.
 
 The saved keystrokes are shown by `view-lossage'.
 
-(fn ARG)"#),
-    (r#"lower-frame"#, r#"Send FRAME to the back, so it is occluded by any frames that overlap it.
+(fn ARG)"#,
+    ),
+    (
+        r#"lower-frame"#,
+        r#"Send FRAME to the back, so it is occluded by any frames that overlap it.
 If you don't specify a frame, the selected frame is used.
 If Emacs is displaying on an ordinary terminal or some other device which
 doesn't support multiple overlapping frames, this function does nothing.
 
-(fn FRAME)"#),
-    (r#"lread--substitute-object-in-subtree"#, r#"In OBJECT, replace every occurrence of PLACEHOLDER with OBJECT.
+(fn FRAME)"#,
+    ),
+    (
+        r#"lread--substitute-object-in-subtree"#,
+        r#"In OBJECT, replace every occurrence of PLACEHOLDER with OBJECT.
 COMPLETED is a hash table of objects that might be circular, or is t
 if any object might be circular.
 
-(fn OBJECT PLACEHOLDER COMPLETED)"#),
-    (r#"macroexpand"#, r#"Return result of expanding macros at top level of FORM.
+(fn OBJECT PLACEHOLDER COMPLETED)"#,
+    ),
+    (
+        r#"macroexpand"#,
+        r#"Return result of expanding macros at top level of FORM.
 If FORM is not a macro call, it is returned unchanged.
 Otherwise, the macro is expanded and the expansion is considered
 in place of FORM.  When a non-macro-call results, it is returned.
@@ -6972,12 +9245,18 @@ in place of FORM.  When a non-macro-call results, it is returned.
 The second optional arg ENVIRONMENT specifies an environment of macro
 definitions to shadow the loaded ones for use in file byte-compilation.
 
-(fn FORM ENVIRONMENT)"#),
-    (r#"make-bool-vector"#, r#"Return a new bool-vector of length LENGTH, using INIT for each element.
+(fn FORM ENVIRONMENT)"#,
+    ),
+    (
+        r#"make-bool-vector"#,
+        r#"Return a new bool-vector of length LENGTH, using INIT for each element.
 LENGTH must be a number.  INIT matters only in whether it is t or nil.
 
-(fn LENGTH INIT)"#),
-    (r#"make-byte-code"#, r#"Create a byte-code object with specified arguments as elements.
+(fn LENGTH INIT)"#,
+    ),
+    (
+        r#"make-byte-code"#,
+        r#"Create a byte-code object with specified arguments as elements.
 The arguments should be the ARGLIST, bytecode-string BYTE-CODE, constant
 vector CONSTANTS, maximum stack size DEPTH, (optional) DOCSTRING,
 and (optional) INTERACTIVE-SPEC.
@@ -6991,25 +9270,37 @@ of arguments (ignoring &rest) and the R bit specifies whether there is a &rest
 argument to catch the left-over arguments.  If such an integer is used, the
 arguments will not be dynamically bound but will be instead pushed on the
 stack before executing the byte-code.
-(fn ARGLIST BYTE-CODE CONSTANTS DEPTH &optional DOCSTRING INTERACTIVE-SPEC &rest ELEMENTS)"#),
-    (r#"make-category-set"#, r#"Return a newly created category-set which contains CATEGORIES.
+(fn ARGLIST BYTE-CODE CONSTANTS DEPTH &optional DOCSTRING INTERACTIVE-SPEC &rest ELEMENTS)"#,
+    ),
+    (
+        r#"make-category-set"#,
+        r#"Return a newly created category-set which contains CATEGORIES.
 CATEGORIES is a string of category mnemonics.
 The value is a bool-vector which has t at the indices corresponding to
 those categories.
 
-(fn CATEGORIES)"#),
-    (r#"make-category-table"#, r#"Construct a new and empty category table and return it.
+(fn CATEGORIES)"#,
+    ),
+    (
+        r#"make-category-table"#,
+        r#"Construct a new and empty category table and return it.
 
-(fn)"#),
-    (r#"make-char"#, r#"Return the charset of highest priority that contains CH.
+(fn)"#,
+    ),
+    (
+        r#"make-char"#,
+        r#"Return the charset of highest priority that contains CH.
 ASCII characters are an exception: for them, this function always
 returns `ascii'.
 If optional 2nd arg RESTRICTION is non-nil, it is a list of charsets
 from which to find the charset.  It may also be a coding system.  In
 that case, find the charset from what supported by that coding system.
 
-(fn CH RESTRICTION)"#),
-    (r#"make-char-table"#, r#"Return a newly created char-table, with purpose PURPOSE.
+(fn CH RESTRICTION)"#,
+    ),
+    (
+        r#"make-char-table"#,
+        r#"Return a newly created char-table, with purpose PURPOSE.
 Each element is initialized to INIT, which defaults to nil.
 
 PURPOSE should be a symbol.  If it has a `char-table-extra-slots'
@@ -7017,12 +9308,18 @@ property, the property's value should be an integer between 0 and 10
 that specifies how many extra slots the char-table has.  Otherwise,
 the char-table has no extra slot.
 
-(fn PURPOSE INIT)"#),
-    (r#"make-closure"#, r#"Create a byte-code closure from PROTOTYPE and CLOSURE-VARS.
+(fn PURPOSE INIT)"#,
+    ),
+    (
+        r#"make-closure"#,
+        r#"Create a byte-code closure from PROTOTYPE and CLOSURE-VARS.
 Return a copy of PROTOTYPE, a byte-code object, with CLOSURE-VARS
 replacing the elements in the beginning of the constant-vector.
-(fn PROTOTYPE &rest CLOSURE-VARS)"#),
-    (r#"make-condition-variable"#, r#"Make a condition variable associated with MUTEX.
+(fn PROTOTYPE &rest CLOSURE-VARS)"#,
+    ),
+    (
+        r#"make-condition-variable"#,
+        r#"Make a condition variable associated with MUTEX.
 A condition variable provides a way for a thread to sleep while
 waiting for a state change.
 
@@ -7030,19 +9327,28 @@ MUTEX is the mutex associated with this condition variable.
 NAME, if given, is the name of this condition variable.  The name is
 informational only.
 
-(fn MUTEX NAME)"#),
-    (r#"make-directory-internal"#, r#"Create a new directory named DIRECTORY.
+(fn MUTEX NAME)"#,
+    ),
+    (
+        r#"make-directory-internal"#,
+        r#"Create a new directory named DIRECTORY.
 
-(fn DIRECTORY)"#),
-    (r#"make-finalizer"#, r#"Make a finalizer that will run FUNCTION.
+(fn DIRECTORY)"#,
+    ),
+    (
+        r#"make-finalizer"#,
+        r#"Make a finalizer that will run FUNCTION.
 FUNCTION will be called after garbage collection when the returned
 finalizer object becomes unreachable.  If the finalizer object is
 reachable only through references from finalizer objects, it does not
 count as reachable for the purpose of deciding whether to run
 FUNCTION.  FUNCTION will be run once per finalizer object.
 
-(fn FUNCTION)"#),
-    (r#"make-frame-invisible"#, r#"Make the frame FRAME invisible.
+(fn FUNCTION)"#,
+    ),
+    (
+        r#"make-frame-invisible"#,
+        r#"Make the frame FRAME invisible.
 If omitted, FRAME defaults to the currently selected frame.
 On graphical displays, invisible frames are not updated and are
 usually not displayed at all, even in a window system's \"taskbar\".
@@ -7055,12 +9361,18 @@ On a text terminal make FRAME invisible if and only if FRAME is a child
 frame.  If, in that case, FRAME is the selected frame, select the first
 visible ancestor of FRAME instead.
 
-(fn FRAME FORCE)"#),
-    (r#"make-frame-visible"#, r#"Make the frame FRAME visible (assuming it is an X window).
+(fn FRAME FORCE)"#,
+    ),
+    (
+        r#"make-frame-visible"#,
+        r#"Make the frame FRAME visible (assuming it is an X window).
 If omitted, FRAME defaults to the currently selected frame.
 
-(fn FRAME)"#),
-    (r#"make-hash-table"#, r#"Create and return a new hash table.
+(fn FRAME)"#,
+    ),
+    (
+        r#"make-hash-table"#,
+        r#"Create and return a new hash table.
 
 Arguments are specified as keyword/argument pairs.  The following
 arguments are defined:
@@ -7085,8 +9397,11 @@ is nil.
 The keywords arguments :rehash-threshold, :rehash-size, and :purecopy
 are obsolete and ignored.
 
-(fn &rest KEYWORD-ARGS)"#),
-    (r#"make-indirect-buffer"#, r#"Create and return an indirect buffer for buffer BASE-BUFFER, named NAME.
+(fn &rest KEYWORD-ARGS)"#,
+    ),
+    (
+        r#"make-indirect-buffer"#,
+        r#"Create and return an indirect buffer for buffer BASE-BUFFER, named NAME.
 BASE-BUFFER should be a live buffer, or the name of an existing buffer.
 
 NAME should be a string which is not the name of an existing buffer.
@@ -7105,15 +9420,21 @@ does not run the hooks `kill-buffer-hook',
 
 Interactively, CLONE and INHIBIT-BUFFER-HOOKS are nil.
 
-(fn BASE-BUFFER NAME CLONE INHIBIT-BUFFER-HOOKS)"#),
-    (r#"make-interpreted-closure"#, r#"Make an interpreted closure.
+(fn BASE-BUFFER NAME CLONE INHIBIT-BUFFER-HOOKS)"#,
+    ),
+    (
+        r#"make-interpreted-closure"#,
+        r#"Make an interpreted closure.
 ARGS should be the list of formal arguments.
 BODY should be a non-empty list of forms.
 ENV should be a lexical environment, like the second argument of `eval'.
 IFORM if non-nil should be of the form (interactive ...).
 
-(fn ARGS BODY ENV DOCSTRING IFORM)"#),
-    (r#"make-keymap"#, r#"Construct and return a new keymap, of the form (keymap CHARTABLE . ALIST).
+(fn ARGS BODY ENV DOCSTRING IFORM)"#,
+    ),
+    (
+        r#"make-keymap"#,
+        r#"Construct and return a new keymap, of the form (keymap CHARTABLE . ALIST).
 CHARTABLE is a char-table that holds the bindings for all characters
 without modifiers.  All entries in it are initially nil, meaning
 "command undefined".  ALIST is an assoc-list which holds bindings for
@@ -7123,11 +9444,17 @@ input stream.  Initially, ALIST is nil.
 The optional arg STRING supplies a menu name for the keymap
 in case you use it as a menu with `x-popup-menu'.
 
-(fn STRING)"#),
-    (r#"make-list"#, r#"Return a newly created list of length LENGTH, with each element being INIT.
+(fn STRING)"#,
+    ),
+    (
+        r#"make-list"#,
+        r#"Return a newly created list of length LENGTH, with each element being INIT.
 
-(fn LENGTH INIT)"#),
-    (r#"make-local-variable"#, r#"Make VARIABLE have a separate value in the current buffer.
+(fn LENGTH INIT)"#,
+    ),
+    (
+        r#"make-local-variable"#,
+        r#"Make VARIABLE have a separate value in the current buffer.
 Other buffers will continue to share a common default value.
 \(The buffer-local value of VARIABLE starts out as the same value
 VARIABLE previously had.  If VARIABLE was void, it remains void.)
@@ -7146,11 +9473,17 @@ See also `make-variable-buffer-local'.
 Do not use `make-local-variable' to make a hook variable buffer-local.
 Instead, use `add-hook' and specify t for the LOCAL argument.
 
-(fn VARIABLE)"#),
-    (r#"make-marker"#, r#"Return a newly allocated marker which does not point at any place.
+(fn VARIABLE)"#,
+    ),
+    (
+        r#"make-marker"#,
+        r#"Return a newly allocated marker which does not point at any place.
 
-(fn)"#),
-    (r#"make-mutex"#, r#"Create a mutex.
+(fn)"#,
+    ),
+    (
+        r#"make-mutex"#,
+        r#"Create a mutex.
 A mutex provides a synchronization point for threads.
 Only one thread at a time can hold a mutex.  Other threads attempting
 to acquire it will block until the mutex is available.
@@ -7160,8 +9493,11 @@ A thread can acquire a mutex any number of times.
 NAME, if given, is used as the name of the mutex.  The name is
 informational only.
 
-(fn NAME)"#),
-    (r#"make-network-process"#, r#"Create and return a network server or client process.
+(fn NAME)"#,
+    ),
+    (
+        r#"make-network-process"#,
+        r#"Create and return a network server or client process.
 
 In Emacs, network connections are represented by process objects, so
 input and output work as for subprocesses and `delete-process' closes
@@ -7326,8 +9662,11 @@ failed) connections may be logged in the server process's buffer.
 The original argument list, modified with the actual connection
 information, is available via the `process-contact' function.
 
-(fn &rest ARGS)"#),
-    (r#"make-overlay"#, r#"Create a new overlay with range BEG to END in BUFFER and return it.
+(fn &rest ARGS)"#,
+    ),
+    (
+        r#"make-overlay"#,
+        r#"Create a new overlay with range BEG to END in BUFFER and return it.
 If omitted, BUFFER defaults to the current buffer.
 BEG and END may be integers or markers.
 The fourth arg FRONT-ADVANCE, if non-nil, makes the marker
@@ -7337,8 +9676,11 @@ The fifth arg REAR-ADVANCE, if non-nil, makes the marker
 for the rear of the overlay advance when text is inserted there
 \(which means the text *is* included in the overlay).
 
-(fn BEG END BUFFER FRONT-ADVANCE REAR-ADVANCE)"#),
-    (r#"make-pipe-process"#, r#"Create and return a bidirectional pipe process.
+(fn BEG END BUFFER FRONT-ADVANCE REAR-ADVANCE)"#,
+    ),
+    (
+        r#"make-pipe-process"#,
+        r#"Create and return a bidirectional pipe process.
 
 In Emacs, pipes are represented by process objects, so input and
 output work as for subprocesses, and `delete-process' closes a pipe.
@@ -7373,8 +9715,11 @@ but you can send outgoing data.  The stopped state is cleared by
 
 :sentinel SENTINEL -- Install SENTINEL as the process sentinel.
 
-(fn &rest ARGS)"#),
-    (r#"make-process"#, r#"Start a program in a subprocess.  Return the process object for it.
+(fn &rest ARGS)"#,
+    ),
+    (
+        r#"make-process"#,
+        r#"Start a program in a subprocess.  Return the process object for it.
 
 This is similar to `start-process', but arguments are specified as
 keyword/argument pairs.  The following arguments are defined:
@@ -7432,14 +9777,20 @@ for a file name handler for the current buffer's `default-directory'
 and invoke that file name handler to make the process.  If there is no
 such handler, proceed as if FILE-HANDLER were nil.
 
-(fn &rest ARGS)"#),
-    (r#"make-record"#, r#"Create a new record.
+(fn &rest ARGS)"#,
+    ),
+    (
+        r#"make-record"#,
+        r#"Create a new record.
 TYPE is its type as returned by `type-of'; it should be either a
 symbol or a type descriptor.  SLOTS is the number of non-type slots,
 each initialized to INIT.
 
-(fn TYPE SLOTS INIT)"#),
-    (r#"make-serial-process"#, r#"Create and return a serial port process.
+(fn TYPE SLOTS INIT)"#,
+    ),
+    (
+        r#"make-serial-process"#,
+        r#"Create and return a serial port process.
 
 In Emacs, serial port connections are represented by process objects,
 so input and output work as for subprocesses, and `delete-process'
@@ -7509,8 +9860,11 @@ Examples:
 
 \(make-serial-process :port "/dev/tty.BlueConsole-SPP-1" :speed nil)
 
-(fn &rest ARGS)"#),
-    (r#"make-sparse-keymap"#, r#"Construct and return a new sparse keymap.
+(fn &rest ARGS)"#,
+    ),
+    (
+        r#"make-sparse-keymap"#,
+        r#"Construct and return a new sparse keymap.
 Its car is `keymap' and its cdr is an alist of (CHAR . DEFINITION),
 which binds the character CHAR to DEFINITION, or (SYMBOL . DEFINITION),
 which binds the function key or mouse event SYMBOL to DEFINITION.
@@ -7519,19 +9873,28 @@ Initially the alist is nil.
 The optional arg STRING supplies a menu name for the keymap
 in case you use it as a menu with `x-popup-menu'.
 
-(fn STRING)"#),
-    (r#"make-string"#, r#"Return a newly created string of length LENGTH, with INIT in each element.
+(fn STRING)"#,
+    ),
+    (
+        r#"make-string"#,
+        r#"Return a newly created string of length LENGTH, with INIT in each element.
 LENGTH must be an integer.
 INIT must be an integer that represents a character.
 If optional argument MULTIBYTE is non-nil, the result will be
 a multibyte string even if INIT is an ASCII character.
 
-(fn LENGTH INIT MULTIBYTE)"#),
-    (r#"make-symbol"#, r#"Return a newly allocated uninterned symbol whose name is NAME.
+(fn LENGTH INIT MULTIBYTE)"#,
+    ),
+    (
+        r#"make-symbol"#,
+        r#"Return a newly allocated uninterned symbol whose name is NAME.
 Its value is void, and its function definition and property list are nil.
 
-(fn NAME)"#),
-    (r#"make-symbolic-link"#, r#"Make a symbolic link to TARGET, named LINKNAME.
+(fn NAME)"#,
+    ),
+    (
+        r#"make-symbolic-link"#,
+        r#"Make a symbolic link to TARGET, named LINKNAME.
 If LINKNAME is a directory name, make a like-named symbolic link under
 LINKNAME.
 
@@ -7541,8 +9904,11 @@ An integer third arg means request confirmation if LINKNAME already
 exists, and expand leading "~" or strip leading "/:" in TARGET.
 This happens for interactive use with M-x.
 
-(fn TARGET LINKNAME OK-IF-ALREADY-EXISTS)"#),
-    (r#"make-temp-file-internal"#, r#"Generate a new file whose name starts with PREFIX, a string.
+(fn TARGET LINKNAME OK-IF-ALREADY-EXISTS)"#,
+    ),
+    (
+        r#"make-temp-file-internal"#,
+        r#"Generate a new file whose name starts with PREFIX, a string.
 Return the name of the generated file.  If DIR-FLAG is zero, do not
 create the file, just its name.  Otherwise, if DIR-FLAG is non-nil,
 create an empty directory.  The file name should end in SUFFIX.
@@ -7554,8 +9920,11 @@ Signal an error if the file could not be created.
 
 This function does not grok magic file names.
 
-(fn PREFIX DIR-FLAG SUFFIX TEXT)"#),
-    (r#"make-temp-name"#, r#"Generate temporary file name (string) starting with PREFIX (a string).
+(fn PREFIX DIR-FLAG SUFFIX TEXT)"#,
+    ),
+    (
+        r#"make-temp-name"#,
+        r#"Generate temporary file name (string) starting with PREFIX (a string).
 
 This function tries to choose a name that has no existing file.
 For this to work, PREFIX should be an absolute file name, and PREFIX
@@ -7565,8 +9934,11 @@ There is a race condition between calling `make-temp-name' and
 later creating the file, which opens all kinds of security holes.
 For that reason, you should normally use `make-temp-file' instead.
 
-(fn PREFIX)"#),
-    (r#"make-terminal-frame"#, r#"Create an additional terminal frame, possibly on another terminal.
+(fn PREFIX)"#,
+    ),
+    (
+        r#"make-terminal-frame"#,
+        r#"Create an additional terminal frame, possibly on another terminal.
 This function takes one argument, an alist specifying frame parameters.
 
 You can create multiple frames on a single text terminal, but only one
@@ -7582,8 +9954,11 @@ and the `tty-type' parameter specifies the terminal type.  Example:
 Note that changing the size of one terminal frame automatically
 affects all frames on the same terminal device.
 
-(fn PARMS)"#),
-    (r#"make-thread"#, r#"Start a new thread and run FUNCTION in it.
+(fn PARMS)"#,
+    ),
+    (
+        r#"make-thread"#,
+        r#"Start a new thread and run FUNCTION in it.
 When the function exits, the thread dies.
 If NAME is given, it must be a string; it names the new thread.
 
@@ -7594,8 +9969,11 @@ the thread is switched to another buffer and receives an error signal
 `thread-buffer-killed'.  But if the value is symbol `silently', no error
 will be signaled.
 
-(fn FUNCTION NAME BUFFER-DISPOSITION)"#),
-    (r#"make-variable-buffer-local"#, r#"Make VARIABLE become buffer-local whenever it is set.
+(fn FUNCTION NAME BUFFER-DISPOSITION)"#,
+    ),
+    (
+        r#"make-variable-buffer-local"#,
+        r#"Make VARIABLE become buffer-local whenever it is set.
 At any time, the value for the current buffer is in effect,
 unless the variable has never been set in this buffer,
 in which case the default value is in effect.
@@ -7614,12 +9992,18 @@ The function `default-value' gets the default value and `set-default' sets it.
 
 See also `defvar-local'.
 
-(fn VARIABLE)"#),
-    (r#"make-vector"#, r#"Return a newly created vector of length LENGTH, with each element being INIT.
+(fn VARIABLE)"#,
+    ),
+    (
+        r#"make-vector"#,
+        r#"Return a newly created vector of length LENGTH, with each element being INIT.
 See also the function `vector'.
 
-(fn LENGTH INIT)"#),
-    (r#"make-xwidget"#, r#"Make an xwidget of TYPE.
+(fn LENGTH INIT)"#,
+    ),
+    (
+        r#"make-xwidget"#,
+        r#"Make an xwidget of TYPE.
 If BUFFER is nil, use the current buffer.
 If BUFFER is a string and no such buffer exists, create it.
 TYPE is a symbol which can take one of the following values:
@@ -7631,8 +10015,11 @@ will share the same settings and internal subprocess as RELATED.
 Returns the newly constructed xwidget, or nil if construction
 fails.
 
-(fn TYPE TITLE WIDTH HEIGHT ARGUMENTS BUFFER RELATED)"#),
-    (r#"makunbound"#, r#"Empty out the value cell of SYMBOL, making it void as a variable.
+(fn TYPE TITLE WIDTH HEIGHT ARGUMENTS BUFFER RELATED)"#,
+    ),
+    (
+        r#"makunbound"#,
+        r#"Empty out the value cell of SYMBOL, making it void as a variable.
 Return SYMBOL.
 
 If a variable is void, trying to evaluate the variable signals a
@@ -7641,14 +10028,20 @@ details, see Info node `(elisp) Void Variables'.
 
 See also `fmakunbound'.
 
-(fn SYMBOL)"#),
-    (r#"malloc-info"#, r#"Report malloc information to stderr.
+(fn SYMBOL)"#,
+    ),
+    (
+        r#"malloc-info"#,
+        r#"Report malloc information to stderr.
 This function outputs to stderr an XML-formatted
 description of the current state of the memory-allocation
 arenas.
 
-(fn)"#),
-    (r#"malloc-trim"#, r#"Release free heap memory to the OS.
+(fn)"#,
+    ),
+    (
+        r#"malloc-trim"#,
+        r#"Release free heap memory to the OS.
 This function asks libc to return unused heap memory back to the operating
 system.  This function isn't guaranteed to do anything, and is mainly
 meant as a debugging tool.
@@ -7660,15 +10053,21 @@ not given, it defaults to 0.
 This function returns nil if no memory could be returned to the
 system, and non-nil if some memory could be returned.
 
-(fn LEAVE-PADDING)"#),
-    (r#"map-char-table"#, r#"Call FUNCTION for each character in CHAR-TABLE that has non-nil value.
+(fn LEAVE-PADDING)"#,
+    ),
+    (
+        r#"map-char-table"#,
+        r#"Call FUNCTION for each character in CHAR-TABLE that has non-nil value.
 FUNCTION is called with two arguments, KEY and VALUE.
 KEY is a character code or a cons of character codes specifying a
 range of characters that have the same value.
 VALUE is what (char-table-range CHAR-TABLE KEY) returns.
 
-(fn FUNCTION CHAR-TABLE)"#),
-    (r#"map-charset-chars"#, r#"Call FUNCTION for all characters in CHARSET.
+(fn FUNCTION CHAR-TABLE)"#,
+    ),
+    (
+        r#"map-charset-chars"#,
+        r#"Call FUNCTION for all characters in CHARSET.
 Optional 3rd argument ARG is an additional argument to be passed
 to FUNCTION, see below.
 Optional 4th and 5th arguments FROM-CODE and TO-CODE specify the
@@ -7685,8 +10084,11 @@ characters that belong to CHARSET on which FUNCTION should do its
 job.  FROM and TO are Emacs character codes, unlike FROM-CODE and
 TO-CODE, which are CHARSET code points.
 
-(fn FUNCTION CHARSET ARG FROM-CODE TO-CODE)"#),
-    (r#"map-keymap"#, r#"Call FUNCTION once for each event binding in KEYMAP.
+(fn FUNCTION CHARSET ARG FROM-CODE TO-CODE)"#,
+    ),
+    (
+        r#"map-keymap"#,
+        r#"Call FUNCTION once for each event binding in KEYMAP.
 FUNCTION is called with two arguments: the event that is bound, and
 the definition it is bound to.  The event may be a character range.
 
@@ -7696,18 +10098,27 @@ grandparent's bindings are also included and so on.
 
 For more information, see Info node `(elisp) Keymaps'.
 
-(fn FUNCTION KEYMAP)"#),
-    (r#"map-keymap-internal"#, r#"Call FUNCTION once for each event binding in KEYMAP.
+(fn FUNCTION KEYMAP)"#,
+    ),
+    (
+        r#"map-keymap-internal"#,
+        r#"Call FUNCTION once for each event binding in KEYMAP.
 FUNCTION is called with two arguments: the event that is bound, and
 the definition it is bound to.  The event may be a character range.
 If KEYMAP has a parent, this function returns it without processing it.
 
-(fn FUNCTION KEYMAP)"#),
-    (r#"mapatoms"#, r#"Call FUNCTION on every symbol in OBARRAY.
+(fn FUNCTION KEYMAP)"#,
+    ),
+    (
+        r#"mapatoms"#,
+        r#"Call FUNCTION on every symbol in OBARRAY.
 OBARRAY defaults to the value of `obarray'.
 
-(fn FUNCTION OBARRAY)"#),
-    (r#"mapbacktrace"#, r#"Call FUNCTION for each frame in backtrace.
+(fn FUNCTION OBARRAY)"#,
+    ),
+    (
+        r#"mapbacktrace"#,
+        r#"Call FUNCTION for each frame in backtrace.
 If BASE is non-nil, it should be a function and iteration will start
 from its nearest activation frame.
 FUNCTION is called with 4 arguments: EVALD, FUNC, ARGS, and FLAGS.  If
@@ -7719,23 +10130,35 @@ FLAGS is a plist of properties of the current frame: currently, the
 only supported property is :debug-on-exit.  `mapbacktrace' always
 returns nil.
 
-(fn FUNCTION BASE)"#),
-    (r#"mapc"#, r#"Apply FUNCTION to each element of SEQUENCE for side effects only.
+(fn FUNCTION BASE)"#,
+    ),
+    (
+        r#"mapc"#,
+        r#"Apply FUNCTION to each element of SEQUENCE for side effects only.
 Unlike `mapcar', don't accumulate the results.  Return SEQUENCE.
 SEQUENCE may be a list, a vector, a bool-vector, or a string.
 
-(fn FUNCTION SEQUENCE)"#),
-    (r#"mapcan"#, r#"Apply FUNCTION to each element of SEQUENCE, and concatenate
+(fn FUNCTION SEQUENCE)"#,
+    ),
+    (
+        r#"mapcan"#,
+        r#"Apply FUNCTION to each element of SEQUENCE, and concatenate
 the results by altering them (using `nconc').
 SEQUENCE may be a list, a vector, a bool-vector, or a string.
 
-(fn FUNCTION SEQUENCE)"#),
-    (r#"mapcar"#, r#"Apply FUNCTION to each element of SEQUENCE, and make a list of the results.
+(fn FUNCTION SEQUENCE)"#,
+    ),
+    (
+        r#"mapcar"#,
+        r#"Apply FUNCTION to each element of SEQUENCE, and make a list of the results.
 The result is a list just as long as SEQUENCE.
 SEQUENCE may be a list, a vector, a bool-vector, or a string.
 
-(fn FUNCTION SEQUENCE)"#),
-    (r#"mapconcat"#, r#"Apply FUNCTION to each element of SEQUENCE, and concat the results as strings.
+(fn FUNCTION SEQUENCE)"#,
+    ),
+    (
+        r#"mapconcat"#,
+        r#"Apply FUNCTION to each element of SEQUENCE, and concat the results as strings.
 In between each pair of results, stick in SEPARATOR.  Thus, " " as
   SEPARATOR results in spaces between the values returned by FUNCTION.
 
@@ -7749,40 +10172,64 @@ FUNCTION must be a function of one argument, and must return a value
   list of numbers that are valid character codepoints; nil is treated
   as an empty string.
 
-(fn FUNCTION SEQUENCE SEPARATOR)"#),
-    (r#"maphash"#, r#"Call FUNCTION for all entries in hash table TABLE.
+(fn FUNCTION SEQUENCE SEPARATOR)"#,
+    ),
+    (
+        r#"maphash"#,
+        r#"Call FUNCTION for all entries in hash table TABLE.
 FUNCTION is called with two arguments, KEY and VALUE.
 It should not alter TABLE in any way other than using `puthash' to
 set a new value for KEY, or `remhash' to remove KEY.
 `maphash' always returns nil.
 
-(fn FUNCTION TABLE)"#),
-    (r#"mark-marker"#, r#"Return this buffer's mark, as a marker object.
+(fn FUNCTION TABLE)"#,
+    ),
+    (
+        r#"mark-marker"#,
+        r#"Return this buffer's mark, as a marker object.
 Watch out!  Moving this marker changes the mark position.
 If you set the marker not to point anywhere, the buffer will have no mark.
 
-(fn)"#),
-    (r#"marker-buffer"#, r#"Return the buffer that MARKER points into, or nil if none.
+(fn)"#,
+    ),
+    (
+        r#"marker-buffer"#,
+        r#"Return the buffer that MARKER points into, or nil if none.
 Returns nil if MARKER points into a dead buffer.
 
-(fn MARKER)"#),
-    (r#"marker-insertion-type"#, r#"Return insertion type of MARKER: t if it stays after inserted text.
+(fn MARKER)"#,
+    ),
+    (
+        r#"marker-insertion-type"#,
+        r#"Return insertion type of MARKER: t if it stays after inserted text.
 The value nil means the marker stays before text inserted there.
 
-(fn MARKER)"#),
-    (r#"marker-last-position"#, r#"Return last position of MARKER in its buffer.
+(fn MARKER)"#,
+    ),
+    (
+        r#"marker-last-position"#,
+        r#"Return last position of MARKER in its buffer.
 This is like `marker-position' with one exception:  If the buffer of
 MARKER is dead, it returns the last position of MARKER in that buffer
 before it was killed.
 
-(fn MARKER)"#),
-    (r#"marker-position"#, r#"Return the position of MARKER, or nil if it points nowhere.
+(fn MARKER)"#,
+    ),
+    (
+        r#"marker-position"#,
+        r#"Return the position of MARKER, or nil if it points nowhere.
 
-(fn MARKER)"#),
-    (r#"markerp"#, r#"Return t if OBJECT is a marker (editor pointer).
+(fn MARKER)"#,
+    ),
+    (
+        r#"markerp"#,
+        r#"Return t if OBJECT is a marker (editor pointer).
 
-(fn OBJECT)"#),
-    (r#"match-beginning"#, r#"Return position of start of text matched by last search.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"match-beginning"#,
+        r#"Return position of start of text matched by last search.
 SUBEXP, a number, specifies the parenthesized subexpression in the last
   regexp for which to return the start position.
 Value is nil if SUBEXPth subexpression didn't match, or there were fewer
@@ -7792,8 +10239,11 @@ SUBEXP zero means the entire text matched by the whole regexp or whole
 
 Return value is undefined if the last search failed.
 
-(fn SUBEXP)"#),
-    (r#"match-data"#, r#"Return a list of positions that record text matched by the last search.
+(fn SUBEXP)"#,
+    ),
+    (
+        r#"match-data"#,
+        r#"Return a list of positions that record text matched by the last search.
 Element 2N of the returned list is the position of the beginning of the
 match of the Nth subexpression; it corresponds to `(match-beginning N)';
 element 2N + 1 is the position of the end of the match of the Nth
@@ -7828,11 +10278,17 @@ REUSE list will be modified to point to nowhere.
 
 Return value is undefined if the last search failed.
 
-(fn INTEGERS REUSE RESEAT)"#),
-    (r#"match-data--translate"#, r#"Add N to all positions in the match data.  Internal.
+(fn INTEGERS REUSE RESEAT)"#,
+    ),
+    (
+        r#"match-data--translate"#,
+        r#"Add N to all positions in the match data.  Internal.
 
-(fn N)"#),
-    (r#"match-end"#, r#"Return position of end of text matched by last search.
+(fn N)"#,
+    ),
+    (
+        r#"match-end"#,
+        r#"Return position of end of text matched by last search.
 SUBEXP, a number, specifies the parenthesized subexpression in the last
   regexp for which to return the start position.
 Value is nil if SUBEXPth subexpression didn't match, or there were fewer
@@ -7842,19 +10298,31 @@ SUBEXP zero means the entire text matched by the whole regexp or whole
 
 Return value is undefined if the last search failed.
 
-(fn SUBEXP)"#),
-    (r#"matching-paren"#, r#"Return the matching parenthesis of CHARACTER, or nil if none.
+(fn SUBEXP)"#,
+    ),
+    (
+        r#"matching-paren"#,
+        r#"Return the matching parenthesis of CHARACTER, or nil if none.
 
-(fn CHARACTER)"#),
-    (r#"max"#, r#"Return largest of all the arguments (which must be numbers or markers).
+(fn CHARACTER)"#,
+    ),
+    (
+        r#"max"#,
+        r#"Return largest of all the arguments (which must be numbers or markers).
 The value is always a number; markers are converted to numbers.
-(fn NUMBER-OR-MARKER &rest NUMBERS-OR-MARKERS)"#),
-    (r#"max-char"#, r#"Return the maximum character code.
+(fn NUMBER-OR-MARKER &rest NUMBERS-OR-MARKERS)"#,
+    ),
+    (
+        r#"max-char"#,
+        r#"Return the maximum character code.
 If UNICODE is non-nil, return the maximum character code defined
 by the Unicode Standard.
 
-(fn UNICODE)"#),
-    (r#"md5"#, r#"Return MD5 message digest of OBJECT, a buffer or string.
+(fn UNICODE)"#,
+    ),
+    (
+        r#"md5"#,
+        r#"Return MD5 message digest of OBJECT, a buffer or string.
 
 A message digest is the string representation of the cryptographic checksum
 of a document, and the algorithm to calculate it is defined in RFC 1321.
@@ -7890,20 +10358,29 @@ in `secure-hash'.
 Note that MD5 is not collision resistant and should not be used for
 anything security-related.  See `secure-hash' for alternatives.
 
-(fn OBJECT START END CODING-SYSTEM NOERROR)"#),
-    (r#"member"#, r#"Return non-nil if ELT is an element of LIST.  Comparison done with `equal'.
+(fn OBJECT START END CODING-SYSTEM NOERROR)"#,
+    ),
+    (
+        r#"member"#,
+        r#"Return non-nil if ELT is an element of LIST.  Comparison done with `equal'.
 The value is actually the tail of LIST whose car is ELT.
 
-(fn ELT LIST)"#),
-    (r#"memory-info"#, r#"Return a list of (TOTAL-RAM FREE-RAM TOTAL-SWAP FREE-SWAP).
+(fn ELT LIST)"#,
+    ),
+    (
+        r#"memory-info"#,
+        r#"Return a list of (TOTAL-RAM FREE-RAM TOTAL-SWAP FREE-SWAP).
 All values are in Kbytes.  If there is no swap space,
 last two values are zero.  If the system is not supported
 or memory information can't be obtained, return nil.
 If `default-directory' is remote, return memory information of the
 respective remote host.
 
-(fn)"#),
-    (r#"memory-use-counts"#, r#"Return a list of counters that measure how much consing there has been.
+(fn)"#,
+    ),
+    (
+        r#"memory-use-counts"#,
+        r#"Return a list of counters that measure how much consing there has been.
 Each of these counters increments for a certain kind of object.
 The counters wrap around from the largest positive integer to zero.
 Garbage collection does not decrease them.
@@ -7915,16 +10392,25 @@ objects consed.
 Frames, windows, buffers, and subprocesses count as vectors
   (but the contents of a buffer's text do not count here).
 
-(fn)"#),
-    (r#"memq"#, r#"Return non-nil if ELT is an element of LIST.  Comparison done with `eq'.
+(fn)"#,
+    ),
+    (
+        r#"memq"#,
+        r#"Return non-nil if ELT is an element of LIST.  Comparison done with `eq'.
 The value is actually the tail of LIST whose car is ELT.
 
-(fn ELT LIST)"#),
-    (r#"memql"#, r#"Return non-nil if ELT is an element of LIST.  Comparison done with `eql'.
+(fn ELT LIST)"#,
+    ),
+    (
+        r#"memql"#,
+        r#"Return non-nil if ELT is an element of LIST.  Comparison done with `eql'.
 The value is actually the tail of LIST whose car is ELT.
 
-(fn ELT LIST)"#),
-    (r#"menu-bar-menu-at-x-y"#, r#"Return the menu-bar menu on FRAME at pixel coordinates X, Y.
+(fn ELT LIST)"#,
+    ),
+    (
+        r#"menu-bar-menu-at-x-y"#,
+        r#"Return the menu-bar menu on FRAME at pixel coordinates X, Y.
 X and Y are frame-relative pixel coordinates, assumed to define
 a location within the menu bar.
 If FRAME is nil or omitted, it defaults to the selected frame.
@@ -7943,16 +10429,25 @@ or on an X frame that doesn't use any GUI toolkit.  Otherwise,
 Emacs does not manage the menu bar and cannot convert coordinates
 into menu items.
 
-(fn X Y FRAME)"#),
-    (r#"menu-or-popup-active-p"#, r#"SKIP: real doc in xfns.c.
+(fn X Y FRAME)"#,
+    ),
+    (
+        r#"menu-or-popup-active-p"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn)"#),
-    (r#"merge-face-attribute"#, r#"Return face ATTRIBUTE VALUE1 merged with VALUE2.
+(fn)"#,
+    ),
+    (
+        r#"merge-face-attribute"#,
+        r#"Return face ATTRIBUTE VALUE1 merged with VALUE2.
 If VALUE1 or VALUE2 are absolute (see `face-attribute-relative-p'), then
 the result will be absolute, otherwise it will be relative.
 
-(fn ATTRIBUTE VALUE1 VALUE2)"#),
-    (r#"message"#, r#"Display a message at the bottom of the screen.
+(fn ATTRIBUTE VALUE1 VALUE2)"#,
+    ),
+    (
+        r#"message"#,
+        r#"Display a message at the bottom of the screen.
 The message also goes into the `*Messages*' buffer, if `message-log-max'
 is non-nil.  (In keyboard macros, that's all it does.)
 Return the message.
@@ -7973,8 +10468,11 @@ If the first argument is nil or the empty string, the function clears
 any existing message; this lets the minibuffer contents show.  See
 also `current-message'.
 
-(fn FORMAT-STRING &rest ARGS)"#),
-    (r#"message-box"#, r#"Display a message, in a dialog box if possible.
+(fn FORMAT-STRING &rest ARGS)"#,
+    ),
+    (
+        r#"message-box"#,
+        r#"Display a message, in a dialog box if possible.
 If a dialog box is not available, use the echo area.
 The first argument is a format control string, and the rest are data
 to be formatted under control of the string.  See `format-message' for
@@ -7983,8 +10481,11 @@ details.
 If the first argument is nil or the empty string, clear any existing
 message; let the minibuffer contents show.
 
-(fn FORMAT-STRING &rest ARGS)"#),
-    (r#"message-or-box"#, r#"Display a message in a dialog box or in the echo area.
+(fn FORMAT-STRING &rest ARGS)"#,
+    ),
+    (
+        r#"message-or-box"#,
+        r#"Display a message in a dialog box or in the echo area.
 If this command was invoked with the mouse, use a dialog box if
 `use-dialog-box' is non-nil.
 Otherwise, use the echo area.
@@ -7995,48 +10496,81 @@ details.
 If the first argument is nil or the empty string, clear any existing
 message; let the minibuffer contents show.
 
-(fn FORMAT-STRING &rest ARGS)"#),
-    (r#"min"#, r#"Return smallest of all the arguments (which must be numbers or markers).
+(fn FORMAT-STRING &rest ARGS)"#,
+    ),
+    (
+        r#"min"#,
+        r#"Return smallest of all the arguments (which must be numbers or markers).
 The value is always a number; markers are converted to numbers.
-(fn NUMBER-OR-MARKER &rest NUMBERS-OR-MARKERS)"#),
-    (r#"minibuffer-contents"#, r#"Return the user input in a minibuffer as a string.
+(fn NUMBER-OR-MARKER &rest NUMBERS-OR-MARKERS)"#,
+    ),
+    (
+        r#"minibuffer-contents"#,
+        r#"Return the user input in a minibuffer as a string.
 If the current buffer is not a minibuffer, return its entire contents.
 
-(fn)"#),
-    (r#"minibuffer-contents-no-properties"#, r#"Return the user input in a minibuffer as a string, without text-properties.
+(fn)"#,
+    ),
+    (
+        r#"minibuffer-contents-no-properties"#,
+        r#"Return the user input in a minibuffer as a string, without text-properties.
 If the current buffer is not a minibuffer, return its entire contents.
 
-(fn)"#),
-    (r#"minibuffer-depth"#, r#"Return current depth of activations of minibuffer, a nonnegative integer.
+(fn)"#,
+    ),
+    (
+        r#"minibuffer-depth"#,
+        r#"Return current depth of activations of minibuffer, a nonnegative integer.
 
-(fn)"#),
-    (r#"minibuffer-innermost-command-loop-p"#, r#"Return t if BUFFER is a minibuffer at the current command loop level.
+(fn)"#,
+    ),
+    (
+        r#"minibuffer-innermost-command-loop-p"#,
+        r#"Return t if BUFFER is a minibuffer at the current command loop level.
 No argument or nil as argument means use the current buffer as BUFFER.
 
-(fn BUFFER)"#),
-    (r#"minibuffer-prompt"#, r#"Return the prompt string of the currently-active minibuffer.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"minibuffer-prompt"#,
+        r#"Return the prompt string of the currently-active minibuffer.
 If no minibuffer is active, return nil.
 
-(fn)"#),
-    (r#"minibuffer-prompt-end"#, r#"Return the buffer position of the end of the minibuffer prompt.
+(fn)"#,
+    ),
+    (
+        r#"minibuffer-prompt-end"#,
+        r#"Return the buffer position of the end of the minibuffer prompt.
 Return (point-min) if current buffer is not a minibuffer.
 
-(fn)"#),
-    (r#"minibuffer-selected-window"#, r#"Return window selected just before minibuffer window was selected.
+(fn)"#,
+    ),
+    (
+        r#"minibuffer-selected-window"#,
+        r#"Return window selected just before minibuffer window was selected.
 Return nil if the selected window is not a minibuffer window.
 
-(fn)"#),
-    (r#"minibuffer-window"#, r#"Return the minibuffer window for frame FRAME.
+(fn)"#,
+    ),
+    (
+        r#"minibuffer-window"#,
+        r#"Return the minibuffer window for frame FRAME.
 If FRAME is omitted or nil, it defaults to the selected frame.
 
-(fn FRAME)"#),
-    (r#"minibufferp"#, r#"Return t if BUFFER is a minibuffer.
+(fn FRAME)"#,
+    ),
+    (
+        r#"minibufferp"#,
+        r#"Return t if BUFFER is a minibuffer.
 No argument or nil as argument means use current buffer as BUFFER.
 BUFFER can be a buffer or a buffer name.  If LIVE is non-nil, then
 return t only if BUFFER is an active minibuffer.
 
-(fn BUFFER LIVE)"#),
-    (r#"minor-mode-key-binding"#, r#"Find the visible minor mode bindings of KEY.
+(fn BUFFER LIVE)"#,
+    ),
+    (
+        r#"minor-mode-key-binding"#,
+        r#"Find the visible minor mode bindings of KEY.
 Return an alist of pairs (MODENAME . BINDING), where MODENAME is
 the symbol which names the minor mode binding KEY, and BINDING is
 KEY's definition in that mode.  In particular, if KEY has no
@@ -8048,13 +10582,19 @@ that come after prefix bindings.
 If optional argument ACCEPT-DEFAULT is non-nil, recognize default
 bindings; see the description of `lookup-key' for more details about this.
 
-(fn KEY ACCEPT-DEFAULT)"#),
-    (r#"mod"#, r#"Return X modulo Y.
+(fn KEY ACCEPT-DEFAULT)"#,
+    ),
+    (
+        r#"mod"#,
+        r#"Return X modulo Y.
 The result falls between zero (inclusive) and Y (exclusive).
 Both X and Y must be numbers or markers.
 
-(fn X Y)"#),
-    (r#"modify-category-entry"#, r#"Modify the category set of CHARACTER by adding CATEGORY to it.
+(fn X Y)"#,
+    ),
+    (
+        r#"modify-category-entry"#,
+        r#"Modify the category set of CHARACTER by adding CATEGORY to it.
 The category is changed only for table TABLE, which defaults to
 the current buffer's category table.
 CHARACTER can be either a single character or a cons representing the
@@ -8064,8 +10604,11 @@ Use `describe-categories' to see existing category names.
 If optional fourth argument RESET is non-nil,
 then delete CATEGORY from the category set instead of adding it.
 
-(fn CHARACTER CATEGORY TABLE RESET)"#),
-    (r#"modify-frame-parameters"#, r#"Modify FRAME according to new values of its parameters in ALIST.
+(fn CHARACTER CATEGORY TABLE RESET)"#,
+    ),
+    (
+        r#"modify-frame-parameters"#,
+        r#"Modify FRAME according to new values of its parameters in ALIST.
 If FRAME is nil, it defaults to the selected frame.
 ALIST is an alist of parameters to change and their new values.
 Each element of ALIST has the form (PARM . VALUE), where PARM is a symbol.
@@ -8076,8 +10619,11 @@ parameter list so that `frame-parameters' will return them.
 PARMs that are not meaningful are still stored in the frame's parameter
 list, but are otherwise ignored.
 
-(fn FRAME ALIST)"#),
-    (r#"modify-syntax-entry"#, r#"Set syntax for character CHAR according to string NEWENTRY.
+(fn FRAME ALIST)"#,
+    ),
+    (
+        r#"modify-syntax-entry"#,
+        r#"Set syntax for character CHAR according to string NEWENTRY.
 The syntax is changed only for table SYNTAX-TABLE, which defaults to
  the current buffer's syntax table.
 CHAR may be a cons (MIN . MAX), in which case, syntaxes of all characters
@@ -8115,14 +10661,23 @@ c (on any of its chars) using this flag:
  p means CHAR is a prefix character for `backward-prefix-chars';
    such characters are treated as whitespace when they occur
    between expressions.
-(fn CHAR NEWENTRY &optional SYNTAX-TABLE)"#),
-    (r#"module-function-p"#, r#"Return t if OBJECT is a function loaded from a dynamic module.
+(fn CHAR NEWENTRY &optional SYNTAX-TABLE)"#,
+    ),
+    (
+        r#"module-function-p"#,
+        r#"Return t if OBJECT is a function loaded from a dynamic module.
 
-(fn OBJECT)"#),
-    (r#"module-load"#, r#"Load module FILE.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"module-load"#,
+        r#"Load module FILE.
 
-(fn FILE)"#),
-    (r#"mouse-pixel-position"#, r#"Return a list (FRAME X . Y) giving the current mouse frame and position.
+(fn FILE)"#,
+    ),
+    (
+        r#"mouse-pixel-position"#,
+        r#"Return a list (FRAME X . Y) giving the current mouse frame and position.
 The position is given in pixel units, where (0, 0) is the
 upper-left corner of the frame, X is the horizontal offset, and Y is
 the vertical offset.
@@ -8132,8 +10687,11 @@ mouseless terminal or hasn't been programmed to read the mouse
 position, it returns the selected frame for FRAME and nil for X and
 Y.
 
-(fn)"#),
-    (r#"mouse-position"#, r#"Return a list (FRAME X . Y) giving the current mouse frame and position.
+(fn)"#,
+    ),
+    (
+        r#"mouse-position"#,
+        r#"Return a list (FRAME X . Y) giving the current mouse frame and position.
 The position is given in canonical character cells, where (0, 0) is the
 upper-left corner of the frame, X is the horizontal offset, and Y is the
 vertical offset, measured in units of the frame's default character size.
@@ -8147,26 +10705,38 @@ is non-nil, `mouse-position' calls it, passing the normal return value
 to that function as an argument, and returns whatever that function
 returns.
 
-(fn)"#),
-    (r#"mouse-position-in-root-frame"#, r#"Return mouse position in selected frame's root frame.
+(fn)"#,
+    ),
+    (
+        r#"mouse-position-in-root-frame"#,
+        r#"Return mouse position in selected frame's root frame.
 Return the position of `mouse-position' in coordinates of the root frame
 of the frame returned by 'mouse-position'.
 
-(fn)"#),
-    (r#"move-overlay"#, r#"Set the endpoints of OVERLAY to BEG and END in BUFFER.
+(fn)"#,
+    ),
+    (
+        r#"move-overlay"#,
+        r#"Set the endpoints of OVERLAY to BEG and END in BUFFER.
 If BUFFER is omitted, leave OVERLAY in the same buffer it inhabits now.
 If BUFFER is omitted, and OVERLAY is in no buffer, put it in the current
 buffer.
 
-(fn OVERLAY BEG END BUFFER)"#),
-    (r#"move-point-visually"#, r#"Move point in the visual order in the specified DIRECTION.
+(fn OVERLAY BEG END BUFFER)"#,
+    ),
+    (
+        r#"move-point-visually"#,
+        r#"Move point in the visual order in the specified DIRECTION.
 DIRECTION can be 1, meaning move to the right, or -1, which moves to the
 left.
 
 Value is the new character position of point.
 
-(fn DIRECTION)"#),
-    (r#"move-to-column"#, r#"Move point to column COLUMN in the current line.
+(fn DIRECTION)"#,
+    ),
+    (
+        r#"move-to-column"#,
+        r#"Move point to column COLUMN in the current line.
 Interactively, COLUMN is the value of prefix numeric argument.
 The column of a character is calculated by adding together the widths
 as displayed of the previous characters in the line.
@@ -8188,8 +10758,11 @@ to reach COLUMN, add spaces/tabs to get there.
 
 The return value is the current column.
 
-(fn COLUMN FORCE)"#),
-    (r#"move-to-window-line"#, r#"Position point relative to window.
+(fn COLUMN FORCE)"#,
+    ),
+    (
+        r#"move-to-window-line"#,
+        r#"Position point relative to window.
 ARG nil means position point at center of window.
 Else, ARG specifies vertical position within the window;
 zero means top of window, negative means relative to bottom
@@ -8199,59 +10772,101 @@ of the window.
 Value is the screen line of the window point moved to, counting
 from the top of the window.
 
-(fn ARG)"#),
-    (r#"msdos-downcase-filename"#, r#"Convert alphabetic characters in FILENAME to lower case and return that.
+(fn ARG)"#,
+    ),
+    (
+        r#"msdos-downcase-filename"#,
+        r#"Convert alphabetic characters in FILENAME to lower case and return that.
 When long filenames are supported, doesn't change FILENAME.
 If FILENAME is not a string, returns nil.
 The argument object is never altered--the value is a copy.
 
-(fn FILENAME)"#),
-    (r#"msdos-long-file-names"#, r#"Return non-nil if long file names are supported on MS-DOS.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"msdos-long-file-names"#,
+        r#"Return non-nil if long file names are supported on MS-DOS.
 
-(fn)"#),
-    (r#"msdos-memget"#, r#"Read DOS memory at offset ADDRESS into VECTOR.
+(fn)"#,
+    ),
+    (
+        r#"msdos-memget"#,
+        r#"Read DOS memory at offset ADDRESS into VECTOR.
 Return the updated VECTOR.
 
-(fn ADDRESS VECTOR)"#),
-    (r#"msdos-memput"#, r#"Write DOS memory at offset ADDRESS from VECTOR.
+(fn ADDRESS VECTOR)"#,
+    ),
+    (
+        r#"msdos-memput"#,
+        r#"Write DOS memory at offset ADDRESS from VECTOR.
 
-(fn ADDRESS VECTOR)"#),
-    (r#"msdos-mouse-disable"#, r#"Disable mouse if available.
+(fn ADDRESS VECTOR)"#,
+    ),
+    (
+        r#"msdos-mouse-disable"#,
+        r#"Disable mouse if available.
 
-(fn)"#),
-    (r#"msdos-mouse-enable"#, r#"Enable mouse if available.
+(fn)"#,
+    ),
+    (
+        r#"msdos-mouse-enable"#,
+        r#"Enable mouse if available.
 
-(fn)"#),
-    (r#"msdos-mouse-init"#, r#"Initialize and enable mouse if available.
+(fn)"#,
+    ),
+    (
+        r#"msdos-mouse-init"#,
+        r#"Initialize and enable mouse if available.
 
-(fn)"#),
-    (r#"msdos-mouse-p"#, r#"Report whether a mouse is present.
+(fn)"#,
+    ),
+    (
+        r#"msdos-mouse-p"#,
+        r#"Report whether a mouse is present.
 
-(fn)"#),
-    (r#"msdos-remember-default-colors"#, r#"Remember the screen colors of the current frame.
+(fn)"#,
+    ),
+    (
+        r#"msdos-remember-default-colors"#,
+        r#"Remember the screen colors of the current frame.
 
-(fn FRAME)"#),
-    (r#"msdos-set-keyboard"#, r#"Set keyboard layout according to COUNTRY-CODE.
+(fn FRAME)"#,
+    ),
+    (
+        r#"msdos-set-keyboard"#,
+        r#"Set keyboard layout according to COUNTRY-CODE.
 If the optional argument ALLKEYS is non-nil, the keyboard is mapped for
 all keys; otherwise it is only used when the ALT key is pressed.
 The current keyboard layout is available in dos-keyboard-code.
 
-(fn COUNTRY-CODE ALLKEYS)"#),
-    (r#"msdos-set-mouse-buttons"#, r#"Set the number of mouse buttons to use by Emacs.
+(fn COUNTRY-CODE ALLKEYS)"#,
+    ),
+    (
+        r#"msdos-set-mouse-buttons"#,
+        r#"Set the number of mouse buttons to use by Emacs.
 This is useful with mice that report the number of buttons inconsistently,
 e.g., if the number of buttons is reported as 3, but Emacs only sees 2 of
 them.  This happens with wheeled mice on Windows 9X, for example.
 
-(fn NBUTTONS)"#),
-    (r#"multibyte-char-to-unibyte"#, r#"Convert the multibyte character CH to a byte.
+(fn NBUTTONS)"#,
+    ),
+    (
+        r#"multibyte-char-to-unibyte"#,
+        r#"Convert the multibyte character CH to a byte.
 If the multibyte character does not represent a byte, return -1.
 
-(fn CH)"#),
-    (r#"multibyte-string-p"#, r#"Return t if OBJECT is a multibyte string.
+(fn CH)"#,
+    ),
+    (
+        r#"multibyte-string-p"#,
+        r#"Return t if OBJECT is a multibyte string.
 Return nil if OBJECT is either a unibyte string, or not a string.
 
-(fn OBJECT)"#),
-    (r#"mutex-lock"#, r#"Acquire a mutex.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"mutex-lock"#,
+        r#"Acquire a mutex.
 If the current thread already owns MUTEX, increment the count and
 return.
 Otherwise, if no thread owns MUTEX, make the current thread own it.
@@ -8259,21 +10874,33 @@ Otherwise, block until MUTEX is available, or until the current thread
 is signaled using `thread-signal'.
 Note that calls to `mutex-lock' and `mutex-unlock' must be paired.
 
-(fn MUTEX)"#),
-    (r#"mutex-name"#, r#"Return the name of MUTEX.
+(fn MUTEX)"#,
+    ),
+    (
+        r#"mutex-name"#,
+        r#"Return the name of MUTEX.
 If no name was given when MUTEX was created, return nil.
 
-(fn MUTEX)"#),
-    (r#"mutex-unlock"#, r#"Release the mutex.
+(fn MUTEX)"#,
+    ),
+    (
+        r#"mutex-unlock"#,
+        r#"Release the mutex.
 If this thread does not own MUTEX, signal an error.
 Otherwise, decrement the mutex's count.  If the count is zero,
 release MUTEX.
 
-(fn MUTEX)"#),
-    (r#"mutexp"#, r#"Return t if OBJECT is a mutex.
+(fn MUTEX)"#,
+    ),
+    (
+        r#"mutexp"#,
+        r#"Return t if OBJECT is a mutex.
 
-(fn OBJECT)"#),
-    (r#"narrow-to-region"#, r#"Restrict editing in this buffer to the current region.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"narrow-to-region"#,
+        r#"Restrict editing in this buffer to the current region.
 The rest of the text becomes temporarily invisible and untouchable
 but is not deleted; if you save the buffer in a file, the invisible
 text is included in the file.  \\[widen] makes all visible again.
@@ -8290,27 +10917,48 @@ the corresponding limit set by `with-restriction' is used instead of the
 argument.  To gain access to other portions of the buffer, use
 `without-restriction' with the same label.
 
-(fn START END)"#),
-    (r#"native-comp-available-p"#, r#"Return non-nil if native compilation support is built-in.
+(fn START END)"#,
+    ),
+    (
+        r#"native-comp-available-p"#,
+        r#"Return non-nil if native compilation support is built-in.
 
-(fn)"#),
-    (r#"native-comp-unit-file"#, r#"Return the file of the native compilation unit.
+(fn)"#,
+    ),
+    (
+        r#"native-comp-unit-file"#,
+        r#"Return the file of the native compilation unit.
 
-(fn COMP-UNIT)"#),
-    (r#"native-comp-unit-set-file"#, r#"Return the file of the native compilation unit.
+(fn COMP-UNIT)"#,
+    ),
+    (
+        r#"native-comp-unit-set-file"#,
+        r#"Return the file of the native compilation unit.
 
-(fn COMP-UNIT NEW-FILE)"#),
-    (r#"native-elisp-load"#, r#"Load native elisp code FILENAME.
+(fn COMP-UNIT NEW-FILE)"#,
+    ),
+    (
+        r#"native-elisp-load"#,
+        r#"Load native elisp code FILENAME.
 LATE-LOAD has to be non-nil when loading for deferred compilation.
 
-(fn FILENAME LATE-LOAD)"#),
-    (r#"natnump"#, r#"Return t if OBJECT is a nonnegative integer.
+(fn FILENAME LATE-LOAD)"#,
+    ),
+    (
+        r#"natnump"#,
+        r#"Return t if OBJECT is a nonnegative integer.
 
-(fn OBJECT)"#),
-    (r#"nconc"#, r#"Concatenate any number of lists by altering them.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"nconc"#,
+        r#"Concatenate any number of lists by altering them.
 Only the last argument is not altered, and need not be a list.
-(fn &rest LISTS)"#),
-    (r#"network-interface-info"#, r#"Return information about network interface named IFNAME.
+(fn &rest LISTS)"#,
+    ),
+    (
+        r#"network-interface-info"#,
+        r#"Return information about network interface named IFNAME.
 The return value is a list (ADDR BCAST NETMASK HWADDR FLAGS),
 where ADDR is the layer 3 address, BCAST is the layer 3 broadcast address,
 NETMASK is the layer 3 network mask, HWADDR is the layer 2 address, and
@@ -8319,8 +10967,11 @@ FLAGS is the current flags of the interface.
 Data that is unavailable is returned as nil.  Only returns IPv4 layer 3
 addresses, for IPv6 use `network-interface-list'.
 
-(fn IFNAME)"#),
-    (r#"network-interface-list"#, r#"Return an alist of all network interfaces and their network address.
+(fn IFNAME)"#,
+    ),
+    (
+        r#"network-interface-list"#,
+        r#"Return an alist of all network interfaces and their network address.
 Each element is a cons of the form (IFNAME . IP) where IFNAME is a
 string containing the interface name, and IP is the network address in
 internal format; see the description of ADDRESS in
@@ -8341,8 +10992,11 @@ See also `network-interface-info', which is limited to IPv4 only.
 
 If the information is not available, return nil.
 
-(fn FULL FAMILY)"#),
-    (r#"network-lookup-address-info"#, r#"Look up Internet Protocol (IP) address info of NAME.
+(fn FULL FAMILY)"#,
+    ),
+    (
+        r#"network-lookup-address-info"#,
+        r#"Look up Internet Protocol (IP) address info of NAME.
 NAME must be an ASCII-only string.  For looking up internationalized
 hostnames, use `puny-encode-domain' on the string first.
 
@@ -8358,8 +11012,11 @@ is a vector of integers, as per the description of ADDRESS in
 `make-network-process'.  In case of error log the error message
 returned from the lookup.
 
-(fn NAME FAMILY HINT)"#),
-    (r#"new-fontset"#, r#"Create a new fontset NAME from font information in FONTLIST.
+(fn NAME FAMILY HINT)"#,
+    ),
+    (
+        r#"new-fontset"#,
+        r#"Create a new fontset NAME from font information in FONTLIST.
 
 FONTLIST is an alist of scripts vs the corresponding font specification list.
 Each element of FONTLIST has the form (SCRIPT FONT-SPEC ...), where a
@@ -8372,8 +11029,11 @@ char-table `char-script-table'.
 FONT-SPEC is a vector, a cons, or a string.  See the documentation of
 `set-fontset-font' for the meaning.
 
-(fn NAME FONTLIST)"#),
-    (r#"newline-cache-check"#, r#"Check the newline cache of BUFFER against buffer contents.
+(fn NAME FONTLIST)"#,
+    ),
+    (
+        r#"newline-cache-check"#,
+        r#"Check the newline cache of BUFFER against buffer contents.
 
 BUFFER defaults to the current buffer.
 
@@ -8381,8 +11041,11 @@ Value is an array of 2 sub-arrays of buffer positions for newlines,
 the first based on the cache, the second based on actually scanning
 the buffer.  If the buffer doesn't have a cache, the value is nil.
 
-(fn BUFFER)"#),
-    (r#"next-char-property-change"#, r#"Return the position of next text property or overlay change.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"next-char-property-change"#,
+        r#"Return the position of next text property or overlay change.
 This scans characters forward in the current buffer from POSITION till
 it finds a change in some text property, or the beginning or end of an
 overlay, and returns the position of that.
@@ -8393,8 +11056,11 @@ If the optional second argument LIMIT is non-nil, the function doesn't
 search past position LIMIT, and returns LIMIT if nothing is found
 before LIMIT.  LIMIT is a no-op if it is greater than (point-max).
 
-(fn POSITION LIMIT)"#),
-    (r#"next-frame"#, r#"Return the next frame in the frame list after FRAME.
+(fn POSITION LIMIT)"#,
+    ),
+    (
+        r#"next-frame"#,
+        r#"Return the next frame in the frame list after FRAME.
 Only frames on the same terminal as FRAME are included in the list
 of candidate frames.  FRAME defaults to the selected frame.
 
@@ -8412,13 +11078,19 @@ If MINIFRAME is any other value, include all frames.
 
 Return FRAME if no suitable next frame is found.
 
-(fn FRAME MINIFRAME)"#),
-    (r#"next-overlay-change"#, r#"Return the next position after POS where an overlay starts or ends.
+(fn FRAME MINIFRAME)"#,
+    ),
+    (
+        r#"next-overlay-change"#,
+        r#"Return the next position after POS where an overlay starts or ends.
 If there are no overlay boundaries from POS to (point-max),
 the value is (point-max).
 
-(fn POS)"#),
-    (r#"next-property-change"#, r#"Return the position of next property change.
+(fn POS)"#,
+    ),
+    (
+        r#"next-property-change"#,
+        r#"Return the position of next property change.
 Scans characters forward from POSITION in OBJECT till it finds
 a change in some text property, then returns the position of the change.
 If the optional second argument OBJECT is a buffer (or nil, which means
@@ -8431,13 +11103,19 @@ greater than POSITION, never equal.
 If the optional third argument LIMIT is non-nil, don't search
 past position LIMIT; return LIMIT if nothing is found before LIMIT.
 
-(fn POSITION OBJECT LIMIT)"#),
-    (r#"next-read-file-uses-dialog-p"#, r#"Return t if a call to `read-file-name' will use a dialog.
+(fn POSITION OBJECT LIMIT)"#,
+    ),
+    (
+        r#"next-read-file-uses-dialog-p"#,
+        r#"Return t if a call to `read-file-name' will use a dialog.
 The return value is only relevant for a call to `read-file-name' that happens
 before any other event (mouse or keypress) is handled.
 
-(fn)"#),
-    (r#"next-single-char-property-change"#, r#"Return the position of next text property or overlay change for a specific property.
+(fn)"#,
+    ),
+    (
+        r#"next-single-char-property-change"#,
+        r#"Return the position of next text property or overlay change for a specific property.
 Scans characters forward from POSITION till it finds
 a change in the PROP property, then returns the position of the change.
 If the optional third argument OBJECT is a buffer (or nil, which means
@@ -8453,8 +11131,11 @@ buffer, this function returns `point-max', not LIMIT.
 
 The property values are compared with `eq'.
 
-(fn POSITION PROP OBJECT LIMIT)"#),
-    (r#"next-single-property-change"#, r#"Return the position of next property change for a specific property.
+(fn POSITION PROP OBJECT LIMIT)"#,
+    ),
+    (
+        r#"next-single-property-change"#,
+        r#"Return the position of next property change for a specific property.
 Scans characters forward from POSITION till it finds
 a change in the PROP property, then returns the position of the change.
 If the optional third argument OBJECT is a buffer (or nil, which means
@@ -8468,8 +11149,11 @@ greater than POSITION, never equal.
 If the optional fourth argument LIMIT is non-nil, don't search
 past position LIMIT; return LIMIT if nothing is found before LIMIT.
 
-(fn POSITION PROP OBJECT LIMIT)"#),
-    (r#"next-window"#, r#"Return live window after WINDOW in the cyclic ordering of windows.
+(fn POSITION PROP OBJECT LIMIT)"#,
+    ),
+    (
+        r#"next-window"#,
+        r#"Return live window after WINDOW in the cyclic ordering of windows.
 WINDOW must be a live window and defaults to the selected one.  The
 optional arguments MINIBUF and ALL-FRAMES specify the set of windows to
 consider.
@@ -8502,89 +11186,143 @@ If you use consistent values for MINIBUF and ALL-FRAMES, you can use
 windows, eventually ending up back at the window you started with.
 `previous-window' traverses the same cycle, in the reverse order.
 
-(fn WINDOW MINIBUF ALL-FRAMES)"#),
-    (r#"ngettext"#, r#"Return the translation of MSGID (plural MSGID-PLURAL) depending on N.
+(fn WINDOW MINIBUF ALL-FRAMES)"#,
+    ),
+    (
+        r#"ngettext"#,
+        r#"Return the translation of MSGID (plural MSGID-PLURAL) depending on N.
 MSGID is the singular form of the string to be converted;
 use it as the key for the search in the translation catalog.
 MSGID-PLURAL is the plural form.  Use N to select the proper translation.
 If no message catalog is found, MSGID is returned if N is equal to 1,
 otherwise MSGID-PLURAL.
 
-(fn MSGID MSGID-PLURAL N)"#),
-    (r#"nlistp"#, r#"Return t if OBJECT is not a list.  Lists include nil.
+(fn MSGID MSGID-PLURAL N)"#,
+    ),
+    (
+        r#"nlistp"#,
+        r#"Return t if OBJECT is not a list.  Lists include nil.
 
-(fn OBJECT)"#),
-    (r#"nreverse"#, r#"Reverse order of items in a list, vector or string SEQ.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"nreverse"#,
+        r#"Reverse order of items in a list, vector or string SEQ.
 If SEQ is a list, it should be nil-terminated.
 This function may destructively modify SEQ to produce the value.
 
-(fn SEQ)"#),
-    (r#"ntake"#, r#"Modify LIST to keep only the first N elements.
+(fn SEQ)"#,
+    ),
+    (
+        r#"ntake"#,
+        r#"Modify LIST to keep only the first N elements.
 If N is zero or negative, return nil.
 If N is greater or equal to the length of LIST, return LIST unmodified.
 Otherwise, return LIST after truncating it.
 
-(fn N LIST)"#),
-    (r#"nth"#, r#"Return the Nth element of LIST.
+(fn N LIST)"#,
+    ),
+    (
+        r#"nth"#,
+        r#"Return the Nth element of LIST.
 N counts from zero.  If LIST is not that long, nil is returned.
 
-(fn N LIST)"#),
-    (r#"nthcdr"#, r#"Take cdr N times on LIST, return the result.
+(fn N LIST)"#,
+    ),
+    (
+        r#"nthcdr"#,
+        r#"Take cdr N times on LIST, return the result.
 
-(fn N LIST)"#),
-    (r#"null"#, r#"Return t if OBJECT is nil, and return nil otherwise.
+(fn N LIST)"#,
+    ),
+    (
+        r#"null"#,
+        r#"Return t if OBJECT is nil, and return nil otherwise.
 
-(fn OBJECT)"#),
-    (r#"num-processors"#, r#"Return the number of processors, a positive integer.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"num-processors"#,
+        r#"Return the number of processors, a positive integer.
 Each usable thread execution unit counts as a processor.
 By default, count the number of available processors,
 overridable via the OMP_NUM_THREADS environment variable.
 If optional argument QUERY is `current', ignore OMP_NUM_THREADS.
 If QUERY is `all', also count processors not available.
 
-(fn QUERY)"#),
-    (r#"number-or-marker-p"#, r#"Return t if OBJECT is a number or a marker.
+(fn QUERY)"#,
+    ),
+    (
+        r#"number-or-marker-p"#,
+        r#"Return t if OBJECT is a number or a marker.
 
-(fn OBJECT)"#),
-    (r#"number-to-string"#, r#"Return the decimal representation of NUMBER as a string.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"number-to-string"#,
+        r#"Return the decimal representation of NUMBER as a string.
 Uses a minus sign if negative.
 NUMBER may be an integer or a floating point number.
 
-(fn NUMBER)"#),
-    (r#"numberp"#, r#"Return t if OBJECT is a number (floating point or integer).
+(fn NUMBER)"#,
+    ),
+    (
+        r#"numberp"#,
+        r#"Return t if OBJECT is a number (floating point or integer).
 
-(fn OBJECT)"#),
-    (r#"obarray-clear"#, r#"Remove all symbols from OBARRAY.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"obarray-clear"#,
+        r#"Remove all symbols from OBARRAY.
 
-(fn OBARRAY)"#),
-    (r#"obarray-make"#, r#"Return a new obarray of size SIZE.
+(fn OBARRAY)"#,
+    ),
+    (
+        r#"obarray-make"#,
+        r#"Return a new obarray of size SIZE.
 The obarray will grow to accommodate any number of symbols; the size, if
 given, is only a hint for the expected number.
 
-(fn SIZE)"#),
-    (r#"obarrayp"#, r#"Return t iff OBJECT is an obarray.
+(fn SIZE)"#,
+    ),
+    (
+        r#"obarrayp"#,
+        r#"Return t iff OBJECT is an obarray.
 
-(fn OBJECT)"#),
-    (r#"object-intervals"#, r#"Return a copy of the text properties of OBJECT.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"object-intervals"#,
+        r#"Return a copy of the text properties of OBJECT.
 OBJECT must be a buffer or a string.
 
 Altering this copy does not change the layout of the text properties
 in OBJECT.
 
-(fn OBJECT)"#),
-    (r#"old-selected-frame"#, r#"Return the old selected FRAME.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"old-selected-frame"#,
+        r#"Return the old selected FRAME.
 FRAME must be a live frame and defaults to the selected one.
 
 The return value is the frame selected the last time window change
 functions were run.
 
-(fn)"#),
-    (r#"old-selected-window"#, r#"Return the old selected window.
+(fn)"#,
+    ),
+    (
+        r#"old-selected-window"#,
+        r#"Return the old selected window.
 The return value is the window selected the last time window change
 functions were run.
 
-(fn)"#),
-    (r#"open-dribble-file"#, r#"Start writing input events to a dribble file called FILE.
+(fn)"#,
+    ),
+    (
+        r#"open-dribble-file"#,
+        r#"Start writing input events to a dribble file called FILE.
 Any previously open dribble file will be closed first.  If FILE is
 nil, just close the dribble file, if any.
 
@@ -8597,24 +11335,39 @@ written to the dribble file immediately without line buffering.
 Be aware that this records ALL characters you type!
 This may include sensitive information such as passwords.
 
-(fn FILE)"#),
-    (r#"open-font"#, r#"Open FONT-ENTITY.
+(fn FILE)"#,
+    ),
+    (
+        r#"open-font"#,
+        r#"Open FONT-ENTITY.
 
-(fn FONT-ENTITY SIZE FRAME)"#),
-    (r#"open-termscript"#, r#"Start writing all terminal output to FILE as well as the terminal.
+(fn FONT-ENTITY SIZE FRAME)"#,
+    ),
+    (
+        r#"open-termscript"#,
+        r#"Start writing all terminal output to FILE as well as the terminal.
 FILE = nil means just close any termscript file currently open.
 
-(fn FILE)"#),
-    (r#"optimize-char-table"#, r#"Optimize CHAR-TABLE.
+(fn FILE)"#,
+    ),
+    (
+        r#"optimize-char-table"#,
+        r#"Optimize CHAR-TABLE.
 TEST is the comparison function used to decide whether two entries are
 equivalent and can be merged.  It defaults to `equal'.
 
-(fn CHAR-TABLE TEST)"#),
-    (r#"or"#, r#"Eval args until one of them yields non-nil, then return that value.
+(fn CHAR-TABLE TEST)"#,
+    ),
+    (
+        r#"or"#,
+        r#"Eval args until one of them yields non-nil, then return that value.
 The remaining args are not evalled at all.
 If all args return nil, return nil.
-(fn CONDITIONS...)"#),
-    (r#"other-buffer"#, r#"Return most recently selected buffer other than BUFFER.
+(fn CONDITIONS...)"#,
+    ),
+    (
+        r#"other-buffer"#,
+        r#"Return most recently selected buffer other than BUFFER.
 Buffers not visible in windows are preferred to visible buffers, unless
 optional second argument VISIBLE-OK is non-nil.  Ignore the argument
 BUFFER unless it denotes a live buffer.  If the optional third argument
@@ -8626,8 +11379,11 @@ The buffer is found by scanning the selected or specified frame's buffer
 list first, followed by the list of all buffers.  If no other buffer
 exists, return the buffer `*scratch*' (creating it if necessary).
 
-(fn BUFFER VISIBLE-OK FRAME)"#),
-    (r#"other-window-for-scrolling"#, r#"Return \"the other\" window for \"other window scroll\" commands.
+(fn BUFFER VISIBLE-OK FRAME)"#,
+    ),
+    (
+        r#"other-window-for-scrolling"#,
+        r#"Return \"the other\" window for \"other window scroll\" commands.
 If in the minibuffer, and `minibuffer-scroll-window' is non-nil,
 it specifies the window to use.
 Otherwise, if `other-window-scroll-buffer' is a buffer, a window
@@ -8638,35 +11394,56 @@ Finally, the function looks for a neighboring window on the selected
 frame, followed by windows on all the visible frames on the current
 terminal.
 
-(fn)"#),
-    (r#"overlay-buffer"#, r#"Return the buffer OVERLAY belongs to.
+(fn)"#,
+    ),
+    (
+        r#"overlay-buffer"#,
+        r#"Return the buffer OVERLAY belongs to.
 Return nil if OVERLAY has been deleted.
 
-(fn OVERLAY)"#),
-    (r#"overlay-end"#, r#"Return the position at which OVERLAY ends.
+(fn OVERLAY)"#,
+    ),
+    (
+        r#"overlay-end"#,
+        r#"Return the position at which OVERLAY ends.
 
-(fn OVERLAY)"#),
-    (r#"overlay-get"#, r#"Get the property of overlay OVERLAY with property name PROP.
+(fn OVERLAY)"#,
+    ),
+    (
+        r#"overlay-get"#,
+        r#"Get the property of overlay OVERLAY with property name PROP.
 
-(fn OVERLAY PROP)"#),
-    (r#"overlay-lists"#, r#"Return a list giving all the overlays of the current buffer.
+(fn OVERLAY PROP)"#,
+    ),
+    (
+        r#"overlay-lists"#,
+        r#"Return a list giving all the overlays of the current buffer.
 
 For backward compatibility, the value is actually a list that
 holds another list; the overlays are in the inner list.
 The list you get is a copy, so that changing it has no effect.
 However, the overlays you get are the real objects that the buffer uses.
 
-(fn)"#),
-    (r#"overlay-properties"#, r#"Return a list of the properties on OVERLAY.
+(fn)"#,
+    ),
+    (
+        r#"overlay-properties"#,
+        r#"Return a list of the properties on OVERLAY.
 This is a copy of OVERLAY's plist; modifying its conses has no effect on
 OVERLAY.
 
-(fn OVERLAY)"#),
-    (r#"overlay-put"#, r#"Set one property of overlay OVERLAY: give property PROP value VALUE.
+(fn OVERLAY)"#,
+    ),
+    (
+        r#"overlay-put"#,
+        r#"Set one property of overlay OVERLAY: give property PROP value VALUE.
 VALUE will be returned.
 
-(fn OVERLAY PROP VALUE)"#),
-    (r#"overlay-recenter"#, r#"Recenter the overlays of the current buffer around position POS.
+(fn OVERLAY PROP VALUE)"#,
+    ),
+    (
+        r#"overlay-recenter"#,
+        r#"Recenter the overlays of the current buffer around position POS.
 That makes overlay lookup faster for positions near POS (but perhaps slower
 for positions far away from POS).
 
@@ -8675,25 +11452,40 @@ of overlays changed and their lookup is now fast regardless of their
 position in the buffer.  In particular, this function no longer affects
 the value returned by `overlay-lists'.
 
-(fn POS)"#),
-    (r#"overlay-start"#, r#"Return the position at which OVERLAY starts.
+(fn POS)"#,
+    ),
+    (
+        r#"overlay-start"#,
+        r#"Return the position at which OVERLAY starts.
 
-(fn OVERLAY)"#),
-    (r#"overlay-tree"#, r#"Get the overlay tree for BUFFER.
+(fn OVERLAY)"#,
+    ),
+    (
+        r#"overlay-tree"#,
+        r#"Get the overlay tree for BUFFER.
 
-(fn BUFFER)"#),
-    (r#"overlayp"#, r#"Return t if OBJECT is an overlay.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"overlayp"#,
+        r#"Return t if OBJECT is an overlay.
 
-(fn OBJECT)"#),
-    (r#"overlays-at"#, r#"Return a list of the overlays that contain the character at POS.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"overlays-at"#,
+        r#"Return a list of the overlays that contain the character at POS.
 If SORTED is non-nil, then sort them by decreasing priority.
 
 Zero-length overlays that start and stop at POS are not included in
 the return value.  Instead use `overlays-in' if those overlays are of
 interest.
 
-(fn POS SORTED)"#),
-    (r#"overlays-in"#, r#"Return a list of the overlays that overlap the region BEG ... END.
+(fn POS SORTED)"#,
+    ),
+    (
+        r#"overlays-in"#,
+        r#"Return a list of the overlays that overlap the region BEG ... END.
 Overlap means that at least one character is contained within the overlay
 and also contained within the specified region.
 
@@ -8703,8 +11495,11 @@ end of the accessible part of the buffer.
 
 The resulting list of overlays is in an arbitrary unpredictable order.
 
-(fn BEG END)"#),
-    (r#"parse-partial-sexp"#, r#"Parse Lisp syntax starting at FROM until TO; return status of parse at TO.
+(fn BEG END)"#,
+    ),
+    (
+        r#"parse-partial-sexp"#,
+        r#"Parse Lisp syntax starting at FROM until TO; return status of parse at TO.
 Parsing stops at TO or when certain criteria are met;
  point is set to where parsing stops.
 
@@ -8743,8 +11538,11 @@ Sixth arg COMMENTSTOP non-nil means stop after the start of a comment.
  If it is the symbol `syntax-table', stop after the start of a comment or a
  string, or after end of a comment or a string.
 
-(fn FROM TO TARGETDEPTH STOPBEFORE OLDSTATE COMMENTSTOP)"#),
-    (r#"pdumper-stats"#, r#"Return statistics about portable dumping used by this session.
+(fn FROM TO TARGETDEPTH STOPBEFORE OLDSTATE COMMENTSTOP)"#,
+    ),
+    (
+        r#"pdumper-stats"#,
+        r#"Return statistics about portable dumping used by this session.
 If this Emacs session was started from a dump file,
 the return value is an alist of the form:
 
@@ -8754,14 +11552,20 @@ where TIME is the time in seconds it took to restore Emacs state
 from the dump file, and FILE is the name of the dump file.
 Value is nil if this session was not started using a dump file.
 
-(fn)"#),
-    (r#"pgtk-backend-display-class"#, r#"Return the name of the Gdk backend display class of TERMINAL.
+(fn)"#,
+    ),
+    (
+        r#"pgtk-backend-display-class"#,
+        r#"Return the name of the Gdk backend display class of TERMINAL.
 The optional argument TERMINAL specifies which display to ask about.
 TERMINAL should be a terminal object, a frame or a display name (a string).
 If omitted or nil, that stands for the selected frame's display.
 
-(fn TERMINAL)"#),
-    (r#"pgtk-disown-selection-internal"#, r#"If we own the selection SELECTION, disown it.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"pgtk-disown-selection-internal"#,
+        r#"If we own the selection SELECTION, disown it.
 Disowning it means there is no such selection.
 
 Sets the last-change time for the selection to TIME-OBJECT (by default
@@ -8771,8 +11575,11 @@ TERMINAL should be a terminal object or a frame specifying the X
 server to query.  If omitted or nil, that stands for the selected
 frame's display, or the first available X display.
 
-(fn SELECTION TIME-OBJECT TERMINAL)"#),
-    (r#"pgtk-display-monitor-attributes-list"#, r#"Return a list of physical monitor attributes on the X display TERMINAL.
+(fn SELECTION TIME-OBJECT TERMINAL)"#,
+    ),
+    (
+        r#"pgtk-display-monitor-attributes-list"#,
+        r#"Return a list of physical monitor attributes on the X display TERMINAL.
 
 The optional argument TERMINAL specifies which display to ask about.
 TERMINAL should be a terminal object, a frame or a display name (a string).
@@ -8787,22 +11594,31 @@ the attributes:
 
 Internal use only, use `display-monitor-attributes-list' instead.
 
-(fn TERMINAL)"#),
-    (r#"pgtk-drop-finish"#, r#"Finish the drag-n-drop event that happened at TIMESTAMP.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"pgtk-drop-finish"#,
+        r#"Finish the drag-n-drop event that happened at TIMESTAMP.
 SUCCESS is whether or not the drop was successful, i.e. the action
 chosen in the last call to `pgtk-update-drop-status' was performed.
 TIMESTAMP is the time associated with the drag-n-drop event that is
 being finished.
 DELETE is whether or not the action was `move'.
 
-(fn SUCCESS TIMESTAMP DELETE)"#),
-    (r#"pgtk-font-name"#, r#"Determine font PostScript or family name for font NAME.
+(fn SUCCESS TIMESTAMP DELETE)"#,
+    ),
+    (
+        r#"pgtk-font-name"#,
+        r#"Determine font PostScript or family name for font NAME.
 NAME should be a string containing either the font name or an XLFD
 font descriptor.  If string contains `fontset' and not
 `fontset-startup', it is left alone.
 
-(fn NAME)"#),
-    (r#"pgtk-frame-edges"#, r#"Return edge coordinates of FRAME.
+(fn NAME)"#,
+    ),
+    (
+        r#"pgtk-frame-edges"#,
+        r#"Return edge coordinates of FRAME.
 FRAME must be a live frame and defaults to the selected one.  The return
 value is a list of the form (LEFT, TOP, RIGHT, BOTTOM).  All values are
 in pixels relative to the origin - the position (0, 0) - of FRAME's
@@ -8818,8 +11634,11 @@ menu or tool bar of FRAME.  If TYPE is the symbol `inner-edges', return
 the inner edges of FRAME.  These edges exclude title bar, any borders,
 menu bar or tool bar of FRAME.
 
-(fn FRAME TYPE)"#),
-    (r#"pgtk-frame-geometry"#, r#"Return geometric attributes of FRAME.
+(fn FRAME TYPE)"#,
+    ),
+    (
+        r#"pgtk-frame-geometry"#,
+        r#"Return geometric attributes of FRAME.
 FRAME must be a live frame and defaults to the selected one.  The return
 value is an association list of the attributes listed below.  All height
 and width values are in pixels.
@@ -8858,8 +11677,11 @@ FRAME.
 `internal-border-width' is the width of the internal border of
 FRAME.
 
-(fn FRAME)"#),
-    (r#"pgtk-frame-restack"#, r#"Restack FRAME1 below FRAME2.
+(fn FRAME)"#,
+    ),
+    (
+        r#"pgtk-frame-restack"#,
+        r#"Restack FRAME1 below FRAME2.
 This means that if both frames are visible and the display areas of
 these frames overlap, FRAME2 (partially) obscures FRAME1.  If optional
 third argument ABOVE is non-nil, restack FRAME1 above FRAME2.  This
@@ -8875,8 +11697,11 @@ unaltered.
 
 Some window managers may refuse to restack windows.
 
-(fn FRAME1 FRAME2 ABOVE)"#),
-    (r#"pgtk-get-page-setup"#, r#"Return the value of the current page setup.
+(fn FRAME1 FRAME2 ABOVE)"#,
+    ),
+    (
+        r#"pgtk-get-page-setup"#,
+        r#"Return the value of the current page setup.
 The return value is an alist containing the following keys:
 
 orientation: page orientation (symbol `portrait', `landscape',
@@ -8894,8 +11719,11 @@ height, top-margin, and bottom-margin values if the page orientation
 is `portrait' or `reverse-portrait'.  Otherwise, it is the sum of
 height, left-margin, and right-margin values.
 
-(fn)"#),
-    (r#"pgtk-get-selection-internal"#, r#"Return text selected from some X window.
+(fn)"#,
+    ),
+    (
+        r#"pgtk-get-selection-internal"#,
+        r#"Return text selected from some X window.
 SELECTION-SYMBOL is typically `PRIMARY', `SECONDARY', or `CLIPBOARD'.
 \(Those are literal upper-case symbol names, since that's what X expects.)
 TARGET-TYPE is the type of data desired, typically `STRING'.
@@ -8907,14 +11735,20 @@ TERMINAL should be a terminal object or a frame specifying the X
 server to query.  If omitted or nil, that stands for the selected
 frame's display, or the first available X display.
 
-(fn SELECTION-SYMBOL TARGET-TYPE TIME-STAMP TERMINAL)"#),
-    (r#"pgtk-mouse-absolute-pixel-position"#, r#"Return absolute position of mouse cursor in pixels.
+(fn SELECTION-SYMBOL TARGET-TYPE TIME-STAMP TERMINAL)"#,
+    ),
+    (
+        r#"pgtk-mouse-absolute-pixel-position"#,
+        r#"Return absolute position of mouse cursor in pixels.
 The position is returned as a cons cell (X . Y) of the
 coordinates of the mouse cursor position in pixels relative to a
 position (0, 0) of the selected frame's terminal.
 
-(fn)"#),
-    (r#"pgtk-own-selection-internal"#, r#"Assert a selection of type SELECTION and value VALUE.
+(fn)"#,
+    ),
+    (
+        r#"pgtk-own-selection-internal"#,
+        r#"Assert a selection of type SELECTION and value VALUE.
 SELECTION is a symbol, typically `PRIMARY', `SECONDARY', or `CLIPBOARD'.
 \(Those are literal upper-case symbol names, since that's what GDK expects.)
 VALUE is typically a string, or a cons of two markers, but may be
@@ -8923,23 +11757,35 @@ anything that the functions on `selection-converter-alist' know about.
 FRAME should be a frame that should own the selection.  If omitted or
 nil, it defaults to the selected frame.
 
-(fn SELECTION VALUE FRAME)"#),
-    (r#"pgtk-page-setup-dialog"#, r#"Pop up a page setup dialog.
+(fn SELECTION VALUE FRAME)"#,
+    ),
+    (
+        r#"pgtk-page-setup-dialog"#,
+        r#"Pop up a page setup dialog.
 The current page setup can be obtained using `x-get-page-setup'.
 
-(fn)"#),
-    (r#"pgtk-print-frames-dialog"#, r#"Pop up a print dialog to print the current contents of FRAMES.
+(fn)"#,
+    ),
+    (
+        r#"pgtk-print-frames-dialog"#,
+        r#"Pop up a print dialog to print the current contents of FRAMES.
 FRAMES should be nil (the selected frame), a frame, or a list of
 frames (each of which corresponds to one page).  Each frame should be
 visible.
 
-(fn FRAMES)"#),
-    (r#"pgtk-register-dnd-targets"#, r#"Register TARGETS on FRAME.
+(fn FRAMES)"#,
+    ),
+    (
+        r#"pgtk-register-dnd-targets"#,
+        r#"Register TARGETS on FRAME.
 TARGETS should be a list of strings describing data types (selection
 targets) that can be dropped on top of FRAME.
 
-(fn FRAME TARGETS)"#),
-    (r#"pgtk-selection-exists-p"#, r#"Whether there is an owner for the given selection.
+(fn FRAME TARGETS)"#,
+    ),
+    (
+        r#"pgtk-selection-exists-p"#,
+        r#"Whether there is an owner for the given selection.
 SELECTION should be the name of the selection in question, typically
 one of the symbols `PRIMARY', `SECONDARY', `CLIPBOARD', or
 `CLIPBOARD_MANAGER' (GDK expects these literal upper-case names.)  The
@@ -8949,8 +11795,11 @@ TERMINAL should be a terminal object or a frame specifying the GDK
 server to query.  If omitted or nil, that stands for the selected
 frame's display, or the first available X display.
 
-(fn SELECTION TERMINAL)"#),
-    (r#"pgtk-selection-owner-p"#, r#"Whether the current Emacs process owns the given selection.
+(fn SELECTION TERMINAL)"#,
+    ),
+    (
+        r#"pgtk-selection-owner-p"#,
+        r#"Whether the current Emacs process owns the given selection.
 The arg should be the name of the selection in question, typically one of
 the symbols `PRIMARY', `SECONDARY', or `CLIPBOARD'.
 \(Those are literal upper-case symbol names, since that's what GDK expects.)
@@ -8961,8 +11810,11 @@ TERMINAL should be a terminal object or a frame specifying the GDK
 server to query.  If omitted or nil, that stands for the selected
 frame's display, or the first available X display.
 
-(fn SELECTION TERMINAL)"#),
-    (r#"pgtk-set-monitor-scale-factor"#, r#"Set monitor MONITOR-MODEL's scale factor to SCALE-FACTOR.
+(fn SELECTION TERMINAL)"#,
+    ),
+    (
+        r#"pgtk-set-monitor-scale-factor"#,
+        r#"Set monitor MONITOR-MODEL's scale factor to SCALE-FACTOR.
 Since Gdk's scale factor is integer, physical pixel width/height is
 incorrect when you specify fractional scale factor in compositor.
 If you set scale factor by this function, it is used instead of Gdk's one.
@@ -8970,29 +11822,47 @@ If you set scale factor by this function, it is used instead of Gdk's one.
 Pass nil as SCALE-FACTOR if you want to reset the specified monitor's
 scale factor.
 
-(fn MONITOR-MODEL SCALE-FACTOR)"#),
-    (r#"pgtk-set-mouse-absolute-pixel-position"#, r#"Move mouse pointer to absolute pixel position (X, Y).
+(fn MONITOR-MODEL SCALE-FACTOR)"#,
+    ),
+    (
+        r#"pgtk-set-mouse-absolute-pixel-position"#,
+        r#"Move mouse pointer to absolute pixel position (X, Y).
 The coordinates X and Y are interpreted in pixels relative to a position
 \(0, 0) of the selected frame's display.
 
-(fn X Y)"#),
-    (r#"pgtk-set-resource"#, r#"Set the value of ATTRIBUTE, of class CLASS, as VALUE, into defaults database.
+(fn X Y)"#,
+    ),
+    (
+        r#"pgtk-set-resource"#,
+        r#"Set the value of ATTRIBUTE, of class CLASS, as VALUE, into defaults database.
 
-(fn ATTRIBUTE VALUE)"#),
-    (r#"pgtk-update-drop-status"#, r#"Update the status of the current drag-and-drop operation.
+(fn ATTRIBUTE VALUE)"#,
+    ),
+    (
+        r#"pgtk-update-drop-status"#,
+        r#"Update the status of the current drag-and-drop operation.
 ACTION is the action the drop source should take.
 TIMESTAMP is the same as in `pgtk-drop-finish'.
 
-(fn ACTION TIMESTAMP)"#),
-    (r#"pgtk-use-im-context"#, r#"Set whether to use GtkIMContext.
+(fn ACTION TIMESTAMP)"#,
+    ),
+    (
+        r#"pgtk-use-im-context"#,
+        r#"Set whether to use GtkIMContext.
 
-(fn USE-P TERMINAL)"#),
-    (r#"play-sound-internal"#, r#"Play sound SOUND.
+(fn USE-P TERMINAL)"#,
+    ),
+    (
+        r#"play-sound-internal"#,
+        r#"Play sound SOUND.
 
 Internal use only, use `play-sound' instead.
 
-(fn SOUND)"#),
-    (r#"plist-get"#, r#"Extract a value from a property list.
+(fn SOUND)"#,
+    ),
+    (
+        r#"plist-get"#,
+        r#"Extract a value from a property list.
 PLIST is a property list, which is a list of the form
 \(PROP1 VALUE1 PROP2 VALUE2...).
 
@@ -9002,8 +11872,11 @@ with PROP is done using PREDICATE, which defaults to `eq'.
 
 This function doesn't signal an error if PLIST is invalid.
 
-(fn PLIST PROP PREDICATE)"#),
-    (r#"plist-member"#, r#"Return non-nil if PLIST has the property PROP.
+(fn PLIST PROP PREDICATE)"#,
+    ),
+    (
+        r#"plist-member"#,
+        r#"Return non-nil if PLIST has the property PROP.
 PLIST is a property list, which is a list of the form
 \(PROP1 VALUE1 PROP2 VALUE2 ...).
 
@@ -9014,8 +11887,11 @@ Unlike `plist-get', this allows you to distinguish between a missing
 property and a property with the value nil.
 The value is actually the tail of PLIST whose car is PROP.
 
-(fn PLIST PROP PREDICATE)"#),
-    (r#"plist-put"#, r#"Change value in PLIST of PROP to VAL.
+(fn PLIST PROP PREDICATE)"#,
+    ),
+    (
+        r#"plist-put"#,
+        r#"Change value in PLIST of PROP to VAL.
 PLIST is a property list, which is a list of the form
 \(PROP1 VALUE1 PROP2 VALUE2 ...).
 
@@ -9026,33 +11902,54 @@ otherwise the new PROP VAL pair is added.  The new plist is returned;
 use `(setq x (plist-put x prop val))' to be sure to use the new value.
 The PLIST is modified by side effects.
 
-(fn PLIST PROP VAL PREDICATE)"#),
-    (r#"point"#, r#"Return value of point, as an integer.
+(fn PLIST PROP VAL PREDICATE)"#,
+    ),
+    (
+        r#"point"#,
+        r#"Return value of point, as an integer.
 Beginning of buffer is position (point-min).
 
-(fn)"#),
-    (r#"point-marker"#, r#"Return value of point, as a marker object.
+(fn)"#,
+    ),
+    (
+        r#"point-marker"#,
+        r#"Return value of point, as a marker object.
 
-(fn)"#),
-    (r#"point-max"#, r#"Return the maximum permissible value of point in the current buffer.
+(fn)"#,
+    ),
+    (
+        r#"point-max"#,
+        r#"Return the maximum permissible value of point in the current buffer.
 This is (1+ (buffer-size)), unless narrowing (a buffer restriction)
 is in effect, in which case it is less.
 
-(fn)"#),
-    (r#"point-max-marker"#, r#"Return a marker to the maximum permissible value of point in this buffer.
+(fn)"#,
+    ),
+    (
+        r#"point-max-marker"#,
+        r#"Return a marker to the maximum permissible value of point in this buffer.
 This is (1+ (buffer-size)), unless narrowing (a buffer restriction)
 is in effect, in which case it is less.
 
-(fn)"#),
-    (r#"point-min"#, r#"Return the minimum permissible value of point in the current buffer.
+(fn)"#,
+    ),
+    (
+        r#"point-min"#,
+        r#"Return the minimum permissible value of point in the current buffer.
 This is 1, unless narrowing (a buffer restriction) is in effect.
 
-(fn)"#),
-    (r#"point-min-marker"#, r#"Return a marker to the minimum permissible value of point in this buffer.
+(fn)"#,
+    ),
+    (
+        r#"point-min-marker"#,
+        r#"Return a marker to the minimum permissible value of point in this buffer.
 This is the beginning, unless narrowing (a buffer restriction) is in effect.
 
-(fn)"#),
-    (r#"pos-bol"#, r#"Return the position of the first character on the current line.
+(fn)"#,
+    ),
+    (
+        r#"pos-bol"#,
+        r#"Return the position of the first character on the current line.
 With optional argument N, scan forward N - 1 lines first.
 If the scan reaches the end of the buffer, return that position.
 
@@ -9063,8 +11960,11 @@ movement by screen lines.
 
 This function does not move point.  Also see `line-beginning-position'.
 
-(fn N)"#),
-    (r#"pos-eol"#, r#"Return the position of the last character on the current line.
+(fn N)"#,
+    ),
+    (
+        r#"pos-eol"#,
+        r#"Return the position of the last character on the current line.
 With argument N not nil or 1, move forward N - 1 lines first.
 If scan reaches end of buffer, return that position.
 
@@ -9074,8 +11974,11 @@ character position on the line.
 
 This function does not move point.  Also see `line-end-position'.
 
-(fn N)"#),
-    (r#"pos-visible-in-window-p"#, r#"Return non-nil if position POS is currently on the frame in WINDOW.
+(fn N)"#,
+    ),
+    (
+        r#"pos-visible-in-window-p"#,
+        r#"Return non-nil if position POS is currently on the frame in WINDOW.
 WINDOW must be a live window and defaults to the selected one.
 
 Return nil if that position is scrolled vertically out of view.  If a
@@ -9096,27 +11999,39 @@ off-window at the top and bottom of the screen line ("row") containing
 POS, ROWH is the visible height of that row, and VPOS is the row number
 \(zero-based).
 
-(fn POS WINDOW PARTIALLY)"#),
-    (r#"position-bytes"#, r#"Return the byte position for character position POSITION.
+(fn POS WINDOW PARTIALLY)"#,
+    ),
+    (
+        r#"position-bytes"#,
+        r#"Return the byte position for character position POSITION.
 If POSITION is out of range, the value is nil.
 
-(fn POSITION)"#),
-    (r#"position-symbol"#, r#"Make a new symbol with position.
+(fn POSITION)"#,
+    ),
+    (
+        r#"position-symbol"#,
+        r#"Make a new symbol with position.
 SYM is a symbol, with or without position, the symbol to position.
 POS, the position, is either a nonnegative fixnum,
 or a symbol with position from which the position will be taken.
 Ignore `symbols-with-pos-enabled'.
 
-(fn SYM POS)"#),
-    (r#"posix-looking-at"#, r#"Return t if text after point matches REGEXP according to Posix rules.
+(fn SYM POS)"#,
+    ),
+    (
+        r#"posix-looking-at"#,
+        r#"Return t if text after point matches REGEXP according to Posix rules.
 Find the longest match, in accordance with Posix regular expression rules.
 
 By default, this function modifies the match data that
 `match-beginning', `match-end' and `match-data' access.  If
 INHIBIT-MODIFY is non-nil, don't modify the match data.
 
-(fn REGEXP INHIBIT-MODIFY)"#),
-    (r#"posix-search-backward"#, r#"Search backward from point for match for REGEXP according to Posix rules.
+(fn REGEXP INHIBIT-MODIFY)"#,
+    ),
+    (
+        r#"posix-search-backward"#,
+        r#"Search backward from point for match for REGEXP according to Posix rules.
 Find the longest match in accord with Posix regular expression rules.
 This function is almost identical to `posix-search-forward', except that
 by default it searches backward instead of forward, and the sign of
@@ -9127,8 +12042,11 @@ Note that searching backwards may give a shorter match than expected,
 because REGEXP is still matched in the forward direction.  See Info
 anchor `(elisp) re-search-backward' for details.
 
-(fn REGEXP BOUND NOERROR COUNT)"#),
-    (r#"posix-search-forward"#, r#"Search forward from point for REGEXP according to Posix rules.
+(fn REGEXP BOUND NOERROR COUNT)"#,
+    ),
+    (
+        r#"posix-search-forward"#,
+        r#"Search forward from point for REGEXP according to Posix rules.
 Find the longest match in accord with Posix regular expression rules.
 Set point to the end of the occurrence found, and return point.
 The optional second argument BOUND is a buffer position that bounds
@@ -9154,8 +12072,11 @@ Search case-sensitivity is determined by the value of the variable
 See also the functions `match-beginning', `match-end', `match-string',
 and `replace-match'.
 
-(fn REGEXP BOUND NOERROR COUNT)"#),
-    (r#"posix-string-match"#, r#"Return index of start of first match for Posix REGEXP in STRING, or nil.
+(fn REGEXP BOUND NOERROR COUNT)"#,
+    ),
+    (
+        r#"posix-string-match"#,
+        r#"Return index of start of first match for Posix REGEXP in STRING, or nil.
 Find the longest match, in accord with Posix regular expression rules.
 Case is ignored if `case-fold-search' is non-nil in the current buffer.
 
@@ -9168,8 +12089,11 @@ by parenthesis constructs in the pattern.  You can use the function
 constructions in REGEXP.  For index of first char beyond the match, do
 (match-end 0).
 
-(fn REGEXP STRING START INHIBIT-MODIFY)"#),
-    (r#"posn-at-point"#, r#"Return position information for buffer position POS in WINDOW.
+(fn REGEXP STRING START INHIBIT-MODIFY)"#,
+    ),
+    (
+        r#"posn-at-point"#,
+        r#"Return position information for buffer position POS in WINDOW.
 POS defaults to point in WINDOW; WINDOW defaults to the selected window.
 
 If POS is in invisible text or is hidden by `display' properties,
@@ -9183,8 +12107,11 @@ to POS:
     IMAGE (DX . DY) (WIDTH . HEIGHT))
 The `posn-' functions access elements of such lists.
 
-(fn POS WINDOW)"#),
-    (r#"posn-at-x-y"#, r#"Return position information for pixel coordinates X and Y.
+(fn POS WINDOW)"#,
+    ),
+    (
+        r#"posn-at-x-y"#,
+        r#"Return position information for pixel coordinates X and Y.
 By default, X and Y are relative to text area of the selected window.
 Note that the text area includes the header-line and the tab-line of
 the window, if any of them are present.
@@ -9197,17 +12124,26 @@ The return value is similar to a mouse click position:
     IMAGE (DX . DY) (WIDTH . HEIGHT))
 The `posn-' functions access elements of such lists.
 
-(fn X Y FRAME-OR-WINDOW WHOLE)"#),
-    (r#"preceding-char"#, r#"Return the character preceding point, as a number.
+(fn X Y FRAME-OR-WINDOW WHOLE)"#,
+    ),
+    (
+        r#"preceding-char"#,
+        r#"Return the character preceding point, as a number.
 At the beginning of the buffer or accessible region, return 0.
 
-(fn)"#),
-    (r#"prefix-numeric-value"#, r#"Return numeric meaning of raw prefix argument RAW.
+(fn)"#,
+    ),
+    (
+        r#"prefix-numeric-value"#,
+        r#"Return numeric meaning of raw prefix argument RAW.
 A raw prefix argument is what you get from `(interactive "P")'.
 Its numeric meaning is what you would get from `(interactive "p")'.
 
-(fn RAW)"#),
-    (r#"previous-char-property-change"#, r#"Return the position of previous text property or overlay change.
+(fn RAW)"#,
+    ),
+    (
+        r#"previous-char-property-change"#,
+        r#"Return the position of previous text property or overlay change.
 Scans characters backward in the current buffer from POSITION till it
 finds a change in some text property, or the beginning or end of an
 overlay, and returns the position of that.
@@ -9218,8 +12154,11 @@ If the optional second argument LIMIT is non-nil, the function doesn't
 search before position LIMIT, and returns LIMIT if nothing is found
 before LIMIT.  LIMIT is a no-op if it is less than (point-min).
 
-(fn POSITION LIMIT)"#),
-    (r#"previous-frame"#, r#"Return the previous frame in the frame list before FRAME.
+(fn POSITION LIMIT)"#,
+    ),
+    (
+        r#"previous-frame"#,
+        r#"Return the previous frame in the frame list before FRAME.
 Only frames on the same terminal as FRAME are included in the list
 of candidate frames.  FRAME defaults to the selected frame.
 
@@ -9237,13 +12176,19 @@ If MINIFRAME is any other value, include all frames.
 
 Return FRAME if no suitable previous frame is found.
 
-(fn FRAME MINIFRAME)"#),
-    (r#"previous-overlay-change"#, r#"Return the previous position before POS where an overlay starts or ends.
+(fn FRAME MINIFRAME)"#,
+    ),
+    (
+        r#"previous-overlay-change"#,
+        r#"Return the previous position before POS where an overlay starts or ends.
 If there are no overlay boundaries from (point-min) to POS,
 the value is (point-min).
 
-(fn POS)"#),
-    (r#"previous-property-change"#, r#"Return the position of previous property change.
+(fn POS)"#,
+    ),
+    (
+        r#"previous-property-change"#,
+        r#"Return the position of previous property change.
 Scans characters backwards from POSITION in OBJECT till it finds
 a change in some text property, then returns the position of the change.
 If the optional second argument OBJECT is a buffer (or nil, which means
@@ -9256,8 +12201,11 @@ less than POSITION, never equal.
 If the optional third argument LIMIT is non-nil, don't search
 back past position LIMIT; return LIMIT if nothing is found until LIMIT.
 
-(fn POSITION OBJECT LIMIT)"#),
-    (r#"previous-single-char-property-change"#, r#"Return the position of previous text property or overlay change for a specific property.
+(fn POSITION OBJECT LIMIT)"#,
+    ),
+    (
+        r#"previous-single-char-property-change"#,
+        r#"Return the position of previous text property or overlay change for a specific property.
 Scans characters backward from POSITION till it finds
 a change in the PROP property, then returns the position of the change.
 If the optional third argument OBJECT is a buffer (or nil, which means
@@ -9274,8 +12222,11 @@ The property values are compared with `eq'.
 If the property is constant all the way to the start of OBJECT, return the
 first valid position in OBJECT.
 
-(fn POSITION PROP OBJECT LIMIT)"#),
-    (r#"previous-single-property-change"#, r#"Return the position of previous property change for a specific property.
+(fn POSITION PROP OBJECT LIMIT)"#,
+    ),
+    (
+        r#"previous-single-property-change"#,
+        r#"Return the position of previous property change for a specific property.
 Scans characters backward from POSITION till it finds
 a change in the PROP property, then returns the position of the change.
 If the optional third argument OBJECT is a buffer (or nil, which means
@@ -9289,8 +12240,11 @@ less than POSITION, never equal.
 If the optional fourth argument LIMIT is non-nil, don't search
 back past position LIMIT; return LIMIT if nothing is found until LIMIT.
 
-(fn POSITION PROP OBJECT LIMIT)"#),
-    (r#"previous-window"#, r#"Return live window before WINDOW in the cyclic ordering of windows.
+(fn POSITION PROP OBJECT LIMIT)"#,
+    ),
+    (
+        r#"previous-window"#,
+        r#"Return live window before WINDOW in the cyclic ordering of windows.
 WINDOW must be a live window and defaults to the selected one.  The
 optional arguments MINIBUF and ALL-FRAMES specify the set of windows to
 consider.
@@ -9324,8 +12278,11 @@ acceptable windows, eventually ending up back at the window you
 started with.  `next-window' traverses the same cycle, in the
 reverse order.
 
-(fn WINDOW MINIBUF ALL-FRAMES)"#),
-    (r#"prin1"#, r#"Output the printed representation of OBJECT, any Lisp object.
+(fn WINDOW MINIBUF ALL-FRAMES)"#,
+    ),
+    (
+        r#"prin1"#,
+        r#"Output the printed representation of OBJECT, any Lisp object.
 Quoting characters are printed when needed to make output that `read'
 can handle, whenever this is possible.  For complex objects, the behavior
 is controlled by `print-level' and `print-length', which see.
@@ -9363,8 +12320,11 @@ See Info node `(elisp)Output Overrides' for a list of possible values.
 As a special case, OVERRIDES can also simply be the symbol t, which
 means "use default values for all the print-related settings".
 
-(fn OBJECT PRINTCHARFUN OVERRIDES)"#),
-    (r#"prin1-to-string"#, r#"Return a string containing the printed representation of OBJECT.
+(fn OBJECT PRINTCHARFUN OVERRIDES)"#,
+    ),
+    (
+        r#"prin1-to-string"#,
+        r#"Return a string containing the printed representation of OBJECT.
 OBJECT can be any Lisp object.  This function outputs quoting characters
 when necessary to make output that `read' can handle, whenever possible,
 unless the optional second argument NOESCAPE is non-nil.  For complex objects,
@@ -9377,8 +12337,11 @@ See `prin1' for the meaning of OVERRIDES.
 
 A printed representation of an object is text which describes that object.
 
-(fn OBJECT NOESCAPE OVERRIDES)"#),
-    (r#"princ"#, r#"Output the printed representation of OBJECT, any Lisp object.
+(fn OBJECT NOESCAPE OVERRIDES)"#,
+    ),
+    (
+        r#"princ"#,
+        r#"Output the printed representation of OBJECT, any Lisp object.
 No quoting characters are used; no delimiters are printed around
 the contents of strings.
 
@@ -9400,8 +12363,11 @@ of these:
 If PRINTCHARFUN is omitted, the value of `standard-output' (which see)
 is used instead.
 
-(fn OBJECT PRINTCHARFUN)"#),
-    (r#"print"#, r#"Output the printed representation of OBJECT, with newlines around it.
+(fn OBJECT PRINTCHARFUN)"#,
+    ),
+    (
+        r#"print"#,
+        r#"Output the printed representation of OBJECT, with newlines around it.
 Quoting characters are printed when needed to make output that `read'
 can handle, whenever this is possible.  For complex objects, the behavior
 is controlled by `print-level' and `print-length', which see.
@@ -9424,13 +12390,19 @@ of these:
 If PRINTCHARFUN is omitted, the value of `standard-output' (which see)
 is used instead.
 
-(fn OBJECT PRINTCHARFUN)"#),
-    (r#"print--preprocess"#, r#"Extract sharing info from OBJECT needed to print it.
+(fn OBJECT PRINTCHARFUN)"#,
+    ),
+    (
+        r#"print--preprocess"#,
+        r#"Extract sharing info from OBJECT needed to print it.
 Fills `print-number-table' if `print-circle' is non-nil.  Does nothing
 if `print-circle' is nil.
 
-(fn OBJECT)"#),
-    (r#"process-attributes"#, r#"Return attributes of the process given by its PID, a number.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"process-attributes"#,
+        r#"Return attributes of the process given by its PID, a number.
 If `default-directory' is remote, PID is regarded as process
 identifier on the respective remote host.
 
@@ -9482,27 +12454,42 @@ integer or floating point values.
               (floating-point number)
  args    -- command line which invoked the process (string).
 
-(fn PID)"#),
-    (r#"process-buffer"#, r#"Return the buffer PROCESS is associated with.
+(fn PID)"#,
+    ),
+    (
+        r#"process-buffer"#,
+        r#"Return the buffer PROCESS is associated with.
 The default process filter inserts output from PROCESS into this buffer.
 
-(fn PROCESS)"#),
-    (r#"process-coding-system"#, r#"Return a cons of coding systems for decoding and encoding of PROCESS.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"process-coding-system"#,
+        r#"Return a cons of coding systems for decoding and encoding of PROCESS.
 
-(fn PROCESS)"#),
-    (r#"process-command"#, r#"Return the command that was executed to start PROCESS.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"process-command"#,
+        r#"Return the command that was executed to start PROCESS.
 This is a list of strings, the first string being the program executed
 and the rest of the strings being the arguments given to it.
 For a network or serial or pipe connection, this is nil (process is running)
 or t (process is stopped).
 
-(fn PROCESS)"#),
-    (r#"process-connection"#, r#"Return the connection type of PROCESS.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"process-connection"#,
+        r#"Return the connection type of PROCESS.
 The value is nil for a pipe, t or `pty' for a pty, or `stream' for
 a socket connection.
 
-(fn PROCESS)"#),
-    (r#"process-contact"#, r#"Return the contact info of PROCESS; t for a real child.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"process-contact"#,
+        r#"Return the contact info of PROCESS; t for a real child.
 For a network or serial or pipe connection, the value depends on the
 optional KEY arg.  If KEY is nil, value is a cons cell of the form
 \(HOST SERVICE) for a network connection or (PORT SPEED) for a serial
@@ -9516,50 +12503,83 @@ set up yet, this function will block until socket setup has completed.
 If the optional NO-BLOCK parameter is specified, return nil instead of
 waiting for the process to be fully set up.
 
-(fn PROCESS KEY NO-BLOCK)"#),
-    (r#"process-datagram-address"#, r#"Get the current datagram address associated with PROCESS.
+(fn PROCESS KEY NO-BLOCK)"#,
+    ),
+    (
+        r#"process-datagram-address"#,
+        r#"Get the current datagram address associated with PROCESS.
 If PROCESS is a non-blocking network process that hasn't been fully
 set up yet, this function will block until socket setup has completed.
 
-(fn PROCESS)"#),
-    (r#"process-exit-status"#, r#"Return the exit status of PROCESS or the signal number that killed it.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"process-exit-status"#,
+        r#"Return the exit status of PROCESS or the signal number that killed it.
 If PROCESS has not yet exited or died, return 0.
 
-(fn PROCESS)"#),
-    (r#"process-filter"#, r#"Return the filter function of PROCESS.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"process-filter"#,
+        r#"Return the filter function of PROCESS.
 See `set-process-filter' for more info on filter functions.
 
-(fn PROCESS)"#),
-    (r#"process-id"#, r#"Return the process id of PROCESS.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"process-id"#,
+        r#"Return the process id of PROCESS.
 This is the pid of the external process which PROCESS uses or talks to,
 an integer.
 For a network, serial, and pipe connections, this value is nil.
 
-(fn PROCESS)"#),
-    (r#"process-inherit-coding-system-flag"#, r#"Return the value of inherit-coding-system flag for PROCESS.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"process-inherit-coding-system-flag"#,
+        r#"Return the value of inherit-coding-system flag for PROCESS.
 If this flag is t, `buffer-file-coding-system' of the buffer
 associated with PROCESS will inherit the coding system used to decode
 the process output.
 
-(fn PROCESS)"#),
-    (r#"process-list"#, r#"Return a list of all processes that are Emacs sub-processes.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"process-list"#,
+        r#"Return a list of all processes that are Emacs sub-processes.
 
-(fn)"#),
-    (r#"process-mark"#, r#"Return the marker for the end of the last output from PROCESS.
+(fn)"#,
+    ),
+    (
+        r#"process-mark"#,
+        r#"Return the marker for the end of the last output from PROCESS.
 
-(fn PROCESS)"#),
-    (r#"process-name"#, r#"Return the name of PROCESS, as a string.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"process-name"#,
+        r#"Return the name of PROCESS, as a string.
 This is the name of the program invoked in PROCESS,
 possibly modified to make it unique among process names.
 
-(fn PROCESS)"#),
-    (r#"process-plist"#, r#"Return the plist of PROCESS.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"process-plist"#,
+        r#"Return the plist of PROCESS.
 
-(fn PROCESS)"#),
-    (r#"process-query-on-exit-flag"#, r#"Return the current value of query-on-exit flag for PROCESS.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"process-query-on-exit-flag"#,
+        r#"Return the current value of query-on-exit flag for PROCESS.
 
-(fn PROCESS)"#),
-    (r#"process-running-child-p"#, r#"Return non-nil if PROCESS has given control of its terminal to a child.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"process-running-child-p"#,
+        r#"Return non-nil if PROCESS has given control of its terminal to a child.
 If the operating system does not make it possible to find out, return t.
 If it's possible to find out, return the numeric ID of the foreground
 process group if PROCESS did give control of its terminal to a
@@ -9567,8 +12587,11 @@ child process, and return nil if it didn't.
 
 PROCESS must be a real subprocess, not a connection.
 
-(fn PROCESS)"#),
-    (r#"process-send-eof"#, r#"Make PROCESS see end-of-file in its input.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"process-send-eof"#,
+        r#"Make PROCESS see end-of-file in its input.
 EOF comes after any text already sent to it.
 PROCESS may be a process, a buffer, the name of a process or buffer, or
 nil, indicating the current buffer's process.
@@ -9578,8 +12601,11 @@ text to PROCESS after you call this function.
 If PROCESS is a serial process, wait until all output written to the
 process has been transmitted to the serial port.
 
-(fn PROCESS)"#),
-    (r#"process-send-region"#, r#"Send current contents of region as input to PROCESS.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"process-send-region"#,
+        r#"Send current contents of region as input to PROCESS.
 PROCESS may be a process, a buffer, the name of a process or buffer, or
 nil, indicating the current buffer's process.
 Called from program, takes three arguments, PROCESS, START and END.
@@ -9592,8 +12618,11 @@ bunches.
 If PROCESS is a non-blocking network process that hasn't been fully
 set up yet, this function will block until socket setup has completed.
 
-(fn PROCESS START END)"#),
-    (r#"process-send-string"#, r#"Send PROCESS the contents of STRING as input.
+(fn PROCESS START END)"#,
+    ),
+    (
+        r#"process-send-string"#,
+        r#"Send PROCESS the contents of STRING as input.
 PROCESS may be a process, a buffer, the name of a process or buffer, or
 nil, indicating the current buffer's process.
 If STRING is larger than the input buffer of the process (the length
@@ -9604,12 +12633,18 @@ shorter strings.  Output from processes can arrive in between bunches.
 If PROCESS is a non-blocking network process that hasn't been fully
 set up yet, this function will block until socket setup has completed.
 
-(fn PROCESS STRING)"#),
-    (r#"process-sentinel"#, r#"Return the sentinel of PROCESS.
+(fn PROCESS STRING)"#,
+    ),
+    (
+        r#"process-sentinel"#,
+        r#"Return the sentinel of PROCESS.
 See `set-process-sentinel' for more info on sentinels.
 
-(fn PROCESS)"#),
-    (r#"process-status"#, r#"Return the status of PROCESS.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"process-status"#,
+        r#"Return the status of PROCESS.
 The returned value is one of the following symbols:
 run  -- for a process that is running.
 stop -- for a process stopped but continuable.
@@ -9624,12 +12659,18 @@ nil -- if arg is a process name and no such process exists.
 PROCESS may be a process, a buffer, the name of a process, or
 nil, indicating the current buffer's process.
 
-(fn PROCESS)"#),
-    (r#"process-thread"#, r#"Return the locking thread of PROCESS.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"process-thread"#,
+        r#"Return the locking thread of PROCESS.
 If PROCESS is unlocked, this function returns nil.
 
-(fn PROCESS)"#),
-    (r#"process-tty-name"#, r#"Return the name of the terminal PROCESS uses, or nil if none.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"process-tty-name"#,
+        r#"Return the name of the terminal PROCESS uses, or nil if none.
 This is the terminal that the process itself reads and writes on,
 not the name of the pty that Emacs uses to talk with that terminal.
 
@@ -9639,17 +12680,26 @@ of `stdin', `stdout', or `stderr', return the name of the terminal
 PROCESS uses for that stream specifically, or nil if that stream
 communicates via a pipe.
 
-(fn PROCESS STREAM)"#),
-    (r#"process-type"#, r#"Return the connection type of PROCESS.
+(fn PROCESS STREAM)"#,
+    ),
+    (
+        r#"process-type"#,
+        r#"Return the connection type of PROCESS.
 The value is either the symbol `real', `network', `serial', or `pipe'.
 PROCESS may be a process, a buffer, the name of a process or buffer, or
 nil, indicating the current buffer's process.
 
-(fn PROCESS)"#),
-    (r#"processp"#, r#"Return t if OBJECT is a process.
+(fn PROCESS)"#,
+    ),
+    (
+        r#"processp"#,
+        r#"Return t if OBJECT is a process.
 
-(fn OBJECT)"#),
-    (r#"profiler-cpu-log"#, r#"Return the current cpu profiler log.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"profiler-cpu-log"#,
+        r#"Return the current cpu profiler log.
 The log is a hash-table mapping backtraces to counters which represent
 the amount of time spent at those points.  Every backtrace is a vector
 of functions, where the last few elements may be nil.
@@ -9659,20 +12709,32 @@ If the profiler has not run since the last invocation of
 profiler is currently running, allocate a new log for future samples
 before returning.
 
-(fn)"#),
-    (r#"profiler-cpu-running-p"#, r#"Return non-nil if cpu profiler is running.
+(fn)"#,
+    ),
+    (
+        r#"profiler-cpu-running-p"#,
+        r#"Return non-nil if cpu profiler is running.
 
-(fn)"#),
-    (r#"profiler-cpu-start"#, r#"Start or restart the cpu profiler.
+(fn)"#,
+    ),
+    (
+        r#"profiler-cpu-start"#,
+        r#"Start or restart the cpu profiler.
 It takes call-stack samples each SAMPLING-INTERVAL nanoseconds, approximately.
 See also `profiler-log-size' and `profiler-max-stack-depth'.
 
-(fn SAMPLING-INTERVAL)"#),
-    (r#"profiler-cpu-stop"#, r#"Stop the cpu profiler.  The profiler log is not affected.
+(fn SAMPLING-INTERVAL)"#,
+    ),
+    (
+        r#"profiler-cpu-stop"#,
+        r#"Stop the cpu profiler.  The profiler log is not affected.
 Return non-nil if the profiler was running.
 
-(fn)"#),
-    (r#"profiler-memory-log"#, r#"Return the current memory profiler log.
+(fn)"#,
+    ),
+    (
+        r#"profiler-memory-log"#,
+        r#"Return the current memory profiler log.
 The log is a hash-table mapping backtraces to counters which represent
 the amount of memory allocated at those points.  Every backtrace is a vector
 of functions, where the last few elements may be nil.
@@ -9682,65 +12744,104 @@ If the profiler has not run since the last invocation of
 profiler is currently running, allocate a new log for future samples
 before returning.
 
-(fn)"#),
-    (r#"profiler-memory-running-p"#, r#"Return non-nil if memory profiler is running.
+(fn)"#,
+    ),
+    (
+        r#"profiler-memory-running-p"#,
+        r#"Return non-nil if memory profiler is running.
 
-(fn)"#),
-    (r#"profiler-memory-start"#, r#"Start/restart the memory profiler.
+(fn)"#,
+    ),
+    (
+        r#"profiler-memory-start"#,
+        r#"Start/restart the memory profiler.
 The memory profiler will take samples of the call-stack whenever a new
 allocation takes place.  Note that most small allocations only trigger
 the profiler occasionally.
 See also `profiler-log-size' and `profiler-max-stack-depth'.
 
-(fn)"#),
-    (r#"profiler-memory-stop"#, r#"Stop the memory profiler.  The profiler log is not affected.
+(fn)"#,
+    ),
+    (
+        r#"profiler-memory-stop"#,
+        r#"Stop the memory profiler.  The profiler log is not affected.
 Return non-nil if the profiler was running.
 
-(fn)"#),
-    (r#"prog1"#, r#"Eval FIRST and BODY sequentially; return value from FIRST.
+(fn)"#,
+    ),
+    (
+        r#"prog1"#,
+        r#"Eval FIRST and BODY sequentially; return value from FIRST.
 The value of FIRST is saved during the evaluation of the remaining args,
 whose values are discarded.
-(fn FIRST BODY...)"#),
-    (r#"progn"#, r#"Eval BODY forms sequentially and return value of last one.
-(fn BODY...)"#),
-    (r#"proper-list-p"#, r#"Return OBJECT's length if it is a proper list, nil otherwise.
+(fn FIRST BODY...)"#,
+    ),
+    (
+        r#"progn"#,
+        r#"Eval BODY forms sequentially and return value of last one.
+(fn BODY...)"#,
+    ),
+    (
+        r#"proper-list-p"#,
+        r#"Return OBJECT's length if it is a proper list, nil otherwise.
 A proper list is neither circular nor dotted (i.e., its last cdr is nil).
 
-(fn OBJECT)"#),
-    (r#"propertize"#, r#"Return a copy of STRING with text properties added.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"propertize"#,
+        r#"Return a copy of STRING with text properties added.
 First argument is the string to copy.
 Remaining arguments form a sequence of PROPERTY VALUE pairs for text
 properties to add to the result.
 
 See Info node `(elisp) Text Properties' for more information.
-(fn STRING &rest PROPERTIES)"#),
-    (r#"provide"#, r#"Announce that FEATURE is a feature of the current Emacs.
+(fn STRING &rest PROPERTIES)"#,
+    ),
+    (
+        r#"provide"#,
+        r#"Announce that FEATURE is a feature of the current Emacs.
 The optional argument SUBFEATURES should be a list of symbols listing
 particular subfeatures supported in this version of FEATURE.
 
-(fn FEATURE SUBFEATURES)"#),
-    (r#"put"#, r#"Store SYMBOL's PROPNAME property with value VALUE and return that value.
+(fn FEATURE SUBFEATURES)"#,
+    ),
+    (
+        r#"put"#,
+        r#"Store SYMBOL's PROPNAME property with value VALUE and return that value.
 It can later be retrieved with `(get SYMBOL PROPNAME)'.
 
-(fn SYMBOL PROPNAME VALUE)"#),
-    (r#"put-text-property"#, r#"Set one property of the text from START to END.
+(fn SYMBOL PROPNAME VALUE)"#,
+    ),
+    (
+        r#"put-text-property"#,
+        r#"Set one property of the text from START to END.
 The third and fourth arguments PROPERTY and VALUE
 specify the property to add.
 If the optional fifth argument OBJECT is a buffer (or nil, which means
 the current buffer), START and END are buffer positions (integers or
 markers).  If OBJECT is a string, START and END are 0-based indices into it.
 
-(fn START END PROPERTY VALUE OBJECT)"#),
-    (r#"put-unicode-property-internal"#, r#"Set an element of CHAR-TABLE for character CH to VALUE.
+(fn START END PROPERTY VALUE OBJECT)"#,
+    ),
+    (
+        r#"put-unicode-property-internal"#,
+        r#"Set an element of CHAR-TABLE for character CH to VALUE.
 CHAR-TABLE must be what returned by `unicode-property-table-internal'.
 
-(fn CHAR-TABLE CH VALUE)"#),
-    (r#"puthash"#, r#"Associate KEY with VALUE in hash table TABLE.
+(fn CHAR-TABLE CH VALUE)"#,
+    ),
+    (
+        r#"puthash"#,
+        r#"Associate KEY with VALUE in hash table TABLE.
 If KEY is already present in table, replace its current value with
 VALUE.  In any case, return VALUE.
 
-(fn KEY VALUE TABLE)"#),
-    (r#"query-font"#, r#"Return information about FONT-OBJECT.
+(fn KEY VALUE TABLE)"#,
+    ),
+    (
+        r#"query-font"#,
+        r#"Return information about FONT-OBJECT.
 The value is a vector:
   [ NAME FILENAME PIXEL-SIZE SIZE ASCENT DESCENT SPACE-WIDTH AVERAGE-WIDTH
     CAPABILITY ]
@@ -9781,19 +12882,28 @@ FEATURE is a symbol representing OpenType feature tag.
 
 If the font is not OpenType font, CAPABILITY is nil.
 
-(fn FONT-OBJECT)"#),
-    (r#"query-fontset"#, r#"Return the name of a fontset that matches PATTERN.
+(fn FONT-OBJECT)"#,
+    ),
+    (
+        r#"query-fontset"#,
+        r#"Return the name of a fontset that matches PATTERN.
 The value is nil if there is no matching fontset.
 PATTERN can contain `*' or `?' as a wildcard
 just as X font name matching algorithm allows.
 If REGEXPP is non-nil, PATTERN is a regular expression.
 
-(fn PATTERN REGEXPP)"#),
-    (r#"quit-process"#, r#"Send QUIT signal to process PROCESS.  May be process or name of one.
+(fn PATTERN REGEXPP)"#,
+    ),
+    (
+        r#"quit-process"#,
+        r#"Send QUIT signal to process PROCESS.  May be process or name of one.
 See function `interrupt-process' for more details on usage.
 
-(fn PROCESS CURRENT-GROUP)"#),
-    (r#"quote"#, r#"Return the argument, without evaluating it.  `(quote x)' yields `x'.
+(fn PROCESS CURRENT-GROUP)"#,
+    ),
+    (
+        r#"quote"#,
+        r#"Return the argument, without evaluating it.  `(quote x)' yields `x'.
 Warning: `quote' does not construct its return value, but just returns
 the value that was pre-constructed by the Lisp reader (see info node
 `(elisp)Printed Representation').
@@ -9802,13 +12912,19 @@ does not cons.  Quoting should be reserved for constants that will
 never be modified by side-effects, unless you like self-modifying code.
 See the common pitfall in info node `(elisp)Rearrangement' for an example
 of unexpected results when a quoted object is modified.
-(fn ARG)"#),
-    (r#"raise-frame"#, r#"Bring FRAME to the front, so it occludes any frames it overlaps.
+(fn ARG)"#,
+    ),
+    (
+        r#"raise-frame"#,
+        r#"Bring FRAME to the front, so it occludes any frames it overlaps.
 If FRAME is invisible or iconified, make it visible.
 If you don't specify a frame, the selected frame is used.
 
-(fn FRAME)"#),
-    (r#"random"#, r#"Return a pseudo-random integer.
+(fn FRAME)"#,
+    ),
+    (
+        r#"random"#,
+        r#"Return a pseudo-random integer.
 By default, return a fixnum; all fixnums are equally likely.
 With positive integer LIMIT, return random integer in interval [0,LIMIT).
 With argument t, set the random number seed from the system's entropy
@@ -9817,20 +12933,32 @@ With a string argument, set the seed based on the string's contents.
 
 See Info node `(elisp)Random Numbers' for more details.
 
-(fn LIMIT)"#),
-    (r#"rassoc"#, r#"Return non-nil if KEY is `equal' to the cdr of an element of ALIST.
+(fn LIMIT)"#,
+    ),
+    (
+        r#"rassoc"#,
+        r#"Return non-nil if KEY is `equal' to the cdr of an element of ALIST.
 The value is actually the first element of ALIST whose cdr equals KEY.
 
-(fn KEY ALIST)"#),
-    (r#"rassq"#, r#"Return non-nil if KEY is `eq' to the cdr of an element of ALIST.
+(fn KEY ALIST)"#,
+    ),
+    (
+        r#"rassq"#,
+        r#"Return non-nil if KEY is `eq' to the cdr of an element of ALIST.
 The value is actually the first element of ALIST whose cdr is KEY.
 
-(fn KEY ALIST)"#),
-    (r#"re--describe-compiled"#, r#"Return a string describing the compiled form of REGEXP.
+(fn KEY ALIST)"#,
+    ),
+    (
+        r#"re--describe-compiled"#,
+        r#"Return a string describing the compiled form of REGEXP.
 If RAW is non-nil, just return the actual bytecode.
 
-(fn REGEXP RAW)"#),
-    (r#"re-search-backward"#, r#"Search backward from point for regular expression REGEXP.
+(fn REGEXP RAW)"#,
+    ),
+    (
+        r#"re-search-backward"#,
+        r#"Search backward from point for regular expression REGEXP.
 This function is almost identical to `re-search-forward', except that
 by default it searches backward instead of forward, and the sign of
 COUNT also indicates exactly the opposite searching direction.
@@ -9840,8 +12968,11 @@ Note that searching backwards may give a shorter match than expected,
 because REGEXP is still matched in the forward direction.  See Info
 anchor `(elisp) re-search-backward' for details.
 
-(fn REGEXP BOUND NOERROR COUNT)"#),
-    (r#"re-search-forward"#, r#"Search forward from point for regular expression REGEXP.
+(fn REGEXP BOUND NOERROR COUNT)"#,
+    ),
+    (
+        r#"re-search-forward"#,
+        r#"Search forward from point for regular expression REGEXP.
 Set point to the end of the occurrence found, and return point.
 The optional second argument BOUND is a buffer position that bounds
   the search.  The match found must not end after that position.  A
@@ -9866,8 +12997,11 @@ Search case-sensitivity is determined by the value of the variable
 See also the functions `match-beginning', `match-end', `match-string',
 and `replace-match'.
 
-(fn REGEXP BOUND NOERROR COUNT)"#),
-    (r#"read"#, r#"Read one Lisp expression as text from STREAM, return as Lisp object.
+(fn REGEXP BOUND NOERROR COUNT)"#,
+    ),
+    (
+        r#"read"#,
+        r#"Read one Lisp expression as text from STREAM, return as Lisp object.
 If STREAM is nil, use the value of `standard-input' (which see).
 STREAM or the value of `standard-input' may be:
  a buffer (read from point and advance it)
@@ -9878,8 +13012,11 @@ STREAM or the value of `standard-input' may be:
  t (read text line using minibuffer and use it, or read from
     standard input in batch mode).
 
-(fn STREAM)"#),
-    (r#"read-buffer"#, r#"Read the name of a buffer and return it as a string.
+(fn STREAM)"#,
+    ),
+    (
+        r#"read-buffer"#,
+        r#"Read the name of a buffer and return it as a string.
 Prompt with PROMPT, which should be a string ending with a colon and a space.
 Provides completion on buffer names the user types.
 Optional second arg DEF is value to return if user enters an empty line,
@@ -9896,8 +13033,11 @@ case while reading the buffer name.
 If `read-buffer-function' is non-nil, this works by calling it as a
 function, instead of the usual behavior.
 
-(fn PROMPT DEF REQUIRE-MATCH PREDICATE)"#),
-    (r#"read-char"#, r#"Read a character event from the command input (keyboard or macro).
+(fn PROMPT DEF REQUIRE-MATCH PREDICATE)"#,
+    ),
+    (
+        r#"read-char"#,
+        r#"Read a character event from the command input (keyboard or macro).
 Return the character as a number.
 If the event has modifiers, they are resolved and reflected in the
 returned character code if possible (e.g. C-SPC yields 0 and C-a yields 97).
@@ -9929,8 +13069,11 @@ floating-point value.
 If `inhibit-interaction' is non-nil, this function will signal an
 `inhibited-interaction' error.
 
-(fn PROMPT INHERIT-INPUT-METHOD SECONDS)"#),
-    (r#"read-char-exclusive"#, r#"Read a character event from the command input (keyboard or macro).
+(fn PROMPT INHERIT-INPUT-METHOD SECONDS)"#,
+    ),
+    (
+        r#"read-char-exclusive"#,
+        r#"Read a character event from the command input (keyboard or macro).
 Return the character as a number.  Non-character events are ignored.
 If the event has modifiers, they are resolved and reflected in the
 returned character code if possible (e.g. C-SPC yields 0 and C-a yields 97).
@@ -9955,22 +13098,31 @@ floating-point value.
 If `inhibit-interaction' is non-nil, this function will signal an
 `inhibited-interaction' error.
 
-(fn PROMPT INHERIT-INPUT-METHOD SECONDS)"#),
-    (r#"read-coding-system"#, r#"Read a coding system from the minibuffer, prompting with string PROMPT.
+(fn PROMPT INHERIT-INPUT-METHOD SECONDS)"#,
+    ),
+    (
+        r#"read-coding-system"#,
+        r#"Read a coding system from the minibuffer, prompting with string PROMPT.
 If the user enters null input, return second argument DEFAULT-CODING-SYSTEM.
 Return the coding-system's symbol, or nil if both the user input and
 DEFAULT-CODING-SYSTEM are empty or null.
 Ignores case when completing coding systems (all Emacs coding systems
 are lower-case).
 
-(fn PROMPT DEFAULT-CODING-SYSTEM)"#),
-    (r#"read-command"#, r#"Read the name of a command and return it as a symbol.
+(fn PROMPT DEFAULT-CODING-SYSTEM)"#,
+    ),
+    (
+        r#"read-command"#,
+        r#"Read the name of a command and return it as a symbol.
 Prompt with PROMPT.  By default, return DEFAULT-VALUE or its first element
 if it is a list.  If DEFAULT-VALUE is omitted or nil, and the user enters
 null input, return a symbol whose name is an empty string.
 
-(fn PROMPT DEFAULT-VALUE)"#),
-    (r#"read-event"#, r#"Read and return an event object from the input stream.
+(fn PROMPT DEFAULT-VALUE)"#,
+    ),
+    (
+        r#"read-event"#,
+        r#"Read and return an event object from the input stream.
 
 If you want to read non-character events, consider calling `read-key'
 instead.  `read-key' will decode events via `input-decode-map' that
@@ -9993,8 +13145,11 @@ floating-point value.
 If `inhibit-interaction' is non-nil, this function will signal an
 `inhibited-interaction' error.
 
-(fn PROMPT INHERIT-INPUT-METHOD SECONDS)"#),
-    (r#"read-from-minibuffer"#, r#"Read and return a string from the minibuffer, prompting with string PROMPT.
+(fn PROMPT INHERIT-INPUT-METHOD SECONDS)"#,
+    ),
+    (
+        r#"read-from-minibuffer"#,
+        r#"Read and return a string from the minibuffer, prompting with string PROMPT.
 The optional second arg INITIAL-CONTENTS is an obsolete alternative to
   DEFAULT-VALUE.  It normally should be nil in new code, except when
   HIST is a cons.  It is discussed in more detail below.
@@ -10053,8 +13208,11 @@ one puts point at the beginning of the string.  *Note* that this
 behavior differs from the way such arguments are used in `completing-read'
 and some related functions, which use zero-indexing for POSITION.
 
-(fn PROMPT INITIAL-CONTENTS KEYMAP READ HIST DEFAULT-VALUE INHERIT-INPUT-METHOD)"#),
-    (r#"read-from-string"#, r#"Read one Lisp expression which is represented as text by STRING.
+(fn PROMPT INITIAL-CONTENTS KEYMAP READ HIST DEFAULT-VALUE INHERIT-INPUT-METHOD)"#,
+    ),
+    (
+        r#"read-from-string"#,
+        r#"Read one Lisp expression which is represented as text by STRING.
 Returns a cons: (OBJECT-READ . FINAL-STRING-INDEX).
 FINAL-STRING-INDEX is an integer giving the position of the next
 remaining character in STRING.  START and END optionally delimit
@@ -10062,12 +13220,18 @@ a substring of STRING from which to read;  they default to 0 and
 \(length STRING) respectively.  Negative values are counted from
 the end of STRING.
 
-(fn STRING START END)"#),
-    (r#"read-function"#, r#"One arg PROMPT, a string.  Read the name of a function and return as a symbol.
+(fn STRING START END)"#,
+    ),
+    (
+        r#"read-function"#,
+        r#"One arg PROMPT, a string.  Read the name of a function and return as a symbol.
 Prompt with PROMPT.
 
-(fn PROMPT)"#),
-    (r#"read-key-sequence"#, r#"Read a sequence of keystrokes and return as a string or vector.
+(fn PROMPT)"#,
+    ),
+    (
+        r#"read-key-sequence"#,
+        r#"Read a sequence of keystrokes and return as a string or vector.
 The sequence is sufficient to specify a non-prefix command in the
 current local and global maps.
 
@@ -10119,15 +13283,24 @@ disable input method text conversion for the duration of reading this
 key sequence, and that keyboard input will always result in key events
 being sent.
 
-(fn PROMPT CONTINUE-ECHO DONT-DOWNCASE-LAST CAN-RETURN-SWITCH-FRAME CMD-LOOP DISABLE-TEXT-CONVERSION)"#),
-    (r#"read-key-sequence-vector"#, r#"Like `read-key-sequence' but always return a vector.
+(fn PROMPT CONTINUE-ECHO DONT-DOWNCASE-LAST CAN-RETURN-SWITCH-FRAME CMD-LOOP DISABLE-TEXT-CONVERSION)"#,
+    ),
+    (
+        r#"read-key-sequence-vector"#,
+        r#"Like `read-key-sequence' but always return a vector.
 
-(fn PROMPT CONTINUE-ECHO DONT-DOWNCASE-LAST CAN-RETURN-SWITCH-FRAME CMD-LOOP DISABLE-TEXT-CONVERSION)"#),
-    (r#"read-non-nil-coding-system"#, r#"Read a coding system from the minibuffer, prompting with string PROMPT.
+(fn PROMPT CONTINUE-ECHO DONT-DOWNCASE-LAST CAN-RETURN-SWITCH-FRAME CMD-LOOP DISABLE-TEXT-CONVERSION)"#,
+    ),
+    (
+        r#"read-non-nil-coding-system"#,
+        r#"Read a coding system from the minibuffer, prompting with string PROMPT.
 Return the symbol of the coding-system.
 
-(fn PROMPT)"#),
-    (r#"read-positioning-symbols"#, r#"Read one Lisp expression as text from STREAM, return as Lisp object.
+(fn PROMPT)"#,
+    ),
+    (
+        r#"read-positioning-symbols"#,
+        r#"Read one Lisp expression as text from STREAM, return as Lisp object.
 Convert each occurrence of a symbol into a "symbol with pos" object.
 
 If STREAM is nil, use the value of `standard-input' (which see).
@@ -10140,8 +13313,11 @@ STREAM or the value of `standard-input' may be:
  t (read text line using minibuffer and use it, or read from
     standard input in batch mode).
 
-(fn STREAM)"#),
-    (r#"read-string"#, r#"Read and return a string from the minibuffer, prompting with PROMPT.
+(fn STREAM)"#,
+    ),
+    (
+        r#"read-string"#,
+        r#"Read and return a string from the minibuffer, prompting with PROMPT.
 
 PROMPT is a string, which should normally end with the string ": ".
 
@@ -10164,31 +13340,46 @@ Fifth arg INHERIT-INPUT-METHOD, if non-nil, means the minibuffer
 inherits the current input method and the setting of
 `enable-multibyte-characters'.
 
-(fn PROMPT INITIAL-INPUT HISTORY DEFAULT-VALUE INHERIT-INPUT-METHOD)"#),
-    (r#"read-variable"#, r#"Read the name of a user option and return it as a symbol.
+(fn PROMPT INITIAL-INPUT HISTORY DEFAULT-VALUE INHERIT-INPUT-METHOD)"#,
+    ),
+    (
+        r#"read-variable"#,
+        r#"Read the name of a user option and return it as a symbol.
 Prompt with PROMPT.  By default, return DEFAULT-VALUE or its first element
 if it is a list of strings.
 A user option, or customizable variable, is one for which
 `custom-variable-p' returns non-nil.
 
-(fn PROMPT DEFAULT-VALUE)"#),
-    (r#"recent-auto-save-p"#, r#"Return t if current buffer has been auto-saved recently.
+(fn PROMPT DEFAULT-VALUE)"#,
+    ),
+    (
+        r#"recent-auto-save-p"#,
+        r#"Return t if current buffer has been auto-saved recently.
 More precisely, if it has been auto-saved since last read from or saved
 in the visited file.  If the buffer has no visited file,
 then any auto-save counts as "recent".
 
-(fn)"#),
-    (r#"recent-doskeys"#, r#"Return vector of last 100 keyboard input values seen in dos_rawgetc.
+(fn)"#,
+    ),
+    (
+        r#"recent-doskeys"#,
+        r#"Return vector of last 100 keyboard input values seen in dos_rawgetc.
 Each input key receives two values in this vector: first the ASCII code,
 and then the scan code.
 
-(fn)"#),
-    (r#"recent-keys"#, r#"Return vector of last few events, not counting those from keyboard macros.
+(fn)"#,
+    ),
+    (
+        r#"recent-keys"#,
+        r#"Return vector of last few events, not counting those from keyboard macros.
 If INCLUDE-CMDS is non-nil, include the commands that were run,
 represented as pseudo-events of the form (nil . COMMAND).
 
-(fn INCLUDE-CMDS)"#),
-    (r#"recenter"#, r#"Center point in selected window and maybe redisplay frame.
+(fn INCLUDE-CMDS)"#,
+    ),
+    (
+        r#"recenter"#,
+        r#"Center point in selected window and maybe redisplay frame.
 With a numeric prefix argument ARG, recenter putting point on screen line ARG
 relative to the selected window.  If ARG is negative, it counts up from the
 bottom of the window.  (ARG should be less than the height of the window.)
@@ -10204,26 +13395,41 @@ are redrawn.  Interactively, REDISPLAY is always non-nil.
 Just C-u as prefix means put point in the center of the window
 and redisplay normally--don't erase and redraw the frame.
 
-(fn ARG REDISPLAY)"#),
-    (r#"reconsider-frame-fonts"#, r#"Recreate FRAME's default font using updated font parameters.
+(fn ARG REDISPLAY)"#,
+    ),
+    (
+        r#"reconsider-frame-fonts"#,
+        r#"Recreate FRAME's default font using updated font parameters.
 Signal an error if FRAME is not a window system frame.  This should be
 called after a `config-changed' event is received, signaling that the
 parameters (such as pixel density) used by the system to open fonts
 have changed.
 
-(fn FRAME)"#),
-    (r#"record"#, r#"Create a new record.
+(fn FRAME)"#,
+    ),
+    (
+        r#"record"#,
+        r#"Create a new record.
 TYPE is its type as returned by `type-of'; it should be either a
 symbol or a type descriptor.  SLOTS is used to initialize the record
 slots with shallow copies of the arguments.
-(fn TYPE &rest SLOTS)"#),
-    (r#"recordp"#, r#"Return t if OBJECT is a record.
+(fn TYPE &rest SLOTS)"#,
+    ),
+    (
+        r#"recordp"#,
+        r#"Return t if OBJECT is a record.
 
-(fn OBJECT)"#),
-    (r#"recursion-depth"#, r#"Return the current depth in recursive edits.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"recursion-depth"#,
+        r#"Return the current depth in recursive edits.
 
-(fn)"#),
-    (r#"recursive-edit"#, r#"Invoke the editor command loop recursively.
+(fn)"#,
+    ),
+    (
+        r#"recursive-edit"#,
+        r#"Invoke the editor command loop recursively.
 To get out of the recursive edit, a command can throw to `exit' -- for
 instance (throw \\='exit nil).
 
@@ -10244,14 +13450,20 @@ throwing to \\='exit:
 
 This function is called by the editor initialization to begin editing.
 
-(fn)"#),
-    (r#"redirect-debugging-output"#, r#"Redirect debugging output (stderr stream) to file FILE.
+(fn)"#,
+    ),
+    (
+        r#"redirect-debugging-output"#,
+        r#"Redirect debugging output (stderr stream) to file FILE.
 If FILE is nil, reset target to the initial stderr stream.
 Optional arg APPEND non-nil (interactively, with prefix arg) means
 append to existing target file.
 
-(fn FILE APPEND)"#),
-    (r#"redirect-frame-focus"#, r#"Arrange for keystrokes typed at FRAME to be sent to FOCUS-FRAME.
+(fn FILE APPEND)"#,
+    ),
+    (
+        r#"redirect-frame-focus"#,
+        r#"Arrange for keystrokes typed at FRAME to be sent to FOCUS-FRAME.
 In other words, switch-frame events caused by events in FRAME will
 request a switch to FOCUS-FRAME, and `last-event-frame' will be
 FOCUS-FRAME after reading an event typed at FRAME.
@@ -10275,65 +13487,104 @@ is affected by `select-frame', while the latter is not.
 
 The redirection lasts until `redirect-frame-focus' is called to change it.
 
-(fn FRAME FOCUS-FRAME)"#),
-    (r#"redisplay"#, r#"Perform redisplay.
+(fn FRAME FOCUS-FRAME)"#,
+    ),
+    (
+        r#"redisplay"#,
+        r#"Perform redisplay.
 Optional arg FORCE exists for historical reasons and is ignored.
 Value is t if redisplay has been performed, nil if executing a
 keyboard macro.
 
-(fn FORCE)"#),
-    (r#"redraw-display"#, r#"Clear and redisplay all visible frames.
+(fn FORCE)"#,
+    ),
+    (
+        r#"redraw-display"#,
+        r#"Clear and redisplay all visible frames.
 
-(fn)"#),
-    (r#"redraw-frame"#, r#"Clear frame FRAME and output again what is supposed to appear on it.
+(fn)"#,
+    ),
+    (
+        r#"redraw-frame"#,
+        r#"Clear frame FRAME and output again what is supposed to appear on it.
 If FRAME is omitted or nil, the selected frame is used.
 
-(fn FRAME)"#),
-    (r#"regexp-quote"#, r#"Return a regexp string which matches exactly STRING and nothing else.
+(fn FRAME)"#,
+    ),
+    (
+        r#"regexp-quote"#,
+        r#"Return a regexp string which matches exactly STRING and nothing else.
 
-(fn STRING)"#),
-    (r#"region-beginning"#, r#"Return the integer value of point or mark, whichever is smaller.
+(fn STRING)"#,
+    ),
+    (
+        r#"region-beginning"#,
+        r#"Return the integer value of point or mark, whichever is smaller.
 
-(fn)"#),
-    (r#"region-end"#, r#"Return the integer value of point or mark, whichever is larger.
+(fn)"#,
+    ),
+    (
+        r#"region-end"#,
+        r#"Return the integer value of point or mark, whichever is larger.
 
-(fn)"#),
-    (r#"register-ccl-program"#, r#"Register CCL program CCL-PROG as NAME in `ccl-program-table'.
+(fn)"#,
+    ),
+    (
+        r#"register-ccl-program"#,
+        r#"Register CCL program CCL-PROG as NAME in `ccl-program-table'.
 CCL-PROG should be a compiled CCL program (vector), or nil.
 If it is nil, just reserve NAME as a CCL program name.
 Return index number of the registered CCL program.
 
-(fn NAME CCL-PROG)"#),
-    (r#"register-code-conversion-map"#, r#"Register SYMBOL as code conversion map MAP.
+(fn NAME CCL-PROG)"#,
+    ),
+    (
+        r#"register-code-conversion-map"#,
+        r#"Register SYMBOL as code conversion map MAP.
 Return index number of the registered map.
 
-(fn SYMBOL MAP)"#),
-    (r#"remember-mouse-glyph"#, r#"Return the extents of glyph in FRAME for mouse event generation.
+(fn SYMBOL MAP)"#,
+    ),
+    (
+        r#"remember-mouse-glyph"#,
+        r#"Return the extents of glyph in FRAME for mouse event generation.
 Return a rectangle (X Y WIDTH HEIGHT) representing the confines, in
 pixel coordinates, of the glyph at X, Y and in FRAME, or, should
 `mouse-fine-grained-tracking' or `window-resize-pixelwise` be enabled,
 an approximation thereof.  All coordinates are relative to the origin
 point of FRAME.
 
-(fn FRAME X Y)"#),
-    (r#"remhash"#, r#"Remove KEY from TABLE.
+(fn FRAME X Y)"#,
+    ),
+    (
+        r#"remhash"#,
+        r#"Remove KEY from TABLE.
 
-(fn KEY TABLE)"#),
-    (r#"remove-list-of-text-properties"#, r#"Remove some properties from text from START to END.
+(fn KEY TABLE)"#,
+    ),
+    (
+        r#"remove-list-of-text-properties"#,
+        r#"Remove some properties from text from START to END.
 The third argument LIST-OF-PROPERTIES is a list of property names to remove.
 If the optional fourth argument OBJECT is a buffer (or nil, which means
 the current buffer), START and END are buffer positions (integers or
 markers).  If OBJECT is a string, START and END are 0-based indices into it.
 Return t if any property was actually removed, nil otherwise.
 
-(fn START END LIST-OF-PROPERTIES OBJECT)"#),
-    (r#"remove-pos-from-symbol"#, r#"If ARG is a symbol with position, return it without the position.
+(fn START END LIST-OF-PROPERTIES OBJECT)"#,
+    ),
+    (
+        r#"remove-pos-from-symbol"#,
+        r#"If ARG is a symbol with position, return it without the position.
 Otherwise, return ARG unchanged.  Ignore `symbols-with-pos-enabled'.
 Compare with `bare-symbol', which does the same, but signals an error
 if ARG is not a symbol.
 
-(fn ARG)"#),
-    (r#"remove-text-properties"#, r#"Remove some properties from text from START to END.
+(fn ARG)"#,
+    ),
+    (
+        r#"remove-text-properties"#,
+        r#"Remove some properties from text from START to END.
 The third argument PROPERTIES is a property list
 whose property names specify the properties to remove.
 \(The values stored in PROPERTIES are ignored.)
@@ -10344,13 +13595,19 @@ Return t if any property was actually removed, nil otherwise.
 
 Use `set-text-properties' if you want to remove all text properties.
 
-(fn START END PROPERTIES OBJECT)"#),
-    (r#"remove-variable-watcher"#, r#"Undo the effect of `add-variable-watcher'.
+(fn START END PROPERTIES OBJECT)"#,
+    ),
+    (
+        r#"remove-variable-watcher"#,
+        r#"Undo the effect of `add-variable-watcher'.
 Remove WATCH-FUNCTION from the list of functions to be called when
 SYMBOL (or its aliases) are set.
 
-(fn SYMBOL WATCH-FUNCTION)"#),
-    (r#"rename-buffer"#, r#"Change current buffer's name to NEWNAME (a string).
+(fn SYMBOL WATCH-FUNCTION)"#,
+    ),
+    (
+        r#"rename-buffer"#,
+        r#"Change current buffer's name to NEWNAME (a string).
 If second arg UNIQUE is nil or omitted, it is an error if a
 buffer named NEWNAME already exists.
 If UNIQUE is non-nil, come up with a new name using
@@ -10359,8 +13616,11 @@ Interactively, you can set UNIQUE with a prefix argument.
 We return the name we actually gave the buffer.
 This does not change the name of the visited file (if any).
 
-(fn NEWNAME UNIQUE)"#),
-    (r#"rename-file"#, r#"Rename FILE as NEWNAME.  Both args must be strings.
+(fn NEWNAME UNIQUE)"#,
+    ),
+    (
+        r#"rename-file"#,
+        r#"Rename FILE as NEWNAME.  Both args must be strings.
 If file has names other than FILE, it continues to have those names.
 If NEWNAME is a directory name, rename FILE to a like-named file under
 NEWNAME.  For NEWNAME to be recognized as a directory name, it should
@@ -10371,8 +13631,11 @@ unless optional third argument OK-IF-ALREADY-EXISTS is non-nil.
 An integer third arg means request confirmation if NEWNAME already exists.
 This is what happens in interactive use with M-x.
 
-(fn FILE NEWNAME OK-IF-ALREADY-EXISTS)"#),
-    (r#"replace-match"#, r#"Replace text matched by last search with NEWTEXT.
+(fn FILE NEWNAME OK-IF-ALREADY-EXISTS)"#,
+    ),
+    (
+        r#"replace-match"#,
+        r#"Replace text matched by last search with NEWTEXT.
 Leave point at the end of the replacement text.
 
 If optional second arg FIXEDCASE is non-nil, do not alter the case of
@@ -10410,8 +13673,11 @@ NEWTEXT in place of subexp N.
 This is useful only after a regular expression search or match,
 since only regular expressions have distinguished subexpressions.
 
-(fn NEWTEXT FIXEDCASE LITERAL STRING SUBEXP)"#),
-    (r#"replace-region-contents"#, r#"Replace the region between BEG and END with that of SOURCE.
+(fn NEWTEXT FIXEDCASE LITERAL STRING SUBEXP)"#,
+    ),
+    (
+        r#"replace-region-contents"#,
+        r#"Replace the region between BEG and END with that of SOURCE.
 SOURCE can be a buffer, a string, or a vector [SBUF SBEG SEND]
 denoting the substring SBEG..SEND of buffer SBUF.
 
@@ -10455,8 +13721,11 @@ SOURCE can also be a function that will be called with no arguments
 and with current buffer narrowed to BEG..END, and should return
 a buffer or a string.  But this is deprecated.
 
-(fn BEG END SOURCE MAX-SECS MAX-COSTS INHERIT)"#),
-    (r#"require"#, r#"If FEATURE is not already loaded, load it from FILENAME.
+(fn BEG END SOURCE MAX-SECS MAX-COSTS INHERIT)"#,
+    ),
+    (
+        r#"require"#,
+        r#"If FEATURE is not already loaded, load it from FILENAME.
 If FEATURE is not a member of the list `features', then the feature was
 not yet loaded; so load it from file FILENAME.
 
@@ -10476,11 +13745,17 @@ an error.  Normally the return value is FEATURE.
 The normal messages issued by `load' at start and end of loading
 FILENAME are suppressed.
 
-(fn FEATURE FILENAME NOERROR)"#),
-    (r#"resize-mini-window-internal"#, r#"Resize mini window WINDOW.
+(fn FEATURE FILENAME NOERROR)"#,
+    ),
+    (
+        r#"resize-mini-window-internal"#,
+        r#"Resize mini window WINDOW.
 
-(fn WINDOW)"#),
-    (r#"restore-buffer-modified-p"#, r#"Like `set-buffer-modified-p', but doesn't redisplay buffer's mode line.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"restore-buffer-modified-p"#,
+        r#"Like `set-buffer-modified-p', but doesn't redisplay buffer's mode line.
 A nil FLAG means to mark the buffer as unmodified.  A non-nil FLAG
 means mark the buffer as modified.  A special value of `autosaved'
 will mark the buffer as modified and also as autosaved since it was
@@ -10492,8 +13767,11 @@ if both `buffer-file-truename' and `buffer-file-name' are non-nil.
 It is not ensured that mode lines will be updated to show the modified
 state of the current buffer.  Use with care.
 
-(fn FLAG)"#),
-    (r#"resume-tty"#, r#"Resume the previously suspended terminal device TTY.
+(fn FLAG)"#,
+    ),
+    (
+        r#"resume-tty"#,
+        r#"Resume the previously suspended terminal device TTY.
 The terminal is opened and reinitialized.  Frames that are on the
 suspended terminal are revived.
 
@@ -10510,12 +13788,18 @@ suspended.
 TTY may be a terminal object, a frame, or nil (meaning the selected
 frame's terminal).
 
-(fn TTY)"#),
-    (r#"reverse"#, r#"Return the reversed copy of list, vector, or string SEQ.
+(fn TTY)"#,
+    ),
+    (
+        r#"reverse"#,
+        r#"Return the reversed copy of list, vector, or string SEQ.
 See also the function `nreverse', which is used more often.
 
-(fn SEQ)"#),
-    (r#"round"#, r#"Return the nearest integer to ARG.
+(fn SEQ)"#,
+    ),
+    (
+        r#"round"#,
+        r#"Return the nearest integer to ARG.
 With optional DIVISOR, return the nearest integer to ARG/DIVISOR.
 
 Rounding a value equidistant between two integers may choose the
@@ -10523,8 +13807,11 @@ integer closer to zero, or it may prefer an even integer, depending on
 your machine.  For example, (round 2.5) can return 3 on some
 systems, but 2 on others.
 
-(fn ARG DIVISOR)"#),
-    (r#"run-hook-with-args"#, r#"Run HOOK with the specified arguments ARGS.
+(fn ARG DIVISOR)"#,
+    ),
+    (
+        r#"run-hook-with-args"#,
+        r#"Run HOOK with the specified arguments ARGS.
 HOOK should be a symbol, a hook variable.  The value of HOOK
 may be nil, a function, or a list of functions.  Call each
 function in order with arguments ARGS.  The final return value
@@ -10532,8 +13819,11 @@ is unspecified.
 
 Do not use `make-local-variable' to make a hook variable buffer-local.
 Instead, use `add-hook' and specify t for the LOCAL argument.
-(fn HOOK &rest ARGS)"#),
-    (r#"run-hook-with-args-until-failure"#, r#"Run HOOK with the specified arguments ARGS.
+(fn HOOK &rest ARGS)"#,
+    ),
+    (
+        r#"run-hook-with-args-until-failure"#,
+        r#"Run HOOK with the specified arguments ARGS.
 HOOK should be a symbol, a hook variable.  The value of HOOK
 may be nil, a function, or a list of functions.  Call each
 function in order with arguments ARGS, stopping at the first
@@ -10543,8 +13833,11 @@ return non-nil, or if there are no functions to call), return non-nil
 
 Do not use `make-local-variable' to make a hook variable buffer-local.
 Instead, use `add-hook' and specify t for the LOCAL argument.
-(fn HOOK &rest ARGS)"#),
-    (r#"run-hook-with-args-until-success"#, r#"Run HOOK with the specified arguments ARGS.
+(fn HOOK &rest ARGS)"#,
+    ),
+    (
+        r#"run-hook-with-args-until-success"#,
+        r#"Run HOOK with the specified arguments ARGS.
 HOOK should be a symbol, a hook variable.  The value of HOOK
 may be nil, a function, or a list of functions.  Call each
 function in order with arguments ARGS, stopping at the first
@@ -10554,14 +13847,20 @@ return nil.
 
 Do not use `make-local-variable' to make a hook variable buffer-local.
 Instead, use `add-hook' and specify t for the LOCAL argument.
-(fn HOOK &rest ARGS)"#),
-    (r#"run-hook-wrapped"#, r#"Run HOOK, passing each function through WRAP-FUNCTION.
+(fn HOOK &rest ARGS)"#,
+    ),
+    (
+        r#"run-hook-wrapped"#,
+        r#"Run HOOK, passing each function through WRAP-FUNCTION.
 I.e. instead of calling each function FUN directly with arguments ARGS,
 it calls WRAP-FUNCTION with arguments FUN and ARGS.
 As soon as a call to WRAP-FUNCTION returns non-nil, `run-hook-wrapped'
 aborts and returns that value.
-(fn HOOK WRAP-FUNCTION &rest ARGS)"#),
-    (r#"run-hooks"#, r#"Run each hook in HOOKS.
+(fn HOOK WRAP-FUNCTION &rest ARGS)"#,
+    ),
+    (
+        r#"run-hooks"#,
+        r#"Run each hook in HOOKS.
 Each argument should be a symbol, a hook variable.
 These symbols are processed in the order specified.
 If a hook symbol has a non-nil value, that value may be a function
@@ -10574,31 +13873,46 @@ hook; they should use `run-mode-hooks' instead.
 
 Do not use `make-local-variable' to make a hook variable buffer-local.
 Instead, use `add-hook' and specify t for the LOCAL argument.
-(fn &rest HOOKS)"#),
-    (r#"run-window-configuration-change-hook"#, r#"Run `window-configuration-change-hook' for FRAME.
+(fn &rest HOOKS)"#,
+    ),
+    (
+        r#"run-window-configuration-change-hook"#,
+        r#"Run `window-configuration-change-hook' for FRAME.
 If FRAME is omitted or nil, it defaults to the selected frame.
 
 This function should not be needed any more and will be therefore
 considered obsolete.
 
-(fn FRAME)"#),
-    (r#"run-window-scroll-functions"#, r#"Run `window-scroll-functions' for WINDOW.
+(fn FRAME)"#,
+    ),
+    (
+        r#"run-window-scroll-functions"#,
+        r#"Run `window-scroll-functions' for WINDOW.
 If WINDOW is omitted or nil, it defaults to the selected window.
 
 This function is called by `split-window' for the new window, after it
 has established the size of the new window.
 
-(fn WINDOW)"#),
-    (r#"safe-length"#, r#"Return the length of a list, but avoid error or infinite loop.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"safe-length"#,
+        r#"Return the length of a list, but avoid error or infinite loop.
 This function never gets an error.  If LIST is not really a list,
 it returns 0.  If LIST is circular, it returns an integer that is at
 least the number of distinct elements.
 
-(fn LIST)"#),
-    (r#"save-current-buffer"#, r#"Record which buffer is current; execute BODY; make that buffer current.
+(fn LIST)"#,
+    ),
+    (
+        r#"save-current-buffer"#,
+        r#"Record which buffer is current; execute BODY; make that buffer current.
 BODY is executed just like `progn'.
-(fn &rest BODY)"#),
-    (r#"save-excursion"#, r#"Save point, and current buffer; execute BODY; restore those things.
+(fn &rest BODY)"#,
+    ),
+    (
+        r#"save-excursion"#,
+        r#"Save point, and current buffer; execute BODY; restore those things.
 Executes BODY just like `progn'.
 The values of point and the current buffer are restored
 even in case of abnormal exit (throw or error).
@@ -10610,8 +13924,11 @@ Before Emacs 25.1, `save-excursion' used to save the mark state.
 To save the mark state as well as point and the current buffer, use
 `save-mark-and-excursion'.
 
-(fn &rest BODY)"#),
-    (r#"save-restriction"#, r#"Execute BODY, saving and restoring current buffer's restrictions.
+(fn &rest BODY)"#,
+    ),
+    (
+        r#"save-restriction"#,
+        r#"Execute BODY, saving and restoring current buffer's restrictions.
 The buffer's restrictions make parts of the beginning and end invisible.
 \(They are set up with `narrow-to-region' and eliminated with `widen'.)
 This special form, `save-restriction', saves the current buffer's
@@ -10627,8 +13944,11 @@ Note: if you are using both `save-excursion' and `save-restriction',
 use `save-excursion' outermost:
     (save-excursion (save-restriction ...))
 
-(fn &rest BODY)"#),
-    (r#"scan-lists"#, r#"Scan from character number FROM by COUNT lists.
+(fn &rest BODY)"#,
+    ),
+    (
+        r#"scan-lists"#,
+        r#"Scan from character number FROM by COUNT lists.
 Scan forward if COUNT is positive, backward if COUNT is negative.
 Return the character number of the position thus found.
 
@@ -10647,8 +13967,11 @@ If we reach the beginning or end of the accessible part of the buffer
 before we have scanned over COUNT lists, return nil if the depth at
 that point is zero, and signal an error if the depth is nonzero.
 
-(fn FROM COUNT DEPTH)"#),
-    (r#"scan-sexps"#, r#"Scan from character number FROM by COUNT balanced expressions.
+(fn FROM COUNT DEPTH)"#,
+    ),
+    (
+        r#"scan-sexps"#,
+        r#"Scan from character number FROM by COUNT balanced expressions.
 If COUNT is negative, scan backwards.
 Returns the character number of the position thus found.
 
@@ -10659,16 +13982,22 @@ in the middle of a parenthetical grouping, an error is signaled.
 If the beginning or end is reached between groupings
 but before count is used up, nil is returned.
 
-(fn FROM COUNT)"#),
-    (r#"scroll-down"#, r#"Scroll text of selected window down ARG lines.
+(fn FROM COUNT)"#,
+    ),
+    (
+        r#"scroll-down"#,
+        r#"Scroll text of selected window down ARG lines.
 If ARG is omitted or nil, scroll down by a near full screen.
 A near full screen is `next-screen-context-lines' less than a full screen.
 Negative ARG means scroll upward.
 If ARG is the atom `-', scroll upward by nearly full screen.
 When calling from a program, supply as argument a number, nil, or `-'.
 
-(fn ARG)"#),
-    (r#"scroll-left"#, r#"Scroll selected window display ARG columns left.
+(fn ARG)"#,
+    ),
+    (
+        r#"scroll-left"#,
+        r#"Scroll selected window display ARG columns left.
 Default for ARG is window width minus 2.
 Value is the total amount of leftward horizontal scrolling in
 effect after the change.
@@ -10677,8 +14006,11 @@ lower bound for automatic scrolling, i.e. automatic scrolling
 will not scroll a window to a column less than the value returned
 by this function.  This happens in an interactive call.
 
-(fn ARG SET-MINIMUM)"#),
-    (r#"scroll-right"#, r#"Scroll selected window display ARG columns right.
+(fn ARG SET-MINIMUM)"#,
+    ),
+    (
+        r#"scroll-right"#,
+        r#"Scroll selected window display ARG columns right.
 Default for ARG is window width minus 2.
 Value is the total amount of leftward horizontal scrolling in
 effect after the change.
@@ -10687,23 +14019,32 @@ lower bound for automatic scrolling, i.e. automatic scrolling
 will not scroll a window to a column less than the value returned
 by this function.  This happens in an interactive call.
 
-(fn ARG SET-MINIMUM)"#),
-    (r#"scroll-up"#, r#"Scroll text of selected window upward ARG lines.
+(fn ARG SET-MINIMUM)"#,
+    ),
+    (
+        r#"scroll-up"#,
+        r#"Scroll text of selected window upward ARG lines.
 If ARG is omitted or nil, scroll upward by a near full screen.
 A near full screen is `next-screen-context-lines' less than a full screen.
 Negative ARG means scroll downward.
 If ARG is the atom `-', scroll downward by nearly full screen.
 When calling from a program, supply as argument a number, nil, or `-'.
 
-(fn ARG)"#),
-    (r#"search-backward"#, r#"Search backward from point for STRING.
+(fn ARG)"#,
+    ),
+    (
+        r#"search-backward"#,
+        r#"Search backward from point for STRING.
 This function is almost identical to `search-forward', except that
 by default it searches backward instead of forward, and the sign of
 COUNT also indicates exactly the opposite searching direction.
 See `search-forward' for details.
 
-(fn STRING BOUND NOERROR COUNT)"#),
-    (r#"search-forward"#, r#"Search forward from point for STRING.
+(fn STRING BOUND NOERROR COUNT)"#,
+    ),
+    (
+        r#"search-forward"#,
+        r#"Search forward from point for STRING.
 Set point to the end of the occurrence found, and return point.
 The optional second argument BOUND is a buffer position that bounds
   the search.  The match found must not end after that position.  A
@@ -10728,8 +14069,11 @@ Search case-sensitivity is determined by the value of the variable
 See also the functions `match-beginning', `match-end', `match-string',
 and `replace-match'.
 
-(fn STRING BOUND NOERROR COUNT)"#),
-    (r#"secure-hash"#, r#"Return the secure hash of OBJECT, a buffer or string.
+(fn STRING BOUND NOERROR COUNT)"#,
+    ),
+    (
+        r#"secure-hash"#,
+        r#"Return the secure hash of OBJECT, a buffer or string.
 ALGORITHM is a symbol specifying the hash to use:
 - md5    corresponds to MD5, produces a 32-character signature
 - sha1   corresponds to SHA-1, produces a 40-character signature
@@ -10752,11 +14096,17 @@ Note that MD5 and SHA-1 are not collision resistant and should not be
 used for anything security-related.  For these applications, use one
 of the other hash types instead, e.g. sha256 or sha512.
 
-(fn ALGORITHM OBJECT START END BINARY)"#),
-    (r#"secure-hash-algorithms"#, r#"Return a list of all the supported `secure-hash' algorithms.
+(fn ALGORITHM OBJECT START END BINARY)"#,
+    ),
+    (
+        r#"secure-hash-algorithms"#,
+        r#"Return a list of all the supported `secure-hash' algorithms.
 
-(fn)"#),
-    (r#"select-frame"#, r#"Select FRAME.
+(fn)"#,
+    ),
+    (
+        r#"select-frame"#,
+        r#"Select FRAME.
 Subsequent editing commands apply to its selected window.
 Optional argument NORECORD means to neither change the order of
 recently selected windows nor the buffer list.
@@ -10771,8 +14121,11 @@ redisplay will display FRAME.
 
 This function returns FRAME, or nil if FRAME has been deleted.
 
-(fn FRAME NORECORD)"#),
-    (r#"select-window"#, r#"Select WINDOW which must be a live window.
+(fn FRAME NORECORD)"#,
+    ),
+    (
+        r#"select-window"#,
+        r#"Select WINDOW which must be a live window.
 Also make WINDOW's frame the selected frame and WINDOW that frame's
 selected window.  In addition, make WINDOW's buffer current and set its
 buffer's value of `point' to the value of WINDOW's `window-point'.
@@ -10796,18 +14149,27 @@ time a window gets selected, put it on `buffer-list-update-hook' or
 Also note that the main editor command loop sets the current buffer to
 the buffer of the selected window before each command.
 
-(fn WINDOW NORECORD)"#),
-    (r#"selected-frame"#, r#"Return the frame that is now selected.
+(fn WINDOW NORECORD)"#,
+    ),
+    (
+        r#"selected-frame"#,
+        r#"Return the frame that is now selected.
 
-(fn)"#),
-    (r#"selected-window"#, r#"Return the selected window.
+(fn)"#,
+    ),
+    (
+        r#"selected-window"#,
+        r#"Return the selected window.
 The selected window is the window in which the standard cursor for
 selected windows appears and to which many commands apply.
 
 Also see `old-selected-window' and `minibuffer-selected-window'.
 
-(fn)"#),
-    (r#"self-insert-command"#, r#"Insert the character you type.
+(fn)"#,
+    ),
+    (
+        r#"self-insert-command"#,
+        r#"Insert the character you type.
 Whichever character C you type to run this command is inserted.
 The numeric prefix argument N says how many times to repeat the insertion.
 Before insertion, `expand-abbrev' is executed if the inserted character does
@@ -10817,8 +14179,11 @@ After insertion, `internal-auto-fill' is called if
 a non-nil value for the inserted character.  At the end, it runs
 `post-self-insert-hook'.
 
-(fn N C)"#),
-    (r#"send-string-to-terminal"#, r#"Send STRING to the terminal without alteration.
+(fn N C)"#,
+    ),
+    (
+        r#"send-string-to-terminal"#,
+        r#"Send STRING to the terminal without alteration.
 Control characters in STRING will have terminal-dependent effects.
 
 Optional parameter TERMINAL specifies the tty terminal device to use.
@@ -10826,11 +14191,17 @@ It may be a terminal object, a frame, or nil for the terminal used by
 the currently selected frame.  In batch mode, STRING is sent to stdout
 when TERMINAL is nil.
 
-(fn STRING TERMINAL)"#),
-    (r#"sequencep"#, r#"Return t if OBJECT is a sequence (list or array).
+(fn STRING TERMINAL)"#,
+    ),
+    (
+        r#"sequencep"#,
+        r#"Return t if OBJECT is a sequence (list or array).
 
-(fn OBJECT)"#),
-    (r#"serial-process-configure"#, r#"Configure speed, bytesize, etc. of a serial process.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"serial-process-configure"#,
+        r#"Configure speed, bytesize, etc. of a serial process.
 
 Arguments are specified as keyword/argument pairs.  Attributes that
 are not given are re-initialized from the process's current
@@ -10884,16 +14255,25 @@ Examples:
 
 \(serial-process-configure :port "\\\\.\\COM13" :bytesize 7)
 
-(fn &rest ARGS)"#),
-    (r#"set"#, r#"Set SYMBOL's value to NEWVAL, and return NEWVAL.
+(fn &rest ARGS)"#,
+    ),
+    (
+        r#"set"#,
+        r#"Set SYMBOL's value to NEWVAL, and return NEWVAL.
 
-(fn SYMBOL NEWVAL)"#),
-    (r#"set--this-command-keys"#, r#"Set the vector to be returned by `this-command-keys'.
+(fn SYMBOL NEWVAL)"#,
+    ),
+    (
+        r#"set--this-command-keys"#,
+        r#"Set the vector to be returned by `this-command-keys'.
 The argument KEYS must be a string.
 Internal use only.
 
-(fn KEYS)"#),
-    (r#"set-binary-mode"#, r#"Switch STREAM to binary I/O mode or text I/O mode.
+(fn KEYS)"#,
+    ),
+    (
+        r#"set-binary-mode"#,
+        r#"Switch STREAM to binary I/O mode or text I/O mode.
 STREAM can be one of the symbols `stdin', `stdout', or `stderr'.
 If MODE is non-nil, switch STREAM to binary mode, otherwise switch
 it to text mode.
@@ -10912,8 +14292,11 @@ batch mode, with standard output redirected to a file.
 On Posix systems, this function always returns non-nil, and has no
 effect except for flushing STREAM's data.
 
-(fn STREAM MODE)"#),
-    (r#"set-buffer"#, r#"Make buffer BUFFER-OR-NAME current for editing operations.
+(fn STREAM MODE)"#,
+    ),
+    (
+        r#"set-buffer"#,
+        r#"Make buffer BUFFER-OR-NAME current for editing operations.
 BUFFER-OR-NAME may be a buffer or the name of an existing buffer.
 See also `with-current-buffer' when you want to make a buffer current
 temporarily.  This function does not display the buffer, so its effect
@@ -10921,25 +14304,37 @@ ends when the current command terminates.  Use `switch-to-buffer' or
 `pop-to-buffer' to switch buffers permanently.
 The return value is the buffer made current.
 
-(fn BUFFER-OR-NAME)"#),
-    (r#"set-buffer-auto-saved"#, r#"Mark current buffer as auto-saved with its current text.
+(fn BUFFER-OR-NAME)"#,
+    ),
+    (
+        r#"set-buffer-auto-saved"#,
+        r#"Mark current buffer as auto-saved with its current text.
 No auto-save file will be written until the buffer changes again.
 
-(fn)"#),
-    (r#"set-buffer-local-toplevel-value"#, r#"Set SYMBOL's toplevel buffer-local value in BUFFER to VALUE.
+(fn)"#,
+    ),
+    (
+        r#"set-buffer-local-toplevel-value"#,
+        r#"Set SYMBOL's toplevel buffer-local value in BUFFER to VALUE.
 "Toplevel" means outside of any let-binding.
 BUFFER defaults to the current buffer.
 Makes SYMBOL buffer-local in BUFFER if it was not already.
 
-(fn SYMBOL VALUE BUFFER)"#),
-    (r#"set-buffer-major-mode"#, r#"Set an appropriate major mode for BUFFER.
+(fn SYMBOL VALUE BUFFER)"#,
+    ),
+    (
+        r#"set-buffer-major-mode"#,
+        r#"Set an appropriate major mode for BUFFER.
 For the *scratch* buffer, use `initial-major-mode', otherwise choose a mode
 according to the default value of `major-mode'.
 Use this function before selecting the buffer, since it may need to inspect
 the current buffer's major mode.
 
-(fn BUFFER)"#),
-    (r#"set-buffer-modified-p"#, r#"Mark current buffer as modified or unmodified according to FLAG.
+(fn BUFFER)"#,
+    ),
+    (
+        r#"set-buffer-modified-p"#,
+        r#"Mark current buffer as modified or unmodified according to FLAG.
 A non-nil FLAG means mark the buffer modified.
 In addition, this function unconditionally forces redisplay of the
 mode lines of the windows that display the current buffer, and also
@@ -10947,8 +14342,11 @@ locks or unlocks the file visited by the buffer, depending on whether
 the function's argument is non-nil, but only if both `buffer-file-name'
 and `buffer-file-truename' are non-nil.
 
-(fn FLAG)"#),
-    (r#"set-buffer-multibyte"#, r#"Set the multibyte flag of the current buffer to FLAG.
+(fn FLAG)"#,
+    ),
+    (
+        r#"set-buffer-multibyte"#,
+        r#"Set the multibyte flag of the current buffer to FLAG.
 If FLAG is t, this makes the buffer a multibyte buffer.
 If FLAG is nil, this makes the buffer a single-byte buffer.
 In these cases, the buffer contents remain unchanged as a sequence of
@@ -10958,12 +14356,18 @@ all eight-bit bytes to eight-bit characters.
 If the multibyte flag was really changed, undo information of the
 current buffer is cleared.
 
-(fn FLAG)"#),
-    (r#"set-buffer-redisplay"#, r#"Mark the current buffer for redisplay.
+(fn FLAG)"#,
+    ),
+    (
+        r#"set-buffer-redisplay"#,
+        r#"Mark the current buffer for redisplay.
 This function may be passed to `add-variable-watcher'.
 
-(fn SYMBOL NEWVAL OP WHERE)"#),
-    (r#"set-case-table"#, r#"Select a new case table for the current buffer.
+(fn SYMBOL NEWVAL OP WHERE)"#,
+    ),
+    (
+        r#"set-case-table"#,
+        r#"Select a new case table for the current buffer.
 A case table is a char-table which maps characters
 to their lower-case equivalents.  It also has three \"extra\" slots
 which may be additional char-tables or nil.
@@ -10980,43 +14384,73 @@ EQUIVALENCES is a map that cyclically permutes each equivalence class
  (of characters with the same canonical equivalent); it may be nil,
  in which case it is deduced from CANONICALIZE.
 
-(fn TABLE)"#),
-    (r#"set-category-table"#, r#"Specify TABLE as the category table for the current buffer.
+(fn TABLE)"#,
+    ),
+    (
+        r#"set-category-table"#,
+        r#"Specify TABLE as the category table for the current buffer.
 Return TABLE.
 
-(fn TABLE)"#),
-    (r#"set-char-table-extra-slot"#, r#"Set CHAR-TABLE's extra-slot number N to VALUE.
+(fn TABLE)"#,
+    ),
+    (
+        r#"set-char-table-extra-slot"#,
+        r#"Set CHAR-TABLE's extra-slot number N to VALUE.
 
-(fn CHAR-TABLE N VALUE)"#),
-    (r#"set-char-table-parent"#, r#"Set the parent char-table of CHAR-TABLE to PARENT.
+(fn CHAR-TABLE N VALUE)"#,
+    ),
+    (
+        r#"set-char-table-parent"#,
+        r#"Set the parent char-table of CHAR-TABLE to PARENT.
 Return PARENT.  PARENT must be either nil or another char-table.
 
-(fn CHAR-TABLE PARENT)"#),
-    (r#"set-char-table-range"#, r#"Set the value in CHAR-TABLE for a range of characters RANGE to VALUE.
+(fn CHAR-TABLE PARENT)"#,
+    ),
+    (
+        r#"set-char-table-range"#,
+        r#"Set the value in CHAR-TABLE for a range of characters RANGE to VALUE.
 RANGE should be t (for all characters), nil (for the default value),
 a cons of character codes (for characters in the range),
 or a character code.  Return VALUE.
 
-(fn CHAR-TABLE RANGE VALUE)"#),
-    (r#"set-charset-plist"#, r#"Set CHARSET's property list to PLIST.
+(fn CHAR-TABLE RANGE VALUE)"#,
+    ),
+    (
+        r#"set-charset-plist"#,
+        r#"Set CHARSET's property list to PLIST.
 
-(fn CHARSET PLIST)"#),
-    (r#"set-charset-priority"#, r#"Assign higher priority to the charsets given as arguments.
-(fn &rest charsets)"#),
-    (r#"set-coding-system-priority"#, r#"Assign higher priority to the coding systems given as arguments.
+(fn CHARSET PLIST)"#,
+    ),
+    (
+        r#"set-charset-priority"#,
+        r#"Assign higher priority to the charsets given as arguments.
+(fn &rest charsets)"#,
+    ),
+    (
+        r#"set-coding-system-priority"#,
+        r#"Assign higher priority to the coding systems given as arguments.
 If multiple coding systems belong to the same category,
 all but the first one are ignored.
 
-(fn &rest coding-systems)"#),
-    (r#"set-cursor-size"#, r#"Set cursor size.
+(fn &rest coding-systems)"#,
+    ),
+    (
+        r#"set-cursor-size"#,
+        r#"Set cursor size.
 
-(fn SIZE)"#),
-    (r#"set-default"#, r#"Set SYMBOL's default value to VALUE.  SYMBOL and VALUE are evaluated.
+(fn SIZE)"#,
+    ),
+    (
+        r#"set-default"#,
+        r#"Set SYMBOL's default value to VALUE.  SYMBOL and VALUE are evaluated.
 The default value is seen in buffers that do not have their own values
 for this variable.
 
-(fn SYMBOL VALUE)"#),
-    (r#"set-default-file-modes"#, r#"Set the file permission bits for newly created files.
+(fn SYMBOL VALUE)"#,
+    ),
+    (
+        r#"set-default-file-modes"#,
+        r#"Set the file permission bits for newly created files.
 The argument MODE should be an integer; only the low 9 bits are used.
 On Posix hosts, this setting is inherited by subprocesses.
 
@@ -11030,12 +14464,18 @@ by having the corresponding bit in the mask reset.
 
 See also `with-file-modes'.
 
-(fn MODE)"#),
-    (r#"set-default-toplevel-value"#, r#"Set SYMBOL's toplevel default value to VALUE.
+(fn MODE)"#,
+    ),
+    (
+        r#"set-default-toplevel-value"#,
+        r#"Set SYMBOL's toplevel default value to VALUE.
 "Toplevel" means outside of any let binding.
 
-(fn SYMBOL VALUE)"#),
-    (r#"set-file-acl"#, r#"Set ACL of file named FILENAME to ACL-STRING.
+(fn SYMBOL VALUE)"#,
+    ),
+    (
+        r#"set-file-acl"#,
+        r#"Set ACL of file named FILENAME to ACL-STRING.
 ACL-STRING should contain the textual representation of the ACL
 entries in a format suitable for the platform.
 
@@ -11044,8 +14484,11 @@ Value is t if setting of ACL was successful, nil otherwise.
 Setting ACL for local files requires Emacs to be built with ACL
 support.
 
-(fn FILENAME ACL-STRING)"#),
-    (r#"set-file-modes"#, r#"Set mode bits of file named FILENAME to MODE (an integer).
+(fn FILENAME ACL-STRING)"#,
+    ),
+    (
+        r#"set-file-modes"#,
+        r#"Set mode bits of file named FILENAME to MODE (an integer).
 Only the 12 low bits of MODE are used.  If optional FLAG is `nofollow',
 do not follow FILENAME if it is a symbolic link.
 
@@ -11053,8 +14496,11 @@ Interactively, prompt for FILENAME, and read MODE with
 `read-file-modes', which accepts symbolic notation, like the `chmod'
 command from GNU Coreutils.
 
-(fn FILENAME MODE FLAG)"#),
-    (r#"set-file-selinux-context"#, r#"Set SELinux context of file named FILENAME to CONTEXT.
+(fn FILENAME MODE FLAG)"#,
+    ),
+    (
+        r#"set-file-selinux-context"#,
+        r#"Set SELinux context of file named FILENAME to CONTEXT.
 CONTEXT should be a list (USER ROLE TYPE RANGE), where the list
 elements are strings naming the components of a SELinux context.
 
@@ -11063,15 +14509,21 @@ Value is t if setting of SELinux context was successful, nil otherwise.
 This function does nothing and returns nil if SELinux is disabled,
 or if Emacs was not compiled with SELinux support.
 
-(fn FILENAME CONTEXT)"#),
-    (r#"set-file-times"#, r#"Set times of file FILENAME to TIMESTAMP.
+(fn FILENAME CONTEXT)"#,
+    ),
+    (
+        r#"set-file-times"#,
+        r#"Set times of file FILENAME to TIMESTAMP.
 If optional FLAG is `nofollow', do not follow FILENAME if it is a
 symbolic link.  Set both access and modification times.  Return t on
 success, else nil.  Use the current time if TIMESTAMP is nil.
 TIMESTAMP is in the format of `current-time'.
 
-(fn FILENAME TIMESTAMP FLAG)"#),
-    (r#"set-fontset-font"#, r#"
+(fn FILENAME TIMESTAMP FLAG)"#,
+    ),
+    (
+        r#"set-fontset-font"#,
+        r#"
 Modify FONTSET to use font specification in FONT-SPEC for displaying CHARACTERS.
 
 FONTSET should be a fontset name (a string); or nil, meaning the
@@ -11125,8 +14577,11 @@ the composed characters -- calling this function will not affect the
 font recorded in the cache of compositions, thus they will continue
 to be shown using the fonts from before the call.
 
-(fn FONTSET CHARACTERS FONT-SPEC FRAME ADD)"#),
-    (r#"set-frame-height"#, r#"Set text height of frame FRAME to HEIGHT lines.
+(fn FONTSET CHARACTERS FONT-SPEC FRAME ADD)"#,
+    ),
+    (
+        r#"set-frame-height"#,
+        r#"Set text height of frame FRAME to HEIGHT lines.
 Optional third arg PRETEND non-nil means that redisplay should use
 HEIGHT lines but that the idea of the actual height of the frame should
 not be changed.
@@ -11141,8 +14596,11 @@ currently selected frame will be set to this height.
 
 If FRAME is nil, it defaults to the selected frame.
 
-(fn FRAME HEIGHT PRETEND PIXELWISE)"#),
-    (r#"set-frame-position"#, r#"Set position of FRAME to (X, Y).
+(fn FRAME HEIGHT PRETEND PIXELWISE)"#,
+    ),
+    (
+        r#"set-frame-position"#,
+        r#"Set position of FRAME to (X, Y).
 FRAME must be a live frame and defaults to the selected one.  X and Y,
 if positive, specify the coordinate of the left and top edge of FRAME's
 outer frame in pixels relative to an origin (0, 0) of FRAME's display
@@ -11151,16 +14609,22 @@ negative, it specifies the coordinates of the right or bottom edge of
 the outer frame of FRAME relative to the right or bottom edge of FRAME's
 display or parent frame.
 
-(fn FRAME X Y)"#),
-    (r#"set-frame-selected-window"#, r#"Set selected window of FRAME to WINDOW.
+(fn FRAME X Y)"#,
+    ),
+    (
+        r#"set-frame-selected-window"#,
+        r#"Set selected window of FRAME to WINDOW.
 FRAME must be a live frame and defaults to the selected one.  If FRAME
 is the selected frame, this makes WINDOW the selected window.  Optional
 argument NORECORD non-nil means to neither change the order of recently
 selected windows nor the buffer list.  WINDOW must denote a live window.
 Return WINDOW.
 
-(fn FRAME WINDOW NORECORD)"#),
-    (r#"set-frame-size"#, r#"Set text size of FRAME to WIDTH by HEIGHT, measured in characters.
+(fn FRAME WINDOW NORECORD)"#,
+    ),
+    (
+        r#"set-frame-size"#,
+        r#"Set text size of FRAME to WIDTH by HEIGHT, measured in characters.
 Optional argument PIXELWISE non-nil means to measure in pixels.  Note:
 When `frame-resize-pixelwise' is nil, some window managers may refuse to
 honor a WIDTH that is not an integer multiple of the default frame font
@@ -11169,8 +14633,11 @@ font height.
 
 If FRAME is nil, it defaults to the selected frame.
 
-(fn FRAME WIDTH HEIGHT PIXELWISE)"#),
-    (r#"set-frame-size-and-position-pixelwise"#, r#"Set FRAME's size to WIDTH and HEIGHT and its position to (X, Y).
+(fn FRAME WIDTH HEIGHT PIXELWISE)"#,
+    ),
+    (
+        r#"set-frame-size-and-position-pixelwise"#,
+        r#"Set FRAME's size to WIDTH and HEIGHT and its position to (X, Y).
 FRAME must be a live frame and defaults to the selected one.
 
 WIDTH and HEIGHT must be positive integers and specify the new pixel
@@ -11192,8 +14659,11 @@ move FRAME in one compound step.  If the backend does not provide such a
 function, it calls `set-frame-size' followed by `set-frame-position'
 instead.  See 'set-frame-size-and-position'.
 
-(fn FRAME WIDTH HEIGHT X Y GRAVITY)"#),
-    (r#"set-frame-width"#, r#"Set text width of frame FRAME to WIDTH columns.
+(fn FRAME WIDTH HEIGHT X Y GRAVITY)"#,
+    ),
+    (
+        r#"set-frame-width"#,
+        r#"Set text width of frame FRAME to WIDTH columns.
 Optional third arg PRETEND non-nil means that redisplay should use WIDTH
 columns but that the idea of the actual width of the frame should not
 be changed.
@@ -11208,8 +14678,11 @@ currently selected frame will be set to this width.
 
 If FRAME is nil, it defaults to the selected frame.
 
-(fn FRAME WIDTH PRETEND PIXELWISE)"#),
-    (r#"set-frame-window-state-change"#, r#"Set FRAME's window state change flag according to ARG.
+(fn FRAME WIDTH PRETEND PIXELWISE)"#,
+    ),
+    (
+        r#"set-frame-window-state-change"#,
+        r#"Set FRAME's window state change flag according to ARG.
 Set FRAME's window state change flag if ARG is non-nil, reset it
 otherwise.
 
@@ -11219,21 +14692,30 @@ run during next redisplay, regardless of whether a window state change
 actually occurred on FRAME or not.  After that, the value of FRAME's
 window state change flag is reset.
 
-(fn FRAME ARG)"#),
-    (r#"set-fringe-bitmap-face"#, r#"Set face for fringe bitmap BITMAP to FACE.
+(fn FRAME ARG)"#,
+    ),
+    (
+        r#"set-fringe-bitmap-face"#,
+        r#"Set face for fringe bitmap BITMAP to FACE.
 FACE is merged with the `fringe' face, so normally FACE should specify
 only the foreground color.
 If FACE is nil, reset face to default fringe face.
 
-(fn BITMAP FACE)"#),
-    (r#"set-input-interrupt-mode"#, r#"Set interrupt mode of reading keyboard input.
+(fn BITMAP FACE)"#,
+    ),
+    (
+        r#"set-input-interrupt-mode"#,
+        r#"Set interrupt mode of reading keyboard input.
 If INTERRUPT is non-nil, Emacs will use input interrupts;
 otherwise Emacs uses CBREAK mode.
 
 See also `current-input-mode'.
 
-(fn INTERRUPT)"#),
-    (r#"set-input-meta-mode"#, r#"Enable or disable 8-bit input on TERMINAL.
+(fn INTERRUPT)"#,
+    ),
+    (
+        r#"set-input-meta-mode"#,
+        r#"Enable or disable 8-bit input on TERMINAL.
 If META is t, Emacs will accept 8-bit input, and interpret the 8th
 bit as the Meta modifier before it decodes the characters.
 
@@ -11254,8 +14736,11 @@ the currently selected frame.
 
 See also `current-input-mode'.
 
-(fn META TERMINAL)"#),
-    (r#"set-input-mode"#, r#"Set mode of reading keyboard input.
+(fn META TERMINAL)"#,
+    ),
+    (
+        r#"set-input-mode"#,
+        r#"Set mode of reading keyboard input.
 First arg INTERRUPT non-nil means use input interrupts;
  nil means use CBREAK mode.
 Second arg FLOW non-nil means use ^S/^Q flow control for output to terminal
@@ -11268,44 +14753,68 @@ Third arg META t means accept 8-bit input (for a Meta key).
 Optional fourth arg QUIT if non-nil specifies character to use for quitting.
 See also `current-input-mode'.
 
-(fn INTERRUPT FLOW META QUIT)"#),
-    (r#"set-keyboard-coding-system-internal"#, r#"Internal use only.
+(fn INTERRUPT FLOW META QUIT)"#,
+    ),
+    (
+        r#"set-keyboard-coding-system-internal"#,
+        r#"Internal use only.
 
-(fn CODING-SYSTEM TERMINAL)"#),
-    (r#"set-keymap-parent"#, r#"Modify KEYMAP to set its parent map to PARENT.
+(fn CODING-SYSTEM TERMINAL)"#,
+    ),
+    (
+        r#"set-keymap-parent"#,
+        r#"Modify KEYMAP to set its parent map to PARENT.
 Return PARENT.  PARENT should be nil or another keymap.
 
-(fn KEYMAP PARENT)"#),
-    (r#"set-marker"#, r#"Position MARKER before character number POSITION in BUFFER.
+(fn KEYMAP PARENT)"#,
+    ),
+    (
+        r#"set-marker"#,
+        r#"Position MARKER before character number POSITION in BUFFER.
 If BUFFER is omitted or nil, it defaults to the current buffer.  If
 POSITION is nil, makes marker point nowhere so it no longer slows down
 editing in any buffer.  Returns MARKER.
 
-(fn MARKER POSITION BUFFER)"#),
-    (r#"set-marker-insertion-type"#, r#"Set the insertion-type of MARKER to TYPE.
+(fn MARKER POSITION BUFFER)"#,
+    ),
+    (
+        r#"set-marker-insertion-type"#,
+        r#"Set the insertion-type of MARKER to TYPE.
 If TYPE is t, it means the marker advances when you insert text at it.
 If TYPE is nil, it means the marker stays behind when you insert text at it.
 
-(fn MARKER TYPE)"#),
-    (r#"set-match-data"#, r#"Set internal data on last search match from elements of LIST.
+(fn MARKER TYPE)"#,
+    ),
+    (
+        r#"set-match-data"#,
+        r#"Set internal data on last search match from elements of LIST.
 LIST should have been created by calling `match-data' previously.
 
 If optional arg RESEAT is non-nil, make markers on LIST point nowhere.
 
-(fn LIST RESEAT)"#),
-    (r#"set-message-beep"#, r#"Set the sound generated when the bell is rung.
+(fn LIST RESEAT)"#,
+    ),
+    (
+        r#"set-message-beep"#,
+        r#"Set the sound generated when the bell is rung.
 SOUND is `asterisk', `exclamation', `hand', `question', `ok', or `silent'
 to use the corresponding system sound for the bell.  The `silent' sound
 prevents Emacs from making any sound at all.
 SOUND is nil to use the normal beep.
 
-(fn SOUND)"#),
-    (r#"set-minibuffer-window"#, r#"Specify which minibuffer window to use for the minibuffer.
+(fn SOUND)"#,
+    ),
+    (
+        r#"set-minibuffer-window"#,
+        r#"Specify which minibuffer window to use for the minibuffer.
 This affects where the minibuffer is displayed if you put text in it
 without invoking the usual minibuffer commands.
 
-(fn WINDOW)"#),
-    (r#"set-mouse-pixel-position"#, r#"Move the mouse pointer to pixel position (X,Y) in FRAME.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"set-mouse-pixel-position"#,
+        r#"Move the mouse pointer to pixel position (X,Y) in FRAME.
 The position is given in pixels, where (0, 0) is the upper-left corner
 of the frame, X is the horizontal offset, and Y is the vertical offset.
 
@@ -11314,8 +14823,11 @@ If you have just created a frame, you must wait for it to become visible
 before calling this function on it, like this.
   (while (not (frame-visible-p frame)) (sleep-for .5))
 
-(fn FRAME X Y)"#),
-    (r#"set-mouse-position"#, r#"Move the mouse pointer to the center of character cell (X,Y) in FRAME.
+(fn FRAME X Y)"#,
+    ),
+    (
+        r#"set-mouse-position"#,
+        r#"Move the mouse pointer to the center of character cell (X,Y) in FRAME.
 Coordinates are relative to the frame, not a window,
 so the coordinates of the top left character in the frame
 may be nonzero due to left-hand scroll bars or the menu bar.
@@ -11330,8 +14842,11 @@ If you have just created a frame, you must wait for it to become visible
 before calling this function on it, like this.
   (while (not (frame-visible-p frame)) (sleep-for .5))
 
-(fn FRAME X Y)"#),
-    (r#"set-network-process-option"#, r#"For network process PROCESS set option OPTION to value VALUE.
+(fn FRAME X Y)"#,
+    ),
+    (
+        r#"set-network-process-option"#,
+        r#"For network process PROCESS set option OPTION to value VALUE.
 See `make-network-process' for a list of options and values.
 If optional fourth arg NO-ERROR is non-nil, don't signal an error if
 OPTION is not a supported option, return nil instead; otherwise return t.
@@ -11339,8 +14854,11 @@ OPTION is not a supported option, return nil instead; otherwise return t.
 If PROCESS is a non-blocking network process that hasn't been fully
 set up yet, this function will block until socket setup has completed.
 
-(fn PROCESS OPTION VALUE NO-ERROR)"#),
-    (r#"set-output-flow-control"#, r#"Enable or disable ^S/^Q flow control for output to TERMINAL.
+(fn PROCESS OPTION VALUE NO-ERROR)"#,
+    ),
+    (
+        r#"set-output-flow-control"#,
+        r#"Enable or disable ^S/^Q flow control for output to TERMINAL.
 If FLOW is non-nil, flow control is enabled and you cannot use C-s or
 C-q in key sequences.
 
@@ -11349,24 +14867,36 @@ Emacs reads input in CBREAK mode; see `set-input-interrupt-mode'.
 
 See also `current-input-mode'.
 
-(fn FLOW TERMINAL)"#),
-    (r#"set-process-buffer"#, r#"Set buffer associated with PROCESS to BUFFER (a buffer, or nil).
+(fn FLOW TERMINAL)"#,
+    ),
+    (
+        r#"set-process-buffer"#,
+        r#"Set buffer associated with PROCESS to BUFFER (a buffer, or nil).
 Return BUFFER.
 
-(fn PROCESS BUFFER)"#),
-    (r#"set-process-coding-system"#, r#"Set coding systems of PROCESS to DECODING and ENCODING.
+(fn PROCESS BUFFER)"#,
+    ),
+    (
+        r#"set-process-coding-system"#,
+        r#"Set coding systems of PROCESS to DECODING and ENCODING.
 DECODING will be used to decode subprocess output and ENCODING to
 encode subprocess input.
 
-(fn PROCESS DECODING ENCODING)"#),
-    (r#"set-process-datagram-address"#, r#"Set the datagram address for PROCESS to ADDRESS.
+(fn PROCESS DECODING ENCODING)"#,
+    ),
+    (
+        r#"set-process-datagram-address"#,
+        r#"Set the datagram address for PROCESS to ADDRESS.
 Return nil upon error setting address, ADDRESS otherwise.
 
 If PROCESS is a non-blocking network process that hasn't been fully
 set up yet, this function will block until socket setup has completed.
 
-(fn PROCESS ADDRESS)"#),
-    (r#"set-process-filter"#, r#"Give PROCESS the filter function FILTER; nil means default.
+(fn PROCESS ADDRESS)"#,
+    ),
+    (
+        r#"set-process-filter"#,
+        r#"Give PROCESS the filter function FILTER; nil means default.
 A value of t means stop accepting output from the process.
 
 When a process has a non-default filter, its buffer is not used for output.
@@ -11378,8 +14908,11 @@ The string argument is normally a multibyte string, except:
 - if the process's input coding system is no-conversion or raw-text,
   it is a unibyte string (the non-converted input).
 
-(fn PROCESS FILTER)"#),
-    (r#"set-process-inherit-coding-system-flag"#, r#"Determine whether buffer of PROCESS will inherit coding-system.
+(fn PROCESS FILTER)"#,
+    ),
+    (
+        r#"set-process-inherit-coding-system-flag"#,
+        r#"Determine whether buffer of PROCESS will inherit coding-system.
 If the second argument FLAG is non-nil, then the variable
 `buffer-file-coding-system' of the buffer associated with PROCESS
 will be bound to the value of the coding system used to decode
@@ -11396,31 +14929,49 @@ for the process which will run.
 
 This function returns FLAG.
 
-(fn PROCESS FLAG)"#),
-    (r#"set-process-plist"#, r#"Replace the plist of PROCESS with PLIST.  Return PLIST.
+(fn PROCESS FLAG)"#,
+    ),
+    (
+        r#"set-process-plist"#,
+        r#"Replace the plist of PROCESS with PLIST.  Return PLIST.
 
-(fn PROCESS PLIST)"#),
-    (r#"set-process-query-on-exit-flag"#, r#"Specify if query is needed for PROCESS when Emacs is exited.
+(fn PROCESS PLIST)"#,
+    ),
+    (
+        r#"set-process-query-on-exit-flag"#,
+        r#"Specify if query is needed for PROCESS when Emacs is exited.
 If the second argument FLAG is non-nil, Emacs will query the user before
 exiting or killing a buffer if PROCESS is running.  This function
 returns FLAG.
 
-(fn PROCESS FLAG)"#),
-    (r#"set-process-sentinel"#, r#"Give PROCESS the sentinel SENTINEL; nil for default.
+(fn PROCESS FLAG)"#,
+    ),
+    (
+        r#"set-process-sentinel"#,
+        r#"Give PROCESS the sentinel SENTINEL; nil for default.
 The sentinel is called as a function when the process changes state.
 It gets two arguments: the process, and a string describing the change.
 
-(fn PROCESS SENTINEL)"#),
-    (r#"set-process-thread"#, r#"Set the locking thread of PROCESS to be THREAD.
+(fn PROCESS SENTINEL)"#,
+    ),
+    (
+        r#"set-process-thread"#,
+        r#"Set the locking thread of PROCESS to be THREAD.
 If THREAD is nil, the process is unlocked.
 
-(fn PROCESS THREAD)"#),
-    (r#"set-process-window-size"#, r#"Tell PROCESS that it has logical window size WIDTH by HEIGHT.
+(fn PROCESS THREAD)"#,
+    ),
+    (
+        r#"set-process-window-size"#,
+        r#"Tell PROCESS that it has logical window size WIDTH by HEIGHT.
 Value is t if PROCESS was successfully told about the window size,
 nil otherwise.
 
-(fn PROCESS HEIGHT WIDTH)"#),
-    (r#"set-quit-char"#, r#"Specify character used for quitting.
+(fn PROCESS HEIGHT WIDTH)"#,
+    ),
+    (
+        r#"set-quit-char"#,
+        r#"Specify character used for quitting.
 QUIT must be an ASCII character.
 
 This function only has an effect on the controlling tty of the Emacs
@@ -11428,34 +14979,55 @@ process.
 
 See also `current-input-mode'.
 
-(fn QUIT)"#),
-    (r#"set-safe-terminal-coding-system-internal"#, r#"Internal use only.
+(fn QUIT)"#,
+    ),
+    (
+        r#"set-safe-terminal-coding-system-internal"#,
+        r#"Internal use only.
 
-(fn CODING-SYSTEM)"#),
-    (r#"set-screen-color"#, r#"Set screen foreground and background colors.
+(fn CODING-SYSTEM)"#,
+    ),
+    (
+        r#"set-screen-color"#,
+        r#"Set screen foreground and background colors.
 
 Arguments should be indices between 0 and 15, see w32console.el.
 
-(fn FOREGROUND BACKGROUND)"#),
-    (r#"set-standard-case-table"#, r#"Select a new standard case table for new buffers.
+(fn FOREGROUND BACKGROUND)"#,
+    ),
+    (
+        r#"set-standard-case-table"#,
+        r#"Select a new standard case table for new buffers.
 See `set-case-table' for more info on case tables.
 
-(fn TABLE)"#),
-    (r#"set-syntax-table"#, r#"Select a new syntax table for the current buffer.
+(fn TABLE)"#,
+    ),
+    (
+        r#"set-syntax-table"#,
+        r#"Select a new syntax table for the current buffer.
 One argument, a syntax table.
 
-(fn TABLE)"#),
-    (r#"set-terminal-coding-system-internal"#, r#"Internal use only.
+(fn TABLE)"#,
+    ),
+    (
+        r#"set-terminal-coding-system-internal"#,
+        r#"Internal use only.
 
-(fn CODING-SYSTEM TERMINAL)"#),
-    (r#"set-terminal-parameter"#, r#"Set TERMINAL's value for parameter PARAMETER to VALUE.
+(fn CODING-SYSTEM TERMINAL)"#,
+    ),
+    (
+        r#"set-terminal-parameter"#,
+        r#"Set TERMINAL's value for parameter PARAMETER to VALUE.
 Return the previous value of PARAMETER.
 
 TERMINAL can be a terminal object, a frame or nil (meaning the
 selected frame's terminal).
 
-(fn TERMINAL PARAMETER VALUE)"#),
-    (r#"set-text-conversion-style"#, r#"Set the current buffer's text conversion style to VALUE.
+(fn TERMINAL PARAMETER VALUE)"#,
+    ),
+    (
+        r#"set-text-conversion-style"#,
+        r#"Set the current buffer's text conversion style to VALUE.
 
 After setting `text-conversion-style', force input methods
 editing in a selected window displaying this buffer on any frame
@@ -11475,8 +15047,11 @@ input method from being redundantly enabled according to VALUE if the
 replacement key sequence returned starts a new key sequence and makes
 `read-key-sequence' disable text conversion again.
 
-(fn VALUE AFTER-KEY-SEQUENCE)"#),
-    (r#"set-text-properties"#, r#"Completely replace properties of text from START to END.
+(fn VALUE AFTER-KEY-SEQUENCE)"#,
+    ),
+    (
+        r#"set-text-properties"#,
+        r#"Completely replace properties of text from START to END.
 The third argument PROPERTIES is the new property list.
 If the optional fourth argument OBJECT is a buffer (or nil, which means
 the current buffer), START and END are buffer positions (integers or
@@ -11484,8 +15059,11 @@ markers).  If OBJECT is a string, START and END are 0-based indices into it.
 If PROPERTIES is nil, the effect is to remove all properties from
 the designated part of OBJECT.
 
-(fn START END PROPERTIES OBJECT)"#),
-    (r#"set-time-zone-rule"#, r#"Set the Emacs local time zone using TZ, a string specifying a time zone rule.
+(fn START END PROPERTIES OBJECT)"#,
+    ),
+    (
+        r#"set-time-zone-rule"#,
+        r#"Set the Emacs local time zone using TZ, a string specifying a time zone rule.
 If TZ is nil or `wall', use system wall clock time; this differs from
 the usual Emacs convention where nil means current local time.  If TZ
 is t, use Universal Time.  If TZ is a list (as from
@@ -11501,16 +15079,22 @@ environment of the Emacs process and the variable
 `process-environment', whereas `set-time-zone-rule' affects only the
 former.
 
-(fn TZ)"#),
-    (r#"set-visited-file-modtime"#, r#"Update buffer's recorded modification time from the visited file's time.
+(fn TZ)"#,
+    ),
+    (
+        r#"set-visited-file-modtime"#,
+        r#"Update buffer's recorded modification time from the visited file's time.
 Useful if the buffer was not read from the file normally
 or if the file itself has been changed for some known benign reason.
 An argument specifies the modification time value to use
 \(instead of that of the visited file), in the form of a time value as
 in `current-time' or an integer flag as returned by `visited-file-modtime'.
 
-(fn TIME-FLAG)"#),
-    (r#"set-window-buffer"#, r#"Make WINDOW display BUFFER-OR-NAME.
+(fn TIME-FLAG)"#,
+    ),
+    (
+        r#"set-window-buffer"#,
+        r#"Make WINDOW display BUFFER-OR-NAME.
 WINDOW must be a live window and defaults to the selected one.
 BUFFER-OR-NAME must be a buffer or the name of an existing buffer.
 
@@ -11526,16 +15110,22 @@ already display BUFFER-OR-NAME.
 This function runs `window-scroll-functions' before running
 `window-configuration-change-hook'.
 
-(fn WINDOW BUFFER-OR-NAME KEEP-MARGINS)"#),
-    (r#"set-window-combination-limit"#, r#"Set combination limit of window WINDOW to LIMIT; return LIMIT.
+(fn WINDOW BUFFER-OR-NAME KEEP-MARGINS)"#,
+    ),
+    (
+        r#"set-window-combination-limit"#,
+        r#"Set combination limit of window WINDOW to LIMIT; return LIMIT.
 WINDOW must be a valid window used in horizontal or vertical combination.
 If LIMIT is nil, child windows of WINDOW can be recombined with WINDOW's
 siblings.  LIMIT t means that child windows of WINDOW are never
 \(re-)combined with WINDOW's siblings.  Other values are reserved for
 future use.
 
-(fn WINDOW LIMIT)"#),
-    (r#"set-window-configuration"#, r#"Set the configuration of windows and buffers as specified by CONFIGURATION.
+(fn WINDOW LIMIT)"#,
+    ),
+    (
+        r#"set-window-configuration"#,
+        r#"Set the configuration of windows and buffers as specified by CONFIGURATION.
 CONFIGURATION must be a value previously returned
 by `current-window-configuration' (which see).
 
@@ -11553,8 +15143,11 @@ If CONFIGURATION was made from a frame that is now deleted,
 only frame-independent values can be restored.  In this case,
 the return value is nil.  Otherwise the value is t.
 
-(fn CONFIGURATION DONT-SET-FRAME DONT-SET-MINIWINDOW)"#),
-    (r#"set-window-cursor-type"#, r#"Set the `cursor-type' of WINDOW to TYPE.
+(fn CONFIGURATION DONT-SET-FRAME DONT-SET-MINIWINDOW)"#,
+    ),
+    (
+        r#"set-window-cursor-type"#,
+        r#"Set the `cursor-type' of WINDOW to TYPE.
 
 This setting takes precedence over the variable `cursor-type', and TYPE
 has the same format as the value of that variable.  The initial value
@@ -11564,8 +15157,11 @@ for new windows is t, which says to respect the buffer-local value of
 WINDOW nil means use the selected window.  This setting persists across
 buffers shown in WINDOW, so `set-window-buffer' does not reset it.
 
-(fn WINDOW TYPE)"#),
-    (r#"set-window-dedicated-p"#, r#"Mark WINDOW as dedicated according to FLAG.
+(fn WINDOW TYPE)"#,
+    ),
+    (
+        r#"set-window-dedicated-p"#,
+        r#"Mark WINDOW as dedicated according to FLAG.
 WINDOW must be a live window and defaults to the selected one.  FLAG
 non-nil means mark WINDOW as dedicated to its buffer.  FLAG nil means
 mark WINDOW as non-dedicated.  Return FLAG.
@@ -11583,12 +15179,18 @@ displayed by a window, unless that window is strongly dedicated to its
 buffer.  If and when `set-window-buffer' displays another buffer in a
 window, it also makes sure that the window is no more dedicated.
 
-(fn WINDOW FLAG)"#),
-    (r#"set-window-display-table"#, r#"Set WINDOW's display-table to TABLE.
+(fn WINDOW FLAG)"#,
+    ),
+    (
+        r#"set-window-display-table"#,
+        r#"Set WINDOW's display-table to TABLE.
 WINDOW must be a live window and defaults to the selected one.
 
-(fn WINDOW TABLE)"#),
-    (r#"set-window-fringes"#, r#"Set fringes of specified WINDOW.
+(fn WINDOW TABLE)"#,
+    ),
+    (
+        r#"set-window-fringes"#,
+        r#"Set fringes of specified WINDOW.
 WINDOW must specify a live window and defaults to the selected one.
 
 Second arg LEFT-WIDTH specifies the number of pixels to reserve for
@@ -11611,8 +15213,11 @@ Leave fringes unchanged if WINDOW is not large enough to accommodate
 fringes of the desired width.  Return t if any fringe was actually
 changed and nil otherwise.
 
-(fn WINDOW LEFT-WIDTH RIGHT-WIDTH OUTSIDE-MARGINS PERSISTENT)"#),
-    (r#"set-window-hscroll"#, r#"Set number of columns WINDOW is scrolled from left margin to NCOL.
+(fn WINDOW LEFT-WIDTH RIGHT-WIDTH OUTSIDE-MARGINS PERSISTENT)"#,
+    ),
+    (
+        r#"set-window-hscroll"#,
+        r#"Set number of columns WINDOW is scrolled from left margin to NCOL.
 WINDOW must be a live window and defaults to the selected one.
 Clip the number to a reasonable value if out of range.
 Return the new number.  NCOL should be zero or positive.
@@ -11620,8 +15225,11 @@ Return the new number.  NCOL should be zero or positive.
 Note that if `auto-hscroll-mode' is non-nil, you cannot scroll the
 window so that the location of point moves off-window.
 
-(fn WINDOW NCOL)"#),
-    (r#"set-window-margins"#, r#"Set width of marginal areas of window WINDOW.
+(fn WINDOW NCOL)"#,
+    ),
+    (
+        r#"set-window-margins"#,
+        r#"Set width of marginal areas of window WINDOW.
 WINDOW must be a live window and defaults to the selected one.
 
 Second arg LEFT-WIDTH specifies the number of character cells to
@@ -11637,8 +15245,11 @@ The margins specified by calling this function may be later overridden
 by invoking `set-window-buffer' for the same WINDOW, with its
 KEEP-MARGINS argument nil or omitted.
 
-(fn WINDOW LEFT-WIDTH RIGHT-WIDTH)"#),
-    (r#"set-window-new-normal"#, r#"Set new normal size of WINDOW to SIZE.
+(fn WINDOW LEFT-WIDTH RIGHT-WIDTH)"#,
+    ),
+    (
+        r#"set-window-new-normal"#,
+        r#"Set new normal size of WINDOW to SIZE.
 WINDOW must be a valid window and defaults to the selected one.
 Return SIZE.
 
@@ -11647,8 +15258,11 @@ WINDOW's normal size (see `window-normal-size').
 
 Note: This function does not operate on any child windows of WINDOW.
 
-(fn WINDOW SIZE)"#),
-    (r#"set-window-new-pixel"#, r#"Set new pixel size of WINDOW to SIZE.
+(fn WINDOW SIZE)"#,
+    ),
+    (
+        r#"set-window-new-pixel"#,
+        r#"Set new pixel size of WINDOW to SIZE.
 WINDOW must be a valid window and defaults to the selected one.
 Return SIZE.
 
@@ -11661,8 +15275,11 @@ WINDOW's pixel height (see `window-pixel-height') or pixel width (see
 
 Note: This function does not operate on any child windows of WINDOW.
 
-(fn WINDOW SIZE ADD)"#),
-    (r#"set-window-new-total"#, r#"Set new total size of WINDOW to SIZE.
+(fn WINDOW SIZE ADD)"#,
+    ),
+    (
+        r#"set-window-new-total"#,
+        r#"Set new total size of WINDOW to SIZE.
 WINDOW must be a valid window and defaults to the selected one.
 Return SIZE.
 
@@ -11675,13 +15292,19 @@ WINDOW's total height (see `window-total-height') or total width (see
 
 Note: This function does not operate on any child windows of WINDOW.
 
-(fn WINDOW SIZE ADD)"#),
-    (r#"set-window-point"#, r#"Make point value in WINDOW be at position POS in WINDOW's buffer.
+(fn WINDOW SIZE ADD)"#,
+    ),
+    (
+        r#"set-window-point"#,
+        r#"Make point value in WINDOW be at position POS in WINDOW's buffer.
 WINDOW must be a live window and defaults to the selected one.
 Return POS.
 
-(fn WINDOW POS)"#),
-    (r#"set-window-scroll-bars"#, r#"Set width and type of scroll bars of specified WINDOW.
+(fn WINDOW POS)"#,
+    ),
+    (
+        r#"set-window-scroll-bars"#,
+        r#"Set width and type of scroll bars of specified WINDOW.
 WINDOW must specify a live window and defaults to the selected one.
 
 Second argument WIDTH specifies the pixel width for the vertical scroll
@@ -11710,8 +15333,11 @@ If WINDOW is not large enough to accommodate a scroll bar of the
 desired dimension, leave the corresponding scroll bar unchanged.
 Return t if scroll bars were actually changed and nil otherwise.
 
-(fn WINDOW WIDTH VERTICAL-TYPE HEIGHT HORIZONTAL-TYPE PERSISTENT)"#),
-    (r#"set-window-start"#, r#"Make display in WINDOW start at position POS in WINDOW's buffer.
+(fn WINDOW WIDTH VERTICAL-TYPE HEIGHT HORIZONTAL-TYPE PERSISTENT)"#,
+    ),
+    (
+        r#"set-window-start"#,
+        r#"Make display in WINDOW start at position POS in WINDOW's buffer.
 WINDOW must be a live window and defaults to the selected one.  Return
 POS.
 
@@ -11732,8 +15358,11 @@ omitted, forcing the display of WINDOW to start at POS cancels
 any setting of WINDOW's vertical scroll (\"vscroll\") amount
 set by `set-window-vscroll' and by scrolling functions.
 
-(fn WINDOW POS NOFORCE)"#),
-    (r#"set-window-vscroll"#, r#"Set amount by which WINDOW should be scrolled vertically to VSCROLL.
+(fn WINDOW POS NOFORCE)"#,
+    ),
+    (
+        r#"set-window-vscroll"#,
+        r#"Set amount by which WINDOW should be scrolled vertically to VSCROLL.
 This takes effect when displaying tall lines or images.
 
 WINDOW nil means use the selected window.  Normally, VSCROLL is a
@@ -11747,38 +15376,62 @@ If PIXELS-P is non-nil, the return value is VSCROLL.
 PRESERVE-VSCROLL-P makes setting the start of WINDOW preserve the
 vscroll if its start is "frozen" due to a resized mini-window.
 
-(fn WINDOW VSCROLL PIXELS-P PRESERVE-VSCROLL-P)"#),
-    (r#"set-xwidget-buffer"#, r#"Set XWIDGET's buffer to BUFFER.
+(fn WINDOW VSCROLL PIXELS-P PRESERVE-VSCROLL-P)"#,
+    ),
+    (
+        r#"set-xwidget-buffer"#,
+        r#"Set XWIDGET's buffer to BUFFER.
 
-(fn XWIDGET BUFFER)"#),
-    (r#"set-xwidget-plist"#, r#"Replace the plist of XWIDGET with PLIST.
+(fn XWIDGET BUFFER)"#,
+    ),
+    (
+        r#"set-xwidget-plist"#,
+        r#"Replace the plist of XWIDGET with PLIST.
 Returns PLIST.
 
-(fn XWIDGET PLIST)"#),
-    (r#"set-xwidget-query-on-exit-flag"#, r#"Specify if query is needed for XWIDGET when Emacs is exited.
+(fn XWIDGET PLIST)"#,
+    ),
+    (
+        r#"set-xwidget-query-on-exit-flag"#,
+        r#"Specify if query is needed for XWIDGET when Emacs is exited.
 If the second argument FLAG is non-nil, Emacs will query the user before
 exiting or killing a buffer if XWIDGET is running.
 This function returns FLAG.
 
-(fn XWIDGET FLAG)"#),
-    (r#"setcar"#, r#"Set the car of CELL to be NEWCAR.  Returns NEWCAR.
+(fn XWIDGET FLAG)"#,
+    ),
+    (
+        r#"setcar"#,
+        r#"Set the car of CELL to be NEWCAR.  Returns NEWCAR.
 
-(fn CELL NEWCAR)"#),
-    (r#"setcdr"#, r#"Set the cdr of CELL to be NEWCDR.  Returns NEWCDR.
+(fn CELL NEWCAR)"#,
+    ),
+    (
+        r#"setcdr"#,
+        r#"Set the cdr of CELL to be NEWCDR.  Returns NEWCDR.
 
-(fn CELL NEWCDR)"#),
-    (r#"setplist"#, r#"Set SYMBOL's property list to NEWPLIST, and return NEWPLIST.
+(fn CELL NEWCDR)"#,
+    ),
+    (
+        r#"setplist"#,
+        r#"Set SYMBOL's property list to NEWPLIST, and return NEWPLIST.
 
-(fn SYMBOL NEWPLIST)"#),
-    (r#"setq"#, r#"Set each SYM to the value of its VAL.
+(fn SYMBOL NEWPLIST)"#,
+    ),
+    (
+        r#"setq"#,
+        r#"Set each SYM to the value of its VAL.
 The symbols SYM are variables; they are literal (not evaluated).
 The values VAL are expressions; they are evaluated.
 Thus, (setq x (1+ y)) sets `x' to the value of `(1+ y)'.
 The second VAL is not computed until after the first SYM is set, and so on;
 each VAL can use the new value of variables set earlier in the `setq'.
 The return value of the `setq' form is the value of the last VAL.
-(fn [SYM VAL]...)"#),
-    (r#"signal"#, r#"Signal an error.  Args are ERROR-SYMBOL and associated DATA.
+(fn [SYM VAL]...)"#,
+    ),
+    (
+        r#"signal"#,
+        r#"Signal an error.  Args are ERROR-SYMBOL and associated DATA.
 This function does not return.
 
 When `noninteractive' is non-nil (in particular, in batch mode), an
@@ -11796,11 +15449,17 @@ error message is constructed.
 If the signal is handled, DATA is made available to the handler.
 See also the function `condition-case'.
 
-(fn ERROR-SYMBOL DATA)"#),
-    (r#"signal-names"#, r#"Return a list of known signal names on this system.
+(fn ERROR-SYMBOL DATA)"#,
+    ),
+    (
+        r#"signal-names"#,
+        r#"Return a list of known signal names on this system.
 
-(fn)"#),
-    (r#"signal-process"#, r#"Send PROCESS the signal with code SIGCODE.
+(fn)"#,
+    ),
+    (
+        r#"signal-process"#,
+        r#"Send PROCESS the signal with code SIGCODE.
 PROCESS may also be a number specifying the process id of the
 process to signal; in this case, the process need not be a child of
 this Emacs.
@@ -11812,24 +15471,36 @@ If PROCESS is a string, it is interpreted as process object with the
 respective process name, or as a number.
 SIGCODE may be an integer, or a symbol whose name is a signal name.
 
-(fn PROCESS SIGCODE REMOTE)"#),
-    (r#"sin"#, r#"Return the sine of ARG.
+(fn PROCESS SIGCODE REMOTE)"#,
+    ),
+    (
+        r#"sin"#,
+        r#"Return the sine of ARG.
 
-(fn ARG)"#),
-    (r#"single-key-description"#, r#"Return a pretty description of a character event KEY.
+(fn ARG)"#,
+    ),
+    (
+        r#"single-key-description"#,
+        r#"Return a pretty description of a character event KEY.
 Control characters turn into C-whatever, etc.
 Optional argument NO-ANGLES non-nil means don't put angle brackets
 around function keys and event symbols.
 
 See `text-char-description' for describing character codes.
 
-(fn KEY NO-ANGLES)"#),
-    (r#"skip-chars-backward"#, r#"Move point backward, stopping after a char not in STRING, or at pos LIM.
+(fn KEY NO-ANGLES)"#,
+    ),
+    (
+        r#"skip-chars-backward"#,
+        r#"Move point backward, stopping after a char not in STRING, or at pos LIM.
 See `skip-chars-forward' for details.
 Returns the distance traveled, either zero or negative.
 
-(fn STRING LIM)"#),
-    (r#"skip-chars-forward"#, r#"Move point forward, stopping before a char not in STRING, or at pos LIM.
+(fn STRING LIM)"#,
+    ),
+    (
+        r#"skip-chars-forward"#,
+        r#"Move point forward, stopping before a char not in STRING, or at pos LIM.
 STRING is like the inside of a `[...]' in a regular expression
 except that `]' is never special and `\\' quotes `^', `-' or `\\'
  (but not at the end of a range; quoting is never needed there).
@@ -11839,30 +15510,42 @@ Char classes, e.g. `[:alpha:]', are supported.
 
 Returns the distance traveled, either zero or positive.
 
-(fn STRING LIM)"#),
-    (r#"skip-syntax-backward"#, r#"Move point backward across chars in specified syntax classes.
+(fn STRING LIM)"#,
+    ),
+    (
+        r#"skip-syntax-backward"#,
+        r#"Move point backward across chars in specified syntax classes.
 SYNTAX is a string of syntax code characters.
 Stop on reaching a char whose syntax is not in SYNTAX, or at position LIM.
 If SYNTAX starts with ^, skip characters whose syntax is NOT in SYNTAX.
 This function returns either zero or a negative number, and the absolute value
 of this is the distance traveled.
 
-(fn SYNTAX LIM)"#),
-    (r#"skip-syntax-forward"#, r#"Move point forward across chars in specified syntax classes.
+(fn SYNTAX LIM)"#,
+    ),
+    (
+        r#"skip-syntax-forward"#,
+        r#"Move point forward across chars in specified syntax classes.
 SYNTAX is a string of syntax code characters.
 Stop before a char whose syntax is not in SYNTAX, or at position LIM.
 If SYNTAX starts with ^, skip characters whose syntax is NOT in SYNTAX.
 This function returns the distance traveled, either zero or positive.
 
-(fn SYNTAX LIM)"#),
-    (r#"sleep-for"#, r#"Pause, without updating display, for SECONDS seconds.
+(fn SYNTAX LIM)"#,
+    ),
+    (
+        r#"sleep-for"#,
+        r#"Pause, without updating display, for SECONDS seconds.
 SECONDS may be a floating-point value, meaning that you can wait for a
 fraction of a second.
 An optional second arg MILLISECONDS can be provided but is deprecated:
 it specifies an additional wait period, in milliseconds.
 
-(fn SECONDS MILLISECONDS)"#),
-    (r#"sort"#, r#"Sort SEQ, stably, and return the sorted sequence.
+(fn SECONDS MILLISECONDS)"#,
+    ),
+    (
+        r#"sort"#,
+        r#"Sort SEQ, stably, and return the sorted sequence.
 SEQ should be a list or vector.
 Optional arguments are specified as keyword/argument pairs.  The following
 arguments are defined:
@@ -11886,18 +15569,27 @@ arguments are defined:
 For compatibility, the calling convention (sort SEQ LESSP) can also be used;
 in this case, sorting is always done in-place.
 
-(fn SEQ &key KEY LESSP REVERSE IN-PLACE)"#),
-    (r#"sort-charsets"#, r#"Sort charset list CHARSETS by a priority of each charset.
+(fn SEQ &key KEY LESSP REVERSE IN-PLACE)"#,
+    ),
+    (
+        r#"sort-charsets"#,
+        r#"Sort charset list CHARSETS by a priority of each charset.
 Return the sorted list.  CHARSETS is modified by side effects.
 See also `charset-priority-list' and `set-charset-priority'.
 
-(fn CHARSETS)"#),
-    (r#"special-variable-p"#, r#"Return non-nil if SYMBOL's global binding has been declared special.
+(fn CHARSETS)"#,
+    ),
+    (
+        r#"special-variable-p"#,
+        r#"Return non-nil if SYMBOL's global binding has been declared special.
 A special variable is one that will be bound dynamically, even in a
 context where binding is lexical by default.
 
-(fn SYMBOL)"#),
-    (r#"split-window-internal"#, r#"Split window OLD.
+(fn SYMBOL)"#,
+    ),
+    (
+        r#"split-window-internal"#,
+        r#"Split window OLD.
 Second argument PIXEL-SIZE specifies the number of pixels of the
 new window.  It must be a positive integer.
 
@@ -11920,20 +15612,35 @@ according to the SIDE argument.  Optional fifth argument REFER is as for
 The new pixel and normal sizes of all involved windows must have been
 set correctly.  See the code of `split-window' for how this is done.
 
-(fn OLD PIXEL-SIZE SIDE NORMAL-SIZE REFER)"#),
-    (r#"sqlite-available-p"#, r#"Return t if sqlite3 support is available in this instance of Emacs.
+(fn OLD PIXEL-SIZE SIDE NORMAL-SIZE REFER)"#,
+    ),
+    (
+        r#"sqlite-available-p"#,
+        r#"Return t if sqlite3 support is available in this instance of Emacs.
 
-(fn)"#),
-    (r#"sqlite-close"#, r#"Close the sqlite database DB.
+(fn)"#,
+    ),
+    (
+        r#"sqlite-close"#,
+        r#"Close the sqlite database DB.
 
-(fn DB)"#),
-    (r#"sqlite-columns"#, r#"Return the column names of SET.
+(fn DB)"#,
+    ),
+    (
+        r#"sqlite-columns"#,
+        r#"Return the column names of SET.
 
-(fn SET)"#),
-    (r#"sqlite-commit"#, r#"Commit a transaction in DB.
+(fn SET)"#,
+    ),
+    (
+        r#"sqlite-commit"#,
+        r#"Commit a transaction in DB.
 
-(fn DB)"#),
-    (r#"sqlite-execute"#, r#"Execute a non-select SQL statement.
+(fn DB)"#,
+    ),
+    (
+        r#"sqlite-execute"#,
+        r#"Execute a non-select SQL statement.
 If VALUES is non-nil, it should be a vector or a list of values
 to bind when executing a statement like
 
@@ -11941,45 +15648,72 @@ to bind when executing a statement like
 
 Value is the number of affected rows.
 
-(fn DB QUERY VALUES)"#),
-    (r#"sqlite-execute-batch"#, r#"Execute multiple SQL STATEMENTS in DB.
+(fn DB QUERY VALUES)"#,
+    ),
+    (
+        r#"sqlite-execute-batch"#,
+        r#"Execute multiple SQL STATEMENTS in DB.
 STATEMENTS is a string containing 0 or more SQL statements.
 
-(fn DB STATEMENTS)"#),
-    (r#"sqlite-finalize"#, r#"Mark this SET as being finished.
+(fn DB STATEMENTS)"#,
+    ),
+    (
+        r#"sqlite-finalize"#,
+        r#"Mark this SET as being finished.
 This will free the resources held by SET.
 
-(fn SET)"#),
-    (r#"sqlite-load-extension"#, r#"Load an SQlite MODULE into DB.
+(fn SET)"#,
+    ),
+    (
+        r#"sqlite-load-extension"#,
+        r#"Load an SQlite MODULE into DB.
 MODULE should be the name of an SQlite module's file, a
 shared library in the system-dependent format and having a
 system-dependent file-name extension.
 
 Only modules on Emacs's list of allowed modules can be loaded.
 
-(fn DB MODULE)"#),
-    (r#"sqlite-more-p"#, r#"Say whether there are any further results in SET.
+(fn DB MODULE)"#,
+    ),
+    (
+        r#"sqlite-more-p"#,
+        r#"Say whether there are any further results in SET.
 
-(fn SET)"#),
-    (r#"sqlite-next"#, r#"Return the next result set from SET.
+(fn SET)"#,
+    ),
+    (
+        r#"sqlite-next"#,
+        r#"Return the next result set from SET.
 Return nil when the statement has finished executing successfully.
 
-(fn SET)"#),
-    (r#"sqlite-open"#, r#"Open FILE as an sqlite database.
+(fn SET)"#,
+    ),
+    (
+        r#"sqlite-open"#,
+        r#"Open FILE as an sqlite database.
 If FILE is nil or omitted, an in-memory database will be opened instead.
 If READONLY is non-nil or omitted, open the database in read-only mode,
 otherwise open it in read-write mode.
 By default, file:// URIs are automatically recognized, unless
 DISABLE-URI is non-nil.
 
-(fn FILE READONLY DISABLE-URI)"#),
-    (r#"sqlite-pragma"#, r#"Execute PRAGMA in DB.
+(fn FILE READONLY DISABLE-URI)"#,
+    ),
+    (
+        r#"sqlite-pragma"#,
+        r#"Execute PRAGMA in DB.
 
-(fn DB PRAGMA)"#),
-    (r#"sqlite-rollback"#, r#"Roll back a transaction in DB.
+(fn DB PRAGMA)"#,
+    ),
+    (
+        r#"sqlite-rollback"#,
+        r#"Roll back a transaction in DB.
 
-(fn DB)"#),
-    (r#"sqlite-select"#, r#"Select data from the database DB that matches QUERY.
+(fn DB)"#,
+    ),
+    (
+        r#"sqlite-select"#,
+        r#"Select data from the database DB that matches QUERY.
 If VALUES is non-nil, it should be a list or a vector specifying the
 values that will be interpolated into a parameterized statement.
 
@@ -11993,33 +15727,57 @@ of the elements are the rows matching QUERY.  If RETURN-TYPE is `set',
 the function returns a set object that can be queried with functions
 like `sqlite-next' etc., in order to get the data.
 
-(fn DB QUERY VALUES RETURN-TYPE)"#),
-    (r#"sqlite-transaction"#, r#"Start a transaction in DB.
+(fn DB QUERY VALUES RETURN-TYPE)"#,
+    ),
+    (
+        r#"sqlite-transaction"#,
+        r#"Start a transaction in DB.
 
-(fn DB)"#),
-    (r#"sqlite-version"#, r#"Return the version string of the SQLite library.
+(fn DB)"#,
+    ),
+    (
+        r#"sqlite-version"#,
+        r#"Return the version string of the SQLite library.
 Signal an error if SQLite support is not available.
 
-(fn)"#),
-    (r#"sqlitep"#, r#"Say whether OBJECT is an SQlite object.
+(fn)"#,
+    ),
+    (
+        r#"sqlitep"#,
+        r#"Say whether OBJECT is an SQlite object.
 
-(fn OBJECT)"#),
-    (r#"sqrt"#, r#"Return the square root of ARG.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"sqrt"#,
+        r#"Return the square root of ARG.
 
-(fn ARG)"#),
-    (r#"standard-case-table"#, r#"Return the standard case table.
+(fn ARG)"#,
+    ),
+    (
+        r#"standard-case-table"#,
+        r#"Return the standard case table.
 This is the one used for new buffers.
 
-(fn)"#),
-    (r#"standard-category-table"#, r#"Return the standard category table.
+(fn)"#,
+    ),
+    (
+        r#"standard-category-table"#,
+        r#"Return the standard category table.
 This is the one used for new buffers.
 
-(fn)"#),
-    (r#"standard-syntax-table"#, r#"Return the standard syntax table.
+(fn)"#,
+    ),
+    (
+        r#"standard-syntax-table"#,
+        r#"Return the standard syntax table.
 This is the one used for new buffers.
 
-(fn)"#),
-    (r#"start-kbd-macro"#, r#"Record subsequent keyboard input, defining a keyboard macro.
+(fn)"#,
+    ),
+    (
+        r#"start-kbd-macro"#,
+        r#"Record subsequent keyboard input, defining a keyboard macro.
 The commands are recorded even as they are executed.
 Use \\[end-kbd-macro] to finish recording and make the macro available.
 Use \\[name-last-kbd-macro] to give it a permanent name.
@@ -12028,20 +15786,32 @@ this begins by re-executing that macro as if you typed it again.
 If optional second arg, NO-EXEC, is non-nil, do not re-execute last
 macro before appending to it.
 
-(fn APPEND NO-EXEC)"#),
-    (r#"stop-process"#, r#"Stop process PROCESS.  May be process or name of one.
+(fn APPEND NO-EXEC)"#,
+    ),
+    (
+        r#"stop-process"#,
+        r#"Stop process PROCESS.  May be process or name of one.
 See function `interrupt-process' for more details on usage.
 If PROCESS is a network or serial or pipe connection, inhibit handling
 of incoming traffic.
 
-(fn PROCESS CURRENT-GROUP)"#),
-    (r#"store-kbd-macro-event"#, r#"Store EVENT into the keyboard macro being defined.
+(fn PROCESS CURRENT-GROUP)"#,
+    ),
+    (
+        r#"store-kbd-macro-event"#,
+        r#"Store EVENT into the keyboard macro being defined.
 
-(fn EVENT)"#),
-    (r#"string"#, r#"
+(fn EVENT)"#,
+    ),
+    (
+        r#"string"#,
+        r#"
 Concatenate all the argument characters and make the result a string.
-(fn &rest CHARACTERS)"#),
-    (r#"string-as-multibyte"#, r#"Return a multibyte string with the same individual bytes as STRING.
+(fn &rest CHARACTERS)"#,
+    ),
+    (
+        r#"string-as-multibyte"#,
+        r#"Return a multibyte string with the same individual bytes as STRING.
 If STRING is multibyte, the result is STRING itself.
 Otherwise it is a newly created string, with no text properties.
 
@@ -12055,19 +15825,28 @@ It is similar to (decode-coding-string STRING \\='utf-8-emacs).
 If you're not sure, whether to use `string-as-multibyte' or
 `string-to-multibyte', use `string-to-multibyte'.
 
-(fn STRING)"#),
-    (r#"string-as-unibyte"#, r#"Return a unibyte string with the same individual bytes as STRING.
+(fn STRING)"#,
+    ),
+    (
+        r#"string-as-unibyte"#,
+        r#"Return a unibyte string with the same individual bytes as STRING.
 If STRING is unibyte, the result is STRING itself.
 Otherwise it is a newly created string, with no text properties.
 If STRING is multibyte and contains a character of charset
 `eight-bit', it is converted to the corresponding single byte.
 
-(fn STRING)"#),
-    (r#"string-bytes"#, r#"Return the number of bytes in STRING.
+(fn STRING)"#,
+    ),
+    (
+        r#"string-bytes"#,
+        r#"Return the number of bytes in STRING.
 If STRING is multibyte, this may be greater than the length of STRING.
 
-(fn STRING)"#),
-    (r#"string-collate-equalp"#, r#"Return t if two strings have identical contents.
+(fn STRING)"#,
+    ),
+    (
+        r#"string-collate-equalp"#,
+        r#"Return t if two strings have identical contents.
 Symbols are also allowed; their print names are used instead.
 
 This function obeys the conventions for collation order in your locale
@@ -12096,8 +15875,11 @@ is ignored.
 
 Do NOT use this function to compare file names for equality.
 
-(fn S1 S2 LOCALE IGNORE-CASE)"#),
-    (r#"string-collate-lessp"#, r#"Return t if first arg string is less than second in collation order.
+(fn S1 S2 LOCALE IGNORE-CASE)"#,
+    ),
+    (
+        r#"string-collate-lessp"#,
+        r#"Return t if first arg string is less than second in collation order.
 Symbols are also allowed; their print names are used instead.
 
 This function obeys the conventions for collation order in your
@@ -12123,28 +15905,40 @@ Some operating systems do not implement correct collation (in specific
 locale environments or at all).  Then, this functions falls back to
 case-sensitive `string-lessp' and IGNORE-CASE argument is ignored.
 
-(fn S1 S2 LOCALE IGNORE-CASE)"#),
-    (r#"string-distance"#, r#"Return Levenshtein distance between STRING1 and STRING2.
+(fn S1 S2 LOCALE IGNORE-CASE)"#,
+    ),
+    (
+        r#"string-distance"#,
+        r#"Return Levenshtein distance between STRING1 and STRING2.
 The distance is the number of deletions, insertions, and substitutions
 required to transform STRING1 into STRING2.
 If BYTECOMPARE is nil or omitted, compute distance in terms of characters.
 If BYTECOMPARE is non-nil, compute distance in terms of bytes.
 Letter-case is significant, but text properties are ignored.
 
-(fn STRING1 STRING2 BYTECOMPARE)"#),
-    (r#"string-equal"#, r#"Return t if two strings have identical contents.
+(fn STRING1 STRING2 BYTECOMPARE)"#,
+    ),
+    (
+        r#"string-equal"#,
+        r#"Return t if two strings have identical contents.
 Case is significant, but text properties are ignored.
 Symbols are also allowed; their print names are used instead.
 
 See also `string-equal-ignore-case'.
 
-(fn S1 S2)"#),
-    (r#"string-lessp"#, r#"Return non-nil if STRING1 is less than STRING2 in lexicographic order.
+(fn S1 S2)"#,
+    ),
+    (
+        r#"string-lessp"#,
+        r#"Return non-nil if STRING1 is less than STRING2 in lexicographic order.
 Case is significant.
 Symbols are also allowed; their print names are used instead.
 
-(fn STRING1 STRING2)"#),
-    (r#"string-make-multibyte"#, r#"Return the multibyte equivalent of STRING.
+(fn STRING1 STRING2)"#,
+    ),
+    (
+        r#"string-make-multibyte"#,
+        r#"Return the multibyte equivalent of STRING.
 If STRING is unibyte and contains non-ASCII characters, the function
 `unibyte-char-to-multibyte' is used to convert each unibyte character
 to a multibyte character.  In this case, the returned string is a
@@ -12154,13 +15948,19 @@ STRING is unibyte and entirely ASCII, the returned string is unibyte.
 \(When the characters are all ASCII, Emacs primitives will treat the
 string the same way whether it is unibyte or multibyte.)
 
-(fn STRING)"#),
-    (r#"string-make-unibyte"#, r#"Return the unibyte equivalent of STRING.
+(fn STRING)"#,
+    ),
+    (
+        r#"string-make-unibyte"#,
+        r#"Return the unibyte equivalent of STRING.
 Multibyte character codes above 255 are converted to unibyte
 by taking just the low 8 bits of each character's code.
 
-(fn STRING)"#),
-    (r#"string-match"#, r#"Return index of start of first match for REGEXP in STRING, or nil.
+(fn STRING)"#,
+    ),
+    (
+        r#"string-match"#,
+        r#"Return index of start of first match for REGEXP in STRING, or nil.
 Matching ignores case if `case-fold-search' is non-nil.
 If third arg START is non-nil, start search at that index in STRING.
 
@@ -12173,8 +15973,11 @@ by parenthesis constructs in the pattern.  You can use the function
 constructions in REGEXP.  For index of first char beyond the match, do
 (match-end 0).
 
-(fn REGEXP STRING START INHIBIT-MODIFY)"#),
-    (r#"string-search"#, r#"Search for the string NEEDLE in the string HAYSTACK.
+(fn REGEXP STRING START INHIBIT-MODIFY)"#,
+    ),
+    (
+        r#"string-search"#,
+        r#"Search for the string NEEDLE in the string HAYSTACK.
 The return value is the position of the first occurrence of NEEDLE in
 HAYSTACK, or nil if no match was found.
 
@@ -12184,11 +15987,17 @@ It must be between zero and the length of HAYSTACK, inclusive.
 
 Case is always significant and text properties are ignored.
 
-(fn NEEDLE HAYSTACK START-POS)"#),
-    (r#"string-to-char"#, r#"Return the first character in STRING.
+(fn NEEDLE HAYSTACK START-POS)"#,
+    ),
+    (
+        r#"string-to-char"#,
+        r#"Return the first character in STRING.
 
-(fn STRING)"#),
-    (r#"string-to-multibyte"#, r#"Return a multibyte string with the same individual chars as STRING.
+(fn STRING)"#,
+    ),
+    (
+        r#"string-to-multibyte"#,
+        r#"Return a multibyte string with the same individual chars as STRING.
 If STRING is multibyte, the result is STRING itself.
 Otherwise it is a newly created string, with no text properties.
 
@@ -12199,8 +16008,11 @@ This differs from `string-as-multibyte' by converting each byte of a correct
 utf-8 sequence to an eight-bit character, not just bytes that don't form a
 correct sequence.
 
-(fn STRING)"#),
-    (r#"string-to-number"#, r#"Parse STRING as a decimal number and return the number.
+(fn STRING)"#,
+    ),
+    (
+        r#"string-to-number"#,
+        r#"Parse STRING as a decimal number and return the number.
 Ignore leading spaces and tabs, and all trailing chars.  Return 0 if
 STRING cannot be parsed as an integer or floating point number.
 
@@ -12208,23 +16020,32 @@ If BASE, interpret STRING as a number in that base.  If BASE isn't
 present, base 10 is used.  BASE must be between 2 and 16 (inclusive).
 If the base used is not 10, STRING is always parsed as an integer.
 
-(fn STRING BASE)"#),
-    (r#"string-to-syntax"#, r#"Convert a syntax descriptor STRING into a raw syntax descriptor.
+(fn STRING BASE)"#,
+    ),
+    (
+        r#"string-to-syntax"#,
+        r#"Convert a syntax descriptor STRING into a raw syntax descriptor.
 STRING should be a string of the form allowed as argument of
 `modify-syntax-entry'.  The return value is a raw syntax descriptor: a
 cons cell (CODE . MATCHING-CHAR) which can be used, for example, as
 the value of a `syntax-table' text property.
 
-(fn STRING)"#),
-    (r#"string-to-unibyte"#, r#"Return a unibyte string with the same individual chars as STRING.
+(fn STRING)"#,
+    ),
+    (
+        r#"string-to-unibyte"#,
+        r#"Return a unibyte string with the same individual chars as STRING.
 If STRING is unibyte, the result is STRING itself.
 Otherwise it is a newly created string, with no text properties,
 where each `eight-bit' character is converted to the corresponding byte.
 If STRING contains a non-ASCII, non-`eight-bit' character,
 an error is signaled.
 
-(fn STRING)"#),
-    (r#"string-version-lessp"#, r#"Return non-nil if S1 is less than S2, as version strings.
+(fn STRING)"#,
+    ),
+    (
+        r#"string-version-lessp"#,
+        r#"Return non-nil if S1 is less than S2, as version strings.
 
 This function compares version strings S1 and S2:
    1) By prefix lexicographically.
@@ -12236,8 +16057,11 @@ For example, \"foo2.png\" compares less than \"foo12.png\".
 Case is significant.
 Symbols are also allowed; their print names are used instead.
 
-(fn STRING1 STRING2)"#),
-    (r#"string-width"#, r#"Return width of STRING in columns when displayed in the current buffer.
+(fn STRING1 STRING2)"#,
+    ),
+    (
+        r#"string-width"#,
+        r#"Return width of STRING in columns when displayed in the current buffer.
 Width of STRING is measured by how many columns it will occupy on the screen.
 
 Optional arguments FROM and TO specify the substring of STRING to
@@ -12257,43 +16081,70 @@ For these reasons, the results are just an approximation, especially
 on GUI frames; for accurate dimensions of text as it will be
 displayed, use `string-pixel-width' or `window-text-pixel-size'
 instead.
-(fn STRING &optional FROM TO)"#),
-    (r#"stringp"#, r#"Return t if OBJECT is a string.
+(fn STRING &optional FROM TO)"#,
+    ),
+    (
+        r#"stringp"#,
+        r#"Return t if OBJECT is a string.
 
-(fn OBJECT)"#),
-    (r#"subr-arity"#, r#"Return minimum and maximum number of args allowed for SUBR.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"subr-arity"#,
+        r#"Return minimum and maximum number of args allowed for SUBR.
 SUBR must be a built-in function.
 The returned value is a pair (MIN . MAX).  MIN is the minimum number
 of args.  MAX is the maximum number or the symbol `many', for a
 function with `&rest' args, or `unevalled' for a special form.
 
-(fn SUBR)"#),
-    (r#"subr-name"#, r#"Return name of subroutine SUBR.
+(fn SUBR)"#,
+    ),
+    (
+        r#"subr-name"#,
+        r#"Return name of subroutine SUBR.
 SUBR must be a built-in function.
 
-(fn SUBR)"#),
-    (r#"subr-native-comp-unit"#, r#"Return the native compilation unit.
+(fn SUBR)"#,
+    ),
+    (
+        r#"subr-native-comp-unit"#,
+        r#"Return the native compilation unit.
 
-(fn SUBR)"#),
-    (r#"subr-native-lambda-list"#, r#"Return the lambda list for a native-compiled lisp/d
+(fn SUBR)"#,
+    ),
+    (
+        r#"subr-native-lambda-list"#,
+        r#"Return the lambda list for a native-compiled lisp/d
 function or t otherwise.
 
-(fn SUBR)"#),
-    (r#"subr-type"#, r#"Return the type of SUBR.
+(fn SUBR)"#,
+    ),
+    (
+        r#"subr-type"#,
+        r#"Return the type of SUBR.
 
-(fn SUBR)"#),
-    (r#"subrp"#, r#"Return t if OBJECT is a built-in or native-compiled Lisp function.
+(fn SUBR)"#,
+    ),
+    (
+        r#"subrp"#,
+        r#"Return t if OBJECT is a built-in or native-compiled Lisp function.
 
 See also `primitive-function-p' and `native-comp-function-p'.
 
-(fn OBJECT)"#),
-    (r#"subst-char-in-region"#, r#"From START to END, replace FROMCHAR with TOCHAR each time it occurs.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"subst-char-in-region"#,
+        r#"From START to END, replace FROMCHAR with TOCHAR each time it occurs.
 If optional arg NOUNDO is non-nil, don't record this change for undo
 and don't mark the buffer as really changed.
 Both characters must have the same length of multi-byte form.
 
-(fn START END FROMCHAR TOCHAR NOUNDO)"#),
-    (r#"substitute-in-file-name"#, r#"Substitute environment variables referred to in FILENAME.
+(fn START END FROMCHAR TOCHAR NOUNDO)"#,
+    ),
+    (
+        r#"substitute-in-file-name"#,
+        r#"Substitute environment variables referred to in FILENAME.
 `$FOO' where FOO is an environment variable name means to substitute
 the value of that variable.  The variable name should be terminated
 with a character not a letter, digit or underscore; otherwise, enclose
@@ -12308,8 +16159,11 @@ those `/' is discarded.  More generally, if a variable substitution
 produces an absolute file name, everything before that file name
 is discarded.
 
-(fn FILENAME)"#),
-    (r#"substring"#, r#"Return a new string whose contents are a substring of STRING.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"substring"#,
+        r#"Return a new string whose contents are a substring of STRING.
 The returned string consists of the characters between index FROM
 \(inclusive) and index TO (exclusive) of STRING.  FROM and TO are
 zero-indexed: 0 means the first character of STRING.  Negative values
@@ -12322,8 +16176,11 @@ value is a new vector that contains the elements between index FROM
 
 With one argument, just copy STRING (with properties, if any).
 
-(fn STRING FROM TO)"#),
-    (r#"substring-no-properties"#, r#"Return a substring of STRING, without text properties.
+(fn STRING FROM TO)"#,
+    ),
+    (
+        r#"substring-no-properties"#,
+        r#"Return a substring of STRING, without text properties.
 It starts at index FROM and ends before TO.
 TO may be nil or omitted; then the substring runs to the end of STRING.
 If FROM is nil or omitted, the substring starts at the beginning of STRING.
@@ -12331,8 +16188,11 @@ If FROM or TO is negative, it counts from the end.
 
 With one argument, just copy STRING without its properties.
 
-(fn STRING FROM TO)"#),
-    (r#"suspend-emacs"#, r#"Stop Emacs and return to superior process.  You can resume later.
+(fn STRING FROM TO)"#,
+    ),
+    (
+        r#"suspend-emacs"#,
+        r#"Stop Emacs and return to superior process.  You can resume later.
 If `cannot-suspend' is non-nil, or if the system doesn't support job
 control, run a subshell instead.
 
@@ -12350,8 +16210,11 @@ buffer requires special privileges or is not supported at all.
 On such systems, calling this function with non-nil STUFFSTRING might
 either signal an error or silently fail to stuff the characters.
 
-(fn STUFFSTRING)"#),
-    (r#"suspend-tty"#, r#"Suspend the terminal device TTY.
+(fn STUFFSTRING)"#,
+    ),
+    (
+        r#"suspend-tty"#,
+        r#"Suspend the terminal device TTY.
 
 The device is restored to its default state, and Emacs ceases all
 access to the tty device.  Frames that use the device are not deleted,
@@ -12370,113 +16233,185 @@ suspended.
 
 A suspended tty may be resumed by calling `resume-tty' on it.
 
-(fn TTY)"#),
-    (r#"sxhash-eq"#, r#"Return an integer hash code for OBJ suitable for `eq'.
+(fn TTY)"#,
+    ),
+    (
+        r#"sxhash-eq"#,
+        r#"Return an integer hash code for OBJ suitable for `eq'.
 If (eq A B), then (= (sxhash-eq A) (sxhash-eq B)).
 
 Hash codes are not guaranteed to be preserved across Emacs sessions.
 
-(fn OBJ)"#),
-    (r#"sxhash-eql"#, r#"Return an integer hash code for OBJ suitable for `eql'.
+(fn OBJ)"#,
+    ),
+    (
+        r#"sxhash-eql"#,
+        r#"Return an integer hash code for OBJ suitable for `eql'.
 If (eql A B), then (= (sxhash-eql A) (sxhash-eql B)), but the opposite
 isn't necessarily true.
 
 Hash codes are not guaranteed to be preserved across Emacs sessions.
 
-(fn OBJ)"#),
-    (r#"sxhash-equal"#, r#"Return an integer hash code for OBJ suitable for `equal'.
+(fn OBJ)"#,
+    ),
+    (
+        r#"sxhash-equal"#,
+        r#"Return an integer hash code for OBJ suitable for `equal'.
 If (equal A B), then (= (sxhash-equal A) (sxhash-equal B)), but the
 opposite isn't necessarily true.
 
 Hash codes are not guaranteed to be preserved across Emacs sessions.
 
-(fn OBJ)"#),
-    (r#"sxhash-equal-including-properties"#, r#"Return an integer hash code for OBJ suitable for
+(fn OBJ)"#,
+    ),
+    (
+        r#"sxhash-equal-including-properties"#,
+        r#"Return an integer hash code for OBJ suitable for
 `equal-including-properties'.
 If (sxhash-equal-including-properties A B), then
 (= (sxhash-equal-including-properties A) (sxhash-equal-including-properties B)).
 
 Hash codes are not guaranteed to be preserved across Emacs sessions.
 
-(fn OBJ)"#),
-    (r#"symbol-function"#, r#"Return SYMBOL's function definition.
+(fn OBJ)"#,
+    ),
+    (
+        r#"symbol-function"#,
+        r#"Return SYMBOL's function definition.
 
-(fn SYMBOL)"#),
-    (r#"symbol-name"#, r#"Return SYMBOL's name, a string.
+(fn SYMBOL)"#,
+    ),
+    (
+        r#"symbol-name"#,
+        r#"Return SYMBOL's name, a string.
 
 Warning: never alter the string returned by `symbol-name'.
 Doing that might make Emacs dysfunctional, and might even crash Emacs.
 
-(fn SYMBOL)"#),
-    (r#"symbol-plist"#, r#"Return SYMBOL's property list.
+(fn SYMBOL)"#,
+    ),
+    (
+        r#"symbol-plist"#,
+        r#"Return SYMBOL's property list.
 
-(fn SYMBOL)"#),
-    (r#"symbol-value"#, r#"Return SYMBOL's value.  Error if that is void.
+(fn SYMBOL)"#,
+    ),
+    (
+        r#"symbol-value"#,
+        r#"Return SYMBOL's value.  Error if that is void.
 Note that if `lexical-binding' is in effect, this returns the
 global value outside of any lexical scope.
 
-(fn SYMBOL)"#),
-    (r#"symbol-with-pos-p"#, r#"Return t if OBJECT is a symbol together with position.
+(fn SYMBOL)"#,
+    ),
+    (
+        r#"symbol-with-pos-p"#,
+        r#"Return t if OBJECT is a symbol together with position.
 Ignore `symbols-with-pos-enabled'.
 
-(fn OBJECT)"#),
-    (r#"symbol-with-pos-pos"#, r#"Extract the position from the symbol with position SYMPOS.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"symbol-with-pos-pos"#,
+        r#"Extract the position from the symbol with position SYMPOS.
 Ignore `symbols-with-pos-enabled'.
 
-(fn SYMPOS)"#),
-    (r#"symbolp"#, r#"Return t if OBJECT is a symbol.
+(fn SYMPOS)"#,
+    ),
+    (
+        r#"symbolp"#,
+        r#"Return t if OBJECT is a symbol.
 
-(fn OBJECT)"#),
-    (r#"syntax-class-to-char"#, r#"Return the syntax char of CLASS, described by an integer.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"syntax-class-to-char"#,
+        r#"Return the syntax char of CLASS, described by an integer.
 For example, if SYNTAX is word constituent (the integer 2), the
 character `w' (119) is returned.
 
-(fn SYNTAX)"#),
-    (r#"syntax-table"#, r#"Return the current syntax table.
+(fn SYNTAX)"#,
+    ),
+    (
+        r#"syntax-table"#,
+        r#"Return the current syntax table.
 This is the one specified by the current buffer.
 
-(fn)"#),
-    (r#"syntax-table-p"#, r#"Return t if OBJECT is a syntax table.
+(fn)"#,
+    ),
+    (
+        r#"syntax-table-p"#,
+        r#"Return t if OBJECT is a syntax table.
 Currently, any char-table counts as a syntax table.
 
-(fn OBJECT)"#),
-    (r#"system-groups"#, r#"Return a list of user group names currently registered in the system.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"system-groups"#,
+        r#"Return a list of user group names currently registered in the system.
 The value may be nil if not supported on this platform.
 
-(fn)"#),
-    (r#"system-move-file-to-trash"#, r#"Move file or directory named FILENAME to the recycle bin.
+(fn)"#,
+    ),
+    (
+        r#"system-move-file-to-trash"#,
+        r#"Move file or directory named FILENAME to the recycle bin.
 
-(fn FILENAME)"#),
-    (r#"system-name"#, r#"Return the host name of the machine you are running on, as a string.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"system-name"#,
+        r#"Return the host name of the machine you are running on, as a string.
 
-(fn)"#),
-    (r#"system-users"#, r#"Return a list of user names currently registered in the system.
+(fn)"#,
+    ),
+    (
+        r#"system-users"#,
+        r#"Return a list of user names currently registered in the system.
 If we don't know how to determine that on this platform, just
 return a list with one element, taken from `user-real-login-name'.
 
-(fn)"#),
-    (r#"tab-bar-height"#, r#"Return the number of lines occupied by the tab bar of FRAME.
+(fn)"#,
+    ),
+    (
+        r#"tab-bar-height"#,
+        r#"Return the number of lines occupied by the tab bar of FRAME.
 If FRAME is nil or omitted, use the selected frame.  Optional argument
 PIXELWISE non-nil means return the height of the tab bar in pixels.
 
-(fn FRAME PIXELWISE)"#),
-    (r#"take"#, r#"Return the first N elements of LIST.
+(fn FRAME PIXELWISE)"#,
+    ),
+    (
+        r#"take"#,
+        r#"Return the first N elements of LIST.
 If N is zero or negative, return nil.
 If N is greater or equal to the length of LIST, return LIST (or a copy).
 
-(fn N LIST)"#),
-    (r#"tan"#, r#"Return the tangent of ARG.
+(fn N LIST)"#,
+    ),
+    (
+        r#"tan"#,
+        r#"Return the tangent of ARG.
 
-(fn ARG)"#),
-    (r#"terminal-coding-system"#, r#"Return coding system specified for terminal output on the given terminal.
+(fn ARG)"#,
+    ),
+    (
+        r#"terminal-coding-system"#,
+        r#"Return coding system specified for terminal output on the given terminal.
 TERMINAL may be a terminal object, a frame, or nil for the selected
 frame's terminal device.
 
-(fn TERMINAL)"#),
-    (r#"terminal-list"#, r#"Return a list of all terminal devices.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"terminal-list"#,
+        r#"Return a list of all terminal devices.
 
-(fn)"#),
-    (r#"terminal-live-p"#, r#"Return non-nil if OBJECT is a terminal which has not been deleted.
+(fn)"#,
+    ),
+    (
+        r#"terminal-live-p"#,
+        r#"Return non-nil if OBJECT is a terminal which has not been deleted.
 Return nil if OBJECT is not a live display terminal.
 OBJECT may be a terminal object, a frame, or nil (meaning the
 selected frame's terminal).
@@ -12484,34 +16419,49 @@ If OBJECT is a live display terminal, return what sort of output
 terminal it uses.  See the documentation of `framep' for possible
 return values.
 
-(fn OBJECT)"#),
-    (r#"terminal-name"#, r#"Return the name of the terminal device TERMINAL.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"terminal-name"#,
+        r#"Return the name of the terminal device TERMINAL.
 It is not guaranteed that the returned value is unique among opened devices.
 
 TERMINAL may be a terminal object, a frame, or nil (meaning the
 selected frame's terminal).
 
-(fn TERMINAL)"#),
-    (r#"terminal-parameter"#, r#"Return TERMINAL's value for parameter PARAMETER.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"terminal-parameter"#,
+        r#"Return TERMINAL's value for parameter PARAMETER.
 TERMINAL can be a terminal object, a frame, or nil (meaning the
 selected frame's terminal).
 
-(fn TERMINAL PARAMETER)"#),
-    (r#"terminal-parameters"#, r#"Return the parameter-alist of terminal TERMINAL.
+(fn TERMINAL PARAMETER)"#,
+    ),
+    (
+        r#"terminal-parameters"#,
+        r#"Return the parameter-alist of terminal TERMINAL.
 The value is a list of elements of the form (PARM . VALUE), where PARM
 is a symbol.
 
 TERMINAL can be a terminal object, a frame, or nil (meaning the
 selected frame's terminal).
 
-(fn TERMINAL)"#),
-    (r#"terpri"#, r#"Output a newline to stream PRINTCHARFUN.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"terpri"#,
+        r#"Output a newline to stream PRINTCHARFUN.
 If ENSURE is non-nil only output a newline if not already at the
 beginning of a line.  Value is non-nil if a newline is printed.
 If PRINTCHARFUN is omitted or nil, the value of `standard-output' is used.
 
-(fn PRINTCHARFUN ENSURE)"#),
-    (r#"test-completion"#, r#"Return non-nil if STRING is a valid completion.
+(fn PRINTCHARFUN ENSURE)"#,
+    ),
+    (
+        r#"test-completion"#,
+        r#"Return non-nil if STRING is a valid completion.
 For instance, if COLLECTION is a list of strings, STRING is a
 valid completion if it appears in the list and PREDICATE is satisfied.
 
@@ -12520,8 +16470,11 @@ Takes the same arguments as `all-completions' and `try-completion'.
 If COLLECTION is a function, it is called with three arguments:
 the values STRING, PREDICATE and `lambda'.
 
-(fn STRING COLLECTION PREDICATE)"#),
-    (r#"text-char-description"#, r#"Return the description of CHARACTER in standard Emacs notation.
+(fn STRING COLLECTION PREDICATE)"#,
+    ),
+    (
+        r#"text-char-description"#,
+        r#"Return the description of CHARACTER in standard Emacs notation.
 CHARACTER must be a valid character code that passes the `characterp' test.
 Control characters turn into "^char", and characters with Meta and other
 modifiers signal an error, as they are not valid character codes.
@@ -12530,8 +16483,11 @@ and thus doesn't enforce the `characterp' condition, turns control
 characters into "C-char", and uses the 2**27 bit for Meta.
 See Info node `(elisp)Describing Characters' for examples.
 
-(fn CHARACTER)"#),
-    (r#"text-properties-at"#, r#"Return the list of properties of the character at POSITION in OBJECT.
+(fn CHARACTER)"#,
+    ),
+    (
+        r#"text-properties-at"#,
+        r#"Return the list of properties of the character at POSITION in OBJECT.
 If the optional second argument OBJECT is a buffer (or nil, which means
 the current buffer), POSITION is a buffer position (integer or marker).
 
@@ -12545,24 +16501,33 @@ of the narrowed buffer, the result may be non-nil.
 If you want to display the text properties at point in a human-readable
 form, use the `describe-text-properties' command.
 
-(fn POSITION OBJECT)"#),
-    (r#"text-property-any"#, r#"Check text from START to END for property PROPERTY equaling VALUE.
+(fn POSITION OBJECT)"#,
+    ),
+    (
+        r#"text-property-any"#,
+        r#"Check text from START to END for property PROPERTY equaling VALUE.
 If so, return the position of the first character whose property PROPERTY
 is `eq' to VALUE.  Otherwise return nil.
 If the optional fifth argument OBJECT is a buffer (or nil, which means
 the current buffer), START and END are buffer positions (integers or
 markers).  If OBJECT is a string, START and END are 0-based indices into it.
 
-(fn START END PROPERTY VALUE OBJECT)"#),
-    (r#"text-property-not-all"#, r#"Check text from START to END for property PROPERTY not equaling VALUE.
+(fn START END PROPERTY VALUE OBJECT)"#,
+    ),
+    (
+        r#"text-property-not-all"#,
+        r#"Check text from START to END for property PROPERTY not equaling VALUE.
 If so, return the position of the first character whose property PROPERTY
 is not `eq' to VALUE.  Otherwise, return nil.
 If the optional fifth argument OBJECT is a buffer (or nil, which means
 the current buffer), START and END are buffer positions (integers or
 markers).  If OBJECT is a string, START and END are 0-based indices into it.
 
-(fn START END PROPERTY VALUE OBJECT)"#),
-    (r#"text-quoting-style"#, r#"Return the current effective text quoting style.
+(fn START END PROPERTY VALUE OBJECT)"#,
+    ),
+    (
+        r#"text-quoting-style"#,
+        r#"Return the current effective text quoting style.
 If the variable `text-quoting-style' is `grave', `straight' or
 `curve', just return that value.  If it is nil (the default), return
 `grave' if curved quotes cannot be displayed (for instance, on a
@@ -12572,95 +16537,146 @@ terminal with no support for these characters), otherwise return
 Note that in contrast to the variable `text-quoting-style', this
 function will never return nil.
 
-(fn)"#),
-    (r#"this-command-keys"#, r#"Return the key sequence that invoked this command.
+(fn)"#,
+    ),
+    (
+        r#"this-command-keys"#,
+        r#"Return the key sequence that invoked this command.
 However, if the command has called `read-key-sequence', it returns
 the last key sequence that has been read.
 The value is a string or a vector.
 
 See also `this-command-keys-vector'.
 
-(fn)"#),
-    (r#"this-command-keys-vector"#, r#"Return the key sequence that invoked this command, as a vector.
+(fn)"#,
+    ),
+    (
+        r#"this-command-keys-vector"#,
+        r#"Return the key sequence that invoked this command, as a vector.
 However, if the command has called `read-key-sequence', it returns
 the last key sequence that has been read.
 
 See also `this-command-keys'.
 
-(fn)"#),
-    (r#"this-single-command-keys"#, r#"Return the key sequence that invoked this command.
+(fn)"#,
+    ),
+    (
+        r#"this-single-command-keys"#,
+        r#"Return the key sequence that invoked this command.
 More generally, it returns the last key sequence read, either by
 the command loop or by `read-key-sequence'.
 The value is always a vector.
 
-(fn)"#),
-    (r#"this-single-command-raw-keys"#, r#"Return the raw events that were read for this command.
+(fn)"#,
+    ),
+    (
+        r#"this-single-command-raw-keys"#,
+        r#"Return the raw events that were read for this command.
 More generally, it returns the last key sequence read, either by
 the command loop or by `read-key-sequence'.
 Unlike `this-single-command-keys', this function's value
 shows the events before all translations (except for input methods).
 The value is always a vector.
 
-(fn)"#),
-    (r#"thread--blocker"#, r#"Return the object that THREAD is blocking on.
+(fn)"#,
+    ),
+    (
+        r#"thread--blocker"#,
+        r#"Return the object that THREAD is blocking on.
 If THREAD is blocked in `thread-join' on a second thread, return that
 thread.
 If THREAD is blocked in `mutex-lock', return the mutex.
 If THREAD is blocked in `condition-wait', return the condition variable.
 Otherwise, if THREAD is not blocked, return nil.
 
-(fn THREAD)"#),
-    (r#"thread-buffer-disposition"#, r#"Return the value of THREAD's buffer disposition.
+(fn THREAD)"#,
+    ),
+    (
+        r#"thread-buffer-disposition"#,
+        r#"Return the value of THREAD's buffer disposition.
 See `make-thread' for the description of possible values.
 
-(fn THREAD)"#),
-    (r#"thread-join"#, r#"Wait for THREAD to exit.
+(fn THREAD)"#,
+    ),
+    (
+        r#"thread-join"#,
+        r#"Wait for THREAD to exit.
 This blocks the current thread until THREAD exits or until the current
 thread is signaled.  It returns the result of the THREAD function.  It
 is an error for a thread to try to join itself.
 
-(fn THREAD)"#),
-    (r#"thread-last-error"#, r#"Return the last error form recorded by a dying thread.
+(fn THREAD)"#,
+    ),
+    (
+        r#"thread-last-error"#,
+        r#"Return the last error form recorded by a dying thread.
 If CLEANUP is non-nil, remove this error form from history.
 
-(fn CLEANUP)"#),
-    (r#"thread-live-p"#, r#"Return t if THREAD is alive, or nil if it has exited.
+(fn CLEANUP)"#,
+    ),
+    (
+        r#"thread-live-p"#,
+        r#"Return t if THREAD is alive, or nil if it has exited.
 
-(fn THREAD)"#),
-    (r#"thread-name"#, r#"Return the name of the THREAD.
+(fn THREAD)"#,
+    ),
+    (
+        r#"thread-name"#,
+        r#"Return the name of the THREAD.
 The name is the same object that was passed to `make-thread'.
 
-(fn THREAD)"#),
-    (r#"thread-set-buffer-disposition"#, r#"Set THREAD's buffer disposition.
+(fn THREAD)"#,
+    ),
+    (
+        r#"thread-set-buffer-disposition"#,
+        r#"Set THREAD's buffer disposition.
 See `make-thread' for the description of possible values.
 
 Buffer disposition of the main thread cannot be modified.
 
-(fn THREAD VALUE)"#),
-    (r#"thread-signal"#, r#"Signal an error in a thread.
+(fn THREAD VALUE)"#,
+    ),
+    (
+        r#"thread-signal"#,
+        r#"Signal an error in a thread.
 This acts like `signal', but arranges for the signal to be raised
 in THREAD.  If THREAD is the current thread, acts just like `signal'.
 This will interrupt a blocked call to `mutex-lock', `condition-wait',
 or `thread-join' in the target thread.
 If THREAD is the main thread, just the error message is shown.
 
-(fn THREAD ERROR-SYMBOL DATA)"#),
-    (r#"thread-yield"#, r#"Yield the CPU to another thread.
+(fn THREAD ERROR-SYMBOL DATA)"#,
+    ),
+    (
+        r#"thread-yield"#,
+        r#"Yield the CPU to another thread.
 
-(fn)"#),
-    (r#"threadp"#, r#"Return t if OBJECT is a thread.
+(fn)"#,
+    ),
+    (
+        r#"threadp"#,
+        r#"Return t if OBJECT is a thread.
 
-(fn OBJECT)"#),
-    (r#"throw"#, r#"Throw to the catch for TAG and return VALUE from it.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"throw"#,
+        r#"Throw to the catch for TAG and return VALUE from it.
 Both TAG and VALUE are evalled.
 
-(fn TAG VALUE)"#),
-    (r#"time-add"#, r#"Return the sum of two time values A and B, as a time value.
+(fn TAG VALUE)"#,
+    ),
+    (
+        r#"time-add"#,
+        r#"Return the sum of two time values A and B, as a time value.
 See `format-time-string' for the various forms of a time value.
 For example, nil stands for the current time.
 
-(fn A B)"#),
-    (r#"time-convert"#, r#"Convert TIME value to a Lisp timestamp of the given FORM.
+(fn A B)"#,
+    ),
+    (
+        r#"time-convert"#,
+        r#"Convert TIME value to a Lisp timestamp of the given FORM.
 Truncate the returned value toward minus infinity.
 
 If FORM is a positive integer, return a pair of integers (TICKS . FORM),
@@ -12680,56 +16696,89 @@ picosecond counts.
 If FORM is nil, the behavior depends on `current-time-list',
 but new code should not rely on it.
 
-(fn TIME FORM)"#),
-    (r#"time-equal-p"#, r#"Return non-nil if A and B are equal time values.
+(fn TIME FORM)"#,
+    ),
+    (
+        r#"time-equal-p"#,
+        r#"Return non-nil if A and B are equal time values.
 See `format-time-string' for the various forms of a time value.
 
-(fn A B)"#),
-    (r#"time-less-p"#, r#"Return non-nil if time value A is less than time value B.
+(fn A B)"#,
+    ),
+    (
+        r#"time-less-p"#,
+        r#"Return non-nil if time value A is less than time value B.
 See `format-time-string' for the various forms of a time value.
 For example, nil stands for the current time.
 
-(fn A B)"#),
-    (r#"time-subtract"#, r#"Return the difference between two time values A and B, as a time value.
+(fn A B)"#,
+    ),
+    (
+        r#"time-subtract"#,
+        r#"Return the difference between two time values A and B, as a time value.
 You can use `float-time' to convert the difference into elapsed seconds.
 See `format-time-string' for the various forms of a time value.
 For example, nil stands for the current time.
 
-(fn A B)"#),
-    (r#"tool-bar-get-system-style"#, r#"Get the system tool bar style.
+(fn A B)"#,
+    ),
+    (
+        r#"tool-bar-get-system-style"#,
+        r#"Get the system tool bar style.
 If no system tool bar style is known, return `tool-bar-style' if set to a
 known style.  Otherwise return image.
 
-(fn)"#),
-    (r#"tool-bar-height"#, r#"Return the number of lines occupied by the tool bar of FRAME.
+(fn)"#,
+    ),
+    (
+        r#"tool-bar-height"#,
+        r#"Return the number of lines occupied by the tool bar of FRAME.
 If FRAME is nil or omitted, use the selected frame.  Optional argument
 PIXELWISE non-nil means return the height of the tool bar in pixels.
 
-(fn FRAME PIXELWISE)"#),
-    (r#"tool-bar-pixel-width"#, r#"Return width in pixels of FRAME's tool bar.
+(fn FRAME PIXELWISE)"#,
+    ),
+    (
+        r#"tool-bar-pixel-width"#,
+        r#"Return width in pixels of FRAME's tool bar.
 The result is greater than zero only when the tool bar is on the left
 or right side of FRAME.  If FRAME is omitted or nil, the selected frame
 is used.
 
-(fn FRAME)"#),
-    (r#"top-level"#, r#"Exit all recursive editing levels.
+(fn FRAME)"#,
+    ),
+    (
+        r#"top-level"#,
+        r#"Exit all recursive editing levels.
 This also exits all active minibuffers.
 
-(fn)"#),
-    (r#"trace-redisplay"#, r#"Toggle tracing of redisplay.
+(fn)"#,
+    ),
+    (
+        r#"trace-redisplay"#,
+        r#"Toggle tracing of redisplay.
 With ARG, turn tracing on if and only if ARG is positive.
 
-(fn ARG)"#),
-    (r#"trace-to-stderr"#, r#"Like `format', but print result to stderr.
-(fn STRING &rest OBJECTS)"#),
-    (r#"translate-region-internal"#, r#"Internal use only.
+(fn ARG)"#,
+    ),
+    (
+        r#"trace-to-stderr"#,
+        r#"Like `format', but print result to stderr.
+(fn STRING &rest OBJECTS)"#,
+    ),
+    (
+        r#"translate-region-internal"#,
+        r#"Internal use only.
 From START to END, translate characters according to TABLE.
 TABLE is a string or a char-table; the Nth character in it is the
 mapping for the character with code N.
 It returns the number of characters changed.
 
-(fn START END TABLE)"#),
-    (r#"transpose-regions"#, r#"Transpose region STARTR1 to ENDR1 with STARTR2 to ENDR2.
+(fn START END TABLE)"#,
+    ),
+    (
+        r#"transpose-regions"#,
+        r#"Transpose region STARTR1 to ENDR1 with STARTR2 to ENDR2.
 The regions should not be overlapping, because the size of the buffer is
 never changed in a transposition.
 
@@ -12745,8 +16794,11 @@ successive marks N entries back in the mark ring.  A negative prefix
 argument instead counts forward from the oldest mark in the mark
 ring.
 
-(fn STARTR1 ENDR1 STARTR2 ENDR2 LEAVE-MARKERS)"#),
-    (r#"treesit--linecol-at"#, r#"Test buffer-local linecol cache.
+(fn STARTR1 ENDR1 STARTR2 ENDR2 LEAVE-MARKERS)"#,
+    ),
+    (
+        r#"treesit--linecol-at"#,
+        r#"Test buffer-local linecol cache.
 
 Calculate the line and column at POS using the buffer-local cache,
 return the line and column in the form of
@@ -12755,31 +16807,49 @@ return the line and column in the form of
 
 This is used for internal testing and debugging ONLY.
 
-(fn POS)"#),
-    (r#"treesit--linecol-cache"#, r#"Return the buffer-local linecol cache for debugging.
+(fn POS)"#,
+    ),
+    (
+        r#"treesit--linecol-cache"#,
+        r#"Return the buffer-local linecol cache for debugging.
 
 Return a plist (:line LINE :col COL :pos POS :bytepos BYTEPOS).  This is
 used for internal testing and debugging ONLY.
 
-(fn)"#),
-    (r#"treesit--linecol-cache-set"#, r#"Set the linecol cache for the current buffer.
+(fn)"#,
+    ),
+    (
+        r#"treesit--linecol-cache-set"#,
+        r#"Set the linecol cache for the current buffer.
 
 This is used for internal testing and debugging ONLY.
 
-(fn LINE COL BYTEPOS)"#),
-    (r#"treesit-available-p"#, r#"Return non-nil if tree-sitter support is built-in and available.
+(fn LINE COL BYTEPOS)"#,
+    ),
+    (
+        r#"treesit-available-p"#,
+        r#"Return non-nil if tree-sitter support is built-in and available.
 
-(fn)"#),
-    (r#"treesit-compiled-query-p"#, r#"Return t if OBJECT is a compiled tree-sitter query.
+(fn)"#,
+    ),
+    (
+        r#"treesit-compiled-query-p"#,
+        r#"Return t if OBJECT is a compiled tree-sitter query.
 
-(fn OBJECT)"#),
-    (r#"treesit-grammar-location"#, r#"Return the absolute file name of the grammar file for LANGUAGE.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"treesit-grammar-location"#,
+        r#"Return the absolute file name of the grammar file for LANGUAGE.
 
 If LANGUAGE isn't loaded yet, load it first.  If the language can't be
 loaded or the file name couldn't be determined, return nil.
 
-(fn LANGUAGE)"#),
-    (r#"treesit-induce-sparse-tree"#, r#"Create a sparse tree of ROOT's subtree.
+(fn LANGUAGE)"#,
+    ),
+    (
+        r#"treesit-induce-sparse-tree"#,
+        r#"Create a sparse tree of ROOT's subtree.
 
 This takes the subtree under ROOT, and combs it so only the nodes that
 match PREDICATE are left, like picking out grapes on the vine.
@@ -12817,27 +16887,39 @@ root of this tree might be nil, if ROOT doesn't match PREDICATE.
 
 If no node matches PREDICATE, return nil.
 
-(fn ROOT PREDICATE PROCESS-FN DEPTH)"#),
-    (r#"treesit-language-abi-version"#, r#"Return the ABI version of the tree-sitter grammar for LANGUAGE.
+(fn ROOT PREDICATE PROCESS-FN DEPTH)"#,
+    ),
+    (
+        r#"treesit-language-abi-version"#,
+        r#"Return the ABI version of the tree-sitter grammar for LANGUAGE.
 Return nil if a grammar library for LANGUAGE is not available.
 
-(fn LANGUAGE)"#),
-    (r#"treesit-language-available-p"#, r#"Return non-nil if LANGUAGE exists and is loadable.
+(fn LANGUAGE)"#,
+    ),
+    (
+        r#"treesit-language-available-p"#,
+        r#"Return non-nil if LANGUAGE exists and is loadable.
 
 If DETAIL is non-nil, return (t . nil) when LANGUAGE is available,
 (nil . DATA) when unavailable.  DATA is the signal data of
 `treesit-load-language-error'.
 
-(fn LANGUAGE DETAIL)"#),
-    (r#"treesit-library-abi-version"#, r#"Return the language ABI version of the tree-sitter library.
+(fn LANGUAGE DETAIL)"#,
+    ),
+    (
+        r#"treesit-library-abi-version"#,
+        r#"Return the language ABI version of the tree-sitter library.
 
 By default, report the latest ABI version supported by the library for
 loading language support modules.  The library is backward-compatible
 with language modules which use older ABI versions; if MIN-COMPATIBLE
 is non-nil, return the oldest compatible ABI version.
 
-(fn MIN-COMPATIBLE)"#),
-    (r#"treesit-node-check"#, r#"Return non-nil if NODE has PROPERTY, nil otherwise.
+(fn MIN-COMPATIBLE)"#,
+    ),
+    (
+        r#"treesit-node-check"#,
+        r#"Return non-nil if NODE has PROPERTY, nil otherwise.
 
 PROPERTY could be `named', `missing', `extra', `outdated',
 `has-error', or `live'.
@@ -12861,8 +16943,11 @@ errors.
 A node is "live" if its parser is not deleted and its buffer is
 live.
 
-(fn NODE PROPERTY)"#),
-    (r#"treesit-node-child"#, r#"Return the Nth child of NODE.
+(fn NODE PROPERTY)"#,
+    ),
+    (
+        r#"treesit-node-child"#,
+        r#"Return the Nth child of NODE.
 
 Return nil if there is no Nth child.  If NAMED is non-nil, look for
 named child only.  NAMED defaults to nil.  If NODE is nil, return
@@ -12870,37 +16955,55 @@ nil.
 
 N could be negative, e.g., -1 represents the last child.
 
-(fn NODE N NAMED)"#),
-    (r#"treesit-node-child-by-field-name"#, r#"Return the child of NODE with FIELD-NAME (a string).
+(fn NODE N NAMED)"#,
+    ),
+    (
+        r#"treesit-node-child-by-field-name"#,
+        r#"Return the child of NODE with FIELD-NAME (a string).
 Return nil if there is no such child.  If NODE is nil, return nil.
 
-(fn NODE FIELD-NAME)"#),
-    (r#"treesit-node-child-count"#, r#"Return the number of children of NODE.
+(fn NODE FIELD-NAME)"#,
+    ),
+    (
+        r#"treesit-node-child-count"#,
+        r#"Return the number of children of NODE.
 
 If NAMED is non-nil, count named children only.  NAMED defaults to
 nil.  If NODE is nil, return nil.
 
-(fn NODE NAMED)"#),
-    (r#"treesit-node-descendant-for-range"#, r#"Return the smallest node that covers buffer positions BEG to END.
+(fn NODE NAMED)"#,
+    ),
+    (
+        r#"treesit-node-descendant-for-range"#,
+        r#"Return the smallest node that covers buffer positions BEG to END.
 
 The returned node is a descendant of NODE.
 Return nil if there is no such node.
 If NAMED is non-nil, look for named child only.  NAMED defaults to nil.
 If NODE is nil, return nil.
 
-(fn NODE BEG END NAMED)"#),
-    (r#"treesit-node-end"#, r#"Return the NODE's end position in its buffer.
+(fn NODE BEG END NAMED)"#,
+    ),
+    (
+        r#"treesit-node-end"#,
+        r#"Return the NODE's end position in its buffer.
 If NODE is nil, return nil.
 
-(fn NODE)"#),
-    (r#"treesit-node-eq"#, r#"Return non-nil if NODE1 and NODE2 refer to the same node.
+(fn NODE)"#,
+    ),
+    (
+        r#"treesit-node-eq"#,
+        r#"Return non-nil if NODE1 and NODE2 refer to the same node.
 If any one of NODE1 and NODE2 is nil, return nil.
 This function uses the same equivalence metric as `equal', and returns
 non-nil if NODE1 and NODE2 refer to the same node in a syntax tree
 produced by tree-sitter.
 
-(fn NODE1 NODE2)"#),
-    (r#"treesit-node-field-name-for-child"#, r#"Return the field name of the Nth child of NODE.
+(fn NODE1 NODE2)"#,
+    ),
+    (
+        r#"treesit-node-field-name-for-child"#,
+        r#"Return the field name of the Nth child of NODE.
 
 Return nil if there's no Nth child, or if it has no field.
 If NODE is nil, return nil.
@@ -12909,8 +17012,11 @@ N counts all children, i.e., named ones and anonymous ones.
 
 N could be negative, e.g., -1 represents the last child.
 
-(fn NODE N)"#),
-    (r#"treesit-node-first-child-for-pos"#, r#"Return the first child of NODE for buffer position POS.
+(fn NODE N)"#,
+    ),
+    (
+        r#"treesit-node-first-child-for-pos"#,
+        r#"Return the first child of NODE for buffer position POS.
 
 Specifically, return the first child that extends beyond POS.
 Return nil if there is no such child.
@@ -12918,8 +17024,11 @@ If NAMED is non-nil, look for named children only.  NAMED defaults to nil.
 Note that this function returns an immediate child, not the smallest
 (grand)child.  If NODE is nil, return nil.
 
-(fn NODE POS NAMED)"#),
-    (r#"treesit-node-match-p"#, r#"Check whether NODE matches PREDICATE.
+(fn NODE POS NAMED)"#,
+    ),
+    (
+        r#"treesit-node-match-p"#,
+        r#"Check whether NODE matches PREDICATE.
 
 PREDICATE can be a symbol representing a thing in
 `treesit-thing-settings', or a predicate, like regexp matching node
@@ -12933,66 +17042,105 @@ in `treesit-thing-settings', or if PREDICATE is malformed.  If
 IGNORE-MISSING is non-nil, don't signal an error for missing THING
 definition, but still signal for malformed PREDICATE.
 
-(fn NODE PREDICATE IGNORE-MISSING)"#),
-    (r#"treesit-node-next-sibling"#, r#"Return the next sibling of NODE.
+(fn NODE PREDICATE IGNORE-MISSING)"#,
+    ),
+    (
+        r#"treesit-node-next-sibling"#,
+        r#"Return the next sibling of NODE.
 
 Return nil if there is no next sibling.  If NAMED is non-nil, look for named
 siblings only.  NAMED defaults to nil.  If NODE is nil, return nil.
 
-(fn NODE NAMED)"#),
-    (r#"treesit-node-p"#, r#"Return t if OBJECT is a tree-sitter node.
+(fn NODE NAMED)"#,
+    ),
+    (
+        r#"treesit-node-p"#,
+        r#"Return t if OBJECT is a tree-sitter node.
 
-(fn OBJECT)"#),
-    (r#"treesit-node-parent"#, r#"Return the immediate parent of NODE.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"treesit-node-parent"#,
+        r#"Return the immediate parent of NODE.
 Return nil if NODE has no parent.  If NODE is nil, return nil.
 
-(fn NODE)"#),
-    (r#"treesit-node-parser"#, r#"Return the parser to which NODE belongs.
+(fn NODE)"#,
+    ),
+    (
+        r#"treesit-node-parser"#,
+        r#"Return the parser to which NODE belongs.
 
-(fn NODE)"#),
-    (r#"treesit-node-prev-sibling"#, r#"Return the previous sibling of NODE.
+(fn NODE)"#,
+    ),
+    (
+        r#"treesit-node-prev-sibling"#,
+        r#"Return the previous sibling of NODE.
 
 Return nil if there is no previous sibling.  If NAMED is non-nil, look
 for named siblings only.  NAMED defaults to nil.  If NODE is nil,
 return nil.
 
-(fn NODE NAMED)"#),
-    (r#"treesit-node-start"#, r#"Return the NODE's start position in its buffer.
+(fn NODE NAMED)"#,
+    ),
+    (
+        r#"treesit-node-start"#,
+        r#"Return the NODE's start position in its buffer.
 If NODE is nil, return nil.
 
-(fn NODE)"#),
-    (r#"treesit-node-string"#, r#"Return the string representation of NODE.
+(fn NODE)"#,
+    ),
+    (
+        r#"treesit-node-string"#,
+        r#"Return the string representation of NODE.
 If NODE is nil, return nil.
 
-(fn NODE)"#),
-    (r#"treesit-node-type"#, r#"Return the NODE's type as a string.
+(fn NODE)"#,
+    ),
+    (
+        r#"treesit-node-type"#,
+        r#"Return the NODE's type as a string.
 If NODE is nil, return nil.
 
-(fn NODE)"#),
-    (r#"treesit-parse-string"#, r#"Parse STRING using a parser for LANGUAGE.
+(fn NODE)"#,
+    ),
+    (
+        r#"treesit-parse-string"#,
+        r#"Parse STRING using a parser for LANGUAGE.
 
 Return the root node of the result parse tree.  DO NOT use this function
 in a loop: this function is intended for one-off use and isn't
 optimized; for heavy workload, use a temporary buffer instead.
 
-(fn STRING LANGUAGE)"#),
-    (r#"treesit-parser-add-notifier"#, r#"Add FUNCTION to the list of PARSER's after-change notifiers.
+(fn STRING LANGUAGE)"#,
+    ),
+    (
+        r#"treesit-parser-add-notifier"#,
+        r#"Add FUNCTION to the list of PARSER's after-change notifiers.
 FUNCTION must be a function symbol, rather than a lambda form.
 FUNCTION should take 2 arguments, RANGES and PARSER.  RANGES is a list
 of cons cells of the form (START . END), where START and END are buffer
 positions.  PARSER is the parser issuing the notification.
 
-(fn PARSER FUNCTION)"#),
-    (r#"treesit-parser-buffer"#, r#"Return the buffer of PARSER.
+(fn PARSER FUNCTION)"#,
+    ),
+    (
+        r#"treesit-parser-buffer"#,
+        r#"Return the buffer of PARSER.
 
-(fn PARSER)"#),
-    (r#"treesit-parser-changed-regions"#, r#"Force PARSER to re-parse and return the affected regions.
+(fn PARSER)"#,
+    ),
+    (
+        r#"treesit-parser-changed-regions"#,
+        r#"Force PARSER to re-parse and return the affected regions.
 
 Return ranges as a list of (BEG . END).  If there's no need to re-parse
 or no affected ranges, return nil.
 
-(fn PARSER)"#),
-    (r#"treesit-parser-create"#, r#"Create and return a parser in BUFFER for LANGUAGE with TAG.
+(fn PARSER)"#,
+    ),
+    (
+        r#"treesit-parser-create"#,
+        r#"Create and return a parser in BUFFER for LANGUAGE with TAG.
 
 The parser is automatically added to BUFFER's parser list, as returned
 by `treesit-parser-list'.  LANGUAGE is a language symbol.  If BUFFER
@@ -13008,29 +17156,44 @@ That is, indirect buffers use their base buffer's parsers.  Lisp
 programs should widen as necessary should they want to use a parser in
 an indirect buffer.
 
-(fn LANGUAGE BUFFER NO-REUSE TAG)"#),
-    (r#"treesit-parser-delete"#, r#"Delete PARSER from its buffer's parser list.
+(fn LANGUAGE BUFFER NO-REUSE TAG)"#,
+    ),
+    (
+        r#"treesit-parser-delete"#,
+        r#"Delete PARSER from its buffer's parser list.
 See `treesit-parser-list' for the buffer's parser list.
 
-(fn PARSER)"#),
-    (r#"treesit-parser-embed-level"#, r#"Return PARSER's embed level.
+(fn PARSER)"#,
+    ),
+    (
+        r#"treesit-parser-embed-level"#,
+        r#"Return PARSER's embed level.
 
 The embed level can be either nil or a non-negative integer.  A value of
 nil means the parser isn't part of the embedded parser tree.  The
 primary parser has embed level 0, and each additional layer of parser
 embedding increments the embed level by 1.
 
-(fn PARSER)"#),
-    (r#"treesit-parser-included-ranges"#, r#"Return the ranges set for PARSER.
+(fn PARSER)"#,
+    ),
+    (
+        r#"treesit-parser-included-ranges"#,
+        r#"Return the ranges set for PARSER.
 If no ranges are set for PARSER, return nil.
 See also `treesit-parser-set-included-ranges'.
 
-(fn PARSER)"#),
-    (r#"treesit-parser-language"#, r#"Return PARSER's language symbol.
+(fn PARSER)"#,
+    ),
+    (
+        r#"treesit-parser-language"#,
+        r#"Return PARSER's language symbol.
 This symbol is the one used to create the parser.
 
-(fn PARSER)"#),
-    (r#"treesit-parser-list"#, r#"Return BUFFER's parser list, filtered by LANGUAGE and TAG.
+(fn PARSER)"#,
+    ),
+    (
+        r#"treesit-parser-list"#,
+        r#"Return BUFFER's parser list, filtered by LANGUAGE and TAG.
 
 BUFFER defaults to the current buffer.  If that buffer is an indirect
 buffer, its base buffer is used instead.  That is, indirect buffers
@@ -13042,26 +17205,41 @@ The returned list only contain parsers with TAG.  TAG defaults to nil.
 If TAG is t, include parsers in the returned list regardless of their
 tag.
 
-(fn BUFFER LANGUAGE TAG)"#),
-    (r#"treesit-parser-notifiers"#, r#"Return the list of after-change notifier functions for PARSER.
+(fn BUFFER LANGUAGE TAG)"#,
+    ),
+    (
+        r#"treesit-parser-notifiers"#,
+        r#"Return the list of after-change notifier functions for PARSER.
 
-(fn PARSER)"#),
-    (r#"treesit-parser-remove-notifier"#, r#"Remove FUNCTION from the list of PARSER's after-change notifiers.
+(fn PARSER)"#,
+    ),
+    (
+        r#"treesit-parser-remove-notifier"#,
+        r#"Remove FUNCTION from the list of PARSER's after-change notifiers.
   FUNCTION must be a function symbol, rather than a lambda form.
 FUNCTION should take 2 arguments, RANGES and PARSER.  RANGES is a list
 of cons of the form (START . END), where START and END are buffer
 positions.  PARSER is the parser issuing the notification.
 
-(fn PARSER FUNCTION)"#),
-    (r#"treesit-parser-root-node"#, r#"Return the root node of PARSER.
+(fn PARSER FUNCTION)"#,
+    ),
+    (
+        r#"treesit-parser-root-node"#,
+        r#"Return the root node of PARSER.
 
-(fn PARSER)"#),
-    (r#"treesit-parser-set-embed-level"#, r#"Set the embed level for PARSER to LEVEL.
+(fn PARSER)"#,
+    ),
+    (
+        r#"treesit-parser-set-embed-level"#,
+        r#"Set the embed level for PARSER to LEVEL.
 LEVEL can be nil, for a parser that is not part of an embedded parser
 tree; otherwise it must be a non-negative integer.
 
-(fn PARSER LEVEL)"#),
-    (r#"treesit-parser-set-included-ranges"#, r#"Limit PARSER to RANGES.
+(fn PARSER LEVEL)"#,
+    ),
+    (
+        r#"treesit-parser-set-included-ranges"#,
+        r#"Limit PARSER to RANGES.
 
 RANGES is a list of (BEG . END), each (BEG . END) defines a region in
 which the parser should operate.  Regions must not overlap, and the
@@ -13073,11 +17251,17 @@ buffer.
 DO NOT modify RANGES after passing it to this function, as RANGES is
 saved to PARSER internally.
 
-(fn PARSER RANGES)"#),
-    (r#"treesit-parser-tag"#, r#"Return PARSER's tag.
+(fn PARSER RANGES)"#,
+    ),
+    (
+        r#"treesit-parser-tag"#,
+        r#"Return PARSER's tag.
 
-(fn PARSER)"#),
-    (r#"treesit-pattern-expand"#, r#"Expand PATTERN to its string form.
+(fn PARSER)"#,
+    ),
+    (
+        r#"treesit-pattern-expand"#,
+        r#"Expand PATTERN to its string form.
 
 PATTERN can be
 
@@ -13097,8 +17281,11 @@ PATTERN can be
 
 See Info node `(elisp)Pattern Matching' for detailed explanation.
 
-(fn PATTERN)"#),
-    (r#"treesit-query-capture"#, r#"Query NODE with patterns in QUERY.
+(fn PATTERN)"#,
+    ),
+    (
+        r#"treesit-query-capture"#,
+        r#"Query NODE with patterns in QUERY.
 
 Return a list of (CAPTURE_NAME . NODE).  CAPTURE_NAME is the name
 assigned to the node in PATTERN.  NODE is the captured node.
@@ -13130,8 +17317,11 @@ Signal `treesit-query-error' if QUERY is malformed or something else
 goes wrong.  You can use `treesit-query-validate' to validate and debug
 the query.
 
-(fn NODE QUERY BEG END NODE-ONLY GROUPED)"#),
-    (r#"treesit-query-compile"#, r#"Compile QUERY to a compiled query.
+(fn NODE QUERY BEG END NODE-ONLY GROUPED)"#,
+    ),
+    (
+        r#"treesit-query-compile"#,
+        r#"Compile QUERY to a compiled query.
 
 Querying with a compiled query is much faster than an uncompiled one.
 So it's a good idea to use compiled query in tight loops, etc.
@@ -13145,8 +17335,11 @@ Signal `treesit-query-error' if QUERY is malformed or something else
 goes wrong.  (This only happens if EAGER is non-nil.)
 You can use `treesit-query-validate' to validate and debug a query.
 
-(fn LANGUAGE QUERY EAGER)"#),
-    (r#"treesit-query-eagerly-compiled-p"#, r#"Return non-nil if QUERY is eagerly compiled.
+(fn LANGUAGE QUERY EAGER)"#,
+    ),
+    (
+        r#"treesit-query-eagerly-compiled-p"#,
+        r#"Return non-nil if QUERY is eagerly compiled.
 
 QUERY has to be a compiled query.  Compiled queries are lazily compiled
 by default, meaning they are not actually compiled until first used.
@@ -13154,8 +17347,11 @@ Return non-nil if QUERY is actually compiled (either by passing the
 EAGER flag to `treesit-query-compile' or due to the fact that it was
 already used).
 
-(fn QUERY)"#),
-    (r#"treesit-query-expand"#, r#"Expand sexp QUERY to its string form.
+(fn QUERY)"#,
+    ),
+    (
+        r#"treesit-query-expand"#,
+        r#"Expand sexp QUERY to its string form.
 
 A PATTERN in QUERY can be
 
@@ -13177,19 +17373,31 @@ A PATTERN in QUERY can be
 
 See Info node `(elisp)Pattern Matching' for detailed explanation.
 
-(fn QUERY)"#),
-    (r#"treesit-query-language"#, r#"Return the language of QUERY.
+(fn QUERY)"#,
+    ),
+    (
+        r#"treesit-query-language"#,
+        r#"Return the language of QUERY.
 QUERY has to be a compiled query.
 
-(fn QUERY)"#),
-    (r#"treesit-query-p"#, r#"Return t if OBJECT is a generic tree-sitter query.
+(fn QUERY)"#,
+    ),
+    (
+        r#"treesit-query-p"#,
+        r#"Return t if OBJECT is a generic tree-sitter query.
 
-(fn OBJECT)"#),
-    (r#"treesit-query-source"#, r#"Return the (string or sexp) source of QUERY.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"treesit-query-source"#,
+        r#"Return the (string or sexp) source of QUERY.
 QUERY has to be a compiled query.
 
-(fn QUERY)"#),
-    (r#"treesit-search-forward"#, r#"Search for node matching PREDICATE in the parse tree of START.
+(fn QUERY)"#,
+    ),
+    (
+        r#"treesit-search-forward"#,
+        r#"Search for node matching PREDICATE in the parse tree of START.
 
 Start traversing the tree from node START, and match PREDICATE with
 each node (except START itself) along the way.
@@ -13221,8 +17429,11 @@ numbered from 1 to 12:
 Note that this function doesn't traverse the subtree of START, and it
 always traverse leaf nodes first, then upwards.
 
-(fn START PREDICATE BACKWARD ALL)"#),
-    (r#"treesit-search-subtree"#, r#"Traverse the parse tree of NODE depth-first using PREDICATE.
+(fn START PREDICATE BACKWARD ALL)"#,
+    ),
+    (
+        r#"treesit-search-subtree"#,
+        r#"Traverse the parse tree of NODE depth-first using PREDICATE.
 
 Traverse the subtree of NODE, and match PREDICATE with each node along
 the way.
@@ -13240,24 +17451,36 @@ tree.  If DEPTH is nil, default to 1000.
 
 Return the first matched node, or nil if none matches.
 
-(fn NODE PREDICATE BACKWARD ALL DEPTH)"#),
-    (r#"treesit-subtree-stat"#, r#"Return information about the subtree of NODE.
+(fn NODE PREDICATE BACKWARD ALL DEPTH)"#,
+    ),
+    (
+        r#"treesit-subtree-stat"#,
+        r#"Return information about the subtree of NODE.
 
 Return a list (MAX-DEPTH MAX-WIDTH COUNT), where MAX-DEPTH is the
 maximum depth of the subtree, MAX-WIDTH is the maximum number of
 direct children of nodes in the subtree, and COUNT is the number of
 nodes in the subtree, including NODE.
 
-(fn NODE)"#),
-    (r#"treesit-tracking-line-column-p"#, r#"Return t if OBJECT is a tree-sitter parser.
+(fn NODE)"#,
+    ),
+    (
+        r#"treesit-tracking-line-column-p"#,
+        r#"Return t if OBJECT is a tree-sitter parser.
 
-(fn OBJECT)"#),
-    (r#"truncate"#, r#"Truncate a floating point number to an int.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"truncate"#,
+        r#"Truncate a floating point number to an int.
 Rounds ARG toward zero.
 With optional DIVISOR, truncate ARG/DIVISOR.
 
-(fn ARG DIVISOR)"#),
-    (r#"try-completion"#, r#"Return longest common substring of all completions of STRING in COLLECTION.
+(fn ARG DIVISOR)"#,
+    ),
+    (
+        r#"try-completion"#,
+        r#"Return longest common substring of all completions of STRING in COLLECTION.
 
 Test each possible completion specified by COLLECTION
 to see if it begins with STRING.  The possible completions may be
@@ -13299,52 +17522,82 @@ while ignoring letter-case, but no guarantee is made about the letter-case
 of the return value, except that it comes either from the user's input
 or from one of the possible completions.
 
-(fn STRING COLLECTION PREDICATE)"#),
-    (r#"tty-display-color-cells"#, r#"Return the number of colors supported by the tty device TERMINAL.
+(fn STRING COLLECTION PREDICATE)"#,
+    ),
+    (
+        r#"tty-display-color-cells"#,
+        r#"Return the number of colors supported by the tty device TERMINAL.
 
 TERMINAL can be a terminal object, a frame, or nil (meaning the
 selected frame's terminal).  This function always returns 0 if
 TERMINAL does not refer to a text terminal.
 
-(fn TERMINAL)"#),
-    (r#"tty-display-color-p"#, r#"Return non-nil if the tty device TERMINAL can display colors.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"tty-display-color-p"#,
+        r#"Return non-nil if the tty device TERMINAL can display colors.
 
 TERMINAL can be a terminal object, a frame, or nil (meaning the
 selected frame's terminal).  This function always returns nil if
 TERMINAL does not refer to a text terminal.
 
-(fn TERMINAL)"#),
-    (r#"tty-display-pixel-height"#, r#"Return the height of DISPLAY's screen in pixels.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"tty-display-pixel-height"#,
+        r#"Return the height of DISPLAY's screen in pixels.
 See also `display-pixel-height'.
 
-(fn DISPLAY)"#),
-    (r#"tty-display-pixel-width"#, r#"Return the width of DISPLAY's screen in pixels.
+(fn DISPLAY)"#,
+    ),
+    (
+        r#"tty-display-pixel-width"#,
+        r#"Return the width of DISPLAY's screen in pixels.
 See also `display-pixel-width'.
 
-(fn DISPLAY)"#),
-    (r#"tty-frame-at"#, r#"Return tty frame containing absolute pixel position (X, Y).
+(fn DISPLAY)"#,
+    ),
+    (
+        r#"tty-frame-at"#,
+        r#"Return tty frame containing absolute pixel position (X, Y).
 Value is nil if no frame found.  Otherwise it is a list (FRAME CX CY),
 where FRAME is the frame containing (X, Y) and CX and CY are X and Y
 relative to FRAME.
 
-(fn X Y)"#),
-    (r#"tty-frame-edges"#, r#"Return coordinates of FRAME's edges.
+(fn X Y)"#,
+    ),
+    (
+        r#"tty-frame-edges"#,
+        r#"Return coordinates of FRAME's edges.
 See also `frame-edges'.
 
-(fn FRAME TYPE)"#),
-    (r#"tty-frame-geometry"#, r#"Return geometric attributes of terminal frame FRAME.
+(fn FRAME TYPE)"#,
+    ),
+    (
+        r#"tty-frame-geometry"#,
+        r#"Return geometric attributes of terminal frame FRAME.
 See also `frame-geometry'.
 
-(fn FRAME)"#),
-    (r#"tty-frame-list-z-order"#, r#"Return list of Emacs's frames, in Z (stacking) order.
+(fn FRAME)"#,
+    ),
+    (
+        r#"tty-frame-list-z-order"#,
+        r#"Return list of Emacs's frames, in Z (stacking) order.
 See also `frame-list-z-order'.
 
-(fn FRAME)"#),
-    (r#"tty-frame-restack"#, r#"Restack FRAME1 below FRAME2 on terminals.
+(fn FRAME)"#,
+    ),
+    (
+        r#"tty-frame-restack"#,
+        r#"Restack FRAME1 below FRAME2 on terminals.
 See also `frame-restack'.
 
-(fn FRAME1 FRAME2 ABOVE)"#),
-    (r#"tty-no-underline"#, r#"Declare that the tty used by TERMINAL does not handle underlining.
+(fn FRAME1 FRAME2 ABOVE)"#,
+    ),
+    (
+        r#"tty-no-underline"#,
+        r#"Declare that the tty used by TERMINAL does not handle underlining.
 This is used to override the terminfo data, for certain terminals that
 do not really do underlining, but say that they do.  This function has
 no effect if used on a non-tty terminal.
@@ -13353,38 +17606,53 @@ TERMINAL can be a terminal object, a frame or nil (meaning the
 selected frame's terminal).  This function always returns nil if
 TERMINAL does not refer to a text terminal.
 
-(fn TERMINAL)"#),
-    (r#"tty-suppress-bold-inverse-default-colors"#, r#"Suppress/allow boldness of faces with inverse default colors.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"tty-suppress-bold-inverse-default-colors"#,
+        r#"Suppress/allow boldness of faces with inverse default colors.
 SUPPRESS non-nil means suppress it.
 This affects bold faces on TTYs whose foreground is the default background
 color of the display and whose background is the default foreground color.
 For such faces, the bold face attribute is ignored if this variable
 is non-nil.
 
-(fn SUPPRESS)"#),
-    (r#"tty-top-frame"#, r#"Return the topmost terminal frame on TERMINAL.
+(fn SUPPRESS)"#,
+    ),
+    (
+        r#"tty-top-frame"#,
+        r#"Return the topmost terminal frame on TERMINAL.
 TERMINAL can be a terminal object, a frame or nil (meaning the
 selected frame's terminal).  This function returns nil if TERMINAL
 does not refer to a text terminal.  Otherwise, it returns the
 top-most frame on the text terminal.
 
-(fn TERMINAL)"#),
-    (r#"tty-type"#, r#"Return the type of the tty device that TERMINAL uses.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"tty-type"#,
+        r#"Return the type of the tty device that TERMINAL uses.
 Returns nil if TERMINAL is not on a tty device.
 
 TERMINAL can be a terminal object, a frame, or nil (meaning the
 selected frame's terminal).
 
-(fn TERMINAL)"#),
-    (r#"type-of"#, r#"Return a symbol representing the type of OBJECT.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"type-of"#,
+        r#"Return a symbol representing the type of OBJECT.
 The symbol returned names the object's basic type;
 for example, (type-of 1) returns `integer'.
 Contrary to `cl-type-of', the returned type is not always the most
 precise type possible, because instead this function tries to preserve
 compatibility with the return value of previous Emacs versions.
 
-(fn OBJECT)"#),
-    (r#"uncombine-window"#, r#"Uncombine specified WINDOW.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"uncombine-window"#,
+        r#"Uncombine specified WINDOW.
 WINDOW should be an internal window whose parent window is an internal
 window of the same type.  This means, that WINDOW and its parent should
 be either both horizontal or both vertical window combinations.  If this
@@ -13392,13 +17660,19 @@ is the case, make the child windows of WINDOW become child windows of
 WINDOW's parent and return t.  Otherwise, leave the current configuration
 of WINDOW's frame unchanged and return nil.
 
-(fn WINDOW)"#),
-    (r#"undo-boundary"#, r#"Mark a boundary between units of undo.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"undo-boundary"#,
+        r#"Mark a boundary between units of undo.
 An undo command will stop at this point,
 but another undo command will undo to the previous boundary.
 
-(fn)"#),
-    (r#"unencodable-char-position"#, r#"Return position of first un-encodable character in a region.
+(fn)"#,
+    ),
+    (
+        r#"unencodable-char-position"#,
+        r#"Return position of first un-encodable character in a region.
 START and END specify the region and CODING-SYSTEM specifies the
 encoding to check.  Return nil if CODING-SYSTEM does encode the region.
 
@@ -13410,8 +17684,11 @@ If optional 5th argument STRING is non-nil, it is a string to search
 for un-encodable characters.  In that case, START and END are indexes
 to the string and treated as in `substring'.
 
-(fn START END CODING-SYSTEM COUNT STRING)"#),
-    (r#"unhandled-file-name-directory"#, r#"Return a directly usable directory name somehow associated with FILENAME.
+(fn START END CODING-SYSTEM COUNT STRING)"#,
+    ),
+    (
+        r#"unhandled-file-name-directory"#,
+        r#"Return a directly usable directory name somehow associated with FILENAME.
 A `directly usable' directory name is one that may be used without the
 intervention of any file name handler.
 If FILENAME is a directly usable file itself, return
@@ -13421,19 +17698,31 @@ then this should return nil.
 The `call-process' and `start-process' functions use this function to
 get a current directory to run processes in.
 
-(fn FILENAME)"#),
-    (r#"unibyte-char-to-multibyte"#, r#"Convert the byte CH to multibyte character.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"unibyte-char-to-multibyte"#,
+        r#"Convert the byte CH to multibyte character.
 
-(fn CH)"#),
-    (r#"unibyte-string"#, r#"Concatenate all the argument bytes and make the result a unibyte string.
-(fn &rest BYTES)"#),
-    (r#"unicode-property-table-internal"#, r#"Return a char-table for Unicode character property PROP.
+(fn CH)"#,
+    ),
+    (
+        r#"unibyte-string"#,
+        r#"Concatenate all the argument bytes and make the result a unibyte string.
+(fn &rest BYTES)"#,
+    ),
+    (
+        r#"unicode-property-table-internal"#,
+        r#"Return a char-table for Unicode character property PROP.
 Use `get-unicode-property-internal' and
 `put-unicode-property-internal' instead of `aref' and `aset' to get
 and put an element value.
 
-(fn PROP)"#),
-    (r#"unify-charset"#, r#"Unify characters of CHARSET with Unicode.
+(fn PROP)"#,
+    ),
+    (
+        r#"unify-charset"#,
+        r#"Unify characters of CHARSET with Unicode.
 This means reading the relevant file and installing the table defined
 by CHARSET's `:unify-map' property.
 
@@ -13443,34 +17732,52 @@ the same meaning as the `:unify-map' attribute in the function
 
 Optional third argument DEUNIFY, if non-nil, means to de-unify CHARSET.
 
-(fn CHARSET UNIFY-MAP DEUNIFY)"#),
-    (r#"unintern"#, r#"Delete the symbol named NAME, if any, from OBARRAY.
+(fn CHARSET UNIFY-MAP DEUNIFY)"#,
+    ),
+    (
+        r#"unintern"#,
+        r#"Delete the symbol named NAME, if any, from OBARRAY.
 The value is t if a symbol was found and deleted, nil otherwise.
 NAME may be a string or a symbol.  If it is a symbol, that symbol
 is deleted, if it belongs to OBARRAY--no other symbol is deleted.
 OBARRAY, if nil, defaults to the value of the variable `obarray'.
 
-(fn NAME OBARRAY)"#),
-    (r#"unix-sync"#, r#"Tell Unix to finish all pending disk updates.
+(fn NAME OBARRAY)"#,
+    ),
+    (
+        r#"unix-sync"#,
+        r#"Tell Unix to finish all pending disk updates.
 
-(fn)"#),
-    (r#"unlock-buffer"#, r#"Unlock the file visited in the current buffer.
+(fn)"#,
+    ),
+    (
+        r#"unlock-buffer"#,
+        r#"Unlock the file visited in the current buffer.
 If the buffer is not modified, this does nothing because the file
 should not be locked in that case.  It also does nothing if the
 current buffer is not visiting a file, or is not locked.  Handles file
 system errors by calling `display-warning' and continuing as if the
 error did not occur.
 
-(fn)"#),
-    (r#"unlock-file"#, r#"Unlock FILE.
+(fn)"#,
+    ),
+    (
+        r#"unlock-file"#,
+        r#"Unlock FILE.
 
-(fn FILE)"#),
-    (r#"unwind-protect"#, r#"Do BODYFORM, protecting with UNWINDFORMS.
+(fn FILE)"#,
+    ),
+    (
+        r#"unwind-protect"#,
+        r#"Do BODYFORM, protecting with UNWINDFORMS.
 If BODYFORM completes normally, its value is returned
 after executing the UNWINDFORMS.
 If BODYFORM exits nonlocally, the UNWINDFORMS are executed anyway.
-(fn BODYFORM UNWINDFORMS...)"#),
-    (r#"upcase"#, r#"Convert argument to upper case and return that.
+(fn BODYFORM UNWINDFORMS...)"#,
+    ),
+    (
+        r#"upcase"#,
+        r#"Convert argument to upper case and return that.
 The argument may be a character or string.  The result has the same
 type.  (See `downcase' for further details about the type.)
 
@@ -13480,8 +17787,11 @@ cased, e.g. ﬁ, are returned unchanged.
 
 See also `capitalize', `downcase' and `upcase-initials'.
 
-(fn OBJ)"#),
-    (r#"upcase-initials"#, r#"Convert the initial of each word in the argument to upper case.
+(fn OBJ)"#,
+    ),
+    (
+        r#"upcase-initials"#,
+        r#"Convert the initial of each word in the argument to upper case.
 This means that each word's first character is converted to either
 title case or upper case, and the rest are left unchanged.
 
@@ -13492,22 +17802,31 @@ The argument object is not altered--the value is a copy.  If argument
 is a character, characters which map to multiple code points when
 cased, e.g. ﬁ, are returned unchanged.
 
-(fn OBJ)"#),
-    (r#"upcase-initials-region"#, r#"Upcase the initial of each word in the region.
+(fn OBJ)"#,
+    ),
+    (
+        r#"upcase-initials-region"#,
+        r#"Upcase the initial of each word in the region.
 This means that each word's first character is converted to either
 title case or upper case, and the rest are left unchanged.
 In programs, give two arguments, the starting and ending
 character positions to operate on.
 
-(fn BEG END REGION-NONCONTIGUOUS-P)"#),
-    (r#"upcase-region"#, r#"Convert the region to upper case.  In programs, wants two arguments.
+(fn BEG END REGION-NONCONTIGUOUS-P)"#,
+    ),
+    (
+        r#"upcase-region"#,
+        r#"Convert the region to upper case.  In programs, wants two arguments.
 These arguments specify the starting and ending character numbers of
 the region to operate on.  When used as a command, the text between
 point and the mark is operated on.
 See also `capitalize-region'.
 
-(fn BEG END REGION-NONCONTIGUOUS-P)"#),
-    (r#"upcase-word"#, r#"Convert to upper case from point to end of word, moving over.
+(fn BEG END REGION-NONCONTIGUOUS-P)"#,
+    ),
+    (
+        r#"upcase-word"#,
+        r#"Convert to upper case from point to end of word, moving over.
 
 If point is in the middle of a word, the part of that word before point
 is ignored when moving forward.
@@ -13515,15 +17834,24 @@ is ignored when moving forward.
 With negative argument, convert previous words but do not move.
 See also `capitalize-word'.
 
-(fn ARG)"#),
-    (r#"use-global-map"#, r#"Select KEYMAP as the global keymap.
+(fn ARG)"#,
+    ),
+    (
+        r#"use-global-map"#,
+        r#"Select KEYMAP as the global keymap.
 
-(fn KEYMAP)"#),
-    (r#"use-local-map"#, r#"Select KEYMAP as the local keymap.
+(fn KEYMAP)"#,
+    ),
+    (
+        r#"use-local-map"#,
+        r#"Select KEYMAP as the local keymap.
 If KEYMAP is nil, that means no local keymap.
 
-(fn KEYMAP)"#),
-    (r#"user-full-name"#, r#"Return the full name of the user logged in, as a string.
+(fn KEYMAP)"#,
+    ),
+    (
+        r#"user-full-name"#,
+        r#"Return the full name of the user logged in, as a string.
 If the full name corresponding to Emacs's userid is not known,
 return "unknown".
 
@@ -13536,8 +17864,11 @@ If the full name includes commas, remove everything starting with
 the first comma, because the \\='gecos\\=' field of the \\='/etc/passwd\\=' file
 is in general a comma-separated list.
 
-(fn UID)"#),
-    (r#"user-login-name"#, r#"Return the name under which the user logged in, as a string.
+(fn UID)"#,
+    ),
+    (
+        r#"user-login-name"#,
+        r#"Return the name under which the user logged in, as a string.
 This is based on the effective uid, not the real uid.
 Also, if the environment variables LOGNAME or USER are set,
 that determines the value of this function.
@@ -13545,22 +17876,37 @@ that determines the value of this function.
 If optional argument UID is an integer, return the login name
 of the user with that uid, or nil if there is no such user.
 
-(fn UID)"#),
-    (r#"user-ptrp"#, r#"Return t if OBJECT is a module user pointer.
+(fn UID)"#,
+    ),
+    (
+        r#"user-ptrp"#,
+        r#"Return t if OBJECT is a module user pointer.
 
-(fn OBJECT)"#),
-    (r#"user-real-login-name"#, r#"Return the name of the user's real uid, as a string.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"user-real-login-name"#,
+        r#"Return the name of the user's real uid, as a string.
 This ignores the environment variables LOGNAME and USER, so it differs from
 `user-login-name' when running under `su'.
 
-(fn)"#),
-    (r#"user-real-uid"#, r#"Return the real uid of Emacs, as an integer.
+(fn)"#,
+    ),
+    (
+        r#"user-real-uid"#,
+        r#"Return the real uid of Emacs, as an integer.
 
-(fn)"#),
-    (r#"user-uid"#, r#"Return the effective uid of Emacs, as an integer.
+(fn)"#,
+    ),
+    (
+        r#"user-uid"#,
+        r#"Return the effective uid of Emacs, as an integer.
 
-(fn)"#),
-    (r#"value<"#, r#"Return non-nil if A precedes B in standard value order.
+(fn)"#,
+    ),
+    (
+        r#"value<"#,
+        r#"Return non-nil if A precedes B in standard value order.
 A and B must have the same basic type.
 Numbers are compared with `<'.
 Strings and symbols are compared with `string-lessp'.
@@ -13569,32 +17915,53 @@ Markers are compared lexicographically by buffer and position.
 Buffers and processes are compared by name.
 Other types are considered unordered and the return value will be `nil'.
 
-(fn A B)"#),
-    (r#"variable-binding-locus"#, r#"Return a value indicating where VARIABLE's current binding comes from.
+(fn A B)"#,
+    ),
+    (
+        r#"variable-binding-locus"#,
+        r#"Return a value indicating where VARIABLE's current binding comes from.
 If the current binding is buffer-local, the value is the current buffer.
 If the current binding is global (the default), the value is nil.
 
-(fn VARIABLE)"#),
-    (r#"vconcat"#, r#"Concatenate all the arguments and make the result a vector.
+(fn VARIABLE)"#,
+    ),
+    (
+        r#"vconcat"#,
+        r#"Concatenate all the arguments and make the result a vector.
 The result is a vector whose elements are the elements of all the arguments.
 Each argument may be a list, vector or string.
-(fn &rest SEQUENCES)"#),
-    (r#"vector"#, r#"Return a newly created vector with specified arguments as elements.
+(fn &rest SEQUENCES)"#,
+    ),
+    (
+        r#"vector"#,
+        r#"Return a newly created vector with specified arguments as elements.
 Allows any number of arguments, including zero.
-(fn &rest OBJECTS)"#),
-    (r#"vector-or-char-table-p"#, r#"Return t if OBJECT is a char-table or vector.
+(fn &rest OBJECTS)"#,
+    ),
+    (
+        r#"vector-or-char-table-p"#,
+        r#"Return t if OBJECT is a char-table or vector.
 
-(fn OBJECT)"#),
-    (r#"vectorp"#, r#"Return t if OBJECT is a vector.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"vectorp"#,
+        r#"Return t if OBJECT is a vector.
 
-(fn OBJECT)"#),
-    (r#"verify-visited-file-modtime"#, r#"Return t if last mod time of BUF's visited file matches what BUF records.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"verify-visited-file-modtime"#,
+        r#"Return t if last mod time of BUF's visited file matches what BUF records.
 This means that the file has not been changed since it was visited or saved.
 If BUF is omitted or nil, it defaults to the current buffer.
 See Info node `(elisp)Modification Time' for more details.
 
-(fn BUF)"#),
-    (r#"vertical-motion"#, r#"Move point to start of the screen line LINES lines down.
+(fn BUF)"#,
+    ),
+    (
+        r#"vertical-motion"#,
+        r#"Move point to start of the screen line LINES lines down.
 If LINES is negative, this means moving up.
 
 This function is an ordinary cursor motion function
@@ -13639,21 +18006,33 @@ buffer is displayed in WINDOW.  This is consistent with other cursor
 motion functions and makes it possible to use `vertical-motion' in any
 buffer, whether or not it is currently displayed in some window.
 
-(fn LINES WINDOW CUR-COL)"#),
-    (r#"visible-frame-list"#, r#"Return a list of all frames now \"visible\" (being updated).
+(fn LINES WINDOW CUR-COL)"#,
+    ),
+    (
+        r#"visible-frame-list"#,
+        r#"Return a list of all frames now \"visible\" (being updated).
 
-(fn)"#),
-    (r#"visited-file-modtime"#, r#"Return the current buffer's recorded visited file modification time.
+(fn)"#,
+    ),
+    (
+        r#"visited-file-modtime"#,
+        r#"Return the current buffer's recorded visited file modification time.
 Return a Lisp timestamp (as in `current-time') if the current buffer
 has a recorded file modification time, 0 if it doesn't, and -1 if the
 visited file doesn't exist.
 See Info node `(elisp)Modification Time' for more details.
 
-(fn)"#),
-    (r#"w16-get-clipboard-data"#, r#"This gets the clipboard data in text format.
+(fn)"#,
+    ),
+    (
+        r#"w16-get-clipboard-data"#,
+        r#"This gets the clipboard data in text format.
 
-(fn FRAME)"#),
-    (r#"w16-selection-exists-p"#, r#"Whether there is an owner for the given X selection.
+(fn FRAME)"#,
+    ),
+    (
+        r#"w16-selection-exists-p"#,
+        r#"Whether there is an owner for the given X selection.
 SELECTION should be the name of the selection in question, typically
 one of the symbols `PRIMARY', `SECONDARY', or `CLIPBOARD'.  (X expects
 these literal upper-case names.)  The symbol nil is the same as
@@ -13663,11 +18042,17 @@ TERMINAL should be a terminal object or a frame specifying the X
 server to query.  If omitted or nil, that stands for the selected
 frame's display, or the first available X display.
 
-(fn SELECTION TERMINAL)"#),
-    (r#"w16-set-clipboard-data"#, r#"This sets the clipboard data to the given text.
+(fn SELECTION TERMINAL)"#,
+    ),
+    (
+        r#"w16-set-clipboard-data"#,
+        r#"This sets the clipboard data to the given text.
 
-(fn STRING FRAME)"#),
-    (r#"w32--get-clipboard-data-media"#, r#"Gets media (not plain text) clipboard data in one of the given formats.
+(fn STRING FRAME)"#,
+    ),
+    (
+        r#"w32--get-clipboard-data-media"#,
+        r#"Gets media (not plain text) clipboard data in one of the given formats.
 
 FORMATS is a list of formats.
 TEMP-FILE-IN is the name of the file to store the data.
@@ -13687,12 +18072,18 @@ If it returns a string, then that is the data and the file is not used.
 When returning a string, it will be unibyte if IS-TEXTUAL is nil (the
 content is binary data).
 
-(fn FORMATS TEMP-FILE-IN IS-TEXTUAL)"#),
-    (r#"w32--menu-bar-in-use"#, r#"Return non-nil when a menu-bar menu is being used.
+(fn FORMATS TEMP-FILE-IN IS-TEXTUAL)"#,
+    ),
+    (
+        r#"w32--menu-bar-in-use"#,
+        r#"Return non-nil when a menu-bar menu is being used.
 Internal use only.
 
-(fn)"#),
-    (r#"w32-application-type"#, r#"Return the type of an MS-Windows PROGRAM.
+(fn)"#,
+    ),
+    (
+        r#"w32-application-type"#,
+        r#"Return the type of an MS-Windows PROGRAM.
 
 Knowing the type of an executable could be useful for formatting
 file names passed to it or for quoting its command-line arguments.
@@ -13716,9 +18107,15 @@ This function returns `unknown' for programs whose file names
 include characters not supported by the current ANSI codepage, as
 such programs cannot be invoked by Emacs anyway.
 
-(fn PROGRAM)"#),
-    (r#"w32-badge"#, "Display a taskbar icon overlay image on the selected frame.\nBADGE is a string.  If BADGE is nil, remove the overlay.  Do nothing if\nWindows does not support the ITaskbarList3 interface and return nil,\notherwise return t.  Do nothing if the selected frame is not (yet)\nassociated with a window handle.  BACKGROUND and FOREGROUND are RGB\ntriplet strings of the form \\\"#RRGGBB\\\".\n\n(fn BADGE BACKGROUND FOREGROUND)"),
-    (r#"w32-battery-status"#, r#"Get power status information from Windows system.
+(fn PROGRAM)"#,
+    ),
+    (
+        r#"w32-badge"#,
+        "Display a taskbar icon overlay image on the selected frame.\nBADGE is a string.  If BADGE is nil, remove the overlay.  Do nothing if\nWindows does not support the ITaskbarList3 interface and return nil,\notherwise return t.  Do nothing if the selected frame is not (yet)\nassociated with a window handle.  BACKGROUND and FOREGROUND are RGB\ntriplet strings of the form \\\"#RRGGBB\\\".\n\n(fn BADGE BACKGROUND FOREGROUND)",
+    ),
+    (
+        r#"w32-battery-status"#,
+        r#"Get power status information from Windows system.
 
 The following %-sequences are provided:
 %L AC line status (verbose)
@@ -13731,14 +18128,20 @@ The following %-sequences are provided:
 %h Remaining time (to charge or discharge) in hours
 %t Remaining time (to charge or discharge) in the form `h:min'
 
-(fn)"#),
-    (r#"w32-define-rgb-color"#, r#"Convert RGB numbers to a Windows color reference and associate with NAME.
+(fn)"#,
+    ),
+    (
+        r#"w32-define-rgb-color"#,
+        r#"Convert RGB numbers to a Windows color reference and associate with NAME.
 This adds or updates a named color to `w32-color-map', making it
 available for use.  The original entry's RGB ref is returned, or nil
 if the entry is new.
 
-(fn RED GREEN BLUE NAME)"#),
-    (r#"w32-display-monitor-attributes-list"#, r#"Return a list of physical monitor attributes on the W32 display DISPLAY.
+(fn RED GREEN BLUE NAME)"#,
+    ),
+    (
+        r#"w32-display-monitor-attributes-list"#,
+        r#"Return a list of physical monitor attributes on the W32 display DISPLAY.
 
 The optional argument DISPLAY specifies which display to ask about.
 DISPLAY should be either a frame or a display name (a string).
@@ -13746,12 +18149,18 @@ If omitted or nil, that stands for the selected frame's display.
 
 Internal use only, use `display-monitor-attributes-list' instead.
 
-(fn DISPLAY)"#),
-    (r#"w32-dwrite-available"#, r#"Returns t if DirectWrite is available.
+(fn DISPLAY)"#,
+    ),
+    (
+        r#"w32-dwrite-available"#,
+        r#"Returns t if DirectWrite is available.
 DirectWrite will be used if it is available and 'w32-inhibit-dwrite' is nil.
 
-(fn)"#),
-    (r#"w32-dwrite-reinit"#, r#"Reinitialize DirectWrite with the given parameters.
+(fn)"#,
+    ),
+    (
+        r#"w32-dwrite-reinit"#,
+        r#"Reinitialize DirectWrite with the given parameters.
 If a parameter is not specified, or is out of range, it will take a default
 value.
 
@@ -13762,8 +18171,11 @@ CLEAR_TYPE_LEVEL is in the range [0.0, 1.0], and defaults to 1.0.
 GAMMA is in the range (0.0, 256.0], and defaults to a system-dependent value
       around 2.0 (sometimes 1.8, sometimes 2.2).
 
-(fn ENHANCED-CONTRAST CLEAR-TYPE-LEVEL GAMMA)"#),
-    (r#"w32-frame-edges"#, r#"Return edge coordinates of FRAME.
+(fn ENHANCED-CONTRAST CLEAR-TYPE-LEVEL GAMMA)"#,
+    ),
+    (
+        r#"w32-frame-edges"#,
+        r#"Return edge coordinates of FRAME.
 FRAME must be a live frame and defaults to the selected one.  The return
 value is a list of the form (LEFT, TOP, RIGHT, BOTTOM).  All values are
 in pixels relative to the origin - the position (0, 0) - of FRAME's
@@ -13779,8 +18191,11 @@ menu or tool bar of FRAME.  If TYPE is the symbol `inner-edges', return
 the inner edges of FRAME.  These edges exclude title bar, any borders,
 menu bar or tool bar of FRAME.
 
-(fn FRAME TYPE)"#),
-    (r#"w32-frame-geometry"#, r#"Return geometric attributes of FRAME.
+(fn FRAME TYPE)"#,
+    ),
+    (
+        r#"w32-frame-geometry"#,
+        r#"Return geometric attributes of FRAME.
 FRAME must be a live frame and defaults to the selected one.  The return
 value is an association list of the attributes listed below.  All height
 and width values are in pixels.
@@ -13822,8 +18237,11 @@ and width values are in pixels.
 `internal-border-width' is the width of the internal border of
   FRAME.
 
-(fn FRAME)"#),
-    (r#"w32-frame-list-z-order"#, r#"Return list of Emacs's frames, in Z (stacking) order.
+(fn FRAME)"#,
+    ),
+    (
+        r#"w32-frame-list-z-order"#,
+        r#"Return list of Emacs's frames, in Z (stacking) order.
 The optional argument DISPLAY specifies which display to ask about.
 DISPLAY should be either a frame or a display name (a string).  If
 omitted or nil, that stands for the selected frame's display.
@@ -13833,8 +18251,11 @@ return the child frames of that frame in Z (stacking) order.
 
 Frames are listed from topmost (first) to bottommost (last).
 
-(fn DISPLAY)"#),
-    (r#"w32-frame-restack"#, r#"Restack FRAME1 below FRAME2.
+(fn DISPLAY)"#,
+    ),
+    (
+        r#"w32-frame-restack"#,
+        r#"Restack FRAME1 below FRAME2.
 This means that if both frames are visible and the display areas of
 these frames overlap, FRAME2 (partially) obscures FRAME1.  If optional
 third argument ABOVE is non-nil, restack FRAME1 above FRAME2.  This
@@ -13850,11 +18271,17 @@ unaltered.
 
 Some window managers may refuse to restack windows.
 
-(fn FRAME1 FRAME2 ABOVE)"#),
-    (r#"w32-get-clipboard-data"#, r#"This gets the clipboard data in text format.
+(fn FRAME1 FRAME2 ABOVE)"#,
+    ),
+    (
+        r#"w32-get-clipboard-data"#,
+        r#"This gets the clipboard data in text format.
 
-(fn IGNORED)"#),
-    (r#"w32-get-codepage-charset"#, r#"Return charset ID corresponding to codepage CP.
+(fn IGNORED)"#,
+    ),
+    (
+        r#"w32-get-codepage-charset"#,
+        r#"Return charset ID corresponding to codepage CP.
 Returns nil if the codepage is not valid or its charset ID could
 not be determined.
 
@@ -13862,36 +18289,57 @@ Note that this function is only guaranteed to work with ANSI
 codepages; most console codepages are not supported and will
 yield nil.
 
-(fn CP)"#),
-    (r#"w32-get-console-codepage"#, r#"Return current Windows codepage for console input.
+(fn CP)"#,
+    ),
+    (
+        r#"w32-get-console-codepage"#,
+        r#"Return current Windows codepage for console input.
 
-(fn)"#),
-    (r#"w32-get-console-output-codepage"#, r#"Return current Windows codepage for console output.
+(fn)"#,
+    ),
+    (
+        r#"w32-get-console-output-codepage"#,
+        r#"Return current Windows codepage for console output.
 
-(fn)"#),
-    (r#"w32-get-current-locale-id"#, r#"Return Windows locale id for current locale setting.
+(fn)"#,
+    ),
+    (
+        r#"w32-get-current-locale-id"#,
+        r#"Return Windows locale id for current locale setting.
 This is a numerical value; use `w32-get-locale-info' to convert to a
 human-readable form.
 
-(fn)"#),
-    (r#"w32-get-default-locale-id"#, r#"Return Windows locale id for default locale setting.
+(fn)"#,
+    ),
+    (
+        r#"w32-get-default-locale-id"#,
+        r#"Return Windows locale id for default locale setting.
 By default, the system default locale setting is returned; if the optional
 parameter USERP is non-nil, the user default locale setting is returned.
 This is a numerical value; use `w32-get-locale-info' to convert to a
 human-readable form.
 
-(fn USERP)"#),
-    (r#"w32-get-ime-open-status"#, r#"Return non-nil if IME is active, otherwise return nil.
+(fn USERP)"#,
+    ),
+    (
+        r#"w32-get-ime-open-status"#,
+        r#"Return non-nil if IME is active, otherwise return nil.
 
 IME, the MS-Windows Input Method Editor, can be active or inactive.
 This function returns non-nil if the IME is active, otherwise nil.
 
-(fn)"#),
-    (r#"w32-get-keyboard-layout"#, r#"Return current Windows keyboard language and layout.
+(fn)"#,
+    ),
+    (
+        r#"w32-get-keyboard-layout"#,
+        r#"Return current Windows keyboard language and layout.
 The return value is the cons of the language id and the layout id.
 
-(fn)"#),
-    (r#"w32-get-locale-info"#, r#"Return information about the Windows locale LCID.
+(fn)"#,
+    ),
+    (
+        r#"w32-get-locale-info"#,
+        r#"Return information about the Windows locale LCID.
 By default, return a three letter locale code which encodes the default
 language as the first two characters, and the country or regional variant
 as the third letter.  For example, ENU refers to `English (United States)',
@@ -13904,20 +18352,32 @@ locale information is returned.
 
 If LCID (a 16-bit number) is not a valid locale, the result is nil.
 
-(fn LCID LONGFORM)"#),
-    (r#"w32-get-valid-codepages"#, r#"Return list of all valid Windows codepages.
+(fn LCID LONGFORM)"#,
+    ),
+    (
+        r#"w32-get-valid-codepages"#,
+        r#"Return list of all valid Windows codepages.
 
-(fn)"#),
-    (r#"w32-get-valid-keyboard-layouts"#, r#"Return list of Windows keyboard languages and layouts.
+(fn)"#,
+    ),
+    (
+        r#"w32-get-valid-keyboard-layouts"#,
+        r#"Return list of Windows keyboard languages and layouts.
 The return value is a list of pairs of language id and layout id.
 
-(fn)"#),
-    (r#"w32-get-valid-locale-ids"#, r#"Return list of all valid Windows locale ids.
+(fn)"#,
+    ),
+    (
+        r#"w32-get-valid-locale-ids"#,
+        r#"Return list of all valid Windows locale ids.
 Each id is a numerical value; use `w32-get-locale-info' to convert to a
 human-readable form.
 
-(fn)"#),
-    (r#"w32-has-winsock"#, r#"Test for presence of the Windows socket library `winsock'.
+(fn)"#,
+    ),
+    (
+        r#"w32-has-winsock"#,
+        r#"Test for presence of the Windows socket library `winsock'.
 Returns non-nil if winsock support is present, nil otherwise.
 
 If the optional argument LOAD-NOW is non-nil, the winsock library is
@@ -13926,24 +18386,36 @@ the winsock local hostname is returned (since this may be different from
 the value of `system-name' and should supplant it), otherwise t is
 returned to indicate winsock support is present.
 
-(fn LOAD-NOW)"#),
-    (r#"w32-long-file-name"#, r#"Return the long file name version of the full path of FILENAME.
+(fn LOAD-NOW)"#,
+    ),
+    (
+        r#"w32-long-file-name"#,
+        r#"Return the long file name version of the full path of FILENAME.
 If FILENAME does not exist, return nil.
 All path elements in FILENAME are converted to their long names.
 
-(fn FILENAME)"#),
-    (r#"w32-mouse-absolute-pixel-position"#, r#"Return absolute position of mouse cursor in pixels.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"w32-mouse-absolute-pixel-position"#,
+        r#"Return absolute position of mouse cursor in pixels.
 The position is returned as a cons cell (X . Y) of the coordinates of
 the mouse cursor position in pixels relative to a position (0, 0) of the
 selected frame's display.
 
-(fn)"#),
-    (r#"w32-notification-close"#, r#"Remove the MS-Windows tray notification specified by its ID.
+(fn)"#,
+    ),
+    (
+        r#"w32-notification-close"#,
+        r#"Remove the MS-Windows tray notification specified by its ID.
 The frame which was selected when the notification was created must
 be selected when removing the notification.
 
-(fn ID)"#),
-    (r#"w32-notification-notify"#, r#"Display an MS-Windows tray notification as specified by PARAMS.
+(fn ID)"#,
+    ),
+    (
+        r#"w32-notification-notify"#,
+        r#"Display an MS-Windows tray notification as specified by PARAMS.
 
 Value is the integer unique ID of the notification that can be used
 to remove the notification using `w32-notification-close', which see.
@@ -14005,15 +18477,21 @@ one which was selected when the notification was created, before a new
 one can be shown for the same frame.  The caller must track which
 notification was created from which frame, using the returned ID value.
 
-(fn &rest PARAMS)"#),
-    (r#"w32-progress-indicator"#, r#"Show a progress bar on the selected frame's taskbar icon.
+(fn &rest PARAMS)"#,
+    ),
+    (
+        r#"w32-progress-indicator"#,
+        r#"Show a progress bar on the selected frame's taskbar icon.
 PROGRESS is a float in the range 0.0 to 1.0.  If PROGRESS is nil, remove
 the progress indicator.  Do nothing if Windows does not support the
 ITaskbarList3 interface and return nil, otherwise return t.  Do nothing
 if the selected frame is not (yet) associated with a window handle
 
-(fn PROGRESS)"#),
-    (r#"w32-read-registry"#, r#"Return the value stored in MS-Windows Registry under ROOT/KEY/NAME.
+(fn PROGRESS)"#,
+    ),
+    (
+        r#"w32-read-registry"#,
+        r#"Return the value stored in MS-Windows Registry under ROOT/KEY/NAME.
 
 ROOT is a symbol, one of `HKCR', `HKCU', `HKLM', `HKU', or `HKCC'.
 It can also be nil, which means try `HKCU', and if that fails, try `HKLM'.
@@ -14046,10 +18524,16 @@ Note that this function doesn't know whether a string value is a file
 name, so file names will be returned with backslashes, which may need
 to be converted to forward slashes by the caller.
 
-(fn ROOT KEY NAME)"#),
-    (r#"w32-reconstruct-hot-key"#, r#"Convert hot-key ID to a lisp key combination.
-(fn ID)"#),
-    (r#"w32-register-hot-key"#, r#"Register KEY as a hot-key combination.
+(fn ROOT KEY NAME)"#,
+    ),
+    (
+        r#"w32-reconstruct-hot-key"#,
+        r#"Convert hot-key ID to a lisp key combination.
+(fn ID)"#,
+    ),
+    (
+        r#"w32-register-hot-key"#,
+        r#"Register KEY as a hot-key combination.
 Certain key combinations like Alt-Tab and Win-R are reserved for
 system use on Windows, and therefore are normally intercepted by the
 system.  These key combinations can be used in Emacs by registering
@@ -14076,11 +18560,17 @@ system keyboard shortcuts.
 The return value is t if the call affected any key combinations,
 otherwise nil.
 
-(fn KEY)"#),
-    (r#"w32-registered-hot-keys"#, r#"Return list of registered hot-key IDs.
+(fn KEY)"#,
+    ),
+    (
+        r#"w32-registered-hot-keys"#,
+        r#"Return list of registered hot-key IDs.
 
-(fn)"#),
-    (r#"w32-request-user-attention"#, r#"Flash the selected frame's taskbar icon and/or its window.
+(fn)"#,
+    ),
+    (
+        r#"w32-request-user-attention"#,
+        r#"Flash the selected frame's taskbar icon and/or its window.
 If URGENCY is nil, cancel the request, if any.  If URGENCY is the symbol
 `informational', flash the taskbar icon.  If URGENCY is the symbol
 `critical', flash the taskbar icon and the frame.  Windows stops
@@ -14088,8 +18578,11 @@ flashing if the user focuses the frame.  Do nothing if Windows does not
 support FlashWindowEx and return nil, otherwise return t.  Do nothing if
 the frame is not (yet) associated with a window handle.
 
-(fn URGENCY)"#),
-    (r#"w32-selection-exists-p"#, r#"Whether there is an owner for the given X selection.
+(fn URGENCY)"#,
+    ),
+    (
+        r#"w32-selection-exists-p"#,
+        r#"Whether there is an owner for the given X selection.
 SELECTION should be the name of the selection in question, typically
 one of the symbols `PRIMARY', `SECONDARY', or `CLIPBOARD'.  (X expects
 these literal upper-case names.)  The symbol nil is the same as
@@ -14099,8 +18592,11 @@ TERMINAL should be a terminal object or a frame specifying the X
 server to query.  If omitted or nil, that stands for the selected
 frame's display, or the first available X display.
 
-(fn SELECTION TERMINAL)"#),
-    (r#"w32-selection-targets"#, r#"Return a vector of data formats available in the specified SELECTION.
+(fn SELECTION TERMINAL)"#,
+    ),
+    (
+        r#"w32-selection-targets"#,
+        r#"Return a vector of data formats available in the specified SELECTION.
 SELECTION should be the name of the selection in question, typically
 one of the symbols `PRIMARY', `SECONDARY', or `CLIPBOARD'.
 The symbol nil is the same as `PRIMARY', and t is the same as `SECONDARY'.
@@ -14113,8 +18609,11 @@ This function currently ignores TERMINAL, and only returns non-nil
 for `CLIPBOARD'.  The return value is a vector of symbols, each symbol
 representing a data format that is currently available in the clipboard.
 
-(fn SELECTION TERMINAL)"#),
-    (r#"w32-send-sys-command"#, r#"Send frame a Windows WM_SYSCOMMAND message of type COMMAND.
+(fn SELECTION TERMINAL)"#,
+    ),
+    (
+        r#"w32-send-sys-command"#,
+        r#"Send frame a Windows WM_SYSCOMMAND message of type COMMAND.
 Some useful values for COMMAND are #xf030 to maximize frame (#xf020
 to minimize), #xf120 to restore frame to original size, and #xf100
 to activate the menubar for keyboard access.  #xf140 activates the
@@ -14122,41 +18621,65 @@ screen saver if defined.
 
 If optional parameter FRAME is not specified, use selected frame.
 
-(fn COMMAND FRAME)"#),
-    (r#"w32-set-clipboard-data"#, r#"This sets the clipboard data to the given text.
+(fn COMMAND FRAME)"#,
+    ),
+    (
+        r#"w32-set-clipboard-data"#,
+        r#"This sets the clipboard data to the given text.
 
-(fn STRING IGNORED)"#),
-    (r#"w32-set-console-codepage"#, r#"Make Windows codepage CP be the codepage for Emacs tty keyboard input.
+(fn STRING IGNORED)"#,
+    ),
+    (
+        r#"w32-set-console-codepage"#,
+        r#"Make Windows codepage CP be the codepage for Emacs tty keyboard input.
 This codepage setting affects keyboard input in tty mode.
 If successful, the new CP is returned, otherwise nil.
 
-(fn CP)"#),
-    (r#"w32-set-console-output-codepage"#, r#"Make Windows codepage CP be the codepage for Emacs console output.
+(fn CP)"#,
+    ),
+    (
+        r#"w32-set-console-output-codepage"#,
+        r#"Make Windows codepage CP be the codepage for Emacs console output.
 This codepage setting affects display in tty mode.
 If successful, the new CP is returned, otherwise nil.
 
-(fn CP)"#),
-    (r#"w32-set-current-locale"#, r#"Make Windows locale LCID be the current locale setting for Emacs.
+(fn CP)"#,
+    ),
+    (
+        r#"w32-set-current-locale"#,
+        r#"Make Windows locale LCID be the current locale setting for Emacs.
 If successful, the new locale id is returned, otherwise nil.
 
-(fn LCID)"#),
-    (r#"w32-set-ime-open-status"#, r#"Open or close the IME according to STATUS.
+(fn LCID)"#,
+    ),
+    (
+        r#"w32-set-ime-open-status"#,
+        r#"Open or close the IME according to STATUS.
 
 This function activates the IME, the MS-Windows Input Method Editor,
 if STATUS is non-nil, otherwise it deactivates the IME.
 
-(fn STATUS)"#),
-    (r#"w32-set-keyboard-layout"#, r#"Make LAYOUT be the current keyboard layout for Emacs.
+(fn STATUS)"#,
+    ),
+    (
+        r#"w32-set-keyboard-layout"#,
+        r#"Make LAYOUT be the current keyboard layout for Emacs.
 The keyboard layout setting affects interpretation of keyboard input.
 If successful, the new layout id is returned, otherwise nil.
 
-(fn LAYOUT)"#),
-    (r#"w32-set-mouse-absolute-pixel-position"#, r#"Move mouse pointer to absolute pixel position (X, Y).
+(fn LAYOUT)"#,
+    ),
+    (
+        r#"w32-set-mouse-absolute-pixel-position"#,
+        r#"Move mouse pointer to absolute pixel position (X, Y).
 The coordinates X and Y are interpreted in pixels relative to a position
 \(0, 0) of the selected frame's display.
 
-(fn X Y)"#),
-    (r#"w32-set-process-priority"#, r#"Set the priority of PROCESS to PRIORITY.
+(fn X Y)"#,
+    ),
+    (
+        r#"w32-set-process-priority"#,
+        r#"Set the priority of PROCESS to PRIORITY.
 If PROCESS is nil, the priority of Emacs is changed, otherwise the
 priority of the process whose pid is PROCESS is changed.
 PRIORITY should be one of the symbols high, normal, or low;
@@ -14164,11 +18687,17 @@ any other symbol will be interpreted as normal.
 
 If successful, the return value is t, otherwise nil.
 
-(fn PROCESS PRIORITY)"#),
-    (r#"w32-set-wallpaper"#, r#"Set the desktop wallpaper image to IMAGE-FILE.
+(fn PROCESS PRIORITY)"#,
+    ),
+    (
+        r#"w32-set-wallpaper"#,
+        r#"Set the desktop wallpaper image to IMAGE-FILE.
 
-(fn IMAGE-FILE)"#),
-    (r#"w32-shell-execute"#, r#"Get Windows to perform OPERATION on DOCUMENT.
+(fn IMAGE-FILE)"#,
+    ),
+    (
+        r#"w32-shell-execute"#,
+        r#"Get Windows to perform OPERATION on DOCUMENT.
 This is a wrapper around the ShellExecute system function, which
 invokes the application registered to handle OPERATION for DOCUMENT.
 
@@ -14234,13 +18763,19 @@ a ShowWindow flag:
   6 - start in a minimized window
  10 - start as the application itself specifies; this is the default.
 
-(fn OPERATION DOCUMENT PARAMETERS SHOW-FLAG)"#),
-    (r#"w32-short-file-name"#, r#"Return the short file name version (8.3) of the full path of FILENAME.
+(fn OPERATION DOCUMENT PARAMETERS SHOW-FLAG)"#,
+    ),
+    (
+        r#"w32-short-file-name"#,
+        r#"Return the short file name version (8.3) of the full path of FILENAME.
 If FILENAME does not exist, return nil.
 All path elements in FILENAME are converted to their short names.
 
-(fn FILENAME)"#),
-    (r#"w32-sound-volume"#, r#"Get or set the MS-Windows audio volume setting.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"w32-sound-volume"#,
+        r#"Get or set the MS-Windows audio volume setting.
 If VOLUME is specified, it should be the volume to set, either an integer
 in the range [0, 100], or a float in the range [0, 1.0].  Value of zero
 means mute the audio, value of 100 or 1.0 means maximum volume.
@@ -14248,13 +18783,19 @@ When called with the VOLUME argument nil or omitted, just return the
 current volume setting.
 The return value is the integer volume setting before the change, if any.
 
-(fn VOLUME)"#),
-    (r#"w32-system-idle-time"#, r#"Return the time in milliseconds since last system-wide input event.
+(fn VOLUME)"#,
+    ),
+    (
+        r#"w32-system-idle-time"#,
+        r#"Return the time in milliseconds since last system-wide input event.
 
 Return -1 if the required system API is not available or fails.
 
-(fn)"#),
-    (r#"w32-toggle-lock-key"#, r#"Toggle the state of the lock key KEY.
+(fn)"#,
+    ),
+    (
+        r#"w32-toggle-lock-key"#,
+        r#"Toggle the state of the lock key KEY.
 KEY can be `capslock', `kp-numlock', or `scroll'.
 If the optional parameter NEW-STATE is a number, then the state of KEY
 is set to off if the low bit of NEW-STATE is zero, otherwise on.
@@ -14263,22 +18804,34 @@ If NEW-STATE is omitted or nil, the function toggles the state,
 Value is the new state of the key, or nil if the function failed
 to change the state.
 
-(fn KEY NEW-STATE)"#),
-    (r#"w32-unload-winsock"#, r#"Unload the Windows socket library `winsock' if loaded.
+(fn KEY NEW-STATE)"#,
+    ),
+    (
+        r#"w32-unload-winsock"#,
+        r#"Unload the Windows socket library `winsock' if loaded.
 This is provided to allow dial-up socket connections to be disconnected
 when no longer needed.  Returns nil without unloading winsock if any
 socket connections still exist.
 
-(fn)"#),
-    (r#"w32-unregister-hot-key"#, r#"Unregister KEY as a hot-key combination.
+(fn)"#,
+    ),
+    (
+        r#"w32-unregister-hot-key"#,
+        r#"Unregister KEY as a hot-key combination.
 
-(fn KEY)"#),
-    (r#"w32-window-exists-p"#, r#"Return non-nil if a window exists with the specified CLASS and NAME.
+(fn KEY)"#,
+    ),
+    (
+        r#"w32-window-exists-p"#,
+        r#"Return non-nil if a window exists with the specified CLASS and NAME.
 
 This is a direct interface to the Windows API FindWindow function.
 
-(fn CLASS NAME)"#),
-    (r#"w32image-create-thumbnail"#, r#"Create a HEIGHT by WIDTH thumbnail file THUMB-FILE for image INPUT-FILE.
+(fn CLASS NAME)"#,
+    ),
+    (
+        r#"w32image-create-thumbnail"#,
+        r#"Create a HEIGHT by WIDTH thumbnail file THUMB-FILE for image INPUT-FILE.
 TYPE is the image type to use for the thumbnail file, a string.  It is
 usually identical to the file-name extension of THUMB-FILE, but without
 the leading period, and both "jpeg" and "jpg" can be used for JPEG.
@@ -14287,8 +18840,11 @@ the supported TYPEs are BMP, JPEG, GIF, TIFF, and PNG; any other type
 will cause the function to fail.
 Return non-nil if thumbnail creation succeeds, nil otherwise.
 
-(fn INPUT-FILE THUMB-FILE TYPE HEIGHT WIDTH)"#),
-    (r#"w32notify-add-watch"#, r#"Add a watch for filesystem events pertaining to FILE.
+(fn INPUT-FILE THUMB-FILE TYPE HEIGHT WIDTH)"#,
+    ),
+    (
+        r#"w32notify-add-watch"#,
+        r#"Add a watch for filesystem events pertaining to FILE.
 
 This arranges for filesystem events pertaining to FILE to be reported
 to Emacs.  Use `w32notify-rm-watch' to cancel the watch.
@@ -14335,13 +18891,19 @@ cases, this function will return a valid descriptor, but notifications
 will never come in.  Volumes shared from remote Windows machines do
 generate notifications correctly, though.
 
-(fn FILE FILTER CALLBACK)"#),
-    (r#"w32notify-rm-watch"#, r#"Remove an existing watch specified by its WATCH-DESCRIPTOR.
+(fn FILE FILTER CALLBACK)"#,
+    ),
+    (
+        r#"w32notify-rm-watch"#,
+        r#"Remove an existing watch specified by its WATCH-DESCRIPTOR.
 
 WATCH-DESCRIPTOR should be an object returned by `w32notify-add-watch'.
 
-(fn WATCH-DESCRIPTOR)"#),
-    (r#"w32notify-valid-p"#, r#"Check a watch specified by its WATCH-DESCRIPTOR for validity.
+(fn WATCH-DESCRIPTOR)"#,
+    ),
+    (
+        r#"w32notify-valid-p"#,
+        r#"Check a watch specified by its WATCH-DESCRIPTOR for validity.
 
 WATCH-DESCRIPTOR should be an object returned by `w32notify-add-watch'.
 
@@ -14349,12 +18911,18 @@ A watch can become invalid if the directory it watches is deleted, or if
 the watcher thread exits abnormally for any other reason.  Removing the
 watch by calling `w32notify-rm-watch' also makes it invalid.
 
-(fn WATCH-DESCRIPTOR)"#),
-    (r#"waiting-for-user-input-p"#, r#"Return non-nil if Emacs is waiting for input from the user.
+(fn WATCH-DESCRIPTOR)"#,
+    ),
+    (
+        r#"waiting-for-user-input-p"#,
+        r#"Return non-nil if Emacs is waiting for input from the user.
 This is intended for use by asynchronous process output filters and sentinels.
 
-(fn)"#),
-    (r#"where-is-internal"#, r#"Return list of keys that invoke DEFINITION.
+(fn)"#,
+    ),
+    (
+        r#"where-is-internal"#,
+        r#"Return list of keys that invoke DEFINITION.
 If KEYMAP is a keymap, search only KEYMAP and the global keymap.
 If KEYMAP is nil, search all the currently active keymaps, except
  for `overriding-local-map' (which is ignored).
@@ -14386,15 +18954,21 @@ The optional 5th arg NO-REMAP alters how command remapping is handled:
 Keys that are represented as events that have a `non-key-event' non-nil
 symbol property are ignored.
 
-(fn DEFINITION KEYMAP FIRSTONLY NOINDIRECT NO-REMAP)"#),
-    (r#"while"#, r#"If TEST yields non-nil, eval BODY... and repeat.
+(fn DEFINITION KEYMAP FIRSTONLY NOINDIRECT NO-REMAP)"#,
+    ),
+    (
+        r#"while"#,
+        r#"If TEST yields non-nil, eval BODY... and repeat.
 The order of execution is thus TEST, BODY, TEST, BODY and so on
 until TEST returns nil.
 
 The value of a `while' form is always nil.
 
-(fn TEST BODY...)"#),
-    (r#"widen"#, r#"Remove restrictions (narrowing) from current buffer.
+(fn TEST BODY...)"#,
+    ),
+    (
+        r#"widen"#,
+        r#"Remove restrictions (narrowing) from current buffer.
 
 This allows the buffer's full text to be seen and edited.
 
@@ -14403,8 +18977,11 @@ label, `widen' restores the narrowing limits set by `with-restriction'.
 To gain access to other portions of the buffer, use
 `without-restriction' with the same label.
 
-(fn)"#),
-    (r#"window-at"#, r#"Return window containing coordinates X and Y on FRAME.
+(fn)"#,
+    ),
+    (
+        r#"window-at"#,
+        r#"Return window containing coordinates X and Y on FRAME.
 FRAME must be a live frame and defaults to the selected one.
 X and Y are measured in units of canonical columns and rows.
 The top left corner of the frame is considered to be column 0, row 0.
@@ -14412,8 +18989,11 @@ Tool-bar and tab-bar pseudo-windows are ignored by this function: if
 the specified coordinates are in any of these two windows, this
 function returns nil.
 
-(fn X Y FRAME)"#),
-    (r#"window-body-height"#, r#"Return the height of WINDOW's text area.
+(fn X Y FRAME)"#,
+    ),
+    (
+        r#"window-body-height"#,
+        r#"Return the height of WINDOW's text area.
 WINDOW must be a live window and defaults to the selected one.  The
 return value does not include the mode line or header line or any
 horizontal divider.
@@ -14426,8 +19006,11 @@ PIXELWISE is `remap' and the default face is remapped (see
 character height.  For any other non-nil value, return the height in
 pixels.
 
-(fn WINDOW PIXELWISE)"#),
-    (r#"window-body-width"#, r#"Return the width of WINDOW's text area.
+(fn WINDOW PIXELWISE)"#,
+    ),
+    (
+        r#"window-body-width"#,
+        r#"Return the width of WINDOW's text area.
 WINDOW must be a live window and defaults to the selected one.  The
 return value does not include any vertical dividers, fringes or
 marginal areas, or scroll bars.
@@ -14445,17 +19028,26 @@ continuation glyph.
 
 Also see `window-max-chars-per-line'.
 
-(fn WINDOW PIXELWISE)"#),
-    (r#"window-bottom-divider-width"#, r#"Return the width in pixels of WINDOW's bottom divider.
+(fn WINDOW PIXELWISE)"#,
+    ),
+    (
+        r#"window-bottom-divider-width"#,
+        r#"Return the width in pixels of WINDOW's bottom divider.
 WINDOW must be a live window and defaults to the selected one.
 
-(fn WINDOW)"#),
-    (r#"window-buffer"#, r#"Return the buffer displayed in window WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-buffer"#,
+        r#"Return the buffer displayed in window WINDOW.
 If WINDOW is omitted or nil, it defaults to the selected window.
 Return nil for an internal window or a deleted window.
 
-(fn WINDOW)"#),
-    (r#"window-bump-use-time"#, r#"Mark WINDOW as second most recently used.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-bump-use-time"#,
+        r#"Mark WINDOW as second most recently used.
 WINDOW must specify a live window.
 
 If WINDOW is not selected and the selected window has the highest use
@@ -14463,26 +19055,41 @@ time of all windows, set the use time of WINDOW to that of the selected
 window, increase the use time of the selected window by one and return
 the new use time of WINDOW.  Otherwise, do nothing and return nil.
 
-(fn WINDOW)"#),
-    (r#"window-combination-limit"#, r#"Return combination limit of window WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-combination-limit"#,
+        r#"Return combination limit of window WINDOW.
 WINDOW must be a valid window used in horizontal or vertical combination.
 If the return value is nil, child windows of WINDOW can be recombined with
 WINDOW's siblings.  A return value of t means that child windows of
 WINDOW are never (re-)combined with WINDOW's siblings.
 
-(fn WINDOW)"#),
-    (r#"window-configuration-equal-p"#, r#"Say whether two window configurations have the same window layout.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-configuration-equal-p"#,
+        r#"Say whether two window configurations have the same window layout.
 This function ignores details such as the values of point and
 scrolling positions.
 
-(fn X Y)"#),
-    (r#"window-configuration-frame"#, r#"Return the frame that CONFIG, a window-configuration object, is about.
+(fn X Y)"#,
+    ),
+    (
+        r#"window-configuration-frame"#,
+        r#"Return the frame that CONFIG, a window-configuration object, is about.
 
-(fn CONFIG)"#),
-    (r#"window-configuration-p"#, r#"Return t if OBJECT is a window-configuration object.
+(fn CONFIG)"#,
+    ),
+    (
+        r#"window-configuration-p"#,
+        r#"Return t if OBJECT is a window-configuration object.
 
-(fn OBJECT)"#),
-    (r#"window-cursor-info"#, r#"Return information about the cursor of WINDOW.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"window-cursor-info"#,
+        r#"Return information about the cursor of WINDOW.
 WINDOW must be a live window and defaults to the selected one.
 
 The returned value is a vector of 6 elements:
@@ -14500,12 +19107,18 @@ If the cursor is not currently displayed for WINDOW, return nil.
 Note that any element except the first one in the returned vector may be
 -1 if the actual value is currently unavailable.
 
-(fn WINDOW)"#),
-    (r#"window-cursor-type"#, r#"Return the `cursor-type' of WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-cursor-type"#,
+        r#"Return the `cursor-type' of WINDOW.
 WINDOW must be a live window and defaults to the selected one.
 
-(fn WINDOW)"#),
-    (r#"window-dedicated-p"#, r#"Return non-nil when WINDOW is dedicated to its buffer.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-dedicated-p"#,
+        r#"Return non-nil when WINDOW is dedicated to its buffer.
 More precisely, return the value assigned by the last call of
 `set-window-dedicated-p' for WINDOW.  Return nil if that function was
 never called with WINDOW as its argument, or the value set by that
@@ -14522,20 +19135,29 @@ Functions like `set-window-buffer' may change the buffer displayed by a
 window, unless that window is "strongly" dedicated to its buffer, that
 is the value returned by `window-dedicated-p' is t.
 
-(fn WINDOW)"#),
-    (r#"window-discard-buffer-from-window"#, r#"Discard BUFFER from WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-discard-buffer-from-window"#,
+        r#"Discard BUFFER from WINDOW.
 Discard specified live BUFFER from the lists of previous and next
 buffers of specified live WINDOW.
 
 Optional argument ALL non-nil means discard any `quit-restore' and
 `quit-restore-prev' parameters of WINDOW referencing BUFFER too.
 
-(fn BUFFER WINDOW ALL)"#),
-    (r#"window-display-table"#, r#"Return the display-table that WINDOW is using.
+(fn BUFFER WINDOW ALL)"#,
+    ),
+    (
+        r#"window-display-table"#,
+        r#"Return the display-table that WINDOW is using.
 WINDOW must be a live window and defaults to the selected one.
 
-(fn WINDOW)"#),
-    (r#"window-end"#, r#"Return position at which display currently ends in WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-end"#,
+        r#"Return position at which display currently ends in WINDOW.
 This is the position after the final character in WINDOW.
 
 WINDOW must be a live window and defaults to the selected one.  This
@@ -14547,42 +19169,63 @@ last redisplay of WINDOW was preempted, and did not finish.)  If
 UPDATE is non-nil, compute the up-to-date position if it isn't already
 recorded.
 
-(fn WINDOW UPDATE)"#),
-    (r#"window-frame"#, r#"Return the frame that window WINDOW is on.
+(fn WINDOW UPDATE)"#,
+    ),
+    (
+        r#"window-frame"#,
+        r#"Return the frame that window WINDOW is on.
 WINDOW must be a valid window and defaults to the selected one.
 
-(fn WINDOW)"#),
-    (r#"window-fringes"#, r#"Return fringe settings for specified WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-fringes"#,
+        r#"Return fringe settings for specified WINDOW.
 WINDOW must be a live window and defaults to the selected one.
 
 Value is a list of the form (LEFT-WIDTH RIGHT-WIDTH OUTSIDE-MARGINS
 PERSISTENT), see `set-window-fringes'.
 
-(fn WINDOW)"#),
-    (r#"window-header-line-height"#, r#"Return the height in pixels of WINDOW's header-line.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-header-line-height"#,
+        r#"Return the height in pixels of WINDOW's header-line.
 WINDOW must be a live window and defaults to the selected one.
 
-(fn WINDOW)"#),
-    (r#"window-hscroll"#, r#"Return the number of columns by which WINDOW is scrolled from left margin.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-hscroll"#,
+        r#"Return the number of columns by which WINDOW is scrolled from left margin.
 WINDOW must be a live window and defaults to the selected one.
 
-(fn WINDOW)"#),
-    (r#"window-left-child"#, r#"Return the leftmost child window of window WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-left-child"#,
+        r#"Return the leftmost child window of window WINDOW.
 WINDOW must be a valid window and defaults to the selected one.
 Return nil if WINDOW is a live window (live windows have no children).
 Return nil if WINDOW is an internal window whose children form a
 vertical combination.
 
-(fn WINDOW)"#),
-    (r#"window-left-column"#, r#"Return left column of window WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-left-column"#,
+        r#"Return left column of window WINDOW.
 This is the distance, in columns, between the left edge of WINDOW and
 the left edge of the frame's window area.  For instance, the return
 value is 0 if there is no window to the left of WINDOW.
 
 WINDOW must be a valid window and defaults to the selected one.
 
-(fn WINDOW)"#),
-    (r#"window-line-height"#, r#"Return height in pixels of text line LINE in window WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-line-height"#,
+        r#"Return height in pixels of text line LINE in window WINDOW.
 WINDOW must be a live window and defaults to the selected one.
 
 Return height of current line if LINE is omitted or nil.  Return height of
@@ -14600,8 +19243,11 @@ of the (first) text line, YPOS is negative.
 Return nil if window display is not up-to-date.  In that case, use
 `pos-visible-in-window-p' to obtain the information.
 
-(fn LINE WINDOW)"#),
-    (r#"window-lines-pixel-dimensions"#, r#"Return pixel dimensions of WINDOW's lines.
+(fn LINE WINDOW)"#,
+    ),
+    (
+        r#"window-lines-pixel-dimensions"#,
+        r#"Return pixel dimensions of WINDOW's lines.
 The return value is a list of the x- and y-coordinates of the lower
 right corner of the last character of each line.  Return nil if the
 current glyph matrix of WINDOW is not up-to-date.
@@ -14644,8 +19290,11 @@ Normally, the value of this function is not available while Emacs is
 busy, for example, when processing a command.  It should be retrievable
 though when run from an idle timer with a delay of zero seconds.
 
-(fn WINDOW FIRST LAST BODY INVERSE LEFT)"#),
-    (r#"window-list"#, r#"Return a list of windows on FRAME, starting with WINDOW.
+(fn WINDOW FIRST LAST BODY INVERSE LEFT)"#,
+    ),
+    (
+        r#"window-list"#,
+        r#"Return a list of windows on FRAME, starting with WINDOW.
 FRAME nil or omitted means use the selected frame.
 WINDOW nil or omitted means use the window selected within FRAME.
 MINIBUF t means include the minibuffer window, even if it isn't active.
@@ -14653,8 +19302,11 @@ MINIBUF nil or omitted means include the minibuffer window only
 if it's active.
 MINIBUF neither nil nor t means never include the minibuffer window.
 
-(fn FRAME MINIBUF WINDOW)"#),
-    (r#"window-list-1"#, r#"Return a list of all live windows.
+(fn FRAME MINIBUF WINDOW)"#,
+    ),
+    (
+        r#"window-list-1"#,
+        r#"Return a list of all live windows.
 WINDOW specifies the first window to list and defaults to the selected
 window.
 
@@ -14685,37 +19337,55 @@ others.
 If WINDOW is not on the list of windows returned, some other window will
 be listed first but no error is signaled.
 
-(fn WINDOW MINIBUF ALL-FRAMES)"#),
-    (r#"window-live-p"#, r#"Return t if OBJECT is a live window and nil otherwise.
+(fn WINDOW MINIBUF ALL-FRAMES)"#,
+    ),
+    (
+        r#"window-live-p"#,
+        r#"Return t if OBJECT is a live window and nil otherwise.
 A live window is a window that displays a buffer.
 Internal windows and deleted windows are not live.
 
-(fn OBJECT)"#),
-    (r#"window-margins"#, r#"Get width of marginal areas of window WINDOW.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"window-margins"#,
+        r#"Get width of marginal areas of window WINDOW.
 WINDOW must be a live window and defaults to the selected one.
 
 Value is a cons of the form (LEFT-WIDTH . RIGHT-WIDTH).
 If a marginal area does not exist, its width will be returned
 as nil.
 
-(fn WINDOW)"#),
-    (r#"window-minibuffer-p"#, r#"Return t if WINDOW is a minibuffer window.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-minibuffer-p"#,
+        r#"Return t if WINDOW is a minibuffer window.
 WINDOW must be a valid window and defaults to the selected one.
 
-(fn WINDOW)"#),
-    (r#"window-mode-line-height"#, r#"Return the height in pixels of WINDOW's mode-line.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-mode-line-height"#,
+        r#"Return the height in pixels of WINDOW's mode-line.
 WINDOW must be a live window and defaults to the selected one.
 
-(fn WINDOW)"#),
-    (r#"window-new-normal"#, r#"Return new normal size of window WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-new-normal"#,
+        r#"Return new normal size of window WINDOW.
 WINDOW must be a valid window and defaults to the selected one.
 
 The new normal size of WINDOW is the value set by the last call of
 `set-window-new-normal' for WINDOW.  If valid, it will be shortly
 installed as WINDOW's normal size (see `window-normal-size').
 
-(fn WINDOW)"#),
-    (r#"window-new-pixel"#, r#"Return new pixel size of window WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-new-pixel"#,
+        r#"Return new pixel size of window WINDOW.
 WINDOW must be a valid window and defaults to the selected one.
 
 The new pixel size of WINDOW is the value set by the last call of
@@ -14723,8 +19393,11 @@ The new pixel size of WINDOW is the value set by the last call of
 installed as WINDOW's pixel height (see `window-pixel-height') or pixel
 width (see `window-pixel-width').
 
-(fn WINDOW)"#),
-    (r#"window-new-total"#, r#"Return the new total size of window WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-new-total"#,
+        r#"Return the new total size of window WINDOW.
 WINDOW must be a valid window and defaults to the selected one.
 
 The new total size of WINDOW is the value set by the last call of
@@ -14732,18 +19405,27 @@ The new total size of WINDOW is the value set by the last call of
 installed as WINDOW's total height (see `window-total-height') or total
 width (see `window-total-width').
 
-(fn WINDOW)"#),
-    (r#"window-next-buffers"#, r#"Set WINDOW's next buffers to NEXT-BUFFERS.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-next-buffers"#,
+        r#"Set WINDOW's next buffers to NEXT-BUFFERS.
 WINDOW must be a live window and defaults to the selected one.
 NEXT-BUFFERS should be a list of buffers.
 
-(fn WINDOW NEXT-BUFFERS)"#),
-    (r#"window-next-sibling"#, r#"Return the next sibling window of window WINDOW.
+(fn WINDOW NEXT-BUFFERS)"#,
+    ),
+    (
+        r#"window-next-sibling"#,
+        r#"Return the next sibling window of window WINDOW.
 WINDOW must be a valid window and defaults to the selected one.
 Return nil if WINDOW has no next sibling.
 
-(fn WINDOW)"#),
-    (r#"window-normal-size"#, r#"Return the normal height of window WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-normal-size"#,
+        r#"Return the normal height of window WINDOW.
 WINDOW must be a valid window and defaults to the selected one.
 If HORIZONTAL is non-nil, return the normal width of WINDOW.
 
@@ -14765,24 +19447,33 @@ of windows after they have been shrunk to their minimum sizes; for
 example when a frame is temporarily made very small and afterwards gets
 re-enlarged to its previous size.
 
-(fn WINDOW HORIZONTAL)"#),
-    (r#"window-old-body-pixel-height"#, r#"Return old height of WINDOW's text area in pixels.
+(fn WINDOW HORIZONTAL)"#,
+    ),
+    (
+        r#"window-old-body-pixel-height"#,
+        r#"Return old height of WINDOW's text area in pixels.
 WINDOW must be a live window and defaults to the selected one.
 
 The return value is the pixel height of WINDOW's text area after the
 last time window change functions found WINDOW live on its frame.  It
 is zero if WINDOW was created after that.
 
-(fn WINDOW)"#),
-    (r#"window-old-body-pixel-width"#, r#"Return old width of WINDOW's text area in pixels.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-old-body-pixel-width"#,
+        r#"Return old width of WINDOW's text area in pixels.
 WINDOW must be a live window and defaults to the selected one.
 
 The return value is the pixel width of WINDOW's text area after the
 last time window change functions found WINDOW live on its frame.  It
 is zero if WINDOW was created after that.
 
-(fn WINDOW)"#),
-    (r#"window-old-buffer"#, r#"Return the old buffer displayed by WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-old-buffer"#,
+        r#"Return the old buffer displayed by WINDOW.
 WINDOW can be any window and defaults to the selected one.
 
 The return value is the buffer shown in WINDOW at the last time window
@@ -14791,59 +19482,89 @@ deleted.  It is nil if WINDOW was created after that.  It is t if WINDOW
 has been restored from a window configuration after that.  It is always
 nil if WINDOW is an internal window.
 
-(fn WINDOW)"#),
-    (r#"window-old-pixel-height"#, r#"Return old total pixel height of WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-old-pixel-height"#,
+        r#"Return old total pixel height of WINDOW.
 WINDOW must be a valid window and defaults to the selected one.
 
 The return value is the total pixel height of WINDOW after the last
 time window change functions found WINDOW live on its frame.  It is
 zero if WINDOW was created after that.
 
-(fn WINDOW)"#),
-    (r#"window-old-pixel-width"#, r#"Return old total pixel width of WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-old-pixel-width"#,
+        r#"Return old total pixel width of WINDOW.
 WINDOW must be a valid window and defaults to the selected one.
 
 The return value is the total pixel width of WINDOW after the last
 time window change functions found WINDOW live on its frame.  It is
 zero if WINDOW was created after that.
 
-(fn WINDOW)"#),
-    (r#"window-old-point"#, r#"Return old value of point in WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-old-point"#,
+        r#"Return old value of point in WINDOW.
 WINDOW must be a live window and defaults to the selected one.
 
-(fn WINDOW)"#),
-    (r#"window-parameter"#, r#"Set WINDOW's value of PARAMETER to VALUE.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-parameter"#,
+        r#"Set WINDOW's value of PARAMETER to VALUE.
 WINDOW can be any window and defaults to the selected one.
 Return VALUE.
 
-(fn WINDOW PARAMETER VALUE)"#),
-    (r#"window-parameters"#, r#"Return the parameters of WINDOW and their values.
+(fn WINDOW PARAMETER VALUE)"#,
+    ),
+    (
+        r#"window-parameters"#,
+        r#"Return the parameters of WINDOW and their values.
 WINDOW must be a valid window and defaults to the selected one.  The
 return value is a list of elements of the form (PARAMETER . VALUE).
 
-(fn WINDOW)"#),
-    (r#"window-parent"#, r#"Return the parent window of window WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-parent"#,
+        r#"Return the parent window of window WINDOW.
 WINDOW must be a valid window and defaults to the selected one.
 Return nil for a window with no parent (e.g. a root window).
 
-(fn WINDOW)"#),
-    (r#"window-pixel-height"#, r#"Return the height of window WINDOW in pixels.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-pixel-height"#,
+        r#"Return the height of window WINDOW in pixels.
 WINDOW must be a valid window and defaults to the selected one.
 
 The return value includes the mode line and header line and the bottom
 divider, if any.  If WINDOW is an internal window, its pixel height is
 the height of the screen areas spanned by its children.
 
-(fn WINDOW)"#),
-    (r#"window-pixel-left"#, r#"Return left pixel edge of window WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-pixel-left"#,
+        r#"Return left pixel edge of window WINDOW.
 WINDOW must be a valid window and defaults to the selected one.
 
-(fn WINDOW)"#),
-    (r#"window-pixel-top"#, r#"Return top pixel edge of window WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-pixel-top"#,
+        r#"Return top pixel edge of window WINDOW.
 WINDOW must be a valid window and defaults to the selected one.
 
-(fn WINDOW)"#),
-    (r#"window-pixel-width"#, r#"Return the width of window WINDOW in pixels.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-pixel-width"#,
+        r#"Return the width of window WINDOW in pixels.
 WINDOW must be a valid window and defaults to the selected one.
 
 The return value includes the fringes and margins of WINDOW as well as
@@ -14851,8 +19572,11 @@ any vertical dividers or scroll bars belonging to WINDOW.  If WINDOW is
 an internal window, its pixel width is the width of the screen areas
 spanned by its children.
 
-(fn WINDOW)"#),
-    (r#"window-point"#, r#"Return current value of point in WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-point"#,
+        r#"Return current value of point in WINDOW.
 WINDOW must be a live window and defaults to the selected one.
 
 For a nonselected window, this is the value point would have if that
@@ -14863,21 +19587,30 @@ that returned by `point' for WINDOW's buffer.  It would be more strictly
 correct to return the top-level value of `point', outside of any
 `save-excursion' forms.  But that is hard to define.
 
-(fn WINDOW)"#),
-    (r#"window-prev-buffers"#, r#"Set WINDOW's previous buffers to PREV-BUFFERS.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-prev-buffers"#,
+        r#"Set WINDOW's previous buffers to PREV-BUFFERS.
 WINDOW must be a live window and defaults to the selected one.
 
 PREV-BUFFERS should be a list of elements (BUFFER WINDOW-START POS),
 where BUFFER is a buffer, WINDOW-START is the start position of the
 window for that buffer, and POS is a window-specific point value.
 
-(fn WINDOW PREV-BUFFERS)"#),
-    (r#"window-prev-sibling"#, r#"Return the previous sibling window of window WINDOW.
+(fn WINDOW PREV-BUFFERS)"#,
+    ),
+    (
+        r#"window-prev-sibling"#,
+        r#"Return the previous sibling window of window WINDOW.
 WINDOW must be a valid window and defaults to the selected one.
 Return nil if WINDOW has no previous sibling.
 
-(fn WINDOW)"#),
-    (r#"window-resize-apply"#, r#"Apply requested size values for window-tree of FRAME.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-resize-apply"#,
+        r#"Apply requested size values for window-tree of FRAME.
 If FRAME is omitted or nil, it defaults to the selected frame.
 
 Optional argument HORIZONTAL omitted or nil means apply requested
@@ -14896,8 +19629,11 @@ Note: This function does not check any of `window-fixed-size-p',
 `window-min-height' or `window-min-width'.  All these checks have to
 be applied on the Elisp level.
 
-(fn FRAME HORIZONTAL)"#),
-    (r#"window-resize-apply-total"#, r#"Apply requested total size values for window-tree of FRAME.
+(fn FRAME HORIZONTAL)"#,
+    ),
+    (
+        r#"window-resize-apply-total"#,
+        r#"Apply requested total size values for window-tree of FRAME.
 If FRAME is omitted or nil, it defaults to the selected frame.
 
 This function does not assign pixel or normal size values.  You should
@@ -14907,20 +19643,32 @@ Optional argument HORIZONTAL omitted or nil means apply requested
 height values.  HORIZONTAL non-nil means apply requested width
 values.
 
-(fn FRAME HORIZONTAL)"#),
-    (r#"window-right-divider-width"#, r#"Return the width in pixels of WINDOW's right divider.
+(fn FRAME HORIZONTAL)"#,
+    ),
+    (
+        r#"window-right-divider-width"#,
+        r#"Return the width in pixels of WINDOW's right divider.
 WINDOW must be a live window and defaults to the selected one.
 
-(fn WINDOW)"#),
-    (r#"window-scroll-bar-height"#, r#"Return the height in pixels of WINDOW's horizontal scrollbar.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-scroll-bar-height"#,
+        r#"Return the height in pixels of WINDOW's horizontal scrollbar.
 WINDOW must be a live window and defaults to the selected one.
 
-(fn WINDOW)"#),
-    (r#"window-scroll-bar-width"#, r#"Return the width in pixels of WINDOW's vertical scrollbar.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-scroll-bar-width"#,
+        r#"Return the width in pixels of WINDOW's vertical scrollbar.
 WINDOW must be a live window and defaults to the selected one.
 
-(fn WINDOW)"#),
-    (r#"window-scroll-bars"#, r#"Get width and type of scroll bars of window WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-scroll-bars"#,
+        r#"Get width and type of scroll bars of window WINDOW.
 WINDOW must be a live window and defaults to the selected one.
 
 Value is a list of the form (WIDTH COLUMNS VERTICAL-TYPE HEIGHT LINES
@@ -14937,13 +19685,19 @@ was none.
 If WIDTH or HEIGHT is nil or VERTICAL-TYPE or HORIZONTAL-TYPE is t,
 WINDOW is using the corresponding value specified for the frame.
 
-(fn WINDOW)"#),
-    (r#"window-start"#, r#"Return position at which display currently starts in WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-start"#,
+        r#"Return position at which display currently starts in WINDOW.
 WINDOW must be a live window and defaults to the selected one.
 This is updated by redisplay or by calling `set-window-start'.
 
-(fn WINDOW)"#),
-    (r#"window-system"#, r#"The name of the window system that FRAME is displaying through.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-system"#,
+        r#"The name of the window system that FRAME is displaying through.
 The value is a symbol:
  nil for a termcap frame (a character-only terminal),
  `x' for an Emacs frame that is really an X window,
@@ -14960,12 +19714,18 @@ Use of this function as a predicate is deprecated.  Instead,
 use `display-graphic-p' or any of the other `display-*-p'
 predicates which report frame's specific UI-related capabilities.
 
-(fn FRAME)"#),
-    (r#"window-tab-line-height"#, r#"Return the height in pixels of WINDOW's tab-line.
+(fn FRAME)"#,
+    ),
+    (
+        r#"window-tab-line-height"#,
+        r#"Return the height in pixels of WINDOW's tab-line.
 WINDOW must be a live window and defaults to the selected one.
 
-(fn WINDOW)"#),
-    (r#"window-text-height"#, r#"Return the height in lines of the text display area of WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-text-height"#,
+        r#"Return the height in lines of the text display area of WINDOW.
 WINDOW must be a live window and defaults to the selected one.
 
 The returned height does not include dividers, the mode line, any header
@@ -14974,8 +19734,11 @@ line, nor any partial-height lines at the bottom of the text area.
 Optional argument PIXELWISE non-nil, means to return the height in
 pixels.
 
-(fn WINDOW PIXELWISE)"#),
-    (r#"window-text-pixel-size"#, r#"Return the dimensions of the text of WINDOW's buffer in pixels.
+(fn WINDOW PIXELWISE)"#,
+    ),
+    (
+        r#"window-text-pixel-size"#,
+        r#"Return the dimensions of the text of WINDOW's buffer in pixels.
 WINDOW must be a live window and defaults to the selected one.  The
 return value is a cons of the maximum pixel-width of any text line and
 the pixel-height of all the text lines in the accessible portion of
@@ -15032,8 +19795,11 @@ include the height of any of these, if present, in the return value.
 IGNORE-LINE-AT-END, if non-nil, means to not add the height of the
 screen line that includes TO to the returned height of the text.
 
-(fn WINDOW FROM TO X-LIMIT Y-LIMIT MODE-LINES IGNORE-LINE-AT-END)"#),
-    (r#"window-text-width"#, r#"Return the width in columns of the text display area of WINDOW.
+(fn WINDOW FROM TO X-LIMIT Y-LIMIT MODE-LINES IGNORE-LINE-AT-END)"#,
+    ),
+    (
+        r#"window-text-width"#,
+        r#"Return the width in columns of the text display area of WINDOW.
 WINDOW must be a live window and defaults to the selected one.
 
 The returned width does not include dividers, scrollbars, margins,
@@ -15043,23 +19809,32 @@ area.
 Optional argument PIXELWISE non-nil, means to return the width in
 pixels.
 
-(fn WINDOW PIXELWISE)"#),
-    (r#"window-top-child"#, r#"Return the topmost child window of window WINDOW.
+(fn WINDOW PIXELWISE)"#,
+    ),
+    (
+        r#"window-top-child"#,
+        r#"Return the topmost child window of window WINDOW.
 WINDOW must be a valid window and defaults to the selected one.
 Return nil if WINDOW is a live window (live windows have no children).
 Return nil if WINDOW is an internal window whose children form a
 horizontal combination.
 
-(fn WINDOW)"#),
-    (r#"window-top-line"#, r#"Return top line of window WINDOW.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-top-line"#,
+        r#"Return top line of window WINDOW.
 This is the distance, in lines, between the top of WINDOW and the top
 of the frame's window area.  For instance, the return value is 0 if
 there is no window above WINDOW.
 
 WINDOW must be a valid window and defaults to the selected one.
 
-(fn WINDOW)"#),
-    (r#"window-total-height"#, r#"Return the height of window WINDOW in lines.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-total-height"#,
+        r#"Return the height of window WINDOW in lines.
 WINDOW must be a valid window and defaults to the selected one.
 
 The return value includes the heights of WINDOW's mode and header line
@@ -15079,8 +19854,11 @@ smaller than WINDOW's pixel height divided by the character height of
 WINDOW's frame.  Any other value of ROUND means to return the internal
 total height of WINDOW.
 
-(fn WINDOW ROUND)"#),
-    (r#"window-total-width"#, r#"Return the total width of window WINDOW in columns.
+(fn WINDOW ROUND)"#,
+    ),
+    (
+        r#"window-total-width"#,
+        r#"Return the total width of window WINDOW in columns.
 WINDOW must be a valid window and defaults to the selected one.
 
 The return value includes the widths of WINDOW's fringes, margins,
@@ -15101,8 +19879,11 @@ smaller than WINDOW's pixel width divided by the character width of
 WINDOW's frame.  Any other value of ROUND means to return the internal
 total width of WINDOW.
 
-(fn WINDOW ROUND)"#),
-    (r#"window-use-time"#, r#"Return the use time of window WINDOW.
+(fn WINDOW ROUND)"#,
+    ),
+    (
+        r#"window-use-time"#,
+        r#"Return the use time of window WINDOW.
 WINDOW must specify a live window and defaults to the selected one.
 
 The window with the highest use time is usually the one most recently
@@ -15113,28 +19894,43 @@ such a way.
 Note that the use time of a window can be also changed by calling
 `window-bump-use-time' for that window.
 
-(fn WINDOW)"#),
-    (r#"window-valid-p"#, r#"Return t if OBJECT is a valid window and nil otherwise.
+(fn WINDOW)"#,
+    ),
+    (
+        r#"window-valid-p"#,
+        r#"Return t if OBJECT is a valid window and nil otherwise.
 A valid window is either a window that displays a buffer or an internal
 window.  Windows that have been deleted are not valid.
 
-(fn OBJECT)"#),
-    (r#"window-vscroll"#, r#"Return the amount by which WINDOW is scrolled vertically.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"window-vscroll"#,
+        r#"Return the amount by which WINDOW is scrolled vertically.
 This takes effect when displaying tall lines or images.
 
 If WINDOW is omitted or nil, it defaults to the selected window.
 Normally, value is a multiple of the canonical character height of WINDOW;
 optional second arg PIXELS-P means value is measured in pixels.
 
-(fn WINDOW PIXELS-P)"#),
-    (r#"windowp"#, r#"Return t if OBJECT is a window and nil otherwise.
+(fn WINDOW PIXELS-P)"#,
+    ),
+    (
+        r#"windowp"#,
+        r#"Return t if OBJECT is a window and nil otherwise.
 
-(fn OBJECT)"#),
-    (r#"write-char"#, r#"Output character CHARACTER to stream PRINTCHARFUN.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"write-char"#,
+        r#"Output character CHARACTER to stream PRINTCHARFUN.
 PRINTCHARFUN defaults to the value of `standard-output' (which see).
 
-(fn CHARACTER PRINTCHARFUN)"#),
-    (r#"write-region"#, r#"Write current region into specified file.
+(fn CHARACTER PRINTCHARFUN)"#,
+    ),
+    (
+        r#"write-region"#,
+        r#"Write current region into specified file.
 When called from a program, requires three arguments:
 START, END and FILENAME.  START and END are normally buffer positions
 specifying the part of the buffer to write.
@@ -15172,15 +19968,21 @@ This does code conversion according to the value of
 This calls `write-region-annotate-functions' at the start, and
 `write-region-post-annotation-function' at the end.
 
-(fn START END FILENAME APPEND VISIT LOCKNAME MUSTBENEW)"#),
-    (r#"x-backspace-delete-keys-p"#, r#"Check if both Backspace and Delete keys are on the keyboard of FRAME.
+(fn START END FILENAME APPEND VISIT LOCKNAME MUSTBENEW)"#,
+    ),
+    (
+        r#"x-backspace-delete-keys-p"#,
+        r#"Check if both Backspace and Delete keys are on the keyboard of FRAME.
 FRAME nil means use the selected frame.
 Value is t if we know that both keys are present, and are mapped to the
 usual X keysyms.  Value is `lambda' if we cannot determine if both keys are
 present and mapped to the usual X keysyms.
 
-(fn FRAME)"#),
-    (r#"x-begin-drag"#, r#"Begin dragging contents on FRAME, with targets TARGETS.
+(fn FRAME)"#,
+    ),
+    (
+        r#"x-begin-drag"#,
+        r#"Begin dragging contents on FRAME, with targets TARGETS.
 TARGETS is a list of strings, which defines the X selection targets
 that will be available to the drop target.  Block until the mouse
 buttons are released, then return the action chosen by the target, or
@@ -15240,20 +20042,35 @@ are currently held down.  It should only be called when it is known
 that mouse buttons are being held down, such as immediately after a
 `down-mouse-1' (or similar) event.
 
-(fn TARGETS ACTION FRAME RETURN-FRAME ALLOW-CURRENT-FRAME FOLLOW-TOOLTIP)"#),
-    (r#"x-change-window-property"#, r#"SKIP: real doc in xfns.c.
+(fn TARGETS ACTION FRAME RETURN-FRAME ALLOW-CURRENT-FRAME FOLLOW-TOOLTIP)"#,
+    ),
+    (
+        r#"x-change-window-property"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn PROP VALUE FRAME TYPE FORMAT OUTER-P)"#),
-    (r#"x-close-connection"#, r#"SKIP: real doc in xfns.c.
+(fn PROP VALUE FRAME TYPE FORMAT OUTER-P)"#,
+    ),
+    (
+        r#"x-close-connection"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn TERMINAL)"#),
-    (r#"x-create-frame"#, r#"SKIP: real doc in xfns.c.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-create-frame"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn PARMS)"#),
-    (r#"x-delete-window-property"#, r#"SKIP: real doc in xfns.c.
+(fn PARMS)"#,
+    ),
+    (
+        r#"x-delete-window-property"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn PROP FRAME)"#),
-    (r#"x-disown-selection-internal"#, r#"If we own the selection SELECTION, disown it.
+(fn PROP FRAME)"#,
+    ),
+    (
+        r#"x-disown-selection-internal"#,
+        r#"If we own the selection SELECTION, disown it.
 Disowning it means there is no such selection.
 
 Sets the last-change time for the selection to TIME-OBJECT (by default
@@ -15266,26 +20083,47 @@ frame's display, or the first available X display.
 On Nextstep, the TIME-OBJECT and TERMINAL arguments are unused.
 On MS-DOS, all this does is return non-nil if we own the selection.
 
-(fn SELECTION TIME-OBJECT TERMINAL)"#),
-    (r#"x-display-backing-store"#, r#"SKIP: real doc in xfns.c.
+(fn SELECTION TIME-OBJECT TERMINAL)"#,
+    ),
+    (
+        r#"x-display-backing-store"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn TERMINAL)"#),
-    (r#"x-display-color-cells"#, r#"SKIP: real doc in xfns.c.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-display-color-cells"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn TERMINAL)"#),
-    (r#"x-display-grayscale-p"#, r#"SKIP: real doc in xfns.c.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-display-grayscale-p"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn TERMINAL)"#),
-    (r#"x-display-list"#, r#"SKIP: real doc in xfns.c.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-display-list"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn)"#),
-    (r#"x-display-mm-height"#, r#"SKIP: real doc in xfns.c.
+(fn)"#,
+    ),
+    (
+        r#"x-display-mm-height"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn TERMINAL)"#),
-    (r#"x-display-mm-width"#, r#"SKIP: real doc in xfns.c.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-display-mm-width"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn TERMINAL)"#),
-    (r#"x-display-monitor-attributes-list"#, r#"Return a list of physical monitor attributes on the X display TERMINAL.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-display-monitor-attributes-list"#,
+        r#"Return a list of physical monitor attributes on the X display TERMINAL.
 
 The optional argument TERMINAL specifies which display to ask about.
 TERMINAL should be a terminal object, a frame or a display name (a string).
@@ -15301,23 +20139,41 @@ the attributes:
 
 Internal use only, use `display-monitor-attributes-list' instead.
 
-(fn TERMINAL)"#),
-    (r#"x-display-pixel-height"#, r#"SKIP: real doc in xfns.c.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-display-pixel-height"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn TERMINAL)"#),
-    (r#"x-display-pixel-width"#, r#"SKIP: real doc in xfns.c.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-display-pixel-width"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn TERMINAL)"#),
-    (r#"x-display-planes"#, r#"SKIP: real doc in xfns.c.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-display-planes"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn TERMINAL)"#),
-    (r#"x-display-save-under"#, r#"SKIP: real doc in xfns.c.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-display-save-under"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn TERMINAL)"#),
-    (r#"x-display-screens"#, r#"SKIP: real doc in xfns.c.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-display-screens"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn TERMINAL)"#),
-    (r#"x-display-set-last-user-time"#, r#"Set the last user time of TERMINAL to TIME-OBJECT.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-display-set-last-user-time"#,
+        r#"Set the last user time of TERMINAL to TIME-OBJECT.
 TIME-OBJECT is the X server time, in milliseconds, of the last user
 interaction.  This is the timestamp that `x-get-selection-internal'
 will use by default to fetch selection data.
@@ -15326,17 +20182,29 @@ on.  TERMINAL should be a terminal object, a frame or a display name
 (a string).  If TERMINAL is omitted or nil, that stands for the
 selected frame's display.
 
-(fn TIME-OBJECT TERMINAL)"#),
-    (r#"x-display-visual-class"#, r#"SKIP: real doc in xfns.c.
+(fn TIME-OBJECT TERMINAL)"#,
+    ),
+    (
+        r#"x-display-visual-class"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn TERMINAL)"#),
-    (r#"x-double-buffered-p"#, r#"SKIP: real doc in xfns.c.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-double-buffered-p"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn FRAME)"#),
-    (r#"x-export-frames"#, r#"SKIP: real doc in xfns.c.
+(fn FRAME)"#,
+    ),
+    (
+        r#"x-export-frames"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn FRAMES TYPE)"#),
-    (r#"x-family-fonts"#, r#"Return a list of available fonts of family FAMILY on FRAME.
+(fn FRAMES TYPE)"#,
+    ),
+    (
+        r#"x-family-fonts"#,
+        r#"Return a list of available fonts of family FAMILY on FRAME.
 If FAMILY is omitted or nil, list all families.
 Otherwise, FAMILY must be a string, possibly containing wildcards
 `?' and `*'.
@@ -15358,18 +20226,27 @@ REGISTRY-AND-ENCODING is a string giving the registry and encoding of
 The resulting list is sorted according to the current setting of
 the face font sort order, see `face-font-selection-order'.
 
-(fn FAMILY FRAME)"#),
-    (r#"x-file-dialog"#, r#"SKIP: real doc in xfns.c.
+(fn FAMILY FRAME)"#,
+    ),
+    (
+        r#"x-file-dialog"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn PROMPT DIR DEFAULT-FILENAME MUSTMATCH ONLY-DIR-P)"#),
-    (r#"x-focus-frame"#, r#"Set the input focus to FRAME.
+(fn PROMPT DIR DEFAULT-FILENAME MUSTMATCH ONLY-DIR-P)"#,
+    ),
+    (
+        r#"x-focus-frame"#,
+        r#"Set the input focus to FRAME.
 FRAME nil means use the selected frame.  Optional argument NOACTIVATE
 means do not activate FRAME.
 
 If there is no window system support, this function does nothing.
 
-(fn FRAME NOACTIVATE)"#),
-    (r#"x-frame-edges"#, r#"Return edge coordinates of FRAME.
+(fn FRAME NOACTIVATE)"#,
+    ),
+    (
+        r#"x-frame-edges"#,
+        r#"Return edge coordinates of FRAME.
 FRAME must be a live frame and defaults to the selected one.  The return
 value is a list of the form (LEFT, TOP, RIGHT, BOTTOM).  All values are
 in pixels relative to the origin - the position (0, 0) - of FRAME's
@@ -15385,8 +20262,11 @@ menu or tool bar of FRAME.  If TYPE is the symbol `inner-edges', return
 the inner edges of FRAME.  These edges exclude title bar, any borders,
 menu bar or tool bar of FRAME.
 
-(fn FRAME TYPE)"#),
-    (r#"x-frame-geometry"#, r#"Return geometric attributes of FRAME.
+(fn FRAME TYPE)"#,
+    ),
+    (
+        r#"x-frame-geometry"#,
+        r#"Return geometric attributes of FRAME.
 FRAME must be a live frame and defaults to the selected one.  The return
 value is an association list of the attributes listed below.  All height
 and width values are in pixels.
@@ -15430,8 +20310,11 @@ and width values are in pixels.
   border is usually shown only for frames without window manager
   decorations, such as child and tooltip frames.
 
-(fn FRAME)"#),
-    (r#"x-frame-list-z-order"#, r#"Return list of Emacs's frames, in Z (stacking) order.
+(fn FRAME)"#,
+    ),
+    (
+        r#"x-frame-list-z-order"#,
+        r#"Return list of Emacs's frames, in Z (stacking) order.
 The optional argument TERMINAL specifies which display to ask about.
 TERMINAL should be either a frame or a display name (a string).  If
 omitted or nil, that stands for the selected frame's display.  Return
@@ -15442,8 +20325,11 @@ return the child frames of that frame in Z (stacking) order.
 
 Frames are listed from topmost (first) to bottommost (last).
 
-(fn TERMINAL)"#),
-    (r#"x-frame-restack"#, r#"Restack FRAME1 below FRAME2.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-frame-restack"#,
+        r#"Restack FRAME1 below FRAME2.
 This means that if both frames are visible and the display areas of
 these frames overlap, FRAME2 (partially) obscures FRAME1.  If optional
 third argument ABOVE is non-nil, restack FRAME1 above FRAME2.  This
@@ -15459,16 +20345,22 @@ unaltered.
 
 Some window managers may refuse to restack windows.
 
-(fn FRAME1 FRAME2 ABOVE)"#),
-    (r#"x-get-atom-name"#, r#"Return the X atom name for VALUE as a string.
+(fn FRAME1 FRAME2 ABOVE)"#,
+    ),
+    (
+        r#"x-get-atom-name"#,
+        r#"Return the X atom name for VALUE as a string.
 VALUE may be a number or a cons where the car is the upper 16 bits and
 the cdr is the lower 16 bits of a 32 bit value.
 Use the display for FRAME or the current frame if FRAME is not given or nil.
 
 If the value is 0 or the atom is not known, return the empty string.
 
-(fn VALUE FRAME)"#),
-    (r#"x-get-local-selection"#, r#"Run selection converters for VALUE, and return the result.
+(fn VALUE FRAME)"#,
+    ),
+    (
+        r#"x-get-local-selection"#,
+        r#"Run selection converters for VALUE, and return the result.
 TARGET is the selection target that is used to find a suitable
 converter.  VALUE is a list of 4 values NAME, SELECTION-VALUE,
 TIMESTAMP and FRAME.  NAME is the name of the selection that will be
@@ -15478,8 +20370,11 @@ be a number that fits in an X timestamp), and FRAME is the frame
 describing the terminal for which the selection converter will be
 run.
 
-(fn VALUE TARGET)"#),
-    (r#"x-get-modifier-masks"#, r#"Return the X modifier masks corresponding to keyboard modifiers.
+(fn VALUE TARGET)"#,
+    ),
+    (
+        r#"x-get-modifier-masks"#,
+        r#"Return the X modifier masks corresponding to keyboard modifiers.
 The optional second argument TERMINAL specifies which display to fetch
 modifier masks from.  TERMINAL should be a terminal object, a frame or
 a display name (a string).  If TERMINAL is omitted or nil, that stands
@@ -15489,8 +20384,11 @@ Return a list of (HYPER SUPER ALT SHIFT-LOCK META), each element being
 a number describing the modifier mask for the corresponding Emacs
 modifier.
 
-(fn TERMINAL)"#),
-    (r#"x-get-page-setup"#, r#"Return the value of the current page setup.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-get-page-setup"#,
+        r#"Return the value of the current page setup.
 The return value is an alist containing the following keys:
 
   orientation: page orientation (symbol `portrait', `landscape',
@@ -15508,8 +20406,11 @@ height, top-margin, and bottom-margin values if the page orientation
 is `portrait' or `reverse-portrait'.  Otherwise, it is the sum of
 height, left-margin, and right-margin values.
 
-(fn)"#),
-    (r#"x-get-resource"#, r#"Return the value of ATTRIBUTE, of class CLASS, from the X defaults database.
+(fn)"#,
+    ),
+    (
+        r#"x-get-resource"#,
+        r#"Return the value of ATTRIBUTE, of class CLASS, from the X defaults database.
 This uses `INSTANCE.ATTRIBUTE' as the key and `Emacs.CLASS' as the
 class, where INSTANCE is the name under which Emacs was invoked, or
 the name specified by the `-name' or `-rn' command-line arguments.
@@ -15519,8 +20420,11 @@ class, respectively.  You must specify both of them or neither.
 If you specify them, the key is `INSTANCE.COMPONENT.ATTRIBUTE'
 and the class is `Emacs.CLASS.SUBCLASS'.
 
-(fn ATTRIBUTE CLASS COMPONENT SUBCLASS)"#),
-    (r#"x-get-selection-internal"#, r#"Return text selected from some X window.
+(fn ATTRIBUTE CLASS COMPONENT SUBCLASS)"#,
+    ),
+    (
+        r#"x-get-selection-internal"#,
+        r#"Return text selected from some X window.
 SELECTION-SYMBOL is typically `PRIMARY', `SECONDARY', or `CLIPBOARD'.
 \(Those are literal upper-case symbol names, since that's what X expects.)
 TARGET-TYPE is the type of data desired, typically `STRING'.
@@ -15534,24 +20438,39 @@ frame's display, or the first available X display.
 
 On Nextstep, TIME-STAMP and TERMINAL are unused.
 
-(fn SELECTION-SYMBOL TARGET-TYPE TIME-STAMP TERMINAL)"#),
-    (r#"x-gtk-debug"#, r#"SKIP: real doc in xfns.c.
+(fn SELECTION-SYMBOL TARGET-TYPE TIME-STAMP TERMINAL)"#,
+    ),
+    (
+        r#"x-gtk-debug"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn ENABLE)"#),
-    (r#"x-gtk-launch-uri"#, r#"Tell GTK to launch the default application to show given URI.
+(fn ENABLE)"#,
+    ),
+    (
+        r#"x-gtk-launch-uri"#,
+        r#"Tell GTK to launch the default application to show given URI.
 
 This function is only available on PGTK.
 
-(fn FRAME URI)"#),
-    (r#"x-hide-tip"#, r#"SKIP: real doc in xfns.c.
+(fn FRAME URI)"#,
+    ),
+    (
+        r#"x-hide-tip"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn)"#),
-    (r#"x-internal-focus-input-context"#, r#"Focus and set the client window of all focused frames' GTK input context.
+(fn)"#,
+    ),
+    (
+        r#"x-internal-focus-input-context"#,
+        r#"Focus and set the client window of all focused frames' GTK input context.
 If FOCUS is nil, focus out and remove the client window instead.
 This should be called from a variable watcher for `x-gtk-use-native-input'.
 
-(fn FOCUS)"#),
-    (r#"x-list-fonts"#, r#"Return a list of the names of available fonts matching PATTERN.
+(fn FOCUS)"#,
+    ),
+    (
+        r#"x-list-fonts"#,
+        r#"Return a list of the names of available fonts matching PATTERN.
 If optional arguments FACE and FRAME are specified, return only fonts
 the same size as FACE on FRAME.
 
@@ -15573,27 +20492,42 @@ The optional fifth argument WIDTH, if specified, is a number of columns
 occupied by a character of a font.  In that case, return only fonts
 the WIDTH times as wide as FACE on FRAME.
 
-(fn PATTERN FACE FRAME MAXIMUM WIDTH)"#),
-    (r#"x-load-color-file"#, r#"Create an alist of color entries from an external file.
+(fn PATTERN FACE FRAME MAXIMUM WIDTH)"#,
+    ),
+    (
+        r#"x-load-color-file"#,
+        r#"Create an alist of color entries from an external file.
 
 The file should define one named RGB color per line like so:
   R G B   name
 where R,G,B are numbers between 0 and 255 and name is an arbitrary string.
 
-(fn FILENAME)"#),
-    (r#"x-menu-bar-open-internal"#, r#"SKIP: real doc in USE_GTK definition in xmenu.c.
+(fn FILENAME)"#,
+    ),
+    (
+        r#"x-menu-bar-open-internal"#,
+        r#"SKIP: real doc in USE_GTK definition in xmenu.c.
 
-(fn FRAME)"#),
-    (r#"x-mouse-absolute-pixel-position"#, r#"Return absolute position of mouse cursor in pixels.
+(fn FRAME)"#,
+    ),
+    (
+        r#"x-mouse-absolute-pixel-position"#,
+        r#"Return absolute position of mouse cursor in pixels.
 The position is returned as a cons cell (X . Y) of the coordinates of
 the mouse cursor position in pixels relative to a position (0, 0) of the
 selected frame's display.
 
-(fn)"#),
-    (r#"x-open-connection"#, r#"SKIP: real doc in xfns.c.
+(fn)"#,
+    ),
+    (
+        r#"x-open-connection"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn DISPLAY RESOURCE-STRING MUST-SUCCEED)"#),
-    (r#"x-own-selection-internal"#, r#"Assert an X selection of type SELECTION and value VALUE.
+(fn DISPLAY RESOURCE-STRING MUST-SUCCEED)"#,
+    ),
+    (
+        r#"x-own-selection-internal"#,
+        r#"Assert an X selection of type SELECTION and value VALUE.
 SELECTION is a symbol, typically `PRIMARY', `SECONDARY', or `CLIPBOARD'.
 \(Those are literal upper-case symbol names, since that's what X expects.)
 VALUE is typically a string, or a cons of two markers, but may be
@@ -15604,12 +20538,18 @@ nil, it defaults to the selected frame.
 
 On Nextstep, FRAME is unused.
 
-(fn SELECTION VALUE FRAME)"#),
-    (r#"x-page-setup-dialog"#, r#"Pop up a page setup dialog.
+(fn SELECTION VALUE FRAME)"#,
+    ),
+    (
+        r#"x-page-setup-dialog"#,
+        r#"Pop up a page setup dialog.
 The current page setup can be obtained using `x-get-page-setup'.
 
-(fn)"#),
-    (r#"x-parse-geometry"#, r#"Parse a display geometry string STRING.
+(fn)"#,
+    ),
+    (
+        r#"x-parse-geometry"#,
+        r#"Parse a display geometry string STRING.
 Returns an alist of the form ((top . TOP), (left . LEFT) ... ).
 The properties returned may include `top', `left', `height', and `width'.
 For X, the value of `left' or `top' may be an integer,
@@ -15617,8 +20557,11 @@ or a list (+ N) meaning N pixels relative to top/left corner,
 or a list (- N) meaning -N pixels relative to bottom/right corner.
 On Nextstep, this just calls `ns-parse-geometry'.
 
-(fn STRING)"#),
-    (r#"x-popup-dialog"#, r#"Pop up a dialog box and return user's selection.
+(fn STRING)"#,
+    ),
+    (
+        r#"x-popup-dialog"#,
+        r#"Pop up a dialog box and return user's selection.
 POSITION specifies which frame to use.
 This is normally a mouse button event or a window or frame.
 If POSITION is t, it means to use the frame the mouse is on.
@@ -15641,8 +20584,11 @@ If the user gets rid of the dialog box without making a valid choice,
 for instance using the window manager, then this produces a quit and
 `x-popup-dialog' does not return.
 
-(fn POSITION CONTENTS HEADER)"#),
-    (r#"x-popup-menu"#, r#"Pop up a deck-of-cards menu and return user's selection.
+(fn POSITION CONTENTS HEADER)"#,
+    ),
+    (
+        r#"x-popup-menu"#,
+        r#"Pop up a deck-of-cards menu and return user's selection.
 POSITION is a position specification.  This is either a mouse button event
 or a list ((XOFFSET YOFFSET) WINDOW)
 where XOFFSET and YOFFSET are positions in pixels from the top left
@@ -15686,21 +20632,30 @@ touch screen event (indicating that the user invoked the menu with the
 a pointing device) then no quit occurs and `x-popup-menu' returns
 nil.
 
-(fn POSITION MENU)"#),
-    (r#"x-print-frames-dialog"#, r#"Pop up a print dialog to print the current contents of FRAMES.
+(fn POSITION MENU)"#,
+    ),
+    (
+        r#"x-print-frames-dialog"#,
+        r#"Pop up a print dialog to print the current contents of FRAMES.
 FRAMES should be nil (the selected frame), a frame, or a list of
 frames (each of which corresponds to one page).  Each frame should be
 visible.
 
 Note: Text drawn with the `x' font backend is shown with hollow boxes.
 
-(fn FRAMES)"#),
-    (r#"x-register-dnd-atom"#, r#"Request that dnd events are made for ClientMessages with ATOM.
+(fn FRAMES)"#,
+    ),
+    (
+        r#"x-register-dnd-atom"#,
+        r#"Request that dnd events are made for ClientMessages with ATOM.
 ATOM can be a symbol or a string.  The ATOM is interned on the display that
 FRAME is on.  If FRAME is nil, the selected frame is used.
 
-(fn ATOM FRAME)"#),
-    (r#"x-select-font"#, r#"Read a font using a native dialog.
+(fn ATOM FRAME)"#,
+    ),
+    (
+        r#"x-select-font"#,
+        r#"Read a font using a native dialog.
 Return a font spec describing the font chosen by the user.
 
 FRAME is the frame on which to pop up the font chooser.  If omitted or
@@ -15708,8 +20663,11 @@ nil, it defaults to the selected frame.
 If EXCLUDE-PROPORTIONAL is non-nil, exclude proportional fonts
 in the font selection dialog.
 
-(fn FRAME EXCLUDE-PROPORTIONAL)"#),
-    (r#"x-selection-exists-p"#, r#"Whether there is an owner for the given X selection.
+(fn FRAME EXCLUDE-PROPORTIONAL)"#,
+    ),
+    (
+        r#"x-selection-exists-p"#,
+        r#"Whether there is an owner for the given X selection.
 SELECTION should be the name of the selection in question, typically
 one of the symbols `PRIMARY', `SECONDARY', `CLIPBOARD', or
 `CLIPBOARD_MANAGER' (X expects these literal upper-case names.)  The
@@ -15721,8 +20679,11 @@ frame's display, or the first available X display.
 
 On Nextstep, TERMINAL is unused.
 
-(fn SELECTION TERMINAL)"#),
-    (r#"x-selection-owner-p"#, r#"Whether the current Emacs process owns the given X Selection.
+(fn SELECTION TERMINAL)"#,
+    ),
+    (
+        r#"x-selection-owner-p"#,
+        r#"Whether the current Emacs process owns the given X Selection.
 The arg should be the name of the selection in question, typically one of
 the symbols `PRIMARY', `SECONDARY', or `CLIPBOARD'.
 \(Those are literal upper-case symbol names, since that's what X expects.)
@@ -15735,8 +20696,11 @@ frame's display, or the first available X display.
 
 On Nextstep, TERMINAL is unused.
 
-(fn SELECTION TERMINAL)"#),
-    (r#"x-send-client-message"#, r#"Send a client message of MESSAGE-TYPE to window DEST on DISPLAY.
+(fn SELECTION TERMINAL)"#,
+    ),
+    (
+        r#"x-send-client-message"#,
+        r#"Send a client message of MESSAGE-TYPE to window DEST on DISPLAY.
 
 For DISPLAY, specify either a frame or a display name (a string).
 If DISPLAY is nil, that stands for the selected frame's display.
@@ -15764,45 +20728,78 @@ Wait for the event to be sent and signal any error, unless
 `x-fast-protocol-requests' is non-nil, in which case errors will be
 silently ignored.
 
-(fn DISPLAY DEST FROM MESSAGE-TYPE FORMAT VALUES)"#),
-    (r#"x-server-input-extension-version"#, r#"Return the version of the X Input Extension supported by TERMINAL.
+(fn DISPLAY DEST FROM MESSAGE-TYPE FORMAT VALUES)"#,
+    ),
+    (
+        r#"x-server-input-extension-version"#,
+        r#"Return the version of the X Input Extension supported by TERMINAL.
 The value is nil if TERMINAL's X server doesn't support the X Input
 Extension extension, or if Emacs doesn't support the version present
 on that server.  Otherwise, the return value is a list of the major
 and minor versions of the X Input Extension extension running on that
 server.
 
-(fn TERMINAL)"#),
-    (r#"x-server-max-request-size"#, r#"SKIP: real doc in xfns.c.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-server-max-request-size"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn TERMINAL)"#),
-    (r#"x-server-vendor"#, r#"SKIP: real doc in xfns.c.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-server-vendor"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn TERMINAL)"#),
-    (r#"x-server-version"#, r#"SKIP: real doc in xfns.c.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-server-version"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn TERMINAL)"#),
-    (r#"x-set-mouse-absolute-pixel-position"#, r#"Move mouse pointer to absolute pixel position (X, Y).
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"x-set-mouse-absolute-pixel-position"#,
+        r#"Move mouse pointer to absolute pixel position (X, Y).
 The coordinates X and Y are interpreted in pixels relative to a position
 \(0, 0) of the selected frame's display.
 
-(fn X Y)"#),
-    (r#"x-show-tip"#, r#"SKIP: real doc in xfns.c.
+(fn X Y)"#,
+    ),
+    (
+        r#"x-show-tip"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn STRING FRAME PARMS TIMEOUT DX DY)"#),
-    (r#"x-synchronize"#, r#"SKIP: real doc in xfns.c.
+(fn STRING FRAME PARMS TIMEOUT DX DY)"#,
+    ),
+    (
+        r#"x-synchronize"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn ON DISPLAY)"#),
-    (r#"x-test-string-conversion"#, r#"Perform tests on the XIM string conversion support.
+(fn ON DISPLAY)"#,
+    ),
+    (
+        r#"x-test-string-conversion"#,
+        r#"Perform tests on the XIM string conversion support.
 
-(fn FRAME POSITION DIRECTION OPERATION FACTOR)"#),
-    (r#"x-uses-old-gtk-dialog"#, r#"Return t if the old Gtk+ file selection dialog is used.
+(fn FRAME POSITION DIRECTION OPERATION FACTOR)"#,
+    ),
+    (
+        r#"x-uses-old-gtk-dialog"#,
+        r#"Return t if the old Gtk+ file selection dialog is used.
 
-(fn)"#),
-    (r#"x-window-property"#, r#"SKIP: real doc in xfns.c.
+(fn)"#,
+    ),
+    (
+        r#"x-window-property"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn PROP FRAME TYPE SOURCE DELETE-P VECTOR-RET-P)"#),
-    (r#"x-window-property-attributes"#, r#"Retrieve metadata about window property PROP on FRAME.
+(fn PROP FRAME TYPE SOURCE DELETE-P VECTOR-RET-P)"#,
+    ),
+    (
+        r#"x-window-property-attributes"#,
+        r#"Retrieve metadata about window property PROP on FRAME.
 If FRAME is nil or omitted, use the selected frame.
 If WINDOW-ID is non-nil, get the property of that window instead of
  FRAME's X window; the number 0 denotes the root window.  This
@@ -15818,55 +20815,97 @@ Otherwise, the return value is a vector with the following fields:
 1. The format of each element; one of 8, 16, or 32.
 2. The length of the property, in number of elements.
 
-(fn PROP FRAME WINDOW-ID)"#),
-    (r#"x-wm-set-size-hint"#, r#"Send the size hints for frame FRAME to the window manager.
+(fn PROP FRAME WINDOW-ID)"#,
+    ),
+    (
+        r#"x-wm-set-size-hint"#,
+        r#"Send the size hints for frame FRAME to the window manager.
 If FRAME is omitted or nil, use the selected frame.
 Signal error if FRAME is not an X frame.
 
-(fn FRAME)"#),
-    (r#"xw-color-defined-p"#, r#"SKIP: real doc in xfns.c.
+(fn FRAME)"#,
+    ),
+    (
+        r#"xw-color-defined-p"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn COLOR FRAME)"#),
-    (r#"xw-color-values"#, r#"SKIP: real doc in xfns.c.
+(fn COLOR FRAME)"#,
+    ),
+    (
+        r#"xw-color-values"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn COLOR FRAME)"#),
-    (r#"xw-display-color-p"#, r#"SKIP: real doc in xfns.c.
+(fn COLOR FRAME)"#,
+    ),
+    (
+        r#"xw-display-color-p"#,
+        r#"SKIP: real doc in xfns.c.
 
-(fn TERMINAL)"#),
-    (r#"xwidget-buffer"#, r#"Return the buffer of XWIDGET.
+(fn TERMINAL)"#,
+    ),
+    (
+        r#"xwidget-buffer"#,
+        r#"Return the buffer of XWIDGET.
 
-(fn XWIDGET)"#),
-    (r#"xwidget-info"#, r#"Return XWIDGET properties in a vector.
+(fn XWIDGET)"#,
+    ),
+    (
+        r#"xwidget-info"#,
+        r#"Return XWIDGET properties in a vector.
 Currently [TYPE TITLE WIDTH HEIGHT].
 
-(fn XWIDGET)"#),
-    (r#"xwidget-plist"#, r#"Return the plist of XWIDGET.
+(fn XWIDGET)"#,
+    ),
+    (
+        r#"xwidget-plist"#,
+        r#"Return the plist of XWIDGET.
 
-(fn XWIDGET)"#),
-    (r#"xwidget-query-on-exit-flag"#, r#"Return the current value of the query-on-exit flag for XWIDGET.
+(fn XWIDGET)"#,
+    ),
+    (
+        r#"xwidget-query-on-exit-flag"#,
+        r#"Return the current value of the query-on-exit flag for XWIDGET.
 
-(fn XWIDGET)"#),
-    (r#"xwidget-resize"#, r#"Resize XWIDGET to NEW_WIDTH, NEW_HEIGHT.
+(fn XWIDGET)"#,
+    ),
+    (
+        r#"xwidget-resize"#,
+        r#"Resize XWIDGET to NEW_WIDTH, NEW_HEIGHT.
 
-(fn XWIDGET NEW-WIDTH NEW-HEIGHT)"#),
-    (r#"xwidget-size-request"#, r#"Return the desired size of the XWIDGET.
+(fn XWIDGET NEW-WIDTH NEW-HEIGHT)"#,
+    ),
+    (
+        r#"xwidget-size-request"#,
+        r#"Return the desired size of the XWIDGET.
 This can be used to read the xwidget desired size, and resizes the
 Emacs allocated area accordingly.
 
-(fn XWIDGET)"#),
-    (r#"xwidget-view-info"#, r#"Return properties of XWIDGET-VIEW in a vector.
+(fn XWIDGET)"#,
+    ),
+    (
+        r#"xwidget-view-info"#,
+        r#"Return properties of XWIDGET-VIEW in a vector.
 Currently [X Y CLIP_RIGHT CLIP_BOTTOM CLIP_TOP CLIP_LEFT].
 
-(fn XWIDGET-VIEW)"#),
-    (r#"xwidget-view-model"#, r#"Return the xwidget-view associated with XWIDGET in WINDOW.
+(fn XWIDGET-VIEW)"#,
+    ),
+    (
+        r#"xwidget-view-model"#,
+        r#"Return the xwidget-view associated with XWIDGET in WINDOW.
 If WINDOW is unspecified or nil, use the selected window.
 Return nil if no association is found.
 
-(fn XWIDGET WINDOW)"#),
-    (r#"xwidget-view-p"#, r#"Return t if OBJECT is an xwidget-view.
+(fn XWIDGET WINDOW)"#,
+    ),
+    (
+        r#"xwidget-view-p"#,
+        r#"Return t if OBJECT is an xwidget-view.
 
-(fn OBJECT)"#),
-    (r#"xwidget-webkit-back-forward-list"#, r#"Return the navigation history of XWIDGET, a WebKit xwidget.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"xwidget-webkit-back-forward-list"#,
+        r#"Return the navigation history of XWIDGET, a WebKit xwidget.
 
 Return the history as a list of the form (BACK HERE FORWARD), where
 HERE is the current navigation item, while BACK and FORWARD are lists
@@ -15881,52 +20920,76 @@ navigation history.
 BACK and FORWARD will each not contain more elements than LIMIT.  If
 LIMIT is not specified or nil, it is treated as `50'.
 
-(fn XWIDGET LIMIT)"#),
-    (r#"xwidget-webkit-execute-script"#, r#"Make the Webkit XWIDGET execute JavaScript SCRIPT.
+(fn XWIDGET LIMIT)"#,
+    ),
+    (
+        r#"xwidget-webkit-execute-script"#,
+        r#"Make the Webkit XWIDGET execute JavaScript SCRIPT.
 If FUN is provided, feed the JavaScript return value to the single
 argument procedure FUN.
 
-(fn XWIDGET SCRIPT FUN)"#),
-    (r#"xwidget-webkit-finish-search"#, r#"Finish XWIDGET's search operation.
+(fn XWIDGET SCRIPT FUN)"#,
+    ),
+    (
+        r#"xwidget-webkit-finish-search"#,
+        r#"Finish XWIDGET's search operation.
 
 XWIDGET should be an xwidget that currently has a search query.
 Before calling this function, you should start a search operation
 using `xwidget-webkit-search'.
 
-(fn XWIDGET)"#),
-    (r#"xwidget-webkit-goto-history"#, r#"Make the XWIDGET webkit the REL-POSth element in load history.
+(fn XWIDGET)"#,
+    ),
+    (
+        r#"xwidget-webkit-goto-history"#,
+        r#"Make the XWIDGET webkit the REL-POSth element in load history.
 
 If REL-POS is 0, the widget will be just reload the current element in
 history.  If REL-POS is more or less than 0, the widget will load the
 REL-POSth element around the current spot in the load history.
 
-(fn XWIDGET REL-POS)"#),
-    (r#"xwidget-webkit-goto-uri"#, r#"Make the xwidget webkit instance referenced by XWIDGET browse URI.
+(fn XWIDGET REL-POS)"#,
+    ),
+    (
+        r#"xwidget-webkit-goto-uri"#,
+        r#"Make the xwidget webkit instance referenced by XWIDGET browse URI.
 
-(fn XWIDGET URI)"#),
-    (r#"xwidget-webkit-load-html"#, r#"Make XWIDGET's WebKit widget render TEXT.
+(fn XWIDGET URI)"#,
+    ),
+    (
+        r#"xwidget-webkit-load-html"#,
+        r#"Make XWIDGET's WebKit widget render TEXT.
 XWIDGET should be a WebKit xwidget, that will receive TEXT.  TEXT
 should be a string that will be displayed by XWIDGET as HTML markup.
 BASE-URI should be a string containing a URI that is used to locate
 resources with relative URLs, and if not specified, defaults
 to "about:blank".
 
-(fn XWIDGET TEXT BASE-URI)"#),
-    (r#"xwidget-webkit-next-result"#, r#"Show the next result matching the current search query.
+(fn XWIDGET TEXT BASE-URI)"#,
+    ),
+    (
+        r#"xwidget-webkit-next-result"#,
+        r#"Show the next result matching the current search query.
 
 XWIDGET should be an xwidget that currently has a search query.
 Before calling this function, you should start a search operation
 using `xwidget-webkit-search'.
 
-(fn XWIDGET)"#),
-    (r#"xwidget-webkit-previous-result"#, r#"Show the previous result matching the current search query.
+(fn XWIDGET)"#,
+    ),
+    (
+        r#"xwidget-webkit-previous-result"#,
+        r#"Show the previous result matching the current search query.
 
 XWIDGET should be an xwidget that currently has a search query.
 Before calling this function, you should start a search operation
 using `xwidget-webkit-search'.
 
-(fn XWIDGET)"#),
-    (r#"xwidget-webkit-search"#, r#"Begin an incremental search operation in an xwidget.
+(fn XWIDGET)"#,
+    ),
+    (
+        r#"xwidget-webkit-search"#,
+        r#"Begin an incremental search operation in an xwidget.
 QUERY should be a string containing the text to search for.  XWIDGET
 should be a WebKit xwidget where the search will take place.  When the
 search operation is complete, callers should also call
@@ -15942,20 +21005,35 @@ It is OK to call this function even when a search is already in
 progress.  In that case, the previous search query will be replaced
 with QUERY.
 
-(fn QUERY XWIDGET CASE-INSENSITIVE BACKWARDS WRAP-AROUND)"#),
-    (r#"xwidget-webkit-title"#, r#"Get the current title of XWIDGET webkit.
+(fn QUERY XWIDGET CASE-INSENSITIVE BACKWARDS WRAP-AROUND)"#,
+    ),
+    (
+        r#"xwidget-webkit-title"#,
+        r#"Get the current title of XWIDGET webkit.
 
-(fn XWIDGET)"#),
-    (r#"xwidget-webkit-uri"#, r#"Get the current URL of XWIDGET webkit.
+(fn XWIDGET)"#,
+    ),
+    (
+        r#"xwidget-webkit-uri"#,
+        r#"Get the current URL of XWIDGET webkit.
 
-(fn XWIDGET)"#),
-    (r#"xwidget-webkit-zoom"#, r#"Change the zoom factor of the xwidget webkit instance referenced by XWIDGET.
+(fn XWIDGET)"#,
+    ),
+    (
+        r#"xwidget-webkit-zoom"#,
+        r#"Change the zoom factor of the xwidget webkit instance referenced by XWIDGET.
 
-(fn XWIDGET FACTOR)"#),
-    (r#"xwidgetp"#, r#"Return t if OBJECT is an xwidget.
+(fn XWIDGET FACTOR)"#,
+    ),
+    (
+        r#"xwidgetp"#,
+        r#"Return t if OBJECT is an xwidget.
 
-(fn OBJECT)"#),
-    (r#"yes-or-no-p"#, r#"Ask user a yes-or-no question.
+(fn OBJECT)"#,
+    ),
+    (
+        r#"yes-or-no-p"#,
+        r#"Ask user a yes-or-no question.
 Return t if answer is yes, and nil if the answer is no.
 
 PROMPT is the string to display to ask the question; `yes-or-no-p'
@@ -15974,11 +21052,17 @@ If dialog boxes are supported, this function will use a dialog box
 if `use-dialog-box' is non-nil and the last input event was produced
 by a mouse, or by some window-system gesture, or via a menu.
 
-(fn PROMPT)"#),
-    (r#"zlib-available-p"#, r#"Return t if zlib decompression is available in this instance of Emacs.
+(fn PROMPT)"#,
+    ),
+    (
+        r#"zlib-available-p"#,
+        r#"Return t if zlib decompression is available in this instance of Emacs.
 
-(fn)"#),
-    (r#"zlib-decompress-region"#, r#"Decompress a gzip- or zlib-compressed region.
+(fn)"#,
+    ),
+    (
+        r#"zlib-decompress-region"#,
+        r#"Decompress a gzip- or zlib-compressed region.
 Replace the text in the region by the decompressed data.
 
 If optional parameter ALLOW-PARTIAL is nil or omitted, then on
@@ -15989,5 +21073,6 @@ If decompression is completely successful return t.
 
 This function can be called only in unibyte buffers.
 
-(fn START END ALLOW-PARTIAL)"#),
+(fn START END ALLOW-PARTIAL)"#,
+    ),
 ];

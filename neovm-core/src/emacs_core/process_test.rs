@@ -31,7 +31,8 @@ fn eval_with_process_shims() -> Context {
 }
 
 fn install_minimal_special_event_command_runtime(ev: &mut Context) {
-    ev.eval_str(r#"
+    ev.eval_str(
+        r#"
 (fset 'command-execute
       (lambda (cmd &optional _record keys _special)
         (funcall cmd (aref keys 0))))
@@ -39,7 +40,8 @@ fn install_minimal_special_event_command_runtime(ev: &mut Context) {
       (lambda (event)
         (setq neo-last-delete-frame-event event)
         nil))
-"#)
+"#,
+    )
     .expect("eval forms");
 }
 
@@ -1396,10 +1398,13 @@ fn accept_process_output_integer_just_this_one_suppresses_timers() {
     crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let mut ev = Context::new();
-    ev.eval_str(r#"(progn
+    ev.eval_str(
+        r#"(progn
              (fset 'apio-wait-timer-callback
                    (lambda () (setq apio-wait-timer-fired t)))
-             (setq apio-wait-timer-fired nil))"#).expect("install timer callback");
+             (setq apio-wait-timer-fired nil))"#,
+    )
+    .expect("install timer callback");
 
     let pid = ev
         .processes
@@ -1444,11 +1449,13 @@ fn accept_process_output_integer_just_this_one_suppresses_timers() {
 fn accept_process_output_timer_preserves_deactivate_mark_like_gnu() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    ev.eval_str(r#"(progn
+    ev.eval_str(
+        r#"(progn
              (fset 'apio-timer-deactivate
                    (lambda () (setq deactivate-mark nil)))
-             (setq deactivate-mark 'keep))"#)
-        .expect("install timer deactivate setup");
+             (setq deactivate-mark 'keep))"#,
+    )
+    .expect("install timer deactivate setup");
     ev.timers.add_timer(
         0.0,
         0.0,
@@ -1472,7 +1479,8 @@ fn accept_process_output_runs_timer_before_filter_and_sentinel_like_gnu() {
     crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let mut ev = Context::new();
-    ev.eval_str(r#"(progn
+    ev.eval_str(
+        r#"(progn
              (setq apio-order-events nil)
              (fset 'apio-order-timer
                    (lambda ()
@@ -1487,8 +1495,9 @@ fn accept_process_output_runs_timer_before_filter_and_sentinel_like_gnu() {
                    (lambda (_proc msg)
                      (setq apio-order-events
                            (append apio-order-events
-                                   (list (list 'sentinel msg)))))))"#)
-        .expect("install timer/filter/sentinel order setup");
+                                   (list (list 'sentinel msg)))))))"#,
+    )
+    .expect("install timer/filter/sentinel order setup");
     ev.timers
         .add_timer(0.0, 0.0, Value::symbol("apio-order-timer"), vec![], false);
 
@@ -1553,7 +1562,8 @@ fn accept_process_output_runs_gnu_timer_then_internal_timer_before_process_callb
     crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let mut ev = Context::new();
-    ev.eval_str(r#"(progn
+    ev.eval_str(
+        r#"(progn
              (setq apio-full-order nil)
              (fset 'apio-gnu-order-callback
                    (lambda ()
@@ -1576,8 +1586,9 @@ fn accept_process_output_runs_gnu_timer_then_internal_timer_before_process_callb
                    (lambda (_proc msg)
                      (setq apio-full-order
                            (append apio-full-order
-                                   (list (list 'sentinel msg)))))))"#)
-        .expect("install mixed timer ordering setup");
+                                   (list (list 'sentinel msg)))))))"#,
+    )
+    .expect("install mixed timer ordering setup");
 
     ev.set_variable(
         "timer-list",
@@ -1686,10 +1697,13 @@ fn accept_process_output_restores_current_buffer_and_match_data() {
     crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let mut ev = Context::new();
-    ev.eval_str(r#"(fset 'apio-restore-filter
+    ev.eval_str(
+        r#"(fset 'apio-restore-filter
                   (lambda (_proc _string)
                     (set-buffer (get-buffer-create "*apio-restore-other*"))
-                    (string-match "bb" "abba")))"#).expect("install restore filter");
+                    (string-match "bb" "abba")))"#,
+    )
+    .expect("install restore filter");
 
     let home_id = ev.buffers.create_buffer("*apio-restore-home*");
     assert!(ev.buffers.switch_current(home_id));
@@ -1874,14 +1888,16 @@ fn sleep_for_uses_shared_wait_path_for_process_output_and_timers() {
     crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let mut ev = Context::new();
-    ev.eval_str(r#"(progn
+    ev.eval_str(
+        r#"(progn
              (fset 'sleep-shared-filter
                    (lambda (_proc string) (setq sleep-shared-output string)))
              (fset 'sleep-shared-timer
                    (lambda () (setq sleep-shared-timer-fired 'done)))
              (setq sleep-shared-output nil
-                   sleep-shared-timer-fired nil))"#)
-        .expect("install sleep-for callback setup");
+                   sleep-shared-timer-fired nil))"#,
+    )
+    .expect("install sleep-for callback setup");
 
     let pid = ev
         .processes

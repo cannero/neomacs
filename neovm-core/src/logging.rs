@@ -222,7 +222,10 @@ fn default_layer(target: LogTarget) -> Option<BoxedLayer> {
 
 fn open_file_layer(
     path: &std::path::Path,
-) -> (Option<BoxedLayer>, Option<tracing_appender::non_blocking::WorkerGuard>) {
+) -> (
+    Option<BoxedLayer>,
+    Option<tracing_appender::non_blocking::WorkerGuard>,
+) {
     match std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -249,7 +252,10 @@ fn open_file_layer(
 
 fn file_layer_for(
     target: LogTarget,
-) -> (Option<BoxedLayer>, Option<tracing_appender::non_blocking::WorkerGuard>) {
+) -> (
+    Option<BoxedLayer>,
+    Option<tracing_appender::non_blocking::WorkerGuard>,
+) {
     let path = match (target, resolve_env_log_file()) {
         // Explicit NEOMACS_LOG_FILE always wins, regardless of target.
         (_, Some(path)) => path,

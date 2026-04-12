@@ -1557,7 +1557,9 @@ impl TaggedHeap {
                 // Fallback: scan from stack_bottom if it's close
                 let lo = std::cmp::min(self.stack_bottom as usize, rsp);
                 let hi = std::cmp::max(self.stack_bottom as usize, rsp);
-                if hi - lo > 8 * 1024 * 1024 { return; }
+                if hi - lo > 8 * 1024 * 1024 {
+                    return;
+                }
                 (lo, hi)
             }
         };
@@ -1662,8 +1664,7 @@ impl TaggedHeap {
     #[cfg(debug_assertions)]
     fn verify_marked_objects_owned(&self) {
         // Build a set of all owned non-cons object addresses
-        let mut owned_addrs: std::collections::HashSet<usize> =
-            std::collections::HashSet::new();
+        let mut owned_addrs: std::collections::HashSet<usize> = std::collections::HashSet::new();
         let mut obj = self.all_objects;
         while !obj.is_null() {
             owned_addrs.insert(obj as usize);
@@ -1701,7 +1702,10 @@ impl TaggedHeap {
                 current = (*current).next;
             }
         }
-        tracing::trace!("GC verify: {} marked non-cons objects, all owned", total_marked);
+        tracing::trace!(
+            "GC verify: {} marked non-cons objects, all owned",
+            total_marked
+        );
     }
 }
 

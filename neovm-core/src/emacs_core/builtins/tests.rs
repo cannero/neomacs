@@ -94,11 +94,13 @@ fn eval_first_gnu_form_after_marker(eval: &mut Context, source: &str, marker: &s
 }
 
 fn load_gnu_save_selected_window_runtime(eval: &mut Context) {
-    eval.eval_str(r#"
+    eval.eval_str(
+        r#"
         (defalias 'frames-on-display-list
           #'(lambda (&optional _device)
               (frame-list)))
-        "#)
+        "#,
+    )
     .expect("eval forms");
 
     let window_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp/window.el");
@@ -236,12 +238,12 @@ fn eval_dispatch_typed_max_uses_live_marker_position_after_insertions() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let result = eval
         .eval_str_each(
-        r#"(insert "abc")
+            r#"(insert "abc")
            (let ((m (copy-marker (point-max) t)))
              (goto-char 2)
              (insert "XYZ")
              (max 1 m))"#,
-    )
+        )
         .into_iter()
         .last()
         .expect("one form")
@@ -255,12 +257,12 @@ fn eval_dispatch_typed_min_uses_live_marker_position_after_insertions() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let result = eval
         .eval_str_each(
-        r#"(insert "abc")
+            r#"(insert "abc")
            (let ((m (copy-marker (point-max) t)))
              (goto-char 2)
              (insert "XYZ")
              (min 10 m))"#,
-    )
+        )
         .into_iter()
         .last()
         .expect("one form")
@@ -1024,7 +1026,10 @@ fn eval_get_file_buffer_matches_visited_paths() {
     let path = std::env::temp_dir().join(format!("neovm-gfb-{}-{}", std::process::id(), "eval"));
     std::fs::write(&path, b"gfb").expect("write test file");
     let file = path.to_string_lossy().to_string();
-    eval.buffers.get_mut(id).unwrap().set_file_name_value(Some(file.clone()));
+    eval.buffers
+        .get_mut(id)
+        .unwrap()
+        .set_file_name_value(Some(file.clone()));
 
     let exact = builtin_get_file_buffer(&mut eval, vec![Value::string(&file)]).unwrap();
     assert_eq!(exact, Value::make_buffer(id));
@@ -1787,11 +1792,11 @@ fn subst_char_in_region_replaces_trailing_newline_with_marker_end() {
 
     let result = eval
         .eval_str_each(
-        r#"(insert "a\nb\n")
+            r#"(insert "a\nb\n")
            (let ((end (copy-marker (point-max) t)))
              (subst-char-in-region (point-min) end ?\n ?\s t)
              (buffer-string))"#,
-    )
+        )
         .into_iter()
         .last()
         .expect("one form")
@@ -1807,13 +1812,13 @@ fn subst_char_in_region_uses_live_marker_end_after_insertions() {
 
     let result = eval
         .eval_str_each(
-        r#"(insert "a\n")
+            r#"(insert "a\n")
            (let ((end (copy-marker (point-max) t)))
              (goto-char (point-min))
              (insert " ")
              (subst-char-in-region (point-min) end ?\n ?\s t)
              (buffer-string))"#,
-    )
+        )
         .into_iter()
         .last()
         .expect("one form")
@@ -1829,13 +1834,13 @@ fn goto_char_uses_live_marker_position_after_insertions() {
 
     let result = eval
         .eval_str_each(
-        r#"(insert "ab")
+            r#"(insert "ab")
            (let ((m (copy-marker (point-max) t)))
              (goto-char (point-min))
              (insert "X")
              (goto-char m)
              (point))"#,
-    )
+        )
         .into_iter()
         .last()
         .expect("one form")
@@ -1851,14 +1856,14 @@ fn char_queries_use_live_marker_positions_after_insertions() {
 
     let result = eval
         .eval_str_each(
-        r#"(insert "ab")
+            r#"(insert "ab")
            (let ((m (copy-marker 2)))
              (goto-char 1)
              (insert "X")
              (list (marker-position m)
                    (char-after m)
                    (char-before m)))"#,
-    )
+        )
         .into_iter()
         .last()
         .expect("one form")
@@ -1874,7 +1879,7 @@ fn search_forward_uses_live_marker_bound_after_insertions() {
 
     let result = eval
         .eval_str_each(
-        r#"(insert "ab")
+            r#"(insert "ab")
            (let ((end (copy-marker (point-max) t)))
              (goto-char (point-min))
              (insert "X")
@@ -1882,7 +1887,7 @@ fn search_forward_uses_live_marker_bound_after_insertions() {
              (list (search-forward "b" end t)
                    (point)
                    (marker-position end)))"#,
-    )
+        )
         .into_iter()
         .last()
         .expect("one form")
@@ -3058,10 +3063,7 @@ fn buffer_undo_designators_match_deleted_and_missing_buffer_semantics() {
     assert!(crate::buffer::undo_list_is_disabled(
         &current.get_undo_list()
     ));
-    assert_eq!(
-        current.get_buffer_local("buffer-undo-list"),
-        Some(Value::T)
-    );
+    assert_eq!(current.get_buffer_local("buffer-undo-list"), Some(Value::T));
 
     let enable_current =
         builtin_buffer_enable_undo(&mut eval, vec![]).expect("buffer-enable-undo should work");
@@ -5364,11 +5366,15 @@ fn pure_dispatch_internal_placeholder_cluster_matches_compat_contracts() {
 fn internal_track_mouse_binds_and_restores_track_mouse() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
-    let result = eval.eval_str(r#"(progn
+    let result = eval
+        .eval_str(
+            r#"(progn
            (setq track-mouse 'outer)
            (list
             (internal--track-mouse (lambda () track-mouse))
-            track-mouse))"#).expect("internal--track-mouse");
+            track-mouse))"#,
+        )
+        .expect("internal--track-mouse");
     assert_eq!(result, Value::list(vec![Value::T, Value::symbol("outer")]));
 }
 
@@ -5377,14 +5383,16 @@ fn internal_track_mouse_restores_track_mouse_after_error() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let result = eval
-        .eval_str(r#"(progn
+        .eval_str(
+            r#"(progn
            (setq track-mouse 'outer)
            (condition-case err
                (internal--track-mouse
                 (lambda ()
                   (setq track-mouse 'dragging)
                   (signal 'error nil)))
-             (error (list track-mouse (car err)))))"#)
+             (error (list track-mouse (car err)))))"#,
+        )
         .expect("internal--track-mouse condition-case");
     assert_eq!(
         result,
@@ -6042,7 +6050,7 @@ fn bootstrap_runtime_set_match_data_restores_multibyte_buffer_positions_like_gnu
     load_minimal_gnu_backquote_runtime(&mut eval);
     let result = eval
         .eval_str_each(
-        r#"(with-temp-buffer
+            r#"(with-temp-buffer
              (insert "a—b")
              (goto-char (point-min))
              (re-search-forward "—" nil t)
@@ -6055,7 +6063,7 @@ fn bootstrap_runtime_set_match_data_restores_multibyte_buffer_positions_like_gnu
                        (match-beginning 0)
                        (match-end 0)
                        (match-string 0)))))"#,
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -6497,8 +6505,7 @@ fn posix_string_match_returns_longest_alternative_like_gnu() {
     )
     .expect("string-match should succeed");
     assert_eq!(result, Value::fixnum(0));
-    let observed = builtin_match_end(&mut eval, vec![Value::fixnum(0)])
-        .expect("match-end 0");
+    let observed = builtin_match_end(&mut eval, vec![Value::fixnum(0)]).expect("match-end 0");
     assert_eq!(observed, Value::fixnum(1), "non-POSIX matches 1 char 'a'");
 
     // POSIX: `posix-string-match` explores every alternative and
@@ -6509,8 +6516,7 @@ fn posix_string_match_returns_longest_alternative_like_gnu() {
     )
     .expect("posix-string-match should succeed");
     assert_eq!(result, Value::fixnum(0));
-    let observed = builtin_match_end(&mut eval, vec![Value::fixnum(0)])
-        .expect("match-end 0");
+    let observed = builtin_match_end(&mut eval, vec![Value::fixnum(0)]).expect("match-end 0");
     assert_eq!(
         observed,
         Value::fixnum(3),
@@ -6528,10 +6534,7 @@ fn posix_string_match_grouped_alternation_picks_longest_like_gnu() {
     // Non-POSIX: m0="a", m1="a"
     let result = builtin_string_match(
         &mut eval,
-        vec![
-            Value::string("\\(a\\|ab\\|abc\\)"),
-            Value::string("abcdef"),
-        ],
+        vec![Value::string("\\(a\\|ab\\|abc\\)"), Value::string("abcdef")],
     )
     .expect("string-match should succeed");
     assert_eq!(result, Value::fixnum(0));
@@ -6541,10 +6544,7 @@ fn posix_string_match_grouped_alternation_picks_longest_like_gnu() {
     // POSIX: m0="abc", m1="abc"
     let result = builtin_posix_string_match(
         &mut eval,
-        vec![
-            Value::string("\\(a\\|ab\\|abc\\)"),
-            Value::string("abcdef"),
-        ],
+        vec![Value::string("\\(a\\|ab\\|abc\\)"), Value::string("abcdef")],
     )
     .expect("posix-string-match should succeed");
     assert_eq!(result, Value::fixnum(0));
@@ -6563,11 +6563,8 @@ fn replace_match_rejects_backslash_zero_and_unknown_escape_like_gnu() {
 
     // Seed match data via string-match against a plain string so the
     // replacement path is the Fstring-based one.
-    builtin_string_match(
-        &mut eval,
-        vec![Value::string("foo"), Value::string("foo")],
-    )
-    .expect("seed match data");
+    builtin_string_match(&mut eval, vec![Value::string("foo"), Value::string("foo")])
+        .expect("seed match data");
 
     // `\0` must signal, not return the whole match.
     let result = builtin_replace_match(
@@ -6792,12 +6789,18 @@ fn looking_at_honors_per_buffer_case_fold_search() {
     // so expand it by hand: `make-local-variable` then `set`.
     let make_local = Value::list(vec![
         Value::symbol("make-local-variable"),
-        Value::list(vec![Value::symbol("quote"), Value::symbol("case-fold-search")]),
+        Value::list(vec![
+            Value::symbol("quote"),
+            Value::symbol("case-fold-search"),
+        ]),
     ]);
     eval.eval_value(&make_local).expect("make-local-variable");
     let set_form = Value::list(vec![
         Value::symbol("set"),
-        Value::list(vec![Value::symbol("quote"), Value::symbol("case-fold-search")]),
+        Value::list(vec![
+            Value::symbol("quote"),
+            Value::symbol("case-fold-search"),
+        ]),
         Value::NIL,
     ]);
     eval.eval_value(&set_form)
@@ -6818,7 +6821,10 @@ fn looking_at_honors_per_buffer_case_fold_search() {
     // default cell.
     let default_form = Value::list(vec![
         Value::symbol("default-value"),
-        Value::list(vec![Value::symbol("quote"), Value::symbol("case-fold-search")]),
+        Value::list(vec![
+            Value::symbol("quote"),
+            Value::symbol("case-fold-search"),
+        ]),
     ]);
     let default_val = eval
         .eval_value(&default_form)
@@ -6869,11 +6875,8 @@ fn re_search_forward_honors_inhibit_changing_match_data() {
     // numeric form of `match_data.groups[0]` is an internal detail
     // (1-based marker span over bytes); we only need a reference
     // snapshot to compare against after the second search.
-    let first = builtin_re_search_forward(
-        &mut eval,
-        vec![Value::string("a")],
-    )
-    .expect("first re-search-forward 'a'");
+    let first = builtin_re_search_forward(&mut eval, vec![Value::string("a")])
+        .expect("first re-search-forward 'a'");
     // Marker positions are 1-based in our match_data layout, so the
     // char position after the "a" match at buffer head is 2.
     assert_eq!(first.as_fixnum(), Some(2), "point should be after 'a'");
@@ -6894,11 +6897,8 @@ fn re_search_forward_honors_inhibit_changing_match_data() {
     // must NOT update. The return value of re-search-forward is
     // still the character position of the match (GNU `search.c:422`
     // documents the return being independent of match-data update).
-    let second = builtin_re_search_forward(
-        &mut eval,
-        vec![Value::string("b")],
-    )
-    .expect("second re-search-forward 'b' with inhibit set");
+    let second = builtin_re_search_forward(&mut eval, vec![Value::string("b")])
+        .expect("second re-search-forward 'b' with inhibit set");
     assert_eq!(second.as_fixnum(), Some(7), "search still returns position");
 
     let span_after_second = eval
@@ -8612,10 +8612,7 @@ fn message_eval_stores_echo_text_without_immediate_redisplay() {
 
     builtin_message(&mut eval, vec![Value::string("hello echo")])
         .expect("message eval should store echo text");
-    assert_eq!(
-        eval.current_message_text(),
-        Some("hello echo")
-    );
+    assert_eq!(eval.current_message_text(), Some("hello echo"));
     builtin_message(&mut eval, vec![Value::NIL]).expect("message eval should clear");
     assert_eq!(eval.current_message_text(), None);
 
@@ -8727,14 +8724,14 @@ fn assoc_delete_all_supports_default_equal_and_optional_test() {
     load_minimal_gnu_backquote_runtime(&mut eval);
     let results = eval
         .eval_str_each(
-        r#"
+            r#"
         (assoc-delete-all "foo" '(("foo" . 1) ignored ("bar" . 2) ("foo" . 3)))
         (let* ((key "foo")
                (alist (list (cons key 9) (cons (copy-sequence "foo") 10))))
           (assoc-delete-all key alist 'eq))
         (condition-case err (assoc-delete-all nil nil nil nil) (error (car err)))
         "#,
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -9011,7 +9008,9 @@ fn user_error_signals_user_error_symbol_and_formatted_message() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     load_minimal_gnu_backquote_runtime(&mut eval);
-    let result = eval.eval_str(r#"(condition-case err (user-error "oops %s" "now") (user-error err))"#).expect("eval");
+    let result = eval
+        .eval_str(r#"(condition-case err (user-error "oops %s" "now") (user-error err))"#)
+        .expect("eval");
     let printed = crate::emacs_core::print::print_value(&result);
     assert_eq!(printed, "(user-error \"oops now\")");
 }
@@ -9021,7 +9020,9 @@ fn user_error_requires_message_argument() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     load_minimal_gnu_backquote_runtime(&mut eval);
-    let result = eval.eval_str(r#"(condition-case err (user-error) (error (car err)))"#).expect("eval");
+    let result = eval
+        .eval_str(r#"(condition-case err (user-error) (error (car err)))"#)
+        .expect("eval");
     let printed = crate::emacs_core::print::print_value(&result);
     assert_eq!(printed, "wrong-number-of-arguments");
 }
@@ -9032,12 +9033,16 @@ fn internal_save_selected_window_helpers_restore_selected_window() {
     let mut eval = Context::new();
     load_minimal_gnu_backquote_runtime(&mut eval);
     load_gnu_save_selected_window_runtime(&mut eval);
-    let result = eval.eval_str(r#"(let* ((orig (selected-window))
+    let result = eval
+        .eval_str(
+            r#"(let* ((orig (selected-window))
                   (new (split-window-internal (selected-window) nil nil nil)))
              (select-window new)
              (save-selected-window
                (select-window orig)
-               (eq (selected-window) orig)))"#).expect("eval");
+               (eq (selected-window) orig)))"#,
+        )
+        .expect("eval");
     assert!(result.is_truthy(), "save-selected-window should restore");
 }
 

@@ -18,8 +18,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
 /// Routes through `dynamic_or_global_symbol_value` so let-bindings
 /// and per-buffer overrides are observed, matching the audit #3 fix.
 fn read_inhibit_changing_match_data(eval: &super::eval::Context) -> bool {
-    dynamic_or_global_symbol_value(eval, "inhibit-changing-match-data")
-        .is_some_and(|v| !v.is_nil())
+    dynamic_or_global_symbol_value(eval, "inhibit-changing-match-data").is_some_and(|v| !v.is_nil())
 }
 
 pub(crate) fn builtin_search_forward(

@@ -197,9 +197,7 @@ Multiple lines, just like the bindings.el version."
 
     let mut ev = bootstrap_context();
     super::super::load::load_file(&mut ev, &elc_path).expect("load .elc fixture");
-    let result = ev
-        .eval_str("(boundp 'test-mle-edge)")
-        .expect("boundp eval");
+    let result = ev.eval_str("(boundp 'test-mle-edge)").expect("boundp eval");
     assert_eq!(
         result,
         crate::emacs_core::value::Value::T,

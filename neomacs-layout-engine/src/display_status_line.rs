@@ -1,7 +1,7 @@
 //! Display-walker status-line rendering.
 //!
-//! Mode-line, header-line, tab-line, tab-bar, and minibuffer echo
-//! all flow through the walker defined here. The walker produces
+//! Mode-line, header-line, tab-line, and tab-bar all flow through the
+//! walker defined here. The walker produces
 //! glyphs via TtyDisplayBackend::produce_glyph and installs the
 //! completed row into GlyphMatrixBuilder wholesale; above the
 //! backend trait boundary the code is frontend-agnostic, matching
@@ -38,7 +38,6 @@ pub(crate) enum StatusLineKind {
     HeaderLine,
     TabLine,
     TabBar,
-    Minibuffer,
 }
 
 impl StatusLineKind {
@@ -48,7 +47,6 @@ impl StatusLineKind {
             Self::HeaderLine => GlyphRowRole::HeaderLine,
             Self::TabLine => GlyphRowRole::TabLine,
             Self::TabBar => GlyphRowRole::TabBar,
-            Self::Minibuffer => GlyphRowRole::Minibuffer,
         }
     }
 }
@@ -579,7 +577,6 @@ impl LayoutEngine {
         }
     }
 
-
     /// Step 3.5: backend-routed twin of `render_status_line_spec`.
     ///
     /// Walks a pre-built `StatusLineSpec` the same way
@@ -689,11 +686,7 @@ impl LayoutEngine {
                     // workaround for TtyRif::glyph_to_char's
                     // single-cell Stretch rendering.
                     for _ in 0..cols {
-                        backend.produce_glyph(
-                            GlyphKind::Char(' '),
-                            &current_render_face,
-                            0,
-                        );
+                        backend.produce_glyph(GlyphKind::Char(' '), &current_render_face, 0);
                     }
                     sl_x_offset = target_x;
                 }
@@ -779,21 +772,14 @@ impl LayoutEngine {
             let fallback_width = spec.char_width.max(1.0);
             let mut run_offset = 0usize;
             let mut run_advance = 0.0f32;
-            while run_offset < (end_byte - byte_idx)
-                && sl_x_offset + run_advance < spec.width
-            {
+            while run_offset < (end_byte - byte_idx) && sl_x_offset + run_advance < spec.width {
                 let (ch, ch_len) = decode_utf8(&spec.text[byte_idx + run_offset..end_byte]);
                 run_offset += ch_len;
                 if ch == '\n' || ch == '\r' {
                     continue;
                 }
                 let advance = unsafe {
-                    self.status_line_advance(
-                        &spec.advance_mode,
-                        effective_face,
-                        fallback_width,
-                        ch,
-                    )
+                    self.status_line_advance(&spec.advance_mode, effective_face, fallback_width, ch)
                 };
                 backend.produce_glyph(GlyphKind::Char(ch), &current_render_face, 0);
                 run_advance += advance;
@@ -982,9 +968,7 @@ impl LayoutEngine {
         // PixelCalcContext where `text_area_*` reflect the status
         // line's own width, so a form like `(- right 200)` resolves
         // to `spec.width - 200` in the same coordinate system.
-        use crate::display_pixel_calc::{
-            PixelCalcContext, calc_pixel_width_or_height,
-        };
+        use crate::display_pixel_calc::{PixelCalcContext, calc_pixel_width_or_height};
         let pctx = PixelCalcContext {
             frame_column_width: char_width as f64,
             frame_line_height: height as f64,
@@ -1021,9 +1005,7 @@ impl LayoutEngine {
             if !disp_prop.cons_car().is_symbol_named("space") {
                 continue;
             }
-            let Some(items) =
-                neovm_core::emacs_core::value::list_to_vec(disp_prop)
-            else {
+            let Some(items) = neovm_core::emacs_core::value::list_to_vec(disp_prop) else {
                 continue;
             };
             // items[0] = 'space; walk the keyword-value plist.
@@ -1033,15 +1015,12 @@ impl LayoutEngine {
                 let key = items[i];
                 let val = items[i + 1];
                 if key.is_symbol_named(":width") {
-                    if let Some(pixels) =
-                        calc_pixel_width_or_height(&pctx, &val, true, None)
-                    {
-                        let byte_offset = (interval.start as u16)
-                            .min(spec.text.len().saturating_sub(1) as u16);
+                    if let Some(pixels) = calc_pixel_width_or_height(&pctx, &val, true, None) {
+                        let byte_offset =
+                            (interval.start as u16).min(spec.text.len().saturating_sub(1) as u16);
                         spec.display_props.push(DisplayPropRecord {
                             byte_offset,
-                            covers_bytes: interval.end.saturating_sub(interval.start)
-                                as u16,
+                            covers_bytes: interval.end.saturating_sub(interval.start) as u16,
                             gpu_id: 0,
                             width: (pixels as u16).max(0),
                             height: 0,
@@ -1051,12 +1030,9 @@ impl LayoutEngine {
                     }
                 } else if key.is_symbol_named(":align-to") {
                     let mut align_to: i32 = -1;
-                    if let Some(pixels) = calc_pixel_width_or_height(
-                        &pctx,
-                        &val,
-                        true,
-                        Some(&mut align_to),
-                    ) {
+                    if let Some(pixels) =
+                        calc_pixel_width_or_height(&pctx, &val, true, Some(&mut align_to))
+                    {
                         // See the buffer-text analogue in
                         // engine.rs::eval_display_space_as_width for
                         // the same shape of post-processing: if the
@@ -1072,8 +1048,8 @@ impl LayoutEngine {
                         } else {
                             pixels as f32
                         };
-                        let byte_offset = (interval.start as u16)
-                            .min(spec.text.len().saturating_sub(1) as u16);
+                        let byte_offset =
+                            (interval.start as u16).min(spec.text.len().saturating_sub(1) as u16);
                         spec.align_entries.push(OverlayAlignEntry {
                             byte_offset,
                             align_to_px: target_x,
@@ -1093,7 +1069,6 @@ impl LayoutEngine {
 
         Some(spec)
     }
-
 }
 
 #[cfg(test)]
@@ -1130,7 +1105,6 @@ mod tests {
         let _hl = StatusLineKind::HeaderLine;
         let _tl = StatusLineKind::TabLine;
         let _tb = StatusLineKind::TabBar;
-        let _mini = StatusLineKind::Minibuffer;
     }
 
     #[test]
@@ -1142,14 +1116,12 @@ mod tests {
                 StatusLineKind::HeaderLine => 1,
                 StatusLineKind::TabLine => 2,
                 StatusLineKind::TabBar => 3,
-                StatusLineKind::Minibuffer => 4,
             }
         };
         assert_eq!(check(&StatusLineKind::ModeLine), 0);
         assert_eq!(check(&StatusLineKind::HeaderLine), 1);
         assert_eq!(check(&StatusLineKind::TabLine), 2);
         assert_eq!(check(&StatusLineKind::TabBar), 3);
-        assert_eq!(check(&StatusLineKind::Minibuffer), 4);
     }
 
     // ---------------------------------------------------------------

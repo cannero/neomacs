@@ -510,8 +510,7 @@ pub(crate) fn format_lisp_string_emacs(
     ls: &crate::heap_types::LispString,
     options: &PrintOptions,
 ) -> String {
-    let bytes =
-        format_lisp_string_bytes_inner_emacs(ls.as_bytes(), ls.is_multibyte(), options);
+    let bytes = format_lisp_string_bytes_inner_emacs(ls.as_bytes(), ls.is_multibyte(), options);
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
@@ -552,8 +551,8 @@ fn push_octal_escape_contextual(out: &mut Vec<u8>, byte: u8, next_char: Option<c
 /// Like `push_octal_escape_contextual` but uses a `u32` Emacs character code
 /// for the "next character" peek (avoids requiring Rust `char`).
 fn push_octal_escape_contextual_u32(out: &mut Vec<u8>, byte: u8, next_code: Option<u32>) {
-    let need_three_digits = byte > 0o77
-        || next_code.is_some_and(|nc| nc < 0x80 && (b'0'..=b'7').contains(&(nc as u8)));
+    let need_three_digits =
+        byte > 0o77 || next_code.is_some_and(|nc| nc < 0x80 && (b'0'..=b'7').contains(&(nc as u8)));
     let need_two_digits = byte > 0o7;
 
     out.push(b'\\');
@@ -701,8 +700,7 @@ pub(crate) fn format_lisp_string_bytes_inner_emacs(
                 continue;
             }
             if options.print_escape_control_characters {
-                if (byte < 0x20 && byte != b'\t' && byte != b'\n' && byte != 0x0c) || byte == 0x7f
-                {
+                if (byte < 0x20 && byte != b'\t' && byte != b'\n' && byte != 0x0c) || byte == 0x7f {
                     push_octal_escape_contextual_u32(&mut out, byte, next_byte.map(|b| b as u32));
                     need_nonhex = false;
                     continue;

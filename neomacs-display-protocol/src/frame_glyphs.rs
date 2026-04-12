@@ -98,9 +98,7 @@ impl CursorStyle {
     /// so passing the old `0=box, 1=bar, 2=hbar, 3=hollow` byte
     /// arrangement will silently produce the wrong shape — callers
     /// must migrate to `CursorKind`.
-    #[deprecated(
-        note = "use CursorStyle::from_kind with CursorKind for GNU-parity encoding"
-    )]
+    #[deprecated(note = "use CursorStyle::from_kind with CursorKind for GNU-parity encoding")]
     pub fn from_type(cursor_type: u8, bar_width: i32) -> Option<CursorStyle> {
         let kind = CursorKind::from_gnu_code(cursor_type as i8)?;
         Self::from_kind(kind, bar_width)

@@ -12,7 +12,9 @@
 // Variables don't have an `(fn ARGS)' suffix -- only DEFUNs do.
 
 pub(crate) static GNU_VAR_DOCS: &[(&str, &str)] = &[
-    (r#"after-change-functions"#, r#"List of functions to call after each text change.
+    (
+        r#"after-change-functions"#,
+        r#"List of functions to call after each text change.
 Three arguments are passed to each function: the positions of
 the beginning and end of the range of changed text,
 and the length in chars of the pre-change text replaced by that range.
@@ -26,20 +28,32 @@ That's because `inhibit-modification-hooks' is temporarily set non-nil.
 
 If an unhandled error happens in running these functions,
 the variable's value remains nil.  That prevents the error
-from happening repeatedly and making Emacs nonfunctional."#),
-    (r#"after-delete-frame-functions"#, r#"Functions run after deleting a frame.
+from happening repeatedly and making Emacs nonfunctional."#,
+    ),
+    (
+        r#"after-delete-frame-functions"#,
+        r#"Functions run after deleting a frame.
 The functions are run with one arg, the frame that was deleted and
-which is now dead."#),
-    (r#"after-init-time"#, r#"Value of `current-time' after loading the init files.
-This is nil during initialization."#),
-    (r#"after-insert-file-functions"#, r#"A list of functions to be called at the end of `insert-file-contents'.
+which is now dead."#,
+    ),
+    (
+        r#"after-init-time"#,
+        r#"Value of `current-time' after loading the init files.
+This is nil during initialization."#,
+    ),
+    (
+        r#"after-insert-file-functions"#,
+        r#"A list of functions to be called at the end of `insert-file-contents'.
 Each is passed one argument, the number of characters inserted,
 with point at the start of the inserted text.  Each function
 should leave point the same, and return the new character count.
 If `insert-file-contents' is intercepted by a handler from
 `file-name-handler-alist', that handler is responsible for calling the
-functions in `after-insert-file-functions' if appropriate."#),
-    (r#"after-load-alist"#, r#"An alist of functions to be evalled when particular files are loaded.
+functions in `after-insert-file-functions' if appropriate."#,
+    ),
+    (
+        r#"after-load-alist"#,
+        r#"An alist of functions to be evalled when particular files are loaded.
 Each element looks like (REGEXP-OR-FEATURE FUNCS...).
 
 REGEXP-OR-FEATURE is either a regular expression to match file names, or
@@ -50,8 +64,11 @@ REGEXP-OR-FEATURE, or when `provide' is run and provides the symbol
 REGEXP-OR-FEATURE, the FUNCS in the element are called.
 
 An error in FUNCS does not undo the load, but does prevent calling
-the rest of the FUNCS."#),
-    (r#"alter-fullscreen-frames"#, r#"How to handle requests to resize fullscreen frames.
+the rest of the FUNCS."#,
+    ),
+    (
+        r#"alter-fullscreen-frames"#,
+        r#"How to handle requests to resize fullscreen frames.
 Emacs consults this option when asked to resize a fullscreen frame via
 functions like `set-frame-size' or when setting the \\+`width' or \\+`height'
 parameter of a frame.  The following values are provided:
@@ -65,28 +82,46 @@ parameter of a frame.  The following values are provided:
 - \\+`inhibit' means to reject the resize request and leave the fullscreen
   status unchanged.
 
-The default is \\+`inhibit' in NS builds and nil everywhere else."#),
-    (r#"alternate-fontname-alist"#, r#"Alist of fontname vs list of the alternate fontnames.
+The default is \\+`inhibit' in NS builds and nil everywhere else."#,
+    ),
+    (
+        r#"alternate-fontname-alist"#,
+        r#"Alist of fontname vs list of the alternate fontnames.
 When a specified font name is not found, the corresponding
-alternate fontnames (if any) are tried instead."#),
-    (r#"ambiguous-width-chars"#, r#"
+alternate fontnames (if any) are tried instead."#,
+    ),
+    (
+        r#"ambiguous-width-chars"#,
+        r#"
 A char-table for characters whose width (columns) can be 1 or 2.
 
 The actual width depends on the language-environment and on the
-value of `cjk-ambiguous-chars-are-wide'."#),
-    (r#"android-build-fingerprint"#, r#"String identifying the device's OS version.
+value of `cjk-ambiguous-chars-are-wide'."#,
+    ),
+    (
+        r#"android-build-fingerprint"#,
+        r#"String identifying the device's OS version.
 This is a string that uniquely identifies the version of Android
-Emacs is running on."#),
-    (r#"android-build-manufacturer"#, r#"Name of the developer of the running version of Android."#),
-    (r#"android-display-planes"#, r#"Depth and visual class of the display.
+Emacs is running on."#,
+    ),
+    (
+        r#"android-build-manufacturer"#,
+        r#"Name of the developer of the running version of Android."#,
+    ),
+    (
+        r#"android-display-planes"#,
+        r#"Depth and visual class of the display.
 This variable controls the visual class and depth of the display, which
 cannot be detected on Android.  The default value of 24, and values from
 there to 8 represent a TrueColor display providing 24 planes, values
 between 8 and 1 StaticGray displays providing that many planes, and 1 or
 lower monochrome displays with a single plane.  Modifications to this
 variable must be completed before the window system is initialized, in,
-for instance, `early-init.el', or they will be of no effect."#),
-    (r#"android-intercept-control-space"#, r#"Whether Emacs should intercept C-SPC.
+for instance, `early-init.el', or they will be of no effect."#,
+    ),
+    (
+        r#"android-intercept-control-space"#,
+        r#"Whether Emacs should intercept C-SPC.
 When this variable is set, Emacs intercepts C-SPC events as they are
 delivered to a frame before they are registered and filtered by the
 input method.
@@ -94,12 +129,18 @@ input method.
 For no apparent purpose, Android input methods customarily discard SPC
 events with the Ctrl modifier set without delivering them to Emacs
 afterwards, which is an impediment to typing key sequences
-incorporating such keys."#),
-    (r#"android-keyboard-bell-duration"#, r#"Number of milliseconds to vibrate after ringing the keyboard bell.
+incorporating such keys."#,
+    ),
+    (
+        r#"android-keyboard-bell-duration"#,
+        r#"Number of milliseconds to vibrate after ringing the keyboard bell.
 The keyboard bell under Android systems takes the form of a vibrating
 element that is activated for a given number of milliseconds upon the
-bell being rung."#),
-    (r#"android-os-language"#, r#"A list representing the configured system language on Android.
+bell being rung."#,
+    ),
+    (
+        r#"android-os-language"#,
+        r#"A list representing the configured system language on Android.
 This list has four elements: LANGUAGE, COUNTRY, SCRIPT and VARIANT, where:
 
 LANGUAGE and COUNTRY are ISO language and country codes identical to
@@ -114,15 +155,21 @@ LANGUAGE or SCRIPT.
 
 Each of these fields might be empty or nil, but the locale is invalid
 if LANGUAGE is empty.  Users of this variable should consider the
-language to be US English if LANGUAGE is empty."#),
-    (r#"android-pass-multimedia-buttons-to-system"#, r#"Whether or not to pass volume control buttons to the system.
+language to be US English if LANGUAGE is empty."#,
+    ),
+    (
+        r#"android-pass-multimedia-buttons-to-system"#,
+        r#"Whether or not to pass volume control buttons to the system.
 Generally, the `volume-up', `volume-down' and `volume-mute' keys are
 processed by Emacs, but setting this to non-nil they are passed to the
 operating system instead of being intercepted by Emacs.
 
 Note that if you set this, you will no longer be able to quit Emacs
-using the volume down button."#),
-    (r#"android-quit-keycode"#, r#"Keycode that signals quit when typed twice in rapid succession.
+using the volume down button."#,
+    ),
+    (
+        r#"android-quit-keycode"#,
+        r#"Keycode that signals quit when typed twice in rapid succession.
 
 This is the key code of a key whose repeated activation should prompt
 Emacs to quit, enabling quitting on systems where a keyboard capable of
@@ -134,8 +181,11 @@ unavailable, or if another key must otherwise serve this function
 instead:
 
   - 4  (KEYCODE_BACK)
-  - 24 (KEYCODE_VOLUME_UP)"#),
-    (r#"android-use-exec-loader"#, r#"Whether or not to bypass system restrictions on program execution.
+  - 24 (KEYCODE_VOLUME_UP)"#,
+    ),
+    (
+        r#"android-use-exec-loader"#,
+        r#"Whether or not to bypass system restrictions on program execution.
 
 Android 10 and later prevent programs from executing files installed
 in writable directories, such as the application data directory.
@@ -145,37 +195,52 @@ executables under system call tracing, and replacing the `execve'
 system call with a version which ignores the system's security
 restrictions.
 
-This option has no effect on Android 9 and earlier."#),
-    (r#"android-wait-for-event-timeout"#, r#"How long to wait for Android events.
+This option has no effect on Android 9 and earlier."#,
+    ),
+    (
+        r#"android-wait-for-event-timeout"#,
+        r#"How long to wait for Android events.
 
 Emacs will wait up to this many seconds to receive events after
 making changes which affect the state of the graphical interface.
 Under some situations this can take an indefinite amount of time,
 so it is important to limit the wait.
 
-If set to a non-float value, there will be no wait at all."#),
-    (r#"attempt-orderly-shutdown-on-fatal-signal"#, r#"If non-nil, attempt orderly shutdown on fatal signals.
+If set to a non-float value, there will be no wait at all."#,
+    ),
+    (
+        r#"attempt-orderly-shutdown-on-fatal-signal"#,
+        r#"If non-nil, attempt orderly shutdown on fatal signals.
 By default this variable is non-nil, and Emacs attempts to perform
 an orderly shutdown when it catches a fatal signal (e.g., a crash).
 The orderly shutdown includes an attempt to auto-save your unsaved edits
 and other useful cleanups.  These cleanups are potentially unsafe and may
 lead to deadlocks or data corruption, but it usually works and may
 preserve data in modified buffers that would otherwise be lost.
-If nil, Emacs crashes immediately in response to fatal signals."#),
-    (r#"attempt-stack-overflow-recovery"#, r#"If non-nil, attempt to recover from C stack overflows.
+If nil, Emacs crashes immediately in response to fatal signals."#,
+    ),
+    (
+        r#"attempt-stack-overflow-recovery"#,
+        r#"If non-nil, attempt to recover from C stack overflows.
 This recovery is potentially unsafe and may lead to deadlocks or data
 corruption, but it usually works and may preserve modified buffers
 that would otherwise be lost.  If nil, treat stack overflow like any
-other kind of crash or fatal error."#),
-    (r#"auto-composition-emoji-eligible-codepoints"#, r#"List of codepoints for which auto-composition will check for an emoji font.
+other kind of crash or fatal error."#,
+    ),
+    (
+        r#"auto-composition-emoji-eligible-codepoints"#,
+        r#"List of codepoints for which auto-composition will check for an emoji font.
 
 These are codepoints which have Emoji_Presentation = No, and thus by
 default are not displayed as emoji.  In certain circumstances, such as
 when followed by U+FE0F (VS-16) the emoji font should be used for
 them anyway.
 
-This list is auto-generated, you should not need to modify it."#),
-    (r#"auto-composition-function"#, r#"Function to call to compose characters automatically.
+This list is auto-generated, you should not need to modify it."#,
+    ),
+    (
+        r#"auto-composition-function"#,
+        r#"Function to call to compose characters automatically.
 This function is called from the display engine with 6 arguments:
 FUNC, FROM, TO, FONT-OBJECT, STRING, and DIRECTION.
 
@@ -193,63 +258,117 @@ FONT-OBJECT is the font to use, or nil if characters are to be
 composed on a text-mode display.
 
 DIRECTION is the bidi directionality of the text to shape.  It could
-be L2R or R2L, or nil if unknown."#),
-    (r#"auto-composition-mode"#, r#"Non-nil if Auto-Composition mode is enabled.
+be L2R or R2L, or nil if unknown."#,
+    ),
+    (
+        r#"auto-composition-mode"#,
+        r#"Non-nil if Auto-Composition mode is enabled.
 Use the command `auto-composition-mode' to change this variable.
 
 If this variable is a string, `auto-composition-mode' will be disabled in
 buffers displayed on a terminal whose type, as reported by `tty-type',
-compares equal to that string."#),
-    (r#"auto-fill-chars"#, r#"
+compares equal to that string."#,
+    ),
+    (
+        r#"auto-fill-chars"#,
+        r#"
 A char-table for characters which invoke auto-filling.
-Such characters have the value t in this table."#),
-    (r#"auto-hscroll-mode"#, r#"Allow or disallow automatic horizontal scrolling of windows.
+Such characters have the value t in this table."#,
+    ),
+    (
+        r#"auto-hscroll-mode"#,
+        r#"Allow or disallow automatic horizontal scrolling of windows.
 The value `current-line' means the line displaying point in each window
 is automatically scrolled horizontally to make point visible.
 Any other non-nil value means all the lines in a window are automatically
-scrolled horizontally to make point visible."#),
-    (r#"auto-raise-tab-bar-buttons"#, r#"Non-nil means raise tab-bar buttons when the mouse moves over them."#),
-    (r#"auto-raise-tool-bar-buttons"#, r#"Non-nil means raise tool-bar buttons when the mouse moves over them."#),
-    (r#"auto-resize-tab-bars"#, r#"Non-nil means automatically resize tab-bars.
+scrolled horizontally to make point visible."#,
+    ),
+    (
+        r#"auto-raise-tab-bar-buttons"#,
+        r#"Non-nil means raise tab-bar buttons when the mouse moves over them."#,
+    ),
+    (
+        r#"auto-raise-tool-bar-buttons"#,
+        r#"Non-nil means raise tool-bar buttons when the mouse moves over them."#,
+    ),
+    (
+        r#"auto-resize-tab-bars"#,
+        r#"Non-nil means automatically resize tab-bars.
 This dynamically changes the tab-bar's height to the minimum height
 that is needed to make all tab-bar items visible.
 If value is `grow-only', the tab-bar's height is only increased
 automatically; to decrease the tab-bar height, use \\[recenter],
-after setting `recenter-redisplay' to the value of t."#),
-    (r#"auto-resize-tool-bars"#, r#"Non-nil means automatically resize tool-bars.
+after setting `recenter-redisplay' to the value of t."#,
+    ),
+    (
+        r#"auto-resize-tool-bars"#,
+        r#"Non-nil means automatically resize tool-bars.
 This dynamically changes the tool-bar's height to the minimum height
 that is needed to make all tool-bar items visible.
 If value is `grow-only', the tool-bar's height is only increased
 automatically; to decrease the tool-bar height, use \\[recenter],
-after setting `recenter-redisplay' to the value of t."#),
-    (r#"auto-save-include-big-deletions"#, r#"If non-nil, auto-save even if a large part of the text is deleted.
+after setting `recenter-redisplay' to the value of t."#,
+    ),
+    (
+        r#"auto-save-include-big-deletions"#,
+        r#"If non-nil, auto-save even if a large part of the text is deleted.
 If nil, deleting a substantial portion of the text disables auto-save
 in the buffer; this is the default behavior, because the auto-save
-file is usually more useful if it contains the deleted text."#),
-    (r#"auto-save-interval"#, r#"Number of input events between auto-saves.
-Zero means disable autosaving due to number of characters typed."#),
-    (r#"auto-save-list-file-name"#, r#"File name in which to write a list of all auto save file names.
+file is usually more useful if it contains the deleted text."#,
+    ),
+    (
+        r#"auto-save-interval"#,
+        r#"Number of input events between auto-saves.
+Zero means disable autosaving due to number of characters typed."#,
+    ),
+    (
+        r#"auto-save-list-file-name"#,
+        r#"File name in which to write a list of all auto save file names.
 This variable is initialized automatically from `auto-save-list-file-prefix'
 shortly after Emacs reads your init file, if you have not yet given it
-a non-nil value."#),
-    (r#"auto-save-no-message"#, r#"Non-nil means do not print any message when auto-saving."#),
-    (r#"auto-save-timeout"#, r#"Number of seconds idle time before auto-save.
+a non-nil value."#,
+    ),
+    (
+        r#"auto-save-no-message"#,
+        r#"Non-nil means do not print any message when auto-saving."#,
+    ),
+    (
+        r#"auto-save-timeout"#,
+        r#"Number of seconds idle time before auto-save.
 Zero or nil means disable auto-saving due to idleness.
 After auto-saving due to this many seconds of idle time,
-Emacs also does a garbage collection if that seems to be warranted."#),
-    (r#"auto-save-visited-file-name"#, r#"Non-nil says auto-save a buffer in the file it is visiting, when practical.
-Normally auto-save files are written under other names."#),
-    (r#"auto-window-vscroll"#, r#"Non-nil means to automatically adjust `window-vscroll' to view tall lines."#),
-    (r#"backtrace-on-error-noninteractive"#, r#"Non-nil means print backtrace on error in batch mode.
+Emacs also does a garbage collection if that seems to be warranted."#,
+    ),
+    (
+        r#"auto-save-visited-file-name"#,
+        r#"Non-nil says auto-save a buffer in the file it is visiting, when practical.
+Normally auto-save files are written under other names."#,
+    ),
+    (
+        r#"auto-window-vscroll"#,
+        r#"Non-nil means to automatically adjust `window-vscroll' to view tall lines."#,
+    ),
+    (
+        r#"backtrace-on-error-noninteractive"#,
+        r#"Non-nil means print backtrace on error in batch mode.
 If this is nil, errors in batch mode will just print the error
 message upon encountering an unhandled error, without showing
-the Lisp backtrace."#),
-    (r#"backtrace-on-redisplay-error"#, r#"Non-nil means create a backtrace if a lisp error occurs in redisplay.
-The backtrace is written to buffer *Redisplay-trace*."#),
-    (r#"baud-rate"#, r#"The output baud rate of the terminal.
+the Lisp backtrace."#,
+    ),
+    (
+        r#"backtrace-on-redisplay-error"#,
+        r#"Non-nil means create a backtrace if a lisp error occurs in redisplay.
+The backtrace is written to buffer *Redisplay-trace*."#,
+    ),
+    (
+        r#"baud-rate"#,
+        r#"The output baud rate of the terminal.
 On most systems, changing this value will affect the amount of padding
-and the other strategic decisions made during redisplay."#),
-    (r#"before-change-functions"#, r#"List of functions to call before each text change.
+and the other strategic decisions made during redisplay."#,
+    ),
+    (
+        r#"before-change-functions"#,
+        r#"List of functions to call before each text change.
 Two arguments are passed to each function: the positions of
 the beginning and end of the range of old text to be changed.
 \(For an insertion, the beginning and end are at the same place.)
@@ -261,14 +380,23 @@ That's because `inhibit-modification-hooks' is temporarily set non-nil.
 
 If an unhandled error happens in running these functions,
 the variable's value remains nil.  That prevents the error
-from happening repeatedly and making Emacs nonfunctional."#),
-    (r#"before-init-time"#, r#"Value of `current-time' before Emacs begins initialization."#),
-    (r#"bidi-inhibit-bpa"#, r#"Non-nil means inhibit the Bidirectional Parentheses Algorithm.
+from happening repeatedly and making Emacs nonfunctional."#,
+    ),
+    (
+        r#"before-init-time"#,
+        r#"Value of `current-time' before Emacs begins initialization."#,
+    ),
+    (
+        r#"bidi-inhibit-bpa"#,
+        r#"Non-nil means inhibit the Bidirectional Parentheses Algorithm.
 Disabling the BPA makes redisplay faster, but might produce incorrect
 display reordering of bidirectional text with embedded parentheses and
 other bracket characters whose `paired-bracket' Unicode property is
-non-nil, see `get-char-code-property'."#),
-    (r#"blink-cursor-alist"#, r#"Alist specifying how to blink the cursor off.
+non-nil, see `get-char-code-property'."#,
+    ),
+    (
+        r#"blink-cursor-alist"#,
+        r#"Alist specifying how to blink the cursor off.
 Each element has the form (ON-STATE . OFF-STATE).  Whenever the
 `cursor-type' frame-parameter or variable equals ON-STATE,
 comparing using `equal', Emacs uses OFF-STATE to specify
@@ -276,14 +404,23 @@ how to blink it off.  ON-STATE and OFF-STATE are values for
 the `cursor-type' frame parameter.
 
 If a frame's ON-STATE has no entry in this list,
-the frame's other specifications determine how to blink the cursor off."#),
-    (r#"buffer-access-fontified-property"#, r#"Property which (if non-nil) indicates text has been fontified.
+the frame's other specifications determine how to blink the cursor off."#,
+    ),
+    (
+        r#"buffer-access-fontified-property"#,
+        r#"Property which (if non-nil) indicates text has been fontified.
 `buffer-substring' need not call the `buffer-access-fontify-functions'
-functions if all the text being accessed has this property."#),
-    (r#"buffer-access-fontify-functions"#, r#"List of functions called by `buffer-substring' to fontify if necessary.
+functions if all the text being accessed has this property."#,
+    ),
+    (
+        r#"buffer-access-fontify-functions"#,
+        r#"List of functions called by `buffer-substring' to fontify if necessary.
 Each function is called with two arguments which specify the range
-of the buffer being accessed."#),
-    (r#"buffer-list-update-hook"#, r#"Hook run when the buffer list changes.
+of the buffer being accessed."#,
+    ),
+    (
+        r#"buffer-list-update-hook"#,
+        r#"Hook run when the buffer list changes.
 Functions (implicitly) running this hook are `get-buffer-create',
 `make-indirect-buffer', `rename-buffer', `kill-buffer', `bury-buffer'
 and `select-window'.  This hook is not run for internal or temporary
@@ -291,29 +428,53 @@ buffers created by `get-buffer-create' or `generate-new-buffer' with
 argument INHIBIT-BUFFER-HOOKS non-nil.
 
 Functions run by this hook should avoid calling `select-window' with a
-nil NORECORD argument since it may lead to infinite recursion."#),
-    (r#"build-files"#, r#"A list of files used to build this Emacs binary."#),
-    (r#"byte-boolean-vars"#, r#"List of all DEFVAR_BOOL variables, used by the byte code optimizer."#),
-    (r#"byte-code-meter"#, r#"A vector of vectors which holds a histogram of byte-code usage.
+nil NORECORD argument since it may lead to infinite recursion."#,
+    ),
+    (
+        r#"build-files"#,
+        r#"A list of files used to build this Emacs binary."#,
+    ),
+    (
+        r#"byte-boolean-vars"#,
+        r#"List of all DEFVAR_BOOL variables, used by the byte code optimizer."#,
+    ),
+    (
+        r#"byte-code-meter"#,
+        r#"A vector of vectors which holds a histogram of byte-code usage.
 \(aref (aref byte-code-meter 0) CODE) indicates how many times the byte
 opcode CODE has been executed.
 \(aref (aref byte-code-meter CODE1) CODE2), where CODE1 is not 0,
 indicates how many times the byte opcodes CODE1 and CODE2 have been
-executed in succession."#),
-    (r#"byte-metering-on"#, r#"If non-nil, keep profiling information on byte code usage.
+executed in succession."#,
+    ),
+    (
+        r#"byte-metering-on"#,
+        r#"If non-nil, keep profiling information on byte code usage.
 The variable byte-code-meter indicates how often each byte opcode is used.
 If a symbol has a property named `byte-code-meter' whose value is an
-integer, it is incremented each time that symbol's function is called."#),
-    (r#"bytecomp-version-regexp"#, r#"Regular expression matching safe to load compiled Lisp files.
+integer, it is incremented each time that symbol's function is called."#,
+    ),
+    (
+        r#"bytecomp-version-regexp"#,
+        r#"Regular expression matching safe to load compiled Lisp files.
 When Emacs loads a compiled Lisp file, it reads the first 512 bytes
 from the file, and matches them against this regular expression.
 When the regular expression matches, the file is considered to be safe
-to load."#),
+to load."#,
+    ),
     (r#"cairo-version-string"#, r#"Version info for cairo."#),
-    (r#"cannot-suspend"#, r#"Non-nil means to always spawn a subshell instead of suspending.
-\(Even if the operating system has support for stopping a process.)"#),
-    (r#"case-fold-search"#, r#"Non-nil if searches and matches should ignore case."#),
-    (r#"case-symbols-as-words"#, r#"If non-nil, case functions treat symbol syntax as part of words.
+    (
+        r#"cannot-suspend"#,
+        r#"Non-nil means to always spawn a subshell instead of suspending.
+\(Even if the operating system has support for stopping a process.)"#,
+    ),
+    (
+        r#"case-fold-search"#,
+        r#"Non-nil if searches and matches should ignore case."#,
+    ),
+    (
+        r#"case-symbols-as-words"#,
+        r#"If non-nil, case functions treat symbol syntax as part of words.
 
 Functions such as `upcase-initials' and `replace-match' check or modify
 the case pattern of sequences of characters.  Normally, these operate on
@@ -322,28 +483,52 @@ variable is non-nil, then they operate on sequences of characters whose
 syntax is either word constituent or symbol constituent.
 
 This is useful for programming languages and styles where only the first
-letter of a symbol's name is ever capitalized."#),
-    (r#"change-major-mode-hook"#, r#"Normal hook run before changing the major mode of a buffer.
-The function `kill-all-local-variables' runs this before doing anything else."#),
-    (r#"char-code-property-alist"#, r#"Alist of character property name vs char-table containing property values.
-Internal use only."#),
-    (r#"char-property-alias-alist"#, r#"Alist of alternative properties for properties without a value.
+letter of a symbol's name is ever capitalized."#,
+    ),
+    (
+        r#"change-major-mode-hook"#,
+        r#"Normal hook run before changing the major mode of a buffer.
+The function `kill-all-local-variables' runs this before doing anything else."#,
+    ),
+    (
+        r#"char-code-property-alist"#,
+        r#"Alist of character property name vs char-table containing property values.
+Internal use only."#,
+    ),
+    (
+        r#"char-property-alias-alist"#,
+        r#"Alist of alternative properties for properties without a value.
 Each element should look like (PROPERTY ALTERNATIVE1 ALTERNATIVE2...).
 If a piece of text has no direct value for a particular property, then
 this alist is consulted.  If that property appears in the alist, then
 the first non-nil value from the associated alternative properties is
-returned."#),
-    (r#"char-script-table"#, r#"Char table of script symbols.
-It has one extra slot whose value is a list of script symbols."#),
-    (r#"char-width-table"#, r#"
-A char-table for width (columns) of each character."#),
+returned."#,
+    ),
+    (
+        r#"char-script-table"#,
+        r#"Char table of script symbols.
+It has one extra slot whose value is a list of script symbols."#,
+    ),
+    (
+        r#"char-width-table"#,
+        r#"
+A char-table for width (columns) of each character."#,
+    ),
     (r#"charset-list"#, r#"List of all charsets ever defined."#),
-    (r#"charset-map-path"#, r#"List of directories to search for charset map files."#),
-    (r#"charset-revision-table"#, r#"Alist of charsets vs revision numbers.
+    (
+        r#"charset-map-path"#,
+        r#"List of directories to search for charset map files."#,
+    ),
+    (
+        r#"charset-revision-table"#,
+        r#"Alist of charsets vs revision numbers.
 While encoding, if a charset (car part of an element) is found,
 designate it with the escape sequence identifying revision (cdr part
-of the element)."#),
-    (r#"clear-message-function"#, r#"If non-nil, function to clear echo-area messages.
+of the element)."#,
+    ),
+    (
+        r#"clear-message-function"#,
+        r#"If non-nil, function to clear echo-area messages.
 Usually this function is called when the next input event arrives.
 It is expected to clear the message displayed by its counterpart
 function specified by `set-message-function'.
@@ -354,33 +539,51 @@ If this function returns a value that isn't `dont-clear-message', the
 message is cleared from the echo area as usual.  If this function
 returns `dont-clear-message', this means that the message was already
 handled, and the original message text will not be cleared from the
-echo area."#),
-    (r#"clone-indirect-buffer-hook"#, r#"Normal hook to run in the new buffer at the end of `make-indirect-buffer'.
+echo area."#,
+    ),
+    (
+        r#"clone-indirect-buffer-hook"#,
+        r#"Normal hook to run in the new buffer at the end of `make-indirect-buffer'.
 
 Since `clone-indirect-buffer' calls `make-indirect-buffer', this hook
-will run for `clone-indirect-buffer' calls as well."#),
-    (r#"code-conversion-map-vector"#, r#"Vector of code conversion maps."#),
-    (r#"coding-category-list"#, r#"List of coding-categories (symbols) ordered by priority.
+will run for `clone-indirect-buffer' calls as well."#,
+    ),
+    (
+        r#"code-conversion-map-vector"#,
+        r#"Vector of code conversion maps."#,
+    ),
+    (
+        r#"coding-category-list"#,
+        r#"List of coding-categories (symbols) ordered by priority.
 
 On detecting a coding system, Emacs tries code detection algorithms
 associated with each coding-category one by one in this order.  When
 one algorithm agrees with a byte sequence of source text, the coding
 system bound to the corresponding coding-category is selected.
 
-Don't modify this variable directly, but use `set-coding-system-priority'."#),
-    (r#"coding-system-alist"#, r#"Alist of coding system names.
+Don't modify this variable directly, but use `set-coding-system-priority'."#,
+    ),
+    (
+        r#"coding-system-alist"#,
+        r#"Alist of coding system names.
 Each element is one element list of coding system name.
 This variable is given to `completing-read' as COLLECTION argument.
 
 Do not alter the value of this variable manually.  This variable should be
-updated by `define-coding-system-alias'."#),
-    (r#"coding-system-for-read"#, r#"Specify the coding system for read operations.
+updated by `define-coding-system-alias'."#,
+    ),
+    (
+        r#"coding-system-for-read"#,
+        r#"Specify the coding system for read operations.
 It is useful to bind this variable with `let', but do not set it globally.
 If the value is a coding system, it is used for decoding on read operation.
 If not, an appropriate element is used from one of the coding system alists.
 There are three such tables: `file-coding-system-alist',
-`process-coding-system-alist', and `network-coding-system-alist'."#),
-    (r#"coding-system-for-write"#, r#"Specify the coding system for write operations.
+`process-coding-system-alist', and `network-coding-system-alist'."#,
+    ),
+    (
+        r#"coding-system-for-write"#,
+        r#"Specify the coding system for write operations.
 Programs bind this variable with `let', but you should not set it globally.
 If the value is a coding system, it is used for encoding of output,
 when writing it to a file and when sending it to a file or subprocess.
@@ -390,21 +593,36 @@ is used from one of the coding system alists.
 There are three such tables: `file-coding-system-alist',
 `process-coding-system-alist', and `network-coding-system-alist'.
 For output to files, if the above procedure does not specify a coding system,
-the value of `buffer-file-coding-system' is used."#),
-    (r#"coding-system-list"#, r#"List of coding systems.
+the value of `buffer-file-coding-system' is used."#,
+    ),
+    (
+        r#"coding-system-list"#,
+        r#"List of coding systems.
 
 Do not alter the value of this variable manually.  This variable should be
 updated by the functions `define-coding-system' and
-`define-coding-system-alias'."#),
-    (r#"coding-system-require-warning"#, r#"Internal use only.
+`define-coding-system-alias'."#,
+    ),
+    (
+        r#"coding-system-require-warning"#,
+        r#"Internal use only.
 If non-nil, on writing a file, `select-safe-coding-system-function' is
 called even if `coding-system-for-write' is non-nil.  The command
-`universal-coding-system-argument' binds this variable to t temporarily."#),
-    (r#"combine-after-change-calls"#, r#"Used internally by the function `combine-after-change-calls' macro."#),
-    (r#"command-debug-status"#, r#"Debugging status of current interactive command.
+`universal-coding-system-argument' binds this variable to t temporarily."#,
+    ),
+    (
+        r#"combine-after-change-calls"#,
+        r#"Used internally by the function `combine-after-change-calls' macro."#,
+    ),
+    (
+        r#"command-debug-status"#,
+        r#"Debugging status of current interactive command.
 Bound each time `call-interactively' is called;
-may be set by the debugger as a reminder for itself."#),
-    (r#"command-error-function"#, r#"Function to output error messages.
+may be set by the debugger as a reminder for itself."#,
+    ),
+    (
+        r#"command-error-function"#,
+        r#"Function to output error messages.
 Called with three arguments:
 - the error data, a list of the form (SIGNALED-CONDITION . SIGNAL-DATA)
   such as what `condition-case' would bind its variable to,
@@ -420,54 +638,102 @@ you could say something like:
                                       \\='face \\='error))))
 
 Also see `set-message-function' (which controls how non-error messages
-are displayed)."#),
-    (r#"command-history"#, r#"List of recent commands that read arguments from terminal.
+are displayed)."#,
+    ),
+    (
+        r#"command-history"#,
+        r#"List of recent commands that read arguments from terminal.
 Each command is represented as a form to evaluate.
 
 Maximum length of the history list is determined by the value
-of `history-length', which see."#),
-    (r#"command-line-args"#, r#"Args passed by shell to Emacs, as a list of strings.
-Many arguments are deleted from the list as they are processed."#),
-    (r#"comment-end-can-be-escaped"#, r#"Non-nil means an escaped ender inside a comment doesn't end the comment."#),
-    (r#"comment-use-syntax-ppss"#, r#"Non-nil means `forward-comment' can use `syntax-ppss' internally."#),
+of `history-length', which see."#,
+    ),
+    (
+        r#"command-line-args"#,
+        r#"Args passed by shell to Emacs, as a list of strings.
+Many arguments are deleted from the list as they are processed."#,
+    ),
+    (
+        r#"comment-end-can-be-escaped"#,
+        r#"Non-nil means an escaped ender inside a comment doesn't end the comment."#,
+    ),
+    (
+        r#"comment-use-syntax-ppss"#,
+        r#"Non-nil means `forward-comment' can use `syntax-ppss' internally."#,
+    ),
     (r#"comp--#$"#, "Special value which will print as \"#$\"."),
     (r#"comp-abi-hash"#, r#"String signing the .eln files ABI."#),
     (r#"comp-ctxt"#, r#"The compiler context."#),
-    (r#"comp-deferred-pending-h"#, r#"Hash table symbol-name -> function-value.
-For internal use."#),
-    (r#"comp-eln-to-el-h"#, r#"Hash table eln-filename -> el-filename."#),
-    (r#"comp-file-preloaded-p"#, r#"When non-nil, assume the file being compiled to be preloaded."#),
-    (r#"comp-installed-trampolines-h"#, r#"Hash table subr-name -> installed trampoline.
+    (
+        r#"comp-deferred-pending-h"#,
+        r#"Hash table symbol-name -> function-value.
+For internal use."#,
+    ),
+    (
+        r#"comp-eln-to-el-h"#,
+        r#"Hash table eln-filename -> el-filename."#,
+    ),
+    (
+        r#"comp-file-preloaded-p"#,
+        r#"When non-nil, assume the file being compiled to be preloaded."#,
+    ),
+    (
+        r#"comp-installed-trampolines-h"#,
+        r#"Hash table subr-name -> installed trampoline.
 This is used to prevent double trampoline instantiation, and also to
-protect the trampolines against GC."#),
-    (r#"comp-loaded-comp-units-h"#, r#"Hash table recording all loaded compilation units, file -> CU."#),
-    (r#"comp-native-version-dir"#, r#"Directory in use to disambiguate eln compatibility."#),
-    (r#"comp-no-native-file-h"#, r#"Files for which no deferred compilation should be performed.
+protect the trampolines against GC."#,
+    ),
+    (
+        r#"comp-loaded-comp-units-h"#,
+        r#"Hash table recording all loaded compilation units, file -> CU."#,
+    ),
+    (
+        r#"comp-native-version-dir"#,
+        r#"Directory in use to disambiguate eln compatibility."#,
+    ),
+    (
+        r#"comp-no-native-file-h"#,
+        r#"Files for which no deferred compilation should be performed.
 These files' compilation should not be deferred because the bytecode
 version was explicitly requested by the user during load.
-For internal use."#),
-    (r#"comp-sanitizer-active"#, r#"If non-nil, enable runtime execution of native-compiler sanitizer.
+For internal use."#,
+    ),
+    (
+        r#"comp-sanitizer-active"#,
+        r#"If non-nil, enable runtime execution of native-compiler sanitizer.
 For this to be effective, Lisp code must be compiled
 with `comp-sanitizer-emit' non-nil.
 This is intended to be used only for development and
-verification of the native compiler."#),
-    (r#"comp-subr-arities-h"#, r#"Hash table recording the arity of Lisp primitives.
+verification of the native compiler."#,
+    ),
+    (
+        r#"comp-subr-arities-h"#,
+        r#"Hash table recording the arity of Lisp primitives.
 This is in case they are redefined so the compiler still knows how to
 compile calls to them.
 subr-name -> arity
-For internal use."#),
+For internal use."#,
+    ),
     (r#"comp-subr-list"#, r#"List of all defined subrs."#),
-    (r#"completion-ignore-case"#, r#"Non-nil means don't consider case significant in completion.
+    (
+        r#"completion-ignore-case"#,
+        r#"Non-nil means don't consider case significant in completion.
 For file-name completion, `read-file-name-completion-ignore-case'
 controls the behavior, rather than this variable.
 For buffer name completion, `read-buffer-completion-ignore-case'
-controls the behavior, rather than this variable."#),
-    (r#"completion-ignored-extensions"#, r#"Completion ignores file names ending in any string in this list.
+controls the behavior, rather than this variable."#,
+    ),
+    (
+        r#"completion-ignored-extensions"#,
+        r#"Completion ignores file names ending in any string in this list.
 It does not ignore them if all possible completions end in one of
 these strings or when displaying a list of completions.
 It ignores directory names if they match any string in this list which
-ends in a slash."#),
-    (r#"completion-regexp-list"#, r#"List of regexps that should restrict possible completions.
+ends in a slash."#,
+    ),
+    (
+        r#"completion-regexp-list"#,
+        r#"List of regexps that should restrict possible completions.
 The basic completion functions only consider a completion acceptable
 if it matches all regular expressions in this list, with
 `case-fold-search' bound to the value of `completion-ignore-case'.
@@ -477,8 +743,11 @@ functions.
 Do not set this variable to a non-nil value globally, as that is not
 safe and will probably cause errors in completion commands.  This
 variable should be only let-bound to non-nil values around calls to
-basic completion functions like `try-completion' and `all-completions'."#),
-    (r#"compose-chars-after-function"#, r#"Function to adjust composition of buffer text.
+basic completion functions like `try-completion' and `all-completions'."#,
+    ),
+    (
+        r#"compose-chars-after-function"#,
+        r#"Function to adjust composition of buffer text.
 
 This function is called with three arguments: FROM, TO, and OBJECT.
 FROM and TO specify the range of text whose composition should be
@@ -488,11 +757,17 @@ This function is called after a text with `composition' property is
 inserted or deleted to keep `composition' property of buffer text
 valid.
 
-The default value is the function `compose-chars-after'."#),
-    (r#"composition-break-at-point"#, r#"If non-nil, prevent auto-composition of characters around point.
+The default value is the function `compose-chars-after'."#,
+    ),
+    (
+        r#"composition-break-at-point"#,
+        r#"If non-nil, prevent auto-composition of characters around point.
 This makes it easier to edit character sequences that are
-composed on display."#),
-    (r#"composition-function-table"#, r#"Char-table of functions for automatic character composition.
+composed on display."#,
+    ),
+    (
+        r#"composition-function-table"#,
+        r#"Char-table of functions for automatic character composition.
 For each character that has to be composed automatically with
 preceding and/or following characters, this char-table contains
 a function to call to compose that character.
@@ -523,39 +798,72 @@ glyphs corresponding to those characters one by one.  The
 function must return a new glyph-string with the same header as
 GSTRING, or modify GSTRING itself and return it.
 
-See also the documentation of `auto-composition-mode'."#),
-    (r#"configure-info-directory"#, r#"For internal use by the build procedure only.
+See also the documentation of `auto-composition-mode'."#,
+    ),
+    (
+        r#"configure-info-directory"#,
+        r#"For internal use by the build procedure only.
 This is the name of the directory in which the build procedure installed
 Emacs's info files; the default value for `Info-default-directory-list'
-includes this."#),
-    (r#"cons-cells-consed"#, r#"Number of cons cells that have been consed so far."#),
-    (r#"create-lockfiles"#, r#"Non-nil means use lockfiles to avoid editing collisions.
+includes this."#,
+    ),
+    (
+        r#"cons-cells-consed"#,
+        r#"Number of cons cells that have been consed so far."#,
+    ),
+    (
+        r#"create-lockfiles"#,
+        r#"Non-nil means use lockfiles to avoid editing collisions.
 The name of the (per-buffer) lockfile is constructed by prepending
 ".#" to the name of the file being locked.  See also `lock-buffer' and
-Info node `(emacs)Interlocking'."#),
-    (r#"cross-disabled-images"#, r#"Non-nil means always draw a cross over disabled images.
+Info node `(emacs)Interlocking'."#,
+    ),
+    (
+        r#"cross-disabled-images"#,
+        r#"Non-nil means always draw a cross over disabled images.
 Disabled images are those having a `:conversion disabled' property.
-A cross is always drawn on black & white displays."#),
-    (r#"ctags-program-name"#, r#"Name of the `ctags' program.
+A cross is always drawn on black & white displays."#,
+    ),
+    (
+        r#"ctags-program-name"#,
+        r#"Name of the `ctags' program.
 Use this instead of calling `ctags' directly, as `ctags' may have been
-renamed to comply with executable naming restrictions on the system."#),
-    (r#"current-iso639-language"#, r#"ISO639 language mnemonic symbol for the current language environment.
+renamed to comply with executable naming restrictions on the system."#,
+    ),
+    (
+        r#"current-iso639-language"#,
+        r#"ISO639 language mnemonic symbol for the current language environment.
 If the current language environment is for multiple languages (e.g. "Latin-1"),
-the value may be a list of mnemonics."#),
-    (r#"current-key-remap-sequence"#, r#"The key sequence currently being remap, or nil.
+the value may be a list of mnemonics."#,
+    ),
+    (
+        r#"current-key-remap-sequence"#,
+        r#"The key sequence currently being remap, or nil.
 Bound to a vector containing the sub-sequence matching a binding
 within `input-decode-map' or `local-function-key-map' when its bound
-function is called to remap that sequence."#),
-    (r#"current-load-list"#, r#"Used for internal purposes by `load'."#),
-    (r#"current-minibuffer-command"#, r#"This is like `this-command', but bound recursively.
+function is called to remap that sequence."#,
+    ),
+    (
+        r#"current-load-list"#,
+        r#"Used for internal purposes by `load'."#,
+    ),
+    (
+        r#"current-minibuffer-command"#,
+        r#"This is like `this-command', but bound recursively.
 Code running from (for instance) a minibuffer hook can check this variable
-to see what command invoked the current minibuffer."#),
-    (r#"current-prefix-arg"#, r#"The value of the prefix argument for this editing command.
+to see what command invoked the current minibuffer."#,
+    ),
+    (
+        r#"current-prefix-arg"#,
+        r#"The value of the prefix argument for this editing command.
 It may be a number, or the symbol `-' for just a minus sign as arg,
 or a list whose car is a number for just one or more C-u's
 or nil if no argument has been specified.
-This is what `(interactive \"P\")' returns."#),
-    (r#"current-time-list"#, r#"Whether `current-time' should return list or (TICKS . HZ) form.
+This is what `(interactive \"P\")' returns."#,
+    ),
+    (
+        r#"current-time-list"#,
+        r#"Whether `current-time' should return list or (TICKS . HZ) form.
 
 This boolean variable is a transition aid.  If t, `current-time' and
 related functions return timestamps in list form, typically
@@ -564,18 +872,48 @@ Currently this variable defaults to t, for behavior compatible with
 previous Emacs versions.  Developers are encouraged to test
 timestamp-related code with this variable set to nil, as it will
 default to nil in a future Emacs version, and will be removed in some
-version after that."#),
-    (r#"cursor-in-echo-area"#, r#"Non-nil means put cursor in minibuffer, at end of any message there."#),
-    (r#"data-directory"#, r#"Directory of machine-independent files that come with GNU Emacs.
-These are files intended for Emacs to use while it runs."#),
-    (r#"dbus-compiled-version"#, r#"The version of D-Bus Emacs is compiled against."#),
-    (r#"dbus-debug"#, r#"If non-nil, debug messages of D-Bus bindings are raised."#),
-    (r#"dbus-message-type-error"#, r#"Message type of an error reply message."#),
-    (r#"dbus-message-type-invalid"#, r#"This value is never a valid message type."#),
-    (r#"dbus-message-type-method-call"#, r#"Message type of a method call message."#),
-    (r#"dbus-message-type-method-return"#, r#"Message type of a method return message."#),
-    (r#"dbus-message-type-signal"#, r#"Message type of a signal message."#),
-    (r#"dbus-registered-objects-table"#, r#"Hash table of registered functions for D-Bus.
+version after that."#,
+    ),
+    (
+        r#"cursor-in-echo-area"#,
+        r#"Non-nil means put cursor in minibuffer, at end of any message there."#,
+    ),
+    (
+        r#"data-directory"#,
+        r#"Directory of machine-independent files that come with GNU Emacs.
+These are files intended for Emacs to use while it runs."#,
+    ),
+    (
+        r#"dbus-compiled-version"#,
+        r#"The version of D-Bus Emacs is compiled against."#,
+    ),
+    (
+        r#"dbus-debug"#,
+        r#"If non-nil, debug messages of D-Bus bindings are raised."#,
+    ),
+    (
+        r#"dbus-message-type-error"#,
+        r#"Message type of an error reply message."#,
+    ),
+    (
+        r#"dbus-message-type-invalid"#,
+        r#"This value is never a valid message type."#,
+    ),
+    (
+        r#"dbus-message-type-method-call"#,
+        r#"Message type of a method call message."#,
+    ),
+    (
+        r#"dbus-message-type-method-return"#,
+        r#"Message type of a method return message."#,
+    ),
+    (
+        r#"dbus-message-type-signal"#,
+        r#"Message type of a signal message."#,
+    ),
+    (
+        r#"dbus-registered-objects-table"#,
+        r#"Hash table of registered functions for D-Bus.
 
 There are two different uses of the hash table: for accessing
 registered interfaces properties, targeted by signals, method calls or
@@ -611,9 +949,15 @@ SERIAL).  BUS is either a Lisp symbol, `:system' or `:session', or a
 string denoting the bus address.  SERIAL is the serial number of the
 non-blocking method call, a reply is expected.  Both arguments must
 not be nil.  The value in the hash table is HANDLER, the function to
-be called when the D-Bus reply message arrives."#),
-    (r#"dbus-runtime-version"#, r#"The version of D-Bus Emacs runs with."#),
-    (r#"deactivate-mark"#, r#"Whether to deactivate the mark after an editing command.
+be called when the D-Bus reply message arrives."#,
+    ),
+    (
+        r#"dbus-runtime-version"#,
+        r#"The version of D-Bus Emacs runs with."#,
+    ),
+    (
+        r#"deactivate-mark"#,
+        r#"Whether to deactivate the mark after an editing command.
 The command loop sets this to nil before each command,
 and tests the value when the command returns.
 If an editing command sets this non-nil, deactivate the mark after
@@ -623,9 +967,12 @@ Buffer modifications store t in this variable.
 
 By default, deactivating the mark will save the contents of the region
 according to `select-active-regions', unless this is set to the symbol
-`dont-save'."#),
+`dont-save'."#,
+    ),
     (r#"debug-end-pos"#, r#"Don't ask."#),
-    (r#"debug-ignored-errors"#, r#"List of errors for which the debugger should not be called.
+    (
+        r#"debug-ignored-errors"#,
+        r#"List of errors for which the debugger should not be called.
 Each element may be a condition-name or a regexp that matches error messages.
 If any element applies to a given error, that error skips the debugger
 and just returns to top level.
@@ -634,8 +981,11 @@ elements from the default value of this variable, use `setq' to
 change the value of the variable to a new list, rather than `delq'
 to remove some errors from the list.
 This overrides the variable `debug-on-error'.
-It does not apply to errors handled by `condition-case'."#),
-    (r#"debug-on-error"#, r#"Non-nil means enter debugger if an error is signaled.
+It does not apply to errors handled by `condition-case'."#,
+    ),
+    (
+        r#"debug-on-error"#,
+        r#"Non-nil means enter debugger if an error is signaled.
 Does not apply to errors handled by `condition-case' or those
 matched by `debug-ignored-errors'.
 If the value is a list, an error only means to enter the debugger
@@ -643,22 +993,40 @@ if one of its condition symbols appears in the list.
 When you evaluate an expression interactively, this variable
 is temporarily non-nil if `eval-expression-debug-on-error' is non-nil.
 The command `toggle-debug-on-error' toggles this.
-See also the variable `debug-on-quit' and `inhibit-debugger'."#),
-    (r#"debug-on-event"#, r#"Enter debugger on this event.
+See also the variable `debug-on-quit' and `inhibit-debugger'."#,
+    ),
+    (
+        r#"debug-on-event"#,
+        r#"Enter debugger on this event.
 When Emacs receives the special event specified by this variable,
 it will try to break into the debugger as soon as possible instead
 of processing the event normally through `special-event-map'.
 
 Currently, the only supported values for this
-variable are `sigusr1' and `sigusr2'."#),
-    (r#"debug-on-message"#, r#"If non-nil, debug if a message matching this regexp is displayed."#),
-    (r#"debug-on-next-call"#, r#"Non-nil means enter debugger before next `eval', `apply' or `funcall'."#),
-    (r#"debug-on-quit"#, r#"Non-nil means enter debugger if quit is signaled (C-g, for example).
-Does not apply if quit is handled by a `condition-case'."#),
-    (r#"debug-on-signal"#, r#"Non-nil means call the debugger regardless of condition handlers.
+variable are `sigusr1' and `sigusr2'."#,
+    ),
+    (
+        r#"debug-on-message"#,
+        r#"If non-nil, debug if a message matching this regexp is displayed."#,
+    ),
+    (
+        r#"debug-on-next-call"#,
+        r#"Non-nil means enter debugger before next `eval', `apply' or `funcall'."#,
+    ),
+    (
+        r#"debug-on-quit"#,
+        r#"Non-nil means enter debugger if quit is signaled (C-g, for example).
+Does not apply if quit is handled by a `condition-case'."#,
+    ),
+    (
+        r#"debug-on-signal"#,
+        r#"Non-nil means call the debugger regardless of condition handlers.
 Note that `debug-on-error', `debug-on-quit' and friends
-still determine whether to handle the particular condition."#),
-    (r#"debugger"#, r#"Function to call to invoke debugger.
+still determine whether to handle the particular condition."#,
+    ),
+    (
+        r#"debugger"#,
+        r#"Function to call to invoke debugger.
 If due to frame exit, arguments are `exit' and the value being returned;
  this function's value will be returned instead of that.
 If due to error, arguments are `error' and a list of arguments to `signal'.
@@ -666,12 +1034,21 @@ If due to `apply' or `funcall' entry, one argument, `lambda'.
 If due to `eval' entry, one argument, t.
 IF the desired entry point of the debugger is higher in the call stack,
 it can be specified with the keyword argument `:backtrace-base', whose
-format should be the same as the BASE argument of `backtrace-frame'."#),
-    (r#"debugger-may-continue"#, r#"Non-nil means debugger may continue execution.
+format should be the same as the BASE argument of `backtrace-frame'."#,
+    ),
+    (
+        r#"debugger-may-continue"#,
+        r#"Non-nil means debugger may continue execution.
 This is nil when the debugger is called under circumstances where it
-might not be safe to continue."#),
-    (r#"debugger-stack-frame-as-list"#, r#"Non-nil means display call stack frames as lists."#),
-    (r#"default-file-name-coding-system"#, r#"Default coding system for encoding file names.
+might not be safe to continue."#,
+    ),
+    (
+        r#"debugger-stack-frame-as-list"#,
+        r#"Non-nil means display call stack frames as lists."#,
+    ),
+    (
+        r#"default-file-name-coding-system"#,
+        r#"Default coding system for encoding file names.
 This variable is used only when `file-name-coding-system' is nil.
 
 This variable is set/changed by the command `set-language-environment'.
@@ -681,8 +1058,11 @@ of file names regardless of the current language environment.
 
 On MS-Windows, the value of this variable is largely ignored if
 `w32-unicode-filenames' (which see) is non-nil.  Emacs on Windows
-behaves as if file names were encoded in `utf-8'."#),
-    (r#"default-frame-alist"#, r#"Alist of default values of frame parameters for frame creation.
+behaves as if file names were encoded in `utf-8'."#,
+    ),
+    (
+        r#"default-frame-alist"#,
+        r#"Alist of default values of frame parameters for frame creation.
 These may be set in your init file, like this:
   (setq default-frame-alist \\='((width . 80) (height . 55) (menu-bar-lines . 1)))
 
@@ -703,51 +1083,87 @@ For window-system specific values, see `window-system-default-frame-alist'.
 For values specific to the separate minibuffer frame, see
 `minibuffer-frame-alist'.
 
-Setting this variable does not affect existing frames, only new ones."#),
-    (r#"default-frame-scroll-bars"#, r#"Default position of vertical scroll bars on this window-system."#),
-    (r#"default-minibuffer-frame"#, r#"Minibuffer-less frames by default use this frame's minibuffer.
+Setting this variable does not affect existing frames, only new ones."#,
+    ),
+    (
+        r#"default-frame-scroll-bars"#,
+        r#"Default position of vertical scroll bars on this window-system."#,
+    ),
+    (
+        r#"default-minibuffer-frame"#,
+        r#"Minibuffer-less frames by default use this frame's minibuffer.
 Emacs consults this variable only when creating a minibuffer-less frame
 and no explicit minibuffer window has been specified for that frame via
 the `minibuffer' frame parameter.  Once such a frame has been created,
 setting this variable does not change that frame's previous association.
 
-This variable is local to the current terminal and cannot be buffer-local."#),
-    (r#"default-process-coding-system"#, r#"Cons of coding systems used for process I/O by default.
+This variable is local to the current terminal and cannot be buffer-local."#,
+    ),
+    (
+        r#"default-process-coding-system"#,
+        r#"Cons of coding systems used for process I/O by default.
 The car part is used for decoding a process output,
-the cdr part is used for encoding a text to be sent to a process."#),
-    (r#"default-text-properties"#, r#"Property-list used as default values.
+the cdr part is used for encoding a text to be sent to a process."#,
+    ),
+    (
+        r#"default-text-properties"#,
+        r#"Property-list used as default values.
 The value of a property in this list is seen as the value for every
-character that does not have its own value for that property."#),
-    (r#"defining-kbd-macro"#, r#"Non-nil while a keyboard macro is being defined.  Don't set this!
+character that does not have its own value for that property."#,
+    ),
+    (
+        r#"defining-kbd-macro"#,
+        r#"Non-nil while a keyboard macro is being defined.  Don't set this!
 The value is the symbol `append' while appending to the definition of
-an existing macro."#),
-    (r#"delayed-warnings-list"#, r#"List of warnings to be displayed after this command.
+an existing macro."#,
+    ),
+    (
+        r#"delayed-warnings-list"#,
+        r#"List of warnings to be displayed after this command.
 Each element must be a list (TYPE MESSAGE [LEVEL [BUFFER-NAME]]),
 as per the args of `display-warning' (which see).
 If this variable is non-nil, `delayed-warnings-hook' will be run
-immediately after running `post-command-hook'."#),
-    (r#"delete-auto-save-files"#, r#"Non-nil means delete auto-save file when a buffer is saved.
-This is the default.  If nil, auto-save file deletion is inhibited."#),
-    (r#"delete-by-moving-to-trash"#, r#"Specifies whether to use the system's trash can.
+immediately after running `post-command-hook'."#,
+    ),
+    (
+        r#"delete-auto-save-files"#,
+        r#"Non-nil means delete auto-save file when a buffer is saved.
+This is the default.  If nil, auto-save file deletion is inhibited."#,
+    ),
+    (
+        r#"delete-by-moving-to-trash"#,
+        r#"Specifies whether to use the system's trash can.
 When non-nil, certain file deletion commands use the function
 `move-file-to-trash' instead of deleting files outright.
 This includes interactive calls to `delete-file' and
-`delete-directory' and the Dired deletion commands."#),
-    (r#"delete-exited-processes"#, r#"Non-nil means delete processes immediately when they exit.
-A value of nil means don't delete them until `list-processes' is run."#),
-    (r#"delete-frame-functions"#, r#"Functions run before deleting a frame.
+`delete-directory' and the Dired deletion commands."#,
+    ),
+    (
+        r#"delete-exited-processes"#,
+        r#"Non-nil means delete processes immediately when they exit.
+A value of nil means don't delete them until `list-processes' is run."#,
+    ),
+    (
+        r#"delete-frame-functions"#,
+        r#"Functions run before deleting a frame.
 The functions are run with one arg, the frame to be deleted.
 See `delete-frame'.
 
 Note that functions in this list may be called just before the frame is
 actually deleted, or some time later (or even both when an earlier function
 in `delete-frame-functions' (indirectly) calls `delete-frame'
-recursively)."#),
-    (r#"delete-terminal-functions"#, r#"Special hook run when a terminal is deleted.
+recursively)."#,
+    ),
+    (
+        r#"delete-terminal-functions"#,
+        r#"Special hook run when a terminal is deleted.
 Each function is called with argument, the terminal.
 This may be called just before actually deleting the terminal,
-or some time later."#),
-    (r#"describe-bindings-check-shadowing-in-ranges"#, r#"If non-nil, consider command shadowing when describing ranges of keys.
+or some time later."#,
+    ),
+    (
+        r#"describe-bindings-check-shadowing-in-ranges"#,
+        r#"If non-nil, consider command shadowing when describing ranges of keys.
 If the value is t, describing bindings of consecutive keys will not
 report them as a single range if they are shadowed by different
 minor-mode commands.
@@ -757,13 +1173,22 @@ commands such as \\[describe-bindings] and \\[describe-mode], but could miss som
 Any other non-nil value is treated is t.
 
 Beware: setting this non-nil could potentially slow down commands
-that describe key bindings.  That is why the default is nil."#),
-    (r#"disable-ascii-optimization"#, r#"If non-nil, Emacs does not optimize code decoder for ASCII files.
-Internal use only.  Remove after the experimental optimizer becomes stable."#),
-    (r#"disable-inhibit-text-conversion"#, r#"Don't disable text conversion inside `read-key-sequence'.
+that describe key bindings.  That is why the default is nil."#,
+    ),
+    (
+        r#"disable-ascii-optimization"#,
+        r#"If non-nil, Emacs does not optimize code decoder for ASCII files.
+Internal use only.  Remove after the experimental optimizer becomes stable."#,
+    ),
+    (
+        r#"disable-inhibit-text-conversion"#,
+        r#"Don't disable text conversion inside `read-key-sequence'.
 If non-nil, text conversion will continue to happen after a prefix
-key has been read inside `read-key-sequence'."#),
-    (r#"disable-point-adjustment"#, r#"If non-nil, suppress point adjustment after executing a command.
+key has been read inside `read-key-sequence'."#,
+    ),
+    (
+        r#"disable-point-adjustment"#,
+        r#"If non-nil, suppress point adjustment after executing a command.
 
 After a command is executed, if point moved into a region that has
 special properties (e.g. composition, display), Emacs adjusts point to
@@ -771,24 +1196,39 @@ the boundary of the region.  But when a command leaves this variable at
 a non-nil value (e.g., with a setq), this point adjustment is suppressed.
 
 This variable is set to nil before reading a command, and is checked
-just after executing the command."#),
-    (r#"display-fill-column-indicator"#, r#"Non-nil means display the fill column indicator.
+just after executing the command."#,
+    ),
+    (
+        r#"display-fill-column-indicator"#,
+        r#"Non-nil means display the fill column indicator.
 If you set this non-nil, make sure `display-fill-column-indicator-character'
 is also non-nil.
-See Info node `Displaying Boundaries' for details."#),
-    (r#"display-fill-column-indicator-character"#, r#"Character to draw the indicator when `display-fill-column-indicator' is non-nil.
+See Info node `Displaying Boundaries' for details."#,
+    ),
+    (
+        r#"display-fill-column-indicator-character"#,
+        r#"Character to draw the indicator when `display-fill-column-indicator' is non-nil.
 A good candidate is U+2502, and an alternative is (ascii 124) if the
 font of `fill-column-indicator' face does not support Unicode characters.
-See Info node `Displaying Boundaries' for details."#),
-    (r#"display-fill-column-indicator-column"#, r#"Column for indicator when `display-fill-column-indicator' is non-nil.
+See Info node `Displaying Boundaries' for details."#,
+    ),
+    (
+        r#"display-fill-column-indicator-column"#,
+        r#"Column for indicator when `display-fill-column-indicator' is non-nil.
 The default value is t which means that the indicator
 will use the `fill-column' variable.  If it is set to an integer the
 indicator will be drawn in that column.
-See Info node `Displaying Boundaries' for details."#),
-    (r#"display-hourglass"#, r#"Non-nil means show an hourglass pointer, when Emacs is busy.
+See Info node `Displaying Boundaries' for details."#,
+    ),
+    (
+        r#"display-hourglass"#,
+        r#"Non-nil means show an hourglass pointer, when Emacs is busy.
 This feature only works when on a window system that can change
-cursor shapes."#),
-    (r#"display-line-numbers"#, r#"Non-nil means display line numbers.
+cursor shapes."#,
+    ),
+    (
+        r#"display-line-numbers"#,
+        r#"Non-nil means display line numbers.
 
 If the value is t, display the absolute number of each line of a buffer
 shown in a window.  Absolute line numbers count from the beginning of
@@ -811,42 +1251,75 @@ relative number of a line.
 
 Lisp programs can disable display of a line number of a particular
 buffer line by putting the `display-line-numbers-disable' text property
-or overlay property on the first visible character of that line."#),
-    (r#"display-line-numbers-current-absolute"#, r#"Non-nil means display absolute number of current line.
+or overlay property on the first visible character of that line."#,
+    ),
+    (
+        r#"display-line-numbers-current-absolute"#,
+        r#"Non-nil means display absolute number of current line.
 This variable has effect only when `display-line-numbers' is
-either `relative' or `visual'."#),
-    (r#"display-line-numbers-major-tick"#, r#"If an integer N > 0, highlight line number of every Nth line.
+either `relative' or `visual'."#,
+    ),
+    (
+        r#"display-line-numbers-major-tick"#,
+        r#"If an integer N > 0, highlight line number of every Nth line.
 The line number is shown with the `line-number-major-tick' face.
 Otherwise, no special highlighting is done every Nth line.
-Note that major ticks take precedence over minor ticks."#),
-    (r#"display-line-numbers-minor-tick"#, r#"If an integer N > 0, highlight line number of every Nth line.
+Note that major ticks take precedence over minor ticks."#,
+    ),
+    (
+        r#"display-line-numbers-minor-tick"#,
+        r#"If an integer N > 0, highlight line number of every Nth line.
 The line number is shown with the `line-number-minor-tick' face.
 Otherwise, no special highlighting is done every Nth line.
-Note that major ticks take precedence over minor ticks."#),
-    (r#"display-line-numbers-offset"#, r#"A signed integer added to each absolute line number.
+Note that major ticks take precedence over minor ticks."#,
+    ),
+    (
+        r#"display-line-numbers-offset"#,
+        r#"A signed integer added to each absolute line number.
 When this variable is non-zero, line numbers are always counted from
 the beginning of the buffer even if `display-line-numbers-widen' is nil.
-It has no effect when set to 0, or when line numbers are not absolute."#),
-    (r#"display-line-numbers-widen"#, r#"Non-nil means display line numbers disregarding any narrowing."#),
-    (r#"display-line-numbers-width"#, r#"Minimum width of space reserved for line number display.
+It has no effect when set to 0, or when line numbers are not absolute."#,
+    ),
+    (
+        r#"display-line-numbers-widen"#,
+        r#"Non-nil means display line numbers disregarding any narrowing."#,
+    ),
+    (
+        r#"display-line-numbers-width"#,
+        r#"Minimum width of space reserved for line number display.
 A positive number means reserve that many columns for line numbers,
 even if the actual number needs less space.
 The default value of nil means compute the space dynamically.
-Any other value is treated as nil."#),
-    (r#"display-monitors-changed-functions"#, r#"Abnormal hook run when the monitor configuration changes.
+Any other value is treated as nil."#,
+    ),
+    (
+        r#"display-monitors-changed-functions"#,
+        r#"Abnormal hook run when the monitor configuration changes.
 This can happen if a monitor is rotated, moved, plugged in or removed
 from a multi-monitor setup, if the primary monitor changes, or if the
 resolution of a monitor changes.  The hook should accept a single
 argument, which is the terminal on which the monitor configuration
-changed."#),
-    (r#"display-pixels-per-inch"#, r#"Pixels per inch value for non-window system displays.
-Value is a number or a cons (WIDTH-DPI . HEIGHT-DPI)."#),
-    (r#"display-raw-bytes-as-hex"#, r#"Non-nil means display raw bytes in hexadecimal format.
+changed."#,
+    ),
+    (
+        r#"display-pixels-per-inch"#,
+        r#"Pixels per inch value for non-window system displays.
+Value is a number or a cons (WIDTH-DPI . HEIGHT-DPI)."#,
+    ),
+    (
+        r#"display-raw-bytes-as-hex"#,
+        r#"Non-nil means display raw bytes in hexadecimal format.
 The default is to use octal format (\\200) whereas hexadecimal (\\x80)
-may be more familiar to users."#),
-    (r#"doc-directory"#, r#"Directory containing the DOC file that comes with GNU Emacs.
-This is usually the same as `data-directory'."#),
-    (r#"documentation-dynamic-reload"#, r#"If non-nil, reload changed `DOC' and Lisp files when calling `documentation'.
+may be more familiar to users."#,
+    ),
+    (
+        r#"doc-directory"#,
+        r#"Directory containing the DOC file that comes with GNU Emacs.
+This is usually the same as `data-directory'."#,
+    ),
+    (
+        r#"documentation-dynamic-reload"#,
+        r#"If non-nil, reload changed `DOC' and Lisp files when calling `documentation'.
 
 For `etc/DOC' and for files byte-compiled with non-nil
 `byte-compile-dynamic-docstring' (the default), documentation strings
@@ -857,8 +1330,11 @@ the documentation string for that symbol out of the files may fail.  If
 it fails, and this variable is non-nil, then the files will be loaded
 again to redefine all its functions and variables.  `documentation' will
 then retry; if the symbol was redefined by reloading the file, reading
-the documentation string will then succeed."#),
-    (r#"dos-codepage"#, r#"The codepage active when Emacs was started.
+the documentation string will then succeed."#,
+    ),
+    (
+        r#"dos-codepage"#,
+        r#"The codepage active when Emacs was started.
 The following are known:
 	437	United States
 	850	Multilingual (Latin I)
@@ -867,22 +1343,40 @@ The following are known:
 	860	Portugal
 	861	Iceland
 	863	Canada (French)
-	865	Norway/Denmark"#),
-    (r#"dos-country-code"#, r#"The country code returned by Dos when Emacs was started.
-Usually this is the international telephone prefix."#),
-    (r#"dos-decimal-point"#, r#"The character to produce when kp-decimal key is pressed.
+	865	Norway/Denmark"#,
+    ),
+    (
+        r#"dos-country-code"#,
+        r#"The country code returned by Dos when Emacs was started.
+Usually this is the international telephone prefix."#,
+    ),
+    (
+        r#"dos-decimal-point"#,
+        r#"The character to produce when kp-decimal key is pressed.
 If non-zero, this variable contains the character to be returned when the
 decimal point key in the numeric keypad is pressed when Num Lock is on.
-If zero, the decimal point key returns the country code specific value."#),
-    (r#"dos-display-scancodes"#, r#"Whether DOS raw keyboard events are displayed as you type.
+If zero, the decimal point key returns the country code specific value."#,
+    ),
+    (
+        r#"dos-display-scancodes"#,
+        r#"Whether DOS raw keyboard events are displayed as you type.
 When non-nil, the keyboard scan-codes are displayed at the bottom right
 corner of the display (typically at the end of the mode line).
-The output format is: scan code:char code*modifiers."#),
-    (r#"dos-hyper-key"#, r#"If set to 1, use right ALT key as hyper key.
-If set to 2, use right CTRL key as hyper key."#),
-    (r#"dos-keyboard-layout"#, r#"Contains the country code for the current keyboard layout.
-Use msdos-set-keyboard to select another keyboard layout."#),
-    (r#"dos-keypad-mode"#, r#"Controls what key code is returned by a key in the numeric keypad.
+The output format is: scan code:char code*modifiers."#,
+    ),
+    (
+        r#"dos-hyper-key"#,
+        r#"If set to 1, use right ALT key as hyper key.
+If set to 2, use right CTRL key as hyper key."#,
+    ),
+    (
+        r#"dos-keyboard-layout"#,
+        r#"Contains the country code for the current keyboard layout.
+Use msdos-set-keyboard to select another keyboard layout."#,
+    ),
+    (
+        r#"dos-keypad-mode"#,
+        r#"Controls what key code is returned by a key in the numeric keypad.
 The `numlock ON' action is only taken if no modifier keys are pressed.
 The value is an integer constructed by adding the following bits together:
 
@@ -902,32 +1396,56 @@ The value is an integer constructed by adding the following bits together:
   0x00	Grey key returns char      (if numlock OFF)
   0x40	Grey key returns kp-key    (if numlock OFF)
 
-  0x200	ALT-0..ALT-9 in top-row produces shifted codes."#),
-    (r#"dos-super-key"#, r#"If set to 1, use right ALT key as super key.
-If set to 2, use right CTRL key as super key."#),
-    (r#"dos-timezone-offset"#, r#"The current timezone offset to UTC in minutes.
-Implicitly modified when the TZ variable is changed."#),
-    (r#"dos-unsupported-char-glyph"#, r#"Glyph to display instead of chars not supported by current codepage.
-This variable is used only by MS-DOS terminals."#),
-    (r#"dos-version"#, r#"The (MAJOR . MINOR) Dos version (subject to modification with setver)."#),
-    (r#"dos-windows-version"#, r#"The (MAJOR . MINOR) Windows version for DOS session on MS-Windows."#),
-    (r#"double-click-fuzz"#, r#"Maximum mouse movement between clicks to make a double-click.
+  0x200	ALT-0..ALT-9 in top-row produces shifted codes."#,
+    ),
+    (
+        r#"dos-super-key"#,
+        r#"If set to 1, use right ALT key as super key.
+If set to 2, use right CTRL key as super key."#,
+    ),
+    (
+        r#"dos-timezone-offset"#,
+        r#"The current timezone offset to UTC in minutes.
+Implicitly modified when the TZ variable is changed."#,
+    ),
+    (
+        r#"dos-unsupported-char-glyph"#,
+        r#"Glyph to display instead of chars not supported by current codepage.
+This variable is used only by MS-DOS terminals."#,
+    ),
+    (
+        r#"dos-version"#,
+        r#"The (MAJOR . MINOR) Dos version (subject to modification with setver)."#,
+    ),
+    (
+        r#"dos-windows-version"#,
+        r#"The (MAJOR . MINOR) Windows version for DOS session on MS-Windows."#,
+    ),
+    (
+        r#"double-click-fuzz"#,
+        r#"Maximum mouse movement between clicks to make a double-click.
 On window-system frames, value is the number of pixels the mouse may have
 moved horizontally or vertically between two clicks to make a double-click.
 On non window-system frames, value is interpreted in units of 1/8 characters
 instead of pixels.
 
 This variable is also the threshold for motion of the mouse
-to count as a drag."#),
-    (r#"double-click-time"#, r#"Maximum time between mouse clicks to make a double-click.
+to count as a drag."#,
+    ),
+    (
+        r#"double-click-time"#,
+        r#"Maximum time between mouse clicks to make a double-click.
 Measured in milliseconds.  The value nil means disable double-click
 recognition; t means double-clicks have no time limit and are detected
 by position only.
 
 In Lisp, you might want to use `mouse-double-click-time' instead of
-reading the value of this variable directly."#),
+reading the value of this variable directly."#,
+    ),
     (r#"dump-mode"#, r#"Non-nil when Emacs is dumping itself."#),
-    (r#"dynamic-library-alist"#, r#"Alist of dynamic libraries vs external files implementing them.
+    (
+        r#"dynamic-library-alist"#,
+        r#"Alist of dynamic libraries vs external files implementing them.
 Each element is a list (LIBRARY FILE...), where the car is a symbol
 representing a supported external library, and the rest are strings giving
 alternate filenames for that library.
@@ -940,72 +1458,141 @@ Note that image types `pbm' and `xbm' do not need entries in this variable
 because they do not depend on external libraries and are always available.
 
 Also note that this is not a generic facility for accessing external
-libraries; only those already known by Emacs will be loaded."#),
-    (r#"dynamic-library-suffixes"#, r#"A list of suffixes for loadable dynamic libraries."#),
-    (r#"ebrowse-program-name"#, r#"Name of the `ebrowse' program distributed with Emacs.
+libraries; only those already known by Emacs will be loaded."#,
+    ),
+    (
+        r#"dynamic-library-suffixes"#,
+        r#"A list of suffixes for loadable dynamic libraries."#,
+    ),
+    (
+        r#"ebrowse-program-name"#,
+        r#"Name of the `ebrowse' program distributed with Emacs.
 Use this instead of calling `ebrowse' directly, as `ebrowse'
 may have been renamed to comply with executable naming restrictions on
-the system."#),
-    (r#"echo-keystrokes"#, r#"Nonzero means echo unfinished commands after this many seconds of pause.
+the system."#,
+    ),
+    (
+        r#"echo-keystrokes"#,
+        r#"Nonzero means echo unfinished commands after this many seconds of pause.
 The value may be integer or floating point.
-If the value is zero, don't echo at all."#),
-    (r#"echo-keystrokes-help"#, r#"Whether to append help text to echoed commands.
+If the value is zero, don't echo at all."#,
+    ),
+    (
+        r#"echo-keystrokes-help"#,
+        r#"Whether to append help text to echoed commands.
 When non-nil, a reference to `C-h' is printed after echoed
-keystrokes."#),
-    (r#"emacs-copyright"#, r#"Short copyright string for this version of Emacs."#),
-    (r#"emacs-version"#, r#"Version numbers of this version of Emacs.
+keystrokes."#,
+    ),
+    (
+        r#"emacs-copyright"#,
+        r#"Short copyright string for this version of Emacs."#,
+    ),
+    (
+        r#"emacs-version"#,
+        r#"Version numbers of this version of Emacs.
 This has the form: MAJOR.MINOR[.MICRO], where MAJOR/MINOR/MICRO are integers.
 MICRO is only present in unreleased development versions,
 and is not especially meaningful.  Prior to Emacs 26.1, an extra final
 component .BUILD is present.  This is now stored separately in
-`emacs-build-number'."#),
-    (r#"emacsclient-program-name"#, r#"Name of the `emacsclient' program distributed with Emacs.
+`emacs-build-number'."#,
+    ),
+    (
+        r#"emacsclient-program-name"#,
+        r#"Name of the `emacsclient' program distributed with Emacs.
 Use this instead of calling `emacsclient' directly, as `emacsclient'
 may have been renamed to comply with executable naming restrictions on
-the system."#),
-    (r#"emulation-mode-map-alists"#, r#"List of keymap alists to use for emulation modes.
+the system."#,
+    ),
+    (
+        r#"emulation-mode-map-alists"#,
+        r#"List of keymap alists to use for emulation modes.
 It is intended for modes or packages using multiple minor-mode keymaps.
 Each element is a keymap alist just like `minor-mode-map-alist', or a
 symbol with a variable binding which is a keymap alist, and it is used
 the same way.  The "active" keymaps in each alist are used before
-`minor-mode-map-alist' and `minor-mode-overriding-map-alist'."#),
-    (r#"enable-character-translation"#, r#"
-Non-nil enables character translation while encoding and decoding."#),
-    (r#"enable-disabled-menus-and-buttons"#, r#"If non-nil, don't ignore events produced by disabled menu items and tool-bar.
+`minor-mode-map-alist' and `minor-mode-overriding-map-alist'."#,
+    ),
+    (
+        r#"enable-character-translation"#,
+        r#"
+Non-nil enables character translation while encoding and decoding."#,
+    ),
+    (
+        r#"enable-disabled-menus-and-buttons"#,
+        r#"If non-nil, don't ignore events produced by disabled menu items and tool-bar.
 
 Help functions bind this to allow help on disabled menu items
-and tool-bar buttons."#),
-    (r#"enable-recursive-minibuffers"#, r#"Non-nil means to allow minibuffer commands while in the minibuffer.
+and tool-bar buttons."#,
+    ),
+    (
+        r#"enable-recursive-minibuffers"#,
+        r#"Non-nil means to allow minibuffer commands while in the minibuffer.
 This variable makes a difference whenever the minibuffer window is active.
 Also see `minibuffer-depth-indicate-mode', which may be handy if this
-variable is non-nil."#),
-    (r#"eol-mnemonic-dos"#, r#"
-String displayed in mode line for DOS-like (CRLF) end-of-line format."#),
-    (r#"eol-mnemonic-mac"#, r#"
-String displayed in mode line for MAC-like (CR) end-of-line format."#),
-    (r#"eol-mnemonic-undecided"#, r#"
-String displayed in mode line when end-of-line format is not yet determined."#),
-    (r#"eol-mnemonic-unix"#, r#"
-String displayed in mode line for UNIX-like (LF) end-of-line format."#),
-    (r#"etags-program-name"#, r#"Name of the `etags' program distributed with Emacs.
+variable is non-nil."#,
+    ),
+    (
+        r#"eol-mnemonic-dos"#,
+        r#"
+String displayed in mode line for DOS-like (CRLF) end-of-line format."#,
+    ),
+    (
+        r#"eol-mnemonic-mac"#,
+        r#"
+String displayed in mode line for MAC-like (CR) end-of-line format."#,
+    ),
+    (
+        r#"eol-mnemonic-undecided"#,
+        r#"
+String displayed in mode line when end-of-line format is not yet determined."#,
+    ),
+    (
+        r#"eol-mnemonic-unix"#,
+        r#"
+String displayed in mode line for UNIX-like (LF) end-of-line format."#,
+    ),
+    (
+        r#"etags-program-name"#,
+        r#"Name of the `etags' program distributed with Emacs.
 Use this instead of calling `etags' directly, as `etags' may have been
-renamed to comply with executable naming restrictions on the system."#),
-    (r#"eval-buffer-list"#, r#"List of buffers being read from by calls to `eval-buffer' and `eval-region'."#),
-    (r#"exec-directory"#, r#"Directory for executables for Emacs to invoke.
+renamed to comply with executable naming restrictions on the system."#,
+    ),
+    (
+        r#"eval-buffer-list"#,
+        r#"List of buffers being read from by calls to `eval-buffer' and `eval-region'."#,
+    ),
+    (
+        r#"exec-directory"#,
+        r#"Directory for executables for Emacs to invoke.
 More generally, this includes any architecture-dependent files
-that are built and installed from the Emacs distribution."#),
-    (r#"exec-path"#, r#"List of directories to search programs to run in subprocesses.
+that are built and installed from the Emacs distribution."#,
+    ),
+    (
+        r#"exec-path"#,
+        r#"List of directories to search programs to run in subprocesses.
 Each element is a string (directory name) or nil (try default directory).
 
 By default the last element of this list is `exec-directory'. The
 last element is not always used, for example in shell completion
-\(`shell-dynamic-complete-command')."#),
-    (r#"exec-suffixes"#, r#"List of suffixes to try to find executable file names.
-Each element is a string."#),
-    (r#"executing-kbd-macro"#, r#"Currently executing keyboard macro (string or vector).
-This is nil when not executing a keyboard macro."#),
-    (r#"executing-kbd-macro-index"#, r#"Index in currently executing keyboard macro; undefined if none executing."#),
-    (r#"expose-hidden-buffer"#, r#"Non-nil means to make a hidden buffer more visible.
+\(`shell-dynamic-complete-command')."#,
+    ),
+    (
+        r#"exec-suffixes"#,
+        r#"List of suffixes to try to find executable file names.
+Each element is a string."#,
+    ),
+    (
+        r#"executing-kbd-macro"#,
+        r#"Currently executing keyboard macro (string or vector).
+This is nil when not executing a keyboard macro."#,
+    ),
+    (
+        r#"executing-kbd-macro-index"#,
+        r#"Index in currently executing keyboard macro; undefined if none executing."#,
+    ),
+    (
+        r#"expose-hidden-buffer"#,
+        r#"Non-nil means to make a hidden buffer more visible.
 A buffer is considered "hidden" if its name starts with a space.  By
 default, many functions disregard hidden buffers.  In particular,
 `make-frame' does not show the current buffer in the new frame's
@@ -1013,8 +1600,11 @@ selected window if that buffer is hidden.  Rather, `make-frame' will
 show a buffer that is not hidden instead.
 
 If this variable is non-nil, it will override the default behavior and
-allow `make-frame' to show the current buffer even if its hidden."#),
-    (r#"extra-keyboard-modifiers"#, r#"A mask of additional modifier keys to use with every keyboard character.
+allow `make-frame' to show the current buffer even if its hidden."#,
+    ),
+    (
+        r#"extra-keyboard-modifiers"#,
+        r#"A mask of additional modifier keys to use with every keyboard character.
 Emacs applies the modifiers of the character stored here to each keyboard
 character it reads.  For example, after evaluating the expression
     (setq extra-keyboard-modifiers ?\\C-x)
@@ -1023,17 +1613,29 @@ all input characters will have the control modifier applied to them.
 Note that the character ?\\C-@, equivalent to the integer zero, does
 not count as a control character; rather, it counts as a character
 with no modifiers; thus, setting `extra-keyboard-modifiers' to zero
-cancels any modification."#),
-    (r#"face--new-frame-defaults"#, r#"Hash table of global face definitions (for internal use only.)"#),
-    (r#"face-default-stipple"#, r#"Default stipple pattern used on monochrome displays.
+cancels any modification."#,
+    ),
+    (
+        r#"face--new-frame-defaults"#,
+        r#"Hash table of global face definitions (for internal use only.)"#,
+    ),
+    (
+        r#"face-default-stipple"#,
+        r#"Default stipple pattern used on monochrome displays.
 This stipple pattern is used on monochrome displays
 instead of shades of gray for a face background color.
-See `set-face-stipple' for possible values for this variable."#),
-    (r#"face-filters-always-match"#, r#"Non-nil means that face filters are always deemed to match.
+See `set-face-stipple' for possible values for this variable."#,
+    ),
+    (
+        r#"face-filters-always-match"#,
+        r#"Non-nil means that face filters are always deemed to match.
 This variable is intended for use only by code that evaluates
 the "specificity" of a face specification and should be let-bound
-only for this purpose."#),
-    (r#"face-font-lax-matched-attributes"#, r#"Whether to match some face attributes in lax manner when realizing faces.
+only for this purpose."#,
+    ),
+    (
+        r#"face-font-lax-matched-attributes"#,
+        r#"Whether to match some face attributes in lax manner when realizing faces.
 
 If non-nil, some font-related face attributes will be matched in a lax
 manner when looking for candidate fonts.
@@ -1057,17 +1659,26 @@ If the value is nil, candidate fonts might be rejected if the don't
 have exactly the same values of attributes as the face requests.
 
 This variable exists for debugging of the font-selection process,
-and we advise not to change it otherwise."#),
-    (r#"face-font-rescale-alist"#, r#"Alist of fonts vs the rescaling factors.
+and we advise not to change it otherwise."#,
+    ),
+    (
+        r#"face-font-rescale-alist"#,
+        r#"Alist of fonts vs the rescaling factors.
 Each element is a cons (FONT-PATTERN . RESCALE-RATIO), where
 FONT-PATTERN is a font-spec or a regular expression matching a font name, and
 RESCALE-RATIO is a floating point number to specify how much larger
 \(or smaller) font we should use.  For instance, if a face requests
-a font of 10 point, we actually use a font of 10 * RESCALE-RATIO point."#),
-    (r#"face-ignored-fonts"#, r#"List of ignored fonts.
+a font of 10 point, we actually use a font of 10 * RESCALE-RATIO point."#,
+    ),
+    (
+        r#"face-ignored-fonts"#,
+        r#"List of ignored fonts.
 Each element is a regular expression that matches names of fonts to
-ignore."#),
-    (r#"face-near-same-color-threshold"#, r#"Threshold for using distant-foreground color instead of foreground.
+ignore."#,
+    ),
+    (
+        r#"face-near-same-color-threshold"#,
+        r#"Threshold for using distant-foreground color instead of foreground.
 
 The value should be an integer number providing the minimum distance
 between two colors that will still qualify them to be used as foreground
@@ -1077,8 +1688,11 @@ less than this threshold, the distant-foreground color, if defined,
 will be used for the face instead of the foreground color.
 
 Lisp programs that change the value of this variable should also
-clear the face cache, see `clear-face-cache'."#),
-    (r#"face-remapping-alist"#, r#"Alist of face remappings.
+clear the face cache, see `clear-face-cache'."#,
+    ),
+    (
+        r#"face-remapping-alist"#,
+        r#"Alist of face remappings.
 Each element is of the form:
 
    (FACE . REPLACEMENT),
@@ -1139,21 +1753,33 @@ the example above) before modifying.
 
 Because Emacs normally only redraws screen areas when the underlying
 buffer contents change, you may need to call `redraw-display' after
-changing this variable for it to take effect."#),
-    (r#"fast-but-imprecise-scrolling"#, r#"When non-nil, accelerate scrolling operations.
+changing this variable for it to take effect."#,
+    ),
+    (
+        r#"fast-but-imprecise-scrolling"#,
+        r#"When non-nil, accelerate scrolling operations.
 This comes into play when scrolling rapidly over previously
 unfontified buffer regions.  Only those portions of the buffer which
 are actually going to be displayed get fontified.
 
 Note that this optimization can cause the portion of the buffer
-displayed after a scrolling operation to be somewhat inaccurate."#),
-    (r#"fast-read-process-output"#, r#"Non-nil to optimize the insertion of process output.
+displayed after a scrolling operation to be somewhat inaccurate."#,
+    ),
+    (
+        r#"fast-read-process-output"#,
+        r#"Non-nil to optimize the insertion of process output.
 We skip calling `internal-default-process-filter' and don't allocate
 the Lisp string that would be used as its argument.  Only affects the
-case of asynchronous process with the default filter."#),
-    (r#"features"#, r#"A list of symbols which are the features of the executing Emacs.
-Used by `featurep' and `require', and altered by `provide'."#),
-    (r#"file-coding-system-alist"#, r#"
+case of asynchronous process with the default filter."#,
+    ),
+    (
+        r#"features"#,
+        r#"A list of symbols which are the features of the executing Emacs.
+Used by `featurep' and `require', and altered by `provide'."#,
+    ),
+    (
+        r#"file-coding-system-alist"#,
+        r#"
 Alist to decide a coding system to use for a file I/O operation.
 The format is ((PATTERN . VAL) ...),
 where PATTERN is a regular expression matching a file name,
@@ -1170,14 +1796,20 @@ a coding system, it can return `undecided' so that the normal
 code-detection is performed.
 
 See also the function `find-operation-coding-system'
-and the variable `auto-coding-alist'."#),
-    (r#"file-name-coding-system"#, r#"Coding system for encoding file names.
+and the variable `auto-coding-alist'."#,
+    ),
+    (
+        r#"file-name-coding-system"#,
+        r#"Coding system for encoding file names.
 If it is nil, `default-file-name-coding-system' (which see) is used.
 
 On MS-Windows, the value of this variable is largely ignored if
 `w32-unicode-filenames' (which see) is non-nil.  Emacs on Windows
-behaves as if file names were encoded in `utf-8'."#),
-    (r#"file-name-handler-alist"#, r#"Alist of elements (REGEXP . HANDLER) for file names handled specially.
+behaves as if file names were encoded in `utf-8'."#,
+    ),
+    (
+        r#"file-name-handler-alist"#,
+        r#"Alist of elements (REGEXP . HANDLER) for file names handled specially.
 If a file name matches REGEXP, all I/O on that file is done by calling
 HANDLER.  If a file name matches more than one handler, the handler
 whose match starts last in the file name gets precedence.  The
@@ -1195,8 +1827,11 @@ HANDLER is called like this:
 Note that HANDLER must be able to handle all I/O primitives; if it has
 nothing special to do for a primitive, it should reinvoke the
 primitive to handle the operation \"the usual way\".
-See Info node `(elisp)Magic File Names' for more details."#),
-    (r#"find-word-boundary-function-table"#, r#"
+See Info node `(elisp)Magic File Names' for more details."#,
+    ),
+    (
+        r#"find-word-boundary-function-table"#,
+        r#"
 Char table of functions to search for the word boundary.
 Each function is called with two arguments; POS and LIMIT.
 POS and LIMIT are character positions in the current buffer.
@@ -1209,10 +1844,16 @@ If POS is not less than LIMIT, POS is at the last character of a word,
 and the return value of a function should be a position at the first
 character of that word.
 
-In both cases, LIMIT bounds the search."#),
-    (r#"first-change-hook"#, r#"A list of functions to call before changing a buffer which is unmodified.
-The functions are run using the `run-hooks' function."#),
-    (r#"float-output-format"#, r#"The format descriptor string used to print floats.
+In both cases, LIMIT bounds the search."#,
+    ),
+    (
+        r#"first-change-hook"#,
+        r#"A list of functions to call before changing a buffer which is unmodified.
+The functions are run using the `run-hooks' function."#,
+    ),
+    (
+        r#"float-output-format"#,
+        r#"The format descriptor string used to print floats.
 This is a %-spec like those accepted by `printf' in C,
 but with some restrictions.  It must start with the two characters `%.'.
 After that comes an integer precision specification,
@@ -1226,9 +1867,15 @@ the decimal point.  With `f', a precision of 0 means to omit the
 decimal point.  0 is not allowed with `e' or `g'.
 
 A value of nil means to use the shortest notation
-that represents the number without losing information."#),
-    (r#"floats-consed"#, r#"Number of floats that have been consed so far."#),
-    (r#"focus-follows-mouse"#, r#"Non-nil if window system changes focus when you move the mouse.
+that represents the number without losing information."#,
+    ),
+    (
+        r#"floats-consed"#,
+        r#"Number of floats that have been consed so far."#,
+    ),
+    (
+        r#"focus-follows-mouse"#,
+        r#"Non-nil if window system changes focus when you move the mouse.
 You should set this variable to tell Emacs how your window manager
 handles focus, since there is no way in general for Emacs to find out
 automatically.
@@ -1270,8 +1917,11 @@ focus (where a frame immediately loses focus when it's left by the mouse
 pointer).
 
 In order to extend a "focus follows mouse" policy to individual Emacs
-windows, customize the variable `mouse-autoselect-window'."#),
-    (r#"font-encoding-alist"#, r#"
+windows, customize the variable `mouse-autoselect-window'."#,
+    ),
+    (
+        r#"font-encoding-alist"#,
+        r#"
 Alist of fontname patterns vs the corresponding encoding and repertory info.
 Each element looks like (REGEXP . (ENCODING . REPERTORY)),
 where ENCODING is a charset or a char-table,
@@ -1289,33 +1939,54 @@ REPERTORY specifies a repertory of characters supported by the font.
 If REPERTORY is a charset, all characters belonging to the charset are
 supported.  If REPERTORY is a char-table, all characters who have a
 non-nil value in the table are supported.  If REPERTORY is nil, Emacs
-gets the repertory information by an opened font and ENCODING."#),
-    (r#"font-encoding-charset-alist"#, r#"
+gets the repertory information by an opened font and ENCODING."#,
+    ),
+    (
+        r#"font-encoding-charset-alist"#,
+        r#"
 Alist of charsets vs the charsets to determine the preferred font encoding.
 Each element looks like (CHARSET . ENCODING-CHARSET),
 where ENCODING-CHARSET is a charset registered in the variable
 `font-encoding-alist' as ENCODING.
 
 When a text has a property `charset' and the value is CHARSET, a font
-whose encoding corresponds to ENCODING-CHARSET is preferred."#),
-    (r#"font-log"#, r#"
+whose encoding corresponds to ENCODING-CHARSET is preferred."#,
+    ),
+    (
+        r#"font-log"#,
+        r#"
 A list that logs font-related actions and results, for debugging.
 The default value is t, which means to suppress logging.
 Set it to nil to enable logging.  If the environment variable
-EMACS_FONT_LOG is set at startup, it defaults to nil."#),
-    (r#"font-slant-table"#, r#" Vector of font slant symbols vs the corresponding numeric values.
+EMACS_FONT_LOG is set at startup, it defaults to nil."#,
+    ),
+    (
+        r#"font-slant-table"#,
+        r#" Vector of font slant symbols vs the corresponding numeric values.
 See `font-weight-table' for the format of the vector.
-This variable cannot be set; trying to do so will signal an error."#),
-    (r#"font-use-system-font"#, r#"SKIP: real doc in xsettings.c."#),
-    (r#"font-weight-table"#, r#" Vector of valid font weight values.
+This variable cannot be set; trying to do so will signal an error."#,
+    ),
+    (
+        r#"font-use-system-font"#,
+        r#"SKIP: real doc in xsettings.c."#,
+    ),
+    (
+        r#"font-weight-table"#,
+        r#" Vector of valid font weight values.
 Each element has the form:
     [NUMERIC-VALUE SYMBOLIC-NAME ALIAS-NAME ...]
 NUMERIC-VALUE is an integer, and SYMBOLIC-NAME and ALIAS-NAME are symbols.
-This variable cannot be set; trying to do so will signal an error."#),
-    (r#"font-width-table"#, r#" Alist of font width symbols vs the corresponding numeric values.
+This variable cannot be set; trying to do so will signal an error."#,
+    ),
+    (
+        r#"font-width-table"#,
+        r#" Alist of font width symbols vs the corresponding numeric values.
 See `font-weight-table' for the format of the vector.
-This variable cannot be set; trying to do so will signal an error."#),
-    (r#"fontification-functions"#, r#"List of functions to call to fontify regions of text.
+This variable cannot be set; trying to do so will signal an error."#,
+    ),
+    (
+        r#"fontification-functions"#,
+        r#"List of functions to call to fontify regions of text.
 Each function is called with one argument POS.  Functions must
 fontify a region starting at POS in the current buffer, and give
 fontified regions the property `fontified' with a non-nil value.
@@ -1324,16 +1995,31 @@ Note that, when `long-line-optimizations-p' is non-nil in the buffer,
 these functions are called as if they were in a `with-restriction' form,
 with a `long-line-optimizations-in-fontification-functions' label and
 with the buffer narrowed to a portion around POS whose size is
-specified by `long-line-optimizations-region-size'."#),
-    (r#"fontset-alias-alist"#, r#"Alist of fontset names vs the aliases."#),
-    (r#"force-load-messages"#, r#"Non-nil means force printing messages when loading Lisp files.
-This overrides the value of the NOMESSAGE argument to `load'."#),
-    (r#"forward-comment-function"#, r#"If non-nil, `forward-comment' delegates to this function.
-Should take the same arguments and behave similarly to `forward-comment'."#),
-    (r#"frame-alpha-lower-limit"#, r#"The lower limit of the frame opacity (alpha transparency).
+specified by `long-line-optimizations-region-size'."#,
+    ),
+    (
+        r#"fontset-alias-alist"#,
+        r#"Alist of fontset names vs the aliases."#,
+    ),
+    (
+        r#"force-load-messages"#,
+        r#"Non-nil means force printing messages when loading Lisp files.
+This overrides the value of the NOMESSAGE argument to `load'."#,
+    ),
+    (
+        r#"forward-comment-function"#,
+        r#"If non-nil, `forward-comment' delegates to this function.
+Should take the same arguments and behave similarly to `forward-comment'."#,
+    ),
+    (
+        r#"frame-alpha-lower-limit"#,
+        r#"The lower limit of the frame opacity (alpha transparency).
 The value should range from 0 (invisible) to 100 (completely opaque).
-You can also use a floating number between 0.0 and 1.0."#),
-    (r#"frame-inhibit-implied-resize"#, r#"Whether frames should be resized implicitly.
+You can also use a floating number between 0.0 and 1.0."#,
+    ),
+    (
+        r#"frame-inhibit-implied-resize"#,
+        r#"Whether frames should be resized implicitly.
 If this option is nil, setting font, menu bar, tool bar, tab bar,
 internal borders, fringes or scroll bars of a specific frame may resize
 the frame in order to preserve the number of columns or lines it
@@ -1378,9 +2064,15 @@ Note that the size of fullscreen and maximized frames, the height of
 fullheight frames and the width of fullwidth frames never change
 implicitly.  Note also that when a frame is not large enough to
 accommodate a change of any of the parameters listed above, Emacs may
-try to enlarge the frame even if this option is non-nil."#),
-    (r#"frame-internal-parameters"#, r#"Frame parameters specific to every frame."#),
-    (r#"frame-resize-pixelwise"#, r#"Non-nil means resize frames pixelwise.
+try to enlarge the frame even if this option is non-nil."#,
+    ),
+    (
+        r#"frame-internal-parameters"#,
+        r#"Frame parameters specific to every frame."#,
+    ),
+    (
+        r#"frame-resize-pixelwise"#,
+        r#"Non-nil means resize frames pixelwise.
 If this option is nil, resizing a frame rounds its sizes to the frame's
 current values of `frame-char-height' and `frame-char-width'.  If this
 is non-nil, no rounding occurs, hence frame sizes can increase/decrease
@@ -1389,8 +2081,11 @@ by one pixel.
 With some window managers you may have to set this to non-nil in order
 to set the size of a frame in pixels, to maximize frames or to make them
 fullscreen.  To resize your initial frame pixelwise, set this option to
-a non-nil value in your init file."#),
-    (r#"frame-size-history"#, r#"History of frame size adjustments.
+a non-nil value in your init file."#,
+    ),
+    (
+        r#"frame-size-history"#,
+        r#"History of frame size adjustments.
 If non-nil, list recording frame size adjustment.  Adjustments are
 recorded only if the first element of this list is a positive number.
 Adding an adjustment decrements that number by one.
@@ -1403,21 +2098,33 @@ and `new-height' representing the old and new sizes recorded/requested
 by `function'.  `more' is a list with additional information.
 
 The function `frame--size-history' displays the value of this variable
-in a more readable form."#),
-    (r#"frame-title-format"#, r#"Template for displaying the title bar of visible frames.
+in a more readable form."#,
+    ),
+    (
+        r#"frame-title-format"#,
+        r#"Template for displaying the title bar of visible frames.
 \(Assuming the window manager supports this feature.)
 
 This variable has the same structure as `mode-line-format', except that
 the %c, %C, and %l constructs are ignored.  It is used only on frames for
-which no explicit name has been set (see `modify-frame-parameters')."#),
+which no explicit name has been set (see `modify-frame-parameters')."#,
+    ),
     (r#"fringe-bitmaps"#, r#"List of fringe bitmap symbols."#),
-    (r#"function-key-map"#, r#"The parent keymap of all `local-function-key-map' instances.
+    (
+        r#"function-key-map"#,
+        r#"The parent keymap of all `local-function-key-map' instances.
 Function key definitions that apply to all terminal devices should go
 here.  If a mapping is defined in both the current
 `local-function-key-map' binding and this variable, then the local
-definition will take precedence."#),
-    (r#"garbage-collection-messages"#, r#"Non-nil means display messages at start and end of garbage collection."#),
-    (r#"gc-cons-percentage"#, r#"Portion of the heap used for allocation.
+definition will take precedence."#,
+    ),
+    (
+        r#"garbage-collection-messages"#,
+        r#"Non-nil means display messages at start and end of garbage collection."#,
+    ),
+    (
+        r#"gc-cons-percentage"#,
+        r#"Portion of the heap used for allocation.
 Garbage collection can happen automatically once this portion of the heap
 has been allocated since the last garbage collection.
 
@@ -1427,8 +2134,11 @@ sure to get back to the normal value soon enough, to avoid system-wide
 memory pressure, and never use a too-high value for prolonged periods
 of time.
 
-If this portion is smaller than `gc-cons-threshold', this is ignored."#),
-    (r#"gc-cons-threshold"#, r#"Number of bytes of consing between garbage collections.
+If this portion is smaller than `gc-cons-threshold', this is ignored."#,
+    ),
+    (
+        r#"gc-cons-threshold"#,
+        r#"Number of bytes of consing between garbage collections.
 Garbage collection can happen automatically once this many bytes have been
 allocated since the last garbage collection.  All data types count.
 
@@ -1439,25 +2149,43 @@ prevent garbage collection during a part of the program.  But be
 sure to get back to the normal value soon enough, to avoid system-wide
 memory pressure, and never use a too-high value for prolonged periods
 of time.
-See also `gc-cons-percentage'."#),
-    (r#"gc-elapsed"#, r#"Accumulated time elapsed in garbage collections.
-The time is in seconds as a floating point value."#),
-    (r#"gcs-done"#, r#"Accumulated number of garbage collections done."#),
-    (r#"global-disable-point-adjustment"#, r#"If non-nil, always suppress point adjustments.
+See also `gc-cons-percentage'."#,
+    ),
+    (
+        r#"gc-elapsed"#,
+        r#"Accumulated time elapsed in garbage collections.
+The time is in seconds as a floating point value."#,
+    ),
+    (
+        r#"gcs-done"#,
+        r#"Accumulated number of garbage collections done."#,
+    ),
+    (
+        r#"global-disable-point-adjustment"#,
+        r#"If non-nil, always suppress point adjustments.
 
 The default value is nil, in which case point adjustments are
 suppressed only after special commands that leave
-`disable-point-adjustment' (which see) at a non-nil value."#),
-    (r#"global-mode-string"#, r#"String (or mode line construct) included (normally) in `mode-line-misc-info'."#),
-    (r#"glyph-table"#, r#"Table defining how to output a glyph code to the frame.
+`disable-point-adjustment' (which see) at a non-nil value."#,
+    ),
+    (
+        r#"global-mode-string"#,
+        r#"String (or mode line construct) included (normally) in `mode-line-misc-info'."#,
+    ),
+    (
+        r#"glyph-table"#,
+        r#"Table defining how to output a glyph code to the frame.
 If not nil, this is a vector indexed by glyph code to define the glyph.
 Each element can be:
  integer: a glyph code which this glyph is an alias for.
  string: output this glyph using that string (not impl. in X windows).
  nil: this glyph mod 524288 is the code of a character to output,
     and this glyph / 524288 is the face number (see `face-id') to use
-    while outputting it."#),
-    (r#"glyphless-char-display"#, r#"Char-table defining glyphless characters.
+    while outputting it."#,
+    ),
+    (
+        r#"glyphless-char-display"#,
+        r#"Char-table defining glyphless characters.
 Each element, if non-nil, should be one of the following:
   an ASCII acronym string: display this string in a box
   `hex-code':   display the hexadecimal code of a character in a box
@@ -1481,89 +2209,161 @@ are displayed using the face `glyphless-char'.
 
 If a character has a non-nil entry in an active display table, the
 display table takes effect; in this case, Emacs does not consult
-`glyphless-char-display' at all."#),
-    (r#"gnutls-log-level"#, r#"Logging level used by the GnuTLS functions.
+`glyphless-char-display' at all."#,
+    ),
+    (
+        r#"gnutls-log-level"#,
+        r#"Logging level used by the GnuTLS functions.
 Set this larger than 0 to get debug output in the *Messages* buffer.
 1 is for important messages, 2 is for debug data, and higher numbers
-are as per the GnuTLS logging conventions."#),
+are as per the GnuTLS logging conventions."#,
+    ),
     (r#"gtk-version-string"#, r#"Version info for GTK+."#),
-    (r#"haiku-allowed-ui-colors"#, r#"Vector of UI colors that Emacs can look up from the system.
+    (
+        r#"haiku-allowed-ui-colors"#,
+        r#"Vector of UI colors that Emacs can look up from the system.
 If this is set up incorrectly, Emacs can crash when encountering an
-invalid color."#),
-    (r#"haiku-control-keysym"#, r#"Which key Emacs uses as the control modifier.
+invalid color."#,
+    ),
+    (
+        r#"haiku-control-keysym"#,
+        r#"Which key Emacs uses as the control modifier.
 This is either one of the symbols `shift', `control', `command', and
 `option', or nil, in which case it is treated as `control'.
 
-Setting it to any other value is equivalent to `control'."#),
-    (r#"haiku-debug-on-fatal-error"#, r#"If non-nil, Emacs will launch the system debugger upon a fatal error."#),
-    (r#"haiku-drag-track-function"#, r#"If non-nil, a function to call upon mouse movement while dragging a message.
+Setting it to any other value is equivalent to `control'."#,
+    ),
+    (
+        r#"haiku-debug-on-fatal-error"#,
+        r#"If non-nil, Emacs will launch the system debugger upon a fatal error."#,
+    ),
+    (
+        r#"haiku-drag-track-function"#,
+        r#"If non-nil, a function to call upon mouse movement while dragging a message.
 The function is called without any arguments.  `mouse-position' can be
-used to retrieve the current position of the mouse."#),
-    (r#"haiku-drag-wheel-function"#, r#"Function called upon wheel movement while dragging a message.
+used to retrieve the current position of the mouse."#,
+    ),
+    (
+        r#"haiku-drag-wheel-function"#,
+        r#"Function called upon wheel movement while dragging a message.
 If non-nil, it is called with 6 arguments when the mouse wheel moves
 while a drag-and-drop operation is in progress: the frame where the
 mouse moved, the frame-relative X and Y positions where the mouse
 moved, whether or not the wheel movement was horizontal, whether or
 not the wheel moved up (or left, if the movement was horizontal), and
-keyboard modifiers currently held down."#),
-    (r#"haiku-initialized"#, r#"Non-nil if the Haiku terminal backend has been initialized."#),
-    (r#"haiku-lost-selection-functions"#, r#"A list of functions to be called when Emacs loses an X selection.
-These are only called if a connection to the Haiku display was opened."#),
-    (r#"haiku-meta-keysym"#, r#"Which key Emacs uses as the meta modifier.
+keyboard modifiers currently held down."#,
+    ),
+    (
+        r#"haiku-initialized"#,
+        r#"Non-nil if the Haiku terminal backend has been initialized."#,
+    ),
+    (
+        r#"haiku-lost-selection-functions"#,
+        r#"A list of functions to be called when Emacs loses an X selection.
+These are only called if a connection to the Haiku display was opened."#,
+    ),
+    (
+        r#"haiku-meta-keysym"#,
+        r#"Which key Emacs uses as the meta modifier.
 This is either one of the symbols `shift', `control', `command', and
 `option', or nil, in which case it is treated as `command'.
 
-Setting it to any other value is equivalent to `command'."#),
-    (r#"haiku-pass-control-tab-to-system"#, r#"Whether or not to pass C-TAB to the system.
+Setting it to any other value is equivalent to `command'."#,
+    ),
+    (
+        r#"haiku-pass-control-tab-to-system"#,
+        r#"Whether or not to pass C-TAB to the system.
 Setting this variable will cause Emacs to pass C-TAB to the system
 (allowing window switching on the Haiku operating system), rather than
-intercepting it."#),
-    (r#"haiku-shift-keysym"#, r#"Which key Emacs uses as the shift modifier.
+intercepting it."#,
+    ),
+    (
+        r#"haiku-shift-keysym"#,
+        r#"Which key Emacs uses as the shift modifier.
 This is either one of the symbols `shift', `control', `command', and
 `option', or nil, in which case it is treated as `shift'.
 
-Setting it to any other value is equivalent to `shift'."#),
-    (r#"haiku-signal-invalid-refs"#, r#"If nil, silently ignore invalid file names in system messages.
+Setting it to any other value is equivalent to `shift'."#,
+    ),
+    (
+        r#"haiku-signal-invalid-refs"#,
+        r#"If nil, silently ignore invalid file names in system messages.
 Otherwise, an error will be signaled if adding a file reference to a
-system message failed."#),
-    (r#"haiku-super-keysym"#, r#"Which key Emacs uses as the super modifier.
+system message failed."#,
+    ),
+    (
+        r#"haiku-super-keysym"#,
+        r#"Which key Emacs uses as the super modifier.
 This is either one of the symbols `shift', `control', `command', and
 `option', or nil, in which case it is treated as `option'.
 
-Setting it to any other value is equivalent to `option'."#),
-    (r#"help-char"#, r#"Character to recognize as meaning Help.
+Setting it to any other value is equivalent to `option'."#,
+    ),
+    (
+        r#"help-char"#,
+        r#"Character to recognize as meaning Help.
 When it is read, do `(eval help-form)', and display result if it's a string.
-If the value of `help-form' is nil, this char can be read normally."#),
-    (r#"help-event-list"#, r#"List of input events to recognize as meaning Help.
-These work just like the value of `help-char' (see that)."#),
-    (r#"help-form"#, r#"Form to execute when character `help-char' is read.
+If the value of `help-form' is nil, this char can be read normally."#,
+    ),
+    (
+        r#"help-event-list"#,
+        r#"List of input events to recognize as meaning Help.
+These work just like the value of `help-char' (see that)."#,
+    ),
+    (
+        r#"help-form"#,
+        r#"Form to execute when character `help-char' is read.
 If the form returns a string, that string is displayed.
-If `help-form' is nil, the help char is not recognized."#),
-    (r#"hexl-program-name"#, r#"Name of the `hexl' program distributed with Emacs.
+If `help-form' is nil, the help char is not recognized."#,
+    ),
+    (
+        r#"hexl-program-name"#,
+        r#"Name of the `hexl' program distributed with Emacs.
 Use this instead of calling `hexl' directly, as `hexl' may have been
-renamed to comply with executable naming restrictions on the system."#),
-    (r#"highlight-nonselected-windows"#, r#"Non-nil means highlight active region even in nonselected windows.
+renamed to comply with executable naming restrictions on the system."#,
+    ),
+    (
+        r#"highlight-nonselected-windows"#,
+        r#"Non-nil means highlight active region even in nonselected windows.
 When nil (the default), the active region is only highlighted when
-the window is selected."#),
-    (r#"history-add-new-input"#, r#"Non-nil means to add new elements in history.
+the window is selected."#,
+    ),
+    (
+        r#"history-add-new-input"#,
+        r#"Non-nil means to add new elements in history.
 If set to nil, minibuffer reading functions don't add new elements to the
 history list, so it is possible to do this afterwards by calling
-`add-to-history' explicitly."#),
-    (r#"history-delete-duplicates"#, r#"Non-nil means to delete duplicates in history.
+`add-to-history' explicitly."#,
+    ),
+    (
+        r#"history-delete-duplicates"#,
+        r#"Non-nil means to delete duplicates in history.
 If set to t when adding a new history element, all previous identical
-elements are deleted from the history list."#),
-    (r#"history-length"#, r#"Maximum length of history lists before truncation takes place.
+elements are deleted from the history list."#,
+    ),
+    (
+        r#"history-length"#,
+        r#"Maximum length of history lists before truncation takes place.
 A number means truncate to that length; truncation deletes old
 elements, and is done just after inserting a new element.
 A value of t means no truncation.
 
 This variable only affects history lists that don't specify their own
 maximum lengths.  Setting the `history-length' property of a history
-variable overrides this default."#),
-    (r#"hourglass-delay"#, r#"Seconds to wait before displaying an hourglass pointer when Emacs is busy."#),
-    (r#"hscroll-margin"#, r#"How many columns away from the window edge point is allowed to get
-before automatic hscrolling will horizontally scroll the window."#),
-    (r#"hscroll-step"#, r#"How many columns to scroll the window when point gets too close to the edge.
+variable overrides this default."#,
+    ),
+    (
+        r#"hourglass-delay"#,
+        r#"Seconds to wait before displaying an hourglass pointer when Emacs is busy."#,
+    ),
+    (
+        r#"hscroll-margin"#,
+        r#"How many columns away from the window edge point is allowed to get
+before automatic hscrolling will horizontally scroll the window."#,
+    ),
+    (
+        r#"hscroll-step"#,
+        r#"How many columns to scroll the window when point gets too close to the edge.
 When point is less than `hscroll-margin' columns from the window
 edge, automatic hscrolling will scroll the window by the amount of columns
 determined by this variable.  If its value is a positive integer, scroll that
@@ -1577,15 +2377,21 @@ point was more than scroll step columns inside the margin, the window will
 scroll more than the value given by the scroll step.
 
 Note that the lower bound for automatic hscrolling specified by `scroll-left'
-and `scroll-right' overrides this variable's effect."#),
-    (r#"icon-title-format"#, r#"Template for displaying the title bar of an iconified frame.
+and `scroll-right' overrides this variable's effect."#,
+    ),
+    (
+        r#"icon-title-format"#,
+        r#"Template for displaying the title bar of an iconified frame.
 \(Assuming the window manager supports this feature.)
 If the value is a string, it should have the same structure
 as `mode-line-format' (which see), and is used only on frames
 for which no explicit name has been set \(see `modify-frame-parameters').
 If the value is t, that means use `frame-title-format' for
-iconified frames."#),
-    (r#"iconify-child-frame"#, r#"How to handle iconification of child frames.
+iconified frames."#,
+    ),
+    (
+        r#"iconify-child-frame"#,
+        r#"How to handle iconification of child frames.
 This variable tells Emacs how to proceed when it is asked to iconify a
 child frame.  If it is nil, `iconify-frame' will do nothing when invoked
 on a child frame.  If it is `iconify-top-level' and the child frame is
@@ -1596,55 +2402,88 @@ this child frame invisible instead.
 Any other value means to try iconifying the child frame on a graphical
 terminal.  Since such an attempt is not honored by all window managers
 and may even lead to making the child frame unresponsive to user
-actions, the default is to iconify the root frame instead."#),
-    (r#"ignore-relative-composition"#, r#"
+actions, the default is to iconify the root frame instead."#,
+    ),
+    (
+        r#"ignore-relative-composition"#,
+        r#"
 Char table of characters which are not composed relatively.
 If an entry for a character is non-nil, a composition sequence
 which contains that character is displayed so that
 the glyph of that character is put without considering
-an ascent and descent value of a previous character."#),
-    (r#"image-cache-eviction-delay"#, r#"Maximum time after which images are removed from the cache.
+an ascent and descent value of a previous character."#,
+    ),
+    (
+        r#"image-cache-eviction-delay"#,
+        r#"Maximum time after which images are removed from the cache.
 When an image has not been displayed this many seconds, Emacs
 automatically removes it from the image cache.  If the cache contains
 a large number of images, the actual eviction time may be shorter.
 The value can also be nil, meaning the cache is never cleared.
 
-The function `clear-image-cache' disregards this variable."#),
-    (r#"image-scaling-factor"#, r#"When displaying images, apply this scaling factor before displaying.
+The function `clear-image-cache' disregards this variable."#,
+    ),
+    (
+        r#"image-scaling-factor"#,
+        r#"When displaying images, apply this scaling factor before displaying.
 This is not supported for all image types, and is mostly useful
 when you have a high-resolution monitor.
 The value is either a floating point number (where numbers higher
 than 1 means to increase the size and lower means to shrink the
 size), or the symbol `auto', which will compute a scaling factor
-based on the font pixel size."#),
-    (r#"image-types"#, r#"List of potentially supported image types.
+based on the font pixel size."#,
+    ),
+    (
+        r#"image-types"#,
+        r#"List of potentially supported image types.
 Each element of the list is a symbol for an image type, like `jpeg' or `png'.
-To check whether it is really supported, use `image-type-available-p'."#),
-    (r#"imagemagick-render-type"#, r#"Integer indicating which ImageMagick rendering method to use.
+To check whether it is really supported, use `image-type-available-p'."#,
+    ),
+    (
+        r#"imagemagick-render-type"#,
+        r#"Integer indicating which ImageMagick rendering method to use.
 The options are:
   0 -- the default method (pixel pushing)
   1 -- a newer method ("MagickExportImagePixels") that may perform
        better (speed etc) in some cases, but has not been as thoroughly
        tested with Emacs as the default method.  This method requires
-       ImageMagick version 6.4.6 (approximately) or later."#),
-    (r#"indent-tabs-mode"#, r#"Indentation can insert tabs if this is non-nil."#),
-    (r#"inherit-process-coding-system"#, r#"
+       ImageMagick version 6.4.6 (approximately) or later."#,
+    ),
+    (
+        r#"indent-tabs-mode"#,
+        r#"Indentation can insert tabs if this is non-nil."#,
+    ),
+    (
+        r#"inherit-process-coding-system"#,
+        r#"
 Non-nil means process buffer inherits coding system of process output.
 Bind it to t if the process output is to be treated as if it were a file
-read from some filesystem."#),
-    (r#"inhibit--record-char"#, r#"If non-nil, don't record input events.
+read from some filesystem."#,
+    ),
+    (
+        r#"inhibit--record-char"#,
+        r#"If non-nil, don't record input events.
 This inhibits recording input events for the purposes of keyboard
 macros, dribble file, and `recent-keys'.
-Internal use only."#),
-    (r#"inhibit-bidi-mirroring"#, r#"Non-nil means don't mirror characters even when bidi context requires that.
+Internal use only."#,
+    ),
+    (
+        r#"inhibit-bidi-mirroring"#,
+        r#"Non-nil means don't mirror characters even when bidi context requires that.
 Intended for use during debugging and for testing bidi display;
-see biditest.el in the test suite."#),
-    (r#"inhibit-changing-match-data"#, r#"Internal use only.
+see biditest.el in the test suite."#,
+    ),
+    (
+        r#"inhibit-changing-match-data"#,
+        r#"Internal use only.
 If non-nil, the primitive searching and matching functions
 such as `looking-at', `string-match', `re-search-forward', etc.,
 do not set the match data.  The proper way to use this variable
-is to bind it with `let' around a small expression."#),
-    (r#"inhibit-compacting-font-caches"#, r#"
+is to bind it with `let' around a small expression."#,
+    ),
+    (
+        r#"inhibit-compacting-font-caches"#,
+        r#"
 If non-nil, don't compact font caches during GC.
 Some large fonts cause lots of consing and trigger GC.  If they
 are removed from the font caches, they will need to be opened
@@ -1653,26 +2492,53 @@ see font-related delays in displaying some special characters,
 and cannot switch to a smaller font for those characters, set
 this variable non-nil.
 Disabling compaction of font caches might enlarge the Emacs memory
-footprint in sessions that use lots of different fonts."#),
-    (r#"inhibit-debugger"#, r#"Non-nil means never enter the debugger.
+footprint in sessions that use lots of different fonts."#,
+    ),
+    (
+        r#"inhibit-debugger"#,
+        r#"Non-nil means never enter the debugger.
 Normally set while the debugger is already active, to avoid recursive
-invocations."#),
-    (r#"inhibit-eol-conversion"#, r#"
+invocations."#,
+    ),
+    (
+        r#"inhibit-eol-conversion"#,
+        r#"
 Non-nil means always inhibit code conversion of end-of-line format.
 See info node `Coding Systems' and info node `Text and Binary' concerning
-such conversion."#),
-    (r#"inhibit-eval-during-redisplay"#, r#"Non-nil means don't eval Lisp during redisplay."#),
-    (r#"inhibit-field-text-motion"#, r#"Non-nil means text motion commands don't notice fields."#),
-    (r#"inhibit-file-name-handlers"#, r#"A list of file name handlers that temporarily should not be used.
-This applies only to the operation `inhibit-file-name-operation'."#),
-    (r#"inhibit-file-name-operation"#, r#"The operation for which `inhibit-file-name-handlers' is applicable."#),
-    (r#"inhibit-free-realized-faces"#, r#"Non-nil means don't free realized faces.  Internal use only."#),
-    (r#"inhibit-interaction"#, r#"Non-nil means any user interaction will signal an error.
+such conversion."#,
+    ),
+    (
+        r#"inhibit-eval-during-redisplay"#,
+        r#"Non-nil means don't eval Lisp during redisplay."#,
+    ),
+    (
+        r#"inhibit-field-text-motion"#,
+        r#"Non-nil means text motion commands don't notice fields."#,
+    ),
+    (
+        r#"inhibit-file-name-handlers"#,
+        r#"A list of file name handlers that temporarily should not be used.
+This applies only to the operation `inhibit-file-name-operation'."#,
+    ),
+    (
+        r#"inhibit-file-name-operation"#,
+        r#"The operation for which `inhibit-file-name-handlers' is applicable."#,
+    ),
+    (
+        r#"inhibit-free-realized-faces"#,
+        r#"Non-nil means don't free realized faces.  Internal use only."#,
+    ),
+    (
+        r#"inhibit-interaction"#,
+        r#"Non-nil means any user interaction will signal an error.
 This variable can be bound when user interaction can't be performed,
 for instance when running a headless Emacs server.  Functions like
 `read-from-minibuffer' (and the like) will signal `inhibited-interaction'
-instead."#),
-    (r#"inhibit-iso-escape-detection"#, r#"
+instead."#,
+    ),
+    (
+        r#"inhibit-iso-escape-detection"#,
+        r#"
 If non-nil, Emacs ignores ISO-2022 escape sequences during code detection.
 
 When Emacs reads text, it tries to detect how the text is encoded.
@@ -1695,10 +2561,19 @@ reading if you suppress escape sequence detection.
 
 The other way to read escape sequences in a file without decoding is
 to explicitly specify some coding system that doesn't use ISO-2022
-escape sequence (e.g., `latin-1') on reading by \\[universal-coding-system-argument]."#),
-    (r#"inhibit-load-charset-map"#, r#"Inhibit loading of charset maps.  Used when dumping Emacs."#),
-    (r#"inhibit-menubar-update"#, r#"Non-nil means don't update menu bars.  Internal use only."#),
-    (r#"inhibit-modification-hooks"#, r#"Non-nil means don't run any of the hooks that respond to buffer changes.
+escape sequence (e.g., `latin-1') on reading by \\[universal-coding-system-argument]."#,
+    ),
+    (
+        r#"inhibit-load-charset-map"#,
+        r#"Inhibit loading of charset maps.  Used when dumping Emacs."#,
+    ),
+    (
+        r#"inhibit-menubar-update"#,
+        r#"Non-nil means don't update menu bars.  Internal use only."#,
+    ),
+    (
+        r#"inhibit-modification-hooks"#,
+        r#"Non-nil means don't run any of the hooks that respond to buffer changes.
 This affects `before-change-functions' and `after-change-functions',
 as well as hooks attached to text properties and overlays.
 Setting this variable non-nil also inhibits file locks and checks
@@ -1709,13 +2584,19 @@ To delay change hooks during a series of changes, use
 `combine-change-calls' or `combine-after-change-calls' instead of
 binding this variable.
 
-See also the info node `(elisp) Change Hooks'."#),
-    (r#"inhibit-mouse-event-check"#, r#"Whether the interactive spec "e" requires a mouse gesture event.
+See also the info node `(elisp) Change Hooks'."#,
+    ),
+    (
+        r#"inhibit-mouse-event-check"#,
+        r#"Whether the interactive spec "e" requires a mouse gesture event.
 If non-nil, `(interactive "e")' doesn't signal an error when the command
 was invoked by an input event that is not a mouse gesture: a click, a drag,
 etc.  To create the event data when the input was some other event,
-use `event-start', `event-end', and `event-click-count'."#),
-    (r#"inhibit-null-byte-detection"#, r#"If non-nil, Emacs ignores null bytes on code detection.
+use `event-start', `event-end', and `event-click-count'."#,
+    ),
+    (
+        r#"inhibit-null-byte-detection"#,
+        r#"If non-nil, Emacs ignores null bytes on code detection.
 By default, Emacs treats it as binary data, and does not attempt to
 decode it.  The effect is as if you specified `no-conversion' for
 reading that text.
@@ -1723,29 +2604,59 @@ reading that text.
 Set this to non-nil when a regular text happens to include null bytes.
 Examples are Index nodes of Info files and null-byte delimited output
 from GNU Find and GNU Grep.  Emacs will then ignore the null bytes and
-decode text as usual."#),
-    (r#"inhibit-point-motion-hooks"#, r#"If non-nil, don't run `point-left' and `point-entered' text properties.
-This also inhibits the use of the `intangible' text property."#),
-    (r#"inhibit-quit"#, r#"Non-nil inhibits C-g quitting from happening immediately.
+decode text as usual."#,
+    ),
+    (
+        r#"inhibit-point-motion-hooks"#,
+        r#"If non-nil, don't run `point-left' and `point-entered' text properties.
+This also inhibits the use of the `intangible' text property."#,
+    ),
+    (
+        r#"inhibit-quit"#,
+        r#"Non-nil inhibits C-g quitting from happening immediately.
 Note that `quit-flag' will still be set by typing C-g,
 so a quit will be signaled as soon as `inhibit-quit' is nil.
 To prevent this happening, set `quit-flag' to nil
-before making `inhibit-quit' nil."#),
-    (r#"inhibit-read-only"#, r#"Non-nil means disregard read-only status of buffers or characters.
+before making `inhibit-quit' nil."#,
+    ),
+    (
+        r#"inhibit-read-only"#,
+        r#"Non-nil means disregard read-only status of buffers or characters.
 A non-nil value that is a list means disregard `buffer-read-only' status,
 and disregard a `read-only' text property if the property value is a
 member of the list.  Any other non-nil value means disregard `buffer-read-only'
-and all `read-only' text properties."#),
-    (r#"inhibit-redisplay"#, r#"Non-nil means don't actually do any redisplay.
-This is used for internal purposes."#),
-    (r#"inhibit-try-cursor-movement"#, r#"Inhibit try_cursor_movement display optimization."#),
-    (r#"inhibit-try-window-id"#, r#"Inhibit try_window_id display optimization."#),
-    (r#"inhibit-try-window-reusing"#, r#"Inhibit try_window_reusing display optimization."#),
-    (r#"inhibit-x-resources"#, r#"If non-nil, X resources, Windows Registry settings, and NS defaults are not used."#),
-    (r#"initial-environment"#, r#"List of environment variables inherited from the parent process.
+and all `read-only' text properties."#,
+    ),
+    (
+        r#"inhibit-redisplay"#,
+        r#"Non-nil means don't actually do any redisplay.
+This is used for internal purposes."#,
+    ),
+    (
+        r#"inhibit-try-cursor-movement"#,
+        r#"Inhibit try_cursor_movement display optimization."#,
+    ),
+    (
+        r#"inhibit-try-window-id"#,
+        r#"Inhibit try_window_id display optimization."#,
+    ),
+    (
+        r#"inhibit-try-window-reusing"#,
+        r#"Inhibit try_window_reusing display optimization."#,
+    ),
+    (
+        r#"inhibit-x-resources"#,
+        r#"If non-nil, X resources, Windows Registry settings, and NS defaults are not used."#,
+    ),
+    (
+        r#"initial-environment"#,
+        r#"List of environment variables inherited from the parent process.
 Each element should be a string of the form ENVVARNAME=VALUE.
-The elements must normally be decoded (using `locale-coding-system') for use."#),
-    (r#"initial-window-system"#, r#"Name of the window system that Emacs uses for the first frame.
+The elements must normally be decoded (using `locale-coding-system') for use."#,
+    ),
+    (
+        r#"initial-window-system"#,
+        r#"Name of the window system that Emacs uses for the first frame.
 The value is a symbol:
  nil for a termcap frame (a character-only terminal),
  `x' for an Emacs frame that is really an X window,
@@ -1757,8 +2668,11 @@ The value is a symbol:
 
 Use of this variable as a boolean is deprecated.  Instead,
 use `display-graphic-p' or any of the other `display-*-p'
-predicates which report frame's specific UI-related capabilities."#),
-    (r#"input-decode-map"#, r#"Keymap that decodes input escape sequences.
+predicates which report frame's specific UI-related capabilities."#,
+    ),
+    (
+        r#"input-decode-map"#,
+        r#"Keymap that decodes input escape sequences.
 This is used mainly for mapping ASCII function key sequences into
 real Emacs function key events (symbols).
 
@@ -1772,8 +2686,11 @@ If the binding is a function, it is called with one argument (the prompt)
 and its return value (a key sequence) is used.
 
 The events that come from bindings in `input-decode-map' are not
-themselves looked up in `input-decode-map'."#),
-    (r#"input-method-function"#, r#"If non-nil, the function that implements the current input method.
+themselves looked up in `input-decode-map'."#,
+    ),
+    (
+        r#"input-method-function"#,
+        r#"If non-nil, the function that implements the current input method.
 It's called with one argument, which must be a single-byte
 character that was just read.  Any single-byte character is
 acceptable, except the DEL character, codepoint 127 decimal, 177 octal.
@@ -1791,53 +2708,113 @@ the previous echo area message.
 
 The input method function should refer to the variables
 `input-method-use-echo-area' and `input-method-exit-on-first-char'
-for guidance on what to do."#),
-    (r#"input-method-previous-message"#, r#"When `input-method-function' is called, hold the previous echo area message.
+for guidance on what to do."#,
+    ),
+    (
+        r#"input-method-previous-message"#,
+        r#"When `input-method-function' is called, hold the previous echo area message.
 This variable exists because `read-event' clears the echo area
-before running the input method.  It is nil if there was no message."#),
-    (r#"input-pending-p-filter-events"#, r#"If non-nil, `input-pending-p' ignores some input events.
+before running the input method.  It is nil if there was no message."#,
+    ),
+    (
+        r#"input-pending-p-filter-events"#,
+        r#"If non-nil, `input-pending-p' ignores some input events.
 If this variable is non-nil (the default), `input-pending-p' and
 other similar functions ignore input events in `while-no-input-ignore-events'.
-This flag may eventually be removed once this behavior is deemed safe."#),
-    (r#"installation-directory"#, r#"A directory within which to look for the `lib-src' and `etc' directories.
+This flag may eventually be removed once this behavior is deemed safe."#,
+    ),
+    (
+        r#"installation-directory"#,
+        r#"A directory within which to look for the `lib-src' and `etc' directories.
 In an installed Emacs, this is normally nil.  It is non-nil if
 both `lib-src' (on MS-DOS, `info') and `etc' directories are found
 within the variable `invocation-directory' or its parent.  For example,
 this is the case when running an uninstalled Emacs executable from its
-build directory."#),
-    (r#"integer-width"#, r#"Maximum number N of bits in safely-calculated integers.
+build directory."#,
+    ),
+    (
+        r#"integer-width"#,
+        r#"Maximum number N of bits in safely-calculated integers.
 Integers with absolute values less than 2**N do not signal a range error.
-N should be nonnegative."#),
-    (r#"internal--daemon-sockname"#, r#"Name of external socket passed to Emacs, or nil if none."#),
-    (r#"internal--get-default-lexical-binding-function"#, r#"Function to decide default lexical-binding."#),
-    (r#"internal--text-quoting-flag"#, r#"If nil, a nil `text-quoting-style' is treated as `grave'."#),
-    (r#"internal--top-level-message"#, r#"Message displayed by `normal-top-level'."#),
-    (r#"internal-doc-file-name"#, r#"Name of file containing documentation strings of built-in symbols."#),
-    (r#"internal-interpreter-environment"#, r#"If non-nil, the current lexical environment of the lisp interpreter.
+N should be nonnegative."#,
+    ),
+    (
+        r#"internal--daemon-sockname"#,
+        r#"Name of external socket passed to Emacs, or nil if none."#,
+    ),
+    (
+        r#"internal--get-default-lexical-binding-function"#,
+        r#"Function to decide default lexical-binding."#,
+    ),
+    (
+        r#"internal--text-quoting-flag"#,
+        r#"If nil, a nil `text-quoting-style' is treated as `grave'."#,
+    ),
+    (
+        r#"internal--top-level-message"#,
+        r#"Message displayed by `normal-top-level'."#,
+    ),
+    (
+        r#"internal-doc-file-name"#,
+        r#"Name of file containing documentation strings of built-in symbols."#,
+    ),
+    (
+        r#"internal-interpreter-environment"#,
+        r#"If non-nil, the current lexical environment of the lisp interpreter.
 When lexical binding is not being used, this variable is nil.
 A value of `(t)' indicates an empty environment, otherwise it is an
-alist of active lexical bindings."#),
-    (r#"internal-make-interpreted-closure-function"#, r#"Function to filter the env when constructing a closure."#),
-    (r#"internal-when-entered-debugger"#, r#"The number of keyboard events as of last time `debugger' was called.
+alist of active lexical bindings."#,
+    ),
+    (
+        r#"internal-make-interpreted-closure-function"#,
+        r#"Function to filter the env when constructing a closure."#,
+    ),
+    (
+        r#"internal-when-entered-debugger"#,
+        r#"The number of keyboard events as of last time `debugger' was called.
 Used to avoid infinite loops if the debugger itself has an error.
-Don't set this unless you're sure that can't happen."#),
-    (r#"interrupt-process-functions"#, r#"List of functions to be called for `interrupt-process'.
+Don't set this unless you're sure that can't happen."#,
+    ),
+    (
+        r#"interrupt-process-functions"#,
+        r#"List of functions to be called for `interrupt-process'.
 The arguments of the functions are the same as for `interrupt-process'.
 These functions are called in the order of the list, until one of them
-returns non-nil."#),
-    (r#"intervals-consed"#, r#"Number of intervals that have been consed so far."#),
-    (r#"inverse-video"#, r#"Non-nil means invert the entire frame display.
-This means everything is in inverse video which otherwise would not be."#),
-    (r#"invocation-directory"#, r#"The directory in which the Emacs executable was found, to run it.
-The value is nil if that directory's name is not known."#),
-    (r#"invocation-name"#, r#"The program name that was used to run Emacs.
-Any directory names are omitted."#),
-    (r#"kbd-macro-termination-hook"#, r#"Normal hook run whenever a keyboard macro terminates.
-This is run whether the macro ends normally or prematurely due to an error."#),
-    (r#"key-translation-map"#, r#"Keymap of key translations that can override keymaps.
+returns non-nil."#,
+    ),
+    (
+        r#"intervals-consed"#,
+        r#"Number of intervals that have been consed so far."#,
+    ),
+    (
+        r#"inverse-video"#,
+        r#"Non-nil means invert the entire frame display.
+This means everything is in inverse video which otherwise would not be."#,
+    ),
+    (
+        r#"invocation-directory"#,
+        r#"The directory in which the Emacs executable was found, to run it.
+The value is nil if that directory's name is not known."#,
+    ),
+    (
+        r#"invocation-name"#,
+        r#"The program name that was used to run Emacs.
+Any directory names are omitted."#,
+    ),
+    (
+        r#"kbd-macro-termination-hook"#,
+        r#"Normal hook run whenever a keyboard macro terminates.
+This is run whether the macro ends normally or prematurely due to an error."#,
+    ),
+    (
+        r#"key-translation-map"#,
+        r#"Keymap of key translations that can override keymaps.
 This keymap works like `input-decode-map', but comes after `function-key-map'.
-Another difference is that it is global rather than terminal-local."#),
-    (r#"keyboard-translate-table"#, r#"Translate table for local keyboard input, or nil.
+Another difference is that it is global rather than terminal-local."#,
+    ),
+    (
+        r#"keyboard-translate-table"#,
+        r#"Translate table for local keyboard input, or nil.
 If non-nil, the value should be a char-table.  Each character read
 from the keyboard is looked up in this char-table.  If the value found
 there is non-nil, then it is used instead of the actual input character.
@@ -1850,11 +2827,17 @@ This is applied to the characters supplied to input methods, not their
 output.  See also `translation-table-for-input'.
 
 This variable has a separate binding for each terminal.
-See Info node `(elisp)Multiple Terminals'."#),
-    (r#"kill-buffer-delete-auto-save-files"#, r#"If non-nil, offer to delete any autosave file when killing a buffer.
+See Info node `(elisp)Multiple Terminals'."#,
+    ),
+    (
+        r#"kill-buffer-delete-auto-save-files"#,
+        r#"If non-nil, offer to delete any autosave file when killing a buffer.
 
-If `delete-auto-save-files' is nil, any autosave deletion is inhibited."#),
-    (r#"kill-buffer-query-functions"#, r#"List of functions called with no args to query before killing a buffer.
+If `delete-auto-save-files' is nil, any autosave deletion is inhibited."#,
+    ),
+    (
+        r#"kill-buffer-query-functions"#,
+        r#"List of functions called with no args to query before killing a buffer.
 The buffer being killed will be current while the functions are running.
 See `kill-buffer'.
 
@@ -1863,16 +2846,22 @@ this hook are supposed to not change the current buffer.
 
 This hook is not run for internal or temporary buffers created by
 `get-buffer-create' or `generate-new-buffer' with argument
-INHIBIT-BUFFER-HOOKS non-nil."#),
-    (r#"kill-emacs-hook"#, r#"Hook run when `kill-emacs' is called.
+INHIBIT-BUFFER-HOOKS non-nil."#,
+    ),
+    (
+        r#"kill-emacs-hook"#,
+        r#"Hook run when `kill-emacs' is called.
 Since `kill-emacs' may be invoked when the terminal is disconnected (or
 in other similar situations), functions placed on this hook should not
 expect to be able to interact with the user.  To ask for confirmation,
 see `kill-emacs-query-functions' instead.
 
 Before Emacs 24.1, the hook was not run in batch mode, i.e., if
-`noninteractive' was non-nil."#),
-    (r#"large-hscroll-threshold"#, r#"Horizontal scroll of truncated lines above which to use redisplay shortcuts.
+`noninteractive' was non-nil."#,
+    ),
+    (
+        r#"large-hscroll-threshold"#,
+        r#"Horizontal scroll of truncated lines above which to use redisplay shortcuts.
 
 The value should be a positive integer.
 
@@ -1886,8 +2875,11 @@ lines whose length is above `long-line-threshold', which see.
 To disable redisplay shortcuts for long truncated line, set this
 variable to `most-positive-fixnum'.
 
-There is no reason to change that value except for debugging purposes."#),
-    (r#"last-code-conversion-error"#, r#"
+There is no reason to change that value except for debugging purposes."#,
+    ),
+    (
+        r#"last-code-conversion-error"#,
+        r#"
 Error status of the last code conversion.
 
 When an error was detected in the last code conversion, this variable
@@ -1900,10 +2892,16 @@ is set to one of the following symbols.
 When no error was detected, the value doesn't change.  So, to check
 the error status of a code conversion by this variable, you must
 explicitly set this variable to nil before performing code
-conversion."#),
-    (r#"last-coding-system-used"#, r#"
-Coding system used in the latest file or process I/O."#),
-    (r#"last-command"#, r#"The last command executed.
+conversion."#,
+    ),
+    (
+        r#"last-coding-system-used"#,
+        r#"
+Coding system used in the latest file or process I/O."#,
+    ),
+    (
+        r#"last-command"#,
+        r#"The last command executed.
 Normally a symbol with a function definition, but can be whatever was found
 in the keymap, or whatever the variable `this-command' was set to by that
 command.
@@ -1917,32 +2915,56 @@ The value `kill-region' is special; it means that the previous command
 was a kill command.
 
 `last-command' has a separate binding for each terminal device.
-See Info node `(elisp)Multiple Terminals'."#),
-    (r#"last-command-event"#, r#"Last input event of a key sequence that called a command.
-See Info node `(elisp)Command Loop Info'."#),
-    (r#"last-event-device"#, r#"The name of the input device of the most recently read event.
+See Info node `(elisp)Multiple Terminals'."#,
+    ),
+    (
+        r#"last-command-event"#,
+        r#"Last input event of a key sequence that called a command.
+See Info node `(elisp)Command Loop Info'."#,
+    ),
+    (
+        r#"last-event-device"#,
+        r#"The name of the input device of the most recently read event.
 When the input extension is being used on X, this is the name of the X
 Input Extension device from which the last event was generated as a
 string.  Otherwise, this is "Virtual core keyboard" for keyboard input
 events, and "Virtual core pointer" for other events.
 
 It is nil if the last event did not come from an input device (i.e. it
-came from `unread-command-events' instead)."#),
-    (r#"last-event-frame"#, r#"The frame in which the most recently read event occurred.
-If the last event came from a keyboard macro, this is set to `macro'."#),
+came from `unread-command-events' instead)."#,
+    ),
+    (
+        r#"last-event-frame"#,
+        r#"The frame in which the most recently read event occurred.
+If the last event came from a keyboard macro, this is set to `macro'."#,
+    ),
     (r#"last-input-event"#, r#"Last input event."#),
-    (r#"last-kbd-macro"#, r#"Last kbd macro defined, as a string or vector; nil if none defined."#),
-    (r#"last-nonmenu-event"#, r#"Last input event in a command, except for mouse menu events.
+    (
+        r#"last-kbd-macro"#,
+        r#"Last kbd macro defined, as a string or vector; nil if none defined."#,
+    ),
+    (
+        r#"last-nonmenu-event"#,
+        r#"Last input event in a command, except for mouse menu events.
 Mouse menus give back keys that don't look like mouse events;
 this variable holds the actual mouse event that led to the menu,
-so that you can determine whether the command was run by mouse or not."#),
-    (r#"last-prefix-arg"#, r#"The value of the prefix argument for the previous editing command.
-See `prefix-arg' for the meaning of the value."#),
-    (r#"last-repeatable-command"#, r#"Last command that may be repeated.
+so that you can determine whether the command was run by mouse or not."#,
+    ),
+    (
+        r#"last-prefix-arg"#,
+        r#"The value of the prefix argument for the previous editing command.
+See `prefix-arg' for the meaning of the value."#,
+    ),
+    (
+        r#"last-repeatable-command"#,
+        r#"Last command that may be repeated.
 The last command executed that was not bound to an input event.
 This is the command `repeat' will try to repeat.
-Taken from a previous value of `real-this-command'."#),
-    (r#"latin-extra-code-table"#, r#"
+Taken from a previous value of `real-this-command'."#,
+    ),
+    (
+        r#"latin-extra-code-table"#,
+        r#"
 Table of extra Latin codes in the range 128..159 (inclusive).
 This is a vector of length 256.
 If Nth element is non-nil, the existence of code N in a file
@@ -1950,44 +2972,71 @@ If Nth element is non-nil, the existence of code N in a file
 a coding system of ISO 2022 variant which has a flag
 `accept-latin-extra-code' t (e.g. iso-latin-1) on reading a file
 or reading output of a subprocess.
-Only 128th through 159th elements have a meaning."#),
-    (r#"lexical-binding"#, r#"Whether to use lexical binding when evaluating code.
+Only 128th through 159th elements have a meaning."#,
+    ),
+    (
+        r#"lexical-binding"#,
+        r#"Whether to use lexical binding when evaluating code.
 Non-nil means that the code in the current buffer should be evaluated
 with lexical binding.
 This variable is automatically set from the file variables of an
 interpreted Lisp file read using `load'.  Unlike other file local
-variables, this must be set in the first line of a file."#),
-    (r#"libgnutls-version"#, r#"The version of libgnutls that Emacs was compiled with.
+variables, this must be set in the first line of a file."#,
+    ),
+    (
+        r#"libgnutls-version"#,
+        r#"The version of libgnutls that Emacs was compiled with.
 The version number is encoded as an integer with the major version in
 the ten thousands place, minor version in the hundreds, and patch
-level in the ones.  For builds without libgnutls, the value is -1."#),
-    (r#"line-number-display-limit"#, r#"Maximum buffer size for which line number should be displayed.
+level in the ones.  For builds without libgnutls, the value is -1."#,
+    ),
+    (
+        r#"line-number-display-limit"#,
+        r#"Maximum buffer size for which line number should be displayed.
 If the buffer is bigger than this, the line number does not appear
-in the mode line.  A value of nil means no limit."#),
-    (r#"line-number-display-limit-width"#, r#"Maximum line width (in characters) for line number display.
+in the mode line.  A value of nil means no limit."#,
+    ),
+    (
+        r#"line-number-display-limit-width"#,
+        r#"Maximum line width (in characters) for line number display.
 If the average length of the lines near point is bigger than this, then the
-line number may be omitted from the mode line."#),
-    (r#"line-prefix"#, r#"Prefix prepended to all non-continuation lines at display time.
+line number may be omitted from the mode line."#,
+    ),
+    (
+        r#"line-prefix"#,
+        r#"Prefix prepended to all non-continuation lines at display time.
 The value may be a string, an image, or a stretch-glyph; it is
 interpreted in the same way as the value of a `display' text property.
 
 This variable is overridden by any `line-prefix' text or overlay
 property.
 
-To add a prefix to continuation lines, use `wrap-prefix'."#),
-    (r#"lisp-eval-depth-reserve"#, r#"Extra depth that can be allocated to handle errors.
+To add a prefix to continuation lines, use `wrap-prefix'."#,
+    ),
+    (
+        r#"lisp-eval-depth-reserve"#,
+        r#"Extra depth that can be allocated to handle errors.
 This is the max depth that the system will add to `max-lisp-eval-depth'
-when calling debuggers or `handler-bind' handlers."#),
-    (r#"load-dangerous-libraries"#, r#"Non-nil means load dangerous compiled Lisp files.
+when calling debuggers or `handler-bind' handlers."#,
+    ),
+    (
+        r#"load-dangerous-libraries"#,
+        r#"Non-nil means load dangerous compiled Lisp files.
 Some versions of XEmacs use different byte codes than Emacs.  These
 incompatible byte codes can make Emacs crash when it tries to execute
-them."#),
-    (r#"load-file-name"#, r#"Full name of file being loaded by `load'.
+them."#,
+    ),
+    (
+        r#"load-file-name"#,
+        r#"Full name of file being loaded by `load'.
 
 In case of native code being loaded this is indicating the
 corresponding bytecode filename.  Use `load-true-file-name' to obtain
-the .eln filename."#),
-    (r#"load-file-rep-suffixes"#, r#"List of suffixes that indicate representations of \
+the .eln filename."#,
+    ),
+    (
+        r#"load-file-rep-suffixes"#,
+        r#"List of suffixes that indicate representations of \
 the same file.
 This list should normally start with the empty string.
 
@@ -1998,10 +3047,16 @@ determine whether they should look for compressed versions of a file
 and, if so, which suffixes they should try to append to the file name
 in order to do so.  However, if you want to customize which suffixes
 the loading functions recognize as compression suffixes, you should
-customize `jka-compr-load-suffixes' rather than the present variable."#),
-    (r#"load-force-doc-strings"#, r#"Non-nil means `load' should force-load all dynamic doc strings.
-This is useful when the file being loaded is a temporary copy."#),
-    (r#"load-history"#, r#"Alist mapping loaded file names to symbols and features.
+customize `jka-compr-load-suffixes' rather than the present variable."#,
+    ),
+    (
+        r#"load-force-doc-strings"#,
+        r#"Non-nil means `load' should force-load all dynamic doc strings.
+This is useful when the file being loaded is a temporary copy."#,
+    ),
+    (
+        r#"load-history"#,
+        r#"Alist mapping loaded file names to symbols and features.
 Each alist element should be a list (FILE-NAME ENTRIES...), where
 FILE-NAME is the name of a file that has been loaded into Emacs.
 The file name is absolute.
@@ -2017,23 +3072,32 @@ In addition, entries may also be single symbols,
 which means that symbol was defined by `defvar' or `defconst'.
 
 During preloading, the file name recorded is relative to the main Lisp
-directory.  These file names are converted to absolute at startup."#),
+directory.  These file names are converted to absolute at startup."#,
+    ),
     (r#"load-in-progress"#, r#"Non-nil if inside of `load'."#),
-    (r#"load-no-native"#, r#"Non-nil means not to load native code unless explicitly requested.
+    (
+        r#"load-no-native"#,
+        r#"Non-nil means not to load native code unless explicitly requested.
 
 To load a `.eln' file when this variable is non-nil, use `(load FILE)'
 where FILE is the filename of the eln file, including the .eln extension.
 `load-no-native' non-nil will also make Emacs not load native code
-through `require'."#),
-    (r#"load-path"#, r#"List of directories to search for files to load.
+through `require'."#,
+    ),
+    (
+        r#"load-path"#,
+        r#"List of directories to search for files to load.
 Each element is a string (directory file name) or nil (meaning
 `default-directory').
 This list is consulted by the `require' function.
 Initialized during startup as described in Info node `(elisp)Library Search'.
 Use `directory-file-name' when adding items to this path.  However, Lisp
 programs that process this list should tolerate directories both with
-and without trailing slashes."#),
-    (r#"load-path-filter-function"#, r#"If non-nil, a function to filter `load-path' for `load'.
+and without trailing slashes."#,
+    ),
+    (
+        r#"load-path-filter-function"#,
+        r#"If non-nil, a function to filter `load-path' for `load'.
 
 If this variable is a function, it is called when `load' is about to
 search for a file along `load-path'.  This function is called with three
@@ -2041,8 +3105,11 @@ arguments: the current value of `load-path' (a list of directories),
 the FILE argument to `load', and the current list of load-suffixes.
 
 It should return a (hopefully shorter) list of directories, which `load'
-will use instead of `load-path' to look for the file to load."#),
-    (r#"load-prefer-newer"#, r#"Non-nil means `load' prefers the newest version of a file.
+will use instead of `load-path' to look for the file to load."#,
+    ),
+    (
+        r#"load-prefer-newer"#,
+        r#"Non-nil means `load' prefers the newest version of a file.
 This applies when a filename suffix is not explicitly specified and
 `load' is trying various possible suffixes (see `load-suffixes' and
 `load-file-rep-suffixes').  Normally, it stops at the first file
@@ -2050,13 +3117,19 @@ that exists unless you explicitly specify one or the other.  If this
 option is non-nil, it checks all suffixes and uses whichever file is
 newest.
 Note that if you customize this, obviously it will not affect files
-that are loaded before your customizations are read!"#),
-    (r#"load-read-function"#, r#"Function used for reading expressions.
+that are loaded before your customizations are read!"#,
+    ),
+    (
+        r#"load-read-function"#,
+        r#"Function used for reading expressions.
 It is used by `load' and `eval-region'.
 
 Called with a single argument (the stream from which to read).
-The default is to use the function `read'."#),
-    (r#"load-source-file-function"#, r#"Function called in `load' to load an Emacs Lisp source file.
+The default is to use the function `read'."#,
+    ),
+    (
+        r#"load-source-file-function"#,
+        r#"Function called in `load' to load an Emacs Lisp source file.
 The value should be a function for doing code conversion before
 reading a source file.  It can also be nil, in which case loading is
 done without any code conversion.
@@ -2065,14 +3138,23 @@ If the value is a function, it is called with four arguments,
 FULLNAME, FILE, NOERROR, NOMESSAGE.  FULLNAME is the absolute name of
 the file to load, FILE is the non-absolute name (for messages etc.),
 and NOERROR and NOMESSAGE are the corresponding arguments passed to
-`load'.  The function should return t if the file was loaded."#),
-    (r#"load-suffixes"#, r#"List of suffixes for Emacs Lisp files and dynamic modules.
+`load'.  The function should return t if the file was loaded."#,
+    ),
+    (
+        r#"load-suffixes"#,
+        r#"List of suffixes for Emacs Lisp files and dynamic modules.
 This list includes suffixes for both compiled and source Emacs Lisp files.
 This list should not include the empty string.
 `load' and related functions try to append these suffixes, in order,
-to the specified file name if a suffix is allowed or required."#),
-    (r#"load-true-file-name"#, r#"Full name of file being loaded by `load'."#),
-    (r#"local-function-key-map"#, r#"Keymap that translates key sequences to key sequences during input.
+to the specified file name if a suffix is allowed or required."#,
+    ),
+    (
+        r#"load-true-file-name"#,
+        r#"Full name of file being loaded by `load'."#,
+    ),
+    (
+        r#"local-function-key-map"#,
+        r#"Keymap that translates key sequences to key sequences during input.
 This is used mainly for mapping key sequences into some preferred
 key events (symbols).
 
@@ -2098,11 +3180,17 @@ typing `ESC O P x' would return [f1 x].
 device.  See Info node `(elisp)Multiple Terminals'.  If you need to
 define a binding on all terminals, change `function-key-map'
 instead.  Initially, `local-function-key-map' is an empty keymap that
-has `function-key-map' as its parent on all terminal devices."#),
-    (r#"locale-coding-system"#, r#"Coding system to use with system messages.
+has `function-key-map' as its parent on all terminal devices."#,
+    ),
+    (
+        r#"locale-coding-system"#,
+        r#"Coding system to use with system messages.
 Potentially also used for decoding keyboard input on X Windows, and is
-used for encoding standard output and error streams."#),
-    (r#"long-line-optimizations-bol-search-limit"#, r#"Limit for beginning of line search in buffers with long lines.
+used for encoding standard output and error streams."#,
+    ),
+    (
+        r#"long-line-optimizations-bol-search-limit"#,
+        r#"Limit for beginning of line search in buffers with long lines.
 
 This variable has effect only in buffers in which
 `long-line-optimizations-p' is non-nil.  For performance reasons, in
@@ -2115,8 +3203,11 @@ be a small integer, specifies the number of characters by which that
 region can be extended backwards to make it start at the beginning of
 a line.
 
-There is no reason to change that value except for debugging purposes."#),
-    (r#"long-line-optimizations-region-size"#, r#"Region size for narrowing in buffers with long lines.
+There is no reason to change that value except for debugging purposes."#,
+    ),
+    (
+        r#"long-line-optimizations-region-size"#,
+        r#"Region size for narrowing in buffers with long lines.
 
 This variable has effect only in buffers in which
 `long-line-optimizations-p' is non-nil.  For performance reasons, in
@@ -2129,8 +3220,11 @@ To disable that narrowing, set this variable to 0.
 
 See also `long-line-optimizations-bol-search-limit'.
 
-There is no reason to change that value except for debugging purposes."#),
-    (r#"long-line-threshold"#, r#"Line length above which to use redisplay shortcuts.
+There is no reason to change that value except for debugging purposes."#,
+    ),
+    (
+        r#"long-line-threshold"#,
+        r#"Line length above which to use redisplay shortcuts.
 
 The value should be a positive integer or nil.
 If the value is an integer, shortcuts in the display code intended
@@ -2139,31 +3233,52 @@ in buffers which contain one or more lines whose length is above
 this threshold.
 If nil, these display shortcuts will always remain disabled.
 
-There is no reason to change that value except for debugging purposes."#),
-    (r#"lread--unescaped-character-literals"#, r#"List of deprecated unescaped character literals encountered by `read'.
-For internal use only."#),
-    (r#"lucid--menu-grab-keyboard"#, r#"If non-nil, grab keyboard during menu operations.
+There is no reason to change that value except for debugging purposes."#,
+    ),
+    (
+        r#"lread--unescaped-character-literals"#,
+        r#"List of deprecated unescaped character literals encountered by `read'.
+For internal use only."#,
+    ),
+    (
+        r#"lucid--menu-grab-keyboard"#,
+        r#"If non-nil, grab keyboard during menu operations.
 This is only relevant when using the Lucid X toolkit.  It can be
-convenient to disable this for debugging purposes."#),
+convenient to disable this for debugging purposes."#,
+    ),
     (r#"main-thread"#, r#"The main thread of Emacs."#),
-    (r#"make-cursor-line-fully-visible"#, r#"Whether to scroll the window if the cursor line is not fully visible.
+    (
+        r#"make-cursor-line-fully-visible"#,
+        r#"Whether to scroll the window if the cursor line is not fully visible.
 If the value is non-nil, Emacs scrolls or recenters the window to make
 the cursor line fully visible.  The value could also be a function, which
 is called with a single argument, the window to be scrolled, and should
 return non-nil if the partially-visible cursor requires scrolling the
-window, nil if it's okay to leave the cursor partially-visible."#),
-    (r#"make-pointer-invisible"#, r#"If non-nil, make mouse pointer invisible while typing.
+window, nil if it's okay to leave the cursor partially-visible."#,
+    ),
+    (
+        r#"make-pointer-invisible"#,
+        r#"If non-nil, make mouse pointer invisible while typing.
 The pointer becomes visible again when the mouse is moved.
 
 When using this, you might also want to disable highlighting of
-clickable text.  See `mouse-highlight'."#),
-    (r#"make-window-start-visible"#, r#"Whether to ensure `window-start' position is never invisible."#),
-    (r#"mark-even-if-inactive"#, r#"Non-nil means you can use the mark even when inactive.
+clickable text.  See `mouse-highlight'."#,
+    ),
+    (
+        r#"make-window-start-visible"#,
+        r#"Whether to ensure `window-start' position is never invisible."#,
+    ),
+    (
+        r#"mark-even-if-inactive"#,
+        r#"Non-nil means you can use the mark even when inactive.
 This option makes a difference in Transient Mark mode.
 When the option is non-nil, deactivation of the mark
 turns off region highlighting, but commands that use the mark
-behave as if the mark were still active."#),
-    (r#"max-image-size"#, r#"Maximum size of images.
+behave as if the mark were still active."#,
+    ),
+    (
+        r#"max-image-size"#,
+        r#"Maximum size of images.
 Emacs will not load an image into memory if its pixel width or
 pixel height exceeds this limit.
 
@@ -2171,20 +3286,29 @@ If the value is an integer, it directly specifies the maximum
 image height and width, measured in pixels.  If it is a floating
 point number, it specifies the maximum image height and width
 as a ratio to the frame height and width.  If the value is
-non-numeric, there is no explicit limit on the size of images."#),
-    (r#"max-lisp-eval-depth"#, r#"Limit on depth in `eval', `apply' and `funcall' before error.
+non-numeric, there is no explicit limit on the size of images."#,
+    ),
+    (
+        r#"max-lisp-eval-depth"#,
+        r#"Limit on depth in `eval', `apply' and `funcall' before error.
 
 This limit serves to catch infinite recursions for you before they cause
 actual stack overflow in C, which would be fatal for Emacs.
 You can safely make it considerably larger than its default value,
 if that proves inconveniently small.  However, if you increase it too far,
-Emacs could overflow the real C stack, and crash."#),
-    (r#"max-mini-window-height"#, r#"Maximum height for resizing mini-windows (the minibuffer and the echo area).
+Emacs could overflow the real C stack, and crash."#,
+    ),
+    (
+        r#"max-mini-window-height"#,
+        r#"Maximum height for resizing mini-windows (the minibuffer and the echo area).
 If a float, it specifies the maximum height in units of the
 mini-window frame's height.
 If an integer, it specifies the maximum height in units of the
-mini-window frame's default font's height."#),
-    (r#"max-redisplay-ticks"#, r#"Maximum number of redisplay ticks before aborting redisplay of a window.
+mini-window frame's default font's height."#,
+    ),
+    (
+        r#"max-redisplay-ticks"#,
+        r#"Maximum number of redisplay ticks before aborting redisplay of a window.
 
 This enables aborting the display of a window if the amount of
 low-level redisplay operations exceeds the value of this variable.
@@ -2196,67 +3320,124 @@ visit it in some other way, like under `so-long-mode' or literally.
 
 The default value is zero, which disables this feature.
 The recommended non-zero value is between 100000 and 1000000,
-depending on your patience and the speed of your system."#),
-    (r#"maximum-scroll-margin"#, r#"Maximum effective value of `scroll-margin'.
+depending on your patience and the speed of your system."#,
+    ),
+    (
+        r#"maximum-scroll-margin"#,
+        r#"Maximum effective value of `scroll-margin'.
 Given as a fraction of the current window's lines.  The value should
 be a floating point number between 0.0 and 0.5.  The effective maximum
 is limited to (/ (1- window-lines) 2).  Non-float values for this
-variable are ignored and the default 0.25 is used instead."#),
-    (r#"memory-full"#, r#"Non-nil means Emacs cannot get much more Lisp memory."#),
-    (r#"memory-signal-data"#, r#"Precomputed `signal' argument for memory-full error."#),
-    (r#"menu-bar-final-items"#, r#"List of menu bar items to move to the end of the menu bar.
+variable are ignored and the default 0.25 is used instead."#,
+    ),
+    (
+        r#"memory-full"#,
+        r#"Non-nil means Emacs cannot get much more Lisp memory."#,
+    ),
+    (
+        r#"memory-signal-data"#,
+        r#"Precomputed `signal' argument for memory-full error."#,
+    ),
+    (
+        r#"menu-bar-final-items"#,
+        r#"List of menu bar items to move to the end of the menu bar.
 The elements of the list are event types that may have menu bar
-bindings.  The order of this list controls the order of the items."#),
-    (r#"menu-bar-mode"#, r#"Non-nil if Menu-Bar mode is enabled.
+bindings.  The order of this list controls the order of the items."#,
+    ),
+    (
+        r#"menu-bar-mode"#,
+        r#"Non-nil if Menu-Bar mode is enabled.
 See the command `menu-bar-mode' for a description of this minor mode.
 Setting this variable directly does not take effect;
 either customize it (see the info node `Easy Customization')
-or call the function `menu-bar-mode'."#),
-    (r#"menu-bar-update-hook"#, r#"Normal hook run to update the menu bar definitions.
+or call the function `menu-bar-mode'."#,
+    ),
+    (
+        r#"menu-bar-update-hook"#,
+        r#"Normal hook run to update the menu bar definitions.
 Redisplay runs this hook before it redisplays the menu bar.
 This is used to update menus such as Buffers, whose contents depend on
-various data."#),
-    (r#"menu-prompt-more-char"#, r#"Character to see next line of menu prompt.
-Type this character while in a menu prompt to rotate around the lines of it."#),
-    (r#"menu-prompting"#, r#"Non-nil means prompt with menus when appropriate.
+various data."#,
+    ),
+    (
+        r#"menu-prompt-more-char"#,
+        r#"Character to see next line of menu prompt.
+Type this character while in a menu prompt to rotate around the lines of it."#,
+    ),
+    (
+        r#"menu-prompting"#,
+        r#"Non-nil means prompt with menus when appropriate.
 This is done when reading from a keymap that has a prompt string,
 for elements that have prompt strings.
 The menu is displayed on the screen
 if X menus were enabled at configuration
 time and the previous event was a mouse click prefix key.
-Otherwise, menu prompting uses the echo area."#),
-    (r#"menu-updating-frame"#, r#"Frame for which we are updating a menu.
-The enable predicate for a menu binding should check this variable."#),
-    (r#"message-log-max"#, r#"Maximum number of lines to keep in the message log buffer.
+Otherwise, menu prompting uses the echo area."#,
+    ),
+    (
+        r#"menu-updating-frame"#,
+        r#"Frame for which we are updating a menu.
+The enable predicate for a menu binding should check this variable."#,
+    ),
+    (
+        r#"message-log-max"#,
+        r#"Maximum number of lines to keep in the message log buffer.
 If nil, disable message logging.  If t, log messages but don't truncate
-the buffer when it becomes large."#),
-    (r#"message-truncate-lines"#, r#"If non-nil, messages are truncated when displaying the echo area.
-Bind this around calls to `message' to let it take effect."#),
-    (r#"messages-buffer-name"#, r#"The name of the buffer where messages are logged.
+the buffer when it becomes large."#,
+    ),
+    (
+        r#"message-truncate-lines"#,
+        r#"If non-nil, messages are truncated when displaying the echo area.
+Bind this around calls to `message' to let it take effect."#,
+    ),
+    (
+        r#"messages-buffer-name"#,
+        r#"The name of the buffer where messages are logged.
 This is normally \"\*Messages*\", but can be rebound by packages that
 wish to redirect messages to a different buffer.  (If the buffer
 doesn't exist, it will be created and put into
-`messages-buffer-mode'.)"#),
-    (r#"meta-prefix-char"#, r#"Meta-prefix character code.
-Meta-foo as command input turns into this character followed by foo."#),
-    (r#"minibuffer-allow-text-properties"#, r#"Non-nil means `read-from-minibuffer' should not discard text properties.
+`messages-buffer-mode'.)"#,
+    ),
+    (
+        r#"meta-prefix-char"#,
+        r#"Meta-prefix character code.
+Meta-foo as command input turns into this character followed by foo."#,
+    ),
+    (
+        r#"minibuffer-allow-text-properties"#,
+        r#"Non-nil means `read-from-minibuffer' should not discard text properties.
 Lisp code can let-bind this, or make it buffer-local in the minibuffer.
 This also affects `read-string', or any of the functions that do
 minibuffer input with completion, but it does not affect `read-minibuffer'
-that always discards text properties."#),
-    (r#"minibuffer-auto-raise"#, r#"Non-nil means entering the minibuffer raises the minibuffer's frame.
-Some uses of the echo area also raise that frame (since they use it too)."#),
-    (r#"minibuffer-completing-file-name"#, r#"Non-nil means completing file names."#),
-    (r#"minibuffer-completion-confirm"#, r#"Whether to demand confirmation of completion before exiting minibuffer.
+that always discards text properties."#,
+    ),
+    (
+        r#"minibuffer-auto-raise"#,
+        r#"Non-nil means entering the minibuffer raises the minibuffer's frame.
+Some uses of the echo area also raise that frame (since they use it too)."#,
+    ),
+    (
+        r#"minibuffer-completing-file-name"#,
+        r#"Non-nil means completing file names."#,
+    ),
+    (
+        r#"minibuffer-completion-confirm"#,
+        r#"Whether to demand confirmation of completion before exiting minibuffer.
 If nil, confirmation is not required.
 If the value is `confirm', the user may exit with an input that is not
  a valid completion alternative, but Emacs asks for confirmation.
 If the value is `confirm-after-completion', the user may exit with an
  input that is not a valid completion alternative, but Emacs asks for
  confirmation if the user submitted the input right after any of the
- completion commands listed in `minibuffer-confirm-exit-commands'."#),
-    (r#"minibuffer-completion-predicate"#, r#"Within call to `completing-read', this holds the PREDICATE argument."#),
-    (r#"minibuffer-completion-table"#, r#"Alist or obarray used for completion in the minibuffer.
+ completion commands listed in `minibuffer-confirm-exit-commands'."#,
+    ),
+    (
+        r#"minibuffer-completion-predicate"#,
+        r#"Within call to `completing-read', this holds the PREDICATE argument."#,
+    ),
+    (
+        r#"minibuffer-completion-table"#,
+        r#"Alist or obarray used for completion in the minibuffer.
 This becomes the ALIST argument to `try-completion' and `all-completions'.
 The value can also be a list of strings or a hash table.
 
@@ -2267,57 +3448,114 @@ The value may alternatively be a function, which is given three arguments:
 CODE can be nil, t or `lambda':
   nil    -- return the best completion of STRING, or nil if there is none.
   t      -- return a list of all possible completions of STRING.
-  lambda -- return t if STRING is a valid completion as it stands."#),
-    (r#"minibuffer-exit-hook"#, r#"Normal hook run whenever a minibuffer is exited."#),
-    (r#"minibuffer-follows-selected-frame"#, r#"t means the active minibuffer always displays on the selected frame.
+  lambda -- return t if STRING is a valid completion as it stands."#,
+    ),
+    (
+        r#"minibuffer-exit-hook"#,
+        r#"Normal hook run whenever a minibuffer is exited."#,
+    ),
+    (
+        r#"minibuffer-follows-selected-frame"#,
+        r#"t means the active minibuffer always displays on the selected frame.
 Nil means that a minibuffer will appear only in the frame which created it.
 Any other value means the minibuffer will move onto another frame, but
 only when the user starts using a minibuffer there.
 
 Any buffer local or dynamic binding of this variable is ignored.  Only the
-default top level value is used."#),
-    (r#"minibuffer-help-form"#, r#"Value that `help-form' takes on inside the minibuffer."#),
-    (r#"minibuffer-history-position"#, r#"Current position of redoing in the history list."#),
-    (r#"minibuffer-history-variable"#, r#"History list symbol to add minibuffer values to.
+default top level value is used."#,
+    ),
+    (
+        r#"minibuffer-help-form"#,
+        r#"Value that `help-form' takes on inside the minibuffer."#,
+    ),
+    (
+        r#"minibuffer-history-position"#,
+        r#"Current position of redoing in the history list."#,
+    ),
+    (
+        r#"minibuffer-history-variable"#,
+        r#"History list symbol to add minibuffer values to.
 Each string of minibuffer input, as it appears on exit from the minibuffer,
 is added with
 
   (set minibuffer-history-variable
        (cons STRING (symbol-value minibuffer-history-variable)))
 
- If the variable is t, no history is recorded."#),
-    (r#"minibuffer-local-map"#, r#"Default keymap to use when reading from the minibuffer."#),
-    (r#"minibuffer-message-timeout"#, r#"How long to display an echo-area message when the minibuffer is active.
+ If the variable is t, no history is recorded."#,
+    ),
+    (
+        r#"minibuffer-local-map"#,
+        r#"Default keymap to use when reading from the minibuffer."#,
+    ),
+    (
+        r#"minibuffer-message-timeout"#,
+        r#"How long to display an echo-area message when the minibuffer is active.
 If the value is a number, it should be specified in seconds.
-If the value is not a number, such messages never time out."#),
-    (r#"minibuffer-prompt-properties"#, r#"Text properties that are added to minibuffer prompts.
+If the value is not a number, such messages never time out."#,
+    ),
+    (
+        r#"minibuffer-prompt-properties"#,
+        r#"Text properties that are added to minibuffer prompts.
 These are in addition to the basic `field' property, and stickiness
-properties."#),
-    (r#"minibuffer-scroll-window"#, r#"Non-nil means it is the window that C-M-v in minibuffer should scroll."#),
-    (r#"minibuffer-setup-hook"#, r#"Normal hook run just after entry to minibuffer."#),
-    (r#"minor-mode-map-alist"#, r#"Alist of keymaps to use for minor modes.
+properties."#,
+    ),
+    (
+        r#"minibuffer-scroll-window"#,
+        r#"Non-nil means it is the window that C-M-v in minibuffer should scroll."#,
+    ),
+    (
+        r#"minibuffer-setup-hook"#,
+        r#"Normal hook run just after entry to minibuffer."#,
+    ),
+    (
+        r#"minor-mode-map-alist"#,
+        r#"Alist of keymaps to use for minor modes.
 Each element looks like (VARIABLE . KEYMAP); KEYMAP is used to read
 key sequences and look up bindings if VARIABLE's value is non-nil.
 If two active keymaps bind the same key, the keymap appearing earlier
-in the list takes precedence."#),
-    (r#"minor-mode-overriding-map-alist"#, r#"Alist of keymaps to use for minor modes, in current major mode.
+in the list takes precedence."#,
+    ),
+    (
+        r#"minor-mode-overriding-map-alist"#,
+        r#"Alist of keymaps to use for minor modes, in current major mode.
 This variable is an alist just like `minor-mode-map-alist', and it is
 used the same way (and before `minor-mode-map-alist'); however,
-it is provided for major modes to bind locally."#),
-    (r#"mode-line-compact"#, r#"Non-nil means that mode lines should be compact.
+it is provided for major modes to bind locally."#,
+    ),
+    (
+        r#"mode-line-compact"#,
+        r#"Non-nil means that mode lines should be compact.
 This means that repeating spaces will be replaced with a single space.
 If this variable is `long', only mode lines that are wider than the
-currently selected window are compressed."#),
-    (r#"mode-line-in-non-selected-windows"#, r#"Non-nil means to use `mode-line-inactive' face in non-selected windows.
+currently selected window are compressed."#,
+    ),
+    (
+        r#"mode-line-in-non-selected-windows"#,
+        r#"Non-nil means to use `mode-line-inactive' face in non-selected windows.
 If the minibuffer is active, the `minibuffer-scroll-window' mode line
-is displayed in the `mode-line' face."#),
-    (r#"module-file-suffix"#, r#"Suffix of loadable module file, or nil if modules are not supported."#),
-    (r#"most-negative-fixnum"#, r#"The least integer that is represented efficiently.
-This variable cannot be set; trying to do so will signal an error."#),
-    (r#"most-positive-fixnum"#, r#"The greatest integer that is represented efficiently.
-This variable cannot be set; trying to do so will signal an error."#),
-    (r#"motif-version-string"#, r#"Version info for LessTif/Motif."#),
-    (r#"mouse-autoselect-window"#, r#"Non-nil means autoselect window with mouse pointer.
+is displayed in the `mode-line' face."#,
+    ),
+    (
+        r#"module-file-suffix"#,
+        r#"Suffix of loadable module file, or nil if modules are not supported."#,
+    ),
+    (
+        r#"most-negative-fixnum"#,
+        r#"The least integer that is represented efficiently.
+This variable cannot be set; trying to do so will signal an error."#,
+    ),
+    (
+        r#"most-positive-fixnum"#,
+        r#"The greatest integer that is represented efficiently.
+This variable cannot be set; trying to do so will signal an error."#,
+    ),
+    (
+        r#"motif-version-string"#,
+        r#"Version info for LessTif/Motif."#,
+    ),
+    (
+        r#"mouse-autoselect-window"#,
+        r#"Non-nil means autoselect window with mouse pointer.
 If nil, do not autoselect windows.
 A positive number means delay autoselection by that many seconds: a
 window is autoselected only after the mouse has remained in that
@@ -2335,49 +3573,82 @@ unselects the minibuffer if it is active.
 If you want to use the mouse to autoselect a window on another frame,
 make sure that (1) your window manager has focus follow the mouse and
 (2) the value of the option `focus-follows-mouse' matches the policy
-of your window manager."#),
-    (r#"mouse-fine-grained-tracking"#, r#"Non-nil for pixelwise mouse-movement.
+of your window manager."#,
+    ),
+    (
+        r#"mouse-fine-grained-tracking"#,
+        r#"Non-nil for pixelwise mouse-movement.
 When nil, mouse-movement events will not be generated as long as the
 mouse stays within the extent of a single glyph (except for images).
 When nil and `mouse-prefer-closest-glyph' is non-nil, mouse-movement
 events will instead not be generated as long as the mouse stays within
-the extent of a single left/right half glyph (except for images)."#),
-    (r#"mouse-highlight"#, r#"If non-nil, clickable text is highlighted when mouse is over it.
+the extent of a single left/right half glyph (except for images)."#,
+    ),
+    (
+        r#"mouse-highlight"#,
+        r#"If non-nil, clickable text is highlighted when mouse is over it.
 If the value is an integer, highlighting is shown only after moving the
 mouse, while keyboard input turns off the highlight even when the mouse
 is over the clickable text.  However, the mouse shape still indicates
-when the mouse is over clickable text."#),
-    (r#"mouse-leave-buffer-hook"#, r#"Hook run when the user mouse-clicks in a window.
+when the mouse is over clickable text."#,
+    ),
+    (
+        r#"mouse-leave-buffer-hook"#,
+        r#"Hook run when the user mouse-clicks in a window.
 It can be run both before and after switching windows, or even when
 not actually switching windows.
 
 Its purpose is to give temporary modes such as Isearch mode
-a way to turn themselves off when a mouse command switches windows."#),
-    (r#"mouse-position-function"#, r#"If non-nil, function to transform normal value of `mouse-position'.
+a way to turn themselves off when a mouse command switches windows."#,
+    ),
+    (
+        r#"mouse-position-function"#,
+        r#"If non-nil, function to transform normal value of `mouse-position'.
 `mouse-position' and `mouse-pixel-position' call this function, passing their
 usual return value as argument, and return whatever this function returns.
 This abnormal hook exists for the benefit of packages like `xt-mouse.el'
-which need to do mouse handling at the Lisp level."#),
-    (r#"mouse-prefer-closest-glyph"#, r#"Non-nil means mouse click position is taken from glyph closest to click.
+which need to do mouse handling at the Lisp level."#,
+    ),
+    (
+        r#"mouse-prefer-closest-glyph"#,
+        r#"Non-nil means mouse click position is taken from glyph closest to click.
 
 When non-nil, mouse position lists will report buffer position set to
 the position of the glyph that is the closest to the mouse pointer
-at the time of the click, instead of the glyph immediately under it."#),
-    (r#"move-frame-functions"#, r#"Functions run after a frame was moved.
-The functions are run with one arg, the frame that moved."#),
-    (r#"movemail-program-name"#, r#"Name of the `movemail' program distributed with Emacs.
+at the time of the click, instead of the glyph immediately under it."#,
+    ),
+    (
+        r#"move-frame-functions"#,
+        r#"Functions run after a frame was moved.
+The functions are run with one arg, the frame that moved."#,
+    ),
+    (
+        r#"movemail-program-name"#,
+        r#"Name of the `movemail' program distributed with Emacs.
 Use this instead of calling `movemail' directly, as `movemail'
 may have been renamed to comply with executable naming restrictions on
-the system."#),
-    (r#"multibyte-syntax-as-symbol"#, r#"Non-nil means `scan-sexps' treats all multibyte characters as symbol."#),
-    (r#"multiple-frames"#, r#"Non-nil if more than one frame is visible on this display.
+the system."#,
+    ),
+    (
+        r#"multibyte-syntax-as-symbol"#,
+        r#"Non-nil means `scan-sexps' treats all multibyte characters as symbol."#,
+    ),
+    (
+        r#"multiple-frames"#,
+        r#"Non-nil if more than one frame is visible on this display.
 Minibuffer-only frames don't count, but iconified frames do.
 This variable is not guaranteed to be accurate except while processing
-`frame-title-format' and `icon-title-format'."#),
-    (r#"mwheel-coalesce-scroll-events"#, r#"Non-nil means send a wheel event only for scrolling at least one screen line.
+`frame-title-format' and `icon-title-format'."#,
+    ),
+    (
+        r#"mwheel-coalesce-scroll-events"#,
+        r#"Non-nil means send a wheel event only for scrolling at least one screen line.
 Otherwise, a wheel event will be sent every time the mouse wheel is
-moved."#),
-    (r#"native-comp-eln-load-path"#, r#"List of directories to look for native-compiled *.eln files.
+moved."#,
+    ),
+    (
+        r#"native-comp-eln-load-path"#,
+        r#"List of directories to look for native-compiled *.eln files.
 
 The *.eln files are actually looked for in a version-specific
 subdirectory of each directory in this list.  That subdirectory
@@ -2386,8 +3657,11 @@ If the name of a directory in this list is not absolute, it is
 assumed to be relative to `invocation-directory'.
 The last directory of this list is assumed to be the one holding
 the system *.eln files, which are the files produced when building
-Emacs."#),
-    (r#"native-comp-enable-subr-trampolines"#, r#"If non-nil, enable generation of trampolines for calling primitives.
+Emacs."#,
+    ),
+    (
+        r#"native-comp-enable-subr-trampolines"#,
+        r#"If non-nil, enable generation of trampolines for calling primitives.
 Trampolines are needed so that Emacs respects redefinition or advice of
 primitive functions when they are called from native-compiled Lisp code
 at `native-comp-speed' of 2.
@@ -2408,12 +3682,18 @@ means that such redefinition or advice will not have effect when calling
 primitives from native-compiled Lisp code.  That is, calls to primitives
 without existing trampolines from native-compiled Lisp will behave as if
 the primitive was called directly from C, and will ignore its redefinition
-and advice."#),
-    (r#"native-comp-jit-compilation"#, r#"If non-nil, compile loaded .elc files asynchronously.
+and advice."#,
+    ),
+    (
+        r#"native-comp-jit-compilation"#,
+        r#"If non-nil, compile loaded .elc files asynchronously.
 
 After compilation, each function definition is updated to use the
-natively compiled one."#),
-    (r#"network-coding-system-alist"#, r#"
+natively compiled one."#,
+    ),
+    (
+        r#"network-coding-system-alist"#,
+        r#"
 Alist to decide a coding system to use for a network I/O operation.
 The format is ((PATTERN . VAL) ...),
 where PATTERN is a regular expression matching a network service name
@@ -2426,14 +3706,26 @@ and the cdr part is used for encoding.
 If VAL is a function symbol, the function must return a coding system
 or a cons of coding systems which are used as above.
 
-See also the function `find-operation-coding-system'."#),
-    (r#"next-screen-context-lines"#, r#"Number of lines of continuity when scrolling by screenfuls."#),
-    (r#"next-selection-coding-system"#, r#"SKIP: real doc in select.el."#),
-    (r#"no-redraw-on-reenter"#, r#"Non-nil means no need to redraw entire frame after suspending.
+See also the function `find-operation-coding-system'."#,
+    ),
+    (
+        r#"next-screen-context-lines"#,
+        r#"Number of lines of continuity when scrolling by screenfuls."#,
+    ),
+    (
+        r#"next-selection-coding-system"#,
+        r#"SKIP: real doc in select.el."#,
+    ),
+    (
+        r#"no-redraw-on-reenter"#,
+        r#"Non-nil means no need to redraw entire frame after suspending.
 A non-nil value is useful if the terminal can automatically preserve
 Emacs's frame display when you reenter Emacs.
-It is up to you to set this variable if your terminal can do that."#),
-    (r#"nobreak-char-ascii-display"#, r#"Control display of non-ASCII space and hyphen chars.
+It is up to you to set this variable if your terminal can do that."#,
+    ),
+    (
+        r#"nobreak-char-ascii-display"#,
+        r#"Control display of non-ASCII space and hyphen chars.
 If the value of this variable is nil, the default, Emacs displays
 non-ASCII chars which have the same appearance as an ASCII space
 or hyphen as themselves, with the `nobreak-space' or `nobreak-hyphen'
@@ -2449,8 +3741,11 @@ otherwise it is ignored.
 
 All of the non-ASCII characters in the Unicode horizontal whitespace
 character class, as well as U+00AD (soft hyphen), U+2010 (hyphen), and
-U+2011 (non-breaking hyphen) are affected."#),
-    (r#"nobreak-char-display"#, r#"Control highlighting of non-ASCII space and hyphen chars.
+U+2011 (non-breaking hyphen) are affected."#,
+    ),
+    (
+        r#"nobreak-char-display"#,
+        r#"Control highlighting of non-ASCII space and hyphen chars.
 If the value is t, Emacs highlights non-ASCII chars which have the
 same appearance as an ASCII space or hyphen, using the `nobreak-space'
 or `nobreak-hyphen' face respectively.
@@ -2462,97 +3757,181 @@ U+2011 (non-breaking hyphen) are affected.
 Any other non-nil value means to display these characters as an escape
 glyph followed by an ordinary space or hyphen.
 
-A value of nil means no special handling of these characters."#),
-    (r#"noninteractive"#, r#"Non-nil means Emacs is running without interactive terminal."#),
-    (r#"num-input-keys"#, r#"Number of complete key sequences read as input so far.
+A value of nil means no special handling of these characters."#,
+    ),
+    (
+        r#"noninteractive"#,
+        r#"Non-nil means Emacs is running without interactive terminal."#,
+    ),
+    (
+        r#"num-input-keys"#,
+        r#"Number of complete key sequences read as input so far.
 This includes key sequences read from keyboard macros.
-The number is effectively the number of interactive command invocations."#),
-    (r#"num-nonmacro-input-events"#, r#"Number of input events read from the keyboard so far.
-This does not include events generated by keyboard macros."#),
-    (r#"obarray"#, r#"Symbol table for use by `intern' and `read'.
+The number is effectively the number of interactive command invocations."#,
+    ),
+    (
+        r#"num-nonmacro-input-events"#,
+        r#"Number of input events read from the keyboard so far.
+This does not include events generated by keyboard macros."#,
+    ),
+    (
+        r#"obarray"#,
+        r#"Symbol table for use by `intern' and `read'.
 It is a vector whose length ought to be prime for best results.
 The vector's contents don't make sense if examined from Lisp programs;
-to find all the symbols in an obarray, use `mapatoms'."#),
-    (r#"open-paren-in-column-0-is-defun-start"#, r#"Non-nil means an open paren in column 0 denotes the start of a defun."#),
-    (r#"operating-system-release"#, r#"The kernel version of the operating system on which Emacs is running.
+to find all the symbols in an obarray, use `mapatoms'."#,
+    ),
+    (
+        r#"open-paren-in-column-0-is-defun-start"#,
+        r#"Non-nil means an open paren in column 0 denotes the start of a defun."#,
+    ),
+    (
+        r#"operating-system-release"#,
+        r#"The kernel version of the operating system on which Emacs is running.
 The value is a string.  It can also be nil if Emacs doesn't
-know how to get the kernel version on the underlying OS."#),
-    (r#"otf-script-alist"#, r#"Alist of OpenType script tags vs the corresponding script names."#),
-    (r#"other-window-scroll-buffer"#, r#"If this is a live buffer, \\[scroll-other-window] should scroll its window."#),
-    (r#"other-window-scroll-default"#, r#"Function that provides the window to scroll by \\[scroll-other-window].
+know how to get the kernel version on the underlying OS."#,
+    ),
+    (
+        r#"otf-script-alist"#,
+        r#"Alist of OpenType script tags vs the corresponding script names."#,
+    ),
+    (
+        r#"other-window-scroll-buffer"#,
+        r#"If this is a live buffer, \\[scroll-other-window] should scroll its window."#,
+    ),
+    (
+        r#"other-window-scroll-default"#,
+        r#"Function that provides the window to scroll by \\[scroll-other-window].
 The function `other-window-for-scrolling' first tries to use
 `minibuffer-scroll-window' and `other-window-scroll-buffer'.
 But when both are nil, then by default it uses a neighboring window.
-This variable is intended to get another default instead of `next-window'."#),
-    (r#"overflow-newline-into-fringe"#, r#"Non-nil means that newline may flow into the right fringe.
+This variable is intended to get another default instead of `next-window'."#,
+    ),
+    (
+        r#"overflow-newline-into-fringe"#,
+        r#"Non-nil means that newline may flow into the right fringe.
 This means that display lines that are exactly as wide as the window
 \(not counting the final newline) will occupy only one screen line, by
 showing (or hiding) the final newline in the right fringe; when point
 is at the final newline, the cursor is shown in the right fringe.
-If nil, also continue lines which are exactly as wide as the window."#),
-    (r#"overlay-arrow-position"#, r#"Marker for where to display an arrow on top of the buffer text.
+If nil, also continue lines which are exactly as wide as the window."#,
+    ),
+    (
+        r#"overlay-arrow-position"#,
+        r#"Marker for where to display an arrow on top of the buffer text.
 This must be the beginning of a line in order to work.
-See also `overlay-arrow-string'."#),
-    (r#"overlay-arrow-string"#, r#"String to display as an arrow in text-mode frames.
-See also `overlay-arrow-position'."#),
-    (r#"overlay-arrow-variable-list"#, r#"List of variables (symbols) which hold markers for overlay arrows.
+See also `overlay-arrow-string'."#,
+    ),
+    (
+        r#"overlay-arrow-string"#,
+        r#"String to display as an arrow in text-mode frames.
+See also `overlay-arrow-position'."#,
+    ),
+    (
+        r#"overlay-arrow-variable-list"#,
+        r#"List of variables (symbols) which hold markers for overlay arrows.
 The symbols on this list are examined during redisplay to determine
 where to display overlay arrows.
-See also `overlay-arrow-string'."#),
-    (r#"overline-margin"#, r#"Space between overline and text, in pixels.
+See also `overlay-arrow-string'."#,
+    ),
+    (
+        r#"overline-margin"#,
+        r#"Space between overline and text, in pixels.
 The default value is 2: the height of the overline (1 pixel) plus 1 pixel
-margin to the character height."#),
-    (r#"overriding-local-map"#, r#"Keymap that replaces (overrides) local keymaps.
+margin to the character height."#,
+    ),
+    (
+        r#"overriding-local-map"#,
+        r#"Keymap that replaces (overrides) local keymaps.
 If this variable is non-nil, Emacs looks up key bindings in this
 keymap INSTEAD OF `keymap' text properties, `local-map' and `keymap'
 overlay properties, minor mode maps, and the buffer's local map.
 
 Hence, the only active keymaps would be `overriding-terminal-local-map',
-this keymap, and `global-keymap', in order of precedence."#),
-    (r#"overriding-local-map-menu-flag"#, r#"Non-nil means `overriding-local-map' applies to the menu bar.
+this keymap, and `global-keymap', in order of precedence."#,
+    ),
+    (
+        r#"overriding-local-map-menu-flag"#,
+        r#"Non-nil means `overriding-local-map' applies to the menu bar.
 Otherwise, the menu bar continues to reflect the buffer's local map
-and the minor mode maps regardless of `overriding-local-map'."#),
-    (r#"overriding-plist-environment"#, r#"An alist that overrides the plists of the symbols which it lists.
+and the minor mode maps regardless of `overriding-local-map'."#,
+    ),
+    (
+        r#"overriding-plist-environment"#,
+        r#"An alist that overrides the plists of the symbols which it lists.
 Used by the byte-compiler to apply `define-symbol-prop' during
-compilation."#),
-    (r#"overriding-terminal-local-map"#, r#"Per-terminal keymap that takes precedence over all other keymaps.
+compilation."#,
+    ),
+    (
+        r#"overriding-terminal-local-map"#,
+        r#"Per-terminal keymap that takes precedence over all other keymaps.
 This variable is intended to let commands such as `universal-argument'
 set up a different keymap for reading the next command.
 
 `overriding-terminal-local-map' has a separate binding for each
-terminal device.  See Info node `(elisp)Multiple Terminals'."#),
-    (r#"overriding-text-conversion-style"#, r#"Non-buffer local version of `text-conversion-style'.
+terminal device.  See Info node `(elisp)Multiple Terminals'."#,
+    ),
+    (
+        r#"overriding-text-conversion-style"#,
+        r#"Non-buffer local version of `text-conversion-style'.
 
 If this variable is the symbol `lambda', it means to consult the
 buffer-local value of `text-conversion-style' to determine whether or
 not to activate the input method.  Otherwise, the value is used in
-preference to any buffer-local value of `text-conversion-style'."#),
-    (r#"parse-sexp-ignore-comments"#, r#"Non-nil means `forward-sexp', etc., should treat comments as whitespace."#),
-    (r#"parse-sexp-lookup-properties"#, r#"Non-nil means `forward-sexp', etc., obey `syntax-table' property.
+preference to any buffer-local value of `text-conversion-style'."#,
+    ),
+    (
+        r#"parse-sexp-ignore-comments"#,
+        r#"Non-nil means `forward-sexp', etc., should treat comments as whitespace."#,
+    ),
+    (
+        r#"parse-sexp-lookup-properties"#,
+        r#"Non-nil means `forward-sexp', etc., obey `syntax-table' property.
 Otherwise, that text property is simply ignored.
 See the info node `(elisp)Syntax Properties' for a description of the
-`syntax-table' property."#),
-    (r#"path-separator"#, r#"String containing the character that separates directories in
-search paths, such as PATH and other similar environment variables."#),
-    (r#"pdumper-fingerprint"#, r#"The fingerprint of this Emacs binary.
+`syntax-table' property."#,
+    ),
+    (
+        r#"path-separator"#,
+        r#"String containing the character that separates directories in
+search paths, such as PATH and other similar environment variables."#,
+    ),
+    (
+        r#"pdumper-fingerprint"#,
+        r#"The fingerprint of this Emacs binary.
 It is a string that is supposed to be unique to each build of
-Emacs."#),
-    (r#"pgtk-keysym-table"#, r#"Hash table of character codes indexed by X keysym codes."#),
-    (r#"pgtk-lost-selection-functions"#, r#"A list of functions to be called when Emacs loses a selection.
+Emacs."#,
+    ),
+    (
+        r#"pgtk-keysym-table"#,
+        r#"Hash table of character codes indexed by X keysym codes."#,
+    ),
+    (
+        r#"pgtk-lost-selection-functions"#,
+        r#"A list of functions to be called when Emacs loses a selection.
 \(This happens when some other client makes its own selection
 or when a Lisp program explicitly clears the selection.)
 The functions are called with one argument, the selection type
-\(a symbol, typically `PRIMARY', `SECONDARY', or `CLIPBOARD')."#),
-    (r#"pgtk-selection-alias-alist"#, r#"List of selections to alias to another.
+\(a symbol, typically `PRIMARY', `SECONDARY', or `CLIPBOARD')."#,
+    ),
+    (
+        r#"pgtk-selection-alias-alist"#,
+        r#"List of selections to alias to another.
 It should be an alist of a selection name to another.  When a
 selection request arrives for the first selection, Emacs will respond
 as if the request was meant for the other.
 
-Note that this does not affect setting or owning selections."#),
-    (r#"pgtk-selection-timeout"#, r#"Number of milliseconds to wait for a selection reply.
+Note that this does not affect setting or owning selections."#,
+    ),
+    (
+        r#"pgtk-selection-timeout"#,
+        r#"Number of milliseconds to wait for a selection reply.
 If the selection owner doesn't reply in this time, we give up.
-A value of 0 means wait as long as necessary."#),
-    (r#"pgtk-sent-selection-functions"#, r#"A list of functions to be called when Emacs answers a selection request.
+A value of 0 means wait as long as necessary."#,
+    ),
+    (
+        r#"pgtk-sent-selection-functions"#,
+        r#"A list of functions to be called when Emacs answers a selection request.
 The functions are called with three arguments:
   - the selection name (typically `PRIMARY', `SECONDARY', or `CLIPBOARD');
   - the selection-type which Emacs was asked to convert the
@@ -2562,8 +3941,11 @@ We might have failed (and declined the request) for any number of reasons,
 including being asked for a selection that we no longer own, or being asked
 to convert into a type that we don't know about or that is inappropriate.
 xThis hook doesn't let you change the behavior of Emacs's selection replies,
-it merely informs you that they have happened."#),
-    (r#"pgtk-sent-selection-hooks"#, r#"A list of functions to be called when Emacs answers a selection request
+it merely informs you that they have happened."#,
+    ),
+    (
+        r#"pgtk-sent-selection-hooks"#,
+        r#"A list of functions to be called when Emacs answers a selection request
 The functions are called with four arguments:
   - the selection name (typically `PRIMARY', `SECONDARY', or `CLIPBOARD');
   - the selection-type which Emacs was asked to convert the
@@ -2573,23 +3955,35 @@ We might have failed (and declined the request) for any number of reasons,
 including being asked for a selection that we no longer own, or being asked
 to convert into a type that we don't know about or that is inappropriate.
 This hook doesn't let you change the behavior of Emacs's selection replies,
-it merely informs you that they have happened."#),
-    (r#"pgtk-use-im-context-on-new-connection"#, r#"Whether to use GtkIMContext on a new connection.
+it merely informs you that they have happened."#,
+    ),
+    (
+        r#"pgtk-use-im-context-on-new-connection"#,
+        r#"Whether to use GtkIMContext on a new connection.
 If you want to change it after connection, use the `pgtk-use-im-context'
-function."#),
-    (r#"pgtk-wait-for-event-timeout"#, r#"How long to wait for GTK events.
+function."#,
+    ),
+    (
+        r#"pgtk-wait-for-event-timeout"#,
+        r#"How long to wait for GTK events.
 
 Emacs will wait up to this many seconds to receive some GTK events
 after making changes which affect the state of the graphical
 interface.  Under some window managers this can take an indefinite
 amount of time, so it is important to limit the wait.
 
-If set to a non-float value, there will be no wait at all."#),
-    (r#"polling-period"#, r#"Interval between polling for input during Lisp execution.
+If set to a non-float value, there will be no wait at all."#,
+    ),
+    (
+        r#"polling-period"#,
+        r#"Interval between polling for input during Lisp execution.
 The reason for polling is to make C-g work to stop a running program.
 Polling is needed only when using X windows and SIGIO does not work.
-Polling is automatically disabled in all other cases."#),
-    (r#"post-command-hook"#, r#"Normal hook run after each command is executed.
+Polling is automatically disabled in all other cases."#,
+    ),
+    (
+        r#"post-command-hook"#,
+        r#"Normal hook run after each command is executed.
 
 If an unhandled error happens in running this hook, the function in
 which the error occurred is unconditionally removed, since otherwise
@@ -2605,15 +3999,27 @@ with a `long-line-optimizations-in-command-hooks' label and with the
 buffer narrowed to a portion around point whose size is specified by
 `long-line-optimizations-region-size'.
 
-See also `pre-command-hook'."#),
-    (r#"post-gc-hook"#, r#"Hook run after garbage collection has finished."#),
-    (r#"post-select-region-hook"#, r#"Abnormal hook run after the region is selected.
+See also `pre-command-hook'."#,
+    ),
+    (
+        r#"post-gc-hook"#,
+        r#"Hook run after garbage collection has finished."#,
+    ),
+    (
+        r#"post-select-region-hook"#,
+        r#"Abnormal hook run after the region is selected.
 This usually happens as a result of `select-active-regions'.  The hook
-is called with one argument, the string that was selected."#),
-    (r#"post-self-insert-hook"#, r#"Hook run at the end of `self-insert-command'.
+is called with one argument, the string that was selected."#,
+    ),
+    (
+        r#"post-self-insert-hook"#,
+        r#"Hook run at the end of `self-insert-command'.
 This is run after inserting a character.
-The hook can access the inserted character via `last-command-event'."#),
-    (r#"pre-command-hook"#, r#"Normal hook run before each command is executed.
+The hook can access the inserted character via `last-command-event'."#,
+    ),
+    (
+        r#"pre-command-hook"#,
+        r#"Normal hook run before each command is executed.
 
 If an unhandled error happens in running this hook, the function in
 which the error occurred is unconditionally removed, since otherwise
@@ -2625,12 +4031,18 @@ with a `long-line-optimizations-in-command-hooks' label and with the
 buffer narrowed to a portion around point whose size is specified by
 `long-line-optimizations-region-size'.
 
-See also `post-command-hook'."#),
-    (r#"pre-redisplay-function"#, r#"Function run just before redisplay.
+See also `post-command-hook'."#,
+    ),
+    (
+        r#"pre-redisplay-function"#,
+        r#"Function run just before redisplay.
 It is called with one argument, which is the set of windows that are to
 be redisplayed.  This set can be nil (meaning, only the selected window),
-or t (meaning all windows)."#),
-    (r#"prefix-arg"#, r#"The value of the prefix argument for the next editing command.
+or t (meaning all windows)."#,
+    ),
+    (
+        r#"prefix-arg"#,
+        r#"The value of the prefix argument for the next editing command.
 It may be a number, or the symbol `-' for just a minus sign as arg,
 or a list whose car is a number for just one or more C-u's
 or nil if no argument has been specified.
@@ -2638,13 +4050,25 @@ or nil if no argument has been specified.
 You cannot examine this variable to find the argument for this command
 since it has been set to nil by the time you can look.
 Instead, you should use the variable `current-prefix-arg', although
-normally commands can get this prefix argument with (interactive "P")."#),
-    (r#"prefix-help-command"#, r#"Command to run when `help-char' character follows a prefix key.
+normally commands can get this prefix argument with (interactive "P")."#,
+    ),
+    (
+        r#"prefix-help-command"#,
+        r#"Command to run when `help-char' character follows a prefix key.
 This command is used only when there is no actual binding
-for that character after that prefix key."#),
-    (r#"preloaded-file-list"#, r#"List of files that were preloaded (when dumping Emacs)."#),
-    (r#"print--unreadable-callback-buffer"#, r#"Dynamically bound to indicate current buffer."#),
-    (r#"print-charset-text-property"#, r#"A flag to control printing of `charset' text property on printing a string.
+for that character after that prefix key."#,
+    ),
+    (
+        r#"preloaded-file-list"#,
+        r#"List of files that were preloaded (when dumping Emacs)."#,
+    ),
+    (
+        r#"print--unreadable-callback-buffer"#,
+        r#"Dynamically bound to indicate current buffer."#,
+    ),
+    (
+        r#"print-charset-text-property"#,
+        r#"A flag to control printing of `charset' text property on printing a string.
 The value should be nil, t, or `default'.
 
 If the value is nil, don't print the text property `charset'.
@@ -2654,8 +4078,11 @@ If the value is t, always print the text property `charset'.
 If the value is `default', print the text property `charset' only when
 the value is different from what is guessed in the current charset
 priorities.  Values other than nil or t are also treated as
-`default'."#),
-    (r#"print-circle"#, r#"Non-nil means print recursive structures using #N= and #N# syntax.
+`default'."#,
+    ),
+    (
+        r#"print-circle"#,
+        r#"Non-nil means print recursive structures using #N= and #N# syntax.
 If nil, printing proceeds recursively and may lead to
 `max-lisp-eval-depth' being exceeded or an error may occur:
 \"Apparently circular structure being printed.\"  Also see
@@ -2663,39 +4090,69 @@ If nil, printing proceeds recursively and may lead to
 If non-nil, shared substructures anywhere in the structure are printed
 with `#N=' before the first occurrence (in the order of the print
 representation) and `#N#' in place of each subsequent occurrence,
-where N is a positive decimal integer."#),
-    (r#"print-continuous-numbering"#, r#"Non-nil means number continuously across print calls.
+where N is a positive decimal integer."#,
+    ),
+    (
+        r#"print-continuous-numbering"#,
+        r#"Non-nil means number continuously across print calls.
 This affects the numbers printed for #N= labels and #M# references.
 See also `print-circle', `print-gensym', and `print-number-table'.
-This variable should not be set with `setq'; bind it with a `let' instead."#),
-    (r#"print-escape-control-characters"#, r#"Non-nil means print control characters in strings as `\\OOO'.
-\(OOO is the octal representation of the character code.)"#),
-    (r#"print-escape-multibyte"#, r#"Non-nil means print multibyte characters in strings as \\xXXXX.
+This variable should not be set with `setq'; bind it with a `let' instead."#,
+    ),
+    (
+        r#"print-escape-control-characters"#,
+        r#"Non-nil means print control characters in strings as `\\OOO'.
+\(OOO is the octal representation of the character code.)"#,
+    ),
+    (
+        r#"print-escape-multibyte"#,
+        r#"Non-nil means print multibyte characters in strings as \\xXXXX.
 \(XXXX is the hex representation of the character code.)
-This affects only `prin1'."#),
-    (r#"print-escape-newlines"#, r#"Non-nil means print newlines in strings as `\\n'.
-Also print formfeeds as `\\f'."#),
-    (r#"print-escape-nonascii"#, r#"Non-nil means print unibyte non-ASCII chars in strings as \\OOO.
+This affects only `prin1'."#,
+    ),
+    (
+        r#"print-escape-newlines"#,
+        r#"Non-nil means print newlines in strings as `\\n'.
+Also print formfeeds as `\\f'."#,
+    ),
+    (
+        r#"print-escape-nonascii"#,
+        r#"Non-nil means print unibyte non-ASCII chars in strings as \\OOO.
 \(OOO is the octal representation of the character code.)
 Only single-byte characters are affected, and only in `prin1'.
 When the output goes in a multibyte buffer, this feature is
-enabled regardless of the value of the variable."#),
-    (r#"print-gensym"#, r#"Non-nil means print uninterned symbols so they will read as uninterned.
+enabled regardless of the value of the variable."#,
+    ),
+    (
+        r#"print-gensym"#,
+        r#"Non-nil means print uninterned symbols so they will read as uninterned.
 I.e., the value of (make-symbol \"foobar\") prints as #:foobar.
 When the uninterned symbol appears multiple times within the printed
 expression, and `print-circle' is non-nil, in addition use the #N#
 and #N= constructs as needed, so that multiple references to the same
-symbol are shared once again when the text is read back."#),
-    (r#"print-integers-as-characters"#, r#"Non-nil means integers are printed using characters syntax.
+symbol are shared once again when the text is read back."#,
+    ),
+    (
+        r#"print-integers-as-characters"#,
+        r#"Non-nil means integers are printed using characters syntax.
 Only independent graphic characters, and control characters with named
 escape sequences such as newline, are printed this way.  Other
 integers, including those corresponding to raw bytes, are printed
-as numbers the usual way."#),
-    (r#"print-length"#, r#"Maximum length of list to print before abbreviating.
-A value of nil means no limit.  See also `eval-expression-print-length'."#),
-    (r#"print-level"#, r#"Maximum depth of list nesting to print before abbreviating.
-A value of nil means no limit.  See also `eval-expression-print-level'."#),
-    (r#"print-number-table"#, r#"A vector used internally to produce `#N=' labels and `#N#' references.
+as numbers the usual way."#,
+    ),
+    (
+        r#"print-length"#,
+        r#"Maximum length of list to print before abbreviating.
+A value of nil means no limit.  See also `eval-expression-print-length'."#,
+    ),
+    (
+        r#"print-level"#,
+        r#"Maximum depth of list nesting to print before abbreviating.
+A value of nil means no limit.  See also `eval-expression-print-level'."#,
+    ),
+    (
+        r#"print-number-table"#,
+        r#"A vector used internally to produce `#N=' labels and `#N#' references.
 The Lisp printer uses this vector to detect Lisp objects referenced more
 than once.  If an entry contains a number, then the corresponding key is
 referenced more than once: a positive sign indicates that it's already been
@@ -2707,16 +4164,31 @@ also bind `print-number-table' to nil.  This ensures that the value of
 `print-number-table' can be garbage-collected once the printing is
 done.  If all elements of `print-number-table' are nil, it means that
 the printing done so far has not found any shared structure or objects
-that need to be recorded in the table."#),
-    (r#"print-quoted"#, r#"Non-nil means print quoted forms with reader syntax.
-I.e., (quote foo) prints as \\='foo, (function foo) as #\\='foo."#),
-    (r#"print-symbols-bare"#, r#"A flag to control printing of symbols with position.
+that need to be recorded in the table."#,
+    ),
+    (
+        r#"print-quoted"#,
+        r#"Non-nil means print quoted forms with reader syntax.
+I.e., (quote foo) prints as \\='foo, (function foo) as #\\='foo."#,
+    ),
+    (
+        r#"print-symbols-bare"#,
+        r#"A flag to control printing of symbols with position.
 If the value is nil, print these objects complete with position.
-Otherwise print just the bare symbol."#),
-    (r#"print-unreadable-function"#, "If non-nil, a function to call when printing unreadable objects.\nBy default, Emacs printing functions (like `prin1') print unreadable\nobjects as \\\"#<...>\\\", where \\\"...\\\" describes the object (for\ninstance, \\\"#<marker in no buffer>\\\").\n\nIf non-nil, it should be a function that will be called with two\narguments: the object to be printed, and the NOESCAPE flag (see\n`prin1-to-string').  If this function returns nil, the object will be\nprinted as usual.  If it returns a string, that string will then be\nprinted.  If the function returns anything else, the object will not\nbe printed."),
-    (r#"printable-chars"#, r#"A char-table for printable characters.
-Such characters have the value t in this table."#),
-    (r#"process-adaptive-read-buffering"#, r#"If non-nil, improve receive buffering by delaying after short reads.
+Otherwise print just the bare symbol."#,
+    ),
+    (
+        r#"print-unreadable-function"#,
+        "If non-nil, a function to call when printing unreadable objects.\nBy default, Emacs printing functions (like `prin1') print unreadable\nobjects as \\\"#<...>\\\", where \\\"...\\\" describes the object (for\ninstance, \\\"#<marker in no buffer>\\\").\n\nIf non-nil, it should be a function that will be called with two\narguments: the object to be printed, and the NOESCAPE flag (see\n`prin1-to-string').  If this function returns nil, the object will be\nprinted as usual.  If it returns a string, that string will then be\nprinted.  If the function returns anything else, the object will not\nbe printed.",
+    ),
+    (
+        r#"printable-chars"#,
+        r#"A char-table for printable characters.
+Such characters have the value t in this table."#,
+    ),
+    (
+        r#"process-adaptive-read-buffering"#,
+        r#"If non-nil, improve receive buffering by delaying after short reads.
 On some systems, when Emacs reads the output from a subprocess, the output data
 is read in very small blocks, potentially resulting in very poor performance.
 This behavior can be remedied to some extent by setting this variable to a
@@ -2724,8 +4196,11 @@ non-nil value, as it will automatically delay reading from such processes, to
 allow them to produce more output before Emacs tries to read it.
 If the value is t, the delay is reset after each write to the process; any other
 non-nil value means that the delay is not reset on write.
-The variable takes effect when `start-process' is called."#),
-    (r#"process-coding-system-alist"#, r#"
+The variable takes effect when `start-process' is called."#,
+    ),
+    (
+        r#"process-coding-system-alist"#,
+        r#"
 Alist to decide a coding system to use for a process I/O operation.
 The format is ((PATTERN . VAL) ...),
 where PATTERN is a regular expression matching a program name,
@@ -2737,13 +4212,19 @@ and the cdr part is used for encoding.
 If VAL is a function symbol, the function must return a coding system
 or a cons of coding systems which are used as above.
 
-See also the function `find-operation-coding-system'."#),
-    (r#"process-connection-type"#, r#"Control type of device used to communicate with subprocesses.
+See also the function `find-operation-coding-system'."#,
+    ),
+    (
+        r#"process-connection-type"#,
+        r#"Control type of device used to communicate with subprocesses.
 Values are nil to use a pipe, or t or `pty' to use a pty.
 The value has no effect if the system has no ptys or if all ptys are busy:
 then a pipe is used in any case.
-The value takes effect when `start-process' is called."#),
-    (r#"process-environment"#, r#"List of overridden environment variables for subprocesses to inherit.
+The value takes effect when `start-process' is called."#,
+    ),
+    (
+        r#"process-environment"#,
+        r#"List of overridden environment variables for subprocesses to inherit.
 Each element should be a string of the form ENVVARNAME=VALUE.
 
 Entries in this list take precedence to those in the frame-local
@@ -2762,55 +4243,97 @@ Non-ASCII characters are encoded according to the initial value of
 `locale-coding-system', i.e. the elements must normally be decoded for
 use.
 
-See `setenv' and `getenv'."#),
-    (r#"process-error-pause-time"#, r#"The number of seconds to pause after handling process errors.
+See `setenv' and `getenv'."#,
+    ),
+    (
+        r#"process-error-pause-time"#,
+        r#"The number of seconds to pause after handling process errors.
 This isn't used for all process-related errors, but is used when a
-sentinel or a process filter function has an error."#),
-    (r#"process-prioritize-lower-fds"#, r#"Whether to start checking for subprocess output from first file descriptor.
+sentinel or a process filter function has an error."#,
+    ),
+    (
+        r#"process-prioritize-lower-fds"#,
+        r#"Whether to start checking for subprocess output from first file descriptor.
 Emacs loops through file descriptors to check for output from subprocesses.
 If this variable is nil, the default, then after accepting output from a
 subprocess, Emacs will continue checking the rest of descriptors, starting
 from the one following the descriptor it just read.  If this variable is
 non-nil, Emacs will always restart the loop from the first file descriptor,
-thus favoring processes with lower descriptors."#),
-    (r#"profiler-log-size"#, r#"Number of distinct call-stacks that can be recorded in a profiler log.
+thus favoring processes with lower descriptors."#,
+    ),
+    (
+        r#"profiler-log-size"#,
+        r#"Number of distinct call-stacks that can be recorded in a profiler log.
 If the log gets full, some of the least-seen call-stacks will be evicted
-to make room for new entries."#),
-    (r#"profiler-max-stack-depth"#, r#"Number of elements from the call-stack recorded in the log."#),
+to make room for new entries."#,
+    ),
+    (
+        r#"profiler-max-stack-depth"#,
+        r#"Number of elements from the call-stack recorded in the log."#,
+    ),
     (r#"pure-bytes-used"#, r#"No longer used."#),
-    (r#"purify-flag"#, r#"Non-nil means loading Lisp code in order to dump an executable.
+    (
+        r#"purify-flag"#,
+        r#"Non-nil means loading Lisp code in order to dump an executable.
 This used to mean that certain objects should be allocated in shared
 (pure) space, but objects are not allocated in pure storage any more.
 This flag is still used in a few places, not to decide where objects are
 allocated, but to know if we're in the preload phase of Emacs's
-build."#),
-    (r#"query-all-font-backends"#, r#"
+build."#,
+    ),
+    (
+        r#"query-all-font-backends"#,
+        r#"
 If non-nil, attempt to query all available font backends.
 By default Emacs will stop searching for a matching font at the first
-match."#),
-    (r#"quit-flag"#, r#"Non-nil causes `eval' to abort, unless `inhibit-quit' is non-nil.
+match."#,
+    ),
+    (
+        r#"quit-flag"#,
+        r#"Non-nil causes `eval' to abort, unless `inhibit-quit' is non-nil.
 If the value is t, that means do an ordinary quit.
 If the value equals `throw-on-input', that means quit by throwing
 to the tag specified in `throw-on-input'; it's for handling `while-no-input'.
 Typing C-g sets `quit-flag' to t, regardless of `inhibit-quit',
-but `inhibit-quit' non-nil prevents anything from taking notice of that."#),
-    (r#"rcs2log-program-name"#, r#"Name of the `rcs2log' program distributed with Emacs.
+but `inhibit-quit' non-nil prevents anything from taking notice of that."#,
+    ),
+    (
+        r#"rcs2log-program-name"#,
+        r#"Name of the `rcs2log' program distributed with Emacs.
 Use this instead of calling `rcs2log' directly, as `rcs2log'
 may have been renamed to comply with executable naming restrictions on
-the system."#),
-    (r#"read-buffer-completion-ignore-case"#, r#"Non-nil means completion ignores case when reading a buffer name."#),
-    (r#"read-buffer-function"#, r#"If this is non-nil, `read-buffer' does its work by calling this function.
-The function is called with the arguments passed to `read-buffer'."#),
-    (r#"read-circle"#, r#"Non-nil means read recursive structures using #N= and #N# syntax."#),
-    (r#"read-expression-history"#, r#"A history list for arguments that are Lisp expressions to evaluate.
-For example, `eval-expression' uses this."#),
-    (r#"read-hide-char"#, r#"Whether to hide input characters in noninteractive mode.
+the system."#,
+    ),
+    (
+        r#"read-buffer-completion-ignore-case"#,
+        r#"Non-nil means completion ignores case when reading a buffer name."#,
+    ),
+    (
+        r#"read-buffer-function"#,
+        r#"If this is non-nil, `read-buffer' does its work by calling this function.
+The function is called with the arguments passed to `read-buffer'."#,
+    ),
+    (
+        r#"read-circle"#,
+        r#"Non-nil means read recursive structures using #N= and #N# syntax."#,
+    ),
+    (
+        r#"read-expression-history"#,
+        r#"A history list for arguments that are Lisp expressions to evaluate.
+For example, `eval-expression' uses this."#,
+    ),
+    (
+        r#"read-hide-char"#,
+        r#"Whether to hide input characters in noninteractive mode.
 If non-nil, it must be a character, which will be used to mask the
 input characters.  This variable should never be set globally.
 
 This variable also overrides the default character that `read-passwd'
-uses to hide passwords."#),
-    (r#"read-minibuffer-restore-windows"#, r#"Non-nil means restore window configurations on exit from minibuffer.
+uses to hide passwords."#,
+    ),
+    (
+        r#"read-minibuffer-restore-windows"#,
+        r#"Non-nil means restore window configurations on exit from minibuffer.
 If this is non-nil (the default), reading input with the minibuffer will
 restore, on exit, the window configurations of the frame where the
 minibuffer was entered from and, if it is different, the frame that owns
@@ -2819,36 +4342,69 @@ the associated minibuffer window.
 If this is nil, window configurations are not restored upon exiting
 the minibuffer.  However, if `minibuffer-restore-windows' is present
 in `minibuffer-exit-hook', exiting the minibuffer will remove the window
-showing the *Completions* buffer, if any."#),
-    (r#"read-process-output-max"#, r#"Maximum number of bytes to read from subprocess in a single chunk.
+showing the *Completions* buffer, if any."#,
+    ),
+    (
+        r#"read-process-output-max"#,
+        r#"Maximum number of bytes to read from subprocess in a single chunk.
 Enlarge the value only if the subprocess generates very large (megabytes)
 amounts of data in one go.
 
 On GNU/Linux systems, the value should not exceed
-/proc/sys/fs/pipe-max-size.  See pipe(7) manpage for details."#),
-    (r#"read-symbol-shorthands"#, r#"Alist of known symbol-name shorthands.
+/proc/sys/fs/pipe-max-size.  See pipe(7) manpage for details."#,
+    ),
+    (
+        r#"read-symbol-shorthands"#,
+        r#"Alist of known symbol-name shorthands.
 This variable's value can only be set via file-local variables.
-See Info node `(elisp)Shorthands' for more details."#),
-    (r#"real-last-command"#, r#"Same as `last-command', but never altered by Lisp code.
-Taken from the previous value of `real-this-command'."#),
-    (r#"real-this-command"#, r#"This is like `this-command', except that commands should never modify it."#),
-    (r#"recenter-redisplay"#, r#"Non-nil means `recenter' redraws entire frame.
+See Info node `(elisp)Shorthands' for more details."#,
+    ),
+    (
+        r#"real-last-command"#,
+        r#"Same as `last-command', but never altered by Lisp code.
+Taken from the previous value of `real-this-command'."#,
+    ),
+    (
+        r#"real-this-command"#,
+        r#"This is like `this-command', except that commands should never modify it."#,
+    ),
+    (
+        r#"recenter-redisplay"#,
+        r#"Non-nil means `recenter' redraws entire frame.
 If this option is non-nil, then the `recenter' command with a nil
 argument will redraw the entire frame; the special value `tty' causes
-the frame to be redrawn only if it is a tty frame."#),
-    (r#"record-all-keys"#, r#"Non-nil means record all keys you type.
+the frame to be redrawn only if it is a tty frame."#,
+    ),
+    (
+        r#"record-all-keys"#,
+        r#"Non-nil means record all keys you type.
 When nil, the default, characters typed as part of passwords are
 not recorded.  The non-nil value countermands `inhibit--record-char',
-which see."#),
-    (r#"redisplay--all-windows-cause"#, r#"Code of the cause for redisplaying all windows.
-Internal use only."#),
-    (r#"redisplay--inhibit-bidi"#, r#"Non-nil means it is not safe to attempt bidi reordering for display."#),
-    (r#"redisplay--mode-lines-cause"#, r#"Code of the cause for redisplaying mode lines.
-Internal use only."#),
-    (r#"redisplay-adhoc-scroll-in-resize-mini-windows"#, r#"If nil always use normal scrolling in minibuffer windows.
+which see."#,
+    ),
+    (
+        r#"redisplay--all-windows-cause"#,
+        r#"Code of the cause for redisplaying all windows.
+Internal use only."#,
+    ),
+    (
+        r#"redisplay--inhibit-bidi"#,
+        r#"Non-nil means it is not safe to attempt bidi reordering for display."#,
+    ),
+    (
+        r#"redisplay--mode-lines-cause"#,
+        r#"Code of the cause for redisplaying mode lines.
+Internal use only."#,
+    ),
+    (
+        r#"redisplay-adhoc-scroll-in-resize-mini-windows"#,
+        r#"If nil always use normal scrolling in minibuffer windows.
 Otherwise, use custom-tailored code after resizing minibuffer windows to try
-and display the most important part of the minibuffer."#),
-    (r#"redisplay-skip-fontification-on-input"#, r#"Skip `fontification_functions` when there is input pending.
+and display the most important part of the minibuffer."#,
+    ),
+    (
+        r#"redisplay-skip-fontification-on-input"#,
+        r#"Skip `fontification_functions` when there is input pending.
 If non-nil and there was input pending at the beginning of the command,
 the `fontification_functions` hook is not run.  This usually does not
 affect the display because redisplay is completely skipped anyway if input
@@ -2856,13 +4412,19 @@ was pending, but it can make scrolling smoother by avoiding
 unnecessary fontification.
 It is similar to `fast-but-imprecise-scrolling' with similar tradeoffs,
 but with the advantage that it should only affect the behavior when Emacs
-has trouble keeping up with the incoming input rate."#),
-    (r#"redisplay-skip-initial-frame"#, r#"Non-nil means skip redisplay of the initial frame.
+has trouble keeping up with the incoming input rate."#,
+    ),
+    (
+        r#"redisplay-skip-initial-frame"#,
+        r#"Non-nil means skip redisplay of the initial frame.
 The initial frame is the text-mode frame used by Emacs internally during
 the early stages of startup.  That frame is not displayed anywhere, so
 skipping it is best except in special circumstances such as running
-redisplay tests in batch mode."#),
-    (r#"region-extract-function"#, r#"Function to get the region's content.
+redisplay tests in batch mode."#,
+    ),
+    (
+        r#"region-extract-function"#,
+        r#"Function to get the region's content.
 Called with one argument METHOD which can be:
 - nil: return the content as a string (list of strings for
   non-contiguous regions).
@@ -2873,9 +4435,15 @@ Called with one argument METHOD which can be:
   as a string (or list of strings for non-contiguous regions),
   after filtering it with `filter-buffer-substring', which
   is called, for each contiguous sub-region, with METHOD as its
-  3rd argument."#),
-    (r#"report-emacs-bug-address"#, r#"Address of mailing list for GNU Emacs bugs."#),
-    (r#"resize-mini-frames"#, r#"Non-nil means resize minibuffer-only frames automatically.
+  3rd argument."#,
+    ),
+    (
+        r#"report-emacs-bug-address"#,
+        r#"Address of mailing list for GNU Emacs bugs."#,
+    ),
+    (
+        r#"resize-mini-frames"#,
+        r#"Non-nil means resize minibuffer-only frames automatically.
 If this is nil, do not resize minibuffer-only frames automatically.
 
 If this is a function, call that function with the minibuffer-only
@@ -2884,8 +4452,11 @@ window of that frame is the buffer whose text will be eventually shown
 in the minibuffer window.
 
 Any other non-nil value means to resize minibuffer-only frames by
-calling `fit-mini-frame-to-buffer'."#),
-    (r#"resize-mini-windows"#, r#"How to resize mini-windows (the minibuffer and the echo area).
+calling `fit-mini-frame-to-buffer'."#,
+    ),
+    (
+        r#"resize-mini-windows"#,
+        r#"How to resize mini-windows (the minibuffer and the echo area).
 A value of nil means don't automatically resize mini-windows.
 A value of t means resize them to fit the text displayed in them.
 A value of `grow-only', the default, means let mini-windows grow only;
@@ -2894,37 +4465,58 @@ echo area becomes empty.
 
 This variable does not affect resizing of the minibuffer window of
 minibuffer-only frames.  These are handled by `resize-mini-frames'
-only."#),
-    (r#"resume-tty-functions"#, r#"Functions run after resuming a tty.
+only."#,
+    ),
+    (
+        r#"resume-tty-functions"#,
+        r#"Functions run after resuming a tty.
 The functions are run with one argument, the terminal object that was revived.
-See `resume-tty'."#),
-    (r#"ring-bell-function"#, r#"Non-nil means call this function to ring the bell.
-The function should accept no arguments."#),
-    (r#"saved-region-selection"#, r#"Contents of active region prior to buffer modification.
+See `resume-tty'."#,
+    ),
+    (
+        r#"ring-bell-function"#,
+        r#"Non-nil means call this function to ring the bell.
+The function should accept no arguments."#,
+    ),
+    (
+        r#"saved-region-selection"#,
+        r#"Contents of active region prior to buffer modification.
 If `select-active-regions' is non-nil, Emacs sets this to the
 text in the region before modifying the buffer.  The next call to
-the function `deactivate-mark' uses this to set the window selection."#),
-    (r#"scalable-fonts-allowed"#, r#"Allowed scalable fonts.
+the function `deactivate-mark' uses this to set the window selection."#,
+    ),
+    (
+        r#"scalable-fonts-allowed"#,
+        r#"Allowed scalable fonts.
 A value of nil means don't allow any scalable fonts.
 A value of t means allow any scalable font.
 Otherwise, value must be a list of regular expressions.  A font may be
 scaled if its name matches a regular expression in the list.
 Note that if value is nil, a scalable font might still be used, if no
-other font of the appropriate family and registry is available."#),
-    (r#"script-representative-chars"#, r#"Alist of scripts vs the representative characters.
+other font of the appropriate family and registry is available."#,
+    ),
+    (
+        r#"script-representative-chars"#,
+        r#"Alist of scripts vs the representative characters.
 Each element is a cons (SCRIPT . CHARS).
 SCRIPT is a symbol representing a script or a subgroup of a script.
 CHARS is a list or a vector of characters.
 If it is a list, all characters in the list are necessary for supporting SCRIPT.
 If it is a vector, one of the characters in the vector is necessary.
-This variable is used to find a font for a specific script."#),
-    (r#"scroll-bar-adjust-thumb-portion"#, r#"Adjust scroll bars for overscrolling for Gtk+, Motif and Haiku.
+This variable is used to find a font for a specific script."#,
+    ),
+    (
+        r#"scroll-bar-adjust-thumb-portion"#,
+        r#"Adjust scroll bars for overscrolling for Gtk+, Motif and Haiku.
 Non-nil means adjust the thumb in the scroll bar so it can be dragged downwards
 even if the end of the buffer is shown (i.e. overscrolling).
 Set to nil if you want the thumb to be at the bottom when the end of the buffer
 is shown.  Also, the thumb fills the whole scroll bar when the entire buffer
-is visible.  In this case you can not overscroll."#),
-    (r#"scroll-conservatively"#, r#"Scroll up to this many lines, to bring point back on screen.
+is visible.  In this case you can not overscroll."#,
+    ),
+    (
+        r#"scroll-conservatively"#,
+        r#"Scroll up to this many lines, to bring point back on screen.
 If point moves off-screen, redisplay will scroll by up to
 `scroll-conservatively' lines in order to bring point just barely
 onto the screen again.  If that cannot be done, then redisplay
@@ -2934,14 +4526,23 @@ If the value is greater than 100, redisplay will never recenter point,
 but will always scroll just enough text to bring point into view, even
 if you move far away.
 
-A value of zero means always recenter point if it moves off screen."#),
-    (r#"scroll-margin"#, r#"Number of lines of margin at the top and bottom of a window.
+A value of zero means always recenter point if it moves off screen."#,
+    ),
+    (
+        r#"scroll-margin"#,
+        r#"Number of lines of margin at the top and bottom of a window.
 Trigger automatic scrolling whenever point gets within this many lines
-of the top or bottom of the window (see info node `Auto Scrolling')."#),
-    (r#"scroll-minibuffer-conservatively"#, r#"Non-nil means scroll conservatively in minibuffer windows.
+of the top or bottom of the window (see info node `Auto Scrolling')."#,
+    ),
+    (
+        r#"scroll-minibuffer-conservatively"#,
+        r#"Non-nil means scroll conservatively in minibuffer windows.
 When the value is nil, scrolling in minibuffer windows obeys the
-settings of `scroll-conservatively'."#),
-    (r#"scroll-preserve-screen-position"#, r#"Controls if scroll commands move point to keep its screen position unchanged.
+settings of `scroll-conservatively'."#,
+    ),
+    (
+        r#"scroll-preserve-screen-position"#,
+        r#"Controls if scroll commands move point to keep its screen position unchanged.
 
 A value of nil means point does not keep its screen position except
 at the scroll margin or window boundary respectively.
@@ -2955,20 +4556,29 @@ and the like.
 
 Any other value means point always keeps its screen position.
 Scroll commands should have the `scroll-command' property
-on their symbols to be controlled by this variable."#),
-    (r#"scroll-step"#, r#"The number of lines to try scrolling a window by when point moves out.
+on their symbols to be controlled by this variable."#,
+    ),
+    (
+        r#"scroll-step"#,
+        r#"The number of lines to try scrolling a window by when point moves out.
 If that fails to bring point back on frame, point is centered instead.
 If this is zero, point is always centered after it moves off frame.
 If you want scrolling to always be a line at a time, you should set
-`scroll-conservatively' to a large value rather than set this to 1."#),
-    (r#"search-spaces-regexp"#, r#"Regexp to substitute for bunches of spaces in regexp search.
+`scroll-conservatively' to a large value rather than set this to 1."#,
+    ),
+    (
+        r#"search-spaces-regexp"#,
+        r#"Regexp to substitute for bunches of spaces in regexp search.
 Some commands use this for user-specified regexps.
 Spaces that occur inside character classes or repetition operators
 or other such regexp constructs are not replaced with this.
 A value of nil (which is the normal value) means treat spaces
 literally.  Note that a value with capturing groups can change the
-numbering of existing capture groups in unexpected ways."#),
-    (r#"select-active-regions"#, r#"If non-nil, any active region automatically sets the primary selection.
+numbering of existing capture groups in unexpected ways."#,
+    ),
+    (
+        r#"select-active-regions"#,
+        r#"If non-nil, any active region automatically sets the primary selection.
 This variable only has an effect when Transient Mark mode is enabled.
 
 If the value is `only', only temporarily active regions (usually made
@@ -2976,8 +4586,11 @@ by mouse-dragging or shift-selection) set the window system's primary
 selection.
 
 If this variable causes the region to be set as the primary selection,
-`post-select-region-hook' is then run afterwards."#),
-    (r#"select-safe-coding-system-function"#, r#"
+`post-select-region-hook' is then run afterwards."#,
+    ),
+    (
+        r#"select-safe-coding-system-function"#,
+        r#"
 Function to call to select safe coding system for encoding a text.
 
 If set, this function is called to force a user to select a proper
@@ -2986,15 +4599,27 @@ coding system used in each operation can't encode the text.  The
 function should take care that the buffer is not modified while
 the coding system is being selected.
 
-The default value is `select-safe-coding-system' (which see)."#),
-    (r#"selection-coding-system"#, r#"SKIP: real doc in select.el."#),
-    (r#"selection-converter-alist"#, r#"SKIP: real doc in xselect.c."#),
-    (r#"selection-inhibit-update-commands"#, r#"List of commands which should not update the selection.
+The default value is `select-safe-coding-system' (which see)."#,
+    ),
+    (
+        r#"selection-coding-system"#,
+        r#"SKIP: real doc in select.el."#,
+    ),
+    (
+        r#"selection-converter-alist"#,
+        r#"SKIP: real doc in xselect.c."#,
+    ),
+    (
+        r#"selection-inhibit-update-commands"#,
+        r#"List of commands which should not update the selection.
 Normally, if `select-active-regions' is non-nil and the mark remains
 active after a command (i.e. the mark was not deactivated), the Emacs
 command loop sets the selection to the text in the region.  However,
-if the command is in this list, the selection is not updated."#),
-    (r#"set-auto-coding-function"#, r#"If non-nil, a function to call to decide a coding system of file.
+if the command is in this list, the selection is not updated."#,
+    ),
+    (
+        r#"set-auto-coding-function"#,
+        r#"If non-nil, a function to call to decide a coding system of file.
 Two arguments are passed to this function: the file name
 and the length of a file contents following the point.
 This function should return a coding system to decode the file contents.
@@ -3002,8 +4627,11 @@ It should check the file name against `auto-coding-alist'.
 If no coding system is decided, it should check a coding system
 specified in the heading lines with the format:
 	-*- ... coding: CODING-SYSTEM; ... -*-
-or local variable spec of the tailing lines with `coding:' tag."#),
-    (r#"set-message-function"#, r#"If non-nil, function to handle display of echo-area messages.
+or local variable spec of the tailing lines with `coding:' tag."#,
+    ),
+    (
+        r#"set-message-function"#,
+        r#"If non-nil, function to handle display of echo-area messages.
 The function is called with one argument that is the text of a message.
 If this function returns nil, the message is displayed in the echo area
 as usual.  If the function returns a string, the returned string is
@@ -3013,17 +4641,26 @@ message text will not be displayed in the echo area.
 
 Also see `clear-message-function' (which can be used to clear the
 message displayed by this function), and `command-error-function'
-(which controls how error messages are displayed)."#),
-    (r#"sfnt-default-family-alist"#, r#"Alist between "emulated" and actual font family names.
+(which controls how error messages are displayed)."#,
+    ),
+    (
+        r#"sfnt-default-family-alist"#,
+        r#"Alist between "emulated" and actual font family names.
 Much Emacs code assumes that font families named "Monospace" and "Sans
 Serif" exist, and map to the default monospace and Sans Serif fonts on
 a system.  When the `sfnt' font driver is asked to look for a font
-with one of the families in this alist, it uses its value instead."#),
-    (r#"sfnt-raster-glyphs-exactly"#, r#"How font glyph outlines should be converted to graphics.
+with one of the families in this alist, it uses its value instead."#,
+    ),
+    (
+        r#"sfnt-raster-glyphs-exactly"#,
+        r#"How font glyph outlines should be converted to graphics.
 If non-nil, glyphs will be displayed in a more precise manner, at the
 cost of performance on devices where floating-point math operations
-are slow."#),
-    (r#"sfnt-uninstructable-family-regexp"#, r#"Regexp matching font families whose glyphs must not be instructed.
+are slow."#,
+    ),
+    (
+        r#"sfnt-uninstructable-family-regexp"#,
+        r#"Regexp matching font families whose glyphs must not be instructed.
 If nil, instruction code supplied by all fonts will be executed.  This
 variable takes effect when a font entity is opened, not after, and
 therefore won't affect the scaling of realized faces until their
@@ -3033,66 +4670,144 @@ TrueType fonts incorporate instruction code executed to fit each glyph
 to a pixel grid, so as to improve the visual fidelity of each glyph by
 eliminating artifacts and chance effects consequent upon the direct
 upscaling of glyph outline data.  Instruction code is occasionally
-incompatible with Emacs and must be disregarded."#),
-    (r#"shared-game-score-directory"#, r#"Directory of score files for games which come with GNU Emacs.
-If this variable is nil, then Emacs is unable to use a shared directory."#),
-    (r#"shell-file-name"#, r#"File name to load inferior shells from.
+incompatible with Emacs and must be disregarded."#,
+    ),
+    (
+        r#"shared-game-score-directory"#,
+        r#"Directory of score files for games which come with GNU Emacs.
+If this variable is nil, then Emacs is unable to use a shared directory."#,
+    ),
+    (
+        r#"shell-file-name"#,
+        r#"File name to load inferior shells from.
 Initialized from the SHELL environment variable, or to a system-dependent
-default if SHELL is unset.  See Info node `(elisp)Security Considerations'."#),
-    (r#"show-help-function"#, r#"If non-nil, the function that implements the display of help.
-It's called with one argument, the help string to display."#),
-    (r#"show-trailing-whitespace"#, r#"Non-nil means highlight trailing whitespace.
-The face used for trailing whitespace is `trailing-whitespace'."#),
-    (r#"signal-hook-function"#, r#"If non-nil, this is a function for `signal' to call.
+default if SHELL is unset.  See Info node `(elisp)Security Considerations'."#,
+    ),
+    (
+        r#"show-help-function"#,
+        r#"If non-nil, the function that implements the display of help.
+It's called with one argument, the help string to display."#,
+    ),
+    (
+        r#"show-trailing-whitespace"#,
+        r#"Non-nil means highlight trailing whitespace.
+The face used for trailing whitespace is `trailing-whitespace'."#,
+    ),
+    (
+        r#"signal-hook-function"#,
+        r#"If non-nil, this is a function for `signal' to call.
 It receives the same arguments that `signal' was given.
-The Edebug package uses this to regain control."#),
-    (r#"signal-process-functions"#, r#"List of functions to be called for `signal-process'.
+The Edebug package uses this to regain control."#,
+    ),
+    (
+        r#"signal-process-functions"#,
+        r#"List of functions to be called for `signal-process'.
 The arguments of the functions are the same as for `signal-process'.
 These functions are called in the order of the list, until one of them
-returns non-nil."#),
-    (r#"source-directory"#, r#"Directory in which Emacs sources were found when Emacs was built.
-You cannot count on them to still be there!"#),
-    (r#"special-event-map"#, r#"Keymap defining bindings for special events to execute at low level."#),
-    (r#"standard-display-table"#, r#"Display table to use for buffers that specify none.
+returns non-nil."#,
+    ),
+    (
+        r#"source-directory"#,
+        r#"Directory in which Emacs sources were found when Emacs was built.
+You cannot count on them to still be there!"#,
+    ),
+    (
+        r#"special-event-map"#,
+        r#"Keymap defining bindings for special events to execute at low level."#,
+    ),
+    (
+        r#"standard-display-table"#,
+        r#"Display table to use for buffers that specify none.
 It is also used for standard output and error streams.
-See `buffer-display-table' for more information."#),
-    (r#"standard-input"#, r#"Stream for read to get input from.
-See documentation of `read' for possible values."#),
-    (r#"standard-output"#, r#"Output stream `print' uses by default for outputting a character.
+See `buffer-display-table' for more information."#,
+    ),
+    (
+        r#"standard-input"#,
+        r#"Stream for read to get input from.
+See documentation of `read' for possible values."#,
+    ),
+    (
+        r#"standard-output"#,
+        r#"Output stream `print' uses by default for outputting a character.
 This may be any function of one argument.
 It may also be a buffer (output is inserted before point)
 or a marker (output is inserted and the marker is advanced)
-or the symbol t (output appears in the echo area)."#),
-    (r#"standard-translation-table-for-decode"#, r#"Table for translating characters while decoding."#),
-    (r#"standard-translation-table-for-encode"#, r#"Table for translating characters while encoding."#),
-    (r#"string-chars-consed"#, r#"Number of string characters that have been consed so far."#),
-    (r#"strings-consed"#, r#"Number of strings that have been consed so far."#),
-    (r#"suspend-tty-functions"#, r#"Functions run after suspending a tty.
+or the symbol t (output appears in the echo area)."#,
+    ),
+    (
+        r#"standard-translation-table-for-decode"#,
+        r#"Table for translating characters while decoding."#,
+    ),
+    (
+        r#"standard-translation-table-for-encode"#,
+        r#"Table for translating characters while encoding."#,
+    ),
+    (
+        r#"string-chars-consed"#,
+        r#"Number of string characters that have been consed so far."#,
+    ),
+    (
+        r#"strings-consed"#,
+        r#"Number of strings that have been consed so far."#,
+    ),
+    (
+        r#"suspend-tty-functions"#,
+        r#"Functions run after suspending a tty.
 The functions are run with one argument, the terminal object to be suspended.
-See `suspend-tty'."#),
-    (r#"symbols-consed"#, r#"Number of symbols that have been consed so far."#),
-    (r#"symbols-with-pos-enabled"#, r#"If non-nil, a symbol with position ordinarily behaves as its bare symbol.
-Bind this to non-nil in applications such as the byte compiler."#),
-    (r#"syntax-propertize--done"#, r#"Position up to which syntax-table properties have been set."#),
-    (r#"system-configuration"#, r#"Value is string indicating configuration Emacs was built for."#),
-    (r#"system-configuration-features"#, r#"String listing some of the main features this Emacs was compiled with.
+See `suspend-tty'."#,
+    ),
+    (
+        r#"symbols-consed"#,
+        r#"Number of symbols that have been consed so far."#,
+    ),
+    (
+        r#"symbols-with-pos-enabled"#,
+        r#"If non-nil, a symbol with position ordinarily behaves as its bare symbol.
+Bind this to non-nil in applications such as the byte compiler."#,
+    ),
+    (
+        r#"syntax-propertize--done"#,
+        r#"Position up to which syntax-table properties have been set."#,
+    ),
+    (
+        r#"system-configuration"#,
+        r#"Value is string indicating configuration Emacs was built for."#,
+    ),
+    (
+        r#"system-configuration-features"#,
+        r#"String listing some of the main features this Emacs was compiled with.
 An element of the form \"FOO\" generally means that HAVE_FOO was
 defined during the build.
 
 This is mainly intended for diagnostic purposes in bug reports.
-Don't rely on it for testing whether a feature you want to use is available."#),
-    (r#"system-configuration-options"#, r#"String containing the configuration options Emacs was built with."#),
-    (r#"system-key-alist"#, r#"Alist of system-specific X windows key symbols.
+Don't rely on it for testing whether a feature you want to use is available."#,
+    ),
+    (
+        r#"system-configuration-options"#,
+        r#"String containing the configuration options Emacs was built with."#,
+    ),
+    (
+        r#"system-key-alist"#,
+        r#"Alist of system-specific X windows key symbols.
 Each element should have the form (N . SYMBOL) where N is the
 numeric keysym code (sans the \"system-specific\" bit 1<<28)
 and SYMBOL is its name.
 
 `system-key-alist' has a separate binding for each terminal device.
-See Info node `(elisp)Multiple Terminals'."#),
-    (r#"system-messages-locale"#, r#"System locale for messages."#),
-    (r#"system-name"#, r#"The host name of the machine Emacs is running on."#),
+See Info node `(elisp)Multiple Terminals'."#,
+    ),
+    (
+        r#"system-messages-locale"#,
+        r#"System locale for messages."#,
+    ),
+    (
+        r#"system-name"#,
+        r#"The host name of the machine Emacs is running on."#,
+    ),
     (r#"system-time-locale"#, r#"System locale for time."#),
-    (r#"system-type"#, r#"The value is a symbol indicating the type of operating system you are using.
+    (
+        r#"system-type"#,
+        r#"The value is a symbol indicating the type of operating system you are using.
 Special values:
   `gnu'          compiled for a GNU Hurd system.
   `gnu/linux'    compiled for a GNU/Linux system.
@@ -3104,41 +4819,80 @@ Special values:
   `haiku'        compiled for a Haiku system.
   `android'      compiled for Android.
 Anything else (in Emacs 26, the possibilities are: aix, berkeley-unix,
-hpux, usg-unix-v) indicates some sort of Unix system."#),
-    (r#"system-uses-terminfo"#, r#"Non-nil means the system uses terminfo rather than termcap.
-This variable can be used by terminal emulator packages."#),
-    (r#"tab-bar--dragging-in-progress"#, r#"Non-nil when maybe dragging tab bar item."#),
-    (r#"tab-bar-border"#, r#"Border below tab-bar in pixels.
+hpux, usg-unix-v) indicates some sort of Unix system."#,
+    ),
+    (
+        r#"system-uses-terminfo"#,
+        r#"Non-nil means the system uses terminfo rather than termcap.
+This variable can be used by terminal emulator packages."#,
+    ),
+    (
+        r#"tab-bar--dragging-in-progress"#,
+        r#"Non-nil when maybe dragging tab bar item."#,
+    ),
+    (
+        r#"tab-bar-border"#,
+        r#"Border below tab-bar in pixels.
 If an integer, use it as the height of the border.
 If it is one of `internal-border-width' or `border-width', use the
 value of the corresponding frame parameter.
-Otherwise, no border is added below the tab-bar."#),
-    (r#"tab-bar-button-margin"#, r#"Margin around tab-bar buttons in pixels.
+Otherwise, no border is added below the tab-bar."#,
+    ),
+    (
+        r#"tab-bar-button-margin"#,
+        r#"Margin around tab-bar buttons in pixels.
 If an integer, use that for both horizontal and vertical margins.
 Otherwise, value should be a pair of integers `(HORZ . VERT)' with
 HORZ specifying the horizontal margin, and VERT specifying the
-vertical margin."#),
-    (r#"tab-bar-button-relief"#, r#"Relief thickness of tab-bar buttons."#),
-    (r#"tab-bar-mode"#, r#"Non-nil if Tab-Bar mode is enabled.
+vertical margin."#,
+    ),
+    (
+        r#"tab-bar-button-relief"#,
+        r#"Relief thickness of tab-bar buttons."#,
+    ),
+    (
+        r#"tab-bar-mode"#,
+        r#"Non-nil if Tab-Bar mode is enabled.
 See the command `tab-bar-mode' for a description of this minor mode.
 Setting this variable directly does not take effect;
 either customize it (see the info node `Easy Customization')
-or call the function `tab-bar-mode'."#),
-    (r#"tab-bar-position"#, r#"Specify on which side from the tool bar the tab bar shall be.
+or call the function `tab-bar-mode'."#,
+    ),
+    (
+        r#"tab-bar-position"#,
+        r#"Specify on which side from the tool bar the tab bar shall be.
 Possible values are t (below the tool bar), nil (above the tool bar).
-This option affects only builds where the tool bar is not external."#),
-    (r#"tab-bar-separator-image-expression"#, r#"Expression evaluating to the image spec for a tab-bar separator.
+This option affects only builds where the tool bar is not external."#,
+    ),
+    (
+        r#"tab-bar-separator-image-expression"#,
+        r#"Expression evaluating to the image spec for a tab-bar separator.
 This is used internally by graphical displays that do not render
-tab-bar separators natively.  Otherwise it is unused (e.g. on GTK)."#),
-    (r#"tab-bar-truncate"#, r#"Non-nil means truncate tab-bar and show only one line."#),
-    (r#"temp-buffer-show-function"#, r#"Non-nil means call as function to display a help buffer.
+tab-bar separators natively.  Otherwise it is unused (e.g. on GTK)."#,
+    ),
+    (
+        r#"tab-bar-truncate"#,
+        r#"Non-nil means truncate tab-bar and show only one line."#,
+    ),
+    (
+        r#"temp-buffer-show-function"#,
+        r#"Non-nil means call as function to display a help buffer.
 The function is called with one argument, the buffer to be displayed.
 Used by `with-output-to-temp-buffer'.
 If this function is used, then it must do the entire job of showing
-the buffer; `temp-buffer-show-hook' is not run unless this function runs it."#),
-    (r#"temporary-file-directory"#, r#"The directory for writing temporary files."#),
-    (r#"terminal-frame"#, r#"The initial frame-object, which represents Emacs's stdout."#),
-    (r#"text-conversion-edits"#, r#"List of buffers last edited as a result of text conversion.
+the buffer; `temp-buffer-show-hook' is not run unless this function runs it."#,
+    ),
+    (
+        r#"temporary-file-directory"#,
+        r#"The directory for writing temporary files."#,
+    ),
+    (
+        r#"terminal-frame"#,
+        r#"The initial frame-object, which represents Emacs's stdout."#,
+    ),
+    (
+        r#"text-conversion-edits"#,
+        r#"List of buffers last edited as a result of text conversion.
 
 This list can be used while handling a `text-conversion' event to
 determine which changes have taken place.
@@ -3162,17 +4916,26 @@ text deleted before point, or nil if text was deleted after point.
 
 The list contents are arranged in the reverse of the order of editing,
 i.e. latest edit first, so you must iterate through the list in
-reverse."#),
-    (r#"text-conversion-face"#, r#"Face in which to display temporary edits by an input method.
-The value nil means to display no indication of a temporary edit."#),
-    (r#"text-property-default-nonsticky"#, r#"Alist of properties vs the corresponding non-stickiness.
+reverse."#,
+    ),
+    (
+        r#"text-conversion-face"#,
+        r#"Face in which to display temporary edits by an input method.
+The value nil means to display no indication of a temporary edit."#,
+    ),
+    (
+        r#"text-property-default-nonsticky"#,
+        r#"Alist of properties vs the corresponding non-stickiness.
 Each element has the form (PROPERTY . NONSTICKINESS).
 
 If a character in a buffer has PROPERTY, new text inserted adjacent to
 the character doesn't inherit PROPERTY if NONSTICKINESS is non-nil,
 inherits it if NONSTICKINESS is nil.  The `front-sticky' and
-`rear-nonsticky' properties of the character override NONSTICKINESS."#),
-    (r#"text-quoting-style"#, r#"Style to use for single quotes in help and messages.
+`rear-nonsticky' properties of the character override NONSTICKINESS."#,
+    ),
+    (
+        r#"text-quoting-style"#,
+        r#"Style to use for single quotes in help and messages.
 
 The value of this variable determines substitution of grave accents
 and apostrophes in help output (but not for display of Info
@@ -3189,46 +4952,85 @@ The value should be one of these symbols:
 
 You should never read the value of this variable directly from a Lisp
 program.  Use the function `text-quoting-style' instead, as that will
-compute the correct value for the current terminal in the nil case."#),
-    (r#"this-command"#, r#"The command now being executed.
+compute the correct value for the current terminal in the nil case."#,
+    ),
+    (
+        r#"this-command"#,
+        r#"The command now being executed.
 The command can set this variable; whatever is put here
-will be in `last-command' during the following command."#),
-    (r#"this-command-keys-shift-translated"#, r#"Non-nil if the key sequence activating this command was shift-translated.
+will be in `last-command' during the following command."#,
+    ),
+    (
+        r#"this-command-keys-shift-translated"#,
+        r#"Non-nil if the key sequence activating this command was shift-translated.
 Shift-translation occurs when there is no binding for the key sequence
 as entered, but a binding was found by changing an upper-case letter
-to lower-case, or a shifted function key to an unshifted one."#),
-    (r#"this-original-command"#, r#"The command bound to the current key sequence before remapping.
+to lower-case, or a shifted function key to an unshifted one."#,
+    ),
+    (
+        r#"this-original-command"#,
+        r#"The command bound to the current key sequence before remapping.
 It equals `this-command' if the original command was not remapped through
 any of the active keymaps.  Otherwise, the value of `this-command' is the
-result of looking up the original command in the active keymaps."#),
-    (r#"throw-on-input"#, r#"If non-nil, any keyboard input throws to this symbol.
+result of looking up the original command in the active keymaps."#,
+    ),
+    (
+        r#"throw-on-input"#,
+        r#"If non-nil, any keyboard input throws to this symbol.
 The value of that variable is passed to `quit-flag' and later causes a
-peculiar kind of quitting."#),
-    (r#"timer-idle-list"#, r#"List of active idle-time timers in order of increasing time."#),
-    (r#"timer-list"#, r#"List of active absolute time timers in order of increasing time."#),
-    (r#"tool-bar-border"#, r#"Border below tool-bar in pixels.
+peculiar kind of quitting."#,
+    ),
+    (
+        r#"timer-idle-list"#,
+        r#"List of active idle-time timers in order of increasing time."#,
+    ),
+    (
+        r#"timer-list"#,
+        r#"List of active absolute time timers in order of increasing time."#,
+    ),
+    (
+        r#"tool-bar-border"#,
+        r#"Border below tool-bar in pixels.
 If an integer, use it as the height of the border.
 If it is one of `internal-border-width' or `border-width', use the
 value of the corresponding frame parameter.
-Otherwise, no border is added below the tool-bar."#),
-    (r#"tool-bar-button-margin"#, r#"Margin around tool-bar buttons in pixels.
+Otherwise, no border is added below the tool-bar."#,
+    ),
+    (
+        r#"tool-bar-button-margin"#,
+        r#"Margin around tool-bar buttons in pixels.
 If an integer, use that for both horizontal and vertical margins.
 Otherwise, value should be a pair of integers `(HORZ . VERT)' with
 HORZ specifying the horizontal margin, and VERT specifying the
-vertical margin."#),
-    (r#"tool-bar-button-relief"#, r#"Relief thickness of tool-bar buttons."#),
-    (r#"tool-bar-max-label-size"#, r#"Maximum number of characters a label can have to be shown.
+vertical margin."#,
+    ),
+    (
+        r#"tool-bar-button-relief"#,
+        r#"Relief thickness of tool-bar buttons."#,
+    ),
+    (
+        r#"tool-bar-max-label-size"#,
+        r#"Maximum number of characters a label can have to be shown.
 The tool bar style must also show labels for this to have any effect, see
-`tool-bar-style'."#),
-    (r#"tool-bar-mode"#, r#"Non-nil if Tool-Bar mode is enabled.
+`tool-bar-style'."#,
+    ),
+    (
+        r#"tool-bar-mode"#,
+        r#"Non-nil if Tool-Bar mode is enabled.
 See the command `tool-bar-mode' for a description of this minor mode.
 Setting this variable directly does not take effect;
 either customize it (see the info node `Easy Customization')
-or call the function `tool-bar-mode'."#),
-    (r#"tool-bar-separator-image-expression"#, r#"Expression evaluating to the image spec for a tool-bar separator.
+or call the function `tool-bar-mode'."#,
+    ),
+    (
+        r#"tool-bar-separator-image-expression"#,
+        r#"Expression evaluating to the image spec for a tool-bar separator.
 This is used internally by graphical displays that do not render
-tool-bar separators natively.  Otherwise it is unused (e.g. on GTK)."#),
-    (r#"tool-bar-style"#, r#"Tool bar style to use.
+tool-bar separators natively.  Otherwise it is unused (e.g. on GTK)."#,
+    ),
+    (
+        r#"tool-bar-style"#,
+        r#"Tool bar style to use.
 It can be one of
  image            - show images only
  text             - show text only
@@ -3237,14 +5039,20 @@ It can be one of
  text-image-horiz - show text to the left of the image
  any other        - use system default or image if no system default.
 
-This variable only affects the GTK+ toolkit version of Emacs."#),
-    (r#"toolkit-theme"#, r#"The current toolkit theme.
+This variable only affects the GTK+ toolkit version of Emacs."#,
+    ),
+    (
+        r#"toolkit-theme"#,
+        r#"The current toolkit theme.
 Either the symbol `light' or the symbol `dark', reflecting the system's
 current theme preference.  This variable is updated automatically when
 the system theme changes.
 
-This variable is only set on PGTK, Android, and MS-Windows builds."#),
-    (r#"tooltip-reuse-hidden-frame"#, r#"Non-nil means reuse hidden tooltip frames.
+This variable is only set on PGTK, Android, and MS-Windows builds."#,
+    ),
+    (
+        r#"tooltip-reuse-hidden-frame"#,
+        r#"Non-nil means reuse hidden tooltip frames.
 When this is nil, delete a tooltip frame when hiding the associated
 tooltip.  When this is non-nil, make the tooltip frame invisible only,
 so it can be reused when the next tooltip is shown.
@@ -3255,10 +5063,16 @@ means also that intermittent changes of faces or `default-frame-alist'
 are not applied when showing a tooltip in a reused frame.
 
 This variable is effective only with the X toolkit (and there only when
-Gtk+ tooltips are not used) and on Windows."#),
-    (r#"top-level"#, r#"Form to evaluate when Emacs starts up.
-Useful to set before you dump a modified Emacs."#),
-    (r#"track-mouse"#, r#"Non-nil means generate motion events for mouse motion.
+Gtk+ tooltips are not used) and on Windows."#,
+    ),
+    (
+        r#"top-level"#,
+        r#"Form to evaluate when Emacs starts up.
+Useful to set before you dump a modified Emacs."#,
+    ),
+    (
+        r#"track-mouse"#,
+        r#"Non-nil means generate motion events for mouse motion.
 The special values `dragging' and `dropping' assert that the mouse
 cursor retains its appearance during mouse motion.  Any non-nil value
 but `dropping' or `drag-source' asserts that motion events always
@@ -3269,8 +5083,11 @@ frame, such motion events relate to the frame where the mouse movement
 started.  The value `drag-source' is like `dropping', but the
 `posn-window' will be nil in mouse position lists inside mouse
 movement events if there is no frame directly visible underneath the
-mouse pointer."#),
-    (r#"transient-mark-mode"#, r#" Non-nil if Transient Mark mode is enabled.
+mouse pointer."#,
+    ),
+    (
+        r#"transient-mark-mode"#,
+        r#" Non-nil if Transient Mark mode is enabled.
 See the command `transient-mark-mode' for a description of this minor mode.
 
 Non-nil also enables highlighting of the region whenever the mark is active.
@@ -3288,29 +5105,44 @@ Lisp programs may give this variable certain special values:
   temporarily.  After any subsequent point motion command that is
   not shift-translated, or any other action that would normally
   deactivate the mark (e.g. buffer modification), the value of
-  `transient-mark-mode' is set to OLDVAL."#),
-    (r#"translate-upper-case-key-bindings"#, r#"If non-nil, interpret upper case keys as lower case (when applicable).
+  `transient-mark-mode' is set to OLDVAL."#,
+    ),
+    (
+        r#"translate-upper-case-key-bindings"#,
+        r#"If non-nil, interpret upper case keys as lower case (when applicable).
 Emacs allows binding both upper and lower case key sequences to
 commands.  However, if there is a lower case key sequence bound to a
 command, and the user enters an upper case key sequence that is not
 bound to a command, Emacs will use the lower case binding.  Setting
-this variable to nil inhibits this behavior."#),
-    (r#"translation-hash-table-vector"#, r#"Vector containing all translation hash tables ever defined.
+this variable to nil inhibits this behavior."#,
+    ),
+    (
+        r#"translation-hash-table-vector"#,
+        r#"Vector containing all translation hash tables ever defined.
 Comprises pairs (SYMBOL . TABLE) where SYMBOL and TABLE were set up by calls
 to `define-translation-hash-table'.  The vector is indexed by the table id
-used by CCL."#),
-    (r#"translation-table-for-input"#, r#"Char table for translating self-inserting characters.
+used by CCL."#,
+    ),
+    (
+        r#"translation-table-for-input"#,
+        r#"Char table for translating self-inserting characters.
 This is applied to the result of input methods, not their input.
 See also `keyboard-translate-table'.
 
 Use of this variable for character code unification was rendered
 obsolete in Emacs 23.1 and later, since Unicode is now the basis of
-internal character representation."#),
-    (r#"translation-table-vector"#, r#"
+internal character representation."#,
+    ),
+    (
+        r#"translation-table-vector"#,
+        r#"
 Vector recording all translation tables ever defined.
 Each element is a pair (SYMBOL . TABLE) relating the table to the
-symbol naming it.  The ID of a translation table is an index into this vector."#),
-    (r#"truncate-partial-width-windows"#, r#"Non-nil means truncate lines in windows narrower than the frame.
+symbol naming it.  The ID of a translation table is an index into this vector."#,
+    ),
+    (
+        r#"truncate-partial-width-windows"#,
+        r#"Non-nil means truncate lines in windows narrower than the frame.
 For an integer value, truncate lines in each window narrower than the
 full frame width, provided the total window width in column units is less
 than that integer; otherwise, respect the value of `truncate-lines'.
@@ -3326,33 +5158,57 @@ A value of nil means to respect the value of `truncate-lines'.
 If `word-wrap' is enabled, you might want to reduce the value of this.
 
 Don't set this to a non-nil value when `visual-line-mode' is
-turned on, as it could produce confusing results."#),
-    (r#"tty-cursor-movement-use-TAB-BS"#, r#"Whether TTY frames may use the combination TAB + BACKSPACE for moving around.
+turned on, as it could produce confusing results."#,
+    ),
+    (
+        r#"tty-cursor-movement-use-TAB-BS"#,
+        r#"Whether TTY frames may use the combination TAB + BACKSPACE for moving around.
 On TTY frames, as a display optimization, Emacs may move to a position
 by "overshooting" with TAB characters and one BACKSPACE character, when
 this is more efficient.  This combination can interfere with the
 functioning of some software, such as screen readers.  Set this to
-non-nil to enable this optimization."#),
-    (r#"tty-defined-color-alist"#, r#"An alist of defined terminal colors and their RGB values.
-See the docstring of `tty-color-alist' for the details."#),
-    (r#"tty-erase-char"#, r#"The ERASE character as set by the user with stty."#),
-    (r#"tty-menu-calls-mouse-position-function"#, r#"Non-nil means TTY menu code will call `mouse-position-function'.
+non-nil to enable this optimization."#,
+    ),
+    (
+        r#"tty-defined-color-alist"#,
+        r#"An alist of defined terminal colors and their RGB values.
+See the docstring of `tty-color-alist' for the details."#,
+    ),
+    (
+        r#"tty-erase-char"#,
+        r#"The ERASE character as set by the user with stty."#,
+    ),
+    (
+        r#"tty-menu-calls-mouse-position-function"#,
+        r#"Non-nil means TTY menu code will call `mouse-position-function'.
 This should be set if the function in `mouse-position-function' does not
-trigger redisplay."#),
-    (r#"underline-minimum-offset"#, r#"Minimum distance between baseline and underline.
+trigger redisplay."#,
+    ),
+    (
+        r#"underline-minimum-offset"#,
+        r#"Minimum distance between baseline and underline.
 This can improve legibility of underlined text at small font sizes,
 particularly when using variable `x-use-underline-position-properties'
 with fonts that specify an UNDERLINE_POSITION relatively close to the
-baseline.  The default value is 1."#),
-    (r#"undo-inhibit-record-point"#, r#"Non-nil means do not record `point' in `buffer-undo-list'."#),
-    (r#"undo-limit"#, r#"Keep no more undo information once it exceeds this size.
+baseline.  The default value is 1."#,
+    ),
+    (
+        r#"undo-inhibit-record-point"#,
+        r#"Non-nil means do not record `point' in `buffer-undo-list'."#,
+    ),
+    (
+        r#"undo-limit"#,
+        r#"Keep no more undo information once it exceeds this size.
 This limit is applied when garbage collection happens.
 When a previous command increases the total undo list size past this
 value, the earlier commands that came before it are forgotten.
 
 The size is counted as the number of bytes occupied,
-which includes both saved text and other data."#),
-    (r#"undo-outer-limit"#, r#"Outer limit on size of undo information for one command.
+which includes both saved text and other data."#,
+    ),
+    (
+        r#"undo-outer-limit"#,
+        r#"Outer limit on size of undo information for one command.
 At garbage collection time, if the current command has produced
 more than this much undo information, it discards the info and displays
 a warning.  This is a last-ditch limit to prevent memory overflow.
@@ -3365,16 +5221,22 @@ a result of memory overflow.
 In fact, this calls the function which is the value of
 `undo-outer-limit-function' with one argument, the size.
 The text above describes the behavior of the function
-that variable usually specifies."#),
-    (r#"undo-outer-limit-function"#, r#"Function to call when an undo list exceeds `undo-outer-limit'.
+that variable usually specifies."#,
+    ),
+    (
+        r#"undo-outer-limit-function"#,
+        r#"Function to call when an undo list exceeds `undo-outer-limit'.
 This function is called with one argument, the current undo list size
 for the most recent command (since the last undo boundary).
 If the function returns t, that means truncation has been fully handled.
 If it returns nil, the other forms of truncation are done.
 
 Garbage collection is inhibited around the call to this function,
-so it must make sure not to do a lot of consing."#),
-    (r#"undo-strong-limit"#, r#"Don't keep more than this much size of undo information.
+so it must make sure not to do a lot of consing."#,
+    ),
+    (
+        r#"undo-strong-limit"#,
+        r#"Don't keep more than this much size of undo information.
 This limit is applied when garbage collection happens.
 When a previous command increases the total undo list size past this
 value, that command and the earlier commands that came before it are forgotten.
@@ -3382,116 +5244,197 @@ However, the most recent buffer-modifying command's undo info
 is never discarded for this reason.
 
 The size is counted as the number of bytes occupied,
-which includes both saved text and other data."#),
-    (r#"unibyte-display-via-language-environment"#, r#"Non-nil means display unibyte text according to language environment.
+which includes both saved text and other data."#,
+    ),
+    (
+        r#"unibyte-display-via-language-environment"#,
+        r#"Non-nil means display unibyte text according to language environment.
 Specifically, this means that raw bytes in the range 160-255 decimal
 are displayed by converting them to the equivalent multibyte characters
 according to the current language environment.  As a result, they are
 displayed according to the current fontset.
 
 Note that this variable affects only how these bytes are displayed,
-but does not change the fact they are interpreted as raw bytes."#),
-    (r#"unicode-category-table"#, r#"Char table of Unicode's "General Category".
+but does not change the fact they are interpreted as raw bytes."#,
+    ),
+    (
+        r#"unicode-category-table"#,
+        r#"Char table of Unicode's "General Category".
 All Unicode characters have one of the following values (symbol):
   Lu, Ll, Lt, Lm, Lo, Mn, Mc, Me, Nd, Nl, No, Pc, Pd, Ps, Pe, Pi, Pf, Po,
   Sm, Sc, Sk, So, Zs, Zl, Zp, Cc, Cf, Cs, Co, Cn
-See The Unicode Standard for the meaning of those values."#),
-    (r#"unread-command-events"#, r#"List of events to be read as the command input.
+See The Unicode Standard for the meaning of those values."#,
+    ),
+    (
+        r#"unread-command-events"#,
+        r#"List of events to be read as the command input.
 These events are processed first, before actual keyboard input.
 Events read from this list are not normally added to `this-command-keys',
 as they will already have been added once as they were read for the first time.
 An element of the form (t . EVENT) forces EVENT to be added to that list.
 An element of the form (no-record . EVENT) means process EVENT, but do not
-record it in the keyboard macros, recent-keys, and the dribble file."#),
-    (r#"unread-input-method-events"#, r#"List of events to be processed as input by input methods.
+record it in the keyboard macros, recent-keys, and the dribble file."#,
+    ),
+    (
+        r#"unread-input-method-events"#,
+        r#"List of events to be processed as input by input methods.
 These events are processed after `unread-command-events', but
 before actual keyboard input.
 If there's an active input method, the events are given to
-`input-method-function'."#),
-    (r#"unread-post-input-method-events"#, r#"List of events to be processed as input by input methods.
+`input-method-function'."#,
+    ),
+    (
+        r#"unread-post-input-method-events"#,
+        r#"List of events to be processed as input by input methods.
 These events are processed before `unread-command-events'
-and actual keyboard input, but are not given to `input-method-function'."#),
-    (r#"use-default-ascent"#, r#"
+and actual keyboard input, but are not given to `input-method-function'."#,
+    ),
+    (
+        r#"use-default-ascent"#,
+        r#"
 Char table of characters whose ascent values should be ignored.
 If an entry for a character is non-nil, the ascent value of the glyph
 is assumed to be specified by _MULE_DEFAULT_ASCENT property of a font.
 
 This affects how a composite character which contains
-such a character is displayed on screen."#),
-    (r#"use-default-font-for-symbols"#, r#"
+such a character is displayed on screen."#,
+    ),
+    (
+        r#"use-default-font-for-symbols"#,
+        r#"
 If non-nil, use the default face's font for symbols and punctuation.
 
 By default, Emacs will try to use the default face's font for
 displaying symbol and punctuation characters, disregarding the
 fontsets, if the default font can display the character.
-Set this to nil to make Emacs honor the fontsets instead."#),
-    (r#"use-dialog-box"#, r#"Non-nil means mouse commands use dialog boxes to ask questions.
+Set this to nil to make Emacs honor the fontsets instead."#,
+    ),
+    (
+        r#"use-dialog-box"#,
+        r#"Non-nil means mouse commands use dialog boxes to ask questions.
 This applies to `y-or-n-p' and `yes-or-no-p' questions asked by commands
 invoked by mouse clicks and mouse menu items.
 
 On some platforms, file selection dialogs are also enabled if this is
-non-nil."#),
-    (r#"use-file-dialog"#, r#"Non-nil means mouse commands use a file dialog to ask for files.
+non-nil."#,
+    ),
+    (
+        r#"use-file-dialog"#,
+        r#"Non-nil means mouse commands use a file dialog to ask for files.
 This applies to commands from menus and tool bar buttons even when
 they are initiated from the keyboard.  If `use-dialog-box' is nil,
 that disables the use of a file dialog, regardless of the value of
-this variable."#),
-    (r#"use-short-answers"#, r#"Non-nil means `yes-or-no-p' uses shorter answers "y" or "n".
+this variable."#,
+    ),
+    (
+        r#"use-short-answers"#,
+        r#"Non-nil means `yes-or-no-p' uses shorter answers "y" or "n".
 When non-nil, `yes-or-no-p' will use `y-or-n-p' to read the answer.
 We recommend against setting this variable non-nil, because `yes-or-no-p'
 is intended to be used when users are expected not to respond too
 quickly, but to take their time and perhaps think about the answer.
 The same variable also affects the function `read-answer'.  See also
-`yes-or-no-prompt'."#),
-    (r#"use-system-tooltips"#, r#"Whether to use the toolkit to display tooltips.
+`yes-or-no-prompt'."#,
+    ),
+    (
+        r#"use-system-tooltips"#,
+        r#"Whether to use the toolkit to display tooltips.
 This option is only meaningful when Emacs is built with GTK+, NS or Haiku
 windowing support, and, if it's non-nil (the default), it results in
 tooltips that look like those displayed by other GTK+/NS/Haiku programs,
-but will not be able to display text properties inside tooltip text."#),
-    (r#"user-full-name"#, r#"The full name of the user logged in."#),
-    (r#"user-init-file"#, r#"File name, including directory, of user's initialization file.
+but will not be able to display text properties inside tooltip text."#,
+    ),
+    (
+        r#"user-full-name"#,
+        r#"The full name of the user logged in."#,
+    ),
+    (
+        r#"user-init-file"#,
+        r#"File name, including directory, of user's initialization file.
 If the file loaded had extension `.elc', and the corresponding source file
 exists, this variable contains the name of source file, suitable for use
 by functions like `custom-save-all' which edit the init file.
 While Emacs loads and evaluates any init file, value is the real name
-of the file, regardless of whether or not it has the `.elc' extension."#),
-    (r#"user-login-name"#, r#"The user's name, taken from environment variables if possible."#),
-    (r#"user-real-login-name"#, r#"The user's name, based upon the real uid only."#),
-    (r#"values"#, r#"List of values of all expressions which were read, evaluated and printed.
+of the file, regardless of whether or not it has the `.elc' extension."#,
+    ),
+    (
+        r#"user-login-name"#,
+        r#"The user's name, taken from environment variables if possible."#,
+    ),
+    (
+        r#"user-real-login-name"#,
+        r#"The user's name, based upon the real uid only."#,
+    ),
+    (
+        r#"values"#,
+        r#"List of values of all expressions which were read, evaluated and printed.
 Order is reverse chronological.
-This variable is obsolete as of Emacs 28.1 and should not be used."#),
-    (r#"vector-cells-consed"#, r#"Number of vector cells that have been consed so far."#),
-    (r#"vertical-centering-font-regexp"#, r#"Regexp matching font names that require vertical centering on display.
+This variable is obsolete as of Emacs 28.1 and should not be used."#,
+    ),
+    (
+        r#"vector-cells-consed"#,
+        r#"Number of vector cells that have been consed so far."#,
+    ),
+    (
+        r#"vertical-centering-font-regexp"#,
+        r#"Regexp matching font names that require vertical centering on display.
 When a character is displayed with such fonts, the character is displayed
-at the vertical center of lines."#),
-    (r#"visible-bell"#, r#"Non-nil means try to flash the frame to represent a bell.
+at the vertical center of lines."#,
+    ),
+    (
+        r#"visible-bell"#,
+        r#"Non-nil means try to flash the frame to represent a bell.
 
-See also `ring-bell-function'."#),
-    (r#"visible-cursor"#, r#"Non-nil means to make the cursor very visible.
+See also `ring-bell-function'."#,
+    ),
+    (
+        r#"visible-cursor"#,
+        r#"Non-nil means to make the cursor very visible.
 This only has an effect when running in a text terminal.
 What means \"very visible\" is up to your terminal.  It may make the cursor
-bigger, or it may make it blink, or it may do nothing at all."#),
-    (r#"void-text-area-pointer"#, r#"The pointer shape to show in void text areas.
+bigger, or it may make it blink, or it may do nothing at all."#,
+    ),
+    (
+        r#"void-text-area-pointer"#,
+        r#"The pointer shape to show in void text areas.
 A value of nil means to show the text pointer.  Other options are
 `arrow', `text', `hand', `vdrag', `hdrag', `nhdrag', `modeline', and
-`hourglass'."#),
-    (r#"w32-add-wrapped-menu-bar-lines"#, r#"Non-nil means frame resizing accounts for wrapped menu bar lines.
+`hourglass'."#,
+    ),
+    (
+        r#"w32-add-wrapped-menu-bar-lines"#,
+        r#"Non-nil means frame resizing accounts for wrapped menu bar lines.
 A value of nil means frame resizing does not add the height of wrapped
 menu bar lines when sending a frame resize request to the Windows API.
 This usually means that the resulting frame height is off by the number
 of wrapped menu bar lines.  If this is non-nil, Emacs adds the height of
 wrapped menu bar lines when sending frame resize requests to the Windows
-API."#),
-    (r#"w32-alt-is-meta"#, r#"Non-nil if the Alt key is to be considered the same as the META key.
-When nil, Emacs will translate the Alt key to the ALT modifier, not to META."#),
-    (r#"w32-ansi-code-page"#, r#"The ANSI code page used by the system."#),
-    (r#"w32-apps-modifier"#, r#"Modifier to use for the \"Apps\" key.
+API."#,
+    ),
+    (
+        r#"w32-alt-is-meta"#,
+        r#"Non-nil if the Alt key is to be considered the same as the META key.
+When nil, Emacs will translate the Alt key to the ALT modifier, not to META."#,
+    ),
+    (
+        r#"w32-ansi-code-page"#,
+        r#"The ANSI code page used by the system."#,
+    ),
+    (
+        r#"w32-apps-modifier"#,
+        r#"Modifier to use for the \"Apps\" key.
 The value can be hyper, super, meta, alt, control or shift for the
 respective modifier, or nil to appear as the `apps' key.
-Any other value will cause the key to be ignored."#),
-    (r#"w32-capslock-is-shiftlock"#, r#"Apply CapsLock state to non character input keys.
-When nil, CapsLock only affects normal character input keys."#),
-    (r#"w32-charset-info-alist"#, r#"Alist linking Emacs character sets to Windows fonts and codepages.
+Any other value will cause the key to be ignored."#,
+    ),
+    (
+        r#"w32-capslock-is-shiftlock"#,
+        r#"Apply CapsLock state to non character input keys.
+When nil, CapsLock only affects normal character input keys."#,
+    ),
+    (
+        r#"w32-charset-info-alist"#,
+        r#"Alist linking Emacs character sets to Windows fonts and codepages.
 Each entry should be of the form:
 
    (CHARSET_NAME . (WINDOWS_CHARSET . CODEPAGE))
@@ -3510,8 +5453,11 @@ WINDOWS_CHARSET is a symbol that can be one of:
 CODEPAGE should be an integer specifying the codepage that should be used
 to display the character set, t to do no translation and output as Unicode,
 or nil to do no translation and output as 8 bit (or multibyte on far-east
-versions of Windows) characters."#),
-    (r#"w32-collate-ignore-punctuation"#, r#"Non-nil causes string collation functions ignore punctuation on MS-Windows.
+versions of Windows) characters."#,
+    ),
+    (
+        r#"w32-collate-ignore-punctuation"#,
+        r#"Non-nil causes string collation functions ignore punctuation on MS-Windows.
 On Posix platforms, `string-collate-lessp' and `string-collate-equalp'
 ignore punctuation characters when they compare strings, if the
 locale's codeset is UTF-8, as in \"en_US.UTF-8\".  Binding this option
@@ -3520,40 +5466,76 @@ locales with UTF-8 codeset are not supported.
 
 Note that setting this to non-nil will also ignore blanks and symbols
 in the strings.  So do NOT use this option when comparing file names
-for equality, only when you need to sort them."#),
-    (r#"w32-color-map"#, r#"An array of color name mappings for Windows."#),
-    (r#"w32-disable-abort-dialog"#, r#"Non-nil means don't display the abort dialog when aborting."#),
-    (r#"w32-disable-double-buffering"#, r#"Completely disable double buffering.
+for equality, only when you need to sort them."#,
+    ),
+    (
+        r#"w32-color-map"#,
+        r#"An array of color name mappings for Windows."#,
+    ),
+    (
+        r#"w32-disable-abort-dialog"#,
+        r#"Non-nil means don't display the abort dialog when aborting."#,
+    ),
+    (
+        r#"w32-disable-double-buffering"#,
+        r#"Completely disable double buffering.
 This variable is used for debugging, and takes precedence over any
-value of the `inhibit-double-buffering' frame parameter."#),
-    (r#"w32-disable-new-uniscribe-apis"#, r#"Non-nil means don't use new Uniscribe APIs.
+value of the `inhibit-double-buffering' frame parameter."#,
+    ),
+    (
+        r#"w32-disable-new-uniscribe-apis"#,
+        r#"Non-nil means don't use new Uniscribe APIs.
 The new APIs are used to access OTF features supported by fonts.
 This is intended only for debugging of the new Uniscribe-related code.
 Default is nil.
 
-This variable has effect only on Windows Vista and later."#),
-    (r#"w32-downcase-file-names"#, r#"Non-nil means convert all-upper case file names to lower case.
+This variable has effect only on Windows Vista and later."#,
+    ),
+    (
+        r#"w32-downcase-file-names"#,
+        r#"Non-nil means convert all-upper case file names to lower case.
 This applies when performing completions and file name expansion.
 Note that the value of this setting also affects remote file names,
 so you probably don't want to set to non-nil if you use case-sensitive
-filesystems via ange-ftp."#),
-    (r#"w32-enable-caps-lock"#, r#"If non-nil, the Caps Lock key acts normally.
-Set to nil to handle Caps Lock as the `capslock' key."#),
-    (r#"w32-enable-num-lock"#, r#"If non-nil, the Num Lock key acts normally.
-Set to nil to handle Num Lock as the `kp-numlock' key."#),
-    (r#"w32-enable-palette"#, r#"Non-nil enables Windows palette management to map colors exactly."#),
-    (r#"w32-enable-synthesized-fonts"#, r#"Non-nil enables selection of artificially italicized and bold fonts."#),
-    (r#"w32-follow-system-dark-mode"#, r#"Whether to follow the system's Dark mode on MS-Windows.
+filesystems via ange-ftp."#,
+    ),
+    (
+        r#"w32-enable-caps-lock"#,
+        r#"If non-nil, the Caps Lock key acts normally.
+Set to nil to handle Caps Lock as the `capslock' key."#,
+    ),
+    (
+        r#"w32-enable-num-lock"#,
+        r#"If non-nil, the Num Lock key acts normally.
+Set to nil to handle Num Lock as the `kp-numlock' key."#,
+    ),
+    (
+        r#"w32-enable-palette"#,
+        r#"Non-nil enables Windows palette management to map colors exactly."#,
+    ),
+    (
+        r#"w32-enable-synthesized-fonts"#,
+        r#"Non-nil enables selection of artificially italicized and bold fonts."#,
+    ),
+    (
+        r#"w32-follow-system-dark-mode"#,
+        r#"Whether to follow the system's Dark mode on MS-Windows.
 If this is nil, Emacs on MS-Windows will not follow the system's Dark
 mode as far as the appearance of title bars and scroll bars is
 concerned, it will always use the default Light mode instead.
-Changing the value takes effect only for frames created after the change."#),
-    (r#"w32-generate-fake-inodes"#, r#"Non-nil means attempt to fake realistic inode values.
+Changing the value takes effect only for frames created after the change."#,
+    ),
+    (
+        r#"w32-generate-fake-inodes"#,
+        r#"Non-nil means attempt to fake realistic inode values.
 This works by hashing the truename of files, and should detect
 aliasing between long and short (8.3 DOS) names, but can have
 false positives because of hash collisions.  Note that determining
-the truename of a file can be slow."#),
-    (r#"w32-get-true-file-attributes"#, r#"Non-nil means determine accurate file attributes in `file-attributes'.
+the truename of a file can be slow."#,
+    ),
+    (
+        r#"w32-get-true-file-attributes"#,
+        r#"Non-nil means determine accurate file attributes in `file-attributes'.
 This option controls whether to issue additional system calls to determine
 accurate link counts, file type, and ownership information.  It is more
 useful for files on NTFS volumes, where hard links and file security are
@@ -3564,47 +5546,77 @@ ownership will be attributed to the current user.
 The default value `local' means only issue these system calls for files
 on local fixed drives.  A value of nil means never issue them.
 Any other non-nil value means do this even on remote and removable drives
-where the performance impact may be noticeable even on modern hardware."#),
-    (r#"w32-grab-focus-on-raise"#, r#"Raised frame grabs input focus.
+where the performance impact may be noticeable even on modern hardware."#,
+    ),
+    (
+        r#"w32-grab-focus-on-raise"#,
+        r#"Raised frame grabs input focus.
 When t, `raise-frame' grabs input focus as well.  This fits well
 with the normal Windows click-to-focus policy, but might not be
-desirable when using a point-to-focus policy."#),
-    (r#"w32-ignore-modifiers-on-IME-input"#, r#"Whether to ignore modifier keys when processing input with IME.
+desirable when using a point-to-focus policy."#,
+    ),
+    (
+        r#"w32-ignore-modifiers-on-IME-input"#,
+        r#"Whether to ignore modifier keys when processing input with IME.
 Some MS-Windows input methods use modifier keys such as Ctrl or Alt to input
 characters, in which case applying the modifiers will change the input.
 The default value of this variable is therefore t, to ignore modifier
-keys when IME input is received."#),
+keys when IME input is received."#,
+    ),
     (r#"w32-inhibit-dwrite"#, r#"If t, don't use DirectWrite."#),
-    (r#"w32-lwindow-modifier"#, r#"Modifier to use for the left \"Windows\" key.
+    (
+        r#"w32-lwindow-modifier"#,
+        r#"Modifier to use for the left \"Windows\" key.
 The value can be hyper, super, meta, alt, control or shift for the
 respective modifier, or nil to appear as the `lwindow' key.
 Any other value will cause the key to be ignored.
 
-Also see the documentation of the `w32-register-hot-key' function."#),
-    (r#"w32-mouse-button-tolerance"#, r#"Analogue of double click interval for faking middle mouse events.
+Also see the documentation of the `w32-register-hot-key' function."#,
+    ),
+    (
+        r#"w32-mouse-button-tolerance"#,
+        r#"Analogue of double click interval for faking middle mouse events.
 The value is the minimum time in milliseconds that must elapse between
 left and right button down events before they are considered distinct events.
 If both mouse buttons are depressed within this interval, a middle mouse
-button down event is generated instead."#),
-    (r#"w32-mouse-move-interval"#, r#"Minimum interval between mouse move events.
+button down event is generated instead."#,
+    ),
+    (
+        r#"w32-mouse-move-interval"#,
+        r#"Minimum interval between mouse move events.
 The value is the minimum time in milliseconds that must elapse between
 successive mouse move (or scroll bar drag) events before they are
-reported as lisp events."#),
-    (r#"w32-multibyte-code-page"#, r#"The current multibyte code page used by the system.
+reported as lisp events."#,
+    ),
+    (
+        r#"w32-multibyte-code-page"#,
+        r#"The current multibyte code page used by the system.
 A value of zero indicates that the single-byte code page is in use,
-see `w32-ansi-code-page'."#),
-    (r#"w32-num-mouse-buttons"#, r#"Number of physical mouse buttons."#),
-    (r#"w32-pass-alt-to-system"#, r#"Non-nil if Alt key presses are passed on to Windows.
+see `w32-ansi-code-page'."#,
+    ),
+    (
+        r#"w32-num-mouse-buttons"#,
+        r#"Number of physical mouse buttons."#,
+    ),
+    (
+        r#"w32-pass-alt-to-system"#,
+        r#"Non-nil if Alt key presses are passed on to Windows.
 When non-nil, for example, Alt pressed and released and then space will
 open the System menu.  When nil, Emacs processes the Alt key events, and
-then silently swallows them."#),
-    (r#"w32-pass-extra-mouse-buttons-to-system"#, r#"If non-nil, the fourth and fifth mouse buttons are passed to Windows.
+then silently swallows them."#,
+    ),
+    (
+        r#"w32-pass-extra-mouse-buttons-to-system"#,
+        r#"If non-nil, the fourth and fifth mouse buttons are passed to Windows.
 Recent versions of Windows support mice with up to five buttons.
 Since most applications don't support these extra buttons, most mouse
 drivers will allow you to map them to functions at the system level.
 If this variable is non-nil, Emacs will pass them on, allowing the
-system to handle them."#),
-    (r#"w32-pass-lwindow-to-system"#, r#"If non-nil, the left \"Windows\" key is passed on to Windows.
+system to handle them."#,
+    ),
+    (
+        r#"w32-pass-lwindow-to-system"#,
+        r#"If non-nil, the left \"Windows\" key is passed on to Windows.
 
 When non-nil, the Start menu is opened by tapping the key.
 If you set this to nil, the left \"Windows\" key is processed by Emacs
@@ -3618,8 +5630,11 @@ combinations are normally handed to applications.  To enable Emacs to
 process \"Windows\" key combinations, use the function
 `w32-register-hot-key'.
 
-For Windows 98/ME, see the doc string of `w32-phantom-key-code'."#),
-    (r#"w32-pass-multimedia-buttons-to-system"#, r#"If non-nil, media buttons are passed to Windows.
+For Windows 98/ME, see the doc string of `w32-phantom-key-code'."#,
+    ),
+    (
+        r#"w32-pass-multimedia-buttons-to-system"#,
+        r#"If non-nil, media buttons are passed to Windows.
 Some modern keyboards contain buttons for controlling media players, web
 browsers and other applications.  Generally these buttons are handled on a
 system wide basis, but by setting this to nil they are made available
@@ -3637,8 +5652,11 @@ media-play, media-pause, media-record, media-fast-forward, media-rewind,
 media-channel-up, media-channel-down,
 volume-mute, volume-up, volume-down,
 mic-volume-mute, mic-volume-down, mic-volume-up, mic-toggle,
-bass-down, bass-boost, bass-up, treble-down, treble-up"#),
-    (r#"w32-pass-rwindow-to-system"#, r#"If non-nil, the right \"Windows\" key is passed on to Windows.
+bass-down, bass-boost, bass-up, treble-down, treble-up"#,
+    ),
+    (
+        r#"w32-pass-rwindow-to-system"#,
+        r#"If non-nil, the right \"Windows\" key is passed on to Windows.
 
 When non-nil, the Start menu is opened by tapping the key.
 If you set this to nil, the right \"Windows\" key is processed by Emacs
@@ -3652,8 +5670,11 @@ combinations are normally handed to applications.  To enable Emacs to
 process \"Windows\" key combinations, use the function
 `w32-register-hot-key'.
 
-For Windows 98/ME, see the doc string of `w32-phantom-key-code'."#),
-    (r#"w32-phantom-key-code"#, r#"Virtual key code used to generate \"phantom\" key presses.
+For Windows 98/ME, see the doc string of `w32-phantom-key-code'."#,
+    ),
+    (
+        r#"w32-phantom-key-code"#,
+        r#"Virtual key code used to generate \"phantom\" key presses.
 Value is a number between 0 and 255.
 
 Phantom key presses are generated in order to stop the system from
@@ -3662,12 +5683,18 @@ acting on \"Windows\" key events when `w32-pass-lwindow-to-system' or
 
 This variable is only used on Windows 98 and ME.  For other Windows
 versions, see the documentation of the `w32-register-hot-key'
-function."#),
-    (r#"w32-pipe-buffer-size"#, r#"Size of buffer for pipes created to communicate with subprocesses.
+function."#,
+    ),
+    (
+        r#"w32-pipe-buffer-size"#,
+        r#"Size of buffer for pipes created to communicate with subprocesses.
 The size is in bytes, and must be non-negative.  The default is zero,
 which lets the OS use its default size, usually 4KB (4096 bytes).
-Any negative value means to use the default value of zero."#),
-    (r#"w32-pipe-read-delay"#, r#"Forced delay before reading subprocess output.
+Any negative value means to use the default value of zero."#,
+    ),
+    (
+        r#"w32-pipe-read-delay"#,
+        r#"Forced delay before reading subprocess output.
 This may need to be done to improve the buffering of subprocess output,
 by avoiding the inefficiency of frequently reading small amounts of data.
 Typically needed only with DOS programs on Windows 9X; set to 50 if
@@ -3677,9 +5704,15 @@ If positive, the value is the number of milliseconds to sleep before
 signaling that output from a subprocess is ready to be read.
 If negative, the value is the number of time slices to wait (effectively
 boosting the priority of the child process temporarily).
-A value of zero disables waiting entirely."#),
-    (r#"w32-quit-key"#, r#"If non-zero, the virtual key code for an alternative quit key."#),
-    (r#"w32-quote-process-args"#, r#"Non-nil enables quoting of process arguments to ensure correct parsing.
+A value of zero disables waiting entirely."#,
+    ),
+    (
+        r#"w32-quit-key"#,
+        r#"If non-zero, the virtual key code for an alternative quit key."#,
+    ),
+    (
+        r#"w32-quote-process-args"#,
+        r#"Non-nil enables quoting of process arguments to ensure correct parsing.
 Because Windows does not directly pass argv arrays to child processes,
 programs have to reconstruct the argv array by parsing the command
 line string.  For an argument to contain a space, it must be enclosed
@@ -3687,72 +5720,114 @@ in double quotes or it will be parsed as multiple arguments.
 
 If the value is a character, that character will be used to escape any
 quote characters that appear, otherwise a suitable escape character
-will be chosen based on the type of the program."#),
-    (r#"w32-recognize-altgr"#, r#"Recognize right-alt and left-ctrl as AltGr.
+will be chosen based on the type of the program."#,
+    ),
+    (
+        r#"w32-recognize-altgr"#,
+        r#"Recognize right-alt and left-ctrl as AltGr.
 When nil, the right-alt and left-ctrl key combination is
-interpreted normally."#),
-    (r#"w32-rwindow-modifier"#, r#"Modifier to use for the right \"Windows\" key.
+interpreted normally."#,
+    ),
+    (
+        r#"w32-rwindow-modifier"#,
+        r#"Modifier to use for the right \"Windows\" key.
 The value can be hyper, super, meta, alt, control or shift for the
 respective modifier, or nil to appear as the `rwindow' key.
 Any other value will cause the key to be ignored.
 
-Also see the documentation of the `w32-register-hot-key' function."#),
-    (r#"w32-scroll-lock-modifier"#, r#"Modifier to use for the Scroll Lock ON state.
+Also see the documentation of the `w32-register-hot-key' function."#,
+    ),
+    (
+        r#"w32-scroll-lock-modifier"#,
+        r#"Modifier to use for the Scroll Lock ON state.
 The value can be hyper, super, meta, alt, control or shift for the
 respective modifier, or nil to handle Scroll Lock as the `scroll' key.
 Any other value will cause the Scroll Lock key to be ignored by Emacs,
-and it will have the same effect as in other applications."#),
-    (r#"w32-start-process-inherit-error-mode"#, r#"When nil, new child processes revert to the default error mode.
+and it will have the same effect as in other applications."#,
+    ),
+    (
+        r#"w32-start-process-inherit-error-mode"#,
+        r#"When nil, new child processes revert to the default error mode.
 When non-nil, they inherit their error mode setting from Emacs, which stops
-them blocking when trying to access unmounted drives etc."#),
-    (r#"w32-start-process-share-console"#, r#"When nil, new child processes are given a new console.
+them blocking when trying to access unmounted drives etc."#,
+    ),
+    (
+        r#"w32-start-process-share-console"#,
+        r#"When nil, new child processes are given a new console.
 When non-nil, they share the Emacs console; this has the limitation of
 allowing only one DOS subprocess to run at a time (whether started directly
 or indirectly by Emacs), and preventing Emacs from cleanly terminating the
 subprocess group, but may allow Emacs to interrupt a subprocess that doesn't
-otherwise respond to interrupts from Emacs."#),
-    (r#"w32-start-process-show-window"#, r#"When nil, new child processes hide their windows.
+otherwise respond to interrupts from Emacs."#,
+    ),
+    (
+        r#"w32-start-process-show-window"#,
+        r#"When nil, new child processes hide their windows.
 When non-nil, they show their window in the method of their choice.
-This variable doesn't affect GUI applications, which will never be hidden."#),
-    (r#"w32-strict-painting"#, r#"Non-nil means use strict rules for repainting frames.
+This variable doesn't affect GUI applications, which will never be hidden."#,
+    ),
+    (
+        r#"w32-strict-painting"#,
+        r#"Non-nil means use strict rules for repainting frames.
 Set this to nil to get the old behavior for repainting; this should
-only be necessary if the default setting causes problems."#),
-    (r#"w32-swap-mouse-buttons"#, r#"Swap the mapping of middle and right mouse buttons.
-When nil, middle button is mouse-2 and right button is mouse-3."#),
-    (r#"w32-tooltip-extra-pixels"#, r#"Number of pixels added after tooltip text.
+only be necessary if the default setting causes problems."#,
+    ),
+    (
+        r#"w32-swap-mouse-buttons"#,
+        r#"Swap the mapping of middle and right mouse buttons.
+When nil, middle button is mouse-2 and right button is mouse-3."#,
+    ),
+    (
+        r#"w32-tooltip-extra-pixels"#,
+        r#"Number of pixels added after tooltip text.
 On Windows some fonts may cause the last character of a tooltip be
 truncated or wrapped around to the next line.  Adding some extra space
 at the end of the toooltip works around this problem.
 
 This variable specifies the number of pixels that shall be added.  The
 default value t means to add the width of one canonical character of the
-tip frame."#),
-    (r#"w32-unicode-filenames"#, r#"Non-nil means use Unicode APIs when passing file names to the OS.
+tip frame."#,
+    ),
+    (
+        r#"w32-unicode-filenames"#,
+        r#"Non-nil means use Unicode APIs when passing file names to the OS.
 A value of nil means file names passed to the OS APIs and returned
 from those APIs are encoded/decoded using the ANSI codepage
 specified by `file-name-coding-system'.
 
 This variable is set to non-nil by default when Emacs runs on Windows
 systems of the NT family, including W2K, XP, Vista, Windows 7 and
-Windows 8.  It is set to nil on Windows 9X."#),
-    (r#"w32-use-fallback-wm-chars-method"#, r#"Non-nil means use old method of processing character keys.
+Windows 8.  It is set to nil on Windows 9X."#,
+    ),
+    (
+        r#"w32-use-fallback-wm-chars-method"#,
+        r#"Non-nil means use old method of processing character keys.
 This is intended only for debugging of the new processing method.
 Default is nil.
 
-This variable has effect only on NT family of systems, not on Windows 9X."#),
-    (r#"w32-use-full-screen-buffer"#, r#"Non-nil means make terminal frames use the full screen buffer dimensions.
+This variable has effect only on NT family of systems, not on Windows 9X."#,
+    ),
+    (
+        r#"w32-use-full-screen-buffer"#,
+        r#"Non-nil means make terminal frames use the full screen buffer dimensions.
 This is desirable when running Emacs over telnet.
 A value of nil means use the current console window dimensions; this
 may be preferable when working directly at the console with a large
-scroll-back buffer."#),
-    (r#"w32-use-native-image-API"#, r#"Non-nil means use the native MS-Windows image API to display images.
+scroll-back buffer."#,
+    ),
+    (
+        r#"w32-use-native-image-API"#,
+        r#"Non-nil means use the native MS-Windows image API to display images.
 
 A value of nil means displaying images other than PBM and XBM requires
 optional supporting libraries to be installed.
 The native image API library used is GDI+ via GDIPLUS.DLL.  This
 library is available only since W2K, therefore this variable is
-unconditionally set to nil on older systems."#),
-    (r#"w32-use-visible-system-caret"#, r#"Flag to make the system caret visible.
+unconditionally set to nil on older systems."#,
+    ),
+    (
+        r#"w32-use-visible-system-caret"#,
+        r#"Flag to make the system caret visible.
 When this is non-nil, Emacs will indicate the position of point by
 using the system caret instead of drawing its own cursor.  Some screen
 reader software does not track the system cursor properly when it is
@@ -3761,18 +5836,30 @@ variable is initialized to t when Emacs detects that screen reader
 software is running as it starts up.
 
 When this variable is set, other variables affecting the appearance of
-the cursor have no effect."#),
-    (r#"w32-yes-no-dialog-show-cancel"#, r#"If non-nil, show Cancel button in MS-Windows GUI Yes/No dialogs."#),
-    (r#"where-is-preferred-modifier"#, r#"Preferred modifier key to use for `where-is'.
+the cursor have no effect."#,
+    ),
+    (
+        r#"w32-yes-no-dialog-show-cancel"#,
+        r#"If non-nil, show Cancel button in MS-Windows GUI Yes/No dialogs."#,
+    ),
+    (
+        r#"where-is-preferred-modifier"#,
+        r#"Preferred modifier key to use for `where-is'.
 When a single binding is requested, `where-is' will return one that
 uses this modifier key if possible.  If nil, or if no such binding
 exists, bindings using keys without modifiers (or only with meta) will
-be preferred."#),
-    (r#"while-no-input-ignore-events"#, r#"Ignored events from `while-no-input'.
+be preferred."#,
+    ),
+    (
+        r#"while-no-input-ignore-events"#,
+        r#"Ignored events from `while-no-input'.
 Events in this list do not count as pending input while running
 `while-no-input' and do not cause any idle timers to get reset when they
-occur."#),
-    (r#"window-auto-redraw-on-parameter-change"#, r#"When non-nil, redraw based on face filters.
+occur."#,
+    ),
+    (
+        r#"window-auto-redraw-on-parameter-change"#,
+        r#"When non-nil, redraw based on face filters.
 When this variable is non-nil, force a potentially expensive redraw when
 a window parameter named in a `:window' expression for ':filtered'
 changes.  This redraw is necessary for correctness; this variable is an
@@ -3781,8 +5868,11 @@ these parameter changes are rare does not hold.
 
 You can also inhibit the automatic redraw for a specific window
 parameter by setting the `:filtered` symbol property of the parameter
-name to `'ignore'."#),
-    (r#"window-buffer-change-functions"#, r#"Functions called during redisplay when window buffers have changed.
+name to `'ignore'."#,
+    ),
+    (
+        r#"window-buffer-change-functions"#,
+        r#"Functions called during redisplay when window buffers have changed.
 The value should be a list of functions that take one argument.
 
 Functions specified buffer-locally are called for each window showing
@@ -3797,8 +5887,11 @@ temporarily current.
 Functions specified by the default value are called for each frame if
 at least one window on that frame has been added, deleted or changed
 its buffer since the last redisplay.  In this case the frame is passed
-as argument."#),
-    (r#"window-combination-limit"#, r#"If non-nil, splitting a window makes a new parent window.
+as argument."#,
+    ),
+    (
+        r#"window-combination-limit"#,
+        r#"If non-nil, splitting a window makes a new parent window.
 The following values are recognized:
 
 nil means splitting a window will create a new parent window only if the
@@ -3832,8 +5925,11 @@ t means that splitting a window always creates a new parent window.  If
     sibling.
 
 The default value is `window-size'.  Other values are reserved for
-future use."#),
-    (r#"window-combination-resize"#, r#"If t, resize window combinations proportionally.
+future use."#,
+    ),
+    (
+        r#"window-combination-resize"#,
+        r#"If t, resize window combinations proportionally.
 If this variable is nil, splitting a window gets the entire screen space
 for displaying the new window from the window to split.  Deleting and
 resizing a window preferably resizes one adjacent window only.
@@ -3847,8 +5943,11 @@ same combination.
 Other values are reserved for future use.
 
 A specific split operation may ignore the value of this variable if it
-is affected by a non-nil value of `window-combination-limit'."#),
-    (r#"window-configuration-change-hook"#, r#"Functions called during redisplay when window configuration has changed.
+is affected by a non-nil value of `window-combination-limit'."#,
+    ),
+    (
+        r#"window-configuration-change-hook"#,
+        r#"Functions called during redisplay when window configuration has changed.
 The value should be a list of functions that take no argument.
 
 Functions specified buffer-locally are called for each window showing
@@ -3860,12 +5959,18 @@ the buffer temporarily selected.
 Functions specified by the default value are called for each frame if
 at least one window on that frame has been added, deleted or changed
 its buffer or its total or body size since the last redisplay.  Each
-call is performed with the frame temporarily selected."#),
-    (r#"window-dead-windows-table"#, r#"Hash table of dead windows.
+call is performed with the frame temporarily selected."#,
+    ),
+    (
+        r#"window-dead-windows-table"#,
+        r#"Hash table of dead windows.
 Each entry in this table maps a window number to a window object.
 Entries are added by `delete-window-internal' and are removed by the
-garbage collector."#),
-    (r#"window-persistent-parameters"#, r#"Alist of persistent window parameters.
+garbage collector."#,
+    ),
+    (
+        r#"window-persistent-parameters"#,
+        r#"Alist of persistent window parameters.
 This alist specifies which window parameters shall get saved by
 `current-window-configuration' and `window-state-get' and subsequently
 restored to their previous values by `set-window-configuration' and
@@ -3886,18 +5991,27 @@ this value for parameters without read syntax (like windows or frames).
 
 Parameters not saved by `current-window-configuration' or
 `window-state-get' are left alone by `set-window-configuration'
-respectively are not installed by `window-state-put'."#),
-    (r#"window-point-insertion-type"#, r#"Insertion type of marker to use for `window-point'.
-See `marker-insertion-type' for the meaning of the possible values."#),
-    (r#"window-resize-pixelwise"#, r#" Non-nil means resize windows pixelwise.
+respectively are not installed by `window-state-put'."#,
+    ),
+    (
+        r#"window-point-insertion-type"#,
+        r#"Insertion type of marker to use for `window-point'.
+See `marker-insertion-type' for the meaning of the possible values."#,
+    ),
+    (
+        r#"window-resize-pixelwise"#,
+        r#" Non-nil means resize windows pixelwise.
 This currently affects the functions: `split-window', `maximize-window',
 `minimize-window', `fit-window-to-buffer' and `fit-frame-to-buffer', and
 all functions that symmetrically resize a parent window.
 
 Note that when a frame's pixel size is not a multiple of the
 frame's character size, at least one window may get resized
-pixelwise even if this option is nil."#),
-    (r#"window-restore-killed-buffer-windows"#, r#"Control restoring windows whose buffer was killed.
+pixelwise even if this option is nil."#,
+    ),
+    (
+        r#"window-restore-killed-buffer-windows"#,
+        r#"Control restoring windows whose buffer was killed.
 This variable specifies how the functions `set-window-configuration' and
 `window-state-put' shall handle a window whose buffer has been killed
 since the corresponding configuration or state was recorded.  Any such
@@ -3948,8 +6062,11 @@ dead, the dead buffer or its name, the positions of window-start and
 window-point of the buffer in that window, the dedicated state of the
 window as reported by `window-dedicated-p', and a boolean -- t if the
 window was live when `set-window-configuration' tried to restore it,
-and nil otherwise."#),
-    (r#"window-scroll-functions"#, r#"List of functions to call before redisplaying a window with scrolling.
+and nil otherwise."#,
+    ),
+    (
+        r#"window-scroll-functions"#,
+        r#"List of functions to call before redisplaying a window with scrolling.
 Each function is called with two arguments, the window and its new
 display-start position.
 These functions are called whenever the `window-start' marker is modified,
@@ -3963,8 +6080,11 @@ called.
 
 Warning: Do not use this feature to alter the way the window
 is scrolled.  It is not designed for that, and such use probably won't
-work."#),
-    (r#"window-selection-change-functions"#, r#"Functions called during redisplay when the selected window has changed.
+work."#,
+    ),
+    (
+        r#"window-selection-change-functions"#,
+        r#"Functions called during redisplay when the selected window has changed.
 The value should be a list of functions that take one argument.
 
 Functions specified buffer-locally are called for each window showing
@@ -3974,8 +6094,11 @@ as argument and the respective buffer is temporarily made current.
 
 Functions specified by the default value are called for each frame if
 the frame's selected window has changed since the last redisplay.  In
-this case the frame is passed as argument."#),
-    (r#"window-size-change-functions"#, r#"Functions called during redisplay when window sizes have changed.
+this case the frame is passed as argument."#,
+    ),
+    (
+        r#"window-size-change-functions"#,
+        r#"Functions called during redisplay when window sizes have changed.
 The value should be a list of functions that take one argument.
 
 Functions specified buffer-locally are called for each window showing
@@ -3990,8 +6113,11 @@ or its total or body size since the last redisplay.  In this case the
 frame is passed as argument.
 
 For instance, to hide the title bar when the frame is maximized, you
-can add `frame-hide-title-bar-when-maximized' to this variable."#),
-    (r#"window-state-change-functions"#, r#"Functions called during redisplay when the window state changed.
+can add `frame-hide-title-bar-when-maximized' to this variable."#,
+    ),
+    (
+        r#"window-state-change-functions"#,
+        r#"Functions called during redisplay when the window state changed.
 The value should be a list of functions that take one argument.
 
 Functions specified buffer-locally are called for each window showing
@@ -4005,8 +6131,11 @@ at least one window on that frame has been added, deleted, changed its
 buffer or its total or body size or the frame has been (de-)selected,
 its selected window has changed or the window state change flag has
 been set for this frame since the last redisplay.  In this case the
-frame is passed as argument."#),
-    (r#"window-state-change-hook"#, r#"Functions called during redisplay when the window state changed.
+frame is passed as argument."#,
+    ),
+    (
+        r#"window-state-change-hook"#,
+        r#"Functions called during redisplay when the window state changed.
 The value should be a list of functions that take no argument.
 
 This hook is called during redisplay when at least one window has been
@@ -4015,8 +6144,11 @@ size or the window state change flag has been set for at least one
 frame.  This hook is called after all other window change functions
 have been run and should be used only if a function should react to
 changes that happened on at least two frames since last redisplay or
-the function intends to change the window configuration."#),
-    (r#"window-system"#, r#"Name of window system through which the selected frame is displayed.
+the function intends to change the window configuration."#,
+    ),
+    (
+        r#"window-system"#,
+        r#"Name of window system through which the selected frame is displayed.
 The value is a symbol:
  nil for a termcap frame (a character-only terminal),
  `x' for an Emacs frame that is really an X window,
@@ -4029,8 +6161,11 @@ The value is a symbol:
 
 Use of this variable as a boolean is deprecated.  Instead,
 use `display-graphic-p' or any of the other `display-*-p'
-predicates which report frame's specific UI-related capabilities."#),
-    (r#"word-combining-categories"#, r#"List of pairs (cons cells) of categories to determine word boundary.
+predicates which report frame's specific UI-related capabilities."#,
+    ),
+    (
+        r#"word-combining-categories"#,
+        r#"List of pairs (cons cells) of categories to determine word boundary.
 
 Emacs treats a sequence of word constituent characters as a single
 word (i.e. finds no word boundary between them) only if they belong to
@@ -4070,10 +6205,16 @@ between C1 and C2.
 
 For instance, to tell that there's a word boundary between Hiragana
 and Katakana (both are in the same script `kana'),
-the element `(?H . ?K)' should be in this list."#),
-    (r#"word-separating-categories"#, r#"List of pairs (cons cells) of categories to determine word boundary.
-See the documentation of the variable `word-combining-categories'."#),
-    (r#"word-wrap-by-category"#, r#"
+the element `(?H . ?K)' should be in this list."#,
+    ),
+    (
+        r#"word-separating-categories"#,
+        r#"List of pairs (cons cells) of categories to determine word boundary.
+See the documentation of the variable `word-combining-categories'."#,
+    ),
+    (
+        r#"word-wrap-by-category"#,
+        r#"
     Non-nil means also wrap after characters of a certain category.
 Normally when `word-wrap' is on, Emacs only breaks lines after
 whitespace characters.  When this option is turned on, Emacs also
@@ -4087,17 +6228,26 @@ kinsoku.el.  When kinsoku.el is loaded, Emacs respects kinsoku rules
 when breaking lines.  That means characters with the ">" category
 don't appear at the beginning of a line (e.g., FULLWIDTH COMMA), and
 characters with the "<" category don't appear at the end of a line
-(e.g., LEFT DOUBLE ANGLE BRACKET)."#),
-    (r#"words-include-escapes"#, r#"Non-nil means `forward-word', etc., should treat escape chars part of words."#),
-    (r#"wrap-prefix"#, r#"Prefix prepended to all continuation lines at display time.
+(e.g., LEFT DOUBLE ANGLE BRACKET)."#,
+    ),
+    (
+        r#"words-include-escapes"#,
+        r#"Non-nil means `forward-word', etc., should treat escape chars part of words."#,
+    ),
+    (
+        r#"wrap-prefix"#,
+        r#"Prefix prepended to all continuation lines at display time.
 The value may be a string, an image, or a stretch-glyph; it is
 interpreted in the same way as the value of a `display' text property.
 
 This variable is overridden by any `wrap-prefix' text or overlay
 property.
 
-To add a prefix to non-continuation lines, use `line-prefix'."#),
-    (r#"write-region-annotate-functions"#, r#"A list of functions to be called at the start of `write-region'.
+To add a prefix to non-continuation lines, use `line-prefix'."#,
+    ),
+    (
+        r#"write-region-annotate-functions"#,
+        r#"A list of functions to be called at the start of `write-region'.
 Each is passed two arguments, START and END as for `write-region'.
 These are usually two numbers but not always; see the documentation
 for `write-region'.  The function should return a list of pairs
@@ -4118,24 +6268,36 @@ resets START and END to `point-min' and `point-max' of the new buffer.
 After `write-region' completes, Emacs calls the function stored in
 `write-region-post-annotation-function', once for each buffer that was
 current when building the annotations (i.e., at least once), with that
-buffer current."#),
-    (r#"write-region-annotations-so-far"#, r#"When an annotation function is called, this holds the previous annotations.
+buffer current."#,
+    ),
+    (
+        r#"write-region-annotations-so-far"#,
+        r#"When an annotation function is called, this holds the previous annotations.
 These are the annotations made by other annotation functions
-that were already called.  See also `write-region-annotate-functions'."#),
-    (r#"write-region-inhibit-fsync"#, r#"Non-nil means don't call fsync in `write-region'.
+that were already called.  See also `write-region-annotate-functions'."#,
+    ),
+    (
+        r#"write-region-inhibit-fsync"#,
+        r#"Non-nil means don't call fsync in `write-region'.
 This variable affects calls to `write-region' as well as save commands.
 By default, it is non-nil.
 
 Although setting this to nil may avoid data loss if the system loses power,
 it can be a significant performance hit in the usual case, and it doesn't
-necessarily cause file-save operations to actually survive a crash."#),
-    (r#"write-region-post-annotation-function"#, r#"Function to call after `write-region' completes.
+necessarily cause file-save operations to actually survive a crash."#,
+    ),
+    (
+        r#"write-region-post-annotation-function"#,
+        r#"Function to call after `write-region' completes.
 The function is called with no arguments.  If one or more of the
 annotation functions in `write-region-annotate-functions' changed the
 current buffer, the function stored in this variable is called for
 each of those additional buffers as well, in addition to the original
-buffer.  The relevant buffer is current during each function call."#),
-    (r#"x-allow-focus-stealing"#, r#"How to bypass window manager focus stealing prevention.
+buffer.  The relevant buffer is current during each function call."#,
+    ),
+    (
+        r#"x-allow-focus-stealing"#,
+        r#"How to bypass window manager focus stealing prevention.
 
 Some window managers prevent `x-focus-frame' from activating the given
 frame when Emacs is in the background, which is especially prone to
@@ -4157,44 +6319,71 @@ not bypass window manager focus stealing prevention):
     from the X server and use it to activate the frame.
 
   - The symbol `raise-and-focus', which means to raise the window and
-    focus it manually."#),
+    focus it manually."#,
+    ),
     (r#"x-alt-keysym"#, r#"SKIP: real doc in xterm.c."#),
-    (r#"x-auto-preserve-selections"#, r#"Whether or not to transfer selection ownership when deleting a frame.
+    (
+        r#"x-auto-preserve-selections"#,
+        r#"Whether or not to transfer selection ownership when deleting a frame.
 When non-nil, deleting a frame that is currently the owner of a
 selection will cause its ownership to be transferred to another frame
 on the same display.
 
 In addition, when this variable is a list, only preserve the
-selections whose names are contained within."#),
-    (r#"x-bitmap-file-path"#, r#"List of directories to search for window system bitmap files."#),
-    (r#"x-color-cache-bucket-size"#, r#"Max number of buckets allowed per display in the internal color cache.
-Values less than 1 mean 128.  This option is for debugging only."#),
+selections whose names are contained within."#,
+    ),
+    (
+        r#"x-bitmap-file-path"#,
+        r#"List of directories to search for window system bitmap files."#,
+    ),
+    (
+        r#"x-color-cache-bucket-size"#,
+        r#"Max number of buckets allowed per display in the internal color cache.
+Values less than 1 mean 128.  This option is for debugging only."#,
+    ),
     (r#"x-ctrl-keysym"#, r#"SKIP: real doc in xterm.c."#),
     (r#"x-cursor-fore-pixel"#, r#"SKIP: real doc in xfns.c."#),
-    (r#"x-detect-server-trust"#, r#"If non-nil, Emacs should detect whether or not it is trusted by X.
+    (
+        r#"x-detect-server-trust"#,
+        r#"If non-nil, Emacs should detect whether or not it is trusted by X.
 
 If non-nil, Emacs will make an X request at connection startup that is
 prohibited to untrusted clients under the X Security Extension and
 check whether or not a resulting Access error is generated by the X
 server.  If the X server reports the error, Emacs will disable certain
-features that do not work for untrusted clients."#),
-    (r#"x-dnd-disable-motif-drag"#, r#"Disable the Motif drag protocol during DND.
+features that do not work for untrusted clients."#,
+    ),
+    (
+        r#"x-dnd-disable-motif-drag"#,
+        r#"Disable the Motif drag protocol during DND.
 This reduces network usage, but also means you can no longer scroll
 around inside the Motif window underneath the cursor during
-drag-and-drop."#),
-    (r#"x-dnd-disable-motif-protocol"#, r#"Disable the Motif drag-and-drop protocols.
+drag-and-drop."#,
+    ),
+    (
+        r#"x-dnd-disable-motif-protocol"#,
+        r#"Disable the Motif drag-and-drop protocols.
 When non-nil, `x-begin-drag' will not drop onto any window that only
-supports the Motif drag-and-drop protocols."#),
-    (r#"x-dnd-fix-motif-leave"#, r#"Work around Motif bug during drag-and-drop.
+supports the Motif drag-and-drop protocols."#,
+    ),
+    (
+        r#"x-dnd-fix-motif-leave"#,
+        r#"Work around Motif bug during drag-and-drop.
 When non-nil, Emacs will send a motion event containing impossible
 coordinates to a Motif drop receiver when the mouse moves outside it
 during a drag-and-drop session, to work around broken implementations
-of Motif."#),
-    (r#"x-dnd-movement-function"#, r#"Function called upon mouse movement on a frame during drag-and-drop.
+of Motif."#,
+    ),
+    (
+        r#"x-dnd-movement-function"#,
+        r#"Function called upon mouse movement on a frame during drag-and-drop.
 It should either be nil, or accept two arguments FRAME and POSITION,
 where FRAME is the frame the mouse is on top of, and POSITION is a
-mouse position list."#),
-    (r#"x-dnd-native-test-function"#, r#"Function that determines return value of drag-and-drop on Emacs frames.
+mouse position list."#,
+    ),
+    (
+        r#"x-dnd-native-test-function"#,
+        r#"Function that determines return value of drag-and-drop on Emacs frames.
 If the value is a function, `x-begin-drag' will call it with two
 arguments, POS and ACTION, where POS is a mouse position list
 that specifies the location of the drop, and ACTION is the
@@ -4203,16 +6392,25 @@ should return a symbol describing what to return from
 `x-begin-drag' if the drop happens on an Emacs frame.
 
 If the value is nil, or the function returns a value that is not
-a symbol, a drop on an Emacs frame will be canceled."#),
-    (r#"x-dnd-preserve-selection-data"#, r#"Preserve selection data after `x-begin-drag' returns.
+a symbol, a drop on an Emacs frame will be canceled."#,
+    ),
+    (
+        r#"x-dnd-preserve-selection-data"#,
+        r#"Preserve selection data after `x-begin-drag' returns.
 This lets you inspect the contents of `XdndSelection' after a
 drag-and-drop operation, which is useful when writing tests for
-drag-and-drop code."#),
-    (r#"x-dnd-targets-list"#, r#"List of drag-and-drop targets.
+drag-and-drop code."#,
+    ),
+    (
+        r#"x-dnd-targets-list"#,
+        r#"List of drag-and-drop targets.
 This variable contains the list of drag-and-drop selection targets
 during a drag-and-drop operation, in the same format as the TARGET
-argument to `x-begin-drag'."#),
-    (r#"x-dnd-unsupported-drop-function"#, r#"Function called when trying to drop on an unsupported window.
+argument to `x-begin-drag'."#,
+    ),
+    (
+        r#"x-dnd-unsupported-drop-function"#,
+        r#"Function called when trying to drop on an unsupported window.
 This function is called whenever the user tries to drop something on a
 window that does not support either the XDND or Motif protocols for
 drag-and-drop.  It should return a non-nil value if the drop was
@@ -4229,32 +6427,47 @@ LOCAL-SELECTION is the contents of the `XdndSelection' when
 function `x-get-local-selection'.
 
 If a symbol is returned, then it will be used as the return value of
-`x-begin-drag'."#),
-    (r#"x-dnd-use-unsupported-drop"#, r#"Enable the emulation of drag-and-drop based on the primary selection.
+`x-begin-drag'."#,
+    ),
+    (
+        r#"x-dnd-use-unsupported-drop"#,
+        r#"Enable the emulation of drag-and-drop based on the primary selection.
 When nil, do not use the primary selection and synthetic mouse clicks
 to emulate the drag-and-drop of `STRING', `UTF8_STRING',
-`COMPOUND_TEXT' or `TEXT'."#),
-    (r#"x-dnd-wheel-function"#, r#"Function called upon wheel movement on a frame during drag-and-drop.
+`COMPOUND_TEXT' or `TEXT'."#,
+    ),
+    (
+        r#"x-dnd-wheel-function"#,
+        r#"Function called upon wheel movement on a frame during drag-and-drop.
 It should either be nil, or accept four arguments POSITION, BUTTON,
 STATE and TIME, where POSITION is a mouse position list describing
 where the wheel moved, BUTTON is the wheel button that was pressed,
 STATE is the X modifier state at the time of the wheel movement, and
-TIME is the X server time at which the wheel moved."#),
-    (r#"x-fast-protocol-requests"#, r#"Whether or not X protocol-related functions should wait for errors.
+TIME is the X server time at which the wheel moved."#,
+    ),
+    (
+        r#"x-fast-protocol-requests"#,
+        r#"Whether or not X protocol-related functions should wait for errors.
 When this is nil, functions such as `x-delete-window-property',
 `x-change-window-property' and `x-send-client-message' will wait for a
 reply from the X server, and signal any errors that occurred while
 executing the protocol request.  Otherwise, errors will be silently
-ignored without waiting, which is generally faster."#),
-    (r#"x-fast-selection-list"#, r#"List of selections for which `x-selection-exists-p' should be fast.
+ignored without waiting, which is generally faster."#,
+    ),
+    (
+        r#"x-fast-selection-list"#,
+        r#"List of selections for which `x-selection-exists-p' should be fast.
 
 List of selection names as atoms that will be monitored by Emacs for
 ownership changes when the X server supports the XFIXES extension.
 The result of the monitoring is then used by `x-selection-exists-p' to
 avoid a server round trip, which is important as it is called while
 updating the tool bar.  The value of this variable is only read upon
-connection setup."#),
-    (r#"x-frame-normalize-before-maximize"#, r#"Non-nil means normalize frame before maximizing.
+connection setup."#,
+    ),
+    (
+        r#"x-frame-normalize-before-maximize"#,
+        r#"Non-nil means normalize frame before maximizing.
 If this variable is t, Emacs first asks the window manager to give the
 frame its normal size, and only then the final state, whenever changing
 from a full-height, full-width or full-both state to the maximized one
@@ -4262,9 +6475,15 @@ or when changing from the maximized to the full-height or full-width
 state.
 
 Set this variable only if your window manager cannot handle the
-transition between the various maximization states."#),
-    (r#"x-gtk-file-dialog-help-text"#, r#"SKIP: real doc in xfns.c."#),
-    (r#"x-gtk-resize-child-frames"#, r#"If non-nil, resize child frames specially with GTK builds.
+transition between the various maximization states."#,
+    ),
+    (
+        r#"x-gtk-file-dialog-help-text"#,
+        r#"SKIP: real doc in xfns.c."#,
+    ),
+    (
+        r#"x-gtk-resize-child-frames"#,
+        r#"If non-nil, resize child frames specially with GTK builds.
 If this is nil, resize child frames like any other frames.  This is the
 default and usually works with most desktops.  Some desktop environments
 (GNOME shell in particular when using the mutter window manager),
@@ -4282,36 +6501,63 @@ It also may freeze Emacs when used with other desktop environments.  It
 avoids, however, the unpleasant flicker induced by the hiding approach.
 
 This variable is considered a temporary workaround and will be hopefully
-eliminated in future versions of Emacs."#),
+eliminated in future versions of Emacs."#,
+    ),
     (r#"x-gtk-show-hidden-files"#, r#"SKIP: real doc in xfns.c."#),
-    (r#"x-gtk-use-native-input"#, r#"Non-nil means to use GTK for input method support.
+    (
+        r#"x-gtk-use-native-input"#,
+        r#"Non-nil means to use GTK for input method support.
 This provides better support for some modern input methods, and is
-only effective when Emacs is built with GTK."#),
-    (r#"x-gtk-use-old-file-dialog"#, r#"SKIP: real doc in xfns.c."#),
-    (r#"x-gtk-use-window-move"#, r#"Non-nil means rely on gtk_window_move to set frame positions.
+only effective when Emacs is built with GTK."#,
+    ),
+    (
+        r#"x-gtk-use-old-file-dialog"#,
+        r#"SKIP: real doc in xfns.c."#,
+    ),
+    (
+        r#"x-gtk-use-window-move"#,
+        r#"Non-nil means rely on gtk_window_move to set frame positions.
 If this variable is t (the default), the GTK build uses the function
 gtk_window_move to set or store frame positions and disables some time
 consuming frame position adjustments.  In newer versions of GTK, Emacs
-always uses gtk_window_move and ignores the value of this variable."#),
-    (r#"x-hourglass-pointer-shape"#, r#"SKIP: real text in xfns.c."#),
+always uses gtk_window_move and ignores the value of this variable."#,
+    ),
+    (
+        r#"x-hourglass-pointer-shape"#,
+        r#"SKIP: real text in xfns.c."#,
+    ),
     (r#"x-hyper-keysym"#, r#"SKIP: real doc in xterm.c."#),
-    (r#"x-input-coding-function"#, r#"Function used to determine the coding system used by input methods.
+    (
+        r#"x-input-coding-function"#,
+        r#"Function used to determine the coding system used by input methods.
 It should accept a single argument, a string describing the locale of
 the input method, and return a coding system that can decode keyboard
-input generated by said input method."#),
-    (r#"x-input-coding-system"#, r#"Coding system used for input from X input methods.
+input generated by said input method."#,
+    ),
+    (
+        r#"x-input-coding-system"#,
+        r#"Coding system used for input from X input methods.
 If a symbol and non-nil, this is the coding system that will be used
 to decode input from X input methods.  It does not affect input from
-GTK native input methods enabled through `x-gtk-use-native-input'."#),
-    (r#"x-input-grab-touch-events"#, r#"Non-nil means to actively grab touch events.
+GTK native input methods enabled through `x-gtk-use-native-input'."#,
+    ),
+    (
+        r#"x-input-grab-touch-events"#,
+        r#"Non-nil means to actively grab touch events.
 This means touch sequences that are obtained through a passive grab on
 an Emacs frame (or a parent window of such a frame) will reliably
 continue to receive updates, but may cause crashes with some window
 managers and/or external programs.  Changing this option is only
 useful when other programs are making their own X requests pertaining
-to the window hierarchy of an Emacs frame."#),
-    (r#"x-keysym-table"#, r#"Hash table of character codes indexed by X keysym codes."#),
-    (r#"x-lax-frame-positioning"#, r#"If non-nil, Emacs won't compensate for WM geometry behavior.
+to the window hierarchy of an Emacs frame."#,
+    ),
+    (
+        r#"x-keysym-table"#,
+        r#"Hash table of character codes indexed by X keysym codes."#,
+    ),
+    (
+        r#"x-lax-frame-positioning"#,
+        r#"If non-nil, Emacs won't compensate for WM geometry behavior.
 
 Setting this to non-nil is useful when the compensation proves to be
 too slow, which is usually true when the X server is located over a
@@ -4319,16 +6565,22 @@ network connection with high latency.  Doing so will make frame
 creation and placement faster at the cost of reducing the accuracy of
 frame placement via frame parameters, `set-frame-position', and
 `set-frame-size', along with the actual state of a frame after
-`x_make_frame_invisible'."#),
-    (r#"x-lost-selection-functions"#, r#"A list of functions to be called when Emacs loses an X selection.
+`x_make_frame_invisible'."#,
+    ),
+    (
+        r#"x-lost-selection-functions"#,
+        r#"A list of functions to be called when Emacs loses an X selection.
 \(This happens when some other X client makes its own selection
 or when a Lisp program explicitly clears the selection.)
 The functions are called with one argument, the selection type
-\(a symbol, typically `PRIMARY', `SECONDARY', or `CLIPBOARD')."#),
+\(a symbol, typically `PRIMARY', `SECONDARY', or `CLIPBOARD')."#,
+    ),
     (r#"x-max-tooltip-size"#, r#"SKIP: real doc in xfns.c."#),
     (r#"x-meta-keysym"#, r#"SKIP: real doc in xterm.c."#),
     (r#"x-mode-pointer-shape"#, r#"SKIP: real doc in xfns.c."#),
-    (r#"x-mouse-click-focus-ignore-position"#, r#"Non-nil means that a mouse click to focus a frame does not move point.
+    (
+        r#"x-mouse-click-focus-ignore-position"#,
+        r#"Non-nil means that a mouse click to focus a frame does not move point.
 This variable is used only when the window manager requires that you
 click on a frame to select it (give it focus).  In that case, a value
 of nil, means that the selected window and cursor position changes to
@@ -4338,23 +6590,38 @@ selected window or cursor position is preserved.
 This option works by ignoring button press events for a given amount
 of time after a frame might've been focused.  If it does not work for
 you, try increasing the value of
-`x-mouse-click-focus-ignore-time'."#),
-    (r#"x-mouse-click-focus-ignore-time"#, r#"Number of milliseconds for which to ignore buttons after focus change.
+`x-mouse-click-focus-ignore-time'."#,
+    ),
+    (
+        r#"x-mouse-click-focus-ignore-time"#,
+        r#"Number of milliseconds for which to ignore buttons after focus change.
 This variable only takes effect if
 `x-mouse-click-focus-ignore-position' is non-nil, and should be
-adjusted if the default value does not work for whatever reason."#),
+adjusted if the default value does not work for whatever reason."#,
+    ),
     (r#"x-no-window-manager"#, r#"SKIP: real doc in xfns.c."#),
     (r#"x-nontext-pointer-shape"#, r#"SKIP: real doc in xfns.c."#),
-    (r#"x-pixel-size-width-font-regexp"#, r#"SKIP: real doc in xfns.c."#),
+    (
+        r#"x-pixel-size-width-font-regexp"#,
+        r#"SKIP: real doc in xfns.c."#,
+    ),
     (r#"x-pointer-shape"#, r#"SKIP: real text in xfns.c."#),
-    (r#"x-popup-menu-function"#, r#"Function to call to pop up a menu.
+    (
+        r#"x-popup-menu-function"#,
+        r#"Function to call to pop up a menu.
  The function is called like `x-popup-menu'.  This is currently only
- used for frames on text terminals."#),
-    (r#"x-pre-popup-menu-hook"#, r#"Hook run before `x-popup-menu' displays a popup menu.
+ used for frames on text terminals."#,
+    ),
+    (
+        r#"x-pre-popup-menu-hook"#,
+        r#"Hook run before `x-popup-menu' displays a popup menu.
 It is only run before the menu is really going to be displayed.  It
 won't be run if `x-popup-menu' fails or returns for some other reason
-(such as the keymap is invalid)."#),
-    (r#"x-quit-keysym"#, r#"Keysyms which will cause Emacs to quit if rapidly pressed twice.
+(such as the keymap is invalid)."#,
+    ),
+    (
+        r#"x-quit-keysym"#,
+        r#"Keysyms which will cause Emacs to quit if rapidly pressed twice.
 
 This is used to support quitting on devices that do not have any kind
 of physical keyboard, or where the physical keyboard is incapable of
@@ -4364,8 +6631,11 @@ The value is an alist associating between strings, describing X server
 vendor names, and a single number describing the keysym to use.  The
 keysym to use for each display connection is determined upon
 connection setup, and does not reflect further changes to this
-variable."#),
-    (r#"x-resource-class"#, r#"The class Emacs uses to look up X resources.
+variable."#,
+    ),
+    (
+        r#"x-resource-class"#,
+        r#"The class Emacs uses to look up X resources.
 `x-get-resource' uses this as the first component of the instance class
 when requesting resource values.
 
@@ -4373,8 +6643,11 @@ Emacs initially sets `x-resource-class' to "Emacs".
 
 Setting this variable permanently is not a reasonable thing to do,
 but binding this variable locally around a call to `x-get-resource'
-is a reasonable practice.  See also the variable `x-resource-name'."#),
-    (r#"x-resource-name"#, r#"The name Emacs uses to look up X resources.
+is a reasonable practice.  See also the variable `x-resource-name'."#,
+    ),
+    (
+        r#"x-resource-name"#,
+        r#"The name Emacs uses to look up X resources.
 `x-get-resource' uses this as the first component of the instance name
 when requesting resource values.
 Emacs initially sets `x-resource-name' to the name under which Emacs
@@ -4382,26 +6655,44 @@ was invoked, or to the value specified with the `-name' or `-rn'
 switches, if present.
 
 It may be useful to bind this variable locally around a call
-to `x-get-resource'.  See also the variable `x-resource-class'."#),
-    (r#"x-scroll-event-delta-factor"#, r#"A scale to apply to pixel deltas reported in scroll events.
+to `x-get-resource'.  See also the variable `x-resource-class'."#,
+    ),
+    (
+        r#"x-scroll-event-delta-factor"#,
+        r#"A scale to apply to pixel deltas reported in scroll events.
 This option is only effective when Emacs is built with XInput 2
-support."#),
-    (r#"x-select-enable-clipboard-manager"#, r#"Whether to enable X clipboard manager support.
+support."#,
+    ),
+    (
+        r#"x-select-enable-clipboard-manager"#,
+        r#"Whether to enable X clipboard manager support.
 If non-nil, then whenever Emacs is killed or an Emacs frame is deleted
 while owning the X clipboard, the clipboard contents are saved to the
-clipboard manager if one is present."#),
-    (r#"x-selection-alias-alist"#, r#"List of selections to alias to another.
+clipboard manager if one is present."#,
+    ),
+    (
+        r#"x-selection-alias-alist"#,
+        r#"List of selections to alias to another.
 It should be an alist of a selection name to another.  When a
 selection request arrives for the first selection, Emacs will respond
 as if the request was meant for the other.
 
-Note that this does not affect setting or owning selections."#),
-    (r#"x-selection-timeout"#, r#"Number of milliseconds to wait for a selection reply.
+Note that this does not affect setting or owning selections."#,
+    ),
+    (
+        r#"x-selection-timeout"#,
+        r#"Number of milliseconds to wait for a selection reply.
 If the selection owner doesn't reply in this time, we give up.
 A value of 0 means wait as long as necessary.  This is initialized from the
-\"*selectionTimeout\" resource."#),
-    (r#"x-sensitive-text-pointer-shape"#, r#"SKIP: real text in xfns.c."#),
-    (r#"x-sent-selection-functions"#, r#"A list of functions to be called when Emacs answers a selection request.
+\"*selectionTimeout\" resource."#,
+    ),
+    (
+        r#"x-sensitive-text-pointer-shape"#,
+        r#"SKIP: real text in xfns.c."#,
+    ),
+    (
+        r#"x-sent-selection-functions"#,
+        r#"A list of functions to be called when Emacs answers a selection request.
 The functions are called with three arguments:
   - the selection name (typically `PRIMARY', `SECONDARY', or `CLIPBOARD');
   - the selection-type which Emacs was asked to convert the
@@ -4411,13 +6702,19 @@ We might have failed (and declined the request) for any number of reasons,
 including being asked for a selection that we no longer own, or being asked
 to convert into a type that we don't know about or that is inappropriate.
 This hook doesn't let you change the behavior of Emacs's selection replies,
-it merely informs you that they have happened."#),
-    (r#"x-session-id"#, r#"The session id Emacs got from the session manager for this session.
+it merely informs you that they have happened."#,
+    ),
+    (
+        r#"x-session-id"#,
+        r#"The session id Emacs got from the session manager for this session.
 Changing the value does not change the session id used by Emacs.
 The value is nil if no session manager is running.
 See also `x-session-previous-id', `emacs-save-session-functions',
-`emacs-session-save' and `emacs-session-restore'."#),
-    (r#"x-session-previous-id"#, r#"The previous session id Emacs got from session manager.
+`emacs-session-save' and `emacs-session-restore'."#,
+    ),
+    (
+        r#"x-session-previous-id"#,
+        r#"The previous session id Emacs got from session manager.
 If Emacs is running on a window system that has a session manager, the
 session manager gives Emacs a session id.  It is feasible for Emacs Lisp
 code to use the session id to save configuration in, for example, a file
@@ -4436,8 +6733,11 @@ The session id Emacs has while it is running is in the variable
 same, depending on how the session manager works.
 
 See also `emacs-save-session-functions', `emacs-session-save' and
-`emacs-session-restore'."#),
-    (r#"x-set-frame-visibility-more-laxly"#, r#"Non-nil means set frame visibility more laxly.
+`emacs-session-restore'."#,
+    ),
+    (
+        r#"x-set-frame-visibility-more-laxly"#,
+        r#"Non-nil means set frame visibility more laxly.
 If this is nil, Emacs is more strict when marking a frame as visible.
 Since this may cause problems on some window managers, this variable can
 be also set as follows: The value `focus-in' means to mark a frame as
@@ -4447,20 +6747,35 @@ event is received for it on any X build.  The value `t' means to mark a
 frame as visible in either of these two cases.
 
 Note that any non-nil setting may cause invisible frames get erroneously
-reported as iconified."#),
-    (r#"x-show-tooltip-timeout"#, r#"The default timeout (in seconds) for `x-show-tip'."#),
-    (r#"x-stretch-cursor"#, r#"Non-nil means draw block cursor as wide as the glyph under it.
+reported as iconified."#,
+    ),
+    (
+        r#"x-show-tooltip-timeout"#,
+        r#"The default timeout (in seconds) for `x-show-tip'."#,
+    ),
+    (
+        r#"x-stretch-cursor"#,
+        r#"Non-nil means draw block cursor as wide as the glyph under it.
 For example, if a block cursor is over a tab, it will be drawn as
-wide as that tab on the display."#),
+wide as that tab on the display."#,
+    ),
     (r#"x-super-keysym"#, r#"SKIP: real doc in xterm.c."#),
     (r#"x-toolkit-scroll-bars"#, r#"SKIP: real doc in xterm.c."#),
-    (r#"x-treat-local-requests-remotely"#, r#"Whether to treat local selection requests as remote ones.
+    (
+        r#"x-treat-local-requests-remotely"#,
+        r#"Whether to treat local selection requests as remote ones.
 
 If non-nil, selection converters for string types (`STRING',
 `UTF8_STRING', `COMPOUND_TEXT', etc) will encode the strings, even
-when Emacs itself is converting the selection."#),
-    (r#"x-underline-at-descent-line"#, r#"SKIP: real doc in xterm.c."#),
-    (r#"x-use-fast-mouse-position"#, r#"How to make `mouse-position' faster.
+when Emacs itself is converting the selection."#,
+    ),
+    (
+        r#"x-underline-at-descent-line"#,
+        r#"SKIP: real doc in xterm.c."#,
+    ),
+    (
+        r#"x-use-fast-mouse-position"#,
+        r#"How to make `mouse-position' faster.
 
 `mouse-position' and `mouse-pixel-position' default to querying the X
 server for the window under the mouse pointer.  This results in
@@ -4471,35 +6786,87 @@ usually faster.  Doing so improves the performance of dragging to
 select text over slow X connections.
 
 If that is still too slow, setting this variable to the symbol
-`really-fast' will make Emacs return only cached values."#),
-    (r#"x-use-underline-position-properties"#, r#"SKIP: real doc in xterm.c."#),
-    (r#"x-wait-for-event-timeout"#, r#"SKIP: real doc in xterm.c."#),
-    (r#"x-window-bottom-edge-cursor"#, r#"SKIP: real text in xfns.c."#),
-    (r#"x-window-bottom-left-corner-cursor"#, r#"SKIP: real text in xfns.c."#),
-    (r#"x-window-bottom-right-corner-cursor"#, r#"SKIP: real text in xfns.c."#),
-    (r#"x-window-horizontal-drag-cursor"#, r#"SKIP: real text in xfns.c."#),
-    (r#"x-window-left-edge-cursor"#, r#"SKIP: real text in xfns.c."#),
-    (r#"x-window-right-edge-cursor"#, r#"SKIP: real text in xfns.c."#),
-    (r#"x-window-top-edge-cursor"#, r#"SKIP: real text in xfns.c."#),
-    (r#"x-window-top-left-corner-cursor"#, r#"SKIP: real text in xfns.c."#),
-    (r#"x-window-top-right-corner-cursor"#, r#"SKIP: real text in xfns.c."#),
-    (r#"x-window-vertical-drag-cursor"#, r#"SKIP: real text in xfns.c."#),
-    (r#"xft-color-font-whitelist"#, r#"List of "color" font families that don't actually have color glyphs.
+`really-fast' will make Emacs return only cached values."#,
+    ),
+    (
+        r#"x-use-underline-position-properties"#,
+        r#"SKIP: real doc in xterm.c."#,
+    ),
+    (
+        r#"x-wait-for-event-timeout"#,
+        r#"SKIP: real doc in xterm.c."#,
+    ),
+    (
+        r#"x-window-bottom-edge-cursor"#,
+        r#"SKIP: real text in xfns.c."#,
+    ),
+    (
+        r#"x-window-bottom-left-corner-cursor"#,
+        r#"SKIP: real text in xfns.c."#,
+    ),
+    (
+        r#"x-window-bottom-right-corner-cursor"#,
+        r#"SKIP: real text in xfns.c."#,
+    ),
+    (
+        r#"x-window-horizontal-drag-cursor"#,
+        r#"SKIP: real text in xfns.c."#,
+    ),
+    (
+        r#"x-window-left-edge-cursor"#,
+        r#"SKIP: real text in xfns.c."#,
+    ),
+    (
+        r#"x-window-right-edge-cursor"#,
+        r#"SKIP: real text in xfns.c."#,
+    ),
+    (
+        r#"x-window-top-edge-cursor"#,
+        r#"SKIP: real text in xfns.c."#,
+    ),
+    (
+        r#"x-window-top-left-corner-cursor"#,
+        r#"SKIP: real text in xfns.c."#,
+    ),
+    (
+        r#"x-window-top-right-corner-cursor"#,
+        r#"SKIP: real text in xfns.c."#,
+    ),
+    (
+        r#"x-window-vertical-drag-cursor"#,
+        r#"SKIP: real text in xfns.c."#,
+    ),
+    (
+        r#"xft-color-font-whitelist"#,
+        r#"List of "color" font families that don't actually have color glyphs.
 Some fonts (such as Source Code Pro) are reported as color fonts, but
 do not actually have glyphs with colors that can cause Xft crashes.
 
 The font families in this list will not be ignored when
-`xft-ignore-color-fonts' is non-nil."#),
-    (r#"xft-ignore-color-fonts"#, r#"
+`xft-ignore-color-fonts' is non-nil."#,
+    ),
+    (
+        r#"xft-ignore-color-fonts"#,
+        r#"
 Non-nil means don't query fontconfig for color fonts, since they often
-cause Xft crashes.  Only has an effect in Xft builds."#),
+cause Xft crashes.  Only has an effect in Xft builds."#,
+    ),
     (r#"xft-settings"#, r#"Font settings applied to Xft."#),
-    (r#"xwidget-list"#, r#"List of all xwidgets that have not been killed."#),
+    (
+        r#"xwidget-list"#,
+        r#"List of all xwidgets that have not been killed."#,
+    ),
     (r#"xwidget-view-list"#, r#"List of all xwidget views."#),
-    (r#"xwidget-webkit-disable-javascript"#, r#"If non-nil, disable execution of JavaScript in xwidget WebKit widgets.
+    (
+        r#"xwidget-webkit-disable-javascript"#,
+        r#"If non-nil, disable execution of JavaScript in xwidget WebKit widgets.
 Modifications to this setting do not take effect in existing WebKit
 widgets; kill all xwidget-webkit buffers for changes in this setting
-to take effect."#),
-    (r#"yes-or-no-prompt"#, r#"String to append when `yes-or-no-p' asks a question.
-For best results this should end in a space."#),
+to take effect."#,
+    ),
+    (
+        r#"yes-or-no-prompt"#,
+        r#"String to append when `yes-or-no-p' asks a question.
+For best results this should end in a space."#,
+    ),
 ];

@@ -1106,9 +1106,7 @@ pub(crate) fn find_local_var_alist_entry(
     while cursor.is_cons() {
         let entry = cursor.cons_car();
         cursor = cursor.cons_cdr();
-        if entry.is_cons()
-            && crate::emacs_core::value::eq_value(&entry.cons_car(), &key)
-        {
+        if entry.is_cons() && crate::emacs_core::value::eq_value(&entry.cons_car(), &key) {
             return Some(entry.cons_cdr());
         }
     }
@@ -1212,7 +1210,11 @@ pub(crate) fn coerce_to_slot(
             _ => current,
         },
         "booleanp" => {
-            if value.is_truthy() { Value::T } else { Value::NIL }
+            if value.is_truthy() {
+                Value::T
+            } else {
+                Value::NIL
+            }
         }
         _ => value,
     }
@@ -1555,8 +1557,7 @@ impl Buffer {
     /// Write `enable-multibyte-characters`. `true` stores
     /// `Value::T`, `false` stores `Value::NIL`.
     pub fn set_multibyte_value(&mut self, v: bool) {
-        self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS] =
-            if v { Value::T } else { Value::NIL };
+        self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS] = if v { Value::T } else { Value::NIL };
     }
 
     // -- Point queries -------------------------------------------------------
@@ -2439,8 +2440,7 @@ impl Buffer {
         // `get_buffer_local_binding` when the Bound/Void/absent
         // distinction matters.
         let key = Value::from_sym_id(crate::emacs_core::intern::intern(name));
-        find_local_var_alist_entry(self.local_var_alist, key)
-            .filter(|v| !v.is_unbound())
+        find_local_var_alist_entry(self.local_var_alist, key).filter(|v| !v.is_unbound())
     }
 
     /// Walk this buffer's `local_var_alist` for an `(sym . val)`
@@ -2455,9 +2455,7 @@ impl Buffer {
         let mut alist = self.local_var_alist;
         while alist.is_cons() {
             let entry = alist.cons_car();
-            if entry.is_cons()
-                && crate::emacs_core::value::eq_value(&entry.cons_car(), &key)
-            {
+            if entry.is_cons() && crate::emacs_core::value::eq_value(&entry.cons_car(), &key) {
                 return Some(entry.cons_cdr());
             }
             alist = alist.cons_cdr();
@@ -5127,10 +5125,7 @@ mod tests {
             .expect("indirect buffer");
         let _ = mgr.insert_into_buffer(base_id, "abc");
 
-        let shared = mgr
-            .get(base_id)
-            .expect("base buffer")
-            .get_undo_list();
+        let shared = mgr.get(base_id).expect("base buffer").get_undo_list();
         assert_eq!(
             mgr.get(indirect_id)
                 .expect("indirect buffer")

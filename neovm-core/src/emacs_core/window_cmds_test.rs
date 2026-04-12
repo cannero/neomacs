@@ -321,7 +321,7 @@ fn window_at_matches_batch_coordinate_and_error_semantics() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(windowp (window-at 0 0))
+            "(windowp (window-at 0 0))
          (windowp (window-at 79 0))
          (null (window-at 80 0))
          (windowp (window-at 0 23))
@@ -337,7 +337,7 @@ fn window_at_matches_batch_coordinate_and_error_semantics() {
          (condition-case err (window-at 0 0 999999) (error err))
          (condition-case err (window-at 0) (error (car err)))
          (condition-case err (window-at 0 0 nil nil) (error (car err)))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -365,13 +365,13 @@ fn window_frame_arity_and_designators() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(framep (window-frame))
+            "(framep (window-frame))
          (framep (window-frame nil))
          (framep (window-frame (selected-window)))
          (condition-case err (window-frame \"x\") (error err))
          (condition-case err (window-frame 999999) (error err))
          (condition-case err (window-frame nil nil) (error (car err)))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -389,14 +389,14 @@ fn window_designators_bootstrap_nil_and_validate_invalid_window_handles() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(window-start nil)
+            "(window-start nil)
          (window-point nil)
          (window-buffer nil)
          (condition-case err (window-start 999999) (error err))
          (condition-case err (window-buffer 999999) (error err))
          (condition-case err (set-window-start nil 1) (error err))
          (condition-case err (set-window-point nil 1) (error err))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -563,7 +563,7 @@ fn set_window_start_point_and_group_start_accept_marker_positions() {
     let mut ev = runtime_startup_context();
     let out = ev
         .eval_str_each(
-        "(let* ((w (selected-window))
+            "(let* ((w (selected-window))
                 (m (with-current-buffer (window-buffer w)
                      (erase-buffer)
                      (insert \"abcdef\")
@@ -668,7 +668,7 @@ fn set_window_start_point_and_group_start_accept_marker_positions() {
                (condition-case err (set-window-start nil 'foo) (error err))
                (condition-case err (set-window-point nil 'foo) (error err))
                (condition-case err (set-window-group-start nil 'foo) (error err)))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -869,13 +869,13 @@ fn gui_set_window_buffer_applies_buffer_local_display_defaults() {
 
     let out = ev
         .eval_str_each(
-        "(let ((w (selected-window)))
+            "(let ((w (selected-window)))
            (set-window-buffer w \" *gui-swb-display*\")
            (list (window-fringes w)
                  (window-scroll-bars w)
                  (window-scroll-bar-width w)
                  (window-scroll-bar-height w)))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -1031,7 +1031,7 @@ fn window_list_matches_frame_minibuffer_and_all_frames_batch_semantics() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(condition-case err (length (window-list)) (error err))
+            "(condition-case err (length (window-list)) (error err))
          (condition-case err (length (window-list (selected-frame))) (error err))
          (condition-case err (window-list 999999) (error err))
          (condition-case err (window-list 'foo) (error err))
@@ -1043,7 +1043,7 @@ fn window_list_matches_frame_minibuffer_and_all_frames_batch_semantics() {
          (length (window-list (selected-frame) t))
          (length (window-list nil nil (selected-window)))
          (length (window-list nil t (selected-window)))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -1067,7 +1067,7 @@ fn minibuffer_window_from_window_list_supports_basic_accessors() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(let ((m (car (nthcdr (1- (length (window-list nil t))) (window-list nil t)))))
+            "(let ((m (car (nthcdr (1- (length (window-list nil t))) (window-list nil t)))))
            (list (window-live-p m)
                  (windowp m)
                  (buffer-name (window-buffer m))
@@ -1081,7 +1081,7 @@ fn minibuffer_window_from_window_list_supports_basic_accessors() {
          (let ((m (car (nthcdr (1- (length (window-list nil t))) (window-list nil t)))))
            (set-window-point m 8)
            (window-point m))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -1103,13 +1103,13 @@ fn window_accessors_enforce_max_arity() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(condition-case err (window-buffer nil nil) (error (car err)))
+            "(condition-case err (window-buffer nil nil) (error (car err)))
          (condition-case err (window-start nil nil) (error (car err)))
          (condition-case err (window-end nil nil nil) (error (car err)))
          (condition-case err (window-point nil nil) (error (car err)))
          (condition-case err (window-dedicated-p nil nil) (error (car err)))
          (condition-case err (set-window-start nil 1 nil nil) (error (car err)))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -1138,13 +1138,13 @@ fn set_window_dedicated_p_bootstraps_nil_and_validates_designators() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(condition-case err (set-window-dedicated-p nil t) (error err))
+            "(condition-case err (set-window-dedicated-p nil t) (error err))
          (window-dedicated-p nil)
          (condition-case err (set-window-dedicated-p 'foo t) (error err))
          (condition-case err (set-window-dedicated-p 999999 t) (error err))
          (condition-case err (set-window-dedicated-p nil nil) (error err))
          (window-dedicated-p nil)",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -1175,12 +1175,12 @@ fn split_window_internal_enforces_arity() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(condition-case err
+            "(condition-case err
              (split-window-internal (selected-window) nil nil nil nil nil)
            (error (car err)))
          (let ((w (split-window-internal (selected-window) nil nil nil)))
            (window-live-p w))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -1324,12 +1324,12 @@ fn select_window_validates_designators_and_arity() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(condition-case err (select-window nil) (error err))
+            "(condition-case err (select-window nil) (error err))
          (condition-case err (select-window 'foo) (error err))
          (condition-case err (select-window 999999) (error err))
          (windowp (select-window (selected-window)))
          (condition-case err (select-window (selected-window) nil nil) (error (car err)))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -1505,7 +1505,7 @@ fn window_size_queries_match_batch_defaults_and_invalid_window_predicates() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(window-total-height nil)
+            "(window-total-height nil)
          (window-total-width nil)
          (window-body-height nil)
          (window-body-width nil)
@@ -1513,7 +1513,7 @@ fn window_size_queries_match_batch_defaults_and_invalid_window_predicates() {
          (condition-case err (window-total-width 999999) (error err))
          (condition-case err (window-body-height 999999) (error err))
          (condition-case err (window-body-width 999999) (error err))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -1533,7 +1533,7 @@ fn window_geometry_helper_queries_match_batch_defaults_and_error_predicates() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(let* ((w (selected-window))
+            "(let* ((w (selected-window))
                 (m (minibuffer-window)))
            (list (window-left-column w)
                  (window-left-column m)
@@ -1559,7 +1559,7 @@ fn window_geometry_helper_queries_match_batch_defaults_and_error_predicates() {
                (condition-case err (window-margins nil nil) (error err))
                (condition-case err (window-fringes nil nil) (error err))
                (condition-case err (window-scroll-bars nil nil) (error err)))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -1579,7 +1579,7 @@ fn window_use_time_and_old_state_queries_match_batch_defaults_and_error_predicat
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(let* ((w (selected-window))
+            "(let* ((w (selected-window))
                 (m (minibuffer-window)))
            (list (window-use-time w)
                  (window-use-time m)
@@ -1616,7 +1616,7 @@ fn window_use_time_and_old_state_queries_match_batch_defaults_and_error_predicat
                (condition-case err (window-old-buffer nil nil) (error err))
                (condition-case err (window-prev-buffers nil nil) (error err))
                (condition-case err (window-next-buffers nil nil) (error err)))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -1634,7 +1634,7 @@ fn window_bump_use_time_tracks_second_most_recent_window() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(let* ((w1 (selected-window))
+            "(let* ((w1 (selected-window))
                 (w2 (split-window-internal (selected-window) nil nil nil)))
            (list (window-use-time w1)
                  (window-use-time w2)
@@ -1647,7 +1647,7 @@ fn window_bump_use_time_tracks_second_most_recent_window() {
                (let ((w (split-window-internal (selected-window) nil nil nil)))
                  (delete-window w)
                  (condition-case err (window-bump-use-time w) (error (car err)))))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -1664,7 +1664,7 @@ fn window_bump_use_time_shared_state_smoke() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(let* ((w1 (selected-window))
+            "(let* ((w1 (selected-window))
                 (w2 (split-window-internal (selected-window) nil nil nil)))
            (list (window-use-time w1)
                  (window-use-time w2)
@@ -1674,7 +1674,7 @@ fn window_bump_use_time_shared_state_smoke() {
                  (window-bump-use-time w1)))
          (list (condition-case err (window-bump-use-time 1) (error err))
                (condition-case err (window-bump-use-time nil nil) (error err)))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -1691,7 +1691,7 @@ fn window_vscroll_helpers_match_batch_defaults_and_error_predicates() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(let* ((w (selected-window))
+            "(let* ((w (selected-window))
                 (m (minibuffer-window)))
            (list (window-vscroll w)
                  (window-vscroll m)
@@ -1714,7 +1714,7 @@ fn window_vscroll_helpers_match_batch_defaults_and_error_predicates() {
            (delete-window w)
            (list (condition-case err (window-vscroll w) (error (car err)))
                  (condition-case err (set-window-vscroll w 1) (error (car err)))))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -1732,7 +1732,7 @@ fn window_scroll_state_shared_state_smoke() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(let* ((w (selected-window))
+            "(let* ((w (selected-window))
                 (m (minibuffer-window)))
            (list (window-vscroll w)
                  (window-vscroll m)
@@ -1771,7 +1771,7 @@ fn window_scroll_state_shared_state_smoke() {
                  (set-window-scroll-bars w nil nil nil nil)
                  (set-window-scroll-bars w 'left)
                  (window-scroll-bars w)))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -1787,7 +1787,7 @@ fn window_hscroll_and_margin_setters_match_batch_defaults_and_error_predicates()
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(let* ((w (selected-window))
+            "(let* ((w (selected-window))
                 (m (minibuffer-window)))
            (list (window-hscroll w)
                  (set-window-hscroll w 3)
@@ -1830,7 +1830,7 @@ fn window_hscroll_and_margin_setters_match_batch_defaults_and_error_predicates()
            (delete-window w)
            (list (condition-case err (set-window-hscroll w 1) (error (car err)))
                  (condition-case err (set-window-margins w 1 2) (error (car err)))))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -1851,7 +1851,7 @@ fn window_fringes_and_scroll_bar_setters_match_batch_defaults_and_error_predicat
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(let* ((w (selected-window))
+            "(let* ((w (selected-window))
                 (m (minibuffer-window)))
            (list (window-fringes w)
                  (window-fringes m)
@@ -1882,7 +1882,7 @@ fn window_fringes_and_scroll_bar_setters_match_batch_defaults_and_error_predicat
            (delete-window w)
            (list (condition-case err (set-window-fringes w 0 0) (error (car err)))
                  (condition-case err (set-window-scroll-bars w nil) (error (car err)))))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -1903,7 +1903,7 @@ fn window_parameter_helpers_match_batch_defaults_and_key_semantics() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(let* ((w (selected-window))
+            "(let* ((w (selected-window))
                 (m (minibuffer-window)))
            (list (window-parameters w)
                  (window-parameters m)
@@ -1931,7 +1931,7 @@ fn window_parameter_helpers_match_batch_defaults_and_key_semantics() {
                (condition-case err (window-parameters nil nil) (error err))
                (condition-case err (window-parameter 'foo 'bar) (error err))
                (condition-case err (set-window-parameter 'foo 'bar 'baz) (error err)))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -1951,7 +1951,7 @@ fn window_display_table_helpers_match_batch_defaults_and_set_get_semantics() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(let* ((w (selected-window))
+            "(let* ((w (selected-window))
                 (m (minibuffer-window))
                 (dt '(1 2 3)))
            (list (null (window-display-table w))
@@ -1976,7 +1976,7 @@ fn window_display_table_helpers_match_batch_defaults_and_set_get_semantics() {
            (delete-window w)
            (list (condition-case err (window-display-table w) (error (car err)))
                  (condition-case err (set-window-display-table w nil) (error (car err)))))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -1994,7 +1994,7 @@ fn window_cursor_type_helpers_match_batch_defaults_and_set_get_semantics() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(let* ((w (selected-window))
+            "(let* ((w (selected-window))
                 (m (minibuffer-window)))
            (list (window-cursor-type w)
                  (window-cursor-type m)
@@ -2019,7 +2019,7 @@ fn window_cursor_type_helpers_match_batch_defaults_and_set_get_semantics() {
            (delete-window w)
            (list (condition-case err (window-cursor-type w) (error (car err)))
                  (condition-case err (set-window-cursor-type w nil) (error (car err)))))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -2157,7 +2157,7 @@ fn window_metadata_shared_state_smoke() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(let* ((w (selected-window))
+            "(let* ((w (selected-window))
                 (m (minibuffer-window))
                 (dt '(1 2 3)))
            (list (window-dedicated-p w)
@@ -2190,7 +2190,7 @@ fn window_metadata_shared_state_smoke() {
                (condition-case err (window-cursor-type 999999) (error err))
                (condition-case err (set-window-cursor-type 999999 nil) (error err))
                (condition-case err (set-window-dedicated-p 999999 t) (error err)))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -2445,7 +2445,7 @@ fn next_previous_window_enforce_max_arity() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(condition-case err (next-window nil nil nil nil) (error (car err)))
+            "(condition-case err (next-window nil nil nil nil) (error (car err)))
          (condition-case err (previous-window nil nil nil nil) (error (car err)))
          (let ((w1 (selected-window)))
            (split-window-internal (selected-window) nil nil nil)
@@ -2453,7 +2453,7 @@ fn next_previous_window_enforce_max_arity() {
          (let ((w1 (selected-window)))
            (split-window-internal (selected-window) nil nil nil)
            (windowp (previous-window w1 nil nil)))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -2482,13 +2482,13 @@ fn frame_ops_enforce_max_arity() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(condition-case err (make-frame nil nil) (error (car err)))
+            "(condition-case err (make-frame nil nil) (error (car err)))
          (condition-case err (delete-frame nil nil nil) (error (car err)))
          (condition-case err (frame-parameter nil 'name nil) (error (car err)))
          (condition-case err (frame-parameters nil nil) (error (car err)))
          (condition-case err (modify-frame-parameters nil nil nil) (error (car err)))
          (condition-case err (frame-visible-p nil nil) (error (car err)))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -2506,11 +2506,11 @@ fn frame_visible_p_enforces_arity_and_designators() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(condition-case err (frame-visible-p) (error (car err)))
+            "(condition-case err (frame-visible-p) (error (car err)))
          (condition-case err (frame-visible-p nil) (error err))
          (condition-case err (frame-visible-p 999999) (error err))
          (frame-visible-p (selected-frame))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -2526,7 +2526,7 @@ fn frame_designator_errors_use_emacs_predicates() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(condition-case err (frame-parameter \"x\" 'name) (error err))
+            "(condition-case err (frame-parameter \"x\" 'name) (error err))
          (condition-case err (frame-parameter 999999 'name) (error err))
          (condition-case err (frame-parameters \"x\") (error err))
          (condition-case err (frame-parameters 999999) (error err))
@@ -2536,7 +2536,7 @@ fn frame_designator_errors_use_emacs_predicates() {
          (condition-case err (delete-frame 999999) (error err))
          (frame-parameter nil 'name)
          (condition-case err (modify-frame-parameters nil nil) (error err))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -2558,7 +2558,7 @@ fn frame_query_builtins_match_gnu_batch_startup_geometry() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        r#"(list (frame-char-height)
+            r#"(list (frame-char-height)
                  (frame-char-width)
                  (frame-native-height)
                  (frame-native-width)
@@ -2569,7 +2569,7 @@ fn frame_query_builtins_match_gnu_batch_startup_geometry() {
                  (frame-total-cols)
                  (frame-total-lines)
                  (frame-position))"#,
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -2582,7 +2582,7 @@ fn frame_identity_builtins_match_gnu_batch_startup_defaults() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        r#"(let ((mouse (mouse-position))
+            r#"(let ((mouse (mouse-position))
                  (pixel (mouse-pixel-position)))
              (list (frame-id)
                    (eq (frame-root-frame) (selected-frame))
@@ -2593,7 +2593,7 @@ fn frame_identity_builtins_match_gnu_batch_startup_defaults() {
                    (cdr mouse)
                    (eq (car pixel) (selected-frame))
                    (cdr pixel)))"#,
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -2657,7 +2657,7 @@ fn select_frame_arity_designators_and_selection() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(condition-case err (select-frame) (error (car err)))
+            "(condition-case err (select-frame) (error (car err)))
          (condition-case err (select-frame nil) (error err))
          (condition-case err (select-frame \"x\") (error err))
          (condition-case err (select-frame 999999) (error err))
@@ -2668,7 +2668,7 @@ fn select_frame_arity_designators_and_selection() {
                      (eq (selected-frame) f2))
              (select-frame f1)
              (delete-frame f2)))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -2685,14 +2685,14 @@ fn select_frame_set_input_focus_arity_designators_and_result() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(condition-case err (select-frame-set-input-focus) (error (car err)))
+            "(condition-case err (select-frame-set-input-focus) (error (car err)))
          (condition-case err (select-frame-set-input-focus nil) (error err))
          (condition-case err (select-frame-set-input-focus \"x\") (error err))
          (condition-case err (select-frame-set-input-focus 999999) (error err))
          (let ((f (selected-frame)))
            (list (select-frame-set-input-focus f)
                  (eq (selected-frame) f)))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -2785,7 +2785,7 @@ fn old_selected_window_matches_stable_and_stale_window_semantics() {
     let mut ev = runtime_startup_context();
     let out = ev
         .eval_str_each(
-        "(windowp (old-selected-window))
+            "(windowp (old-selected-window))
          (let* ((w1 (selected-window))
                 (w2 (split-window-internal (selected-window) nil nil nil)))
            (prog1
@@ -2811,7 +2811,7 @@ fn old_selected_window_matches_stable_and_stale_window_semantics() {
                (eq (apply #'old-selected-window nil) (old-selected-window))
                (condition-case err (funcall #'old-selected-window nil) (error (car err)))
                (condition-case err (apply #'old-selected-window '(nil)) (error (car err))))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -3467,7 +3467,8 @@ fn modify_frame_parameters_width_height_preserve_pixel_dimensions() {
     let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("F1", 800, 600, buf);
-    let out = ev.eval_str_each("(modify-frame-parameters (selected-frame) '((width . 80) (height . 25)))");
+    let out = ev
+        .eval_str_each("(modify-frame-parameters (selected-frame) '((width . 80) (height . 25)))");
     assert!(
         out[0].is_ok(),
         "modify-frame-parameters failed: {:?}",
@@ -3557,8 +3558,7 @@ fn set_frame_size_builtins_resize_live_gui_frames_and_notify_host() {
     let resized = host.resized.clone();
     ev.set_display_host(Box::new(host));
 
-    let out = ev
-        .eval_str_each("(set-frame-size (selected-frame) 100 35)");
+    let out = ev.eval_str_each("(set-frame-size (selected-frame) 100 35)");
     assert!(
         out[0].is_ok(),
         "set-frame-size builtins failed: {:?}",
@@ -3954,15 +3954,16 @@ fn set_window_buffer_matches_window_and_buffer_designator_errors() {
     ev.frames.create_frame("F1", 800, 600, buf);
     let dead = Value::make_buffer(ev.buffers.create_buffer("swb-dead"));
     ev.set_variable("vm-swb-dead", dead);
-    let results = ev.eval_str_each(
-        "(condition-case err (set-window-buffer nil \"*scratch*\") (error err))
+    let results = ev
+        .eval_str_each(
+            "(condition-case err (set-window-buffer nil \"*scratch*\") (error err))
          (condition-case err (set-window-buffer nil \"swb-missing\") (error err))
          (progn
            (kill-buffer vm-swb-dead)
            (condition-case err (set-window-buffer nil vm-swb-dead) (error err)))
          (condition-case err (set-window-buffer 999999 \"*scratch*\") (error err))
          (condition-case err (set-window-buffer 'foo \"*scratch*\") (error err))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -3982,7 +3983,7 @@ fn set_window_buffer_bootstraps_initial_frame_for_nil_window_designator() {
     let mut ev = Context::new();
     let out = ev
         .eval_str_each(
-        "(condition-case err
+            "(condition-case err
              (let ((b (get-buffer-create \"swb-bootstrap\")))
                (set-buffer b)
                (erase-buffer)
@@ -3993,7 +3994,7 @@ fn set_window_buffer_bootstraps_initial_frame_for_nil_window_designator() {
                      (window-start nil)
                      (window-end nil)))
            (error err))",
-    )
+        )
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -4160,10 +4161,7 @@ fn split_window_below_keeps_frame_selected_window_on_top_leaf() {
 
     // The exact count `is_selected` would produce in
     // collect_layout_params: comparison against each leaf.
-    let selected_count = leaves
-        .iter()
-        .filter(|id| **id == selected_after)
-        .count();
+    let selected_count = leaves.iter().filter(|id| **id == selected_after).count();
     assert_eq!(
         selected_count, 1,
         "exactly ONE leaf must match frame.selected_window after split \

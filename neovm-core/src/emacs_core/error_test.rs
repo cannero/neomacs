@@ -1,7 +1,5 @@
 use super::EvalError;
-use crate::emacs_core::{
-    Context, Value, print_value_bytes_with_eval, print_value_with_eval,
-};
+use crate::emacs_core::{Context, Value, print_value_bytes_with_eval, print_value_with_eval};
 
 #[test]
 fn list_prints_buffers_with_names_in_eval_context() -> Result<(), EvalError> {

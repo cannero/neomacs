@@ -165,6 +165,20 @@ impl GlyphMatrixBuilder {
         self.in_row = false;
     }
 
+    /// Install a complete set of text-area glyphs into the currently open row.
+    ///
+    /// Used by walkers that render directly into the active window matrix
+    /// instead of appending a post-window chrome row.
+    pub fn install_current_row_glyphs(&mut self, glyphs: Vec<Glyph>) {
+        if let Some(ref mut matrix) = self.current_matrix {
+            if self.current_row < matrix.rows.len() {
+                let row = &mut matrix.rows[self.current_row];
+                row.displays_text = !glyphs.is_empty();
+                row.glyphs[GlyphArea::Text as usize] = glyphs;
+            }
+        }
+    }
+
     pub fn push_left_margin_char(&mut self, ch: char, face_id: u32) {
         if let Some(ref mut matrix) = self.current_matrix {
             if self.current_row < matrix.rows.len() {
@@ -562,9 +576,8 @@ impl GlyphMatrixBuilder {
             // RIF's `col += 1` in rasterize.
             let left_count = row.glyphs[GlyphArea::LeftMargin as usize].len();
             let right_count = row.glyphs[GlyphArea::RightMargin as usize].len();
-            let current_total: usize = left_count
-                + row.glyphs[GlyphArea::Text as usize].len()
-                + right_count;
+            let current_total: usize =
+                left_count + row.glyphs[GlyphArea::Text as usize].len() + right_count;
 
             // Truncate anything in the text area that pushes
             // the glyph count past `target_col`. Left/right

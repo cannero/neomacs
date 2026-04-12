@@ -330,11 +330,13 @@ fn delete_terminal_force_runs_hook_and_deletes_frames_on_terminal() {
         .frame_manager_mut()
         .create_frame_on_terminal("F1", TERMINAL_ID, 80, 25, scratch);
     let handle = terminal_handle_value();
-    eval.eval_str(r#"
+    eval.eval_str(
+        r#"
 (setq deleted-terminal-log nil)
 (setq delete-terminal-functions
       (list (lambda (term) (setq deleted-terminal-log term))))
-"#)
+"#,
+    )
     .expect("install hook setup");
 
     assert_eq!(
@@ -347,7 +349,7 @@ fn delete_terminal_force_runs_hook_and_deletes_frames_on_terminal() {
     );
     assert_eq!(
         eval.eval_str("deleted-terminal-log")
-        .expect("deleted-terminal-log value"),
+            .expect("deleted-terminal-log value"),
         handle
     );
 }
@@ -365,7 +367,8 @@ fn delete_terminal_force_defers_frame_hooks_until_pending_safe_funcalls_flush() 
     let doomed = eval
         .frame_manager_mut()
         .create_frame_on_terminal("F2", 1, 80, 25, scratch);
-    eval.eval_str(r#"
+    eval.eval_str(
+        r#"
 (setq hook-log nil)
 (setq delete-terminal-functions
       (list (lambda (term)
@@ -379,7 +382,8 @@ fn delete_terminal_force_defers_frame_hooks_until_pending_safe_funcalls_flush() 
       (list (lambda (frame)
               (setq hook-log
                     (cons (list 'after (frame-live-p frame)) hook-log)))))
-"#)
+"#,
+    )
     .expect("install hook setup");
 
     assert_eq!(
@@ -398,7 +402,8 @@ fn delete_terminal_force_defers_frame_hooks_until_pending_safe_funcalls_flush() 
 
     eval.flush_pending_safe_funcalls();
 
-    let post_flush = eval.eval_str("(nreverse hook-log)")
+    let post_flush = eval
+        .eval_str("(nreverse hook-log)")
         .expect("hook-log after flush");
     assert_eq!(
         format!("{}", post_flush),
@@ -437,7 +442,8 @@ fn delete_terminal_noelisp_bypasses_sole_terminal_check_and_defers_hooks() {
     let _frame =
         eval.frame_manager_mut()
             .create_frame_on_terminal("F1", TERMINAL_ID, 80, 25, scratch);
-    eval.eval_str(r#"
+    eval.eval_str(
+        r#"
 (setq hook-log nil)
 (setq delete-terminal-functions
       (list (lambda (term)
@@ -451,7 +457,8 @@ fn delete_terminal_noelisp_bypasses_sole_terminal_check_and_defers_hooks() {
       (list (lambda (frame)
               (setq hook-log
                     (cons (list 'after (frame-live-p frame)) hook-log)))))
-"#)
+"#,
+    )
     .expect("install hook setup");
 
     assert_eq!(
@@ -466,14 +473,14 @@ fn delete_terminal_noelisp_bypasses_sole_terminal_check_and_defers_hooks() {
         "noelisp delete should mark the terminal dead even when it is the sole terminal"
     );
     assert_eq!(
-        eval.eval_str("hook-log")
-            .expect("hook-log before flush"),
+        eval.eval_str("hook-log").expect("hook-log before flush"),
         Value::NIL
     );
 
     eval.flush_pending_safe_funcalls();
 
-    let post_flush = eval.eval_str("(nreverse hook-log)")
+    let post_flush = eval
+        .eval_str("(nreverse hook-log)")
         .expect("hook-log after flush");
     assert_eq!(
         format!("{}", post_flush),

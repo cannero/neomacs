@@ -440,24 +440,26 @@ fn string_match_alternation_takes_leftmost_first_without_posix() {
     let result = string_match_full("a\\|aa\\|aaa", "aaaa", 0, &mut md);
     assert_eq!(result, Ok(Some(0)));
     let md = md.expect("match data");
-    assert_eq!(md.groups[0], Some((0, 1)), "non-POSIX picks first alternative");
+    assert_eq!(
+        md.groups[0],
+        Some((0, 1)),
+        "non-POSIX picks first alternative"
+    );
 }
 
 #[test]
 fn string_match_alternation_prefers_longest_under_posix_like_gnu() {
     crate::test_utils::init_test_tracing();
     let mut md = None;
-    let result = string_match_full_with_case_fold_and_posix(
-        "a\\|aa\\|aaa",
-        "aaaa",
-        0,
-        false,
-        true,
-        &mut md,
-    );
+    let result =
+        string_match_full_with_case_fold_and_posix("a\\|aa\\|aaa", "aaaa", 0, false, true, &mut md);
     assert_eq!(result, Ok(Some(0)));
     let md = md.expect("match data");
-    assert_eq!(md.groups[0], Some((0, 3)), "POSIX picks the longest alternative");
+    assert_eq!(
+        md.groups[0],
+        Some((0, 3)),
+        "POSIX picks the longest alternative"
+    );
 }
 
 #[test]
@@ -497,14 +499,7 @@ fn posix_longest_match_returns_match_when_non_posix_path_would_also_match() {
     // logic couldn't beat it).
     crate::test_utils::init_test_tracing();
     let mut md = None;
-    let result = string_match_full_with_case_fold_and_posix(
-        "foo",
-        "foo",
-        0,
-        false,
-        true,
-        &mut md,
-    );
+    let result = string_match_full_with_case_fold_and_posix("foo", "foo", 0, false, true, &mut md);
     assert_eq!(result, Ok(Some(0)));
     assert_eq!(md.unwrap().groups[0], Some((0, 3)));
 }

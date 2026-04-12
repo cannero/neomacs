@@ -2209,15 +2209,13 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
     //     original `local_binding_names` order so the dumped
     //     ordering is preserved.
     let loaded_keymap = load_value(&db.local_map);
-    let mut loaded_properties: std::collections::HashMap<String, RuntimeBindingValue> =
-        db.properties
-            .iter()
-            .map(|(k, v)| (k.clone(), load_runtime_binding_value(v)))
-            .collect();
+    let mut loaded_properties: std::collections::HashMap<String, RuntimeBindingValue> = db
+        .properties
+        .iter()
+        .map(|(k, v)| (k.clone(), load_runtime_binding_value(v)))
+        .collect();
     let mut loaded_undo_list = Value::NIL;
-    if let Some(RuntimeBindingValue::Bound(value)) =
-        loaded_properties.remove("buffer-undo-list")
-    {
+    if let Some(RuntimeBindingValue::Bound(value)) = loaded_properties.remove("buffer-undo-list") {
         loaded_undo_list = value;
     }
     // Reconstruct the alist in the ordered sequence the dump recorded,
@@ -2334,8 +2332,8 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         // (older format compatibility, or sentinel buffers without
         // a populated slot vector).
         slots: {
-            let mut s = [crate::emacs_core::value::Value::NIL;
-                crate::buffer::buffer::BUFFER_SLOT_COUNT];
+            let mut s =
+                [crate::emacs_core::value::Value::NIL; crate::buffer::buffer::BUFFER_SLOT_COUNT];
             for info in crate::buffer::buffer::BUFFER_SLOT_INFO {
                 s[info.offset] = info.default.to_value();
             }

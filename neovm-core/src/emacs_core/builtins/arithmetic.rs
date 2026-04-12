@@ -465,9 +465,9 @@ pub(crate) fn builtin_add1(args: Vec<Value>) -> EvalResult {
             None => Ok(Value::make_integer(rug::Integer::from(n) + 1)),
         },
         ValueKind::Float => Ok(Value::make_float(args[0].xfloat() + 1.0)),
-        ValueKind::Veclike(VecLikeType::Bignum) => {
-            Ok(Value::make_integer(args[0].as_bignum().unwrap().clone() + 1))
-        }
+        ValueKind::Veclike(VecLikeType::Bignum) => Ok(Value::make_integer(
+            args[0].as_bignum().unwrap().clone() + 1,
+        )),
         _ if args[0].is_marker() => {
             let n = super::marker::marker_position_as_int(&args[0])?;
             match n.checked_add(1) {
@@ -492,9 +492,9 @@ pub(crate) fn builtin_sub1(args: Vec<Value>) -> EvalResult {
             None => Ok(Value::make_integer(rug::Integer::from(n) - 1)),
         },
         ValueKind::Float => Ok(Value::make_float(args[0].xfloat() - 1.0)),
-        ValueKind::Veclike(VecLikeType::Bignum) => {
-            Ok(Value::make_integer(args[0].as_bignum().unwrap().clone() - 1))
-        }
+        ValueKind::Veclike(VecLikeType::Bignum) => Ok(Value::make_integer(
+            args[0].as_bignum().unwrap().clone() - 1,
+        )),
         _ if args[0].is_marker() => {
             let n = super::marker::marker_position_as_int(&args[0])?;
             match n.checked_sub(1) {
@@ -521,9 +521,9 @@ pub(crate) fn builtin_max(eval: &mut super::eval::Context, args: Vec<Value>) -> 
         }
     }
     match best_value.kind() {
-        ValueKind::Fixnum(_)
-        | ValueKind::Float
-        | ValueKind::Veclike(VecLikeType::Bignum) => Ok(best_value),
+        ValueKind::Fixnum(_) | ValueKind::Float | ValueKind::Veclike(VecLikeType::Bignum) => {
+            Ok(best_value)
+        }
         _ if best_value.is_marker() => Ok(Value::fixnum(
             super::marker::marker_position_as_int_eval(eval, &best_value)?,
         )),
@@ -543,9 +543,9 @@ pub(crate) fn builtin_min(eval: &mut super::eval::Context, args: Vec<Value>) -> 
         }
     }
     match best_value.kind() {
-        ValueKind::Fixnum(_)
-        | ValueKind::Float
-        | ValueKind::Veclike(VecLikeType::Bignum) => Ok(best_value),
+        ValueKind::Fixnum(_) | ValueKind::Float | ValueKind::Veclike(VecLikeType::Bignum) => {
+            Ok(best_value)
+        }
         _ if best_value.is_marker() => Ok(Value::fixnum(
             super::marker::marker_position_as_int_eval(eval, &best_value)?,
         )),
@@ -567,9 +567,9 @@ pub(crate) fn builtin_abs(args: Vec<Value>) -> EvalResult {
             None => Ok(Value::make_integer(rug::Integer::from(n).abs())),
         },
         ValueKind::Float => Ok(Value::make_float(args[0].xfloat().abs())),
-        ValueKind::Veclike(VecLikeType::Bignum) => {
-            Ok(Value::make_integer(args[0].as_bignum().unwrap().clone().abs()))
-        }
+        ValueKind::Veclike(VecLikeType::Bignum) => Ok(Value::make_integer(
+            args[0].as_bignum().unwrap().clone().abs(),
+        )),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), args[0]],
@@ -816,9 +816,9 @@ fn arithcompare(
     let ai = match a.kind() {
         ValueKind::Fixnum(n) => rug::Integer::from(n),
         ValueKind::Veclike(VecLikeType::Bignum) => a.as_bignum().unwrap().clone(),
-        _ if super::marker::is_marker(a) => rug::Integer::from(
-            super::marker::marker_position_as_int_eval(eval, a)?,
-        ),
+        _ if super::marker::is_marker(a) => {
+            rug::Integer::from(super::marker::marker_position_as_int_eval(eval, a)?)
+        }
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -829,9 +829,9 @@ fn arithcompare(
     let bi = match b.kind() {
         ValueKind::Fixnum(n) => rug::Integer::from(n),
         ValueKind::Veclike(VecLikeType::Bignum) => b.as_bignum().unwrap().clone(),
-        _ if super::marker::is_marker(b) => rug::Integer::from(
-            super::marker::marker_position_as_int_eval(eval, b)?,
-        ),
+        _ if super::marker::is_marker(b) => {
+            rug::Integer::from(super::marker::marker_position_as_int_eval(eval, b)?)
+        }
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1291,12 +1291,10 @@ pub(crate) fn builtin_expt(args: Vec<Value>) -> EvalResult {
             Ok(v) => v,
             Err(_) => return Err(signal("overflow-error", vec![])),
         },
-        ValueKind::Veclike(VecLikeType::Bignum) => {
-            match exp_val.as_bignum().unwrap().to_u32() {
-                Some(v) => v,
-                None => return Err(signal("overflow-error", vec![])),
-            }
-        }
+        ValueKind::Veclike(VecLikeType::Bignum) => match exp_val.as_bignum().unwrap().to_u32() {
+            Some(v) => v,
+            None => return Err(signal("overflow-error", vec![])),
+        },
         _ => unreachable!("non-int exponent handled above"),
     };
 

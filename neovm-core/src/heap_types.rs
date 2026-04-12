@@ -157,12 +157,11 @@ impl LispString {
     pub fn make_mut(&mut self) -> StringMutGuard<'_> {
         // Build a String from the current bytes (must be valid UTF-8 for this
         // compat path).
-        let s = String::from_utf8(std::mem::take(&mut self.data))
-            .unwrap_or_else(|e| {
-                // Fallback: lossy conversion for non-UTF-8 data
-                let bytes = e.into_bytes();
-                String::from_utf8_lossy(&bytes).into_owned()
-            });
+        let s = String::from_utf8(std::mem::take(&mut self.data)).unwrap_or_else(|e| {
+            // Fallback: lossy conversion for non-UTF-8 data
+            let bytes = e.into_bytes();
+            String::from_utf8_lossy(&bytes).into_owned()
+        });
         StringMutGuard {
             string: s,
             owner: self,
@@ -241,7 +240,8 @@ impl Clone for LispString {
 
 impl std::fmt::Debug for LispString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let text: String = self.as_str()
+        let text: String = self
+            .as_str()
             .map(|s| s.to_owned())
             .unwrap_or_else(|| format!("<{} bytes>", self.data.len()));
         f.debug_struct("LispString")

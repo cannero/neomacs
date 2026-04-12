@@ -1599,8 +1599,7 @@ impl CommandLoop {
         // here so the command_loop_1 auto-save check (audit
         // Finding 9) sees the same counter GNU does.
         if self.keyboard.kboard.executing_kbd_macro.is_none() {
-            self.num_nonmacro_input_events =
-                self.num_nonmacro_input_events.saturating_add(1);
+            self.num_nonmacro_input_events = self.num_nonmacro_input_events.saturating_add(1);
         }
         self.keyboard.record_input_event(event);
     }
@@ -3027,9 +3026,7 @@ impl crate::emacs_core::eval::Context {
                 if self.lisp_echo_keystrokes_seconds().is_some_and(|s| s > 0.0) {
                     let key_vec = Value::vector(translated_events.clone());
                     if let Ok(desc) =
-                        crate::emacs_core::builtins::keymaps::builtin_key_description(vec![
-                            key_vec,
-                        ])
+                        crate::emacs_core::builtins::keymaps::builtin_key_description(vec![key_vec])
                     {
                         if let Some(s) = desc.as_str() {
                             let echo_msg = format!("{}-", s);
@@ -3178,16 +3175,8 @@ impl crate::emacs_core::eval::Context {
                 // click state and update `last_mouse_click` so
                 // the matching release can read the same count.
                 // Mirrors GNU `keyboard.c:6041-6130`.
-                let click_count = self.classify_mouse_click_on_press(
-                    button,
-                    x,
-                    y,
-                    target_frame_id,
-                );
-                let prefix = Self::mouse_event_prefix_for_click_count(
-                    "down-mouse",
-                    click_count,
-                );
+                let click_count = self.classify_mouse_click_on_press(button, x, y, target_frame_id);
+                let prefix = Self::mouse_event_prefix_for_click_count("down-mouse", click_count);
                 let event = Self::make_mouse_event(
                     &button,
                     x,
@@ -3218,10 +3207,7 @@ impl crate::emacs_core::eval::Context {
                     .filter(|state| state.button == button)
                     .map(|state| state.click_count)
                     .unwrap_or(1);
-                let prefix = Self::mouse_event_prefix_for_click_count(
-                    "mouse",
-                    click_count,
-                );
+                let prefix = Self::mouse_event_prefix_for_click_count("mouse", click_count);
                 let event = Self::make_mouse_event(
                     &button,
                     x,
@@ -3693,9 +3679,7 @@ impl crate::emacs_core::eval::Context {
                     && prev.frame_id == frame_id
                     && (prev.x - x).abs() <= double_click_fuzz
                     && (prev.y - y).abs() <= double_click_fuzz
-                    && now
-                        .saturating_duration_since(prev.timestamp)
-                        .as_millis()
+                    && now.saturating_duration_since(prev.timestamp).as_millis()
                         <= double_click_time_ms as u128 =>
             {
                 (prev.click_count + 1).min(3)
@@ -4634,8 +4618,7 @@ impl crate::emacs_core::eval::Context {
         let mut pos = 0;
         let mut idx = 0;
         while pos < key_bytes.len() {
-            let (mut code, len) =
-                crate::emacs_core::emacs_char::string_char(&key_bytes[pos..]);
+            let (mut code, len) = crate::emacs_core::emacs_char::string_char(&key_bytes[pos..]);
             // Translate sentinel codepoints to Emacs character codes.
             if (0xE080..=0xE0FF).contains(&code) {
                 let byte = (code - 0xE000) as u8;

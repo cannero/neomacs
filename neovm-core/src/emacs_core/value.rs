@@ -869,7 +869,9 @@ impl TaggedValue {
                      VecLikeHeader.type_tag={:?}\n\
                      If this were tagged as VecLike it would be {:#x}\n\
                      car XOR veclike_tagged = {:#x}",
-                    car.0, ptr, hdr.kind,
+                    car.0,
+                    ptr,
+                    hdr.kind,
                     vlh.type_tag,
                     expected_tagged,
                     car.0 ^ expected_tagged,

@@ -913,7 +913,11 @@ impl FrameDisplayState {
                 let final_x = win_x + col as f32 * char_w;
                 let right_edge = win_x + win_w;
                 if final_x < right_edge && col > 0 && row_role.is_chrome() {
-                    let last_face_id = glyph_row.glyphs.iter().rev().flat_map(|area| area.iter().rev())
+                    let last_face_id = glyph_row
+                        .glyphs
+                        .iter()
+                        .rev()
+                        .flat_map(|area| area.iter().rev())
                         .find(|g| !g.padding)
                         .map(|g| g.face_id)
                         .unwrap_or(0);

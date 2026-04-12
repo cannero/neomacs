@@ -268,12 +268,7 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
         }
 
         let preallocated_len = args.iter().fold(0usize, |acc, arg| match arg.kind() {
-            ValueKind::String => {
-                acc + arg
-                    .as_lisp_string()
-                    .map(|ls| ls.sbytes())
-                    .unwrap_or(0)
-            }
+            ValueKind::String => acc + arg.as_lisp_string().map(|ls| ls.sbytes()).unwrap_or(0),
             _ => acc,
         });
         let mut result: Vec<u8> = Vec::with_capacity(preallocated_len);
@@ -1234,7 +1229,9 @@ pub(crate) fn builtin_make_string(args: Vec<Value>) -> EvalResult {
         for _ in 0..count {
             data.extend_from_slice(unit);
         }
-        Ok(Value::heap_string(crate::heap_types::LispString::from_emacs_bytes(data)))
+        Ok(Value::heap_string(
+            crate::heap_types::LispString::from_emacs_bytes(data),
+        ))
     } else {
         if ch > 0xff {
             return Err(signal(
@@ -1243,7 +1240,9 @@ pub(crate) fn builtin_make_string(args: Vec<Value>) -> EvalResult {
             ));
         }
         let data = vec![ch as u8; count];
-        Ok(Value::heap_string(crate::heap_types::LispString::from_unibyte(data)))
+        Ok(Value::heap_string(
+            crate::heap_types::LispString::from_unibyte(data),
+        ))
     }
 }
 
@@ -1265,7 +1264,9 @@ pub(crate) fn builtin_string(args: Vec<Value>) -> EvalResult {
             }
         }
     }
-    Ok(Value::heap_string(crate::heap_types::LispString::from_emacs_bytes(result)))
+    Ok(Value::heap_string(
+        crate::heap_types::LispString::from_emacs_bytes(result),
+    ))
 }
 
 /// `(unibyte-string &rest BYTES)` -> unibyte storage string.
@@ -1289,7 +1290,9 @@ pub(crate) fn builtin_unibyte_string(args: Vec<Value>) -> EvalResult {
         }
         bytes.push(n as u8);
     }
-    Ok(Value::heap_string(crate::heap_types::LispString::from_unibyte(bytes)))
+    Ok(Value::heap_string(
+        crate::heap_types::LispString::from_unibyte(bytes),
+    ))
 }
 
 pub(crate) fn builtin_byte_to_string(args: Vec<Value>) -> EvalResult {
@@ -1298,7 +1301,9 @@ pub(crate) fn builtin_byte_to_string(args: Vec<Value>) -> EvalResult {
     if !(0..=255).contains(&byte) {
         return Err(signal("error", vec![Value::string("Invalid byte")]));
     }
-    Ok(Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![byte as u8])))
+    Ok(Value::heap_string(
+        crate::heap_types::LispString::from_unibyte(vec![byte as u8]),
+    ))
 }
 
 pub(crate) fn builtin_bitmap_spec_p(args: Vec<Value>) -> EvalResult {
@@ -1319,9 +1324,12 @@ pub(crate) fn builtin_clear_buffer_auto_save_failure(args: Vec<Value>) -> EvalRe
 pub(crate) fn builtin_string_width(args: Vec<Value>) -> EvalResult {
     expect_min_args("string-width", &args, 1)?;
     expect_max_args("string-width", &args, 3)?;
-    let ls = args[0]
-        .as_lisp_string()
-        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]]))?;
+    let ls = args[0].as_lisp_string().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[0]],
+        )
+    })?;
     let data = ls.as_bytes();
     let is_multibyte = ls.is_multibyte();
     if args.len() <= 1

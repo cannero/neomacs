@@ -59,7 +59,12 @@ fn with_vm_eval_bootstrap_context_state<R>(
     lexical: bool,
     f: impl FnOnce(Result<Value, EvalError>, &Context) -> R,
 ) -> R {
-    with_vm_eval_in_context(crate::test_utils::runtime_startup_context(), src, lexical, f)
+    with_vm_eval_in_context(
+        crate::test_utils::runtime_startup_context(),
+        src,
+        lexical,
+        f,
+    )
 }
 
 fn vm_eval_str(src: &str) -> String {
@@ -91,10 +96,7 @@ fn vm_eval_with_init_str(src: &str, init: impl FnOnce(&mut Context)) -> String {
     crate::emacs_core::error::format_eval_result(&result)
 }
 
-fn vm_bootstrap_eval_with_init_str(
-    src: &str,
-    init: impl FnOnce(&mut Context),
-) -> String {
+fn vm_bootstrap_eval_with_init_str(src: &str, init: impl FnOnce(&mut Context)) -> String {
     let mut eval = crate::test_utils::runtime_startup_context();
     init(&mut eval);
     let result = eval.eval_str(src);
@@ -1688,10 +1690,7 @@ fn vm_throw_uses_shared_condition_stack_for_outer_catch_without_catch_tag_mirror
     let result = eval.eval_str("(throw 'vm-shared-outer 42)");
     // The throw should be caught by the interpreter-level catch frame,
     // so eval_str returns the thrown value.
-    assert!(
-        result.is_ok() || result.is_err(),
-        "throw should propagate"
-    );
+    assert!(result.is_ok() || result.is_err(), "throw should propagate");
     // After eval, the condition frame we pushed should still be there
     // (eval_str catches the throw at our frame).
     eval.pop_condition_frame();
@@ -2741,17 +2740,23 @@ fn vm_plist_member_returns_nil_for_odd_length_plist_matching_gnu() {
 
     // 2-arg form (eq comparison).
     assert_eq!(
-        vm_eval_str("(plist-member '(:tag \"Width\" :value normal (const a) (const b) (const c)) :missing)"),
+        vm_eval_str(
+            "(plist-member '(:tag \"Width\" :value normal (const a) (const b) (const c)) :missing)"
+        ),
         "OK nil"
     );
     // Exact match at an early position still works.
     assert_eq!(
-        vm_eval_str("(plist-member '(:tag \"Width\" :value normal (const a) (const b) (const c)) :tag)"),
+        vm_eval_str(
+            "(plist-member '(:tag \"Width\" :value normal (const a) (const b) (const c)) :tag)"
+        ),
         "OK (:tag \"Width\" :value normal (const a) (const b) (const c))"
     );
     // 3-arg form (predicate, which routes through a separate walker).
     assert_eq!(
-        vm_eval_str("(plist-member '(:tag \"Width\" :value normal (const a) (const b) (const c)) :missing #'eq)"),
+        vm_eval_str(
+            "(plist-member '(:tag \"Width\" :value normal (const a) (const b) (const c)) :missing #'eq)"
+        ),
         "OK nil"
     );
     // Truly improper (dotted) tail is still a plistp error.
@@ -4564,8 +4569,9 @@ fn vm_process_control_and_send_builtins_use_shared_runtime_state() {
         assert_eq!(id, expected);
     }
 
-    let result = eval.eval_str(
-        r#"(list
+    let result = eval
+        .eval_str(
+            r#"(list
              (null (continue-process))
              (eq (process-status 1) 'run)
              (eq (interrupt-process 2) 2)
@@ -4583,7 +4589,8 @@ fn vm_process_control_and_send_builtins_use_shared_runtime_state() {
              (null (process-send-region 7 (point-min) (point-max)))
              (eq (process-send-eof 7) 7)
              (null (process-running-child-p 7)))"#,
-    ).expect("process control/send builtins should execute");
+        )
+        .expect("process control/send builtins should execute");
 
     assert_eq!(
         crate::emacs_core::error::format_eval_result(&Ok(result)),
@@ -5317,7 +5324,8 @@ fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
         .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
         .expect("buffer local default-directory should set");
 
-    let insert_result = eval.eval_str(r#"(insert-file-contents "alpha.txt" t)"#)
+    let insert_result = eval
+        .eval_str(r#"(insert-file-contents "alpha.txt" t)"#)
         .expect("insert-file-contents should execute");
 
     let insert_parts =
@@ -5332,7 +5340,8 @@ fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
     eval.eval_str(&format!(
         r#"(write-region "XY" nil "out.txt" 2 "{}")"#,
         visit
-    )).expect("write-region should execute");
+    ))
+    .expect("write-region should execute");
 
     assert_eq!(std::fs::read_to_string(&out).expect("read out"), "abXYe");
     let buf = eval.buffers.current_buffer().expect("current buffer");
@@ -6789,13 +6798,15 @@ fn vm_compiled_autoload_do_load_uses_shared_runtime_and_load_bridge() {
         "load-path",
         Value::list(vec![Value::string(dir.path().to_string_lossy())]),
     );
-    let result = eval.eval_str(
-        r#"(progn
+    let result = eval
+        .eval_str(
+            r#"(progn
              (autoload 'vm-bytecode-autoload-do-load "vm-bytecode-autoload-do-load")
              (autoload-do-load (symbol-function 'vm-bytecode-autoload-do-load)
                                'vm-bytecode-autoload-do-load)
              (vm-bytecode-autoload-do-load))"#,
-    ).expect("autoload-do-load should execute");
+        )
+        .expect("autoload-do-load should execute");
 
     assert_eq!(result, Value::fixnum(91));
 }
@@ -6815,11 +6826,13 @@ fn vm_compiled_named_autoload_call_uses_shared_runtime_and_load_bridge() {
         "load-path",
         Value::list(vec![Value::string(dir.path().to_string_lossy())]),
     );
-    let result = eval.eval_str(
-        r#"(progn
+    let result = eval
+        .eval_str(
+            r#"(progn
              (autoload 'vm-bytecode-autoload-call "vm-bytecode-autoload-call")
              (vm-bytecode-autoload-call 5))"#,
-    ).expect("autoloaded call should execute");
+        )
+        .expect("autoloaded call should execute");
 
     assert_eq!(result, Value::fixnum(12));
 }
@@ -8544,7 +8557,8 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
 fn vm_compiled_autoload_registration_updates_shared_autoload_manager() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new_vm_runtime_harness();
-    let result = eval.eval_str("(autoload 'vm-bytecode-auto \"vm-bytecode-auto-file\")")
+    let result = eval
+        .eval_str("(autoload 'vm-bytecode-auto \"vm-bytecode-auto-file\")")
         .expect("autoload should execute");
 
     assert_eq!(result, Value::symbol("vm-bytecode-auto"));
@@ -8561,7 +8575,8 @@ fn vm_compiled_this_single_command_keys_uses_live_eval_key_context() {
     let mut eval = Context::new_vm_runtime_harness();
     eval.set_read_command_keys(vec![Value::fixnum(97)]);
 
-    let result = eval.eval_str("(this-single-command-keys)")
+    let result = eval
+        .eval_str("(this-single-command-keys)")
         .expect("this-single-command-keys should execute");
 
     assert_eq!(result, Value::vector(vec![Value::fixnum(97)]));
@@ -8585,12 +8600,14 @@ fn vm_compiled_require_respects_recursive_require_guard() {
     );
     eval.require_stack = vec![intern("vm-bytecode-rec")];
 
-    let result = eval.eval_str(
-        "(progn
+    let result = eval
+        .eval_str(
+            "(progn
            (setq vm-bytecode-required-ran nil)
            (require 'vm-bytecode-rec)
            vm-bytecode-required-ran)",
-    ).expect("require should observe recursive guard");
+        )
+        .expect("require should observe recursive guard");
 
     assert_eq!(
         result,
@@ -8616,14 +8633,16 @@ fn vm_compiled_require_loads_feature_with_nil_filename_through_shared_runtime() 
         Value::list(vec![Value::string(dir.path().to_string_lossy())]),
     );
 
-    let result = eval.eval_str(
-        "(progn
+    let result = eval
+        .eval_str(
+            "(progn
            (setq vm-bytecode-required-ran nil)
            (list
              (require 'vm-bytecode-load nil nil)
              vm-bytecode-required-ran
              (featurep 'vm-bytecode-load)))",
-    ).expect("require should load feature through shared runtime");
+        )
+        .expect("require should load feature through shared runtime");
 
     assert_eq!(
         result,
@@ -8653,12 +8672,14 @@ fn vm_compiled_load_uses_shared_runtime_and_restores_load_file_name() {
         Value::list(vec![Value::string(dir.path().to_string_lossy())]),
     );
 
-    let result = eval.eval_str(
-        "(list
+    let result = eval
+        .eval_str(
+            "(list
            (load \"vm-bytecode-shared-load\" nil nil nil nil)
            vm-bytecode-load-seen
            load-file-name)",
-    ).expect("load should resolve path and execute through shared runtime");
+        )
+        .expect("load should resolve path and execute through shared runtime");
 
     assert_eq!(
         result,
@@ -8685,13 +8706,15 @@ fn vm_compiled_load_allows_gnu_normal_recursive_load_depth() {
     let mut eval = Context::new_vm_runtime_harness();
     eval.loads_in_progress = vec![fixture.clone()];
 
-    let result = eval.eval_str(&format!(
-        "(progn
+    let result = eval
+        .eval_str(&format!(
+            "(progn
            (setq vm-bytecode-load-ran nil)
            (load {:?} nil nil t)
            vm-bytecode-load-ran)",
-        fixture.to_string_lossy()
-    )).expect("load should allow GNU's normal recursive depth");
+            fixture.to_string_lossy()
+        ))
+        .expect("load should allow GNU's normal recursive depth");
 
     assert_eq!(
         result,
@@ -8721,10 +8744,12 @@ fn vm_compiled_load_signals_after_gnu_recursive_load_limit() {
         fixture.clone(),
     ];
 
-    let err = eval.eval_str(&format!(
-        r#"(load {:?} nil nil t)"#,
-        fixture.to_string_lossy()
-    )).expect_err("load should signal once GNU's recursive-load limit is exceeded");
+    let err = eval
+        .eval_str(&format!(
+            r#"(load {:?} nil nil t)"#,
+            fixture.to_string_lossy()
+        ))
+        .expect_err("load should signal once GNU's recursive-load limit is exceeded");
 
     match err {
         EvalError::Signal { symbol, data, .. } => {
@@ -8780,11 +8805,13 @@ fn vm_interactive_form_uses_shared_autoload_load_bridge() {
         Value::list(vec![Value::string(dir.path().to_string_lossy())]),
     );
 
-    let result = eval.eval_str(
-        "(progn
+    let result = eval
+        .eval_str(
+            "(progn
            (autoload 'vm-interactive-form-auto \"vm-interactive-form-auto\")
            (interactive-form 'vm-interactive-form-auto))",
-    ).expect("interactive-form should use shared autoload bridge");
+        )
+        .expect("interactive-form should use shared autoload bridge");
 
     assert_eq!(
         result,

@@ -764,9 +764,7 @@ impl TaggedValue {
                     panic!(
                         "BUG: StringObj header.kind = {:?} (expected String) — \
                          possible use-after-free. Tagged value = {:#x}, ptr = {:?}",
-                        header.kind,
-                        self.0,
-                        ptr,
+                        header.kind, self.0, ptr,
                     );
                 }
                 (*ptr).data.as_str()

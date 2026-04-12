@@ -116,9 +116,7 @@ pub(crate) fn builtin_make_variable_buffer_local_with_state(
     // auto_buffer_local set stay in sync until Phase 10 deletes
     // them. Mirrors GNU Fmake_variable_buffer_local
     // (data.c:2142-2207).
-    let default_value = obarray
-        .find_symbol_value(resolved_id)
-        .unwrap_or(Value::NIL);
+    let default_value = obarray.find_symbol_value(resolved_id).unwrap_or(Value::NIL);
     obarray.make_symbol_localized(resolved_id, default_value);
     obarray.set_blv_local_if_set(resolved_id, true);
     obarray.make_buffer_local(&resolved, true);
@@ -180,8 +178,7 @@ pub(crate) fn builtin_make_local_variable(
             .and_then(|s| {
                 let fwd = unsafe { &*s.val.fwd };
                 if matches!(fwd.ty, LispFwdType::BufferObj) {
-                    let buf_fwd =
-                        unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
+                    let buf_fwd = unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
                     Some(buf_fwd.offset as usize)
                 } else {
                     None
@@ -442,10 +439,7 @@ pub(crate) fn builtin_kill_local_variable_impl(
             if let Some(buf) = ctx.buffers.get_mut(buffer_id) {
                 let key = crate::emacs_core::value::Value::from_sym_id(resolved);
                 let new_alist = remove_alist_key(buf.local_var_alist, key);
-                if !crate::emacs_core::value::eq_value(
-                    &new_alist,
-                    &buf.local_var_alist,
-                ) {
+                if !crate::emacs_core::value::eq_value(&new_alist, &buf.local_var_alist) {
                     removed = true;
                     buf.local_var_alist = new_alist;
                 }

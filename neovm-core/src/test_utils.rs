@@ -86,8 +86,8 @@ pub fn load_minimal_gnu_help_runtime(eval: &mut Context) {
     let help_path = find_file_in_load_path("help.el", &load_path).expect("cannot find help.el");
     let help_source =
         std::fs::read_to_string(&help_path).unwrap_or_else(|err| panic!("read help.el: {err}"));
-    let help_forms = crate::emacs_core::value_reader::read_all(&help_source)
-        .expect("parse help.el");
+    let help_forms =
+        crate::emacs_core::value_reader::read_all(&help_source).expect("parse help.el");
     // Root every parsed form upfront. Without this, forms still
     // sitting in the `help_forms` Vec aren't visible to the GC and
     // can be reclaimed when an `eval_sub` of an earlier form

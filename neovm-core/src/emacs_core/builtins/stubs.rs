@@ -491,10 +491,7 @@ pub(super) fn set_window_new_normal_value(
     value
 }
 
-pub(super) fn window_new_pixel_value(
-    eval: &super::eval::Context,
-    window: Option<&Value>,
-) -> Value {
+pub(super) fn window_new_pixel_value(eval: &super::eval::Context, window: Option<&Value>) -> Value {
     let Some(id) = window.and_then(window_designator_to_id) else {
         return Value::fixnum(0);
     };
@@ -513,10 +510,7 @@ pub(super) fn set_window_new_pixel_value(
     Value::fixnum(eval.frames.set_window_new_pixel(id, size, add))
 }
 
-pub(super) fn window_new_total_value(
-    eval: &super::eval::Context,
-    window: Option<&Value>,
-) -> Value {
+pub(super) fn window_new_total_value(eval: &super::eval::Context, window: Option<&Value>) -> Value {
     let Some(id) = window.and_then(window_designator_to_id) else {
         return Value::fixnum(0);
     };

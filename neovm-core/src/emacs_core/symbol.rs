@@ -125,8 +125,7 @@ impl SymbolFlags {
 
     #[inline]
     pub fn set_trapped_write(&mut self, t: SymbolTrappedWrite) {
-        self.0 = (self.0 & !Self::TRAPPED_WRITE_MASK)
-            | ((t as u8) << Self::TRAPPED_WRITE_SHIFT);
+        self.0 = (self.0 & !Self::TRAPPED_WRITE_MASK) | ((t as u8) << Self::TRAPPED_WRITE_SHIFT);
     }
 
     #[inline]
@@ -771,7 +770,11 @@ impl Obarray {
     ///
     /// If the symbol is already LOCALIZED, this is a no-op (returns
     /// the existing BLV pointer).
-    pub fn make_symbol_localized(&mut self, id: SymId, default: Value) -> *mut LispBufferLocalValue {
+    pub fn make_symbol_localized(
+        &mut self,
+        id: SymId,
+        default: Value,
+    ) -> *mut LispBufferLocalValue {
         let target = self.resolve_alias_for_write(id);
         // Check existing state before mutating.
         if let Some(existing) = self.slot(target) {
@@ -855,9 +858,7 @@ impl Obarray {
     ) -> Option<Value> {
         let blv = self.blv(id)?;
         // BLV cache is loaded for this buffer — return cached value.
-        if !blv.where_buf.is_nil()
-            && super::value::eq_value(&blv.where_buf, &target_buf)
-        {
+        if !blv.where_buf.is_nil() && super::value::eq_value(&blv.where_buf, &target_buf) {
             return Some(blv.valcell.cons_cdr());
         }
         // Walk the buffer's alist for an explicit per-buffer entry.
@@ -883,9 +884,7 @@ impl Obarray {
             return false;
         };
         // BLV cache is loaded for this buffer — trust `found`.
-        if !blv.where_buf.is_nil()
-            && super::value::eq_value(&blv.where_buf, &target_buf)
-        {
+        if !blv.where_buf.is_nil() && super::value::eq_value(&blv.where_buf, &target_buf) {
             return blv.found;
         }
         // Walk the alist.
@@ -1011,9 +1010,7 @@ impl Obarray {
                     let fwd = unsafe { &*sym.val.fwd };
                     use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
                     if matches!(fwd.ty, LispFwdType::BufferObj) {
-                        let buf_fwd = unsafe {
-                            &*(fwd as *const _ as *const LispBufferObjFwd)
-                        };
+                        let buf_fwd = unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
                         return Some(buf_fwd.default);
                     }
                     // Other forwarder types not yet implemented.
@@ -1086,9 +1083,7 @@ impl Obarray {
                     use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
                     match fwd.ty {
                         LispFwdType::BufferObj => {
-                            let buf_fwd = unsafe {
-                                &*(fwd as *const _ as *const LispBufferObjFwd)
-                            };
+                            let buf_fwd = unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
                             let off = buf_fwd.offset as usize;
                             let flags_idx = buf_fwd.local_flags_idx;
                             // Conditional slot: gate on local_flags.
@@ -1097,10 +1092,7 @@ impl Obarray {
                             // as the bit index since both fit in
                             // BUFFER_SLOT_COUNT.
                             if flags_idx >= 0 {
-                                let bit_set = (current_buffer_local_flags
-                                    >> (off as u32))
-                                    & 1
-                                    != 0;
+                                let bit_set = (current_buffer_local_flags >> (off as u32)) & 1 != 0;
                                 if bit_set {
                                     if let Some(slots) = current_buffer_slots
                                         && off < slots.len()
@@ -1202,9 +1194,8 @@ impl Obarray {
 
             if cell.is_nil() {
                 // No existing binding for this buffer.
-                let auto_create = bindflag == SetInternalBind::Set
-                    && blv.local_if_set
-                    && !let_shadows;
+                let auto_create =
+                    bindflag == SetInternalBind::Set && blv.local_if_set && !let_shadows;
                 if !auto_create {
                     // Fall through to writing the default.
                     blv.found = false;

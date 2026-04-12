@@ -416,7 +416,10 @@ fn test_file_name_completion_eval_relative_directory() {
     fs::create_dir(fixture_dir.join("subdir")).unwrap();
 
     let mut eval = Context::new();
-    eval.set_variable("default-directory", Value::string(ensure_trailing_slash(&base_str)));
+    eval.set_variable(
+        "default-directory",
+        Value::string(ensure_trailing_slash(&base_str)),
+    );
 
     let result = builtin_file_name_completion(
         &mut eval,
@@ -503,7 +506,10 @@ fn test_file_name_all_completions_eval_relative_directory() {
     fs::create_dir(fixture_dir.join("subdir")).unwrap();
 
     let mut eval = Context::new();
-    eval.set_variable("default-directory", Value::string(ensure_trailing_slash(&base_str)));
+    eval.set_variable(
+        "default-directory",
+        Value::string(ensure_trailing_slash(&base_str)),
+    );
 
     let result = builtin_file_name_all_completions(
         &mut eval,
@@ -616,7 +622,10 @@ fn test_file_attributes_eval_respects_default_directory() {
     create_file(&dir, "alpha.txt", "x");
 
     let mut eval = Context::new();
-    eval.set_variable("default-directory", Value::string(ensure_trailing_slash(&dir_str)));
+    eval.set_variable(
+        "default-directory",
+        Value::string(ensure_trailing_slash(&dir_str)),
+    );
 
     let result = builtin_file_attributes(&mut eval, vec![Value::string("alpha.txt")]).unwrap();
     let items = list_to_vec(&result).unwrap();

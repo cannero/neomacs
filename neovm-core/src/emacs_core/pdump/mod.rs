@@ -431,8 +431,7 @@ mod tests {
                      (list (lambda () (setq compat-pdump-hook-fired t)))))",
         )
         .unwrap();
-        eval.eval_sub(setup[0])
-            .expect("setup hook should evaluate");
+        eval.eval_sub(setup[0]).expect("setup hook should evaluate");
 
         let dir = tempfile::tempdir().unwrap();
         let dump_path = dir.path().join("stats-and-hook.pdump");
@@ -516,9 +515,7 @@ mod tests {
         // Verify features survived (bootstrap sets many features)
         // Note: subr.el does NOT call (provide 'subr); use 'backquote instead
         let forms = crate::emacs_core::value_reader::read_all("(featurep 'backquote)").unwrap();
-        let result = loaded
-            .eval_sub(forms[0])
-            .expect("featurep should succeed");
+        let result = loaded.eval_sub(forms[0]).expect("featurep should succeed");
         assert_eq!(result, Value::T, "featurep 'backquote should be t");
 
         // Verify a bootstrapped function works
@@ -527,8 +524,8 @@ mod tests {
         assert_eq!(result, Value::fixnum(3));
 
         // Verify string operations (tests heap String objects)
-        let forms =
-            crate::emacs_core::value_reader::read_all("(concat \"hello\" \" \" \"world\")").unwrap();
+        let forms = crate::emacs_core::value_reader::read_all("(concat \"hello\" \" \" \"world\")")
+            .unwrap();
         let result = loaded.eval_sub(forms[0]).expect("eval should succeed");
         assert_eq!(crate::emacs_core::print_value(&result), "\"hello world\"");
 
@@ -705,8 +702,8 @@ mod tests {
         );
 
         let mut second = restore_snapshot(&snapshot).expect("second clone should succeed");
-        let probe =
-            crate::emacs_core::value_reader::read_all("(boundp 'compat-pdump-clone-smoke)").unwrap();
+        let probe = crate::emacs_core::value_reader::read_all("(boundp 'compat-pdump-clone-smoke)")
+            .unwrap();
         let second_result = second
             .eval_sub(probe[0])
             .expect("second clone evaluation should succeed");

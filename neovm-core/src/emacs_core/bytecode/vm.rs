@@ -271,13 +271,19 @@ impl<'a> Vm<'a> {
                 let v = args[i];
                 if v.is_string() {
                     let ptr = v.as_string_ptr().unwrap();
-                    let hdr = unsafe { &(*(ptr as *const crate::tagged::header::StringObj)).header };
+                    let hdr =
+                        unsafe { &(*(ptr as *const crate::tagged::header::StringObj)).header };
                     if !matches!(hdr.kind, crate::tagged::header::HeapObjectKind::String) {
                         panic!(
                             "RUN_FRAME ARG BUG: arg[{}] = {:#x} (ptr {:?}, kind={:?}) is corrupt string. \
                              nargs={}, func has {} required, {} optional, rest={}",
-                            i, v.0, ptr, hdr.kind, nargs,
-                            func.params.required.len(), func.params.optional.len(),
+                            i,
+                            v.0,
+                            ptr,
+                            hdr.kind,
+                            nargs,
+                            func.params.required.len(),
+                            func.params.optional.len(),
                             func.params.rest.is_some(),
                         );
                     }
@@ -408,10 +414,9 @@ impl<'a> Vm<'a> {
         let cleanup_roots = Self::result_roots(&result);
         let mut cleanup_extra_roots = cleanup_roots.clone();
         Self::collect_specpdl_roots(&specpdl, &mut cleanup_extra_roots);
-        let cleanup =
-            self.with_frame_roots(func, &handlers, &[], &cleanup_extra_roots, |vm| {
-                vm.unwind_specpdl_all(&mut specpdl)
-            });
+        let cleanup = self.with_frame_roots(func, &handlers, &[], &cleanup_extra_roots, |vm| {
+            vm.unwind_specpdl_all(&mut specpdl)
+        });
         self.ctx.bc_buf.truncate(frame_base);
         self.ctx.bc_frames.pop();
         merge_result_with_cleanup(result, cleanup)
@@ -429,7 +434,9 @@ impl<'a> Vm<'a> {
         let constants = &func.constants;
 
         macro_rules! stk {
-            () => { self.ctx.bc_buf };
+            () => {
+                self.ctx.bc_buf
+            };
         }
 
         // Debug: validate string values before pushing to bc_buf
@@ -438,12 +445,19 @@ impl<'a> Vm<'a> {
                 let v = $val;
                 if v.is_string() {
                     let ptr = v.as_string_ptr().unwrap();
-                    let hdr = unsafe { &(*(ptr as *const crate::tagged::header::StringObj)).header };
+                    let hdr =
+                        unsafe { &(*(ptr as *const crate::tagged::header::StringObj)).header };
                     if !matches!(hdr.kind, crate::tagged::header::HeapObjectKind::String) {
                         panic!(
                             "BC_BUF PUSH BUG: pushing corrupt string {:#x} (ptr {:?}, kind={:?}) \
                              at pc={}, op={:?}, bc_buf.len()={}, frame_base={}",
-                            v.0, ptr, hdr.kind, *pc - 1, ops.get(*pc - 1), stk!().len(), frame_base,
+                            v.0,
+                            ptr,
+                            hdr.kind,
+                            *pc - 1,
+                            ops.get(*pc - 1),
+                            stk!().len(),
+                            frame_base,
                         );
                     }
                 }
@@ -561,13 +575,10 @@ impl<'a> Vm<'a> {
                 Op::Unbind(n) => {
                     let mut unwind_roots = Vec::new();
                     Self::collect_specpdl_roots(specpdl, &mut unwind_roots);
-                    vm_try!(self.with_frame_roots(
-                        func,
-                        handlers,
-                        &[],
-                        &unwind_roots,
-                        |vm| vm.unwind_specpdl_n(*n as usize, specpdl),
-                    ));
+                    vm_try!(
+                        self.with_frame_roots(func, handlers, &[], &unwind_roots, |vm| vm
+                            .unwind_specpdl_n(*n as usize, specpdl),)
+                    );
                 }
 
                 // -- Function calls --
@@ -1130,19 +1141,20 @@ impl<'a> Vm<'a> {
                     let n = *n as usize;
                     let start = stk!().len().saturating_sub(n);
                     let items: Vec<Value> = stk!().drain(start..).collect();
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        handlers,
-                        specpdl,
-                        "list",
-                        items.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "list", items,
-                        ))
-                    };
+                    let result =
+                        if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                            func,
+                            handlers,
+                            specpdl,
+                            "list",
+                            items.clone(),
+                        )) {
+                            result
+                        } else {
+                            vm_try!(self.dispatch_vm_builtin_with_frame(
+                                func, handlers, specpdl, "list", items,
+                            ))
+                        };
                     stk_push!(result);
                 }
                 Op::Length => {
@@ -1559,7 +1571,11 @@ impl<'a> Vm<'a> {
                         result
                     } else {
                         vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "substring", call_args,
+                            func,
+                            handlers,
+                            specpdl,
+                            "substring",
+                            call_args,
                         ))
                     };
                     stk_push!(result);
@@ -1641,9 +1657,7 @@ impl<'a> Vm<'a> {
                     } else {
                         vm_try!(builtins::builtin_aset(call_args.clone()))
                     };
-                    self.maybe_writeback_mutating_first_arg(
-                        "aset", None, &call_args, &result,
-                    );
+                    self.maybe_writeback_mutating_first_arg("aset", None, &call_args, &result);
                     stk_push!(result);
                 }
 
@@ -1863,25 +1877,21 @@ impl<'a> Vm<'a> {
                     let args_start = stk!().len().saturating_sub(n);
                     let args: Vec<Value> = stk!().drain(args_start..).collect();
                     let writeback_args = args.clone();
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        handlers,
-                        specpdl,
-                        &name,
-                        args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, &name, args,
-                        ))
-                    };
-                    self.maybe_writeback_mutating_first_arg(
-                        &name,
-                        None,
-                        &writeback_args,
-                        &result,
-                    );
+                    let result =
+                        if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                            func,
+                            handlers,
+                            specpdl,
+                            &name,
+                            args.clone(),
+                        )) {
+                            result
+                        } else {
+                            vm_try!(self.dispatch_vm_builtin_with_frame(
+                                func, handlers, specpdl, &name, args,
+                            ))
+                        };
+                    self.maybe_writeback_mutating_first_arg(&name, None, &writeback_args, &result);
                     stk_push!(result);
                 }
             }
@@ -2140,11 +2150,7 @@ impl<'a> Vm<'a> {
         // wrote only to BufferLocals), we fall through to the legacy
         // buffer-local detour and the PLAINVAL fast path.
         use crate::emacs_core::symbol::SymbolRedirect;
-        let redirect = self
-            .ctx
-            .obarray
-            .get_by_id(resolved)
-            .map(|s| s.redirect());
+        let redirect = self.ctx.obarray.get_by_id(resolved).map(|s| s.redirect());
         if matches!(
             redirect,
             Some(SymbolRedirect::Localized | SymbolRedirect::Forwarded)
@@ -2171,10 +2177,8 @@ impl<'a> Vm<'a> {
             // `&mut self.ctx.obarray` for the BLV swap-in, and the
             // borrow checker can't express "hold slices of two
             // fields while mutating a third" across the method call.
-            let slots_opt: Option<&[Value]> =
-                slots_ptr.map(|p| unsafe { &*p });
-            let defaults_opt: Option<&[Value]> =
-                Some(unsafe { &*defaults_ptr });
+            let slots_opt: Option<&[Value]> = slots_ptr.map(|p| unsafe { &*p });
+            let defaults_opt: Option<&[Value]> = Some(unsafe { &*defaults_ptr });
             if let Some(val) = self.ctx.obarray.find_symbol_value_in_buffer(
                 resolved,
                 buf_id,
@@ -2191,10 +2195,7 @@ impl<'a> Vm<'a> {
                 // signals when `find_symbol_value` returns
                 // `Qunbound`.
                 if val.is_unbound() {
-                    return Err(signal(
-                        "void-variable",
-                        vec![Value::from_sym_id(name_id)],
-                    ));
+                    return Err(signal("void-variable", vec![Value::from_sym_id(name_id)]));
                 }
                 return Ok(val);
             }
@@ -2205,10 +2206,7 @@ impl<'a> Vm<'a> {
         // `is_buffer_local_id` so the String allocation + HashMap
         // lookup only fires for marked buffer-local variables.
         let is_local = self.ctx.obarray.is_buffer_local_id(resolved)
-            || self
-                .ctx
-                .custom
-                .is_auto_buffer_local(resolve_sym(resolved));
+            || self.ctx.custom.is_auto_buffer_local(resolve_sym(resolved));
         if is_local
             && crate::emacs_core::builtins::is_canonical_symbol_id(resolved)
             && let Some(buf) = self.ctx.buffers.current_buffer()
@@ -2222,9 +2220,7 @@ impl<'a> Vm<'a> {
                             .then(|| buf.buffer_local_value(resolved_name))
                             .flatten()
                     })
-                    .ok_or_else(|| {
-                        signal("void-variable", vec![Value::from_sym_id(name_id)])
-                    });
+                    .ok_or_else(|| signal("void-variable", vec![Value::from_sym_id(name_id)]));
             }
         }
 
@@ -2254,7 +2250,10 @@ impl<'a> Vm<'a> {
         }
 
         if self.ctx.obarray.is_constant_id(resolved) {
-            return Err(signal("setting-constant", vec![Value::from_sym_id(name_id)]));
+            return Err(signal(
+                "setting-constant",
+                vec![Value::from_sym_id(name_id)],
+            ));
         }
 
         // Phase 9b of the symbol-redirect refactor: for LOCALIZED
@@ -2266,11 +2265,7 @@ impl<'a> Vm<'a> {
         // path below stays populated as a fallback until Phase 10
         // deletes it.
         use crate::emacs_core::symbol::{SetInternalBind, SymbolRedirect};
-        let redirect = self
-            .ctx
-            .obarray
-            .get_by_id(resolved)
-            .map(|s| s.redirect());
+        let redirect = self.ctx.obarray.get_by_id(resolved).map(|s| s.redirect());
         // Phase 10B: FORWARDED writes go to the buffer slot the
         // descriptor points at. Mirrors GNU
         // `store_symval_forwarding` for the BUFFER_OBJFWD arm
@@ -2295,9 +2290,7 @@ impl<'a> Vm<'a> {
                     // immutable once installed.
                     let header = unsafe { &*fwd };
                     if matches!(header.ty, LispFwdType::BufferObj) {
-                        let buf_fwd = unsafe {
-                            &*(fwd as *const LispBufferObjFwd)
-                        };
+                        let buf_fwd = unsafe { &*(fwd as *const LispBufferObjFwd) };
                         let offset = buf_fwd.offset as usize;
                         let flags_idx = buf_fwd.local_flags_idx;
                         if let Some(buf) = self.ctx.buffers.get_mut(buf_id)
@@ -2323,9 +2316,7 @@ impl<'a> Vm<'a> {
             if let Some(buf_id) = self.ctx.buffers.current_buffer_id() {
                 // Extract buffer state before obarray borrow.
                 let (cur_val, alist) = match self.ctx.buffers.get(buf_id) {
-                    Some(buf) => {
-                        (Value::make_buffer(buf.id), buf.local_var_alist)
-                    }
+                    Some(buf) => (Value::make_buffer(buf.id), buf.local_var_alist),
                     None => (Value::NIL, Value::NIL),
                 };
                 // GNU `eval.c:3559-3577 (let_shadows_buffer_binding_p)`
@@ -3703,10 +3694,9 @@ impl<'a> Vm<'a> {
         let cleanup_roots = Self::result_roots(&result);
         let mut cleanup_extra_roots = cleanup_roots.clone();
         Self::collect_specpdl_roots(&specpdl, &mut cleanup_extra_roots);
-        let cleanup =
-            self.with_frame_roots(func, &handlers, &[], &cleanup_extra_roots, |vm| {
-                vm.unwind_specpdl_all(&mut specpdl)
-            });
+        let cleanup = self.with_frame_roots(func, &handlers, &[], &cleanup_extra_roots, |vm| {
+            vm.unwind_specpdl_all(&mut specpdl)
+        });
         self.ctx.bc_buf.truncate(frame_base);
         self.ctx.bc_frames.pop();
         merge_result_with_cleanup(result, cleanup)
@@ -3769,13 +3759,19 @@ impl<'a> Vm<'a> {
                 // collection.
                 let mut sig_extra = Vec::new();
                 Self::collect_flow_roots(&Flow::Signal(sig.clone()), &mut sig_extra);
-                let sig = match self.with_frame_roots(
-                    _func, handlers, specpdl, &sig_extra,
-                    |vm| vm.ctx.dispatch_signal_if_needed(sig),
-                ) {
+                let sig = match self.with_frame_roots(_func, handlers, specpdl, &sig_extra, |vm| {
+                    vm.ctx.dispatch_signal_if_needed(sig)
+                }) {
                     Ok(sig) => sig,
                     Err(flow) => {
-                        return self.resume_nonlocal(_func, _frame_base, pc, handlers, specpdl, flow);
+                        return self.resume_nonlocal(
+                            _func,
+                            _frame_base,
+                            pc,
+                            handlers,
+                            specpdl,
+                            flow,
+                        );
                     }
                 };
                 if let Some(ResumeTarget::VmConditionCase {

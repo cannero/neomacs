@@ -1,6 +1,6 @@
+use neovm_core::emacs_core::Context;
 use neovm_core::emacs_core::value::Value;
 use neovm_core::emacs_core::value_reader;
-use neovm_core::emacs_core::Context;
 use std::time::Instant;
 
 const INTROSPECTION_FORMS: &[&str] = &[

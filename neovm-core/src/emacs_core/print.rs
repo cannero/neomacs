@@ -282,9 +282,11 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
         ValueKind::String => {
             let ls = value.as_lisp_string().unwrap();
             match get_string_text_properties_for_value(*value) {
-                Some(runs) => {
-                    out.push_str(&format_lisp_propertized_string_emacs(ls, &runs, state.options))
-                }
+                Some(runs) => out.push_str(&format_lisp_propertized_string_emacs(
+                    ls,
+                    &runs,
+                    state.options,
+                )),
                 None => out.push_str(&format_lisp_string_emacs(ls, &state.options)),
             }
         }

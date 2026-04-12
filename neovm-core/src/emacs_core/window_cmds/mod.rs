@@ -24,8 +24,8 @@ pub(crate) use super::builtins::symbols::{
 };
 pub(crate) use super::builtins::{
     builtin_combine_windows, builtin_uncombine_window, builtin_window_bottom_divider_width,
-    builtin_window_lines_pixel_dimensions, builtin_window_new_normal,
-    builtin_window_new_pixel, builtin_window_new_total, builtin_window_old_body_pixel_height,
+    builtin_window_lines_pixel_dimensions, builtin_window_new_normal, builtin_window_new_pixel,
+    builtin_window_new_total, builtin_window_old_body_pixel_height,
     builtin_window_old_body_pixel_width, builtin_window_old_pixel_height,
     builtin_window_old_pixel_width, builtin_window_right_divider_width,
 };
@@ -1362,8 +1362,7 @@ pub(crate) fn builtin_window_cursor_info(
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
     // The window argument is still validated via window-live-p so
     // we get the GNU error shape on bad input.
-    let _ =
-        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    let _ = resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     Ok(Value::NIL)
 }
 
@@ -3303,14 +3302,7 @@ pub(crate) fn split_window_internal_impl_in_state(
     size: Value,
     side: Value,
 ) -> EvalResult {
-    split_window_internal_impl_in_state_with_normal(
-        frames,
-        buffers,
-        window,
-        size,
-        side,
-        Value::NIL,
-    )
+    split_window_internal_impl_in_state_with_normal(frames, buffers, window, size, side, Value::NIL)
 }
 
 /// Variant of [`split_window_internal_impl_in_state`] that also

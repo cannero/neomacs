@@ -291,23 +291,31 @@ pub(crate) fn builtin_subst_char_in_string(args: Vec<Value>) -> EvalResult {
 /// `(string-to-multibyte STRING)` -- convert unibyte storage bytes to multibyte chars.
 pub(crate) fn builtin_string_to_multibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-to-multibyte", &args, 1)?;
-    let ls = args[0]
-        .as_lisp_string()
-        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]]))?;
+    let ls = args[0].as_lisp_string().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[0]],
+        )
+    })?;
     if ls.is_multibyte() {
         return Ok(args[0]);
     }
     let out = convert_unibyte_to_multibyte_bytes(ls.as_bytes());
-    Ok(Value::heap_string(crate::heap_types::LispString::from_emacs_bytes(out)))
+    Ok(Value::heap_string(
+        crate::heap_types::LispString::from_emacs_bytes(out),
+    ))
 }
 
 /// `(string-to-unibyte STRING)` -- convert to unibyte storage.
 pub(crate) fn builtin_string_to_unibyte(args: Vec<Value>) -> EvalResult {
     use crate::emacs_core::emacs_char;
     expect_args("string-to-unibyte", &args, 1)?;
-    let ls = args[0]
-        .as_lisp_string()
-        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]]))?;
+    let ls = args[0].as_lisp_string().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[0]],
+        )
+    })?;
     if !ls.is_multibyte() {
         return Ok(args[0]);
     }
@@ -332,16 +340,21 @@ pub(crate) fn builtin_string_to_unibyte(args: Vec<Value>) -> EvalResult {
         }
         idx += 1;
     }
-    Ok(Value::heap_string(crate::heap_types::LispString::from_unibyte(bytes)))
+    Ok(Value::heap_string(
+        crate::heap_types::LispString::from_unibyte(bytes),
+    ))
 }
 
 /// `(string-as-unibyte STRING)` -- reinterpret as unibyte byte sequence.
 pub(crate) fn builtin_string_as_unibyte(args: Vec<Value>) -> EvalResult {
     use crate::emacs_core::emacs_char;
     expect_args("string-as-unibyte", &args, 1)?;
-    let ls = args[0]
-        .as_lisp_string()
-        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]]))?;
+    let ls = args[0].as_lisp_string().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[0]],
+        )
+    })?;
     if !ls.is_multibyte() {
         return Ok(args[0]);
     }
@@ -360,20 +373,27 @@ pub(crate) fn builtin_string_as_unibyte(args: Vec<Value>) -> EvalResult {
         }
         pos += len;
     }
-    Ok(Value::heap_string(crate::heap_types::LispString::from_unibyte(bytes)))
+    Ok(Value::heap_string(
+        crate::heap_types::LispString::from_unibyte(bytes),
+    ))
 }
 
 /// `(string-as-multibyte STRING)` -- reinterpret unibyte storage as multibyte.
 pub(crate) fn builtin_string_as_multibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-as-multibyte", &args, 1)?;
-    let ls = args[0]
-        .as_lisp_string()
-        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]]))?;
+    let ls = args[0].as_lisp_string().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[0]],
+        )
+    })?;
     if ls.is_multibyte() {
         return Ok(args[0]);
     }
     let out = convert_unibyte_to_multibyte_bytes(ls.as_bytes());
-    Ok(Value::heap_string(crate::heap_types::LispString::from_emacs_bytes(out)))
+    Ok(Value::heap_string(
+        crate::heap_types::LispString::from_emacs_bytes(out),
+    ))
 }
 
 /// `(unibyte-char-to-multibyte CHAR)` -- map 0..255 to multibyte/raw-byte char code.

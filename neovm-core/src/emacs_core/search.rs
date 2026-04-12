@@ -148,13 +148,19 @@ pub(crate) fn normalize_lisp_string_start_arg(
         let Some(start_idx) = normalized else {
             return Err(signal(
                 "args-out-of-range",
-                vec![Value::string(string.as_str().unwrap_or("")), Value::fixnum(raw_start)],
+                vec![
+                    Value::string(string.as_str().unwrap_or("")),
+                    Value::fixnum(raw_start),
+                ],
             ));
         };
         if !(0..=len).contains(&start_idx) {
             return Err(signal(
                 "args-out-of-range",
-                vec![Value::string(string.as_str().unwrap_or("")), Value::fixnum(raw_start)],
+                vec![
+                    Value::string(string.as_str().unwrap_or("")),
+                    Value::fixnum(raw_start),
+                ],
             ));
         }
         return Ok(start_idx as usize);

@@ -419,9 +419,7 @@ impl Window {
     /// `w->normal_cols`.
     pub fn normal_cols(&self) -> Value {
         match self {
-            Window::Leaf { normal_cols, .. } | Window::Internal { normal_cols, .. } => {
-                *normal_cols
-            }
+            Window::Leaf { normal_cols, .. } | Window::Internal { normal_cols, .. } => *normal_cols,
         }
     }
 
@@ -1739,7 +1737,11 @@ impl FrameManager {
     /// `Fset_window_new_pixel` ADD argument).
     pub fn set_window_new_pixel(&mut self, window_id: WindowId, size: i64, add: bool) -> i64 {
         if let Some(window) = self.lookup_window_mut(window_id) {
-            let stored = if add { window.new_pixel().unwrap_or(0) + size } else { size };
+            let stored = if add {
+                window.new_pixel().unwrap_or(0) + size
+            } else {
+                size
+            };
             window.set_new_pixel(Some(stored));
             stored
         } else {
@@ -1751,7 +1753,11 @@ impl FrameManager {
     /// `Fset_window_new_total`.
     pub fn set_window_new_total(&mut self, window_id: WindowId, size: i64, add: bool) -> i64 {
         if let Some(window) = self.lookup_window_mut(window_id) {
-            let stored = if add { window.new_total().unwrap_or(0) + size } else { size };
+            let stored = if add {
+                window.new_total().unwrap_or(0) + size
+            } else {
+                size
+            };
             window.set_new_total(Some(stored));
             stored
         } else {
@@ -2119,7 +2125,12 @@ pub fn window_prev_sibling_id(frame: &Frame, window_id: WindowId) -> Option<Wind
 /// `drafts/window-system-audit.md`, the slot lives on
 /// `Window::Leaf` / `Window::Internal` directly so the resize
 /// function no longer needs a side-table HashMap.
-pub fn window_resize_apply(window: &mut Window, horflag: bool, _char_width: f32, _char_height: f32) {
+pub fn window_resize_apply(
+    window: &mut Window,
+    horflag: bool,
+    _char_width: f32,
+    _char_height: f32,
+) {
     // Apply new_pixel to this window's bounds.
     let new_px = window.new_pixel();
     let bounds = *window.bounds();
@@ -2985,12 +2996,7 @@ mod tests {
             frame.sync_window_area_bounds();
         }
         let frame = mgr.get(fid).unwrap();
-        let initial_mini_h = frame
-            .minibuffer_leaf
-            .as_ref()
-            .unwrap()
-            .bounds()
-            .height;
+        let initial_mini_h = frame.minibuffer_leaf.as_ref().unwrap().bounds().height;
 
         mgr.get_mut(fid).unwrap().grow_mini_window(3);
         let grown_h = mgr

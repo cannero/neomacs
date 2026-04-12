@@ -252,10 +252,16 @@ pub(crate) fn builtin_take(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_string_search(args: Vec<Value>) -> EvalResult {
     expect_min_args("string-search", &args, 2)?;
     let needle_ls = args[0].as_lisp_string().ok_or_else(|| {
-        signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]])
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[0]],
+        )
     })?;
     let haystack_ls = args[1].as_lisp_string().ok_or_else(|| {
-        signal("wrong-type-argument", vec![Value::symbol("stringp"), args[1]])
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[1]],
+        )
     })?;
     let char_len = haystack_ls.schars();
     let start_char = if args.len() > 2 {

@@ -380,11 +380,9 @@ fn read_from_string_multibyte_indices_are_character_based() {
     let mut ev = Context::new();
     // "αβγ 42 δ" — eight logical characters, fourteen UTF-8 bytes.
     // Read from char index 4 (just before "42").
-    let result = builtin_read_from_string(
-        &mut ev,
-        vec![Value::string("αβγ 42 δ"), Value::fixnum(4)],
-    )
-    .unwrap();
+    let result =
+        builtin_read_from_string(&mut ev, vec![Value::string("αβγ 42 δ"), Value::fixnum(4)])
+            .unwrap();
     let pair_car = result.cons_car();
     let pair_cdr = result.cons_cdr();
     assert_eq!(pair_car.as_fixnum(), Some(42));
@@ -406,11 +404,8 @@ fn read_from_string_negative_indices_are_character_based() {
     let mut ev = Context::new();
     // "αβ 42" — five characters, seven UTF-8 bytes. Negative -2 means
     // the fourth character (the '4').
-    let result = builtin_read_from_string(
-        &mut ev,
-        vec![Value::string("αβ 42"), Value::fixnum(-2)],
-    )
-    .unwrap();
+    let result =
+        builtin_read_from_string(&mut ev, vec![Value::string("αβ 42"), Value::fixnum(-2)]).unwrap();
     let pair_car = result.cons_car();
     let pair_cdr = result.cons_cdr();
     assert_eq!(pair_car.as_fixnum(), Some(42));
@@ -424,10 +419,7 @@ fn read_from_string_negative_indices_are_character_based() {
 fn read_from_string_out_of_range_uses_character_count() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let result = builtin_read_from_string(
-        &mut ev,
-        vec![Value::string("α"), Value::fixnum(2)],
-    );
+    let result = builtin_read_from_string(&mut ev, vec![Value::string("α"), Value::fixnum(2)]);
     assert!(
         result.is_err(),
         "char index 2 must be out of range for a 1-char string"
@@ -1423,7 +1415,9 @@ fn input_pending_p_uses_dynamic_unread_command_events_binding() {
         "unread-command-events",
         Value::list(vec![Value::fixnum(97)]),
     );
-    let result = ev.eval_str("(let ((unread-command-events nil)) (input-pending-p))").unwrap();
+    let result = ev
+        .eval_str("(let ((unread-command-events nil)) (input-pending-p))")
+        .unwrap();
     assert!(result.is_nil());
     assert_eq!(
         ev.obarray.symbol_value("unread-command-events"),
@@ -1714,9 +1708,11 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_before_echo_message() {
     let (_tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
 
-    ev.eval_str(r#"(fset 'mouse-fixup-help-message
-                  (lambda (msg) (concat "fixed:" msg)))"#)
-        .expect("install mouse-fixup-help-message");
+    ev.eval_str(
+        r#"(fset 'mouse-fixup-help-message
+                  (lambda (msg) (concat "fixed:" msg)))"#,
+    )
+    .expect("install mouse-fixup-help-message");
 
     crate::emacs_core::builtins::builtin_display_update_for_mouse_movement(
         &mut ev,
@@ -1737,9 +1733,11 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_without_input_receiver() {
     let mut ev = Context::new();
     let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
 
-    ev.eval_str(r#"(fset 'mouse-fixup-help-message
-                  (lambda (msg) (concat "fixed:" msg)))"#)
-        .expect("install mouse-fixup-help-message");
+    ev.eval_str(
+        r#"(fset 'mouse-fixup-help-message
+                  (lambda (msg) (concat "fixed:" msg)))"#,
+    )
+    .expect("install mouse-fixup-help-message");
 
     crate::emacs_core::builtins::builtin_display_update_for_mouse_movement(
         &mut ev,
@@ -1762,13 +1760,15 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_before_show_help_function(
     let (_tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
 
-    ev.eval_str(r#"(progn
+    ev.eval_str(
+        r#"(progn
              (setq show-help-collected nil)
              (fset 'mouse-fixup-help-message
                    (lambda (msg) (concat "fixed:" msg)))
              (setq show-help-function
-                   (lambda (msg) (setq show-help-collected msg))))"#)
-        .expect("install help fixup/show-help-function");
+                   (lambda (msg) (setq show-help-collected msg))))"#,
+    )
+    .expect("install help fixup/show-help-function");
 
     crate::emacs_core::builtins::builtin_display_update_for_mouse_movement(
         &mut ev,
@@ -1814,11 +1814,13 @@ fn read_char_mouse_move_sets_help_echo_even_without_track_mouse() {
 fn input_pending_p_check_timers_does_not_run_timer_when_input_is_already_pending() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    ev.eval_str(r#"(progn
+    ev.eval_str(
+        r#"(progn
              (setq input-pending-timer-fired nil)
              (fset 'input-pending-timer-callback
-                   (lambda () (setq input-pending-timer-fired 'done))))"#)
-        .expect("install input-pending-p timer setup");
+                   (lambda () (setq input-pending-timer-fired 'done))))"#,
+    )
+    .expect("install input-pending-p timer setup");
     ev.timers.add_timer(
         0.0,
         0.0,
@@ -1898,7 +1900,9 @@ fn discard_input_uses_dynamic_unread_command_events_binding() {
         "unread-command-events",
         Value::list(vec![Value::fixnum(97)]),
     );
-    let result = ev.eval_str("(let ((unread-command-events (list 98))) (discard-input) unread-command-events)").unwrap();
+    let result = ev
+        .eval_str("(let ((unread-command-events (list 98))) (discard-input) unread-command-events)")
+        .unwrap();
     assert!(result.is_nil());
     assert_eq!(
         ev.obarray.symbol_value("unread-command-events"),
@@ -2817,7 +2821,9 @@ fn read_key_sequence_vector_rejects_more_than_six_args() {
 fn with_output_to_string_captures_print_output() {
     crate::test_utils::init_test_tracing();
     let mut ev = crate::test_utils::runtime_startup_context();
-    let result = ev.eval_str(r#"(with-output-to-string (princ "a") (prin1 '(1 2)) (print "x"))"#).unwrap();
+    let result = ev
+        .eval_str(r#"(with-output-to-string (princ "a") (prin1 '(1 2)) (print "x"))"#)
+        .unwrap();
     assert_eq!(result.as_str(), Some("a(1 2)\n\"x\"\n"));
 }
 
@@ -2825,12 +2831,16 @@ fn with_output_to_string_captures_print_output() {
 fn with_output_to_string_keeps_explicit_destination_working() {
     crate::test_utils::init_test_tracing();
     let mut ev = crate::test_utils::runtime_startup_context();
-    let result = ev.eval_str(r#"(with-temp-buffer
+    let result = ev
+        .eval_str(
+            r#"(with-temp-buffer
              (let ((buf (current-buffer)))
                (with-output-to-string
                  (princ "captured")
                  (princ " to-buf" buf))
-               (buffer-string)))"#).unwrap();
+               (buffer-string)))"#,
+        )
+        .unwrap();
     assert_eq!(result.as_str(), Some(" to-buf"));
 }
 

@@ -4,16 +4,14 @@ use neovm_core::emacs_core::{Context, LambdaData, LambdaParams, Value};
 fn compat_macro_cache_keeps_opaque_values_alive_across_gc() {
     let mut eval = Context::new();
 
-    let macro_body = vec![
+    let macro_body = vec![Value::list(vec![
+        Value::symbol("function"),
         Value::list(vec![
-            Value::symbol("function"),
-            Value::list(vec![
-                Value::symbol("lambda"),
-                Value::NIL,
-                Value::fixnum(123),
-            ]),
+            Value::symbol("lambda"),
+            Value::NIL,
+            Value::fixnum(123),
         ]),
-    ];
+    ])];
     let opaque_macro = Value::make_macro(LambdaData {
         params: LambdaParams::simple(vec![]),
         body: macro_body,
@@ -25,7 +23,9 @@ fn compat_macro_cache_keeps_opaque_values_alive_across_gc() {
     eval.obarray_mut()
         .set_symbol_function("opaque-macro", opaque_macro);
 
-    let first = eval.eval_str("(opaque-macro)").expect("first macro expansion");
+    let first = eval
+        .eval_str("(opaque-macro)")
+        .expect("first macro expansion");
     assert!(
         first.is_lambda(),
         "macro expansion should yield a runtime closure, got {first:?}"

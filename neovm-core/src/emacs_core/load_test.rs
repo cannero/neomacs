@@ -3,18 +3,17 @@ use crate::emacs_core::eval::Context;
 use crate::emacs_core::fontset::{
     DEFAULT_FONTSET_NAME, FontSpecEntry, matching_entries_for_fontset,
 };
+use crate::emacs_core::format_eval_result;
 use crate::emacs_core::intern::{intern, resolve_sym};
 use crate::emacs_core::value::{
     HashKey, HashTableTest, Value, ValueKind, VecLikeType, list_to_vec,
 };
-use crate::emacs_core::format_eval_result;
 use crate::test_utils::load_minimal_gnu_help_runtime;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempfile::tempdir;
-
 
 fn isolated_runtime_bootstrap_eval() -> Context {
     let dump_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -64,7 +63,6 @@ fn copy_source_fixture(dir: &std::path::Path, rel: &str) -> PathBuf {
     copied
 }
 
-
 fn definition_is_macroish(value: Value) -> bool {
     value.is_macro() || (value.is_cons() && value.cons_car().as_symbol_name() == Some("macro"))
 }
@@ -83,7 +81,6 @@ fn is_named_defun(form: Value, name: &str) -> bool {
     }
     cdr.cons_car().as_symbol_name() == Some(name)
 }
-
 
 #[test]
 fn cached_bootstrap_evaluator_clears_top_level_eval_state() {
@@ -269,7 +266,8 @@ fn gnu_subr_x_string_chop_newline_loads_without_rust_builtin() {
         bootstrap_fixture_path(&load_path, "emacs-lisp/subr-x", false).expect("subr-x path");
     let subr_x_source =
         fs::read_to_string(&subr_x_path).unwrap_or_else(|err| panic!("read subr-x.el: {err}"));
-    let subr_x_forms = crate::emacs_core::value_reader::read_all(&subr_x_source).expect("parse subr-x.el");
+    let subr_x_forms =
+        crate::emacs_core::value_reader::read_all(&subr_x_source).expect("parse subr-x.el");
     let mut found_string_chop_newline = false;
     for form in &subr_x_forms {
         eval.eval_form(*form).unwrap_or_else(|err| {
@@ -887,7 +885,6 @@ fn build_pre_macroexp_reload_eval() -> Context {
     eval
 }
 
-
 fn minimal_eager_macroexpand_eval() -> Context {
     let mut eval = build_pre_macroexp_reload_eval();
     let load_path = get_load_path(&eval.obarray());
@@ -909,7 +906,6 @@ fn minimal_eager_macroexpand_eval() -> Context {
     eval
 }
 
-
 #[test]
 fn bootstrap_lambda_parameters_bind_special_symbols_like_gnu_emacs() {
     crate::test_utils::init_test_tracing();
@@ -917,7 +913,8 @@ fn bootstrap_lambda_parameters_bind_special_symbols_like_gnu_emacs() {
     apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
         panic!("startup state: {}", format_eval_error(&eval, &err));
     });
-    let result = eval.eval_str("(progn
+    let result = eval.eval_str(
+        "(progn
             (fset 'vm-bootstrap-shadow-foo (lambda () t))
             (list
               (funcall (lambda (t) t) 7)
@@ -929,7 +926,8 @@ fn bootstrap_lambda_parameters_bind_special_symbols_like_gnu_emacs() {
               (let* ((captured 42)
                      (shadow (lambda (t) (list t captured))))
                 (funcall shadow 7))
-              (funcall (lambda (t) (setq t 10) t) 7)))");
+              (funcall (lambda (t) (setq t 10) t) 7)))",
+    );
     assert_eq!(
         format_eval_result(&result),
         "OK (7 9 t 7 (1 2 3) (4 5 6) (7 42) 10)",
@@ -1569,7 +1567,9 @@ fn bootstrap_runtime_display_selections_p_is_true_under_neomacs_gui_surface() {
     crate::test_utils::init_test_tracing();
     let mut eval =
         create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"]).expect("bootstrap");
-    let value = eval.eval_str("(display-selections-p)").expect("display-selections-p");
+    let value = eval
+        .eval_str("(display-selections-p)")
+        .expect("display-selections-p");
     assert_eq!(value, Value::T);
 }
 
@@ -1826,7 +1826,8 @@ fn pdump_roundtrip_preserves_gnu_prefix_keymap_links() {
     crate::test_utils::init_test_tracing();
 
     let mut eval = Context::new();
-    eval.eval_str(r#"(progn
+    eval.eval_str(
+        r#"(progn
              (setq esc-map (make-sparse-keymap "ESC-prefix"))
              (define-key esc-map "x" 'execute-extended-command)
              (fset 'ESC-prefix esc-map)
@@ -1839,8 +1840,9 @@ fn pdump_roundtrip_preserves_gnu_prefix_keymap_links() {
              (define-key global-map "\C-x" 'Control-X-prefix)
              (define-key global-map "\e\e\e" 'keyboard-escape-quit)
              (define-key global-map "\C-x\C-z" 'suspend-emacs)
-             (use-global-map global-map))"#)
-        .expect("evaluate prefix keymap setup");
+             (use-global-map global-map))"#,
+    )
+    .expect("evaluate prefix keymap setup");
 
     let dir = tempfile::tempdir().expect("tempdir");
     let dump_path = dir.path().join("prefix-keymaps.pdump");
@@ -2031,7 +2033,8 @@ fn bootstrap_runtime_execute_extended_command_exits_minibuffer_on_ret() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
-    eval.eval_str(r#"(progn
+    eval.eval_str(
+        r#"(progn
              (setq neo-ret-probe-ran nil)
              (defun neo-ret-probe ()
                (interactive)
@@ -2080,12 +2083,14 @@ fn bootstrap_runtime_command_loop_executes_meta_x_command_on_ret() {
         "runtime command-loop test should have a selected frame"
     );
 
-    let _ = eval.eval_str_each(r#"(progn
+    let _ = eval.eval_str_each(
+        r#"(progn
              (setq neo-ret-probe-ran nil)
              (defun neo-ret-probe ()
                (interactive)
                (setq neo-ret-probe-ran t)
-               (exit-recursive-edit)))"#);
+               (exit-recursive-edit)))"#,
+    );
 
     let (tx, rx) = crossbeam_channel::unbounded();
     tx.send(crate::keyboard::InputEvent::key_press(
@@ -2125,14 +2130,16 @@ fn bootstrap_runtime_window_close_routes_through_handle_delete_frame() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
-    let _ = eval.eval_str_each(r#"(progn
+    let _ = eval.eval_str_each(
+        r#"(progn
              (setq neo-delete-frame-log nil)
              (defun neo--log-delete-frame-advice (event)
                (setq neo-delete-frame-log
                      (list (car event)
                            (framep (car (cadr event))))))
              (advice-add 'handle-delete-frame :before
-                         #'neo--log-delete-frame-advice))"#);
+                         #'neo--log-delete-frame-advice))"#,
+    );
 
     let scratch = eval.buffers.create_buffer("*close-frame-target*");
     eval.buffers.set_current(scratch);
@@ -2158,11 +2165,13 @@ fn bootstrap_runtime_window_close_routes_through_handle_delete_frame() {
     assert_eq!(result, Value::NIL);
 
     assert_eq!(
-        format_eval_result(&eval.eval_str(r#"(prog1 neo-delete-frame-log
+        format_eval_result(&eval.eval_str(
+            r#"(prog1 neo-delete-frame-log
               (advice-remove 'handle-delete-frame
                              #'neo--log-delete-frame-advice)
               (fmakunbound 'neo--log-delete-frame-advice)
-              (makunbound 'neo-delete-frame-log))"#)),
+              (makunbound 'neo-delete-frame-log))"#
+        )),
         "OK (delete-frame t)",
         "expected WM close to route through GNU handle-delete-frame"
     );
@@ -2350,10 +2359,12 @@ fn bootstrap_runtime_read_key_sequence_follows_meta_x_command() {
 fn bootstrap_runtime_loads_gnu_window_split_entry_point() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
-    let rendered = format_eval_result(&eval.eval_str("(list (fboundp 'split-window)
+    let rendered = format_eval_result(&eval.eval_str(
+        "(list (fboundp 'split-window)
                (let ((w (split-window)))
                  (list (window-live-p w)
-                       (length (window-list)))))"));
+                       (length (window-list)))))",
+    ));
     assert_eq!(rendered, "OK (t (t 2))");
 }
 
@@ -2414,7 +2425,8 @@ fn runtime_interpreted_closure_filter_honors_explicit_runtime_binding() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     eval.set_lexical_binding(true);
-    eval.eval_str(r#"
+    eval.eval_str(
+        r#"
         (setq neovm--hook-count 0)
         (fset 'cconv-make-interpreted-closure
               (lambda (args body env docstring iform)
@@ -2422,7 +2434,8 @@ fn runtime_interpreted_closure_filter_honors_explicit_runtime_binding() {
                 (make-interpreted-closure args body env docstring iform)))
         (setq internal-make-interpreted-closure-function
               'cconv-make-interpreted-closure)
-        "#)
+        "#,
+    )
     .expect("eval forms");
     sync_runtime_interpreted_closure_filter(&mut eval);
     let rendered = eval_rendered(
@@ -2637,8 +2650,10 @@ fn bootstrap_runtime_standard_fontset_spec_creates_named_fontset() {
     let mut eval =
         create_bootstrap_evaluator_cached_with_features(&["neomacs"]).expect("bootstrap evaluator");
     let result = eval
-        .eval_str(r#"(let ((name (create-fontset-from-fontset-spec standard-fontset-spec t)))
-             (list name (query-fontset "fontset-standard")))"#)
+        .eval_str(
+            r#"(let ((name (create-fontset-from-fontset-spec standard-fontset-spec t)))
+             (list name (query-fontset "fontset-standard")))"#,
+        )
         .expect("standard fontset creation should evaluate");
     assert_eq!(
         list_to_vec(&result),
@@ -3123,7 +3138,6 @@ fn profile_single_bootstrap_file_load() {
     let _ = lisp_dir;
 }
 
-
 #[test]
 fn strip_reader_prefix_handles_bom_and_shebang() {
     crate::test_utils::init_test_tracing();
@@ -3437,12 +3451,14 @@ fn load_file_exact_gc_roots_load_history_and_after_load_filename() {
     eval.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
     eval.tagged_heap.set_gc_threshold(1);
 
-    eval.eval_str("(progn
+    eval.eval_str(
+        "(progn
            (setq vm-after-load-filename nil)
            (fset 'do-after-load-evaluation
                  (lambda (file)
-                   (setq vm-after-load-filename file))))")
-        .expect("install do-after-load-evaluation probe");
+                   (setq vm-after-load-filename file))))",
+    )
+    .expect("install do-after-load-evaluation probe");
 
     let loaded = load_file(&mut eval, &file).expect("load file under exact gc");
     assert_eq!(loaded, Value::T);
@@ -3473,7 +3489,6 @@ fn load_file_exact_gc_roots_load_history_and_after_load_filename() {
 
     let _ = fs::remove_dir_all(&dir);
 }
-
 
 #[test]
 fn ensure_startup_compat_variables_backfills_xfaces_bootstrap_state() {
@@ -3650,7 +3665,9 @@ fn load_file_accepts_shebang_and_honors_second_line_lexical_binding_cookie() {
         "second-line lexical-binding cookie should set lexical-binding to t during load",
     );
 
-    let value = eval.eval_str("(let ((lexical-binding nil)) (funcall vm-load-shebang-fn))").expect("evaluate closure");
+    let value = eval
+        .eval_str("(let ((lexical-binding nil)) (funcall vm-load-shebang-fn))")
+        .expect("evaluate closure");
     assert_eq!(
         value.as_int(),
         Some(42),
@@ -3870,7 +3887,11 @@ fn neovm_loadup_bootstrap() {
     crate::test_utils::init_test_tracing();
 
     let mut eval = create_bootstrap_evaluator().expect("loadup bootstrap should succeed");
-    let result = eval.eval_str("(list (not (null (cl--find-class 'float))) (not (null (cl--find-class 'integer))))").expect("evaluate cl class probe");
+    let result = eval
+        .eval_str(
+            "(list (not (null (cl--find-class 'float))) (not (null (cl--find-class 'integer))))",
+        )
+        .expect("evaluate cl class probe");
     let items = crate::emacs_core::value::list_to_vec(&result).expect("result list");
     assert_eq!(
         items,
@@ -3944,12 +3965,11 @@ fn deftheme_and_provide_theme_works() {
     let mut eval = create_bootstrap_evaluator().expect("bootstrap");
 
     // Test: deftheme + provide-theme should provide the THEME-theme feature
-    let result = eval.eval_str("(progn (deftheme test-neovm \"Test\") (provide-theme 'test-neovm))");
+    let result =
+        eval.eval_str("(progn (deftheme test-neovm \"Test\") (provide-theme 'test-neovm))");
     eprintln!("deftheme+provide-theme result: {:?}", result);
 
-    let provided = eval
-        .eval_str("(featurep 'test-neovm-theme)")
-        .unwrap();
+    let provided = eval.eval_str("(featurep 'test-neovm-theme)").unwrap();
     eprintln!("(featurep 'test-neovm-theme) = {:?}", provided);
     assert!(
         provided.is_truthy(),
@@ -4010,7 +4030,9 @@ fn defface_warning_creates_face_after_bootstrap() {
     let mut eval = create_bootstrap_evaluator().expect("bootstrap");
 
     // Check: is 'warning a valid face after bootstrap?
-    let result = eval.eval_str("(facep 'warning)").expect("facep should work");
+    let result = eval
+        .eval_str("(facep 'warning)")
+        .expect("facep should work");
     eprintln!("(facep 'warning) = {:?}", result);
     assert!(
         result.is_truthy(),
@@ -4025,13 +4047,15 @@ fn uninterned_symbol_in_hook_works() {
     let mut eval = create_bootstrap_evaluator().expect("bootstrap");
 
     // Test: add-hook with uninterned symbol, then run-hook-with-args
-    eval.eval_str(r#"(progn
+    eval.eval_str(
+        r#"(progn
            (defvar test-hook nil)
            (let ((fun (make-symbol \"test-helper\")))
              (fset fun (lambda (x) (set 'test-hook-result x)))
              (add-hook 'test-hook fun))
-           (run-hook-with-args 'test-hook 42))"#)
-        .expect("hook with uninterned symbol should work");
+           (run-hook-with-args 'test-hook 42))"#,
+    )
+    .expect("hook with uninterned symbol should work");
 
     let result = eval.obarray().symbol_value("test-hook-result").cloned();
     eprintln!("test-hook-result: {:?}", result);
@@ -4116,20 +4140,20 @@ fn elc_loading_defines_defcustom_variables() {
     eprintln!("custom-declare-variable fboundp={cdv}");
 
     // Check that general feature was provided
-    let provided =
-        eval.eval_str("(featurep 'general)");
+    let provided = eval.eval_str("(featurep 'general)");
     eprintln!("(featurep 'general) = {:?}", provided);
 
     // Test Form 0 in the same evaluator using the streaming Value reader
     let raw_bytes = std::fs::read(general_elc).unwrap();
     let content = super::skip_elc_header(&raw_bytes);
-    let (form0, _next_pos) =
-        crate::emacs_core::value_reader::read_one(&content, 0)
-            .expect("read first form")
-            .expect("EOF before first form");
+    let (form0, _next_pos) = crate::emacs_core::value_reader::read_one(&content, 0)
+        .expect("read first form")
+        .expect("EOF before first form");
     eprintln!("Read Form 0 from general.elc via value reader");
 
-    let result = eval.eval_sub(form0).map_err(crate::emacs_core::error::map_flow);
+    let result = eval
+        .eval_sub(form0)
+        .map_err(crate::emacs_core::error::map_flow);
     eprintln!("Form 0 result: {:?}", result);
 
     let gds_bound = eval
@@ -4193,7 +4217,6 @@ fn compiled_cl_preloaded_loads_after_faces() {
     assert_eq!(result, Value::T);
 }
 
-
 #[test]
 fn compiled_custom_declare_face_call_before_faces_succeeds() {
     crate::test_utils::init_test_tracing();
@@ -4253,7 +4276,6 @@ fn source_cycle_spacing_form_loads_after_bootstrap_prefix() {
         .expect("evaluate cycle-spacing probe");
     assert_eq!(result, Value::list(vec![Value::T, Value::T]));
 }
-
 
 #[test]
 fn partial_bootstrap_footer_local_variables_error_is_catchable() {
@@ -4398,11 +4420,13 @@ fn define_prefix_command_sets_symbol_value_and_function() {
     crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("keymap", false);
     let result = eval
-        .eval_str(r#"(let ((cmd 'neovm--test-prefix-map))
+        .eval_str(
+            r#"(let ((cmd 'neovm--test-prefix-map))
              (define-prefix-command cmd nil "Test Prefix")
              (list (eq cmd 'neovm--test-prefix-map)
                    (keymapp (symbol-function cmd))
-                   (keymapp (symbol-value cmd))))"#)
+                   (keymapp (symbol-value cmd))))"#,
+        )
         .expect("evaluate define-prefix-command probe");
     assert_eq!(
         crate::emacs_core::value::list_to_vec(&result).expect("probe result list"),
@@ -4415,13 +4439,15 @@ fn lookup_key_returned_submenu_symbol_has_bound_value() {
     crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("keymap", false);
     let result = eval
-        .eval_str(r#"(let* ((root (make-sparse-keymap))
+        .eval_str(
+            r#"(let* ((root (make-sparse-keymap))
                   (submenu 'describe-chinese-environment-map))
              (define-prefix-command submenu nil "Chinese Environment")
              (define-key-after root (vector 'Chinese) (cons "Chinese" submenu))
              (let ((found (lookup-key root [Chinese])))
                (list (eq found submenu)
-                     (keymapp (symbol-value found)))))"#)
+                     (keymapp (symbol-value found)))))"#,
+        )
         .expect("evaluate lookup-key submenu probe");
     assert_eq!(
         crate::emacs_core::value::list_to_vec(&result).expect("probe result list"),
@@ -4434,7 +4460,8 @@ fn set_language_info_alist_reuses_chinese_submenu_like_gnu_emacs() {
     crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("language/chinese", false);
     let result = eval
-        .eval_str(r#"(progn
+        .eval_str(
+            r#"(progn
              (set-language-info-alist
               "Chinese-GB"
               '((documentation . "GB"))
@@ -4443,7 +4470,8 @@ fn set_language_info_alist_reuses_chinese_submenu_like_gnu_emacs() {
               "Chinese-BIG5"
               '((documentation . "BIG5"))
               '("Chinese"))
-             (keymapp describe-chinese-environment-map))"#)
+             (keymapp describe-chinese-environment-map))"#,
+        )
         .expect("evaluate set-language-info-alist submenu probe");
     assert_eq!(result, Value::T);
 }
@@ -4488,12 +4516,14 @@ fn partial_bootstrap_fill_delete_newlines_matches_gnu_trailing_space_behavior() 
     });
 
     let result = eval
-        .eval_str(r#"(with-temp-buffer
+        .eval_str(
+            r#"(with-temp-buffer
              (insert "Enable the mode if ARG is nil, omitted, or is a positive number.\n")
              (insert "Disable the mode if ARG is a negative number.\n")
              (let ((to (copy-marker (point) t)))
                (fill-delete-newlines (point-min) to 'left t nil)
-               (buffer-string)))"#)
+               (buffer-string)))"#,
+        )
         .expect("evaluation succeeds");
 
     assert_eq!(
@@ -5432,7 +5462,8 @@ conveniently adding tool bar items."
     }
     tracing::info!("tool-bar probe: macroexpand form 1");
     let expanded = eval
-        .eval_str(r#"(macroexpand
+        .eval_str(
+            r#"(macroexpand
              '(define-minor-mode tool-bar-mode
                 "Toggle the tool bar in all graphical frames (Tool Bar mode).
 
@@ -5451,7 +5482,8 @@ conveniently adding tool bar items."
                                                    default-frame-alist)))))
                 (and tool-bar-mode
                      (= 1 (length (default-value 'tool-bar-map)))
-                     (tool-bar-setup))))"#)
+                     (tool-bar-setup))))"#,
+        )
         .expect("macroexpand tool-bar define-minor-mode");
     tracing::info!("tool-bar probe: macroexpand complete");
     if let Some(forms) = list_to_vec(&expanded) {
@@ -5486,19 +5518,20 @@ conveniently adding tool bar items."
     }
     tracing::info!("tool-bar probe: load complete");
     let result = eval
-        .eval_str(r#"(list
+        .eval_str(
+            r#"(list
              (special-form-p 'define-minor-mode)
              (commandp 'tool-bar-mode)
              (not (and (consp (symbol-function 'tool-bar-mode))
                        (eq (car (symbol-function 'tool-bar-mode)) 'autoload)))
-             (keymapp tool-bar-map))"#)
+             (keymapp tool-bar-map))"#,
+        )
         .expect("evaluate tool-bar bootstrap probe");
     assert_eq!(
         result,
         Value::list(vec![Value::NIL, Value::T, Value::T, Value::T])
     );
 }
-
 
 #[test]
 fn evaluator_bootstrap_binds_default_frame_scroll_bars_like_gnu_frame_c() {
@@ -5570,9 +5603,11 @@ fn cl_callf_updates_variable_place() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     let result = eval
-        .eval_str(r#"(let ((a '(3 2 1)))
+        .eval_str(
+            r#"(let ((a '(3 2 1)))
            (cl-callf (lambda (slots) (apply #'vector (nreverse slots))) a)
-           a)"#)
+           a)"#,
+        )
         .expect("evaluate cl-callf variable probe");
     assert_eq!(expect_vector_ints(result), vec![1, 2, 3]);
 }
@@ -5582,9 +5617,11 @@ fn direct_setq_funcall_updates_variable_place() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     let result = eval
-        .eval_str(r#"(let ((a '(3 2 1)))
+        .eval_str(
+            r#"(let ((a '(3 2 1)))
            (setq a (funcall #'(lambda (slots) (apply #'vector (nreverse slots))) a))
-           a)"#)
+           a)"#,
+        )
         .expect("evaluate direct funcall probe");
     assert_eq!(expect_vector_ints(result), vec![1, 2, 3]);
 }
@@ -5783,7 +5820,8 @@ fn runtime_startup_state_matches_char_syntax_comprehensive_form() {
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
     let result = eval
-        .eval_str(r#"
+        .eval_str(
+            r#"
 (list
  ;; Standard syntax table entries
  (char-syntax ?a)
@@ -5816,7 +5854,8 @@ fn runtime_startup_state_matches_char_syntax_comprehensive_form() {
            (char-syntax ?-)
            (char-syntax ?a)
            (char-syntax ?\())))
-"#)
+"#,
+        )
         .expect("evaluate char syntax comprehensive probe");
     assert_eq!(
         crate::emacs_core::print::print_value_with_buffers(&result, &eval.buffers),
@@ -5870,7 +5909,6 @@ fn bootstrap_defun_compiler_macro_declaration_sets_properties() {
 
     assert_eq!(rendered, "OK (vm--cmacro-probe--cm vm--cmacro-probe--cm)");
 }
-
 
 #[test]
 fn bootstrap_macroexpand_all_pop_body_before_faces() {
@@ -5968,7 +6006,6 @@ fn bootstrap_define_inline_sets_compiler_macro_properties() {
     );
 }
 
-
 #[test]
 fn expanded_cache_replay_preserves_oclosure_define_class_registration() {
     crate::test_utils::init_test_tracing();
@@ -6008,7 +6045,6 @@ fn expanded_cache_replay_preserves_oclosure_define_class_registration() {
     assert_eq!(first, "OK (t t)");
     assert_eq!(second, "OK (t t)");
 }
-
 
 #[test]
 fn expanded_cache_replay_preserves_nadvice_eval_and_compile_helpers() {
@@ -6515,9 +6551,11 @@ fn cl_callf_updates_generalized_place() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     let result = eval
-        .eval_str(r#"(let ((box (list '(3 2 1))))
+        .eval_str(
+            r#"(let ((box (list '(3 2 1))))
            (cl-callf (lambda (slots) (apply #'vector (nreverse slots))) (car box))
-           (car box))"#)
+           (car box))"#,
+        )
         .expect("evaluate cl-callf generalized place probe");
     assert_eq!(expect_vector_ints(result), vec![1, 2, 3]);
 }
@@ -6591,7 +6629,11 @@ fn macroexpand_all_pcase_terminates() {
     tracing::debug!("Testing eager expansion on a simple defun with cond...");
     let test_form =
         "(defun test-eager (x) (cond ((= x 1) \"one\") ((= x 2) \"two\") (t \"other\")))";
-    let form_value = crate::emacs_core::value_reader::read_all(test_form).unwrap().into_iter().next().unwrap();
+    let form_value = crate::emacs_core::value_reader::read_all(test_form)
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
     let mexp_fn = eval
         .obarray()
         .symbol_function("internal-macroexpand-for-load")
@@ -6690,7 +6732,8 @@ fn macroexp_eager_reload_preserves_symbol_identity() {
     }
 
     let probe_result = eval
-        .eval_str(r#"(let* ((s-if (make-symbol "if"))
+        .eval_str(
+            r#"(let* ((s-if (make-symbol "if"))
                   (s-message (make-symbol "message"))
                   (s-when (make-symbol "when"))
                   (s-cadr (make-symbol "cadr"))
@@ -6698,7 +6741,8 @@ fn macroexp_eager_reload_preserves_symbol_identity() {
              (list (special-form-p s-if)
                    (functionp s-message)
                    (macrop s-when)
-                   (equal (macroexpand form) form)))"#)
+                   (equal (macroexpand form) form)))"#,
+        )
         .expect("evaluate symbol identity probe");
     let values =
         crate::emacs_core::value::list_to_vec(&probe_result).expect("probe should return list");
@@ -6762,13 +6806,20 @@ fn eager_expand_toplevel_forms_keeps_recursive_progn_forms_alive_under_exact_gc(
         load_and_report(&mut eval, name, &load_path);
     }
 
-    eval.eval_str(r#"(defmacro neomacs-test-progn-macro ()
+    eval.eval_str(
+        r#"(defmacro neomacs-test-progn-macro ()
              '(progn
                 (defvar neomacs-test-progn-var 42)
                 (defun neomacs-test-progn-fn ()
-                  neomacs-test-progn-var)))"#).expect("define progn macro");
+                  neomacs-test-progn-var)))"#,
+    )
+    .expect("define progn macro");
 
-    let form_value = crate::emacs_core::value_reader::read_all("(neomacs-test-progn-macro)").unwrap().into_iter().next().unwrap();
+    let form_value = crate::emacs_core::value_reader::read_all("(neomacs-test-progn-macro)")
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
     let macroexpand_fn = get_eager_macroexpand_fn(&eval).expect("eager macroexpand fn");
     let mut expanded = Vec::new();
     eager_expand_toplevel_forms(
@@ -6794,7 +6845,9 @@ fn eager_expand_toplevel_forms_keeps_recursive_progn_forms_alive_under_exact_gc(
         ]
     );
 
-    let result = eval.eval_str("(neomacs-test-progn-fn)").expect("call progn fn");
+    let result = eval
+        .eval_str("(neomacs-test-progn-fn)")
+        .expect("call progn fn");
     assert_eq!(result, Value::fixnum(42));
 }
 
@@ -6832,9 +6885,11 @@ fn function_get_only_exposes_cxxr_compiler_macro_on_cxxr_symbols() {
     }
 
     let result = eval
-        .eval_str(r#"(list (if (function-get 'car 'compiler-macro) t nil)
+        .eval_str(
+            r#"(list (if (function-get 'car 'compiler-macro) t nil)
                  (if (function-get 'cdr 'compiler-macro) t nil)
-                 (if (function-get 'cadr 'compiler-macro) t nil))"#)
+                 (if (function-get 'cadr 'compiler-macro) t nil))"#,
+        )
         .expect("evaluate function-get probe");
     assert_eq!(
         crate::emacs_core::value::list_to_vec(&result).expect("probe should return list"),
@@ -6920,7 +6975,8 @@ fn pcase_integer_literal_pattern() {
 
     // Test 4: pcase inside a defun then call it (simulates rx--translate-form)
     tracing::info!("Test 4: pcase inside defun");
-    match eval.eval_str(r#"(progn
+    match eval.eval_str(
+        r#"(progn
       (defun test-pcase-int (x)
         (pcase x
           ((or '\? ?\s) "question-or-space")
@@ -6929,16 +6985,19 @@ fn pcase_integer_literal_pattern() {
       (list (test-pcase-int 'seq)
             (test-pcase-int ?\s)
             (test-pcase-int '\?)
-            (test-pcase-int 'foo)))"#) {
+            (test-pcase-int 'foo)))"#,
+    ) {
         Ok(v) => tracing::info!("  Test 4 OK: {v}"),
         Err(e) => tracing::error!("  Test 4 FAILED: {e:?}"),
     }
 
     // Test 5: get the actual error message
     tracing::info!("Test 5: capture error message from (or 'sym int)");
-    match eval.eval_str(r#"(condition-case err
+    match eval.eval_str(
+        r#"(condition-case err
         (pcase ?\s ((or '\? ?\s) "matched") (_ "no-match"))
-      (error (error-message-string err)))"#) {
+      (error (error-message-string err)))"#,
+    ) {
         Ok(v) => tracing::info!("  Test 5 result: {v}"),
         Err(e) => tracing::error!("  Test 5 FAILED: {e:?}"),
     }
@@ -7210,7 +7269,6 @@ fn generated_loaddefs_replays_metadata_forms_on_bootstrap_runtime_surface() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-
 #[test]
 fn bootstrap_cl_generic_generalizers_t() {
     crate::test_utils::init_test_tracing();
@@ -7238,7 +7296,8 @@ fn bootstrap_macroexpand_all_pcase() {
     crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-generic", true);
     // Test 1: simple pcase
-    let result = eval.eval_str_each(r#"(macroexpand-all '(pcase x (1 "one") (2 "two") (_ "other")))"#);
+    let result =
+        eval.eval_str_each(r#"(macroexpand-all '(pcase x (1 "one") (2 "two") (_ "other")))"#);
     let rendered = result
         .iter()
         .map(format_eval_result)
@@ -7251,7 +7310,8 @@ fn bootstrap_macroexpand_all_pcase() {
     );
 
     // Test 2: pcase with backquote patterns (like cl-typep uses)
-    let result2 = eval.eval_str_each(r#"(macroexpand-all '(pcase val (`(,x) (list 'single x)) (_ 'default)))"#);
+    let result2 = eval
+        .eval_str_each(r#"(macroexpand-all '(pcase val (`(,x) (list 'single x)) (_ 'default)))"#);
     let rendered2 = result2
         .iter()
         .map(format_eval_result)
@@ -7268,11 +7328,13 @@ fn bootstrap_macroexpand_all_pcase() {
 fn bootstrap_macroexpand_functions_are_compiled() {
     crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-generic", true);
-    let result = eval.eval_str_each(r#"
+    let result = eval.eval_str_each(
+        r#"
 (list
   (compiled-function-p (symbol-function 'macroexpand-all))
   (compiled-function-p (symbol-function 'internal-macroexpand-for-load)))
-"#);
+"#,
+    );
     let rendered = result
         .iter()
         .map(format_eval_result)
@@ -7306,13 +7368,15 @@ fn bootstrap_macroexpand_all_pcase_and_pred() {
     crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-preloaded", true);
     // Test macroexpand-all on the same pcase pattern
-    let result = eval.eval_str_each(r#"
+    let result = eval.eval_str_each(
+        r#"
 (macroexpand-all
  '(pcase val
     ((and type (pred symbolp))
      (if (get type 'test-prop) (list 'found type) 'no-prop))
     (_ 'default)))
-"#);
+"#,
+    );
     let rendered = result
         .iter()
         .map(format_eval_result)
@@ -7331,7 +7395,8 @@ fn bootstrap_pcase_complex_and_pred_guard() {
     // Load enough to have pcase (stop before cl-preloaded to avoid cl-macs failure)
     let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-preloaded", true);
     // Test the exact pcase pattern that cl-typep uses
-    let result = eval.eval_str_each(r#"
+    let result = eval.eval_str_each(
+        r#"
 (progn
   (put 'integer 'test-prop t)
   (let ((test-fn (lambda (val)
@@ -7342,7 +7407,8 @@ fn bootstrap_pcase_complex_and_pred_guard() {
     (list
      (funcall test-fn 'integer)
      (funcall test-fn 42))))
-"#);
+"#,
+    );
     let rendered = result
         .iter()
         .map(format_eval_result)
@@ -7360,7 +7426,8 @@ fn bootstrap_macroexpand1_vs_all_pcase() {
     crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-preloaded", true);
     // Get macroexpand-1 result and macroexpand-all error as strings
-    let result = eval.eval_str_each(r#"
+    let result = eval.eval_str_each(
+        r#"
 (list
   (prin1-to-string
     (condition-case err
@@ -7374,7 +7441,8 @@ fn bootstrap_macroexpand1_vs_all_pcase() {
         ((and type (pred symbolp)) (list 'found type))
         (_ 'default)))
       (error (list 'expand-all-error err)))))
-"#);
+"#,
+    );
     let rendered = result
         .iter()
         .map(format_eval_result)

@@ -151,7 +151,10 @@ fn parse_startup_options_consumes_chdir_flag_and_changes_cwd() {
     assert_eq!(cwd, canonical);
     // The flag must NOT appear in forwarded_args — GNU consumes it.
     assert!(
-        !startup.forwarded_args.iter().any(|a| a == "--chdir" || a == "-chdir"),
+        !startup
+            .forwarded_args
+            .iter()
+            .any(|a| a == "--chdir" || a == "-chdir"),
         "--chdir should be consumed, not forwarded: {:?}",
         startup.forwarded_args
     );
@@ -171,7 +174,10 @@ fn parse_startup_options_chdir_inline_value_form_works() {
     let cwd = std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
     assert_eq!(cwd, canonical);
     assert!(
-        !startup.forwarded_args.iter().any(|a| a.starts_with("--chdir")),
+        !startup
+            .forwarded_args
+            .iter()
+            .any(|a| a.starts_with("--chdir")),
         "--chdir=… should be consumed, not forwarded: {:?}",
         startup.forwarded_args
     );
@@ -220,7 +226,10 @@ fn parse_startup_options_consumes_script_flag_with_rewrite() {
     assert_eq!(startup.frontend, FrontendKind::Tty);
     // The original --script flag must NOT appear in forwarded_args.
     assert!(
-        !startup.forwarded_args.iter().any(|a| a == "--script" || a == "-script"),
+        !startup
+            .forwarded_args
+            .iter()
+            .any(|a| a == "--script" || a == "-script"),
         "--script should be rewritten away: {:?}",
         startup.forwarded_args
     );
@@ -274,14 +283,14 @@ fn parse_startup_options_consumes_dash_x_with_scripteval_rewrite() {
 fn parse_startup_options_consumes_no_loadup_flag() {
     // GNU emacs.c:2031-2032: --no-loadup sets no_loadup, which gates the
     // -l loadup splice in main(). Consumed entirely; not forwarded.
-    let startup = parse_startup_options([
-        "neomacs".to_string(),
-        "--no-loadup".to_string(),
-    ])
-    .expect("startup options should parse");
+    let startup = parse_startup_options(["neomacs".to_string(), "--no-loadup".to_string()])
+        .expect("startup options should parse");
     assert!(startup.no_loadup);
     assert!(
-        !startup.forwarded_args.iter().any(|a| a == "--no-loadup" || a == "-nl"),
+        !startup
+            .forwarded_args
+            .iter()
+            .any(|a| a == "--no-loadup" || a == "-nl"),
         "--no-loadup should be consumed"
     );
 }
@@ -314,14 +323,14 @@ fn raw_loadup_command_line_skips_loadup_splice_when_no_loadup_set() {
 #[test]
 fn parse_startup_options_consumes_no_site_lisp_flag() {
     // GNU emacs.c:2034-2035: --no-site-lisp sets no_site_lisp.
-    let startup = parse_startup_options([
-        "neomacs".to_string(),
-        "--no-site-lisp".to_string(),
-    ])
-    .expect("startup options should parse");
+    let startup = parse_startup_options(["neomacs".to_string(), "--no-site-lisp".to_string()])
+        .expect("startup options should parse");
     assert!(startup.no_site_lisp);
     assert!(
-        !startup.forwarded_args.iter().any(|a| a == "--no-site-lisp" || a == "-nsl"),
+        !startup
+            .forwarded_args
+            .iter()
+            .any(|a| a == "--no-site-lisp" || a == "-nsl"),
         "--no-site-lisp should be consumed"
     );
 }
@@ -336,11 +345,8 @@ fn parse_startup_options_consumes_short_nsl_flag() {
 #[test]
 fn parse_startup_options_consumes_no_build_details_flag() {
     // GNU emacs.c:2037-2038: --no-build-details inverts build_details.
-    let startup = parse_startup_options([
-        "neomacs".to_string(),
-        "--no-build-details".to_string(),
-    ])
-    .expect("startup options should parse");
+    let startup = parse_startup_options(["neomacs".to_string(), "--no-build-details".to_string()])
+        .expect("startup options should parse");
     assert!(startup.no_build_details);
     assert!(
         !startup
@@ -372,11 +378,8 @@ fn parse_startup_options_peeks_long_quick_alias() {
     // peek aliases for -Q. The -quick spelling matches the same
     // STANDARD_ARGS row that `-Q` does (priority 55).
     for spelling in &["--quick", "-quick"] {
-        let startup = parse_startup_options([
-            "neomacs".to_string(),
-            (*spelling).to_string(),
-        ])
-        .expect("startup options should parse");
+        let startup = parse_startup_options(["neomacs".to_string(), (*spelling).to_string()])
+            .expect("startup options should parse");
         assert!(
             startup.no_site_lisp,
             "{spelling} peek should set no_site_lisp"
@@ -763,14 +766,16 @@ fn cl_generic_context_dispatch_uses_neo_window_system_method() {
     let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
         .expect("cached bootstrap evaluator");
     let rendered = eval
-        .eval_str(r#"
+        .eval_str(
+            r#"
         (progn
           (cl-defgeneric neomacs--ctx-probe ())
           (cl-defmethod neomacs--ctx-probe (&context (window-system nil)) 'tty)
           (cl-defmethod neomacs--ctx-probe (&context (window-system neo)) 'neo)
           (let ((window-system 'neo))
             (neomacs--ctx-probe)))
-        "#)
+        "#,
+        )
         .map(|value| print_value_with_eval(&mut eval, &value))
         .unwrap_or_else(|err| format!("{err:?}"));
     assert_eq!(rendered, "neo");
@@ -782,23 +787,27 @@ fn pdump_preserves_neo_term_generic_methods() {
         .expect("cached bootstrap evaluator");
 
     let pre = eval
-        .eval_str(r#"
+        .eval_str(
+            r#"
         (let ((window-system 'neo))
           (window-system-initialization)
           neomacs-initialized)
-        "#)
+        "#,
+        )
         .map(|value| print_value_with_eval(&mut eval, &value))
         .unwrap_or_else(|err| format!("{err:?}"));
 
     let post = eval
-        .eval_str(r#"
+        .eval_str(
+            r#"
         (progn
           (load "term/neo-win" nil t)
           (setq neomacs-initialized nil)
           (let ((window-system 'neo))
             (window-system-initialization)
             neomacs-initialized))
-        "#)
+        "#,
+        )
         .map(|value| print_value_with_eval(&mut eval, &value))
         .unwrap_or_else(|err| format!("{err:?}"));
 
@@ -1058,7 +1067,8 @@ fn gnu_startup_keeps_bootstrap_gui_frame_instead_of_creating_replacement_frame()
         .expect("cached bootstrap evaluator");
     let frame_id = bootstrap_runtime_gui_startup(&mut eval);
 
-    eval.eval_str(r#"
+    eval.eval_str(
+        r#"
         (progn
           (setq neomacs--probe-handle-args-called nil)
           (setq neomacs--probe-window-system-init-called nil)
@@ -1096,13 +1106,15 @@ fn gnu_startup_keeps_bootstrap_gui_frame_instead_of_creating_replacement_frame()
                 (lambda (&rest args)
                   (setq neomacs--probe-command-line-called t)
                   (apply neomacs--orig-command-line args))))
-        "#)
-        .expect("startup hook probe should install");
+        "#,
+    )
+    .expect("startup hook probe should install");
 
     run_gnu_startup(&mut eval);
 
     let startup_probe = eval
-        .eval_str(r#"
+        .eval_str(
+            r#"
          (list
          (current-message)
          noninteractive
@@ -1137,7 +1149,8 @@ fn gnu_startup_keeps_bootstrap_gui_frame_instead_of_creating_replacement_frame()
                   (eq frame (selected-frame))
                   (eq frame (window-frame (minibuffer-window frame)))))
           (frame-list)))
-        "#)
+        "#,
+        )
         .expect("startup probe should evaluate");
     let shutdown_request = eval.shutdown_request();
     let frame_ids: Vec<_> = eval.frame_manager().frame_list().into_iter().collect();
@@ -1186,7 +1199,8 @@ fn gnu_startup_keeps_scratch_text_accessible_under_q_startup() {
     run_gnu_startup(&mut eval);
 
     let result = eval
-        .eval_str(r#"(with-current-buffer (current-buffer)
+        .eval_str(
+            r#"(with-current-buffer (current-buffer)
                  (list (buffer-name)
                        major-mode
                        (> (point-max) 1)
@@ -1195,7 +1209,8 @@ fn gnu_startup_keeps_scratch_text_accessible_under_q_startup() {
                            (buffer-substring-no-properties
                             (point-min)
                             (min (point-max) (+ (point-min) 16))))
-                          0)))"#)
+                          0)))"#,
+        )
         .expect("scratch accessibility probe should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &result),
@@ -1241,8 +1256,10 @@ fn gnu_startup_posts_echo_area_message() {
     run_gnu_startup(&mut eval);
 
     let result = eval
-        .eval_str(r#"(list (current-message)
-                   (substring-no-properties (startup-echo-area-message)))"#)
+        .eval_str(
+            r#"(list (current-message)
+                   (substring-no-properties (startup-echo-area-message)))"#,
+        )
         .expect("startup echo probe should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &result),
@@ -1311,11 +1328,13 @@ fn gnu_startup_where_is_internal_finds_about_emacs_on_help_prefix() {
     run_gnu_startup(&mut eval);
 
     let result = eval
-        .eval_str(r#"(list
+        .eval_str(
+            r#"(list
                (lookup-key help-map [1])
                (lookup-key (symbol-function 'help-command) [1])
                (lookup-key (current-global-map) [8])
-               (lookup-key (current-global-map) [8 1]))"#)
+               (lookup-key (current-global-map) [8 1]))"#,
+        )
         .expect("startup help-prefix probe should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &result),
@@ -1378,13 +1397,15 @@ fn gnu_startup_restores_meta_and_ctl_x_bindings() {
     run_gnu_startup(&mut eval);
 
     let result = eval
-        .eval_str(r#"(list
+        .eval_str(
+            r#"(list
                  (key-binding (kbd "M-x"))
                  (lookup-key (current-global-map) (kbd "M-x"))
                  (key-binding (kbd "C-x 2"))
                  (lookup-key (current-global-map) (kbd "C-x 2"))
                  (key-binding (kbd "C-x 3"))
-                 (lookup-key (current-global-map) (kbd "C-x 3")))"#)
+                 (lookup-key (current-global-map) (kbd "C-x 3")))"#,
+        )
         .expect("startup keybinding probe should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &result),
@@ -1407,11 +1428,13 @@ fn gnu_startup_formats_mode_line_for_target_window_buffer() {
     run_gnu_startup(&mut eval);
 
     let result = eval
-        .eval_str(r#"(let* ((w (selected-window))
+        .eval_str(
+            r#"(let* ((w (selected-window))
                       (buf (window-buffer w))
                       (mini (minibuffer-window)))
                  (with-current-buffer (window-buffer mini)
-                   (format-mode-line "%b" nil w buf)))"#)
+                   (format-mode-line "%b" nil w buf)))"#,
+        )
         .expect("startup mode-line probe should evaluate");
     assert_eq!(result, Value::string("*scratch*"));
 }
@@ -1446,7 +1469,8 @@ fn gnu_startup_split_window_right_succeeds_on_opening_frame() {
     };
 
     let result = eval
-        .eval_str(r#"(list
+        .eval_str(
+            r#"(list
                  (window-total-width)
                  (window-total-height)
                  (window-min-size nil t)
@@ -1455,7 +1479,8 @@ fn gnu_startup_split_window_right_succeeds_on_opening_frame() {
                  (window-size-fixed-p (selected-window) t)
                  (condition-case err
                      (progn (split-window-right) 'ok)
-                   (error (list 'error (error-message-string err)))))"#)
+                   (error (list 'error (error-message-string err)))))"#,
+        )
         .expect("startup split-window probe should evaluate");
     let items = list_to_vec(&result).expect("split-window result list");
     assert_eq!(items[0], Value::fixnum(expected_width));
@@ -1497,7 +1522,8 @@ fn gnu_startup_split_window_below_succeeds_on_opening_frame() {
     };
 
     let result = eval
-        .eval_str(r#"(list
+        .eval_str(
+            r#"(list
                  (window-total-width)
                  (window-total-height)
                  (window-min-size nil t)
@@ -1506,7 +1532,8 @@ fn gnu_startup_split_window_below_succeeds_on_opening_frame() {
                  (window-size-fixed-p (selected-window) t)
                  (condition-case err
                      (progn (split-window-below) 'ok)
-                   (error (list 'error (error-message-string err)))))"#)
+                   (error (list 'error (error-message-string err)))))"#,
+        )
         .expect("startup split-window probe should evaluate");
     let items = list_to_vec(&result).expect("split-window result list");
     assert_eq!(items[0], Value::fixnum(expected_width));
@@ -1533,7 +1560,8 @@ fn gnu_startup_window_pixel_queries_use_live_frame_pixels() {
     run_gnu_startup(&mut eval);
 
     let result = eval
-        .eval_str(r#"(list
+        .eval_str(
+            r#"(list
                  (window-pixel-width)
                  (window-pixel-height)
                  (window-body-width nil t)
@@ -1542,7 +1570,8 @@ fn gnu_startup_window_pixel_queries_use_live_frame_pixels() {
                  (window-text-height nil t)
                  (window-fringes)
                  (window-edges nil nil nil t)
-                 (window-edges nil t nil t))"#)
+                 (window-edges nil t nil t))"#,
+        )
         .expect("startup pixel probe should evaluate");
     let items = list_to_vec(&result).expect("pixel query result list");
     let pixel_width = items[0].as_int().expect("window-pixel-width");
@@ -1609,10 +1638,12 @@ fn gnu_startup_processes_load_option_from_forwarded_args() {
     run_gnu_startup(&mut eval);
 
     let result = eval
-        .eval_str(r#"(list
+        .eval_str(
+            r#"(list
                  (fboundp 'neomacs-face-test-write-matrix-report)
                  (buffer-live-p (get-buffer "*Neomacs Face Test*"))
-                 (buffer-name (window-buffer (selected-window))))"#)
+                 (buffer-name (window-buffer (selected-window))))"#,
+        )
         .expect("startup load-option probe should evaluate");
     let items = list_to_vec(&result).expect("load-option result list");
     assert_eq!(items[0], Value::T);
@@ -1665,10 +1696,12 @@ fn recursive_edit_processes_load_option_from_forwarded_args_before_first_input()
     result.expect("close request should let the outer recursive edit exit cleanly");
 
     let result = eval
-        .eval_str(r#"(list
+        .eval_str(
+            r#"(list
                  (fboundp 'neomacs-face-test-write-matrix-report)
                  (buffer-live-p (get-buffer "*Neomacs Face Test*"))
-                 (buffer-name (window-buffer (selected-window))))"#)
+                 (buffer-name (window-buffer (selected-window))))"#,
+        )
         .expect("recursive-edit load-option probe should evaluate");
     let items = list_to_vec(&result).expect("recursive-edit result list");
     assert_eq!(items[0], Value::T);
@@ -1802,13 +1835,15 @@ fn gnu_startup_next_line_moves_point_on_live_gui_frame() {
     run_gnu_startup(&mut eval);
 
     let result = eval
-        .eval_str(r#"(progn
+        .eval_str(
+            r#"(progn
              (switch-to-buffer "*scratch*")
              (erase-buffer)
              (insert "abc\ndef\nghi")
              (goto-char 1)
              (command-execute 'next-line)
-             (point))"#)
+             (point))"#,
+        )
         .expect("startup next-line should evaluate");
     assert_eq!(result, Value::fixnum(5));
 }
@@ -1827,11 +1862,13 @@ fn frame_set_background_mode_uses_live_gui_window_system_after_startup_clears_in
     eval.set_variable("initial-window-system", Value::NIL);
 
     let result = eval
-        .eval_str(r#"(condition-case err
+        .eval_str(
+            r#"(condition-case err
                   (progn
                     (frame-set-background-mode (selected-frame))
                     'ok)
-                (error (list 'error (error-message-string err))))"#)
+                (error (list 'error (error-message-string err))))"#,
+        )
         .expect("frame-set-background-mode probe should evaluate");
     assert_eq!(result, Value::symbol("ok"));
 }
@@ -1843,7 +1880,8 @@ fn modify_frame_parameters_updates_live_default_face_colors_for_gui_frames() {
     let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
 
     let result = eval
-        .eval_str(r##"(progn
+        .eval_str(
+            r##"(progn
              (modify-frame-parameters
               (selected-frame)
               '((foreground-color . "white")
@@ -1853,7 +1891,8 @@ fn modify_frame_parameters_updates_live_default_face_colors_for_gui_frames() {
               (frame-parameter nil 'foreground-color)
               (frame-parameter nil 'background-color)
               (face-foreground 'default nil t)
-              (face-background 'default nil t)))"##)
+              (face-background 'default nil t)))"##,
+        )
         .expect("modify-frame-parameters face probe should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &result),
@@ -1868,14 +1907,16 @@ fn modify_frame_parameters_background_color_only_completes_for_gui_frames() {
     let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
 
     let result = eval
-        .eval_str(r##"(progn
+        .eval_str(
+            r##"(progn
              (modify-frame-parameters
               (selected-frame)
               '((background-color . "#000000")))
              (list
               'after-modify
               (frame-parameter nil 'background-mode)
-              (frame-parameter nil 'background-color)))"##)
+              (frame-parameter nil 'background-color)))"##,
+        )
         .expect("background-only modify-frame-parameters should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &result),
@@ -1899,12 +1940,14 @@ fn frame_set_background_mode_keep_face_specs_completes_after_dark_background_cha
     }
 
     let result = eval
-        .eval_str(r#"(progn
+        .eval_str(
+            r#"(progn
              (frame-set-background-mode (selected-frame) t)
              (list
               'after-frame-set-background-mode
               (frame-parameter nil 'background-mode)
-              (frame-parameter nil 'display-type)))"#)
+              (frame-parameter nil 'display-type)))"#,
+        )
         .expect("frame-set-background-mode keep-face-specs should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &result),
@@ -1948,9 +1991,11 @@ fn dark_gui_background_color_dark_predicate_completes() {
     seed_selected_frame_background_color(&mut eval, "#000000");
 
     let result = eval
-        .eval_str(r##"(color-dark-p
+        .eval_str(
+            r##"(color-dark-p
              (mapcar (lambda (c) (/ c 65535.0))
-                     (color-values "#000000" (selected-frame))))"##)
+                     (color-values "#000000" (selected-frame))))"##,
+        )
         .expect("color-dark-p probe should evaluate");
     assert_eq!(result, Value::T);
 }
@@ -1966,7 +2011,8 @@ fn dark_gui_frame_current_background_mode_completes() {
         .eval_str(r#"(frame--current-background-mode (selected-frame))"#)
         .expect("current background mode probe should evaluate");
     let debug_result = eval
-        .eval_str(r##"(list
+        .eval_str(
+            r##"(list
             (frame-parameter nil 'background-color)
             (frame-parameter nil 'background-mode)
             frame-background-mode
@@ -1974,7 +2020,8 @@ fn dark_gui_frame_current_background_mode_completes() {
             (window-system (selected-frame))
             (tty-type (selected-frame))
             (color-values "#000000" (selected-frame))
-            (frame--current-background-mode (selected-frame)))"##)
+            (frame--current-background-mode (selected-frame)))"##,
+        )
         .expect("current background mode debug probe should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &debug_result),
@@ -1990,7 +2037,8 @@ fn modify_frame_parameters_prefers_first_duplicate_frame_parameter_like_gnu() {
     let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
 
     let result = eval
-        .eval_str(r##"(progn
+        .eval_str(
+            r##"(progn
              (modify-frame-parameters
               (selected-frame)
               '((background-color . "#000000")
@@ -1998,7 +2046,8 @@ fn modify_frame_parameters_prefers_first_duplicate_frame_parameter_like_gnu() {
              (list
               (frame-parameter nil 'background-color)
               (face-background 'default nil t)
-              (frame-parameter nil 'background-mode)))"##)
+              (frame-parameter nil 'background-mode)))"##,
+        )
         .expect("duplicate frame parameter probe should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &result),
@@ -2014,7 +2063,8 @@ fn gnu_startup_seeds_light_gui_chrome_faces_from_faces_el() {
     run_gnu_startup(&mut eval);
 
     let result = eval
-        .eval_str(r#"(list
+        .eval_str(
+            r#"(list
              (window-system)
              (frame-parameter nil 'window-system)
              (display-graphic-p)
@@ -2058,7 +2108,8 @@ fn gnu_startup_seeds_light_gui_chrome_faces_from_faces_el() {
              (face-background 'mode-line-inactive nil t)
              (face-background 'header-line nil t)
              (face-background 'tab-bar nil t)
-             (face-background 'tab-line nil t))"#)
+             (face-background 'tab-line nil t))"#,
+        )
         .expect("chrome face probe should evaluate");
     let values = list_to_vec(&result).expect("chrome face probe should return a list");
     assert_eq!(values.len(), 22);

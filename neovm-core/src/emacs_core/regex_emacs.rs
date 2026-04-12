@@ -1451,12 +1451,7 @@ fn add_multibyte_range(ranges: &mut Vec<(char, char)>, start: char, end: char, c
 /// practical difference only shows up when Rust's Unicode case
 /// mapping disagrees with Emacs's case canon table, but the GNU-
 /// parity fix is to consult the same translate table both sides.
-fn set_bitmap_bit(
-    buffer: &mut Vec<u8>,
-    bitmap_start: usize,
-    c: u8,
-    translate: Option<&[char]>,
-) {
+fn set_bitmap_bit(buffer: &mut Vec<u8>, bitmap_start: usize, c: u8, translate: Option<&[char]>) {
     let target = match translate {
         Some(table) => table
             .get(c as usize)
@@ -1963,18 +1958,24 @@ fn default_char_has_category(c: char, cat: u8) -> bool {
         // .  -- Base (Unicode L,N,P,S,Zs).
         b'.' => match c.is_ascii() {
             true => c.is_ascii_graphic() || c == ' ',
-            false => !matches!(cp, 0x0300..=0x036F | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF | 0x20D0..=0x20FF | 0xFE20..=0xFE2F),
+            false => {
+                !matches!(cp, 0x0300..=0x036F | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF | 0x20D0..=0x20FF | 0xFE20..=0xFE2F)
+            }
         },
 
         // ^  -- Combining diacritic / mark (Unicode M).
-        b'^' => matches!(cp, 0x0300..=0x036F | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF | 0x20D0..=0x20FF | 0xFE20..=0xFE2F),
+        b'^' => {
+            matches!(cp, 0x0300..=0x036F | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF | 0x20D0..=0x20FF | 0xFE20..=0xFE2F)
+        }
 
         // R  -- Strong R2L (right-to-left). Practical heuristic:
         // Hebrew and Arabic ranges.
         b'R' => matches!(cp, 0x0590..=0x05FF | 0x0600..=0x06FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF),
 
         // L  -- Strong L2R (everything else).
-        b'L' => !matches!(cp, 0x0590..=0x05FF | 0x0600..=0x06FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF),
+        b'L' => {
+            !matches!(cp, 0x0590..=0x05FF | 0x0600..=0x06FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF)
+        }
 
         // 6  -- digit (numeric).
         b'6' => c.is_numeric(),

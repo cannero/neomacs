@@ -30,9 +30,7 @@ pub fn set_reader_load_file_name(value: Option<Value>) {
 
 /// Get the current load-file-name for the `#$` reader macro.
 fn get_reader_load_file_name() -> Value {
-    READER_LOAD_FILE_NAME.with(|slot| {
-        slot.borrow().unwrap_or(Value::NIL)
-    })
+    READER_LOAD_FILE_NAME.with(|slot| slot.borrow().unwrap_or(Value::NIL))
 }
 
 /// Public getter for save/restore in with_load_context.
@@ -325,9 +323,7 @@ impl<'a> Reader<'a> {
             self.bump();
             match ch {
                 '"' => {
-                    return Ok(Value::heap_string(
-                        maybe_recombine_latin1_emacs(buf),
-                    ));
+                    return Ok(Value::heap_string(maybe_recombine_latin1_emacs(buf)));
                 }
                 '\\' => {
                     let Some(esc) = self.current() else {
@@ -811,11 +807,11 @@ impl<'a> Reader<'a> {
                     )
                     .map_err(|e| {
                         let msg = match &e {
-                            crate::emacs_core::error::Flow::Signal(sig) => {
-                                sig.data.first()
-                                    .and_then(|v| v.as_str().map(str::to_owned))
-                                    .unwrap_or_else(|| format!("{:?}", sig.data))
-                            }
+                            crate::emacs_core::error::Flow::Signal(sig) => sig
+                                .data
+                                .first()
+                                .and_then(|v| v.as_str().map(str::to_owned))
+                                .unwrap_or_else(|| format!("{:?}", sig.data)),
                             other => format!("{:?}", other),
                         };
                         self.error(&format!("byte-code literal: {}", msg))
@@ -1009,20 +1005,15 @@ impl<'a> Reader<'a> {
         // requested radix. Mirrors GNU `string_to_number` (`src/lread.c`)
         // which falls through to the bignum path on overflow.
         let value = match i64::from_str_radix(&digits, radix) {
-            Ok(val) => Value::make_integer(rug::Integer::from(if negative {
-                -val
-            } else {
-                val
-            })),
+            Ok(val) => Value::make_integer(rug::Integer::from(if negative { -val } else { val })),
             Err(_) => {
                 let mut signed = String::with_capacity(digits.len() + 1);
                 if negative {
                     signed.push('-');
                 }
                 signed.push_str(&digits);
-                let parsed =
-                    rug::Integer::parse_radix(&signed, radix as i32)
-                        .map_err(|_| self.error("invalid radix number"))?;
+                let parsed = rug::Integer::parse_radix(&signed, radix as i32)
+                    .map_err(|_| self.error("invalid radix number"))?;
                 Value::make_integer(rug::Integer::from(parsed))
             }
         };

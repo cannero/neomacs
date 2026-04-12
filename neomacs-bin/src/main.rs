@@ -311,9 +311,7 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
                 continue;
             }
             ArgMatch::MissingValue => {
-                return Err(
-                    "neomacs: option `-chdir' requires an argument".to_string(),
-                );
+                return Err("neomacs: option `-chdir' requires an argument".to_string());
             }
             ArgMatch::NoMatch => {}
             ArgMatch::Bare => unreachable!(),
@@ -322,7 +320,14 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
         // -nw / --no-window-system / --no-windows
         // (GNU emacs.c:1696-1697; the -nw row in standard_args[] declares
         // both long aliases with minlen 6.)
-        match argmatch(&parsed, &mut idx, "-nw", Some("--no-window-system"), 6, false) {
+        match argmatch(
+            &parsed,
+            &mut idx,
+            "-nw",
+            Some("--no-window-system"),
+            6,
+            false,
+        ) {
             ArgMatch::Bare => {
                 frontend = FrontendKind::Tty;
                 continue;
@@ -366,9 +371,7 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
                 continue;
             }
             ArgMatch::MissingValue => {
-                return Err(
-                    "neomacs: option `-script' requires an argument".to_string(),
-                );
+                return Err("neomacs: option `-script' requires an argument".to_string());
             }
             ArgMatch::NoMatch => {}
             ArgMatch::Bare => unreachable!(),
@@ -450,9 +453,7 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
                 continue;
             }
             ArgMatch::MissingValue => {
-                return Err(
-                    "neomacs: option `-temacs' requires an argument".to_string(),
-                );
+                return Err("neomacs: option `-temacs' requires an argument".to_string());
             }
             ArgMatch::NoMatch => {}
             ArgMatch::Bare => unreachable!(),
@@ -461,7 +462,14 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
         // -dump-file / --dump-file (GNU emacs.c:942, 991). Same forward-
         // verbatim treatment as --temacs.
         let pre_idx = idx;
-        match argmatch(&parsed, &mut idx, "-dump-file", Some("--dump-file"), 6, true) {
+        match argmatch(
+            &parsed,
+            &mut idx,
+            "-dump-file",
+            Some("--dump-file"),
+            6,
+            true,
+        ) {
             ArgMatch::Value(value) => {
                 dump_file_override = Some(PathBuf::from(&value));
                 for slot in &parsed[pre_idx + 1..=idx] {
@@ -470,9 +478,7 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
                 continue;
             }
             ArgMatch::MissingValue => {
-                return Err(
-                    "neomacs: option `-dump-file' requires an argument".to_string(),
-                );
+                return Err("neomacs: option `-dump-file' requires an argument".to_string());
             }
             ArgMatch::NoMatch => {}
             ArgMatch::Bare => unreachable!(),
@@ -486,9 +492,7 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
                 continue;
             }
             ArgMatch::MissingValue => {
-                return Err(
-                    "neomacs: option `-t' requires an argument".to_string(),
-                );
+                return Err("neomacs: option `-t' requires an argument".to_string());
             }
             ArgMatch::NoMatch => {}
             ArgMatch::Bare => unreachable!(),
@@ -506,9 +510,7 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
                 continue;
             }
             ArgMatch::MissingValue => {
-                return Err(
-                    "neomacs: option `-d' requires an argument".to_string(),
-                );
+                return Err("neomacs: option `-d' requires an argument".to_string());
             }
             ArgMatch::NoMatch => {}
             ArgMatch::Bare => unreachable!(),
@@ -522,9 +524,7 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
                 continue;
             }
             ArgMatch::MissingValue => {
-                return Err(
-                    "neomacs: option `-display' requires an argument".to_string(),
-                );
+                return Err("neomacs: option `-display' requires an argument".to_string());
             }
             ArgMatch::NoMatch => {}
             ArgMatch::Bare => unreachable!(),
@@ -1085,9 +1085,7 @@ pub fn run(mode: RuntimeMode) {
     // (and, for LogTarget::Stdout, also adds a file layer alongside
     // stdout).
     let log_target = match mode {
-        RuntimeMode::Raw | RuntimeMode::BootstrapUse => {
-            neovm_core::logging::LogTarget::Stdout
-        }
+        RuntimeMode::Raw | RuntimeMode::BootstrapUse => neovm_core::logging::LogTarget::Stdout,
         RuntimeMode::FinalRun => match startup.frontend {
             FrontendKind::Gui => neovm_core::logging::LogTarget::Stdout,
             FrontendKind::Tty => neovm_core::logging::LogTarget::File,
@@ -1217,9 +1215,7 @@ pub fn run(mode: RuntimeMode) {
                 // Batch mode: no terminal I/O, matching GNU which
                 // skips init_display() for --batch (emacs.c:1835).
                 tracing::info!("TTY batch mode — skipping terminal init");
-                FrontendHandle::TtyRifInput(
-                    tty_frontend::TtyInputReader::spawn(render_comms),
-                )
+                FrontendHandle::TtyRifInput(tty_frontend::TtyInputReader::spawn(render_comms))
             } else {
                 // Single-thread TTY path: terminal init here, rendering via TtyRif
                 // on the evaluator thread, input reader on a background thread.

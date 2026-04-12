@@ -443,7 +443,9 @@ fn sequence_length_less_than(sequence: &Value, target: i64) -> Result<bool, Flow
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
             Ok(closure_vector_length(sequence).unwrap() < target)
         }
-        ValueKind::String => Ok((sequence.as_lisp_string().expect("string").schars() as i64) < target),
+        ValueKind::String => {
+            Ok((sequence.as_lisp_string().expect("string").schars() as i64) < target)
+        }
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             Ok(vector_sequence_length(sequence) < target)
         }
@@ -477,7 +479,9 @@ fn sequence_length_equal(sequence: &Value, target: i64) -> Result<bool, Flow> {
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
             Ok(closure_vector_length(sequence).unwrap() == target)
         }
-        ValueKind::String => Ok((sequence.as_lisp_string().expect("string").schars() as i64) == target),
+        ValueKind::String => {
+            Ok((sequence.as_lisp_string().expect("string").schars() as i64) == target)
+        }
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             Ok(vector_sequence_length(sequence) == target)
         }
@@ -511,7 +515,9 @@ fn sequence_length_greater_than(sequence: &Value, target: i64) -> Result<bool, F
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
             Ok(closure_vector_length(sequence).unwrap() > target)
         }
-        ValueKind::String => Ok((sequence.as_lisp_string().expect("string").schars() as i64) > target),
+        ValueKind::String => {
+            Ok((sequence.as_lisp_string().expect("string").schars() as i64) > target)
+        }
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             Ok(vector_sequence_length(sequence) > target)
         }

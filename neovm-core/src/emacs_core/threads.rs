@@ -1286,10 +1286,7 @@ pub(crate) fn builtin_condition_notify(
 /// This is a special form: MUTEX is evaluated, the lock is acquired, BODY is
 /// executed as an implicit progn, and the lock is released on exit
 /// (even if BODY signals an error).
-pub(crate) fn sf_with_mutex(
-    eval: &mut super::eval::Context,
-    tail: &[Value],
-) -> EvalResult {
+pub(crate) fn sf_with_mutex(eval: &mut super::eval::Context, tail: &[Value]) -> EvalResult {
     if tail.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",

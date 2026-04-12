@@ -29,9 +29,7 @@ pub(crate) fn builtin_ignore(_args: Vec<Value>) -> EvalResult {
 /// in xdisp.c.  Creates the buffer if it doesn't exist.
 fn message_dolog(ctx: &mut super::eval::Context, msg: &str) {
     // GNU: check message-log-max; if nil, don't log
-    let log_max = ctx
-        .visible_variable_value_or_nil("message-log-max")
-        ;
+    let log_max = ctx.visible_variable_value_or_nil("message-log-max");
     if log_max.is_nil() {
         return;
     }

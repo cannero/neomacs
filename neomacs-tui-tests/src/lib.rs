@@ -124,8 +124,7 @@ impl TuiSession {
                     events: libc::POLLIN,
                     revents: 0,
                 };
-                libc::poll(&mut pfd, 1, poll_ms as i32) > 0
-                    && (pfd.revents & libc::POLLIN) != 0
+                libc::poll(&mut pfd, 1, poll_ms as i32) > 0 && (pfd.revents & libc::POLLIN) != 0
             };
             if ready {
                 match self.pty.read(&mut buf) {
@@ -163,8 +162,7 @@ impl TuiSession {
 
     /// Get the text content of a single row (0-indexed).
     pub fn row_text(&self, row: u16) -> String {
-        self.screen()
-            .contents_between(row, 0, row, COLS)
+        self.screen().contents_between(row, 0, row, COLS)
     }
 
     /// Get all rows as a Vec of strings.
@@ -200,7 +198,9 @@ pub fn emacs_key(key: &str) -> Vec<u8> {
 
     // C-M-x  →  ESC + Ctrl(x)
     if let Some(ch) = key.strip_prefix("C-M-").and_then(|s| s.chars().next()) {
-        let ctrl = (ch.to_ascii_lowercase() as u8).wrapping_sub(b'a').wrapping_add(1);
+        let ctrl = (ch.to_ascii_lowercase() as u8)
+            .wrapping_sub(b'a')
+            .wrapping_add(1);
         return vec![0x1b, ctrl];
     }
     // C-x  →  Ctrl(x)
@@ -208,7 +208,9 @@ pub fn emacs_key(key: &str) -> Vec<u8> {
         if ch == '@' {
             return vec![0x00];
         }
-        let ctrl = (ch.to_ascii_lowercase() as u8).wrapping_sub(b'a').wrapping_add(1);
+        let ctrl = (ch.to_ascii_lowercase() as u8)
+            .wrapping_sub(b'a')
+            .wrapping_add(1);
         return vec![ctrl];
     }
     // M-x  →  ESC x

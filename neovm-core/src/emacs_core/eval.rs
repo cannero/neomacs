@@ -8,7 +8,6 @@ use std::sync::OnceLock;
 
 use smallvec::SmallVec;
 
-
 use super::abbrev::AbbrevManager;
 use super::advice::VariableWatcherList;
 use super::autoload::AutoloadManager;
@@ -138,9 +137,7 @@ pub(crate) enum SpecBinding {
     /// `specbind(Qinternal_interpreter_environment, ...)` which saves
     /// the current `Vinternal_interpreter_environment` on the specpdl.
     /// `unbind_to` restores `self.lexenv` to this value.
-    LexicalEnv {
-        old_lexenv: Value,
-    },
+    LexicalEnv { old_lexenv: Value },
 }
 
 #[derive(Debug)]
@@ -1465,7 +1462,9 @@ pub(crate) fn begin_eval_with_lexical_arg_in_state(
     // automatically, providing unwind-safe cleanup on non-local exits.
     let specpdl_count = specpdl.len();
     if let Some(env) = lexenv_value {
-        specpdl.push(SpecBinding::LexicalEnv { old_lexenv: *lexenv });
+        specpdl.push(SpecBinding::LexicalEnv {
+            old_lexenv: *lexenv,
+        });
         *lexenv = env;
     }
     Ok(ActiveEvalLexicalArgState { specpdl_count })
@@ -1514,7 +1513,6 @@ pub(crate) fn builtin_eval_in_vm_runtime(
     shared.finish_eval_with_lexical_arg(state);
     result
 }
-
 
 pub(crate) struct ActiveLambdaCallState {
     saved_temp_roots_len: usize,
@@ -1713,12 +1711,10 @@ fn finish_lambda_call_in_state(
             SpecBinding::LexicalEnv { old_lexenv } => {
                 *lexenv = old_lexenv;
             }
-            SpecBinding::Let { sym_id, old_value } => {
-                match old_value {
-                    Some(val) => obarray.set_symbol_value_id(sym_id, val),
-                    None => obarray.makunbound_id(sym_id),
-                }
-            }
+            SpecBinding::Let { sym_id, old_value } => match old_value {
+                Some(val) => obarray.set_symbol_value_id(sym_id, val),
+                None => obarray.makunbound_id(sym_id),
+            },
             other => {
                 // LetLocal/LetDefault shouldn't appear here in the
                 // standalone path, but handle gracefully.
@@ -4035,7 +4031,6 @@ impl Context {
             }
         }
 
-
         if let Some(filter_fn) = self.interpreted_closure_filter_fn {
             roots.push(filter_fn);
         }
@@ -4461,7 +4456,10 @@ impl Context {
                 }
                 // Any other result propagates up
                 other => {
-                    tracing::debug!("command_loop_inner: result={:?}, propagating", other.is_ok());
+                    tracing::debug!(
+                        "command_loop_inner: result={:?}, propagating",
+                        other.is_ok()
+                    );
                     return other;
                 }
             }
@@ -4727,8 +4725,7 @@ impl Context {
             // Snapshot the previous this-command into real-last-command
             // before we overwrite (Finding 3 — GNU
             // `keyboard.c:1336-1339`).
-            let previous_this_command =
-                self.eval_symbol("this-command").unwrap_or(Value::NIL);
+            let previous_this_command = self.eval_symbol("this-command").unwrap_or(Value::NIL);
             self.assign("real-last-command", previous_this_command);
 
             // The unmapped command (real-this-command) is the binding
@@ -4899,9 +4896,7 @@ impl Context {
         // call but also swallows errors via cmd_error; setting
         // it first is safer in our flow-based error model.
         self.command_loop.last_auto_save_input_events = current;
-        if let Err(flow) =
-            self.apply(Value::symbol("do-auto-save"), vec![Value::NIL, Value::NIL])
-        {
+        if let Err(flow) = self.apply(Value::symbol("do-auto-save"), vec![Value::NIL, Value::NIL]) {
             tracing::warn!("auto-save from command_loop_1 failed: {:?}", flow);
         }
     }
@@ -4914,11 +4909,7 @@ impl Context {
         if self.peek_unread_command_event().is_some() {
             return true;
         }
-        !self
-            .command_loop
-            .keyboard
-            .pending_input_events
-            .is_empty()
+        !self.command_loop.keyboard.pending_input_events.is_empty()
     }
 
     /// Apply `command-remapping` for the command-loop dispatch
@@ -5974,7 +5965,6 @@ impl Context {
         result
     }
 
-
     pub(crate) fn eval_lambda_body_value(&mut self, body: Value) -> EvalResult {
         self.maybe_grow_eval_stack(|ctx| {
             let scope = ctx.open_gc_scope();
@@ -6166,12 +6156,11 @@ impl Context {
     /// Reads via the Value-native reader and evaluates via eval_sub.
     pub fn eval_str(&mut self, source: &str) -> Result<Value, EvalError> {
         crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
-        let forms = super::value_reader::read_all(source)
-            .map_err(|e| EvalError::Signal {
-                symbol: crate::emacs_core::intern::intern("error"),
-                data: vec![Value::string(format!("Read error: {}", e.message))],
-                raw_data: None,
-            })?;
+        let forms = super::value_reader::read_all(source).map_err(|e| EvalError::Signal {
+            symbol: crate::emacs_core::intern::intern("error"),
+            data: vec![Value::string(format!("Read error: {}", e.message))],
+            raw_data: None,
+        })?;
         if forms.is_empty() {
             return Ok(Value::NIL);
         }
@@ -6496,7 +6485,6 @@ impl Context {
         self.eval_sub(*value)
     }
 
-
     /// Evaluate all forms in a source string and return per-form results.
     /// Uses the Value-native reader.
     pub fn eval_str_each(&mut self, source: &str) -> Vec<Result<Value, EvalError>> {
@@ -6641,24 +6629,18 @@ impl Context {
         // arm (`data.c:1620-1650`) — we use the immutable
         // `read_localized` here because `eval_symbol_by_id` takes
         // `&self` and can't run a mutable `swap_in_blv`.
-        if resolved_is_canonical
-            && let Some(buf) = self.buffers.current_buffer()
-        {
+        if resolved_is_canonical && let Some(buf) = self.buffers.current_buffer() {
             use crate::emacs_core::symbol::SymbolRedirect;
             if let Some(sym) = self.obarray.get_by_id(resolved)
                 && sym.redirect() == SymbolRedirect::Localized
             {
                 let target_buf = Value::make_buffer(buf.id);
-                if let Some(value) = self.obarray.read_localized(
-                    resolved,
-                    target_buf,
-                    buf.local_var_alist,
-                ) {
+                if let Some(value) =
+                    self.obarray
+                        .read_localized(resolved, target_buf, buf.local_var_alist)
+                {
                     if value.is_unbound() {
-                        return Err(signal(
-                            "void-variable",
-                            vec![value_from_symbol_id(sym_id)],
-                        ));
+                        return Err(signal("void-variable", vec![value_from_symbol_id(sym_id)]));
                     }
                     return Ok(value);
                 }
@@ -6697,8 +6679,7 @@ impl Context {
             {
                 let fwd = unsafe { &*sym.val.fwd };
                 if matches!(fwd.ty, LispFwdType::BufferObj) {
-                    let buf_fwd =
-                        unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
+                    let buf_fwd = unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
                     let off = buf_fwd.offset as usize;
                     // Conditional slot with the per-buffer flag set
                     // already returned via get_buffer_local_binding
@@ -6871,7 +6852,6 @@ impl Context {
             _ => false,
         }
     }
-
 
     fn maybe_writeback_mutating_first_arg(
         &mut self,
@@ -7300,7 +7280,8 @@ impl Context {
         // reverse: dynamic vars first, then lexenv — same as GNU.
         if !lexical_bindings.is_empty() {
             let saved = self.lexenv;
-            self.specpdl.push(SpecBinding::LexicalEnv { old_lexenv: saved });
+            self.specpdl
+                .push(SpecBinding::LexicalEnv { old_lexenv: saved });
             for (sym_id, val) in &lexical_bindings {
                 self.lexenv = lexenv_prepend(self.lexenv, *sym_id, *val);
             }
@@ -7336,7 +7317,9 @@ impl Context {
         // Mirrors GNU Flet_star: specbind(Qinternal_interpreter_environment, lexenv)
         // before any per-variable specbinds. unbind_to pops everything.
         if use_lexical {
-            self.specpdl.push(SpecBinding::LexicalEnv { old_lexenv: self.lexenv });
+            self.specpdl.push(SpecBinding::LexicalEnv {
+                old_lexenv: self.lexenv,
+            });
         }
 
         let init_result: Result<(), Flow> = (|| {
@@ -7971,7 +7954,9 @@ impl Context {
 
                     let specpdl_count = self.specpdl.len();
                     if use_lexical_binding {
-                        self.specpdl.push(SpecBinding::LexicalEnv { old_lexenv: self.lexenv });
+                        self.specpdl.push(SpecBinding::LexicalEnv {
+                            old_lexenv: self.lexenv,
+                        });
                         self.bind_lexical_value_rooted(var_id, binding_value);
                     } else if bind_var {
                         self.specbind(var_id, binding_value);
@@ -8068,7 +8053,6 @@ impl Context {
         }
     }
 
-
     fn sf_byte_code_literal_value(&mut self, tail: Value) -> EvalResult {
         let vector = self.one_unevalled_arg("byte-code-literal", tail)?;
         let Some(items) = vector.as_vector_data() else {
@@ -8096,7 +8080,6 @@ impl Context {
             values.get(5),
         )
     }
-
 
     fn sf_byte_code_value(&mut self, tail: Value) -> EvalResult {
         let args = list_to_vec(&tail).ok_or_else(|| self.listp_error(tail))?;
@@ -8337,7 +8320,6 @@ impl Context {
             },
         }
     }
-
 
     // -----------------------------------------------------------------------
     // Lambda / Function application
@@ -8682,8 +8664,6 @@ impl Context {
         )
     }
 
-
-
     fn eval_dynamic_documentation_value(&mut self, value: Value) -> Result<Option<Value>, Flow> {
         if !value.is_cons() || value.cons_car().as_symbol_name() != Some(":documentation") {
             return Ok(None);
@@ -8702,7 +8682,6 @@ impl Context {
 
         self.eval_value(&tail.cons_car()).map(Some)
     }
-
 
     pub(crate) fn push_runtime_backtrace_frame(&mut self, function: Value, args: &[Value]) {
         self.runtime_backtrace.push(RuntimeBacktraceFrame {
@@ -9047,37 +9026,34 @@ impl Context {
             }
         }
 
-        let target = if let Some(func) =
-            compiler_function_override_in_obarray(&self.obarray, sym_id)
-        {
-            NamedCallTarget::Obarray(func)
-        } else if let Some(func) = self.obarray.symbol_function_id(sym_id).cloned() {
-            match func.kind() {
-                ValueKind::Nil => NamedCallTarget::Void,
-                // `(fset 'foo (symbol-function 'foo))` writes `#<subr foo>` into
-                // the function cell. Treat this as a direct builtin/special-form
-                // callable, not an obarray indirection cycle.
-                ValueKind::Veclike(VecLikeType::Subr)
-                    if func.as_subr_id() == Some(sym_id) =>
-                {
-                    let name = resolve_sym(sym_id);
-                    match super::subr_info::subr_dispatch_kind_from_value(&func)
-                        .unwrap_or_else(|| super::subr_info::compat_subr_dispatch_kind(name))
-                    {
-                        SubrDispatchKind::Builtin => NamedCallTarget::Builtin,
-                        SubrDispatchKind::ContextCallable => NamedCallTarget::ContextCallable,
-                        SubrDispatchKind::SpecialForm => NamedCallTarget::SpecialForm,
+        let target =
+            if let Some(func) = compiler_function_override_in_obarray(&self.obarray, sym_id) {
+                NamedCallTarget::Obarray(func)
+            } else if let Some(func) = self.obarray.symbol_function_id(sym_id).cloned() {
+                match func.kind() {
+                    ValueKind::Nil => NamedCallTarget::Void,
+                    // `(fset 'foo (symbol-function 'foo))` writes `#<subr foo>` into
+                    // the function cell. Treat this as a direct builtin/special-form
+                    // callable, not an obarray indirection cycle.
+                    ValueKind::Veclike(VecLikeType::Subr) if func.as_subr_id() == Some(sym_id) => {
+                        let name = resolve_sym(sym_id);
+                        match super::subr_info::subr_dispatch_kind_from_value(&func)
+                            .unwrap_or_else(|| super::subr_info::compat_subr_dispatch_kind(name))
+                        {
+                            SubrDispatchKind::Builtin => NamedCallTarget::Builtin,
+                            SubrDispatchKind::ContextCallable => NamedCallTarget::ContextCallable,
+                            SubrDispatchKind::SpecialForm => NamedCallTarget::SpecialForm,
+                        }
                     }
+                    _ => NamedCallTarget::Obarray(func),
                 }
-                _ => NamedCallTarget::Obarray(func),
-            }
-        } else if self.obarray.is_function_unbound_id(sym_id) {
-            NamedCallTarget::Void
-        } else if self.has_registered_subr(sym_id) {
-            NamedCallTarget::Builtin
-        } else {
-            NamedCallTarget::Void
-        };
+            } else if self.obarray.is_function_unbound_id(sym_id) {
+                NamedCallTarget::Void
+            } else if self.has_registered_subr(sym_id) {
+                NamedCallTarget::Builtin
+            } else {
+                NamedCallTarget::Void
+            };
 
         if !compiler_overrides_active {
             // Cap the cache to avoid unbounded growth on pathologic
@@ -9689,8 +9665,7 @@ impl Context {
             if let Some(fwd_ptr) = forwarded {
                 let fwd = unsafe { &*fwd_ptr };
                 if matches!(fwd.ty, LispFwdType::BufferObj) {
-                    let buf_fwd =
-                        unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
+                    let buf_fwd = unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
                     let off = buf_fwd.offset as usize;
                     let flags_idx = buf_fwd.local_flags_idx;
                     let buf_id_opt = self.buffers.current_buffer_id();
@@ -9698,9 +9673,7 @@ impl Context {
                         Some(id) => self
                             .buffers
                             .get(id)
-                            .map(|buf| {
-                                flags_idx < 0 || buf.slot_local_flag(off)
-                            })
+                            .map(|buf| flags_idx < 0 || buf.slot_local_flag(off))
                             .unwrap_or(false),
                         None => false,
                     };
@@ -9757,8 +9730,7 @@ impl Context {
                                 "let",
                             );
                         }
-                        let info_ref =
-                            crate::buffer::buffer::lookup_buffer_slot(name);
+                        let info_ref = crate::buffer::buffer::lookup_buffer_slot(name);
                         if let Some(info) = info_ref {
                             self.buffers.set_buffer_default_slot(info, value);
                         }
@@ -9793,14 +9765,16 @@ impl Context {
                 let old_val = self
                     .obarray
                     .find_symbol_value_in_buffer(
-                        resolved, Some(buf_id), cur_val, alist, None, 0u64, None,
+                        resolved,
+                        Some(buf_id),
+                        cur_val,
+                        alist,
+                        None,
+                        0u64,
+                        None,
                     )
                     .unwrap_or(Value::NIL);
-                let blv_found = self
-                    .obarray
-                    .blv(resolved)
-                    .map(|b| b.found)
-                    .unwrap_or(false);
+                let blv_found = self.obarray.blv(resolved).map(|b| b.found).unwrap_or(false);
                 if blv_found {
                     self.specpdl.push(SpecBinding::LetLocal {
                         sym_id: resolved,
@@ -9814,12 +9788,7 @@ impl Context {
                     });
                 }
                 if self.watchers.has_watchers(resolved) {
-                    let _ = self.run_variable_watchers_by_id(
-                        resolved,
-                        &value,
-                        &Value::NIL,
-                        "let",
-                    );
+                    let _ = self.run_variable_watchers_by_id(resolved, &value, &Value::NIL, "let");
                 }
                 // Write the new value via set_internal_localized
                 // with bindflag=Bind. Bind never auto-creates a new
@@ -10046,9 +10015,8 @@ impl Context {
                         .and_then(|s| {
                             let fwd = unsafe { &*s.val.fwd };
                             if matches!(fwd.ty, LispFwdType::BufferObj) {
-                                let buf_fwd = unsafe {
-                                    &*(fwd as *const _ as *const LispBufferObjFwd)
-                                };
+                                let buf_fwd =
+                                    unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
                                 crate::buffer::buffer::lookup_buffer_slot(name)
                                     .map(|info| (info, buf_fwd))
                             } else {
@@ -10285,9 +10253,7 @@ pub(crate) fn set_runtime_binding(
         let let_shadows = specpdl.iter().rev().any(
             |entry| matches!(entry, SpecBinding::LetDefault { sym_id: s, .. } if *s == sym_id),
         );
-        if !let_shadows
-            && let Some(current_id) = buffers.current_buffer_id()
-        {
+        if !let_shadows && let Some(current_id) = buffers.current_buffer_id() {
             let _ = buffers.set_buffer_local_property(current_id, name, value);
             return Some(current_id);
         }
@@ -10759,19 +10725,16 @@ impl Context {
         // (`data.c:1620-1650`). Without this, `symbol-value` returns
         // the stale `SymbolValue::BufferLocal::default` field for
         // LOCALIZED variables that have a per-buffer binding.
-        if resolved_is_canonical
-            && let Some(buf) = self.buffers.current_buffer()
-        {
+        if resolved_is_canonical && let Some(buf) = self.buffers.current_buffer() {
             use crate::emacs_core::symbol::SymbolRedirect;
             if let Some(sym) = self.obarray.get_by_id(resolved)
                 && sym.redirect() == SymbolRedirect::Localized
             {
                 let target_buf = Value::make_buffer(buf.id);
-                if let Some(value) = self.obarray.read_localized(
-                    resolved,
-                    target_buf,
-                    buf.local_var_alist,
-                ) {
+                if let Some(value) =
+                    self.obarray
+                        .read_localized(resolved, target_buf, buf.local_var_alist)
+                {
                     // `Qunbound` means the LOCALIZED binding is
                     // void in this buffer — return None so the
                     // caller signals `void-variable`. Mirrors GNU
@@ -10806,8 +10769,7 @@ impl Context {
             {
                 let fwd = unsafe { &*sym.val.fwd };
                 if matches!(fwd.ty, LispFwdType::BufferObj) {
-                    let buf_fwd =
-                        unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
+                    let buf_fwd = unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
                     let off = buf_fwd.offset as usize;
                     if off < self.buffers.buffer_defaults.len() {
                         return Some(self.buffers.buffer_defaults[off]);
@@ -10932,9 +10894,7 @@ impl Context {
         )?;
         Ok(value)
     }
-
 }
-
 
 fn format_startup_value(value: Option<&Value>) -> String {
     value

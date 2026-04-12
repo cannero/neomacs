@@ -71,7 +71,6 @@ fn strip_reader_prefix(source: &str) -> (&str, bool) {
     }
 }
 
-
 pub(crate) fn eval_forms_from_source(eval: &mut super::eval::Context, source: &str) -> EvalResult {
     // Use eager macro expansion matching GNU Emacs's eval-buffer which calls
     // readevalloop → readevalloop_eager_expand_eval. Without this, macros

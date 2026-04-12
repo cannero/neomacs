@@ -292,17 +292,9 @@ fn obarray_condition_pattern_list() {
         Value::symbol("arith-error"),
         Value::symbol("file-error"),
     ]);
-    assert!(signal_matches_condition_value(
-        &ob,
-        "overflow-error",
-        &pat
-    ));
+    assert!(signal_matches_condition_value(&ob, "overflow-error", &pat));
     assert!(signal_matches_condition_value(&ob, "file-missing", &pat));
-    assert!(!signal_matches_condition_value(
-        &ob,
-        "void-variable",
-        &pat
-    ));
+    assert!(!signal_matches_condition_value(&ob, "void-variable", &pat));
 }
 
 #[test]
@@ -370,7 +362,8 @@ fn define_error_with_parent() {
 fn define_error_with_parent_list() {
     crate::test_utils::init_test_tracing();
     let mut evaluator = bootstrap_context();
-    let result = evaluator.eval_str(r#"(define-error 'multi-error "Multi" '(file-error arith-error))"#);
+    let result =
+        evaluator.eval_str(r#"(define-error 'multi-error "Multi" '(file-error arith-error))"#);
     assert!(result.is_ok());
 
     assert!(signal_matches_hierarchical(

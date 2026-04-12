@@ -287,16 +287,21 @@ fn utf8_to_emacs_roundtrip() {
     let cases = [
         "",
         "hello",
-        "\u{E9}",       // e-acute
-        "\u{2018}",     // left single quote
-        "\u{1F344}",    // mushroom
+        "\u{E9}",    // e-acute
+        "\u{2018}",  // left single quote
+        "\u{1F344}", // mushroom
         "mix\u{E9}d \u{2018}text\u{2019} with \u{1F344}",
     ];
     for s in cases {
         let emacs_bytes = utf8_to_emacs(s);
         // Since there are no raw bytes, try_as_utf8 should succeed and
         // return the original string.
-        assert_eq!(try_as_utf8(&emacs_bytes), Some(s), "roundtrip failed for {:?}", s);
+        assert_eq!(
+            try_as_utf8(&emacs_bytes),
+            Some(s),
+            "roundtrip failed for {:?}",
+            s
+        );
     }
 }
 

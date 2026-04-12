@@ -169,14 +169,18 @@ fn universal_argument() {
         eprintln!("GNU screen (no 8 a's found):");
         for (i, r) in gl.iter().enumerate() {
             let t = r.trim();
-            if !t.is_empty() { eprintln!("  {i:2}: |{t}|"); }
+            if !t.is_empty() {
+                eprintln!("  {i:2}: |{t}|");
+            }
         }
     }
     if !neo_has_8a {
         eprintln!("NEO screen (no 8 a's found):");
         for (i, r) in nl.iter().enumerate() {
             let t = r.trim();
-            if !t.is_empty() { eprintln!("  {i:2}: |{t}|"); }
+            if !t.is_empty() {
+                eprintln!("  {i:2}: |{t}|");
+            }
         }
     }
     assert!(gnu_has_8a, "GNU buffer should have 8 a's somewhere");
@@ -269,8 +273,11 @@ fn other_window_after_split() {
 fn fido_vertical_mode_completions() {
     // Create init file
     let init = "/tmp/tui-cmp-fido-test.el";
-    std::fs::write(init, ";;; -*- lexical-binding: t; -*-\n(fido-vertical-mode 1)\n")
-        .expect("write init file");
+    std::fs::write(
+        init,
+        ";;; -*- lexical-binding: t; -*-\n(fido-vertical-mode 1)\n",
+    )
+    .expect("write init file");
 
     let init_arg = format!("-l {init}");
     let (mut gnu, mut neo) = boot_pair(&init_arg);
@@ -291,14 +298,8 @@ fn fido_vertical_mode_completions() {
     let nl = neo.text_grid();
 
     // Check that completions are visible (multiple non-empty rows near bottom)
-    let gnu_nonempty_bottom = gl[18..24]
-        .iter()
-        .filter(|r| !r.trim().is_empty())
-        .count();
-    let neo_nonempty_bottom = nl[18..24]
-        .iter()
-        .filter(|r| !r.trim().is_empty())
-        .count();
+    let gnu_nonempty_bottom = gl[18..24].iter().filter(|r| !r.trim().is_empty()).count();
+    let neo_nonempty_bottom = nl[18..24].iter().filter(|r| !r.trim().is_empty()).count();
 
     eprintln!("GNU bottom 6 rows with content: {gnu_nonempty_bottom}");
     eprintln!("NEO bottom 6 rows with content: {neo_nonempty_bottom}");
@@ -323,10 +324,7 @@ fn fido_vertical_mode_completions() {
     let nl2 = neo.text_grid();
 
     // After C-g, the bottom area should be mostly empty again
-    let neo_nonempty_after = nl2[20..24]
-        .iter()
-        .filter(|r| !r.trim().is_empty())
-        .count();
+    let neo_nonempty_after = nl2[20..24].iter().filter(|r| !r.trim().is_empty()).count();
     eprintln!("NEO bottom 4 rows after C-g: {neo_nonempty_after}");
     assert!(
         neo_nonempty_after <= 2,

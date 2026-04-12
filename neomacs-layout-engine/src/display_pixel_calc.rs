@@ -196,7 +196,13 @@ pub fn calc_pixel_width_or_height(
 
     // GNU xdisp.c:30242 — number branch
     if let Some(n) = prop.as_fixnum() {
-        return Some(calc_number(ctx, n as f64, width_p, &align_to, lnum_pixel_width));
+        return Some(calc_number(
+            ctx,
+            n as f64,
+            width_p,
+            &align_to,
+            lnum_pixel_width,
+        ));
     }
     if prop.is_float() {
         return Some(calc_number(
@@ -233,9 +239,9 @@ fn calc_symbol(
     if name.len() == 2 {
         let bytes = name.as_bytes();
         let pixels_per_unit = match (bytes[0], bytes[1]) {
-            (b'i', b'n') => 1.0,        // 1 inch
-            (b'm', b'm') => 25.4,       // 1 inch = 25.4 mm
-            (b'c', b'm') => 2.54,       // 1 inch = 2.54 cm
+            (b'i', b'n') => 1.0,  // 1 inch
+            (b'm', b'm') => 25.4, // 1 inch = 25.4 mm
+            (b'c', b'm') => 2.54, // 1 inch = 2.54 cm
             _ => -1.0,
         };
         if pixels_per_unit > 0.0 {
@@ -290,9 +296,7 @@ fn calc_symbol(
         }
         // GNU xdisp.c:30196 — `center`
         if name == "center" {
-            let pos = ctx.text_area_left
-                + ctx.line_number_pixel_width
-                + ctx.text_area_width / 2.0;
+            let pos = ctx.text_area_left + ctx.line_number_pixel_width + ctx.text_area_width / 2.0;
             if let Some(a) = align_to.as_deref_mut() {
                 *a = pos as i32;
             }
@@ -692,10 +696,7 @@ mod tests {
         let ctx = test_ctx();
         let v = Value::fixnum(3);
         // 3 × frame_column_width = 30
-        assert_eq!(
-            calc_pixel_width_or_height(&ctx, &v, true, None),
-            Some(30.0)
-        );
+        assert_eq!(calc_pixel_width_or_height(&ctx, &v, true, None), Some(30.0));
     }
 
     #[test]
@@ -716,10 +717,7 @@ mod tests {
         let (_keep, v) = parse("1.5");
         let ctx = test_ctx();
         // 1.5 × 10 = 15
-        assert_eq!(
-            calc_pixel_width_or_height(&ctx, &v, true, None),
-            Some(15.0)
-        );
+        assert_eq!(calc_pixel_width_or_height(&ctx, &v, true, None), Some(15.0));
     }
 
     // ------------------------------------------------------------------
@@ -729,20 +727,14 @@ mod tests {
     fn height_symbol_returns_face_font_height() {
         let ctx = test_ctx();
         let v = Value::symbol("height");
-        assert_eq!(
-            calc_pixel_width_or_height(&ctx, &v, true, None),
-            Some(20.0)
-        );
+        assert_eq!(calc_pixel_width_or_height(&ctx, &v, true, None), Some(20.0));
     }
 
     #[test]
     fn width_symbol_returns_face_font_width() {
         let ctx = test_ctx();
         let v = Value::symbol("width");
-        assert_eq!(
-            calc_pixel_width_or_height(&ctx, &v, true, None),
-            Some(10.0)
-        );
+        assert_eq!(calc_pixel_width_or_height(&ctx, &v, true, None), Some(10.0));
     }
 
     #[test]
@@ -764,10 +756,7 @@ mod tests {
         let ctx = test_ctx();
         let v = Value::symbol("in");
         // frame_res_x / 1.0 = 96
-        assert_eq!(
-            calc_pixel_width_or_height(&ctx, &v, true, None),
-            Some(96.0)
-        );
+        assert_eq!(calc_pixel_width_or_height(&ctx, &v, true, None), Some(96.0));
     }
 
     #[test]
@@ -775,8 +764,7 @@ mod tests {
         let ctx = test_ctx();
         let v = Value::symbol("cm");
         assert!(
-            (calc_pixel_width_or_height(&ctx, &v, true, None).unwrap() - (96.0 / 2.54))
-                .abs()
+            (calc_pixel_width_or_height(&ctx, &v, true, None).unwrap() - (96.0 / 2.54)).abs()
                 < 0.01
         );
     }
@@ -802,7 +790,10 @@ mod tests {
         let mut align = -1_i32;
         let px = calc_pixel_width_or_height(&ctx, &v, true, Some(&mut align));
         assert_eq!(px, Some(0.0));
-        assert_eq!(align, (ctx.text_area_left + ctx.line_number_pixel_width) as i32);
+        assert_eq!(
+            align,
+            (ctx.text_area_left + ctx.line_number_pixel_width) as i32
+        );
     }
 
     #[test]
@@ -825,20 +816,14 @@ mod tests {
         let v = Value::symbol("right-fringe");
         // In width mode (align_to = None), right-fringe returns the fringe
         // WIDTH, not its position.
-        assert_eq!(
-            calc_pixel_width_or_height(&ctx, &v, true, None),
-            Some(8.0)
-        );
+        assert_eq!(calc_pixel_width_or_height(&ctx, &v, true, None), Some(8.0));
     }
 
     #[test]
     fn left_margin_symbol_in_width_mode_returns_margin_width() {
         let ctx = test_ctx();
         let v = Value::symbol("left-margin");
-        assert_eq!(
-            calc_pixel_width_or_height(&ctx, &v, true, None),
-            Some(0.0)
-        );
+        assert_eq!(calc_pixel_width_or_height(&ctx, &v, true, None), Some(0.0));
     }
 
     // ------------------------------------------------------------------
@@ -849,10 +834,7 @@ mod tests {
         let ctx = test_ctx();
         // (+ 3 4) = 3 columns + 4 columns = (3 + 4) * 10 = 70
         let (_keep, v) = parse("(+ 3 4)");
-        assert_eq!(
-            calc_pixel_width_or_height(&ctx, &v, true, None),
-            Some(70.0)
-        );
+        assert_eq!(calc_pixel_width_or_height(&ctx, &v, true, None), Some(70.0));
     }
 
     #[test]
@@ -860,10 +842,7 @@ mod tests {
         let ctx = test_ctx();
         // (- 5 3) = 5 cols - 3 cols = (5 - 3) * 10 = 20
         let (_keep, v) = parse("(- 5 3)");
-        assert_eq!(
-            calc_pixel_width_or_height(&ctx, &v, true, None),
-            Some(20.0)
-        );
+        assert_eq!(calc_pixel_width_or_height(&ctx, &v, true, None), Some(20.0));
     }
 
     #[test]
@@ -878,12 +857,8 @@ mod tests {
         // `:align-to`/`:width` form we have seen uses multi-arg minus
         // like `(- right N)`. We match GNU exactly.
         let (_keep, v) = parse("(- 5)");
-        assert_eq!(
-            calc_pixel_width_or_height(&ctx, &v, true, None),
-            Some(50.0)
-        );
+        assert_eq!(calc_pixel_width_or_height(&ctx, &v, true, None), Some(50.0));
     }
-
 
     // ------------------------------------------------------------------
     // Cons: (NUM) — absolute pixel count
@@ -907,10 +882,7 @@ mod tests {
         let ctx = test_ctx();
         // (2 . width) = 2 * face_font_width = 2 * 10 = 20
         let (_keep, v) = parse("(2 . width)");
-        assert_eq!(
-            calc_pixel_width_or_height(&ctx, &v, true, None),
-            Some(20.0)
-        );
+        assert_eq!(calc_pixel_width_or_height(&ctx, &v, true, None), Some(20.0));
     }
 
     // ------------------------------------------------------------------

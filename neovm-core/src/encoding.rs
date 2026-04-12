@@ -667,14 +667,17 @@ fn expect_string(val: &Value) -> Result<String, crate::emacs_core::error::Flow> 
             // For unibyte strings, convert each byte to a char using sentinel encoding
             // (backward compat for buffer/coding-system layer).
             if !ls.is_multibyte() {
-                return Ok(crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(
-                    ls.as_bytes(),
-                ));
+                return Ok(
+                    crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(
+                        ls.as_bytes(),
+                    ),
+                );
             }
             // For multibyte, try UTF-8 first, fall back to lossy conversion
-            Ok(ls.as_str().map(|s| s.to_owned()).unwrap_or_else(|| {
-                crate::emacs_core::emacs_char::to_utf8_lossy(ls.as_bytes())
-            }))
+            Ok(ls
+                .as_str()
+                .map(|s| s.to_owned())
+                .unwrap_or_else(|| crate::emacs_core::emacs_char::to_utf8_lossy(ls.as_bytes())))
         }
         _other => Err(signal(
             "wrong-type-argument",
@@ -717,7 +720,10 @@ pub(crate) fn builtin_char_width(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_string_bytes(args: Vec<Value>) -> EvalResult {
     expect_args("string-bytes", &args, 1)?;
     let string = args[0].as_lisp_string().ok_or_else(|| {
-        signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]])
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[0]],
+        )
     })?;
     Ok(Value::fixnum(string.sbytes() as i64))
 }
@@ -769,7 +775,9 @@ pub(crate) fn builtin_encode_coding_string(args: Vec<Value>) -> EvalResult {
     }
     if matches!(coding_system_family(&coding), "utf-8" | "utf-8-emacs") {
         let bytes = encode_string(&s, &coding);
-        return Ok(Value::heap_string(crate::heap_types::LispString::from_unibyte(bytes)));
+        return Ok(Value::heap_string(
+            crate::heap_types::LispString::from_unibyte(bytes),
+        ));
     }
     if is_byte_preserving_coding_system(&coding) {
         let encoded = if coding.starts_with("raw-text") {
@@ -778,10 +786,14 @@ pub(crate) fn builtin_encode_coding_string(args: Vec<Value>) -> EvalResult {
             s.clone()
         };
         let bytes = storage_string_to_bytes(&encoded);
-        return Ok(Value::heap_string(crate::heap_types::LispString::from_unibyte(bytes)));
+        return Ok(Value::heap_string(
+            crate::heap_types::LispString::from_unibyte(bytes),
+        ));
     }
     let bytes = encode_string(&s, &coding);
-    Ok(Value::heap_string(crate::heap_types::LispString::from_unibyte(bytes)))
+    Ok(Value::heap_string(
+        crate::heap_types::LispString::from_unibyte(bytes),
+    ))
 }
 
 /// `(decode-coding-string STRING CODING-SYSTEM)` -> string
@@ -817,7 +829,9 @@ pub(crate) fn builtin_decode_coding_string(args: Vec<Value>) -> EvalResult {
         } else {
             bytes
         };
-        return Ok(Value::heap_string(crate::heap_types::LispString::from_unibyte(bytes)));
+        return Ok(Value::heap_string(
+            crate::heap_types::LispString::from_unibyte(bytes),
+        ));
     }
     if matches!(coding_system_family(&coding), "utf-8" | "utf-8-emacs") {
         let decoded = decode_bytes(&bytes, &coding);
@@ -1204,12 +1218,11 @@ mod tests {
             other => panic!("expected signal, got: {other:?}"),
         }
 
-        let unibyte_val = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xE9]));
-        let decoded_unibyte = builtin_decode_coding_string(vec![
-            unibyte_val,
-            Value::symbol("utf-8"),
-        ])
-        .expect("decode-coding-string should preserve invalid bytes");
+        let unibyte_val =
+            Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xE9]));
+        let decoded_unibyte =
+            builtin_decode_coding_string(vec![unibyte_val, Value::symbol("utf-8")])
+                .expect("decode-coding-string should preserve invalid bytes");
         let decoded_ls = decoded_unibyte
             .as_lisp_string()
             .expect("decode-coding-string should return string");
@@ -1217,7 +1230,8 @@ mod tests {
         let codes: Vec<u32> = crate::emacs_core::builtins::lisp_string_char_codes(decoded_ls);
         assert_eq!(codes, vec![0x3FFF00 + 0xE9]);
 
-        let unibyte_val2 = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xE9]));
+        let unibyte_val2 =
+            Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xE9]));
         let encoded_unibyte =
             builtin_encode_coding_string(vec![unibyte_val2, Value::symbol("utf-8")])
                 .expect("encode-coding-string should preserve unibyte bytes");
@@ -1346,7 +1360,9 @@ mod tests {
         assert_eq!(ls.as_bytes(), b"a\r\nb");
 
         let decoded = builtin_decode_coding_string(vec![
-            Value::heap_string(crate::heap_types::LispString::from_unibyte(b"a\r\nb".to_vec())),
+            Value::heap_string(crate::heap_types::LispString::from_unibyte(
+                b"a\r\nb".to_vec(),
+            )),
             Value::symbol("raw-text-dos"),
         ])
         .unwrap();
@@ -1402,7 +1418,8 @@ mod tests {
             Value::T
         );
 
-        let unibyte_val = Value::heap_string(crate::heap_types::LispString::from_unibyte(b"abc".to_vec()));
+        let unibyte_val =
+            Value::heap_string(crate::heap_types::LispString::from_unibyte(b"abc".to_vec()));
         assert_eq!(
             builtin_multibyte_string_p(vec![unibyte_val]).unwrap(),
             Value::NIL

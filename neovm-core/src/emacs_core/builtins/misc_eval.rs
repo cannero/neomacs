@@ -1593,7 +1593,12 @@ pub(crate) fn builtin_write_char_impl(
 
     if print_target_is_direct(target) {
         if let Some(text) = write_char_rendered_text(char_code) {
-            write_print_output_to_target(&mut ctx.buffers, &mut ctx.current_message, target, &text)?;
+            write_print_output_to_target(
+                &mut ctx.buffers,
+                &mut ctx.current_message,
+                target,
+                &text,
+            )?;
         }
         return Ok(Some(Value::fixnum(char_code)));
     }

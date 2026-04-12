@@ -202,7 +202,7 @@ fn gnu_simple_execute_extended_command_eval() -> Context {
     let simple_source = fs::read_to_string(&simple_path).expect("read GNU simple.el");
 
     let mut ev = gnu_simple_command_execute_eval();
-        ev.eval_str(
+    ev.eval_str(
         r#"
         (setq suggest-key-bindings nil)
         (setq extended-command-suggest-shorter nil)
@@ -212,7 +212,8 @@ fn gnu_simple_execute_extended_command_eval() -> Context {
               (lambda (&rest _args)
                 (signal 'end-of-file '("Error reading from stdin"))))
         "#,
-    ).expect("eval setup");
+    )
+    .expect("eval setup");
     eval_first_form_after_marker(
         &mut ev,
         &simple_source,
@@ -254,13 +255,14 @@ fn load_gnu_eval_expression_into(ev: &mut Context) {
     let simple_path = project_root.join("lisp/simple.el");
     let simple_source = fs::read_to_string(&simple_path).expect("read GNU simple.el");
 
-        ev.eval_str(
+    ev.eval_str(
         r#"
         (defalias 'read--expression #'(lambda (&rest _args)
           (signal 'end-of-file '("Error reading from stdin"))))
         (defalias 'eval-expression-get-print-arguments #'(lambda (&rest _args) nil))
         "#,
-    ).expect("eval setup");
+    )
+    .expect("eval setup");
     eval_first_form_after_marker(
         ev,
         &simple_source,
@@ -297,12 +299,13 @@ fn gnu_simple_universal_argument_eval_all(src: &str) -> Vec<String> {
     let simple_source = fs::read_to_string(&simple_path).expect("read GNU simple.el");
 
     let mut ev = gnu_simple_command_execute_eval();
-        ev.eval_str(
+    ev.eval_str(
         r#"
         (fset 'prefix-command-preserve-state (lambda () nil))
         (fset 'universal-argument--mode (lambda () nil))
         "#,
-    ).expect("eval setup");
+    )
+    .expect("eval setup");
     eval_first_form_after_marker(&mut ev, &simple_source, "(defun universal-argument ()");
     eval_all_with(&mut ev, src)
 }
@@ -314,7 +317,7 @@ fn gnu_simple_quoted_insert_eval_all(src: &str) -> Vec<String> {
     let simple_source = fs::read_to_string(&simple_path).expect("read GNU simple.el");
 
     let mut ev = gnu_simple_command_execute_eval();
-        ev.eval_str(
+    ev.eval_str(
         r#"
         (defun cadr (x) (car (cdr x)))
         (defmacro with-no-warnings (&rest body) (cons 'progn body))
@@ -326,7 +329,8 @@ fn gnu_simple_quoted_insert_eval_all(src: &str) -> Vec<String> {
               (lambda (&rest _args)
                 (signal 'end-of-file '("Error reading from stdin"))))
         "#,
-    ).expect("eval setup");
+    )
+    .expect("eval setup");
     eval_first_form_after_marker(&mut ev, &simple_source, "(defun quoted-insert (arg)");
     eval_all_with(&mut ev, src)
 }

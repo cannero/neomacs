@@ -182,7 +182,6 @@ impl TtyDisplayBackend {
             cell_height_px: 1.0,
         }
     }
-
 }
 
 impl Default for TtyDisplayBackend {
