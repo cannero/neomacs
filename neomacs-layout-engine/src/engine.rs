@@ -3236,6 +3236,11 @@ impl LayoutEngine {
                         if row < max_rows {
                             row_truncated[row] = true;
                         }
+                        // Same byte_idx/charpos desync as the main-char
+                        // truncation path: byte_idx is past the overflowing
+                        // control char, but charpos hasn't been incremented
+                        // for it yet. Compensate before skipping.
+                        charpos += 1;
                         if skip_to_newline(text, &mut byte_idx, &mut charpos) {
                             current_line += 1;
                             need_line_number = lnum_enabled;
@@ -3505,6 +3510,12 @@ impl LayoutEngine {
                     if row < max_rows {
                         row_truncated[row] = true;
                     }
+                    // The current char has been decoded and `byte_idx` is
+                    // already past it, but `charpos` is not yet incremented
+                    // (that happens after the would-be push below). Account
+                    // for the consumed-but-uncounted char here so
+                    // `skip_to_newline` starts from the right offset.
+                    charpos += 1;
                     // Skip remaining chars until newline
                     if skip_to_newline(text, &mut byte_idx, &mut charpos) {
                         current_line += 1;
