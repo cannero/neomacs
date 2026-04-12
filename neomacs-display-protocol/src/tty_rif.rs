@@ -150,6 +150,12 @@ pub struct TtyRif {
     default_fg: (u8, u8, u8),
 }
 
+fn terminal_cursor_cell(x: f32, y: f32, char_width: f32, char_height: f32) -> (u16, u16) {
+    let char_width = char_width.max(1.0);
+    let char_height = char_height.max(1.0);
+    ((x / char_width) as u16, (y / char_height) as u16)
+}
+
 impl TtyRif {
     /// Create a new TtyRif for a terminal of the given dimensions.
     pub fn new(width: usize, height: usize) -> Self {
@@ -197,6 +203,14 @@ impl TtyRif {
         self.default_bg = color_to_rgb8(&state.background);
         self.desired.clear(self.default_bg);
         self.cursor_visible = false;
+
+        if let Some(cursor) = state.phys_cursor.as_ref() {
+            let (cursor_col, cursor_row) =
+                terminal_cursor_cell(cursor.x, cursor.y, state.char_width, state.char_height);
+            self.cursor_row = cursor_row;
+            self.cursor_col = cursor_col;
+            self.cursor_visible = true;
+        }
 
         for entry in &state.window_matrices {
             // Derive screen position from pixel_bounds.
@@ -270,7 +284,7 @@ impl TtyRif {
                 // saw win, so after `C-x 2` the hollow cursor in
                 // the newly created bottom window overwrote the
                 // real cursor in the still-selected top window.
-                if entry.selected {
+                if !self.cursor_visible && entry.selected {
                     if let Some(cursor_col_in_row) = glyph_row.cursor_col {
                         self.cursor_row = screen_row as u16;
                         self.cursor_col = (win_col + cursor_col_in_row as usize) as u16;

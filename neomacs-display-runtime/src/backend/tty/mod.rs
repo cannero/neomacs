@@ -480,6 +480,7 @@ fn rasterize_frame_glyphs(frame: &FrameGlyphBuffer, grid: &mut TtyGrid, bg_color
 
     let cw = frame.char_width.max(1.0);
     let ch = frame.char_height.max(1.0);
+    let prefer_phys_cursor = frame.phys_cursor.is_some();
 
     for glyph in &frame.glyphs {
         match glyph {
@@ -584,56 +585,10 @@ fn rasterize_frame_glyphs(frame: &FrameGlyphBuffer, grid: &mut TtyGrid, bg_color
             }
 
             FrameGlyph::Cursor {
-                x,
-                y,
-                width,
-                height,
-                style,
-                color,
-                ..
+                x, y, style, color, ..
             } => {
-                let col = (*x / cw) as usize;
-                let row = (*y / ch) as usize;
-
-                if col >= grid.width || row >= grid.height {
-                    continue;
-                }
-
-                let cursor_rgb = color_to_rgb8(color);
-
-                match style {
-                    // Box cursor: inverse the cell
-                    CursorStyle::FilledBox => {
-                        if let Some(cell) = grid.get_mut(col, row) {
-                            // Swap fg/bg for inverse video effect
-                            let old_fg = cell.attrs.fg;
-                            cell.attrs.fg = cell.attrs.bg;
-                            cell.attrs.bg = cursor_rgb;
-                        }
-                    }
-                    // Bar cursor: we can approximate with inverse on the cell
-                    CursorStyle::Bar(_) => {
-                        if let Some(cell) = grid.get_mut(col, row) {
-                            // Bar cursor: use a thin bar indicator; in a real
-                            // terminal we can't draw a sub-cell bar, so use
-                            // the cursor's native position (set via escape).
-                            // For the grid, mark it inverse as a visual cue.
-                            cell.attrs.inverse = true;
-                        }
-                    }
-                    // Underline cursor
-                    CursorStyle::Hbar(_) => {
-                        if let Some(cell) = grid.get_mut(col, row) {
-                            cell.attrs.underline = 1;
-                        }
-                    }
-                    // Hollow cursor: just draw a box outline (not really
-                    // possible in a cell grid; use inverse as approximation)
-                    CursorStyle::Hollow => {
-                        if let Some(cell) = grid.get_mut(col, row) {
-                            cell.attrs.inverse = true;
-                        }
-                    }
+                if !prefer_phys_cursor {
+                    apply_tty_cursor_visual(grid, frame, *x, *y, *style, *color);
                 }
             }
 
@@ -699,6 +654,10 @@ fn rasterize_frame_glyphs(frame: &FrameGlyphBuffer, grid: &mut TtyGrid, bg_color
             FrameGlyph::Terminal { .. } => {}
         }
     }
+
+    if let Some(cursor) = frame.phys_cursor.as_ref() {
+        apply_tty_cursor_visual(grid, frame, cursor.x, cursor.y, cursor.style, cursor.color);
+    }
 }
 
 /// Get the pixel width of a glyph.
@@ -716,6 +675,73 @@ fn glyph_pixel_width(glyph: &FrameGlyph) -> f32 {
         #[cfg(feature = "neo-term")]
         FrameGlyph::Terminal { width, .. } => *width,
     }
+}
+
+fn apply_tty_cursor_visual(
+    grid: &mut TtyGrid,
+    frame: &FrameGlyphBuffer,
+    x: f32,
+    y: f32,
+    style: CursorStyle,
+    color: Color,
+) {
+    let cw = frame.char_width.max(1.0);
+    let ch = frame.char_height.max(1.0);
+    let col = (x / cw) as usize;
+    let row = (y / ch) as usize;
+
+    if col >= grid.width || row >= grid.height {
+        return;
+    }
+
+    let cursor_rgb = color_to_rgb8(&color);
+
+    match style {
+        CursorStyle::FilledBox => {
+            if let Some(cell) = grid.get_mut(col, row) {
+                cell.attrs.fg = cell.attrs.bg;
+                cell.attrs.bg = cursor_rgb;
+            }
+        }
+        CursorStyle::Bar(_) => {
+            if let Some(cell) = grid.get_mut(col, row) {
+                cell.attrs.inverse = true;
+            }
+        }
+        CursorStyle::Hbar(_) => {
+            if let Some(cell) = grid.get_mut(col, row) {
+                cell.attrs.underline = 1;
+            }
+        }
+        CursorStyle::Hollow => {
+            if let Some(cell) = grid.get_mut(col, row) {
+                cell.attrs.inverse = true;
+            }
+        }
+    }
+}
+
+fn terminal_cursor_position(frame: &FrameGlyphBuffer) -> Option<((u16, u16), bool)> {
+    let cw = frame.char_width.max(1.0);
+    let ch = frame.char_height.max(1.0);
+
+    if let Some(cursor) = frame.phys_cursor.as_ref() {
+        let col = (cursor.x / cw) as u16;
+        let row = (cursor.y / ch) as u16;
+        let visible = matches!(cursor.style, CursorStyle::Bar(_) | CursorStyle::Hbar(_));
+        return Some(((col, row), visible));
+    }
+
+    for glyph in &frame.glyphs {
+        if let FrameGlyph::Cursor { x, y, style, .. } = glyph {
+            let col = (*x / cw) as u16;
+            let row = (*y / ch) as u16;
+            let visible = matches!(style, CursorStyle::Bar(_) | CursorStyle::Hbar(_));
+            return Some(((col, row), visible));
+        }
+    }
+
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -929,21 +955,11 @@ impl DisplayBackend for TtyBackend {
             let bg_rgb = color_to_rgb8(&frame.background);
             rasterize_frame_glyphs(frame, &mut self.current, bg_rgb);
 
-            // Extract cursor position from frame glyphs
             self.cursor_position = None;
             self.cursor_visible = false;
-            for glyph in &frame.glyphs {
-                if let FrameGlyph::Cursor { x, y, style, .. } = glyph {
-                    let cw = frame.char_width.max(1.0);
-                    let ch = frame.char_height.max(1.0);
-                    let col = (*x / cw) as u16;
-                    let row = (*y / ch) as u16;
-                    self.cursor_position = Some((col, row));
-                    // Show cursor for bar and underline styles (box uses inverse)
-                    self.cursor_visible =
-                        matches!(style, CursorStyle::Bar(_) | CursorStyle::Hbar(_));
-                    break;
-                }
+            if let Some(((col, row), visible)) = terminal_cursor_position(frame) {
+                self.cursor_position = Some((col, row));
+                self.cursor_visible = visible;
             }
         } else {
             // Fallback: render from Scene (limited -- Scene doesn't carry
@@ -2104,6 +2120,85 @@ mod tests {
 
         let s = String::from_utf8(backend.output_buf.clone()).unwrap();
         assert!(s.contains(ansi::HIDE_CURSOR));
+    }
+
+    #[test]
+    fn test_rasterize_frame_glyphs_prefers_phys_cursor_visual() {
+        let mut frame = FrameGlyphBuffer::new();
+        frame.char_width = 8.0;
+        frame.char_height = 16.0;
+
+        frame.set_face(
+            0,
+            Color::WHITE,
+            Some(Color::BLACK),
+            400,
+            false,
+            0,
+            None,
+            0,
+            None,
+            0,
+            None,
+        );
+        frame.add_char('A', 0.0, 0.0, 8.0, 16.0, 12.0, false);
+        frame.add_char('B', 8.0, 0.0, 8.0, 16.0, 12.0, false);
+        frame.add_cursor(0, 0.0, 0.0, 8.0, 16.0, CursorStyle::FilledBox, Color::GREEN);
+        frame.set_phys_cursor(crate::core::frame_glyphs::PhysCursor {
+            window_id: 0,
+            charpos: 1,
+            row: 0,
+            col: 1,
+            x: 8.0,
+            y: 0.0,
+            width: 8.0,
+            height: 16.0,
+            ascent: 12.0,
+            style: CursorStyle::FilledBox,
+            color: Color::RED,
+        });
+
+        let mut grid = TtyGrid::new(4, 2);
+        rasterize_frame_glyphs(&frame, &mut grid, (0, 0, 0));
+
+        assert_eq!(grid.get(0, 0).unwrap().attrs.bg, (0, 0, 0));
+        assert_eq!(grid.get(1, 0).unwrap().attrs.bg, (255, 0, 0));
+    }
+
+    #[test]
+    fn test_render_prefers_phys_cursor_position() {
+        let mut backend = TtyBackend::new();
+        backend.initialized = true;
+        backend.width = 10;
+        backend.height = 5;
+        backend.current = TtyGrid::new(10, 5);
+        backend.previous = TtyGrid::new(10, 5);
+        backend.force_full_render = false;
+
+        let mut frame = FrameGlyphBuffer::with_size(80.0, 80.0);
+        frame.char_width = 8.0;
+        frame.char_height = 16.0;
+        frame.add_cursor(0, 0.0, 0.0, 8.0, 16.0, CursorStyle::FilledBox, Color::GREEN);
+        frame.set_phys_cursor(crate::core::frame_glyphs::PhysCursor {
+            window_id: 0,
+            charpos: 0,
+            row: 2,
+            col: 3,
+            x: 24.0,
+            y: 32.0,
+            width: 8.0,
+            height: 16.0,
+            ascent: 12.0,
+            style: CursorStyle::Hbar(2.0),
+            color: Color::WHITE,
+        });
+        backend.set_frame_glyphs(frame);
+
+        let scene = Scene::new(80.0, 80.0);
+        backend.render(&scene).unwrap();
+
+        assert_eq!(backend.cursor_position, Some((3, 2)));
+        assert!(backend.cursor_visible);
     }
 
     // -------------------------------------------------------------------

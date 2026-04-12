@@ -1,6 +1,6 @@
 use super::*;
 use crate::face::{Face, FaceAttributes, UnderlineStyle};
-use crate::frame_glyphs::{CursorStyle, GlyphRowRole};
+use crate::frame_glyphs::{CursorStyle, GlyphRowRole, PhysCursor};
 use crate::glyph_matrix::{
     FrameDisplayState, Glyph, GlyphArea, GlyphMatrix, GlyphRow, WindowMatrixEntry,
 };
@@ -337,6 +337,50 @@ fn rasterize_tracks_cursor_position() {
     assert!(rif.cursor_visible);
     assert_eq!(rif.cursor_row, 0);
     assert_eq!(rif.cursor_col, 1);
+}
+
+#[test]
+fn rasterize_prefers_phys_cursor_over_matrix_cursor_columns() {
+    let mut state = FrameDisplayState::new(10, 5, 8.0, 16.0);
+    state.background = Color::BLACK;
+
+    let mut matrix = GlyphMatrix::new(5, 10);
+    let mut row0 = GlyphRow::new(GlyphRowRole::Text);
+    row0.glyphs[GlyphArea::Text as usize].push(Glyph::char('a', 0, 0));
+    row0.cursor_col = Some(1);
+    row0.cursor_type = Some(CursorStyle::FilledBox);
+    matrix.rows[0] = row0;
+
+    let mut row1 = GlyphRow::new(GlyphRowRole::Text);
+    row1.glyphs[GlyphArea::Text as usize].push(Glyph::char('b', 0, 1));
+    matrix.rows[1] = row1;
+
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 1,
+        matrix,
+        pixel_bounds: Rect::new(0.0, 0.0, 80.0, 80.0),
+        selected: true,
+    });
+    state.phys_cursor = Some(PhysCursor {
+        window_id: 1,
+        charpos: 1,
+        row: 1,
+        col: 4,
+        x: 32.0,
+        y: 16.0,
+        width: 8.0,
+        height: 16.0,
+        ascent: 12.0,
+        style: CursorStyle::FilledBox,
+        color: Color::WHITE,
+    });
+
+    let mut rif = TtyRif::new(10, 5);
+    rif.rasterize(&state);
+
+    assert!(rif.cursor_visible);
+    assert_eq!(rif.cursor_row, 1);
+    assert_eq!(rif.cursor_col, 4);
 }
 
 /// Regression test for a bug observed after `C-x 2` in an
