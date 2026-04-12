@@ -903,6 +903,35 @@ impl FrameDisplayState {
                         col += if glyph.wide { 2 } else { 1 };
                     }
                 }
+
+                // Fill remaining row width with the row's face
+                // background. Mirrors GNU's `x_clear_end_of_line` /
+                // `fill_up_glyph_row` in `dispnew.c`, which extends
+                // the mode-line / header-line / tab-line background
+                // to the window edge so there is no gap between the
+                // last text glyph and the right window border.
+                let final_x = win_x + col as f32 * char_w;
+                let right_edge = win_x + win_w;
+                if final_x < right_edge && col > 0 && row_role.is_chrome() {
+                    let last_face_id = glyph_row.glyphs.iter().rev().flat_map(|area| area.iter().rev())
+                        .find(|g| !g.padding)
+                        .map(|g| g.face_id)
+                        .unwrap_or(0);
+                    let face_data = self.resolve_face_for_materialize(last_face_id);
+                    buf.glyphs.push(FrameGlyph::Stretch {
+                        window_id: entry.window_id as i64,
+                        row_role,
+                        clip_rect,
+                        x: final_x,
+                        y,
+                        width: right_edge - final_x,
+                        height: char_h,
+                        bg: face_data.bg,
+                        face_id: last_face_id,
+                        stipple_id: 0,
+                        stipple_fg: None,
+                    });
+                }
             }
         }
 
