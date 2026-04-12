@@ -51,24 +51,57 @@ Offset  Section
         - checksum: [u8; 32] (SHA-256 of remaining sections)
         - arena_offset: u64
         - arena_len: u64
+        - object_table_offset: u64
+        - object_table_len: u64
         - metadata_offset: u64
         - metadata_len: u64
         - roots_offset: u64
         - roots_len: u64
 
-0x0040  Object Arena (hot section)
-        Flat byte buffer of #[repr(C)] archived Lisp objects.
-        Each object is naturally aligned (8-byte for cons/float).
+0x0040  Cons Arena (hot section, true zero-copy)
+        Flat byte buffer of ConsCell objects (no GcHeader).
+        Each cell: 16 bytes, 8-byte aligned.
         Pointer slots store DumpTaggedValue (offset-based).
+        Cons cells use external mark bitmap (ConsBlock allocator)
+        and have NO GcHeader prefix — mmap'd cells are directly
+        usable by the runtime after pointer relocation.
 
-        ArchivedConsCell:    16 bytes (car: DumpTaggedValue, cdr: DumpTaggedValue)
-        ArchivedLispString:  12-byte header + inline bytes + padding
-        ArchivedFloat:       8 bytes (f64)
-        ArchivedVecLike:     8-byte header + N * DumpTaggedValue slots
-        ArchivedByteCode:    variable header + ops + constants
-        ArchivedHashTable:   variable header + key/value pairs
+0xNNNN  Non-Cons Object Arena (rehydrated on load)
+        Flat byte buffer of non-cons heap objects in an inline
+        format. These objects contain Rust-heap containers
+        (Vec, HashMap, OnceLock) in their live layouts, so they
+        CANNOT be used directly from mmap. Instead, each object
+        is stored in a dump-specific inline format:
 
-0xNNNN  Metadata (cold section, rkyv-serialized)
+        DumpStringObj:   4-byte len + 8-byte size_byte + inline bytes
+        DumpFloatObj:    8-byte f64
+        DumpVectorObj:   4-byte len + N * DumpTaggedValue slots
+        DumpHashTable:   4-byte count + test + weakness + N * (key, val)
+        DumpByteCode:    header + inline ops bytes + inline constants
+        DumpLambdaObj:   4-byte slot_count + N * DumpTaggedValue slots
+        DumpMacroObj:    same as Lambda
+        DumpRecordObj:   same as Vector
+        DumpOverlayObj:  plist + buffer_id + start + end + flags
+        DumpMarkerObj:   buffer_id + position + insertion_type
+
+        On load, the loader allocates live Rust heap objects
+        (with GcHeader, Vec, HashMap, etc.) and copies data from
+        the inline format. This is ~20-30ms for ~20K objects.
+
+0xOOOO  Object Table
+        Array of entries describing every object in both arenas:
+        struct ObjectTableEntry {
+            arena: u8,       // 0 = cons arena, 1 = non-cons arena
+            type_tag: u8,    // HeapObjectKind or VecLikeType
+            offset: u32,     // byte offset within the arena
+            slot_count: u16, // number of DumpTaggedValue pointer slots
+        }  // 8 bytes per entry
+
+        The relocation pass walks this table to find all pointer
+        slots that need address fixup (cons arena only — non-cons
+        objects are rehydrated, not relocated).
+
+0xPPPP  Metadata (cold section, rkyv-serialized)
         ArchivedDumpMetadata containing:
         - interner_strings: Vec<String>
         - obarray_symbols: Vec<ArchivedSymbolData>
@@ -77,9 +110,52 @@ Offset  Section
         - autoload manager state
         - mode/coding/charset registries
 
-0xMMMM  Root Table
+0xQQQQ  Root Table
         Array of DumpTaggedValues for top-level roots
         (global variables, special forms, etc.)
+```
+
+### Why Two Arenas: Zero-Copy vs Rehydration
+
+The live heap uses two different storage strategies:
+
+**Cons cells**: 16 bytes (`car: TaggedValue + cdr: TaggedValue`), NO
+GcHeader, external mark bitmap in ConsBlock allocator. These can be
+mmap'd directly — after relocating the pointer slots, the mmap'd
+bytes ARE valid ConsCells. This is the biggest win: cons cells are
+~80% of the dump by object count.
+
+**All other types** (StringObj, FloatObj, VecLikeHeader-based types):
+Live layouts include `GcHeader` (16 bytes: marked + kind + next
+pointer) at offset 0, plus Rust heap containers like `Vec<T>`,
+`HashMap`, `OnceLock`, `String`. These containers store data via
+absolute heap pointers from the dumping process. A Vec is 24 bytes
+(pointer + len + capacity) — the pointer is meaningless after mmap.
+
+These objects CANNOT be used directly from mmap. They must be
+"rehydrated": allocate a live Rust object, pre-fill GcHeader, copy
+data from the dump's inline format into Vec/HashMap/etc. This is
+more expensive than cons relocation but still much faster than full
+serde deserialization because the dump stores data in a compact
+inline format (no field names, no type tags, no variable-length
+encoding).
+
+```
+                     Live Layout                Dump Layout
+                     ===========                ===========
+ConsCell:            [car|cdr] 16B              [car|cdr] 16B  (IDENTICAL)
+                     no GcHeader                no GcHeader
+
+FloatObj:            [GcHeader|f64] 24B         [f64] 8B
+                     GcHeader has next ptr       rehydrated on load
+
+VectorObj:           [GcHeader|VecLikeHeader    [len|slot0|slot1|...] inline
+                      |Vec<TaggedValue>] 48B+    rehydrated into Vec on load
+                     Vec has heap pointer
+
+StringObj:           [GcHeader|LispString       [size_byte|len|bytes...] inline
+                      |TextPropTable] 56B+       rehydrated into Vec<u8> on load
+                     LispString.data = Vec<u8>
 ```
 
 ---
@@ -112,41 +188,83 @@ pointer by adding the arena's mmap base address.
 
 ## Archived Object Layouts
 
+### Cons Arena: Matches Live Layout Exactly
+
 ```rust
-/// 16 bytes, same as live ConsCell
+/// 16 bytes — IDENTICAL to live ConsCell (header.rs:71)
+/// NO GcHeader. Cons cells use external mark bitmap in ConsBlock.
+/// After relocation, these bytes ARE valid live ConsCells.
 #[repr(C)]
-pub struct ArchivedConsCell {
-    pub car: DumpTaggedValue,
-    pub cdr: DumpTaggedValue,
+pub struct DumpConsCell {
+    pub car: DumpTaggedValue,           // 8 bytes, offset 0
+    pub cdr: DumpTaggedValue,           // 8 bytes, offset 8
 }
+// The ConsCdrOrNext union has the same size as TaggedValue.
+// For dump-resident conses, the cdr field is always the cdr
+// value (not a free-list pointer), so no union is needed.
+```
 
-/// Variable-length: 12-byte header + data bytes + alignment padding
-#[repr(C)]
-pub struct ArchivedLispString {
-    pub size: u32,        // character count
-    pub size_byte: i32,   // byte count (-1 for unibyte)
-    pub data_len: u32,    // bytes of string data following header
-    // [u8; data_len] follows inline
-}
+### Non-Cons Arena: Inline Dump Format (NOT Live Layout)
 
-/// 8 bytes
+These layouts are a compact inline serialization format, NOT the
+live heap layout. They omit GcHeader (which has a stale `next`
+pointer and is rebuild on rehydration) and replace Vec/HashMap
+with inline arrays. On load, the loader allocates live Rust
+objects, fills GcHeader (marked=false, kind=correct, next=null),
+and copies data from the inline format.
+
+```rust
+/// Float: 8 bytes (no GcHeader in dump)
+/// Live FloatObj is 24 bytes: [GcHeader(16) | f64(8)]
+/// On load: allocate FloatObj, set header.kind = Float, copy f64
 #[repr(C)]
-pub struct ArchivedFloat {
+pub struct DumpFloat {
     pub value: f64,
 }
 
-/// Variable-length header + N DumpTaggedValue slots
+/// String: variable-length inline bytes
+/// Live StringObj is [GcHeader(16) | LispString(40) | TextPropTable]
+/// where LispString contains Vec<u8> (heap pointer)
+/// On load: allocate StringObj, create Vec<u8> from inline bytes
 #[repr(C)]
-pub struct ArchivedVecLike {
-    pub type_tag: u8,     // VecLikeType discriminant
-    pub _pad: [u8; 3],
-    pub len: u32,         // number of slots
-    // [DumpTaggedValue; len] follows inline
+pub struct DumpString {
+    pub size_byte: i64,   // -1 for unibyte, >= 0 for multibyte byte count
+    pub data_len: u32,    // byte count of inline data following
+    pub _pad: [u8; 4],
+    // [u8; data_len] follows inline
 }
 
-/// Variable-length
+/// Vector/Record: inline slots
+/// Live VectorObj/RecordObj is [VecLikeHeader(24) | Vec<TaggedValue>(24)]
+/// where Vec has a heap pointer to slot data
+/// On load: allocate VectorObj, create Vec from inline slots
 #[repr(C)]
-pub struct ArchivedByteCode {
+pub struct DumpVector {
+    pub type_tag: u8,     // VecLikeType::Vector or Record
+    pub _pad: [u8; 3],
+    pub len: u32,         // number of slots
+    // [DumpTaggedValue; len] follows inline — MUST BE RELOCATED
+    // before being copied into the live Vec, since the Vec
+    // stores live TaggedValues (absolute pointers)
+}
+
+/// Lambda/Macro: inline closure slots
+/// Live LambdaObj is [VecLikeHeader(24) | Vec<TV>(24) | OnceLock(24+)]
+/// On load: allocate LambdaObj, create Vec from inline slots,
+/// OnceLock starts empty (parsed_params is lazily recomputed)
+#[repr(C)]
+pub struct DumpLambda {
+    pub type_tag: u8,     // VecLikeType::Lambda or Macro
+    pub _pad: [u8; 3],
+    pub slot_count: u32,
+    // [DumpTaggedValue; slot_count] follows inline
+}
+
+/// ByteCode: inline ops + constants
+/// Live ByteCodeObj is [VecLikeHeader(24) | ByteCodeFunction]
+/// where ByteCodeFunction has Vec<u8> ops, Vec<TV> constants, etc.
+#[repr(C)]
+pub struct DumpByteCode {
     pub max_stack: u16,
     pub params_required: u16,
     pub params_optional: u16,
@@ -154,20 +272,58 @@ pub struct ArchivedByteCode {
     pub lexical: u8,
     pub ops_len: u32,
     pub constants_len: u32,
-    // [u8; ops_len] follows (bytecode ops)
-    // [DumpTaggedValue; constants_len] follows (constant pool)
+    pub has_env: u8,          // 1 if env DumpTaggedValue follows constants
+    pub has_doc_form: u8,     // 1 if doc_form DumpTaggedValue follows
+    pub has_interactive: u8,  // 1 if interactive DumpTaggedValue follows
+    pub _pad: u8,
+    // [u8; ops_len] follows (bytecode ops, no pointer slots)
+    // [DumpTaggedValue; constants_len] follows (MUST BE RELOCATED)
+    // Optional: DumpTaggedValue env (if has_env)
+    // Optional: DumpTaggedValue doc_form (if has_doc_form)
+    // Optional: DumpTaggedValue interactive (if has_interactive)
 }
 
-/// Variable-length
+/// HashTable: inline key/value pairs
+/// Live HashTableObj is [VecLikeHeader(24) | LispHashTable]
+/// where LispHashTable has HashMap<TV, TV> (complex Rust container)
+/// On load: allocate HashTableObj, rebuild HashMap from pairs
 #[repr(C)]
-pub struct ArchivedHashTable {
-    pub test: u8,         // HashTableTest discriminant (eq/eql/equal)
+pub struct DumpHashTable {
+    pub test: u8,         // HashTableTest discriminant
     pub weakness: u8,
     pub _pad: [u8; 2],
     pub count: u32,
     pub rehash_size: f64,
     pub rehash_threshold: f64,
     // [DumpTaggedValue; count * 2] follows (key, value pairs)
+    // Keys/values MUST BE RELOCATED before inserting into HashMap
+}
+
+/// Overlay: inline fields
+/// Live OverlayObj is [VecLikeHeader(24) | OverlayData(~40)]
+/// On load: allocate OverlayObj, copy fields
+#[repr(C)]
+pub struct DumpOverlay {
+    pub plist: DumpTaggedValue, // MUST BE RELOCATED (GC-traced)
+    pub buffer_id: u32,
+    pub _pad: [u8; 4],
+    pub start: u64,
+    pub end: u64,
+    pub front_advance: u8,
+    pub rear_advance: u8,
+    pub _pad2: [u8; 6],
+}
+
+/// Marker: inline fields (no pointer slots)
+/// Live MarkerObj is [VecLikeHeader(24) | MarkerData(~32)]
+/// On load: allocate MarkerObj, copy fields
+#[repr(C)]
+pub struct DumpMarker {
+    pub buffer_id: u32,   // 0 = no buffer
+    pub _pad: [u8; 4],
+    pub position: i64,    // -1 = no position
+    pub insertion_type: u8,
+    pub _pad2: [u8; 7],
 }
 ```
 
@@ -216,69 +372,138 @@ pub fn load_dump_v2(path: &Path) -> Result<Context, DumpError> {
 }
 ```
 
-### Relocation Pass
+### Relocation Pass (Cons Arena Only)
+
+Only the cons arena is relocated in place. Non-cons objects are
+rehydrated (copied into live Rust heap objects), so their pointer
+slots are resolved during rehydration, not via in-place relocation.
+
+The object table (persisted in the dump file) tells the loader
+where each cons cell is in the cons arena. Since all cons cells
+are fixed-size (16 bytes) with exactly 2 pointer slots (car + cdr),
+the relocation is a simple sweep:
 
 ```rust
-fn relocate_arena(arena: &mut [u8], base_addr: usize) {
-    // Walk the object table (offsets of all objects in the arena).
-    // For each object, find its pointer slots and rewrite them.
-    let table = parse_object_table(arena);
-    for entry in &table {
-        match entry.type_tag {
-            OBJ_CONS => {
-                let cons = unsafe {
-                    &mut *(arena.as_mut_ptr().add(entry.offset) as *mut ArchivedConsCell)
-                };
-                cons.car.relocate(base_addr);
-                cons.cdr.relocate(base_addr);
-            }
-            OBJ_VECLIKE => {
-                // Relocate each slot in the vector
-                let header = unsafe {
-                    &*(arena.as_ptr().add(entry.offset) as *const ArchivedVecLike)
-                };
-                let slots_ptr = unsafe {
-                    arena.as_mut_ptr().add(entry.offset + 8) as *mut DumpTaggedValue
-                };
-                for i in 0..header.len as usize {
-                    unsafe { (*slots_ptr.add(i)).relocate(base_addr); }
-                }
-            }
-            // Strings and floats have no pointer slots — skip
-            OBJ_STRING | OBJ_FLOAT => {}
-            OBJ_BYTECODE => { /* relocate constants array */ }
-            OBJ_HASHTABLE => { /* relocate key/value pairs */ }
-            _ => {}
-        }
+fn relocate_cons_arena(
+    cons_arena: &mut [u8],
+    cons_base_addr: usize,
+    object_table: &[ObjectTableEntry],
+) {
+    // Walk the persisted object table — it was written at dump
+    // time and stored in the Object Table section of the file.
+    for entry in object_table {
+        if entry.arena != ARENA_CONS { continue; }
+        debug_assert_eq!(entry.type_tag, OBJ_CONS);
+        let cons = unsafe {
+            &mut *(cons_arena.as_mut_ptr().add(entry.offset as usize)
+                   as *mut DumpConsCell)
+        };
+        cons.car.relocate(cons_base_addr);
+        cons.cdr.relocate(cons_base_addr);
     }
 }
+```
 
+### Rehydration Pass (Non-Cons Objects)
+
+Non-cons objects cannot be used directly from the mmap because
+their live layouts contain Rust heap containers (Vec, HashMap,
+OnceLock). The loader reads each inline dump object and allocates
+a live Rust heap object:
+
+```rust
+fn rehydrate_non_cons_objects(
+    non_cons_arena: &[u8],
+    cons_base_addr: usize,
+    object_table: &[ObjectTableEntry],
+    heap: &mut TaggedHeap,
+) -> HashMap<u32, *mut u8> {
+    // Maps dump-arena offset -> live heap pointer
+    let mut offset_to_live: HashMap<u32, *mut u8> = HashMap::new();
+
+    for entry in object_table {
+        if entry.arena != ARENA_NON_CONS { continue; }
+        let data = &non_cons_arena[entry.offset as usize..];
+        let live_ptr = match entry.type_tag {
+            OBJ_FLOAT => {
+                let dump = unsafe { &*(data.as_ptr() as *const DumpFloat) };
+                // Allocate live FloatObj with proper GcHeader
+                heap.alloc_float(dump.value)
+            }
+            OBJ_STRING => {
+                let dump = unsafe { &*(data.as_ptr() as *const DumpString) };
+                let bytes = &data[16..16 + dump.data_len as usize];
+                heap.alloc_string(bytes, dump.size_byte)
+            }
+            OBJ_VECTOR | OBJ_RECORD => {
+                let dump = unsafe { &*(data.as_ptr() as *const DumpVector) };
+                let slots = unsafe {
+                    std::slice::from_raw_parts(
+                        data[8..].as_ptr() as *const DumpTaggedValue,
+                        dump.len as usize,
+                    )
+                };
+                // Resolve each slot's DumpTaggedValue to a live TaggedValue
+                let live_slots: Vec<TaggedValue> = slots.iter()
+                    .map(|dv| resolve_dump_value(dv, cons_base_addr, &offset_to_live))
+                    .collect();
+                heap.alloc_vector(dump.type_tag, live_slots)
+            }
+            // ... similar for Lambda, Macro, ByteCode, HashTable,
+            //     Overlay, Marker
+            _ => continue,
+        };
+        offset_to_live.insert(entry.offset, live_ptr);
+    }
+    offset_to_live
+}
+```
+
+### DumpTaggedValue Relocation
+
+```rust
 impl DumpTaggedValue {
     #[inline]
-    fn relocate(&mut self, arena_base: usize) {
-        if self.is_heap_pointer() {
+    fn relocate(&mut self, cons_base_addr: usize) {
+        if self.is_cons_pointer() {
+            // Cons pointer: offset -> absolute pointer into mmap'd cons arena
             let offset = self.pointer_bits() as usize;
-            let abs = arena_base + offset;
+            let abs = cons_base_addr + offset;
             self.0 = (abs as u64) | (self.0 & TAG_MASK);
         }
-        // Immediates (fixnum, symbol, nil, t) unchanged
+        // Non-cons heap pointers (string, float, veclike) are resolved
+        // during rehydration via offset_to_live map, not in-place.
+        // Immediates (fixnum, symbol, nil, t) are unchanged.
     }
 }
+```
 ```
 
 ---
 
 ## GC Integration
 
-### Dump-Resident Object Detection
+### What Is Dump-Resident
+
+After loading, only **cons cells** are dump-resident (living in the
+mmap'd cons arena). All other heap objects (strings, floats, vectors,
+hash tables, bytecode, lambdas, etc.) were rehydrated into normal
+Rust heap allocations during the load phase. They are normal
+heap-allocated objects subject to normal GC.
+
+This simplifies GC integration enormously: the only dump-resident
+type is ConsCell, and cons cells already use a separate allocation
+strategy (ConsBlock allocator with external mark bitmap).
+
+### Dump-Resident Cons Detection
 
 ```rust
 impl TaggedHeap {
-    dump_region: Option<Box<DumpRegion>>,
+    dump_cons_region: Option<Box<DumpConsRegion>>,
 
     #[inline]
-    pub fn is_dump_object(&self, ptr: *const u8) -> bool {
-        if let Some(ref dump) = self.dump_region {
+    pub fn is_dump_cons(&self, ptr: *const ConsCell) -> bool {
+        if let Some(ref dump) = self.dump_cons_region {
             let addr = ptr as usize;
             let base = dump.base as usize;
             addr >= base && addr < base + dump.len
@@ -291,30 +516,82 @@ impl TaggedHeap {
 
 ### Mark Phase
 
-- Dump-resident objects are implicitly "always live" (never collected)
-- If dump objects are never mutated: skip tracing their children entirely
-  (all children are also dump-resident or immediate)
-- If a dump cons is mutated via setcar/setcdr (MAP_PRIVATE COW):
-  the dirty page must be traced. Track dirty dump objects via a
-  write barrier or page-fault handler.
+- Dump-resident cons cells are implicitly "always live" (never collected)
+- Dump cons children: car/cdr can be:
+  - Other dump cons cells (also always live)
+  - Immediates (fixnum, symbol, nil — no tracing needed)
+  - Rehydrated heap objects (string, vector, etc. — must be traced)
+- Therefore: the GC MUST trace through dump-resident cons cells
+  to find references to rehydrated heap objects
+- Optimization: only trace dump cons cells that are reachable from
+  roots. Since dump cons are not swept, unreachable dump conses
+  just waste mmap pages (the OS reclaims physical memory via
+  demand paging)
 
 ### Sweep Phase
 
-- Never free dump-resident objects (they live in the mmap region)
-- Only sweep heap-allocated objects as today
+- Never free dump-resident cons cells (they live in the mmap region,
+  outside the ConsBlock allocator)
+- All other objects are normal heap allocations — sweep as today
 
 ### Conservative Stack Scan
 
 ```rust
 fn is_valid_heap_pointer(&self, val: TaggedValue) -> bool {
-    // Check dump region first
-    if let Some(ref dump) = self.dump_region {
-        if dump.contains_ptr(val.as_ptr()) { return true; }
+    // Check dump cons region
+    if val.tag() == TAG_CONS {
+        if let Some(ref dump) = self.dump_cons_region {
+            if dump.contains_ptr(val.as_cons_ptr()) { return true; }
+        }
     }
     // Then check normal heap
     self.owns_non_cons_object(val.as_ptr()) || self.owns_cons_ptr(val.as_ptr())
 }
 ```
+
+### Mutation of Dump-Resident Cons Cells
+
+Dump cons cells are mmap'd with MAP_PRIVATE (copy-on-write). When
+Lisp code calls setcar/setcdr on a dump cons, the OS transparently
+copies the 4KB page and the mutation succeeds. No special handling
+is needed at the mutation site.
+
+The GC already traces through dump cons cells (they're reachable
+from roots), so mutations that store new heap pointers into dump
+cons cells are naturally discovered during the mark phase.
+
+### Mutation of Rehydrated Objects
+
+All non-cons heap objects were rehydrated into normal Rust heap
+allocations. Mutations go through the centralized helpers in
+`mutate.rs`. These helpers already call `note_heap_slot_write` /
+`note_heap_write` for GC write tracking. No changes needed —
+rehydrated objects are normal heap objects from the GC's perspective.
+
+The full list of mutation paths in `mutate.rs` (17 functions) that
+are already covered by existing write tracking:
+
+1. `set_cons_car` — cons car mutation
+2. `set_cons_cdr` — cons cdr mutation
+3. `with_vector_data_mut` — vector slot mutation
+4. `replace_vector_data` — vector replacement
+5. `set_vector_slot` — single vector slot
+6. `with_record_data_mut` — record mutation
+7. `replace_record_data` — record replacement
+8. `set_record_slot` — single record slot
+9. `with_closure_slots_mut` — lambda/macro mutation
+10. `replace_closure_slots` — closure replacement
+11. `set_closure_slot` — single closure slot
+12. `with_string_text_props_mut` — string text props
+13. `with_lisp_string_mut` — string data
+14. `with_hash_table_mut` — hash table mutation
+15. `with_bytecode_data_mut` — bytecode mutation
+16. `with_marker_data_mut` — marker mutation
+17. `with_overlay_data_mut` — overlay mutation
+
+Since rehydrated objects are normal heap objects, ALL of these work
+unchanged. Only cons mutations (#1, #2) can target dump-resident
+objects, and those are handled by MAP_PRIVATE COW + GC tracing.
 
 ---
 
@@ -349,14 +626,26 @@ saving ~500KB).
 |-------|-------------------|------------------|
 | File I/O | 5ms (read 13MB) | <0.1ms (mmap) |
 | Checksum | 10ms | 0ms (skip or lazy) |
-| Deserialize | 80ms | 0ms (zero-copy) |
-| Heap reconstruct | 40ms (100K allocs) | 2ms (relocate) |
+| Cons deserialize | ~50ms (80K allocs) | 2ms (relocate, zero-copy) |
+| Non-cons deserialize | ~30ms (20K allocs) | 15ms (rehydrate ~20K objs) |
 | Interner + obarray | 10ms | 2ms |
 | Runtime hookup | 5ms | 1ms |
-| **Total** | **~150ms** | **~5ms** |
+| **Total** | **~150ms** | **~20ms** |
 
-Memory: 13MB mmap (shared, demand-paged) + ~10MB mutable copies
-= ~23MB peak, down from ~76MB peak with bincode.
+The ~20ms projection is conservative. The big win is cons cells
+(~80% of objects by count): zero-copy via mmap + relocation (~2ms).
+Non-cons objects must be rehydrated but from a compact inline format
+(memcpy + Vec::from, no parsing), which is 2-3x faster than full
+serde deserialization.
+
+**Comparison to GNU Emacs (~30ms):** NeoMacs should match or beat
+GNU because (a) cons cells are smaller (16 bytes vs GNU's 16 + tag),
+(b) the dump is smaller (13MB vs 40MB), (c) only cons arena needs
+relocation (non-cons objects are copied, not relocated).
+
+Memory: 13MB mmap (cons arena, shared, demand-paged) + ~15MB
+rehydrated heap objects = ~28MB peak, down from ~76MB peak with
+bincode.
 
 ---
 
@@ -435,17 +724,18 @@ Memory: 13MB mmap (shared, demand-paged) + ~10MB mutable copies
 - [ ] **Step 7:** Write tests: GC with dump-resident + heap-allocated objects coexisting
 - [ ] **Step 8:** Commit
 
-### Task 7: Write barrier for dump mutations
+### Task 7: GC tracing through dump-resident cons cells
 
 **Files:**
 - Modify: `neovm-core/src/tagged/gc.rs`
-- Modify: `neovm-core/src/emacs_core/builtins/cons_list.rs` (setcar/setcdr)
 
-- [ ] **Step 1:** MAP_PRIVATE mmap makes dump pages copy-on-write at OS level — mutations "just work" at the memory level
-- [ ] **Step 2:** Add dirty-dump-object tracking: when setcar/setcdr targets a dump-resident cons, record it in a dirty set
-- [ ] **Step 3:** GC mark phase: trace dirty dump objects as additional roots
-- [ ] **Step 4:** Write tests: mutate a dump cons, verify GC traces correctly
-- [ ] **Step 5:** Commit
+- [ ] **Step 1:** GC mark phase: when tracing a cons cell, check if it's dump-resident via `is_dump_cons()`. If yes, still trace car/cdr (they may point to rehydrated heap objects). Do NOT mark it (dump conses are always live, not swept).
+- [ ] **Step 2:** GC sweep phase: skip dump-resident cons pointers (they're outside the ConsBlock allocator). Add an `is_dump_cons` check in the sweep loop.
+- [ ] **Step 3:** MAP_PRIVATE mmap makes dump pages copy-on-write at OS level — setcar/setcdr mutations "just work" at the memory level. No explicit write barrier needed for cons cells because the GC already traces through all reachable conses.
+- [ ] **Step 4:** Non-cons objects are all rehydrated into normal heap allocations. All 17 mutation paths in `mutate.rs` already have write tracking via `note_heap_slot_write` / `note_heap_write`. No changes needed.
+- [ ] **Step 5:** Write tests: create dump with cons pointing to string, rehydrate string to heap, mutate dump cons car to point to NEW heap string, verify GC traces correctly and collects the old string
+- [ ] **Step 6:** Write tests: verify dump cons that is unreachable from roots does NOT prevent GC of rehydrated objects it points to (dump cons itself stays in mmap forever, but objects it points to can be collected if no live reference exists)
+- [ ] **Step 7:** Commit
 
 ### Task 8: Bootstrap integration and switchover
 
@@ -477,18 +767,32 @@ Memory: 13MB mmap (shared, demand-paged) + ~10MB mutable copies
 
 ## Risks
 
-1. **Alignment**: Arena must pad objects to natural alignment (8-byte for cons/float/veclike). The arena builder must insert padding bytes. Misalignment causes UB on some architectures.
+1. **Alignment**: Cons arena must pad cells to 16-byte alignment (natural for ConsCell). Non-cons arena alignment is irrelevant since objects are rehydrated, not accessed in-place.
 
-2. **Versioning**: Any change to archived struct layouts invalidates old dumps. Mitigated by FORMAT_VERSION in header; dumps are regenerated from bootstrap. Same as current bincode approach.
+2. **Versioning**: Any change to dump struct layouts invalidates old dumps. Mitigated by FORMAT_VERSION in header; dumps are regenerated from bootstrap. Same as current bincode approach.
 
-3. **Mutation of dump objects**: MAP_PRIVATE gives transparent COW at page granularity. A single setcar mutates 16 bytes but dirties a 4KB page. The GC must trace all objects in dirty pages. For typical startup workloads, very few dump conses are mutated.
+3. **Mutation of dump cons cells**: MAP_PRIVATE gives transparent COW at page granularity. A single setcar mutates 16 bytes but dirties a 4KB page (~256 cons cells). The GC traces all reachable cons cells anyway, so dirty pages don't need special tracking.
 
 4. **Release pdump SIGSEGV**: The current release-mode pdump generation crashes (SIGSEGV at dump time). This is a pre-existing bug in the current dump code that must be fixed before or during this migration.
 
-5. **Conservative stack scan**: The `is_valid_heap_pointer` check must accept dump-region pointers. Without this, the conservative GC would miss references to dump-resident objects on the C stack.
+5. **Conservative stack scan**: The `is_valid_heap_pointer` check must accept dump-cons-region pointers. Without this, the conservative GC would miss references to dump-resident cons cells on the stack.
 
-6. **mmap lifetime**: The Mmap must live as long as any dump-resident pointer is accessible (= process lifetime). It must be stored in TaggedHeap and never dropped.
+6. **mmap lifetime**: The cons arena Mmap must live as long as any dump-resident cons pointer is accessible (= process lifetime). It must be stored in TaggedHeap and never dropped.
 
 7. **Endianness**: The arena uses native byte order (little-endian on x86-64). Cross-architecture dump sharing is not supported (same as GNU Emacs).
 
-8. **Dump file size**: The arena format with alignment padding may be 15-20% larger than bincode. Acceptable because the file is mmap'd (only accessed pages are faulted in).
+8. **Dump file size**: The cons arena with alignment padding may be 10-15% larger than bincode for cons data. Non-cons inline format is similar in size to bincode. Total file may be slightly larger but is mmap'd (only accessed pages faulted in).
+
+9. **Rehydration ordering**: Non-cons objects may reference other non-cons objects (e.g., a vector slot pointing to a string). The rehydration pass must process objects in dependency order, or use a two-pass approach (allocate all objects first with placeholder pointers, then fixup). The object table's ordering at dump time can ensure dependencies are written before dependents.
+
+10. **Live layout divergence**: The dump inline format (DumpString, DumpVector, etc.) is separate from the live layout (StringObj, VectorObj, etc.). Any change to a live struct's fields requires updating both the live type AND the dump type. Unit tests that round-trip dump+load catch this.
+
+## Review Corrections (Rev 1)
+
+This plan was revised after review feedback identifying three high-severity issues:
+
+1. **Archived layouts did not match live layouts.** Fixed: the plan now uses a two-arena design. Cons cells (no GcHeader, external bitmap) ARE mmap'd directly with matching layout. All other types use a separate dump-specific inline format and are rehydrated into live Rust heap objects on load. The archived DumpString/DumpVector/etc. are explicitly NOT the live StringObj/VectorObj layouts.
+
+2. **Object table was never persisted.** Fixed: the file layout now includes an explicit Object Table section between the arenas and metadata. Each entry is 8 bytes (arena, type_tag, offset, slot_count). The relocation pass and rehydration pass both read this persisted table.
+
+3. **Write barrier only covered cons cells.** Fixed: the plan now explains that only cons cells are dump-resident (all other types are rehydrated into normal heap allocations). The 17 mutation paths in mutate.rs already have write tracking via note_heap_slot_write and do not need changes. Only cons mutations can target dump-resident objects, and the GC traces through all reachable conses naturally.
