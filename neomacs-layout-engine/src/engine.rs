@@ -41,6 +41,50 @@ struct LigatureRunBuffer {
     height_scale: f32,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct CapturedCursorInfo {
+    x: f32,
+    y: f32,
+    face_w: f32,
+    face_h: f32,
+    face_ascent: f32,
+    bg: Color,
+    byte_idx: usize,
+    col: usize,
+    face_id: u32,
+    face_space_w: f32,
+    matrix_row: usize,
+    slot_width: Option<f32>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ResolvedCursorGeometry {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    ascent: f32,
+    row: usize,
+    col: usize,
+    style: CursorStyle,
+    color: Color,
+    cursor_fg: Color,
+}
+
+fn capture_cursor_info(target: &mut Option<CapturedCursorInfo>, info: CapturedCursorInfo) {
+    if target.is_none() {
+        *target = Some(info);
+    }
+}
+
+fn slot_char_width(ch: char, face_char_w: f32) -> f32 {
+    if is_wide_char(ch) {
+        2.0 * face_char_w
+    } else {
+        face_char_w
+    }
+}
+
 #[allow(dead_code)]
 fn eval_status_line_format(
     evaluator: &mut neovm_core::emacs_core::Context,
@@ -2243,7 +2287,7 @@ impl LayoutEngine {
         // counter per frame at `src/xfaces.c::lookup_face` /
         // `init_frame_faces`.
         let mut current_face_id: u32 = self.frame_face_id_counter.max(1);
-        let mut current_fg: Color = default_fg; // tracks foreground across face changes
+        let mut _current_fg: Color = default_fg; // tracks foreground across face changes
         let mut current_bg: Color = default_bg; // tracks background across face changes
         let mut current_font_family = if default_resolved.font_family.is_empty() {
             "monospace".to_string()
@@ -2413,21 +2457,7 @@ impl LayoutEngine {
         let mut box_row: usize = 0;
 
         // Cursor metrics captured during the main layout loop.
-        // (cx, cy, face_w, face_h, face_ascent, fg_color, byte_idx, col)
-        let mut cursor_info: Option<(
-            f32,
-            f32,
-            f32,
-            f32,
-            f32,
-            Color,
-            Color,
-            usize,
-            usize,
-            u32,
-            f32,
-            usize, // matrix row index for cursor
-        )> = None;
+        let mut cursor_info: Option<CapturedCursorInfo> = None;
 
         // Hit-test data for this window
         let mut hit_rows: Vec<HitRow> = Vec::new();
@@ -2502,7 +2532,7 @@ impl LayoutEngine {
                     }
 
                     let fg = Color::from_pixel(resolved.fg);
-                    current_fg = fg;
+                    _current_fg = fg;
                     let bg = Color::from_pixel(resolved.bg);
                     current_bg = bg;
                     current_font_family = if resolved.font_family.is_empty() {
@@ -2699,8 +2729,30 @@ impl LayoutEngine {
                         Some(_) => true,
                     };
 
-                    // Skip to next_visible position
                     let skip_to = next_visible.min(params.buffer_size);
+                    let point_in_hidden_region =
+                        cursor_info.is_none() && params.point >= charpos && params.point < skip_to;
+                    if point_in_hidden_region {
+                        capture_cursor_info(
+                            &mut cursor_info,
+                            CapturedCursorInfo {
+                                x,
+                                y,
+                                face_w: face_char_w,
+                                face_h,
+                                face_ascent: face_ascent_val,
+                                bg: current_bg,
+                                byte_idx,
+                                col,
+                                face_id: current_face_id.saturating_sub(1),
+                                face_space_w,
+                                matrix_row: row,
+                                slot_width: Some(face_char_w.max(1.0)),
+                            },
+                        );
+                    }
+
+                    // Skip to next_visible position
                     while charpos < skip_to && byte_idx < text.len() {
                         let (_ch, ch_len) = decode_utf8(&text[byte_idx..]);
                         byte_idx += ch_len;
@@ -2771,6 +2823,7 @@ impl LayoutEngine {
             if hscroll_remaining > 0 {
                 flush_run(&self.run_buf, ligatures);
                 self.run_buf.clear();
+                let ch_start_byte_idx = byte_idx;
                 let (ch, ch_len) = decode_utf8(&text[byte_idx..]);
                 byte_idx += ch_len;
                 charpos += 1;
@@ -2821,6 +2874,25 @@ impl LayoutEngine {
                     if has_prefix {
                         need_prefix = 1;
                     }
+                    if cursor_info.is_none() && params.point == charpos {
+                        capture_cursor_info(
+                            &mut cursor_info,
+                            CapturedCursorInfo {
+                                x,
+                                y,
+                                face_w: face_char_w,
+                                face_h: char_h,
+                                face_ascent: face_ascent_val,
+                                bg: current_bg,
+                                byte_idx: ch_start_byte_idx,
+                                col,
+                                face_id: current_face_id.saturating_sub(1),
+                                face_space_w,
+                                matrix_row: row,
+                                slot_width: Some(face_char_w.max(1.0)),
+                            },
+                        );
+                    }
                 } else {
                     let ch_cols: i32 = if ch == '\t' {
                         let tab_w = params.tab_width.max(1) as i32;
@@ -2837,6 +2909,25 @@ impl LayoutEngine {
                     if hscroll_remaining <= 0 && show_left_trunc {
                         col = 1; // $ takes 1 column
                         x = content_x + char_w;
+                    }
+                    if cursor_info.is_none() && params.point == charpos {
+                        capture_cursor_info(
+                            &mut cursor_info,
+                            CapturedCursorInfo {
+                                x,
+                                y,
+                                face_w: face_char_w,
+                                face_h,
+                                face_ascent: face_ascent_val,
+                                bg: current_bg,
+                                byte_idx: ch_start_byte_idx,
+                                col,
+                                face_id: current_face_id.saturating_sub(1),
+                                face_space_w,
+                                matrix_row: row,
+                                slot_width: Some(face_char_w.max(1.0)),
+                            },
+                        );
                     }
                 }
                 continue;
@@ -2855,8 +2946,35 @@ impl LayoutEngine {
                 if let Some(prop_val) = display_prop_val {
                     flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
+                    let skip_to = display_next_check.min(params.buffer_size);
+                    let point_in_display_replacement =
+                        cursor_info.is_none() && params.point >= charpos && params.point < skip_to;
                     // Case 1: String replacement — render the string instead of buffer text
                     if let Some(replacement) = prop_val.as_str() {
+                        if point_in_display_replacement {
+                            let slot_width = replacement
+                                .chars()
+                                .next()
+                                .map(|rch| slot_char_width(rch, face_char_w))
+                                .unwrap_or_else(|| face_char_w.max(1.0));
+                            capture_cursor_info(
+                                &mut cursor_info,
+                                CapturedCursorInfo {
+                                    x,
+                                    y,
+                                    face_w: face_char_w,
+                                    face_h,
+                                    face_ascent: face_ascent_val,
+                                    bg: current_bg,
+                                    byte_idx,
+                                    col,
+                                    face_id: current_face_id.saturating_sub(1),
+                                    face_space_w,
+                                    matrix_row: row,
+                                    slot_width: Some(slot_width.max(1.0)),
+                                },
+                            );
+                        }
                         if !replacement.is_empty() {
                             let right_limit = content_x + (text_width - lnum_pixel_width);
                             for rch in replacement.chars() {
@@ -2874,7 +2992,6 @@ impl LayoutEngine {
                         }
 
                         // Skip the buffer text that this display property covers
-                        let skip_to = display_next_check.min(params.buffer_size);
                         while charpos < skip_to && byte_idx < text.len() {
                             let (_ch, ch_len) = decode_utf8(&text[byte_idx..]);
                             byte_idx += ch_len;
@@ -2892,6 +3009,25 @@ impl LayoutEngine {
                             face_char_w,
                             params,
                         );
+                        if point_in_display_replacement {
+                            capture_cursor_info(
+                                &mut cursor_info,
+                                CapturedCursorInfo {
+                                    x,
+                                    y,
+                                    face_w: face_char_w,
+                                    face_h,
+                                    face_ascent: face_ascent_val,
+                                    bg: current_bg,
+                                    byte_idx,
+                                    col,
+                                    face_id: current_face_id.saturating_sub(1),
+                                    face_space_w,
+                                    matrix_row: row,
+                                    slot_width: Some(space_width.max(face_char_w).max(1.0)),
+                                },
+                            );
+                        }
                         if space_width > 0.0 {
                             let _bg = Color::from_pixel(default_resolved.bg);
                             x += space_width;
@@ -2899,7 +3035,6 @@ impl LayoutEngine {
                         }
 
                         // Skip covered buffer text
-                        let skip_to = display_next_check.min(params.buffer_size);
                         while charpos < skip_to && byte_idx < text.len() {
                             let (_ch, ch_len) = decode_utf8(&text[byte_idx..]);
                             byte_idx += ch_len;
@@ -2910,6 +3045,25 @@ impl LayoutEngine {
 
                     // Case 3: Image — show [img] placeholder
                     if is_display_image_spec(&prop_val) {
+                        if point_in_display_replacement {
+                            capture_cursor_info(
+                                &mut cursor_info,
+                                CapturedCursorInfo {
+                                    x,
+                                    y,
+                                    face_w: face_char_w,
+                                    face_h,
+                                    face_ascent: face_ascent_val,
+                                    bg: current_bg,
+                                    byte_idx,
+                                    col,
+                                    face_id: current_face_id.saturating_sub(1),
+                                    face_space_w,
+                                    matrix_row: row,
+                                    slot_width: Some(face_char_w.max(1.0)),
+                                },
+                            );
+                        }
                         let placeholder = "[img]";
                         let right_limit = content_x + (text_width - lnum_pixel_width);
                         for _rch in placeholder.chars() {
@@ -2921,7 +3075,6 @@ impl LayoutEngine {
                         }
 
                         // Skip covered buffer text
-                        let skip_to = display_next_check.min(params.buffer_size);
                         while charpos < skip_to && byte_idx < text.len() {
                             let (_ch, ch_len) = decode_utf8(&text[byte_idx..]);
                             byte_idx += ch_len;
@@ -3760,20 +3913,23 @@ impl LayoutEngine {
             // Capture cursor metrics at point position during the main layout
             // so cursor emission uses the correct per-face height/width.
             if cursor_info.is_none() && charpos == params.point {
-                cursor_info = Some((
-                    x,
-                    y,
-                    face_char_w,
-                    face_h,
-                    face_ascent_val,
-                    current_fg,
-                    current_bg,
-                    byte_idx,
-                    col,
-                    current_face_id.saturating_sub(1),
-                    face_space_w,
-                    row,
-                ));
+                capture_cursor_info(
+                    &mut cursor_info,
+                    CapturedCursorInfo {
+                        x,
+                        y,
+                        face_w: face_char_w,
+                        face_h,
+                        face_ascent: face_ascent_val,
+                        bg: current_bg,
+                        byte_idx,
+                        col,
+                        face_id: current_face_id.saturating_sub(1),
+                        face_space_w,
+                        matrix_row: row,
+                        slot_width: None,
+                    },
+                );
             }
 
             // --- Overlay before-strings ---
@@ -3936,20 +4092,23 @@ impl LayoutEngine {
                     params.buffer_size
                 );
             }
-            cursor_info = Some((
-                x,
-                y,
-                face_char_w,
-                face_h,
-                face_ascent_val,
-                current_fg,
-                current_bg,
-                byte_idx,
-                col,
-                current_face_id.saturating_sub(1),
-                face_space_w,
-                row,
-            ));
+            capture_cursor_info(
+                &mut cursor_info,
+                CapturedCursorInfo {
+                    x,
+                    y,
+                    face_w: face_char_w,
+                    face_h,
+                    face_ascent: face_ascent_val,
+                    bg: current_bg,
+                    byte_idx,
+                    col,
+                    face_id: current_face_id.saturating_sub(1),
+                    face_space_w,
+                    matrix_row: row,
+                    slot_width: Some(face_char_w.max(1.0)),
+                },
+            );
         }
 
         // Close any remaining box face region at end of text
@@ -4085,339 +4244,136 @@ impl LayoutEngine {
             }
         }
 
-        // Emit cursor if point is within the visible region.
-        // Use cursor_info captured during the main layout loop when available
-        // (provides correct per-face metrics for variable-height faces).
-        // Falls back to a re-scan with default face metrics otherwise.
+        let mut emitted_window_cursor: Option<WindowCursorSnapshot> = None;
         if params.point >= window_start && (params.point <= charpos || point_is_visible_eob) {
             let cursor_style = cursor_style_for_window(params);
 
-            if let Some((
-                cx,
-                cy,
-                cursor_face_w,
-                cursor_face_h,
-                cursor_face_ascent,
-                _cursor_fg,
-                cursor_face_bg,
-                cbyte,
-                ccol,
-                cursor_face_id,
-                cursor_face_space_w,
-                cursor_matrix_row,
-            )) = cursor_info
+            if let (Some(cursor), Some(style)) = (cursor_info, cursor_style)
+                && cursor.y >= text_y
+                && cursor.y + cursor.face_h <= text_y + text_height
             {
-                // Cursor position and face metrics captured during the main layout loop
-                if cy >= text_y && cy + cursor_face_h <= text_y + text_height {
-                    if let Some(style) = cursor_style {
-                        let fallback_cursor_w = cursor_width_for_style(
+                let fallback_cursor_w = cursor
+                    .slot_width
+                    .unwrap_or_else(|| {
+                        cursor_width_for_style(
                             style,
                             text,
-                            cbyte,
-                            ccol as i32,
+                            cursor.byte_idx,
+                            cursor.col as i32,
                             params,
-                            cursor_face_w,
-                        );
-                        let cursor_w = if matches!(style, CursorStyle::Bar(_)) {
-                            fallback_cursor_w
-                        } else if let Some(face) = self.matrix_builder.faces().get(&cursor_face_id)
-                        {
-                            unsafe {
-                                cursor_point_advance(
-                                    text,
-                                    cbyte,
-                                    ccol as i32,
-                                    params,
-                                    cursor_face_w,
-                                    cursor_face_space_w,
-                                    char_w,
-                                    face.font_size.max(1.0).round() as i32,
-                                    &face.font_family,
-                                    face.font_weight,
-                                    face.is_italic(),
-                                    &mut self.ascii_width_cache,
-                                    &mut self.font_metrics,
-                                )
-                                .unwrap_or(fallback_cursor_w)
-                            }
-                        } else {
-                            fallback_cursor_w
-                        };
-                        let cursor_color = Color::from_pixel(params.cursor_color);
-                        self.matrix_builder.push_cursor(
-                            params.window_id as i32,
-                            cx,
-                            cy,
-                            cursor_w,
-                            cursor_face_h,
-                            style,
-                            cursor_color,
-                        );
-                        self.matrix_builder.set_cursor_at_row(
-                            cursor_matrix_row,
-                            ccol as u16,
-                            style,
-                        );
-                        if params.selected {
-                            self.matrix_builder.set_phys_cursor(PhysCursor {
-                                window_id: params.window_id as i32,
-                                charpos: params.point.max(0) as usize,
-                                row: cursor_matrix_row,
-                                col: ccol as u16,
-                                slot_id: DisplaySlotId {
-                                    window_id: params.window_id,
-                                    row: cursor_matrix_row as u32,
-                                    col: ccol as u16,
-                                },
-                                x: cx,
-                                y: cy,
-                                width: cursor_w,
-                                height: cursor_face_h,
-                                ascent: cursor_face_ascent.min(cursor_face_h),
-                                style,
-                                color: cursor_color,
-                                cursor_fg: cursor_face_bg,
-                            });
-                        }
-
-                        if point_is_visible_eob {
-                            tracing::debug!(
-                                "layout_window_rust: emitting EOB cursor at x={:.1} y={:.1} w={:.1} h={:.1}",
-                                cx,
-                                cy,
-                                cursor_w,
-                                cursor_face_h
-                            );
-                        }
-                    }
-                }
-            } else {
-                // Fallback: re-scan to find cursor position using default face metrics
-                let mut cx = content_x;
-                let mut cy = text_y;
-                let mut cpos = window_start;
-                let mut cbyte = 0usize;
-                let mut ccol = 0usize;
-
-                let cursor_char_w = default_face_char_w;
-
-                let mut cinvis_next_check: i64 = window_start;
-                let mut cdisplay_next_check: i64 = window_start;
-                let mut c_hscroll_remaining = hscroll;
-
-                while cbyte < text.len() && cpos < params.point {
-                    // Skip invisible text in cursor scan
-                    if cpos >= cinvis_next_check {
-                        let text_props = super::neovm_bridge::RustTextPropAccess::new(buffer);
-                        let (cinvis, cnext) = text_props.check_invisible(cpos);
-                        if cinvis {
-                            let skip_to = cnext.min(params.point);
-                            while cpos < skip_to && cbyte < text.len() {
-                                let (_ch, ch_len) = decode_utf8(&text[cbyte..]);
-                                cbyte += ch_len;
-                                cpos += 1;
-                            }
-                            cinvis_next_check = cnext;
-                            continue;
-                        }
-                        cinvis_next_check = cnext;
-                    }
-
-                    // Handle hscroll in cursor scan: skip columns consumed by horizontal scroll
-                    if c_hscroll_remaining > 0 {
-                        let (cch, ch_len) = decode_utf8(&text[cbyte..]);
-                        cbyte += ch_len;
-                        cpos += 1;
-
-                        if cch == '\n' {
-                            cx = content_x;
-                            cy += char_h;
-                            ccol = 0;
-                            c_hscroll_remaining = hscroll;
-                        } else {
-                            let ch_cols: i32 = if cch == '\t' {
-                                let tab_w = params.tab_width.max(1) as i32;
-                                let consumed = hscroll - c_hscroll_remaining;
-                                ((consumed / tab_w + 1) * tab_w) - consumed
-                            } else if is_wide_char(cch) {
-                                2
-                            } else {
-                                1
-                            };
-                            c_hscroll_remaining -= ch_cols.min(c_hscroll_remaining);
-
-                            // After hscroll is exhausted, account for the $ indicator
-                            if c_hscroll_remaining <= 0 && show_left_trunc {
-                                ccol = 1; // $ takes 1 column
-                                cx = content_x + cursor_char_w;
-                            }
-                        }
-                        continue;
-                    }
-
-                    // Account for display property width in cursor position
-                    if cpos >= cdisplay_next_check {
-                        let display_prop_val: Option<neovm_core::emacs_core::Value> = {
-                            let text_props = super::neovm_bridge::RustTextPropAccess::new(buffer);
-                            let (dp, next_change) = text_props.check_display_prop(cpos);
-                            cdisplay_next_check = next_change;
-                            dp
-                        };
-
-                        if let Some(prop_val) = display_prop_val {
-                            if let Some(replacement) = prop_val.as_str() {
-                                // String replacement: advance cursor by replacement width
-                                let rep_cols: usize = replacement
-                                    .chars()
-                                    .map(|rc| if is_wide_char(rc) { 2 } else { 1 })
-                                    .sum();
-                                cx += rep_cols as f32 * cursor_char_w;
-                                ccol += rep_cols;
-                                // Skip covered buffer text
-                                let skip_to = cdisplay_next_check.min(params.point);
-                                while cpos < skip_to && cbyte < text.len() {
-                                    let (_ch, ch_len) = decode_utf8(&text[cbyte..]);
-                                    cbyte += ch_len;
-                                    cpos += 1;
-                                }
-                                continue;
-                            } else if is_display_space_spec(&prop_val) {
-                                let space_width = eval_display_space_as_width(
-                                    &prop_val,
-                                    cx,
-                                    content_x,
-                                    cursor_char_w,
-                                    params,
-                                );
-                                cx += space_width;
-                                ccol += (space_width / cursor_char_w).ceil() as usize;
-                                let skip_to = cdisplay_next_check.min(params.point);
-                                while cpos < skip_to && cbyte < text.len() {
-                                    let (_ch, ch_len) = decode_utf8(&text[cbyte..]);
-                                    cbyte += ch_len;
-                                    cpos += 1;
-                                }
-                                continue;
-                            } else if is_display_image_spec(&prop_val) {
-                                let placeholder_len = 5; // "[img]"
-                                cx += placeholder_len as f32 * cursor_char_w;
-                                ccol += placeholder_len;
-                                let skip_to = cdisplay_next_check.min(params.point);
-                                while cpos < skip_to && cbyte < text.len() {
-                                    let (_ch, ch_len) = decode_utf8(&text[cbyte..]);
-                                    cbyte += ch_len;
-                                    cpos += 1;
-                                }
-                                continue;
-                            }
-                        }
-                    }
-
-                    let cch = match std::str::from_utf8(&text[cbyte..]) {
-                        Ok(s) => {
-                            let c = s.chars().next().unwrap_or('\u{FFFD}');
-                            cbyte += c.len_utf8();
-                            c
-                        }
-                        Err(e) => {
-                            let valid_up_to = e.valid_up_to();
-                            if valid_up_to > 0 {
-                                if let Ok(s) =
-                                    std::str::from_utf8(&text[cbyte..cbyte + valid_up_to])
-                                {
-                                    let c = s.chars().next().unwrap_or('\u{FFFD}');
-                                    cbyte += c.len_utf8();
-                                    c
-                                } else {
-                                    cbyte += 1;
-                                    '\u{FFFD}'
-                                }
-                            } else {
-                                cbyte += 1;
-                                '\u{FFFD}'
-                            }
-                        }
-                    };
-
-                    if cch == '\n' {
-                        cx = content_x;
-                        cy += char_h;
-                        ccol = 0;
-                        c_hscroll_remaining = hscroll;
-                    } else if cch == '\t' {
-                        let next_tab =
-                            next_tab_stop_col(ccol, params.tab_width, &params.tab_stop_list)
-                                .max(ccol + 1);
-                        cx += (next_tab - ccol) as f32 * cursor_char_w;
-                        ccol = next_tab;
-                    } else {
-                        let c_cols = if is_wide_char(cch) { 2 } else { 1 };
-                        let c_advance = c_cols as f32 * cursor_char_w;
-                        if !params.truncate_lines
-                            && cx + c_advance > content_x + (text_width - lnum_pixel_width)
-                        {
-                            cx = content_x;
-                            cy += char_h;
-                            ccol = 0;
-                        }
-                        cx += c_advance;
-                        ccol += c_cols as usize;
-                    }
-                    cpos += 1;
-                }
-
-                // Only emit cursor if it's within visible area
-                if cy >= text_y && cy + char_h <= text_y + text_height {
-                    if let Some(style) = cursor_style {
-                        let cursor_color = Color::from_pixel(params.cursor_color);
-                        let cursor_w = cursor_width_for_style(
-                            style,
+                            cursor.face_w,
+                        )
+                    })
+                    .max(1.0);
+                let cursor_w = if matches!(style, CursorStyle::Bar(_)) {
+                    cursor_width_for_style(
+                        style,
+                        text,
+                        cursor.byte_idx,
+                        cursor.col as i32,
+                        params,
+                        cursor.face_w,
+                    )
+                    .max(1.0)
+                } else if let Some(slot_width) = cursor.slot_width {
+                    slot_width.max(1.0)
+                } else if let Some(face) = self.matrix_builder.faces().get(&cursor.face_id) {
+                    unsafe {
+                        cursor_point_advance(
                             text,
-                            cbyte,
-                            ccol as i32,
+                            cursor.byte_idx,
+                            cursor.col as i32,
                             params,
-                            default_face_char_w,
-                        );
-                        self.matrix_builder.push_cursor(
-                            params.window_id as i32,
-                            cx,
-                            cy,
-                            cursor_w,
-                            char_h,
-                            style,
-                            cursor_color,
-                        );
-                        // Fallback cursor: compute matrix row from pixel position
-                        let fallback_cursor_row = ((cy - text_y) / char_h).floor() as usize;
-                        self.matrix_builder.set_cursor_at_row(
-                            fallback_cursor_row,
-                            ccol as u16,
-                            style,
-                        );
-                        if params.selected {
-                            self.matrix_builder.set_phys_cursor(PhysCursor {
-                                window_id: params.window_id as i32,
-                                charpos: params.point.max(0) as usize,
-                                row: fallback_cursor_row,
-                                col: ccol as u16,
-                                slot_id: DisplaySlotId {
-                                    window_id: params.window_id,
-                                    row: fallback_cursor_row as u32,
-                                    col: ccol as u16,
-                                },
-                                x: cx,
-                                y: cy,
-                                width: cursor_w,
-                                height: char_h,
-                                ascent: char_h,
-                                style,
-                                color: cursor_color,
-                                cursor_fg: default_bg,
-                            });
-                        }
+                            cursor.face_w,
+                            cursor.face_space_w,
+                            char_w,
+                            face.font_size.max(1.0).round() as i32,
+                            &face.font_family,
+                            face.font_weight,
+                            face.is_italic(),
+                            &mut self.ascii_width_cache,
+                            &mut self.font_metrics,
+                        )
+                        .unwrap_or(fallback_cursor_w)
                     }
+                    .max(1.0)
+                } else {
+                    fallback_cursor_w
+                };
+                let resolved_cursor = ResolvedCursorGeometry {
+                    x: cursor.x,
+                    y: cursor.y,
+                    width: cursor_w,
+                    height: cursor.face_h,
+                    ascent: cursor.face_ascent.min(cursor.face_h),
+                    row: cursor.matrix_row,
+                    col: cursor.col,
+                    style,
+                    color: Color::from_pixel(params.cursor_color),
+                    cursor_fg: cursor.bg,
+                };
+                self.matrix_builder.push_cursor(
+                    params.window_id as i32,
+                    resolved_cursor.x,
+                    resolved_cursor.y,
+                    resolved_cursor.width,
+                    resolved_cursor.height,
+                    resolved_cursor.style,
+                    resolved_cursor.color,
+                );
+                self.matrix_builder.set_cursor_at_row(
+                    resolved_cursor.row,
+                    resolved_cursor.col as u16,
+                    resolved_cursor.style,
+                );
+                emitted_window_cursor = Some(WindowCursorSnapshot {
+                    x: (resolved_cursor.x - text_area_left).round() as i64,
+                    y: (resolved_cursor.y - text_y).round() as i64,
+                    width: resolved_cursor.width.round() as i64,
+                    height: resolved_cursor.height.round() as i64,
+                    ascent: resolved_cursor.ascent.round() as i64,
+                    row: resolved_cursor.row as i64,
+                    col: resolved_cursor.col as i64,
+                });
+                if params.selected {
+                    self.matrix_builder.set_phys_cursor(PhysCursor {
+                        window_id: params.window_id as i32,
+                        charpos: params.point.max(0) as usize,
+                        row: resolved_cursor.row,
+                        col: resolved_cursor.col as u16,
+                        slot_id: DisplaySlotId {
+                            window_id: params.window_id,
+                            row: resolved_cursor.row as u32,
+                            col: resolved_cursor.col as u16,
+                        },
+                        x: resolved_cursor.x,
+                        y: resolved_cursor.y,
+                        width: resolved_cursor.width,
+                        height: resolved_cursor.height,
+                        ascent: resolved_cursor.ascent,
+                        style: resolved_cursor.style,
+                        color: resolved_cursor.color,
+                        cursor_fg: resolved_cursor.cursor_fg,
+                    });
                 }
-            } // end else (fallback re-scan)
+
+                if point_is_visible_eob {
+                    tracing::debug!(
+                        "layout_window_rust: emitting EOB cursor at x={:.1} y={:.1} w={:.1} h={:.1}",
+                        resolved_cursor.x,
+                        resolved_cursor.y,
+                        resolved_cursor.width,
+                        resolved_cursor.height
+                    );
+                }
+            } else if cursor_info.is_none() {
+                tracing::debug!(
+                    "layout_window_rust: no explicit cursor capture for point={} window_start={} charpos_end={}",
+                    params.point,
+                    window_start,
+                    charpos
+                );
+            }
         }
 
         if row < max_rows && charpos > hit_row_charpos_start {
@@ -4798,30 +4754,7 @@ impl LayoutEngine {
             mode_line_height: mode_line_height.round() as i64,
             header_line_height: header_line_height.round() as i64,
             tab_line_height: tab_line_height.round() as i64,
-            cursor: cursor_info.map(
-                |(
-                    cx,
-                    cy,
-                    cursor_face_w,
-                    cursor_face_h,
-                    cursor_face_ascent,
-                    _cursor_fg,
-                    _cursor_bg,
-                    _cbyte,
-                    ccol,
-                    _cursor_face_id,
-                    _cursor_face_space_w,
-                    cursor_matrix_row,
-                )| WindowCursorSnapshot {
-                    x: (cx - text_area_left).round() as i64,
-                    y: (cy - text_y).round() as i64,
-                    width: cursor_face_w.max(1.0).round() as i64,
-                    height: cursor_face_h.max(1.0).round() as i64,
-                    ascent: cursor_face_ascent.max(1.0).round() as i64,
-                    row: cursor_matrix_row as i64,
-                    col: ccol as i64,
-                },
-            ),
+            cursor: emitted_window_cursor,
             points: display_points,
             rows: display_rows,
         });
@@ -5655,6 +5588,189 @@ mod tests {
             b.x,
             space.x
         );
+    }
+
+    #[test]
+    fn layout_frame_rust_captures_cursor_inside_invisible_text_without_rescan() {
+        let mut eval = Context::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let text = "abc hidden xyz";
+        let hidden_byte_start = text.find("hidden").expect("hidden start");
+        let hidden_byte_end = hidden_byte_start + "hidden".len();
+        let hidden_char_start = text[..hidden_byte_start].chars().count() + 1;
+        let point_pos = hidden_char_start + 2;
+        let next_visible_pos = hidden_char_start + "hidden".chars().count();
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert(text);
+            buf.goto_byte(point_pos - 1);
+            buf.text.text_props_put_property(
+                hidden_byte_start,
+                hidden_byte_end,
+                "invisible",
+                Value::T,
+            );
+        }
+
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-invisible-cursor", 320, 120, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *point = point_pos;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        engine.layout_frame_rust(&mut eval, frame_id);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        let cursor = snapshot.cursor.as_ref().expect("cursor");
+        let next_visible = snapshot
+            .point_for_buffer_pos(next_visible_pos)
+            .expect("next visible point");
+        assert_eq!(cursor.x, next_visible.x);
+        assert_eq!(cursor.row, next_visible.row);
+        assert_eq!(cursor.col, next_visible.col);
+    }
+
+    #[test]
+    fn layout_frame_rust_captures_cursor_at_display_replacement_slot_without_rescan() {
+        let mut eval = Context::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let text = "abcXYZdef";
+        let repl_byte_start = text.find("XYZ").expect("replacement start");
+        let repl_byte_end = repl_byte_start + "XYZ".len();
+        let point_pos = repl_byte_start + 2;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert(text);
+            buf.goto_byte(point_pos - 1);
+            buf.text.text_props_put_property(
+                repl_byte_start,
+                repl_byte_end,
+                "display",
+                Value::string("R"),
+            );
+        }
+
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-display-cursor", 320, 120, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *point = point_pos;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        engine.layout_frame_rust(&mut eval, frame_id);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        let cursor = snapshot.cursor.as_ref().expect("cursor");
+        let c = snapshot.point_for_buffer_pos(3).expect("c");
+        let d = snapshot.point_for_buffer_pos(7).expect("d");
+        assert_eq!(cursor.x, c.x + c.width);
+        assert!(cursor.x < d.x, "cursor should target replacement slot");
+        assert_eq!(cursor.row, c.row);
+    }
+
+    #[test]
+    fn layout_frame_rust_captures_cursor_inside_hscroll_skipped_text_without_rescan() {
+        let mut eval = Context::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert("abcdef\n");
+            buf.goto_byte(1);
+            buf.set_buffer_local("truncate-lines", Value::T);
+        }
+
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-hscroll-cursor", 160, 120, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point,
+                hscroll,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *point = 2;
+                *hscroll = 3;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        engine.layout_frame_rust(&mut eval, frame_id);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        let cursor = snapshot.cursor.as_ref().expect("cursor");
+        assert_eq!(cursor.x, 0);
+        assert_eq!(cursor.row, 0);
+        assert_eq!(cursor.col, 0);
     }
 
     #[test]
