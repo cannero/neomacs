@@ -52,6 +52,12 @@ pub struct GlyphMatrixBuilder {
 }
 
 impl GlyphMatrixBuilder {
+    fn write_row_metrics(row: &mut GlyphRow, pixel_y_rel: f32, height_px: f32, ascent_px: f32) {
+        row.pixel_y = pixel_y_rel;
+        row.height_px = height_px.max(0.0);
+        row.ascent_px = ascent_px.max(0.0).min(row.height_px.max(0.0));
+    }
+
     pub fn new() -> Self {
         Self {
             windows: Vec::new(),
@@ -163,6 +169,36 @@ impl GlyphMatrixBuilder {
 
     pub fn end_row(&mut self) {
         self.in_row = false;
+    }
+
+    /// Record authoritative geometry for the currently open row.
+    ///
+    /// `pixel_y` is frame-absolute; the builder stores rows
+    /// window-relative to match GNU `struct glyph_row::y`.
+    pub fn set_current_row_metrics(&mut self, pixel_y: f32, height_px: f32, ascent_px: f32) {
+        if let Some(ref mut matrix) = self.current_matrix
+            && self.current_row < matrix.rows.len()
+        {
+            let pixel_y_rel = pixel_y - self.current_pixel_bounds.y;
+            Self::write_row_metrics(
+                &mut matrix.rows[self.current_row],
+                pixel_y_rel,
+                height_px,
+                ascent_px,
+            );
+        }
+    }
+
+    /// Record authoritative geometry for an explicit row in the current window.
+    ///
+    /// `pixel_y` is frame-absolute; the stored row value is window-relative.
+    pub fn set_row_metrics(&mut self, row: usize, pixel_y: f32, height_px: f32, ascent_px: f32) {
+        if let Some(ref mut matrix) = self.current_matrix
+            && row < matrix.rows.len()
+        {
+            let pixel_y_rel = pixel_y - self.current_pixel_bounds.y;
+            Self::write_row_metrics(&mut matrix.rows[row], pixel_y_rel, height_px, ascent_px);
+        }
     }
 
     /// Install a complete set of text-area glyphs into the currently open row.
@@ -505,6 +541,26 @@ impl GlyphMatrixBuilder {
         entry.matrix.rows.push(row);
         entry.matrix.nrows += 1;
         true
+    }
+
+    /// Record authoritative geometry for the most recently appended row on the
+    /// most recently closed window.
+    ///
+    /// `pixel_y` is frame-absolute; the stored row value is window-relative.
+    pub fn set_last_window_last_row_metrics(
+        &mut self,
+        pixel_y: f32,
+        height_px: f32,
+        ascent_px: f32,
+    ) {
+        let Some(entry) = self.windows.last_mut() else {
+            return;
+        };
+        let Some(row) = entry.matrix.rows.last_mut() else {
+            return;
+        };
+        let pixel_y_rel = pixel_y - entry.pixel_bounds.y;
+        Self::write_row_metrics(row, pixel_y_rel, height_px, ascent_px);
     }
 
     /// Install a complete set of text-area glyphs into the current

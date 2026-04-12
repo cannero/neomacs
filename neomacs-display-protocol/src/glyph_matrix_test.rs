@@ -373,6 +373,50 @@ fn materialize_pixel_positions_from_grid() {
 }
 
 #[test]
+fn materialize_uses_explicit_row_metrics() {
+    let mut state = FrameDisplayState::new(2, 1, 10.0, 20.0);
+    let mut face = Face::new(0);
+    face.font_ascent = 14;
+    state.faces.insert(0, face);
+
+    let mut matrix = GlyphMatrix::new(1, 2);
+    matrix.rows[0].enabled = true;
+    matrix.rows[0].pixel_y = 7.0;
+    matrix.rows[0].height_px = 18.0;
+    matrix.rows[0].ascent_px = 13.0;
+    matrix.rows[0].glyphs[GlyphArea::Text as usize].push(Glyph::char('A', 0, 0));
+
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 1,
+        matrix,
+        pixel_bounds: Rect::new(5.0, 3.0, 20.0, 18.0),
+        selected: true,
+    });
+
+    let buf = state.materialize();
+    assert_eq!(buf.glyphs.len(), 1);
+    match &buf.glyphs[0] {
+        FrameGlyph::Char {
+            char,
+            x,
+            y,
+            baseline,
+            height,
+            ascent,
+            ..
+        } => {
+            assert_eq!(*char, 'A');
+            assert_eq!(*x, 5.0);
+            assert_eq!(*y, 10.0);
+            assert_eq!(*baseline, 23.0);
+            assert_eq!(*height, 18.0);
+            assert_eq!(*ascent, 14.0);
+        }
+        other => panic!("expected Char, got {:?}", other),
+    }
+}
+
+#[test]
 fn materialize_copies_metadata() {
     let mut state = FrameDisplayState::new(80, 24, 8.0, 16.0);
     state.frame_id = 123;

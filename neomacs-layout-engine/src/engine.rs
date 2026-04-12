@@ -345,11 +345,21 @@ fn skip_to_newline(text: &[u8], byte_idx: &mut usize, charpos: &mut i64) -> bool
     false
 }
 
+#[derive(Clone, Copy, Debug)]
+struct RowMetricsSnapshot {
+    row: usize,
+    pixel_y: f32,
+    height: f32,
+    ascent: f32,
+}
+
 fn push_display_row(
     rows: &mut Vec<DisplayRowSnapshot>,
+    row_metrics: &mut Vec<RowMetricsSnapshot>,
     row: i64,
     row_y_start: f32,
     row_height: f32,
+    row_ascent: f32,
     window_top: f32,
     row_first_display_pos: &mut Option<usize>,
     row_last_display_pos: &mut Option<usize>,
@@ -360,6 +370,12 @@ fn push_display_row(
         height: row_height.max(1.0).round() as i64,
         start_buffer_pos: row_first_display_pos.take(),
         end_buffer_pos: row_last_display_pos.take(),
+    });
+    row_metrics.push(RowMetricsSnapshot {
+        row: row.max(0) as usize,
+        pixel_y: row_y_start,
+        height: row_height.max(1.0),
+        ascent: row_ascent.max(0.0).min(row_height.max(1.0)),
     });
 }
 
@@ -2280,6 +2296,17 @@ impl LayoutEngine {
             );
             self.matrix_builder
                 .insert_face(rendered_face.id, rendered_face);
+            self.matrix_builder.set_current_row_metrics(
+                params.bounds.y,
+                text_height.max(char_h),
+                default_face_ascent.max(
+                    self.matrix_builder
+                        .faces()
+                        .get(&0)
+                        .map(|face| face.font_ascent.max(0) as f32)
+                        .unwrap_or(0.0),
+                ),
+            );
             self.matrix_builder.install_current_row_glyphs(glyphs);
             self.matrix_builder.end_row();
             self.matrix_builder.end_window();
@@ -2406,6 +2433,7 @@ impl LayoutEngine {
         let mut hit_row_charpos_start: i64 = window_start;
         let mut display_points: Vec<DisplayPointSnapshot> = Vec::new();
         let mut display_rows: Vec<DisplayRowSnapshot> = Vec::new();
+        let mut row_metrics: Vec<RowMetricsSnapshot> = Vec::new();
         let mut row_first_display_pos: Option<usize> = None;
         let mut row_last_display_pos: Option<usize> = None;
         let text_area_left = text_x;
@@ -2766,9 +2794,11 @@ impl LayoutEngine {
                     });
                     push_display_row(
                         &mut display_rows,
+                        &mut row_metrics,
                         row as i64,
                         y,
                         row_max_height,
+                        row_max_ascent,
                         window_top,
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
@@ -2979,9 +3009,11 @@ impl LayoutEngine {
                         });
                         push_display_row(
                             &mut display_rows,
+                            &mut row_metrics,
                             row as i64,
                             y,
                             row_max_height,
+                            row_max_ascent,
                             window_top,
                             &mut row_first_display_pos,
                             &mut row_last_display_pos,
@@ -3088,9 +3120,11 @@ impl LayoutEngine {
                 });
                 push_display_row(
                     &mut display_rows,
+                    &mut row_metrics,
                     row as i64,
                     y,
                     row_max_height,
+                    row_max_ascent,
                     window_top,
                     &mut row_first_display_pos,
                     &mut row_last_display_pos,
@@ -3278,9 +3312,11 @@ impl LayoutEngine {
                         });
                         push_display_row(
                             &mut display_rows,
+                            &mut row_metrics,
                             row as i64,
                             y,
                             row_max_height,
+                            row_max_ascent,
                             window_top,
                             &mut row_first_display_pos,
                             &mut row_last_display_pos,
@@ -3318,9 +3354,11 @@ impl LayoutEngine {
                         });
                         push_display_row(
                             &mut display_rows,
+                            &mut row_metrics,
                             row as i64,
                             y,
                             row_max_height,
+                            row_max_ascent,
                             window_top,
                             &mut row_first_display_pos,
                             &mut row_last_display_pos,
@@ -3554,9 +3592,11 @@ impl LayoutEngine {
                     });
                     push_display_row(
                         &mut display_rows,
+                        &mut row_metrics,
                         row as i64,
                         y,
                         row_max_height,
+                        row_max_ascent,
                         window_top,
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
@@ -3606,9 +3646,11 @@ impl LayoutEngine {
                     });
                     push_display_row(
                         &mut display_rows,
+                        &mut row_metrics,
                         row as i64,
                         y,
                         row_max_height,
+                        row_max_ascent,
                         window_top,
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
@@ -3662,9 +3704,11 @@ impl LayoutEngine {
                     });
                     push_display_row(
                         &mut display_rows,
+                        &mut row_metrics,
                         row as i64,
                         y,
                         row_max_height,
+                        row_max_ascent,
                         window_top,
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
@@ -4387,9 +4431,11 @@ impl LayoutEngine {
             });
             push_display_row(
                 &mut display_rows,
+                &mut row_metrics,
                 row as i64,
                 row_y_start,
                 row_max_height,
+                row_max_ascent,
                 window_top,
                 &mut row_first_display_pos,
                 &mut row_last_display_pos,
@@ -4573,6 +4619,14 @@ impl LayoutEngine {
         }
 
         // --- GlyphMatrix builder: close final row and window ---
+        for metric in &row_metrics {
+            self.matrix_builder.set_row_metrics(
+                metric.row,
+                metric.pixel_y,
+                metric.height,
+                metric.ascent,
+            );
+        }
         self.matrix_builder.end_row();
         self.matrix_builder.end_window();
 

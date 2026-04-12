@@ -61,6 +61,23 @@ fn builder_tracks_multiple_rows() {
 }
 
 #[test]
+fn builder_stores_row_metrics_window_relative() {
+    let mut builder = GlyphMatrixBuilder::new();
+    builder.begin_window(1, 2, 10, Rect::new(5.0, 20.0, 80.0, 40.0), true);
+    builder.begin_row(0, GlyphRowRole::Text);
+    builder.set_current_row_metrics(26.0, 18.0, 13.0);
+    builder.push_char('x', 0, 0);
+    builder.end_row();
+    builder.end_window();
+
+    let state = builder.finish(10, 2, 8.0, 16.0);
+    let row = &state.window_matrices[0].matrix.rows[0];
+    assert_eq!(row.pixel_y, 6.0);
+    assert_eq!(row.height_px, 18.0);
+    assert_eq!(row.ascent_px, 13.0);
+}
+
+#[test]
 fn builder_tracks_wide_chars() {
     let mut builder = GlyphMatrixBuilder::new();
     builder.begin_window(1, 5, 20, Rect::new(0.0, 0.0, 160.0, 80.0), true);

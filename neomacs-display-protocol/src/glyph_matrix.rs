@@ -127,6 +127,19 @@ pub struct GlyphRow {
     pub ends_at_zv: bool,
     /// This is a mode-line, header-line, or tab-line row.
     pub mode_line: bool,
+    /// Row top relative to the containing window's origin.
+    ///
+    /// Mirrors GNU `struct glyph_row::y`. `height_px == 0.0` means
+    /// the row still relies on legacy implicit grid placement.
+    pub pixel_y: f32,
+    /// Authoritative row height in pixels.
+    ///
+    /// Mirrors GNU `struct glyph_row::height`. `0.0` means unset.
+    pub height_px: f32,
+    /// Authoritative baseline ascent from row top in pixels.
+    ///
+    /// Mirrors GNU `struct glyph_row::ascent`. `0.0` means unset.
+    pub ascent_px: f32,
     /// Buffer position at start of this row.
     pub start_charpos: usize,
     /// Buffer position at end of this row.
@@ -147,6 +160,9 @@ impl GlyphRow {
             displays_text: false,
             ends_at_zv: false,
             mode_line: false,
+            pixel_y: 0.0,
+            height_px: 0.0,
+            ascent_px: 0.0,
             start_charpos: 0,
             end_charpos: 0,
         }
@@ -224,6 +240,9 @@ impl GlyphRow {
         self.continued = false;
         self.displays_text = false;
         self.ends_at_zv = false;
+        self.pixel_y = 0.0;
+        self.height_px = 0.0;
+        self.ascent_px = 0.0;
         self.start_charpos = 0;
         self.end_charpos = 0;
     }
@@ -768,7 +787,16 @@ impl FrameDisplayState {
                 if !glyph_row.enabled {
                     continue;
                 }
-                let y = win_y + row_idx as f32 * char_h;
+                let y = if glyph_row.height_px > 0.0 {
+                    win_y + glyph_row.pixel_y
+                } else {
+                    win_y + row_idx as f32 * char_h
+                };
+                let row_height = if glyph_row.height_px > 0.0 {
+                    glyph_row.height_px
+                } else {
+                    char_h
+                };
                 let mut col = 0usize;
                 let row_role = glyph_row.role;
                 let clip_rect = Some(Rect::new(win_x, win_y, win_w, entry.pixel_bounds.height));
@@ -785,6 +813,13 @@ impl FrameDisplayState {
                             GlyphType::Char { ch } => {
                                 let face_data = self.resolve_face_for_materialize(glyph.face_id);
                                 let glyph_width = if glyph.wide { char_w * 2.0 } else { char_w };
+                                let row_ascent = if glyph_row.ascent_px > 0.0 {
+                                    glyph_row.ascent_px
+                                } else if face_data.font_ascent > 0.0 {
+                                    face_data.font_ascent.min(row_height)
+                                } else {
+                                    row_height
+                                };
                                 buf.glyphs.push(FrameGlyph::Char {
                                     window_id: entry.window_id as i64,
                                     row_role,
@@ -793,10 +828,14 @@ impl FrameDisplayState {
                                     composed: None,
                                     x,
                                     y,
-                                    baseline: y + char_h * 0.8,
+                                    baseline: y + row_ascent,
                                     width: glyph_width,
-                                    height: char_h,
-                                    ascent: char_h * 0.8,
+                                    height: row_height,
+                                    ascent: if face_data.font_ascent > 0.0 {
+                                        face_data.font_ascent.min(row_height)
+                                    } else {
+                                        row_ascent
+                                    },
                                     fg: face_data.fg,
                                     bg: Some(face_data.bg),
                                     face_id: glyph.face_id,
@@ -814,6 +853,13 @@ impl FrameDisplayState {
                             }
                             GlyphType::Composite { text } => {
                                 let face_data = self.resolve_face_for_materialize(glyph.face_id);
+                                let row_ascent = if glyph_row.ascent_px > 0.0 {
+                                    glyph_row.ascent_px
+                                } else if face_data.font_ascent > 0.0 {
+                                    face_data.font_ascent.min(row_height)
+                                } else {
+                                    row_height
+                                };
                                 buf.glyphs.push(FrameGlyph::Char {
                                     window_id: entry.window_id as i64,
                                     row_role,
@@ -822,10 +868,14 @@ impl FrameDisplayState {
                                     composed: Some(text.clone()),
                                     x,
                                     y,
-                                    baseline: y + char_h * 0.8,
+                                    baseline: y + row_ascent,
                                     width: char_w,
-                                    height: char_h,
-                                    ascent: char_h * 0.8,
+                                    height: row_height,
+                                    ascent: if face_data.font_ascent > 0.0 {
+                                        face_data.font_ascent.min(row_height)
+                                    } else {
+                                        row_ascent
+                                    },
                                     fg: face_data.fg,
                                     bg: Some(face_data.bg),
                                     face_id: glyph.face_id,
@@ -851,7 +901,7 @@ impl FrameDisplayState {
                                     x,
                                     y,
                                     width: stretch_w,
-                                    height: char_h,
+                                    height: row_height,
                                     bg: face_data.bg,
                                     face_id: glyph.face_id,
                                     stipple_id: 0,
@@ -867,11 +917,18 @@ impl FrameDisplayState {
                                     x,
                                     y,
                                     width: char_w,
-                                    height: char_h,
+                                    height: row_height,
                                 });
                             }
                             GlyphType::Glyphless { ch } => {
                                 let face_data = self.resolve_face_for_materialize(glyph.face_id);
+                                let row_ascent = if glyph_row.ascent_px > 0.0 {
+                                    glyph_row.ascent_px
+                                } else if face_data.font_ascent > 0.0 {
+                                    face_data.font_ascent.min(row_height)
+                                } else {
+                                    row_height
+                                };
                                 buf.glyphs.push(FrameGlyph::Char {
                                     window_id: entry.window_id as i64,
                                     row_role,
@@ -880,10 +937,14 @@ impl FrameDisplayState {
                                     composed: None,
                                     x,
                                     y,
-                                    baseline: y + char_h * 0.8,
+                                    baseline: y + row_ascent,
                                     width: char_w,
-                                    height: char_h,
-                                    ascent: char_h * 0.8,
+                                    height: row_height,
+                                    ascent: if face_data.font_ascent > 0.0 {
+                                        face_data.font_ascent.min(row_height)
+                                    } else {
+                                        row_ascent
+                                    },
                                     fg: face_data.fg,
                                     bg: Some(face_data.bg),
                                     face_id: glyph.face_id,
@@ -929,7 +990,7 @@ impl FrameDisplayState {
                         x: final_x,
                         y,
                         width: right_edge - final_x,
-                        height: char_h,
+                        height: row_height,
                         bg: face_data.bg,
                         face_id: last_face_id,
                         stipple_id: 0,
@@ -1045,6 +1106,7 @@ impl FrameDisplayState {
             MaterializedFaceData {
                 fg: face.foreground,
                 bg: face.background,
+                font_ascent: face.font_ascent.max(0) as f32,
                 font_weight: face.font_weight,
                 italic: face.attributes.contains(FaceAttributes::ITALIC),
                 font_size: face.font_size,
@@ -1068,6 +1130,7 @@ impl FrameDisplayState {
             MaterializedFaceData {
                 fg: Color::new(1.0, 1.0, 1.0, 1.0),
                 bg: self.background,
+                font_ascent: 0.0,
                 font_weight: 400,
                 italic: false,
                 font_size: self.font_pixel_size,
@@ -1087,6 +1150,7 @@ impl FrameDisplayState {
 struct MaterializedFaceData {
     fg: Color,
     bg: Color,
+    font_ascent: f32,
     font_weight: u16,
     italic: bool,
     font_size: f32,

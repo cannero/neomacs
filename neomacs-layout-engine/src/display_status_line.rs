@@ -612,7 +612,16 @@ impl LayoutEngine {
         // schedule as the old path so the builder's face cache has
         // the right entries when rasterization resolves face ids.
         if let Some(ref mut b) = builder {
-            b.begin_status_line_row(spec.kind.row_role());
+            if b.begin_status_line_row(spec.kind.row_role()) {
+                let row_ascent = if spec.face.font_ascent > 0.0 {
+                    spec.face.font_ascent
+                } else {
+                    spec.ascent
+                }
+                .max(0.0)
+                .min(spec.height.max(1.0));
+                b.set_last_window_last_row_metrics(spec.y, spec.height, row_ascent);
+            }
         }
 
         {
