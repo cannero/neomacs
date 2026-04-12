@@ -1046,7 +1046,7 @@ pub struct LayoutEngine {
     /// `use_cosmic_metrics: bool` runtime flag — the decision is
     /// now made once at startup by the binary that constructs the
     /// layout engine.
-    font_metrics: Option<FontMetricsService>,
+    pub(crate) font_metrics: Option<FontMetricsService>,
     /// Previous frame's per-window metadata for transition hint derivation.
     prev_window_infos: std::collections::HashMap<i64, WindowInfo>,
     /// Previous selected window id for switch-fade detection.
@@ -4792,7 +4792,8 @@ impl LayoutEngine {
         builder: &mut crate::matrix_builder::GlyphMatrixBuilder,
     ) {
         use crate::display_backend::{
-            DisplayBackend, TtyDisplayBackend, display_text_plain_via_backend,
+            DisplayBackend, GuiDisplayBackend, TtyDisplayBackend,
+            display_text_plain_via_backend,
         };
         use neomacs_display_protocol::frame_glyphs::GlyphRowRole;
         use neomacs_display_protocol::glyph_matrix::GlyphRow;
@@ -4810,10 +4811,17 @@ impl LayoutEngine {
 
         // Walk the plain string through the backend. No display-property
         // harvesting, no face runs, no align-to entries — minibuffer
-        // echo is a single face and a single string.
-        let mut backend = TtyDisplayBackend::new();
+        // echo is a single face and a single string. Dispatch between
+        // the GUI (cosmic-text) and TTY (cell-grid) backends based on
+        // whether cosmic metrics are enabled on this LayoutEngine.
+        let mut tty_backend = TtyDisplayBackend::new();
+        let mut gui_backend = self.font_metrics.as_mut().map(GuiDisplayBackend::new);
+        let backend: &mut dyn DisplayBackend = match gui_backend {
+            Some(ref mut g) => g,
+            None => &mut tty_backend,
+        };
         display_text_plain_via_backend(
-            &mut backend,
+            backend,
             &echo_message,
             &rendered_face,
             char_width,
@@ -4946,7 +4954,10 @@ impl LayoutEngine {
         frame_params: &FrameParams,
         tab_bar_height: f32,
     ) {
-        use crate::display_backend::{TtyDisplayBackend, display_text_plain_via_backend};
+        use crate::display_backend::{
+            DisplayBackend, GuiDisplayBackend, TtyDisplayBackend,
+            display_text_plain_via_backend,
+        };
 
         let Some(tab_bar_text) = build_tab_bar_plain_text(evaluator, frame_window_id as u64) else {
             return;
@@ -4966,9 +4977,17 @@ impl LayoutEngine {
         let rendered_face = sl_face.render_face();
         let char_width = self.status_line_char_width(&sl_face, frame_params.char_width);
 
-        let mut backend = TtyDisplayBackend::new();
+        // Dispatch between GUI (cosmic-text) and TTY (cell-grid)
+        // backends based on whether cosmic metrics are enabled on
+        // this LayoutEngine.
+        let mut tty_backend = TtyDisplayBackend::new();
+        let mut gui_backend = self.font_metrics.as_mut().map(GuiDisplayBackend::new);
+        let backend: &mut dyn DisplayBackend = match gui_backend {
+            Some(ref mut g) => g,
+            None => &mut tty_backend,
+        };
         display_text_plain_via_backend(
-            &mut backend,
+            backend,
             &tab_bar_text,
             &rendered_face,
             char_width,

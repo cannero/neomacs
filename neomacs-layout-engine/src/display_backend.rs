@@ -27,6 +27,8 @@
 use neomacs_display_protocol::face::Face;
 use neomacs_display_protocol::glyph_matrix::{Glyph, GlyphRow};
 
+use crate::font_metrics::FontMetricsService;
+
 /// Which kind of glyph the display walker is asking the backend to
 /// produce. Mirrors GNU's `enum it_method` values that feed through
 /// `PRODUCE_GLYPHS` (`dispextern.h:2926`). Neomacs only needs the
@@ -120,6 +122,21 @@ pub trait DisplayBackend {
     /// Signal that the walker has finished producing all rows for
     /// one frame. The backend can flush its buffered output.
     fn finish_frame(&mut self);
+
+    // ----- Output drain -----
+
+    /// Drain all rows accumulated since the last drain. Callers use
+    /// this to hand the completed glyph rows off to the frame
+    /// matrix builder. GNU: no direct equivalent — GNU's backend
+    /// writes into the caller-supplied `glyph_row` in place, but
+    /// neomacs accumulates rows inside the backend so trait-object
+    /// dispatch can select TTY vs GUI paths at runtime.
+    fn take_rows(&mut self) -> Vec<GlyphRow>;
+
+    /// Read-only view of the in-progress glyphs for the row
+    /// currently being walked. Used by the frame tab-bar installer
+    /// which peeks at the glyphs before calling `finish_row`.
+    fn pending_glyphs(&self) -> &[Glyph];
 }
 
 // ---------------------------------------------------------------------------
@@ -166,19 +183,6 @@ impl TtyDisplayBackend {
         }
     }
 
-    /// Take the accumulated rows since the last drain. Used by
-    /// callers that want to feed the rows into `TtyRif::rasterize`
-    /// or a similar output stage.
-    pub fn take_rows(&mut self) -> Vec<GlyphRow> {
-        std::mem::take(&mut self.pending_rows)
-    }
-
-    /// Read-only view of the in-progress glyphs (before `finish_row`).
-    /// Useful for tests and for walkers that want to measure the
-    /// current row width mid-walk.
-    pub fn pending_glyphs(&self) -> &[Glyph] {
-        &self.pending_glyphs
-    }
 }
 
 impl Default for TtyDisplayBackend {
@@ -242,6 +246,117 @@ impl DisplayBackend for TtyDisplayBackend {
 
     fn finish_frame(&mut self) {
         // Rows stay queued until `take_rows` is called.
+    }
+
+    fn take_rows(&mut self) -> Vec<GlyphRow> {
+        std::mem::take(&mut self.pending_rows)
+    }
+
+    fn pending_glyphs(&self) -> &[Glyph] {
+        &self.pending_glyphs
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GuiDisplayBackend
+// ---------------------------------------------------------------------------
+
+/// Pixel-metric backend for the GUI renderer.
+///
+/// Mirrors the TTY backend's glyph accumulation strategy (the
+/// produced `GlyphRow`s look identical in structure) but routes
+/// character advance and font metric queries through the shared
+/// `FontMetricsService`, which delegates to cosmic-text's shaping
+/// and font-metrics lookups. This matches GNU's
+/// `gui_produce_glyphs` path in `xdisp.c:33185`, where glyph rows
+/// are assembled on the eval thread using the GUI frame's
+/// `redisplay_interface` vtable before being handed to the
+/// window-system write pipeline.
+///
+/// The backend borrows the `FontMetricsService` mutably for its
+/// lifetime. Callers construct one per walker pass and discard it
+/// immediately after draining via `take_rows`, so the borrow never
+/// races with any other consumer of `font_metrics` on
+/// `LayoutEngine`.
+///
+/// The pixel-accurate `char_advance` replaces the cell-based value
+/// that `TtyDisplayBackend` returns, so text-break calculations
+/// inside the walker (`display_text_plain_via_backend` etc.) use
+/// the same coordinate system as the `text_width` / `max_width`
+/// parameters passed in from GUI-mode call sites.
+pub struct GuiDisplayBackend<'a> {
+    font_svc: &'a mut FontMetricsService,
+    inner: TtyDisplayBackend,
+}
+
+impl<'a> GuiDisplayBackend<'a> {
+    /// Construct a new GUI backend borrowing the given
+    /// `FontMetricsService`. The service remains usable again once
+    /// this backend is dropped.
+    pub fn new(font_svc: &'a mut FontMetricsService) -> Self {
+        Self {
+            font_svc,
+            inner: TtyDisplayBackend::new(),
+        }
+    }
+}
+
+impl<'a> DisplayBackend for GuiDisplayBackend<'a> {
+    fn char_advance(&mut self, face: &Face, ch: char) -> f32 {
+        // Delegate to the shared font metrics service; it already
+        // caches ASCII widths per face-configuration key.
+        let w = self.font_svc.char_width(
+            ch,
+            &face.font_family,
+            face.font_weight,
+            face.is_italic(),
+            face.font_size,
+        );
+        if w > 0.0 { w } else { face.font_size.max(1.0) }
+    }
+
+    fn font_height(&mut self, face: &Face) -> f32 {
+        let m = self.font_svc.font_metrics(
+            &face.font_family,
+            face.font_weight,
+            face.is_italic(),
+            face.font_size,
+        );
+        m.line_height
+    }
+
+    fn font_width(&mut self, face: &Face) -> f32 {
+        let m = self.font_svc.font_metrics(
+            &face.font_family,
+            face.font_weight,
+            face.is_italic(),
+            face.font_size,
+        );
+        m.char_width
+    }
+
+    fn produce_glyph(&mut self, kind: GlyphKind, face: &Face, charpos: usize) {
+        // Glyph accumulation is identical to the TTY path. The only
+        // difference between GUI and TTY is measurement, which
+        // already went through `char_advance` above before the
+        // walker called back here.
+        self.inner.produce_glyph(kind, face, charpos);
+    }
+
+    fn finish_row(&mut self, row: GlyphRow) {
+        self.inner.finish_row(row);
+    }
+
+    fn finish_frame(&mut self) {
+        self.inner.finish_frame();
+    }
+
+    fn take_rows(&mut self) -> Vec<GlyphRow> {
+        self.inner.take_rows()
+    }
+
+    fn pending_glyphs(&self) -> &[Glyph] {
+        self.inner.pending_glyphs()
     }
 }
 
@@ -508,5 +623,97 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].glyphs[1].len(), 1);
         assert_eq!(rows[1].glyphs[1].len(), 1);
+    }
+
+    // ----------- GuiDisplayBackend -----------
+
+    fn gui_face() -> Face {
+        let mut f = Face::default();
+        f.font_family = "monospace".to_string();
+        f.font_size = 14.0;
+        f.font_weight = 400;
+        f
+    }
+
+    #[test]
+    fn gui_char_advance_returns_positive_pixel_width_for_ascii() {
+        let mut svc = FontMetricsService::new();
+        let mut be = GuiDisplayBackend::new(&mut svc);
+        let f = gui_face();
+        let w = be.char_advance(&f, 'M');
+        assert!(
+            w > 1.0,
+            "GUI char_advance should be pixel-width (> cell-width), got {}",
+            w
+        );
+    }
+
+    #[test]
+    fn gui_font_height_is_positive_pixels() {
+        let mut svc = FontMetricsService::new();
+        let mut be = GuiDisplayBackend::new(&mut svc);
+        let f = gui_face();
+        assert!(be.font_height(&f) > 1.0);
+    }
+
+    #[test]
+    fn gui_font_width_is_positive_pixels() {
+        let mut svc = FontMetricsService::new();
+        let mut be = GuiDisplayBackend::new(&mut svc);
+        let f = gui_face();
+        assert!(be.font_width(&f) > 1.0);
+    }
+
+    #[test]
+    fn gui_produce_glyph_accumulates_like_tty() {
+        let mut svc = FontMetricsService::new();
+        let mut be = GuiDisplayBackend::new(&mut svc);
+        let f = gui_face();
+        be.produce_glyph(GlyphKind::Char('A'), &f, 0);
+        be.produce_glyph(GlyphKind::Char('B'), &f, 1);
+        assert_eq!(be.pending_glyphs().len(), 2);
+    }
+
+    #[test]
+    fn gui_finish_row_and_take_rows_work() {
+        let mut svc = FontMetricsService::new();
+        let mut be = GuiDisplayBackend::new(&mut svc);
+        let f = gui_face();
+        be.produce_glyph(GlyphKind::Char('x'), &f, 0);
+        be.finish_row(empty_row(GlyphRowRole::Text));
+        let rows = be.take_rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].glyphs[1].len(), 1);
+    }
+
+    #[test]
+    fn gui_trait_object_is_usable() {
+        let mut svc = FontMetricsService::new();
+        let mut be: Box<dyn DisplayBackend> = Box::new(GuiDisplayBackend::new(&mut svc));
+        let f = gui_face();
+        let _ = be.char_advance(&f, 'x');
+        let _ = be.font_height(&f);
+        let _ = be.font_width(&f);
+    }
+
+    #[test]
+    fn gui_display_text_plain_via_backend_breaks_at_pixel_width() {
+        // With a 14pt monospace face, the pixel advance per char is
+        // significantly larger than 1.0; a max_width of 10 pixels
+        // should break well before the string ends.
+        let mut svc = FontMetricsService::new();
+        let mut be = GuiDisplayBackend::new(&mut svc);
+        let f = gui_face();
+        let advance = display_text_plain_via_backend(&mut be, "xxxxxxxxxxxxxx", &f, 8.0, 10.0);
+        assert!(
+            advance <= 10.0,
+            "advance {} should not exceed max_width 10.0",
+            advance
+        );
+        assert!(
+            be.pending_glyphs().len() < 14,
+            "should break before emitting all 14 chars, got {}",
+            be.pending_glyphs().len()
+        );
     }
 }

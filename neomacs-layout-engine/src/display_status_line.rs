@@ -634,6 +634,18 @@ impl LayoutEngine {
         // TtyDisplayBackend::produce_glyph path (which now honors
         // `face.id` after the Step 3.4 fix), so no per-glyph face id
         // bookkeeping is needed outside the backend.
+        //
+        // Note: the status-line walker does its own per-character
+        // measurement via `spec.char_width` / `status_line_advance`
+        // (which consult `self.font_metrics` on the GUI path), so
+        // `backend.char_advance` is never consulted here. The
+        // backend is used purely for glyph accumulation, and that
+        // accumulation is identical between `TtyDisplayBackend` and
+        // `GuiDisplayBackend`. So this site always constructs a
+        // `TtyDisplayBackend`, which also avoids the borrow
+        // conflict between `self.font_metrics` (held by a
+        // hypothetical `GuiDisplayBackend`) and the walker's
+        // `self.status_line_advance` call a few lines below.
         let mut backend = TtyDisplayBackend::new();
         // The backend Face we feed into produce_glyph — rebuilt on
         // each face change so that `face.id` on the produced glyph
