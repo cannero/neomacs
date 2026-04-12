@@ -110,9 +110,51 @@ pub fn init(target: LogTarget) -> LoggingGuard {
     static INIT: OnceLock<()> = OnceLock::new();
     let mut guard: Option<tracing_appender::non_blocking::WorkerGuard> = None;
     INIT.get_or_init(|| {
+        install_first_panic_capture();
         guard = init_inner(target);
     });
     LoggingGuard { _file: guard }
+}
+
+/// Install a panic hook that records the FIRST panic's location and
+/// backtrace to `/tmp/neomacs-first-panic.txt` before chaining to the
+/// default hook. The default Rust panic hook can itself panic when
+/// dropping objects that touch tracing machinery during unwind,
+/// producing the "thread panicked while processing panic" abort
+/// message that hides the original panic. Writing to a file
+/// synchronously (no tracing, no allocator surprises) before chaining
+/// to the default hook ensures we always have the first panic's site
+/// on disk.
+fn install_first_panic_capture() {
+    use std::io::Write as _;
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/neomacs-first-panic.txt")
+        {
+            let loc = info
+                .location()
+                .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+                .unwrap_or_else(|| "<unknown>".to_string());
+            let payload = info
+                .payload()
+                .downcast_ref::<&'static str>()
+                .map(|s| s.to_string())
+                .or_else(|| info.payload().downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "<non-string payload>".to_string());
+            let _ = writeln!(
+                f,
+                "=== PANIC ===\nAT: {}\nPAYLOAD: {}\nBACKTRACE:\n{}\n",
+                loc,
+                payload,
+                std::backtrace::Backtrace::force_capture()
+            );
+            let _ = f.flush();
+        }
+        default_hook(info);
+    }));
 }
 
 /// Initialize tracing for unit/integration tests.
