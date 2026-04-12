@@ -345,6 +345,35 @@ pub struct CursorInverseInfo {
     pub cursor_fg: Color,
 }
 
+/// Authoritative physical cursor snapshot for a frame.
+///
+/// This mirrors GNU's `phys_cursor` / `phys_cursor_*` split at the
+/// display-protocol level: layout owns the cursor slot and geometry,
+/// the renderer only consumes it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PhysCursor {
+    /// Window that owns the cursor.
+    pub window_id: i32,
+    /// Buffer position covered by the cursor slot.
+    pub charpos: usize,
+    /// Matrix row that owns the cursor.
+    pub row: usize,
+    /// Column within the owning row.
+    pub col: u16,
+    /// Frame-absolute cursor origin.
+    pub x: f32,
+    pub y: f32,
+    /// Cursor rectangle dimensions in pixels.
+    pub width: f32,
+    pub height: f32,
+    /// Pixels above the baseline.
+    pub ascent: f32,
+    /// Visual cursor style.
+    pub style: CursorStyle,
+    /// Cursor color.
+    pub color: Color,
+}
+
 /// Stipple pattern: XBM bitmap data for tiled background patterns
 #[derive(Debug, Clone)]
 pub struct StipplePattern {
@@ -512,6 +541,8 @@ pub struct FrameGlyphBuffer {
 
     /// Inverse video info for filled box cursor (set by C for style 0)
     pub cursor_inverse: Option<CursorInverseInfo>,
+    /// Authoritative active cursor for the frame.
+    pub phys_cursor: Option<PhysCursor>,
 
     /// Flag: layout changed last frame (kept for compatibility)
     pub layout_changed: bool,
@@ -638,6 +669,7 @@ impl FrameGlyphBuffer {
             transition_hints: Vec::with_capacity(16),
             effect_hints: Vec::with_capacity(16),
             cursor_inverse: None,
+            phys_cursor: None,
             layout_changed: false,
             current_face_id: 0,
             current_fg: Color::WHITE,
@@ -679,6 +711,7 @@ impl FrameGlyphBuffer {
         self.transition_hints.clear();
         self.effect_hints.clear();
         self.cursor_inverse = None;
+        self.phys_cursor = None;
         self.stipple_patterns.clear();
         self.faces.clear();
         self.current_window_id = 0;
@@ -690,6 +723,7 @@ impl FrameGlyphBuffer {
     pub fn start_frame(&mut self) {
         std::mem::swap(&mut self.prev_window_regions, &mut self.window_regions);
         self.window_regions.clear();
+        self.phys_cursor = None;
     }
 
     /// End frame (compatibility shim, always returns false now)
@@ -713,6 +747,7 @@ impl FrameGlyphBuffer {
         self.transition_hints.clear();
         self.effect_hints.clear();
         self.cursor_inverse = None;
+        self.phys_cursor = None;
         self.stipple_patterns.clear();
         self.faces.clear();
         self.current_window_id = 0;
@@ -1272,6 +1307,11 @@ impl FrameGlyphBuffer {
             cursor_bg,
             cursor_fg,
         });
+    }
+
+    /// Set the authoritative physical cursor for the frame.
+    pub fn set_phys_cursor(&mut self, cursor: PhysCursor) {
+        self.phys_cursor = Some(cursor);
     }
 
     /// Add border

@@ -66,6 +66,8 @@ pub(super) fn emit_cursor_crosshair(ctx: &EffectCtx) -> Vec<RectVertex> {
     let mut cross_pos: Option<(f32, f32, f32, f32)> = None;
     if let Some(anim) = ctx.animated_cursor {
         cross_pos = Some((anim.x, anim.y, anim.width, anim.height));
+    } else if let Some(cursor) = ctx.frame_glyphs.phys_cursor.as_ref() {
+        cross_pos = Some((cursor.x, cursor.y, cursor.width, cursor.height));
     } else {
         for glyph in &ctx.frame_glyphs.glyphs {
             if let FrameGlyph::Cursor {

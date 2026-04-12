@@ -9,8 +9,8 @@
 
 use super::face::{Face, FaceAttributes, UnderlineStyle};
 use super::frame_glyphs::{
-    CursorInverseInfo, CursorStyle, FrameGlyph, FrameGlyphBuffer, GlyphRowRole, StipplePattern,
-    WindowEffectHint, WindowInfo, WindowTransitionHint,
+    CursorInverseInfo, CursorStyle, FrameGlyph, FrameGlyphBuffer, GlyphRowRole, PhysCursor,
+    StipplePattern, WindowEffectHint, WindowInfo, WindowTransitionHint,
 };
 use super::types::{Color, Rect};
 use std::collections::HashMap;
@@ -455,6 +455,8 @@ pub struct FrameDisplayState {
     pub scroll_bars: Vec<ScrollBarItem>,
     /// Cursor inverse video info for filled box cursor.
     pub cursor_inverse: Option<CursorInverseInfo>,
+    /// Authoritative active cursor for the frame.
+    pub phys_cursor: Option<PhysCursor>,
     /// Stipple patterns for background fills.
     pub stipple_patterns: HashMap<i32, StipplePattern>,
     /// Effect hints for the renderer.
@@ -547,6 +549,7 @@ impl FrameDisplayState {
             webkits: Vec::new(),
             scroll_bars: Vec::new(),
             cursor_inverse: None,
+            phys_cursor: None,
             stipple_patterns: HashMap::new(),
             effect_hints: Vec::new(),
             menu_bar: None,
@@ -574,6 +577,40 @@ impl FrameDisplayState {
         state.faces = buf.faces.clone();
         state.window_infos = buf.window_infos.clone();
         state.cursor_inverse = buf.cursor_inverse.clone();
+        state.phys_cursor = buf.phys_cursor.clone().or_else(|| {
+            let mut fallback: Option<PhysCursor> = None;
+            for glyph in &buf.glyphs {
+                if let FrameGlyph::Cursor {
+                    window_id,
+                    x,
+                    y,
+                    width,
+                    height,
+                    style,
+                    color,
+                } = glyph
+                {
+                    let candidate = PhysCursor {
+                        window_id: *window_id,
+                        charpos: 0,
+                        row: 0,
+                        col: 0,
+                        x: *x,
+                        y: *y,
+                        width: *width,
+                        height: *height,
+                        ascent: *height,
+                        style: *style,
+                        color: *color,
+                    };
+                    if !style.is_hollow() {
+                        return Some(candidate);
+                    }
+                    fallback.get_or_insert(candidate);
+                }
+            }
+            fallback
+        });
         state.stipple_patterns = buf.stipple_patterns.clone();
         state.transition_hints = buf.transition_hints.clone();
         state.effect_hints = buf.effect_hints.clone();
@@ -754,6 +791,29 @@ impl FrameDisplayState {
 
         // Copy cursor inverse
         buf.cursor_inverse = self.cursor_inverse.clone();
+        buf.phys_cursor = self.phys_cursor.clone().or_else(|| {
+            let mut fallback: Option<PhysCursor> = None;
+            for cursor in &self.cursors {
+                let candidate = PhysCursor {
+                    window_id: cursor.window_id,
+                    charpos: 0,
+                    row: 0,
+                    col: 0,
+                    x: cursor.x,
+                    y: cursor.y,
+                    width: cursor.width,
+                    height: cursor.height,
+                    ascent: cursor.height,
+                    style: cursor.style,
+                    color: cursor.color,
+                };
+                if !cursor.style.is_hollow() {
+                    return Some(candidate);
+                }
+                fallback.get_or_insert(candidate);
+            }
+            fallback
+        });
 
         // --- Grid conversion ---
 

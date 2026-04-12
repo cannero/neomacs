@@ -38,34 +38,61 @@ impl RenderApp {
             self.frame_dirty = true;
         }
 
-        let mut active_cursor: Option<CursorTarget> = None;
-
-        if let Some(ref frame) = self.current_frame {
-            active_cursor = frame.glyphs.iter().find_map(|g| match g {
-                FrameGlyph::Cursor {
-                    window_id,
-                    x,
-                    y,
-                    width,
-                    height,
-                    style,
-                    color,
-                } if !style.is_hollow() => Some(CursorTarget {
-                    window_id: *window_id,
-                    x: *x,
-                    y: *y,
-                    width: *width,
-                    height: *height,
-                    style: *style,
-                    color: *color,
+        let mut active_cursor: Option<CursorTarget> =
+            self.current_frame.as_ref().and_then(|frame| {
+                frame.phys_cursor.as_ref().map(|cursor| CursorTarget {
+                    window_id: cursor.window_id,
+                    x: cursor.x,
+                    y: cursor.y,
+                    width: cursor.width,
+                    height: cursor.height,
+                    style: cursor.style,
+                    color: cursor.color,
                     frame_id: 0,
-                }),
-                _ => None,
+                })
+            });
+
+        if active_cursor.is_none() {
+            active_cursor = self.current_frame.as_ref().and_then(|frame| {
+                frame.glyphs.iter().find_map(|g| match g {
+                    FrameGlyph::Cursor {
+                        window_id,
+                        x,
+                        y,
+                        width,
+                        height,
+                        style,
+                        color,
+                    } if !style.is_hollow() => Some(CursorTarget {
+                        window_id: *window_id,
+                        x: *x,
+                        y: *y,
+                        width: *width,
+                        height: *height,
+                        style: *style,
+                        color: *color,
+                        frame_id: 0,
+                    }),
+                    _ => None,
+                })
             });
         }
 
         if active_cursor.is_none() {
             for (_, entry) in &self.child_frames.frames {
+                if let Some(cursor) = entry.frame.phys_cursor.as_ref() {
+                    active_cursor = Some(CursorTarget {
+                        window_id: cursor.window_id,
+                        x: cursor.x,
+                        y: cursor.y,
+                        width: cursor.width,
+                        height: cursor.height,
+                        style: cursor.style,
+                        color: cursor.color,
+                        frame_id: entry.frame_id,
+                    });
+                    break;
+                }
                 if let Some(target) = entry.frame.glyphs.iter().find_map(|g| match g {
                     FrameGlyph::Cursor {
                         window_id,

@@ -82,6 +82,9 @@ pub(super) fn find_cursor_pos(
     if let Some(anim) = animated_cursor {
         return Some((anim.x, anim.y, anim.width, anim.height));
     }
+    if let Some(cursor) = frame_glyphs.phys_cursor.as_ref() {
+        return Some((cursor.x, cursor.y, cursor.width, cursor.height));
+    }
     for glyph in &frame_glyphs.glyphs {
         if let FrameGlyph::Cursor {
             x,

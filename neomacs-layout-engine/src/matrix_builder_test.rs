@@ -1,5 +1,5 @@
 use super::*;
-use neomacs_display_protocol::frame_glyphs::{CursorStyle, GlyphRowRole};
+use neomacs_display_protocol::frame_glyphs::{CursorStyle, GlyphRowRole, PhysCursor};
 use neomacs_display_protocol::glyph_matrix::*;
 use neomacs_display_protocol::types::Rect;
 
@@ -259,6 +259,35 @@ fn builder_set_cursor_at_row() {
     assert!(matrix.rows[0].cursor_col.is_none());
     assert_eq!(matrix.rows[1].cursor_col, Some(0));
     assert_eq!(matrix.rows[1].cursor_type, Some(CursorStyle::FilledBox));
+}
+
+#[test]
+fn builder_preserves_phys_cursor() {
+    let mut builder = GlyphMatrixBuilder::new();
+    builder.begin_window(1, 3, 80, Rect::new(0.0, 0.0, 640.0, 48.0), true);
+    builder.begin_row(0, GlyphRowRole::Text);
+    builder.push_char('a', 0, 0);
+    builder.end_row();
+    builder.set_phys_cursor(PhysCursor {
+        window_id: 1,
+        charpos: 0,
+        row: 0,
+        col: 0,
+        x: 0.0,
+        y: 0.0,
+        width: 8.0,
+        height: 16.0,
+        ascent: 12.0,
+        style: CursorStyle::FilledBox,
+        color: neomacs_display_protocol::types::Color::WHITE,
+    });
+    builder.end_window();
+
+    let state = builder.finish(80, 3, 8.0, 16.0);
+    let cursor = state.phys_cursor.as_ref().expect("phys cursor");
+    assert_eq!(cursor.window_id, 1);
+    assert_eq!(cursor.charpos, 0);
+    assert_eq!(cursor.col, 0);
 }
 
 /// Regression test for the face-id-collision bug that caused

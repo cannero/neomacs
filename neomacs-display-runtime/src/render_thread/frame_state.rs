@@ -1,5 +1,5 @@
 use super::RenderApp;
-use crate::core::frame_glyphs::FrameGlyph;
+use crate::core::frame_glyphs::{CursorInverseInfo, FrameGlyph, PhysCursor};
 
 impl RenderApp {
     pub(super) fn prepare_frame_state_for_render(&mut self) {
@@ -56,6 +56,8 @@ impl RenderApp {
             if let Some(ref mut frame) = self.current_frame {
                 Self::apply_extra_spacing(
                     &mut frame.glyphs,
+                    &mut frame.phys_cursor,
+                    &mut frame.cursor_inverse,
                     self.extra_line_spacing,
                     self.extra_letter_spacing,
                 );
@@ -63,7 +65,13 @@ impl RenderApp {
         }
     }
 
-    fn apply_extra_spacing(glyphs: &mut [FrameGlyph], line_spacing: f32, letter_spacing: f32) {
+    fn apply_extra_spacing(
+        glyphs: &mut [FrameGlyph],
+        phys_cursor: &mut Option<PhysCursor>,
+        cursor_inverse: &mut Option<CursorInverseInfo>,
+        line_spacing: f32,
+        letter_spacing: f32,
+    ) {
         let mut last_y: f32 = f32::NEG_INFINITY;
         let mut row_index: i32 = -1;
         let mut char_in_row: i32 = 0;
@@ -113,8 +121,28 @@ impl RenderApp {
                 }
                 FrameGlyph::Cursor { y, x, .. } => {
                     if (*y - last_y).abs() < 0.5 {
-                        *y += row_index.max(0) as f32 * line_spacing;
-                        *x += char_in_row as f32 * letter_spacing;
+                        let old_x = *x;
+                        let old_y = *y;
+                        let dy = row_index.max(0) as f32 * line_spacing;
+                        let dx = char_in_row as f32 * letter_spacing;
+                        *y += dy;
+                        *x += dx;
+
+                        if let Some(cursor) = phys_cursor.as_mut()
+                            && (cursor.x - old_x).abs() < 0.5
+                            && (cursor.y - old_y).abs() < 0.5
+                        {
+                            cursor.x += dx;
+                            cursor.y += dy;
+                        }
+
+                        if let Some(inv) = cursor_inverse.as_mut()
+                            && (inv.x - old_x).abs() < 0.5
+                            && (inv.y - old_y).abs() < 0.5
+                        {
+                            inv.x += dx;
+                            inv.y += dy;
+                        }
                     }
                 }
                 _ => {}

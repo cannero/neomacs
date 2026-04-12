@@ -56,9 +56,10 @@ impl RenderApp {
             .current_frame
             .as_ref()
             .map(|f| {
-                f.glyphs
-                    .iter()
-                    .any(|g| matches!(g, FrameGlyph::Cursor { .. }))
+                f.phys_cursor.is_some()
+                    || f.glyphs
+                        .iter()
+                        .any(|g| matches!(g, FrameGlyph::Cursor { .. }))
             })
             .unwrap_or(false);
         if !has_cursor {

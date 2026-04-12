@@ -678,31 +678,43 @@ impl WgpuRenderer {
             let (lr, lg, lb, la) = self.effects.line_highlight.color;
             let hl_color = Color::new(lr, lg, lb, la);
 
-            // Find the active cursor (non-hollow, i.e. active window)
-            for glyph in &frame_glyphs.glyphs {
-                if let FrameGlyph::Cursor {
-                    y, height, style, ..
-                } = glyph
-                {
-                    if !style.is_hollow() {
-                        // Find the window this cursor belongs to
-                        for info in &frame_glyphs.window_infos {
-                            if info.selected {
-                                // Draw highlight across the window width (excluding mode-line)
-                                let hl_y = *y;
-                                let hl_h = *height;
-                                self.add_rect(
-                                    &mut non_overlay_rect_vertices,
-                                    info.bounds.x,
-                                    hl_y,
-                                    info.bounds.width,
-                                    hl_h,
-                                    &hl_color,
-                                );
-                                break;
-                            }
-                        }
+            if let Some(cursor) = frame_glyphs.phys_cursor.as_ref() {
+                for info in &frame_glyphs.window_infos {
+                    if info.selected {
+                        self.add_rect(
+                            &mut non_overlay_rect_vertices,
+                            info.bounds.x,
+                            cursor.y,
+                            info.bounds.width,
+                            cursor.height,
+                            &hl_color,
+                        );
                         break;
+                    }
+                }
+            } else {
+                // Legacy fallback while older producers still emit cursor glyphs only.
+                for glyph in &frame_glyphs.glyphs {
+                    if let FrameGlyph::Cursor {
+                        y, height, style, ..
+                    } = glyph
+                    {
+                        if !style.is_hollow() {
+                            for info in &frame_glyphs.window_infos {
+                                if info.selected {
+                                    self.add_rect(
+                                        &mut non_overlay_rect_vertices,
+                                        info.bounds.x,
+                                        *y,
+                                        info.bounds.width,
+                                        *height,
+                                        &hl_color,
+                                    );
+                                    break;
+                                }
+                            }
+                            break;
+                        }
                     }
                 }
             }

@@ -1,5 +1,6 @@
 use super::*;
 use crate::face::Face;
+use crate::frame_glyphs::PhysCursor;
 
 #[test]
 fn empty_row_has_zero_hash() {
@@ -266,6 +267,13 @@ fn materialize_includes_cursors() {
     });
     let buf = state.materialize();
     assert_eq!(buf.glyphs.len(), 1);
+    let phys = buf
+        .phys_cursor
+        .as_ref()
+        .expect("phys cursor derived from cursor");
+    assert_eq!(phys.window_id, 7);
+    assert_eq!(phys.x, 40.0);
+    assert_eq!(phys.width, 8.0);
     match &buf.glyphs[0] {
         FrameGlyph::Cursor {
             window_id,
@@ -281,6 +289,32 @@ fn materialize_includes_cursors() {
         }
         other => panic!("expected Cursor, got {:?}", other),
     }
+}
+
+#[test]
+fn materialize_preserves_phys_cursor() {
+    let mut state = FrameDisplayState::new(80, 24, 8.0, 16.0);
+    state.phys_cursor = Some(PhysCursor {
+        window_id: 11,
+        charpos: 42,
+        row: 3,
+        col: 5,
+        x: 80.0,
+        y: 48.0,
+        width: 9.0,
+        height: 18.0,
+        ascent: 13.0,
+        style: CursorStyle::Hollow,
+        color: Color::BLUE,
+    });
+
+    let buf = state.materialize();
+    let phys = buf.phys_cursor.as_ref().expect("preserved phys cursor");
+    assert_eq!(phys.window_id, 11);
+    assert_eq!(phys.charpos, 42);
+    assert_eq!(phys.row, 3);
+    assert_eq!(phys.col, 5);
+    assert_eq!(phys.style, CursorStyle::Hollow);
 }
 
 #[test]

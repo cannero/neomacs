@@ -10,7 +10,7 @@ use super::hit_test::*;
 use super::types::*;
 use super::unicode::*;
 use neomacs_display_protocol::frame_glyphs::{
-    CursorStyle, FrameGlyphBuffer, WindowEffectHint, WindowInfo, WindowTransitionHint,
+    CursorStyle, FrameGlyphBuffer, PhysCursor, WindowEffectHint, WindowInfo, WindowTransitionHint,
     WindowTransitionKind,
 };
 use neomacs_display_protocol::types::{Color, Rect};
@@ -4096,8 +4096,8 @@ impl LayoutEngine {
                 cy,
                 cursor_face_w,
                 cursor_face_h,
-                _cursor_face_ascent,
-                cursor_fg,
+                cursor_face_ascent,
+                _cursor_fg,
                 cursor_face_bg,
                 cbyte,
                 ccol,
@@ -4142,6 +4142,7 @@ impl LayoutEngine {
                         } else {
                             fallback_cursor_w
                         };
+                        let cursor_color = Color::from_pixel(params.cursor_color);
                         self.matrix_builder.push_cursor(
                             params.window_id as i32,
                             cx,
@@ -4149,13 +4150,28 @@ impl LayoutEngine {
                             cursor_w,
                             cursor_face_h,
                             style,
-                            cursor_fg,
+                            cursor_color,
                         );
                         self.matrix_builder.set_cursor_at_row(
                             cursor_matrix_row,
                             ccol as u16,
                             style,
                         );
+                        if params.selected {
+                            self.matrix_builder.set_phys_cursor(PhysCursor {
+                                window_id: params.window_id as i32,
+                                charpos: params.point.max(0) as usize,
+                                row: cursor_matrix_row,
+                                col: ccol as u16,
+                                x: cx,
+                                y: cy,
+                                width: cursor_w,
+                                height: cursor_face_h,
+                                ascent: cursor_face_ascent.min(cursor_face_h),
+                                style,
+                                color: cursor_color,
+                            });
+                        }
 
                         if point_is_visible_eob {
                             tracing::debug!(
@@ -4176,9 +4192,9 @@ impl LayoutEngine {
                                 cy,
                                 cursor_w,
                                 cursor_face_h,
-                                cursor_fg.r,
-                                cursor_fg.g,
-                                cursor_fg.b,
+                                cursor_color.r,
+                                cursor_color.g,
+                                cursor_color.b,
                                 cursor_face_bg.r,
                                 cursor_face_bg.g,
                                 cursor_face_bg.b,
@@ -4189,7 +4205,7 @@ impl LayoutEngine {
                                     y: cy,
                                     width: cursor_w,
                                     height: cursor_face_h,
-                                    cursor_bg: cursor_fg,
+                                    cursor_bg: cursor_color,
                                     cursor_fg: cursor_face_bg,
                                 },
                             );
@@ -4374,6 +4390,7 @@ impl LayoutEngine {
                 // Only emit cursor if it's within visible area
                 if cy >= text_y && cy + char_h <= text_y + text_height {
                     if let Some(style) = cursor_style {
+                        let cursor_color = Color::from_pixel(params.cursor_color);
                         let cursor_w = cursor_width_for_style(
                             style,
                             text,
@@ -4389,7 +4406,7 @@ impl LayoutEngine {
                             cursor_w,
                             char_h,
                             style,
-                            Color::from_pixel(params.cursor_color),
+                            cursor_color,
                         );
                         // Fallback cursor: compute matrix row from pixel position
                         let fallback_cursor_row = ((cy - text_y) / char_h).floor() as usize;
@@ -4398,6 +4415,21 @@ impl LayoutEngine {
                             ccol as u16,
                             style,
                         );
+                        if params.selected {
+                            self.matrix_builder.set_phys_cursor(PhysCursor {
+                                window_id: params.window_id as i32,
+                                charpos: params.point.max(0) as usize,
+                                row: fallback_cursor_row,
+                                col: ccol as u16,
+                                x: cx,
+                                y: cy,
+                                width: cursor_w,
+                                height: char_h,
+                                ascent: char_h,
+                                style,
+                                color: cursor_color,
+                            });
+                        }
 
                         // For FilledBox cursor, use the renderer's cursor_inverse system
                         // to swap fg/bg of the character under the cursor.
@@ -4408,7 +4440,7 @@ impl LayoutEngine {
                                     y: cy,
                                     width: cursor_w,
                                     height: char_h,
-                                    cursor_bg: Color::from_pixel(params.cursor_color),
+                                    cursor_bg: cursor_color,
                                     cursor_fg: default_bg,
                                 },
                             );
