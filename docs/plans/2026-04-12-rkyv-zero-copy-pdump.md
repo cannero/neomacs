@@ -4,7 +4,7 @@
 
 **Goal:** Replace the current bincode/serde pdump with mmap + zero-copy deserialization to bring TTY startup from ~150ms (release) to ~20ms.
 
-**Architecture:** Two-arena dump. Cons cells are mmap'd directly (zero-copy). All other heap objects are serialized via rkyv and rehydrated into live Rust heap objects on load. The existing `reconstruct_evaluator` orchestrator (pdump/mod.rs:231) and `Context::from_dump` (eval.rs:3819, 22-arg entry point) are reused for final evaluator assembly.
+**Architecture:** Two-arena dump. Cons cells are mmap'd directly (zero-copy). All other heap objects are serialized via rkyv and rehydrated into live Rust heap objects on load. The v2 loader implements its own `reconstruct_evaluator_v2` that mirrors the v1 `reconstruct_evaluator` (pdump/mod.rs:231) step-by-step: load_interner, set_tagged_heap, reset_runtime_for_new_heap, load_charset_registry, load_fontset_registry, then calls `Context::from_dump` (eval.rs:3819, 22-arg entry point), then BUFFER_OBJFWD fixup.
 
 **Tech Stack:** rkyv 0.8, memmap2, bytemuck
 
@@ -58,8 +58,9 @@ struct DumpHeaderV2 {                     // 128 bytes total
     metadata_len: u64,
     roots_offset: u64,                    // array of DumpTaggedValue
     roots_count: u64,
+    _pad1: [u8; 8],                       // pad to 128 bytes (9*8 + 8+4+4 + 32 + 8 = 128)
     checksum: [u8; 32],                   // SHA-256 of everything after header
-}
+}  // 8 + 4 + 4 + 72 + 8 + 32 = 128 bytes
 ```
 
 Sections in file order: header (128B) | cons arena | non-cons section | metadata | roots.
@@ -71,28 +72,79 @@ No separate object table section. The cons arena is a flat array of `cons_count`
 ## DumpTaggedValue
 
 ```rust
-/// 8 bytes. Same tag encoding as TaggedValue (value.rs:89).
-/// Immediates (fixnum, symbol, nil, t, unbound) are bit-identical
-/// to live TaggedValues. Cons pointers store a byte offset into
-/// the cons arena (NOT an absolute address). Non-cons heap
-/// pointers store an rkyv-internal relative pointer index
-/// (resolved by the rkyv deserializer during rehydration).
-#[repr(transparent)]
-#[derive(Clone, Copy, rkyv::Archive, rkyv::Serialize)]
-pub struct DumpTaggedValue(u64);
+/// 8 bytes. Encodes any Lisp value in the dump.
+///
+/// NOT the same bit layout as live TaggedValue. This is a dump-
+/// specific encoding that distinguishes cons-arena references
+/// from non-cons object references and immediate values:
+///
+///   Immediate values (no heap pointer):
+///     Nil, T, Unbound, Fixnum(i64), Symbol(SymId),
+///     Subr(SymId), Buffer(BufferId), Window(u64),
+///     Frame(u64), Timer(u64)
+///   — These match v1 DumpValue variants that use SymId or u64
+///     IDs. They are NOT heap objects and do NOT appear in the
+///     cons arena or non-cons section. Resolved at load time by
+///     looking up the live object by its ID (e.g., Subr by SymId
+///     in the obarray, Buffer by BufferId in the buffer manager).
+///
+///   Cons-arena reference:
+///     Cons(cell_index: u32)
+///   — Index into the cons arena. Resolved by computing
+///     cons_base + cell_index * 16 and calling
+///     TaggedValue::from_cons_ptr (value.rs:165).
+///
+///   Non-cons heap reference:
+///     Float(index), String(index), Vector(index), Record(index),
+///     HashTable(index), Lambda(index), Macro(index),
+///     ByteCode(index), Overlay(index), Marker(index), Bignum(index)
+///   — Index into the corresponding typed Vec in
+///     DumpNonConsSection. Resolved via the live_map built during
+///     rehydration.
+///
+#[derive(Clone, Copy, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub enum DumpTaggedValue {
+    Nil,
+    True,
+    Unbound,
+    Fixnum(i64),
+    Symbol(u32),         // SymId
+    Subr(u32),           // SymId — immediate, resolved via obarray
+    Buffer(u32),         // BufferId — immediate, resolved via buffer mgr
+    Window(u64),         // WindowId — immediate
+    Frame(u64),          // FrameId — immediate
+    Timer(u64),          // TimerId — immediate
+    Cons(u32),           // cell index into cons arena
+    Float(u32),          // index into DumpNonConsSection.floats
+    String(u32),         // index into DumpNonConsSection.strings
+    Vector(u32),
+    Record(u32),
+    HashTable(u32),
+    Lambda(u32),
+    Macro(u32),
+    ByteCode(u32),
+    Overlay(u32),
+    Marker(u32),
+    Bignum(u32),         // index into DumpNonConsSection.bignums
+}
 ```
 
 ---
 
 ## Cons Arena Layout
 
-```rust
-/// Identical to live ConsCell (tagged/header.rs:71).
-/// [car: DumpTaggedValue (8B)] [cdr: DumpTaggedValue (8B)]
-/// No GcHeader. After relocation, these bytes are live ConsCells.
-```
+The cons arena stores cons cells as pairs of raw u64 values.
+Each u64 encodes a DumpTaggedValue in a compact binary form:
 
-Relocation rewrites every cons cell's car and cdr in place:
+- Cons reference: `TAG_CONS | (cell_index << 3)` — same tag
+  encoding as live TaggedValue but with a cell index instead of
+  an absolute pointer.
+- Immediate values (fixnum, symbol, nil, t): same bit pattern
+  as live TaggedValue — no transformation needed.
+- Non-cons heap reference: `tag | (type_and_index << 3)` —
+  resolved in a second pass after rehydration.
+
+Relocation (pass 1) rewrites cons-to-cons references:
 
 ```rust
 fn relocate_cons_arena(arena: &mut [u8], base_addr: usize, count: usize) {
@@ -100,30 +152,26 @@ fn relocate_cons_arena(arena: &mut [u8], base_addr: usize, count: usize) {
         let cell = unsafe {
             &mut *(arena.as_mut_ptr().add(i * 16) as *mut [u64; 2])
         };
-        relocate_slot(&mut cell[0], base_addr); // car
-        relocate_slot(&mut cell[1], base_addr); // cdr
+        relocate_cons_slot(&mut cell[0], base_addr); // car
+        relocate_cons_slot(&mut cell[1], base_addr); // cdr
     }
 }
 
-fn relocate_slot(slot: &mut u64, cons_base: usize) {
-    let tag = *slot & TAG_MASK;
-    if tag == TAG_CONS as u64 {
-        // Cons pointer: arena offset -> absolute mmap'd address
-        let offset = (*slot >> 3) as usize;
-        let abs = cons_base + offset * 16; // offset is cell index
-        *slot = (abs as u64) | tag;
+fn relocate_cons_slot(slot: &mut u64, cons_base: usize) {
+    let tag = (*slot as usize) & TAG_MASK;
+    if tag == TAG_CONS {
+        let cell_index = (*slot >> 3) as usize;
+        let abs = cons_base + cell_index * 16;
+        // Same operation as TaggedValue::from_cons_ptr (value.rs:165)
+        *slot = (abs as u64) | TAG_CONS as u64;
     }
-    // Non-cons heap pointers are NOT in the cons arena.
-    // They are resolved during non-cons rehydration.
-    // Immediates (fixnum, symbol, nil, t) pass through unchanged.
+    // Non-cons refs and immediates: handled in pass 2
 }
 ```
 
-After relocation, cons pointers in the cons arena point to other
-mmap'd cons cells via absolute addresses. Non-cons pointers in
-cons cells (e.g., car pointing to a string) are still unresolved
-arena-offset values — they are patched in a second pass after
-non-cons rehydration assigns live heap addresses.
+After pass 1, cons-to-cons references are live absolute pointers.
+Non-cons references in cons cells are resolved in pass 2 (after
+rehydration builds the live_map).
 
 ---
 
@@ -281,40 +329,85 @@ pub fn load_dump_v2(path: &Path) -> Result<Context, DumpError> {
         _mmap: mmap,  // heap owns mmap to keep it alive
     });
 
-    // 8. Access metadata via rkyv zero-copy
-    let archived_meta = rkyv::access::<
-        ArchivedDumpContextStateV2, rkyv::rancor::Error
-    >(&mmap[header.metadata_offset as usize ..])?;
-
-    // 9. Build live evaluator state from archived metadata.
-    //    Resolve DumpTaggedValue fields via live_map + cons_base.
-    //    Unpack into the 22 individual arguments that
-    //    Context::from_dump (eval.rs:3819) expects:
-    let ctx = Context::from_dump(
-        heap,                                              // Box<TaggedHeap>
-        rebuild_obarray(&archived_meta.obarray, ...),      // Obarray
-        resolve_dtv(archived_meta.lexenv, ...),             // Value (lexenv)
-        rebuild_features(&archived_meta.features),          // Vec<SymId>
-        rebuild_require_stack(&archived_meta.require_stack), // Vec<SymId>
-        rebuild_loads(&archived_meta.loads_in_progress),    // Vec<PathBuf>
-        rebuild_buffers(&archived_meta.buffers, ...),       // BufferManager
-        rebuild_autoloads(&archived_meta.autoloads, ...),   // AutoloadManager
-        rebuild_custom(&archived_meta.custom, ...),         // CustomManager
-        rebuild_modes(&archived_meta.modes, ...),           // ModeRegistry
-        rebuild_coding(&archived_meta.coding_systems, ...),
-        rebuild_face_table(&archived_meta.face_table, ...),
-        rebuild_abbrevs(&archived_meta.abbrevs, ...),
-        rebuild_interactive(&archived_meta.interactive, ...),
-        rebuild_rectangle(&archived_meta.rectangle, ...),
-        resolve_dtv(archived_meta.standard_syntax_table, ...),
-        resolve_dtv(archived_meta.standard_category_table, ...),
-        resolve_dtv(archived_meta.current_local_map, ...),
-        rebuild_kmacro(&archived_meta.kmacro, ...),
-        rebuild_registers(&archived_meta.registers, ...),
-        rebuild_bookmarks(&archived_meta.bookmarks, ...),
-        rebuild_watchers(&archived_meta.watchers, ...),
-    );
+    // 8. Reconstruct evaluator — mirrors reconstruct_evaluator
+    //    (mod.rs:231) step-by-step, with v2 value resolution.
+    let ctx = reconstruct_evaluator_v2(
+        heap, &mmap, &header, cons_base, &live_map,
+    )?;
     Ok(ctx)
+}
+
+/// v2 equivalent of reconstruct_evaluator (mod.rs:231).
+/// Mirrors every step of the v1 orchestrator.
+fn reconstruct_evaluator_v2(
+    mut heap: Box<TaggedHeap>,
+    mmap: &MmapMut,
+    header: &DumpHeaderV2,
+    cons_base: usize,
+    live_map: &LiveMap,
+) -> Result<Context, DumpError> {
+    // Access archived metadata via rkyv zero-copy
+    let meta = rkyv::access::<ArchivedDumpContextStateV2, _>(
+        &mmap[header.metadata_offset as usize
+              ..header.metadata_offset as usize + header.metadata_len as usize]
+    )?;
+
+    // Step 1: Reconstruct interner FIRST (before any SymId resolution)
+    // Mirrors: reconstruct_evaluator line "load_interner(&state.interner)"
+    load_interner_v2(&meta.interner);
+
+    // Step 2: Set up tagged heap as thread-local
+    // Mirrors: set_tagged_heap(&mut tagged_heap) + preload_tagged_heap
+    // v2: heap already contains rehydrated objects; just install it
+    crate::tagged::gc::set_tagged_heap(&mut heap);
+
+    // Step 3: Reset thread-local runtime caches
+    // Mirrors: reset_runtime_for_new_heap(HeapResetMode::PdumpRestore)
+    reset_runtime_for_new_heap(HeapResetMode::PdumpRestore);
+
+    // Step 4: Restore thread-local registries
+    // Mirrors: load_charset_registry + load_fontset_registry
+    load_charset_registry_v2(&meta.charset_registry);
+    load_fontset_registry_v2(&meta.fontset_registry);
+
+    // Step 5: Resolve all DumpTaggedValue fields to live Values,
+    //         rebuild subsystems, call Context::from_dump with
+    //         22 individual arguments (eval.rs:3819)
+    let resolver = |dtv: &DumpTaggedValue| -> Value {
+        resolve_dump_tagged_value(dtv, cons_base, live_map)
+    };
+
+    let mut eval = Context::from_dump(
+        heap,
+        rebuild_obarray_v2(&meta.obarray, &resolver),
+        resolver(&meta.lexenv),
+        meta.features.iter().map(|id| SymId(*id)).collect(),
+        meta.require_stack.iter().map(|id| SymId(*id)).collect(),
+        meta.loads_in_progress.iter().map(PathBuf::from).collect(),
+        rebuild_buffer_manager_v2(&meta.buffers, &resolver),
+        rebuild_autoload_manager_v2(&meta.autoloads, &resolver),
+        rebuild_custom_manager_v2(&meta.custom, &resolver),
+        rebuild_mode_registry_v2(&meta.modes, &resolver),
+        rebuild_coding_system_manager_v2(&meta.coding_systems, &resolver),
+        rebuild_face_table_v2(&meta.face_table, &resolver),
+        rebuild_abbrev_manager_v2(&meta.abbrevs, &resolver),
+        rebuild_interactive_v2(&meta.interactive, &resolver),
+        rebuild_rectangle_v2(&meta.rectangle, &resolver),
+        resolver(&meta.standard_syntax_table),
+        resolver(&meta.standard_category_table),
+        resolver(&meta.current_local_map),
+        rebuild_kmacro_v2(&meta.kmacro, &resolver),
+        rebuild_register_manager_v2(&meta.registers, &resolver),
+        rebuild_bookmark_manager_v2(&meta.bookmarks, &resolver),
+        rebuild_watcher_list_v2(&meta.watchers, &resolver),
+    );
+
+    // Step 6: Re-install BUFFER_OBJFWD forwarders
+    // Mirrors: the BUFFER_SLOT_INFO loop after Context::from_dump
+    // in reconstruct_evaluator (mod.rs:~290)
+    reinstall_buffer_objfwd(&mut eval);
+
+    Ok(eval)
 }
 ```
 
