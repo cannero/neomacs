@@ -609,16 +609,12 @@ fn is_display_space_spec(val: &neovm_core::emacs_core::Value) -> bool {
 /// `left-fringe`, etc.), arithmetic forms `(+ …)`/`(- …)`,
 /// pixel-literal `(NUM)`, and unit-scaled `(NUM . UNIT)`.
 ///
-/// The caller passes the face's char width as the numeric base unit
-/// to preserve the pre-refactor behavior; GNU's xdisp.c uses
-/// `FRAME_COLUMN_WIDTH` (frame default) here, which is a stricter
-/// match we can switch to in a follow-up.
-/// TODO(verify): use frame_params.char_width once regression tests
-/// confirm no buffer-text scaling changes.
+/// GNU's xdisp.c uses canonical frame column width for these numeric
+/// units, not the currently scaled face width of the covered buffer
+/// position.
 ///
-/// Returns `face_char_w` as a conservative default when the spec is
-/// invalid or the evaluator can't resolve it (matching the old
-/// function's fallback behavior).
+/// Returns the canonical frame column width as a conservative default
+/// when the spec is invalid or the evaluator can't resolve it.
 fn eval_display_space_as_width(
     spec: &neovm_core::emacs_core::Value,
     current_x: f32,
@@ -633,11 +629,11 @@ fn eval_display_space_as_width(
     };
 
     let pctx = PixelCalcContext {
-        frame_column_width: face_char_w as f64,
-        frame_line_height: face_char_w as f64,
+        frame_column_width: params.char_width.max(1.0) as f64,
+        frame_line_height: params.char_height.max(1.0) as f64,
         frame_res_x: 96.0,
         frame_res_y: 96.0,
-        face_font_height: face_char_w as f64,
+        face_font_height: params.char_height.max(1.0) as f64,
         face_font_width: face_char_w as f64,
         text_area_left: params.text_bounds.x as f64,
         text_area_right: (params.text_bounds.x + params.text_bounds.width) as f64,
@@ -668,7 +664,7 @@ fn eval_display_space_as_width(
             if let Some(pixels) = calc_pixel_width_or_height(&pctx, &val, true, None) {
                 return pixels as f32;
             }
-            return face_char_w;
+            return params.char_width.max(1.0);
         }
         if key.is_symbol_named(":align-to") {
             let mut align_to: i32 = -1;
@@ -686,11 +682,11 @@ fn eval_display_space_as_width(
                 };
                 return (target_x - current_x).max(0.0);
             }
-            return face_char_w;
+            return params.char_width.max(1.0);
         }
         i += 2;
     }
-    face_char_w
+    params.char_width.max(1.0)
 }
 
 /// Check if a Value is an image display spec: a cons whose car is the symbol `image`.
@@ -5905,6 +5901,186 @@ mod tests {
     #[test]
     fn layout_frame_rust_expands_tab_cursor_width_when_x_stretch_cursor_is_t() {
         assert_layout_frame_rust_tab_cursor_width(true);
+    }
+
+    fn display_space_width_spec(columns: i64) -> Value {
+        Value::list(vec![
+            Value::symbol("space"),
+            Value::keyword("width"),
+            Value::fixnum(columns),
+        ])
+    }
+
+    fn scaled_face_plist() -> Value {
+        Value::list(vec![
+            Value::keyword("family"),
+            Value::string("JetBrains Mono"),
+            Value::keyword("height"),
+            Value::make_float(1.6),
+            Value::keyword("weight"),
+            Value::symbol("extra-bold"),
+        ])
+    }
+
+    fn assert_layout_frame_rust_display_space_cursor_width(x_stretch_cursor: bool) {
+        let mut eval = Context::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let text = "a b";
+        let space_byte_start = text.find(' ').expect("space start");
+        let space_byte_end = space_byte_start + 1;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert(text);
+            buf.goto_byte(1);
+            buf.text.text_props_put_property(
+                space_byte_start,
+                space_byte_end,
+                "display",
+                display_space_width_spec(4),
+            );
+            buf.text.text_props_put_property(
+                space_byte_start,
+                space_byte_end,
+                "face",
+                scaled_face_plist(),
+            );
+        }
+        eval.set_variable(
+            "x-stretch-cursor",
+            if x_stretch_cursor {
+                Value::T
+            } else {
+                Value::NIL
+            },
+        );
+
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-display-space-cursor", 320, 120, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *point = 2;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        engine.layout_frame_rust(&mut eval, frame_id);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        let cursor = snapshot.cursor.as_ref().expect("cursor");
+        let a = snapshot.point_for_buffer_pos(1).expect("a");
+        let b = snapshot.point_for_buffer_pos(3).expect("b");
+        let full_slot_width = b.x - (a.x + a.width);
+        let single_column_width = frame.char_width.round() as i64;
+        let expected_space_width = (4.0 * frame.char_width).round() as i64;
+
+        assert_eq!(cursor.x, a.x + a.width);
+        assert_eq!(b.x - cursor.x, full_slot_width);
+        assert!((full_slot_width - expected_space_width).abs() <= 1);
+        if x_stretch_cursor {
+            assert_eq!(cursor.width, full_slot_width);
+        } else {
+            assert_eq!(cursor.width, single_column_width);
+        }
+    }
+
+    #[test]
+    fn layout_frame_rust_display_space_width_uses_canonical_column_width() {
+        let mut eval = Context::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let text = "a b";
+        let space_byte_start = text.find(' ').expect("space start");
+        let space_byte_end = space_byte_start + 1;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert(text);
+            buf.goto_byte(1);
+            buf.text.text_props_put_property(
+                space_byte_start,
+                space_byte_end,
+                "display",
+                display_space_width_spec(4),
+            );
+            buf.text.text_props_put_property(
+                space_byte_start,
+                space_byte_end,
+                "face",
+                scaled_face_plist(),
+            );
+        }
+
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-display-space-width", 320, 120, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf { window_start, .. } = window {
+                *window_start = 1;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        engine.layout_frame_rust(&mut eval, frame_id);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        let a = snapshot.point_for_buffer_pos(1).expect("a");
+        let b = snapshot.point_for_buffer_pos(3).expect("b");
+        let slot_width = b.x - (a.x + a.width);
+        let expected_width = (4.0 * frame.char_width).round() as i64;
+
+        assert!(
+            (slot_width - expected_width).abs() <= 1,
+            "display space width should follow canonical frame column width; got slot {slot_width}, expected {expected_width}, frame char width {}, points={:?}",
+            frame.char_width,
+            snapshot.points
+        );
+    }
+
+    #[test]
+    fn layout_frame_rust_clamps_display_space_cursor_width_when_x_stretch_cursor_is_nil() {
+        assert_layout_frame_rust_display_space_cursor_width(false);
+    }
+
+    #[test]
+    fn layout_frame_rust_expands_display_space_cursor_width_when_x_stretch_cursor_is_t() {
+        assert_layout_frame_rust_display_space_cursor_width(true);
     }
 
     #[test]
