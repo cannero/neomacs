@@ -7,7 +7,6 @@
 use super::super::vertex::RectVertex;
 use super::effect_common::{EffectCtx, find_cursor_pos, push_rect};
 use super::{CursorParticle, MatrixColumn, RippleWaveEntry, SonarPingEntry, SparkleBurstEntry};
-use neomacs_display_protocol::frame_glyphs::FrameGlyph;
 use neomacs_display_protocol::types::Color;
 
 /// Emit cursor glow effect vertices.
@@ -63,29 +62,14 @@ pub(super) fn emit_cursor_crosshair(ctx: &EffectCtx) -> Vec<RectVertex> {
     if !ctx.effects.cursor_crosshair.enabled || !ctx.cursor_visible {
         return Vec::new();
     }
-    let mut cross_pos: Option<(f32, f32, f32, f32)> = None;
-    if let Some(anim) = ctx.animated_cursor {
-        cross_pos = Some((anim.x, anim.y, anim.width, anim.height));
-    } else if let Some(cursor) = ctx.frame_glyphs.phys_cursor.as_ref() {
-        cross_pos = Some((cursor.x, cursor.y, cursor.width, cursor.height));
+    let cross_pos = if let Some(anim) = ctx.animated_cursor {
+        Some((anim.x, anim.y, anim.width, anim.height))
     } else {
-        for glyph in &ctx.frame_glyphs.glyphs {
-            if let FrameGlyph::Cursor {
-                x,
-                y,
-                width,
-                height,
-                style,
-                ..
-            } = glyph
-            {
-                if !style.is_hollow() {
-                    cross_pos = Some((*x, *y, *width, *height));
-                    break;
-                }
-            }
-        }
-    }
+        ctx.frame_glyphs
+            .phys_cursor
+            .as_ref()
+            .map(|cursor| (cursor.x, cursor.y, cursor.width, cursor.height))
+    };
     let mut verts = Vec::new();
     if let Some((cx, cy, cw, ch)) = cross_pos {
         let cursor_center_x = cx + cw / 2.0;

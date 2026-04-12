@@ -2041,6 +2041,7 @@ dependencies = [
  "resvg",
  "thiserror 2.0.18",
  "tracing",
+ "tracing-subscriber",
  "ttf-parser 0.25.1",
  "wgpu",
  "wgpu-hal",

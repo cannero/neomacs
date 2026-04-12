@@ -13,7 +13,7 @@ use std::io::{self, Write};
 
 use crate::backend::DisplayBackend;
 use crate::core::error::{DisplayError, DisplayResult};
-use crate::core::frame_glyphs::{CursorStyle, FrameGlyph, FrameGlyphBuffer};
+use crate::core::frame_glyphs::{CursorStyle, DisplaySlotId, FrameGlyph, FrameGlyphBuffer};
 use crate::core::scene::Scene;
 use crate::core::types::Color;
 
@@ -2149,6 +2149,11 @@ mod tests {
             charpos: 1,
             row: 0,
             col: 1,
+            slot_id: DisplaySlotId {
+                window_id: 0,
+                row: 0,
+                col: 1,
+            },
             x: 8.0,
             y: 0.0,
             width: 8.0,
@@ -2156,6 +2161,7 @@ mod tests {
             ascent: 12.0,
             style: CursorStyle::FilledBox,
             color: Color::RED,
+            cursor_fg: Color::BLACK,
         });
 
         let mut grid = TtyGrid::new(4, 2);
@@ -2184,6 +2190,11 @@ mod tests {
             charpos: 0,
             row: 2,
             col: 3,
+            slot_id: DisplaySlotId {
+                window_id: 0,
+                row: 2,
+                col: 3,
+            },
             x: 24.0,
             y: 32.0,
             width: 8.0,
@@ -2191,6 +2202,7 @@ mod tests {
             ascent: 12.0,
             style: CursorStyle::Hbar(2.0),
             color: Color::WHITE,
+            cursor_fg: Color::BLACK,
         });
         backend.set_frame_glyphs(frame);
 

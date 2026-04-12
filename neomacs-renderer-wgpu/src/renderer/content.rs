@@ -319,9 +319,11 @@ impl WgpuRenderer {
                     // Inverse-video cursor support: when the filled box cursor is
                     // visible, draw the covered character with cursor_fg.
                     let effective_fg = if cursor_visible {
-                        if let Some(ref inv) = frame.cursor_inverse {
-                            if (*x - inv.x).abs() < 1.0 && (*y - inv.y).abs() < 1.0 {
-                                &inv.cursor_fg
+                        if let Some(cursor) = frame.phys_cursor.as_ref() {
+                            if matches!(cursor.style, CursorStyle::FilledBox)
+                                && glyph.slot_id().is_some_and(|slot| slot == cursor.slot_id)
+                            {
+                                &cursor.cursor_fg
                             } else {
                                 fg
                             }

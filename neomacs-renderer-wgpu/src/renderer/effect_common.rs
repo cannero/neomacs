@@ -5,7 +5,7 @@
 
 use super::super::vertex::RectVertex;
 use crate::effect_config::EffectsConfig;
-use neomacs_display_protocol::frame_glyphs::{FrameGlyph, FrameGlyphBuffer};
+use neomacs_display_protocol::frame_glyphs::FrameGlyphBuffer;
 use neomacs_display_protocol::types::{AnimatedCursor, Color};
 
 /// Shared context for effect vertex computation.
@@ -82,25 +82,10 @@ pub(super) fn find_cursor_pos(
     if let Some(anim) = animated_cursor {
         return Some((anim.x, anim.y, anim.width, anim.height));
     }
-    if let Some(cursor) = frame_glyphs.phys_cursor.as_ref() {
-        return Some((cursor.x, cursor.y, cursor.width, cursor.height));
-    }
-    for glyph in &frame_glyphs.glyphs {
-        if let FrameGlyph::Cursor {
-            x,
-            y,
-            width,
-            height,
-            style,
-            ..
-        } = glyph
-        {
-            if !style.is_hollow() {
-                return Some((*x, *y, *width, *height));
-            }
-        }
-    }
-    None
+    frame_glyphs
+        .phys_cursor
+        .as_ref()
+        .map(|cursor| (cursor.x, cursor.y, cursor.width, cursor.height))
 }
 
 #[cfg(test)]

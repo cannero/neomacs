@@ -140,6 +140,59 @@ impl GlyphRowRole {
     }
 }
 
+/// Stable identity for one materialized display slot within a frame.
+///
+/// This is the shared contract between layout and rendering for
+/// "the thing under point": the cursor points at a slot id, and the
+/// renderer can target that exact slot instead of re-discovering it
+/// from geometry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DisplaySlotId {
+    /// Window that owns the slot.
+    pub window_id: i64,
+    /// Visual row within the owning window.
+    pub row: u32,
+    /// Visual column within that row.
+    pub col: u16,
+}
+
+impl DisplaySlotId {
+    pub const ZERO: Self = Self {
+        window_id: 0,
+        row: 0,
+        col: 0,
+    };
+
+    /// Best-effort slot identity for direct pixel-emission paths.
+    ///
+    /// Matrix-backed layout should populate slot ids from explicit row/column
+    /// indices. This helper exists for manual glyph construction in tests and
+    /// direct frame-space emission paths that have not been matrix-ified yet.
+    pub fn from_pixels(window_id: i64, x: f32, y: f32, char_width: f32, char_height: f32) -> Self {
+        let row = if char_height > 0.0 {
+            (y / char_height).round().max(0.0) as u32
+        } else {
+            0
+        };
+        let col = if char_width > 0.0 {
+            (x / char_width).round().max(0.0) as u16
+        } else {
+            0
+        };
+        Self {
+            window_id,
+            row,
+            col,
+        }
+    }
+}
+
+impl Default for DisplaySlotId {
+    fn default() -> Self {
+        Self::ZERO
+    }
+}
+
 /// A single glyph to render
 #[derive(Debug, Clone)]
 pub enum FrameGlyph {
@@ -151,6 +204,8 @@ pub enum FrameGlyph {
         row_role: GlyphRowRole,
         /// Authoritative clip rect in frame coordinates.
         clip_rect: Option<Rect>,
+        /// Stable identity of the covered display slot.
+        slot_id: DisplaySlotId,
         /// Character to render (base character for single-codepoint glyphs)
         char: char,
         /// Composed text for multi-codepoint grapheme clusters (emoji ZWJ, combining marks).
@@ -205,6 +260,8 @@ pub enum FrameGlyph {
         row_role: GlyphRowRole,
         /// Authoritative clip rect in frame coordinates.
         clip_rect: Option<Rect>,
+        /// Stable identity of the covered display slot.
+        slot_id: DisplaySlotId,
         x: f32,
         y: f32,
         width: f32,
@@ -330,19 +387,16 @@ impl FrameGlyph {
     pub fn is_overlay(&self) -> bool {
         self.is_chrome_row()
     }
-}
 
-/// Inverse video info for the character under a filled box cursor
-#[derive(Debug, Clone)]
-pub struct CursorInverseInfo {
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: f32,
-    /// Cursor rect color (drawn as background)
-    pub cursor_bg: Color,
-    /// Text color for the character at cursor position
-    pub cursor_fg: Color,
+    /// Slot identity for text/stretches that occupy a character cell.
+    pub fn slot_id(&self) -> Option<DisplaySlotId> {
+        match self {
+            FrameGlyph::Char { slot_id, .. } | FrameGlyph::Stretch { slot_id, .. } => {
+                Some(*slot_id)
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Authoritative physical cursor snapshot for a frame.
@@ -360,6 +414,8 @@ pub struct PhysCursor {
     pub row: usize,
     /// Column within the owning row.
     pub col: u16,
+    /// Stable identity of the covered display slot.
+    pub slot_id: DisplaySlotId,
     /// Frame-absolute cursor origin.
     pub x: f32,
     pub y: f32,
@@ -372,6 +428,8 @@ pub struct PhysCursor {
     pub style: CursorStyle,
     /// Cursor color.
     pub color: Color,
+    /// Foreground color to use when redrawing the covered slot.
+    pub cursor_fg: Color,
 }
 
 /// Stipple pattern: XBM bitmap data for tiled background patterns
@@ -539,8 +597,6 @@ pub struct FrameGlyphBuffer {
     /// Explicit effect requests emitted by layout producers.
     pub effect_hints: Vec<WindowEffectHint>,
 
-    /// Inverse video info for filled box cursor (set by C for style 0)
-    pub cursor_inverse: Option<CursorInverseInfo>,
     /// Authoritative active cursor for the frame.
     pub phys_cursor: Option<PhysCursor>,
 
@@ -668,7 +724,6 @@ impl FrameGlyphBuffer {
             window_infos: Vec::with_capacity(16),
             transition_hints: Vec::with_capacity(16),
             effect_hints: Vec::with_capacity(16),
-            cursor_inverse: None,
             phys_cursor: None,
             layout_changed: false,
             current_face_id: 0,
@@ -710,7 +765,6 @@ impl FrameGlyphBuffer {
         self.window_infos.clear();
         self.transition_hints.clear();
         self.effect_hints.clear();
-        self.cursor_inverse = None;
         self.phys_cursor = None;
         self.stipple_patterns.clear();
         self.faces.clear();
@@ -731,6 +785,16 @@ impl FrameGlyphBuffer {
         false
     }
 
+    fn current_slot_id(&self, x: f32, y: f32) -> DisplaySlotId {
+        DisplaySlotId::from_pixels(
+            self.current_window_id,
+            x,
+            y,
+            self.char_width,
+            self.char_height,
+        )
+    }
+
     /// Check and reset layout_changed flag (compatibility)
     pub fn take_layout_changed(&mut self) -> bool {
         let was_changed = self.layout_changed;
@@ -746,7 +810,6 @@ impl FrameGlyphBuffer {
         self.glyphs.clear();
         self.transition_hints.clear();
         self.effect_hints.clear();
-        self.cursor_inverse = None;
         self.phys_cursor = None;
         self.stipple_patterns.clear();
         self.faces.clear();
@@ -961,6 +1024,7 @@ impl FrameGlyphBuffer {
             window_id: self.current_window_id,
             row_role: self.current_row_role,
             clip_rect: self.current_clip_rect,
+            slot_id: self.current_slot_id(x, y),
             char,
             composed: None,
             x,
@@ -1002,6 +1066,7 @@ impl FrameGlyphBuffer {
             window_id: self.current_window_id,
             row_role: self.current_row_role,
             clip_rect: self.current_clip_rect,
+            slot_id: self.current_slot_id(x, y),
             char: base_char,
             composed: Some(text.into()),
             x,
@@ -1051,6 +1116,7 @@ impl FrameGlyphBuffer {
             window_id: self.current_window_id,
             row_role: self.current_row_role,
             clip_rect: self.current_clip_rect,
+            slot_id: self.current_slot_id(x, y),
             x,
             y,
             width,
@@ -1079,6 +1145,7 @@ impl FrameGlyphBuffer {
             window_id: self.current_window_id,
             row_role: self.current_row_role,
             clip_rect: self.current_clip_rect,
+            slot_id: self.current_slot_id(x, y),
             x,
             y,
             width,
@@ -1289,26 +1356,6 @@ impl FrameGlyphBuffer {
         None
     }
 
-    /// Set cursor inverse video info (for filled box cursor)
-    pub fn set_cursor_inverse(
-        &mut self,
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        cursor_bg: Color,
-        cursor_fg: Color,
-    ) {
-        self.cursor_inverse = Some(CursorInverseInfo {
-            x,
-            y,
-            width,
-            height,
-            cursor_bg,
-            cursor_fg,
-        });
-    }
-
     /// Set the authoritative physical cursor for the frame.
     pub fn set_phys_cursor(&mut self, cursor: PhysCursor) {
         self.phys_cursor = Some(cursor);
@@ -1432,7 +1479,7 @@ mod tests {
         assert!(buf.window_infos.is_empty());
         assert!(buf.faces.is_empty());
         assert!(buf.stipple_patterns.is_empty());
-        assert!(buf.cursor_inverse.is_none());
+        assert!(buf.phys_cursor.is_none());
         assert!(!buf.layout_changed);
     }
 
@@ -1511,7 +1558,21 @@ mod tests {
             "test.rs".to_string(),
             false,
         );
-        buf.set_cursor_inverse(10.0, 20.0, 8.0, 16.0, Color::WHITE, Color::BLACK);
+        buf.set_phys_cursor(PhysCursor {
+            window_id: 1,
+            charpos: 10,
+            row: 1,
+            col: 2,
+            slot_id: DisplaySlotId::from_pixels(1, 10.0, 20.0, buf.char_width, buf.char_height),
+            x: 10.0,
+            y: 20.0,
+            width: 8.0,
+            height: 16.0,
+            ascent: 12.0,
+            style: CursorStyle::FilledBox,
+            color: Color::WHITE,
+            cursor_fg: Color::BLACK,
+        });
         buf.stipple_patterns.insert(
             1,
             StipplePattern {
@@ -1530,7 +1591,7 @@ mod tests {
         assert!(buf.window_infos.is_empty());
         assert!(buf.transition_hints.is_empty());
         assert!(buf.effect_hints.is_empty());
-        assert!(buf.cursor_inverse.is_none());
+        assert!(buf.phys_cursor.is_none());
         assert!(buf.stipple_patterns.is_empty());
         assert!(buf.faces.is_empty());
     }
@@ -1575,13 +1636,27 @@ mod tests {
     }
 
     #[test]
-    fn begin_frame_clears_cursor_inverse() {
+    fn begin_frame_clears_phys_cursor() {
         let mut buf = FrameGlyphBuffer::new();
-        buf.set_cursor_inverse(0.0, 0.0, 8.0, 16.0, Color::WHITE, Color::BLACK);
-        assert!(buf.cursor_inverse.is_some());
+        buf.set_phys_cursor(PhysCursor {
+            window_id: 1,
+            charpos: 1,
+            row: 0,
+            col: 0,
+            slot_id: DisplaySlotId::ZERO,
+            x: 0.0,
+            y: 0.0,
+            width: 8.0,
+            height: 16.0,
+            ascent: 12.0,
+            style: CursorStyle::FilledBox,
+            color: Color::WHITE,
+            cursor_fg: Color::BLACK,
+        });
+        assert!(buf.phys_cursor.is_some());
 
         buf.begin_frame(800.0, 600.0, Color::BLACK);
-        assert!(buf.cursor_inverse.is_none());
+        assert!(buf.phys_cursor.is_none());
     }
 
     #[test]
@@ -2455,24 +2530,42 @@ mod tests {
     }
 
     // =======================================================================
-    // set_cursor_inverse()
+    // set_phys_cursor()
     // =======================================================================
 
     #[test]
-    fn set_cursor_inverse_stores_info() {
+    fn set_phys_cursor_stores_info() {
         let mut buf = FrameGlyphBuffer::new();
-        let cursor_bg = Color::rgb(0.9, 0.9, 0.0);
         let cursor_fg = Color::rgb(0.0, 0.0, 0.0);
-        buf.set_cursor_inverse(50.0, 100.0, 8.0, 16.0, cursor_bg, cursor_fg);
+        let cursor = PhysCursor {
+            window_id: 2,
+            charpos: 99,
+            row: 3,
+            col: 4,
+            slot_id: DisplaySlotId::from_pixels(2, 50.0, 100.0, buf.char_width, buf.char_height),
+            x: 50.0,
+            y: 100.0,
+            width: 8.0,
+            height: 16.0,
+            ascent: 12.0,
+            style: CursorStyle::FilledBox,
+            color: Color::rgb(0.9, 0.9, 0.0),
+            cursor_fg,
+        };
+        buf.set_phys_cursor(cursor.clone());
 
-        assert!(buf.cursor_inverse.is_some());
-        let inv = buf.cursor_inverse.as_ref().unwrap();
-        assert_eq!(inv.x, 50.0);
-        assert_eq!(inv.y, 100.0);
-        assert_eq!(inv.width, 8.0);
-        assert_eq!(inv.height, 16.0);
-        assert_color_eq(&inv.cursor_bg, &cursor_bg);
-        assert_color_eq(&inv.cursor_fg, &cursor_fg);
+        let stored = buf.phys_cursor.as_ref().unwrap();
+        assert_eq!(stored.window_id, cursor.window_id);
+        assert_eq!(stored.charpos, cursor.charpos);
+        assert_eq!(stored.row, cursor.row);
+        assert_eq!(stored.col, cursor.col);
+        assert_eq!(stored.slot_id, cursor.slot_id);
+        assert_eq!(stored.x, cursor.x);
+        assert_eq!(stored.y, cursor.y);
+        assert_eq!(stored.width, cursor.width);
+        assert_eq!(stored.height, cursor.height);
+        assert_color_eq(&stored.color, &cursor.color);
+        assert_color_eq(&stored.cursor_fg, &cursor.cursor_fg);
     }
 
     // =======================================================================
@@ -2730,7 +2823,27 @@ mod tests {
             CursorStyle::Bar(2.0),
             Color::WHITE,
         );
-        buf.set_cursor_inverse(15.0 * 8.0, 0.0, 8.0, 16.0, Color::WHITE, Color::BLACK);
+        buf.set_phys_cursor(PhysCursor {
+            window_id: 1,
+            charpos: 15,
+            row: 0,
+            col: 15,
+            slot_id: DisplaySlotId::from_pixels(
+                1,
+                15.0 * 8.0,
+                0.0,
+                buf.char_width,
+                buf.char_height,
+            ),
+            x: 15.0 * 8.0,
+            y: 0.0,
+            width: 2.0,
+            height: 16.0,
+            ascent: 12.0,
+            style: CursorStyle::Bar(2.0),
+            color: Color::WHITE,
+            cursor_fg: Color::BLACK,
+        });
 
         // Vertical border
         buf.add_border(960.0, 0.0, 1.0, 1060.0, Color::rgb(0.3, 0.3, 0.3));
@@ -2801,7 +2914,7 @@ mod tests {
         assert_eq!(buf.len(), 20);
         assert_eq!(buf.window_infos.len(), 2);
         assert_eq!(buf.window_regions.len(), 2);
-        assert!(buf.cursor_inverse.is_some());
+        assert!(buf.phys_cursor.is_some());
         assert_eq!(buf.frame_id, 0x1);
         assert_eq!(buf.width, 1920.0);
         assert_eq!(buf.height, 1080.0);

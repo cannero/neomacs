@@ -1,6 +1,6 @@
 use super::*;
 use crate::face::Face;
-use crate::frame_glyphs::PhysCursor;
+use crate::frame_glyphs::{DisplaySlotId, PhysCursor};
 
 #[test]
 fn empty_row_has_zero_hash() {
@@ -267,13 +267,7 @@ fn materialize_includes_cursors() {
     });
     let buf = state.materialize();
     assert_eq!(buf.glyphs.len(), 1);
-    let phys = buf
-        .phys_cursor
-        .as_ref()
-        .expect("phys cursor derived from cursor");
-    assert_eq!(phys.window_id, 7);
-    assert_eq!(phys.x, 40.0);
-    assert_eq!(phys.width, 8.0);
+    assert!(buf.phys_cursor.is_none());
     match &buf.glyphs[0] {
         FrameGlyph::Cursor {
             window_id,
@@ -306,6 +300,12 @@ fn materialize_preserves_phys_cursor() {
         ascent: 13.0,
         style: CursorStyle::Hollow,
         color: Color::BLUE,
+        slot_id: DisplaySlotId {
+            window_id: 11,
+            row: 3,
+            col: 5,
+        },
+        cursor_fg: Color::WHITE,
     });
 
     let buf = state.materialize();
@@ -582,7 +582,6 @@ fn materialize_new_fields_default_to_empty() {
     assert!(state.videos.is_empty());
     assert!(state.webkits.is_empty());
     assert!(state.scroll_bars.is_empty());
-    assert!(state.cursor_inverse.is_none());
     assert!(state.stipple_patterns.is_empty());
     assert!(state.effect_hints.is_empty());
 }

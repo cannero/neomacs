@@ -1329,30 +1329,6 @@ pub(crate) fn builtin_set_window_cursor_type(
     Ok(cursor_type)
 }
 
-/// `(window-cursor-info &optional WINDOW)` -> `[TYPE X Y W H ASCENT]` or nil.
-///
-/// Mirrors GNU `src/window.c:8648-8716`:
-///
-///   if (!w->phys_cursor_on_p)
-///     return Qnil;
-///
-/// `phys_cursor_on_p` is set when `display_and_set_cursor`
-/// (`src/xdisp.c:34698`) actually draws the cursor — it is false
-/// in batch mode, on a fresh frame before redisplay, and on every
-/// window where the cursor is suppressed.
-///
-/// neomacs has no `Window::phys_cursor_on_p` field yet (cursor
-/// audit Finding 4 in `drafts/cursor-audit.md`), so we cannot
-/// distinguish "drawn" from "not drawn" the way GNU does. The
-/// only safe answer that matches GNU exactly across batch mode
-/// is `nil`. When Finding 4 lands, this builtin will look up the
-/// real `phys_cursor` and return the
-/// `[TYPE X Y WIDTH HEIGHT ASCENT]` vector for live cursors.
-///
-/// Verified against GNU Emacs 31.0.50 in batch:
-///
-///   $ emacs -Q --batch --eval '(princ (window-cursor-info))'
-///   nil
 pub(crate) fn builtin_window_cursor_info(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -1360,10 +1336,25 @@ pub(crate) fn builtin_window_cursor_info(
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("window-cursor-info", &args, 1)?;
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
-    // The window argument is still validated via window-live-p so
-    // we get the GNU error shape on bad input.
-    let _ = resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    Ok(Value::NIL)
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    let Some(frame) = frames.get(fid) else {
+        return Ok(Value::NIL);
+    };
+    let Some(snapshot) = frame.window_display_snapshot(wid) else {
+        return Ok(Value::NIL);
+    };
+    let Some(cursor) = snapshot.cursor.as_ref() else {
+        return Ok(Value::NIL);
+    };
+    Ok(Value::vector(vec![
+        frames.window_cursor_type(wid),
+        Value::fixnum(cursor.x),
+        Value::fixnum(cursor.y),
+        Value::fixnum(cursor.width),
+        Value::fixnum(cursor.height),
+        Value::fixnum(cursor.ascent),
+    ]))
 }
 
 /// Returns true if VALUE is a legal `cursor-type` per GNU

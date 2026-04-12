@@ -1,5 +1,5 @@
 use super::RenderApp;
-use crate::core::frame_glyphs::{FrameGlyph, GlyphRowRole};
+use crate::core::frame_glyphs::{DisplaySlotId, FrameGlyph, GlyphRowRole};
 use crate::thread_comm::InputEvent;
 
 #[cfg(all(feature = "wpe-webkit", wpe_platform_available))]
@@ -350,6 +350,7 @@ impl RenderApp {
                                 window_id: 0,
                                 row_role: GlyphRowRole::Text,
                                 clip_rect: None,
+                                slot_id: DisplaySlotId::from_pixels(0, *x, *y, cell_w, cell_h),
                                 x: *x,
                                 y: *y,
                                 width: *width,
@@ -402,6 +403,7 @@ impl RenderApp {
                             window_id: 0,
                             row_role: GlyphRowRole::ModeLine,
                             clip_rect: None,
+                            slot_id: DisplaySlotId::from_pixels(0, x, y, cell_w, cell_h),
                             x,
                             y,
                             width,
@@ -454,6 +456,7 @@ impl RenderApp {
                             window_id: 0,
                             row_role: GlyphRowRole::ModeLine,
                             clip_rect: None,
+                            slot_id: DisplaySlotId::from_pixels(0, x, y, cell_w, cell_h),
                             x,
                             y,
                             width,
@@ -519,6 +522,7 @@ impl RenderApp {
                     window_id: 0,
                     row_role,
                     clip_rect: None,
+                    slot_id: DisplaySlotId::from_pixels(0, cx, cy, cell_w, cell_h),
                     x: cx,
                     y: cy,
                     width: cell_w,
@@ -537,6 +541,7 @@ impl RenderApp {
                     window_id: 0,
                     row_role,
                     clip_rect: None,
+                    slot_id: DisplaySlotId::from_pixels(0, cx, cy, cell_w, cell_h),
                     char: cell.c,
                     composed: None,
                     x: cx,

@@ -1,6 +1,6 @@
 use super::*;
 use crate::face::{Face, FaceAttributes, UnderlineStyle};
-use crate::frame_glyphs::{CursorStyle, GlyphRowRole, PhysCursor};
+use crate::frame_glyphs::{CursorStyle, DisplaySlotId, GlyphRowRole, PhysCursor};
 use crate::glyph_matrix::{
     FrameDisplayState, Glyph, GlyphArea, GlyphMatrix, GlyphRow, WindowMatrixEntry,
 };
@@ -373,6 +373,12 @@ fn rasterize_prefers_phys_cursor_over_matrix_cursor_columns() {
         ascent: 12.0,
         style: CursorStyle::FilledBox,
         color: Color::WHITE,
+        slot_id: DisplaySlotId {
+            window_id: 1,
+            row: 1,
+            col: 4,
+        },
+        cursor_fg: Color::BLACK,
     });
 
     let mut rif = TtyRif::new(10, 5);

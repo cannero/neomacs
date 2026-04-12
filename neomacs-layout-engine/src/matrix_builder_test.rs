@@ -1,5 +1,7 @@
 use super::*;
-use neomacs_display_protocol::frame_glyphs::{CursorStyle, GlyphRowRole, PhysCursor};
+use neomacs_display_protocol::frame_glyphs::{
+    CursorStyle, DisplaySlotId, GlyphRowRole, PhysCursor,
+};
 use neomacs_display_protocol::glyph_matrix::*;
 use neomacs_display_protocol::types::Rect;
 
@@ -273,6 +275,11 @@ fn builder_preserves_phys_cursor() {
         charpos: 0,
         row: 0,
         col: 0,
+        slot_id: DisplaySlotId {
+            window_id: 1,
+            row: 0,
+            col: 0,
+        },
         x: 0.0,
         y: 0.0,
         width: 8.0,
@@ -280,6 +287,7 @@ fn builder_preserves_phys_cursor() {
         ascent: 12.0,
         style: CursorStyle::FilledBox,
         color: neomacs_display_protocol::types::Color::WHITE,
+        cursor_fg: neomacs_display_protocol::types::Color::BLACK,
     });
     builder.end_window();
 

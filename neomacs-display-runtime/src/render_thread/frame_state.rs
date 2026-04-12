@@ -1,5 +1,5 @@
 use super::RenderApp;
-use crate::core::frame_glyphs::{CursorInverseInfo, FrameGlyph, PhysCursor};
+use crate::core::frame_glyphs::{FrameGlyph, PhysCursor};
 
 impl RenderApp {
     pub(super) fn prepare_frame_state_for_render(&mut self) {
@@ -57,7 +57,6 @@ impl RenderApp {
                 Self::apply_extra_spacing(
                     &mut frame.glyphs,
                     &mut frame.phys_cursor,
-                    &mut frame.cursor_inverse,
                     self.extra_line_spacing,
                     self.extra_letter_spacing,
                 );
@@ -68,7 +67,6 @@ impl RenderApp {
     fn apply_extra_spacing(
         glyphs: &mut [FrameGlyph],
         phys_cursor: &mut Option<PhysCursor>,
-        cursor_inverse: &mut Option<CursorInverseInfo>,
         line_spacing: f32,
         letter_spacing: f32,
     ) {
@@ -134,14 +132,6 @@ impl RenderApp {
                         {
                             cursor.x += dx;
                             cursor.y += dy;
-                        }
-
-                        if let Some(inv) = cursor_inverse.as_mut()
-                            && (inv.x - old_x).abs() < 0.5
-                            && (inv.y - old_y).abs() < 0.5
-                        {
-                            inv.x += dx;
-                            inv.y += dy;
                         }
                     }
                 }

@@ -10,15 +10,17 @@ use super::hit_test::*;
 use super::types::*;
 use super::unicode::*;
 use neomacs_display_protocol::frame_glyphs::{
-    CursorStyle, FrameGlyphBuffer, PhysCursor, WindowEffectHint, WindowInfo, WindowTransitionHint,
-    WindowTransitionKind,
+    CursorStyle, DisplaySlotId, FrameGlyphBuffer, PhysCursor, WindowEffectHint, WindowInfo,
+    WindowTransitionHint, WindowTransitionKind,
 };
 use neomacs_display_protocol::types::{Color, Rect};
 use neovm_core::buffer::BufferId;
 use neovm_core::emacs_core::Value;
 use neovm_core::emacs_core::keymap::is_list_keymap;
 use neovm_core::emacs_core::value::list_to_vec;
-use neovm_core::window::{DisplayPointSnapshot, DisplayRowSnapshot, WindowDisplaySnapshot};
+use neovm_core::window::{
+    DisplayPointSnapshot, DisplayRowSnapshot, WindowCursorSnapshot, WindowDisplaySnapshot,
+};
 
 /// Maximum number of characters in a ligature run before forced flush.
 const MAX_LIGATURE_RUN_LEN: usize = 64;
@@ -2211,7 +2213,6 @@ impl LayoutEngine {
         };
         let transition_hints_len_before = self.matrix_builder.transition_hints().len();
         let effect_hints_len_before = self.matrix_builder.effect_hints().len();
-        let cursor_inverse_before = self.matrix_builder.cursor_inverse().cloned();
 
         tracing::debug!(
             "  layout_window_rust id={}: text_y={:.1} text_h={:.1} max_rows={} bytes_read={}",
@@ -4163,6 +4164,11 @@ impl LayoutEngine {
                                 charpos: params.point.max(0) as usize,
                                 row: cursor_matrix_row,
                                 col: ccol as u16,
+                                slot_id: DisplaySlotId {
+                                    window_id: params.window_id,
+                                    row: cursor_matrix_row as u32,
+                                    col: ccol as u16,
+                                },
                                 x: cx,
                                 y: cy,
                                 width: cursor_w,
@@ -4170,6 +4176,7 @@ impl LayoutEngine {
                                 ascent: cursor_face_ascent.min(cursor_face_h),
                                 style,
                                 color: cursor_color,
+                                cursor_fg: cursor_face_bg,
                             });
                         }
 
@@ -4180,34 +4187,6 @@ impl LayoutEngine {
                                 cy,
                                 cursor_w,
                                 cursor_face_h
-                            );
-                        }
-
-                        // For FilledBox cursor, use the renderer's cursor_inverse system
-                        // to swap fg/bg of the character under the cursor.
-                        if matches!(style, CursorStyle::FilledBox) {
-                            tracing::debug!(
-                                "cursor_inverse: cx={:.1} cy={:.1} w={:.1} h={:.1} fg=({:.3},{:.3},{:.3}) bg=({:.3},{:.3},{:.3})",
-                                cx,
-                                cy,
-                                cursor_w,
-                                cursor_face_h,
-                                cursor_color.r,
-                                cursor_color.g,
-                                cursor_color.b,
-                                cursor_face_bg.r,
-                                cursor_face_bg.g,
-                                cursor_face_bg.b,
-                            );
-                            self.matrix_builder.set_cursor_inverse(
-                                neomacs_display_protocol::frame_glyphs::CursorInverseInfo {
-                                    x: cx,
-                                    y: cy,
-                                    width: cursor_w,
-                                    height: cursor_face_h,
-                                    cursor_bg: cursor_color,
-                                    cursor_fg: cursor_face_bg,
-                                },
                             );
                         }
                     }
@@ -4421,6 +4400,11 @@ impl LayoutEngine {
                                 charpos: params.point.max(0) as usize,
                                 row: fallback_cursor_row,
                                 col: ccol as u16,
+                                slot_id: DisplaySlotId {
+                                    window_id: params.window_id,
+                                    row: fallback_cursor_row as u32,
+                                    col: ccol as u16,
+                                },
                                 x: cx,
                                 y: cy,
                                 width: cursor_w,
@@ -4428,22 +4412,8 @@ impl LayoutEngine {
                                 ascent: char_h,
                                 style,
                                 color: cursor_color,
+                                cursor_fg: default_bg,
                             });
-                        }
-
-                        // For FilledBox cursor, use the renderer's cursor_inverse system
-                        // to swap fg/bg of the character under the cursor.
-                        if matches!(style, CursorStyle::FilledBox) {
-                            self.matrix_builder.set_cursor_inverse(
-                                neomacs_display_protocol::frame_glyphs::CursorInverseInfo {
-                                    x: cx,
-                                    y: cy,
-                                    width: cursor_w,
-                                    height: char_h,
-                                    cursor_bg: cursor_color,
-                                    cursor_fg: default_bg,
-                                },
-                            );
                         }
                     }
                 }
@@ -4560,8 +4530,6 @@ impl LayoutEngine {
                 .truncate_transition_hints(transition_hints_len_before);
             self.matrix_builder
                 .truncate_effect_hints(effect_hints_len_before);
-            self.matrix_builder
-                .restore_cursor_inverse(cursor_inverse_before);
 
             let mut retry_params = params.clone();
             retry_params.window_start = new_window_start;
@@ -4830,6 +4798,30 @@ impl LayoutEngine {
             mode_line_height: mode_line_height.round() as i64,
             header_line_height: header_line_height.round() as i64,
             tab_line_height: tab_line_height.round() as i64,
+            cursor: cursor_info.map(
+                |(
+                    cx,
+                    cy,
+                    cursor_face_w,
+                    cursor_face_h,
+                    cursor_face_ascent,
+                    _cursor_fg,
+                    _cursor_bg,
+                    _cbyte,
+                    ccol,
+                    _cursor_face_id,
+                    _cursor_face_space_w,
+                    cursor_matrix_row,
+                )| WindowCursorSnapshot {
+                    x: (cx - text_area_left).round() as i64,
+                    y: (cy - text_y).round() as i64,
+                    width: cursor_face_w.max(1.0).round() as i64,
+                    height: cursor_face_h.max(1.0).round() as i64,
+                    ascent: cursor_face_ascent.max(1.0).round() as i64,
+                    row: cursor_matrix_row as i64,
+                    col: ccol as i64,
+                },
+            ),
             points: display_points,
             rows: display_rows,
         });

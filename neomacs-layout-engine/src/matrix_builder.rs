@@ -7,8 +7,8 @@
 
 use neomacs_display_protocol::face::Face;
 use neomacs_display_protocol::frame_glyphs::{
-    CursorInverseInfo, CursorStyle, GlyphRowRole, PhysCursor, StipplePattern, WindowEffectHint,
-    WindowInfo, WindowTransitionHint,
+    CursorStyle, GlyphRowRole, PhysCursor, StipplePattern, WindowEffectHint, WindowInfo,
+    WindowTransitionHint,
 };
 use neomacs_display_protocol::glyph_matrix::*;
 use neomacs_display_protocol::types::{Color, Rect};
@@ -36,7 +36,6 @@ pub struct GlyphMatrixBuilder {
     videos: Vec<VideoItem>,
     webkits: Vec<WebKitItem>,
     scroll_bars: Vec<ScrollBarItem>,
-    cursor_inverse: Option<CursorInverseInfo>,
     phys_cursor: Option<PhysCursor>,
     faces: HashMap<u32, Face>,
     stipple_patterns: HashMap<i32, StipplePattern>,
@@ -75,7 +74,6 @@ impl GlyphMatrixBuilder {
             videos: Vec::new(),
             webkits: Vec::new(),
             scroll_bars: Vec::new(),
-            cursor_inverse: None,
             phys_cursor: None,
             faces: HashMap::new(),
             stipple_patterns: HashMap::new(),
@@ -111,7 +109,6 @@ impl GlyphMatrixBuilder {
         self.videos.clear();
         self.webkits.clear();
         self.scroll_bars.clear();
-        self.cursor_inverse = None;
         self.phys_cursor = None;
         self.faces.clear();
         self.stipple_patterns.clear();
@@ -430,10 +427,6 @@ impl GlyphMatrixBuilder {
         });
     }
 
-    pub fn set_cursor_inverse(&mut self, info: CursorInverseInfo) {
-        self.cursor_inverse = Some(info);
-    }
-
     pub fn set_phys_cursor(&mut self, cursor: PhysCursor) {
         self.phys_cursor = Some(cursor);
     }
@@ -500,14 +493,6 @@ impl GlyphMatrixBuilder {
 
     pub fn background_color(&self) -> &Color {
         &self.background_color
-    }
-
-    pub fn cursor_inverse(&self) -> Option<&CursorInverseInfo> {
-        self.cursor_inverse.as_ref()
-    }
-
-    pub fn restore_cursor_inverse(&mut self, info: Option<CursorInverseInfo>) {
-        self.cursor_inverse = info;
     }
 
     pub fn faces(&self) -> &HashMap<u32, Face> {
@@ -690,7 +675,6 @@ impl GlyphMatrixBuilder {
         state.videos = self.videos;
         state.webkits = self.webkits;
         state.scroll_bars = self.scroll_bars;
-        state.cursor_inverse = self.cursor_inverse;
         state.phys_cursor = self.phys_cursor;
         state.faces = self.faces;
         state.stipple_patterns = self.stipple_patterns;

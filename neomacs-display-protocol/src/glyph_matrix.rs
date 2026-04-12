@@ -9,7 +9,7 @@
 
 use super::face::{Face, FaceAttributes, UnderlineStyle};
 use super::frame_glyphs::{
-    CursorInverseInfo, CursorStyle, FrameGlyph, FrameGlyphBuffer, GlyphRowRole, PhysCursor,
+    CursorStyle, DisplaySlotId, FrameGlyph, FrameGlyphBuffer, GlyphRowRole, PhysCursor,
     StipplePattern, WindowEffectHint, WindowInfo, WindowTransitionHint,
 };
 use super::types::{Color, Rect};
@@ -453,8 +453,6 @@ pub struct FrameDisplayState {
     pub webkits: Vec<WebKitItem>,
     /// Scroll bars.
     pub scroll_bars: Vec<ScrollBarItem>,
-    /// Cursor inverse video info for filled box cursor.
-    pub cursor_inverse: Option<CursorInverseInfo>,
     /// Authoritative active cursor for the frame.
     pub phys_cursor: Option<PhysCursor>,
     /// Stipple patterns for background fills.
@@ -548,7 +546,6 @@ impl FrameDisplayState {
             videos: Vec::new(),
             webkits: Vec::new(),
             scroll_bars: Vec::new(),
-            cursor_inverse: None,
             phys_cursor: None,
             stipple_patterns: HashMap::new(),
             effect_hints: Vec::new(),
@@ -576,41 +573,7 @@ impl FrameDisplayState {
         state.z_order = buf.z_order;
         state.faces = buf.faces.clone();
         state.window_infos = buf.window_infos.clone();
-        state.cursor_inverse = buf.cursor_inverse.clone();
-        state.phys_cursor = buf.phys_cursor.clone().or_else(|| {
-            let mut fallback: Option<PhysCursor> = None;
-            for glyph in &buf.glyphs {
-                if let FrameGlyph::Cursor {
-                    window_id,
-                    x,
-                    y,
-                    width,
-                    height,
-                    style,
-                    color,
-                } = glyph
-                {
-                    let candidate = PhysCursor {
-                        window_id: *window_id,
-                        charpos: 0,
-                        row: 0,
-                        col: 0,
-                        x: *x,
-                        y: *y,
-                        width: *width,
-                        height: *height,
-                        ascent: *height,
-                        style: *style,
-                        color: *color,
-                    };
-                    if !style.is_hollow() {
-                        return Some(candidate);
-                    }
-                    fallback.get_or_insert(candidate);
-                }
-            }
-            fallback
-        });
+        state.phys_cursor = buf.phys_cursor.clone();
         state.stipple_patterns = buf.stipple_patterns.clone();
         state.transition_hints = buf.transition_hints.clone();
         state.effect_hints = buf.effect_hints.clone();
@@ -789,31 +752,7 @@ impl FrameDisplayState {
         // Copy stipple patterns
         buf.stipple_patterns = self.stipple_patterns.clone();
 
-        // Copy cursor inverse
-        buf.cursor_inverse = self.cursor_inverse.clone();
-        buf.phys_cursor = self.phys_cursor.clone().or_else(|| {
-            let mut fallback: Option<PhysCursor> = None;
-            for cursor in &self.cursors {
-                let candidate = PhysCursor {
-                    window_id: cursor.window_id,
-                    charpos: 0,
-                    row: 0,
-                    col: 0,
-                    x: cursor.x,
-                    y: cursor.y,
-                    width: cursor.width,
-                    height: cursor.height,
-                    ascent: cursor.height,
-                    style: cursor.style,
-                    color: cursor.color,
-                };
-                if !cursor.style.is_hollow() {
-                    return Some(candidate);
-                }
-                fallback.get_or_insert(candidate);
-            }
-            fallback
-        });
+        buf.phys_cursor = self.phys_cursor.clone();
 
         // --- Grid conversion ---
 
@@ -868,6 +807,11 @@ impl FrameDisplayState {
                             continue;
                         }
                         let x = win_x + col as f32 * char_w;
+                        let slot_id = DisplaySlotId {
+                            window_id: entry.window_id as i64,
+                            row: row_idx as u32,
+                            col: col as u16,
+                        };
 
                         match &glyph.glyph_type {
                             GlyphType::Char { ch } => {
@@ -884,6 +828,7 @@ impl FrameDisplayState {
                                     window_id: entry.window_id as i64,
                                     row_role,
                                     clip_rect,
+                                    slot_id,
                                     char: *ch,
                                     composed: None,
                                     x,
@@ -924,6 +869,7 @@ impl FrameDisplayState {
                                     window_id: entry.window_id as i64,
                                     row_role,
                                     clip_rect,
+                                    slot_id,
                                     char: text.chars().next().unwrap_or(' '),
                                     composed: Some(text.clone()),
                                     x,
@@ -958,6 +904,7 @@ impl FrameDisplayState {
                                     window_id: entry.window_id as i64,
                                     row_role,
                                     clip_rect,
+                                    slot_id,
                                     x,
                                     y,
                                     width: stretch_w,
@@ -993,6 +940,7 @@ impl FrameDisplayState {
                                     window_id: entry.window_id as i64,
                                     row_role,
                                     clip_rect,
+                                    slot_id,
                                     char: *ch,
                                     composed: None,
                                     x,
@@ -1047,6 +995,11 @@ impl FrameDisplayState {
                         window_id: entry.window_id as i64,
                         row_role,
                         clip_rect,
+                        slot_id: DisplaySlotId {
+                            window_id: entry.window_id as i64,
+                            row: row_idx as u32,
+                            col: col as u16,
+                        },
                         x: final_x,
                         y,
                         width: right_edge - final_x,

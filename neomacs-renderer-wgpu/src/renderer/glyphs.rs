@@ -1111,60 +1111,38 @@ impl WgpuRenderer {
                     }
                     if matches!(style, CursorStyle::FilledBox) {
                         // Filled box cursor: split into bg rect + behind-text trail.
-                        // The static cursor bg rect uses cursor_inverse info if available,
-                        // otherwise falls back to the cursor color at the static position.
                         if cursor_visible {
-                            if let Some(ref inv) = frame_glyphs.cursor_inverse {
-                                // Draw cursor bg rect at static position (inverse video background)
-                                let inv_color = if self.effects.cursor_color_cycle.enabled {
-                                    effective_color
-                                } else {
-                                    &inv.cursor_bg
-                                };
-                                if wake_active {
-                                    let (sx, sy, sw, sh) =
-                                        Self::scale_rect(inv.x, inv.y, inv.width, inv.height, wake);
-                                    self.add_rect(
-                                        &mut cursor_bg_vertices,
-                                        sx,
-                                        sy,
-                                        sw,
-                                        sh,
-                                        inv_color,
-                                    );
-                                } else {
-                                    self.add_rect(
-                                        &mut cursor_bg_vertices,
-                                        inv.x,
-                                        inv.y,
-                                        inv.width,
-                                        inv.height,
-                                        inv_color,
-                                    );
-                                }
+                            let static_rect = frame_glyphs
+                                .phys_cursor
+                                .as_ref()
+                                .filter(|cursor| cursor.window_id == *window_id)
+                                .map(|cursor| (cursor.x, cursor.y, cursor.width, cursor.height))
+                                .unwrap_or((*x, *y, *width, *height));
+                            if wake_active {
+                                let (sx, sy, sw, sh) = Self::scale_rect(
+                                    static_rect.0,
+                                    static_rect.1,
+                                    static_rect.2,
+                                    static_rect.3,
+                                    wake,
+                                );
+                                self.add_rect(
+                                    &mut cursor_bg_vertices,
+                                    sx,
+                                    sy,
+                                    sw,
+                                    sh,
+                                    effective_color,
+                                );
                             } else {
-                                // No inverse info — draw opaque cursor at static position
-                                if wake_active {
-                                    let (sx, sy, sw, sh) =
-                                        Self::scale_rect(*x, *y, *width, *height, wake);
-                                    self.add_rect(
-                                        &mut cursor_bg_vertices,
-                                        sx,
-                                        sy,
-                                        sw,
-                                        sh,
-                                        effective_color,
-                                    );
-                                } else {
-                                    self.add_rect(
-                                        &mut cursor_bg_vertices,
-                                        *x,
-                                        *y,
-                                        *width,
-                                        *height,
-                                        effective_color,
-                                    );
-                                }
+                                self.add_rect(
+                                    &mut cursor_bg_vertices,
+                                    static_rect.0,
+                                    static_rect.1,
+                                    static_rect.2,
+                                    static_rect.3,
+                                    effective_color,
+                                );
                             }
 
                             // Draw animated trail/rect behind text
@@ -1612,12 +1590,13 @@ impl WgpuRenderer {
                             // For the character under a filled box cursor, swap to
                             // cursor_fg (inverse video) when cursor is visible.
                             let effective_fg = if cursor_visible {
-                                if let Some(ref inv) = frame_glyphs.cursor_inverse {
-                                    // Match if char cell overlaps cursor inverse position
-                                    let x_match = (*x - inv.x).abs() < 1.0;
-                                    let y_match = (*y - inv.y).abs() < 1.0;
-                                    if x_match && y_match {
-                                        &inv.cursor_fg
+                                if let Some(cursor) = frame_glyphs.phys_cursor.as_ref() {
+                                    if matches!(cursor.style, CursorStyle::FilledBox)
+                                        && glyph
+                                            .slot_id()
+                                            .is_some_and(|slot| slot == cursor.slot_id)
+                                    {
+                                        &cursor.cursor_fg
                                     } else {
                                         fg
                                     }

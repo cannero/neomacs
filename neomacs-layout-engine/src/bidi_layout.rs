@@ -121,23 +121,22 @@ pub fn reorder_row_bidi(
     // Align all character glyphs on this row to a common baseline.
     // The baseline is at row_y + row_max_ascent. Each glyph's y is adjusted
     // by (row_max_ascent - glyph_ascent) so that y + ascent = row_y + row_max_ascent
-    // for all glyphs. The original per-face ascent is preserved so that
-    // cursor_inverse position matching and cursor bg rect sizing remain correct.
+    // for all glyphs. The original per-face ascent is preserved.
     if row_max_ascent > 0.0 {
-        // Step A: Find cursor on this row (before y adjustment) and compute its offset.
+        // Step A: Find the covered cursor slot on this row (before y adjustment)
+        // and compute its offset.
         let cursor_offset: Option<f32> = {
             let mut found_offset = None;
             for info in &row_chars {
-                if let FrameGlyph::Char { x, y, ascent, .. } = &frame_glyphs.glyphs[info.glyph_idx]
+                if let FrameGlyph::Char {
+                    slot_id, ascent, ..
+                } = &frame_glyphs.glyphs[info.glyph_idx]
                 {
-                    let matches_inverse = frame_glyphs
-                        .cursor_inverse
+                    if frame_glyphs
+                        .phys_cursor
                         .as_ref()
-                        .is_some_and(|inv| (*x - inv.x).abs() < 1.0 && (*y - inv.y).abs() < 1.0);
-                    let matches_phys = frame_glyphs.phys_cursor.as_ref().is_some_and(|cursor| {
-                        (*x - cursor.x).abs() < 1.0 && (*y - cursor.y).abs() < 1.0
-                    });
-                    if matches_inverse || matches_phys {
+                        .is_some_and(|cursor| *slot_id == cursor.slot_id)
+                    {
                         found_offset = Some(row_max_ascent - *ascent);
                         break;
                     }
@@ -163,12 +162,9 @@ pub fn reorder_row_bidi(
             }
         }
 
-        // Step C: Adjust cursor and cursor_inverse positions if cursor is on this row.
+        // Step C: Adjust cursor positions if the cursor is on this row.
         if let Some(offset) = cursor_offset {
             if offset.abs() > 0.01 {
-                if let Some(ref mut inv) = frame_glyphs.cursor_inverse {
-                    inv.y += offset;
-                }
                 if let Some(ref mut cursor) = frame_glyphs.phys_cursor {
                     cursor.y += offset;
                 }
@@ -246,24 +242,39 @@ pub fn reorder_row_bidi(
     // Step 7: Adjust cursor positions on this row.
     // Cursors were placed at LTR X positions; we need to move them
     // to match the reordered glyph positions.
-    // Find cursor glyphs in the range and update their X to match
-    // the character glyph they correspond to (by matching original X).
+    // Find cursor glyphs in the range and update their X to match the exact
+    // covered display slot rather than rediscovering it from geometry.
+    let cursor_slot_id = frame_glyphs
+        .phys_cursor
+        .as_ref()
+        .map(|cursor| cursor.slot_id);
     for idx in glyph_start..glyph_end.min(frame_glyphs.glyphs.len()) {
-        if let FrameGlyph::Cursor { x: cursor_x, .. } = &mut frame_glyphs.glyphs[idx] {
-            // Find the character glyph whose original X matches
-            // this cursor's X position (within floating-point tolerance)
-            for (logical_idx, info) in row_chars.iter().enumerate() {
-                if (info.x - *cursor_x).abs() < 0.5 {
-                    *cursor_x = new_x[logical_idx];
-                    break;
-                }
-            }
+        let new_cursor_x = cursor_slot_id.and_then(|cursor_slot_id| {
+            row_chars
+                .iter()
+                .enumerate()
+                .find_map(|(logical_idx, info)| {
+                    if let FrameGlyph::Char { slot_id, .. } = &frame_glyphs.glyphs[info.glyph_idx]
+                        && *slot_id == cursor_slot_id
+                    {
+                        Some(new_x[logical_idx])
+                    } else {
+                        None
+                    }
+                })
+        });
+        if let (Some(new_cursor_x), FrameGlyph::Cursor { x: cursor_x, .. }) =
+            (new_cursor_x, &mut frame_glyphs.glyphs[idx])
+        {
+            *cursor_x = new_cursor_x;
         }
     }
 
     if let Some(ref mut cursor) = frame_glyphs.phys_cursor {
         for (logical_idx, info) in row_chars.iter().enumerate() {
-            if (info.x - cursor.x).abs() < 0.5 {
+            if let FrameGlyph::Char { slot_id, .. } = &frame_glyphs.glyphs[info.glyph_idx]
+                && *slot_id == cursor.slot_id
+            {
                 cursor.x = new_x[logical_idx];
                 break;
             }
@@ -274,7 +285,7 @@ pub fn reorder_row_bidi(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use neomacs_display_protocol::frame_glyphs::{CursorStyle, GlyphRowRole};
+    use neomacs_display_protocol::frame_glyphs::{CursorStyle, DisplaySlotId, GlyphRowRole};
     use neomacs_display_protocol::types::Color;
 
     /// Helper to create a minimal Char glyph for testing.
@@ -285,6 +296,7 @@ mod tests {
             window_id: 0,
             row_role: GlyphRowRole::Text,
             clip_rect: None,
+            slot_id: DisplaySlotId::from_pixels(0, x, y, 8.0, 16.0),
             char: ch,
             composed: None,
             x,
@@ -473,6 +485,7 @@ mod tests {
             window_id: 0,
             row_role: GlyphRowRole::Text,
             clip_rect: None,
+            slot_id: DisplaySlotId::from_pixels(0, 8.0, 0.0, 8.0, 16.0),
             x: 8.0,
             y: 0.0,
             width: 16.0,
@@ -501,13 +514,34 @@ mod tests {
     /// Helper to create a Cursor glyph for testing.
     fn make_cursor_glyph(x: f32, width: f32) -> FrameGlyph {
         FrameGlyph::Cursor {
-            window_id: 1,
+            window_id: 0,
             x,
             y: 0.0,
             width,
             height: 16.0,
             style: CursorStyle::FilledBox,
             color: Color::new(1.0, 1.0, 1.0, 1.0),
+        }
+    }
+
+    fn make_phys_cursor(
+        slot_x: f32,
+        width: f32,
+    ) -> neomacs_display_protocol::frame_glyphs::PhysCursor {
+        neomacs_display_protocol::frame_glyphs::PhysCursor {
+            window_id: 0,
+            charpos: 0,
+            row: 0,
+            col: (slot_x / width).round() as u16,
+            slot_id: DisplaySlotId::from_pixels(0, slot_x, 0.0, width, 16.0),
+            x: slot_x,
+            y: 0.0,
+            width,
+            height: 16.0,
+            ascent: 12.0,
+            style: CursorStyle::FilledBox,
+            color: Color::new(1.0, 1.0, 1.0, 1.0),
+            cursor_fg: Color::new(0.0, 0.0, 0.0, 1.0),
         }
     }
 
@@ -898,6 +932,7 @@ mod tests {
         buf.glyphs.push(make_char_glyph('\u{05D1}', 8.0, 8.0)); // Bet
         buf.glyphs.push(make_char_glyph('\u{05D2}', 16.0, 8.0)); // Gimel
         buf.glyphs.push(make_cursor_glyph(0.0, 8.0)); // Cursor at Alef's original x
+        buf.phys_cursor = Some(make_phys_cursor(0.0, 8.0));
 
         reorder_row_bidi(&mut buf, 0, 4, 0.0);
 
@@ -915,6 +950,7 @@ mod tests {
         buf.glyphs.push(make_char_glyph('\u{05D1}', 8.0, 8.0)); // Bet
         buf.glyphs.push(make_char_glyph('\u{05D2}', 16.0, 8.0)); // Gimel
         buf.glyphs.push(make_cursor_glyph(8.0, 8.0)); // Cursor at Bet's original x
+        buf.phys_cursor = Some(make_phys_cursor(8.0, 8.0));
 
         reorder_row_bidi(&mut buf, 0, 4, 0.0);
 
@@ -935,6 +971,7 @@ mod tests {
         buf.glyphs.push(make_char_glyph('\u{05D2}', 16.0, 8.0));
         buf.glyphs.push(make_char_glyph('\u{05D3}', 24.0, 8.0));
         buf.glyphs.push(make_cursor_glyph(0.0, 8.0)); // Cursor at A
+        buf.phys_cursor = Some(make_phys_cursor(0.0, 8.0));
 
         reorder_row_bidi(&mut buf, 0, 5, 0.0);
 
@@ -944,21 +981,19 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_cursors_in_mixed_text() {
+    fn test_active_phys_cursor_moves_in_mixed_text() {
         let mut buf = FrameGlyphBuffer::default();
         buf.glyphs.push(make_char_glyph('A', 0.0, 8.0));
         buf.glyphs.push(make_char_glyph('\u{05D0}', 8.0, 8.0)); // Alef
         buf.glyphs.push(make_char_glyph('\u{05D1}', 16.0, 8.0)); // Bet
-        buf.glyphs.push(make_cursor_glyph(0.0, 8.0)); // Cursor at A
         buf.glyphs.push(make_cursor_glyph(8.0, 8.0)); // Cursor at Alef
+        buf.phys_cursor = Some(make_phys_cursor(8.0, 8.0));
 
-        reorder_row_bidi(&mut buf, 0, 5, 0.0);
+        reorder_row_bidi(&mut buf, 0, 4, 0.0);
 
-        // A stays at x=0, so first cursor stays
-        assert_eq!(get_cursor_x(&buf.glyphs[3]), 0.0);
         // Alef's new position after reorder
         let alef_new_x = get_char_x(&buf.glyphs[1]);
-        assert_eq!(get_cursor_x(&buf.glyphs[4]), alef_new_x);
+        assert_eq!(get_cursor_x(&buf.glyphs[3]), alef_new_x);
     }
 
     // --- Partial row reordering (sub-range of glyphs) ---
@@ -1000,6 +1035,7 @@ mod tests {
             window_id: 0,
             row_role: GlyphRowRole::Text,
             clip_rect: None,
+            slot_id: DisplaySlotId::from_pixels(0, 8.0, 0.0, 8.0, 16.0),
             x: 8.0,
             y: 0.0,
             width: 4.0,
@@ -1035,6 +1071,7 @@ mod tests {
             window_id: 0,
             row_role: GlyphRowRole::Text,
             clip_rect: None,
+            slot_id: DisplaySlotId::from_pixels(0, 0.0, 0.0, 8.0, 16.0),
             x: 0.0,
             y: 0.0,
             width: 100.0,
@@ -1048,6 +1085,7 @@ mod tests {
             window_id: 0,
             row_role: GlyphRowRole::Text,
             clip_rect: None,
+            slot_id: DisplaySlotId::from_pixels(0, 100.0, 0.0, 8.0, 16.0),
             x: 100.0,
             y: 0.0,
             width: 100.0,

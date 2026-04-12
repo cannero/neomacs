@@ -786,6 +786,25 @@ pub struct DisplayRowSnapshot {
     pub end_buffer_pos: Option<usize>,
 }
 
+/// Last authoritative physical cursor geometry for a window.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WindowCursorSnapshot {
+    /// X relative to the text area's left edge, in pixels.
+    pub x: i64,
+    /// Y relative to the text area's top edge, in pixels.
+    pub y: i64,
+    /// Cursor width in pixels.
+    pub width: i64,
+    /// Cursor height in pixels.
+    pub height: i64,
+    /// Pixels above the baseline.
+    pub ascent: i64,
+    /// Visual row within the window's text area.
+    pub row: i64,
+    /// Visual column within that row.
+    pub col: i64,
+}
+
 /// Last authoritative redisplay geometry for a live leaf window.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WindowDisplaySnapshot {
@@ -799,6 +818,8 @@ pub struct WindowDisplaySnapshot {
     pub header_line_height: i64,
     /// Last redisplay tab-line height in pixels.
     pub tab_line_height: i64,
+    /// Last redisplay cursor geometry for this window, if the cursor was shown.
+    pub cursor: Option<WindowCursorSnapshot>,
     /// Visible source-position geometry, sorted by `buffer_pos`.
     pub points: Vec<DisplayPointSnapshot>,
     /// Visible row metrics, sorted by `row`.
@@ -915,6 +936,7 @@ impl Default for WindowDisplaySnapshot {
             mode_line_height: 0,
             header_line_height: 0,
             tab_line_height: 0,
+            cursor: None,
             points: Vec::new(),
             rows: Vec::new(),
         }

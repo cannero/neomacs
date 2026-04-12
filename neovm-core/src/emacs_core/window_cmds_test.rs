@@ -2047,11 +2047,9 @@ fn window_cursor_type_helpers_match_batch_defaults_and_set_get_semantics() {
 //       (princ (window-cursor-info)))'
 //   nil
 //
-// neomacs has no per-window phys_cursor_* fields yet (cursor
-// audit Finding 4 in drafts/cursor-audit.md), so the function
-// returns nil unconditionally for live windows. Once Finding 4
-// lands, the call site will look up the real phys_cursor and
-// return the [TYPE X Y WIDTH HEIGHT ASCENT] vector.
+// GNU returns nil in batch when no live redisplay cursor geometry exists.
+// neomacs now mirrors that through the frame snapshot path: without a
+// `WindowCursorSnapshot`, `window-cursor-info` still returns nil.
 #[test]
 fn window_cursor_info_returns_nil_in_batch_like_gnu() {
     crate::test_utils::init_test_tracing();
@@ -2074,6 +2072,44 @@ fn window_cursor_info_returns_nil_in_batch_like_gnu() {
         .map(format_eval_result)
         .collect::<Vec<_>>();
     assert_eq!(out[0], "OK (nil nil nil nil nil)");
+}
+
+#[test]
+fn window_cursor_info_returns_last_redisplay_cursor_geometry() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buf);
+    let fid = ev.frames.create_frame("F1", 800, 600, buf);
+    let wid = ev.frames.get(fid).expect("frame").selected_window;
+
+    ev.frames.set_window_cursor_type(wid, Value::symbol("bar"));
+    {
+        let frame = ev.frames.get_mut(fid).expect("frame");
+        frame.replace_display_snapshots(vec![crate::window::WindowDisplaySnapshot {
+            window_id: wid,
+            cursor: Some(crate::window::WindowCursorSnapshot {
+                x: 11,
+                y: 29,
+                width: 3,
+                height: 16,
+                ascent: 12,
+                row: 1,
+                col: 4,
+            }),
+            ..crate::window::WindowDisplaySnapshot::default()
+        }]);
+    }
+
+    let out = super::builtin_window_cursor_info(&mut ev, vec![]).expect("window-cursor-info");
+    let items = out.as_vector_data().expect("cursor-info vector");
+    assert_eq!(items.len(), 6);
+    assert_eq!(items[0], Value::symbol("bar"));
+    assert_eq!(items[1], Value::fixnum(11));
+    assert_eq!(items[2], Value::fixnum(29));
+    assert_eq!(items[3], Value::fixnum(3));
+    assert_eq!(items[4], Value::fixnum(16));
+    assert_eq!(items[5], Value::fixnum(12));
 }
 
 #[test]
