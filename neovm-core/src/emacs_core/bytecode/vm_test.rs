@@ -2723,6 +2723,45 @@ fn vm_hash_and_collection_tail_use_shared_and_direct_paths() {
 }
 
 #[test]
+fn vm_plist_member_returns_nil_for_odd_length_plist_matching_gnu() {
+    // Regression for winner-mode / cus-edit widget failure.
+    //
+    // GNU's `plist-member` walks the list in key/value pairs and
+    // returns nil (not found) if the search key isn't present, even
+    // when the list has an odd number of elements (unpaired last
+    // key). Only truly improper (dotted) tails signal plistp.
+    //
+    // The customize machinery feeds `(choice :tag ... :help-echo ...
+    // :value ... (const ...) (const ...) ...)` through widget-convert.
+    // After stripping the leading `choice` symbol, that's a 3-pair
+    // plist followed by many bare `(const ...)` elements, yielding an
+    // odd total length. Any `plist-member` call on that structure
+    // must return nil, not signal plistp.
+    crate::test_utils::init_test_tracing();
+
+    // 2-arg form (eq comparison).
+    assert_eq!(
+        vm_eval_str("(plist-member '(:tag \"Width\" :value normal (const a) (const b) (const c)) :missing)"),
+        "OK nil"
+    );
+    // Exact match at an early position still works.
+    assert_eq!(
+        vm_eval_str("(plist-member '(:tag \"Width\" :value normal (const a) (const b) (const c)) :tag)"),
+        "OK (:tag \"Width\" :value normal (const a) (const b) (const c))"
+    );
+    // 3-arg form (predicate, which routes through a separate walker).
+    assert_eq!(
+        vm_eval_str("(plist-member '(:tag \"Width\" :value normal (const a) (const b) (const c)) :missing #'eq)"),
+        "OK nil"
+    );
+    // Truly improper (dotted) tail is still a plistp error.
+    assert_eq!(
+        vm_eval_str("(condition-case err (plist-member '(:a 1 :b 2 . junk) :c) (error err))"),
+        "OK (wrong-type-argument plistp (:a 1 :b 2 . junk))"
+    );
+}
+
+#[test]
 fn vm_assoc_and_plist_member_predicates_use_shared_runtime_callbacks() {
     crate::test_utils::init_test_tracing();
     assert_eq!(

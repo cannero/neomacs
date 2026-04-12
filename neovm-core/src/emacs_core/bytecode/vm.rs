@@ -4105,9 +4105,16 @@ impl<'a> Vm<'a> {
                                 return Ok(cursor);
                             }
 
+                            // Match GNU's `plist_member` nil-
+                            // terminator rule: an unpaired last key is
+                            // a valid end (return nil, not-found);
+                            // only dotted tails signal plistp.
                             match pair_cdr.kind() {
                                 ValueKind::Cons => {
                                     cursor = pair_cdr.cons_cdr();
+                                }
+                                ValueKind::Nil => {
+                                    return Ok(Value::NIL);
                                 }
                                 _ => {
                                     return Err(signal(

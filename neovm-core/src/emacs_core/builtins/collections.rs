@@ -793,9 +793,15 @@ pub(crate) fn builtin_plist_member(
                         return Ok(cursor);
                     }
 
+                    // See `plist_member_eq` for the nil-terminator
+                    // rule: an unpaired last key is a valid end per
+                    // GNU, only dotted tails signal plistp.
                     match entry_rest.kind() {
                         ValueKind::Cons => {
                             cursor = entry_rest.cons_cdr();
+                        }
+                        ValueKind::Nil => {
+                            return Ok(Value::NIL);
                         }
                         _ => {
                             return Err(signal(
@@ -828,6 +834,11 @@ pub(crate) fn plist_member_eq(args: Vec<Value>) -> EvalResult {
         ));
     }
 
+    // Mirrors GNU's `Fplist_member` / `plist_member_eq` (fns.c). Walks
+    // the plist two elements at a time looking for PROP. A nil tail at
+    // any step ends the walk cleanly and returns nil (not-found),
+    // matching GNU `FOR_EACH_TAIL`'s implicit break on non-cons. Only a
+    // non-nil improper tail (dotted list) signals `plistp`.
     let mut cursor = plist;
     loop {
         match cursor.kind() {
@@ -843,7 +854,13 @@ pub(crate) fn plist_member_eq(args: Vec<Value>) -> EvalResult {
                     ValueKind::Cons => {
                         cursor = entry_rest.cons_cdr();
                     }
+                    ValueKind::Nil => {
+                        // Unpaired last key: valid end of plist per
+                        // GNU; return not-found.
+                        return Ok(Value::NIL);
+                    }
                     _ => {
+                        // Dotted tail after a key: malformed plist.
                         return Err(signal(
                             "wrong-type-argument",
                             vec![Value::symbol("plistp"), plist],
