@@ -1,122 +1,182 @@
-# rkyv Zero-Copy Pdump for NeoMacs
+# rkyv Pdump Hard-Cutover for NeoMacs
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the current bincode/serde pdump with mmap + zero-copy deserialization to bring TTY startup from ~150ms (release) to ~20ms.
+**Goal:** Replace the current bincode/serde pdump with a single new format built around mmap-backed cons cells plus rkyv-serialized non-cons state. Target TTY startup: ~20ms release.
 
-**Architecture:** Two-arena dump. Cons cells are mmap'd directly (zero-copy). All other heap objects are serialized via rkyv and rehydrated into live Rust heap objects on load. The v2 loader implements its own `reconstruct_evaluator_v2` that mirrors the v1 `reconstruct_evaluator` (pdump/mod.rs:231) step-by-step: load_interner, set_tagged_heap, reset_runtime_for_new_heap, load_charset_registry, load_fontset_registry, then calls `Context::from_dump` (eval.rs:3819, 22-arg entry point), then BUFFER_OBJFWD fixup.
+**Non-goals:** backward compatibility with old dump files, dual v1/v2 loaders, or temporary migration shims. Old dumps can be discarded and regenerated.
 
-**Tech Stack:** rkyv 0.8, memmap2, bytemuck
+**Architecture:** hard cutover to one format. Cons cells are stored in a flat arena and become live after in-place patching. All non-cons heap objects are serialized in structured rkyv sections and rehydrated into the live tagged heap. The new loader keeps the public entry points `dump_to_file`, `load_from_dump`, `snapshot_evaluator`, and `restore_snapshot`, but replaces their implementations completely. Restore order is: load interner first, rehydrate heap, reset runtime caches, restore registries, call `Context::from_dump`, then run post-assembly fixups.
 
----
-
-## Current State
-
-NeoMacs pdump v1 (`pdump/mod.rs`, `pdump/types.rs`, `pdump/convert.rs`):
-
-- **Dump types**: `DumpValue` enum (types.rs:29) uses `DumpHeapRef(u32)` indices to reference heap objects. NOT offset-tagged pointers.
-- **Dump entry**: `dump_evaluator()` walks the heap, builds `DumpContextState` (types.rs:1032, ~25 fields), serializes via bincode.
-- **Load entry**: `restore_snapshot(state: &DumpContextState)` (mod.rs:210) calls `reconstruct_evaluator(state)` (mod.rs:231).
-- **Reconstruct**: Two-pass via `TaggedLoadState` (convert.rs:102). Pass 1: `allocate_tagged_placeholder` (convert.rs:1565) creates live objects with NIL slots. Pass 2: resolves DumpValue heap-ref indices to live TaggedValues and fills slots.
-- **Context assembly**: `Context::from_dump(...)` (eval.rs:3819) takes **22 individual arguments** (heap, obarray, lexenv, features, require_stack, loads_in_progress, buffers, autoloads, custom, modes, coding_systems, face_table, abbrevs, interactive, rectangle, standard_syntax_table, standard_category_table, current_local_map, kmacro, registers, bookmarks, watchers). The `reconstruct_evaluator` function unpacks `DumpContextState` fields and calls this.
-
-**Performance**: ~150ms release, ~700ms debug. GNU Emacs: ~30ms.
+**Tech Stack:** `rkyv 0.8`, `memmap2`, `bytemuck`
 
 ---
 
-## v2 Design
+## Current Runtime Constraints
 
-### Two Arenas
+The current pdump path lives in `pdump/mod.rs`, `pdump/types.rs`, and `pdump/convert.rs`.
 
-**Cons arena (mmap'd, zero-copy):** Flat array of 16-byte `ConsCell` values. No `GcHeader` — cons cells use external mark bitmap in the `ConsBlock` allocator (tagged/header.rs:71). After relocating pointer slots (rewriting arena offsets to absolute mmap'd addresses), these bytes ARE valid live ConsCells. Cons cells are ~80% of objects by count.
+- `load_from_dump(path)` deserializes `DumpContextState` with bincode, then calls `reconstruct_evaluator(state)` in `pdump/mod.rs`.
+- `reconstruct_evaluator` loads the interner, preloads heap objects, resets thread-local caches, restores charset/fontset registries, calls `Context::from_dump(...)`, reinstalls `BUFFER_OBJFWD` forwarders, then finishes preload bookkeeping.
+- `Context::from_dump(...)` in `eval.rs` is still the final evaluator assembly point and takes 22 individual arguments.
+- The current dump value model is index-based: `DumpValue` refers to heap objects through `DumpHeapRef(u32)` and `convert.rs` resolves those indices through `TaggedLoadState`.
 
-**Non-cons section (rkyv-serialized, rehydrated on load):** All other heap types (StringObj, FloatObj, VectorObj, HashTableObj, LambdaObj, ByteCodeObj, etc.) contain Rust heap containers (Vec, HashMap, OnceLock) in their live layouts and CANNOT be mmap'd. They are serialized via rkyv `#[derive(Archive, Serialize)]` on NEW v2 dump types (see below) and rehydrated into live Rust heap objects on load using TaggedHeap allocation APIs.
-
-### Why NOT Reuse pdump/types.rs Dump* Types
-
-The v1 Dump* types use `DumpValue::HeapRef(u32)` for inter-object references. The v2 format uses `DumpTaggedValue` (offset-based tagged pointers into the cons arena, plus rkyv-internal relative pointers for non-cons objects). These are fundamentally different reference models. The v1 `convert.rs` restore functions (`allocate_tagged_placeholder`, `load_value`, etc.) resolve HeapRef indices through a `TaggedLoadState` index table — this logic does not apply to the v2 format.
-
-Therefore: **v2 defines NEW dump types** with rkyv derives and `DumpTaggedValue` references. The v1 types and convert.rs are NOT reused. However, the field LISTS of the new types must cover every field that v1 covers (text_props, gnu_byte_offset_map, key_snapshots, insertion_order, parameter names, etc.) — verified by diffing against v1 types.
-
-The v2 restore functions are new code, but `reconstruct_evaluator` (the orchestrator that unpacks fields and calls `Context::from_dump` with 22 args) is reused with minimal changes (swap DumpValue resolution for DumpTaggedValue resolution).
+The new format does not reuse that representation. It keeps the current semantic coverage, but not the current wire format or loader internals.
 
 ---
 
-## File Layout
+## Hard-Cutover Rules
 
-```
-struct DumpHeaderV2 {                     // 128 bytes total
-    magic: [u8; 8],                       // b"NEODUMP2"
-    version: u32,
-    _pad0: u32,
-    cons_arena_offset: u64,
-    cons_arena_len: u64,                  // byte count
-    cons_count: u64,                      // number of cons cells
-    non_cons_offset: u64,                 // rkyv-serialized non-cons section
-    non_cons_len: u64,
-    metadata_offset: u64,                 // rkyv-serialized DumpContextStateV2
-    metadata_len: u64,
-    roots_offset: u64,                    // array of DumpTaggedValue
-    roots_count: u64,
-    _pad1: [u8; 8],                       // pad to 128 bytes (9*8 + 8+4+4 + 32 + 8 = 128)
-    checksum: [u8; 32],                   // SHA-256 of everything after header
-}  // 8 + 4 + 4 + 72 + 8 + 32 = 128 bytes
-```
+1. There is only one on-disk format after this refactor.
+2. `dump_to_file` writes only the new format.
+3. `load_from_dump` loads only the new format.
+4. No version dispatch to the old bincode path.
+5. Old dump files are rejected and regenerated.
+6. The in-memory snapshot API stays supported, but it uses the same new image model as file-backed pdump.
 
-Sections in file order: header (128B) | cons arena | non-cons section | metadata | roots.
-
-No separate object table section. The cons arena is a flat array of `cons_count` ConsCells (16 bytes each) — the loader walks them all during relocation. Non-cons objects are accessed via rkyv's built-in traversal (Archive derive handles offsets internally).
+That means the implementation should delete or replace the old bincode-specific dump types and conversion pipeline instead of carrying both systems in parallel.
 
 ---
 
-## DumpTaggedValue
+## Design Overview
+
+### Two Heap Strategies
+
+**Cons cells:** stored in one contiguous arena as 16-byte cells. They have no `GcHeader`, match the live `ConsCell` size/layout, and are kept alive for the process lifetime by the dump backing store.
+
+**Everything else:** serialized in structured form and rehydrated into normal heap allocations. This includes:
+
+- strings
+- floats
+- vectors
+- records
+- hash tables
+- lambdas
+- macros
+- bytecode objects
+- overlays
+- markers
+- bignums
+- subr handles
+- buffer handles
+- window handles
+- frame handles
+- timer handles
+
+The handle-like wrapper objects above are heap-backed today, so they still need representation in the new format even though their semantic payload is mostly an ID.
+
+### One Semantic Value Type, One Packed Slot Format
+
+The old plan kept drifting because it tried to make one type serve two incompatible purposes:
+
+- structured metadata/non-cons references
+- raw 8-byte cons cell slots
+
+The new design splits those concerns cleanly:
+
+- `DumpValueRef`: structured archived value representation used in rkyv metadata and rkyv non-cons objects
+- `DumpSlotWord(u64)`: packed 8-byte slot representation used only inside the cons arena
+
+Both represent the same semantic value space, but only `DumpSlotWord` needs a fixed-width binary encoding.
+
+### One Loader for File and In-Memory Snapshots
+
+The new file loader and the in-memory snapshot restore path should share one core implementation:
+
+- file-backed load uses `MmapMut`
+- in-memory restore uses owned bytes
+
+Both feed the same loader over section byte slices, and both end by attaching the cons backing store to `TaggedHeap`.
+
+To support that, `DumpConsRegion` should own a backing enum rather than only an mmap:
 
 ```rust
-/// 8 bytes. Encodes any Lisp value in the dump.
-///
-/// NOT the same bit layout as live TaggedValue. This is a dump-
-/// specific encoding that distinguishes cons-arena references
-/// from non-cons object references and immediate values:
-///
-///   Immediate values (no heap pointer):
-///     Nil, T, Unbound, Fixnum(i64), Symbol(SymId),
-///     Subr(SymId), Buffer(BufferId), Window(u64),
-///     Frame(u64), Timer(u64)
-///   — These match v1 DumpValue variants that use SymId or u64
-///     IDs. They are NOT heap objects and do NOT appear in the
-///     cons arena or non-cons section. Resolved at load time by
-///     looking up the live object by its ID (e.g., Subr by SymId
-///     in the obarray, Buffer by BufferId in the buffer manager).
-///
-///   Cons-arena reference:
-///     Cons(cell_index: u32)
-///   — Index into the cons arena. Resolved by computing
-///     cons_base + cell_index * 16 and calling
-///     TaggedValue::from_cons_ptr (value.rs:165).
-///
-///   Non-cons heap reference:
-///     Float(index), String(index), Vector(index), Record(index),
-///     HashTable(index), Lambda(index), Macro(index),
-///     ByteCode(index), Overlay(index), Marker(index), Bignum(index)
-///   — Index into the corresponding typed Vec in
-///     DumpNonConsSection. Resolved via the live_map built during
-///     rehydration.
-///
-#[derive(Clone, Copy, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub enum DumpTaggedValue {
+enum DumpConsBacking {
+    Mmap(memmap2::MmapMut),
+    Bytes(Box<[u8]>),
+}
+```
+
+That avoids keeping two different restore implementations just because tests use `restore_snapshot` and startup uses `load_from_dump`.
+
+---
+
+## In-Memory Image
+
+The public snapshot API should no longer expose a v1-style `DumpContextState`. Replace it with a single image type that mirrors the new file sections:
+
+```rust
+pub struct RuntimeImageV2 {
+    pub cons_arena: Vec<u8>,
+    pub cons_count: u64,
+    pub non_cons_section: Vec<u8>,
+    pub metadata_section: Vec<u8>,
+}
+```
+
+Public API after the refactor:
+
+```rust
+pub fn snapshot_evaluator(eval: &Context) -> Result<RuntimeImageV2, DumpError>;
+pub fn snapshot_active_evaluator(eval: &mut Context) -> Result<RuntimeImageV2, DumpError>;
+pub fn restore_snapshot(image: &RuntimeImageV2) -> Result<Context, DumpError>;
+pub fn clone_evaluator(eval: &Context) -> Result<Context, DumpError>;
+pub fn clone_active_evaluator(eval: &mut Context) -> Result<Context, DumpError>;
+```
+
+`clone_*` should simply snapshot to `RuntimeImageV2` and restore from it.
+
+---
+
+## File Format
+
+```rust
+#[repr(C)]
+pub struct DumpHeader {
+    pub magic: [u8; 8],          // b"NEODUMP2"
+    pub version: u32,            // single live format version
+    pub flags: u32,              // reserved for future use, currently 0
+    pub cons_arena_offset: u64,
+    pub cons_arena_len: u64,
+    pub cons_count: u64,
+    pub non_cons_offset: u64,
+    pub non_cons_len: u64,
+    pub metadata_offset: u64,
+    pub metadata_len: u64,
+    pub checksum: [u8; 32],      // SHA-256 of everything after the header
+    pub reserved: [u8; 24],      // explicit pad to 128 bytes
+}
+// total: 128 bytes
+```
+
+File order:
+
+1. header
+2. cons arena
+3. non-cons section
+4. metadata section
+
+There is no v1 payload, no legacy compatibility data, and no separate object table. The cons arena does not need one because every cell is fixed-size and every cell has exactly two slots.
+
+---
+
+## Structured Dump Values
+
+`DumpValueRef` is the semantic value type used in archived metadata and archived non-cons objects.
+
+```rust
+#[derive(Archive, Serialize, Deserialize, Clone, Debug)]
+pub enum DumpValueRef {
     Nil,
     True,
     Unbound,
     Fixnum(i64),
-    Symbol(u32),         // SymId
-    Subr(u32),           // SymId — immediate, resolved via obarray
-    Buffer(u32),         // BufferId — immediate, resolved via buffer mgr
-    Window(u64),         // WindowId — immediate
-    Frame(u64),          // FrameId — immediate
-    Timer(u64),          // TimerId — immediate
-    Cons(u32),           // cell index into cons arena
-    Float(u32),          // index into DumpNonConsSection.floats
-    String(u32),         // index into DumpNonConsSection.strings
+    Symbol(u32),       // SymId
+
+    Cons(u32),         // cons arena cell index
+
+    String(u32),
+    Float(u32),
     Vector(u32),
     Record(u32),
     HashTable(u32),
@@ -125,65 +185,87 @@ pub enum DumpTaggedValue {
     ByteCode(u32),
     Overlay(u32),
     Marker(u32),
-    Bignum(u32),         // index into DumpNonConsSection.bignums
+    Bignum(u32),
+
+    Subr(u32),         // index into non-cons subr handles
+    Buffer(u32),       // index into non-cons buffer handles
+    Window(u32),       // index into non-cons window handles
+    Frame(u32),        // index into non-cons frame handles
+    Timer(u32),        // index into non-cons timer handles
 }
 ```
+
+Notes:
+
+- `Nil`, `True`, `Unbound`, `Fixnum`, and `Symbol` are true immediates in the dump model.
+- `Subr`, `Buffer`, `Window`, `Frame`, and `Timer` are **not** dump immediates. They are heap-backed values in the runtime, so they stay in the indexed object space and are rehydrated/canonicalized through the live heap.
+- Every place that currently stores `DumpValue` in v1 gets a v2 counterpart using `DumpValueRef`.
 
 ---
 
-## Cons Arena Layout
+## Packed Cons Slots
 
-The cons arena stores cons cells as pairs of raw u64 values.
-Each u64 encodes a DumpTaggedValue in a compact binary form:
+The cons arena stores raw 64-bit words, not archived enums. Those words use one exact encoding:
 
-- Cons reference: `TAG_CONS | (cell_index << 3)` — same tag
-  encoding as live TaggedValue but with a cell index instead of
-  an absolute pointer.
-- Immediate values (fixnum, symbol, nil, t): same bit pattern
-  as live TaggedValue — no transformation needed.
-- Non-cons heap reference: `tag | (type_and_index << 3)` —
-  resolved in a second pass after rehydration.
+- live immediate values keep their live bit patterns
+  - `nil`
+  - `t`
+  - `unbound`
+  - fixnums
+  - symbols
+- cons references use the live cons tag with a cell index payload
+  - `word = TAG_CONS | (cell_index << 3)`
+- string references use the live string tag with a string index payload
+  - `word = TAG_STRING | (string_index << 3)`
+- float references use the live float tag with a float index payload
+  - `word = TAG_FLOAT | (float_index << 3)`
+- all veclike references use the live veclike tag plus a dump subtype and an index
+  - `word = TAG_VECLIKE | ((subtype as u64) << 3) | ((index as u64) << 8)`
 
-Relocation (pass 1) rewrites cons-to-cons references:
+The dump veclike subtype namespace is:
 
 ```rust
-fn relocate_cons_arena(arena: &mut [u8], base_addr: usize, count: usize) {
-    for i in 0..count {
-        let cell = unsafe {
-            &mut *(arena.as_mut_ptr().add(i * 16) as *mut [u64; 2])
-        };
-        relocate_cons_slot(&mut cell[0], base_addr); // car
-        relocate_cons_slot(&mut cell[1], base_addr); // cdr
-    }
-}
-
-fn relocate_cons_slot(slot: &mut u64, cons_base: usize) {
-    let tag = (*slot as usize) & TAG_MASK;
-    if tag == TAG_CONS {
-        let cell_index = (*slot >> 3) as usize;
-        let abs = cons_base + cell_index * 16;
-        // Same operation as TaggedValue::from_cons_ptr (value.rs:165)
-        *slot = (abs as u64) | TAG_CONS as u64;
-    }
-    // Non-cons refs and immediates: handled in pass 2
+#[repr(u8)]
+enum DumpVeclikeKind {
+    Vector = 0,
+    Record = 1,
+    HashTable = 2,
+    Lambda = 3,
+    Macro = 4,
+    ByteCode = 5,
+    Overlay = 6,
+    Marker = 7,
+    Bignum = 8,
+    Subr = 9,
+    Buffer = 10,
+    Window = 11,
+    Frame = 12,
+    Timer = 13,
 }
 ```
 
-After pass 1, cons-to-cons references are live absolute pointers.
-Non-cons references in cons cells are resolved in pass 2 (after
-rehydration builds the live_map).
+This is the only raw-slot encoding used by the new format.
+
+### Cons Patching
+
+The loader patches the cons arena in two passes:
+
+1. rewrite cons-to-cons words in place from cell indices to absolute pointers
+2. rewrite all string/float/veclike dump references in place to live tagged pointers using the rehydrated object tables
+
+After pass 2, every word in every live cons cell is an ordinary runtime `TaggedValue`.
 
 ---
 
 ## Non-Cons Section
 
-rkyv-serialized Vec of v2 dump objects:
+The non-cons section is one archived object graph:
 
 ```rust
-#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(Archive, Serialize, Deserialize)]
 pub struct DumpNonConsSection {
     pub strings: Vec<DumpStringV2>,
-    pub floats: Vec<f64>,
+    pub floats: Vec<DumpFloatV2>,
     pub vectors: Vec<DumpVectorV2>,
     pub records: Vec<DumpVectorV2>,
     pub hash_tables: Vec<DumpHashTableV2>,
@@ -192,65 +274,85 @@ pub struct DumpNonConsSection {
     pub bytecodes: Vec<DumpByteCodeV2>,
     pub overlays: Vec<DumpOverlayV2>,
     pub markers: Vec<DumpMarkerV2>,
-    pub bignums: Vec<String>,
+    pub bignums: Vec<DumpBignumV2>,
+    pub subrs: Vec<DumpSubrV2>,
+    pub buffers: Vec<DumpBufferHandleV2>,
+    pub windows: Vec<DumpWindowHandleV2>,
+    pub frames: Vec<DumpFrameHandleV2>,
+    pub timers: Vec<DumpTimerHandleV2>,
 }
 ```
 
-Each v2 dump type mirrors ALL fields from the v1 types.rs
-equivalent. Example:
+Rules:
+
+- each v2 type mirrors the semantic fields currently covered by v1
+- no field may be dropped just because the wire format changed
+- every internal value reference inside these structs uses `DumpValueRef`
+
+Examples:
 
 ```rust
-#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(Archive, Serialize, Deserialize)]
 pub struct DumpStringV2 {
     pub data: Vec<u8>,
+    pub size: usize,
     pub size_byte: i64,
-    pub text_props: DumpTextPropertyTableV2,  // NOT omitted
+    pub text_props: Vec<DumpStringTextPropertyRunV2>,
 }
 
-#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(Archive, Serialize, Deserialize)]
 pub struct DumpByteCodeV2 {
-    pub ops: Vec<DumpOp>,
-    pub constants: Vec<DumpTaggedValue>,
+    pub ops: Vec<DumpOpV2>,
+    pub constants: Vec<DumpValueRef>,
     pub max_stack: u16,
-    pub params: DumpLambdaParams,
+    pub params: DumpLambdaParamsV2,
     pub lexical: bool,
-    pub env: Option<DumpTaggedValue>,
-    pub gnu_byte_offset_map: Option<Vec<(u32, u32)>>,  // NOT omitted
-    pub docstring: Option<String>,                       // NOT omitted
-    pub doc_form: Option<DumpTaggedValue>,
-    pub interactive: Option<DumpTaggedValue>,
+    pub env: Option<DumpValueRef>,
+    pub gnu_byte_offset_map: Option<Vec<(u32, u32)>>,
+    pub docstring: Option<String>,
+    pub doc_form: Option<DumpValueRef>,
+    pub interactive: Option<DumpValueRef>,
 }
 
-#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(Archive, Serialize, Deserialize)]
 pub struct DumpHashTableV2 {
-    pub test: DumpHashTableTest,
-    pub test_name: Option<DumpSymId>,           // NOT omitted
-    pub size: i64,                               // NOT omitted
-    pub weakness: Option<DumpHashTableWeakness>,
+    pub test: DumpHashTableTestV2,
+    pub test_name: Option<u32>, // SymId
+    pub size: i64,
+    pub weakness: Option<DumpHashTableWeaknessV2>,
     pub rehash_size: f64,
     pub rehash_threshold: f64,
-    pub entries: Vec<(DumpHashKeyV2, DumpTaggedValue)>,
-    pub key_snapshots: Vec<(DumpHashKeyV2, DumpTaggedValue)>,  // NOT omitted
-    pub insertion_order: Vec<DumpHashKeyV2>,                     // NOT omitted
+    pub entries: Vec<(DumpHashKeyV2, DumpValueRef)>,
+    pub key_snapshots: Vec<(DumpHashKeyV2, DumpValueRef)>,
+    pub insertion_order: Vec<DumpHashKeyV2>,
+}
+
+#[derive(Archive, Serialize, Deserialize)]
+pub struct DumpSubrV2 {
+    pub sym_id: u32,
+}
+
+#[derive(Archive, Serialize, Deserialize)]
+pub struct DumpBufferHandleV2 {
+    pub id: u64,
 }
 ```
+
+Subrs and ID-backed wrappers intentionally stay minimal. The loader recreates their live heap values through the canonical runtime constructors and registries.
 
 ---
 
 ## Metadata Section
 
-rkyv-serialized `DumpContextStateV2`, mirroring all ~25 fields
-of v1's `DumpContextState` (types.rs:1032). Uses
-`DumpTaggedValue` where v1 uses `DumpValue`. The field list
-matches v1 exactly:
+The metadata section replaces the old `DumpContextState` with a v2 metadata struct that covers the same semantic state **except** for the heap graph itself.
 
 ```rust
-#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct DumpContextStateV2 {
-    pub interner: DumpStringInterner,      // same as v1
-    pub obarray: DumpObarrayV2,            // uses DumpTaggedValue
+#[derive(Archive, Serialize, Deserialize)]
+pub struct DumpMetadataV2 {
+    pub interner: DumpStringInternerV2,
+    pub obarray: DumpObarrayV2,
     pub dynamic: Vec<DumpOrderedSymMapV2>,
-    pub lexenv: DumpTaggedValue,
+    pub lexenv: DumpValueRef,
     pub features: Vec<u32>,
     pub require_stack: Vec<u32>,
     pub loads_in_progress: Vec<String>,
@@ -265,9 +367,9 @@ pub struct DumpContextStateV2 {
     pub abbrevs: DumpAbbrevManagerV2,
     pub interactive: DumpInteractiveRegistryV2,
     pub rectangle: DumpRectangleStateV2,
-    pub standard_syntax_table: DumpTaggedValue,
-    pub standard_category_table: DumpTaggedValue,
-    pub current_local_map: DumpTaggedValue,
+    pub standard_syntax_table: DumpValueRef,
+    pub standard_category_table: DumpValueRef,
+    pub current_local_map: DumpValueRef,
     pub kmacro: DumpKmacroManagerV2,
     pub registers: DumpRegisterManagerV2,
     pub bookmarks: DumpBookmarkManagerV2,
@@ -275,276 +377,318 @@ pub struct DumpContextStateV2 {
 }
 ```
 
+Key point:
+
+- v1 had `tagged_heap` inside `DumpContextState`
+- v2 removes that field entirely
+- the heap graph now lives in `cons_arena + non_cons_section`
+- metadata carries only evaluator state and root references into those sections
+
 ---
 
-## Load Process
+## Dump Pipeline
+
+### 1. Build Metadata First
+
+Walk the live evaluator and produce `DumpMetadataV2`. Every heap-backed value encountered in metadata should be converted to `DumpValueRef`.
+
+### 2. Collect Heap Graph
+
+Traverse reachable heap values from metadata references and partition them into:
+
+- cons cells -> cons arena
+- all other heap-backed values -> typed vectors inside `DumpNonConsSection`
+
+Deduplication tables:
+
+- `cons_ptr_to_index: HashMap<usize, u32>`
+- one index table per non-cons kind
+
+### 3. Serialize Sections
+
+- cons arena is emitted as raw bytes of `DumpSlotWord` pairs
+- non-cons section is archived with rkyv
+- metadata section is archived with rkyv
+
+### 4. Emit RuntimeImageV2 or File
+
+- `snapshot_evaluator` returns `RuntimeImageV2`
+- `dump_to_file` writes `DumpHeader + sections`
+
+There is no separate legacy dump path.
+
+---
+
+## Load Pipeline
+
+### Shared Loader Entry
+
+Use one internal loader over section slices:
 
 ```rust
-pub fn load_dump_v2(path: &Path) -> Result<Context, DumpError> {
-    // 1. mmap with MAP_PRIVATE (copy-on-write for cons mutations)
-    let file = std::fs::File::open(path)?;
-    let mut mmap = unsafe { memmap2::MmapMut::map_copy(&file)? };
+fn load_runtime_image_v2(
+    cons_backing: DumpConsBacking,
+    cons_count: u64,
+    non_cons_bytes: &[u8],
+    metadata_bytes: &[u8],
+) -> Result<Context, DumpError>
+```
 
-    // 2. Validate 128-byte header
-    let header: &DumpHeaderV2 = // read from &mmap[..128]
-    header.validate_magic_and_version()?;
+- file-backed load builds `DumpConsBacking::Mmap`
+- in-memory restore builds `DumpConsBacking::Bytes`
 
-    // 3. Relocate cons arena in place (~2ms)
-    let cons_arena = &mut mmap[
-        header.cons_arena_offset as usize
-        .. header.cons_arena_offset as usize + header.cons_arena_len as usize
-    ];
-    let cons_base = cons_arena.as_ptr() as usize;
-    relocate_cons_arena(cons_arena, cons_base, header.cons_count as usize);
+### Step-by-Step Load
 
-    // 4. Access non-cons section via rkyv zero-copy
-    let non_cons_bytes = &mmap[
-        header.non_cons_offset as usize
-        .. header.non_cons_offset as usize + header.non_cons_len as usize
-    ];
-    let archived_non_cons = rkyv::access::<
-        ArchivedDumpNonConsSection, rkyv::rancor::Error
-    >(non_cons_bytes)?;
+1. Access archived metadata.
+2. Rebuild the interner from metadata before any `SymId`-dependent reconstruction.
+3. Create `Box<TaggedHeap>` and install it with `set_tagged_heap(&mut heap)`.
+4. Access archived non-cons section.
+5. Rehydrate non-cons objects into the live heap and build one live-object table per kind:
 
-    // 5. Rehydrate non-cons objects (~15ms)
-    //    Allocates live Rust heap objects using TaggedHeap APIs:
-    //      alloc_string(LispString)         — gc.rs:779
-    //      alloc_float(f64)                 — gc.rs:793
-    //      alloc_vector(Vec<TaggedValue>)   — gc.rs:837
-    //      alloc_lambda(Vec<TaggedValue>)   — gc.rs:871
-    //    Returns a map: (object_type, index) -> live TaggedValue
-    let mut heap = Box::new(TaggedHeap::new());
-    let live_map = rehydrate_non_cons(&archived_non_cons, cons_base, &mut heap);
-
-    // 6. Patch cons arena: fix non-cons pointers
-    //    After step 3, cons cells with car/cdr pointing to non-cons
-    //    objects still have unresolved values. Walk cons arena again
-    //    and resolve non-cons DumpTaggedValues via live_map.
-    patch_cons_non_cons_refs(cons_arena, cons_base, &live_map);
-
-    // 7. Set up dump-cons-aware heap
-    heap.set_dump_cons_region(DumpConsRegion {
-        base: cons_base as *const u8,
-        len: header.cons_arena_len as usize,
-        _mmap: mmap,  // heap owns mmap to keep it alive
-    });
-
-    // 8. Reconstruct evaluator — mirrors reconstruct_evaluator
-    //    (mod.rs:231) step-by-step, with v2 value resolution.
-    let ctx = reconstruct_evaluator_v2(
-        heap, &mmap, &header, cons_base, &live_map,
-    )?;
-    Ok(ctx)
-}
-
-/// v2 equivalent of reconstruct_evaluator (mod.rs:231).
-/// Mirrors every step of the v1 orchestrator.
-fn reconstruct_evaluator_v2(
-    mut heap: Box<TaggedHeap>,
-    mmap: &MmapMut,
-    header: &DumpHeaderV2,
-    cons_base: usize,
-    live_map: &LiveMap,
-) -> Result<Context, DumpError> {
-    // Access archived metadata via rkyv zero-copy
-    let meta = rkyv::access::<ArchivedDumpContextStateV2, _>(
-        &mmap[header.metadata_offset as usize
-              ..header.metadata_offset as usize + header.metadata_len as usize]
-    )?;
-
-    // Step 1: Reconstruct interner FIRST (before any SymId resolution)
-    // Mirrors: reconstruct_evaluator line "load_interner(&state.interner)"
-    load_interner_v2(&meta.interner);
-
-    // Step 2: Set up tagged heap as thread-local
-    // Mirrors: set_tagged_heap(&mut tagged_heap) + preload_tagged_heap
-    // v2: heap already contains rehydrated objects; just install it
-    crate::tagged::gc::set_tagged_heap(&mut heap);
-
-    // Step 3: Reset thread-local runtime caches
-    // Mirrors: reset_runtime_for_new_heap(HeapResetMode::PdumpRestore)
-    reset_runtime_for_new_heap(HeapResetMode::PdumpRestore);
-
-    // Step 4: Restore thread-local registries
-    // Mirrors: load_charset_registry + load_fontset_registry
-    load_charset_registry_v2(&meta.charset_registry);
-    load_fontset_registry_v2(&meta.fontset_registry);
-
-    // Step 5: Resolve all DumpTaggedValue fields to live Values,
-    //         rebuild subsystems, call Context::from_dump with
-    //         22 individual arguments (eval.rs:3819)
-    let resolver = |dtv: &DumpTaggedValue| -> Value {
-        resolve_dump_tagged_value(dtv, cons_base, live_map)
-    };
-
-    let mut eval = Context::from_dump(
-        heap,
-        rebuild_obarray_v2(&meta.obarray, &resolver),
-        resolver(&meta.lexenv),
-        meta.features.iter().map(|id| SymId(*id)).collect(),
-        meta.require_stack.iter().map(|id| SymId(*id)).collect(),
-        meta.loads_in_progress.iter().map(PathBuf::from).collect(),
-        rebuild_buffer_manager_v2(&meta.buffers, &resolver),
-        rebuild_autoload_manager_v2(&meta.autoloads, &resolver),
-        rebuild_custom_manager_v2(&meta.custom, &resolver),
-        rebuild_mode_registry_v2(&meta.modes, &resolver),
-        rebuild_coding_system_manager_v2(&meta.coding_systems, &resolver),
-        rebuild_face_table_v2(&meta.face_table, &resolver),
-        rebuild_abbrev_manager_v2(&meta.abbrevs, &resolver),
-        rebuild_interactive_v2(&meta.interactive, &resolver),
-        rebuild_rectangle_v2(&meta.rectangle, &resolver),
-        resolver(&meta.standard_syntax_table),
-        resolver(&meta.standard_category_table),
-        resolver(&meta.current_local_map),
-        rebuild_kmacro_v2(&meta.kmacro, &resolver),
-        rebuild_register_manager_v2(&meta.registers, &resolver),
-        rebuild_bookmark_manager_v2(&meta.bookmarks, &resolver),
-        rebuild_watcher_list_v2(&meta.watchers, &resolver),
-    );
-
-    // Step 6: Re-install BUFFER_OBJFWD forwarders
-    // Mirrors: the BUFFER_SLOT_INFO loop after Context::from_dump
-    // in reconstruct_evaluator (mod.rs:~290)
-    reinstall_buffer_objfwd(&mut eval);
-
-    Ok(eval)
+```rust
+struct LiveObjects {
+    strings: Vec<Value>,
+    floats: Vec<Value>,
+    vectors: Vec<Value>,
+    records: Vec<Value>,
+    hash_tables: Vec<Value>,
+    lambdas: Vec<Value>,
+    macros: Vec<Value>,
+    bytecodes: Vec<Value>,
+    overlays: Vec<Value>,
+    markers: Vec<Value>,
+    bignums: Vec<Value>,
+    subrs: Vec<Value>,
+    buffers: Vec<Value>,
+    windows: Vec<Value>,
+    frames: Vec<Value>,
+    timers: Vec<Value>,
 }
 ```
+
+6. Patch the cons arena in place:
+   - cons refs -> absolute cons pointers
+   - string refs -> live string pointers
+   - float refs -> live float pointers
+   - veclike refs -> live veclike pointers
+7. Attach the cons backing store to `TaggedHeap` as `dump_cons_region`.
+8. Run `reconstruct_evaluator_v2`, which handles the final evaluator assembly after heap rehydration:
+   - confirm the rehydrated heap is installed as the current tagged heap
+   - `reset_runtime_for_new_heap(HeapResetMode::PdumpRestore)`
+   - `load_charset_registry_v2`
+   - `load_fontset_registry_v2`
+   - rebuild the 22 arguments to `Context::from_dump`
+   - reinstall `BUFFER_OBJFWD` forwarders
+
+There is no `finish_preload_tagged_heap()` analogue because v2 does not install a temporary `TaggedLoadState`.
+
+### Resolving Structured Values
+
+All metadata and non-cons fields resolve through one function:
+
+```rust
+fn resolve_dump_value_ref(
+    value: &DumpValueRef,
+    cons_base: usize,
+    live: &LiveObjects,
+) -> Value
+```
+
+Resolution rules:
+
+- `Nil`, `True`, `Unbound`, `Fixnum`, `Symbol` -> direct constructors
+- `Cons(index)` -> `unsafe { TaggedValue::from_cons_ptr(...) }`
+- `String/Float/...` -> lookup in `LiveObjects`
+- `Subr(index)` -> `live.subrs[index]`
+- `Buffer/Window/Frame/Timer(index)` -> lookup in `LiveObjects`
+
+### Rehydrating Each Object Kind
+
+Use the actual runtime constructors:
+
+- strings -> `LispString::from_dump(data, size, size_byte)` then `alloc_string`
+- floats -> `alloc_float`
+- vectors/records -> allocate placeholder `Vec<Value>` then fill with mutate helpers
+- lambdas/macros -> allocate placeholder closure slots then fill
+- bytecode -> allocate empty `ByteCodeFunction`, then populate fields
+- hash tables -> allocate with options, then fill entries/key snapshots/insertion order
+- overlays/markers -> allocate payload structs, then fill fields
+- bignums -> `Value::make_integer_from_str_or_zero`
+- subrs -> `Value::subr(SymId(sym_id))`
+- buffers/windows/frames/timers -> `Value::make_buffer`, `Value::make_window`, `Value::make_frame`, `Value::make_timer`
 
 ---
 
 ## GC Integration
 
-Only cons cells are dump-resident. All other objects are normal
-heap allocations from rehydration.
+Only cons cells are dump-resident.
 
-**Detection**: `TaggedHeap::is_dump_cons(ptr: *const ConsCell) -> bool` — O(1) pointer-range check against `dump_cons_region`.
+Required changes:
 
-**Mark phase**: When tracing a cons, check `is_dump_cons`. If yes, do NOT mark it (always live). But DO trace car and cdr — they may reference rehydrated heap objects that need marking.
+- `TaggedHeap` gains `dump_cons_region: Option<Box<DumpConsRegion>>`
+- `DumpConsRegion` owns either `MmapMut` or `Box<[u8]>`
+- `is_dump_cons(ptr)` does a pointer-range check
+- mark phase traces through dump cons cells but never marks them for sweep
+- sweep phase skips dump cons pointers
+- conservative stack scan accepts dump-cons-region pointers
 
-**Sweep phase**: Skip dump-resident cons pointers (outside ConsBlock allocator). All non-cons objects are normal — sweep unchanged.
+Mutation rules:
 
-**Conservative stack scan**: `is_valid_heap_pointer` accepts dump-cons-region pointers.
+- `setcar` / `setcdr` on dump conses work via COW for mmap-backed loads and direct memory mutation for byte-backed snapshot restores
+- all non-cons mutations go through the ordinary heap objects and existing `mutate.rs` helpers
 
-**Mutation**: MAP_PRIVATE gives transparent COW. setcar/setcdr on dump conses works at the memory level. The GC traces all reachable conses anyway. All 17 mutation paths in mutate.rs target rehydrated (normal heap) objects and already have write tracking — no changes needed.
+---
+
+## Public API After Cutover
+
+These names stay:
+
+- `pdump::dump_to_file`
+- `pdump::load_from_dump`
+- `pdump::snapshot_evaluator`
+- `pdump::snapshot_active_evaluator`
+- `pdump::restore_snapshot`
+- `pdump::clone_evaluator`
+- `pdump::clone_active_evaluator`
+
+These internals go away:
+
+- bincode payload format
+- `DumpContextState` as the public snapshot type
+- `DumpValue` / `DumpHeapRef`
+- `TaggedLoadState`
+- `preload_tagged_heap`
+- `finish_preload_tagged_heap`
+- version dispatch to old dump formats
 
 ---
 
 ## Performance Projection
 
-| Phase | v1 (bincode) | v2 (rkyv) |
-|-------|-------------|-----------|
-| File I/O | 5ms (read) | <0.1ms (mmap) |
-| Cons cells (~80K) | ~60ms (alloc) | ~2ms (relocate) |
-| Non-cons (~20K) | ~50ms (alloc) | ~15ms (rehydrate) |
-| Evaluator assembly | ~30ms | ~3ms |
+| Phase | Current | Target |
+|-------|---------|--------|
+| File I/O | ~5ms read | <0.1ms mmap |
+| Cons heap | ~60ms deserialize/alloc | ~2ms patch in place |
+| Non-cons heap | ~50ms deserialize/alloc | ~15ms rehydrate |
+| Evaluator restore | ~30ms | ~3ms |
 | **Total** | **~150ms** | **~20ms** |
 
 ---
 
 ## Tasks
 
-### Task 1: Dependencies and DumpTaggedValue
+### Task 1: Replace Public Snapshot Type
 
-**Files:** `neovm-core/Cargo.toml`, new `pdump/v2_types.rs`
+**Files:** `neovm-core/src/emacs_core/pdump/mod.rs`
 
-- [ ] Add `memmap2 = "0.9"`, `rkyv = { version = "0.8", features = ["bytecheck"] }` to Cargo.toml
-- [ ] Define `DumpTaggedValue(u64)` with tag helpers matching TaggedValue (value.rs:89)
-- [ ] Define `DumpHeaderV2` (128 bytes)
-- [ ] Unit tests: DumpTaggedValue round-trip for fixnum, symbol, cons offset, nil, t
+- [ ] Introduce `RuntimeImageV2`
+- [ ] Change `snapshot_evaluator` / `snapshot_active_evaluator` to return `Result<RuntimeImageV2, DumpError>`
+- [ ] Change `restore_snapshot` to accept `&RuntimeImageV2`
+- [ ] Update clone helpers and shared tests to use the new image type
 - [ ] Commit
 
-### Task 2: v2 Dump Types with rkyv Derives
+### Task 2: Define New Format Types
 
-**Files:** new `pdump/v2_types.rs`
+**Files:** new `neovm-core/src/emacs_core/pdump/format.rs`
 
-- [ ] Define `DumpStringV2`, `DumpByteCodeV2`, `DumpHashTableV2`, `DumpLambdaV2`, `DumpOverlayV2`, `DumpMarkerV2`, `DumpVectorV2` — all with `#[derive(Archive, Serialize, Deserialize)]`, all fields matching v1 types.rs equivalents (diff against types.rs to verify completeness)
-- [ ] Define `DumpNonConsSection` containing Vec of each type
-- [ ] Define `DumpContextStateV2` with all ~25 fields matching v1's DumpContextState
-- [ ] Unit tests: each v2 type serializes and archives correctly
+- [ ] Define `DumpHeader`
+- [ ] Define `DumpValueRef`
+- [ ] Define `DumpSlotWord` encode/decode helpers
+- [ ] Define `DumpVeclikeKind`
+- [ ] Define `DumpNonConsSection`
+- [ ] Define every `Dump*V2` payload type
+- [ ] Define `DumpMetadataV2`
+- [ ] Unit tests for field coverage and slot encoding
 - [ ] Commit
 
-### Task 3: Cons Arena Builder
+### Task 3: Build RuntimeImageV2
 
-**Files:** new `pdump/v2_dump.rs`
+**Files:** new `neovm-core/src/emacs_core/pdump/dump.rs`
 
-- [ ] Implement cons arena builder: depth-first walk from roots, dedup via `ptr_to_offset: HashMap`, write 16-byte ConsCells with DumpTaggedValue car/cdr
-- [ ] DumpTaggedValue for cons pointers stores cell INDEX (not byte offset) for compact encoding
-- [ ] DumpTaggedValue for non-cons pointers stores (type, index) pair identifying the object in DumpNonConsSection's typed Vecs
-- [ ] Unit tests: dump a cons tree, verify arena byte layout
+- [ ] Walk evaluator state into `DumpMetadataV2`
+- [ ] Traverse reachable heap objects and partition into cons arena vs non-cons typed vectors
+- [ ] Dedup conses and non-cons objects by pointer identity
+- [ ] Encode cons cells into raw `DumpSlotWord` pairs
+- [ ] Archive non-cons section and metadata section with rkyv
+- [ ] Return `RuntimeImageV2`
+- [ ] Unit tests for mixed heaps, dedup, and section completeness
 - [ ] Commit
 
-### Task 4: Non-Cons and Metadata Serialization
+### Task 4: File Writer
 
-**Files:** `pdump/v2_dump.rs`
+**Files:** `neovm-core/src/emacs_core/pdump/mod.rs`, new `pdump/file.rs`
 
-- [ ] Implement non-cons collector: walk all reachable non-cons objects, populate DumpNonConsSection's typed Vecs
-- [ ] Implement metadata collector: populate DumpContextStateV2 from live Context (mirror v1's dump_evaluator logic)
-- [ ] Implement `dump_to_file_v2()`: write header + cons arena + rkyv-serialized non-cons + rkyv-serialized metadata + roots
-- [ ] Unit tests: dump a bootstrap Context, verify header, verify all sections present
+- [ ] Replace the old bincode file writer with `DumpHeader + sections`
+- [ ] Compute checksum over all sections after the header
+- [ ] Write atomically via temp file as today
+- [ ] Unit tests for header bounds and checksum validation
 - [ ] Commit
 
-### Task 5: Cons Arena Loader with Relocation
+### Task 5: Loader Core
 
-**Files:** new `pdump/v2_load.rs`
+**Files:** new `neovm-core/src/emacs_core/pdump/load.rs`
 
-- [ ] Implement `load_dump_v2()`: mmap file, validate header, extract section slices
-- [ ] Implement `relocate_cons_arena()`: walk cons cells, rewrite cons-pointer slots from cell indices to absolute mmap'd addresses via `unsafe TaggedValue::from_cons_ptr()` (value.rs:165)
-- [ ] Unit tests: dump + relocate round-trip, verify cons car/cdr are valid pointers
+- [ ] Implement shared `load_runtime_image_v2`
+- [ ] Implement file-backed section extraction from `MmapMut`
+- [ ] Implement byte-backed section extraction from `RuntimeImageV2`
+- [ ] Rebuild interner before object rehydration
+- [ ] Rehydrate all non-cons kinds into `LiveObjects`
+- [ ] Patch cons arena in two passes
+- [ ] Attach `DumpConsBacking` to `TaggedHeap`
 - [ ] Commit
 
-### Task 6: Non-Cons Rehydration
+### Task 6: Evaluator Reconstruction
 
-**Files:** `pdump/v2_load.rs`
+**Files:** `pdump/load.rs`, `pdump/mod.rs`
 
-- [ ] Access archived non-cons section via rkyv zero-copy
-- [ ] Rehydrate each object type using actual TaggedHeap APIs: `alloc_string(LispString)` (gc.rs:779), `alloc_float(f64)` (gc.rs:793), `alloc_vector(Vec<TaggedValue>)` (gc.rs:837), `alloc_lambda(Vec<TaggedValue>)` (gc.rs:871), etc.
-- [ ] Two-pass: pass 1 allocates with NIL slots, pass 2 resolves DumpTaggedValue references via cons_base + live_map
-- [ ] Patch cons arena: walk cons cells again, resolve car/cdr that point to non-cons objects via live_map
-- [ ] Unit tests: dump + load round-trip with mixed cons/string/vector heap
+- [ ] Implement `reconstruct_evaluator_v2`
+- [ ] Mirror the current post-heap orchestration: confirm heap install, reset runtime caches, restore charset/fontset registries, call `Context::from_dump`, then reinstall `BUFFER_OBJFWD`
+- [ ] Rebuild all 22 `Context::from_dump` arguments from `DumpMetadataV2`
+- [ ] Remove v1-only preload helpers
+- [ ] Unit tests for `restore_snapshot`, `clone_evaluator`, and `clone_active_evaluator`
 - [ ] Commit
 
-### Task 7: Evaluator State Restore
+### Task 7: GC Support for Dump Cons Backing
 
-**Files:** `pdump/v2_load.rs`, modify `pdump/mod.rs`
+**Files:** `neovm-core/src/tagged/gc.rs`
 
-- [ ] Implement `rebuild_*` functions for each of the 22 args to Context::from_dump (eval.rs:3819): obarray, buffers, autoloads, modes, coding_systems, face_table, abbrevs, interactive, rectangle, kmacro, registers, bookmarks, watchers, etc.
-- [ ] Each rebuild function accesses archived DumpContextStateV2 fields via rkyv zero-copy, resolves DumpTaggedValues, constructs live Rust types
-- [ ] Call `Context::from_dump(heap, obarray, lexenv, ...)` with all 22 args
-- [ ] Wire into `restore_snapshot` with FORMAT_VERSION dispatch (v1 bincode, v2 rkyv)
-- [ ] Unit tests: dump + load round-trip, verify `(+ 1 2)` evals, `(car '(a b))` works, `(symbol-value 'features)` returns correct list
+- [ ] Add `DumpConsBacking`
+- [ ] Add `DumpConsRegion`
+- [ ] Implement `is_dump_cons`
+- [ ] Trace through dump conses during mark
+- [ ] Skip dump conses during sweep
+- [ ] Accept dump cons pointers in conservative scan
+- [ ] Unit tests for file-backed and byte-backed dump cons regions
 - [ ] Commit
 
-### Task 8: DumpConsRegion in TaggedHeap
+### Task 8: Bootstrap Integration
 
-**Files:** modify `tagged/gc.rs`
+**Files:** `neovm-core/src/emacs_core/load.rs`, `xtask/src/main.rs`
 
-- [ ] Add `dump_cons_region: Option<Box<DumpConsRegion>>` to TaggedHeap
-- [ ] `is_dump_cons(ptr)` — O(1) pointer-range check
-- [ ] GC mark: trace through dump conses (do NOT mark, DO trace car/cdr)
-- [ ] GC sweep: skip dump cons pointers
-- [ ] Conservative scan: accept dump-cons-region pointers
-- [ ] Unit tests: GC with dump + heap cons mix
+- [ ] Keep the public names `dump_to_file` and `load_from_dump`
+- [ ] Replace their implementations with the new format
+- [ ] Remove any old-format assumptions from bootstrap code
+- [ ] Full bootstrap round-trip with the new format only
+- [ ] Benchmark release startup
 - [ ] Commit
 
-### Task 9: Bootstrap Integration
+### Task 9: Delete the Old Pipeline
 
-**Files:** `pdump/mod.rs`, `xtask/src/main.rs`
+**Files:** `pdump/types.rs`, `pdump/convert.rs`, `pdump/mod.rs`, related tests
 
-- [ ] Wire `dump_to_file_v2` into xtask bootstrap pipeline
-- [ ] Wire `load_dump_v2` into `load_runtime_image` with version dispatch
-- [ ] Full bootstrap: temacs -> pdump v2 -> load -> verify
-- [ ] Benchmark startup time (release build, `-nw -Q --batch`)
+- [ ] Delete `DumpContextState`, `DumpValue`, `DumpHeapRef`, and `TaggedLoadState`
+- [ ] Delete bincode serialization/deserialization code
+- [ ] Delete old-format tests
+- [ ] Rename any temporary `*V2` module/type names if desired
 - [ ] Commit
 
 ---
 
 ## Risks
 
-1. **Alignment**: Cons arena cells must be 16-byte aligned (natural for 2x u64). Mmap guarantees page alignment (4KB), so the first cell is always aligned.
-2. **Versioning**: FORMAT_VERSION in header. Old dumps rejected; regenerate from bootstrap.
-3. **v1 type field coverage**: v2 types MUST cover every field v1 covers. Verified by diffing v2 type fields against v1 types.rs. Missing a field = silent data loss.
-4. **Release pdump SIGSEGV**: Pre-existing bug. Must be fixed independently.
-5. **Two-pass cons patching**: Cons cells may reference non-cons objects that aren't rehydrated yet during cons relocation. The patch pass (step 6 in loader) fixes this after rehydration.
-6. **mmap lifetime**: DumpConsRegion in TaggedHeap owns the MmapMut. Never dropped until process exit.
-7. **Endianness**: Native byte order only. No cross-architecture dump sharing.
+1. **Slot encoding drift:** `DumpSlotWord` is the most fragile part of the design. Keep one exact encoding and test it exhaustively.
+2. **Field coverage drift:** every v2 payload type must be diffed against the current runtime/v1 semantic surface before code lands.
+3. **Snapshot lifetime:** dump cons backing must survive for the lifetime of the restored `Context` for both mmap-backed and byte-backed loads.
+4. **ID-backed wrappers:** subrs, buffers, windows, frames, and timers must be canonicalized through the live heap so repeated references preserve runtime identity semantics.
+5. **Release pdump crash:** the current release-mode pdump SIGSEGV is pre-existing and may need to be solved in parallel.
+6. **No compatibility path:** this is intentional, but it means the branch must keep bootstrapping as the refactor lands.
