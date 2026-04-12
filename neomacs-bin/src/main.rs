@@ -1120,7 +1120,21 @@ pub fn run(mode: RuntimeMode) {
     }
 
     let bootstrap_display = bootstrap_display_config(startup.frontend);
-    let (width, height) = startup_dimensions(startup.frontend, bootstrap_frame_metrics());
+    // For TTY, frame dimensions are in character cells (1x1), so we
+    // don't need to scan the system font database for font metrics.
+    // This avoids ~500ms of FontMetricsService initialization at
+    // startup. GUI mode computes real pixel dimensions from font
+    // metrics via bootstrap_frame_metrics().
+    let frame_metrics = if startup.frontend == FrontendKind::Tty {
+        BootstrapFrameMetrics {
+            char_width: 1.0,
+            char_height: 1.0,
+            font_pixel_size: 16.0,
+        }
+    } else {
+        bootstrap_frame_metrics()
+    };
+    let (width, height) = startup_dimensions(startup.frontend, frame_metrics);
     // 2. Initialize the evaluator from the canonical bootstrap surface.
     //    GNU loads the dumped bootstrap image here, then lets the outer
     //    command loop evaluate `top-level`/`normal-top-level`.
@@ -1262,8 +1276,12 @@ pub fn run(mode: RuntimeMode) {
     // 9. Set up redisplay callback (layout engine + send frame)
     match startup.frontend {
         FrontendKind::Gui => {
-            // GUI mode: LayoutEngine::new() already enabled cosmic
-            // metrics by default, so there is nothing to do here.
+            // GUI mode: enable cosmic-text font metrics on the layout
+            // engine. The thread-local starts without fonts to keep
+            // TTY startup fast; GUI enables them here on first use.
+            LAYOUT_ENGINE.with(|engine| {
+                engine.borrow_mut().enable_cosmic_metrics();
+            });
             let frame_tx = emacs_comms.frame_tx;
             evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
                 eval.setup_thread_locals();
@@ -1684,8 +1702,17 @@ fn bootstrap_buffers(
 
     // Seed frame parameters so GNU Lisp startup sees the correct host surface.
     if let Some(frame) = eval.frame_manager_mut().get_mut(frame_id) {
-        let default_font = bootstrap_default_font_parameter(frame_metrics.font_pixel_size);
-        let default_font_name = bootstrap_default_font_name(frame_metrics.font_pixel_size);
+        // Font parameter resolution creates a FontMetricsService which
+        // scans the system font database (~500ms). Skip for TTY where
+        // font parameters are unused — TTY uses 1x1 character cells.
+        let (default_font, default_font_name) = if display.frontend == FrontendKind::Tty {
+            (Value::NIL, Value::string("fixed"))
+        } else {
+            (
+                bootstrap_default_font_parameter(frame_metrics.font_pixel_size),
+                bootstrap_default_font_name(frame_metrics.font_pixel_size),
+            )
+        };
         frame.width = width;
         frame.height = height;
         frame.visible = true;
@@ -2098,8 +2125,11 @@ fn current_layout_frame_id(evaluator: &Context) -> Option<FrameId> {
 }
 
 thread_local! {
+    // Start without font metrics to avoid the ~500ms cosmic-text
+    // font database scan on first access. The GUI path enables
+    // cosmic metrics explicitly; the TTY path leaves it as None.
     static LAYOUT_ENGINE: std::cell::RefCell<neomacs_display_runtime::layout::LayoutEngine> =
-        std::cell::RefCell::new(neomacs_display_runtime::layout::LayoutEngine::new());
+        std::cell::RefCell::new(neomacs_display_runtime::layout::LayoutEngine::new_without_font_metrics());
 }
 
 /// Run the layout engine on the selected live frame.

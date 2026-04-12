@@ -1088,13 +1088,12 @@ pub struct LayoutEngine {
 }
 
 impl LayoutEngine {
-    /// Create a new layout engine.
+    /// Create a new layout engine with cosmic-text font metrics.
     ///
-    /// Defaults to cosmic-text font measurement (GUI mode). TTY
-    /// binaries should call `disable_cosmic_metrics()` after
-    /// construction to drop the `FontMetricsService` and fall back
-    /// to the character-cell grid. Matches the previous default of
-    /// `use_cosmic_metrics: true` now that the runtime flag is gone.
+    /// Initializes the `FontMetricsService` eagerly (~500ms font
+    /// database scan). Used by GUI mode and tests that need pixel-
+    /// accurate font measurement. TTY binaries should use
+    /// `new_without_font_metrics()` to skip the scan.
     pub fn new() -> Self {
         Self {
             text_buf: Vec::with_capacity(64 * 1024), // 64KB initial
@@ -1106,6 +1105,33 @@ impl LayoutEngine {
             current_resolved_family: String::new(),
             resolved_family_face_id: u32::MAX,
             font_metrics: Some(FontMetricsService::new()),
+            prev_window_infos: std::collections::HashMap::new(),
+            prev_selected_window_id: 0,
+            prev_background: None,
+            matrix_builder: crate::matrix_builder::GlyphMatrixBuilder::new(),
+            last_frame_display_state: None,
+            frame_face_id_counter: 1,
+            pending_tab_bar_glyphs: None,
+        }
+    }
+
+    /// Create a layout engine without font metrics (TTY mode).
+    ///
+    /// Skips the ~500ms cosmic-text font database scan. All
+    /// measurements fall back to the character-cell grid (1x1 for
+    /// TTY, matching GNU Emacs frame.c:1184-1185). GUI binaries
+    /// should use `new()` instead.
+    pub fn new_without_font_metrics() -> Self {
+        Self {
+            text_buf: Vec::with_capacity(64 * 1024),
+            ascii_width_cache: std::collections::HashMap::new(),
+            hit_data: Vec::new(),
+            display_snapshots: Vec::new(),
+            run_buf: LigatureRunBuffer::new(),
+            ligatures_enabled: false,
+            current_resolved_family: String::new(),
+            resolved_family_face_id: u32::MAX,
+            font_metrics: None,
             prev_window_infos: std::collections::HashMap::new(),
             prev_selected_window_id: 0,
             prev_background: None,
