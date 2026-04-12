@@ -45,20 +45,25 @@ rkyv (archive) is a Rust zero-copy deserialization framework. Archived data uses
 ```
 Offset  Section
 ------  -------
-0x0000  Header (64 bytes)
-        - magic: b"NEODUMP2"
-        - version: u32
-        - checksum: [u8; 32] (SHA-256 of remaining sections)
-        - arena_offset: u64
-        - arena_len: u64
-        - object_table_offset: u64
-        - object_table_len: u64
-        - metadata_offset: u64
-        - metadata_len: u64
-        - roots_offset: u64
-        - roots_len: u64
+0x0000  Header (128 bytes)
+        struct DumpHeader {
+            magic: [u8; 8],                // b"NEODUMP2"
+            version: u32,                  // FORMAT_VERSION
+            _pad0: u32,
+            cons_arena_offset: u64,        // byte offset of cons arena
+            cons_arena_len: u64,           // byte length of cons arena
+            non_cons_arena_offset: u64,    // byte offset of non-cons arena
+            non_cons_arena_len: u64,       // byte length of non-cons arena
+            object_table_offset: u64,      // byte offset of object table
+            object_table_count: u64,       // number of ObjectTableEntry items
+            metadata_offset: u64,          // byte offset of rkyv metadata
+            metadata_len: u64,             // byte length of rkyv metadata
+            roots_offset: u64,             // byte offset of root table
+            roots_count: u64,              // number of DumpTaggedValue roots
+            checksum: [u8; 32],            // SHA-256 of all sections after header
+        }  // total: 128 bytes
 
-0x0040  Cons Arena (hot section, true zero-copy)
+0x0080  Cons Arena (hot section, true zero-copy)
         Flat byte buffer of ConsCell objects (no GcHeader).
         Each cell: 16 bytes, 8-byte aligned.
         Pointer slots store DumpTaggedValue (offset-based).
@@ -409,7 +414,21 @@ fn relocate_cons_arena(
 Non-cons objects cannot be used directly from the mmap because
 their live layouts contain Rust heap containers (Vec, HashMap,
 OnceLock). The loader reads each inline dump object and allocates
-a live Rust heap object:
+a live Rust heap object using the actual TaggedHeap APIs.
+
+**Actual TaggedHeap allocation APIs** (from gc.rs):
+- `heap.alloc_string(LispString) -> TaggedValue` (gc.rs:779)
+- `heap.alloc_float(f64) -> TaggedValue` (gc.rs:837)
+- `heap.alloc_vector(Vec<TaggedValue>) -> TaggedValue` (gc.rs:986)
+- `heap.alloc_record(Vec<TaggedValue>) -> TaggedValue`
+- `heap.alloc_lambda(Vec<TaggedValue>) -> TaggedValue`
+- `heap.alloc_macro_obj(Vec<TaggedValue>) -> TaggedValue`
+- `heap.alloc_bytecode(ByteCodeFunction) -> TaggedValue`
+- `heap.alloc_hash_table(LispHashTable) -> TaggedValue`
+- `heap.alloc_overlay(OverlayData) -> TaggedValue`
+- `heap.alloc_marker(MarkerData) -> TaggedValue`
+
+**Two-pass rehydration** (handles inter-object references):
 
 ```rust
 fn rehydrate_non_cons_objects(
@@ -417,47 +436,137 @@ fn rehydrate_non_cons_objects(
     cons_base_addr: usize,
     object_table: &[ObjectTableEntry],
     heap: &mut TaggedHeap,
-) -> HashMap<u32, *mut u8> {
-    // Maps dump-arena offset -> live heap pointer
-    let mut offset_to_live: HashMap<u32, *mut u8> = HashMap::new();
+) -> HashMap<u32, TaggedValue> {
+    // Pass 1: allocate all objects with placeholder slot values.
+    // This assigns every non-cons object a live heap address so
+    // inter-object references can be resolved in pass 2.
+    let mut offset_to_live: HashMap<u32, TaggedValue> = HashMap::new();
 
     for entry in object_table {
         if entry.arena != ARENA_NON_CONS { continue; }
         let data = &non_cons_arena[entry.offset as usize..];
-        let live_ptr = match entry.type_tag {
+        let live_val = match entry.type_tag {
             OBJ_FLOAT => {
                 let dump = unsafe { &*(data.as_ptr() as *const DumpFloat) };
-                // Allocate live FloatObj with proper GcHeader
                 heap.alloc_float(dump.value)
             }
             OBJ_STRING => {
                 let dump = unsafe { &*(data.as_ptr() as *const DumpString) };
                 let bytes = &data[16..16 + dump.data_len as usize];
-                heap.alloc_string(bytes, dump.size_byte)
+                let ls = LispString::from_raw_bytes(bytes, dump.size_byte);
+                heap.alloc_string(ls)
             }
+            OBJ_VECTOR => {
+                let dump = unsafe { &*(data.as_ptr() as *const DumpVector) };
+                // Placeholder: allocate with NIL slots, fill in pass 2
+                let slots = vec![TaggedValue::NIL; dump.len as usize];
+                heap.alloc_vector(slots)
+            }
+            OBJ_RECORD => {
+                let dump = unsafe { &*(data.as_ptr() as *const DumpVector) };
+                let slots = vec![TaggedValue::NIL; dump.len as usize];
+                heap.alloc_record(slots)
+            }
+            OBJ_LAMBDA => {
+                let dump = unsafe { &*(data.as_ptr() as *const DumpLambda) };
+                let slots = vec![TaggedValue::NIL; dump.slot_count as usize];
+                heap.alloc_lambda(slots)
+            }
+            // ... similar for Macro, ByteCode, HashTable, Overlay, Marker
+            _ => continue,
+        };
+        offset_to_live.insert(entry.offset, live_val);
+    }
+
+    // Pass 2: resolve DumpTaggedValue slots to live TaggedValues
+    // and write them into the allocated objects.
+    for entry in object_table {
+        if entry.arena != ARENA_NON_CONS { continue; }
+        let data = &non_cons_arena[entry.offset as usize..];
+        let live_val = offset_to_live[&entry.offset];
+        match entry.type_tag {
             OBJ_VECTOR | OBJ_RECORD => {
                 let dump = unsafe { &*(data.as_ptr() as *const DumpVector) };
-                let slots = unsafe {
+                let dump_slots = unsafe {
                     std::slice::from_raw_parts(
                         data[8..].as_ptr() as *const DumpTaggedValue,
                         dump.len as usize,
                     )
                 };
-                // Resolve each slot's DumpTaggedValue to a live TaggedValue
-                let live_slots: Vec<TaggedValue> = slots.iter()
-                    .map(|dv| resolve_dump_value(dv, cons_base_addr, &offset_to_live))
-                    .collect();
-                heap.alloc_vector(dump.type_tag, live_slots)
+                for (i, dv) in dump_slots.iter().enumerate() {
+                    let resolved = resolve_dump_value(
+                        dv, cons_base_addr, &offset_to_live
+                    );
+                    // Uses mutate.rs set_vector_slot (existing API)
+                    heap.set_vector_slot(live_val, i, resolved);
+                }
             }
-            // ... similar for Lambda, Macro, ByteCode, HashTable,
-            //     Overlay, Marker
-            _ => continue,
-        };
-        offset_to_live.insert(entry.offset, live_ptr);
+            // ... similar for Lambda, Macro, ByteCode, HashTable
+            _ => {}
+        }
     }
+
     offset_to_live
 }
+
+/// Resolve a DumpTaggedValue to a live TaggedValue.
+fn resolve_dump_value(
+    dv: &DumpTaggedValue,
+    cons_base_addr: usize,
+    offset_to_live: &HashMap<u32, TaggedValue>,
+) -> TaggedValue {
+    if dv.is_immediate() {
+        // Fixnum, symbol, nil, t — pass through unchanged
+        TaggedValue(dv.0 as usize)
+    } else if dv.is_cons_pointer() {
+        // Cons: offset into mmap'd cons arena -> absolute pointer
+        let abs = cons_base_addr + dv.pointer_bits() as usize;
+        TaggedValue::from_raw_tagged(abs | TAG_CONS)
+    } else {
+        // Non-cons heap: lookup in rehydrated object map
+        let offset = dv.pointer_bits() as u32;
+        offset_to_live.get(&offset).copied()
+            .unwrap_or(TaggedValue::NIL)
+    }
+}
 ```
+
+### Full Evaluator State Restore
+
+The current pdump restores evaluator state through
+`DumpContextState` (pdump/types.rs:1031) and
+`Context::from_dump()` (eval.rs:3819). DumpContextState covers
+far more than interner/obarray/buffers:
+
+- Interner string table
+- Obarray symbol data (value cells, function cells, plists)
+- Buffer manager (all buffers, text content, markers)
+- Autoload registry
+- Coding system manager
+- Charset registry
+- Mode registry
+- Fontset registry
+- Load history
+- Features list
+- Require stack
+- Syntax table cache
+- Category table
+- Process manager state
+- Keyboard macro state
+- Pre-command/post-command hooks
+- Special variable bindings
+
+The v2 loader must restore ALL of these, not just the subset
+listed in the metadata section. The `ArchivedDumpMetadata` struct
+must mirror every field of `DumpContextState`. Fields that
+contain TaggedValues must use DumpTaggedValue and be resolved
+through the `offset_to_live` map during restore.
+
+The cleanest approach: keep the existing `DumpContextState` struct
+and its `Context::from_dump()` restore path. The v2 change is
+only in HOW the DumpContextState is populated — from rkyv
+zero-copy access + rehydrated heap objects instead of from
+bincode deserialization.
 
 ### DumpTaggedValue Relocation
 
@@ -692,36 +801,37 @@ bincode.
 **Files:**
 - Modify: `neovm-core/src/emacs_core/pdump/mod.rs`
 
-- [ ] **Step 1:** Implement `dump_to_file_v2()` that: walks roots, builds arena, serializes metadata, writes header + arena + metadata + roots to file
-- [ ] **Step 2:** Write test: dump a bootstrap Context, verify file header, verify arena contains expected objects
-- [ ] **Step 3:** Commit
+- [ ] **Step 1:** Implement `dump_to_file_v2()` that walks roots and builds: (a) cons arena via ArenaBuilder, (b) non-cons arena via ArenaBuilder, (c) object table from both arenas, (d) rkyv-serialized metadata mirroring all fields of DumpContextState, (e) root table
+- [ ] **Step 2:** Write file in section order: header (128 bytes) + cons arena + non-cons arena + object table + metadata + roots. Fill header with correct offsets/lengths for all 6 sections.
+- [ ] **Step 3:** Write test: dump a bootstrap Context, verify file header has correct section bounds, verify cons arena contains expected cons cells, verify object table entry count matches total objects
+- [ ] **Step 4:** Commit
 
-### Task 5: mmap loader with eager relocation
+### Task 5: mmap loader with cons relocation + non-cons rehydration
 
 **Files:**
 - Create: `neovm-core/src/emacs_core/pdump/loader_v2.rs`
 
-- [ ] **Step 1:** Implement `load_dump_v2()` — mmap file, validate header
-- [ ] **Step 2:** Implement `relocate_arena()` — walk object table, rewrite DumpTaggedValues from offsets to absolute pointers
-- [ ] **Step 3:** Implement `rebuild_interner()` from archived strings
-- [ ] **Step 4:** Implement `rebuild_obarray()` from archived symbol data
-- [ ] **Step 5:** Implement `Context::from_dump_v2()` — assemble a live Context from the relocated arena + rebuilt metadata
-- [ ] **Step 6:** Write test: dump + load round-trip, verify eval of simple expressions
+- [ ] **Step 1:** Implement `load_dump_v2()` — mmap file with MAP_PRIVATE, validate 128-byte header, extract section slices using header offsets
+- [ ] **Step 2:** Implement `relocate_cons_arena()` — walk object table entries where arena==CONS, rewrite each cons cell's car/cdr DumpTaggedValues from offsets to absolute pointers using cons arena base address
+- [ ] **Step 3:** Implement `rehydrate_non_cons_objects()` — two-pass: (pass 1) allocate live objects via actual TaggedHeap APIs (`alloc_string(LispString)`, `alloc_float(f64)`, `alloc_vector(Vec<TaggedValue>)`, etc.); (pass 2) resolve DumpTaggedValue slots to live TaggedValues and write into allocated objects
+- [ ] **Step 4:** Implement `rebuild_interner()` from archived strings
+- [ ] **Step 5:** Populate a `DumpContextState` from the rkyv-archived metadata + resolved heap objects, then call the existing `Context::from_dump()` (eval.rs:3819) to restore full evaluator state. This reuses the current restore surface unchanged.
+- [ ] **Step 6:** Write test: dump + load round-trip, verify eval of `(+ 1 2)`, `(car '(a b))`, `(symbol-value 'load-path)`
 - [ ] **Step 7:** Commit
 
-### Task 6: DumpRegion integration into TaggedHeap
+### Task 6: DumpConsRegion integration into TaggedHeap
 
 **Files:**
 - Modify: `neovm-core/src/tagged/gc.rs`
 - Modify: `neovm-core/src/tagged/value.rs`
 
-- [ ] **Step 1:** Add `dump_region: Option<Box<DumpRegion>>` to TaggedHeap
-- [ ] **Step 2:** Implement `is_dump_object()` pointer-range check
-- [ ] **Step 3:** Implement `new_with_dump()` constructor
-- [ ] **Step 4:** GC mark phase: skip dump-resident objects (no mark needed, always live)
-- [ ] **Step 5:** GC sweep phase: never free dump-resident pointers
-- [ ] **Step 6:** Conservative scan: accept dump-region pointers as valid
-- [ ] **Step 7:** Write tests: GC with dump-resident + heap-allocated objects coexisting
+- [ ] **Step 1:** Add `dump_cons_region: Option<Box<DumpConsRegion>>` to TaggedHeap (NOT a generic "dump region" — only cons cells are dump-resident)
+- [ ] **Step 2:** Implement `is_dump_cons(ptr) -> bool` pointer-range check (O(1) comparison)
+- [ ] **Step 3:** Implement `new_with_dump_cons()` constructor that takes the mmap'd cons arena ownership
+- [ ] **Step 4:** GC mark phase: when tracing a cons cell, check `is_dump_cons()`. If yes, do NOT mark it (dump conses are always live). But DO trace its car and cdr — they may reference rehydrated heap objects that need marking.
+- [ ] **Step 5:** GC sweep phase: skip dump-resident cons pointers in the ConsBlock sweep (they're outside ConsBlock allocator memory)
+- [ ] **Step 6:** Conservative stack scan: accept dump-cons-region pointers as valid in `is_valid_heap_pointer()`
+- [ ] **Step 7:** Write tests: (a) GC with mix of dump cons and heap cons, verify heap cons is collected but dump cons survives; (b) dump cons pointing to heap string, verify string is traced and not collected; (c) heap cons pointing to dump cons, verify dump cons is traced but not freed
 - [ ] **Step 8:** Commit
 
 ### Task 7: GC tracing through dump-resident cons cells
@@ -786,6 +896,27 @@ bincode.
 9. **Rehydration ordering**: Non-cons objects may reference other non-cons objects (e.g., a vector slot pointing to a string). The rehydration pass must process objects in dependency order, or use a two-pass approach (allocate all objects first with placeholder pointers, then fixup). The object table's ordering at dump time can ensure dependencies are written before dependents.
 
 10. **Live layout divergence**: The dump inline format (DumpString, DumpVector, etc.) is separate from the live layout (StringObj, VectorObj, etc.). Any change to a live struct's fields requires updating both the live type AND the dump type. Unit tests that round-trip dump+load catch this.
+
+## Review Corrections (Rev 2)
+
+Fixes three issues from second review:
+
+1. **Header size and missing arena bounds.** Fixed: header expanded
+   to 128 bytes with explicit fields for cons_arena_offset/len,
+   non_cons_arena_offset/len, object_table_offset/count,
+   metadata_offset/len, roots_offset/count, and checksum. All
+   sections are unambiguously locatable.
+
+2. **Tasks reflected old single-arena design.** Fixed: Task 4 now
+   writes all 6 sections (header + cons arena + non-cons arena +
+   object table + metadata + roots). Task 5 now has separate
+   relocate_cons_arena and rehydrate_non_cons_objects steps. Task 6
+   now says "trace through dump-resident conses" (not "skip").
+
+3. **Rehydration used nonexistent APIs.** Fixed: pseudocode now uses
+   actual TaggedHeap APIs (alloc_string(LispString), alloc_vector
+   (Vec<TaggedValue>), etc.). Full evaluator restore reuses the
+   existing DumpContextState + Context::from_dump() path unchanged.
 
 ## Review Corrections (Rev 1)
 
