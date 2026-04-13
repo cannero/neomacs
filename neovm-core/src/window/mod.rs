@@ -3731,23 +3731,6 @@ mod tests {
             row: 2,
             col: 7,
         };
-        let snapshot = WindowDisplaySnapshot {
-            window_id: wid,
-            logical_cursor: Some(WindowCursorPos::from_snapshot(&cursor)),
-            phys_cursor: Some(cursor.clone()),
-            rows: vec![DisplayRowSnapshot {
-                row: 4,
-                y: 64,
-                height: 16,
-                start_x: 0,
-                start_col: 0,
-                end_x: 144,
-                end_col: 18,
-                start_buffer_pos: Some(20),
-                end_buffer_pos: Some(38),
-            }],
-            ..WindowDisplaySnapshot::default()
-        };
         let frame = mgr.get_mut(fid).expect("frame");
         frame.begin_display_output_pass();
         {
@@ -3765,9 +3748,9 @@ mod tests {
                 end_buffer_pos: Some(32),
             });
             update.finalize(
-                snapshot.logical_cursor_pos(),
-                snapshot.phys_cursor.clone(),
-                Some(&snapshot),
+                Some(WindowCursorPos::from_snapshot(&cursor)),
+                Some(cursor.clone()),
+                None,
             );
         }
 
