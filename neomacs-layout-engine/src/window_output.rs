@@ -225,10 +225,12 @@ impl WindowOutputEmitter {
             rows: self.rows,
         };
         if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
-            frame.install_logical_cursor(self.window_id, logical_cursor);
-            frame.apply_physical_cursor_snapshot(self.window_id, phys_cursor);
-            frame.fallback_output_cursor_from_snapshot(&snapshot);
-            frame.finish_window_output_update(self.window_id);
+            frame.finalize_window_output_update(
+                self.window_id,
+                logical_cursor,
+                phys_cursor,
+                Some(&snapshot),
+            );
         }
         snapshot
     }

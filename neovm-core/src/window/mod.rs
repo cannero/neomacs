@@ -1524,11 +1524,7 @@ impl Frame {
     pub fn replace_display_snapshots(&mut self, snapshots: Vec<WindowDisplaySnapshot>) {
         self.begin_display_output_pass();
         for snapshot in &snapshots {
-            self.begin_window_output_update(snapshot.window_id);
-            self.install_logical_cursor(snapshot.window_id, snapshot.logical_cursor_pos());
-            self.apply_physical_cursor_snapshot(snapshot.window_id, snapshot.phys_cursor.clone());
-            self.fallback_output_cursor_from_snapshot(snapshot);
-            self.finish_window_output_update(snapshot.window_id);
+            self.replay_window_output_snapshot(snapshot);
         }
         self.set_display_snapshots(snapshots);
     }
@@ -1627,6 +1623,34 @@ impl Frame {
         {
             display.commit_output_cursor_from_display_snapshot(snapshot);
         }
+    }
+
+    /// Finalize one live window's redisplay update after explicit row progress,
+    /// cursor geometry, and optional snapshot replay state have been applied.
+    pub fn finalize_window_output_update(
+        &mut self,
+        window_id: WindowId,
+        logical_cursor: Option<WindowCursorPos>,
+        phys_cursor: Option<WindowCursorSnapshot>,
+        output_fallback: Option<&WindowDisplaySnapshot>,
+    ) {
+        self.install_logical_cursor(window_id, logical_cursor);
+        self.apply_physical_cursor_snapshot(window_id, phys_cursor);
+        if let Some(snapshot) = output_fallback {
+            self.fallback_output_cursor_from_snapshot(snapshot);
+        }
+        self.finish_window_output_update(window_id);
+    }
+
+    /// Replay a completed window snapshot through the live output lifecycle.
+    pub fn replay_window_output_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
+        self.begin_window_output_update(snapshot.window_id);
+        self.finalize_window_output_update(
+            snapshot.window_id,
+            snapshot.logical_cursor_pos(),
+            snapshot.phys_cursor.clone(),
+            Some(snapshot),
+        );
     }
 
     /// Finalize one live window's redisplay update after output/cursor state
@@ -3410,11 +3434,7 @@ mod tests {
 
         let frame = mgr.get_mut(fid).unwrap();
         frame.begin_display_output_pass();
-        frame.begin_window_output_update(wid);
-        frame.install_logical_cursor(wid, snapshot.logical_cursor_pos());
-        frame.apply_physical_cursor_snapshot(wid, snapshot.phys_cursor.clone());
-        frame.fallback_output_cursor_from_snapshot(&snapshot);
-        frame.finish_window_output_update(wid);
+        frame.replay_window_output_snapshot(&snapshot);
         frame.set_display_snapshots(vec![WindowDisplaySnapshot {
             window_id: wid,
             phys_cursor: None,
@@ -3759,10 +3779,12 @@ mod tests {
                 end_buffer_pos: Some(32),
             },
         );
-        frame.install_logical_cursor(wid, snapshot.logical_cursor_pos());
-        frame.apply_physical_cursor_snapshot(wid, snapshot.phys_cursor.clone());
-        frame.fallback_output_cursor_from_snapshot(&snapshot);
-        frame.finish_window_output_update(wid);
+        frame.finalize_window_output_update(
+            wid,
+            snapshot.logical_cursor_pos(),
+            snapshot.phys_cursor.clone(),
+            Some(&snapshot),
+        );
 
         let display = frame
             .find_window(wid)
@@ -3857,10 +3879,12 @@ mod tests {
 
         frame.begin_display_output_pass();
         frame.begin_window_output_update(wid);
-        frame.install_logical_cursor(wid, Some(live_cursor));
-        frame.apply_physical_cursor_snapshot(wid, Some(live_phys.clone()));
-        frame.fallback_output_cursor_from_snapshot(&snapshot);
-        frame.finish_window_output_update(wid);
+        frame.finalize_window_output_update(
+            wid,
+            Some(live_cursor),
+            Some(live_phys.clone()),
+            Some(&snapshot),
+        );
 
         let display = frame
             .find_window(wid)
@@ -3917,10 +3941,12 @@ mod tests {
 
         frame.begin_display_output_pass();
         frame.begin_window_output_update(wid);
-        frame.install_logical_cursor(wid, Some(live_cursor));
-        frame.apply_physical_cursor_snapshot(wid, Some(live_phys.clone()));
-        frame.fallback_output_cursor_from_snapshot(&snapshot);
-        frame.finish_window_output_update(wid);
+        frame.finalize_window_output_update(
+            wid,
+            Some(live_cursor),
+            Some(live_phys.clone()),
+            Some(&snapshot),
+        );
 
         let display = frame
             .find_window(wid)
