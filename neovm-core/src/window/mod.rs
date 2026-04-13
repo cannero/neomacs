@@ -1526,6 +1526,7 @@ impl Frame {
     pub fn replace_display_snapshots(&mut self, snapshots: Vec<WindowDisplaySnapshot>) {
         self.begin_display_output_pass();
         for snapshot in &snapshots {
+            self.begin_window_output_update(snapshot.window_id);
             self.commit_window_output_snapshot(snapshot);
         }
         self.set_display_snapshots(snapshots);
@@ -3318,6 +3319,56 @@ mod tests {
         assert_eq!(display.cursor.as_ref(), Some(&cursor_pos));
         assert_eq!(display.phys_cursor.as_ref(), Some(&cursor));
         assert_eq!(display.output_cursor.as_ref(), Some(&output_cursor));
+    }
+
+    #[test]
+    fn replace_display_snapshots_replaces_old_output_cursor_progress() {
+        let mut mgr = FrameManager::new();
+        let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+        let wid = mgr.get(fid).unwrap().selected_window;
+        let frame = mgr.get_mut(fid).unwrap();
+
+        frame.replace_display_snapshots(vec![WindowDisplaySnapshot {
+            window_id: wid,
+            rows: vec![DisplayRowSnapshot {
+                row: 1,
+                y: 29,
+                height: 16,
+                end_x: 44,
+                end_col: 8,
+                start_buffer_pos: Some(1),
+                end_buffer_pos: Some(8),
+            }],
+            ..WindowDisplaySnapshot::default()
+        }]);
+
+        frame.replace_display_snapshots(vec![WindowDisplaySnapshot {
+            window_id: wid,
+            rows: vec![DisplayRowSnapshot {
+                row: 3,
+                y: 61,
+                height: 16,
+                end_x: 88,
+                end_col: 12,
+                start_buffer_pos: Some(20),
+                end_buffer_pos: Some(32),
+            }],
+            ..WindowDisplaySnapshot::default()
+        }]);
+
+        let display = frame
+            .find_window(wid)
+            .and_then(|window| window.display())
+            .expect("window display state");
+        assert_eq!(
+            display.output_cursor,
+            Some(WindowCursorPos {
+                x: 88,
+                y: 61,
+                row: 3,
+                col: 12,
+            })
+        );
     }
 
     #[test]
