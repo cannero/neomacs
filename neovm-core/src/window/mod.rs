@@ -212,6 +212,7 @@ impl WindowDisplayState {
             return;
         }
         for row in rows {
+            self.begin_output_row(row.row, row.start_col, row.y, row.start_x);
             self.finish_output_row(row);
         }
     }
@@ -315,11 +316,10 @@ impl<'a> WindowOutputUpdate<'a> {
 
     pub fn replay_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
         self.begin_update();
-        self.finalize(
-            snapshot.logical_cursor_pos(),
-            snapshot.phys_cursor.clone(),
-            Some(snapshot),
-        );
+        self.install_logical_cursor(snapshot.logical_cursor_pos());
+        self.display.replay_output_rows(&snapshot.rows);
+        self.apply_physical_cursor_snapshot(snapshot.phys_cursor.clone());
+        self.commit();
     }
 
     pub fn commit(&mut self) {
@@ -952,6 +952,11 @@ pub struct DisplayRowSnapshot {
     pub y: i64,
     /// Row height in pixels.
     pub height: i64,
+    /// X position where redisplay started emitting this row, relative to the
+    /// text area's left edge.
+    pub start_x: i64,
+    /// Visual column where redisplay started emitting this row.
+    pub start_col: i64,
     /// X position where redisplay finished emitting this row, relative to the
     /// text area's left edge.
     pub end_x: i64,
@@ -3286,6 +3291,8 @@ mod tests {
                 row: 1,
                 y: 29,
                 height: 16,
+                start_x: 0,
+                start_col: 0,
                 end_x: output_cursor.x,
                 end_col: output_cursor.col,
                 start_buffer_pos: Some(1),
@@ -3321,6 +3328,8 @@ mod tests {
                 row: 1,
                 y: 29,
                 height: 16,
+                start_x: 0,
+                start_col: 0,
                 end_x: 44,
                 end_col: 8,
                 start_buffer_pos: Some(1),
@@ -3335,6 +3344,8 @@ mod tests {
                 row: 3,
                 y: 61,
                 height: 16,
+                start_x: 0,
+                start_col: 0,
                 end_x: 88,
                 end_col: 12,
                 start_buffer_pos: Some(20),
@@ -3387,6 +3398,8 @@ mod tests {
                 row: 1,
                 y: 29,
                 height: 16,
+                start_x: 0,
+                start_col: 0,
                 end_x: output_cursor.x,
                 end_col: output_cursor.col,
                 start_buffer_pos: Some(1),
@@ -3439,6 +3452,8 @@ mod tests {
                 row: 1,
                 y: 16,
                 height: 16,
+                start_x: 0,
+                start_col: 0,
                 end_x: 64,
                 end_col: 8,
                 start_buffer_pos: Some(10),
@@ -3522,6 +3537,8 @@ mod tests {
                 row: 2,
                 y: 21,
                 height: 16,
+                start_x: 0,
+                start_col: 0,
                 end_x: 9,
                 end_col: 5,
                 start_buffer_pos: Some(11),
@@ -3669,6 +3686,8 @@ mod tests {
                 row: 2,
                 y: 32,
                 height: 16,
+                start_x: 0,
+                start_col: 0,
                 end_x: 80,
                 end_col: 12,
                 start_buffer_pos: Some(20),
@@ -3693,7 +3712,7 @@ mod tests {
                 col: 12,
             })
         );
-        assert_eq!(display.last_cursor_vpos, 2);
+        assert_eq!(display.last_cursor_vpos, 1);
         assert_eq!(display.phys_cursor, Some(cursor));
     }
 
@@ -3720,6 +3739,8 @@ mod tests {
                 row: 4,
                 y: 64,
                 height: 16,
+                start_x: 0,
+                start_col: 0,
                 end_x: 144,
                 end_col: 18,
                 start_buffer_pos: Some(20),
@@ -3736,6 +3757,8 @@ mod tests {
                 row: 2,
                 y: 32,
                 height: 16,
+                start_x: 0,
+                start_col: 0,
                 end_x: 80,
                 end_col: 12,
                 start_buffer_pos: Some(20),
@@ -3833,6 +3856,8 @@ mod tests {
                 row: 4,
                 y: 64,
                 height: 16,
+                start_x: 0,
+                start_col: 0,
                 end_x: 144,
                 end_col: 18,
                 start_buffer_pos: Some(20),
@@ -3893,6 +3918,8 @@ mod tests {
                 row: 4,
                 y: 64,
                 height: 16,
+                start_x: 0,
+                start_col: 0,
                 end_x: 144,
                 end_col: 18,
                 start_buffer_pos: Some(20),
@@ -3947,6 +3974,8 @@ mod tests {
                     row: 0,
                     y: 0,
                     height: 16,
+                    start_x: 0,
+                    start_col: 0,
                     end_x: 64,
                     end_col: 8,
                     start_buffer_pos: Some(1),
@@ -3956,6 +3985,8 @@ mod tests {
                     row: 1,
                     y: 16,
                     height: 16,
+                    start_x: 0,
+                    start_col: 0,
                     end_x: 72,
                     end_col: 9,
                     start_buffer_pos: Some(9),
@@ -3965,6 +3996,8 @@ mod tests {
                     row: 2,
                     y: 32,
                     height: 16,
+                    start_x: 0,
+                    start_col: 0,
                     end_x: 80,
                     end_col: 10,
                     start_buffer_pos: Some(18),
@@ -3999,7 +4032,7 @@ mod tests {
                 col: 10,
             })
         );
-        assert_eq!(display.last_cursor_vpos, 2);
+        assert_eq!(display.last_cursor_vpos, 1);
         assert_eq!(display.phys_cursor, Some(cursor));
     }
 
