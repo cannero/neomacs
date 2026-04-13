@@ -1754,6 +1754,10 @@ impl LayoutEngine {
                 window_params_list.len()
             );
 
+            if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
+                frame.begin_display_output_pass();
+            }
+
             for params in &window_params_list {
                 tracing::debug!(
                     "layout window: id={} buf={} bounds=({:.0},{:.0},{:.0},{:.0}) mini={} selected={} mode_line_h={:.0}",
@@ -2055,10 +2059,6 @@ impl LayoutEngine {
 
         let snapshots = std::mem::take(&mut self.display_snapshots);
         if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
-            frame.begin_display_output_pass();
-            for snapshot in &snapshots {
-                frame.commit_window_output_snapshot(snapshot);
-            }
             frame.set_display_snapshots(snapshots);
         }
         unsafe {
@@ -5084,7 +5084,7 @@ impl LayoutEngine {
             rows: hit_rows,
         });
 
-        self.display_snapshots.push(WindowDisplaySnapshot {
+        let snapshot = WindowDisplaySnapshot {
             window_id: neovm_core::window::WindowId(params.window_id as u64),
             text_area_left_offset: (text_area_left - params.bounds.x).round() as i64,
             mode_line_height: mode_line_height.round() as i64,
@@ -5094,7 +5094,11 @@ impl LayoutEngine {
             phys_cursor: emitted_window_cursor,
             points: display_points,
             rows: display_rows,
-        });
+        };
+        if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
+            frame.commit_window_output_snapshot(&snapshot);
+        }
+        self.display_snapshots.push(snapshot);
 
         // Persist the face-id counter back to the frame-wide
         // slot so the NEXT window in this frame starts allocating

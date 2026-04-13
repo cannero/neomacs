@@ -101,9 +101,9 @@ pub enum SplitDirection {
 /// `window-cursor-info` and related stateful cursor queries. The Rust
 /// redisplay path now drives this state through an explicit per-window output
 /// pass before frame snapshots are published. The main remaining gap is that
-/// neomacs still updates whole frame snapshots in one Rust redisplay pass,
-/// not GNU's lower-level draw-call output pipeline, so output progress still
-/// advances at frame-pass granularity rather than per primitive emitted.
+/// neomacs still commits each window at the end of Rust window layout, not at
+/// GNU's lower-level draw-call output pipeline, so output progress still
+/// advances at window-pass granularity rather than per primitive emitted.
 #[derive(Clone, Debug)]
 pub struct WindowDisplayState {
     /// Window-local display table; nil means inherit from the buffer/frame.
