@@ -330,6 +330,25 @@ pub struct WindowMatrixEntry {
     pub selected: bool,
 }
 
+/// Frame-level chrome row that is not owned by any leaf window.
+///
+/// GNU treats the tab bar specially:
+/// - GUI builds a dedicated `tab_bar_window`
+/// - TTY writes tab-bar rows directly into the frame matrix
+///
+/// Neomacs keeps immutable published display state, so we model the
+/// frame-level tab bar explicitly here instead of smuggling it into the first
+/// leaf window's matrix after layout.
+#[derive(Clone, Debug)]
+pub struct FrameChromeRow {
+    /// Visual row number in frame matrix space.
+    pub row_index: u32,
+    /// Frame-relative clip rect / origin for this row.
+    pub pixel_bounds: Rect,
+    /// Row contents and row metrics.
+    pub row: GlyphRow,
+}
+
 // ---------------------------------------------------------------------------
 // Non-grid item structs — these mirror FrameGlyph variants for items that
 // don't belong on the character grid (backgrounds, borders, cursors, etc.).
@@ -427,6 +446,8 @@ pub struct ScrollBarItem {
 #[derive(Clone, Debug)]
 pub struct FrameDisplayState {
     pub window_matrices: Vec<WindowMatrixEntry>,
+    /// Frame-level chrome rows that are not owned by any leaf window.
+    pub frame_chrome_rows: Vec<FrameChromeRow>,
     pub frame_cols: usize,
     pub frame_rows: usize,
     pub frame_pixel_width: f32,
@@ -522,6 +543,7 @@ impl FrameDisplayState {
     pub fn new(frame_cols: usize, frame_rows: usize, char_width: f32, char_height: f32) -> Self {
         Self {
             window_matrices: Vec::new(),
+            frame_chrome_rows: Vec::new(),
             frame_cols,
             frame_rows,
             frame_pixel_width: frame_cols as f32 * char_width,
@@ -772,251 +794,33 @@ impl FrameDisplayState {
         }
 
         // --- Materialize grid content -> pixel-positioned Char/Stretch glyphs ---
+        for frame_row in &self.frame_chrome_rows {
+            self.materialize_grid_row(
+                &mut buf,
+                0,
+                frame_row.row_index,
+                &frame_row.row,
+                frame_row.pixel_bounds,
+                self.char_width,
+                self.char_height,
+            );
+        }
         for entry in &self.window_matrices {
-            let win_x = entry.pixel_bounds.x;
-            let win_y = entry.pixel_bounds.y;
-            let win_w = entry.pixel_bounds.width;
             let char_w = if entry.matrix.ncols > 0 {
-                win_w / entry.matrix.ncols as f32
+                entry.pixel_bounds.width / entry.matrix.ncols as f32
             } else {
                 self.char_width
             };
-            let char_h = self.char_height;
-
             for (row_idx, glyph_row) in entry.matrix.rows.iter().enumerate() {
-                if !glyph_row.enabled {
-                    continue;
-                }
-                let y = if glyph_row.height_px > 0.0 {
-                    win_y + glyph_row.pixel_y
-                } else {
-                    win_y + row_idx as f32 * char_h
-                };
-                let row_height = if glyph_row.height_px > 0.0 {
-                    glyph_row.height_px
-                } else {
-                    char_h
-                };
-                let mut col = 0usize;
-                let row_role = glyph_row.role;
-                let clip_rect = Some(Rect::new(win_x, win_y, win_w, entry.pixel_bounds.height));
-
-                // Process all three areas in order
-                for area_idx in 0..3 {
-                    for glyph in &glyph_row.glyphs[area_idx] {
-                        if glyph.padding {
-                            continue;
-                        }
-                        let x = win_x + col as f32 * char_w;
-                        let slot_id = DisplaySlotId {
-                            window_id: entry.window_id as i64,
-                            row: row_idx as u32,
-                            col: col as u16,
-                        };
-
-                        match &glyph.glyph_type {
-                            GlyphType::Char { ch } => {
-                                let face_data = self.resolve_face_for_materialize(glyph.face_id);
-                                let glyph_width = if glyph.wide { char_w * 2.0 } else { char_w };
-                                let row_ascent = if glyph_row.ascent_px > 0.0 {
-                                    glyph_row.ascent_px
-                                } else if face_data.font_ascent > 0.0 {
-                                    face_data.font_ascent.min(row_height)
-                                } else {
-                                    row_height
-                                };
-                                buf.glyphs.push(FrameGlyph::Char {
-                                    window_id: entry.window_id as i64,
-                                    row_role,
-                                    clip_rect,
-                                    slot_id,
-                                    bidi_level: glyph.bidi_level,
-                                    char: *ch,
-                                    composed: None,
-                                    x,
-                                    y,
-                                    baseline: y + row_ascent,
-                                    width: glyph_width,
-                                    height: row_height,
-                                    ascent: if face_data.font_ascent > 0.0 {
-                                        face_data.font_ascent.min(row_height)
-                                    } else {
-                                        row_ascent
-                                    },
-                                    fg: face_data.fg,
-                                    bg: Some(face_data.bg),
-                                    face_id: glyph.face_id,
-                                    font_weight: face_data.font_weight,
-                                    italic: face_data.italic,
-                                    font_size: face_data.font_size,
-                                    underline: face_data.underline,
-                                    underline_color: face_data.underline_color,
-                                    strike_through: face_data.strike_through,
-                                    strike_through_color: face_data.strike_through_color,
-                                    overline: face_data.overline,
-                                    overline_color: face_data.overline_color,
-                                    overstrike: face_data.overstrike,
-                                });
-                            }
-                            GlyphType::Composite { text } => {
-                                let face_data = self.resolve_face_for_materialize(glyph.face_id);
-                                let row_ascent = if glyph_row.ascent_px > 0.0 {
-                                    glyph_row.ascent_px
-                                } else if face_data.font_ascent > 0.0 {
-                                    face_data.font_ascent.min(row_height)
-                                } else {
-                                    row_height
-                                };
-                                buf.glyphs.push(FrameGlyph::Char {
-                                    window_id: entry.window_id as i64,
-                                    row_role,
-                                    clip_rect,
-                                    slot_id,
-                                    bidi_level: glyph.bidi_level,
-                                    char: text.chars().next().unwrap_or(' '),
-                                    composed: Some(text.clone()),
-                                    x,
-                                    y,
-                                    baseline: y + row_ascent,
-                                    width: char_w,
-                                    height: row_height,
-                                    ascent: if face_data.font_ascent > 0.0 {
-                                        face_data.font_ascent.min(row_height)
-                                    } else {
-                                        row_ascent
-                                    },
-                                    fg: face_data.fg,
-                                    bg: Some(face_data.bg),
-                                    face_id: glyph.face_id,
-                                    font_weight: face_data.font_weight,
-                                    italic: face_data.italic,
-                                    font_size: face_data.font_size,
-                                    underline: face_data.underline,
-                                    underline_color: face_data.underline_color,
-                                    strike_through: face_data.strike_through,
-                                    strike_through_color: face_data.strike_through_color,
-                                    overline: face_data.overline,
-                                    overline_color: face_data.overline_color,
-                                    overstrike: face_data.overstrike,
-                                });
-                            }
-                            GlyphType::Stretch { width_cols } => {
-                                let face_data = self.resolve_face_for_materialize(glyph.face_id);
-                                let stretch_w = *width_cols as f32 * char_w;
-                                buf.glyphs.push(FrameGlyph::Stretch {
-                                    window_id: entry.window_id as i64,
-                                    row_role,
-                                    clip_rect,
-                                    slot_id,
-                                    bidi_level: glyph.bidi_level,
-                                    x,
-                                    y,
-                                    width: stretch_w,
-                                    height: row_height,
-                                    bg: face_data.bg,
-                                    face_id: glyph.face_id,
-                                    stipple_id: 0,
-                                    stipple_fg: None,
-                                });
-                            }
-                            GlyphType::Image { image_id } => {
-                                buf.glyphs.push(FrameGlyph::Image {
-                                    window_id: entry.window_id as i64,
-                                    row_role,
-                                    clip_rect,
-                                    slot_id: Some(slot_id),
-                                    image_id: *image_id as u32,
-                                    x,
-                                    y,
-                                    width: char_w,
-                                    height: row_height,
-                                });
-                            }
-                            GlyphType::Glyphless { ch } => {
-                                let face_data = self.resolve_face_for_materialize(glyph.face_id);
-                                let row_ascent = if glyph_row.ascent_px > 0.0 {
-                                    glyph_row.ascent_px
-                                } else if face_data.font_ascent > 0.0 {
-                                    face_data.font_ascent.min(row_height)
-                                } else {
-                                    row_height
-                                };
-                                buf.glyphs.push(FrameGlyph::Char {
-                                    window_id: entry.window_id as i64,
-                                    row_role,
-                                    clip_rect,
-                                    slot_id,
-                                    bidi_level: glyph.bidi_level,
-                                    char: *ch,
-                                    composed: None,
-                                    x,
-                                    y,
-                                    baseline: y + row_ascent,
-                                    width: char_w,
-                                    height: row_height,
-                                    ascent: if face_data.font_ascent > 0.0 {
-                                        face_data.font_ascent.min(row_height)
-                                    } else {
-                                        row_ascent
-                                    },
-                                    fg: face_data.fg,
-                                    bg: Some(face_data.bg),
-                                    face_id: glyph.face_id,
-                                    font_weight: face_data.font_weight,
-                                    italic: face_data.italic,
-                                    font_size: face_data.font_size,
-                                    underline: 0,
-                                    underline_color: None,
-                                    strike_through: 0,
-                                    strike_through_color: None,
-                                    overline: 0,
-                                    overline_color: None,
-                                    overstrike: false,
-                                });
-                            }
-                        }
-                        col += if glyph.wide { 2 } else { 1 };
-                    }
-                }
-
-                // Fill remaining row width with the row's face
-                // background. Mirrors GNU's `x_clear_end_of_line` /
-                // `fill_up_glyph_row` in `dispnew.c`, which extends
-                // the mode-line / header-line / tab-line background
-                // to the window edge so there is no gap between the
-                // last text glyph and the right window border.
-                let final_x = win_x + col as f32 * char_w;
-                let right_edge = win_x + win_w;
-                if final_x < right_edge && col > 0 && row_role.is_chrome() {
-                    let last_face_id = glyph_row
-                        .glyphs
-                        .iter()
-                        .rev()
-                        .flat_map(|area| area.iter().rev())
-                        .find(|g| !g.padding)
-                        .map(|g| g.face_id)
-                        .unwrap_or(0);
-                    let face_data = self.resolve_face_for_materialize(last_face_id);
-                    buf.glyphs.push(FrameGlyph::Stretch {
-                        window_id: entry.window_id as i64,
-                        row_role,
-                        clip_rect,
-                        slot_id: DisplaySlotId {
-                            window_id: entry.window_id as i64,
-                            row: row_idx as u32,
-                            col: col as u16,
-                        },
-                        bidi_level: 0,
-                        x: final_x,
-                        y,
-                        width: right_edge - final_x,
-                        height: row_height,
-                        bg: face_data.bg,
-                        face_id: last_face_id,
-                        stipple_id: 0,
-                        stipple_fg: None,
-                    });
-                }
+                self.materialize_grid_row(
+                    &mut buf,
+                    entry.window_id as i64,
+                    row_idx as u32,
+                    glyph_row,
+                    entry.pixel_bounds,
+                    char_w,
+                    self.char_height,
+                );
             }
         }
 
@@ -1170,6 +974,248 @@ impl FrameDisplayState {
                 overline_color: None,
                 overstrike: false,
             }
+        }
+    }
+
+    fn materialize_grid_row(
+        &self,
+        buf: &mut FrameGlyphBuffer,
+        window_id: i64,
+        row_index: u32,
+        glyph_row: &GlyphRow,
+        pixel_bounds: Rect,
+        char_w: f32,
+        char_h: f32,
+    ) {
+        if !glyph_row.enabled {
+            return;
+        }
+
+        let win_x = pixel_bounds.x;
+        let win_y = pixel_bounds.y;
+        let win_w = pixel_bounds.width;
+        let y = if glyph_row.height_px > 0.0 {
+            win_y + glyph_row.pixel_y
+        } else {
+            win_y + row_index as f32 * char_h
+        };
+        let row_height = if glyph_row.height_px > 0.0 {
+            glyph_row.height_px
+        } else {
+            char_h
+        };
+        let row_role = glyph_row.role;
+        let clip_rect = Some(pixel_bounds);
+        let mut col = 0usize;
+
+        for area_idx in 0..3 {
+            for glyph in &glyph_row.glyphs[area_idx] {
+                if glyph.padding {
+                    continue;
+                }
+                let x = win_x + col as f32 * char_w;
+                let slot_id = DisplaySlotId {
+                    window_id,
+                    row: row_index,
+                    col: col as u16,
+                };
+
+                match &glyph.glyph_type {
+                    GlyphType::Char { ch } => {
+                        let face_data = self.resolve_face_for_materialize(glyph.face_id);
+                        let glyph_width = if glyph.wide { char_w * 2.0 } else { char_w };
+                        let row_ascent = if glyph_row.ascent_px > 0.0 {
+                            glyph_row.ascent_px
+                        } else if face_data.font_ascent > 0.0 {
+                            face_data.font_ascent.min(row_height)
+                        } else {
+                            row_height
+                        };
+                        buf.glyphs.push(FrameGlyph::Char {
+                            window_id,
+                            row_role,
+                            clip_rect,
+                            slot_id,
+                            bidi_level: glyph.bidi_level,
+                            char: *ch,
+                            composed: None,
+                            x,
+                            y,
+                            baseline: y + row_ascent,
+                            width: glyph_width,
+                            height: row_height,
+                            ascent: if face_data.font_ascent > 0.0 {
+                                face_data.font_ascent.min(row_height)
+                            } else {
+                                row_ascent
+                            },
+                            fg: face_data.fg,
+                            bg: Some(face_data.bg),
+                            face_id: glyph.face_id,
+                            font_weight: face_data.font_weight,
+                            italic: face_data.italic,
+                            font_size: face_data.font_size,
+                            underline: face_data.underline,
+                            underline_color: face_data.underline_color,
+                            strike_through: face_data.strike_through,
+                            strike_through_color: face_data.strike_through_color,
+                            overline: face_data.overline,
+                            overline_color: face_data.overline_color,
+                            overstrike: face_data.overstrike,
+                        });
+                    }
+                    GlyphType::Composite { text } => {
+                        let face_data = self.resolve_face_for_materialize(glyph.face_id);
+                        let row_ascent = if glyph_row.ascent_px > 0.0 {
+                            glyph_row.ascent_px
+                        } else if face_data.font_ascent > 0.0 {
+                            face_data.font_ascent.min(row_height)
+                        } else {
+                            row_height
+                        };
+                        buf.glyphs.push(FrameGlyph::Char {
+                            window_id,
+                            row_role,
+                            clip_rect,
+                            slot_id,
+                            bidi_level: glyph.bidi_level,
+                            char: text.chars().next().unwrap_or(' '),
+                            composed: Some(text.clone()),
+                            x,
+                            y,
+                            baseline: y + row_ascent,
+                            width: char_w,
+                            height: row_height,
+                            ascent: if face_data.font_ascent > 0.0 {
+                                face_data.font_ascent.min(row_height)
+                            } else {
+                                row_ascent
+                            },
+                            fg: face_data.fg,
+                            bg: Some(face_data.bg),
+                            face_id: glyph.face_id,
+                            font_weight: face_data.font_weight,
+                            italic: face_data.italic,
+                            font_size: face_data.font_size,
+                            underline: face_data.underline,
+                            underline_color: face_data.underline_color,
+                            strike_through: face_data.strike_through,
+                            strike_through_color: face_data.strike_through_color,
+                            overline: face_data.overline,
+                            overline_color: face_data.overline_color,
+                            overstrike: face_data.overstrike,
+                        });
+                    }
+                    GlyphType::Stretch { width_cols } => {
+                        let face_data = self.resolve_face_for_materialize(glyph.face_id);
+                        let stretch_w = *width_cols as f32 * char_w;
+                        buf.glyphs.push(FrameGlyph::Stretch {
+                            window_id,
+                            row_role,
+                            clip_rect,
+                            slot_id,
+                            bidi_level: glyph.bidi_level,
+                            x,
+                            y,
+                            width: stretch_w,
+                            height: row_height,
+                            bg: face_data.bg,
+                            face_id: glyph.face_id,
+                            stipple_id: 0,
+                            stipple_fg: None,
+                        });
+                    }
+                    GlyphType::Image { image_id } => {
+                        buf.glyphs.push(FrameGlyph::Image {
+                            window_id,
+                            row_role,
+                            clip_rect,
+                            slot_id: Some(slot_id),
+                            image_id: *image_id as u32,
+                            x,
+                            y,
+                            width: char_w,
+                            height: row_height,
+                        });
+                    }
+                    GlyphType::Glyphless { ch } => {
+                        let face_data = self.resolve_face_for_materialize(glyph.face_id);
+                        let row_ascent = if glyph_row.ascent_px > 0.0 {
+                            glyph_row.ascent_px
+                        } else if face_data.font_ascent > 0.0 {
+                            face_data.font_ascent.min(row_height)
+                        } else {
+                            row_height
+                        };
+                        buf.glyphs.push(FrameGlyph::Char {
+                            window_id,
+                            row_role,
+                            clip_rect,
+                            slot_id,
+                            bidi_level: glyph.bidi_level,
+                            char: *ch,
+                            composed: None,
+                            x,
+                            y,
+                            baseline: y + row_ascent,
+                            width: char_w,
+                            height: row_height,
+                            ascent: if face_data.font_ascent > 0.0 {
+                                face_data.font_ascent.min(row_height)
+                            } else {
+                                row_ascent
+                            },
+                            fg: face_data.fg,
+                            bg: Some(face_data.bg),
+                            face_id: glyph.face_id,
+                            font_weight: face_data.font_weight,
+                            italic: face_data.italic,
+                            font_size: face_data.font_size,
+                            underline: 0,
+                            underline_color: None,
+                            strike_through: 0,
+                            strike_through_color: None,
+                            overline: 0,
+                            overline_color: None,
+                            overstrike: false,
+                        });
+                    }
+                }
+                col += if glyph.wide { 2 } else { 1 };
+            }
+        }
+
+        let final_x = win_x + col as f32 * char_w;
+        let right_edge = win_x + win_w;
+        if final_x < right_edge && col > 0 && row_role.is_chrome() {
+            let last_face_id = glyph_row
+                .glyphs
+                .iter()
+                .rev()
+                .flat_map(|area| area.iter().rev())
+                .find(|g| !g.padding)
+                .map(|g| g.face_id)
+                .unwrap_or(0);
+            let face_data = self.resolve_face_for_materialize(last_face_id);
+            buf.glyphs.push(FrameGlyph::Stretch {
+                window_id,
+                row_role,
+                clip_rect,
+                slot_id: DisplaySlotId {
+                    window_id,
+                    row: row_index,
+                    col: col as u16,
+                },
+                bidi_level: 0,
+                x: final_x,
+                y,
+                width: right_edge - final_x,
+                height: row_height,
+                bg: face_data.bg,
+                face_id: last_face_id,
+                stipple_id: 0,
+                stipple_fg: None,
+            });
         }
     }
 }

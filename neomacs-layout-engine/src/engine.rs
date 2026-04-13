@@ -1314,15 +1314,12 @@ pub struct LayoutEngine {
     /// overwrote the first entry, causing both mode lines to
     /// render with the inactive face after `C-x 2`.
     pub(crate) frame_face_id_counter: u32,
-    /// Stash for frame-level tab-bar glyphs produced by
-    /// `render_frame_tab_bar_rust`. The tab-bar is rendered before
-    /// any per-window `begin_window`, but the test
-    /// `layout_frame_rust_renders_tab_bar_text_from_lisp_tab_bar_keymap`
-    /// expects a `GlyphRowRole::TabBar` row inside
-    /// `window_matrices[*]`. We deposit the glyphs here and install
-    /// them into the first window's matrix after that window's
-    /// `end_window` call.
-    pending_tab_bar_glyphs: Option<Vec<neomacs_display_protocol::glyph_matrix::Glyph>>,
+    /// Frame-level chrome rows built before leaf-window layout.
+    ///
+    /// GNU treats the tab bar as frame-level redisplay, not as a row owned by
+    /// the first leaf window. Neomacs stages those rows here and attaches them
+    /// to the finished frame snapshot.
+    pending_frame_chrome_rows: Vec<neomacs_display_protocol::glyph_matrix::FrameChromeRow>,
 }
 
 impl LayoutEngine {
@@ -1349,7 +1346,7 @@ impl LayoutEngine {
             matrix_builder: crate::matrix_builder::GlyphMatrixBuilder::new(),
             last_frame_display_state: None,
             frame_face_id_counter: 1,
-            pending_tab_bar_glyphs: None,
+            pending_frame_chrome_rows: Vec::new(),
         }
     }
 
@@ -1376,7 +1373,7 @@ impl LayoutEngine {
             matrix_builder: crate::matrix_builder::GlyphMatrixBuilder::new(),
             last_frame_display_state: None,
             frame_face_id_counter: 1,
-            pending_tab_bar_glyphs: None,
+            pending_frame_chrome_rows: Vec::new(),
         }
     }
 
@@ -1739,6 +1736,7 @@ impl LayoutEngine {
             // Reset builder for new frame
             self.matrix_builder.reset();
             self.frame_face_id_counter = 1;
+            self.pending_frame_chrome_rows.clear();
             let mut curr_window_infos: std::collections::HashMap<i64, WindowInfo> =
                 std::collections::HashMap::new();
 
@@ -2028,6 +2026,9 @@ impl LayoutEngine {
             frame_params.char_width,
             frame_params.char_height,
         );
+        frame_display_state
+            .frame_chrome_rows
+            .extend(std::mem::take(&mut self.pending_frame_chrome_rows));
 
         // NOTE: GlyphMatrix vs FrameGlyphBuffer character count validation removed.
         // FrameGlyphBuffer no longer receives glyph output; the GlyphMatrixBuilder
@@ -5188,24 +5189,6 @@ impl LayoutEngine {
 
         self.matrix_builder.end_window();
 
-        // Install the frame-level tab-bar row into the first window's
-        // matrix. `render_frame_tab_bar_rust` stashed the produced
-        // glyphs in `pending_tab_bar_glyphs` before the window loop
-        // started (no window context existed then). We now have a
-        // closed window in `matrix_builder.windows.last()`, so we can
-        // append a TabBar status-line row and install the stashed
-        // glyphs wholesale. `take()` ensures subsequent windows don't
-        // re-install the same row.
-        if let Some(glyphs) = self.pending_tab_bar_glyphs.take() {
-            use neomacs_display_protocol::frame_glyphs::GlyphRowRole;
-            if self
-                .matrix_builder
-                .begin_status_line_row(GlyphRowRole::TabBar)
-            {
-                self.matrix_builder.install_status_line_row_glyphs(glyphs);
-            }
-        }
-
         // Store hit-test data for this window
         self.hit_data.push(WindowHitData {
             window_id: params.window_id,
@@ -5416,34 +5399,15 @@ impl LayoutEngine {
 
     /// Render the frame-level tab-bar from GNU Lisp keymap output on the Rust path.
     ///
-    /// Step 3.4b: The previous call to
-    /// `render_rust_status_line_plain(... None)` was a no-op because
-    /// the `None` builder argument made every `push_status_line_char`
-    /// inside `render_status_line_spec` a no-op. No frame matrix rows
-    /// of role `GlyphRowRole::TabBar` were ever produced by that call,
-    /// which is why the pre-existing test
-    /// `layout_frame_rust_renders_tab_bar_text_from_lisp_tab_bar_keymap`
-    /// has been failing on the baseline. The fix for the pre-existing
-    /// failure is a separate cleanup pass (track as an orthogonal TODO
-    /// alongside the other 8 known baseline failures).
+    /// Build the frame-level tab-bar row and attach it to the published
+    /// `FrameDisplayState` as frame chrome, not as a leaf-window row.
     ///
-    /// For now, this method still computes the tab-bar text so that a
-    /// future fix can pick it up, but emits it through a
-    /// `TtyDisplayBackend` that is allowed to drop its rows on the
-    /// floor — matching the previous no-op behavior exactly. When
-    /// Step 3.6 deletes `status_line.rs`, this call path will be
-    /// revisited and either fixed or removed.
-    /// Build the frame-level tab-bar glyph row via `TtyDisplayBackend`
-    /// and stash the produced glyphs in `pending_tab_bar_glyphs` so
-    /// they can be installed into the first window's matrix after
-    /// that window's `end_window` call.
+    /// GNU handles the tab bar outside ordinary leaf-window text rows:
+    /// - GUI uses `frame->tab_bar_window`
+    /// - TTY writes tab-bar rows directly into the frame matrix
     ///
-    /// Called from `layout_frame_rust` BEFORE the window loop
-    /// begins, so there is no window context for
-    /// `begin_status_line_row` to target. The installation is
-    /// deferred to the first `end_window` inside the loop; the test
-    /// `layout_frame_rust_renders_tab_bar_text_from_lisp_tab_bar_keymap`
-    /// then finds the TabBar row in `window_matrices[0].matrix.rows`.
+    /// Neomacs keeps immutable snapshots, so this method records a
+    /// frame-level `FrameChromeRow` that renderers can consume directly.
     fn render_frame_tab_bar_rust(
         &mut self,
         evaluator: &mut neovm_core::emacs_core::Context,
@@ -5462,16 +5426,19 @@ impl LayoutEngine {
 
         let width = frame_params.width;
         let tab_bar_face = face_resolver.resolve_named_face("tab-bar");
-        let _ = tab_bar_height;
+        let face_id = self.frame_face_id_counter.max(1);
+        self.frame_face_id_counter = face_id.saturating_add(1);
 
         let sl_face = self.realize_status_line_face(
-            0,
+            face_id,
             &tab_bar_face,
             frame_params.char_width,
             frame_params.char_height * 0.8,
             tab_bar_height,
         );
         let rendered_face = sl_face.render_face();
+        self.matrix_builder
+            .insert_face(face_id, rendered_face.clone());
         let char_width = self.status_line_char_width(&sl_face, frame_params.char_width);
 
         // Dispatch between GUI (cosmic-text) and TTY (cell-grid)
@@ -5484,12 +5451,37 @@ impl LayoutEngine {
             None => &mut tty_backend,
         };
         display_text_plain_via_backend(backend, &tab_bar_text, &rendered_face, char_width, width);
-        // Take the in-progress glyphs directly (no finish_row call);
-        // the row is constructed at installation time with role
-        // TabBar and installed into the first window's matrix after
-        // end_window.
         let glyphs: Vec<_> = backend.pending_glyphs().to_vec();
-        self.pending_tab_bar_glyphs = Some(glyphs);
+        if glyphs.is_empty() {
+            return;
+        }
+
+        let mut row = neomacs_display_protocol::glyph_matrix::GlyphRow::new(
+            neomacs_display_protocol::frame_glyphs::GlyphRowRole::TabBar,
+        );
+        row.enabled = true;
+        row.mode_line = true;
+        row.pixel_y = 0.0;
+        row.height_px = tab_bar_height.max(1.0);
+        row.ascent_px = sl_face.font_ascent.max(0.0).min(row.height_px);
+        row.glyphs[neomacs_display_protocol::glyph_matrix::GlyphArea::Text as usize] = glyphs;
+        crate::matrix_builder::GlyphMatrixBuilder::normalize_external_row(&mut row);
+
+        let row_index = if frame_params.char_height > 0.0 {
+            (frame_params.menu_bar_height / frame_params.char_height)
+                .round()
+                .max(0.0) as u32
+        } else {
+            0
+        };
+
+        self.pending_frame_chrome_rows.push(
+            neomacs_display_protocol::glyph_matrix::FrameChromeRow {
+                row_index,
+                pixel_bounds: Rect::new(0.0, frame_params.menu_bar_height, width, tab_bar_height),
+                row,
+            },
+        );
     }
 }
 
@@ -8515,11 +8507,10 @@ mod tests {
             .as_ref()
             .map(|state| {
                 state
-                    .window_matrices
+                    .frame_chrome_rows
                     .iter()
-                    .flat_map(|wm| wm.matrix.rows.iter())
-                    .filter(|row| row.role == GlyphRowRole::TabBar && row.enabled)
-                    .flat_map(|row| row.glyphs[1].iter())
+                    .filter(|row| row.row.role == GlyphRowRole::TabBar && row.row.enabled)
+                    .flat_map(|row| row.row.glyphs[1].iter())
                     .filter_map(|g| match &g.glyph_type {
                         neomacs_display_protocol::glyph_matrix::GlyphType::Char { ch } => Some(*ch),
                         _ => None,
@@ -8531,6 +8522,22 @@ mod tests {
         assert!(
             tab_bar_text.contains("*tb-2*"),
             "expected tab-bar row to render tab captions from tab-bar keymap, got {tab_bar_text:?}; tabs={tabs_debug}; format={format_debug}; keymap={keymap_debug}"
+        );
+        let window_tab_bar_rows = engine
+            .last_frame_display_state
+            .as_ref()
+            .map(|state| {
+                state
+                    .window_matrices
+                    .iter()
+                    .flat_map(|wm| wm.matrix.rows.iter())
+                    .filter(|row| row.role == GlyphRowRole::TabBar && row.enabled)
+                    .count()
+            })
+            .unwrap_or(0);
+        assert_eq!(
+            window_tab_bar_rows, 0,
+            "expected frame tab bar to live in frame_chrome_rows, not in leaf-window matrices"
         );
         // Note: a previous version of this test also asserted
         // `!tab_bar_text.contains("*frame-a-2*")` as a

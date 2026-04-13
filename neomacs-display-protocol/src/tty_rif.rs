@@ -236,6 +236,12 @@ impl TtyRif {
             }
         }
 
+        for frame_row in &state.frame_chrome_rows {
+            let char_w = state.char_width.max(1.0);
+            let win_col = (frame_row.pixel_bounds.x / char_w) as usize;
+            self.rasterize_glyph_row(win_col, frame_row.row_index as usize, &frame_row.row);
+        }
+
         for entry in &state.window_matrices {
             // Derive screen position from pixel_bounds.
             // In TTY mode, pixel_bounds uses char-cell units (char_w=1, char_h=1),
@@ -246,55 +252,7 @@ impl TtyRif {
             let win_row = (entry.pixel_bounds.y / char_h) as usize;
 
             for (row_idx, glyph_row) in entry.matrix.rows.iter().enumerate() {
-                if !glyph_row.enabled {
-                    continue;
-                }
-                let screen_row = win_row + row_idx;
-                if screen_row >= self.desired.height {
-                    break;
-                }
-
-                let mut col = win_col;
-
-                // Render all three glyph areas in order.
-                for area_idx in 0..3 {
-                    for glyph in &glyph_row.glyphs[area_idx] {
-                        if col >= self.desired.width {
-                            break;
-                        }
-
-                        if glyph.padding {
-                            // Padding cell for wide character -- mark but don't advance.
-                            let attrs = self.resolve_attrs(glyph.face_id);
-                            self.desired.set(screen_row, col, ' ', attrs, true);
-                            col += 1;
-                            continue;
-                        }
-
-                        let attrs = self.resolve_attrs(glyph.face_id);
-                        let ch = glyph_to_char(glyph);
-                        self.desired.set(screen_row, col, ch, attrs, false);
-                        col += 1;
-
-                        // Wide character occupies two columns.
-                        if glyph.wide && col < self.desired.width {
-                            self.desired.set(screen_row, col, ' ', attrs, true);
-                            col += 1;
-                        }
-                    }
-                }
-
-                if let (Some(cursor_col), Some(cursor_style)) =
-                    (glyph_row.cursor_col, glyph_row.cursor_type)
-                {
-                    self.apply_cursor_visual(
-                        screen_row,
-                        win_col + cursor_col as usize,
-                        cursor_style,
-                        None,
-                        None,
-                    );
-                }
+                self.rasterize_glyph_row(win_col, win_row + row_idx, glyph_row);
             }
         }
 
@@ -518,6 +476,56 @@ impl TtyRif {
             CursorStyle::Hbar(_) => {
                 cell.attrs.underline = cell.attrs.underline.max(1);
             }
+        }
+    }
+
+    fn rasterize_glyph_row(
+        &mut self,
+        screen_col_start: usize,
+        screen_row: usize,
+        glyph_row: &GlyphRow,
+    ) {
+        if !glyph_row.enabled || screen_row >= self.desired.height {
+            return;
+        }
+
+        let mut col = screen_col_start;
+
+        for area_idx in 0..3 {
+            for glyph in &glyph_row.glyphs[area_idx] {
+                if col >= self.desired.width {
+                    break;
+                }
+
+                if glyph.padding {
+                    let attrs = self.resolve_attrs(glyph.face_id);
+                    self.desired.set(screen_row, col, ' ', attrs, true);
+                    col += 1;
+                    continue;
+                }
+
+                let attrs = self.resolve_attrs(glyph.face_id);
+                let ch = glyph_to_char(glyph);
+                self.desired.set(screen_row, col, ch, attrs, false);
+                col += 1;
+
+                if glyph.wide && col < self.desired.width {
+                    self.desired.set(screen_row, col, ' ', attrs, true);
+                    col += 1;
+                }
+            }
+        }
+
+        if let (Some(cursor_col), Some(cursor_style)) =
+            (glyph_row.cursor_col, glyph_row.cursor_type)
+        {
+            self.apply_cursor_visual(
+                screen_row,
+                screen_col_start + cursor_col as usize,
+                cursor_style,
+                None,
+                None,
+            );
         }
     }
 }

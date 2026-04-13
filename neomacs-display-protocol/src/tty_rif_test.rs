@@ -408,6 +408,33 @@ fn rasterize_prefers_phys_cursor_over_matrix_cursor_columns() {
 }
 
 #[test]
+fn rasterize_frame_chrome_rows_outside_window_matrices() {
+    let mut state = FrameDisplayState::new(10, 5, 1.0, 1.0);
+    state.background = Color::BLACK;
+
+    let mut row = GlyphRow::new(GlyphRowRole::TabBar);
+    row.enabled = true;
+    row.mode_line = true;
+    row.displays_text = true;
+    row.height_px = 1.0;
+    row.ascent_px = 1.0;
+    row.glyphs[GlyphArea::Text as usize].push(Glyph::char('T', 0, 0));
+    row.glyphs[GlyphArea::Text as usize].push(Glyph::char('B', 0, 1));
+
+    state.frame_chrome_rows.push(FrameChromeRow {
+        row_index: 0,
+        pixel_bounds: Rect::new(0.0, 0.0, 10.0, 1.0),
+        row,
+    });
+
+    let mut rif = TtyRif::new(10, 5);
+    rif.rasterize(&state);
+
+    assert_eq!(rif.desired.cells[0].ch, 'T');
+    assert_eq!(rif.desired.cells[1].ch, 'B');
+}
+
+#[test]
 fn rasterize_ignores_matrix_cursor_columns_without_phys_cursor() {
     let mut state = FrameDisplayState::new(10, 5, 8.0, 16.0);
     state.background = Color::BLACK;

@@ -680,6 +680,16 @@ impl GlyphMatrixBuilder {
         }
     }
 
+    /// Normalize a standalone row built outside the window-matrix walker.
+    ///
+    /// Used for frame-level chrome rows such as the tab bar, which are
+    /// produced before any leaf window exists but still need the same bidi
+    /// reordering and row bookkeeping as status-line rows.
+    pub fn normalize_external_row(row: &mut GlyphRow) {
+        row.displays_text = !row.glyphs[GlyphArea::Text as usize].is_empty();
+        let _ = Self::reorder_row_bidi(row, None);
+    }
+
     /// Patch the last-closed window matrix so its rightmost
     /// column shows a vertical-border glyph on every enabled row.
     ///
