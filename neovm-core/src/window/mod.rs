@@ -188,6 +188,14 @@ impl WindowDisplayState {
         self.output_cursor = self.cursor;
     }
 
+    pub fn commit_output_cursor_from_snapshot(&mut self, cursor: Option<&WindowCursorSnapshot>) {
+        if let Some(cursor) = cursor {
+            self.output_cursor_to(cursor.row, cursor.col, cursor.y, cursor.x);
+        } else {
+            self.clear_output_cursor_state();
+        }
+    }
+
     pub fn output_cursor_to(&mut self, row: i64, col: i64, y: i64, x: i64) {
         self.output_cursor = Some(WindowCursorPos { x, y, row, col });
     }
@@ -203,12 +211,17 @@ impl WindowDisplayState {
 
     pub fn commit_completed_redisplay(&mut self) {
         self.last_cursor_off_p = self.cursor_off_p;
-        self.last_cursor_vpos = self.cursor.as_ref().map(|c| c.row).unwrap_or(0);
+        self.last_cursor_vpos = self
+            .output_cursor
+            .as_ref()
+            .or(self.cursor.as_ref())
+            .map(|c| c.row)
+            .unwrap_or(0);
     }
 
     pub fn apply_cursor_snapshot(&mut self, cursor: Option<WindowCursorSnapshot>) {
         self.install_logical_cursor(cursor.as_ref().map(WindowCursorPos::from_snapshot));
-        self.commit_output_cursor_from_cursor();
+        self.commit_output_cursor_from_snapshot(cursor.as_ref());
         self.apply_physical_cursor_snapshot(cursor);
         self.commit_completed_redisplay();
     }
@@ -3229,6 +3242,51 @@ mod tests {
             })
         );
         assert_eq!(display.cursor, Some(logical_cursor));
+    }
+
+    #[test]
+    fn completed_redisplay_prefers_output_cursor_row_history() {
+        let mut display = WindowDisplayState::default();
+        display.install_logical_cursor(Some(WindowCursorPos {
+            x: 12,
+            y: 24,
+            row: 1,
+            col: 3,
+        }));
+        display.output_cursor_to(4, 9, 72, 80);
+
+        display.commit_completed_redisplay();
+
+        assert_eq!(display.last_cursor_vpos, 4);
+    }
+
+    #[test]
+    fn apply_cursor_snapshot_commits_output_cursor_from_snapshot_geometry() {
+        let cursor = WindowCursorSnapshot {
+            kind: WindowCursorKind::Bar,
+            x: 44,
+            y: 32,
+            width: 3,
+            height: 16,
+            ascent: 12,
+            row: 2,
+            col: 7,
+        };
+        let mut display = WindowDisplayState::default();
+
+        display.apply_cursor_snapshot(Some(cursor.clone()));
+
+        assert_eq!(
+            display.output_cursor,
+            Some(WindowCursorPos {
+                x: 44,
+                y: 32,
+                row: 2,
+                col: 7,
+            })
+        );
+        assert_eq!(display.last_cursor_vpos, 2);
+        assert_eq!(display.phys_cursor, Some(cursor));
     }
 
     #[test]
