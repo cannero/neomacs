@@ -549,11 +549,6 @@ pub enum RenderCommand {
         bg_g: f32,
         bg_b: f32,
     },
-    /// Set tab bar items for click hit-testing (rendering now via layout engine)
-    SetTabBar {
-        items: Vec<TabBarItem>,
-        height: f32,
-    },
 }
 
 /// Wakeup pipe for signaling Emacs from render thread
