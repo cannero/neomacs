@@ -16,10 +16,10 @@ mod tty_frontend;
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
-use neomacs_display_protocol::glyph_matrix::FrameDisplayState;
 use neomacs_display_runtime::render_thread::{
     RenderThread, SharedImageDimensions, SharedMonitorInfo,
 };
@@ -34,8 +34,8 @@ use neovm_core::emacs_core::Value;
 use neovm_core::emacs_core::builtins::set_neomacs_monitor_info;
 use neovm_core::emacs_core::display::gui_window_system_symbol;
 use neovm_core::emacs_core::eval::{
-    FontResolveRequest, FontSpecResolveRequest, GuiFrameHostSize, ResolvedFontMatch,
-    ResolvedFontSpecMatch,
+    FontResolveRequest, FontSpecResolveRequest, GuiFrameHostSize, ImageResolveRequest,
+    ImageResolveSource, ResolvedFontMatch, ResolvedFontSpecMatch, ResolvedImage,
 };
 use neovm_core::emacs_core::load::LoadupDumpMode;
 use neovm_core::emacs_core::load::LoadupStartupSurface;
@@ -717,6 +717,8 @@ struct PrimaryWindowDisplayHost {
     primary_frame_id: Option<neovm_core::window::FrameId>,
     font_metrics: Option<FontMetricsService>,
     primary_window_size: SharedPrimaryWindowSize,
+    image_dimensions: SharedImageDimensions,
+    resolved_images: Mutex<HashMap<ImageResolveRequest, ResolvedImage>>,
 }
 
 struct TtyTerminalHost {
@@ -750,6 +752,44 @@ struct PrimaryWindowSize {
 }
 
 type SharedPrimaryWindowSize = Arc<Mutex<PrimaryWindowSize>>;
+
+const HOST_IMAGE_ID_START: u32 = 0x4000_0000;
+static HOST_IMAGE_ID_ALLOCATOR: AtomicU32 = AtomicU32::new(HOST_IMAGE_ID_START);
+
+fn next_host_image_id() -> u32 {
+    HOST_IMAGE_ID_ALLOCATOR.fetch_add(1, Ordering::Relaxed)
+}
+
+fn wait_for_image_dimensions(
+    shared: &SharedImageDimensions,
+    id: u32,
+    timeout: Duration,
+) -> Option<(u32, u32)> {
+    let (lock, cvar) = &**shared;
+    let deadline = Instant::now() + timeout;
+    let mut dims = match lock.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    loop {
+        if let Some(size) = dims.get(&id).copied() {
+            return Some(size);
+        }
+        let remaining = deadline.checked_duration_since(Instant::now())?;
+        match cvar.wait_timeout(dims, remaining) {
+            Ok((guard, result)) => {
+                dims = guard;
+                if result.timed_out() {
+                    return dims.get(&id).copied();
+                }
+            }
+            Err(poisoned) => {
+                let (guard, _) = poisoned.into_inner();
+                dims = guard;
+            }
+        }
+    }
+}
 
 fn prime_initial_monitor_snapshot(shared: &SharedMonitorInfo) {
     let (lock, cvar) = &**shared;
@@ -941,6 +981,67 @@ impl DisplayHost for PrimaryWindowDisplayHost {
             spacing: font.spacing,
             postscript_name: font.postscript_name,
         }))
+    }
+
+    fn resolve_image(&self, request: ImageResolveRequest) -> Result<Option<ResolvedImage>, String> {
+        let cache = match self.resolved_images.lock() {
+            Ok(cache) => cache,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(image) = cache.get(&request) {
+            return Ok(Some(image.clone()));
+        }
+        drop(cache);
+
+        let image_id = next_host_image_id();
+        match &request.source {
+            ImageResolveSource::File(path) => {
+                self.cmd_tx
+                    .send(RenderCommand::ImageLoadFile {
+                        id: image_id,
+                        path: path.clone(),
+                        max_width: request.max_width,
+                        max_height: request.max_height,
+                        fg_color: request.fg_color,
+                        bg_color: request.bg_color,
+                    })
+                    .map_err(|err| format!("failed to queue image load: {err}"))?;
+            }
+            ImageResolveSource::Data(data) => {
+                self.cmd_tx
+                    .send(RenderCommand::ImageLoadData {
+                        id: image_id,
+                        data: data.clone(),
+                        max_width: request.max_width,
+                        max_height: request.max_height,
+                        fg_color: request.fg_color,
+                        bg_color: request.bg_color,
+                    })
+                    .map_err(|err| format!("failed to queue image data load: {err}"))?;
+            }
+        }
+
+        let Some((width, height)) =
+            wait_for_image_dimensions(&self.image_dimensions, image_id, Duration::from_secs(1))
+        else {
+            return Ok(None);
+        };
+
+        let resolved = ResolvedImage {
+            image_id,
+            width,
+            height,
+        };
+        match self.resolved_images.lock() {
+            Ok(mut cache) => {
+                cache.insert(request, resolved.clone());
+            }
+            Err(poisoned) => {
+                let mut cache = poisoned.into_inner();
+                cache.insert(request, resolved.clone());
+            }
+        }
+        Ok(Some(resolved))
     }
 }
 
@@ -1178,6 +1279,9 @@ pub fn run(mode: RuntimeMode) {
             cmd_tx: emacs_comms.cmd_tx.clone(),
         }));
     }
+    let gui_image_dimensions: SharedImageDimensions =
+        Arc::new((Mutex::new(HashMap::new()), Condvar::new()));
+
     if startup.frontend == FrontendKind::Gui {
         evaluator.set_display_host(Box::new(PrimaryWindowDisplayHost {
             cmd_tx: emacs_comms.cmd_tx.clone(),
@@ -1185,21 +1289,22 @@ pub fn run(mode: RuntimeMode) {
             primary_frame_id: None,
             font_metrics: None,
             primary_window_size: Arc::clone(&primary_window_size),
+            image_dimensions: Arc::clone(&gui_image_dimensions),
+            resolved_images: Mutex::new(HashMap::new()),
         }));
     }
 
     // 5. Spawn the frontend loop matching the requested startup mode.
     let frontend = match startup.frontend {
         FrontendKind::Gui => {
-            let image_dimensions: SharedImageDimensions = Arc::new(Mutex::new(HashMap::new()));
             let shared_monitors: SharedMonitorInfo =
-                Arc::new((Mutex::new(Vec::new()), std::sync::Condvar::new()));
+                Arc::new((Mutex::new(Vec::new()), Condvar::new()));
             let render_thread = RenderThread::spawn(
                 render_comms,
                 width,
                 height,
                 "Neomacs".to_string(),
-                Arc::clone(&image_dimensions),
+                Arc::clone(&gui_image_dimensions),
                 Arc::clone(&shared_monitors),
             )
             .unwrap_or_else(|err| {

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 
 use winit::dpi::{LogicalSize, PhysicalSize, Size};
@@ -21,7 +21,7 @@ use super::transitions::TransitionState;
 use crate::backend::wpe::{WpeBackend, WpeWebView};
 
 /// Shared storage for image dimensions accessible from both threads.
-pub type SharedImageDimensions = Arc<Mutex<HashMap<u32, (u32, u32)>>>;
+pub type SharedImageDimensions = Arc<(Mutex<HashMap<u32, (u32, u32)>>, Condvar)>;
 
 /// Shared storage for monitor info accessible from both threads.
 /// The Condvar is notified once monitors have been populated.

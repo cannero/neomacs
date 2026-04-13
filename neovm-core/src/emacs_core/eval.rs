@@ -882,6 +882,28 @@ pub struct ResolvedFontSpecMatch {
     pub postscript_name: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum ImageResolveSource {
+    File(String),
+    Data(Vec<u8>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ImageResolveRequest {
+    pub source: ImageResolveSource,
+    pub max_width: u32,
+    pub max_height: u32,
+    pub fg_color: u32,
+    pub bg_color: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedImage {
+    pub image_id: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
 pub trait DisplayHost {
     fn realize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String>;
     fn resize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String>;
@@ -901,6 +923,12 @@ pub trait DisplayHost {
         &mut self,
         _request: FontSpecResolveRequest,
     ) -> Result<Option<ResolvedFontSpecMatch>, String> {
+        Ok(None)
+    }
+    fn resolve_image(
+        &self,
+        _request: ImageResolveRequest,
+    ) -> Result<Option<ResolvedImage>, String> {
         Ok(None)
     }
 }

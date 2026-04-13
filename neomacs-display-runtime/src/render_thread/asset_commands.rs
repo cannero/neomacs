@@ -29,8 +29,10 @@ impl RenderApp {
                         id, &path, max_width, max_height, fg_color, bg_color,
                     );
                     if let Some((w, h)) = renderer.get_image_size(id) {
-                        if let Ok(mut dims) = self.image_dimensions.lock() {
+                        let (lock, cvar) = &*self.image_dimensions;
+                        if let Ok(mut dims) = lock.lock() {
                             dims.insert(id, (w, h));
+                            cvar.notify_all();
                         }
                         self.comms.send_input(InputEvent::ImageDimensionsReady {
                             id,
@@ -64,8 +66,10 @@ impl RenderApp {
                         id, &data, max_width, max_height, fg_color, bg_color,
                     );
                     if let Some((w, h)) = renderer.get_image_size(id) {
-                        if let Ok(mut dims) = self.image_dimensions.lock() {
+                        let (lock, cvar) = &*self.image_dimensions;
+                        if let Ok(mut dims) = lock.lock() {
                             dims.insert(id, (w, h));
+                            cvar.notify_all();
                         }
                         self.comms.send_input(InputEvent::ImageDimensionsReady {
                             id,
@@ -101,8 +105,10 @@ impl RenderApp {
                 if let Some(ref mut renderer) = self.renderer {
                     renderer.load_image_argb32_with_id(id, &data, width, height, stride);
                     if let Some((w, h)) = renderer.get_image_size(id) {
-                        if let Ok(mut dims) = self.image_dimensions.lock() {
+                        let (lock, cvar) = &*self.image_dimensions;
+                        if let Ok(mut dims) = lock.lock() {
                             dims.insert(id, (w, h));
+                            cvar.notify_all();
                         }
                     }
                 }
@@ -125,8 +131,10 @@ impl RenderApp {
                 if let Some(ref mut renderer) = self.renderer {
                     renderer.load_image_rgb24_with_id(id, &data, width, height, stride);
                     if let Some((w, h)) = renderer.get_image_size(id) {
-                        if let Ok(mut dims) = self.image_dimensions.lock() {
+                        let (lock, cvar) = &*self.image_dimensions;
+                        if let Ok(mut dims) = lock.lock() {
                             dims.insert(id, (w, h));
+                            cvar.notify_all();
                         }
                     }
                 }

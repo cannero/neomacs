@@ -258,7 +258,7 @@ mod tests {
 
         let comms = ThreadComms::new().expect("ThreadComms::new failed");
         let (_emacs, render) = comms.split();
-        let image_dimensions = Arc::new(Mutex::new(HashMap::new()));
+        let image_dimensions = Arc::new((Mutex::new(HashMap::new()), std::sync::Condvar::new()));
         let shared_monitors = Arc::new((Mutex::new(Vec::new()), std::sync::Condvar::new()));
 
         let mut app = RenderApp::new(

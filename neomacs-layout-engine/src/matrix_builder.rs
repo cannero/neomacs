@@ -404,11 +404,36 @@ impl GlyphMatrixBuilder {
         w: f32,
         h: f32,
     ) {
+        self.push_image_with_slot_id(
+            window_id,
+            role,
+            clip,
+            DisplaySlotId::from_pixels(window_id, x, y, 1.0, 1.0),
+            image_id,
+            x,
+            y,
+            w,
+            h,
+        );
+    }
+
+    pub fn push_image_with_slot_id(
+        &mut self,
+        window_id: i64,
+        role: GlyphRowRole,
+        clip: Option<Rect>,
+        slot_id: DisplaySlotId,
+        image_id: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    ) {
         self.images.push(ImageItem {
             window_id,
             row_role: role,
             clip_rect: clip,
-            slot_id: Some(DisplaySlotId::from_pixels(window_id, x, y, 1.0, 1.0)),
+            slot_id: Some(slot_id),
             image_id,
             x,
             y,

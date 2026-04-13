@@ -527,6 +527,11 @@ fn opening_gui_frame_adoption_does_not_push_stale_window_size() {
             width: 1600,
             height: 1800,
         })),
+        image_dimensions: Arc::new((
+            Mutex::new(std::collections::HashMap::new()),
+            std::sync::Condvar::new(),
+        )),
+        resolved_images: Mutex::new(std::collections::HashMap::new()),
     };
 
     neovm_core::emacs_core::DisplayHost::realize_gui_frame(

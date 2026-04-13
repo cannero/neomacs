@@ -10,12 +10,13 @@ use super::hit_test::*;
 use super::types::*;
 use super::unicode::*;
 use neomacs_display_protocol::frame_glyphs::{
-    CursorStyle, DisplaySlotId, FrameGlyphBuffer, PhysCursor, WindowEffectHint, WindowInfo,
-    WindowTransitionHint, WindowTransitionKind,
+    CursorStyle, DisplaySlotId, FrameGlyphBuffer, GlyphRowRole, PhysCursor, WindowEffectHint,
+    WindowInfo, WindowTransitionHint, WindowTransitionKind,
 };
 use neomacs_display_protocol::types::{Color, Rect};
 use neovm_core::buffer::BufferId;
 use neovm_core::emacs_core::Value;
+use neovm_core::emacs_core::eval::{ImageResolveRequest, ImageResolveSource};
 use neovm_core::emacs_core::keymap::is_list_keymap;
 use neovm_core::emacs_core::value::list_to_vec;
 use neovm_core::window::{
@@ -755,6 +756,83 @@ fn is_display_image_spec(val: &neovm_core::emacs_core::Value) -> bool {
         return val.cons_car().is_symbol_named("image");
     }
     false
+}
+
+#[derive(Clone, Debug)]
+struct DisplayImageLayout {
+    request: ImageResolveRequest,
+    scale: f32,
+}
+
+fn parse_image_dimension(value: Value) -> Option<u32> {
+    match value.kind() {
+        neovm_core::emacs_core::value::ValueKind::Fixnum(_) => Some(value.as_int()?.max(0) as u32),
+        neovm_core::emacs_core::value::ValueKind::Float => {
+            Some(value.as_float()?.max(0.0).round() as u32)
+        }
+        _ => None,
+    }
+}
+
+fn parse_image_scale(value: Value) -> Option<f32> {
+    if value.is_symbol_named("default") {
+        return None;
+    }
+    match value.kind() {
+        neovm_core::emacs_core::value::ValueKind::Fixnum(_) => Some(value.as_int()?.max(0) as f32),
+        neovm_core::emacs_core::value::ValueKind::Float => Some(value.as_float()?.max(0.0) as f32),
+        _ => None,
+    }
+}
+
+fn parse_display_image_layout(prop_val: &Value) -> Option<DisplayImageLayout> {
+    let items = list_to_vec(prop_val)?;
+    if items.first()?.as_symbol_name() != Some("image") {
+        return None;
+    }
+
+    let mut source = None;
+    let mut max_width = 0u32;
+    let mut max_height = 0u32;
+    let mut scale = 1.0f32;
+
+    let mut i = 1usize;
+    while i + 1 < items.len() {
+        let key = items[i].as_symbol_name();
+        let value = items[i + 1];
+        match key {
+            Some(":file") => {
+                source = value.as_str_owned().map(ImageResolveSource::File);
+            }
+            Some(":data") => {
+                source = value
+                    .as_lisp_string()
+                    .map(|data| ImageResolveSource::Data(data.as_bytes().to_vec()));
+            }
+            Some(":width") => {
+                max_width = parse_image_dimension(value).unwrap_or(max_width);
+            }
+            Some(":height") => {
+                max_height = parse_image_dimension(value).unwrap_or(max_height);
+            }
+            Some(":scale") => {
+                scale = parse_image_scale(value).unwrap_or(scale);
+            }
+            _ => {}
+        }
+        i += 2;
+    }
+
+    Some(DisplayImageLayout {
+        request: ImageResolveRequest {
+            source: source?,
+            max_width,
+            max_height,
+            fg_color: 0,
+            bg_color: 0,
+        },
+        scale,
+    })
 }
 
 #[inline]
@@ -3116,36 +3194,114 @@ impl LayoutEngine {
                         continue;
                     }
 
-                    // Case 3: Image — show [img] placeholder
+                    // Case 3: Image — emit a real inline image glyph when a GUI
+                    // display host can resolve it, otherwise keep the TTY placeholder.
                     if is_display_image_spec(&prop_val) {
-                        if point_in_display_replacement {
-                            capture_cursor_info(
-                                &mut cursor_info,
-                                CapturedCursorInfo {
-                                    x,
-                                    y,
-                                    face_w: face_char_w,
-                                    face_h,
-                                    face_ascent: face_ascent_val,
-                                    bg: current_bg,
-                                    byte_idx,
-                                    col,
-                                    face_id: current_face_id.saturating_sub(1),
-                                    face_space_w,
-                                    matrix_row: row,
-                                    slot_width: Some(face_char_w.max(1.0)),
-                                    stretch_like: false,
-                                },
-                            );
-                        }
-                        let placeholder = "[img]";
-                        let right_limit = content_x + (text_width - lnum_pixel_width);
-                        for _rch in placeholder.chars() {
-                            if x + face_char_w > right_limit {
-                                break;
+                        let maybe_image = parse_display_image_layout(&prop_val).and_then(|spec| {
+                            evaluator
+                                .display_host
+                                .as_ref()
+                                .and_then(|host| host.resolve_image(spec.request).ok().flatten())
+                                .map(|resolved| (spec.scale, resolved))
+                        });
+
+                        if let Some((scale, resolved)) = maybe_image {
+                            let mut display_width = resolved.width.max(1) as f32;
+                            let mut display_height = resolved.height.max(1) as f32;
+                            if (scale - 1.0).abs() > f32::EPSILON
+                                && scale.is_finite()
+                                && scale > 0.0
+                            {
+                                display_width = (display_width * scale).round().max(1.0);
+                                display_height = (display_height * scale).round().max(1.0);
                             }
-                            x += face_char_w;
-                            col += 1;
+
+                            if point_in_display_replacement {
+                                capture_cursor_info(
+                                    &mut cursor_info,
+                                    CapturedCursorInfo {
+                                        x,
+                                        y,
+                                        face_w: face_char_w,
+                                        face_h: display_height,
+                                        face_ascent: display_height,
+                                        bg: current_bg,
+                                        byte_idx,
+                                        col,
+                                        face_id: current_face_id.saturating_sub(1),
+                                        face_space_w,
+                                        matrix_row: row,
+                                        slot_width: Some(display_width.max(1.0)),
+                                        stretch_like: false,
+                                    },
+                                );
+                            }
+
+                            let slot_id = DisplaySlotId {
+                                window_id: params.window_id,
+                                row: row as u32,
+                                col: col as u16,
+                            };
+                            let image_y = y + raise_y_offset;
+                            self.matrix_builder.push_image_with_slot_id(
+                                params.window_id,
+                                GlyphRowRole::Text,
+                                Some(params.text_bounds),
+                                slot_id,
+                                resolved.image_id,
+                                x,
+                                image_y,
+                                display_width,
+                                display_height,
+                            );
+                            push_display_point(
+                                &mut display_points,
+                                &mut row_first_display_pos,
+                                &mut row_last_display_pos,
+                                charpos + 1,
+                                x,
+                                image_y,
+                                display_width,
+                                display_height,
+                                row as i64,
+                                col,
+                                text_area_left,
+                                window_top,
+                            );
+                            row_max_height = row_max_height.max(display_height);
+                            row_max_ascent = row_max_ascent.max(display_height);
+                            x += display_width;
+                            col += ((display_width / face_char_w.max(1.0)).ceil() as usize).max(1);
+                        } else {
+                            if point_in_display_replacement {
+                                capture_cursor_info(
+                                    &mut cursor_info,
+                                    CapturedCursorInfo {
+                                        x,
+                                        y,
+                                        face_w: face_char_w,
+                                        face_h,
+                                        face_ascent: face_ascent_val,
+                                        bg: current_bg,
+                                        byte_idx,
+                                        col,
+                                        face_id: current_face_id.saturating_sub(1),
+                                        face_space_w,
+                                        matrix_row: row,
+                                        slot_width: Some(face_char_w.max(1.0)),
+                                        stretch_like: false,
+                                    },
+                                );
+                            }
+                            let placeholder = "[img]";
+                            let right_limit = content_x + (text_width - lnum_pixel_width);
+                            for _rch in placeholder.chars() {
+                                if x + face_char_w > right_limit {
+                                    break;
+                                }
+                                x += face_char_w;
+                                col += 1;
+                            }
                         }
 
                         // Skip covered buffer text
@@ -5219,10 +5375,14 @@ mod tests {
     use crate::neovm_bridge::RustBufferAccess;
     use neomacs_display_protocol::frame_glyphs::{FrameGlyph, GlyphRowRole};
     use neovm_core::emacs_core::Context;
+    use neovm_core::emacs_core::eval::{
+        DisplayHost, GuiFrameHostRequest, ImageResolveRequest, ResolvedImage,
+    };
     use neovm_core::emacs_core::load::{
         apply_runtime_startup_state, create_bootstrap_evaluator_cached_with_features,
     };
     use neovm_core::window::DisplayRowSnapshot;
+    use std::sync::{Arc, Mutex};
 
     fn test_window_params() -> WindowParams {
         WindowParams {
@@ -5274,6 +5434,36 @@ mod tests {
             line_prefix: vec![],
             left_margin_width: 0.0,
             right_margin_width: 0.0,
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingImageDisplayHost {
+        requests: Arc<Mutex<Vec<ImageResolveRequest>>>,
+    }
+
+    impl DisplayHost for RecordingImageDisplayHost {
+        fn realize_gui_frame(&mut self, _request: GuiFrameHostRequest) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn resize_gui_frame(&mut self, _request: GuiFrameHostRequest) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn resolve_image(
+            &self,
+            request: ImageResolveRequest,
+        ) -> Result<Option<ResolvedImage>, String> {
+            self.requests
+                .lock()
+                .expect("requests lock")
+                .push(request.clone());
+            Ok(Some(ResolvedImage {
+                image_id: 77,
+                width: 32,
+                height: 24,
+            }))
         }
     }
 
@@ -5837,6 +6027,63 @@ mod tests {
         assert_eq!(cursor.x, c.x + c.width);
         assert!(cursor.x < d.x, "cursor should target replacement slot");
         assert_eq!(cursor.row, c.row);
+    }
+
+    #[test]
+    fn layout_frame_rust_emits_inline_image_glyphs_for_display_image_specs() {
+        let mut eval = Context::new();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        eval.set_display_host(Box::new(RecordingImageDisplayHost {
+            requests: Arc::clone(&requests),
+        }));
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let text = "aXb";
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert(text);
+            buf.goto_byte(1);
+            buf.text.text_props_put_property(
+                1,
+                2,
+                "display",
+                Value::list(vec![
+                    Value::symbol("image"),
+                    Value::keyword("type"),
+                    Value::symbol("png"),
+                    Value::keyword("file"),
+                    Value::string("/tmp/neomacs-inline-image.png"),
+                    Value::keyword("width"),
+                    Value::fixnum(32),
+                    Value::keyword("height"),
+                    Value::fixnum(24),
+                ]),
+            );
+        }
+
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-inline-image", 320, 120, buf_id);
+
+        let mut engine = LayoutEngine::new();
+        engine.layout_frame_rust(&mut eval, frame_id);
+
+        let state = engine
+            .last_frame_display_state
+            .as_ref()
+            .expect("frame display state");
+        let image = state.images.first().expect("inline image glyph");
+        assert_eq!(image.image_id, 77);
+        assert_eq!(image.width, 32.0);
+        assert_eq!(image.height, 24.0);
+
+        let requests = requests.lock().expect("requests lock");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].max_width, 32);
+        assert_eq!(requests[0].max_height, 24);
     }
 
     #[test]
