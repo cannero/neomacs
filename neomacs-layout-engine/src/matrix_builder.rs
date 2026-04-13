@@ -5,6 +5,7 @@
 //! The resulting FrameDisplayState can be compared against the pixel output
 //! for validation, and will eventually replace FrameGlyphBuffer entirely.
 
+use crate::bidi::{self, BidiDir};
 use neomacs_display_protocol::face::Face;
 use neomacs_display_protocol::frame_glyphs::{
     CursorStyle, GlyphRowRole, PhysCursor, StipplePattern, WindowEffectHint, WindowInfo,
@@ -49,6 +50,33 @@ pub struct GlyphMatrixBuilder {
     parent_x: f32,
     parent_y: f32,
     z_order: i32,
+}
+
+fn bidi_char_for_glyph(glyph: &Glyph) -> Option<char> {
+    if glyph.wide || glyph.padding {
+        return None;
+    }
+
+    match &glyph.glyph_type {
+        GlyphType::Char { ch } | GlyphType::Glyphless { ch } => Some(*ch),
+        GlyphType::Composite { text } => text.chars().next(),
+        GlyphType::Stretch { .. } | GlyphType::Image { .. } => None,
+    }
+}
+
+fn apply_bidi_mirroring(glyph: &mut Glyph, level: u8) {
+    if level & 1 == 0 {
+        return;
+    }
+
+    match &mut glyph.glyph_type {
+        GlyphType::Char { ch } | GlyphType::Glyphless { ch } => {
+            if let Some(mirrored) = bidi::bidi_mirror(*ch) {
+                *ch = mirrored;
+            }
+        }
+        GlyphType::Composite { .. } | GlyphType::Stretch { .. } | GlyphType::Image { .. } => {}
+    }
 }
 
 impl GlyphMatrixBuilder {
@@ -168,6 +196,7 @@ impl GlyphMatrixBuilder {
     }
 
     pub fn end_row(&mut self) {
+        self.reorder_current_row_bidi();
         self.in_row = false;
     }
 
@@ -428,6 +457,40 @@ impl GlyphMatrixBuilder {
     }
 
     pub fn set_phys_cursor(&mut self, cursor: PhysCursor) {
+        let mut cursor = cursor;
+        let mut visual_col = None;
+
+        if cursor.window_id as u64 == self.current_window_id
+            && let Some(ref matrix) = self.current_matrix
+            && cursor.row < matrix.rows.len()
+        {
+            let row = &matrix.rows[cursor.row];
+            let text = &row.glyphs[GlyphArea::Text as usize];
+            visual_col = text
+                .iter()
+                .position(|glyph| !glyph.padding && glyph.charpos == cursor.charpos)
+                .map(|idx| idx as u16);
+
+            if let Some(col) = visual_col {
+                if col != cursor.col {
+                    cursor.col = col;
+                    cursor.slot_id.col = col;
+                    if matrix.ncols > 0 {
+                        let char_w = self.current_pixel_bounds.width / matrix.ncols as f32;
+                        cursor.x = self.current_pixel_bounds.x + col as f32 * char_w;
+                    }
+                }
+            }
+        }
+
+        if let Some(col) = visual_col
+            && let Some(ref mut matrix) = self.current_matrix
+            && cursor.row < matrix.rows.len()
+        {
+            matrix.rows[cursor.row].cursor_col = Some(col);
+            matrix.rows[cursor.row].cursor_type = Some(cursor.style);
+        }
+
         self.phys_cursor = Some(cursor);
     }
 
@@ -689,6 +752,100 @@ impl GlyphMatrixBuilder {
         state.parent_y = self.parent_y;
         state.z_order = self.z_order;
         state
+    }
+
+    fn reorder_current_row_bidi(&mut self) {
+        let mut remapped_cursor_col = None;
+
+        if let Some(ref mut matrix) = self.current_matrix {
+            if self.current_row >= matrix.rows.len() {
+                return;
+            }
+
+            let row = &mut matrix.rows[self.current_row];
+            let text = &mut row.glyphs[GlyphArea::Text as usize];
+            if text.is_empty() {
+                return;
+            }
+
+            if text.iter().any(|glyph| glyph.wide || glyph.padding) {
+                return;
+            }
+
+            let mut positions = Vec::new();
+            let mut glyphs = Vec::new();
+            let mut chars = String::new();
+
+            for (idx, glyph) in text.iter().enumerate() {
+                if let Some(ch) = bidi_char_for_glyph(glyph) {
+                    positions.push(idx);
+                    glyphs.push(glyph.clone());
+                    chars.push(ch);
+                }
+            }
+
+            if glyphs.is_empty() {
+                return;
+            }
+
+            let levels = bidi::resolve_levels(&chars, BidiDir::Auto);
+            if levels.len() != glyphs.len() {
+                return;
+            }
+
+            let cursor_logical_idx = row
+                .cursor_col
+                .and_then(|col| positions.iter().position(|&idx| idx == col as usize));
+            let phys_cursor_logical_idx = self
+                .phys_cursor
+                .as_ref()
+                .filter(|cursor| {
+                    cursor.window_id as u64 == self.current_window_id
+                        && cursor.row == self.current_row
+                })
+                .and_then(|cursor| positions.iter().position(|&idx| idx == cursor.col as usize));
+
+            if levels.iter().all(|&level| level == 0) {
+                for (glyph, level) in glyphs.iter_mut().zip(levels.iter().copied()) {
+                    glyph.bidi_level = level;
+                }
+                for (idx, glyph) in positions.iter().copied().zip(glyphs.into_iter()) {
+                    text[idx] = glyph;
+                }
+                return;
+            }
+
+            let visual_order = bidi::reorder_visual(&levels);
+            let mut visual_cursor_col = None;
+
+            for (visual_idx, logical_idx) in visual_order.into_iter().enumerate() {
+                let target_idx = positions[visual_idx];
+                let mut glyph = glyphs[logical_idx].clone();
+                glyph.bidi_level = levels[logical_idx];
+                apply_bidi_mirroring(&mut glyph, levels[logical_idx]);
+                text[target_idx] = glyph;
+
+                if cursor_logical_idx == Some(logical_idx) {
+                    visual_cursor_col = Some(target_idx as u16);
+                }
+                if phys_cursor_logical_idx == Some(logical_idx) {
+                    remapped_cursor_col = Some(target_idx as u16);
+                }
+            }
+
+            if let Some(col) = visual_cursor_col {
+                row.cursor_col = Some(col);
+            }
+        }
+
+        if let Some(col) = remapped_cursor_col
+            && let Some(ref mut cursor) = self.phys_cursor
+            && cursor.window_id as u64 == self.current_window_id
+            && cursor.row == self.current_row
+        {
+            cursor.col = col;
+            cursor.slot_id.col = col;
+        }
     }
 }
 

@@ -298,6 +298,84 @@ fn builder_preserves_phys_cursor() {
     assert_eq!(cursor.col, 0);
 }
 
+#[test]
+fn builder_reorders_simple_rtl_row() {
+    let mut builder = GlyphMatrixBuilder::new();
+    builder.begin_window(1, 1, 10, Rect::new(0.0, 0.0, 80.0, 16.0), true);
+    builder.begin_row(0, GlyphRowRole::Text);
+    builder.push_char('א', 0, 0);
+    builder.push_char('ב', 0, 1);
+    builder.end_row();
+    builder.end_window();
+
+    let state = builder.finish(10, 1, 8.0, 16.0);
+    let glyphs = &state.window_matrices[0].matrix.rows[0].glyphs[GlyphArea::Text as usize];
+    assert_eq!(glyphs.len(), 2);
+    assert_eq!(glyphs[0].glyph_type, GlyphType::Char { ch: 'ב' });
+    assert_eq!(glyphs[1].glyph_type, GlyphType::Char { ch: 'א' });
+    assert_eq!(glyphs[0].bidi_level, 1);
+    assert_eq!(glyphs[1].bidi_level, 1);
+}
+
+#[test]
+fn builder_keeps_stretch_fixed_while_reordering_rtl_chars() {
+    let mut builder = GlyphMatrixBuilder::new();
+    builder.begin_window(1, 1, 10, Rect::new(0.0, 0.0, 80.0, 16.0), true);
+    builder.begin_row(0, GlyphRowRole::Text);
+    builder.push_char('א', 0, 0);
+    builder.push_stretch(3, 0);
+    builder.push_char('ב', 0, 1);
+    builder.end_row();
+    builder.end_window();
+
+    let state = builder.finish(10, 1, 8.0, 16.0);
+    let glyphs = &state.window_matrices[0].matrix.rows[0].glyphs[GlyphArea::Text as usize];
+    assert_eq!(glyphs.len(), 3);
+    assert_eq!(glyphs[0].glyph_type, GlyphType::Char { ch: 'ב' });
+    assert_eq!(glyphs[1].glyph_type, GlyphType::Stretch { width_cols: 3 });
+    assert_eq!(glyphs[2].glyph_type, GlyphType::Char { ch: 'א' });
+}
+
+#[test]
+fn builder_remaps_phys_cursor_to_visual_bidi_column() {
+    let mut builder = GlyphMatrixBuilder::new();
+    builder.begin_window(1, 1, 10, Rect::new(0.0, 0.0, 80.0, 16.0), true);
+    builder.begin_row(0, GlyphRowRole::Text);
+    builder.push_char('א', 0, 0);
+    builder.push_char('ב', 0, 1);
+    builder.end_row();
+    builder.set_phys_cursor(PhysCursor {
+        window_id: 1,
+        charpos: 0,
+        row: 0,
+        col: 0,
+        slot_id: DisplaySlotId {
+            window_id: 1,
+            row: 0,
+            col: 0,
+        },
+        x: 0.0,
+        y: 0.0,
+        width: 8.0,
+        height: 16.0,
+        ascent: 12.0,
+        style: CursorStyle::FilledBox,
+        color: neomacs_display_protocol::types::Color::WHITE,
+        cursor_fg: neomacs_display_protocol::types::Color::BLACK,
+    });
+    builder.end_window();
+
+    let state = builder.finish(10, 1, 8.0, 16.0);
+    let cursor = state.phys_cursor.as_ref().expect("phys cursor");
+    assert_eq!(cursor.col, 1);
+    assert_eq!(cursor.slot_id.col, 1);
+    assert_eq!(cursor.x, 8.0);
+
+    let row = &state.window_matrices[0].matrix.rows[0];
+    assert_eq!(row.cursor_col, Some(1));
+    assert_eq!(row.cursor_type, Some(CursorStyle::FilledBox));
+}
+
 /// Regression test for the face-id-collision bug that caused
 /// both mode lines to render with mode-line-inactive colors
 /// after `C-x 2`.
