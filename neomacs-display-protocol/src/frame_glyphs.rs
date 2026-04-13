@@ -633,12 +633,6 @@ pub struct FrameGlyphBuffer {
     /// All glyphs to render this frame
     pub glyphs: Vec<FrameGlyph>,
 
-    /// Window regions for this frame (rebuilt each frame by add_window calls)
-    pub window_regions: Vec<Rect>,
-
-    /// Window regions from previous frame (kept for compatibility)
-    pub prev_window_regions: Vec<Rect>,
-
     /// Per-window metadata for animation detection
     pub window_infos: Vec<WindowInfo>,
 
@@ -656,9 +650,6 @@ pub struct FrameGlyphBuffer {
 
     /// Frame-level tab bar metadata for hit-testing.
     pub tab_bar: Option<FrameTabBarState>,
-
-    /// Flag: layout changed last frame (kept for compatibility)
-    pub layout_changed: bool,
 
     /// Current face attributes (set before adding char glyphs)
     current_face_id: u32,
@@ -776,15 +767,12 @@ impl FrameGlyphBuffer {
             background_alpha: 1.0,
             no_accept_focus: false,
             glyphs: Vec::with_capacity(10000),
-            window_regions: Vec::with_capacity(16),
-            prev_window_regions: Vec::with_capacity(16),
             window_infos: Vec::with_capacity(16),
             transition_hints: Vec::with_capacity(16),
             effect_hints: Vec::with_capacity(16),
             phys_cursor: None,
             window_cursors: Vec::with_capacity(8),
             tab_bar: None,
-            layout_changed: false,
             current_face_id: 0,
             current_fg: Color::WHITE,
             current_bg: None,
@@ -820,7 +808,6 @@ impl FrameGlyphBuffer {
     /// Called at the start of each frame by the matrix walker.
     pub fn clear_all(&mut self) {
         self.glyphs.clear();
-        self.window_regions.clear();
         self.window_infos.clear();
         self.transition_hints.clear();
         self.effect_hints.clear();
@@ -834,19 +821,6 @@ impl FrameGlyphBuffer {
         self.current_clip_rect = None;
     }
 
-    /// Start new frame - prepare for new content (compatibility shim)
-    pub fn start_frame(&mut self) {
-        std::mem::swap(&mut self.prev_window_regions, &mut self.window_regions);
-        self.window_regions.clear();
-        self.phys_cursor = None;
-        self.window_cursors.clear();
-    }
-
-    /// End frame (compatibility shim, always returns false now)
-    pub fn end_frame(&mut self) -> bool {
-        false
-    }
-
     fn current_slot_id(&self, x: f32, y: f32) -> DisplaySlotId {
         DisplaySlotId::from_pixels(
             self.current_window_id,
@@ -855,13 +829,6 @@ impl FrameGlyphBuffer {
             self.char_width,
             self.char_height,
         )
-    }
-
-    /// Check and reset layout_changed flag (compatibility)
-    pub fn take_layout_changed(&mut self) -> bool {
-        let was_changed = self.layout_changed;
-        self.layout_changed = false;
-        was_changed
     }
 
     /// Clear buffer for new frame (legacy API)
@@ -1062,10 +1029,9 @@ impl FrameGlyphBuffer {
         self.current_bg = bg;
     }
 
-    /// Add a window background rectangle and record the window region.
+    /// Add a window background rectangle.
     /// With full-frame rebuild, no stale-background removal is needed.
     pub fn add_background(&mut self, x: f32, y: f32, width: f32, height: f32, color: Color) {
-        self.window_regions.push(Rect::new(x, y, width, height));
         self.glyphs.push(FrameGlyph::Background {
             bounds: Rect::new(x, y, width, height),
             color,
@@ -1592,12 +1558,10 @@ mod tests {
     fn new_creates_empty_buffer() {
         let buf = FrameGlyphBuffer::new();
         assert!(buf.glyphs.is_empty());
-        assert!(buf.window_regions.is_empty());
         assert!(buf.window_infos.is_empty());
         assert!(buf.faces.is_empty());
         assert!(buf.stipple_patterns.is_empty());
         assert!(buf.phys_cursor.is_none());
-        assert!(!buf.layout_changed);
     }
 
     #[test]
@@ -1704,7 +1668,6 @@ mod tests {
         buf.clear_all();
 
         assert!(buf.glyphs.is_empty());
-        assert!(buf.window_regions.is_empty());
         assert!(buf.window_infos.is_empty());
         assert!(buf.transition_hints.is_empty());
         assert!(buf.effect_hints.is_empty());
@@ -2727,52 +2690,16 @@ mod tests {
     }
 
     // =======================================================================
-    // start_frame() / end_frame() / take_layout_changed()
-    // =======================================================================
-
-    #[test]
-    fn start_frame_swaps_window_regions() {
-        let mut buf = FrameGlyphBuffer::new();
-        buf.add_background(0.0, 0.0, 400.0, 300.0, Color::BLACK);
-        buf.add_background(400.0, 0.0, 400.0, 300.0, Color::BLACK);
-        assert_eq!(buf.window_regions.len(), 2);
-        assert!(buf.prev_window_regions.is_empty());
-
-        buf.start_frame();
-        // Previous regions moved to prev, current cleared
-        assert_eq!(buf.prev_window_regions.len(), 2);
-        assert!(buf.window_regions.is_empty());
-    }
-
-    #[test]
-    fn end_frame_returns_false() {
-        let mut buf = FrameGlyphBuffer::new();
-        assert!(!buf.end_frame());
-    }
-
-    #[test]
-    fn take_layout_changed_returns_and_resets() {
-        let mut buf = FrameGlyphBuffer::new();
-        assert!(!buf.take_layout_changed());
-
-        buf.layout_changed = true;
-        assert!(buf.take_layout_changed());
-        assert!(!buf.take_layout_changed()); // second call returns false
-    }
-
-    // =======================================================================
     // add_background()
     // =======================================================================
 
     #[test]
-    fn add_background_adds_glyph_and_window_region() {
+    fn add_background_adds_glyph() {
         let mut buf = FrameGlyphBuffer::new();
         let bg = Color::rgb(0.15, 0.15, 0.15);
         buf.add_background(10.0, 20.0, 780.0, 560.0, bg);
 
         assert_eq!(buf.len(), 1);
-        assert_eq!(buf.window_regions.len(), 1);
-        assert_eq!(buf.window_regions[0], Rect::new(10.0, 20.0, 780.0, 560.0));
 
         match &buf.glyphs[0] {
             FrameGlyph::Background { bounds, color } => {
@@ -3103,7 +3030,6 @@ mod tests {
         assert_eq!(buf.len(), 19);
         assert_eq!(buf.window_cursors.len(), 1);
         assert_eq!(buf.window_infos.len(), 2);
-        assert_eq!(buf.window_regions.len(), 2);
         assert!(buf.phys_cursor.is_some());
         assert_eq!(buf.frame_id, 0x1);
         assert_eq!(buf.width, 1920.0);
