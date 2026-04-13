@@ -229,6 +229,10 @@ impl WindowOutputEmitter {
         );
     }
 
+    pub(crate) fn begin_chrome_row(&mut self, evaluator: &mut Context, row: i64, y: f32) {
+        self.begin_row(evaluator, row, 0, (y - self.window_top).round() as i64, 0);
+    }
+
     pub(crate) fn begin_update(&self, evaluator: &mut Context) {
         let _ = self.with_live_update(evaluator, |update| update.begin_update());
     }
@@ -259,6 +263,21 @@ impl WindowOutputEmitter {
             col as i64,
             (y - self.window_top).round() as i64,
             (x - self.text_x).round() as i64,
+        );
+    }
+
+    pub(crate) fn advance_chrome_progress(
+        &mut self,
+        evaluator: &mut Context,
+        row: i64,
+        progress: StatusLineOutputProgress,
+    ) {
+        self.advance_progress(
+            evaluator,
+            row,
+            progress.end_col,
+            (progress.y - self.window_top).round() as i64,
+            progress.end_x.round() as i64,
         );
     }
 
