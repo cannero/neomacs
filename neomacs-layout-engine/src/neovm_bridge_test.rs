@@ -348,6 +348,75 @@ fn test_effective_cursor_spec_nonselected_explicit_bar_is_preserved() {
 }
 
 #[test]
+fn test_effective_cursor_spec_nonselected_nil_disables_cursor() {
+    let mut evaluator = neovm_core::emacs_core::Context::new();
+    let buf_id = evaluator.buffer_manager_mut().create_buffer("*cursor*");
+    let frame_id = evaluator
+        .frame_manager_mut()
+        .create_frame("test", 800, 600, buf_id);
+
+    if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
+        buf.set_buffer_local("cursor-in-non-selected-windows", Value::NIL);
+    }
+
+    let frame = evaluator.frame_manager().get(frame_id).unwrap();
+    let buffer = evaluator.buffer_manager().get(buf_id).unwrap();
+    let spec = effective_cursor_spec(frame, buffer, false, false, Value::T);
+
+    assert!(spec.is_none());
+}
+
+#[test]
+fn test_effective_cursor_spec_nonselected_minibuffer_hides_cursor() {
+    let mut evaluator = neovm_core::emacs_core::Context::new();
+    let buf_id = evaluator.buffer_manager_mut().create_buffer("*cursor*");
+    let frame_id = evaluator
+        .frame_manager_mut()
+        .create_frame("test", 800, 600, buf_id);
+    let frame = evaluator.frame_manager().get(frame_id).unwrap();
+    let buffer = evaluator.buffer_manager().get(buf_id).unwrap();
+
+    let spec = effective_cursor_spec(frame, buffer, false, true, Value::T);
+
+    assert!(spec.is_none());
+}
+
+#[test]
+fn collect_layout_params_dims_windows_on_nonselected_frame() {
+    let mut evaluator = neovm_core::emacs_core::Context::new();
+    let first_buf = evaluator.buffer_manager_mut().create_buffer("*first*");
+    let second_buf = evaluator.buffer_manager_mut().create_buffer("*second*");
+
+    let first_frame = evaluator
+        .frame_manager_mut()
+        .create_frame("first", 800, 600, first_buf);
+    let second_frame = evaluator
+        .frame_manager_mut()
+        .create_frame("second", 800, 600, second_buf);
+    assert!(evaluator.frame_manager_mut().select_frame(second_frame));
+
+    let (_frame_params, windows) =
+        collect_layout_params(&evaluator, first_frame, None).expect("layout params");
+
+    assert!(!windows.is_empty());
+    for window in &windows {
+        assert!(
+            !window.selected,
+            "non-selected frame should not expose active windows: {window:?}"
+        );
+    }
+
+    let main_window = windows
+        .iter()
+        .find(|window| !window.is_minibuffer)
+        .expect("main window");
+    assert_eq!(
+        main_window.cursor_kind,
+        neomacs_display_protocol::frame_glyphs::CursorKind::HollowBox
+    );
+}
+
+#[test]
 fn test_frame_cursor_color_uses_cursor_face_background() {
     let mut evaluator = neovm_core::emacs_core::Context::new();
     let buf_id = evaluator

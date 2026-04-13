@@ -618,6 +618,10 @@ pub fn collect_layout_params(
     default_font_ascent: Option<f32>,
 ) -> Option<(FrameParams, Vec<WindowParams>)> {
     let frame = evaluator.frame_manager().get(frame_id)?;
+    let frame_is_selected = evaluator
+        .frame_manager()
+        .selected_frame()
+        .is_some_and(|selected| selected.id == frame_id);
     let frame_params = frame_params_from_neovm(frame, evaluator.face_table());
 
     let mut window_params = Vec::new();
@@ -634,7 +638,7 @@ pub fn collect_layout_params(
         let Some(buffer) = evaluator.buffer_manager().get(buf_id) else {
             continue;
         };
-        let is_selected = frame.selected_window == *win_id;
+        let is_selected = frame_is_selected && frame.selected_window == *win_id;
         let window_cursor_type = evaluator.frame_manager().window_cursor_type(*win_id);
         if let Some(wp) = window_params_from_neovm(
             window,
@@ -676,7 +680,7 @@ pub fn collect_layout_params(
         let buf_id = mini_leaf.buffer_id();
         let buffer = buf_id.and_then(|id| evaluator.buffer_manager().get(id));
         if let Some(buffer) = buffer {
-            let is_selected = frame.selected_window == mini_leaf.id();
+            let is_selected = frame_is_selected && frame.selected_window == mini_leaf.id();
             let window_cursor_type = evaluator.frame_manager().window_cursor_type(mini_leaf.id());
             if let Some(wp) = window_params_from_neovm(
                 mini_leaf,
