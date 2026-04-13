@@ -52,8 +52,15 @@ pub struct GlyphMatrixBuilder {
     z_order: i32,
 }
 
+#[derive(Clone)]
+struct BidiGlyphUnit {
+    ch: char,
+    cols: Vec<usize>,
+    glyphs: Vec<Glyph>,
+}
+
 fn bidi_char_for_glyph(glyph: &Glyph) -> Option<char> {
-    if glyph.wide || glyph.padding {
+    if glyph.padding {
         return None;
     }
 
@@ -635,7 +642,9 @@ impl GlyphMatrixBuilder {
             return;
         };
         if let Some(row) = entry.matrix.rows.last_mut() {
+            row.displays_text = !glyphs.is_empty();
             row.glyphs[GlyphArea::Text as usize] = glyphs;
+            let _ = Self::reorder_row_bidi(row, None);
         }
     }
 
@@ -754,89 +763,158 @@ impl GlyphMatrixBuilder {
         state
     }
 
-    fn reorder_current_row_bidi(&mut self) {
-        let mut remapped_cursor_col = None;
+    fn collect_bidi_units(text: &[Glyph]) -> Vec<BidiGlyphUnit> {
+        let mut units = Vec::new();
+        let mut idx = 0;
 
-        if let Some(ref mut matrix) = self.current_matrix {
+        while idx < text.len() {
+            let glyph = &text[idx];
+            let Some(ch) = bidi_char_for_glyph(glyph) else {
+                idx += 1;
+                continue;
+            };
+
+            let mut cols = vec![idx];
+            let mut glyphs = vec![glyph.clone()];
+            idx += 1;
+
+            if glyph.wide
+                && idx < text.len()
+                && text[idx].padding
+                && text[idx].charpos == glyph.charpos
+            {
+                cols.push(idx);
+                glyphs.push(text[idx].clone());
+                idx += 1;
+            }
+
+            units.push(BidiGlyphUnit { ch, cols, glyphs });
+        }
+
+        units
+    }
+
+    fn rewrite_units_into_row(
+        row: &mut GlyphRow,
+        original_text: &[Glyph],
+        units: &[BidiGlyphUnit],
+        levels: &[u8],
+        visual_order: Vec<usize>,
+        cursor_logical_idx: Option<usize>,
+        phys_cursor_logical_idx: Option<usize>,
+    ) -> Option<u16> {
+        let available_cols: Vec<usize> = units
+            .iter()
+            .flat_map(|unit| unit.cols.iter().copied())
+            .collect();
+        let mut next_col = 0usize;
+        let mut reordered = original_text.to_vec();
+        let mut visual_cursor_col = None;
+        let mut remapped_phys_cursor_col = None;
+
+        for logical_idx in visual_order {
+            let unit = &units[logical_idx];
+            let unit_len = unit.glyphs.len();
+            let Some(target_cols) = available_cols.get(next_col..next_col + unit_len) else {
+                return None;
+            };
+            if !target_cols.windows(2).all(|w| w[1] == w[0] + 1) {
+                return None;
+            }
+
+            let target_start = target_cols[0];
+            let mut placed = unit.glyphs.clone();
+            for glyph in &mut placed {
+                glyph.bidi_level = levels[logical_idx];
+            }
+            if let Some(first) = placed.first_mut() {
+                apply_bidi_mirroring(first, levels[logical_idx]);
+            }
+            for (offset, glyph) in placed.into_iter().enumerate() {
+                reordered[target_start + offset] = glyph;
+            }
+
+            if cursor_logical_idx == Some(logical_idx) {
+                visual_cursor_col = Some(target_start as u16);
+            }
+            if phys_cursor_logical_idx == Some(logical_idx) {
+                remapped_phys_cursor_col = Some(target_start as u16);
+            }
+
+            next_col += unit_len;
+        }
+
+        row.glyphs[GlyphArea::Text as usize] = reordered;
+        if let Some(col) = visual_cursor_col {
+            row.cursor_col = Some(col);
+        }
+        remapped_phys_cursor_col
+    }
+
+    fn reorder_row_bidi(row: &mut GlyphRow, phys_cursor_col: Option<u16>) -> Option<u16> {
+        let original_text = row.glyphs[GlyphArea::Text as usize].clone();
+        if original_text.is_empty() {
+            return None;
+        }
+
+        let units = Self::collect_bidi_units(&original_text);
+        if units.is_empty() {
+            return None;
+        }
+
+        let chars: String = units.iter().map(|unit| unit.ch).collect();
+        let levels = bidi::resolve_levels(&chars, BidiDir::Auto);
+        if levels.len() != units.len() {
+            return None;
+        }
+
+        let cursor_logical_idx = row.cursor_col.and_then(|col| {
+            units
+                .iter()
+                .position(|unit| unit.cols.iter().any(|&idx| idx == col as usize))
+        });
+        let phys_cursor_logical_idx = phys_cursor_col.and_then(|col| {
+            units
+                .iter()
+                .position(|unit| unit.cols.iter().any(|&idx| idx == col as usize))
+        });
+
+        let visual_order = if levels.iter().all(|&level| level == 0) {
+            (0..units.len()).collect()
+        } else {
+            bidi::reorder_visual(&levels)
+        };
+
+        Self::rewrite_units_into_row(
+            row,
+            &original_text,
+            &units,
+            &levels,
+            visual_order,
+            cursor_logical_idx,
+            phys_cursor_logical_idx,
+        )
+    }
+
+    fn reorder_current_row_bidi(&mut self) {
+        let remapped_cursor_col = if let Some(ref mut matrix) = self.current_matrix {
             if self.current_row >= matrix.rows.len() {
                 return;
             }
 
-            let row = &mut matrix.rows[self.current_row];
-            let text = &mut row.glyphs[GlyphArea::Text as usize];
-            if text.is_empty() {
-                return;
-            }
-
-            if text.iter().any(|glyph| glyph.wide || glyph.padding) {
-                return;
-            }
-
-            let mut positions = Vec::new();
-            let mut glyphs = Vec::new();
-            let mut chars = String::new();
-
-            for (idx, glyph) in text.iter().enumerate() {
-                if let Some(ch) = bidi_char_for_glyph(glyph) {
-                    positions.push(idx);
-                    glyphs.push(glyph.clone());
-                    chars.push(ch);
-                }
-            }
-
-            if glyphs.is_empty() {
-                return;
-            }
-
-            let levels = bidi::resolve_levels(&chars, BidiDir::Auto);
-            if levels.len() != glyphs.len() {
-                return;
-            }
-
-            let cursor_logical_idx = row
-                .cursor_col
-                .and_then(|col| positions.iter().position(|&idx| idx == col as usize));
-            let phys_cursor_logical_idx = self
+            let phys_cursor_col = self
                 .phys_cursor
                 .as_ref()
                 .filter(|cursor| {
                     cursor.window_id as u64 == self.current_window_id
                         && cursor.row == self.current_row
                 })
-                .and_then(|cursor| positions.iter().position(|&idx| idx == cursor.col as usize));
+                .map(|cursor| cursor.col);
 
-            if levels.iter().all(|&level| level == 0) {
-                for (glyph, level) in glyphs.iter_mut().zip(levels.iter().copied()) {
-                    glyph.bidi_level = level;
-                }
-                for (idx, glyph) in positions.iter().copied().zip(glyphs.into_iter()) {
-                    text[idx] = glyph;
-                }
-                return;
-            }
-
-            let visual_order = bidi::reorder_visual(&levels);
-            let mut visual_cursor_col = None;
-
-            for (visual_idx, logical_idx) in visual_order.into_iter().enumerate() {
-                let target_idx = positions[visual_idx];
-                let mut glyph = glyphs[logical_idx].clone();
-                glyph.bidi_level = levels[logical_idx];
-                apply_bidi_mirroring(&mut glyph, levels[logical_idx]);
-                text[target_idx] = glyph;
-
-                if cursor_logical_idx == Some(logical_idx) {
-                    visual_cursor_col = Some(target_idx as u16);
-                }
-                if phys_cursor_logical_idx == Some(logical_idx) {
-                    remapped_cursor_col = Some(target_idx as u16);
-                }
-            }
-
-            if let Some(col) = visual_cursor_col {
-                row.cursor_col = Some(col);
-            }
-        }
+            Self::reorder_row_bidi(&mut matrix.rows[self.current_row], phys_cursor_col)
+        } else {
+            None
+        };
 
         if let Some(col) = remapped_cursor_col
             && let Some(ref mut cursor) = self.phys_cursor
@@ -845,6 +923,12 @@ impl GlyphMatrixBuilder {
         {
             cursor.col = col;
             cursor.slot_id.col = col;
+            if let Some(ref matrix) = self.current_matrix
+                && matrix.ncols > 0
+            {
+                let char_w = self.current_pixel_bounds.width / matrix.ncols as f32;
+                cursor.x = self.current_pixel_bounds.x + col as f32 * char_w;
+            }
         }
     }
 }

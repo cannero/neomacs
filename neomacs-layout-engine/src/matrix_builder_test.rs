@@ -337,6 +337,28 @@ fn builder_keeps_stretch_fixed_while_reordering_rtl_chars() {
 }
 
 #[test]
+fn builder_reorders_wide_rtl_row() {
+    let mut builder = GlyphMatrixBuilder::new();
+    builder.begin_window(1, 1, 10, Rect::new(0.0, 0.0, 80.0, 16.0), true);
+    builder.begin_row(0, GlyphRowRole::Text);
+    builder.push_wide_char('א', 0, 0);
+    builder.push_char('ב', 0, 1);
+    builder.end_row();
+    builder.end_window();
+
+    let state = builder.finish(10, 1, 8.0, 16.0);
+    let glyphs = &state.window_matrices[0].matrix.rows[0].glyphs[GlyphArea::Text as usize];
+    assert_eq!(glyphs.len(), 3);
+    assert_eq!(glyphs[0].glyph_type, GlyphType::Char { ch: 'ב' });
+    assert_eq!(glyphs[1].glyph_type, GlyphType::Char { ch: 'א' });
+    assert!(glyphs[1].wide);
+    assert!(glyphs[2].padding);
+    assert_eq!(glyphs[0].bidi_level, 1);
+    assert_eq!(glyphs[1].bidi_level, 1);
+    assert_eq!(glyphs[2].bidi_level, 1);
+}
+
+#[test]
 fn builder_remaps_phys_cursor_to_visual_bidi_column() {
     let mut builder = GlyphMatrixBuilder::new();
     builder.begin_window(1, 1, 10, Rect::new(0.0, 0.0, 80.0, 16.0), true);
@@ -374,6 +396,24 @@ fn builder_remaps_phys_cursor_to_visual_bidi_column() {
     let row = &state.window_matrices[0].matrix.rows[0];
     assert_eq!(row.cursor_col, Some(1));
     assert_eq!(row.cursor_type, Some(CursorStyle::FilledBox));
+}
+
+#[test]
+fn builder_reorders_status_line_rtl_row() {
+    let mut builder = GlyphMatrixBuilder::new();
+    builder.begin_window(1, 1, 10, Rect::new(0.0, 0.0, 80.0, 16.0), true);
+    builder.end_window();
+
+    builder.begin_status_line_row(GlyphRowRole::ModeLine);
+    builder.install_status_line_row_glyphs(vec![Glyph::char('א', 5, 0), Glyph::char('ב', 5, 1)]);
+
+    let state = builder.finish(10, 1, 8.0, 16.0);
+    let glyphs = &state.window_matrices[0].matrix.rows[1].glyphs[GlyphArea::Text as usize];
+    assert_eq!(glyphs.len(), 2);
+    assert_eq!(glyphs[0].glyph_type, GlyphType::Char { ch: 'ב' });
+    assert_eq!(glyphs[1].glyph_type, GlyphType::Char { ch: 'א' });
+    assert_eq!(glyphs[0].bidi_level, 1);
+    assert_eq!(glyphs[1].bidi_level, 1);
 }
 
 /// Regression test for the face-id-collision bug that caused
