@@ -16,10 +16,10 @@ use neomacs_display_protocol::frame_glyphs::{
 };
 use neomacs_display_protocol::types::{Color, Rect};
 use neovm_core::buffer::BufferId;
-use neovm_core::emacs_core::Value;
 use neovm_core::emacs_core::eval::{ImageResolveRequest, ImageResolveSource};
 use neovm_core::emacs_core::keymap::is_list_keymap;
 use neovm_core::emacs_core::value::list_to_vec;
+use neovm_core::emacs_core::{Context, Value};
 use neovm_core::window::{
     DisplayRowSnapshot, WindowCursorKind, WindowCursorPos, WindowCursorSnapshot,
     WindowDisplaySnapshot,
@@ -1071,14 +1071,19 @@ fn check_glyphless_char(ch: char) -> u8 {
 /// and resets `x`/`col` — matching GNU `display_line()` behaviour for overlay
 /// strings that contain newlines (e.g. fido-vertical-mode completions).
 fn render_overlay_string(
+    evaluator: &mut Context,
+    output_emitter: &mut WindowOutputEmitter,
     text_bytes: &[u8],
     x: &mut f32,
     y: &mut f32,
     col: &mut usize,
     row: &mut usize,
+    row_y_positions: &mut Vec<f32>,
+    row_max_height: &mut f32,
+    row_max_ascent: &mut f32,
     face_char_w: f32,
     char_h: f32,
-    _font_ascent: f32,
+    default_row_ascent: f32,
     max_x: f32,
     content_x: f32,
     text_y: f32,
@@ -1107,18 +1112,24 @@ fn render_overlay_string(
 
         if ch == '\n' {
             // End current row, start a new one — mirrors the main text loop.
+            output_emitter.advance_text_progress(evaluator, *row, *col, *y, *x);
+            output_emitter.push_text_row(evaluator, *y, *row_max_height, *row_max_ascent);
             builder.end_row();
             *row += 1;
             if *row >= max_rows {
                 break;
             }
             *y = text_y + *row as f32 * char_h + row_extra_y;
+            *row_max_height = char_h;
+            *row_max_ascent = default_row_ascent;
+            row_y_positions.push(*y);
             builder.begin_row(
                 row_base + *row,
                 neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text,
             );
             *x = content_x;
             *col = 0;
+            output_emitter.begin_text_row(evaluator, *row, *col, *y, *x);
             continue;
         }
 
@@ -1140,6 +1151,10 @@ fn render_overlay_string(
 
         *x += ch_advance;
         *col += if is_wide_char(ch) { 2 } else { 1 };
+    }
+
+    if *row < max_rows {
+        output_emitter.advance_text_progress(evaluator, *row, *col, *y, *x);
     }
 }
 
@@ -2913,14 +2928,19 @@ impl LayoutEngine {
                                     .overlay_get_named(*overlay_id, "face")
                                     .and_then(|val| face_resolver.resolve_face_from_value(&val));
                                 render_overlay_string(
+                                    evaluator,
+                                    &mut output_emitter,
                                     string_bytes,
                                     &mut x,
                                     &mut y,
                                     &mut col,
                                     &mut row,
+                                    &mut row_y_positions,
+                                    &mut row_max_height,
+                                    &mut row_max_ascent,
                                     face_char_w,
                                     char_h,
-                                    face_ascent_val,
+                                    default_face_ascent,
                                     right_limit,
                                     content_x,
                                     text_y,
@@ -4078,14 +4098,19 @@ impl LayoutEngine {
                             .overlay_get_named(*overlay_id, "face")
                             .and_then(|val| face_resolver.resolve_face_from_value(&val));
                         render_overlay_string(
+                            evaluator,
+                            &mut output_emitter,
                             string_bytes,
                             &mut x,
                             &mut y,
                             &mut col,
                             &mut row,
+                            &mut row_y_positions,
+                            &mut row_max_height,
+                            &mut row_max_ascent,
                             face_char_w,
                             char_h,
-                            face_ascent_val,
+                            default_face_ascent,
                             right_limit,
                             content_x,
                             text_y,
@@ -4165,14 +4190,19 @@ impl LayoutEngine {
                             .overlay_get_named(*overlay_id, "face")
                             .and_then(|val| face_resolver.resolve_face_from_value(&val));
                         render_overlay_string(
+                            evaluator,
+                            &mut output_emitter,
                             string_bytes,
                             &mut x,
                             &mut y,
                             &mut col,
                             &mut row,
+                            &mut row_y_positions,
+                            &mut row_max_height,
+                            &mut row_max_ascent,
                             face_char_w,
                             char_h,
-                            face_ascent_val,
+                            default_face_ascent,
                             right_limit,
                             content_x,
                             text_y,
@@ -4258,14 +4288,19 @@ impl LayoutEngine {
                     .overlay_get_named(*overlay_id, "face")
                     .and_then(|val| face_resolver.resolve_face_from_value(&val));
                 render_overlay_string(
+                    evaluator,
+                    &mut output_emitter,
                     string_bytes,
                     &mut x,
                     &mut y,
                     &mut col,
                     &mut row,
+                    &mut row_y_positions,
+                    &mut row_max_height,
+                    &mut row_max_ascent,
                     face_char_w,
                     char_h,
-                    face_ascent_val,
+                    default_face_ascent,
                     right_limit,
                     content_x,
                     text_y,
@@ -4536,6 +4571,7 @@ impl LayoutEngine {
             }
         }
 
+        let has_pending_row_output = output_emitter.current_row_has_output();
         if row < max_rows && charpos > hit_row_charpos_start {
             let row_y_start = row_y_positions
                 .get(row)
@@ -4547,6 +4583,12 @@ impl LayoutEngine {
                 charpos_start: hit_row_charpos_start,
                 charpos_end: charpos,
             });
+        }
+        if row < max_rows && (charpos > hit_row_charpos_start || has_pending_row_output) {
+            let row_y_start = row_y_positions
+                .get(row)
+                .copied()
+                .unwrap_or(text_y + row as f32 * char_h + row_extra_y);
             output_emitter.push_text_row(evaluator, row_y_start, row_max_height, row_max_ascent);
         }
 
@@ -8205,6 +8247,76 @@ mod tests {
         assert!(
             output_cursor.row > logical_cursor.row,
             "expected mode-line output to advance past logical text rows, cursor={logical_cursor:?} output={output_cursor:?}"
+        );
+    }
+
+    #[test]
+    fn layout_frame_rust_preserves_multiline_overlay_output_rows() {
+        let mut eval = Context::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert("x");
+            let overlay = Value::make_overlay(neovm_core::heap_types::OverlayData {
+                plist: Value::NIL,
+                buffer: Some(buf_id),
+                start: 0,
+                end: 1,
+                front_advance: false,
+                rear_advance: false,
+            });
+            buf.overlays.insert_overlay(overlay);
+            buf.overlays.overlay_put(
+                overlay,
+                Value::symbol("after-string"),
+                Value::string("A\nB"),
+            );
+            let point = buf.point_max_char() + 1;
+            buf.goto_byte(point - 1);
+        }
+
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-overlay-output-rows", 640, 160, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+
+        let mut engine = LayoutEngine::new();
+        engine.layout_frame_rust(&mut eval, frame_id);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("window display snapshot");
+        let display = frame
+            .find_window(selected_window)
+            .and_then(|window| window.display())
+            .expect("window display state");
+
+        assert!(
+            snapshot
+                .rows
+                .iter()
+                .any(|row| row.row == 0 && row.start_buffer_pos.is_some()),
+            "expected first text row snapshot to survive multiline overlay output, rows={:?}",
+            snapshot.rows
+        );
+        assert!(
+            snapshot.rows.iter().any(|row| row.row == 1),
+            "expected multiline overlay output to publish a second text row, rows={:?}",
+            snapshot.rows
+        );
+        assert!(
+            display.output_cursor.is_some_and(|cursor| cursor.row >= 1),
+            "expected live output cursor to advance onto multiline overlay rows, output={:?}",
+            display.output_cursor
         );
     }
 

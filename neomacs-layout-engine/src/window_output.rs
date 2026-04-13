@@ -26,6 +26,8 @@ struct CurrentRowProgress {
     y: i64,
     col: i64,
     x: i64,
+    start_col: i64,
+    start_x: i64,
 }
 
 pub(crate) struct WindowOutputEmitter {
@@ -101,8 +103,35 @@ impl WindowOutputEmitter {
         self.current_row_last_display_pos = last;
     }
 
-    fn set_current_row_progress(&mut self, row: i64, col: i64, y: i64, x: i64) {
-        self.current_row_progress = Some(CurrentRowProgress { row, y, col, x });
+    pub(crate) fn current_row_has_output(&self) -> bool {
+        self.current_row_progress.as_ref().is_some_and(|progress| {
+            progress.x != progress.start_x
+                || progress.col != progress.start_col
+                || self.current_row_first_display_pos.is_some()
+                || self.current_row_last_display_pos.is_some()
+        })
+    }
+
+    fn begin_current_row_progress(&mut self, row: i64, col: i64, y: i64, x: i64) {
+        self.current_row_progress = Some(CurrentRowProgress {
+            row,
+            y,
+            col,
+            x,
+            start_col: col,
+            start_x: x,
+        });
+    }
+
+    fn update_current_row_progress(&mut self, row: i64, col: i64, y: i64, x: i64) {
+        match self.current_row_progress.as_mut() {
+            Some(progress) if progress.row == row => {
+                progress.y = y;
+                progress.col = col;
+                progress.x = x;
+            }
+            _ => self.begin_current_row_progress(row, col, y, x),
+        }
     }
 
     fn with_live_update<T>(
@@ -179,7 +208,7 @@ impl WindowOutputEmitter {
         y: i64,
         x: i64,
     ) {
-        self.set_current_row_progress(row, col, y, x);
+        self.begin_current_row_progress(row, col, y, x);
         let _ = self.with_live_update(evaluator, |update| update.begin_row(row, col, y, x));
     }
 
@@ -212,7 +241,7 @@ impl WindowOutputEmitter {
         y: i64,
         x: i64,
     ) {
-        self.set_current_row_progress(row, col, y, x);
+        self.update_current_row_progress(row, col, y, x);
         let _ = self.with_live_update(evaluator, |update| update.advance_progress(row, col, y, x));
     }
 
