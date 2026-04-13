@@ -98,11 +98,12 @@ pub enum SplitDirection {
 /// - `phys_cursor`: the last physical cursor geometry emitted on screen
 ///
 /// This mirrors GNU's `struct window` ownership model closely enough for
-/// `window-cursor-info` and related stateful cursor queries. The main
-/// remaining gap is that neomacs still drives this state from complete frame
-/// snapshots, not GNU's incremental per-window output updates, so an output
-/// pass still advances at snapshot granularity rather than draw-call
-/// granularity.
+/// `window-cursor-info` and related stateful cursor queries. The Rust
+/// redisplay path now drives this state through an explicit per-window output
+/// pass before frame snapshots are published. The main remaining gap is that
+/// neomacs still updates whole frame snapshots in one Rust redisplay pass,
+/// not GNU's lower-level draw-call output pipeline, so output progress still
+/// advances at frame-pass granularity rather than per primitive emitted.
 #[derive(Clone, Debug)]
 pub struct WindowDisplayState {
     /// Window-local display table; nil means inherit from the buffer/frame.
@@ -1480,7 +1481,15 @@ impl Frame {
 
     /// Replace the last-redisplay geometry for this frame's live windows.
     pub fn replace_display_snapshots(&mut self, snapshots: Vec<WindowDisplaySnapshot>) {
-        self.display_snapshots.clear();
+        self.begin_display_output_pass();
+        for snapshot in &snapshots {
+            self.commit_window_output_snapshot(snapshot.window_id, snapshot.cursor.as_ref());
+        }
+        self.set_display_snapshots(snapshots);
+    }
+
+    /// Begin a GNU-shaped output pass for all live windows on this frame.
+    pub fn begin_display_output_pass(&mut self) {
         let live_window_ids = self.live_window_ids_with_minibuffer();
         for wid in &live_window_ids {
             if let Some(window) = self.find_window_mut(*wid)
@@ -1489,18 +1498,30 @@ impl Frame {
                 display.begin_output_pass();
             }
         }
+    }
+
+    /// Commit the output/cursor state for one live window from a redisplay snapshot.
+    pub fn commit_window_output_snapshot(
+        &mut self,
+        window_id: WindowId,
+        cursor: Option<&WindowCursorSnapshot>,
+    ) {
+        if let Some(window) = self.find_window_mut(window_id)
+            && let Some(display) = window.display_mut()
+        {
+            display.install_logical_cursor(cursor.map(WindowCursorPos::from_snapshot));
+            display.commit_output_cursor_from_snapshot(cursor);
+            display.apply_physical_cursor_snapshot(cursor.cloned());
+            display.commit_completed_redisplay();
+        }
+    }
+
+    /// Replace the authoritative per-window redisplay geometry map without
+    /// mutating live cursor/output state.
+    pub fn set_display_snapshots(&mut self, snapshots: Vec<WindowDisplaySnapshot>) {
+        self.display_snapshots.clear();
         for snapshot in snapshots {
             if self.find_window(snapshot.window_id).is_some() {
-                if let Some(window) = self.find_window_mut(snapshot.window_id)
-                    && let Some(display) = window.display_mut()
-                {
-                    display.install_logical_cursor(
-                        snapshot.cursor.as_ref().map(WindowCursorPos::from_snapshot),
-                    );
-                    display.commit_output_cursor_from_snapshot(snapshot.cursor.as_ref());
-                    display.apply_physical_cursor_snapshot(snapshot.cursor.clone());
-                    display.commit_completed_redisplay();
-                }
                 self.display_snapshots.insert(snapshot.window_id, snapshot);
             }
         }
@@ -3160,6 +3181,47 @@ mod tests {
         assert_eq!(display.cursor.as_ref(), Some(&cursor_pos));
         assert_eq!(display.phys_cursor.as_ref(), Some(&cursor));
         assert_eq!(display.output_cursor.as_ref(), Some(&cursor_pos));
+    }
+
+    #[test]
+    fn set_display_snapshots_preserves_live_window_cursor_state() {
+        let mut mgr = FrameManager::new();
+        let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+        let wid = mgr.get(fid).unwrap().selected_window;
+        let cursor = WindowCursorSnapshot {
+            kind: WindowCursorKind::Bar,
+            x: 11,
+            y: 29,
+            width: 3,
+            height: 16,
+            ascent: 12,
+            row: 1,
+            col: 4,
+        };
+        let cursor_pos = WindowCursorPos::from_snapshot(&cursor);
+
+        let frame = mgr.get_mut(fid).unwrap();
+        frame.begin_display_output_pass();
+        frame.commit_window_output_snapshot(wid, Some(&cursor));
+        frame.set_display_snapshots(vec![WindowDisplaySnapshot {
+            window_id: wid,
+            cursor: None,
+            ..WindowDisplaySnapshot::default()
+        }]);
+
+        let display = frame
+            .find_window(wid)
+            .and_then(|window| window.display())
+            .expect("window display state");
+        assert_eq!(display.cursor.as_ref(), Some(&cursor_pos));
+        assert_eq!(display.output_cursor.as_ref(), Some(&cursor_pos));
+        assert_eq!(display.phys_cursor.as_ref(), Some(&cursor));
+        assert_eq!(
+            frame
+                .window_display_snapshot(wid)
+                .and_then(|snapshot| snapshot.cursor.as_ref()),
+            None
+        );
     }
 
     #[test]

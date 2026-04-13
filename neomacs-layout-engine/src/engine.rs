@@ -2048,8 +2048,13 @@ impl LayoutEngine {
         self.last_frame_display_state = Some(frame_display_state);
         self.prev_window_infos = curr_window_infos;
 
+        let snapshots = std::mem::take(&mut self.display_snapshots);
         if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
-            frame.replace_display_snapshots(std::mem::take(&mut self.display_snapshots));
+            frame.begin_display_output_pass();
+            for snapshot in &snapshots {
+                frame.commit_window_output_snapshot(snapshot.window_id, snapshot.cursor.as_ref());
+            }
+            frame.set_display_snapshots(snapshots);
         }
         unsafe {
             *std::ptr::addr_of_mut!(FRAME_HIT_DATA) = Some(std::mem::take(&mut self.hit_data));
