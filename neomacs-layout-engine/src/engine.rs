@@ -2987,7 +2987,6 @@ impl LayoutEngine {
 
                     flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
-                    output_emitter.advance_text_progress(evaluator, row, col, y, x);
                     continue;
                 }
                 invis_next_check = next_visible;
@@ -3103,7 +3102,6 @@ impl LayoutEngine {
                             },
                         );
                     }
-                    output_emitter.advance_text_progress(evaluator, row, col, y, x);
                 }
                 continue;
             }
