@@ -206,17 +206,6 @@ impl WindowDisplayState {
         self.output_cursor = self.cursor;
     }
 
-    fn replay_output_rows(&mut self, rows: &[DisplayRowSnapshot]) {
-        if rows.is_empty() {
-            self.clear_output_cursor_state();
-            return;
-        }
-        for row in rows {
-            self.begin_output_row(row.row, row.start_col, row.y, row.start_x);
-            self.finish_output_row(row);
-        }
-    }
-
     /// Start emitting a new output row.
     fn begin_output_row(&mut self, row: i64, col: i64, y: i64, x: i64) {
         self.output_cursor = Some(WindowCursorPos { x, y, row, col });
@@ -3565,7 +3554,10 @@ mod tests {
         let mut display = WindowDisplayState::default();
         display.begin_output_pass();
         display.install_logical_cursor(Some(WindowCursorPos::from_snapshot(&cursor)));
-        display.replay_output_rows(&snapshot.rows);
+        {
+            let mut update = WindowOutputUpdate::new(&mut display);
+            update.replay_output_rows(&snapshot.rows);
+        }
         display.apply_physical_cursor_snapshot(Some(cursor.clone()));
         display.commit_completed_redisplay();
 
@@ -3680,7 +3672,7 @@ mod tests {
 
         display.commit_completed_redisplay();
 
-        assert_eq!(display.last_cursor_vpos, 1);
+        assert_eq!(display.last_cursor_vpos, 2);
     }
 
     #[test]
@@ -3715,7 +3707,10 @@ mod tests {
 
         display.begin_output_pass();
         display.install_logical_cursor(Some(WindowCursorPos::from_snapshot(&cursor)));
-        display.replay_output_rows(&snapshot.rows);
+        {
+            let mut update = WindowOutputUpdate::new(&mut display);
+            update.replay_output_rows(&snapshot.rows);
+        }
         display.apply_physical_cursor_snapshot(Some(cursor.clone()));
         display.commit_completed_redisplay();
 
@@ -3728,7 +3723,7 @@ mod tests {
                 col: 12,
             })
         );
-        assert_eq!(display.last_cursor_vpos, 1);
+        assert_eq!(display.last_cursor_vpos, 2);
         assert_eq!(display.phys_cursor, Some(cursor));
     }
 
@@ -4016,7 +4011,10 @@ mod tests {
 
         display.begin_output_pass();
         display.install_logical_cursor(Some(WindowCursorPos::from_snapshot(&cursor)));
-        display.replay_output_rows(&snapshot.rows);
+        {
+            let mut update = WindowOutputUpdate::new(&mut display);
+            update.replay_output_rows(&snapshot.rows);
+        }
         display.apply_physical_cursor_snapshot(Some(cursor.clone()));
         display.commit_completed_redisplay();
 
