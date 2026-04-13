@@ -6028,6 +6028,62 @@ mod tests {
     }
 
     #[test]
+    fn layout_frame_rust_preserves_logical_cursor_when_window_cursor_is_nil() {
+        let mut eval = Context::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert("abcdef");
+            buf.goto_byte(2);
+        }
+
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-logical-cursor-only", 320, 120, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *point = 3;
+            }
+        }
+        eval.frame_manager_mut()
+            .set_window_cursor_type(selected_window, Value::NIL);
+
+        let mut engine = LayoutEngine::new();
+        engine.layout_frame_rust(&mut eval, frame_id);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        let logical_cursor = snapshot.logical_cursor.expect("logical cursor");
+        let point = snapshot.point_for_buffer_pos(3).expect("point snapshot");
+
+        assert_eq!(snapshot.phys_cursor, None);
+        assert_eq!(logical_cursor.x, point.x);
+        assert_eq!(logical_cursor.row, point.row);
+        assert_eq!(logical_cursor.col, point.col);
+    }
+
+    #[test]
     fn layout_frame_rust_captures_cursor_at_display_replacement_slot_without_rescan() {
         let mut eval = Context::new();
         let buf_id = eval
