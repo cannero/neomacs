@@ -1,9 +1,10 @@
-//! GlyphMatrixBuilder — records text content into GlyphMatrix during layout.
+//! GlyphMatrixBuilder — records authoritative window matrices during layout.
 //!
-//! This builder runs alongside the existing FrameGlyphBuffer output path.
-//! It observes character emissions and records them into a GlyphMatrix grid.
-//! The resulting FrameDisplayState can be compared against the pixel output
-//! for validation, and will eventually replace FrameGlyphBuffer entirely.
+//! The builder observes layout emissions and writes them into the per-window
+//! `GlyphMatrix` grids published through `FrameDisplayState`. Renderers then
+//! materialize that immutable snapshot into runtime glyph buffers on the
+//! consumer side; layout no longer treats `FrameGlyphBuffer` as the primary
+//! output contract.
 
 use crate::bidi::{self, BidiDir};
 use neomacs_display_protocol::face::Face;

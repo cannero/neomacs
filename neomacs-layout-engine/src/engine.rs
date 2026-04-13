@@ -4992,7 +4992,76 @@ impl LayoutEngine {
         }
         self.matrix_builder.end_row();
 
-        // Header-line: evaluate format-mode-line with header-line-format
+        // Tab-line: evaluate format-mode-line with tab-line-format
+        if params.tab_line_height > 0.0 {
+            // Tab-line is above header-line (at the very top of the window)
+            let tl_y = params.bounds.y;
+            let tl_face = tab_line_face
+                .as_ref()
+                .expect("tab-line face should exist when tab-line height is positive");
+
+            let tab_line_target_cols =
+                (params.bounds.width / char_w.max(1.0)).round().max(1.0) as usize;
+            let tab_text = eval_status_line_format_value(
+                evaluator,
+                "tab-line-format",
+                params.window_id,
+                params.buffer_id,
+                tab_line_target_cols,
+            )
+            .unwrap_or_else(|| Value::string(""));
+
+            let mut builder = std::mem::replace(
+                &mut self.matrix_builder,
+                crate::matrix_builder::GlyphMatrixBuilder::new(),
+            );
+            let tab_output = self.render_rust_status_line_value_via_backend(
+                params.bounds.x,
+                tl_y,
+                params.bounds.width,
+                tab_line_height,
+                0,
+                params.window_id,
+                char_w,
+                font_ascent,
+                &mut current_face_id,
+                tl_face,
+                tab_text,
+                face_resolver,
+                StatusLineKind::TabLine,
+                Some(&mut builder),
+            );
+            self.matrix_builder = builder;
+            if let Some(progress) = tab_output {
+                commit_output_progress(
+                    evaluator,
+                    frame_id,
+                    window_id,
+                    DisplayRowSnapshot {
+                        row: 0,
+                        y: (progress.y - params.bounds.y).round() as i64,
+                        height: progress.height.round() as i64,
+                        end_x: progress.end_x.round() as i64,
+                        end_col: progress.end_col,
+                        start_buffer_pos: None,
+                        end_buffer_pos: None,
+                    },
+                );
+                chrome_rows.push(DisplayRowSnapshot {
+                    row: 0,
+                    y: (progress.y - params.bounds.y).round() as i64,
+                    height: progress.height.round() as i64,
+                    end_x: progress.end_x.round() as i64,
+                    end_col: progress.end_col,
+                    start_buffer_pos: None,
+                    end_buffer_pos: None,
+                });
+            }
+        }
+
+        // Header-line: evaluate format-mode-line with header-line-format.
+        // Emit top chrome in visual order so live output progression does not
+        // regress from later body rows back to row 0.
         if params.header_line_height > 0.0 {
             let hl_y = params.bounds.y + tab_line_height;
             let hl_face = header_line_face
@@ -5059,8 +5128,8 @@ impl LayoutEngine {
         }
 
         // Mode-line: evaluate format-mode-line or fall back to buffer name.
-        // Commit it last so live output progression follows the visual
-        // top-to-bottom order of the window matrix.
+        // Commit it last so live output progression ends on the visually last
+        // row in the window matrix.
         if params.mode_line_height > 0.0 {
             let ml_y = params.bounds.y + params.bounds.height - mode_line_height;
             let ml_face = mode_line_face
@@ -5127,73 +5196,6 @@ impl LayoutEngine {
                 );
                 chrome_rows.push(DisplayRowSnapshot {
                     row: mode_line_matrix_row as i64,
-                    y: (progress.y - params.bounds.y).round() as i64,
-                    height: progress.height.round() as i64,
-                    end_x: progress.end_x.round() as i64,
-                    end_col: progress.end_col,
-                    start_buffer_pos: None,
-                    end_buffer_pos: None,
-                });
-            }
-        }
-
-        // Tab-line: evaluate format-mode-line with tab-line-format
-        if params.tab_line_height > 0.0 {
-            // Tab-line is above header-line (at the very top of the window)
-            let tl_y = params.bounds.y;
-            let tl_face = tab_line_face
-                .as_ref()
-                .expect("tab-line face should exist when tab-line height is positive");
-
-            let tab_line_target_cols =
-                (params.bounds.width / char_w.max(1.0)).round().max(1.0) as usize;
-            let tab_text = eval_status_line_format_value(
-                evaluator,
-                "tab-line-format",
-                params.window_id,
-                params.buffer_id,
-                tab_line_target_cols,
-            )
-            .unwrap_or_else(|| Value::string(""));
-
-            let mut builder = std::mem::replace(
-                &mut self.matrix_builder,
-                crate::matrix_builder::GlyphMatrixBuilder::new(),
-            );
-            let tab_output = self.render_rust_status_line_value_via_backend(
-                params.bounds.x,
-                tl_y,
-                params.bounds.width,
-                tab_line_height,
-                0,
-                params.window_id,
-                char_w,
-                font_ascent,
-                &mut current_face_id,
-                tl_face,
-                tab_text,
-                face_resolver,
-                StatusLineKind::TabLine,
-                Some(&mut builder),
-            );
-            self.matrix_builder = builder;
-            if let Some(progress) = tab_output {
-                commit_output_progress(
-                    evaluator,
-                    frame_id,
-                    window_id,
-                    DisplayRowSnapshot {
-                        row: 0,
-                        y: (progress.y - params.bounds.y).round() as i64,
-                        height: progress.height.round() as i64,
-                        end_x: progress.end_x.round() as i64,
-                        end_col: progress.end_col,
-                        start_buffer_pos: None,
-                        end_buffer_pos: None,
-                    },
-                );
-                chrome_rows.push(DisplayRowSnapshot {
-                    row: 0,
                     y: (progress.y - params.bounds.y).round() as i64,
                     height: progress.height.round() as i64,
                     end_x: progress.end_x.round() as i64,
@@ -8438,6 +8440,64 @@ mod tests {
         assert!(
             logical_cursor.row >= 1,
             "expected logical cursor row to be offset below header-line chrome, got {logical_cursor:?}"
+        );
+        assert!(
+            output_cursor.row > logical_cursor.row,
+            "expected mode-line output to advance past logical text rows, cursor={logical_cursor:?} output={output_cursor:?}"
+        );
+    }
+
+    #[test]
+    fn layout_frame_rust_advances_live_output_through_tab_line_rows() {
+        let mut eval = Context::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert("body line\n");
+            buf.set_buffer_local("tab-line-format", Value::string("TAB ROW"));
+            let point = buf.point_max_char() + 1;
+            buf.goto_byte(point - 1);
+        }
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-tab-line-row-space", 640, 160, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+
+        let mut engine = LayoutEngine::new();
+        engine.layout_frame_rust(&mut eval, frame_id);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("window display snapshot");
+        let display = frame
+            .find_window(selected_window)
+            .and_then(|window| window.display())
+            .expect("window display state");
+        let logical_cursor = display.cursor.expect("logical cursor");
+        let output_cursor = display.output_cursor.expect("output cursor");
+
+        let tab_row = snapshot
+            .rows
+            .iter()
+            .find(|row| row.row == 0)
+            .expect("tab-line row snapshot");
+
+        assert!(
+            tab_row.start_buffer_pos.is_none() && tab_row.end_buffer_pos.is_none(),
+            "expected row 0 to be reserved for tab-line chrome, got {tab_row:?}"
+        );
+        assert!(
+            logical_cursor.row >= 1,
+            "expected logical cursor row to be offset below tab-line chrome, got {logical_cursor:?}"
         );
         assert!(
             output_cursor.row > logical_cursor.row,
