@@ -588,7 +588,7 @@ fn rasterize_frame_glyphs(frame: &FrameGlyphBuffer, grid: &mut TtyGrid, bg_color
                 x, y, style, color, ..
             } => {
                 if !prefer_phys_cursor {
-                    apply_tty_cursor_visual(grid, frame, *x, *y, *style, *color);
+                    apply_tty_cursor_visual_legacy(grid, frame, *x, *y, *style, *color);
                 }
             }
 
@@ -656,7 +656,7 @@ fn rasterize_frame_glyphs(frame: &FrameGlyphBuffer, grid: &mut TtyGrid, bg_color
     }
 
     if let Some(cursor) = frame.phys_cursor.as_ref() {
-        apply_tty_cursor_visual(grid, frame, cursor.x, cursor.y, cursor.style, cursor.color);
+        apply_tty_cursor_visual(grid, frame, cursor);
     }
 }
 
@@ -678,6 +678,48 @@ fn glyph_pixel_width(glyph: &FrameGlyph) -> f32 {
 }
 
 fn apply_tty_cursor_visual(
+    grid: &mut TtyGrid,
+    frame: &FrameGlyphBuffer,
+    cursor: &crate::core::frame_glyphs::PhysCursor,
+) {
+    let cw = frame.char_width.max(1.0);
+    let ch = frame.char_height.max(1.0);
+    let col = (cursor.x / cw) as usize;
+    let row = (cursor.y / ch) as usize;
+
+    if col >= grid.width || row >= grid.height {
+        return;
+    }
+
+    let cursor_rgb = color_to_rgb8(&cursor.color);
+    let cursor_fg_rgb = color_to_rgb8(&cursor.cursor_fg);
+
+    match cursor.style {
+        CursorStyle::FilledBox => {
+            if let Some(cell) = grid.get_mut(col, row) {
+                cell.attrs.fg = cursor_fg_rgb;
+                cell.attrs.bg = cursor_rgb;
+            }
+        }
+        CursorStyle::Bar(_) => {
+            if let Some(cell) = grid.get_mut(col, row) {
+                cell.attrs.inverse = true;
+            }
+        }
+        CursorStyle::Hbar(_) => {
+            if let Some(cell) = grid.get_mut(col, row) {
+                cell.attrs.underline = 1;
+            }
+        }
+        CursorStyle::Hollow => {
+            if let Some(cell) = grid.get_mut(col, row) {
+                cell.attrs.inverse = true;
+            }
+        }
+    }
+}
+
+fn apply_tty_cursor_visual_legacy(
     grid: &mut TtyGrid,
     frame: &FrameGlyphBuffer,
     x: f32,
@@ -2158,6 +2200,7 @@ mod tests {
 
         assert_eq!(grid.get(0, 0).unwrap().attrs.bg, (0, 0, 0));
         assert_eq!(grid.get(1, 0).unwrap().attrs.bg, (255, 0, 0));
+        assert_eq!(grid.get(1, 0).unwrap().attrs.fg, (0, 0, 0));
     }
 
     #[test]
