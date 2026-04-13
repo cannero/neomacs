@@ -20,6 +20,14 @@ pub(crate) struct RowMetricsSnapshot {
     pub(crate) ascent: f32,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct CurrentRowProgress {
+    row: i64,
+    y: i64,
+    col: i64,
+    x: i64,
+}
+
 pub(crate) struct WindowOutputEmitter {
     frame_id: neovm_core::window::FrameId,
     window_id: neovm_core::window::WindowId,
@@ -30,6 +38,7 @@ pub(crate) struct WindowOutputEmitter {
     row_metrics: Vec<RowMetricsSnapshot>,
     current_row_first_display_pos: Option<usize>,
     current_row_last_display_pos: Option<usize>,
+    current_row_progress: Option<CurrentRowProgress>,
 }
 
 impl WindowOutputEmitter {
@@ -49,6 +58,7 @@ impl WindowOutputEmitter {
             row_metrics: Vec::new(),
             current_row_first_display_pos: None,
             current_row_last_display_pos: None,
+            current_row_progress: None,
         }
     }
 
@@ -82,6 +92,10 @@ impl WindowOutputEmitter {
     ) {
         self.current_row_first_display_pos = first;
         self.current_row_last_display_pos = last;
+    }
+
+    fn set_current_row_progress(&mut self, row: i64, col: i64, y: i64, x: i64) {
+        self.current_row_progress = Some(CurrentRowProgress { row, y, col, x });
     }
 
     pub(crate) fn note_display_buffer_pos(&mut self, buffer_pos: usize) {
@@ -118,7 +132,15 @@ impl WindowOutputEmitter {
         });
     }
 
-    pub(crate) fn begin_row(&self, evaluator: &mut Context, row: i64, col: i64, y: i64, x: i64) {
+    pub(crate) fn begin_row(
+        &mut self,
+        evaluator: &mut Context,
+        row: i64,
+        col: i64,
+        y: i64,
+        x: i64,
+    ) {
+        self.set_current_row_progress(row, col, y, x);
         if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
             frame.begin_window_output_row(self.window_id, row, col, y, x);
         }
@@ -131,13 +153,14 @@ impl WindowOutputEmitter {
     }
 
     pub(crate) fn advance_progress(
-        &self,
+        &mut self,
         evaluator: &mut Context,
         row: i64,
         col: i64,
         y: i64,
         x: i64,
     ) {
+        self.set_current_row_progress(row, col, y, x);
         if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
             frame.advance_window_output_progress(self.window_id, row, col, y, x);
         }
@@ -146,24 +169,25 @@ impl WindowOutputEmitter {
     pub(crate) fn push_text_row(
         &mut self,
         evaluator: &mut Context,
-        row: i64,
         row_y_start: f32,
         row_height: f32,
         row_ascent: f32,
-        row_end_x: f32,
-        row_end_col: usize,
     ) {
+        let row_progress = self
+            .current_row_progress
+            .take()
+            .expect("text row must have live output progress before finishing");
         self.rows.push(DisplayRowSnapshot {
-            row,
-            y: (row_y_start - self.window_top).round() as i64,
+            row: row_progress.row,
+            y: row_progress.y,
             height: row_height.max(1.0).round() as i64,
-            end_x: (row_end_x - self.text_x).round() as i64,
-            end_col: row_end_col as i64,
+            end_x: row_progress.x,
+            end_col: row_progress.col,
             start_buffer_pos: self.current_row_first_display_pos.take(),
             end_buffer_pos: self.current_row_last_display_pos.take(),
         });
         self.row_metrics.push(RowMetricsSnapshot {
-            row: row.max(0) as usize,
+            row: row_progress.row.max(0) as usize,
             pixel_y: row_y_start,
             height: row_height.max(1.0),
             ascent: row_ascent.max(0.0).min(row_height.max(1.0)),
@@ -185,17 +209,20 @@ impl WindowOutputEmitter {
     pub(crate) fn push_chrome_row_progress(
         &mut self,
         evaluator: &mut Context,
-        row: i64,
         progress: StatusLineOutputProgress,
     ) {
+        let row_progress = self
+            .current_row_progress
+            .take()
+            .expect("chrome row must have live output progress before finishing");
         self.push_chrome_row(
             evaluator,
             DisplayRowSnapshot {
-                row,
-                y: (progress.y - self.window_top).round() as i64,
+                row: row_progress.row,
+                y: row_progress.y,
                 height: progress.height.round() as i64,
-                end_x: (progress.end_x - self.text_x).round() as i64,
-                end_col: progress.end_col,
+                end_x: row_progress.x,
+                end_col: row_progress.col,
                 start_buffer_pos: None,
                 end_buffer_pos: None,
             },

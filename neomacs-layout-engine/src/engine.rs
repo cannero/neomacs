@@ -2976,8 +2976,6 @@ impl LayoutEngine {
                     if row_max_height > char_h {
                         row_extra_y += row_max_height - char_h;
                     }
-                    let row_end_x = x;
-                    let row_end_col = col;
                     x = content_x;
                     // Record newline position on the row (see main \n handler).
                     output_emitter.note_display_buffer_pos(charpos as usize);
@@ -2988,15 +2986,7 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    output_emitter.push_text_row(
-                        evaluator,
-                        window_text_row(row),
-                        y,
-                        row_max_height,
-                        row_max_ascent,
-                        row_end_x,
-                        row_end_col,
-                    );
+                    output_emitter.push_text_row(evaluator, y, row_max_height, row_max_ascent);
                     hit_row_charpos_start = charpos;
                     row_extend_bg = None;
                     row_extend_row = -1;
@@ -3377,8 +3367,6 @@ impl LayoutEngine {
                         if row_max_height > char_h {
                             row_extra_y += row_max_height - char_h;
                         }
-                        let row_end_x = x;
-                        let row_end_col = col;
                         x = content_x;
                         hit_rows.push(HitRow {
                             y_start: y,
@@ -3386,15 +3374,7 @@ impl LayoutEngine {
                             charpos_start: hit_row_charpos_start,
                             charpos_end: charpos,
                         });
-                        output_emitter.push_text_row(
-                            evaluator,
-                            window_text_row(row),
-                            y,
-                            row_max_height,
-                            row_max_ascent,
-                            row_end_x,
-                            row_end_col,
-                        );
+                        output_emitter.push_text_row(evaluator, y, row_max_height, row_max_ascent);
                         row_extend_bg = None;
                         row_extend_row = -1;
                         if box_active {
@@ -3485,8 +3465,6 @@ impl LayoutEngine {
                 // end_buffer_pos=None and window-end falls short of
                 // point-max, causing %p to show "Top" instead of "All".
                 output_emitter.note_display_buffer_pos(charpos as usize);
-                let row_end_x = x;
-                let row_end_col = col;
                 // Record hit-test row (newline ends the row)
                 hit_rows.push(HitRow {
                     y_start: y,
@@ -3494,15 +3472,7 @@ impl LayoutEngine {
                     charpos_start: hit_row_charpos_start,
                     charpos_end: charpos,
                 });
-                output_emitter.push_text_row(
-                    evaluator,
-                    window_text_row(row),
-                    y,
-                    row_max_height,
-                    row_max_ascent,
-                    row_end_x,
-                    row_end_col,
-                );
+                output_emitter.push_text_row(evaluator, y, row_max_height, row_max_ascent);
 
                 self.matrix_builder.end_row();
                 row += 1;
@@ -3692,8 +3662,6 @@ impl LayoutEngine {
                         if row_max_height > char_h {
                             row_extra_y += row_max_height - char_h;
                         }
-                        let row_end_x = x;
-                        let row_end_col = col;
                         x = content_x;
                         // Record hit-test row (wrap/truncation break)
                         hit_rows.push(HitRow {
@@ -3702,15 +3670,7 @@ impl LayoutEngine {
                             charpos_start: hit_row_charpos_start,
                             charpos_end: charpos,
                         });
-                        output_emitter.push_text_row(
-                            evaluator,
-                            window_text_row(row),
-                            y,
-                            row_max_height,
-                            row_max_ascent,
-                            row_end_x,
-                            row_end_col,
-                        );
+                        output_emitter.push_text_row(evaluator, y, row_max_height, row_max_ascent);
                         row_extend_bg = None;
                         row_extend_row = -1;
                         row += 1;
@@ -3735,8 +3695,6 @@ impl LayoutEngine {
                         if row_max_height > char_h {
                             row_extra_y += row_max_height - char_h;
                         }
-                        let row_end_x = x;
-                        let row_end_col = col;
                         x = content_x;
                         // Record hit-test row (wrap/truncation break)
                         hit_rows.push(HitRow {
@@ -3745,15 +3703,7 @@ impl LayoutEngine {
                             charpos_start: hit_row_charpos_start,
                             charpos_end: charpos,
                         });
-                        output_emitter.push_text_row(
-                            evaluator,
-                            window_text_row(row),
-                            y,
-                            row_max_height,
-                            row_max_ascent,
-                            row_end_x,
-                            row_end_col,
-                        );
+                        output_emitter.push_text_row(evaluator, y, row_max_height, row_max_ascent);
                         hit_row_charpos_start = charpos;
                         row_extend_bg = None;
                         row_extend_row = -1;
@@ -3960,8 +3910,6 @@ impl LayoutEngine {
                     if row_max_height > char_h {
                         row_extra_y += row_max_height - char_h;
                     }
-                    let row_end_x = x;
-                    let row_end_col = col;
                     x = content_x;
                     // Record hit-test row (wrap/truncation break)
                     hit_rows.push(HitRow {
@@ -3970,15 +3918,7 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    output_emitter.push_text_row(
-                        evaluator,
-                        window_text_row(row),
-                        y,
-                        row_max_height,
-                        row_max_ascent,
-                        row_end_x,
-                        row_end_col,
-                    );
+                    output_emitter.push_text_row(evaluator, y, row_max_height, row_max_ascent);
                     row_extend_bg = None;
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
@@ -4017,8 +3957,6 @@ impl LayoutEngine {
                     if row_max_height > char_h {
                         row_extra_y += row_max_height - char_h;
                     }
-                    let row_end_x = x;
-                    let row_end_col = col;
                     x = content_x;
                     // Record hit-test row (wrap/truncation break)
                     hit_rows.push(HitRow {
@@ -4027,15 +3965,7 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    output_emitter.push_text_row(
-                        evaluator,
-                        window_text_row(row),
-                        y,
-                        row_max_height,
-                        row_max_ascent,
-                        row_end_x,
-                        row_end_col,
-                    );
+                    output_emitter.push_text_row(evaluator, y, row_max_height, row_max_ascent);
                     row_extend_bg = None;
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
@@ -4076,8 +4006,6 @@ impl LayoutEngine {
                     if row_max_height > char_h {
                         row_extra_y += row_max_height - char_h;
                     }
-                    let row_end_x = x;
-                    let row_end_col = col;
                     x = content_x;
                     // Record hit-test row (wrap/truncation break)
                     hit_rows.push(HitRow {
@@ -4086,15 +4014,7 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    output_emitter.push_text_row(
-                        evaluator,
-                        window_text_row(row),
-                        y,
-                        row_max_height,
-                        row_max_ascent,
-                        row_end_x,
-                        row_end_col,
-                    );
+                    output_emitter.push_text_row(evaluator, y, row_max_height, row_max_ascent);
                     row_extend_bg = None;
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
@@ -4648,15 +4568,7 @@ impl LayoutEngine {
                 charpos_start: hit_row_charpos_start,
                 charpos_end: charpos,
             });
-            output_emitter.push_text_row(
-                evaluator,
-                window_text_row(row),
-                row_y_start,
-                row_max_height,
-                row_max_ascent,
-                x,
-                col,
-            );
+            output_emitter.push_text_row(evaluator, row_y_start, row_max_height, row_max_ascent);
         }
 
         // GNU redisplay keeps iterating until point visibility converges or no
@@ -4911,7 +4823,7 @@ impl LayoutEngine {
             );
             self.matrix_builder = builder;
             if let Some(progress) = tab_output {
-                output_emitter.push_chrome_row_progress(evaluator, tl_row, progress);
+                output_emitter.push_chrome_row_progress(evaluator, progress);
             }
         }
 
@@ -4976,7 +4888,7 @@ impl LayoutEngine {
             );
             self.matrix_builder = builder;
             if let Some(progress) = header_output {
-                output_emitter.push_chrome_row_progress(evaluator, hl_row, progress);
+                output_emitter.push_chrome_row_progress(evaluator, progress);
             }
         }
 
@@ -5052,7 +4964,7 @@ impl LayoutEngine {
             );
             self.matrix_builder = builder;
             if let Some(progress) = mode_output {
-                output_emitter.push_chrome_row_progress(evaluator, ml_row, progress);
+                output_emitter.push_chrome_row_progress(evaluator, progress);
             }
         }
 
