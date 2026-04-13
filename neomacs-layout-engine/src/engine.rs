@@ -414,6 +414,55 @@ struct RowMetricsSnapshot {
     ascent: f32,
 }
 
+fn row_metrics_for_cursor(
+    row_metrics: &[RowMetricsSnapshot],
+    cursor_row: usize,
+    current_row: usize,
+    current_row_y: f32,
+    current_row_height: f32,
+    current_row_ascent: f32,
+) -> RowMetricsSnapshot {
+    row_metrics
+        .iter()
+        .find(|metric| metric.row == cursor_row)
+        .copied()
+        .unwrap_or(RowMetricsSnapshot {
+            row: current_row,
+            pixel_y: current_row_y,
+            height: current_row_height.max(1.0),
+            ascent: current_row_ascent.max(0.0).min(current_row_height.max(1.0)),
+        })
+}
+
+fn resolve_cursor_vertical_metrics(
+    cursor_y: f32,
+    face_h: f32,
+    face_ascent: f32,
+    row_height: f32,
+    row_ascent: f32,
+    default_line_height: f32,
+    ends_at_visible_eob: bool,
+) -> (f32, f32, f32) {
+    let row_height = row_height.max(1.0);
+    let glyph_ascent = face_ascent.max(0.0).min(face_h.max(1.0));
+    let glyph_descent = (face_h - glyph_ascent).max(0.0);
+    let mut y = cursor_y;
+    let mut ascent = row_ascent.max(0.0).min(row_height);
+
+    // GNU's physical cursor follows the row baseline, but if the glyph under
+    // point rises above that baseline, the cursor origin shifts upward to keep
+    // the box aligned with the displayed glyph. End-of-buffer rows are the
+    // exception because point can sit on an empty visual slot there.
+    if !ends_at_visible_eob && ascent < glyph_ascent {
+        y -= glyph_ascent - ascent;
+        ascent = glyph_ascent.min(row_height);
+    }
+
+    let minimum_height = default_line_height.max(1.0).min(row_height);
+    let height = (ascent + glyph_descent).max(minimum_height).min(row_height);
+    (y, height, ascent.min(height))
+}
+
 fn push_display_row(
     rows: &mut Vec<DisplayRowSnapshot>,
     row_metrics: &mut Vec<RowMetricsSnapshot>,
@@ -4286,10 +4335,15 @@ impl LayoutEngine {
         if params.point >= window_start && (params.point <= charpos || point_is_visible_eob) {
             let cursor_style = cursor_style_for_window(params);
 
-            if let (Some(cursor), Some(style)) = (cursor_info, cursor_style)
-                && cursor.y >= text_y
-                && cursor.y + cursor.face_h <= text_y + text_height
-            {
+            if let (Some(cursor), Some(style)) = (cursor_info, cursor_style) {
+                let row_metric = row_metrics_for_cursor(
+                    &row_metrics,
+                    cursor.matrix_row,
+                    row,
+                    y,
+                    row_max_height,
+                    row_max_ascent,
+                );
                 let computed_slot_width = if let Some(slot_width) = cursor.slot_width {
                     slot_width.max(1.0)
                 } else {
@@ -4337,76 +4391,89 @@ impl LayoutEngine {
                 } else {
                     actual_cursor_w
                 };
+                let (cursor_y, cursor_h, cursor_ascent) = resolve_cursor_vertical_metrics(
+                    cursor.y,
+                    cursor.face_h,
+                    cursor.face_ascent,
+                    row_metric.height,
+                    row_metric.ascent,
+                    char_h,
+                    point_is_visible_eob,
+                );
                 let resolved_cursor = ResolvedCursorGeometry {
                     x: cursor.x,
-                    y: cursor.y,
+                    y: cursor_y,
                     width: cursor_w,
-                    height: cursor.face_h,
-                    ascent: cursor.face_ascent.min(cursor.face_h),
+                    height: cursor_h,
+                    ascent: cursor_ascent,
                     row: cursor.matrix_row,
                     col: cursor.col,
                     style,
                     color: Color::from_pixel(params.cursor_color),
                     cursor_fg: cursor.bg,
                 };
-                self.matrix_builder.push_cursor(
-                    params.window_id as i32,
-                    DisplaySlotId {
-                        window_id: params.window_id,
-                        row: resolved_cursor.row as u32,
-                        col: resolved_cursor.col as u16,
-                    },
-                    resolved_cursor.x,
-                    resolved_cursor.y,
-                    resolved_cursor.width,
-                    resolved_cursor.height,
-                    resolved_cursor.style,
-                    resolved_cursor.color,
-                );
-                self.matrix_builder.set_cursor_at_row(
-                    resolved_cursor.row,
-                    resolved_cursor.col as u16,
-                    resolved_cursor.style,
-                );
-                emitted_window_cursor = Some(WindowCursorSnapshot {
-                    x: (resolved_cursor.x - text_area_left).round() as i64,
-                    y: (resolved_cursor.y - text_y).round() as i64,
-                    width: resolved_cursor.width.round() as i64,
-                    height: resolved_cursor.height.round() as i64,
-                    ascent: resolved_cursor.ascent.round() as i64,
-                    row: resolved_cursor.row as i64,
-                    col: resolved_cursor.col as i64,
-                });
-                if params.selected {
-                    self.matrix_builder.set_phys_cursor(PhysCursor {
-                        window_id: params.window_id as i32,
-                        charpos: params.point.max(0) as usize,
-                        row: resolved_cursor.row,
-                        col: resolved_cursor.col as u16,
-                        slot_id: DisplaySlotId {
+                if resolved_cursor.y >= text_y
+                    && resolved_cursor.y + resolved_cursor.height <= text_y + text_height
+                {
+                    self.matrix_builder.push_cursor(
+                        params.window_id as i32,
+                        DisplaySlotId {
                             window_id: params.window_id,
                             row: resolved_cursor.row as u32,
                             col: resolved_cursor.col as u16,
                         },
-                        x: resolved_cursor.x,
-                        y: resolved_cursor.y,
-                        width: resolved_cursor.width,
-                        height: resolved_cursor.height,
-                        ascent: resolved_cursor.ascent,
-                        style: resolved_cursor.style,
-                        color: resolved_cursor.color,
-                        cursor_fg: resolved_cursor.cursor_fg,
-                    });
-                }
-
-                if point_is_visible_eob {
-                    tracing::debug!(
-                        "layout_window_rust: emitting EOB cursor at x={:.1} y={:.1} w={:.1} h={:.1}",
                         resolved_cursor.x,
                         resolved_cursor.y,
                         resolved_cursor.width,
-                        resolved_cursor.height
+                        resolved_cursor.height,
+                        resolved_cursor.style,
+                        resolved_cursor.color,
                     );
+                    self.matrix_builder.set_cursor_at_row(
+                        resolved_cursor.row,
+                        resolved_cursor.col as u16,
+                        resolved_cursor.style,
+                    );
+                    emitted_window_cursor = Some(WindowCursorSnapshot {
+                        x: (resolved_cursor.x - text_area_left).round() as i64,
+                        y: (resolved_cursor.y - text_y).round() as i64,
+                        width: resolved_cursor.width.round() as i64,
+                        height: resolved_cursor.height.round() as i64,
+                        ascent: resolved_cursor.ascent.round() as i64,
+                        row: resolved_cursor.row as i64,
+                        col: resolved_cursor.col as i64,
+                    });
+                    if params.selected {
+                        self.matrix_builder.set_phys_cursor(PhysCursor {
+                            window_id: params.window_id as i32,
+                            charpos: params.point.max(0) as usize,
+                            row: resolved_cursor.row,
+                            col: resolved_cursor.col as u16,
+                            slot_id: DisplaySlotId {
+                                window_id: params.window_id,
+                                row: resolved_cursor.row as u32,
+                                col: resolved_cursor.col as u16,
+                            },
+                            x: resolved_cursor.x,
+                            y: resolved_cursor.y,
+                            width: resolved_cursor.width,
+                            height: resolved_cursor.height,
+                            ascent: resolved_cursor.ascent,
+                            style: resolved_cursor.style,
+                            color: resolved_cursor.color,
+                            cursor_fg: resolved_cursor.cursor_fg,
+                        });
+                    }
+
+                    if point_is_visible_eob {
+                        tracing::debug!(
+                            "layout_window_rust: emitting EOB cursor at x={:.1} y={:.1} w={:.1} h={:.1}",
+                            resolved_cursor.x,
+                            resolved_cursor.y,
+                            resolved_cursor.width,
+                            resolved_cursor.height
+                        );
+                    }
                 }
             } else if cursor_info.is_none() {
                 tracing::debug!(
@@ -8082,5 +8149,25 @@ mod tests {
         params.cursor_kind = neomacs_display_protocol::frame_glyphs::CursorKind::NoCursor;
 
         assert_eq!(cursor_style_for_window(&params), None);
+    }
+
+    #[test]
+    fn test_resolve_cursor_vertical_metrics_uses_row_metrics() {
+        let (y, height, ascent) =
+            resolve_cursor_vertical_metrics(20.0, 24.0, 18.0, 24.0, 14.0, 16.0, false);
+
+        assert_eq!(y, 16.0);
+        assert_eq!(height, 24.0);
+        assert_eq!(ascent, 18.0);
+    }
+
+    #[test]
+    fn test_resolve_cursor_vertical_metrics_preserves_eob_origin() {
+        let (y, height, ascent) =
+            resolve_cursor_vertical_metrics(20.0, 24.0, 18.0, 24.0, 14.0, 16.0, true);
+
+        assert_eq!(y, 20.0);
+        assert_eq!(height, 20.0);
+        assert_eq!(ascent, 14.0);
     }
 }
