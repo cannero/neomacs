@@ -488,87 +488,100 @@ fn resolve_cursor_vertical_metrics(
     (y, height, ascent.min(height))
 }
 
-fn push_display_row(
-    rows: &mut Vec<DisplayRowSnapshot>,
-    row_metrics: &mut Vec<RowMetricsSnapshot>,
-    row: i64,
-    row_y_start: f32,
-    row_height: f32,
-    row_ascent: f32,
-    row_end_x: f32,
-    row_end_col: usize,
+struct WindowOutputEmitter {
+    frame_id: neovm_core::window::FrameId,
+    window_id: neovm_core::window::WindowId,
     text_x: f32,
     window_top: f32,
-    row_first_display_pos: &mut Option<usize>,
-    row_last_display_pos: &mut Option<usize>,
-) {
-    rows.push(DisplayRowSnapshot {
-        row,
-        y: (row_y_start - window_top).round() as i64,
-        height: row_height.max(1.0).round() as i64,
-        end_x: (row_end_x - text_x).round() as i64,
-        end_col: row_end_col as i64,
-        start_buffer_pos: row_first_display_pos.take(),
-        end_buffer_pos: row_last_display_pos.take(),
-    });
-    row_metrics.push(RowMetricsSnapshot {
-        row: row.max(0) as usize,
-        pixel_y: row_y_start,
-        height: row_height.max(1.0),
-        ascent: row_ascent.max(0.0).min(row_height.max(1.0)),
-    });
 }
 
-fn finish_latest_output_row(
-    evaluator: &mut neovm_core::emacs_core::Context,
-    frame_id: neovm_core::window::FrameId,
-    window_id: neovm_core::window::WindowId,
-    rows: &[DisplayRowSnapshot],
-) {
-    let Some(row) = rows.last() else {
-        return;
-    };
-    if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
-        frame.finish_window_output_row(window_id, row);
+impl WindowOutputEmitter {
+    fn new(
+        frame_id: neovm_core::window::FrameId,
+        window_id: neovm_core::window::WindowId,
+        text_x: f32,
+        window_top: f32,
+    ) -> Self {
+        Self {
+            frame_id,
+            window_id,
+            text_x,
+            window_top,
+        }
     }
-}
 
-fn finish_output_row(
-    evaluator: &mut neovm_core::emacs_core::Context,
-    frame_id: neovm_core::window::FrameId,
-    window_id: neovm_core::window::WindowId,
-    row: &DisplayRowSnapshot,
-) {
-    if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
-        frame.finish_window_output_row(window_id, row);
+    fn begin_row(
+        &self,
+        evaluator: &mut neovm_core::emacs_core::Context,
+        row: i64,
+        col: i64,
+        y: i64,
+        x: i64,
+    ) {
+        if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
+            frame.begin_window_output_row(self.window_id, row, col, y, x);
+        }
     }
-}
 
-fn begin_output_row(
-    evaluator: &mut neovm_core::emacs_core::Context,
-    frame_id: neovm_core::window::FrameId,
-    window_id: neovm_core::window::WindowId,
-    row: i64,
-    col: i64,
-    y: i64,
-    x: i64,
-) {
-    if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
-        frame.begin_window_output_row(window_id, row, col, y, x);
+    fn advance_progress(
+        &self,
+        evaluator: &mut neovm_core::emacs_core::Context,
+        row: i64,
+        col: i64,
+        y: i64,
+        x: i64,
+    ) {
+        if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
+            frame.advance_window_output_progress(self.window_id, row, col, y, x);
+        }
     }
-}
 
-fn advance_output_progress(
-    evaluator: &mut neovm_core::emacs_core::Context,
-    frame_id: neovm_core::window::FrameId,
-    window_id: neovm_core::window::WindowId,
-    row: i64,
-    col: i64,
-    y: i64,
-    x: i64,
-) {
-    if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
-        frame.advance_window_output_progress(window_id, row, col, y, x);
+    fn push_text_row(
+        &self,
+        evaluator: &mut neovm_core::emacs_core::Context,
+        rows: &mut Vec<DisplayRowSnapshot>,
+        row_metrics: &mut Vec<RowMetricsSnapshot>,
+        row: i64,
+        row_y_start: f32,
+        row_height: f32,
+        row_ascent: f32,
+        row_end_x: f32,
+        row_end_col: usize,
+        row_first_display_pos: &mut Option<usize>,
+        row_last_display_pos: &mut Option<usize>,
+    ) {
+        rows.push(DisplayRowSnapshot {
+            row,
+            y: (row_y_start - self.window_top).round() as i64,
+            height: row_height.max(1.0).round() as i64,
+            end_x: (row_end_x - self.text_x).round() as i64,
+            end_col: row_end_col as i64,
+            start_buffer_pos: row_first_display_pos.take(),
+            end_buffer_pos: row_last_display_pos.take(),
+        });
+        row_metrics.push(RowMetricsSnapshot {
+            row: row.max(0) as usize,
+            pixel_y: row_y_start,
+            height: row_height.max(1.0),
+            ascent: row_ascent.max(0.0).min(row_height.max(1.0)),
+        });
+        if let Some(row) = rows.last()
+            && let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id)
+        {
+            frame.finish_window_output_row(self.window_id, row);
+        }
+    }
+
+    fn push_chrome_row(
+        &self,
+        evaluator: &mut neovm_core::emacs_core::Context,
+        chrome_rows: &mut Vec<DisplayRowSnapshot>,
+        row: DisplayRowSnapshot,
+    ) {
+        if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
+            frame.finish_window_output_row(self.window_id, &row);
+        }
+        chrome_rows.push(row);
     }
 }
 
@@ -2714,16 +2727,16 @@ impl LayoutEngine {
         let mut row_last_display_pos: Option<usize> = None;
         let text_area_left = text_x;
         let window_top = params.bounds.y;
+        let output_emitter =
+            WindowOutputEmitter::new(frame_id, window_id, text_area_left, window_top);
         let sync_charpos_from_byte_idx = |byte_idx: usize| {
             buf_access.bytepos_to_charpos(text_start_byte as i64 + byte_idx as i64)
         };
 
         macro_rules! begin_live_output_row {
             () => {
-                begin_output_row(
+                output_emitter.begin_row(
                     evaluator,
-                    frame_id,
-                    window_id,
                     window_text_row(row),
                     col as i64,
                     (y - window_top).round() as i64,
@@ -2734,10 +2747,8 @@ impl LayoutEngine {
 
         macro_rules! advance_live_output_progress {
             () => {
-                advance_output_progress(
+                output_emitter.advance_progress(
                     evaluator,
-                    frame_id,
-                    window_id,
                     window_text_row(row),
                     col as i64,
                     (y - window_top).round() as i64,
@@ -3121,7 +3132,8 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    push_display_row(
+                    output_emitter.push_text_row(
+                        evaluator,
                         &mut display_rows,
                         &mut row_metrics,
                         window_text_row(row),
@@ -3130,12 +3142,9 @@ impl LayoutEngine {
                         row_max_ascent,
                         row_end_x,
                         row_end_col,
-                        text_area_left,
-                        window_top,
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
                     );
-                    finish_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                     hit_row_charpos_start = charpos;
                     row_extend_bg = None;
                     row_extend_row = -1;
@@ -3530,7 +3539,8 @@ impl LayoutEngine {
                             charpos_start: hit_row_charpos_start,
                             charpos_end: charpos,
                         });
-                        push_display_row(
+                        output_emitter.push_text_row(
+                            evaluator,
                             &mut display_rows,
                             &mut row_metrics,
                             window_text_row(row),
@@ -3539,12 +3549,9 @@ impl LayoutEngine {
                             row_max_ascent,
                             row_end_x,
                             row_end_col,
-                            text_area_left,
-                            window_top,
                             &mut row_first_display_pos,
                             &mut row_last_display_pos,
                         );
-                        finish_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                         row_extend_bg = None;
                         row_extend_row = -1;
                         if box_active {
@@ -3647,7 +3654,8 @@ impl LayoutEngine {
                     charpos_start: hit_row_charpos_start,
                     charpos_end: charpos,
                 });
-                push_display_row(
+                output_emitter.push_text_row(
+                    evaluator,
                     &mut display_rows,
                     &mut row_metrics,
                     window_text_row(row),
@@ -3656,12 +3664,9 @@ impl LayoutEngine {
                     row_max_ascent,
                     row_end_x,
                     row_end_col,
-                    text_area_left,
-                    window_top,
                     &mut row_first_display_pos,
                     &mut row_last_display_pos,
                 );
-                finish_latest_output_row(evaluator, frame_id, window_id, &display_rows);
 
                 self.matrix_builder.end_row();
                 row += 1;
@@ -3866,7 +3871,8 @@ impl LayoutEngine {
                             charpos_start: hit_row_charpos_start,
                             charpos_end: charpos,
                         });
-                        push_display_row(
+                        output_emitter.push_text_row(
+                            evaluator,
                             &mut display_rows,
                             &mut row_metrics,
                             window_text_row(row),
@@ -3875,12 +3881,9 @@ impl LayoutEngine {
                             row_max_ascent,
                             row_end_x,
                             row_end_col,
-                            text_area_left,
-                            window_top,
                             &mut row_first_display_pos,
                             &mut row_last_display_pos,
                         );
-                        finish_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                         row_extend_bg = None;
                         row_extend_row = -1;
                         row += 1;
@@ -3915,7 +3918,8 @@ impl LayoutEngine {
                             charpos_start: hit_row_charpos_start,
                             charpos_end: charpos,
                         });
-                        push_display_row(
+                        output_emitter.push_text_row(
+                            evaluator,
                             &mut display_rows,
                             &mut row_metrics,
                             window_text_row(row),
@@ -3924,12 +3928,9 @@ impl LayoutEngine {
                             row_max_ascent,
                             row_end_x,
                             row_end_col,
-                            text_area_left,
-                            window_top,
                             &mut row_first_display_pos,
                             &mut row_last_display_pos,
                         );
-                        finish_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                         hit_row_charpos_start = charpos;
                         row_extend_bg = None;
                         row_extend_row = -1;
@@ -4161,7 +4162,8 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    push_display_row(
+                    output_emitter.push_text_row(
+                        evaluator,
                         &mut display_rows,
                         &mut row_metrics,
                         window_text_row(row),
@@ -4170,12 +4172,9 @@ impl LayoutEngine {
                         row_max_ascent,
                         row_end_x,
                         row_end_col,
-                        text_area_left,
-                        window_top,
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
                     );
-                    finish_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                     row_extend_bg = None;
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
@@ -4222,7 +4221,8 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    push_display_row(
+                    output_emitter.push_text_row(
+                        evaluator,
                         &mut display_rows,
                         &mut row_metrics,
                         window_text_row(row),
@@ -4231,12 +4231,9 @@ impl LayoutEngine {
                         row_max_ascent,
                         row_end_x,
                         row_end_col,
-                        text_area_left,
-                        window_top,
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
                     );
-                    finish_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                     row_extend_bg = None;
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
@@ -4287,7 +4284,8 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    push_display_row(
+                    output_emitter.push_text_row(
+                        evaluator,
                         &mut display_rows,
                         &mut row_metrics,
                         window_text_row(row),
@@ -4296,12 +4294,9 @@ impl LayoutEngine {
                         row_max_ascent,
                         row_end_x,
                         row_end_col,
-                        text_area_left,
-                        window_top,
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
                     );
-                    finish_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                     row_extend_bg = None;
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
@@ -4860,7 +4855,8 @@ impl LayoutEngine {
                 charpos_start: hit_row_charpos_start,
                 charpos_end: charpos,
             });
-            push_display_row(
+            output_emitter.push_text_row(
+                evaluator,
                 &mut display_rows,
                 &mut row_metrics,
                 window_text_row(row),
@@ -4869,12 +4865,9 @@ impl LayoutEngine {
                 row_max_ascent,
                 x,
                 col,
-                text_area_left,
-                window_top,
                 &mut row_first_display_pos,
                 &mut row_last_display_pos,
             );
-            finish_latest_output_row(evaluator, frame_id, window_id, &display_rows);
         }
 
         // GNU redisplay keeps iterating until point visibility converges or no
@@ -5089,10 +5082,8 @@ impl LayoutEngine {
                 &mut self.matrix_builder,
                 crate::matrix_builder::GlyphMatrixBuilder::new(),
             );
-            begin_output_row(
+            output_emitter.begin_row(
                 evaluator,
-                frame_id,
-                window_id,
                 tl_row,
                 0,
                 (tl_y - params.bounds.y).round() as i64,
@@ -5100,10 +5091,8 @@ impl LayoutEngine {
             );
             let mut advance_output =
                 |progress: crate::display_status_line::StatusLineOutputProgress| {
-                    advance_output_progress(
+                    output_emitter.advance_progress(
                         evaluator,
-                        frame_id,
-                        window_id,
                         tl_row,
                         progress.end_col,
                         (progress.y - params.bounds.y).round() as i64,
@@ -5138,8 +5127,7 @@ impl LayoutEngine {
                     start_buffer_pos: None,
                     end_buffer_pos: None,
                 };
-                finish_output_row(evaluator, frame_id, window_id, &row);
-                chrome_rows.push(row);
+                output_emitter.push_chrome_row(evaluator, &mut chrome_rows, row);
             }
         }
 
@@ -5168,10 +5156,8 @@ impl LayoutEngine {
                 &mut self.matrix_builder,
                 crate::matrix_builder::GlyphMatrixBuilder::new(),
             );
-            begin_output_row(
+            output_emitter.begin_row(
                 evaluator,
-                frame_id,
-                window_id,
                 hl_row,
                 0,
                 (hl_y - params.bounds.y).round() as i64,
@@ -5179,10 +5165,8 @@ impl LayoutEngine {
             );
             let mut advance_output =
                 |progress: crate::display_status_line::StatusLineOutputProgress| {
-                    advance_output_progress(
+                    output_emitter.advance_progress(
                         evaluator,
-                        frame_id,
-                        window_id,
                         hl_row,
                         progress.end_col,
                         (progress.y - params.bounds.y).round() as i64,
@@ -5217,8 +5201,7 @@ impl LayoutEngine {
                     start_buffer_pos: None,
                     end_buffer_pos: None,
                 };
-                finish_output_row(evaluator, frame_id, window_id, &row);
-                chrome_rows.push(row);
+                output_emitter.push_chrome_row(evaluator, &mut chrome_rows, row);
             }
         }
 
@@ -5258,10 +5241,8 @@ impl LayoutEngine {
                 &mut self.matrix_builder,
                 crate::matrix_builder::GlyphMatrixBuilder::new(),
             );
-            begin_output_row(
+            output_emitter.begin_row(
                 evaluator,
-                frame_id,
-                window_id,
                 ml_row,
                 0,
                 (ml_y - params.bounds.y).round() as i64,
@@ -5269,10 +5250,8 @@ impl LayoutEngine {
             );
             let mut advance_output =
                 |progress: crate::display_status_line::StatusLineOutputProgress| {
-                    advance_output_progress(
+                    output_emitter.advance_progress(
                         evaluator,
-                        frame_id,
-                        window_id,
                         ml_row,
                         progress.end_col,
                         (progress.y - params.bounds.y).round() as i64,
@@ -5307,8 +5286,7 @@ impl LayoutEngine {
                     start_buffer_pos: None,
                     end_buffer_pos: None,
                 };
-                finish_output_row(evaluator, frame_id, window_id, &row);
-                chrome_rows.push(row);
+                output_emitter.push_chrome_row(evaluator, &mut chrome_rows, row);
             }
         }
 
