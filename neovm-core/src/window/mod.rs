@@ -94,7 +94,7 @@ pub enum SplitDirection {
 /// neomacs now stores GNU-like cursor state directly on the live window:
 ///
 /// - `cursor`: intended cursor position in the latest redisplay result
-/// - `output_cursor`: the cursor position last committed by redisplay output
+/// - `output_cursor`: the nominal output position last committed by redisplay
 /// - `phys_cursor`: the last physical cursor geometry emitted on screen
 ///
 /// This mirrors GNU's `struct window` ownership model closely enough for
@@ -114,7 +114,7 @@ pub struct WindowDisplayState {
     pub cursor: Option<WindowCursorPos>,
     /// Last physical cursor geometry produced by redisplay for this window.
     pub phys_cursor: Option<WindowCursorSnapshot>,
-    /// Last cursor position actually committed by redisplay output.
+    /// Last nominal output position actually committed by redisplay.
     pub output_cursor: Option<WindowCursorPos>,
     /// Last physical cursor type emitted by redisplay.
     pub phys_cursor_type: WindowCursorKind,
@@ -199,9 +199,9 @@ impl WindowDisplayState {
         self.output_cursor = self.cursor;
     }
 
-    pub fn commit_output_cursor_from_snapshot(&mut self, cursor: Option<&WindowCursorSnapshot>) {
-        if let Some(cursor) = cursor {
-            self.output_cursor_to(cursor.row, cursor.col, cursor.y, cursor.x);
+    pub fn commit_output_cursor_from_display_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
+        if let Some(cursor) = snapshot.output_cursor_pos() {
+            self.output_cursor = Some(cursor);
         } else {
             self.clear_output_cursor_state();
         }
@@ -856,6 +856,11 @@ pub struct DisplayRowSnapshot {
     pub y: i64,
     /// Row height in pixels.
     pub height: i64,
+    /// X position where redisplay finished emitting this row, relative to the
+    /// text area's left edge.
+    pub end_x: i64,
+    /// Visual column where redisplay finished emitting this row.
+    pub end_col: i64,
     /// First buffer position represented on this row, if any.
     pub start_buffer_pos: Option<usize>,
     /// Last visible/source position associated with this row, if any.
@@ -942,6 +947,15 @@ pub struct WindowDisplaySnapshot {
 }
 
 impl WindowDisplaySnapshot {
+    pub fn output_cursor_pos(&self) -> Option<WindowCursorPos> {
+        self.rows.last().map(|row| WindowCursorPos {
+            x: row.end_x,
+            y: row.y,
+            row: row.row,
+            col: row.end_col,
+        })
+    }
+
     pub fn visible_buffer_span(&self) -> Option<(usize, usize)> {
         let start = self
             .rows
@@ -1483,7 +1497,7 @@ impl Frame {
     pub fn replace_display_snapshots(&mut self, snapshots: Vec<WindowDisplaySnapshot>) {
         self.begin_display_output_pass();
         for snapshot in &snapshots {
-            self.commit_window_output_snapshot(snapshot.window_id, snapshot.cursor.as_ref());
+            self.commit_window_output_snapshot(snapshot);
         }
         self.set_display_snapshots(snapshots);
     }
@@ -1501,17 +1515,15 @@ impl Frame {
     }
 
     /// Commit the output/cursor state for one live window from a redisplay snapshot.
-    pub fn commit_window_output_snapshot(
-        &mut self,
-        window_id: WindowId,
-        cursor: Option<&WindowCursorSnapshot>,
-    ) {
-        if let Some(window) = self.find_window_mut(window_id)
+    pub fn commit_window_output_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
+        if let Some(window) = self.find_window_mut(snapshot.window_id)
             && let Some(display) = window.display_mut()
         {
-            display.install_logical_cursor(cursor.map(WindowCursorPos::from_snapshot));
-            display.commit_output_cursor_from_snapshot(cursor);
-            display.apply_physical_cursor_snapshot(cursor.cloned());
+            display.install_logical_cursor(
+                snapshot.cursor.as_ref().map(WindowCursorPos::from_snapshot),
+            );
+            display.commit_output_cursor_from_display_snapshot(snapshot);
+            display.apply_physical_cursor_snapshot(snapshot.cursor.clone());
             display.commit_completed_redisplay();
         }
     }
@@ -3161,11 +3173,26 @@ mod tests {
             row: 1,
             col: 4,
         };
+        let output_cursor = WindowCursorPos {
+            x: 44,
+            y: 29,
+            row: 1,
+            col: 8,
+        };
 
         let frame = mgr.get_mut(fid).unwrap();
         frame.replace_display_snapshots(vec![WindowDisplaySnapshot {
             window_id: wid,
             cursor: Some(cursor.clone()),
+            rows: vec![DisplayRowSnapshot {
+                row: 1,
+                y: 29,
+                height: 16,
+                end_x: output_cursor.x,
+                end_col: output_cursor.col,
+                start_buffer_pos: Some(1),
+                end_buffer_pos: Some(8),
+            }],
             ..WindowDisplaySnapshot::default()
         }]);
 
@@ -3180,7 +3207,7 @@ mod tests {
         assert_eq!(display.last_cursor_vpos, cursor.row);
         assert_eq!(display.cursor.as_ref(), Some(&cursor_pos));
         assert_eq!(display.phys_cursor.as_ref(), Some(&cursor));
-        assert_eq!(display.output_cursor.as_ref(), Some(&cursor_pos));
+        assert_eq!(display.output_cursor.as_ref(), Some(&output_cursor));
     }
 
     #[test]
@@ -3199,10 +3226,30 @@ mod tests {
             col: 4,
         };
         let cursor_pos = WindowCursorPos::from_snapshot(&cursor);
+        let output_cursor = WindowCursorPos {
+            x: 44,
+            y: 29,
+            row: 1,
+            col: 8,
+        };
+        let snapshot = WindowDisplaySnapshot {
+            window_id: wid,
+            cursor: Some(cursor.clone()),
+            rows: vec![DisplayRowSnapshot {
+                row: 1,
+                y: 29,
+                height: 16,
+                end_x: output_cursor.x,
+                end_col: output_cursor.col,
+                start_buffer_pos: Some(1),
+                end_buffer_pos: Some(8),
+            }],
+            ..WindowDisplaySnapshot::default()
+        };
 
         let frame = mgr.get_mut(fid).unwrap();
         frame.begin_display_output_pass();
-        frame.commit_window_output_snapshot(wid, Some(&cursor));
+        frame.commit_window_output_snapshot(&snapshot);
         frame.set_display_snapshots(vec![WindowDisplaySnapshot {
             window_id: wid,
             cursor: None,
@@ -3214,7 +3261,7 @@ mod tests {
             .and_then(|window| window.display())
             .expect("window display state");
         assert_eq!(display.cursor.as_ref(), Some(&cursor_pos));
-        assert_eq!(display.output_cursor.as_ref(), Some(&cursor_pos));
+        assert_eq!(display.output_cursor.as_ref(), Some(&output_cursor));
         assert_eq!(display.phys_cursor.as_ref(), Some(&cursor));
         assert_eq!(
             frame
@@ -3273,10 +3320,24 @@ mod tests {
             row: 2,
             col: 5,
         };
+        let snapshot = WindowDisplaySnapshot {
+            window_id: WindowId(1),
+            cursor: Some(cursor.clone()),
+            rows: vec![DisplayRowSnapshot {
+                row: 2,
+                y: 21,
+                height: 16,
+                end_x: 9,
+                end_col: 5,
+                start_buffer_pos: Some(11),
+                end_buffer_pos: Some(11),
+            }],
+            ..WindowDisplaySnapshot::default()
+        };
         let mut display = WindowDisplayState::default();
         display.begin_output_pass();
         display.install_logical_cursor(Some(WindowCursorPos::from_snapshot(&cursor)));
-        display.commit_output_cursor_from_snapshot(Some(&cursor));
+        display.commit_output_cursor_from_display_snapshot(&snapshot);
         display.apply_physical_cursor_snapshot(Some(cursor.clone()));
         display.commit_completed_redisplay();
 
@@ -3367,7 +3428,7 @@ mod tests {
     }
 
     #[test]
-    fn output_pass_commits_output_cursor_from_snapshot_geometry() {
+    fn output_pass_commits_output_cursor_from_row_geometry() {
         let cursor = WindowCursorSnapshot {
             kind: WindowCursorKind::Bar,
             x: 44,
@@ -3378,21 +3439,35 @@ mod tests {
             row: 2,
             col: 7,
         };
+        let snapshot = WindowDisplaySnapshot {
+            window_id: WindowId(1),
+            cursor: Some(cursor.clone()),
+            rows: vec![DisplayRowSnapshot {
+                row: 2,
+                y: 32,
+                height: 16,
+                end_x: 80,
+                end_col: 12,
+                start_buffer_pos: Some(20),
+                end_buffer_pos: Some(32),
+            }],
+            ..WindowDisplaySnapshot::default()
+        };
         let mut display = WindowDisplayState::default();
 
         display.begin_output_pass();
         display.install_logical_cursor(Some(WindowCursorPos::from_snapshot(&cursor)));
-        display.commit_output_cursor_from_snapshot(Some(&cursor));
+        display.commit_output_cursor_from_display_snapshot(&snapshot);
         display.apply_physical_cursor_snapshot(Some(cursor.clone()));
         display.commit_completed_redisplay();
 
         assert_eq!(
             display.output_cursor,
             Some(WindowCursorPos {
-                x: 44,
+                x: 80,
                 y: 32,
                 row: 2,
-                col: 7,
+                col: 12,
             })
         );
         assert_eq!(display.last_cursor_vpos, 2);

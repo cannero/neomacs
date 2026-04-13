@@ -481,6 +481,9 @@ fn push_display_row(
     row_y_start: f32,
     row_height: f32,
     row_ascent: f32,
+    row_end_x: f32,
+    row_end_col: usize,
+    text_x: f32,
     window_top: f32,
     row_first_display_pos: &mut Option<usize>,
     row_last_display_pos: &mut Option<usize>,
@@ -489,6 +492,8 @@ fn push_display_row(
         row,
         y: (row_y_start - window_top).round() as i64,
         height: row_height.max(1.0).round() as i64,
+        end_x: (row_end_x - text_x).round() as i64,
+        end_col: row_end_col as i64,
         start_buffer_pos: row_first_display_pos.take(),
         end_buffer_pos: row_last_display_pos.take(),
     });
@@ -2052,7 +2057,7 @@ impl LayoutEngine {
         if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
             frame.begin_display_output_pass();
             for snapshot in &snapshots {
-                frame.commit_window_output_snapshot(snapshot.window_id, snapshot.cursor.as_ref());
+                frame.commit_window_output_snapshot(snapshot);
             }
             frame.set_display_snapshots(snapshots);
         }
@@ -2985,6 +2990,8 @@ impl LayoutEngine {
                     if row_max_height > char_h {
                         row_extra_y += row_max_height - char_h;
                     }
+                    let row_end_x = x;
+                    let row_end_col = col;
                     x = content_x;
                     // Record newline position on the row (see main \n handler).
                     row_last_display_pos = Some(charpos as usize);
@@ -3005,6 +3012,9 @@ impl LayoutEngine {
                         y,
                         row_max_height,
                         row_max_ascent,
+                        row_end_x,
+                        row_end_col,
+                        text_area_left,
                         window_top,
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
@@ -3389,6 +3399,8 @@ impl LayoutEngine {
                         if row_max_height > char_h {
                             row_extra_y += row_max_height - char_h;
                         }
+                        let row_end_x = x;
+                        let row_end_col = col;
                         x = content_x;
                         hit_rows.push(HitRow {
                             y_start: y,
@@ -3403,6 +3415,9 @@ impl LayoutEngine {
                             y,
                             row_max_height,
                             row_max_ascent,
+                            row_end_x,
+                            row_end_col,
+                            text_area_left,
                             window_top,
                             &mut row_first_display_pos,
                             &mut row_last_display_pos,
@@ -3500,6 +3515,8 @@ impl LayoutEngine {
                 if row_first_display_pos.is_none() {
                     row_first_display_pos = Some(charpos as usize);
                 }
+                let row_end_x = x;
+                let row_end_col = col;
                 // Record hit-test row (newline ends the row)
                 hit_rows.push(HitRow {
                     y_start: y,
@@ -3514,6 +3531,9 @@ impl LayoutEngine {
                     y,
                     row_max_height,
                     row_max_ascent,
+                    row_end_x,
+                    row_end_col,
+                    text_area_left,
                     window_top,
                     &mut row_first_display_pos,
                     &mut row_last_display_pos,
@@ -3711,6 +3731,8 @@ impl LayoutEngine {
                         if row_max_height > char_h {
                             row_extra_y += row_max_height - char_h;
                         }
+                        let row_end_x = x;
+                        let row_end_col = col;
                         x = content_x;
                         // Record hit-test row (wrap/truncation break)
                         hit_rows.push(HitRow {
@@ -3726,6 +3748,9 @@ impl LayoutEngine {
                             y,
                             row_max_height,
                             row_max_ascent,
+                            row_end_x,
+                            row_end_col,
+                            text_area_left,
                             window_top,
                             &mut row_first_display_pos,
                             &mut row_last_display_pos,
@@ -3753,6 +3778,8 @@ impl LayoutEngine {
                         if row_max_height > char_h {
                             row_extra_y += row_max_height - char_h;
                         }
+                        let row_end_x = x;
+                        let row_end_col = col;
                         x = content_x;
                         // Record hit-test row (wrap/truncation break)
                         hit_rows.push(HitRow {
@@ -3768,6 +3795,9 @@ impl LayoutEngine {
                             y,
                             row_max_height,
                             row_max_ascent,
+                            row_end_x,
+                            row_end_col,
+                            text_area_left,
                             window_top,
                             &mut row_first_display_pos,
                             &mut row_last_display_pos,
@@ -3992,6 +4022,8 @@ impl LayoutEngine {
                     if row_max_height > char_h {
                         row_extra_y += row_max_height - char_h;
                     }
+                    let row_end_x = x;
+                    let row_end_col = col;
                     x = content_x;
                     // Record hit-test row (wrap/truncation break)
                     hit_rows.push(HitRow {
@@ -4007,6 +4039,9 @@ impl LayoutEngine {
                         y,
                         row_max_height,
                         row_max_ascent,
+                        row_end_x,
+                        row_end_col,
+                        text_area_left,
                         window_top,
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
@@ -4046,6 +4081,8 @@ impl LayoutEngine {
                     if row_max_height > char_h {
                         row_extra_y += row_max_height - char_h;
                     }
+                    let row_end_x = x;
+                    let row_end_col = col;
                     x = content_x;
                     // Record hit-test row (wrap/truncation break)
                     hit_rows.push(HitRow {
@@ -4061,6 +4098,9 @@ impl LayoutEngine {
                         y,
                         row_max_height,
                         row_max_ascent,
+                        row_end_x,
+                        row_end_col,
+                        text_area_left,
                         window_top,
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
@@ -4104,6 +4144,8 @@ impl LayoutEngine {
                     if row_max_height > char_h {
                         row_extra_y += row_max_height - char_h;
                     }
+                    let row_end_x = x;
+                    let row_end_col = col;
                     x = content_x;
                     // Record hit-test row (wrap/truncation break)
                     hit_rows.push(HitRow {
@@ -4119,6 +4161,9 @@ impl LayoutEngine {
                         y,
                         row_max_height,
                         row_max_ascent,
+                        row_end_x,
+                        row_end_col,
+                        text_area_left,
                         window_top,
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
@@ -4675,6 +4720,9 @@ impl LayoutEngine {
                 row_y_start,
                 row_max_height,
                 row_max_ascent,
+                x,
+                col,
+                text_area_left,
                 window_top,
                 &mut row_first_display_pos,
                 &mut row_last_display_pos,
@@ -7385,6 +7433,8 @@ mod tests {
                 row: 0,
                 y: 0,
                 height: 16,
+                end_x: 0,
+                end_col: 0,
                 start_buffer_pos: Some(1),
                 end_buffer_pos: Some(8),
             },
@@ -7392,6 +7442,8 @@ mod tests {
                 row: 1,
                 y: 16,
                 height: 16,
+                end_x: 0,
+                end_col: 0,
                 start_buffer_pos: Some(9),
                 end_buffer_pos: Some(16),
             },
@@ -7399,6 +7451,8 @@ mod tests {
                 row: 2,
                 y: 32,
                 height: 16,
+                end_x: 0,
+                end_col: 0,
                 start_buffer_pos: Some(17),
                 end_buffer_pos: Some(24),
             },
@@ -7406,6 +7460,8 @@ mod tests {
                 row: 3,
                 y: 48,
                 height: 16,
+                end_x: 0,
+                end_col: 0,
                 start_buffer_pos: Some(25),
                 end_buffer_pos: Some(32),
             },
@@ -7435,6 +7491,8 @@ mod tests {
                 row: 0,
                 y: 0,
                 height: 20,
+                end_x: 0,
+                end_col: 0,
                 start_buffer_pos: Some(1),
                 end_buffer_pos: Some(10),
             },
@@ -7442,6 +7500,8 @@ mod tests {
                 row: 1,
                 y: 20,
                 height: 20,
+                end_x: 0,
+                end_col: 0,
                 start_buffer_pos: Some(11),
                 end_buffer_pos: Some(20),
             },
@@ -7449,6 +7509,8 @@ mod tests {
                 row: 2,
                 y: 40,
                 height: 30,
+                end_x: 0,
+                end_col: 0,
                 start_buffer_pos: Some(21),
                 end_buffer_pos: Some(30),
             },
@@ -7489,6 +7551,8 @@ mod tests {
                 row: 0,
                 y: 0,
                 height: 16,
+                end_x: 0,
+                end_col: 0,
                 start_buffer_pos: Some(1),
                 end_buffer_pos: Some(10),
             },
@@ -7496,6 +7560,8 @@ mod tests {
                 row: 1,
                 y: 16,
                 height: 16,
+                end_x: 0,
+                end_col: 0,
                 start_buffer_pos: Some(11),
                 end_buffer_pos: Some(20),
             },
@@ -7503,6 +7569,8 @@ mod tests {
                 row: 2,
                 y: 32,
                 height: 16,
+                end_x: 0,
+                end_col: 0,
                 start_buffer_pos: Some(21),
                 end_buffer_pos: Some(25),
             },
@@ -7519,6 +7587,8 @@ mod tests {
                 row: 0,
                 y: 0,
                 height: 16,
+                end_x: 0,
+                end_col: 0,
                 start_buffer_pos: Some(1),
                 end_buffer_pos: Some(10),
             },
@@ -7526,6 +7596,8 @@ mod tests {
                 row: 1,
                 y: 16,
                 height: 16,
+                end_x: 0,
+                end_col: 0,
                 start_buffer_pos: Some(11),
                 end_buffer_pos: Some(27),
             },
@@ -7567,6 +7639,8 @@ mod tests {
                 row: 0,
                 y: 0,
                 height: 16,
+                end_x: 0,
+                end_col: 0,
                 start_buffer_pos: Some(1),
                 end_buffer_pos: Some(10),
             },
@@ -7574,6 +7648,8 @@ mod tests {
                 row: 1,
                 y: 16,
                 height: 16,
+                end_x: 0,
+                end_col: 0,
                 start_buffer_pos: Some(11),
                 end_buffer_pos: Some(20),
             },
@@ -7581,6 +7657,8 @@ mod tests {
                 row: 2,
                 y: 32,
                 height: 16,
+                end_x: 0,
+                end_col: 0,
                 start_buffer_pos: Some(21),
                 end_buffer_pos: Some(30),
             },
@@ -7588,6 +7666,8 @@ mod tests {
                 row: 3,
                 y: 48,
                 height: 16,
+                end_x: 0,
+                end_col: 0,
                 start_buffer_pos: Some(31),
                 end_buffer_pos: Some(40),
             },
@@ -7595,6 +7675,8 @@ mod tests {
                 row: 4,
                 y: 64,
                 height: 16,
+                end_x: 0,
+                end_col: 0,
                 start_buffer_pos: Some(41),
                 end_buffer_pos: Some(50),
             },

@@ -3896,6 +3896,8 @@ fn window_end_prefers_last_redisplay_snapshot_when_available() {
                 row: 0,
                 y: 0,
                 height: 16,
+                end_x: 0,
+                end_col: 0,
                 start_buffer_pos: Some(1),
                 end_buffer_pos: Some(12),
             }],
