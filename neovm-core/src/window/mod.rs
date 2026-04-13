@@ -206,7 +206,7 @@ impl WindowDisplayState {
         self.output_cursor = self.cursor;
     }
 
-    pub fn replay_output_rows(&mut self, rows: &[DisplayRowSnapshot]) {
+    fn replay_output_rows(&mut self, rows: &[DisplayRowSnapshot]) {
         if rows.is_empty() {
             self.clear_output_cursor_state();
             return;
@@ -215,10 +215,6 @@ impl WindowDisplayState {
             self.begin_output_row(row.row, row.start_col, row.y, row.start_x);
             self.finish_output_row(row);
         }
-    }
-
-    pub fn commit_output_cursor_from_display_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
-        self.replay_output_rows(&snapshot.rows);
     }
 
     /// Start emitting a new output row.
@@ -287,6 +283,17 @@ impl<'a> WindowOutputUpdate<'a> {
         self.display.finish_output_row(row);
     }
 
+    fn replay_output_rows(&mut self, rows: &[DisplayRowSnapshot]) {
+        if rows.is_empty() {
+            self.display.clear_output_cursor_state();
+            return;
+        }
+        for row in rows {
+            self.begin_row(row.row, row.start_col, row.y, row.start_x);
+            self.finish_row(row);
+        }
+    }
+
     pub fn install_logical_cursor(&mut self, cursor: Option<WindowCursorPos>) {
         self.display.install_logical_cursor(cursor);
     }
@@ -297,8 +304,7 @@ impl<'a> WindowOutputUpdate<'a> {
 
     fn fallback_output_cursor_from_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
         if self.display.output_cursor.is_none() {
-            self.display
-                .commit_output_cursor_from_display_snapshot(snapshot);
+            self.replay_output_rows(&snapshot.rows);
         }
     }
 
@@ -327,7 +333,7 @@ impl<'a> WindowOutputUpdate<'a> {
     pub fn replay_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
         self.begin_update();
         self.install_logical_cursor(snapshot.logical_cursor_pos());
-        self.display.replay_output_rows(&snapshot.rows);
+        self.replay_output_rows(&snapshot.rows);
         self.apply_physical_cursor_snapshot(snapshot.phys_cursor.clone());
         self.commit();
     }
@@ -3559,7 +3565,7 @@ mod tests {
         let mut display = WindowDisplayState::default();
         display.begin_output_pass();
         display.install_logical_cursor(Some(WindowCursorPos::from_snapshot(&cursor)));
-        display.commit_output_cursor_from_display_snapshot(&snapshot);
+        display.replay_output_rows(&snapshot.rows);
         display.apply_physical_cursor_snapshot(Some(cursor.clone()));
         display.commit_completed_redisplay();
 
@@ -3709,7 +3715,7 @@ mod tests {
 
         display.begin_output_pass();
         display.install_logical_cursor(Some(WindowCursorPos::from_snapshot(&cursor)));
-        display.commit_output_cursor_from_display_snapshot(&snapshot);
+        display.replay_output_rows(&snapshot.rows);
         display.apply_physical_cursor_snapshot(Some(cursor.clone()));
         display.commit_completed_redisplay();
 
@@ -4010,7 +4016,7 @@ mod tests {
 
         display.begin_output_pass();
         display.install_logical_cursor(Some(WindowCursorPos::from_snapshot(&cursor)));
-        display.commit_output_cursor_from_display_snapshot(&snapshot);
+        display.replay_output_rows(&snapshot.rows);
         display.apply_physical_cursor_snapshot(Some(cursor.clone()));
         display.commit_completed_redisplay();
 
