@@ -2036,7 +2036,7 @@ impl LayoutEngine {
     ) {
         let buf_id = neovm_core::buffer::BufferId(params.buffer_id);
         let window_id = neovm_core::window::WindowId(params.window_id as u64);
-        let output_emitter = WindowOutputEmitter::new(frame_id, window_id, 0.0, params.bounds.y);
+        let output_emitter = WindowOutputEmitter::new(frame_id, window_id, 0, 0.0, params.bounds.y);
         output_emitter.begin_update(evaluator);
         let layout_buffer = match evaluator.buffer_manager().get(buf_id) {
             Some(buffer) => super::neovm_bridge::LayoutBufferSnapshot::from_buffer(buffer),
@@ -2584,35 +2584,16 @@ impl LayoutEngine {
         let mut hit_row_charpos_start: i64 = window_start;
         let text_area_left = text_x;
         let window_top = params.bounds.y;
-        let mut output_emitter =
-            WindowOutputEmitter::new(frame_id, window_id, text_area_left, window_top);
+        let mut output_emitter = WindowOutputEmitter::new(
+            frame_id,
+            window_id,
+            text_matrix_row_base,
+            text_area_left,
+            window_top,
+        );
         let sync_charpos_from_byte_idx = |byte_idx: usize| {
             buf_access.bytepos_to_charpos(text_start_byte as i64 + byte_idx as i64)
         };
-
-        macro_rules! begin_live_output_row {
-            () => {
-                output_emitter.begin_row(
-                    evaluator,
-                    window_text_row(row),
-                    col as i64,
-                    (y - window_top).round() as i64,
-                    (x - text_area_left).round() as i64,
-                );
-            };
-        }
-
-        macro_rules! advance_live_output_progress {
-            () => {
-                output_emitter.advance_progress(
-                    evaluator,
-                    window_text_row(row),
-                    col as i64,
-                    (y - window_top).round() as i64,
-                    (x - text_area_left).round() as i64,
-                );
-            };
-        }
 
         let ligatures = self.ligatures_enabled;
         self.run_buf.clear();
@@ -2749,7 +2730,7 @@ impl LayoutEngine {
             text_matrix_row_base,
             neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text,
         );
-        begin_live_output_row!();
+        output_emitter.begin_text_row(evaluator, row, col, y, x);
 
         while byte_idx < text.len() && row < max_rows && y + row_max_height <= text_y + text_height
         {
@@ -2956,7 +2937,7 @@ impl LayoutEngine {
 
                     flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
-                    advance_live_output_progress!();
+                    output_emitter.advance_text_progress(evaluator, row, col, y, x);
                     continue;
                 }
                 invis_next_check = next_visible;
@@ -2996,7 +2977,7 @@ impl LayoutEngine {
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
                     row_y_positions.push(y);
-                    begin_live_output_row!();
+                    output_emitter.begin_text_row(evaluator, row, col, y, x);
                     col = 0;
                     current_line += 1;
                     need_line_number = lnum_enabled;
@@ -3062,7 +3043,7 @@ impl LayoutEngine {
                             },
                         );
                     }
-                    advance_live_output_progress!();
+                    output_emitter.advance_text_progress(evaluator, row, col, y, x);
                 }
                 continue;
             }
@@ -3132,7 +3113,7 @@ impl LayoutEngine {
                             byte_idx += ch_len;
                             charpos += 1;
                         }
-                        advance_live_output_progress!();
+                        output_emitter.advance_text_progress(evaluator, row, col, y, x);
                         continue;
                     }
 
@@ -3177,7 +3158,7 @@ impl LayoutEngine {
                             byte_idx += ch_len;
                             charpos += 1;
                         }
-                        advance_live_output_progress!();
+                        output_emitter.advance_text_progress(evaluator, row, col, y, x);
                         continue;
                     }
 
@@ -3292,7 +3273,7 @@ impl LayoutEngine {
                             byte_idx += ch_len;
                             charpos += 1;
                         }
-                        advance_live_output_progress!();
+                        output_emitter.advance_text_progress(evaluator, row, col, y, x);
                         continue;
                     }
 
@@ -3386,7 +3367,7 @@ impl LayoutEngine {
                         row_max_height = char_h;
                         row_max_ascent = default_face_ascent;
                         row_y_positions.push(y);
-                        begin_live_output_row!();
+                        output_emitter.begin_text_row(evaluator, row, col, y, x);
                         charpos = sync_charpos_from_byte_idx(byte_idx);
                         hit_row_charpos_start = charpos;
                         col = 0;
@@ -3484,7 +3465,7 @@ impl LayoutEngine {
                 row_max_height = char_h;
                 row_max_ascent = default_face_ascent;
                 row_y_positions.push(y);
-                begin_live_output_row!();
+                output_emitter.begin_text_row(evaluator, row, col, y, x);
                 charpos = sync_charpos_from_byte_idx(byte_idx);
                 hit_row_charpos_start = charpos;
                 if box_active {
@@ -3678,7 +3659,7 @@ impl LayoutEngine {
                         row_max_height = char_h;
                         row_max_ascent = default_face_ascent;
                         row_y_positions.push(y);
-                        begin_live_output_row!();
+                        output_emitter.begin_text_row(evaluator, row, col, y, x);
                         charpos = sync_charpos_from_byte_idx(byte_idx);
                         hit_row_charpos_start = charpos;
                         col = 0;
@@ -3712,7 +3693,7 @@ impl LayoutEngine {
                         row_max_height = char_h;
                         row_max_ascent = default_face_ascent;
                         row_y_positions.push(y);
-                        begin_live_output_row!();
+                        output_emitter.begin_text_row(evaluator, row, col, y, x);
                         col = 0;
                         trailing_ws_start_col = -1;
                         if row < max_rows {
@@ -3931,7 +3912,7 @@ impl LayoutEngine {
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
                     row_y_positions.push(y);
-                    begin_live_output_row!();
+                    output_emitter.begin_text_row(evaluator, row, col, y, x);
                     col = 0;
                     word_wrap_may_wrap = false;
                     wrap_has_break = false;
@@ -3978,7 +3959,7 @@ impl LayoutEngine {
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
                     row_y_positions.push(y);
-                    begin_live_output_row!();
+                    output_emitter.begin_text_row(evaluator, row, col, y, x);
                     charpos = sync_charpos_from_byte_idx(byte_idx);
                     hit_row_charpos_start = charpos;
                     if row < max_rows {
@@ -4027,7 +4008,7 @@ impl LayoutEngine {
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
                     row_y_positions.push(y);
-                    begin_live_output_row!();
+                    output_emitter.begin_text_row(evaluator, row, col, y, x);
                     col = 0;
                     trailing_ws_start_col = -1;
                     if row < max_rows {
@@ -4206,7 +4187,7 @@ impl LayoutEngine {
                 }
             }
 
-            advance_live_output_progress!();
+            output_emitter.advance_text_progress(evaluator, row, col, y, x);
 
             // Track trailing whitespace
             if trailing_ws_bg.is_some() {

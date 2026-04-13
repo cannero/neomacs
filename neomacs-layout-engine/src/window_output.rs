@@ -31,6 +31,7 @@ struct CurrentRowProgress {
 pub(crate) struct WindowOutputEmitter {
     frame_id: neovm_core::window::FrameId,
     window_id: neovm_core::window::WindowId,
+    text_row_base: i64,
     text_x: f32,
     window_top: f32,
     points: Vec<DisplayPointSnapshot>,
@@ -45,12 +46,14 @@ impl WindowOutputEmitter {
     pub(crate) fn new(
         frame_id: neovm_core::window::FrameId,
         window_id: neovm_core::window::WindowId,
+        text_row_base: usize,
         text_x: f32,
         window_top: f32,
     ) -> Self {
         Self {
             frame_id,
             window_id,
+            text_row_base: text_row_base as i64,
             text_x,
             window_top,
             points: Vec::new(),
@@ -154,6 +157,23 @@ impl WindowOutputEmitter {
         let _ = self.with_live_update(evaluator, |update| update.begin_row(row, col, y, x));
     }
 
+    pub(crate) fn begin_text_row(
+        &mut self,
+        evaluator: &mut Context,
+        row: usize,
+        col: usize,
+        y: f32,
+        x: f32,
+    ) {
+        self.begin_row(
+            evaluator,
+            self.text_row_base + row as i64,
+            col as i64,
+            (y - self.window_top).round() as i64,
+            (x - self.text_x).round() as i64,
+        );
+    }
+
     pub(crate) fn begin_update(&self, evaluator: &mut Context) {
         let _ = self.with_live_update(evaluator, |update| update.begin_update());
     }
@@ -168,6 +188,23 @@ impl WindowOutputEmitter {
     ) {
         self.set_current_row_progress(row, col, y, x);
         let _ = self.with_live_update(evaluator, |update| update.advance_progress(row, col, y, x));
+    }
+
+    pub(crate) fn advance_text_progress(
+        &mut self,
+        evaluator: &mut Context,
+        row: usize,
+        col: usize,
+        y: f32,
+        x: f32,
+    ) {
+        self.advance_progress(
+            evaluator,
+            self.text_row_base + row as i64,
+            col as i64,
+            (y - self.window_top).round() as i64,
+            (x - self.text_x).round() as i64,
+        );
     }
 
     pub(crate) fn push_text_row(
