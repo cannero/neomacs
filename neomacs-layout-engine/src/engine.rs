@@ -533,14 +533,17 @@ fn commit_latest_output_row(
     }
 }
 
-fn commit_output_progress(
+fn output_cursor_to(
     evaluator: &mut neovm_core::emacs_core::Context,
     frame_id: neovm_core::window::FrameId,
     window_id: neovm_core::window::WindowId,
-    row: DisplayRowSnapshot,
+    row: i64,
+    col: i64,
+    y: i64,
+    x: i64,
 ) {
     if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
-        frame.commit_window_output_row(window_id, &row);
+        frame.output_cursor_to(window_id, row, col, y, x);
     }
 }
 
@@ -2690,6 +2693,20 @@ impl LayoutEngine {
             buf_access.bytepos_to_charpos(text_start_byte as i64 + byte_idx as i64)
         };
 
+        macro_rules! sync_live_output_cursor {
+            () => {
+                output_cursor_to(
+                    evaluator,
+                    frame_id,
+                    window_id,
+                    window_text_row(row),
+                    col as i64,
+                    (y - window_top).round() as i64,
+                    (x - text_area_left).round() as i64,
+                );
+            };
+        }
+
         let ligatures = self.ligatures_enabled;
         self.run_buf.clear();
 
@@ -3029,6 +3046,7 @@ impl LayoutEngine {
 
                     flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
+                    sync_live_output_cursor!();
                     continue;
                 }
                 invis_next_check = next_visible;
@@ -3152,6 +3170,7 @@ impl LayoutEngine {
                             },
                         );
                     }
+                    sync_live_output_cursor!();
                 }
                 continue;
             }
@@ -3221,6 +3240,7 @@ impl LayoutEngine {
                             byte_idx += ch_len;
                             charpos += 1;
                         }
+                        sync_live_output_cursor!();
                         continue;
                     }
 
@@ -3265,6 +3285,7 @@ impl LayoutEngine {
                             byte_idx += ch_len;
                             charpos += 1;
                         }
+                        sync_live_output_cursor!();
                         continue;
                     }
 
@@ -3384,6 +3405,7 @@ impl LayoutEngine {
                             byte_idx += ch_len;
                             charpos += 1;
                         }
+                        sync_live_output_cursor!();
                         continue;
                     }
 
@@ -4428,6 +4450,8 @@ impl LayoutEngine {
                 }
             }
 
+            sync_live_output_cursor!();
+
             // Track trailing whitespace
             if trailing_ws_bg.is_some() {
                 if ch == ' ' || ch == '\t' {
@@ -5034,19 +5058,14 @@ impl LayoutEngine {
             );
             self.matrix_builder = builder;
             if let Some(progress) = tab_output {
-                commit_output_progress(
+                output_cursor_to(
                     evaluator,
                     frame_id,
                     window_id,
-                    DisplayRowSnapshot {
-                        row: 0,
-                        y: (progress.y - params.bounds.y).round() as i64,
-                        height: progress.height.round() as i64,
-                        end_x: progress.end_x.round() as i64,
-                        end_col: progress.end_col,
-                        start_buffer_pos: None,
-                        end_buffer_pos: None,
-                    },
+                    0,
+                    progress.end_col,
+                    (progress.y - params.bounds.y).round() as i64,
+                    progress.end_x.round() as i64,
                 );
                 chrome_rows.push(DisplayRowSnapshot {
                     row: 0,
@@ -5102,19 +5121,14 @@ impl LayoutEngine {
             );
             self.matrix_builder = builder;
             if let Some(progress) = header_output {
-                commit_output_progress(
+                output_cursor_to(
                     evaluator,
                     frame_id,
                     window_id,
-                    DisplayRowSnapshot {
-                        row: i64::from(tab_line_height > 0.0),
-                        y: (progress.y - params.bounds.y).round() as i64,
-                        height: progress.height.round() as i64,
-                        end_x: progress.end_x.round() as i64,
-                        end_col: progress.end_col,
-                        start_buffer_pos: None,
-                        end_buffer_pos: None,
-                    },
+                    i64::from(tab_line_height > 0.0),
+                    progress.end_col,
+                    (progress.y - params.bounds.y).round() as i64,
+                    progress.end_x.round() as i64,
                 );
                 chrome_rows.push(DisplayRowSnapshot {
                     row: i64::from(tab_line_height > 0.0),
@@ -5181,19 +5195,14 @@ impl LayoutEngine {
             );
             self.matrix_builder = builder;
             if let Some(progress) = mode_output {
-                commit_output_progress(
+                output_cursor_to(
                     evaluator,
                     frame_id,
                     window_id,
-                    DisplayRowSnapshot {
-                        row: mode_line_matrix_row as i64,
-                        y: (progress.y - params.bounds.y).round() as i64,
-                        height: progress.height.round() as i64,
-                        end_x: progress.end_x.round() as i64,
-                        end_col: progress.end_col,
-                        start_buffer_pos: None,
-                        end_buffer_pos: None,
-                    },
+                    mode_line_matrix_row as i64,
+                    progress.end_col,
+                    (progress.y - params.bounds.y).round() as i64,
+                    progress.end_x.round() as i64,
                 );
                 chrome_rows.push(DisplayRowSnapshot {
                     row: mode_line_matrix_row as i64,

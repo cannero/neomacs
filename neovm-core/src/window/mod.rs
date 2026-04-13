@@ -1561,6 +1561,17 @@ impl Frame {
         }
     }
 
+    /// Move one live window's output cursor to an in-progress output position.
+    ///
+    /// Mirrors GNU's `output_cursor_to` helper on `struct window`.
+    pub fn output_cursor_to(&mut self, window_id: WindowId, row: i64, col: i64, y: i64, x: i64) {
+        if let Some(window) = self.find_window_mut(window_id)
+            && let Some(display) = window.display_mut()
+        {
+            display.output_cursor_to(row, col, y, x);
+        }
+    }
+
     /// Commit the output/cursor state for one live window from a redisplay snapshot.
     pub fn commit_window_output_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
         if let Some(window) = self.find_window_mut(snapshot.window_id)
@@ -3657,6 +3668,33 @@ mod tests {
             })
         );
         assert_eq!(display.phys_cursor, Some(cursor));
+    }
+
+    #[test]
+    fn frame_output_cursor_to_tracks_intra_row_progress() {
+        let mut mgr = FrameManager::new();
+        let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+        let wid = mgr.get(fid).unwrap().selected_window;
+        let frame = mgr.get_mut(fid).expect("frame");
+
+        frame.begin_display_output_pass();
+        frame.begin_window_output_update(wid);
+        frame.output_cursor_to(wid, 2, 3, 32, 24);
+        frame.output_cursor_to(wid, 2, 7, 32, 56);
+
+        let display = frame
+            .find_window(wid)
+            .and_then(|window| window.display())
+            .expect("window display state");
+        assert_eq!(
+            display.output_cursor,
+            Some(WindowCursorPos {
+                x: 56,
+                y: 32,
+                row: 2,
+                col: 7,
+            })
+        );
     }
 
     #[test]
