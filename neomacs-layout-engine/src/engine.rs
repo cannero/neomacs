@@ -1122,7 +1122,6 @@ fn render_overlay_string(
                 charpos_end: anchor_charpos,
             });
             *hit_row_charpos_start = anchor_charpos;
-            output_emitter.advance_text_progress(evaluator, *row, *col, *y, *x);
             output_emitter.push_text_row(evaluator, *y, *row_max_height, *row_max_ascent);
             builder.end_row();
             *row += 1;
