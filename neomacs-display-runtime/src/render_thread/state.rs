@@ -271,6 +271,7 @@ pub(super) struct RenderApp {
 
     // Tab bar state (items + height kept for click hit-testing)
     pub(super) tab_bar_items: Vec<TabBarItem>,
+    pub(super) tab_bar_y: f32,
     pub(super) tab_bar_height: f32,
     pub(super) tab_bar_hovered: Option<u32>,
     pub(super) tab_bar_pressed: Option<u32>,
@@ -389,6 +390,7 @@ impl RenderApp {
             menu_bar_hovered: None,
             menu_bar_active: None,
             tab_bar_items: Vec::new(),
+            tab_bar_y: 0.0,
             tab_bar_height: 0.0,
             tab_bar_hovered: None,
             tab_bar_pressed: None,

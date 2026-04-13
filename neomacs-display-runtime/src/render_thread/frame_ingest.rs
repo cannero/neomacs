@@ -32,6 +32,21 @@ impl RenderApp {
                 self.child_frames.update_frame(frame);
             } else {
                 self.current_frame = Some(frame);
+                if let Some(tab_bar) = self
+                    .current_frame
+                    .as_ref()
+                    .and_then(|frame| frame.tab_bar.as_ref())
+                {
+                    self.tab_bar_items = tab_bar.items.clone();
+                    self.tab_bar_y = tab_bar.y;
+                    self.tab_bar_height = tab_bar.height;
+                } else {
+                    self.tab_bar_items.clear();
+                    self.tab_bar_y = 0.0;
+                    self.tab_bar_height = 0.0;
+                    self.tab_bar_hovered = None;
+                    self.tab_bar_pressed = None;
+                }
                 self.cursor.reset_blink();
             }
             self.frame_dirty = true;

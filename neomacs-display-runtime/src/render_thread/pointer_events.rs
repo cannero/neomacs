@@ -248,8 +248,8 @@ impl RenderApp {
         if state == ElementState::Pressed
             && button == MouseButton::Left
             && self.tab_bar_height > 0.0
-            && self.mouse_pos.1 >= self.menu_bar_height
-            && self.mouse_pos.1 < self.menu_bar_height + self.tab_bar_height
+            && self.mouse_pos.1 >= self.tab_bar_y
+            && self.mouse_pos.1 < self.tab_bar_y + self.tab_bar_height
         {
             if let Some(idx) = self.tab_bar_hit_test(self.mouse_pos.0, self.mouse_pos.1) {
                 self.tab_bar_pressed = Some(idx);
@@ -272,8 +272,18 @@ impl RenderApp {
         if state == ElementState::Pressed
             && button == MouseButton::Left
             && self.toolbar_height > 0.0
-            && self.mouse_pos.1 < self.menu_bar_height + self.tab_bar_height + self.toolbar_height
-            && self.mouse_pos.1 >= self.menu_bar_height + self.tab_bar_height
+            && self.mouse_pos.1
+                < (if self.tab_bar_height > 0.0 {
+                    self.tab_bar_y + self.tab_bar_height
+                } else {
+                    self.menu_bar_height
+                }) + self.toolbar_height
+            && self.mouse_pos.1
+                >= if self.tab_bar_height > 0.0 {
+                    self.tab_bar_y + self.tab_bar_height
+                } else {
+                    self.menu_bar_height
+                }
         {
             if let Some(idx) = self.toolbar_hit_test(self.mouse_pos.0, self.mouse_pos.1) {
                 self.toolbar_pressed = Some(idx);
@@ -451,7 +461,7 @@ impl RenderApp {
 
         if self.tab_bar_height > 0.0 {
             let old_hover = self.tab_bar_hovered;
-            if ly >= self.menu_bar_height && ly < self.menu_bar_height + self.tab_bar_height {
+            if ly >= self.tab_bar_y && ly < self.tab_bar_y + self.tab_bar_height {
                 self.tab_bar_hovered = self.tab_bar_hit_test(lx, ly);
             } else {
                 self.tab_bar_hovered = None;
@@ -463,8 +473,18 @@ impl RenderApp {
 
         if self.toolbar_height > 0.0 {
             let old_hover = self.toolbar_hovered;
-            if ly < self.menu_bar_height + self.tab_bar_height + self.toolbar_height
-                && ly >= self.menu_bar_height + self.tab_bar_height
+            if ly
+                < (if self.tab_bar_height > 0.0 {
+                    self.tab_bar_y + self.tab_bar_height
+                } else {
+                    self.menu_bar_height
+                }) + self.toolbar_height
+                && ly
+                    >= if self.tab_bar_height > 0.0 {
+                        self.tab_bar_y + self.tab_bar_height
+                    } else {
+                        self.menu_bar_height
+                    }
             {
                 self.toolbar_hovered = self.toolbar_hit_test(lx, ly);
             } else {

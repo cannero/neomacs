@@ -18,7 +18,7 @@ pub struct PopupMenuItem {
 }
 
 /// A top-level menu bar item (e.g., "File", "Edit", "Tools").
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MenuBarItem {
     pub index: u32,
     pub label: String,
@@ -26,7 +26,7 @@ pub struct MenuBarItem {
 }
 
 /// A single toolbar item.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ToolBarItem {
     pub index: u32,
     pub icon_name: String,
@@ -38,7 +38,7 @@ pub struct ToolBarItem {
 }
 
 /// A single tab bar item.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TabBarItem {
     pub index: u32,
     pub label: String,

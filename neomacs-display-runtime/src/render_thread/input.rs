@@ -126,7 +126,7 @@ impl RenderApp {
         if self.tab_bar_height <= 0.0 || self.tab_bar_items.is_empty() {
             return None;
         }
-        let tab_bar_y = self.menu_bar_height;
+        let tab_bar_y = self.tab_bar_y;
         if y < tab_bar_y || y >= tab_bar_y + self.tab_bar_height {
             return None;
         }

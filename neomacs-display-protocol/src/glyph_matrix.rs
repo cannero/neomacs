@@ -9,8 +9,9 @@
 
 use super::face::{Face, FaceAttributes, UnderlineStyle};
 use super::frame_glyphs::{
-    CursorStyle, DisplaySlotId, FrameGlyph, FrameGlyphBuffer, GlyphRowRole, PhysCursor,
-    StipplePattern, WindowCursorVisual, WindowEffectHint, WindowInfo, WindowTransitionHint,
+    CursorStyle, DisplaySlotId, FrameGlyph, FrameGlyphBuffer, FrameTabBarState, GlyphRowRole,
+    PhysCursor, StipplePattern, WindowCursorVisual, WindowEffectHint, WindowInfo,
+    WindowTransitionHint,
 };
 use super::types::{Color, Rect};
 use std::collections::HashMap;
@@ -492,6 +493,8 @@ pub struct FrameDisplayState {
     /// The TTY rasterizer paints these into row 0; the GUI runtime has
     /// its own menu-bar machinery and ignores this field.
     pub menu_bar: Option<TtyMenuBarState>,
+    /// Frame-level tab bar metadata for render-thread hit-testing.
+    pub tab_bar: Option<FrameTabBarState>,
 }
 
 /// One label entry in the TTY menu bar (one top-level menu like "File").
@@ -576,6 +579,7 @@ impl FrameDisplayState {
             stipple_patterns: HashMap::new(),
             effect_hints: Vec::new(),
             menu_bar: None,
+            tab_bar: None,
         }
     }
 
@@ -603,6 +607,7 @@ impl FrameDisplayState {
         state.stipple_patterns = buf.stipple_patterns.clone();
         state.transition_hints = buf.transition_hints.clone();
         state.effect_hints = buf.effect_hints.clone();
+        state.tab_bar = buf.tab_bar.clone();
         state
             .cursors
             .extend(buf.window_cursors.iter().map(|cursor| CursorItem {
@@ -784,6 +789,7 @@ impl FrameDisplayState {
 
         // Copy transition hints
         buf.transition_hints = self.transition_hints.clone();
+        buf.tab_bar = self.tab_bar.clone();
 
         // --- Materialize backgrounds ---
         for bg in &self.backgrounds {

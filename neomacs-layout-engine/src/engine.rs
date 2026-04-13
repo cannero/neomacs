@@ -190,10 +190,15 @@ fn tab_bar_menu_item_caption(entry: Value) -> Option<String> {
     items.get(1)?.as_str_owned()
 }
 
-fn build_tab_bar_plain_text(
+struct BuiltTabBar {
+    text: String,
+    items: Vec<neomacs_display_protocol::ui_types::TabBarItem>,
+}
+
+fn build_tab_bar_display(
     evaluator: &mut neovm_core::emacs_core::Context,
     frame_id: u64,
-) -> Option<String> {
+) -> Option<BuiltTabBar> {
     evaluator.setup_thread_locals();
     if !evaluator.obarray().fboundp("tab-bar-make-keymap-1") {
         return None;
@@ -224,6 +229,7 @@ fn build_tab_bar_plain_text(
         .and_then(|keymap| list_to_vec(&keymap))
         .and_then(|entries| {
             let mut text = String::new();
+            let mut items = Vec::new();
             for (index, entry) in entries.iter().enumerate() {
                 if index == 0 && entry.is_symbol_named("keymap") {
                     continue;
@@ -235,10 +241,18 @@ fn build_tab_bar_plain_text(
 
                 if let Some(caption) = tab_bar_menu_item_caption(*entry) {
                     text.push_str(&caption);
+                    items.push(neomacs_display_protocol::ui_types::TabBarItem {
+                        index: items.len() as u32,
+                        label: caption,
+                        help: String::new(),
+                        enabled: true,
+                        selected: false,
+                        is_separator: false,
+                    });
                 }
             }
 
-            (!text.is_empty()).then_some(text)
+            (!text.is_empty()).then_some(BuiltTabBar { text, items })
         });
 
     if let Some(frame) = saved_frame {
@@ -1320,6 +1334,8 @@ pub struct LayoutEngine {
     /// the first leaf window. Neomacs stages those rows here and attaches them
     /// to the finished frame snapshot.
     pending_frame_chrome_rows: Vec<neomacs_display_protocol::glyph_matrix::FrameChromeRow>,
+    /// Frame-level tab bar metadata for render-thread hit-testing.
+    pending_tab_bar: Option<neomacs_display_protocol::frame_glyphs::FrameTabBarState>,
 }
 
 impl LayoutEngine {
@@ -1347,6 +1363,7 @@ impl LayoutEngine {
             last_frame_display_state: None,
             frame_face_id_counter: 1,
             pending_frame_chrome_rows: Vec::new(),
+            pending_tab_bar: None,
         }
     }
 
@@ -1374,6 +1391,7 @@ impl LayoutEngine {
             last_frame_display_state: None,
             frame_face_id_counter: 1,
             pending_frame_chrome_rows: Vec::new(),
+            pending_tab_bar: None,
         }
     }
 
@@ -1737,6 +1755,7 @@ impl LayoutEngine {
             self.matrix_builder.reset();
             self.frame_face_id_counter = 1;
             self.pending_frame_chrome_rows.clear();
+            self.pending_tab_bar = None;
             let mut curr_window_infos: std::collections::HashMap<i64, WindowInfo> =
                 std::collections::HashMap::new();
 
@@ -2029,6 +2048,7 @@ impl LayoutEngine {
         frame_display_state
             .frame_chrome_rows
             .extend(std::mem::take(&mut self.pending_frame_chrome_rows));
+        frame_display_state.tab_bar = self.pending_tab_bar.take();
 
         // NOTE: GlyphMatrix vs FrameGlyphBuffer character count validation removed.
         // FrameGlyphBuffer no longer receives glyph output; the GlyphMatrixBuilder
@@ -5420,7 +5440,7 @@ impl LayoutEngine {
             DisplayBackend, GuiDisplayBackend, TtyDisplayBackend, display_text_plain_via_backend,
         };
 
-        let Some(tab_bar_text) = build_tab_bar_plain_text(evaluator, frame_window_id as u64) else {
+        let Some(tab_bar) = build_tab_bar_display(evaluator, frame_window_id as u64) else {
             return;
         };
 
@@ -5450,7 +5470,7 @@ impl LayoutEngine {
             Some(ref mut g) => g,
             None => &mut tty_backend,
         };
-        display_text_plain_via_backend(backend, &tab_bar_text, &rendered_face, char_width, width);
+        display_text_plain_via_backend(backend, &tab_bar.text, &rendered_face, char_width, width);
         let glyphs: Vec<_> = backend.pending_glyphs().to_vec();
         if glyphs.is_empty() {
             return;
@@ -5474,14 +5494,20 @@ impl LayoutEngine {
         } else {
             0
         };
+        let tab_bar_y = frame_params.menu_bar_height;
 
         self.pending_frame_chrome_rows.push(
             neomacs_display_protocol::glyph_matrix::FrameChromeRow {
                 row_index,
-                pixel_bounds: Rect::new(0.0, frame_params.menu_bar_height, width, tab_bar_height),
+                pixel_bounds: Rect::new(0.0, tab_bar_y, width, tab_bar_height),
                 row,
             },
         );
+        self.pending_tab_bar = Some(neomacs_display_protocol::frame_glyphs::FrameTabBarState {
+            items: tab_bar.items,
+            y: tab_bar_y,
+            height: tab_bar_height,
+        });
     }
 }
 
