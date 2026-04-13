@@ -3098,6 +3098,8 @@ impl LayoutEngine {
                         cursor_info.is_none() && params.point >= charpos && params.point < skip_to;
                     // Case 1: String replacement — render the string instead of buffer text
                     if let Some(replacement) = prop_val.as_str() {
+                        let replacement_start_x = x;
+                        let replacement_start_col = col;
                         if point_in_display_replacement {
                             let slot_width = replacement
                                 .chars()
@@ -3139,18 +3141,34 @@ impl LayoutEngine {
                             }
                         }
 
+                        if x > replacement_start_x || col > replacement_start_col {
+                            output_emitter.emit_text_span(
+                                evaluator,
+                                charpos as i64 + 1,
+                                row,
+                                y,
+                                replacement_start_x,
+                                y + raise_y_offset,
+                                x - replacement_start_x,
+                                face_h,
+                                replacement_start_col,
+                                col,
+                            );
+                        }
+
                         // Skip the buffer text that this display property covers
                         while charpos < skip_to && byte_idx < text.len() {
                             let (_ch, ch_len) = decode_utf8(&text[byte_idx..]);
                             byte_idx += ch_len;
                             charpos += 1;
                         }
-                        output_emitter.advance_text_progress(evaluator, row, col, y, x);
                         continue;
                     }
 
                     // Case 2: Space spec — (space :width …) or (space :align-to …)
                     if is_display_space_spec(&prop_val) {
+                        let replacement_start_x = x;
+                        let replacement_start_col = col;
                         let space_width = eval_display_space_as_width(
                             &prop_val,
                             x,
@@ -3182,6 +3200,18 @@ impl LayoutEngine {
                             let _bg = Color::from_pixel(default_resolved.bg);
                             x += space_width;
                             col += (space_width / face_char_w).ceil() as usize;
+                            output_emitter.emit_text_span(
+                                evaluator,
+                                charpos as i64 + 1,
+                                row,
+                                y,
+                                replacement_start_x,
+                                y + raise_y_offset,
+                                x - replacement_start_x,
+                                face_h,
+                                replacement_start_col,
+                                col,
+                            );
                         }
 
                         // Skip covered buffer text
@@ -3190,13 +3220,14 @@ impl LayoutEngine {
                             byte_idx += ch_len;
                             charpos += 1;
                         }
-                        output_emitter.advance_text_progress(evaluator, row, col, y, x);
                         continue;
                     }
 
                     // Case 3: Image — emit a real inline image glyph when a GUI
                     // display host can resolve it, otherwise keep the TTY placeholder.
                     if is_display_image_spec(&prop_val) {
+                        let replacement_start_x = x;
+                        let replacement_start_col = col;
                         let maybe_image = parse_display_image_layout(&prop_val).and_then(|spec| {
                             evaluator
                                 .display_host
@@ -3254,19 +3285,22 @@ impl LayoutEngine {
                                 display_width,
                                 display_height,
                             );
-                            output_emitter.push_text_display_point(
-                                charpos + 1,
-                                x,
-                                image_y,
-                                display_width,
-                                display_height,
-                                row,
-                                col,
-                            );
                             row_max_height = row_max_height.max(display_height);
                             row_max_ascent = row_max_ascent.max(display_height);
                             x += display_width;
                             col += ((display_width / face_char_w.max(1.0)).ceil() as usize).max(1);
+                            output_emitter.emit_text_span(
+                                evaluator,
+                                charpos as i64 + 1,
+                                row,
+                                y,
+                                replacement_start_x,
+                                image_y,
+                                x - replacement_start_x,
+                                display_height,
+                                replacement_start_col,
+                                col,
+                            );
                         } else {
                             if point_in_display_replacement {
                                 capture_cursor_info(
@@ -3297,6 +3331,20 @@ impl LayoutEngine {
                                 x += face_char_w;
                                 col += 1;
                             }
+                            if x > replacement_start_x || col > replacement_start_col {
+                                output_emitter.emit_text_span(
+                                    evaluator,
+                                    charpos as i64 + 1,
+                                    row,
+                                    y,
+                                    replacement_start_x,
+                                    y + raise_y_offset,
+                                    x - replacement_start_x,
+                                    face_h,
+                                    replacement_start_col,
+                                    col,
+                                );
+                            }
                         }
 
                         // Skip covered buffer text
@@ -3305,7 +3353,6 @@ impl LayoutEngine {
                             byte_idx += ch_len;
                             charpos += 1;
                         }
-                        output_emitter.advance_text_progress(evaluator, row, col, y, x);
                         continue;
                     }
 
@@ -3839,6 +3886,8 @@ impl LayoutEngine {
             if glyphless > 0 {
                 flush_run(&self.run_buf, ligatures);
                 self.run_buf.clear();
+                let replacement_start_x = x;
+                let replacement_start_col = col;
 
                 match glyphless {
                     1 => {
@@ -3889,6 +3938,20 @@ impl LayoutEngine {
                         // Zero width: skip entirely (no visual output)
                     }
                     _ => {}
+                }
+                if x > replacement_start_x || col > replacement_start_col {
+                    output_emitter.emit_text_span(
+                        evaluator,
+                        charpos as i64 + 1,
+                        row,
+                        y,
+                        replacement_start_x,
+                        y + raise_y_offset,
+                        x - replacement_start_x,
+                        face_h,
+                        replacement_start_col,
+                        col,
+                    );
                 }
                 charpos += 1;
                 word_wrap_may_wrap = false;
@@ -6047,6 +6110,57 @@ mod tests {
     }
 
     #[test]
+    fn layout_frame_rust_records_display_point_for_display_replacement_slot() {
+        let mut eval = Context::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let text = "abcXYZdef";
+        let repl_byte_start = text.find("XYZ").expect("replacement start");
+        let repl_byte_end = repl_byte_start + "XYZ".len();
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert(text);
+            buf.text.text_props_put_property(
+                repl_byte_start,
+                repl_byte_end,
+                "display",
+                Value::string("R"),
+            );
+        }
+
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-display-point", 320, 120, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+
+        let mut engine = LayoutEngine::new();
+        engine.layout_frame_rust(&mut eval, frame_id);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        let c = snapshot.point_for_buffer_pos(3).expect("c");
+        let replacement = snapshot.point_for_buffer_pos(4).expect("replacement point");
+        let d = snapshot.point_for_buffer_pos(7).expect("d");
+
+        assert_eq!(replacement.x, c.x + c.width);
+        assert!(
+            replacement.x < d.x,
+            "replacement point should stay before following text"
+        );
+        assert!(replacement.width > 0);
+        assert_eq!(replacement.row, c.row);
+    }
+
+    #[test]
     fn layout_frame_rust_emits_inline_image_glyphs_for_display_image_specs() {
         let mut eval = Context::new();
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -6419,6 +6533,61 @@ mod tests {
             frame.char_width,
             snapshot.points
         );
+    }
+
+    #[test]
+    fn layout_frame_rust_records_display_point_for_display_space_slot() {
+        let mut eval = Context::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let text = "a b";
+        let space_byte_start = text.find(' ').expect("space start");
+        let space_byte_end = space_byte_start + 1;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert(text);
+            buf.text.text_props_put_property(
+                space_byte_start,
+                space_byte_end,
+                "display",
+                display_space_width_spec(4),
+            );
+            buf.text.text_props_put_property(
+                space_byte_start,
+                space_byte_end,
+                "face",
+                scaled_face_plist(),
+            );
+        }
+
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-display-space-point", 320, 120, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+
+        let mut engine = LayoutEngine::new();
+        engine.layout_frame_rust(&mut eval, frame_id);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        let a = snapshot.point_for_buffer_pos(1).expect("a");
+        let space = snapshot.point_for_buffer_pos(2).expect("space");
+        let b = snapshot.point_for_buffer_pos(3).expect("b");
+        let expected_width = (4.0 * frame.char_width).round() as i64;
+
+        assert_eq!(space.x, a.x + a.width);
+        assert!(space.x < b.x);
+        assert!((space.width - expected_width).abs() <= 1);
+        assert_eq!(space.row, a.row);
     }
 
     #[test]
