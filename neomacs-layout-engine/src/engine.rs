@@ -5069,6 +5069,7 @@ impl LayoutEngine {
         if params.tab_line_height > 0.0 {
             // Tab-line is above header-line (at the very top of the window)
             let tl_y = params.bounds.y;
+            let tl_row = 0i64;
             let tl_face = tab_line_face
                 .as_ref()
                 .expect("tab-line face should exist when tab-line height is positive");
@@ -5088,6 +5089,27 @@ impl LayoutEngine {
                 &mut self.matrix_builder,
                 crate::matrix_builder::GlyphMatrixBuilder::new(),
             );
+            begin_output_row(
+                evaluator,
+                frame_id,
+                window_id,
+                tl_row,
+                0,
+                (tl_y - params.bounds.y).round() as i64,
+                0,
+            );
+            let mut advance_output =
+                |progress: crate::display_status_line::StatusLineOutputProgress| {
+                    advance_output_progress(
+                        evaluator,
+                        frame_id,
+                        window_id,
+                        tl_row,
+                        progress.end_col,
+                        (progress.y - params.bounds.y).round() as i64,
+                        progress.end_x.round() as i64,
+                    );
+                };
             let tab_output = self.render_rust_status_line_value_via_backend(
                 params.bounds.x,
                 tl_y,
@@ -5103,6 +5125,7 @@ impl LayoutEngine {
                 face_resolver,
                 StatusLineKind::TabLine,
                 Some(&mut builder),
+                Some(&mut advance_output),
             );
             self.matrix_builder = builder;
             if let Some(progress) = tab_output {
@@ -5125,6 +5148,7 @@ impl LayoutEngine {
         // regress from later body rows back to row 0.
         if params.header_line_height > 0.0 {
             let hl_y = params.bounds.y + tab_line_height;
+            let hl_row = i64::from(tab_line_height > 0.0);
             let hl_face = header_line_face
                 .as_ref()
                 .expect("header-line face should exist when header-line height is positive");
@@ -5144,6 +5168,27 @@ impl LayoutEngine {
                 &mut self.matrix_builder,
                 crate::matrix_builder::GlyphMatrixBuilder::new(),
             );
+            begin_output_row(
+                evaluator,
+                frame_id,
+                window_id,
+                hl_row,
+                0,
+                (hl_y - params.bounds.y).round() as i64,
+                0,
+            );
+            let mut advance_output =
+                |progress: crate::display_status_line::StatusLineOutputProgress| {
+                    advance_output_progress(
+                        evaluator,
+                        frame_id,
+                        window_id,
+                        hl_row,
+                        progress.end_col,
+                        (progress.y - params.bounds.y).round() as i64,
+                        progress.end_x.round() as i64,
+                    );
+                };
             let header_output = self.render_rust_status_line_value_via_backend(
                 params.bounds.x,
                 hl_y,
@@ -5159,6 +5204,7 @@ impl LayoutEngine {
                 face_resolver,
                 StatusLineKind::HeaderLine,
                 Some(&mut builder),
+                Some(&mut advance_output),
             );
             self.matrix_builder = builder;
             if let Some(progress) = header_output {
@@ -5181,6 +5227,7 @@ impl LayoutEngine {
         // row in the window matrix.
         if params.mode_line_height > 0.0 {
             let ml_y = params.bounds.y + params.bounds.height - mode_line_height;
+            let ml_row = mode_line_matrix_row as i64;
             let ml_face = mode_line_face
                 .as_ref()
                 .expect("mode-line face should exist when mode-line height is positive");
@@ -5211,6 +5258,27 @@ impl LayoutEngine {
                 &mut self.matrix_builder,
                 crate::matrix_builder::GlyphMatrixBuilder::new(),
             );
+            begin_output_row(
+                evaluator,
+                frame_id,
+                window_id,
+                ml_row,
+                0,
+                (ml_y - params.bounds.y).round() as i64,
+                0,
+            );
+            let mut advance_output =
+                |progress: crate::display_status_line::StatusLineOutputProgress| {
+                    advance_output_progress(
+                        evaluator,
+                        frame_id,
+                        window_id,
+                        ml_row,
+                        progress.end_col,
+                        (progress.y - params.bounds.y).round() as i64,
+                        progress.end_x.round() as i64,
+                    );
+                };
             let mode_output = self.render_rust_status_line_value_via_backend(
                 params.bounds.x,
                 ml_y,
@@ -5226,6 +5294,7 @@ impl LayoutEngine {
                 face_resolver,
                 StatusLineKind::ModeLine,
                 Some(&mut builder),
+                Some(&mut advance_output),
             );
             self.matrix_builder = builder;
             if let Some(progress) = mode_output {

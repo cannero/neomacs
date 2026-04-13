@@ -611,6 +611,7 @@ impl LayoutEngine {
         spec: &StatusLineSpec,
         matrix_row: Option<usize>,
         mut builder: Option<&mut crate::matrix_builder::GlyphMatrixBuilder>,
+        mut on_progress: Option<&mut dyn FnMut(StatusLineOutputProgress)>,
     ) -> Option<StatusLineOutputProgress> {
         use crate::display_backend::{DisplayBackend, GlyphKind, TtyDisplayBackend};
         use neomacs_display_protocol::glyph_matrix::GlyphRow;
@@ -686,6 +687,16 @@ impl LayoutEngine {
         let mut dp_idx = 0usize;
         let mut align_idx = 0usize;
         let mut active_run_face: Option<StatusLineFace> = None;
+        let mut emit_progress = |end_x: f32| {
+            if let Some(ref mut cb) = on_progress {
+                cb(StatusLineOutputProgress {
+                    end_x: end_x.min(spec.width).max(0.0),
+                    end_col: (end_x / spec.char_width.max(1.0)).round().max(0.0) as i64,
+                    y: spec.y,
+                    height: spec.height,
+                });
+            }
+        };
 
         // Text-geometry fields mirror the original; they are unused
         // for glyph emission (the backend produces cell glyphs with
@@ -718,8 +729,11 @@ impl LayoutEngine {
                     // single-cell Stretch rendering.
                     for _ in 0..cols {
                         backend.produce_glyph(GlyphKind::Char(' '), &current_render_face, 0);
+                        sl_x_offset += spec.char_width.max(1.0);
+                        emit_progress(sl_x_offset);
                     }
                     sl_x_offset = target_x;
+                    emit_progress(sl_x_offset);
                 }
                 align_idx += 1;
                 let (_ch, ch_len) = decode_utf8(&spec.text[byte_idx..]);
@@ -733,6 +747,7 @@ impl LayoutEngine {
                 if byte_idx == dp.byte_offset as usize {
                     if dp.width > 0 {
                         sl_x_offset += dp.width as f32;
+                        emit_progress(sl_x_offset);
                     }
                     byte_idx = (dp.byte_offset + dp.covers_bytes) as usize;
                     dp_idx += 1;
@@ -814,6 +829,7 @@ impl LayoutEngine {
                 };
                 backend.produce_glyph(GlyphKind::Char(ch), &current_render_face, 0);
                 run_advance += advance;
+                emit_progress(sl_x_offset + run_advance);
             }
             sl_x_offset += run_advance;
             byte_idx = end_byte;
@@ -864,6 +880,7 @@ impl LayoutEngine {
         face_resolver: &FaceResolver,
         kind: StatusLineKind,
         builder: Option<&mut crate::matrix_builder::GlyphMatrixBuilder>,
+        on_progress: Option<&mut dyn FnMut(StatusLineOutputProgress)>,
     ) -> Option<StatusLineOutputProgress> {
         if let Some(spec) = self.build_rust_status_line_spec(
             x,
@@ -879,7 +896,12 @@ impl LayoutEngine {
             face_resolver,
             kind,
         ) {
-            return self.render_status_line_spec_via_backend(&spec, Some(matrix_row), builder);
+            return self.render_status_line_spec_via_backend(
+                &spec,
+                Some(matrix_row),
+                builder,
+                on_progress,
+            );
         }
         None
     }
