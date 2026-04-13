@@ -107,9 +107,21 @@ pub fn reorder_row_bidi(
                 });
                 row_max_ascent = row_max_ascent.max(*ascent);
             }
+            FrameGlyph::Stretch {
+                x,
+                width,
+                bidi_level: _,
+                ..
+            } => {
+                row_chars.push(RowCharInfo {
+                    glyph_idx: idx,
+                    ch: ' ',
+                    x: *x,
+                    width: *width,
+                });
+            }
             _ => {
-                // Skip non-character glyphs (Stretch, Cursor, etc.)
-                // They keep their positions
+                // Skip glyphs that don't participate in bidi reordering.
             }
         }
     }
@@ -226,14 +238,24 @@ pub fn reorder_row_bidi(
     for (logical_idx, info) in row_chars.iter().enumerate() {
         let glyph = &mut frame_glyphs.glyphs[info.glyph_idx];
         match glyph {
-            FrameGlyph::Char { x, char: ch, .. } => {
+            FrameGlyph::Char {
+                x,
+                char: ch,
+                bidi_level,
+                ..
+            } => {
                 *x = new_x[logical_idx];
+                *bidi_level = levels[logical_idx];
                 // Apply character mirroring for RTL characters (odd level)
                 if levels[logical_idx] % 2 == 1 {
                     if let Some(mirrored) = bidi::bidi_mirror(*ch) {
                         *ch = mirrored;
                     }
                 }
+            }
+            FrameGlyph::Stretch { x, bidi_level, .. } => {
+                *x = new_x[logical_idx];
+                *bidi_level = levels[logical_idx];
             }
             _ => {}
         }
@@ -253,15 +275,16 @@ pub fn reorder_row_bidi(
             row_chars
                 .iter()
                 .enumerate()
-                .find_map(|(logical_idx, info)| {
-                    if let FrameGlyph::Char { slot_id, .. } = &frame_glyphs.glyphs[info.glyph_idx]
-                        && *slot_id == cursor_slot_id
-                    {
-                        Some(new_x[logical_idx])
-                    } else {
-                        None
-                    }
-                })
+                .find_map(
+                    |(logical_idx, info)| match &frame_glyphs.glyphs[info.glyph_idx] {
+                        FrameGlyph::Char { slot_id, .. } | FrameGlyph::Stretch { slot_id, .. }
+                            if *slot_id == cursor_slot_id =>
+                        {
+                            Some(new_x[logical_idx])
+                        }
+                        _ => None,
+                    },
+                )
         });
         if let (Some(new_cursor_x), FrameGlyph::Cursor { x: cursor_x, .. }) =
             (new_cursor_x, &mut frame_glyphs.glyphs[idx])
@@ -272,11 +295,14 @@ pub fn reorder_row_bidi(
 
     if let Some(ref mut cursor) = frame_glyphs.phys_cursor {
         for (logical_idx, info) in row_chars.iter().enumerate() {
-            if let FrameGlyph::Char { slot_id, .. } = &frame_glyphs.glyphs[info.glyph_idx]
-                && *slot_id == cursor.slot_id
-            {
-                cursor.x = new_x[logical_idx];
-                break;
+            match &frame_glyphs.glyphs[info.glyph_idx] {
+                FrameGlyph::Char { slot_id, .. } | FrameGlyph::Stretch { slot_id, .. }
+                    if *slot_id == cursor.slot_id =>
+                {
+                    cursor.x = new_x[logical_idx];
+                    break;
+                }
+                _ => {}
             }
         }
     }
@@ -551,6 +577,20 @@ mod tests {
         match glyph {
             FrameGlyph::Cursor { x, .. } => *x,
             _ => panic!("expected Cursor glyph"),
+        }
+    }
+
+    fn get_stretch_x(glyph: &FrameGlyph) -> f32 {
+        match glyph {
+            FrameGlyph::Stretch { x, .. } => *x,
+            _ => panic!("expected Stretch glyph"),
+        }
+    }
+
+    fn get_stretch_bidi_level(glyph: &FrameGlyph) -> u8 {
+        match glyph {
+            FrameGlyph::Stretch { bidi_level, .. } => *bidi_level,
+            _ => panic!("expected Stretch glyph"),
         }
     }
 
@@ -1052,19 +1092,70 @@ mod tests {
 
         reorder_row_bidi(&mut buf, 0, 3, 0.0);
 
-        // Stretch glyph should be completely untouched (stays at x=8.0)
-        if let FrameGlyph::Stretch { x, .. } = &buf.glyphs[1] {
-            assert_eq!(*x, 8.0);
-        } else {
-            panic!("expected Stretch");
-        }
-
-        // Only Char glyphs get reordered.
-        // row_start_x = min(0.0, 12.0) = 0.0, widths = [8.0, 8.0]
-        // Visual order (RTL reversed): [Bet, Alef]
-        // Bet gets x=0.0, Alef gets x=0.0+8.0=8.0
-        assert_eq!(get_char_x(&buf.glyphs[0]), 8.0); // Alef (logical 0) -> right
+        // Stretch participates as a neutral bidi slot and stays between the RTL chars.
+        assert_eq!(get_stretch_x(&buf.glyphs[1]), 8.0);
+        assert_eq!(get_stretch_bidi_level(&buf.glyphs[1]), 1);
+        assert_eq!(get_char_x(&buf.glyphs[0]), 12.0); // Alef (logical 0) -> right of stretch
         assert_eq!(get_char_x(&buf.glyphs[2]), 0.0); // Bet (logical 1) -> left
+    }
+
+    #[test]
+    fn test_stretch_reorders_with_mixed_width_rtl_chars() {
+        let mut buf = FrameGlyphBuffer::default();
+        buf.glyphs.push(make_char_glyph('\u{05D0}', 0.0, 16.0)); // wide-like Alef
+        buf.glyphs.push(FrameGlyph::Stretch {
+            window_id: 0,
+            row_role: GlyphRowRole::Text,
+            clip_rect: None,
+            slot_id: DisplaySlotId::from_pixels(0, 16.0, 0.0, 8.0, 16.0),
+            bidi_level: 0,
+            x: 16.0,
+            y: 0.0,
+            width: 4.0,
+            height: 16.0,
+            bg: Color::new(0.0, 0.0, 0.0, 1.0),
+            face_id: 0,
+            stipple_id: 0,
+            stipple_fg: None,
+        });
+        buf.glyphs.push(make_char_glyph('\u{05D1}', 20.0, 8.0)); // Bet
+
+        reorder_row_bidi(&mut buf, 0, 3, 0.0);
+
+        assert_eq!(get_char_x(&buf.glyphs[2]), 0.0);
+        assert_eq!(get_stretch_x(&buf.glyphs[1]), 8.0);
+        assert_eq!(get_char_x(&buf.glyphs[0]), 12.0);
+        assert_eq!(get_stretch_bidi_level(&buf.glyphs[1]), 1);
+    }
+
+    #[test]
+    fn test_cursor_moves_with_rtl_stretch_slot() {
+        let mut buf = FrameGlyphBuffer::default();
+        buf.glyphs.push(make_char_glyph('\u{05D0}', 0.0, 16.0)); // wide-like Alef
+        buf.glyphs.push(FrameGlyph::Stretch {
+            window_id: 0,
+            row_role: GlyphRowRole::Text,
+            clip_rect: None,
+            slot_id: DisplaySlotId::from_pixels(0, 16.0, 0.0, 8.0, 16.0),
+            bidi_level: 0,
+            x: 16.0,
+            y: 0.0,
+            width: 4.0,
+            height: 16.0,
+            bg: Color::new(0.0, 0.0, 0.0, 1.0),
+            face_id: 0,
+            stipple_id: 0,
+            stipple_fg: None,
+        });
+        buf.glyphs.push(make_char_glyph('\u{05D1}', 20.0, 8.0)); // Bet
+        buf.glyphs.push(make_cursor_glyph(16.0, 4.0));
+        buf.phys_cursor = Some(make_phys_cursor(16.0, 8.0));
+
+        reorder_row_bidi(&mut buf, 0, 4, 0.0);
+
+        assert_eq!(get_stretch_x(&buf.glyphs[1]), 8.0);
+        assert_eq!(get_cursor_x(&buf.glyphs[3]), 8.0);
+        assert_eq!(buf.phys_cursor.as_ref().expect("phys cursor").x, 8.0);
     }
 
     #[test]
