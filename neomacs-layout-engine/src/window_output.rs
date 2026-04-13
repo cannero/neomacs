@@ -24,6 +24,7 @@ pub(crate) struct WindowOutputEmitter {
     window_id: neovm_core::window::WindowId,
     text_x: f32,
     window_top: f32,
+    points: Vec<DisplayPointSnapshot>,
     rows: Vec<DisplayRowSnapshot>,
     row_metrics: Vec<RowMetricsSnapshot>,
     current_row_first_display_pos: Option<usize>,
@@ -42,11 +43,20 @@ impl WindowOutputEmitter {
             window_id,
             text_x,
             window_top,
+            points: Vec::new(),
             rows: Vec::new(),
             row_metrics: Vec::new(),
             current_row_first_display_pos: None,
             current_row_last_display_pos: None,
         }
+    }
+
+    pub(crate) fn display_point_len(&self) -> usize {
+        self.points.len()
+    }
+
+    pub(crate) fn truncate_display_points(&mut self, len: usize) {
+        self.points.truncate(len);
     }
 
     pub(crate) fn rows(&self) -> &[DisplayRowSnapshot] {
@@ -78,6 +88,33 @@ impl WindowOutputEmitter {
             self.current_row_first_display_pos = Some(buffer_pos);
         }
         self.current_row_last_display_pos = Some(buffer_pos);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn push_display_point(
+        &mut self,
+        buffer_pos: i64,
+        glyph_x: f32,
+        glyph_y: f32,
+        width: f32,
+        height: f32,
+        row: i64,
+        col: usize,
+    ) {
+        if buffer_pos < 1 {
+            return;
+        }
+        let buffer_pos = buffer_pos as usize;
+        self.note_display_buffer_pos(buffer_pos);
+        self.points.push(DisplayPointSnapshot {
+            buffer_pos,
+            x: (glyph_x - self.text_x).round() as i64,
+            y: (glyph_y - self.window_top).round() as i64,
+            width: width.max(0.0).round() as i64,
+            height: height.max(1.0).round() as i64,
+            row,
+            col: col as i64,
+        });
     }
 
     pub(crate) fn begin_row(&self, evaluator: &mut Context, row: i64, col: i64, y: i64, x: i64) {
@@ -153,7 +190,6 @@ impl WindowOutputEmitter {
         mode_line_height: i64,
         header_line_height: i64,
         tab_line_height: i64,
-        points: Vec<DisplayPointSnapshot>,
     ) -> WindowDisplaySnapshot {
         self.rows.sort_by_key(|row| row.row);
         let snapshot = WindowDisplaySnapshot {
@@ -164,7 +200,7 @@ impl WindowOutputEmitter {
             tab_line_height,
             logical_cursor,
             phys_cursor: phys_cursor.clone(),
-            points,
+            points: self.points,
             rows: self.rows,
         };
         if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {

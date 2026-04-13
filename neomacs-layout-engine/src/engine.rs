@@ -21,8 +21,8 @@ use neovm_core::emacs_core::eval::{ImageResolveRequest, ImageResolveSource};
 use neovm_core::emacs_core::keymap::is_list_keymap;
 use neovm_core::emacs_core::value::list_to_vec;
 use neovm_core::window::{
-    DisplayPointSnapshot, DisplayRowSnapshot, WindowCursorKind, WindowCursorPos,
-    WindowCursorSnapshot, WindowDisplaySnapshot,
+    DisplayRowSnapshot, WindowCursorKind, WindowCursorPos, WindowCursorSnapshot,
+    WindowDisplaySnapshot,
 };
 
 /// Maximum number of characters in a ligature run before forced flush.
@@ -382,35 +382,6 @@ fn run_is_pure_ligature(run: &LigatureRunBuffer) -> bool {
 /// NOTE: Glyph output has been migrated to `GlyphMatrixBuilder`. This function is now
 /// a no-op retained only to keep call-sites compiling during the migration.
 fn flush_run(_run: &LigatureRunBuffer, _ligatures: bool) {}
-
-fn push_display_point(
-    points: &mut Vec<DisplayPointSnapshot>,
-    output_emitter: &mut WindowOutputEmitter,
-    buffer_pos: i64,
-    glyph_x: f32,
-    glyph_y: f32,
-    width: f32,
-    height: f32,
-    row: i64,
-    col: usize,
-    text_x: f32,
-    window_top: f32,
-) {
-    if buffer_pos < 1 {
-        return;
-    }
-    let buffer_pos = buffer_pos as usize;
-    output_emitter.note_display_buffer_pos(buffer_pos);
-    points.push(DisplayPointSnapshot {
-        buffer_pos,
-        x: (glyph_x - text_x).round() as i64,
-        y: (glyph_y - window_top).round() as i64,
-        width: width.max(0.0).round() as i64,
-        height: height.max(1.0).round() as i64,
-        row,
-        col: col as i64,
-    });
-}
 
 #[inline]
 fn skip_to_newline(text: &[u8], byte_idx: &mut usize, charpos: &mut i64) -> bool {
@@ -2611,7 +2582,6 @@ impl LayoutEngine {
         // Hit-test data for this window
         let mut hit_rows: Vec<HitRow> = Vec::new();
         let mut hit_row_charpos_start: i64 = window_start;
-        let mut display_points: Vec<DisplayPointSnapshot> = Vec::new();
         let text_area_left = text_x;
         let window_top = params.bounds.y;
         let mut output_emitter =
@@ -2755,7 +2725,7 @@ impl LayoutEngine {
                     self.run_buf.clear();
                     wrap_break_byte_idx = $break_byte_idx;
                     wrap_break_charpos = charpos;
-                    wrap_break_display_point_count = display_points.len();
+                    wrap_break_display_point_count = output_emitter.display_point_len();
                     (
                         wrap_break_row_first_display_pos,
                         wrap_break_row_last_display_pos,
@@ -3281,9 +3251,7 @@ impl LayoutEngine {
                                 display_width,
                                 display_height,
                             );
-                            push_display_point(
-                                &mut display_points,
-                                &mut output_emitter,
+                            output_emitter.push_display_point(
                                 charpos + 1,
                                 x,
                                 image_y,
@@ -3291,8 +3259,6 @@ impl LayoutEngine {
                                 display_height,
                                 window_text_row(row),
                                 col,
-                                text_area_left,
-                                window_top,
                             );
                             row_max_height = row_max_height.max(display_height);
                             row_max_ascent = row_max_ascent.max(display_height);
@@ -3670,9 +3636,7 @@ impl LayoutEngine {
                         },
                     );
                 }
-                push_display_point(
-                    &mut display_points,
-                    &mut output_emitter,
+                output_emitter.push_display_point(
                     charpos + 1,
                     x_before_tab,
                     y + raise_y_offset,
@@ -3680,8 +3644,6 @@ impl LayoutEngine {
                     char_h,
                     window_text_row(row),
                     col,
-                    text_area_left,
-                    window_top,
                 );
                 x += spaces as f32 * face_space_w;
                 col = next_tab;
@@ -3819,9 +3781,7 @@ impl LayoutEngine {
                 if params.escape_glyph_fg != 0 {
                     current_face_id += 1;
                 }
-                push_display_point(
-                    &mut display_points,
-                    &mut output_emitter,
+                output_emitter.push_display_point(
                     charpos + 1,
                     x,
                     y + raise_y_offset,
@@ -3829,8 +3789,6 @@ impl LayoutEngine {
                     char_h,
                     window_text_row(row),
                     col,
-                    text_area_left,
-                    window_top,
                 );
                 x += face_char_w;
                 x += face_char_w;
@@ -3854,9 +3812,7 @@ impl LayoutEngine {
                         }
                         // Render as visible space or hyphen
                         let _display_ch = if ch == '\u{00A0}' { ' ' } else { '-' };
-                        push_display_point(
-                            &mut display_points,
-                            &mut output_emitter,
+                        output_emitter.push_display_point(
                             charpos + 1,
                             x,
                             y + raise_y_offset,
@@ -3864,8 +3820,6 @@ impl LayoutEngine {
                             char_h,
                             window_text_row(row),
                             col,
-                            text_area_left,
-                            window_top,
                         );
                         x += face_char_w;
                         col += 1;
@@ -3884,9 +3838,7 @@ impl LayoutEngine {
                         // Check if 2 columns fit
                         let needed = 2.0 * face_char_w;
                         if x + needed <= content_x + avail_width {
-                            push_display_point(
-                                &mut display_points,
-                                &mut output_emitter,
+                            output_emitter.push_display_point(
                                 charpos + 1,
                                 x,
                                 y + raise_y_offset,
@@ -3894,8 +3846,6 @@ impl LayoutEngine {
                                 char_h,
                                 window_text_row(row),
                                 col,
-                                text_area_left,
-                                window_top,
                             );
                             x += face_char_w;
                             x += face_char_w;
@@ -4052,7 +4002,7 @@ impl LayoutEngine {
                     continue;
                 } else if params.word_wrap && wrap_has_break {
                     // Word-wrap: rewind to last break point
-                    display_points.truncate(wrap_break_display_point_count);
+                    output_emitter.truncate_display_points(wrap_break_display_point_count);
                     output_emitter.restore_current_row_display_positions(
                         wrap_break_row_first_display_pos,
                         wrap_break_row_last_display_pos,
@@ -4262,9 +4212,7 @@ impl LayoutEngine {
                     height_scale,
                 );
             }
-            push_display_point(
-                &mut display_points,
-                &mut output_emitter,
+            output_emitter.push_display_point(
                 charpos + 1,
                 x,
                 y + raise_y_offset,
@@ -4272,8 +4220,6 @@ impl LayoutEngine {
                 face_h,
                 window_text_row(row),
                 col,
-                text_area_left,
-                window_top,
             );
             self.run_buf.push(ch, advance);
 
@@ -5155,7 +5101,6 @@ impl LayoutEngine {
             mode_line_height.round() as i64,
             header_line_height.round() as i64,
             tab_line_height.round() as i64,
-            display_points,
         );
         self.display_snapshots.push(snapshot);
 
