@@ -2083,6 +2083,10 @@ impl LayoutEngine {
         remaining_visibility_retries: usize,
     ) {
         let buf_id = neovm_core::buffer::BufferId(params.buffer_id);
+        let window_id = neovm_core::window::WindowId(params.window_id as u64);
+        if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
+            frame.begin_window_output_update(window_id);
+        }
         let buffer = match evaluator.buffer_manager().get(buf_id) {
             Some(b) => b,
             None => {

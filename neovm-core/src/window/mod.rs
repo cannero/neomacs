@@ -181,6 +181,13 @@ impl WindowDisplayState {
         self.clear_physical_cursor_state();
     }
 
+    /// Start a new output update for a window that will actively emit rows in
+    /// the current redisplay pass.
+    pub fn begin_window_output_update(&mut self) {
+        self.begin_output_pass();
+        self.clear_output_cursor_state();
+    }
+
     pub fn clear_output_cursor_state(&mut self) {
         self.output_cursor = None;
     }
@@ -211,6 +218,10 @@ impl WindowDisplayState {
 
     pub fn commit_output_cursor_from_display_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
         self.replay_output_rows(&snapshot.rows);
+    }
+
+    pub fn commit_output_row(&mut self, row: &DisplayRowSnapshot) {
+        self.output_cursor_to(row.row, row.end_col, row.y, row.end_x);
     }
 
     pub fn output_cursor_to(&mut self, row: i64, col: i64, y: i64, x: i64) {
@@ -1533,13 +1544,33 @@ impl Frame {
         }
     }
 
+    /// Begin a new output update for one live window on this frame.
+    pub fn begin_window_output_update(&mut self, window_id: WindowId) {
+        if let Some(window) = self.find_window_mut(window_id)
+            && let Some(display) = window.display_mut()
+        {
+            display.begin_window_output_update();
+        }
+    }
+
+    /// Advance one live window's output cursor from an emitted display row.
+    pub fn commit_window_output_row(&mut self, window_id: WindowId, row: &DisplayRowSnapshot) {
+        if let Some(window) = self.find_window_mut(window_id)
+            && let Some(display) = window.display_mut()
+        {
+            display.commit_output_row(row);
+        }
+    }
+
     /// Commit the output/cursor state for one live window from a redisplay snapshot.
     pub fn commit_window_output_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
         if let Some(window) = self.find_window_mut(snapshot.window_id)
             && let Some(display) = window.display_mut()
         {
             display.install_logical_cursor(snapshot.logical_cursor_pos());
-            display.commit_output_cursor_from_display_snapshot(snapshot);
+            if display.output_cursor.is_none() {
+                display.commit_output_cursor_from_display_snapshot(snapshot);
+            }
             display.apply_physical_cursor_snapshot(snapshot.phys_cursor.clone());
             display.commit_completed_redisplay();
         }
@@ -3446,6 +3477,34 @@ mod tests {
     }
 
     #[test]
+    fn begin_window_output_update_clears_output_cursor_for_active_window() {
+        let cursor = WindowCursorSnapshot {
+            kind: WindowCursorKind::FilledBox,
+            x: 9,
+            y: 21,
+            width: 8,
+            height: 16,
+            ascent: 12,
+            row: 2,
+            col: 5,
+        };
+        let cursor_pos = WindowCursorPos::from_snapshot(&cursor);
+        let mut display = WindowDisplayState::default();
+
+        display.install_logical_cursor(Some(cursor_pos));
+        display.commit_output_cursor_from_cursor();
+        display.apply_physical_cursor_snapshot(Some(cursor));
+
+        display.begin_window_output_update();
+
+        assert_eq!(display.cursor, None);
+        assert_eq!(display.output_cursor, None);
+        assert_eq!(display.phys_cursor, None);
+        assert_eq!(display.phys_cursor_type, WindowCursorKind::NoCursor);
+        assert!(!display.phys_cursor_on_p);
+    }
+
+    #[test]
     fn output_cursor_tracks_explicit_output_lifecycle() {
         let logical_cursor = WindowCursorPos {
             x: 12,
@@ -3535,6 +3594,69 @@ mod tests {
             })
         );
         assert_eq!(display.last_cursor_vpos, 2);
+        assert_eq!(display.phys_cursor, Some(cursor));
+    }
+
+    #[test]
+    fn commit_window_output_snapshot_prefers_live_output_progress() {
+        let mut mgr = FrameManager::new();
+        let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+        let wid = mgr.get(fid).unwrap().selected_window;
+        let cursor = WindowCursorSnapshot {
+            kind: WindowCursorKind::Bar,
+            x: 44,
+            y: 32,
+            width: 3,
+            height: 16,
+            ascent: 12,
+            row: 2,
+            col: 7,
+        };
+        let snapshot = WindowDisplaySnapshot {
+            window_id: wid,
+            logical_cursor: Some(WindowCursorPos::from_snapshot(&cursor)),
+            phys_cursor: Some(cursor.clone()),
+            rows: vec![DisplayRowSnapshot {
+                row: 4,
+                y: 64,
+                height: 16,
+                end_x: 144,
+                end_col: 18,
+                start_buffer_pos: Some(20),
+                end_buffer_pos: Some(38),
+            }],
+            ..WindowDisplaySnapshot::default()
+        };
+        let frame = mgr.get_mut(fid).expect("frame");
+        frame.begin_display_output_pass();
+        frame.begin_window_output_update(wid);
+        frame.commit_window_output_row(
+            wid,
+            &DisplayRowSnapshot {
+                row: 2,
+                y: 32,
+                height: 16,
+                end_x: 80,
+                end_col: 12,
+                start_buffer_pos: Some(20),
+                end_buffer_pos: Some(32),
+            },
+        );
+        frame.commit_window_output_snapshot(&snapshot);
+
+        let display = frame
+            .find_window(wid)
+            .and_then(|window| window.display())
+            .expect("window display state");
+        assert_eq!(
+            display.output_cursor,
+            Some(WindowCursorPos {
+                x: 80,
+                y: 32,
+                row: 2,
+                col: 12,
+            })
+        );
         assert_eq!(display.phys_cursor, Some(cursor));
     }
 
