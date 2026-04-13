@@ -2,7 +2,7 @@
 //!
 //! Reads buffer text via FFI, resolves faces per character position,
 //! computes line breaks, positions glyphs on a fixed-width grid, and
-//! produces FrameGlyphBuffer compatible with the existing wgpu renderer.
+//! publishes `FrameDisplayState` snapshots for render backends.
 
 use super::display_status_line::*;
 use super::font_metrics::{FontMetrics, FontMetricsService};
@@ -1267,7 +1267,8 @@ fn apply_resolved_face(
 /// The main Rust layout engine.
 ///
 /// Called on the Emacs thread during redisplay. Reads buffer data via FFI,
-/// resolves faces, computes layout, and produces a FrameGlyphBuffer.
+/// resolves faces, computes layout, and publishes immutable display
+/// snapshots for the render thread and TTY backend.
 pub struct LayoutEngine {
     /// Reusable text buffer to avoid allocation per frame
     text_buf: Vec<u8>,
@@ -1305,7 +1306,7 @@ pub struct LayoutEngine {
     prev_selected_window_id: i64,
     /// Previous frame background for theme-transition detection.
     prev_background: Option<(f32, f32, f32, f32)>,
-    /// Parallel GlyphMatrix builder — records text content alongside FrameGlyphBuffer.
+    /// Authoritative glyph-matrix builder for the current frame layout pass.
     pub matrix_builder: crate::matrix_builder::GlyphMatrixBuilder,
     /// The last completed `FrameDisplayState`, produced by `layout_frame_rust()`.
     /// Used by the TTY redisplay path to drive `TtyRif` on the evaluator thread.
@@ -5588,7 +5589,7 @@ unsafe fn char_advance(
 mod tests {
     use super::*;
     use crate::neovm_bridge::RustBufferAccess;
-    use neomacs_display_protocol::frame_glyphs::{FrameGlyph, GlyphRowRole};
+    use neomacs_display_protocol::frame_glyphs::GlyphRowRole;
     use neovm_core::emacs_core::Context;
     use neovm_core::emacs_core::eval::{
         DisplayHost, GuiFrameHostRequest, ImageResolveRequest, ResolvedImage,
@@ -5840,7 +5841,6 @@ mod tests {
         }
 
         let mut engine = LayoutEngine::new();
-        let mut frame_glyphs = FrameGlyphBuffer::with_size(320.0, 120.0);
         engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
@@ -5898,7 +5898,6 @@ mod tests {
         }
 
         let mut engine = LayoutEngine::new();
-        let mut frame_glyphs = FrameGlyphBuffer::with_size(320.0, 120.0);
         engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
@@ -6010,7 +6009,6 @@ mod tests {
         }
 
         let mut engine = LayoutEngine::new();
-        let mut frame_glyphs = FrameGlyphBuffer::with_size(800.0, 160.0);
         engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
@@ -6058,24 +6056,9 @@ mod tests {
             "expected cached width for 'b' to match FontMetricsService, got {} vs expected {expected_b}",
             cached_ascii['b' as usize]
         );
-        let rendered_text_glyphs = frame_glyphs
-            .glyphs
-            .iter()
-            .filter_map(|glyph| match glyph {
-                FrameGlyph::Char {
-                    char,
-                    width,
-                    row_role,
-                    ..
-                } if *row_role == GlyphRowRole::Text => Some((*char, width.round() as i64)),
-                _ => None,
-            })
-            .take(5)
-            .collect::<Vec<_>>();
-
         assert!(
             (a.width - expected_a).abs() <= 1,
-            "expected inline face width for 'a' to follow FontMetricsService (expected {expected_a}, got {a:?}); points={all_points:?}; glyphs={rendered_text_glyphs:?}"
+            "expected inline face width for 'a' to follow FontMetricsService (expected {expected_a}, got {a:?}); points={all_points:?}"
         );
         assert!(
             (hao1.width - expected_hao).abs() <= 1,
@@ -6751,7 +6734,6 @@ mod tests {
         }
 
         let mut engine = LayoutEngine::new();
-        let mut frame_glyphs = FrameGlyphBuffer::with_size(1400.0, 160.0);
         engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
@@ -6885,7 +6867,6 @@ mod tests {
         }
 
         let mut engine = LayoutEngine::new();
-        let mut frame_glyphs = FrameGlyphBuffer::with_size(128.0, 160.0);
         engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
@@ -7051,7 +7032,6 @@ mod tests {
         }
 
         let mut engine = LayoutEngine::new();
-        let mut frame_glyphs = FrameGlyphBuffer::with_size(1400.0, 256.0);
         let mut metrics = FontMetricsService::new();
 
         for target in &targets {
@@ -7280,7 +7260,6 @@ mod tests {
         }
 
         let mut engine = LayoutEngine::new();
-        let mut frame_glyphs = FrameGlyphBuffer::with_size(1400.0, 1600.0);
         let mut metrics = FontMetricsService::new();
 
         for target in &targets {
@@ -7474,7 +7453,6 @@ mod tests {
         }
 
         let mut engine = LayoutEngine::new();
-        let mut frame_glyphs = FrameGlyphBuffer::with_size(96.0, 160.0);
         engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
@@ -7552,7 +7530,6 @@ mod tests {
         }
 
         let mut engine = LayoutEngine::new();
-        let mut frame_glyphs = FrameGlyphBuffer::with_size(96.0, 640.0);
         engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
@@ -7619,7 +7596,6 @@ mod tests {
         }
 
         let mut engine = LayoutEngine::new();
-        let mut frame_glyphs = FrameGlyphBuffer::with_size(160.0, 192.0);
         engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
@@ -8048,7 +8024,6 @@ mod tests {
         }
 
         let mut engine = LayoutEngine::new();
-        let mut frame_glyphs = FrameGlyphBuffer::with_size(80.0, 192.0);
         engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
@@ -8128,7 +8103,6 @@ mod tests {
         }
 
         let mut engine = LayoutEngine::new();
-        let mut frame_glyphs = FrameGlyphBuffer::with_size(80.0, 256.0);
         engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
@@ -8183,7 +8157,6 @@ mod tests {
         }
 
         let mut engine = LayoutEngine::new();
-        let mut frame_glyphs = FrameGlyphBuffer::with_size(320.0, 640.0);
         engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
@@ -8749,22 +8722,20 @@ mod tests {
     #[test]
     fn test_flush_run_is_noop() {
         // flush_run is now a no-op: glyph output has been migrated to GlyphMatrixBuilder.
-        // Verify it does not add any glyphs to FrameGlyphBuffer.
         let mut run = LigatureRunBuffer::new();
         run.start(10.0, 20.0, 16.0, 12.0, 1, false, 0.0);
         run.push('a', 8.0);
+        let len_before = run.len();
+        let advance_before = run.total_advance;
 
-        let mut frame_glyphs = FrameGlyphBuffer::new();
         flush_run(&run, true);
-        assert_eq!(frame_glyphs.glyphs.len(), 0);
-
         flush_run(&run, false);
-        assert_eq!(frame_glyphs.glyphs.len(), 0);
+        assert_eq!(run.len(), len_before);
+        assert_eq!(run.total_advance, advance_before);
 
         // Empty run
         let empty_run = LigatureRunBuffer::new();
         flush_run(&empty_run, true);
-        assert_eq!(frame_glyphs.glyphs.len(), 0);
     }
 
     #[test]

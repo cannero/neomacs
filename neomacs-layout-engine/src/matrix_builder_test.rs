@@ -2,7 +2,6 @@ use super::*;
 use neomacs_display_protocol::frame_glyphs::{
     CursorStyle, DisplaySlotId, GlyphRowRole, PhysCursor,
 };
-use neomacs_display_protocol::glyph_matrix::*;
 use neomacs_display_protocol::types::Rect;
 
 #[test]
