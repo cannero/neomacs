@@ -98,7 +98,6 @@ pub enum SplitDirection {
 ///
 /// Remaining deferred GNU fields are:
 ///
-/// - `last_cursor_off_p`/blink plumbing used by the classic redisplay loop
 /// - `last_cursor_vpos` parity with the classic redisplay loop
 /// - the full `cursor`/`output_cursor` split from GNU `struct cursor_pos`
 ///
@@ -123,6 +122,8 @@ pub struct WindowDisplayState {
     pub phys_cursor_on_p: bool,
     /// Whether the cursor is hidden without invalidating the geometry.
     pub cursor_off_p: bool,
+    /// Cursor visibility state committed by the last completed redisplay.
+    pub last_cursor_off_p: bool,
     /// Last visual row where redisplay placed the cursor.
     pub last_cursor_vpos: i64,
     /// Raw fringe widths; `-1` means use the frame default.
@@ -148,6 +149,7 @@ impl Default for WindowDisplayState {
             phys_cursor_type: WindowCursorKind::NoCursor,
             phys_cursor_on_p: false,
             cursor_off_p: false,
+            last_cursor_off_p: false,
             last_cursor_vpos: 0,
             left_fringe_width: -1,
             right_fringe_width: -1,
@@ -168,6 +170,7 @@ impl WindowDisplayState {
         self.output_cursor = None;
         self.phys_cursor_type = WindowCursorKind::NoCursor;
         self.phys_cursor_on_p = false;
+        self.last_cursor_off_p = self.cursor_off_p;
         self.last_cursor_vpos = 0;
     }
 
@@ -179,6 +182,7 @@ impl WindowDisplayState {
             .map(|c| c.kind)
             .unwrap_or(WindowCursorKind::NoCursor);
         self.phys_cursor_on_p = cursor.is_some();
+        self.last_cursor_off_p = self.cursor_off_p;
         self.last_cursor_vpos = cursor.as_ref().map(|c| c.row).unwrap_or(0);
     }
 }
@@ -3071,9 +3075,47 @@ mod tests {
             .expect("window display state");
         assert!(display.phys_cursor_on_p);
         assert_eq!(display.phys_cursor_type, WindowCursorKind::Bar);
+        assert!(!display.last_cursor_off_p);
         assert_eq!(display.last_cursor_vpos, cursor.row);
         assert_eq!(display.phys_cursor.as_ref(), Some(&cursor));
         assert_eq!(display.output_cursor.as_ref(), Some(&cursor));
+    }
+
+    #[test]
+    fn replace_display_snapshots_commits_last_cursor_visibility_state() {
+        let mut mgr = FrameManager::new();
+        let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+        let wid = mgr.get(fid).unwrap().selected_window;
+        let cursor = WindowCursorSnapshot {
+            kind: WindowCursorKind::FilledBox,
+            x: 4,
+            y: 8,
+            width: 8,
+            height: 16,
+            ascent: 12,
+            row: 0,
+            col: 0,
+        };
+
+        let frame = mgr.get_mut(fid).unwrap();
+        let display = frame
+            .find_window_mut(wid)
+            .and_then(|window| window.display_mut())
+            .expect("window display state");
+        display.cursor_off_p = true;
+
+        frame.replace_display_snapshots(vec![WindowDisplaySnapshot {
+            window_id: wid,
+            cursor: Some(cursor),
+            ..WindowDisplaySnapshot::default()
+        }]);
+
+        let display = frame
+            .find_window(wid)
+            .and_then(|window| window.display())
+            .expect("window display state");
+        assert!(display.cursor_off_p);
+        assert!(display.last_cursor_off_p);
     }
 
     #[test]

@@ -96,7 +96,7 @@ fn internal_show_cursor_tracks_visibility() {
             .get(fid)
             .and_then(|frame| frame.find_window(wid))
             .and_then(|window| window.display())
-            .is_some_and(|display| display.cursor_off_p)
+            .is_some_and(|display| display.cursor_off_p && !display.last_cursor_off_p)
     );
 
     builtin_internal_show_cursor(&mut eval, vec![Value::NIL, Value::T]).unwrap();
@@ -107,7 +107,7 @@ fn internal_show_cursor_tracks_visibility() {
             .get(fid)
             .and_then(|frame| frame.find_window(wid))
             .and_then(|window| window.display())
-            .is_some_and(|display| !display.cursor_off_p)
+            .is_some_and(|display| !display.cursor_off_p && !display.last_cursor_off_p)
     );
 }
 
