@@ -4941,7 +4941,7 @@ impl LayoutEngine {
             output_emitter.begin_chrome_row(evaluator, tl_row, tl_y);
             let mut advance_output =
                 |progress: crate::display_status_line::StatusLineOutputProgress| {
-                    output_emitter.advance_chrome_progress(evaluator, tl_row, progress);
+                    output_emitter.move_chrome_output_to(evaluator, tl_row, progress);
                 };
             let tab_output = self.render_rust_status_line_value_via_backend(
                 params.bounds.x,
@@ -4994,7 +4994,7 @@ impl LayoutEngine {
             output_emitter.begin_chrome_row(evaluator, hl_row, hl_y);
             let mut advance_output =
                 |progress: crate::display_status_line::StatusLineOutputProgress| {
-                    output_emitter.advance_chrome_progress(evaluator, hl_row, progress);
+                    output_emitter.move_chrome_output_to(evaluator, hl_row, progress);
                 };
             let header_output = self.render_rust_status_line_value_via_backend(
                 params.bounds.x,
@@ -5058,7 +5058,7 @@ impl LayoutEngine {
             output_emitter.begin_chrome_row(evaluator, ml_row, ml_y);
             let mut advance_output =
                 |progress: crate::display_status_line::StatusLineOutputProgress| {
-                    output_emitter.advance_chrome_progress(evaluator, ml_row, progress);
+                    output_emitter.move_chrome_output_to(evaluator, ml_row, progress);
                 };
             let mode_output = self.render_rust_status_line_value_via_backend(
                 params.bounds.x,

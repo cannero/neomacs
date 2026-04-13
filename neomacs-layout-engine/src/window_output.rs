@@ -215,7 +215,7 @@ impl WindowOutputEmitter {
         end_col: usize,
     ) {
         self.push_text_display_point(buffer_pos, glyph_x, glyph_y, width, height, row, start_col);
-        self.advance_text_progress(evaluator, row, end_col, row_y, glyph_x + width.max(0.0));
+        self.move_text_output_to(evaluator, row, end_col, row_y, glyph_x + width.max(0.0));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -232,10 +232,10 @@ impl WindowOutputEmitter {
         if width <= 0.0 && start_col == end_col {
             return;
         }
-        self.advance_text_progress(evaluator, row, end_col, row_y, glyph_x + width.max(0.0));
+        self.move_text_output_to(evaluator, row, end_col, row_y, glyph_x + width.max(0.0));
     }
 
-    pub(crate) fn begin_row(
+    pub(crate) fn begin_row_output(
         &mut self,
         evaluator: &mut Context,
         row: i64,
@@ -257,7 +257,7 @@ impl WindowOutputEmitter {
         y: f32,
         x: f32,
     ) {
-        self.begin_row(
+        self.begin_row_output(
             evaluator,
             self.text_row_base + row as i64,
             col as i64,
@@ -267,14 +267,14 @@ impl WindowOutputEmitter {
     }
 
     pub(crate) fn begin_chrome_row(&mut self, evaluator: &mut Context, row: i64, y: f32) {
-        self.begin_row(evaluator, row, 0, (y - self.window_top).round() as i64, 0);
+        self.begin_row_output(evaluator, row, 0, (y - self.window_top).round() as i64, 0);
     }
 
     pub(crate) fn begin_update(&self, evaluator: &mut Context) {
         let _ = self.with_live_update(evaluator, |update| update.begin_update());
     }
 
-    pub(crate) fn advance_progress(
+    pub(crate) fn move_output_to(
         &mut self,
         evaluator: &mut Context,
         row: i64,
@@ -288,7 +288,7 @@ impl WindowOutputEmitter {
         });
     }
 
-    pub(crate) fn advance_text_progress(
+    pub(crate) fn move_text_output_to(
         &mut self,
         evaluator: &mut Context,
         row: usize,
@@ -296,7 +296,7 @@ impl WindowOutputEmitter {
         y: f32,
         x: f32,
     ) {
-        self.advance_progress(
+        self.move_output_to(
             evaluator,
             self.text_row_base + row as i64,
             col as i64,
@@ -305,13 +305,13 @@ impl WindowOutputEmitter {
         );
     }
 
-    pub(crate) fn advance_chrome_progress(
+    pub(crate) fn move_chrome_output_to(
         &mut self,
         evaluator: &mut Context,
         row: i64,
         progress: StatusLineOutputProgress,
     ) {
-        self.advance_progress(
+        self.move_output_to(
             evaluator,
             row,
             progress.end_col,
