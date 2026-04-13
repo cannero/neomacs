@@ -698,6 +698,48 @@ pub(crate) fn builtin_append(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_reverse(args: Vec<Value>) -> EvalResult {
+    fn reverse_string(value: Value) -> EvalResult {
+        let string = value
+            .as_lisp_string()
+            .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("stringp"), value]))?;
+
+        if !string.is_multibyte() {
+            let mut bytes = string.as_bytes().to_vec();
+            bytes.reverse();
+            return Ok(Value::heap_string(
+                crate::heap_types::LispString::from_unibyte(bytes),
+            ));
+        }
+
+        let mut codes = super::lisp_string_char_codes(string);
+        codes.reverse();
+
+        let mut data = Vec::with_capacity(string.sbytes());
+        let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+        for code in codes {
+            let len = crate::emacs_core::emacs_char::char_string(code, &mut buf);
+            data.extend_from_slice(&buf[..len]);
+        }
+        Ok(Value::heap_string(
+            crate::heap_types::LispString::from_emacs_bytes(data),
+        ))
+    }
+
+    fn reverse_bool_vector(value: Value) -> EvalResult {
+        let Some(mut data) = value.as_vector_data().cloned() else {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("sequencep"), value],
+            ));
+        };
+        let logical_len = super::chartable::bool_vector_length(&value).unwrap_or_default() as usize;
+        let bits_end = 2 + logical_len;
+        if data.len() >= bits_end {
+            data[2..bits_end].reverse();
+        }
+        Ok(Value::vector(data))
+    }
+
     expect_args("reverse", &args, 1)?;
     match args[0].kind() {
         ValueKind::Nil => Ok(Value::NIL),
@@ -710,42 +752,20 @@ pub(crate) fn builtin_reverse(args: Vec<Value>) -> EvalResult {
             Ok(Value::list(reversed))
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
+            if super::chartable::is_char_table(&args[0]) {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("sequencep"), args[0]],
+                ));
+            }
+            if super::chartable::is_bool_vector(&args[0]) {
+                return reverse_bool_vector(args[0]);
+            }
             let mut items = args[0].as_vector_data().unwrap().clone();
             items.reverse();
             Ok(Value::vector(items))
         }
-        ValueKind::String => {
-            let string = args[0]
-                .as_lisp_string()
-                .expect("ValueKind::String must carry LispString payload");
-            if !string.is_multibyte() {
-                let mut bytes = string.as_bytes().to_vec();
-                bytes.reverse();
-                return Ok(Value::heap_string(
-                    crate::heap_types::LispString::from_unibyte(bytes),
-                ));
-            }
-
-            let mut reversed = Vec::with_capacity(string.sbytes());
-            let mut codes = Vec::with_capacity(string.schars());
-            let mut pos = 0usize;
-            let bytes = string.as_bytes();
-            while pos < bytes.len() {
-                let (cp, len) = crate::emacs_core::emacs_char::string_char(&bytes[pos..]);
-                codes.push(cp);
-                pos += len;
-            }
-
-            let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
-            for cp in codes.into_iter().rev() {
-                let len = crate::emacs_core::emacs_char::char_string(cp, &mut buf);
-                reversed.extend_from_slice(&buf[..len]);
-            }
-
-            Ok(Value::heap_string(
-                crate::heap_types::LispString::from_emacs_bytes(reversed),
-            ))
-        }
+        ValueKind::String => reverse_string(args[0]),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), args[0]],
@@ -799,6 +819,23 @@ pub(crate) fn builtin_nreverse(args: Vec<Value>) -> EvalResult {
             }
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
+            if super::chartable::is_char_table(&args[0]) {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("arrayp"), args[0]],
+                ));
+            }
+            if super::chartable::is_bool_vector(&args[0]) {
+                let logical_len =
+                    super::chartable::bool_vector_length(&args[0]).unwrap_or_default() as usize;
+                let bits_end = 2 + logical_len;
+                let mut data = args[0].as_vector_data().cloned().unwrap_or_default();
+                if data.len() >= bits_end {
+                    data[2..bits_end].reverse();
+                }
+                let _ = args[0].replace_vector_data(data);
+                return Ok(args[0]);
+            }
             let mut data = args[0].as_vector_data().cloned().unwrap_or_default();
             data.reverse();
             let _ = args[0].replace_vector_data(data);

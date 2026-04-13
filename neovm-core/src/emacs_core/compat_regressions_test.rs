@@ -79,6 +79,128 @@ fn fillarray_char_table_preserves_shape_and_updates_default_slot() {
 }
 
 #[test]
+fn reverse_unibyte_raw_string_preserves_bytes() {
+    crate::test_utils::init_test_tracing();
+    let input = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b'A', 0x80,
+    ]));
+    let out = crate::emacs_core::builtins::builtin_reverse(vec![input]).unwrap();
+    let ls = out.as_lisp_string().expect("string result");
+    assert!(!ls.is_multibyte());
+    assert_eq!(ls.as_bytes(), &[0x80, b'A', 0xFF]);
+}
+
+#[test]
+fn reverse_multibyte_raw_string_preserves_emacs_chars() {
+    crate::test_utils::init_test_tracing();
+    let input = crate::emacs_core::misc::builtin_string_as_multibyte(vec![Value::heap_string(
+        crate::heap_types::LispString::from_unibyte(vec![0xFF, b'A']),
+    )])
+    .unwrap();
+    let out = crate::emacs_core::builtins::builtin_reverse(vec![input]).unwrap();
+    let ls = out.as_lisp_string().expect("string result");
+    assert!(ls.is_multibyte());
+    assert_eq!(
+        crate::emacs_core::builtins::lisp_string_char_codes(ls),
+        vec![
+            b'A' as u32,
+            crate::emacs_core::emacs_char::byte8_to_char(0xFF)
+        ]
+    );
+}
+
+#[test]
+fn reverse_bool_vector_preserves_layout_and_reverses_bits() {
+    crate::test_utils::init_test_tracing();
+    let bv = crate::emacs_core::chartable::builtin_bool_vector(vec![
+        Value::T,
+        Value::NIL,
+        Value::T,
+        Value::NIL,
+    ])
+    .unwrap();
+    let out = crate::emacs_core::builtins::builtin_reverse(vec![bv]).unwrap();
+    assert_eq!(
+        crate::emacs_core::chartable::builtin_bool_vector_p(vec![out]).unwrap(),
+        Value::T
+    );
+    let values = out.as_vector_data().unwrap().clone();
+    assert_eq!(values[0], Value::symbol("--bool-vector--"));
+    assert_eq!(values[1], Value::fixnum(4));
+    assert_eq!(
+        &values[2..6],
+        &[
+            Value::fixnum(0),
+            Value::fixnum(1),
+            Value::fixnum(0),
+            Value::fixnum(1)
+        ]
+    );
+}
+
+#[test]
+fn reverse_char_table_signals_sequencep() {
+    crate::test_utils::init_test_tracing();
+    let table = crate::emacs_core::chartable::make_char_table_value(
+        Value::symbol("syntax-table"),
+        Value::fixnum(0),
+    );
+    let err = crate::emacs_core::builtins::builtin_reverse(vec![table]).unwrap_err();
+    match err {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "wrong-type-argument");
+            assert_eq!(sig.data[0], Value::symbol("sequencep"));
+            assert_eq!(sig.data[1], table);
+        }
+        other => panic!("expected signal, got {other:?}"),
+    }
+}
+
+#[test]
+fn nreverse_bool_vector_preserves_layout_and_reverses_bits_in_place() {
+    crate::test_utils::init_test_tracing();
+    let bv = crate::emacs_core::chartable::builtin_bool_vector(vec![
+        Value::T,
+        Value::NIL,
+        Value::T,
+        Value::NIL,
+    ])
+    .unwrap();
+    let out = crate::emacs_core::builtins::builtin_nreverse(vec![bv]).unwrap();
+    assert_eq!(out, bv);
+    let values = out.as_vector_data().unwrap().clone();
+    assert_eq!(values[0], Value::symbol("--bool-vector--"));
+    assert_eq!(values[1], Value::fixnum(4));
+    assert_eq!(
+        &values[2..6],
+        &[
+            Value::fixnum(0),
+            Value::fixnum(1),
+            Value::fixnum(0),
+            Value::fixnum(1)
+        ]
+    );
+}
+
+#[test]
+fn nreverse_char_table_signals_arrayp() {
+    crate::test_utils::init_test_tracing();
+    let table = crate::emacs_core::chartable::make_char_table_value(
+        Value::symbol("syntax-table"),
+        Value::fixnum(0),
+    );
+    let err = crate::emacs_core::builtins::builtin_nreverse(vec![table]).unwrap_err();
+    match err {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "wrong-type-argument");
+            assert_eq!(sig.data[0], Value::symbol("arrayp"));
+            assert_eq!(sig.data[1], table);
+        }
+        other => panic!("expected signal, got {other:?}"),
+    }
+}
+
+#[test]
 fn external_debugging_rejects_negative_fixnum() {
     crate::test_utils::init_test_tracing();
     let err =
