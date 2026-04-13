@@ -1,6 +1,6 @@
 //! Display-walker status-line rendering.
 //!
-//! Mode-line, header-line, tab-line, and tab-bar all flow through the
+//! Mode-line, header-line, and tab-line flow through the
 //! walker defined here. The walker produces
 //! glyphs via TtyDisplayBackend::produce_glyph and installs the
 //! completed row into GlyphMatrixBuilder wholesale; above the
@@ -37,7 +37,6 @@ pub(crate) enum StatusLineKind {
     ModeLine,
     HeaderLine,
     TabLine,
-    TabBar,
 }
 
 impl StatusLineKind {
@@ -46,7 +45,6 @@ impl StatusLineKind {
             Self::ModeLine => GlyphRowRole::ModeLine,
             Self::HeaderLine => GlyphRowRole::HeaderLine,
             Self::TabLine => GlyphRowRole::TabLine,
-            Self::TabBar => GlyphRowRole::TabBar,
         }
     }
 }
@@ -1120,12 +1118,6 @@ impl LayoutEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use neomacs_display_protocol::face::FaceAttributes;
-    use neomacs_display_protocol::types::{Color, Rect};
-    use neovm_core::emacs_core::eval::Context;
-    use neovm_core::emacs_core::value::{
-        StringTextPropertyRun, set_string_text_properties_for_value,
-    };
 
     // ---------------------------------------------------------------
     // Helper: build a 14-byte face run record (native-endian)
@@ -1150,7 +1142,6 @@ mod tests {
         let _ml = StatusLineKind::ModeLine;
         let _hl = StatusLineKind::HeaderLine;
         let _tl = StatusLineKind::TabLine;
-        let _tb = StatusLineKind::TabBar;
     }
 
     #[test]
@@ -1161,13 +1152,11 @@ mod tests {
                 StatusLineKind::ModeLine => 0,
                 StatusLineKind::HeaderLine => 1,
                 StatusLineKind::TabLine => 2,
-                StatusLineKind::TabBar => 3,
             }
         };
         assert_eq!(check(&StatusLineKind::ModeLine), 0);
         assert_eq!(check(&StatusLineKind::HeaderLine), 1);
         assert_eq!(check(&StatusLineKind::TabLine), 2);
-        assert_eq!(check(&StatusLineKind::TabBar), 3);
     }
 
     // ---------------------------------------------------------------
