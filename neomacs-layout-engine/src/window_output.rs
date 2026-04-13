@@ -379,7 +379,7 @@ impl WindowOutputEmitter {
         if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id)
             && let Some(mut update) = frame.window_output_update(window_id)
         {
-            update.finalize(logical_cursor, phys_cursor, None);
+            update.finalize_live_update(logical_cursor, phys_cursor);
         }
         snapshot
     }

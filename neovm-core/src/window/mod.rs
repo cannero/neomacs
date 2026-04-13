@@ -258,8 +258,10 @@ impl WindowDisplayState {
 /// Explicit live redisplay/update session for one window.
 ///
 /// This mirrors GNU's per-window output/update ownership model: row progress,
-/// cursor installation, snapshot fallback, and final redisplay commit all flow
-/// through one update object over the live `WindowDisplayState`.
+/// cursor installation, and final redisplay commit all flow through one update
+/// object over the live `WindowDisplayState`. Snapshot fallback remains a
+/// narrow compatibility path for replay/bootstrap cases and is not used by the
+/// normal Rust layout pipeline.
 pub struct WindowOutputUpdate<'a> {
     display: &'a mut WindowDisplayState,
 }
@@ -293,24 +295,32 @@ impl<'a> WindowOutputUpdate<'a> {
         self.display.apply_physical_cursor_snapshot(cursor);
     }
 
-    pub fn fallback_output_cursor_from_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
+    fn fallback_output_cursor_from_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
         if self.display.output_cursor.is_none() {
             self.display
                 .commit_output_cursor_from_display_snapshot(snapshot);
         }
     }
 
-    pub fn finalize(
+    pub fn finalize_live_update(
         &mut self,
         logical_cursor: Option<WindowCursorPos>,
         phys_cursor: Option<WindowCursorSnapshot>,
-        output_fallback: Option<&WindowDisplaySnapshot>,
     ) {
         self.install_logical_cursor(logical_cursor);
         self.apply_physical_cursor_snapshot(phys_cursor);
-        if let Some(snapshot) = output_fallback {
-            self.fallback_output_cursor_from_snapshot(snapshot);
-        }
+        self.commit();
+    }
+
+    pub fn finalize_with_output_fallback(
+        &mut self,
+        logical_cursor: Option<WindowCursorPos>,
+        phys_cursor: Option<WindowCursorSnapshot>,
+        output_fallback: &WindowDisplaySnapshot,
+    ) {
+        self.install_logical_cursor(logical_cursor);
+        self.apply_physical_cursor_snapshot(phys_cursor);
+        self.fallback_output_cursor_from_snapshot(output_fallback);
         self.commit();
     }
 
@@ -3747,10 +3757,9 @@ mod tests {
                 start_buffer_pos: Some(20),
                 end_buffer_pos: Some(32),
             });
-            update.finalize(
+            update.finalize_live_update(
                 Some(WindowCursorPos::from_snapshot(&cursor)),
                 Some(cursor.clone()),
-                None,
             );
         }
 
@@ -3854,7 +3863,11 @@ mod tests {
         {
             let mut update = frame.window_output_update(wid).expect("window update");
             update.begin_update();
-            update.finalize(Some(live_cursor), Some(live_phys.clone()), Some(&snapshot));
+            update.finalize_with_output_fallback(
+                Some(live_cursor),
+                Some(live_phys.clone()),
+                &snapshot,
+            );
         }
 
         let display = frame
@@ -3916,7 +3929,11 @@ mod tests {
         {
             let mut update = frame.window_output_update(wid).expect("window update");
             update.begin_update();
-            update.finalize(Some(live_cursor), Some(live_phys.clone()), Some(&snapshot));
+            update.finalize_with_output_fallback(
+                Some(live_cursor),
+                Some(live_phys.clone()),
+                &snapshot,
+            );
         }
 
         let display = frame
