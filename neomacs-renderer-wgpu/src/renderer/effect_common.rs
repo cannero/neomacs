@@ -92,7 +92,7 @@ pub(super) fn find_cursor_pos(
 mod tests {
     use super::*;
     use neomacs_display_protocol::CursorStyle;
-    use neomacs_display_protocol::{DisplaySlotId, FrameGlyph, PhysCursor};
+    use neomacs_display_protocol::{DisplaySlotId, PhysCursor};
 
     #[test]
     fn test_push_rect_single() {
@@ -244,31 +244,28 @@ mod tests {
     }
 
     #[test]
-    fn test_find_cursor_pos_ignores_legacy_cursor_glyphs_without_phys_cursor() {
+    fn test_find_cursor_pos_ignores_window_cursor_visuals_without_phys_cursor() {
         let animated = None;
         let mut frame_glyphs = FrameGlyphBuffer::new();
 
-        frame_glyphs.glyphs.push(FrameGlyph::Cursor {
-            window_id: 1,
-            slot_id: None,
-            x: 100.0,
-            y: 200.0,
-            width: 8.0,
-            height: 16.0,
-            style: CursorStyle::FilledBox,
-            color: Color::new(1.0, 1.0, 1.0, 1.0),
-        });
-
-        frame_glyphs.glyphs.push(FrameGlyph::Cursor {
-            window_id: 2,
-            slot_id: None,
-            x: 300.0,
-            y: 400.0,
-            width: 8.0,
-            height: 16.0,
-            style: CursorStyle::Hbar(2.0), // hbar cursor
-            color: Color::new(1.0, 1.0, 1.0, 1.0),
-        });
+        frame_glyphs.add_cursor(
+            1,
+            100.0,
+            200.0,
+            8.0,
+            16.0,
+            CursorStyle::FilledBox,
+            Color::new(1.0, 1.0, 1.0, 1.0),
+        );
+        frame_glyphs.add_cursor(
+            2,
+            300.0,
+            400.0,
+            8.0,
+            16.0,
+            CursorStyle::Hbar(2.0),
+            Color::new(1.0, 1.0, 1.0, 1.0),
+        );
 
         let result = find_cursor_pos(&animated, &frame_glyphs);
 
@@ -280,17 +277,15 @@ mod tests {
         let animated = None;
         let mut frame_glyphs = FrameGlyphBuffer::new();
 
-        // Add only hollow cursors
-        frame_glyphs.glyphs.push(FrameGlyph::Cursor {
-            window_id: 1,
-            slot_id: None,
-            x: 10.0,
-            y: 20.0,
-            width: 8.0,
-            height: 16.0,
-            style: CursorStyle::Hollow,
-            color: Color::new(1.0, 1.0, 1.0, 1.0),
-        });
+        frame_glyphs.add_cursor(
+            1,
+            10.0,
+            20.0,
+            8.0,
+            16.0,
+            CursorStyle::Hollow,
+            Color::new(1.0, 1.0, 1.0, 1.0),
+        );
 
         let result = find_cursor_pos(&animated, &frame_glyphs);
 

@@ -621,27 +621,6 @@ impl FrameDisplayState {
                         color: *color,
                     });
                 }
-                FrameGlyph::Cursor {
-                    window_id,
-                    slot_id,
-                    x,
-                    y,
-                    width,
-                    height,
-                    style,
-                    color,
-                } => {
-                    state.cursors.push(CursorItem {
-                        window_id: *window_id,
-                        slot_id: *slot_id,
-                        x: *x,
-                        y: *y,
-                        width: *width,
-                        height: *height,
-                        style: *style,
-                        color: *color,
-                    });
-                }
                 FrameGlyph::Image {
                     window_id,
                     row_role,

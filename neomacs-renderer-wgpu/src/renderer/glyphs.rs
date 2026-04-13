@@ -1244,7 +1244,6 @@ impl WgpuRenderer {
                     let radius = tw.min(th) * self.effects.scroll_bar.thumb_radius;
                     scroll_bar_thumb_vertices.push((tx, ty, tw, th, radius, effective_thumb));
                 }
-                FrameGlyph::Cursor { .. } => {}
                 _ => {}
             }
         }

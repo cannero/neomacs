@@ -606,8 +606,6 @@ fn rasterize_frame_glyphs(frame: &FrameGlyphBuffer, grid: &mut TtyGrid, bg_color
                 }
             }
 
-            FrameGlyph::Cursor { .. } => {}
-
             FrameGlyph::Background { bounds, color } => {
                 let col_start = (bounds.x / cw) as usize;
                 let row_start = (bounds.y / ch) as usize;
@@ -695,7 +693,6 @@ fn glyph_pixel_width(glyph: &FrameGlyph) -> f32 {
         FrameGlyph::Image { width, .. } => *width,
         FrameGlyph::Video { width, .. } => *width,
         FrameGlyph::WebKit { width, .. } => *width,
-        FrameGlyph::Cursor { width, .. } => *width,
         FrameGlyph::Background { bounds, .. } => bounds.width,
         FrameGlyph::Border { width, .. } => *width,
         FrameGlyph::ScrollBar { width, .. } => *width,

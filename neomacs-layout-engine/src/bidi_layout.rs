@@ -8,7 +8,7 @@
 //! so that RTL runs appear in the correct visual order.
 
 use crate::bidi::{self, BidiDir};
-use neomacs_display_protocol::frame_glyphs::{FrameGlyph, FrameGlyphBuffer};
+use neomacs_display_protocol::frame_glyphs::{DisplaySlotId, FrameGlyph, FrameGlyphBuffer};
 
 /// Quick check whether a character is in an RTL script range.
 /// Used as a fast-path: if no character on a line is RTL, we skip
@@ -135,27 +135,15 @@ pub fn reorder_row_bidi(
     // by (row_max_ascent - glyph_ascent) so that y + ascent = row_y + row_max_ascent
     // for all glyphs. The original per-face ascent is preserved.
     if row_max_ascent > 0.0 {
-        // Step A: Find the covered cursor slot on this row (before y adjustment)
-        // and compute its offset.
-        let cursor_offset: Option<f32> = {
-            let mut found_offset = None;
-            for info in &row_chars {
-                if let FrameGlyph::Char {
+        let slot_y_offsets: Vec<(DisplaySlotId, f32)> = row_chars
+            .iter()
+            .filter_map(|info| match &frame_glyphs.glyphs[info.glyph_idx] {
+                FrameGlyph::Char {
                     slot_id, ascent, ..
-                } = &frame_glyphs.glyphs[info.glyph_idx]
-                {
-                    if frame_glyphs
-                        .phys_cursor
-                        .as_ref()
-                        .is_some_and(|cursor| *slot_id == cursor.slot_id)
-                    {
-                        found_offset = Some(row_max_ascent - *ascent);
-                        break;
-                    }
-                }
-            }
-            found_offset
-        };
+                } => Some((*slot_id, row_max_ascent - *ascent)),
+                _ => None,
+            })
+            .collect();
 
         // Step B: Adjust each glyph's y for baseline alignment, keeping original ascent.
         // Renderer positioning uses `baseline` as authoritative; keep it in sync with `y`.
@@ -174,17 +162,21 @@ pub fn reorder_row_bidi(
             }
         }
 
-        // Step C: Adjust cursor positions if the cursor is on this row.
-        if let Some(offset) = cursor_offset {
-            if offset.abs() > 0.01 {
-                if let Some(ref mut cursor) = frame_glyphs.phys_cursor {
-                    cursor.y += offset;
-                }
-                for idx in glyph_start..glyph_end {
-                    if let FrameGlyph::Cursor { y, .. } = &mut frame_glyphs.glyphs[idx] {
-                        *y += offset;
-                    }
-                }
+        // Step C: Adjust cursor positions if any cursor visual covers a slot
+        // on this row. Decorative window cursors and the active phys cursor
+        // must stay attached to the same display slot baseline.
+        if let Some(cursor) = frame_glyphs.phys_cursor.as_mut()
+            && let Some(offset) = slot_offset_for(cursor.slot_id, &slot_y_offsets)
+            && offset.abs() > 0.01
+        {
+            cursor.y += offset;
+        }
+        for cursor in &mut frame_glyphs.window_cursors {
+            if let Some(slot_id) = cursor.slot_id
+                && let Some(offset) = slot_offset_for(slot_id, &slot_y_offsets)
+                && offset.abs() > 0.01
+            {
+                cursor.y += offset;
             }
         }
     }
@@ -262,56 +254,52 @@ pub fn reorder_row_bidi(
     }
 
     // Step 7: Adjust cursor positions on this row.
-    // Cursors were placed at LTR X positions; we need to move them
-    // to match the reordered glyph positions.
-    // Find cursor glyphs in the range and update their X to match the exact
-    // covered display slot rather than rediscovering it from geometry.
-    let cursor_slot_id = frame_glyphs
-        .phys_cursor
-        .as_ref()
-        .map(|cursor| cursor.slot_id);
-    for idx in glyph_start..glyph_end.min(frame_glyphs.glyphs.len()) {
-        let new_cursor_x = cursor_slot_id.and_then(|cursor_slot_id| {
-            row_chars
-                .iter()
-                .enumerate()
-                .find_map(
-                    |(logical_idx, info)| match &frame_glyphs.glyphs[info.glyph_idx] {
-                        FrameGlyph::Char { slot_id, .. } | FrameGlyph::Stretch { slot_id, .. }
-                            if *slot_id == cursor_slot_id =>
-                        {
-                            Some(new_x[logical_idx])
-                        }
-                        _ => None,
-                    },
-                )
-        });
-        if let (Some(new_cursor_x), FrameGlyph::Cursor { x: cursor_x, .. }) =
-            (new_cursor_x, &mut frame_glyphs.glyphs[idx])
-        {
-            *cursor_x = new_cursor_x;
-        }
-    }
-
-    if let Some(ref mut cursor) = frame_glyphs.phys_cursor {
-        for (logical_idx, info) in row_chars.iter().enumerate() {
-            match &frame_glyphs.glyphs[info.glyph_idx] {
-                FrameGlyph::Char { slot_id, .. } | FrameGlyph::Stretch { slot_id, .. }
-                    if *slot_id == cursor.slot_id =>
-                {
-                    cursor.x = new_x[logical_idx];
-                    break;
+    // Cursors were placed at LTR X positions; move both the active phys cursor
+    // and decorative window cursor visuals to the exact reordered slot.
+    let slot_x_positions: Vec<(DisplaySlotId, f32)> = row_chars
+        .iter()
+        .enumerate()
+        .filter_map(
+            |(logical_idx, info)| match &frame_glyphs.glyphs[info.glyph_idx] {
+                FrameGlyph::Char { slot_id, .. } | FrameGlyph::Stretch { slot_id, .. } => {
+                    Some((*slot_id, new_x[logical_idx]))
                 }
-                _ => {}
-            }
+                _ => None,
+            },
+        )
+        .collect();
+    if let Some(ref mut cursor) = frame_glyphs.phys_cursor {
+        if let Some(new_cursor_x) = slot_x_for(cursor.slot_id, &slot_x_positions) {
+            cursor.x = new_cursor_x;
         }
     }
+    for cursor in &mut frame_glyphs.window_cursors {
+        if let Some(slot_id) = cursor.slot_id
+            && let Some(new_cursor_x) = slot_x_for(slot_id, &slot_x_positions)
+        {
+            cursor.x = new_cursor_x;
+        }
+    }
+}
+
+fn slot_offset_for(slot_id: DisplaySlotId, slot_offsets: &[(DisplaySlotId, f32)]) -> Option<f32> {
+    slot_offsets
+        .iter()
+        .find_map(|(slot, offset)| (*slot == slot_id).then_some(*offset))
+}
+
+fn slot_x_for(slot_id: DisplaySlotId, slot_positions: &[(DisplaySlotId, f32)]) -> Option<f32> {
+    slot_positions
+        .iter()
+        .find_map(|(slot, x)| (*slot == slot_id).then_some(*x))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use neomacs_display_protocol::frame_glyphs::{CursorStyle, DisplaySlotId, GlyphRowRole};
+    use neomacs_display_protocol::frame_glyphs::{
+        CursorStyle, DisplaySlotId, GlyphRowRole, WindowCursorVisual,
+    };
     use neomacs_display_protocol::types::Color;
 
     /// Helper to create a minimal Char glyph for testing.
@@ -539,9 +527,9 @@ mod tests {
     // Additional comprehensive tests
     // ===================================================================
 
-    /// Helper to create a Cursor glyph for testing.
-    fn make_cursor_glyph(x: f32, width: f32) -> FrameGlyph {
-        FrameGlyph::Cursor {
+    /// Helper to create a decorative cursor visual for testing.
+    fn make_cursor_visual(x: f32, width: f32) -> WindowCursorVisual {
+        WindowCursorVisual {
             window_id: 0,
             slot_id: Some(DisplaySlotId::from_pixels(0, x, 0.0, 8.0, 16.0)),
             x,
@@ -574,11 +562,8 @@ mod tests {
         }
     }
 
-    fn get_cursor_x(glyph: &FrameGlyph) -> f32 {
-        match glyph {
-            FrameGlyph::Cursor { x, .. } => *x,
-            _ => panic!("expected Cursor glyph"),
-        }
+    fn get_cursor_x(cursor: &WindowCursorVisual) -> f32 {
+        cursor.x
     }
 
     fn get_stretch_x(glyph: &FrameGlyph) -> f32 {
@@ -974,15 +959,15 @@ mod tests {
         buf.glyphs.push(make_char_glyph('\u{05D0}', 0.0, 8.0)); // Alef
         buf.glyphs.push(make_char_glyph('\u{05D1}', 8.0, 8.0)); // Bet
         buf.glyphs.push(make_char_glyph('\u{05D2}', 16.0, 8.0)); // Gimel
-        buf.glyphs.push(make_cursor_glyph(0.0, 8.0)); // Cursor at Alef's original x
+        buf.window_cursors.push(make_cursor_visual(0.0, 8.0)); // Cursor at Alef's original x
         buf.phys_cursor = Some(make_phys_cursor(0.0, 8.0));
 
-        reorder_row_bidi(&mut buf, 0, 4, 0.0);
+        reorder_row_bidi(&mut buf, 0, 3, 0.0);
 
         // After reorder, Alef moves to x=16.0 (rightmost)
         // Cursor should follow Alef to its new position
         assert_eq!(get_char_x(&buf.glyphs[0]), 16.0); // Alef
-        assert_eq!(get_cursor_x(&buf.glyphs[3]), 16.0); // Cursor should match Alef
+        assert_eq!(get_cursor_x(&buf.window_cursors[0]), 16.0); // Cursor should match Alef
     }
 
     #[test]
@@ -992,16 +977,16 @@ mod tests {
         buf.glyphs.push(make_char_glyph('A', 0.0, 8.0));
         buf.glyphs.push(make_char_glyph('\u{05D1}', 8.0, 8.0)); // Bet
         buf.glyphs.push(make_char_glyph('\u{05D2}', 16.0, 8.0)); // Gimel
-        buf.glyphs.push(make_cursor_glyph(8.0, 8.0)); // Cursor at Bet's original x
+        buf.window_cursors.push(make_cursor_visual(8.0, 8.0)); // Cursor at Bet's original x
         buf.phys_cursor = Some(make_phys_cursor(8.0, 8.0));
 
-        reorder_row_bidi(&mut buf, 0, 4, 0.0);
+        reorder_row_bidi(&mut buf, 0, 3, 0.0);
 
         // In LTR base with RTL embedded: A stays at 0, Gimel and Bet swap
         // Bet (logical 1) gets new x, Gimel (logical 2) gets new x
         // Cursor should match Bet's new x
         let bet_new_x = get_char_x(&buf.glyphs[1]);
-        let cursor_new_x = get_cursor_x(&buf.glyphs[3]);
+        let cursor_new_x = get_cursor_x(&buf.window_cursors[0]);
         assert_eq!(cursor_new_x, bet_new_x);
     }
 
@@ -1013,14 +998,14 @@ mod tests {
         buf.glyphs.push(make_char_glyph('B', 8.0, 8.0));
         buf.glyphs.push(make_char_glyph('\u{05D2}', 16.0, 8.0));
         buf.glyphs.push(make_char_glyph('\u{05D3}', 24.0, 8.0));
-        buf.glyphs.push(make_cursor_glyph(0.0, 8.0)); // Cursor at A
+        buf.window_cursors.push(make_cursor_visual(0.0, 8.0)); // Cursor at A
         buf.phys_cursor = Some(make_phys_cursor(0.0, 8.0));
 
-        reorder_row_bidi(&mut buf, 0, 5, 0.0);
+        reorder_row_bidi(&mut buf, 0, 4, 0.0);
 
         // A stays at x=0, cursor should stay at x=0
         assert_eq!(get_char_x(&buf.glyphs[0]), 0.0);
-        assert_eq!(get_cursor_x(&buf.glyphs[4]), 0.0);
+        assert_eq!(get_cursor_x(&buf.window_cursors[0]), 0.0);
     }
 
     #[test]
@@ -1029,14 +1014,14 @@ mod tests {
         buf.glyphs.push(make_char_glyph('A', 0.0, 8.0));
         buf.glyphs.push(make_char_glyph('\u{05D0}', 8.0, 8.0)); // Alef
         buf.glyphs.push(make_char_glyph('\u{05D1}', 16.0, 8.0)); // Bet
-        buf.glyphs.push(make_cursor_glyph(8.0, 8.0)); // Cursor at Alef
+        buf.window_cursors.push(make_cursor_visual(8.0, 8.0)); // Cursor at Alef
         buf.phys_cursor = Some(make_phys_cursor(8.0, 8.0));
 
-        reorder_row_bidi(&mut buf, 0, 4, 0.0);
+        reorder_row_bidi(&mut buf, 0, 3, 0.0);
 
         // Alef's new position after reorder
         let alef_new_x = get_char_x(&buf.glyphs[1]);
-        assert_eq!(get_cursor_x(&buf.glyphs[3]), alef_new_x);
+        assert_eq!(get_cursor_x(&buf.window_cursors[0]), alef_new_x);
     }
 
     // --- Partial row reordering (sub-range of glyphs) ---
@@ -1149,13 +1134,13 @@ mod tests {
             stipple_fg: None,
         });
         buf.glyphs.push(make_char_glyph('\u{05D1}', 20.0, 8.0)); // Bet
-        buf.glyphs.push(make_cursor_glyph(16.0, 4.0));
+        buf.window_cursors.push(make_cursor_visual(16.0, 4.0));
         buf.phys_cursor = Some(make_phys_cursor(16.0, 8.0));
 
-        reorder_row_bidi(&mut buf, 0, 4, 0.0);
+        reorder_row_bidi(&mut buf, 0, 3, 0.0);
 
         assert_eq!(get_stretch_x(&buf.glyphs[1]), 8.0);
-        assert_eq!(get_cursor_x(&buf.glyphs[3]), 8.0);
+        assert_eq!(get_cursor_x(&buf.window_cursors[0]), 8.0);
         assert_eq!(buf.phys_cursor.as_ref().expect("phys cursor").x, 8.0);
     }
 

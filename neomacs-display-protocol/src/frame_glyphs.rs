@@ -62,8 +62,9 @@ impl CursorKind {
 
 /// Cursor visual style, carrying bar/hbar dimensions.
 ///
-/// The cursor glyph always stores full cell dimensions (char_width, face_height).
-/// Bar/Hbar variants carry the thin dimension (width or height) for rendering.
+/// Filled and hollow cursors use the owning slot rectangle as-is. Bar/Hbar
+/// variants carry the thin dimension (width or height) for rendering within
+/// that slot.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CursorStyle {
     /// Filled box cursor (covers entire character cell)
@@ -323,18 +324,6 @@ pub enum FrameGlyph {
         height: f32,
     },
 
-    /// Cursor
-    Cursor {
-        window_id: i32, // Window ID to track which window this cursor belongs to
-        slot_id: Option<DisplaySlotId>,
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        style: CursorStyle,
-        color: Color,
-    },
-
     /// Window background
     Background { bounds: Rect, color: Color },
 
@@ -400,7 +389,7 @@ impl FrameGlyph {
         self.is_chrome_row()
     }
 
-    /// Slot identity for text/stretches that occupy a character cell.
+    /// Slot identity for displayed content that occupies a character cell.
     pub fn slot_id(&self) -> Option<DisplaySlotId> {
         match self {
             FrameGlyph::Char { slot_id, .. } | FrameGlyph::Stretch { slot_id, .. } => {
@@ -409,7 +398,6 @@ impl FrameGlyph {
             FrameGlyph::Image { slot_id, .. }
             | FrameGlyph::Video { slot_id, .. }
             | FrameGlyph::WebKit { slot_id, .. } => *slot_id,
-            FrameGlyph::Cursor { slot_id, .. } => *slot_id,
             _ => None,
         }
     }
