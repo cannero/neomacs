@@ -519,6 +519,17 @@ fn commit_latest_output_row(
     }
 }
 
+fn commit_output_progress(
+    evaluator: &mut neovm_core::emacs_core::Context,
+    frame_id: neovm_core::window::FrameId,
+    window_id: neovm_core::window::WindowId,
+    row: DisplayRowSnapshot,
+) {
+    if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
+        frame.commit_window_output_row(window_id, &row);
+    }
+}
+
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
 struct AsciiWidthCacheKey {
     family: String,
@@ -1154,6 +1165,7 @@ fn render_overlay_string(
     content_x: f32,
     text_y: f32,
     row_extra_y: f32,
+    row_base: usize,
     max_rows: usize,
     overlay_face: Option<&super::neovm_bridge::ResolvedFace>,
     current_face_id: &mut u32,
@@ -1184,7 +1196,7 @@ fn render_overlay_string(
             }
             *y = text_y + *row as f32 * char_h + row_extra_y;
             builder.begin_row(
-                *row,
+                row_base + *row,
                 neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text,
             );
             *x = content_x;
@@ -2229,6 +2241,8 @@ impl LayoutEngine {
         let tab_line_height = tab_line_face.as_ref().map_or(0.0, |face| {
             self.status_line_row_height_for_face(face, char_w, default_face_ascent, default_face_h)
         });
+        let top_chrome_rows =
+            usize::from(tab_line_height > 0.0) + usize::from(header_line_height > 0.0);
 
         let text_x = params.text_bounds.x;
         let text_y = params.text_bounds.y + header_line_height + tab_line_height;
@@ -2308,8 +2322,14 @@ impl LayoutEngine {
         } else {
             max_rows
         };
+        let text_matrix_row_base = top_chrome_rows;
+        let text_matrix_rows = max_rows.max(1);
+        let bottom_chrome_rows = usize::from(mode_line_height > 0.0);
+        let mode_line_matrix_row = text_matrix_row_base + text_matrix_rows;
         let cols = ((text_width - lnum_pixel_width) / char_w).floor() as usize;
         let content_x = text_x + lnum_pixel_width;
+        let window_text_row = |row: usize| text_matrix_row_base as i64 + row as i64;
+        let window_text_row_u32 = |row: usize| (text_matrix_row_base + row) as u32;
 
         // Read buffer text starting from window_start.
         // Auto-adjust window_start when point is above the visible region.
@@ -2768,7 +2788,7 @@ impl LayoutEngine {
         }
 
         // --- GlyphMatrix builder: begin window and first row ---
-        let matrix_rows = max_rows.max(1);
+        let matrix_rows = text_matrix_row_base + text_matrix_rows + bottom_chrome_rows;
         let matrix_cols = cols.max(1);
         self.matrix_builder.begin_window(
             params.window_id as u64,
@@ -2778,7 +2798,7 @@ impl LayoutEngine {
             params.selected,
         );
         self.matrix_builder.begin_row(
-            0,
+            text_matrix_row_base,
             neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text,
         );
 
@@ -2975,6 +2995,7 @@ impl LayoutEngine {
                                     content_x,
                                     text_y,
                                     row_extra_y,
+                                    text_matrix_row_base,
                                     max_rows,
                                     ov_face.as_ref(),
                                     &mut current_face_id,
@@ -3023,7 +3044,7 @@ impl LayoutEngine {
                     push_display_row(
                         &mut display_rows,
                         &mut row_metrics,
-                        row as i64,
+                        window_text_row(row),
                         y,
                         row_max_height,
                         row_max_ascent,
@@ -3270,7 +3291,7 @@ impl LayoutEngine {
 
                             let slot_id = DisplaySlotId {
                                 window_id: params.window_id,
-                                row: row as u32,
+                                row: window_text_row_u32(row),
                                 col: col as u16,
                             };
                             let image_y = y + raise_y_offset;
@@ -3294,7 +3315,7 @@ impl LayoutEngine {
                                 image_y,
                                 display_width,
                                 display_height,
-                                row as i64,
+                                window_text_row(row),
                                 col,
                                 text_area_left,
                                 window_top,
@@ -3427,7 +3448,7 @@ impl LayoutEngine {
                         push_display_row(
                             &mut display_rows,
                             &mut row_metrics,
-                            row as i64,
+                            window_text_row(row),
                             y,
                             row_max_height,
                             row_max_ascent,
@@ -3543,7 +3564,7 @@ impl LayoutEngine {
                 push_display_row(
                     &mut display_rows,
                     &mut row_metrics,
-                    row as i64,
+                    window_text_row(row),
                     y,
                     row_max_height,
                     row_max_ascent,
@@ -3559,7 +3580,7 @@ impl LayoutEngine {
                 self.matrix_builder.end_row();
                 row += 1;
                 self.matrix_builder.begin_row(
-                    row,
+                    text_matrix_row_base + row,
                     neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text,
                 );
                 y = text_y + row as f32 * char_h + row_extra_y;
@@ -3696,7 +3717,7 @@ impl LayoutEngine {
                     y + raise_y_offset,
                     spaces as f32 * face_space_w,
                     char_h,
-                    row as i64,
+                    window_text_row(row),
                     col,
                     text_area_left,
                     window_top,
@@ -3761,7 +3782,7 @@ impl LayoutEngine {
                         push_display_row(
                             &mut display_rows,
                             &mut row_metrics,
-                            row as i64,
+                            window_text_row(row),
                             y,
                             row_max_height,
                             row_max_ascent,
@@ -3809,7 +3830,7 @@ impl LayoutEngine {
                         push_display_row(
                             &mut display_rows,
                             &mut row_metrics,
-                            row as i64,
+                            window_text_row(row),
                             y,
                             row_max_height,
                             row_max_ascent,
@@ -3856,7 +3877,7 @@ impl LayoutEngine {
                     y + raise_y_offset,
                     needed_width,
                     char_h,
-                    row as i64,
+                    window_text_row(row),
                     col,
                     text_area_left,
                     window_top,
@@ -3892,7 +3913,7 @@ impl LayoutEngine {
                             y + raise_y_offset,
                             face_char_w,
                             char_h,
-                            row as i64,
+                            window_text_row(row),
                             col,
                             text_area_left,
                             window_top,
@@ -3923,7 +3944,7 @@ impl LayoutEngine {
                                 y + raise_y_offset,
                                 needed,
                                 char_h,
-                                row as i64,
+                                window_text_row(row),
                                 col,
                                 text_area_left,
                                 window_top,
@@ -4054,7 +4075,7 @@ impl LayoutEngine {
                     push_display_row(
                         &mut display_rows,
                         &mut row_metrics,
-                        row as i64,
+                        window_text_row(row),
                         y,
                         row_max_height,
                         row_max_ascent,
@@ -4071,7 +4092,7 @@ impl LayoutEngine {
                     self.matrix_builder.end_row();
                     row += 1;
                     self.matrix_builder.begin_row(
-                        row,
+                        text_matrix_row_base + row,
                         neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text,
                     );
                     y = text_y + row as f32 * char_h + row_extra_y;
@@ -4114,7 +4135,7 @@ impl LayoutEngine {
                     push_display_row(
                         &mut display_rows,
                         &mut row_metrics,
-                        row as i64,
+                        window_text_row(row),
                         y,
                         row_max_height,
                         row_max_ascent,
@@ -4131,7 +4152,7 @@ impl LayoutEngine {
                     self.matrix_builder.end_row();
                     row += 1;
                     self.matrix_builder.begin_row(
-                        row,
+                        text_matrix_row_base + row,
                         neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text,
                     );
                     y = text_y + row as f32 * char_h + row_extra_y;
@@ -4178,7 +4199,7 @@ impl LayoutEngine {
                     push_display_row(
                         &mut display_rows,
                         &mut row_metrics,
-                        row as i64,
+                        window_text_row(row),
                         y,
                         row_max_height,
                         row_max_ascent,
@@ -4195,7 +4216,7 @@ impl LayoutEngine {
                     self.matrix_builder.end_row();
                     row += 1;
                     self.matrix_builder.begin_row(
-                        row,
+                        text_matrix_row_base + row,
                         neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text,
                     );
                     y = text_y + row as f32 * char_h + row_extra_y;
@@ -4283,6 +4304,7 @@ impl LayoutEngine {
                             content_x,
                             text_y,
                             row_extra_y,
+                            text_matrix_row_base,
                             max_rows,
                             ov_face.as_ref(),
                             &mut current_face_id,
@@ -4314,7 +4336,7 @@ impl LayoutEngine {
                 y + raise_y_offset,
                 advance,
                 face_h,
-                row as i64,
+                window_text_row(row),
                 col,
                 text_area_left,
                 window_top,
@@ -4374,6 +4396,7 @@ impl LayoutEngine {
                             content_x,
                             text_y,
                             row_extra_y,
+                            text_matrix_row_base,
                             max_rows,
                             ov_face.as_ref(),
                             &mut current_face_id,
@@ -4464,6 +4487,7 @@ impl LayoutEngine {
                     content_x,
                     text_y,
                     row_extra_y,
+                    text_matrix_row_base,
                     max_rows,
                     ov_face.as_ref(),
                     &mut current_face_id,
@@ -4575,16 +4599,16 @@ impl LayoutEngine {
             if let Some(cursor) = cursor_info {
                 let row_metric = row_metrics_for_cursor(
                     &row_metrics,
-                    cursor.matrix_row,
-                    row,
+                    text_matrix_row_base + cursor.matrix_row,
+                    text_matrix_row_base + row,
                     y,
                     row_max_height,
                     row_max_ascent,
                 );
                 emitted_logical_cursor = Some(WindowCursorPos {
                     x: (cursor.x - text_area_left).round() as i64,
-                    y: (row_metric.pixel_y - text_y).round() as i64,
-                    row: cursor.matrix_row as i64,
+                    y: (row_metric.pixel_y - window_top).round() as i64,
+                    row: window_text_row(cursor.matrix_row),
                     col: cursor.col as i64,
                 });
                 if let Some(style) = cursor_style_for_window(params) {
@@ -4650,7 +4674,7 @@ impl LayoutEngine {
                         width: cursor_w,
                         height: cursor_h,
                         ascent: cursor_ascent,
-                        row: cursor.matrix_row,
+                        row: text_matrix_row_base + cursor.matrix_row,
                         col: cursor.col,
                         style,
                         color: Color::from_pixel(params.cursor_color),
@@ -4681,7 +4705,7 @@ impl LayoutEngine {
                         emitted_window_cursor = Some(WindowCursorSnapshot {
                             kind: window_cursor_kind(resolved_cursor.style),
                             x: (resolved_cursor.x - text_area_left).round() as i64,
-                            y: (resolved_cursor.y - text_y).round() as i64,
+                            y: (resolved_cursor.y - window_top).round() as i64,
                             width: resolved_cursor.width.round() as i64,
                             height: resolved_cursor.height.round() as i64,
                             ascent: resolved_cursor.ascent.round() as i64,
@@ -4745,7 +4769,7 @@ impl LayoutEngine {
             push_display_row(
                 &mut display_rows,
                 &mut row_metrics,
-                row as i64,
+                window_text_row(row),
                 row_y_start,
                 row_max_height,
                 row_max_ascent,
@@ -4933,7 +4957,10 @@ impl LayoutEngine {
             }
         }
 
-        // --- GlyphMatrix builder: close final row and window ---
+        let mut chrome_rows: Vec<DisplayRowSnapshot> = Vec::new();
+
+        // --- GlyphMatrix builder: finalize text rows, then emit chrome rows
+        // into their real glyph-matrix slots before closing the window. ---
         for metric in &row_metrics {
             self.matrix_builder.set_row_metrics(
                 metric.row,
@@ -4943,37 +4970,82 @@ impl LayoutEngine {
             );
         }
         self.matrix_builder.end_row();
-        self.matrix_builder.end_window();
 
-        // Install the frame-level tab-bar row into the first window's
-        // matrix. `render_frame_tab_bar_rust` stashed the produced
-        // glyphs in `pending_tab_bar_glyphs` before the window loop
-        // started (no window context existed then). We now have a
-        // closed window in `matrix_builder.windows.last()`, so we can
-        // append a TabBar status-line row and install the stashed
-        // glyphs wholesale. `take()` ensures subsequent windows don't
-        // re-install the same row.
-        if let Some(glyphs) = self.pending_tab_bar_glyphs.take() {
-            use neomacs_display_protocol::frame_glyphs::GlyphRowRole;
-            if self
-                .matrix_builder
-                .begin_status_line_row(GlyphRowRole::TabBar)
-            {
-                self.matrix_builder.install_status_line_row_glyphs(glyphs);
+        // Header-line: evaluate format-mode-line with header-line-format
+        if params.header_line_height > 0.0 {
+            let hl_y = params.bounds.y + tab_line_height;
+            let hl_face = header_line_face
+                .as_ref()
+                .expect("header-line face should exist when header-line height is positive");
+
+            let header_line_target_cols =
+                (params.bounds.width / char_w.max(1.0)).round().max(1.0) as usize;
+            let header_text = eval_status_line_format_value(
+                evaluator,
+                "header-line-format",
+                params.window_id,
+                params.buffer_id,
+                header_line_target_cols,
+            )
+            .unwrap_or_else(|| Value::string(""));
+
+            let mut builder = std::mem::replace(
+                &mut self.matrix_builder,
+                crate::matrix_builder::GlyphMatrixBuilder::new(),
+            );
+            let header_output = self.render_rust_status_line_value_via_backend(
+                params.bounds.x,
+                hl_y,
+                params.bounds.width,
+                header_line_height,
+                usize::from(tab_line_height > 0.0),
+                params.window_id,
+                char_w,
+                font_ascent,
+                &mut current_face_id,
+                hl_face,
+                header_text,
+                face_resolver,
+                StatusLineKind::HeaderLine,
+                Some(&mut builder),
+            );
+            self.matrix_builder = builder;
+            if let Some(progress) = header_output {
+                commit_output_progress(
+                    evaluator,
+                    frame_id,
+                    window_id,
+                    DisplayRowSnapshot {
+                        row: i64::from(tab_line_height > 0.0),
+                        y: (progress.y - params.bounds.y).round() as i64,
+                        height: progress.height.round() as i64,
+                        end_x: progress.end_x.round() as i64,
+                        end_col: progress.end_col,
+                        start_buffer_pos: None,
+                        end_buffer_pos: None,
+                    },
+                );
+                chrome_rows.push(DisplayRowSnapshot {
+                    row: i64::from(tab_line_height > 0.0),
+                    y: (progress.y - params.bounds.y).round() as i64,
+                    height: progress.height.round() as i64,
+                    end_x: progress.end_x.round() as i64,
+                    end_col: progress.end_col,
+                    start_buffer_pos: None,
+                    end_buffer_pos: None,
+                });
             }
         }
 
-        // Mode-line: evaluate format-mode-line or fall back to buffer name
+        // Mode-line: evaluate format-mode-line or fall back to buffer name.
+        // Commit it last so live output progression follows the visual
+        // top-to-bottom order of the window matrix.
         if params.mode_line_height > 0.0 {
             let ml_y = params.bounds.y + params.bounds.height - mode_line_height;
             let ml_face = mode_line_face
                 .as_ref()
                 .expect("mode-line face should exist when mode-line height is positive");
 
-            // GNU `display_mode_line` walks the format in
-            // `MODE_LINE_DISPLAY` mode, so `%-` fills the remaining
-            // row width with dashes. Compute the row width in
-            // character cells and pass it through.
             let mode_line_target_cols =
                 (params.bounds.width / char_w.max(1.0)).round().max(1.0) as usize;
             let mode_text = {
@@ -5000,11 +5072,12 @@ impl LayoutEngine {
                 &mut self.matrix_builder,
                 crate::matrix_builder::GlyphMatrixBuilder::new(),
             );
-            self.render_rust_status_line_value_via_backend(
+            let mode_output = self.render_rust_status_line_value_via_backend(
                 params.bounds.x,
                 ml_y,
                 params.bounds.width,
                 mode_line_height,
+                mode_line_matrix_row,
                 params.window_id,
                 char_w,
                 font_ascent,
@@ -5016,46 +5089,31 @@ impl LayoutEngine {
                 Some(&mut builder),
             );
             self.matrix_builder = builder;
-        }
-
-        // Header-line: evaluate format-mode-line with header-line-format
-        if params.header_line_height > 0.0 {
-            let hl_y = params.bounds.y + tab_line_height;
-            let hl_face = header_line_face
-                .as_ref()
-                .expect("header-line face should exist when header-line height is positive");
-
-            let header_line_target_cols =
-                (params.bounds.width / char_w.max(1.0)).round().max(1.0) as usize;
-            let header_text = eval_status_line_format_value(
-                evaluator,
-                "header-line-format",
-                params.window_id,
-                params.buffer_id,
-                header_line_target_cols,
-            )
-            .unwrap_or_else(|| Value::string(""));
-
-            let mut builder = std::mem::replace(
-                &mut self.matrix_builder,
-                crate::matrix_builder::GlyphMatrixBuilder::new(),
-            );
-            self.render_rust_status_line_value_via_backend(
-                params.bounds.x,
-                hl_y,
-                params.bounds.width,
-                header_line_height,
-                params.window_id,
-                char_w,
-                font_ascent,
-                &mut current_face_id,
-                hl_face,
-                header_text,
-                face_resolver,
-                StatusLineKind::HeaderLine,
-                Some(&mut builder),
-            );
-            self.matrix_builder = builder;
+            if let Some(progress) = mode_output {
+                commit_output_progress(
+                    evaluator,
+                    frame_id,
+                    window_id,
+                    DisplayRowSnapshot {
+                        row: mode_line_matrix_row as i64,
+                        y: (progress.y - params.bounds.y).round() as i64,
+                        height: progress.height.round() as i64,
+                        end_x: progress.end_x.round() as i64,
+                        end_col: progress.end_col,
+                        start_buffer_pos: None,
+                        end_buffer_pos: None,
+                    },
+                );
+                chrome_rows.push(DisplayRowSnapshot {
+                    row: mode_line_matrix_row as i64,
+                    y: (progress.y - params.bounds.y).round() as i64,
+                    height: progress.height.round() as i64,
+                    end_x: progress.end_x.round() as i64,
+                    end_col: progress.end_col,
+                    start_buffer_pos: None,
+                    end_buffer_pos: None,
+                });
+            }
         }
 
         // Tab-line: evaluate format-mode-line with tab-line-format
@@ -5081,11 +5139,12 @@ impl LayoutEngine {
                 &mut self.matrix_builder,
                 crate::matrix_builder::GlyphMatrixBuilder::new(),
             );
-            self.render_rust_status_line_value_via_backend(
+            let tab_output = self.render_rust_status_line_value_via_backend(
                 params.bounds.x,
                 tl_y,
                 params.bounds.width,
                 tab_line_height,
+                0,
                 params.window_id,
                 char_w,
                 font_ascent,
@@ -5097,6 +5156,54 @@ impl LayoutEngine {
                 Some(&mut builder),
             );
             self.matrix_builder = builder;
+            if let Some(progress) = tab_output {
+                commit_output_progress(
+                    evaluator,
+                    frame_id,
+                    window_id,
+                    DisplayRowSnapshot {
+                        row: 0,
+                        y: (progress.y - params.bounds.y).round() as i64,
+                        height: progress.height.round() as i64,
+                        end_x: progress.end_x.round() as i64,
+                        end_col: progress.end_col,
+                        start_buffer_pos: None,
+                        end_buffer_pos: None,
+                    },
+                );
+                chrome_rows.push(DisplayRowSnapshot {
+                    row: 0,
+                    y: (progress.y - params.bounds.y).round() as i64,
+                    height: progress.height.round() as i64,
+                    end_x: progress.end_x.round() as i64,
+                    end_col: progress.end_col,
+                    start_buffer_pos: None,
+                    end_buffer_pos: None,
+                });
+            }
+        }
+
+        display_rows.extend(chrome_rows);
+        display_rows.sort_by_key(|row| row.row);
+
+        self.matrix_builder.end_window();
+
+        // Install the frame-level tab-bar row into the first window's
+        // matrix. `render_frame_tab_bar_rust` stashed the produced
+        // glyphs in `pending_tab_bar_glyphs` before the window loop
+        // started (no window context existed then). We now have a
+        // closed window in `matrix_builder.windows.last()`, so we can
+        // append a TabBar status-line row and install the stashed
+        // glyphs wholesale. `take()` ensures subsequent windows don't
+        // re-install the same row.
+        if let Some(glyphs) = self.pending_tab_bar_glyphs.take() {
+            use neomacs_display_protocol::frame_glyphs::GlyphRowRole;
+            if self
+                .matrix_builder
+                .begin_status_line_row(GlyphRowRole::TabBar)
+            {
+                self.matrix_builder.install_status_line_row_glyphs(glyphs);
+            }
         }
 
         // Store hit-test data for this window
@@ -8175,6 +8282,50 @@ mod tests {
     }
 
     #[test]
+    fn layout_frame_rust_advances_live_output_through_mode_line_rows() {
+        let mut eval = Context::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert("body line\n");
+            let point = buf.point_max_char() + 1;
+            buf.goto_byte(point - 1);
+        }
+        let frame_id = eval.frame_manager_mut().create_frame(
+            "layout-output-progress-mode-line",
+            640,
+            160,
+            buf_id,
+        );
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+
+        let mut engine = LayoutEngine::new();
+        engine.layout_frame_rust(&mut eval, frame_id);
+
+        let display = eval
+            .frame_manager()
+            .get(frame_id)
+            .and_then(|frame| frame.find_window(selected_window))
+            .and_then(|window| window.display())
+            .expect("window display state");
+        let logical_cursor = display.cursor.expect("logical cursor");
+        let output_cursor = display.output_cursor.expect("output cursor");
+
+        assert!(
+            output_cursor.row > logical_cursor.row,
+            "expected live output progression to continue past text rows into mode-line rows, cursor={logical_cursor:?} output={output_cursor:?}"
+        );
+    }
+
+    #[test]
     fn layout_frame_rust_renders_header_line_text_for_non_nil_header_line_format() {
         let mut eval = Context::new();
         let buf_id = eval
@@ -8215,6 +8366,64 @@ mod tests {
         assert!(
             header_text.contains("LEFT HEADER"),
             "expected header-line row to render buffer-local header-line-format text, got {header_text:?}"
+        );
+    }
+
+    #[test]
+    fn layout_frame_rust_uses_full_window_row_space_for_header_text_and_mode_line() {
+        let mut eval = Context::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert("body line\n");
+            buf.set_buffer_local("header-line-format", Value::string("LEFT HEADER"));
+            let point = buf.point_max_char() + 1;
+            buf.goto_byte(point - 1);
+        }
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-header-row-space", 640, 160, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+
+        let mut engine = LayoutEngine::new();
+        engine.layout_frame_rust(&mut eval, frame_id);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("window display snapshot");
+        let display = frame
+            .find_window(selected_window)
+            .and_then(|window| window.display())
+            .expect("window display state");
+        let logical_cursor = display.cursor.expect("logical cursor");
+        let output_cursor = display.output_cursor.expect("output cursor");
+
+        let header_row = snapshot
+            .rows
+            .iter()
+            .find(|row| row.row == 0)
+            .expect("header row snapshot");
+
+        assert!(
+            header_row.start_buffer_pos.is_none() && header_row.end_buffer_pos.is_none(),
+            "expected row 0 to be reserved for header-line chrome, got {header_row:?}"
+        );
+        assert!(
+            logical_cursor.row >= 1,
+            "expected logical cursor row to be offset below header-line chrome, got {logical_cursor:?}"
+        );
+        assert!(
+            output_cursor.row > logical_cursor.row,
+            "expected mode-line output to advance past logical text rows, cursor={logical_cursor:?} output={output_cursor:?}"
         );
     }
 

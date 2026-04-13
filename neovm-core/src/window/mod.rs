@@ -100,10 +100,10 @@ pub enum SplitDirection {
 /// This mirrors GNU's `struct window` ownership model closely enough for
 /// `window-cursor-info` and related stateful cursor queries. The Rust
 /// redisplay path now drives this state through an explicit per-window output
-/// pass before frame snapshots are published. The main remaining gap is that
-/// neomacs still commits each window at the end of Rust window layout, not at
-/// GNU's lower-level draw-call output pipeline, so output progress still
-/// advances at window-pass granularity rather than per primitive emitted.
+/// pass before frame snapshots are published. Text rows and window chrome rows
+/// now advance `output_cursor` as they are emitted. The main remaining gap is
+/// that neomacs still advances output at Rust row-emission granularity rather
+/// than GNU's lower-level draw-call pipeline.
 #[derive(Clone, Debug)]
 pub struct WindowDisplayState {
     /// Window-local display table; nil means inherit from the buffer/frame.
@@ -239,12 +239,11 @@ impl WindowDisplayState {
 
     pub fn commit_completed_redisplay(&mut self) {
         self.last_cursor_off_p = self.cursor_off_p;
-        self.last_cursor_vpos = self
-            .output_cursor
-            .as_ref()
-            .or(self.cursor.as_ref())
-            .map(|c| c.row)
-            .unwrap_or(0);
+        if let Some(cursor) = self.phys_cursor.as_ref() {
+            self.last_cursor_vpos = cursor.row;
+        } else if let Some(cursor) = self.cursor.as_ref() {
+            self.last_cursor_vpos = cursor.row;
+        }
     }
 }
 
@@ -3535,7 +3534,7 @@ mod tests {
     }
 
     #[test]
-    fn completed_redisplay_prefers_output_cursor_row_history() {
+    fn completed_redisplay_preserves_point_row_history_over_output_progress() {
         let mut display = WindowDisplayState::default();
         display.install_logical_cursor(Some(WindowCursorPos {
             x: 12,
@@ -3547,7 +3546,7 @@ mod tests {
 
         display.commit_completed_redisplay();
 
-        assert_eq!(display.last_cursor_vpos, 4);
+        assert_eq!(display.last_cursor_vpos, 1);
     }
 
     #[test]

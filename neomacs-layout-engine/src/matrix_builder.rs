@@ -199,6 +199,7 @@ impl GlyphMatrixBuilder {
             if row < matrix.rows.len() {
                 matrix.rows[row].role = role;
                 matrix.rows[row].enabled = true;
+                matrix.rows[row].mode_line = matches!(role, GlyphRowRole::ModeLine);
             }
         }
     }

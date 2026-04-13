@@ -424,6 +424,14 @@ pub(crate) struct StatusLineSpec {
     advance_mode: StatusLineAdvanceMode,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct StatusLineOutputProgress {
+    pub end_x: f32,
+    pub end_col: i64,
+    pub y: f32,
+    pub height: f32,
+}
+
 impl StatusLineSpec {
     fn plain(
         kind: StatusLineKind,
@@ -603,8 +611,9 @@ impl LayoutEngine {
     pub(crate) fn render_status_line_spec_via_backend(
         &mut self,
         spec: &StatusLineSpec,
+        matrix_row: Option<usize>,
         mut builder: Option<&mut crate::matrix_builder::GlyphMatrixBuilder>,
-    ) {
+    ) -> Option<StatusLineOutputProgress> {
         use crate::display_backend::{DisplayBackend, GlyphKind, TtyDisplayBackend};
         use neomacs_display_protocol::glyph_matrix::GlyphRow;
 
@@ -612,7 +621,17 @@ impl LayoutEngine {
         // schedule as the old path so the builder's face cache has
         // the right entries when rasterization resolves face ids.
         if let Some(ref mut b) = builder {
-            if b.begin_status_line_row(spec.kind.row_role()) {
+            if let Some(row) = matrix_row {
+                b.begin_row(row, spec.kind.row_role());
+                let row_ascent = if spec.face.font_ascent > 0.0 {
+                    spec.face.font_ascent
+                } else {
+                    spec.ascent
+                }
+                .max(0.0)
+                .min(spec.height.max(1.0));
+                b.set_current_row_metrics(spec.y, spec.height, row_ascent);
+            } else if b.begin_status_line_row(spec.kind.row_role()) {
                 let row_ascent = if spec.face.font_ascent > 0.0 {
                     spec.face.font_ascent
                 } else {
@@ -632,7 +651,12 @@ impl LayoutEngine {
         }
 
         if spec.text.is_empty() {
-            return;
+            return Some(StatusLineOutputProgress {
+                end_x: 0.0,
+                end_col: 0,
+                y: spec.y,
+                height: spec.height,
+            });
         }
 
         // The backend collects all character / stretch glyphs for
@@ -807,9 +831,20 @@ impl LayoutEngine {
         if let Some(ref mut b) = builder {
             for mut row in backend.take_rows() {
                 let text_glyphs = std::mem::take(&mut row.glyphs[1]);
-                b.install_status_line_row_glyphs(text_glyphs);
+                if matrix_row.is_some() {
+                    b.install_current_row_glyphs(text_glyphs);
+                    b.end_row();
+                } else {
+                    b.install_status_line_row_glyphs(text_glyphs);
+                }
             }
         }
+        Some(StatusLineOutputProgress {
+            end_x: sl_x_offset.min(spec.width).max(0.0),
+            end_col: (sl_x_offset / spec.char_width.max(1.0)).round().max(0.0) as i64,
+            y: spec.y,
+            height: spec.height,
+        })
     }
 
     /// Step 3.5 entry point: equivalent to `render_rust_status_line_value`
@@ -821,6 +856,7 @@ impl LayoutEngine {
         y: f32,
         width: f32,
         height: f32,
+        matrix_row: usize,
         window_id: i64,
         char_w: f32,
         ascent: f32,
@@ -830,7 +866,7 @@ impl LayoutEngine {
         face_resolver: &FaceResolver,
         kind: StatusLineKind,
         builder: Option<&mut crate::matrix_builder::GlyphMatrixBuilder>,
-    ) {
+    ) -> Option<StatusLineOutputProgress> {
         if let Some(spec) = self.build_rust_status_line_spec(
             x,
             y,
@@ -845,8 +881,9 @@ impl LayoutEngine {
             face_resolver,
             kind,
         ) {
-            self.render_status_line_spec_via_backend(&spec, builder);
+            return self.render_status_line_spec_via_backend(&spec, Some(matrix_row), builder);
         }
+        None
     }
 
     fn resolved_status_line_face_at_string_byte(
