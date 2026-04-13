@@ -2062,7 +2062,7 @@ fn read_char_mouse_press_uses_clicked_window_geometry() {
             header_line_height: 0,
             tab_line_height: 0,
             logical_cursor: None,
-            cursor: None,
+            phys_cursor: None,
             points: vec![crate::window::DisplayPointSnapshot {
                 buffer_pos: 77,
                 x: 20,
@@ -2172,7 +2172,7 @@ fn read_key_sequence_uses_clicked_window_local_map_for_mouse_event() {
             header_line_height: 0,
             tab_line_height: 0,
             logical_cursor: None,
-            cursor: None,
+            phys_cursor: None,
             points: vec![crate::window::DisplayPointSnapshot {
                 buffer_pos: 77,
                 x: 20,
@@ -2267,7 +2267,7 @@ fn read_key_sequence_drops_unbound_down_mouse_before_bound_click() {
             header_line_height: 0,
             tab_line_height: 0,
             logical_cursor: None,
-            cursor: None,
+            phys_cursor: None,
             points: vec![crate::window::DisplayPointSnapshot {
                 buffer_pos: 77,
                 x: 20,
@@ -2474,7 +2474,7 @@ fn read_key_sequence_uses_clicked_window_buffer_local_minor_mode_maps() {
             header_line_height: 0,
             tab_line_height: 0,
             logical_cursor: None,
-            cursor: None,
+            phys_cursor: None,
             points: vec![crate::window::DisplayPointSnapshot {
                 buffer_pos: 77,
                 x: 20,
@@ -2566,7 +2566,7 @@ fn read_key_sequence_prefixes_mode_line_mouse_click_for_lookup() {
             header_line_height: 0,
             tab_line_height: 0,
             logical_cursor: None,
-            cursor: None,
+            phys_cursor: None,
             points: Vec::new(),
             rows: Vec::new(),
         }]);

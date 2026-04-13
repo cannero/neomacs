@@ -5091,7 +5091,7 @@ impl LayoutEngine {
             header_line_height: header_line_height.round() as i64,
             tab_line_height: tab_line_height.round() as i64,
             logical_cursor: emitted_logical_cursor,
-            cursor: emitted_window_cursor,
+            phys_cursor: emitted_window_cursor,
             points: display_points,
             rows: display_rows,
         });
@@ -6018,7 +6018,7 @@ mod tests {
         let snapshot = frame
             .window_display_snapshot(selected_window)
             .expect("display snapshot");
-        let cursor = snapshot.cursor.as_ref().expect("cursor");
+        let cursor = snapshot.phys_cursor.as_ref().expect("cursor");
         let next_visible = snapshot
             .point_for_buffer_pos(next_visible_pos)
             .expect("next visible point");
@@ -6082,7 +6082,7 @@ mod tests {
         let snapshot = frame
             .window_display_snapshot(selected_window)
             .expect("display snapshot");
-        let cursor = snapshot.cursor.as_ref().expect("cursor");
+        let cursor = snapshot.phys_cursor.as_ref().expect("cursor");
         let c = snapshot.point_for_buffer_pos(3).expect("c");
         let d = snapshot.point_for_buffer_pos(7).expect("d");
         assert_eq!(cursor.x, c.x + c.width);
@@ -6195,7 +6195,7 @@ mod tests {
         let snapshot = frame
             .window_display_snapshot(selected_window)
             .expect("display snapshot");
-        let cursor = snapshot.cursor.as_ref().expect("cursor");
+        let cursor = snapshot.phys_cursor.as_ref().expect("cursor");
         assert_eq!(cursor.x, 0);
         assert_eq!(cursor.row, 0);
         assert_eq!(cursor.col, 0);
@@ -6254,7 +6254,7 @@ mod tests {
         let snapshot = frame
             .window_display_snapshot(selected_window)
             .expect("display snapshot");
-        let cursor = snapshot.cursor.as_ref().expect("cursor");
+        let cursor = snapshot.phys_cursor.as_ref().expect("cursor");
         let a = snapshot.point_for_buffer_pos(1).expect("a");
         let b = snapshot.point_for_buffer_pos(3).expect("b");
         let full_tab_slot_width = b.x - (a.x + a.width);
@@ -6381,7 +6381,7 @@ mod tests {
         let snapshot = frame
             .window_display_snapshot(selected_window)
             .expect("display snapshot");
-        let cursor = snapshot.cursor.as_ref().expect("cursor");
+        let cursor = snapshot.phys_cursor.as_ref().expect("cursor");
         let a = snapshot.point_for_buffer_pos(1).expect("a");
         let b = snapshot.point_for_buffer_pos(3).expect("b");
         let full_slot_width = b.x - (a.x + a.width);

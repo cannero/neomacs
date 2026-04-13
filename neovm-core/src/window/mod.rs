@@ -947,8 +947,9 @@ pub struct WindowDisplaySnapshot {
     /// Intended cursor position in the redisplay result, even when no physical
     /// cursor was emitted.
     pub logical_cursor: Option<WindowCursorPos>,
-    /// Last redisplay cursor geometry for this window, if the cursor was shown.
-    pub cursor: Option<WindowCursorSnapshot>,
+    /// Last redisplay physical cursor geometry for this window, if the cursor
+    /// was shown.
+    pub phys_cursor: Option<WindowCursorSnapshot>,
     /// Visible source-position geometry, sorted by `buffer_pos`.
     pub points: Vec<DisplayPointSnapshot>,
     /// Visible row metrics, sorted by `row`.
@@ -957,8 +958,11 @@ pub struct WindowDisplaySnapshot {
 
 impl WindowDisplaySnapshot {
     pub fn logical_cursor_pos(&self) -> Option<WindowCursorPos> {
-        self.logical_cursor
-            .or_else(|| self.cursor.as_ref().map(WindowCursorPos::from_snapshot))
+        self.logical_cursor.or_else(|| {
+            self.phys_cursor
+                .as_ref()
+                .map(WindowCursorPos::from_snapshot)
+        })
     }
 
     pub fn output_cursor_pos(&self) -> Option<WindowCursorPos> {
@@ -1080,7 +1084,7 @@ impl Default for WindowDisplaySnapshot {
             header_line_height: 0,
             tab_line_height: 0,
             logical_cursor: None,
-            cursor: None,
+            phys_cursor: None,
             points: Vec::new(),
             rows: Vec::new(),
         }
@@ -1536,7 +1540,7 @@ impl Frame {
         {
             display.install_logical_cursor(snapshot.logical_cursor_pos());
             display.commit_output_cursor_from_display_snapshot(snapshot);
-            display.apply_physical_cursor_snapshot(snapshot.cursor.clone());
+            display.apply_physical_cursor_snapshot(snapshot.phys_cursor.clone());
             display.commit_completed_redisplay();
         }
     }
@@ -3106,7 +3110,7 @@ mod tests {
         frame.char_height = 20.0;
         frame.replace_display_snapshots(vec![WindowDisplaySnapshot {
             window_id: w1,
-            cursor: Some(WindowCursorSnapshot {
+            phys_cursor: Some(WindowCursorSnapshot {
                 kind: WindowCursorKind::Bar,
                 x: 7,
                 y: 13,
@@ -3196,7 +3200,7 @@ mod tests {
         let frame = mgr.get_mut(fid).unwrap();
         frame.replace_display_snapshots(vec![WindowDisplaySnapshot {
             window_id: wid,
-            cursor: Some(cursor.clone()),
+            phys_cursor: Some(cursor.clone()),
             rows: vec![DisplayRowSnapshot {
                 row: 1,
                 y: 29,
@@ -3247,7 +3251,7 @@ mod tests {
         };
         let snapshot = WindowDisplaySnapshot {
             window_id: wid,
-            cursor: Some(cursor.clone()),
+            phys_cursor: Some(cursor.clone()),
             rows: vec![DisplayRowSnapshot {
                 row: 1,
                 y: 29,
@@ -3265,7 +3269,7 @@ mod tests {
         frame.commit_window_output_snapshot(&snapshot);
         frame.set_display_snapshots(vec![WindowDisplaySnapshot {
             window_id: wid,
-            cursor: None,
+            phys_cursor: None,
             ..WindowDisplaySnapshot::default()
         }]);
 
@@ -3279,7 +3283,7 @@ mod tests {
         assert_eq!(
             frame
                 .window_display_snapshot(wid)
-                .and_then(|snapshot| snapshot.cursor.as_ref()),
+                .and_then(|snapshot| snapshot.phys_cursor.as_ref()),
             None
         );
     }
@@ -3356,7 +3360,7 @@ mod tests {
 
         frame.replace_display_snapshots(vec![WindowDisplaySnapshot {
             window_id: wid,
-            cursor: Some(cursor),
+            phys_cursor: Some(cursor),
             ..WindowDisplaySnapshot::default()
         }]);
 
@@ -3382,7 +3386,7 @@ mod tests {
         };
         let snapshot = WindowDisplaySnapshot {
             window_id: WindowId(1),
-            cursor: Some(cursor.clone()),
+            phys_cursor: Some(cursor.clone()),
             rows: vec![DisplayRowSnapshot {
                 row: 2,
                 y: 21,
@@ -3501,7 +3505,7 @@ mod tests {
         };
         let snapshot = WindowDisplaySnapshot {
             window_id: WindowId(1),
-            cursor: Some(cursor.clone()),
+            phys_cursor: Some(cursor.clone()),
             rows: vec![DisplayRowSnapshot {
                 row: 2,
                 y: 32,
@@ -3548,7 +3552,7 @@ mod tests {
         };
         let snapshot = WindowDisplaySnapshot {
             window_id: WindowId(1),
-            cursor: Some(cursor.clone()),
+            phys_cursor: Some(cursor.clone()),
             rows: vec![
                 DisplayRowSnapshot {
                     row: 0,
