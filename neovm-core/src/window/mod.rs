@@ -199,12 +199,18 @@ impl WindowDisplayState {
         self.output_cursor = self.cursor;
     }
 
-    pub fn commit_output_cursor_from_display_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
-        if let Some(cursor) = snapshot.output_cursor_pos() {
-            self.output_cursor = Some(cursor);
-        } else {
+    pub fn replay_output_rows(&mut self, rows: &[DisplayRowSnapshot]) {
+        if rows.is_empty() {
             self.clear_output_cursor_state();
+            return;
         }
+        for row in rows {
+            self.output_cursor_to(row.row, row.end_col, row.y, row.end_x);
+        }
+    }
+
+    pub fn commit_output_cursor_from_display_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
+        self.replay_output_rows(&snapshot.rows);
     }
 
     pub fn output_cursor_to(&mut self, row: i64, col: i64, y: i64, x: i64) {
@@ -3468,6 +3474,82 @@ mod tests {
                 y: 32,
                 row: 2,
                 col: 12,
+            })
+        );
+        assert_eq!(display.last_cursor_vpos, 2);
+        assert_eq!(display.phys_cursor, Some(cursor));
+    }
+
+    #[test]
+    fn output_pass_keeps_cursor_target_and_output_progress_separate() {
+        let cursor = WindowCursorSnapshot {
+            kind: WindowCursorKind::Bar,
+            x: 18,
+            y: 16,
+            width: 3,
+            height: 16,
+            ascent: 12,
+            row: 1,
+            col: 2,
+        };
+        let snapshot = WindowDisplaySnapshot {
+            window_id: WindowId(1),
+            cursor: Some(cursor.clone()),
+            rows: vec![
+                DisplayRowSnapshot {
+                    row: 0,
+                    y: 0,
+                    height: 16,
+                    end_x: 64,
+                    end_col: 8,
+                    start_buffer_pos: Some(1),
+                    end_buffer_pos: Some(8),
+                },
+                DisplayRowSnapshot {
+                    row: 1,
+                    y: 16,
+                    height: 16,
+                    end_x: 72,
+                    end_col: 9,
+                    start_buffer_pos: Some(9),
+                    end_buffer_pos: Some(17),
+                },
+                DisplayRowSnapshot {
+                    row: 2,
+                    y: 32,
+                    height: 16,
+                    end_x: 80,
+                    end_col: 10,
+                    start_buffer_pos: Some(18),
+                    end_buffer_pos: Some(27),
+                },
+            ],
+            ..WindowDisplaySnapshot::default()
+        };
+        let mut display = WindowDisplayState::default();
+
+        display.begin_output_pass();
+        display.install_logical_cursor(Some(WindowCursorPos::from_snapshot(&cursor)));
+        display.commit_output_cursor_from_display_snapshot(&snapshot);
+        display.apply_physical_cursor_snapshot(Some(cursor.clone()));
+        display.commit_completed_redisplay();
+
+        assert_eq!(
+            display.cursor,
+            Some(WindowCursorPos {
+                x: 18,
+                y: 16,
+                row: 1,
+                col: 2,
+            })
+        );
+        assert_eq!(
+            display.output_cursor,
+            Some(WindowCursorPos {
+                x: 80,
+                y: 32,
+                row: 2,
+                col: 10,
             })
         );
         assert_eq!(display.last_cursor_vpos, 2);
