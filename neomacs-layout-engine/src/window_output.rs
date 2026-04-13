@@ -34,6 +34,8 @@ pub(crate) struct WindowOutputEmitter {
     text_row_base: i64,
     text_x: f32,
     window_top: f32,
+    logical_cursor: Option<WindowCursorPos>,
+    phys_cursor: Option<WindowCursorSnapshot>,
     points: Vec<DisplayPointSnapshot>,
     rows: Vec<DisplayRowSnapshot>,
     row_metrics: Vec<RowMetricsSnapshot>,
@@ -56,6 +58,8 @@ impl WindowOutputEmitter {
             text_row_base: text_row_base as i64,
             text_x,
             window_top,
+            logical_cursor: None,
+            phys_cursor: None,
             points: Vec::new(),
             rows: Vec::new(),
             row_metrics: Vec::new(),
@@ -143,6 +147,28 @@ impl WindowOutputEmitter {
             row,
             col: col as i64,
         });
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn push_text_display_point(
+        &mut self,
+        buffer_pos: i64,
+        glyph_x: f32,
+        glyph_y: f32,
+        width: f32,
+        height: f32,
+        row: usize,
+        col: usize,
+    ) {
+        self.push_display_point(
+            buffer_pos,
+            glyph_x,
+            glyph_y,
+            width,
+            height,
+            self.text_row_base + row as i64,
+            col,
+        );
     }
 
     pub(crate) fn begin_row(
@@ -266,11 +292,17 @@ impl WindowOutputEmitter {
         );
     }
 
+    pub(crate) fn set_logical_cursor(&mut self, cursor: WindowCursorPos) {
+        self.logical_cursor = Some(cursor);
+    }
+
+    pub(crate) fn set_phys_cursor(&mut self, cursor: WindowCursorSnapshot) {
+        self.phys_cursor = Some(cursor);
+    }
+
     pub(crate) fn finish_snapshot(
         mut self,
         evaluator: &mut Context,
-        logical_cursor: Option<WindowCursorPos>,
-        phys_cursor: Option<WindowCursorSnapshot>,
         text_area_left_offset: i64,
         mode_line_height: i64,
         header_line_height: i64,
@@ -278,6 +310,8 @@ impl WindowOutputEmitter {
     ) -> WindowDisplaySnapshot {
         let frame_id = self.frame_id;
         let window_id = self.window_id;
+        let logical_cursor = self.logical_cursor.take();
+        let phys_cursor = self.phys_cursor.take();
         self.rows.sort_by_key(|row| row.row);
         let snapshot = WindowDisplaySnapshot {
             window_id,

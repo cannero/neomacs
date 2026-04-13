@@ -3222,13 +3222,13 @@ impl LayoutEngine {
                                 display_width,
                                 display_height,
                             );
-                            output_emitter.push_display_point(
+                            output_emitter.push_text_display_point(
                                 charpos + 1,
                                 x,
                                 image_y,
                                 display_width,
                                 display_height,
-                                window_text_row(row),
+                                row,
                                 col,
                             );
                             row_max_height = row_max_height.max(display_height);
@@ -3587,13 +3587,13 @@ impl LayoutEngine {
                         },
                     );
                 }
-                output_emitter.push_display_point(
+                output_emitter.push_text_display_point(
                     charpos + 1,
                     x_before_tab,
                     y + raise_y_offset,
                     spaces as f32 * face_space_w,
                     char_h,
-                    window_text_row(row),
+                    row,
                     col,
                 );
                 x += spaces as f32 * face_space_w;
@@ -3712,13 +3712,13 @@ impl LayoutEngine {
                 if params.escape_glyph_fg != 0 {
                     current_face_id += 1;
                 }
-                output_emitter.push_display_point(
+                output_emitter.push_text_display_point(
                     charpos + 1,
                     x,
                     y + raise_y_offset,
                     needed_width,
                     char_h,
-                    window_text_row(row),
+                    row,
                     col,
                 );
                 x += face_char_w;
@@ -3743,13 +3743,13 @@ impl LayoutEngine {
                         }
                         // Render as visible space or hyphen
                         let _display_ch = if ch == '\u{00A0}' { ' ' } else { '-' };
-                        output_emitter.push_display_point(
+                        output_emitter.push_text_display_point(
                             charpos + 1,
                             x,
                             y + raise_y_offset,
                             face_char_w,
                             char_h,
-                            window_text_row(row),
+                            row,
                             col,
                         );
                         x += face_char_w;
@@ -3769,13 +3769,13 @@ impl LayoutEngine {
                         // Check if 2 columns fit
                         let needed = 2.0 * face_char_w;
                         if x + needed <= content_x + avail_width {
-                            output_emitter.push_display_point(
+                            output_emitter.push_text_display_point(
                                 charpos + 1,
                                 x,
                                 y + raise_y_offset,
                                 needed,
                                 char_h,
-                                window_text_row(row),
+                                row,
                                 col,
                             );
                             x += face_char_w;
@@ -4113,13 +4113,13 @@ impl LayoutEngine {
                     height_scale,
                 );
             }
-            output_emitter.push_display_point(
+            output_emitter.push_text_display_point(
                 charpos + 1,
                 x,
                 y + raise_y_offset,
                 advance,
                 face_h,
-                window_text_row(row),
+                row,
                 col,
             );
             self.run_buf.push(ch, advance);
@@ -4376,8 +4376,6 @@ impl LayoutEngine {
             }
         }
 
-        let mut emitted_logical_cursor: Option<WindowCursorPos> = None;
-        let mut emitted_window_cursor: Option<WindowCursorSnapshot> = None;
         if params.point >= window_start && (params.point <= charpos || point_is_visible_eob) {
             if let Some(cursor) = cursor_info {
                 let row_metric = row_metrics_for_cursor(
@@ -4388,7 +4386,7 @@ impl LayoutEngine {
                     row_max_height,
                     row_max_ascent,
                 );
-                emitted_logical_cursor = Some(WindowCursorPos {
+                output_emitter.set_logical_cursor(WindowCursorPos {
                     x: (cursor.x - text_area_left).round() as i64,
                     y: (row_metric.pixel_y - window_top).round() as i64,
                     row: window_text_row(cursor.matrix_row),
@@ -4485,7 +4483,7 @@ impl LayoutEngine {
                             resolved_cursor.col as u16,
                             resolved_cursor.style,
                         );
-                        emitted_window_cursor = Some(WindowCursorSnapshot {
+                        output_emitter.set_phys_cursor(WindowCursorSnapshot {
                             kind: window_cursor_kind(resolved_cursor.style),
                             x: (resolved_cursor.x - text_area_left).round() as i64,
                             y: (resolved_cursor.y - window_top).round() as i64,
@@ -4961,8 +4959,6 @@ impl LayoutEngine {
 
         let snapshot = output_emitter.finish_snapshot(
             evaluator,
-            emitted_logical_cursor,
-            emitted_window_cursor.clone(),
             (text_area_left - params.bounds.x).round() as i64,
             mode_line_height.round() as i64,
             header_line_height.round() as i64,
