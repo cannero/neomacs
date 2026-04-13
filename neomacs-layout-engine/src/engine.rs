@@ -4355,8 +4355,6 @@ impl LayoutEngine {
                 }
             }
 
-            output_emitter.advance_text_progress(evaluator, row, col, y, x);
-
             // Track trailing whitespace
             if trailing_ws_bg.is_some() {
                 if ch == ' ' || ch == '\t' {
