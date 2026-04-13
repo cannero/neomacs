@@ -166,31 +166,51 @@ impl Default for WindowDisplayState {
 impl WindowDisplayState {
     pub fn clear_cursor_state(&mut self) {
         self.cursor = None;
+        self.clear_output_cursor_state();
         self.clear_physical_cursor_state();
+    }
+
+    pub fn clear_output_cursor_state(&mut self) {
+        self.output_cursor = None;
     }
 
     pub fn clear_physical_cursor_state(&mut self) {
         self.phys_cursor = None;
-        self.output_cursor = None;
         self.phys_cursor_type = WindowCursorKind::NoCursor;
         self.phys_cursor_on_p = false;
+    }
+
+    pub fn install_logical_cursor(&mut self, cursor: Option<WindowCursorPos>) {
+        self.cursor = cursor;
     }
 
     pub fn commit_output_cursor_from_cursor(&mut self) {
         self.output_cursor = self.cursor;
     }
 
-    pub fn apply_cursor_snapshot(&mut self, cursor: Option<WindowCursorSnapshot>) {
-        self.cursor = cursor.as_ref().map(WindowCursorPos::from_snapshot);
-        self.commit_output_cursor_from_cursor();
+    pub fn output_cursor_to(&mut self, row: i64, col: i64, y: i64, x: i64) {
+        self.output_cursor = Some(WindowCursorPos { x, y, row, col });
+    }
+
+    pub fn apply_physical_cursor_snapshot(&mut self, cursor: Option<WindowCursorSnapshot>) {
         self.phys_cursor = cursor.clone();
         self.phys_cursor_type = cursor
             .as_ref()
             .map(|c| c.kind)
             .unwrap_or(WindowCursorKind::NoCursor);
         self.phys_cursor_on_p = cursor.is_some();
+    }
+
+    pub fn commit_completed_redisplay(&mut self) {
         self.last_cursor_off_p = self.cursor_off_p;
         self.last_cursor_vpos = self.cursor.as_ref().map(|c| c.row).unwrap_or(0);
+    }
+
+    pub fn apply_cursor_snapshot(&mut self, cursor: Option<WindowCursorSnapshot>) {
+        self.install_logical_cursor(cursor.as_ref().map(WindowCursorPos::from_snapshot));
+        self.commit_output_cursor_from_cursor();
+        self.apply_physical_cursor_snapshot(cursor);
+        self.commit_completed_redisplay();
     }
 }
 
@@ -3173,12 +3193,42 @@ mod tests {
 
         let cursor_pos = WindowCursorPos::from_snapshot(&cursor);
         assert_eq!(display.cursor, Some(cursor_pos));
-        assert_eq!(display.output_cursor, None);
+        assert_eq!(display.output_cursor, Some(cursor_pos));
         assert_eq!(display.phys_cursor, None);
         assert_eq!(display.phys_cursor_type, WindowCursorKind::NoCursor);
         assert!(!display.phys_cursor_on_p);
         assert!(!display.last_cursor_off_p);
         assert_eq!(display.last_cursor_vpos, cursor.row);
+    }
+
+    #[test]
+    fn output_cursor_tracks_explicit_output_lifecycle() {
+        let logical_cursor = WindowCursorPos {
+            x: 12,
+            y: 24,
+            row: 1,
+            col: 3,
+        };
+        let mut display = WindowDisplayState::default();
+
+        display.install_logical_cursor(Some(logical_cursor));
+        assert_eq!(display.cursor, Some(logical_cursor));
+        assert_eq!(display.output_cursor, None);
+
+        display.commit_output_cursor_from_cursor();
+        assert_eq!(display.output_cursor, Some(logical_cursor));
+
+        display.output_cursor_to(1, 6, 24, 36);
+        assert_eq!(
+            display.output_cursor,
+            Some(WindowCursorPos {
+                x: 36,
+                y: 24,
+                row: 1,
+                col: 6,
+            })
+        );
+        assert_eq!(display.cursor, Some(logical_cursor));
     }
 
     #[test]
