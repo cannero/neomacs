@@ -9,6 +9,7 @@ use super::font_metrics::{FontMetrics, FontMetricsService};
 use super::hit_test::*;
 use super::types::*;
 use super::unicode::*;
+use super::window_output::{RowMetricsSnapshot, WindowOutputEmitter};
 use neomacs_display_protocol::frame_glyphs::{
     CursorStyle, DisplaySlotId, FrameGlyphBuffer, GlyphRowRole, PhysCursor, WindowEffectHint,
     WindowInfo, WindowTransitionHint, WindowTransitionKind,
@@ -431,14 +432,6 @@ fn skip_to_newline(text: &[u8], byte_idx: &mut usize, charpos: &mut i64) -> bool
     false
 }
 
-#[derive(Clone, Copy, Debug)]
-struct RowMetricsSnapshot {
-    row: usize,
-    pixel_y: f32,
-    height: f32,
-    ascent: f32,
-}
-
 fn row_metrics_for_cursor(
     row_metrics: &[RowMetricsSnapshot],
     cursor_row: usize,
@@ -486,103 +479,6 @@ fn resolve_cursor_vertical_metrics(
     let minimum_height = default_line_height.max(1.0).min(row_height);
     let height = (ascent + glyph_descent).max(minimum_height).min(row_height);
     (y, height, ascent.min(height))
-}
-
-struct WindowOutputEmitter {
-    frame_id: neovm_core::window::FrameId,
-    window_id: neovm_core::window::WindowId,
-    text_x: f32,
-    window_top: f32,
-}
-
-impl WindowOutputEmitter {
-    fn new(
-        frame_id: neovm_core::window::FrameId,
-        window_id: neovm_core::window::WindowId,
-        text_x: f32,
-        window_top: f32,
-    ) -> Self {
-        Self {
-            frame_id,
-            window_id,
-            text_x,
-            window_top,
-        }
-    }
-
-    fn begin_row(
-        &self,
-        evaluator: &mut neovm_core::emacs_core::Context,
-        row: i64,
-        col: i64,
-        y: i64,
-        x: i64,
-    ) {
-        if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
-            frame.begin_window_output_row(self.window_id, row, col, y, x);
-        }
-    }
-
-    fn advance_progress(
-        &self,
-        evaluator: &mut neovm_core::emacs_core::Context,
-        row: i64,
-        col: i64,
-        y: i64,
-        x: i64,
-    ) {
-        if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
-            frame.advance_window_output_progress(self.window_id, row, col, y, x);
-        }
-    }
-
-    fn push_text_row(
-        &self,
-        evaluator: &mut neovm_core::emacs_core::Context,
-        rows: &mut Vec<DisplayRowSnapshot>,
-        row_metrics: &mut Vec<RowMetricsSnapshot>,
-        row: i64,
-        row_y_start: f32,
-        row_height: f32,
-        row_ascent: f32,
-        row_end_x: f32,
-        row_end_col: usize,
-        row_first_display_pos: &mut Option<usize>,
-        row_last_display_pos: &mut Option<usize>,
-    ) {
-        rows.push(DisplayRowSnapshot {
-            row,
-            y: (row_y_start - self.window_top).round() as i64,
-            height: row_height.max(1.0).round() as i64,
-            end_x: (row_end_x - self.text_x).round() as i64,
-            end_col: row_end_col as i64,
-            start_buffer_pos: row_first_display_pos.take(),
-            end_buffer_pos: row_last_display_pos.take(),
-        });
-        row_metrics.push(RowMetricsSnapshot {
-            row: row.max(0) as usize,
-            pixel_y: row_y_start,
-            height: row_height.max(1.0),
-            ascent: row_ascent.max(0.0).min(row_height.max(1.0)),
-        });
-        if let Some(row) = rows.last()
-            && let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id)
-        {
-            frame.finish_window_output_row(self.window_id, row);
-        }
-    }
-
-    fn push_chrome_row(
-        &self,
-        evaluator: &mut neovm_core::emacs_core::Context,
-        chrome_rows: &mut Vec<DisplayRowSnapshot>,
-        row: DisplayRowSnapshot,
-    ) {
-        if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
-            frame.finish_window_output_row(self.window_id, &row);
-        }
-        chrome_rows.push(row);
-    }
 }
 
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
