@@ -212,7 +212,7 @@ impl WindowDisplayState {
             return;
         }
         for row in rows {
-            self.output_cursor_to(row.row, row.end_col, row.y, row.end_x);
+            self.finish_output_row(row);
         }
     }
 
@@ -220,12 +220,19 @@ impl WindowDisplayState {
         self.replay_output_rows(&snapshot.rows);
     }
 
-    pub fn commit_output_row(&mut self, row: &DisplayRowSnapshot) {
-        self.output_cursor_to(row.row, row.end_col, row.y, row.end_x);
+    /// Start emitting a new output row.
+    pub fn begin_output_row(&mut self, row: i64, col: i64, y: i64, x: i64) {
+        self.output_cursor = Some(WindowCursorPos { x, y, row, col });
     }
 
-    pub fn output_cursor_to(&mut self, row: i64, col: i64, y: i64, x: i64) {
+    /// Advance output progress within the currently emitted row.
+    pub fn advance_output_progress(&mut self, row: i64, col: i64, y: i64, x: i64) {
         self.output_cursor = Some(WindowCursorPos { x, y, row, col });
+    }
+
+    /// Finish emitting a row from its final row geometry.
+    pub fn finish_output_row(&mut self, row: &DisplayRowSnapshot) {
+        self.advance_output_progress(row.row, row.end_col, row.y, row.end_x);
     }
 
     pub fn apply_physical_cursor_snapshot(&mut self, cursor: Option<WindowCursorSnapshot>) {
@@ -1553,23 +1560,46 @@ impl Frame {
         }
     }
 
-    /// Advance one live window's output cursor from an emitted display row.
-    pub fn commit_window_output_row(&mut self, window_id: WindowId, row: &DisplayRowSnapshot) {
+    /// Finish one emitted display row for a live window.
+    pub fn finish_window_output_row(&mut self, window_id: WindowId, row: &DisplayRowSnapshot) {
         if let Some(window) = self.find_window_mut(window_id)
             && let Some(display) = window.display_mut()
         {
-            display.commit_output_row(row);
+            display.finish_output_row(row);
         }
     }
 
-    /// Move one live window's output cursor to an in-progress output position.
-    ///
-    /// Mirrors GNU's `output_cursor_to` helper on `struct window`.
-    pub fn output_cursor_to(&mut self, window_id: WindowId, row: i64, col: i64, y: i64, x: i64) {
+    /// Start emitting a new output row for one live window.
+    pub fn begin_window_output_row(
+        &mut self,
+        window_id: WindowId,
+        row: i64,
+        col: i64,
+        y: i64,
+        x: i64,
+    ) {
         if let Some(window) = self.find_window_mut(window_id)
             && let Some(display) = window.display_mut()
         {
-            display.output_cursor_to(row, col, y, x);
+            display.begin_output_row(row, col, y, x);
+        }
+    }
+
+    /// Advance one live window's output cursor within the current output row.
+    ///
+    /// Mirrors GNU's `output_cursor_to` helper on `struct window`.
+    pub fn advance_window_output_progress(
+        &mut self,
+        window_id: WindowId,
+        row: i64,
+        col: i64,
+        y: i64,
+        x: i64,
+    ) {
+        if let Some(window) = self.find_window_mut(window_id)
+            && let Some(display) = window.display_mut()
+        {
+            display.advance_output_progress(row, col, y, x);
         }
     }
 
@@ -3634,7 +3664,7 @@ mod tests {
         display.commit_output_cursor_from_cursor();
         assert_eq!(display.output_cursor, Some(logical_cursor));
 
-        display.output_cursor_to(1, 6, 24, 36);
+        display.advance_output_progress(1, 6, 24, 36);
         assert_eq!(
             display.output_cursor,
             Some(WindowCursorPos {
@@ -3656,7 +3686,7 @@ mod tests {
             row: 1,
             col: 3,
         }));
-        display.output_cursor_to(4, 9, 72, 80);
+        display.advance_output_progress(4, 9, 72, 80);
 
         display.commit_completed_redisplay();
 
@@ -3743,7 +3773,7 @@ mod tests {
         let frame = mgr.get_mut(fid).expect("frame");
         frame.begin_display_output_pass();
         frame.begin_window_output_update(wid);
-        frame.commit_window_output_row(
+        frame.finish_window_output_row(
             wid,
             &DisplayRowSnapshot {
                 row: 2,
@@ -3774,7 +3804,7 @@ mod tests {
     }
 
     #[test]
-    fn frame_output_cursor_to_tracks_intra_row_progress() {
+    fn frame_output_progress_api_tracks_intra_row_progress() {
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().selected_window;
@@ -3782,8 +3812,8 @@ mod tests {
 
         frame.begin_display_output_pass();
         frame.begin_window_output_update(wid);
-        frame.output_cursor_to(wid, 2, 3, 32, 24);
-        frame.output_cursor_to(wid, 2, 7, 32, 56);
+        frame.begin_window_output_row(wid, 2, 3, 32, 24);
+        frame.advance_window_output_progress(wid, 2, 7, 32, 56);
 
         let display = frame
             .find_window(wid)

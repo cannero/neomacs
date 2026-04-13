@@ -519,7 +519,7 @@ fn push_display_row(
     });
 }
 
-fn commit_latest_output_row(
+fn finish_latest_output_row(
     evaluator: &mut neovm_core::emacs_core::Context,
     frame_id: neovm_core::window::FrameId,
     window_id: neovm_core::window::WindowId,
@@ -529,11 +529,22 @@ fn commit_latest_output_row(
         return;
     };
     if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
-        frame.commit_window_output_row(window_id, row);
+        frame.finish_window_output_row(window_id, row);
     }
 }
 
-fn output_cursor_to(
+fn finish_output_row(
+    evaluator: &mut neovm_core::emacs_core::Context,
+    frame_id: neovm_core::window::FrameId,
+    window_id: neovm_core::window::WindowId,
+    row: &DisplayRowSnapshot,
+) {
+    if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
+        frame.finish_window_output_row(window_id, row);
+    }
+}
+
+fn begin_output_row(
     evaluator: &mut neovm_core::emacs_core::Context,
     frame_id: neovm_core::window::FrameId,
     window_id: neovm_core::window::WindowId,
@@ -543,7 +554,21 @@ fn output_cursor_to(
     x: i64,
 ) {
     if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
-        frame.output_cursor_to(window_id, row, col, y, x);
+        frame.begin_window_output_row(window_id, row, col, y, x);
+    }
+}
+
+fn advance_output_progress(
+    evaluator: &mut neovm_core::emacs_core::Context,
+    frame_id: neovm_core::window::FrameId,
+    window_id: neovm_core::window::WindowId,
+    row: i64,
+    col: i64,
+    y: i64,
+    x: i64,
+) {
+    if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
+        frame.advance_window_output_progress(window_id, row, col, y, x);
     }
 }
 
@@ -2693,9 +2718,23 @@ impl LayoutEngine {
             buf_access.bytepos_to_charpos(text_start_byte as i64 + byte_idx as i64)
         };
 
-        macro_rules! sync_live_output_cursor {
+        macro_rules! begin_live_output_row {
             () => {
-                output_cursor_to(
+                begin_output_row(
+                    evaluator,
+                    frame_id,
+                    window_id,
+                    window_text_row(row),
+                    col as i64,
+                    (y - window_top).round() as i64,
+                    (x - text_area_left).round() as i64,
+                );
+            };
+        }
+
+        macro_rules! advance_live_output_progress {
+            () => {
+                advance_output_progress(
                     evaluator,
                     frame_id,
                     window_id,
@@ -2840,7 +2879,7 @@ impl LayoutEngine {
             text_matrix_row_base,
             neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text,
         );
-        sync_live_output_cursor!();
+        begin_live_output_row!();
 
         while byte_idx < text.len() && row < max_rows && y + row_max_height <= text_y + text_height
         {
@@ -3047,7 +3086,7 @@ impl LayoutEngine {
 
                     flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
-                    sync_live_output_cursor!();
+                    advance_live_output_progress!();
                     continue;
                 }
                 invis_next_check = next_visible;
@@ -3096,7 +3135,7 @@ impl LayoutEngine {
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
                     );
-                    commit_latest_output_row(evaluator, frame_id, window_id, &display_rows);
+                    finish_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                     hit_row_charpos_start = charpos;
                     row_extend_bg = None;
                     row_extend_row = -1;
@@ -3106,7 +3145,7 @@ impl LayoutEngine {
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
                     row_y_positions.push(y);
-                    sync_live_output_cursor!();
+                    begin_live_output_row!();
                     col = 0;
                     current_line += 1;
                     need_line_number = lnum_enabled;
@@ -3172,7 +3211,7 @@ impl LayoutEngine {
                             },
                         );
                     }
-                    sync_live_output_cursor!();
+                    advance_live_output_progress!();
                 }
                 continue;
             }
@@ -3242,7 +3281,7 @@ impl LayoutEngine {
                             byte_idx += ch_len;
                             charpos += 1;
                         }
-                        sync_live_output_cursor!();
+                        advance_live_output_progress!();
                         continue;
                     }
 
@@ -3287,7 +3326,7 @@ impl LayoutEngine {
                             byte_idx += ch_len;
                             charpos += 1;
                         }
-                        sync_live_output_cursor!();
+                        advance_live_output_progress!();
                         continue;
                     }
 
@@ -3407,7 +3446,7 @@ impl LayoutEngine {
                             byte_idx += ch_len;
                             charpos += 1;
                         }
-                        sync_live_output_cursor!();
+                        advance_live_output_progress!();
                         continue;
                     }
 
@@ -3505,7 +3544,7 @@ impl LayoutEngine {
                             &mut row_first_display_pos,
                             &mut row_last_display_pos,
                         );
-                        commit_latest_output_row(evaluator, frame_id, window_id, &display_rows);
+                        finish_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                         row_extend_bg = None;
                         row_extend_row = -1;
                         if box_active {
@@ -3517,7 +3556,7 @@ impl LayoutEngine {
                         row_max_height = char_h;
                         row_max_ascent = default_face_ascent;
                         row_y_positions.push(y);
-                        sync_live_output_cursor!();
+                        begin_live_output_row!();
                         charpos = sync_charpos_from_byte_idx(byte_idx);
                         hit_row_charpos_start = charpos;
                         col = 0;
@@ -3622,7 +3661,7 @@ impl LayoutEngine {
                     &mut row_first_display_pos,
                     &mut row_last_display_pos,
                 );
-                commit_latest_output_row(evaluator, frame_id, window_id, &display_rows);
+                finish_latest_output_row(evaluator, frame_id, window_id, &display_rows);
 
                 self.matrix_builder.end_row();
                 row += 1;
@@ -3634,7 +3673,7 @@ impl LayoutEngine {
                 row_max_height = char_h;
                 row_max_ascent = default_face_ascent;
                 row_y_positions.push(y);
-                sync_live_output_cursor!();
+                begin_live_output_row!();
                 charpos = sync_charpos_from_byte_idx(byte_idx);
                 hit_row_charpos_start = charpos;
                 if box_active {
@@ -3841,7 +3880,7 @@ impl LayoutEngine {
                             &mut row_first_display_pos,
                             &mut row_last_display_pos,
                         );
-                        commit_latest_output_row(evaluator, frame_id, window_id, &display_rows);
+                        finish_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                         row_extend_bg = None;
                         row_extend_row = -1;
                         row += 1;
@@ -3849,7 +3888,7 @@ impl LayoutEngine {
                         row_max_height = char_h;
                         row_max_ascent = default_face_ascent;
                         row_y_positions.push(y);
-                        sync_live_output_cursor!();
+                        begin_live_output_row!();
                         charpos = sync_charpos_from_byte_idx(byte_idx);
                         hit_row_charpos_start = charpos;
                         col = 0;
@@ -3890,7 +3929,7 @@ impl LayoutEngine {
                             &mut row_first_display_pos,
                             &mut row_last_display_pos,
                         );
-                        commit_latest_output_row(evaluator, frame_id, window_id, &display_rows);
+                        finish_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                         hit_row_charpos_start = charpos;
                         row_extend_bg = None;
                         row_extend_row = -1;
@@ -3899,7 +3938,7 @@ impl LayoutEngine {
                         row_max_height = char_h;
                         row_max_ascent = default_face_ascent;
                         row_y_positions.push(y);
-                        sync_live_output_cursor!();
+                        begin_live_output_row!();
                         col = 0;
                         trailing_ws_start_col = -1;
                         if row < max_rows {
@@ -4136,7 +4175,7 @@ impl LayoutEngine {
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
                     );
-                    commit_latest_output_row(evaluator, frame_id, window_id, &display_rows);
+                    finish_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                     row_extend_bg = None;
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
@@ -4149,7 +4188,7 @@ impl LayoutEngine {
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
                     row_y_positions.push(y);
-                    sync_live_output_cursor!();
+                    begin_live_output_row!();
                     col = 0;
                     word_wrap_may_wrap = false;
                     wrap_has_break = false;
@@ -4197,7 +4236,7 @@ impl LayoutEngine {
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
                     );
-                    commit_latest_output_row(evaluator, frame_id, window_id, &display_rows);
+                    finish_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                     row_extend_bg = None;
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
@@ -4210,7 +4249,7 @@ impl LayoutEngine {
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
                     row_y_positions.push(y);
-                    sync_live_output_cursor!();
+                    begin_live_output_row!();
                     charpos = sync_charpos_from_byte_idx(byte_idx);
                     hit_row_charpos_start = charpos;
                     if row < max_rows {
@@ -4262,7 +4301,7 @@ impl LayoutEngine {
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
                     );
-                    commit_latest_output_row(evaluator, frame_id, window_id, &display_rows);
+                    finish_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                     row_extend_bg = None;
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
@@ -4275,7 +4314,7 @@ impl LayoutEngine {
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
                     row_y_positions.push(y);
-                    sync_live_output_cursor!();
+                    begin_live_output_row!();
                     col = 0;
                     trailing_ws_start_col = -1;
                     if row < max_rows {
@@ -4459,7 +4498,7 @@ impl LayoutEngine {
                 }
             }
 
-            sync_live_output_cursor!();
+            advance_live_output_progress!();
 
             // Track trailing whitespace
             if trailing_ws_bg.is_some() {
@@ -4835,7 +4874,7 @@ impl LayoutEngine {
                 &mut row_first_display_pos,
                 &mut row_last_display_pos,
             );
-            commit_latest_output_row(evaluator, frame_id, window_id, &display_rows);
+            finish_latest_output_row(evaluator, frame_id, window_id, &display_rows);
         }
 
         // GNU redisplay keeps iterating until point visibility converges or no
@@ -5067,16 +5106,7 @@ impl LayoutEngine {
             );
             self.matrix_builder = builder;
             if let Some(progress) = tab_output {
-                output_cursor_to(
-                    evaluator,
-                    frame_id,
-                    window_id,
-                    0,
-                    progress.end_col,
-                    (progress.y - params.bounds.y).round() as i64,
-                    progress.end_x.round() as i64,
-                );
-                chrome_rows.push(DisplayRowSnapshot {
+                let row = DisplayRowSnapshot {
                     row: 0,
                     y: (progress.y - params.bounds.y).round() as i64,
                     height: progress.height.round() as i64,
@@ -5084,7 +5114,9 @@ impl LayoutEngine {
                     end_col: progress.end_col,
                     start_buffer_pos: None,
                     end_buffer_pos: None,
-                });
+                };
+                finish_output_row(evaluator, frame_id, window_id, &row);
+                chrome_rows.push(row);
             }
         }
 
@@ -5130,16 +5162,7 @@ impl LayoutEngine {
             );
             self.matrix_builder = builder;
             if let Some(progress) = header_output {
-                output_cursor_to(
-                    evaluator,
-                    frame_id,
-                    window_id,
-                    i64::from(tab_line_height > 0.0),
-                    progress.end_col,
-                    (progress.y - params.bounds.y).round() as i64,
-                    progress.end_x.round() as i64,
-                );
-                chrome_rows.push(DisplayRowSnapshot {
+                let row = DisplayRowSnapshot {
                     row: i64::from(tab_line_height > 0.0),
                     y: (progress.y - params.bounds.y).round() as i64,
                     height: progress.height.round() as i64,
@@ -5147,7 +5170,9 @@ impl LayoutEngine {
                     end_col: progress.end_col,
                     start_buffer_pos: None,
                     end_buffer_pos: None,
-                });
+                };
+                finish_output_row(evaluator, frame_id, window_id, &row);
+                chrome_rows.push(row);
             }
         }
 
@@ -5204,16 +5229,7 @@ impl LayoutEngine {
             );
             self.matrix_builder = builder;
             if let Some(progress) = mode_output {
-                output_cursor_to(
-                    evaluator,
-                    frame_id,
-                    window_id,
-                    mode_line_matrix_row as i64,
-                    progress.end_col,
-                    (progress.y - params.bounds.y).round() as i64,
-                    progress.end_x.round() as i64,
-                );
-                chrome_rows.push(DisplayRowSnapshot {
+                let row = DisplayRowSnapshot {
                     row: mode_line_matrix_row as i64,
                     y: (progress.y - params.bounds.y).round() as i64,
                     height: progress.height.round() as i64,
@@ -5221,7 +5237,9 @@ impl LayoutEngine {
                     end_col: progress.end_col,
                     start_buffer_pos: None,
                     end_buffer_pos: None,
-                });
+                };
+                finish_output_row(evaluator, frame_id, window_id, &row);
+                chrome_rows.push(row);
             }
         }
 
