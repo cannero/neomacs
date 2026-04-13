@@ -1572,16 +1572,42 @@ impl Frame {
         }
     }
 
+    /// Install one live window's intended cursor position from redisplay.
+    pub fn install_logical_cursor(&mut self, window_id: WindowId, cursor: Option<WindowCursorPos>) {
+        if let Some(window) = self.find_window_mut(window_id)
+            && let Some(display) = window.display_mut()
+        {
+            display.install_logical_cursor(cursor);
+        }
+    }
+
+    /// Install one live window's physical cursor geometry from redisplay.
+    pub fn apply_physical_cursor_snapshot(
+        &mut self,
+        window_id: WindowId,
+        cursor: Option<WindowCursorSnapshot>,
+    ) {
+        if let Some(window) = self.find_window_mut(window_id)
+            && let Some(display) = window.display_mut()
+        {
+            display.apply_physical_cursor_snapshot(cursor);
+        }
+    }
+
     /// Commit the output/cursor state for one live window from a redisplay snapshot.
     pub fn commit_window_output_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
         if let Some(window) = self.find_window_mut(snapshot.window_id)
             && let Some(display) = window.display_mut()
         {
-            display.install_logical_cursor(snapshot.logical_cursor_pos());
+            if display.cursor.is_none() {
+                display.install_logical_cursor(snapshot.logical_cursor_pos());
+            }
             if display.output_cursor.is_none() {
                 display.commit_output_cursor_from_display_snapshot(snapshot);
             }
-            display.apply_physical_cursor_snapshot(snapshot.phys_cursor.clone());
+            if display.phys_cursor.is_none() {
+                display.apply_physical_cursor_snapshot(snapshot.phys_cursor.clone());
+            }
             display.commit_completed_redisplay();
         }
     }
@@ -3693,6 +3719,77 @@ mod tests {
                 y: 32,
                 row: 2,
                 col: 7,
+            })
+        );
+    }
+
+    #[test]
+    fn commit_window_output_snapshot_preserves_live_logical_and_physical_cursor_state() {
+        let mut mgr = FrameManager::new();
+        let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+        let wid = mgr.get(fid).unwrap().selected_window;
+        let live_cursor = WindowCursorPos {
+            x: 18,
+            y: 16,
+            row: 1,
+            col: 2,
+        };
+        let live_phys = WindowCursorSnapshot {
+            kind: WindowCursorKind::Bar,
+            x: 18,
+            y: 16,
+            width: 3,
+            height: 16,
+            ascent: 12,
+            row: 1,
+            col: 2,
+        };
+        let snapshot_phys = WindowCursorSnapshot {
+            kind: WindowCursorKind::FilledBox,
+            x: 80,
+            y: 64,
+            width: 8,
+            height: 16,
+            ascent: 12,
+            row: 4,
+            col: 10,
+        };
+        let snapshot = WindowDisplaySnapshot {
+            window_id: wid,
+            logical_cursor: Some(WindowCursorPos::from_snapshot(&snapshot_phys)),
+            phys_cursor: Some(snapshot_phys),
+            rows: vec![DisplayRowSnapshot {
+                row: 4,
+                y: 64,
+                height: 16,
+                end_x: 144,
+                end_col: 18,
+                start_buffer_pos: Some(20),
+                end_buffer_pos: Some(38),
+            }],
+            ..WindowDisplaySnapshot::default()
+        };
+        let frame = mgr.get_mut(fid).expect("frame");
+
+        frame.begin_display_output_pass();
+        frame.begin_window_output_update(wid);
+        frame.install_logical_cursor(wid, Some(live_cursor));
+        frame.apply_physical_cursor_snapshot(wid, Some(live_phys.clone()));
+        frame.commit_window_output_snapshot(&snapshot);
+
+        let display = frame
+            .find_window(wid)
+            .and_then(|window| window.display())
+            .expect("window display state");
+        assert_eq!(display.cursor, Some(live_cursor));
+        assert_eq!(display.phys_cursor, Some(live_phys));
+        assert_eq!(
+            display.output_cursor,
+            Some(WindowCursorPos {
+                x: 144,
+                y: 64,
+                row: 4,
+                col: 18,
             })
         );
     }

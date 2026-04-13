@@ -5245,11 +5245,13 @@ impl LayoutEngine {
             header_line_height: header_line_height.round() as i64,
             tab_line_height: tab_line_height.round() as i64,
             logical_cursor: emitted_logical_cursor,
-            phys_cursor: emitted_window_cursor,
+            phys_cursor: emitted_window_cursor.clone(),
             points: display_points,
             rows: display_rows,
         };
         if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
+            frame.install_logical_cursor(window_id, emitted_logical_cursor);
+            frame.apply_physical_cursor_snapshot(window_id, emitted_window_cursor.clone());
             frame.commit_window_output_snapshot(&snapshot);
         }
         self.display_snapshots.push(snapshot);
