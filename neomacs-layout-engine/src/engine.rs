@@ -2908,6 +2908,8 @@ impl LayoutEngine {
 
                     // Render "..." ellipsis for non-t invisible property values
                     if show_ellipsis {
+                        let ellipsis_start_x = x;
+                        let ellipsis_start_col = col;
                         flush_run(&self.run_buf, ligatures);
                         self.run_buf.clear();
                         let right_limit = content_x + avail_width;
@@ -2918,6 +2920,15 @@ impl LayoutEngine {
                             x += face_char_w;
                             col += 1;
                         }
+                        output_emitter.emit_synthetic_text_span(
+                            evaluator,
+                            row,
+                            y,
+                            ellipsis_start_x,
+                            x - ellipsis_start_x,
+                            ellipsis_start_col,
+                            col,
+                        );
                     }
 
                     // Check for overlay strings at invisible region boundary.
@@ -3052,8 +3063,18 @@ impl LayoutEngine {
 
                     // When hscroll is exhausted, show $ indicator at left edge
                     if hscroll_remaining <= 0 && show_left_trunc {
+                        let trunc_start_x = content_x;
                         col = 1; // $ takes 1 column
                         x = content_x + char_w;
+                        output_emitter.emit_synthetic_text_span(
+                            evaluator,
+                            row,
+                            y,
+                            trunc_start_x,
+                            x - trunc_start_x,
+                            0,
+                            col,
+                        );
                     }
                     if cursor_info.is_none() && params.point == charpos {
                         capture_cursor_info(
@@ -3410,12 +3431,23 @@ impl LayoutEngine {
                 self.run_buf.clear();
                 // Show ... ellipsis indicator
                 let ellipsis = "...";
+                let ellipsis_start_x = x;
+                let ellipsis_start_col = col;
                 for _ech in ellipsis.chars() {
                     if x + face_char_w <= content_x + avail_width {
                         x += face_char_w;
                         col += 1;
                     }
                 }
+                output_emitter.emit_synthetic_text_span(
+                    evaluator,
+                    row,
+                    y,
+                    ellipsis_start_x,
+                    x - ellipsis_start_x,
+                    ellipsis_start_col,
+                    col,
+                );
                 // Skip remaining chars until newline
                 charpos += 1;
                 while byte_idx < text.len() {

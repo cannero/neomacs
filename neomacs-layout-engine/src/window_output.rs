@@ -218,6 +218,23 @@ impl WindowOutputEmitter {
         self.advance_text_progress(evaluator, row, end_col, row_y, glyph_x + width.max(0.0));
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn emit_synthetic_text_span(
+        &mut self,
+        evaluator: &mut Context,
+        row: usize,
+        row_y: f32,
+        glyph_x: f32,
+        width: f32,
+        start_col: usize,
+        end_col: usize,
+    ) {
+        if width <= 0.0 && start_col == end_col {
+            return;
+        }
+        self.advance_text_progress(evaluator, row, end_col, row_y, glyph_x + width.max(0.0));
+    }
+
     pub(crate) fn begin_row(
         &mut self,
         evaluator: &mut Context,
@@ -444,6 +461,47 @@ mod tests {
                 y: 0,
                 row: 0,
                 col: 3,
+            })
+        );
+    }
+
+    #[test]
+    fn emit_synthetic_text_span_advances_live_output_without_display_points() {
+        let mut eval = Context::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("output-emitter-synthetic", 320, 120, buf_id);
+        let window_id = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+
+        let mut emitter = WindowOutputEmitter::new(frame_id, window_id, 0, 0.0, 0.0);
+        emitter.begin_update(&mut eval);
+        emitter.begin_text_row(&mut eval, 0, 0, 0.0, 0.0);
+        emitter.emit_synthetic_text_span(&mut eval, 0, 0.0, 0.0, 16.0, 0, 2);
+
+        let display = eval
+            .frame_manager()
+            .get(frame_id)
+            .and_then(|frame| frame.find_window(window_id))
+            .and_then(|window| window.display())
+            .expect("window display state");
+
+        assert_eq!(emitter.display_point_len(), 0);
+        assert_eq!(
+            display.output_cursor,
+            Some(neovm_core::window::WindowCursorPos {
+                x: 16,
+                y: 0,
+                row: 0,
+                col: 2,
             })
         );
     }
