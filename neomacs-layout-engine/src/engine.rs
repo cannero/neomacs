@@ -4260,15 +4260,9 @@ impl LayoutEngine {
                     height_scale,
                 );
             }
-            output_emitter.push_text_display_point(
-                charpos + 1,
-                x,
-                y + raise_y_offset,
-                advance,
-                face_h,
-                row,
-                col,
-            );
+            let glyph_x = x;
+            let glyph_col = col;
+            let buffer_pos = charpos as i64 + 1;
             self.run_buf.push(ch, advance);
 
             // Record character into GlyphMatrix builder
@@ -4294,6 +4288,18 @@ impl LayoutEngine {
 
             x += advance;
             col += char_cols as usize;
+            output_emitter.emit_text_span(
+                evaluator,
+                buffer_pos,
+                row,
+                y,
+                glyph_x,
+                y + raise_y_offset,
+                advance,
+                face_h,
+                glyph_col,
+                col,
+            );
             charpos += 1;
             word_wrap_may_wrap = char_can_wrap_after_basic(ch);
 
