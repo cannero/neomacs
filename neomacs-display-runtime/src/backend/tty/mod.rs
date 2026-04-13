@@ -64,6 +64,20 @@ pub mod ansi {
         let _ = write!(buf, "\x1b[{};{}H", row, col);
     }
 
+    /// Set the visible terminal cursor shape using DECSCUSR (CSI Ps SP q).
+    ///
+    /// Uses steady shapes to avoid fighting Emacs-side blink control:
+    /// 2 = block, 4 = underline, 6 = bar.
+    pub fn cursor_shape(buf: &mut Vec<u8>, shape: TerminalCursorShape) {
+        use std::io::Write;
+        let ps = match shape {
+            TerminalCursorShape::Block => 2,
+            TerminalCursorShape::Underline => 4,
+            TerminalCursorShape::Bar => 6,
+        };
+        let _ = write!(buf, "\x1b[{} q", ps);
+    }
+
     /// Set foreground color using 24-bit true color (SGR 38;2;r;g;b).
     /// r, g, b are 0-255.
     pub fn fg_truecolor(buf: &mut Vec<u8>, r: u8, g: u8, b: u8) {
@@ -188,6 +202,14 @@ pub mod ansi {
                 inverse: false,
             }
         }
+    }
+
+    /// Terminal cursor shapes expressible via DECSCUSR.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum TerminalCursorShape {
+        Block,
+        Underline,
+        Bar,
     }
 }
 
@@ -763,15 +785,21 @@ fn apply_tty_cursor_visual_legacy(
     }
 }
 
-fn terminal_cursor_position(frame: &FrameGlyphBuffer) -> Option<((u16, u16), bool)> {
+fn terminal_cursor_state(
+    frame: &FrameGlyphBuffer,
+) -> Option<((u16, u16), bool, Option<ansi::TerminalCursorShape>)> {
     let cw = frame.char_width.max(1.0);
     let ch = frame.char_height.max(1.0);
 
     frame.phys_cursor.as_ref().map(|cursor| {
         let col = (cursor.x / cw) as u16;
         let row = (cursor.y / ch) as u16;
-        let visible = matches!(cursor.style, CursorStyle::Bar(_) | CursorStyle::Hbar(_));
-        ((col, row), visible)
+        let (visible, shape) = match cursor.style {
+            CursorStyle::Bar(_) => (true, Some(ansi::TerminalCursorShape::Bar)),
+            CursorStyle::Hbar(_) => (true, Some(ansi::TerminalCursorShape::Underline)),
+            CursorStyle::FilledBox | CursorStyle::Hollow => (false, None),
+        };
+        ((col, row), visible, shape)
     })
 }
 
@@ -822,6 +850,8 @@ pub struct TtyBackend {
     cursor_position: Option<(u16, u16)>,
     /// Whether to show the terminal cursor
     cursor_visible: bool,
+    /// Hardware cursor shape when the terminal cursor is visible.
+    cursor_shape: ansi::TerminalCursorShape,
 
     /// Last received FrameGlyphBuffer for rendering
     frame_glyphs: Option<FrameGlyphBuffer>,
@@ -847,6 +877,7 @@ impl TtyBackend {
             saved_termios: None,
             cursor_position: None,
             cursor_visible: false,
+            cursor_shape: ansi::TerminalCursorShape::Block,
             frame_glyphs: None,
         }
     }
@@ -881,6 +912,7 @@ impl TtyBackend {
         if let Some((col, row)) = self.cursor_position {
             ansi::cursor_goto(&mut self.output_buf, row + 1, col + 1);
             if self.cursor_visible {
+                ansi::cursor_shape(&mut self.output_buf, self.cursor_shape);
                 self.output_buf
                     .extend_from_slice(ansi::SHOW_CURSOR.as_bytes());
             } else {
@@ -949,8 +981,9 @@ impl DisplayBackend for TtyBackend {
 
         // Show cursor, leave alternate screen, reset attributes
         let shutdown_seq = format!(
-            "{}{}{}",
+            "{}{}{}{}",
             ansi::SGR_RESET,
+            "\x1b[2 q",
             ansi::SHOW_CURSOR,
             ansi::LEAVE_ALT_SCREEN,
         );
@@ -988,9 +1021,13 @@ impl DisplayBackend for TtyBackend {
 
             self.cursor_position = None;
             self.cursor_visible = false;
-            if let Some(((col, row), visible)) = terminal_cursor_position(frame) {
+            self.cursor_shape = ansi::TerminalCursorShape::Block;
+            if let Some(((col, row), visible, shape)) = terminal_cursor_state(frame) {
                 self.cursor_position = Some((col, row));
                 self.cursor_visible = visible;
+                if let Some(shape) = shape {
+                    self.cursor_shape = shape;
+                }
             }
         } else {
             // Fallback: render from Scene (limited -- Scene doesn't carry
@@ -2107,6 +2144,7 @@ mod tests {
         backend.force_full_render = false;
         backend.cursor_position = Some((5, 3));
         backend.cursor_visible = true;
+        backend.cursor_shape = ansi::TerminalCursorShape::Bar;
 
         // Make a change so build_output produces something
         backend.current.set(
@@ -2123,6 +2161,7 @@ mod tests {
         let s = String::from_utf8(backend.output_buf.clone()).unwrap();
         // Cursor should be positioned at row 4, col 6 (1-based)
         assert!(s.contains("\x1b[4;6H"));
+        assert!(s.contains("\x1b[6 q"));
         assert!(s.contains(ansi::SHOW_CURSOR));
     }
 
@@ -2201,6 +2240,96 @@ mod tests {
         assert_eq!(grid.get(0, 0).unwrap().attrs.bg, (0, 0, 0));
         assert_eq!(grid.get(1, 0).unwrap().attrs.bg, (255, 0, 0));
         assert_eq!(grid.get(1, 0).unwrap().attrs.fg, (0, 0, 0));
+    }
+
+    #[test]
+    fn test_terminal_cursor_state_uses_hardware_bar_shape() {
+        let mut frame = FrameGlyphBuffer::new();
+        frame.char_width = 8.0;
+        frame.char_height = 16.0;
+        frame.set_phys_cursor(crate::core::frame_glyphs::PhysCursor {
+            window_id: 0,
+            charpos: 0,
+            row: 1,
+            col: 2,
+            slot_id: DisplaySlotId {
+                window_id: 0,
+                row: 1,
+                col: 2,
+            },
+            x: 16.0,
+            y: 16.0,
+            width: 2.0,
+            height: 16.0,
+            ascent: 12.0,
+            style: CursorStyle::Bar(2.0),
+            color: Color::WHITE,
+            cursor_fg: Color::BLACK,
+        });
+
+        assert_eq!(
+            terminal_cursor_state(&frame),
+            Some(((2, 1), true, Some(ansi::TerminalCursorShape::Bar),))
+        );
+    }
+
+    #[test]
+    fn test_terminal_cursor_state_uses_hardware_underline_shape() {
+        let mut frame = FrameGlyphBuffer::new();
+        frame.char_width = 8.0;
+        frame.char_height = 16.0;
+        frame.set_phys_cursor(crate::core::frame_glyphs::PhysCursor {
+            window_id: 0,
+            charpos: 0,
+            row: 0,
+            col: 3,
+            slot_id: DisplaySlotId {
+                window_id: 0,
+                row: 0,
+                col: 3,
+            },
+            x: 24.0,
+            y: 0.0,
+            width: 8.0,
+            height: 2.0,
+            ascent: 12.0,
+            style: CursorStyle::Hbar(2.0),
+            color: Color::WHITE,
+            cursor_fg: Color::BLACK,
+        });
+
+        assert_eq!(
+            terminal_cursor_state(&frame),
+            Some(((3, 0), true, Some(ansi::TerminalCursorShape::Underline),))
+        );
+    }
+
+    #[test]
+    fn test_terminal_cursor_state_keeps_filled_box_software_only() {
+        let mut frame = FrameGlyphBuffer::new();
+        frame.char_width = 8.0;
+        frame.char_height = 16.0;
+        frame.set_phys_cursor(crate::core::frame_glyphs::PhysCursor {
+            window_id: 0,
+            charpos: 0,
+            row: 0,
+            col: 0,
+            slot_id: DisplaySlotId {
+                window_id: 0,
+                row: 0,
+                col: 0,
+            },
+            x: 0.0,
+            y: 0.0,
+            width: 8.0,
+            height: 16.0,
+            ascent: 12.0,
+            style: CursorStyle::FilledBox,
+            color: Color::WHITE,
+            cursor_fg: Color::BLACK,
+        });
+
+        assert_eq!(terminal_cursor_state(&frame), Some(((0, 0), false, None)));
     }
 
     #[test]
