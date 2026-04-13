@@ -831,23 +831,6 @@ impl FrameGlyphBuffer {
         )
     }
 
-    /// Clear buffer for new frame (legacy API)
-    pub fn begin_frame(&mut self, width: f32, height: f32, background: Color) {
-        self.width = width;
-        self.height = height;
-        self.background = background;
-        self.glyphs.clear();
-        self.transition_hints.clear();
-        self.effect_hints.clear();
-        self.phys_cursor = None;
-        self.window_cursors.clear();
-        self.stipple_patterns.clear();
-        self.faces.clear();
-        self.current_window_id = 0;
-        self.current_row_role = GlyphRowRole::Text;
-        self.current_clip_rect = None;
-    }
-
     /// Drain producer-emitted transition and effect hints exactly once.
     pub fn take_runtime_hints(&mut self) -> (Vec<WindowTransitionHint>, Vec<WindowEffectHint>) {
         (
@@ -1678,8 +1661,8 @@ mod tests {
 
     #[test]
     fn clear_all_preserves_frame_dimensions() {
-        let mut buf = FrameGlyphBuffer::new();
-        buf.begin_frame(1920.0, 1080.0, Color::BLUE);
+        let mut buf = FrameGlyphBuffer::with_size(1920.0, 1080.0);
+        buf.background = Color::BLUE;
         buf.add_char('X', 0.0, 0.0, 8.0, 16.0, 12.0, false);
 
         buf.clear_all();
@@ -1688,77 +1671,6 @@ mod tests {
         assert_eq!(buf.width, 1920.0);
         assert_eq!(buf.height, 1080.0);
         assert_color_eq(&buf.background, &Color::BLUE);
-    }
-
-    // =======================================================================
-    // begin_frame()
-    // =======================================================================
-
-    #[test]
-    fn begin_frame_sets_dimensions_and_background() {
-        let mut buf = FrameGlyphBuffer::new();
-        let bg = Color::rgb(0.1, 0.2, 0.3);
-        buf.begin_frame(800.0, 600.0, bg);
-
-        assert_eq!(buf.width, 800.0);
-        assert_eq!(buf.height, 600.0);
-        assert_color_eq(&buf.background, &bg);
-    }
-
-    #[test]
-    fn begin_frame_clears_glyphs() {
-        let mut buf = FrameGlyphBuffer::new();
-        buf.add_char('Z', 5.0, 5.0, 8.0, 16.0, 12.0, false);
-        assert_eq!(buf.len(), 1);
-
-        buf.begin_frame(800.0, 600.0, Color::BLACK);
-        assert!(buf.is_empty());
-    }
-
-    #[test]
-    fn begin_frame_clears_phys_cursor() {
-        let mut buf = FrameGlyphBuffer::new();
-        buf.set_phys_cursor(PhysCursor {
-            window_id: 1,
-            charpos: 1,
-            row: 0,
-            col: 0,
-            slot_id: DisplaySlotId::ZERO,
-            x: 0.0,
-            y: 0.0,
-            width: 8.0,
-            height: 16.0,
-            ascent: 12.0,
-            style: CursorStyle::FilledBox,
-            color: Color::WHITE,
-            cursor_fg: Color::BLACK,
-        });
-        assert!(buf.phys_cursor.is_some());
-
-        buf.begin_frame(800.0, 600.0, Color::BLACK);
-        assert!(buf.phys_cursor.is_none());
-    }
-
-    #[test]
-    fn begin_frame_clears_transition_hints() {
-        let mut buf = FrameGlyphBuffer::new();
-        buf.add_transition_hint(WindowTransitionHint {
-            window_id: 1,
-            bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
-            kind: WindowTransitionKind::Crossfade,
-            effect: None,
-            easing: None,
-        });
-        buf.add_effect_hint(WindowEffectHint::TextFadeIn {
-            window_id: 1,
-            bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
-        });
-        assert_eq!(buf.transition_hints.len(), 1);
-        assert_eq!(buf.effect_hints.len(), 1);
-
-        buf.begin_frame(800.0, 600.0, Color::BLACK);
-        assert!(buf.transition_hints.is_empty());
-        assert!(buf.effect_hints.is_empty());
     }
 
     #[test]
@@ -1781,67 +1693,6 @@ mod tests {
         assert_eq!(effect_hints.len(), 1);
         assert!(buf.transition_hints.is_empty());
         assert!(buf.effect_hints.is_empty());
-    }
-
-    #[test]
-    fn begin_frame_clears_stipple_patterns_and_faces() {
-        let mut buf = FrameGlyphBuffer::new();
-        buf.stipple_patterns.insert(
-            1,
-            StipplePattern {
-                width: 4,
-                height: 4,
-                bits: vec![0xFF; 2],
-            },
-        );
-        buf.faces.insert(1, Face::new(1));
-
-        buf.begin_frame(800.0, 600.0, Color::BLACK);
-        assert!(buf.stipple_patterns.is_empty());
-        assert!(buf.faces.is_empty());
-    }
-
-    #[test]
-    fn begin_frame_then_add_then_begin_frame_clears_previous() {
-        let mut buf = FrameGlyphBuffer::new();
-
-        // First frame
-        buf.begin_frame(800.0, 600.0, Color::BLACK);
-        buf.add_char('A', 0.0, 0.0, 8.0, 16.0, 12.0, false);
-        buf.add_char('B', 8.0, 0.0, 8.0, 16.0, 12.0, false);
-        buf.add_cursor(1, 16.0, 0.0, 2.0, 16.0, CursorStyle::Bar(2.0), Color::WHITE);
-        buf.add_stretch(0.0, 16.0, 800.0, 16.0, Color::BLACK, 0, false);
-        buf.add_window_info(
-            1,
-            100,
-            0,
-            100,
-            200,
-            0.0,
-            0.0,
-            800.0,
-            600.0,
-            20.0,
-            0.0,
-            0.0,
-            true,
-            false,
-            16.0,
-            String::new(),
-            false,
-        );
-        assert_eq!(buf.len(), 3);
-        assert_eq!(buf.window_cursors.len(), 1);
-        assert_eq!(buf.window_infos.len(), 1);
-
-        // Second frame - should clear all glyphs
-        buf.begin_frame(1024.0, 768.0, Color::WHITE);
-        assert!(buf.is_empty());
-        assert!(buf.window_cursors.is_empty());
-        assert_eq!(buf.width, 1024.0);
-        assert_eq!(buf.height, 768.0);
-        assert_color_eq(&buf.background, &Color::WHITE);
-        // Note: begin_frame does NOT clear window_infos (that's clear_all's job)
     }
 
     #[test]
@@ -2909,11 +2760,9 @@ mod tests {
 
     #[test]
     fn full_frame_simulation() {
-        let mut buf = FrameGlyphBuffer::new();
         let frame_bg = Color::rgb(0.12, 0.12, 0.12);
-
-        // Begin frame
-        buf.begin_frame(1920.0, 1080.0, frame_bg);
+        let mut buf = FrameGlyphBuffer::with_size(1920.0, 1080.0);
+        buf.background = frame_bg;
         buf.set_frame_identity(0x1, 0, 0.0, 0.0, 0, 0.0, Color::BLACK, false, 1.0);
 
         // Window 1: left pane background
