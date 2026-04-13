@@ -1,8 +1,8 @@
 //! The Rust layout engine — Phase 1+2: Monospace layout with face resolution.
 //!
-//! Reads buffer text via FFI, resolves faces per character position,
-//! computes line breaks, positions glyphs on a fixed-width grid, and
-//! publishes `FrameDisplayState` snapshots for render backends.
+//! Reads buffer text and display state from neovm-core, resolves faces per
+//! character position, computes line breaks, positions glyphs on a fixed-width
+//! grid, and publishes `FrameDisplayState` snapshots for render backends.
 
 use super::display_status_line::*;
 use super::font_metrics::{FontMetrics, FontMetricsService};
@@ -1266,9 +1266,9 @@ fn apply_resolved_face(
 
 /// The main Rust layout engine.
 ///
-/// Called on the Emacs thread during redisplay. Reads buffer data via FFI,
-/// resolves faces, computes layout, and publishes immutable display
-/// snapshots for the render thread and TTY backend.
+/// Called on the Emacs thread during redisplay. Reads buffer/state from
+/// neovm-core, resolves faces, computes layout, and publishes immutable
+/// display snapshots for the render thread and TTY backend.
 pub struct LayoutEngine {
     /// Reusable text buffer to avoid allocation per frame
     text_buf: Vec<u8>,

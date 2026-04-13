@@ -1,7 +1,8 @@
 //! Rust Display Layout Engine.
 //!
 //! Replaces the C display engine (xdisp.c) for computing glyph layout.
-//! Reads buffer data via FFI and produces `FrameGlyphBuffer` for the renderer.
+//! Reads window/buffer state from neovm-core and publishes immutable
+//! `FrameDisplayState` snapshots that renderers materialize downstream.
 
 #![allow(unsafe_op_in_unsafe_fn)] // FFI-heavy layout code; migrate to explicit blocks incrementally.
 
