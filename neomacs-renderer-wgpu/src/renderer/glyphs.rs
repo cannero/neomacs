@@ -7,7 +7,7 @@ use super::WgpuRenderer;
 use cosmic_text::SubpixelBin;
 use neomacs_display_protocol::face::{BoxType, Face, FaceAttributes, UnderlineStyle};
 use neomacs_display_protocol::frame_glyphs::{
-    CursorStyle, FrameGlyph, FrameGlyphBuffer, GlyphRowRole, PhysCursor,
+    CursorStyle, FrameGlyph, FrameGlyphBuffer, GlyphRowRole, PhysCursor, WindowCursorVisual,
 };
 use neomacs_display_protocol::types::{AnimatedCursor, Color, Rect};
 use std::collections::{BTreeSet, HashMap};
@@ -113,6 +113,24 @@ fn cursor_render_rect(
     }
 
     (x, y, width, height)
+}
+
+fn window_cursor_visual_matches_phys(
+    cursor: &WindowCursorVisual,
+    phys_cursor: &PhysCursor,
+) -> bool {
+    if cursor.window_id != phys_cursor.window_id {
+        return false;
+    }
+
+    if let Some(slot_id) = cursor.slot_id {
+        return slot_id == phys_cursor.slot_id;
+    }
+
+    (cursor.x - phys_cursor.x).abs() < 0.5
+        && (cursor.y - phys_cursor.y).abs() < 0.5
+        && (cursor.width - phys_cursor.width).abs() < 0.5
+        && (cursor.height - phys_cursor.height).abs() < 0.5
 }
 
 fn trace_face_debug_enabled() -> bool {
@@ -230,6 +248,165 @@ fn log_face_debug_summary(
 }
 
 impl WgpuRenderer {
+    fn emit_cursor_visual(
+        &mut self,
+        window_id: i32,
+        static_rect: (f32, f32, f32, f32),
+        style: CursorStyle,
+        color: &Color,
+        cursor_visible: bool,
+        animated_cursor: &Option<AnimatedCursor>,
+        cursor_bg_vertices: &mut Vec<RectVertex>,
+        behind_text_cursor_vertices: &mut Vec<RectVertex>,
+        cursor_vertices: &mut Vec<RectVertex>,
+    ) {
+        let cycle_color;
+        let effective_color = if self.effects.cursor_color_cycle.enabled && !style.is_hollow() {
+            let elapsed = self.cursor_color_cycle_start.elapsed().as_secs_f32();
+            let hue = (elapsed * self.effects.cursor_color_cycle.speed) % 1.0;
+            cycle_color = Self::hsl_to_color(
+                hue,
+                self.effects.cursor_color_cycle.saturation,
+                self.effects.cursor_color_cycle.lightness,
+            );
+            self.needs_continuous_redraw = true;
+            &cycle_color
+        } else {
+            color
+        };
+
+        let error_pulse_color;
+        let effective_color = if let Some(pulse) = self.cursor_error_pulse_override() {
+            if !style.is_hollow() {
+                error_pulse_color = pulse;
+                self.needs_continuous_redraw = true;
+                &error_pulse_color
+            } else {
+                effective_color
+            }
+        } else {
+            effective_color
+        };
+
+        let wake = self.cursor_wake_factor();
+        let wake_active = wake != 1.0 && !style.is_hollow();
+        if wake_active {
+            self.needs_continuous_redraw = true;
+        }
+
+        if matches!(style, CursorStyle::FilledBox) {
+            if cursor_visible {
+                if wake_active {
+                    let (sx, sy, sw, sh) = Self::scale_rect(
+                        static_rect.0,
+                        static_rect.1,
+                        static_rect.2,
+                        static_rect.3,
+                        wake,
+                    );
+                    self.add_rect(cursor_bg_vertices, sx, sy, sw, sh, effective_color);
+                } else {
+                    self.add_rect(
+                        cursor_bg_vertices,
+                        static_rect.0,
+                        static_rect.1,
+                        static_rect.2,
+                        static_rect.3,
+                        effective_color,
+                    );
+                }
+
+                let use_corners = animated_cursor
+                    .as_ref()
+                    .is_some_and(|anim| anim.window_id == window_id && anim.corners.is_some());
+
+                if use_corners {
+                    if let Some(anim) = animated_cursor.as_ref()
+                        && let Some(corners) = anim.corners.as_ref()
+                    {
+                        self.add_quad(behind_text_cursor_vertices, corners, effective_color);
+                    }
+                } else if let Some(anim) = animated_cursor.as_ref()
+                    && anim.window_id == window_id
+                {
+                    self.add_rect(
+                        behind_text_cursor_vertices,
+                        anim.x,
+                        anim.y,
+                        anim.width,
+                        anim.height,
+                        effective_color,
+                    );
+                }
+            }
+            return;
+        }
+
+        let use_corners = animated_cursor.as_ref().is_some_and(|anim| {
+            anim.window_id == window_id && !style.is_hollow() && anim.corners.is_some()
+        });
+
+        if use_corners {
+            if let Some(anim) = animated_cursor.as_ref()
+                && let Some(corners) = anim.corners.as_ref()
+                && cursor_visible
+            {
+                self.add_quad(cursor_vertices, corners, effective_color);
+            }
+            return;
+        }
+
+        let (cx, cy, cw, ch) = if let Some(anim) = animated_cursor.as_ref() {
+            if anim.window_id == window_id && !style.is_hollow() {
+                (anim.x, anim.y, anim.width, anim.height)
+            } else {
+                static_rect
+            }
+        } else {
+            static_rect
+        };
+
+        let should_draw = style.is_hollow() || cursor_visible;
+        if !should_draw {
+            return;
+        }
+
+        match style {
+            CursorStyle::Bar(bar_w) => {
+                if wake_active {
+                    let (sx, sy, sw, sh) = Self::scale_rect(cx, cy, bar_w, ch, wake);
+                    self.add_rect(cursor_vertices, sx, sy, sw, sh, effective_color);
+                } else {
+                    self.add_rect(cursor_vertices, cx, cy, bar_w, ch, effective_color);
+                }
+            }
+            CursorStyle::Hbar(hbar_h) => {
+                if wake_active {
+                    let (sx, sy, sw, sh) = Self::scale_rect(cx, cy + ch - hbar_h, cw, hbar_h, wake);
+                    self.add_rect(cursor_vertices, sx, sy, sw, sh, effective_color);
+                } else {
+                    self.add_rect(
+                        cursor_vertices,
+                        cx,
+                        cy + ch - hbar_h,
+                        cw,
+                        hbar_h,
+                        effective_color,
+                    );
+                }
+            }
+            CursorStyle::Hollow => {
+                self.add_rect(cursor_vertices, cx, cy, cw, 1.0, effective_color);
+                self.add_rect(cursor_vertices, cx, cy + ch - 1.0, cw, 1.0, effective_color);
+                self.add_rect(cursor_vertices, cx, cy, 1.0, ch, effective_color);
+                self.add_rect(cursor_vertices, cx + cw - 1.0, cy, 1.0, ch, effective_color);
+            }
+            CursorStyle::FilledBox => {
+                self.add_rect(cursor_vertices, cx, cy, cw, ch, effective_color);
+            }
+        }
+    }
+
     /// Render frame glyphs to a texture view
     ///
     /// `surface_width` and `surface_height` should be the actual surface dimensions
@@ -1067,270 +1244,44 @@ impl WgpuRenderer {
                     let radius = tw.min(th) * self.effects.scroll_bar.thumb_radius;
                     scroll_bar_thumb_vertices.push((tx, ty, tw, th, radius, effective_thumb));
                 }
-                FrameGlyph::Cursor {
-                    window_id,
-                    x,
-                    y,
-                    width,
-                    height,
-                    style,
-                    color,
-                    ..
-                } => {
-                    // Compute effective cursor color (possibly overridden by color cycling)
-                    let cycle_color;
-                    let effective_color =
-                        if self.effects.cursor_color_cycle.enabled && !style.is_hollow() {
-                            let elapsed = self.cursor_color_cycle_start.elapsed().as_secs_f32();
-                            let hue = (elapsed * self.effects.cursor_color_cycle.speed) % 1.0;
-                            cycle_color = Self::hsl_to_color(
-                                hue,
-                                self.effects.cursor_color_cycle.saturation,
-                                self.effects.cursor_color_cycle.lightness,
-                            );
-                            self.needs_continuous_redraw = true;
-                            &cycle_color
-                        } else {
-                            color
-                        };
-                    // Cursor error pulse: override color on bell
-                    let error_pulse_color;
-                    let effective_color = if let Some(pulse) = self.cursor_error_pulse_override() {
-                        if !style.is_hollow() {
-                            error_pulse_color = pulse;
-                            self.needs_continuous_redraw = true;
-                            &error_pulse_color
-                        } else {
-                            effective_color
-                        }
-                    } else {
-                        effective_color
-                    };
-                    // Cursor wake animation: scale factor for pop effect
-                    let wake = self.cursor_wake_factor();
-                    let wake_active = wake != 1.0 && !style.is_hollow();
-                    if wake_active {
-                        self.needs_continuous_redraw = true;
-                    }
-                    if matches!(style, CursorStyle::FilledBox) {
-                        // Filled box cursor: split into bg rect + behind-text trail.
-                        if cursor_visible {
-                            let static_rect = frame_glyphs
-                                .phys_cursor
-                                .as_ref()
-                                .filter(|cursor| cursor.window_id == *window_id)
-                                .map(|cursor| cursor_render_rect(frame_glyphs, cursor))
-                                .unwrap_or((*x, *y, *width, *height));
-                            if wake_active {
-                                let (sx, sy, sw, sh) = Self::scale_rect(
-                                    static_rect.0,
-                                    static_rect.1,
-                                    static_rect.2,
-                                    static_rect.3,
-                                    wake,
-                                );
-                                self.add_rect(
-                                    &mut cursor_bg_vertices,
-                                    sx,
-                                    sy,
-                                    sw,
-                                    sh,
-                                    effective_color,
-                                );
-                            } else {
-                                self.add_rect(
-                                    &mut cursor_bg_vertices,
-                                    static_rect.0,
-                                    static_rect.1,
-                                    static_rect.2,
-                                    static_rect.3,
-                                    effective_color,
-                                );
-                            }
-
-                            // Draw animated trail/rect behind text
-                            let use_corners = if let Some(ref anim) = animated_cursor {
-                                *window_id == anim.window_id && anim.corners.is_some()
-                            } else {
-                                false
-                            };
-
-                            if use_corners {
-                                if let Some(ref anim) = animated_cursor {
-                                    if let Some(ref corners) = anim.corners {
-                                        self.add_quad(
-                                            &mut behind_text_cursor_vertices,
-                                            corners,
-                                            effective_color,
-                                        );
-                                    }
-                                }
-                            } else if let Some(ref anim) = animated_cursor {
-                                if *window_id == anim.window_id {
-                                    self.add_rect(
-                                        &mut behind_text_cursor_vertices,
-                                        anim.x,
-                                        anim.y,
-                                        anim.width,
-                                        anim.height,
-                                        effective_color,
-                                    );
-                                }
-                            }
-                        }
-                    } else {
-                        // Non-filled-box cursors: bar, hbar, hollow — drawn ON TOP of text
-                        let use_corners = if let Some(ref anim) = animated_cursor {
-                            *window_id == anim.window_id
-                                && !style.is_hollow()
-                                && anim.corners.is_some()
-                        } else {
-                            false
-                        };
-
-                        if use_corners {
-                            if let Some(ref anim) = animated_cursor {
-                                if let Some(ref corners) = anim.corners {
-                                    if cursor_visible {
-                                        self.add_quad(
-                                            &mut cursor_vertices,
-                                            corners,
-                                            effective_color,
-                                        );
-                                    }
-                                }
-                            }
-                        } else {
-                            let (cx, cy, cw, ch) = if let Some(ref anim) = animated_cursor {
-                                if *window_id == anim.window_id && !style.is_hollow() {
-                                    (anim.x, anim.y, anim.width, anim.height)
-                                } else if let Some(cursor) = frame_glyphs
-                                    .phys_cursor
-                                    .as_ref()
-                                    .filter(|cursor| cursor.window_id == *window_id)
-                                {
-                                    cursor_render_rect(frame_glyphs, cursor)
-                                } else {
-                                    (*x, *y, *width, *height)
-                                }
-                            } else if let Some(cursor) = frame_glyphs
-                                .phys_cursor
-                                .as_ref()
-                                .filter(|cursor| cursor.window_id == *window_id)
-                            {
-                                cursor_render_rect(frame_glyphs, cursor)
-                            } else {
-                                (*x, *y, *width, *height)
-                            };
-
-                            let should_draw = style.is_hollow() || cursor_visible;
-                            if should_draw {
-                                match style {
-                                    CursorStyle::Bar(bar_w) => {
-                                        // Bar (thin vertical line)
-                                        if wake_active {
-                                            let (sx, sy, sw, sh) =
-                                                Self::scale_rect(cx, cy, *bar_w, ch, wake);
-                                            self.add_rect(
-                                                &mut cursor_vertices,
-                                                sx,
-                                                sy,
-                                                sw,
-                                                sh,
-                                                effective_color,
-                                            );
-                                        } else {
-                                            self.add_rect(
-                                                &mut cursor_vertices,
-                                                cx,
-                                                cy,
-                                                *bar_w,
-                                                ch,
-                                                effective_color,
-                                            );
-                                        }
-                                    }
-                                    CursorStyle::Hbar(hbar_h) => {
-                                        // Underline (hbar at bottom)
-                                        if wake_active {
-                                            let (sx, sy, sw, sh) = Self::scale_rect(
-                                                cx,
-                                                cy + ch - *hbar_h,
-                                                cw,
-                                                *hbar_h,
-                                                wake,
-                                            );
-                                            self.add_rect(
-                                                &mut cursor_vertices,
-                                                sx,
-                                                sy,
-                                                sw,
-                                                sh,
-                                                effective_color,
-                                            );
-                                        } else {
-                                            self.add_rect(
-                                                &mut cursor_vertices,
-                                                cx,
-                                                cy + ch - *hbar_h,
-                                                cw,
-                                                *hbar_h,
-                                                effective_color,
-                                            );
-                                        }
-                                    }
-                                    CursorStyle::Hollow => {
-                                        // Hollow box (4 border edges)
-                                        self.add_rect(
-                                            &mut cursor_vertices,
-                                            cx,
-                                            cy,
-                                            cw,
-                                            1.0,
-                                            effective_color,
-                                        );
-                                        self.add_rect(
-                                            &mut cursor_vertices,
-                                            cx,
-                                            cy + ch - 1.0,
-                                            cw,
-                                            1.0,
-                                            effective_color,
-                                        );
-                                        self.add_rect(
-                                            &mut cursor_vertices,
-                                            cx,
-                                            cy,
-                                            1.0,
-                                            ch,
-                                            effective_color,
-                                        );
-                                        self.add_rect(
-                                            &mut cursor_vertices,
-                                            cx + cw - 1.0,
-                                            cy,
-                                            1.0,
-                                            ch,
-                                            effective_color,
-                                        );
-                                    }
-                                    _ => {
-                                        self.add_rect(
-                                            &mut cursor_vertices,
-                                            cx,
-                                            cy,
-                                            cw,
-                                            ch,
-                                            effective_color,
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                FrameGlyph::Cursor { .. } => {}
                 _ => {}
             }
+        }
+
+        for cursor in &frame_glyphs.window_cursors {
+            if frame_glyphs
+                .phys_cursor
+                .as_ref()
+                .is_some_and(|phys| window_cursor_visual_matches_phys(cursor, phys))
+            {
+                continue;
+            }
+            self.emit_cursor_visual(
+                cursor.window_id,
+                (cursor.x, cursor.y, cursor.width, cursor.height),
+                cursor.style,
+                &cursor.color,
+                cursor_visible,
+                &animated_cursor,
+                &mut cursor_bg_vertices,
+                &mut behind_text_cursor_vertices,
+                &mut cursor_vertices,
+            );
+        }
+
+        if let Some(cursor) = frame_glyphs.phys_cursor.as_ref() {
+            self.emit_cursor_visual(
+                cursor.window_id,
+                cursor_render_rect(frame_glyphs, cursor),
+                cursor.style,
+                &cursor.color,
+                cursor_visible,
+                &animated_cursor,
+                &mut cursor_bg_vertices,
+                &mut behind_text_cursor_vertices,
+                &mut cursor_vertices,
+            );
         }
 
         // Create command encoder

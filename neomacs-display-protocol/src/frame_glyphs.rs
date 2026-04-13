@@ -458,6 +458,30 @@ pub struct PhysCursor {
     pub cursor_fg: Color,
 }
 
+/// Decorative per-window cursor visual emitted by layout.
+///
+/// This covers non-selected-window hollow cursors and any other
+/// non-physical cursor hints that should be drawn without owning the
+/// selected frame cursor. The authoritative selected cursor lives in
+/// `FrameGlyphBuffer::phys_cursor`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindowCursorVisual {
+    /// Window that owns the cursor visual.
+    pub window_id: i32,
+    /// Display slot the visual should stay attached to, when known.
+    pub slot_id: Option<DisplaySlotId>,
+    /// Frame-absolute origin.
+    pub x: f32,
+    pub y: f32,
+    /// Cursor rectangle dimensions in pixels.
+    pub width: f32,
+    pub height: f32,
+    /// Visual cursor style.
+    pub style: CursorStyle,
+    /// Cursor color.
+    pub color: Color,
+}
+
 /// Stipple pattern: XBM bitmap data for tiled background patterns
 #[derive(Debug, Clone)]
 pub struct StipplePattern {
@@ -626,6 +650,9 @@ pub struct FrameGlyphBuffer {
     /// Authoritative active cursor for the frame.
     pub phys_cursor: Option<PhysCursor>,
 
+    /// Decorative per-window cursor visuals emitted by layout.
+    pub window_cursors: Vec<WindowCursorVisual>,
+
     /// Flag: layout changed last frame (kept for compatibility)
     pub layout_changed: bool,
 
@@ -751,6 +778,7 @@ impl FrameGlyphBuffer {
             transition_hints: Vec::with_capacity(16),
             effect_hints: Vec::with_capacity(16),
             phys_cursor: None,
+            window_cursors: Vec::with_capacity(8),
             layout_changed: false,
             current_face_id: 0,
             current_fg: Color::WHITE,
@@ -792,6 +820,7 @@ impl FrameGlyphBuffer {
         self.transition_hints.clear();
         self.effect_hints.clear();
         self.phys_cursor = None;
+        self.window_cursors.clear();
         self.stipple_patterns.clear();
         self.faces.clear();
         self.current_window_id = 0;
@@ -804,6 +833,7 @@ impl FrameGlyphBuffer {
         std::mem::swap(&mut self.prev_window_regions, &mut self.window_regions);
         self.window_regions.clear();
         self.phys_cursor = None;
+        self.window_cursors.clear();
     }
 
     /// End frame (compatibility shim, always returns false now)
@@ -837,6 +867,7 @@ impl FrameGlyphBuffer {
         self.transition_hints.clear();
         self.effect_hints.clear();
         self.phys_cursor = None;
+        self.window_cursors.clear();
         self.stipple_patterns.clear();
         self.faces.clear();
         self.current_window_id = 0;
@@ -1254,7 +1285,7 @@ impl FrameGlyphBuffer {
         style: CursorStyle,
         color: Color,
     ) {
-        self.glyphs.push(FrameGlyph::Cursor {
+        self.window_cursors.push(WindowCursorVisual {
             window_id,
             slot_id: Some(DisplaySlotId::from_pixels(
                 window_id as i64,
@@ -1830,12 +1861,14 @@ mod tests {
             String::new(),
             false,
         );
-        assert_eq!(buf.len(), 4);
+        assert_eq!(buf.len(), 3);
+        assert_eq!(buf.window_cursors.len(), 1);
         assert_eq!(buf.window_infos.len(), 1);
 
         // Second frame - should clear all glyphs
         buf.begin_frame(1024.0, 768.0, Color::WHITE);
         assert!(buf.is_empty());
+        assert!(buf.window_cursors.is_empty());
         assert_eq!(buf.width, 1024.0);
         assert_eq!(buf.height, 768.0);
         assert_color_eq(&buf.background, &Color::WHITE);
@@ -2081,7 +2114,7 @@ mod tests {
     // =======================================================================
 
     #[test]
-    fn add_cursor_appends_cursor_glyph() {
+    fn add_cursor_appends_window_cursor_visual() {
         let mut buf = FrameGlyphBuffer::new();
         let cursor_color = Color::rgb(0.0, 1.0, 0.0);
         buf.add_cursor(
@@ -2094,32 +2127,20 @@ mod tests {
             cursor_color,
         );
 
-        assert_eq!(buf.len(), 1);
-        match &buf.glyphs[0] {
-            FrameGlyph::Cursor {
-                window_id,
-                slot_id,
-                x,
-                y,
-                width,
-                height,
-                style,
-                color,
-            } => {
-                assert_eq!(*window_id, 42);
-                assert_eq!(
-                    *slot_id,
-                    Some(DisplaySlotId::from_pixels(42, 100.0, 200.0, 8.0, 16.0))
-                );
-                assert_eq!(*x, 100.0);
-                assert_eq!(*y, 200.0);
-                assert_eq!(*width, 2.0);
-                assert_eq!(*height, 16.0);
-                assert_eq!(*style, CursorStyle::Bar(2.0));
-                assert_color_eq(color, &cursor_color);
-            }
-            other => panic!("Expected Cursor glyph, got {:?}", other),
-        }
+        assert!(buf.glyphs.is_empty());
+        assert_eq!(buf.window_cursors.len(), 1);
+        let cursor = &buf.window_cursors[0];
+        assert_eq!(cursor.window_id, 42);
+        assert_eq!(
+            cursor.slot_id,
+            Some(DisplaySlotId::from_pixels(42, 100.0, 200.0, 8.0, 16.0))
+        );
+        assert_eq!(cursor.x, 100.0);
+        assert_eq!(cursor.y, 200.0);
+        assert_eq!(cursor.width, 2.0);
+        assert_eq!(cursor.height, 16.0);
+        assert_eq!(cursor.style, CursorStyle::Bar(2.0));
+        assert_color_eq(&cursor.color, &cursor_color);
     }
 
     #[test]
@@ -2131,7 +2152,8 @@ mod tests {
         buf.add_cursor(1, 0.0, 0.0, 8.0, 16.0, CursorStyle::Hbar(2.0), c);
         buf.add_cursor(1, 0.0, 0.0, 8.0, 16.0, CursorStyle::Hollow, c);
 
-        assert_eq!(buf.len(), 4);
+        assert!(buf.glyphs.is_empty());
+        assert_eq!(buf.window_cursors.len(), 4);
         let expected = [
             CursorStyle::FilledBox,
             CursorStyle::Bar(2.0),
@@ -2139,20 +2161,20 @@ mod tests {
             CursorStyle::Hollow,
         ];
         for (i, expected_style) in expected.iter().enumerate() {
-            match &buf.glyphs[i] {
-                FrameGlyph::Cursor { style, .. } => {
-                    assert_eq!(style, expected_style, "Cursor {} has wrong style", i);
-                }
-                other => panic!("Expected Cursor at index {}, got {:?}", i, other),
-            }
+            assert_eq!(
+                buf.window_cursors[i].style, *expected_style,
+                "Cursor {} has wrong style",
+                i
+            );
         }
     }
 
     #[test]
-    fn cursor_glyph_is_not_overlay() {
+    fn cursor_visual_is_not_counted_as_overlay_glyph() {
         let mut buf = FrameGlyphBuffer::new();
         buf.add_cursor(1, 0.0, 0.0, 8.0, 16.0, CursorStyle::FilledBox, Color::WHITE);
-        assert!(!buf.glyphs[0].is_overlay());
+        assert!(buf.glyphs.is_empty());
+        assert_eq!(buf.window_cursors.len(), 1);
     }
 
     // =======================================================================
@@ -3071,8 +3093,9 @@ mod tests {
         );
 
         // Verify totals
-        // 15 chars + 1 cursor + 2 backgrounds + 1 border + 1 mode-line stretch = 20
-        assert_eq!(buf.len(), 20);
+        // 15 chars + 2 backgrounds + 1 border + 1 mode-line stretch = 19 glyphs
+        assert_eq!(buf.len(), 19);
+        assert_eq!(buf.window_cursors.len(), 1);
         assert_eq!(buf.window_infos.len(), 2);
         assert_eq!(buf.window_regions.len(), 2);
         assert!(buf.phys_cursor.is_some());

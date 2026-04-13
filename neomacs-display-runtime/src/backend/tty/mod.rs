@@ -13,7 +13,9 @@ use std::io::{self, Write};
 
 use crate::backend::DisplayBackend;
 use crate::core::error::{DisplayError, DisplayResult};
-use crate::core::frame_glyphs::{CursorStyle, DisplaySlotId, FrameGlyph, FrameGlyphBuffer};
+use crate::core::frame_glyphs::{
+    CursorStyle, DisplaySlotId, FrameGlyph, FrameGlyphBuffer, WindowCursorVisual,
+};
 use crate::core::scene::Scene;
 use crate::core::types::Color;
 
@@ -502,8 +504,6 @@ fn rasterize_frame_glyphs(frame: &FrameGlyphBuffer, grid: &mut TtyGrid, bg_color
 
     let cw = frame.char_width.max(1.0);
     let ch = frame.char_height.max(1.0);
-    let prefer_phys_cursor = frame.phys_cursor.is_some();
-
     for glyph in &frame.glyphs {
         match glyph {
             FrameGlyph::Char {
@@ -606,13 +606,7 @@ fn rasterize_frame_glyphs(frame: &FrameGlyphBuffer, grid: &mut TtyGrid, bg_color
                 }
             }
 
-            FrameGlyph::Cursor {
-                x, y, style, color, ..
-            } => {
-                if !prefer_phys_cursor {
-                    apply_tty_cursor_visual_legacy(grid, frame, *x, *y, *style, *color);
-                }
-            }
+            FrameGlyph::Cursor { .. } => {}
 
             FrameGlyph::Background { bounds, color } => {
                 let col_start = (bounds.x / cw) as usize;
@@ -675,6 +669,17 @@ fn rasterize_frame_glyphs(frame: &FrameGlyphBuffer, grid: &mut TtyGrid, bg_color
             #[cfg(feature = "neo-term")]
             FrameGlyph::Terminal { .. } => {}
         }
+    }
+
+    for cursor in &frame.window_cursors {
+        if frame
+            .phys_cursor
+            .as_ref()
+            .is_some_and(|phys| window_cursor_visual_matches_phys(cursor, phys))
+        {
+            continue;
+        }
+        apply_tty_window_cursor_visual(grid, frame, cursor);
     }
 
     if let Some(cursor) = frame.phys_cursor.as_ref() {
@@ -741,26 +746,23 @@ fn apply_tty_cursor_visual(
     }
 }
 
-fn apply_tty_cursor_visual_legacy(
+fn apply_tty_window_cursor_visual(
     grid: &mut TtyGrid,
     frame: &FrameGlyphBuffer,
-    x: f32,
-    y: f32,
-    style: CursorStyle,
-    color: Color,
+    cursor: &WindowCursorVisual,
 ) {
     let cw = frame.char_width.max(1.0);
     let ch = frame.char_height.max(1.0);
-    let col = (x / cw) as usize;
-    let row = (y / ch) as usize;
+    let col = (cursor.x / cw) as usize;
+    let row = (cursor.y / ch) as usize;
 
     if col >= grid.width || row >= grid.height {
         return;
     }
 
-    let cursor_rgb = color_to_rgb8(&color);
+    let cursor_rgb = color_to_rgb8(&cursor.color);
 
-    match style {
+    match cursor.style {
         CursorStyle::FilledBox => {
             if let Some(cell) = grid.get_mut(col, row) {
                 cell.attrs.fg = cell.attrs.bg;
@@ -783,6 +785,24 @@ fn apply_tty_cursor_visual_legacy(
             }
         }
     }
+}
+
+fn window_cursor_visual_matches_phys(
+    cursor: &WindowCursorVisual,
+    phys_cursor: &crate::core::frame_glyphs::PhysCursor,
+) -> bool {
+    if cursor.window_id != phys_cursor.window_id {
+        return false;
+    }
+
+    if let Some(slot_id) = cursor.slot_id {
+        return slot_id == phys_cursor.slot_id;
+    }
+
+    (cursor.x - phys_cursor.x).abs() < 0.5
+        && (cursor.y - phys_cursor.y).abs() < 0.5
+        && (cursor.width - phys_cursor.width).abs() < 0.5
+        && (cursor.height - phys_cursor.height).abs() < 0.5
 }
 
 fn terminal_cursor_state(
@@ -2213,7 +2233,7 @@ mod tests {
         );
         frame.add_char('A', 0.0, 0.0, 8.0, 16.0, 12.0, false);
         frame.add_char('B', 8.0, 0.0, 8.0, 16.0, 12.0, false);
-        frame.add_cursor(0, 0.0, 0.0, 8.0, 16.0, CursorStyle::FilledBox, Color::GREEN);
+        frame.add_cursor(0, 0.0, 0.0, 8.0, 16.0, CursorStyle::Hollow, Color::GREEN);
         frame.set_phys_cursor(crate::core::frame_glyphs::PhysCursor {
             window_id: 0,
             charpos: 1,
@@ -2238,6 +2258,57 @@ mod tests {
         rasterize_frame_glyphs(&frame, &mut grid, (0, 0, 0));
 
         assert_eq!(grid.get(0, 0).unwrap().attrs.bg, (0, 0, 0));
+        assert!(grid.get(0, 0).unwrap().attrs.inverse);
+        assert_eq!(grid.get(1, 0).unwrap().attrs.bg, (255, 0, 0));
+        assert_eq!(grid.get(1, 0).unwrap().attrs.fg, (0, 0, 0));
+    }
+
+    #[test]
+    fn test_rasterize_preserves_nonselected_hollow_cursor_visual() {
+        let mut frame = FrameGlyphBuffer::new();
+        frame.char_width = 8.0;
+        frame.char_height = 16.0;
+
+        frame.set_face(
+            0,
+            Color::WHITE,
+            Some(Color::BLACK),
+            400,
+            false,
+            0,
+            None,
+            0,
+            None,
+            0,
+            None,
+        );
+        frame.add_char('A', 0.0, 0.0, 8.0, 16.0, 12.0, false);
+        frame.add_char('B', 8.0, 0.0, 8.0, 16.0, 12.0, false);
+        frame.add_cursor(1, 0.0, 0.0, 8.0, 16.0, CursorStyle::Hollow, Color::GREEN);
+        frame.set_phys_cursor(crate::core::frame_glyphs::PhysCursor {
+            window_id: 2,
+            charpos: 1,
+            row: 0,
+            col: 1,
+            slot_id: DisplaySlotId {
+                window_id: 2,
+                row: 0,
+                col: 1,
+            },
+            x: 8.0,
+            y: 0.0,
+            width: 8.0,
+            height: 16.0,
+            ascent: 12.0,
+            style: CursorStyle::FilledBox,
+            color: Color::RED,
+            cursor_fg: Color::BLACK,
+        });
+
+        let mut grid = TtyGrid::new(4, 2);
+        rasterize_frame_glyphs(&frame, &mut grid, (0, 0, 0));
+
+        assert!(grid.get(0, 0).unwrap().attrs.inverse);
         assert_eq!(grid.get(1, 0).unwrap().attrs.bg, (255, 0, 0));
         assert_eq!(grid.get(1, 0).unwrap().attrs.fg, (0, 0, 0));
     }

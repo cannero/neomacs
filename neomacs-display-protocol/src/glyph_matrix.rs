@@ -10,7 +10,7 @@
 use super::face::{Face, FaceAttributes, UnderlineStyle};
 use super::frame_glyphs::{
     CursorStyle, DisplaySlotId, FrameGlyph, FrameGlyphBuffer, GlyphRowRole, PhysCursor,
-    StipplePattern, WindowEffectHint, WindowInfo, WindowTransitionHint,
+    StipplePattern, WindowCursorVisual, WindowEffectHint, WindowInfo, WindowTransitionHint,
 };
 use super::types::{Color, Rect};
 use std::collections::HashMap;
@@ -581,6 +581,18 @@ impl FrameDisplayState {
         state.stipple_patterns = buf.stipple_patterns.clone();
         state.transition_hints = buf.transition_hints.clone();
         state.effect_hints = buf.effect_hints.clone();
+        state
+            .cursors
+            .extend(buf.window_cursors.iter().map(|cursor| CursorItem {
+                window_id: cursor.window_id,
+                slot_id: cursor.slot_id,
+                x: cursor.x,
+                y: cursor.y,
+                width: cursor.width,
+                height: cursor.height,
+                style: cursor.style,
+                color: cursor.color,
+            }));
 
         // Decompose glyphs into structured non-grid item vectors
         for glyph in &buf.glyphs {
@@ -1045,7 +1057,7 @@ impl FrameDisplayState {
 
         // --- Materialize cursors ---
         for cursor in &self.cursors {
-            buf.glyphs.push(FrameGlyph::Cursor {
+            buf.window_cursors.push(WindowCursorVisual {
                 window_id: cursor.window_id,
                 slot_id: cursor.slot_id,
                 x: cursor.x,

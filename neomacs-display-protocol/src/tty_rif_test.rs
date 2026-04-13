@@ -402,7 +402,7 @@ fn rasterize_prefers_phys_cursor_over_matrix_cursor_columns() {
     let mut rif = TtyRif::new(10, 5);
     rif.rasterize(&state);
 
-    assert!(rif.cursor_visible);
+    assert!(!rif.cursor_visible);
     assert_eq!(rif.cursor_row, 1);
     assert_eq!(rif.cursor_col, 4);
 }

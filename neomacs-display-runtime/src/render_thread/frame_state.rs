@@ -1,5 +1,5 @@
 use super::RenderApp;
-use crate::core::frame_glyphs::{DisplaySlotId, FrameGlyph, PhysCursor};
+use crate::core::frame_glyphs::{DisplaySlotId, FrameGlyph, PhysCursor, WindowCursorVisual};
 use std::collections::HashMap;
 
 impl RenderApp {
@@ -57,6 +57,7 @@ impl RenderApp {
             if let Some(ref mut frame) = self.current_frame {
                 Self::apply_extra_spacing(
                     &mut frame.glyphs,
+                    &mut frame.window_cursors,
                     &mut frame.phys_cursor,
                     self.extra_line_spacing,
                     self.extra_letter_spacing,
@@ -67,6 +68,7 @@ impl RenderApp {
 
     fn apply_extra_spacing(
         glyphs: &mut [FrameGlyph],
+        window_cursors: &mut [WindowCursorVisual],
         phys_cursor: &mut Option<PhysCursor>,
         line_spacing: f32,
         letter_spacing: f32,
@@ -133,30 +135,22 @@ impl RenderApp {
                     *x += char_in_row as f32 * letter_spacing;
                     slot_positions.insert(*slot_id, (*x, *y));
                 }
-                FrameGlyph::Cursor { slot_id, y, x, .. } => {
-                    if let Some(slot_id) =
-                        slot_id.and_then(|slot| slot_positions.get(&slot).copied())
-                    {
-                        *x = slot_id.0;
-                        *y = slot_id.1;
-                    } else if (*y - last_y).abs() < 0.5 {
-                        let old_x = *x;
-                        let old_y = *y;
-                        let dy = row_index.max(0) as f32 * line_spacing;
-                        let dx = char_in_row as f32 * letter_spacing;
-                        *y += dy;
-                        *x += dx;
-
-                        if let Some(cursor) = phys_cursor.as_mut()
-                            && (cursor.x - old_x).abs() < 0.5
-                            && (cursor.y - old_y).abs() < 0.5
-                        {
-                            cursor.x += dx;
-                            cursor.y += dy;
-                        }
-                    }
-                }
                 _ => {}
+            }
+        }
+
+        for cursor in window_cursors.iter_mut() {
+            if let Some((x, y)) = cursor
+                .slot_id
+                .and_then(|slot_id| slot_positions.get(&slot_id).copied())
+            {
+                cursor.x = x;
+                cursor.y = y;
+            } else if (cursor.y - last_y).abs() < 0.5 {
+                let dy = row_index.max(0) as f32 * line_spacing;
+                let dx = char_in_row as f32 * letter_spacing;
+                cursor.y += dy;
+                cursor.x += dx;
             }
         }
 
@@ -184,9 +178,7 @@ mod tests {
         let target_slot = frame.glyphs[1].slot_id().expect("slot id");
 
         frame.add_cursor(1, 2.0, 0.0, 2.0, 16.0, CursorStyle::Bar(2.0), Color::WHITE);
-        if let FrameGlyph::Cursor { slot_id, .. } = &mut frame.glyphs[2] {
-            *slot_id = Some(target_slot);
-        }
+        frame.window_cursors[0].slot_id = Some(target_slot);
 
         frame.set_phys_cursor(PhysCursor {
             window_id: 1,
@@ -204,19 +196,20 @@ mod tests {
             cursor_fg: Color::BLACK,
         });
 
-        RenderApp::apply_extra_spacing(&mut frame.glyphs, &mut frame.phys_cursor, 0.0, 1.0);
+        RenderApp::apply_extra_spacing(
+            &mut frame.glyphs,
+            &mut frame.window_cursors,
+            &mut frame.phys_cursor,
+            0.0,
+            1.0,
+        );
 
         match &frame.glyphs[1] {
             FrameGlyph::Char { x, .. } => assert_eq!(*x, 9.0),
             other => panic!("expected char glyph, got {:?}", other),
         }
-        match &frame.glyphs[2] {
-            FrameGlyph::Cursor { x, y, .. } => {
-                assert_eq!(*x, 9.0);
-                assert_eq!(*y, 0.0);
-            }
-            other => panic!("expected cursor glyph, got {:?}", other),
-        }
+        assert_eq!(frame.window_cursors[0].x, 9.0);
+        assert_eq!(frame.window_cursors[0].y, 0.0);
         let cursor = frame.phys_cursor.as_ref().expect("phys cursor");
         assert_eq!(cursor.x, 9.0);
         assert_eq!(cursor.y, 0.0);

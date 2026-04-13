@@ -267,23 +267,14 @@ fn materialize_includes_cursors() {
         color: Color::GREEN,
     });
     let buf = state.materialize();
-    assert_eq!(buf.glyphs.len(), 1);
+    assert!(buf.glyphs.is_empty());
+    assert_eq!(buf.window_cursors.len(), 1);
     assert!(buf.phys_cursor.is_none());
-    match &buf.glyphs[0] {
-        FrameGlyph::Cursor {
-            window_id,
-            x,
-            style,
-            color,
-            ..
-        } => {
-            assert_eq!(*window_id, 7);
-            assert_eq!(*x, 40.0);
-            assert_eq!(*style, CursorStyle::FilledBox);
-            assert_eq!(*color, Color::GREEN);
-        }
-        other => panic!("expected Cursor, got {:?}", other),
-    }
+    let cursor = &buf.window_cursors[0];
+    assert_eq!(cursor.window_id, 7);
+    assert_eq!(cursor.x, 40.0);
+    assert_eq!(cursor.style, CursorStyle::FilledBox);
+    assert_eq!(cursor.color, Color::GREEN);
 }
 
 #[test]
@@ -672,14 +663,14 @@ fn materialize_mixed_grid_and_nongrid_items() {
     });
 
     let buf = state.materialize();
-    // 1 background + 2 chars + 1 cursor = 4
-    assert_eq!(buf.glyphs.len(), 4);
+    // 1 background + 2 chars = 3 glyphs, plus 1 decorative window cursor
+    assert_eq!(buf.glyphs.len(), 3);
+    assert_eq!(buf.window_cursors.len(), 1);
 
     // Backgrounds come first
     assert!(matches!(&buf.glyphs[0], FrameGlyph::Background { .. }));
     // Then grid chars
     assert!(matches!(&buf.glyphs[1], FrameGlyph::Char { .. }));
     assert!(matches!(&buf.glyphs[2], FrameGlyph::Char { .. }));
-    // Then cursors
-    assert!(matches!(&buf.glyphs[3], FrameGlyph::Cursor { .. }));
+    assert_eq!(buf.window_cursors[0].style, CursorStyle::FilledBox);
 }
