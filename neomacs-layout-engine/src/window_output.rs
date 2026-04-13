@@ -200,6 +200,24 @@ impl WindowOutputEmitter {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn emit_text_span(
+        &mut self,
+        evaluator: &mut Context,
+        buffer_pos: i64,
+        row: usize,
+        row_y: f32,
+        glyph_x: f32,
+        glyph_y: f32,
+        width: f32,
+        height: f32,
+        start_col: usize,
+        end_col: usize,
+    ) {
+        self.push_text_display_point(buffer_pos, glyph_x, glyph_y, width, height, row, start_col);
+        self.advance_text_progress(evaluator, row, end_col, row_y, glyph_x + width.max(0.0));
+    }
+
     pub(crate) fn begin_row(
         &mut self,
         evaluator: &mut Context,
@@ -382,5 +400,51 @@ impl WindowOutputEmitter {
             update.finalize_live_update(logical_cursor, phys_cursor);
         }
         snapshot
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WindowOutputEmitter;
+    use neovm_core::emacs_core::Context;
+
+    #[test]
+    fn emit_text_span_advances_live_output_before_row_finish() {
+        let mut eval = Context::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("output-emitter-span", 320, 120, buf_id);
+        let window_id = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+
+        let mut emitter = WindowOutputEmitter::new(frame_id, window_id, 0, 0.0, 0.0);
+        emitter.begin_update(&mut eval);
+        emitter.begin_text_row(&mut eval, 0, 0, 0.0, 0.0);
+        emitter.emit_text_span(&mut eval, 1, 0, 0.0, 0.0, 0.0, 24.0, 16.0, 0, 3);
+
+        let display = eval
+            .frame_manager()
+            .get(frame_id)
+            .and_then(|frame| frame.find_window(window_id))
+            .and_then(|window| window.display())
+            .expect("window display state");
+
+        assert_eq!(
+            display.output_cursor,
+            Some(neovm_core::window::WindowCursorPos {
+                x: 24,
+                y: 0,
+                row: 0,
+                col: 3,
+            })
+        );
     }
 }

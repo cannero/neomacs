@@ -3619,14 +3619,17 @@ impl LayoutEngine {
                         },
                     );
                 }
-                output_emitter.push_text_display_point(
+                output_emitter.emit_text_span(
+                    evaluator,
                     charpos + 1,
+                    row,
+                    y,
                     x_before_tab,
                     y + raise_y_offset,
                     spaces as f32 * face_space_w,
                     char_h,
-                    row,
                     col,
+                    next_tab,
                 );
                 x += spaces as f32 * face_space_w;
                 col = next_tab;
@@ -3744,14 +3747,17 @@ impl LayoutEngine {
                 if params.escape_glyph_fg != 0 {
                     current_face_id += 1;
                 }
-                output_emitter.push_text_display_point(
+                output_emitter.emit_text_span(
+                    evaluator,
                     charpos + 1,
+                    row,
+                    y,
                     x,
                     y + raise_y_offset,
                     needed_width,
                     char_h,
-                    row,
                     col,
+                    col + 2,
                 );
                 x += face_char_w;
                 x += face_char_w;
@@ -3775,14 +3781,17 @@ impl LayoutEngine {
                         }
                         // Render as visible space or hyphen
                         let _display_ch = if ch == '\u{00A0}' { ' ' } else { '-' };
-                        output_emitter.push_text_display_point(
+                        output_emitter.emit_text_span(
+                            evaluator,
                             charpos + 1,
+                            row,
+                            y,
                             x,
                             y + raise_y_offset,
                             face_char_w,
                             char_h,
-                            row,
                             col,
+                            col + 1,
                         );
                         x += face_char_w;
                         col += 1;
@@ -3801,14 +3810,17 @@ impl LayoutEngine {
                         // Check if 2 columns fit
                         let needed = 2.0 * face_char_w;
                         if x + needed <= content_x + avail_width {
-                            output_emitter.push_text_display_point(
+                            output_emitter.emit_text_span(
+                                evaluator,
                                 charpos + 1,
+                                row,
+                                y,
                                 x,
                                 y + raise_y_offset,
                                 needed,
                                 char_h,
-                                row,
                                 col,
+                                col + 2,
                             );
                             x += face_char_w;
                             x += face_char_w;
