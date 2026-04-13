@@ -2061,8 +2061,6 @@ impl LayoutEngine {
     ) {
         let buf_id = neovm_core::buffer::BufferId(params.buffer_id);
         let window_id = neovm_core::window::WindowId(params.window_id as u64);
-        let output_emitter = WindowOutputEmitter::new(frame_id, window_id, 0, 0.0, params.bounds.y);
-        output_emitter.begin_update(evaluator);
         let layout_buffer = match evaluator.buffer_manager().get(buf_id) {
             Some(buffer) => super::neovm_bridge::LayoutBufferSnapshot::from_buffer(buffer),
             None => {
@@ -2616,6 +2614,7 @@ impl LayoutEngine {
             text_area_left,
             window_top,
         );
+        output_emitter.begin_update(evaluator);
         let sync_charpos_from_byte_idx = |byte_idx: usize| {
             buf_access.bytepos_to_charpos(text_start_byte as i64 + byte_idx as i64)
         };
