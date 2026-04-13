@@ -2840,6 +2840,7 @@ impl LayoutEngine {
             text_matrix_row_base,
             neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text,
         );
+        sync_live_output_cursor!();
 
         while byte_idx < text.len() && row < max_rows && y + row_max_height <= text_y + text_height
         {
@@ -3105,6 +3106,7 @@ impl LayoutEngine {
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
                     row_y_positions.push(y);
+                    sync_live_output_cursor!();
                     col = 0;
                     current_line += 1;
                     need_line_number = lnum_enabled;
@@ -3515,6 +3517,7 @@ impl LayoutEngine {
                         row_max_height = char_h;
                         row_max_ascent = default_face_ascent;
                         row_y_positions.push(y);
+                        sync_live_output_cursor!();
                         charpos = sync_charpos_from_byte_idx(byte_idx);
                         hit_row_charpos_start = charpos;
                         col = 0;
@@ -3631,6 +3634,7 @@ impl LayoutEngine {
                 row_max_height = char_h;
                 row_max_ascent = default_face_ascent;
                 row_y_positions.push(y);
+                sync_live_output_cursor!();
                 charpos = sync_charpos_from_byte_idx(byte_idx);
                 hit_row_charpos_start = charpos;
                 if box_active {
@@ -3845,6 +3849,7 @@ impl LayoutEngine {
                         row_max_height = char_h;
                         row_max_ascent = default_face_ascent;
                         row_y_positions.push(y);
+                        sync_live_output_cursor!();
                         charpos = sync_charpos_from_byte_idx(byte_idx);
                         hit_row_charpos_start = charpos;
                         col = 0;
@@ -3894,6 +3899,7 @@ impl LayoutEngine {
                         row_max_height = char_h;
                         row_max_ascent = default_face_ascent;
                         row_y_positions.push(y);
+                        sync_live_output_cursor!();
                         col = 0;
                         trailing_ws_start_col = -1;
                         if row < max_rows {
@@ -4143,6 +4149,7 @@ impl LayoutEngine {
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
                     row_y_positions.push(y);
+                    sync_live_output_cursor!();
                     col = 0;
                     word_wrap_may_wrap = false;
                     wrap_has_break = false;
@@ -4203,6 +4210,7 @@ impl LayoutEngine {
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
                     row_y_positions.push(y);
+                    sync_live_output_cursor!();
                     charpos = sync_charpos_from_byte_idx(byte_idx);
                     hit_row_charpos_start = charpos;
                     if row < max_rows {
@@ -4267,6 +4275,7 @@ impl LayoutEngine {
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
                     row_y_positions.push(y);
+                    sync_live_output_cursor!();
                     col = 0;
                     trailing_ws_start_col = -1;
                     if row < max_rows {
