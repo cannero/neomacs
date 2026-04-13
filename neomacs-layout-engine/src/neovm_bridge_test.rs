@@ -592,27 +592,6 @@ fn test_rust_buffer_access_count_lines() {
     assert_eq!(access.count_lines(0, 5), 0); // no newline in "line1"
 }
 
-#[test]
-fn test_rust_buffer_access_metadata() {
-    let mut evaluator = neovm_core::emacs_core::Context::new();
-    let buf_id = evaluator.buffer_manager_mut().create_buffer("*meta*");
-    if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
-        buf.text.insert_str(0, "content");
-        buf.zv = buf.text.len();
-        buf.zv_char = buf.text.char_count();
-        buf.modified = true;
-        buf.set_file_name_value(Some("/tmp/test.el".to_string()));
-    }
-
-    let buf = evaluator.buffer_manager().get(buf_id).unwrap();
-    let access = RustBufferAccess::new(buf);
-
-    assert_eq!(access.name(), "*meta*");
-    assert!(access.modified());
-    assert_eq!(access.file_name(), Some("/tmp/test.el"));
-    assert_eq!(access.zv(), 7);
-}
-
 // -----------------------------------------------------------------------
 // RustTextPropAccess tests
 // -----------------------------------------------------------------------

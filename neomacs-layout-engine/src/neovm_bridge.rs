@@ -35,13 +35,8 @@ pub(crate) trait LayoutBufferView {
     fn layout_get_buffer_local(&self, name: &str) -> Option<Value>;
     fn layout_buffer_local_value(&self, name: &str) -> Option<Value>;
     fn layout_point_min_byte(&self) -> usize;
-    fn layout_point_min_char(&self) -> usize;
     fn layout_point_max_byte(&self) -> usize;
     fn layout_point_max_char(&self) -> usize;
-    fn layout_point_byte(&self) -> usize;
-    fn layout_modified(&self) -> bool;
-    fn layout_name(&self) -> &str;
-    fn layout_file_name(&self) -> Option<&str>;
     fn layout_text(&self) -> &BufferText;
     fn layout_overlays(&self) -> &OverlayList;
 }
@@ -49,14 +44,10 @@ pub(crate) trait LayoutBufferView {
 #[derive(Clone)]
 pub(crate) struct LayoutBufferSnapshot {
     pub name: String,
-    pub file_name: Option<String>,
     pub text: BufferText,
-    pub pt: usize,
     pub begv: usize,
-    pub begv_char: usize,
     pub zv: usize,
     pub zv_char: usize,
-    pub modified: bool,
     pub local_var_alist: Value,
     pub slots: [Value; BUFFER_SLOT_COUNT],
     pub local_flags: u64,
@@ -67,14 +58,10 @@ impl LayoutBufferSnapshot {
     pub fn from_buffer(buffer: &Buffer) -> Self {
         Self {
             name: buffer.name.clone(),
-            file_name: buffer.get_file_name().map(str::to_string),
             text: buffer.text.clone(),
-            pt: buffer.pt,
             begv: buffer.begv,
-            begv_char: buffer.begv_char,
             zv: buffer.zv,
             zv_char: buffer.zv_char,
-            modified: buffer.modified,
             local_var_alist: buffer.local_var_alist,
             slots: buffer.slots,
             local_flags: buffer.local_flags,
@@ -113,32 +100,12 @@ impl LayoutBufferView for Buffer {
         self.point_min_byte()
     }
 
-    fn layout_point_min_char(&self) -> usize {
-        self.point_min_char()
-    }
-
     fn layout_point_max_byte(&self) -> usize {
         self.point_max_byte()
     }
 
     fn layout_point_max_char(&self) -> usize {
         self.point_max_char()
-    }
-
-    fn layout_point_byte(&self) -> usize {
-        self.point_byte()
-    }
-
-    fn layout_modified(&self) -> bool {
-        self.modified
-    }
-
-    fn layout_name(&self) -> &str {
-        &self.name
-    }
-
-    fn layout_file_name(&self) -> Option<&str> {
-        self.get_file_name()
     }
 
     fn layout_text(&self) -> &BufferText {
@@ -175,32 +142,12 @@ impl LayoutBufferView for LayoutBufferSnapshot {
         self.begv
     }
 
-    fn layout_point_min_char(&self) -> usize {
-        self.begv_char
-    }
-
     fn layout_point_max_byte(&self) -> usize {
         self.zv
     }
 
     fn layout_point_max_char(&self) -> usize {
         self.zv_char
-    }
-
-    fn layout_point_byte(&self) -> usize {
-        self.pt
-    }
-
-    fn layout_modified(&self) -> bool {
-        self.modified
-    }
-
-    fn layout_name(&self) -> &str {
-        &self.name
-    }
-
-    fn layout_file_name(&self) -> Option<&str> {
-        self.file_name.as_deref()
     }
 
     fn layout_text(&self) -> &BufferText {
@@ -1012,26 +959,6 @@ impl<'a, B: LayoutBufferView> RustBufferAccess<'a, B> {
     /// Get the buffer's narrowed end (zv) as byte position.
     pub fn zv(&self) -> i64 {
         self.buffer.layout_point_max_byte() as i64
-    }
-
-    /// Get point (cursor) byte position.
-    pub fn point(&self) -> i64 {
-        self.buffer.layout_point_byte() as i64
-    }
-
-    /// Whether the buffer has been modified.
-    pub fn modified(&self) -> bool {
-        self.buffer.layout_modified()
-    }
-
-    /// Buffer name.
-    pub fn name(&self) -> &str {
-        self.buffer.layout_name()
-    }
-
-    /// Buffer file name, if any.
-    pub fn file_name(&self) -> Option<&str> {
-        self.buffer.layout_file_name()
     }
 }
 
