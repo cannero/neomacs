@@ -222,8 +222,6 @@ pub struct WindowParams {
     pub fill_column_indicator_fg: u32,
     /// Extra line spacing in pixels
     pub extra_line_spacing: f32,
-    /// Whether to show cursor in non-selected windows
-    pub cursor_in_non_selected: bool,
     /// selective-display: 0=off, >0=hide lines indented more than N columns
     pub selective_display: i32,
     /// escape-glyph face foreground color
@@ -681,7 +679,6 @@ mod tests {
             fill_column_indicator_char: '|',
             fill_column_indicator_fg: 0x00808080,
             extra_line_spacing: 0.0,
-            cursor_in_non_selected: true,
             selective_display: 0,
             escape_glyph_fg: 0x00FF0000,
             nobreak_char_display: 1,
@@ -746,7 +743,6 @@ mod tests {
             fill_column_indicator_char: '|',
             fill_column_indicator_fg: 0,
             extra_line_spacing: 0.0,
-            cursor_in_non_selected: false,
             selective_display: 0,
             escape_glyph_fg: 0,
             nobreak_char_display: 0,
@@ -803,7 +799,6 @@ mod tests {
             fill_column_indicator_char: '|',
             fill_column_indicator_fg: 0,
             extra_line_spacing: 2.0,
-            cursor_in_non_selected: true,
             selective_display: 3,
             escape_glyph_fg: 0,
             nobreak_char_display: 2,

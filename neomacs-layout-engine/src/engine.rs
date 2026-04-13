@@ -843,24 +843,11 @@ unsafe fn cursor_point_advance(
 fn cursor_style_for_window(params: &WindowParams) -> Option<CursorStyle> {
     use neomacs_display_protocol::frame_glyphs::CursorKind;
 
-    if params.selected {
-        return CursorStyle::from_kind(params.cursor_kind, params.cursor_bar_width);
-    }
-
-    // Mirrors GNU `xdisp.c::get_window_cursor_type`: a non-selected
-    // window with `NoCursor` resolved by the upper layers stays
-    // dark. Cursor audit Finding 1 in `drafts/cursor-audit.md`
-    // replaced the old `cursor_type == 4` sentinel with the proper
-    // GNU enum value.
     if params.cursor_kind == CursorKind::NoCursor {
         return None;
     }
 
-    if params.cursor_in_non_selected {
-        Some(CursorStyle::Hollow)
-    } else {
-        None
-    }
+    CursorStyle::from_kind(params.cursor_kind, params.cursor_bar_width)
 }
 
 /// Parse `:raise` factor from a display property value.
@@ -5195,7 +5182,6 @@ mod tests {
             fill_column_indicator_char: '|',
             fill_column_indicator_fg: 0,
             extra_line_spacing: 0.0,
-            cursor_in_non_selected: false,
             selective_display: 0,
             escape_glyph_fg: 0,
             nobreak_char_display: 0,
@@ -8069,5 +8055,27 @@ mod tests {
 
         let width = cursor_width_for_style(CursorStyle::Hbar(2.0), text, 0, 0, &params, 7.0);
         assert_eq!(width, 14.0);
+    }
+
+    #[test]
+    fn test_cursor_style_for_nonselected_bar_uses_resolved_width() {
+        let mut params = test_window_params();
+        params.selected = false;
+        params.cursor_kind = neomacs_display_protocol::frame_glyphs::CursorKind::Bar;
+        params.cursor_bar_width = 4;
+
+        assert_eq!(
+            cursor_style_for_window(&params),
+            Some(CursorStyle::Bar(4.0))
+        );
+    }
+
+    #[test]
+    fn test_cursor_style_for_nonselected_no_cursor_is_none() {
+        let mut params = test_window_params();
+        params.selected = false;
+        params.cursor_kind = neomacs_display_protocol::frame_glyphs::CursorKind::NoCursor;
+
+        assert_eq!(cursor_style_for_window(&params), None);
     }
 }

@@ -341,13 +341,15 @@ fn effective_cursor_spec(
 
     use neomacs_display_protocol::frame_glyphs::CursorKind;
 
-    // GNU `xdisp.c::get_window_cursor_type` only swaps the FilledBox
-    // shape for Hollow on non-selected windows. The earlier "subtract
-    // 1 from bar_width" tweak was a non-GNU visual nudge — see cursor
-    // audit Finding 12 in `drafts/cursor-audit.md`.
+    // GNU `xdisp.c::get_window_cursor_type` applies the non-selected
+    // fallback after resolving the base cursor kind: FilledBox becomes
+    // HollowBox, explicit alternate cursor types win, and BAR cursors
+    // narrow by one pixel when `cursor-in-non-selected-windows` is `t`.
     let mut adjusted = base;
     if adjusted.cursor_kind == CursorKind::FilledBox {
         adjusted.cursor_kind = CursorKind::HollowBox;
+    } else if adjusted.cursor_kind == CursorKind::Bar && adjusted.bar_width > 1 {
+        adjusted.bar_width -= 1;
     }
     Some(adjusted)
 }
@@ -471,10 +473,6 @@ pub fn window_params_from_neovm(
         )
     };
 
-    let cursor_in_non_selected =
-        effective_buffer_value(buffer, obarray, "cursor-in-non-selected-windows")
-            .map(|value| !value.is_nil())
-            .unwrap_or(true);
     let cursor_spec = effective_cursor_spec(
         frame,
         buffer,
@@ -597,7 +595,6 @@ pub fn window_params_from_neovm(
             Some(v) if v.is_float() => v.xfloat() as f32,
             _ => 0.0,
         },
-        cursor_in_non_selected,
         selective_display: buffer_selective_display(buffer),
         escape_glyph_fg: 0,
         nobreak_char_display: 0,

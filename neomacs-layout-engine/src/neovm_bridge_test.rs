@@ -295,6 +295,59 @@ fn test_effective_cursor_spec_nonselected_box_becomes_hollow() {
 }
 
 #[test]
+fn test_effective_cursor_spec_nonselected_bar_narrows_under_t() {
+    let mut evaluator = neovm_core::emacs_core::Context::new();
+    let buf_id = evaluator.buffer_manager_mut().create_buffer("*cursor*");
+    let frame_id = evaluator
+        .frame_manager_mut()
+        .create_frame("test", 800, 600, buf_id);
+
+    if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
+        buf.set_buffer_local(
+            "cursor-type",
+            Value::cons(Value::symbol("bar"), Value::fixnum(5)),
+        );
+        buf.set_buffer_local("cursor-in-non-selected-windows", Value::T);
+    }
+
+    let frame = evaluator.frame_manager().get(frame_id).unwrap();
+    let buffer = evaluator.buffer_manager().get(buf_id).unwrap();
+    let spec = effective_cursor_spec(frame, buffer, false, false, Value::T).unwrap();
+
+    assert_eq!(
+        spec.cursor_kind,
+        neomacs_display_protocol::frame_glyphs::CursorKind::Bar
+    );
+    assert_eq!(spec.bar_width, 4);
+}
+
+#[test]
+fn test_effective_cursor_spec_nonselected_explicit_bar_is_preserved() {
+    let mut evaluator = neovm_core::emacs_core::Context::new();
+    let buf_id = evaluator.buffer_manager_mut().create_buffer("*cursor*");
+    let frame_id = evaluator
+        .frame_manager_mut()
+        .create_frame("test", 800, 600, buf_id);
+
+    if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
+        buf.set_buffer_local(
+            "cursor-in-non-selected-windows",
+            Value::cons(Value::symbol("bar"), Value::fixnum(3)),
+        );
+    }
+
+    let frame = evaluator.frame_manager().get(frame_id).unwrap();
+    let buffer = evaluator.buffer_manager().get(buf_id).unwrap();
+    let spec = effective_cursor_spec(frame, buffer, false, false, Value::T).unwrap();
+
+    assert_eq!(
+        spec.cursor_kind,
+        neomacs_display_protocol::frame_glyphs::CursorKind::Bar
+    );
+    assert_eq!(spec.bar_width, 3);
+}
+
+#[test]
 fn test_frame_cursor_color_uses_cursor_face_background() {
     let mut evaluator = neovm_core::emacs_core::Context::new();
     let buf_id = evaluator
