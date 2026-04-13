@@ -6,7 +6,9 @@
 //! snapshots for renderer handoff.
 
 use neovm_core::emacs_core::Context;
-use neovm_core::window::DisplayRowSnapshot;
+use neovm_core::window::{
+    DisplayRowSnapshot, WindowCursorPos, WindowCursorSnapshot, WindowDisplaySnapshot,
+};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RowMetricsSnapshot {
@@ -41,6 +43,12 @@ impl WindowOutputEmitter {
     pub(crate) fn begin_row(&self, evaluator: &mut Context, row: i64, col: i64, y: i64, x: i64) {
         if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
             frame.begin_window_output_row(self.window_id, row, col, y, x);
+        }
+    }
+
+    pub(crate) fn begin_update(&self, evaluator: &mut Context) {
+        if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
+            frame.begin_window_output_update(self.window_id);
         }
     }
 
@@ -103,5 +111,20 @@ impl WindowOutputEmitter {
             frame.finish_window_output_row(self.window_id, &row);
         }
         chrome_rows.push(row);
+    }
+
+    pub(crate) fn finalize_snapshot(
+        &self,
+        evaluator: &mut Context,
+        logical_cursor: Option<WindowCursorPos>,
+        phys_cursor: Option<WindowCursorSnapshot>,
+        snapshot: &WindowDisplaySnapshot,
+    ) {
+        if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
+            frame.install_logical_cursor(self.window_id, logical_cursor);
+            frame.apply_physical_cursor_snapshot(self.window_id, phys_cursor);
+            frame.fallback_output_cursor_from_snapshot(snapshot);
+            frame.finish_window_output_update(self.window_id);
+        }
     }
 }

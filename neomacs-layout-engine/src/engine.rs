@@ -2069,9 +2069,8 @@ impl LayoutEngine {
     ) {
         let buf_id = neovm_core::buffer::BufferId(params.buffer_id);
         let window_id = neovm_core::window::WindowId(params.window_id as u64);
-        if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
-            frame.begin_window_output_update(window_id);
-        }
+        let output_emitter = WindowOutputEmitter::new(frame_id, window_id, 0.0, params.bounds.y);
+        output_emitter.begin_update(evaluator);
         let layout_buffer = match evaluator.buffer_manager().get(buf_id) {
             Some(buffer) => super::neovm_bridge::LayoutBufferSnapshot::from_buffer(buffer),
             None => {
@@ -5210,12 +5209,12 @@ impl LayoutEngine {
             points: display_points,
             rows: display_rows,
         };
-        if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
-            frame.install_logical_cursor(window_id, emitted_logical_cursor);
-            frame.apply_physical_cursor_snapshot(window_id, emitted_window_cursor.clone());
-            frame.fallback_output_cursor_from_snapshot(&snapshot);
-            frame.finish_window_output_update(window_id);
-        }
+        output_emitter.finalize_snapshot(
+            evaluator,
+            emitted_logical_cursor,
+            emitted_window_cursor.clone(),
+            &snapshot,
+        );
         self.display_snapshots.push(snapshot);
 
         // Persist the face-id counter back to the frame-wide
