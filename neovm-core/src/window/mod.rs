@@ -944,6 +944,9 @@ pub struct WindowDisplaySnapshot {
     pub header_line_height: i64,
     /// Last redisplay tab-line height in pixels.
     pub tab_line_height: i64,
+    /// Intended cursor position in the redisplay result, even when no physical
+    /// cursor was emitted.
+    pub logical_cursor: Option<WindowCursorPos>,
     /// Last redisplay cursor geometry for this window, if the cursor was shown.
     pub cursor: Option<WindowCursorSnapshot>,
     /// Visible source-position geometry, sorted by `buffer_pos`.
@@ -953,6 +956,11 @@ pub struct WindowDisplaySnapshot {
 }
 
 impl WindowDisplaySnapshot {
+    pub fn logical_cursor_pos(&self) -> Option<WindowCursorPos> {
+        self.logical_cursor
+            .or_else(|| self.cursor.as_ref().map(WindowCursorPos::from_snapshot))
+    }
+
     pub fn output_cursor_pos(&self) -> Option<WindowCursorPos> {
         self.rows.last().map(|row| WindowCursorPos {
             x: row.end_x,
@@ -1071,6 +1079,7 @@ impl Default for WindowDisplaySnapshot {
             mode_line_height: 0,
             header_line_height: 0,
             tab_line_height: 0,
+            logical_cursor: None,
             cursor: None,
             points: Vec::new(),
             rows: Vec::new(),
@@ -1525,9 +1534,7 @@ impl Frame {
         if let Some(window) = self.find_window_mut(snapshot.window_id)
             && let Some(display) = window.display_mut()
         {
-            display.install_logical_cursor(
-                snapshot.cursor.as_ref().map(WindowCursorPos::from_snapshot),
-            );
+            display.install_logical_cursor(snapshot.logical_cursor_pos());
             display.commit_output_cursor_from_display_snapshot(snapshot);
             display.apply_physical_cursor_snapshot(snapshot.cursor.clone());
             display.commit_completed_redisplay();
@@ -3275,6 +3282,53 @@ mod tests {
                 .and_then(|snapshot| snapshot.cursor.as_ref()),
             None
         );
+    }
+
+    #[test]
+    fn replace_display_snapshots_preserves_logical_cursor_without_physical_cursor() {
+        let mut mgr = FrameManager::new();
+        let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+        let wid = mgr.get(fid).unwrap().selected_window;
+        let logical_cursor = WindowCursorPos {
+            x: 24,
+            y: 16,
+            row: 1,
+            col: 3,
+        };
+
+        let frame = mgr.get_mut(fid).unwrap();
+        frame.replace_display_snapshots(vec![WindowDisplaySnapshot {
+            window_id: wid,
+            logical_cursor: Some(logical_cursor),
+            rows: vec![DisplayRowSnapshot {
+                row: 1,
+                y: 16,
+                height: 16,
+                end_x: 64,
+                end_col: 8,
+                start_buffer_pos: Some(10),
+                end_buffer_pos: Some(18),
+            }],
+            ..WindowDisplaySnapshot::default()
+        }]);
+
+        let display = frame
+            .find_window(wid)
+            .and_then(|window| window.display())
+            .expect("window display state");
+        assert_eq!(display.cursor, Some(logical_cursor));
+        assert_eq!(
+            display.output_cursor,
+            Some(WindowCursorPos {
+                x: 64,
+                y: 16,
+                row: 1,
+                col: 8,
+            })
+        );
+        assert_eq!(display.phys_cursor, None);
+        assert_eq!(display.phys_cursor_type, WindowCursorKind::NoCursor);
+        assert!(!display.phys_cursor_on_p);
     }
 
     #[test]

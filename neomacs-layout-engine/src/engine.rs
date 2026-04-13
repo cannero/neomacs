@@ -20,8 +20,8 @@ use neovm_core::emacs_core::eval::{ImageResolveRequest, ImageResolveSource};
 use neovm_core::emacs_core::keymap::is_list_keymap;
 use neovm_core::emacs_core::value::list_to_vec;
 use neovm_core::window::{
-    DisplayPointSnapshot, DisplayRowSnapshot, WindowCursorKind, WindowCursorSnapshot,
-    WindowDisplaySnapshot,
+    DisplayPointSnapshot, DisplayRowSnapshot, WindowCursorKind, WindowCursorPos,
+    WindowCursorSnapshot, WindowDisplaySnapshot,
 };
 
 /// Maximum number of characters in a ligature run before forced flush.
@@ -4547,11 +4547,10 @@ impl LayoutEngine {
             }
         }
 
+        let mut emitted_logical_cursor: Option<WindowCursorPos> = None;
         let mut emitted_window_cursor: Option<WindowCursorSnapshot> = None;
         if params.point >= window_start && (params.point <= charpos || point_is_visible_eob) {
-            let cursor_style = cursor_style_for_window(params);
-
-            if let (Some(cursor), Some(style)) = (cursor_info, cursor_style) {
+            if let Some(cursor) = cursor_info {
                 let row_metric = row_metrics_for_cursor(
                     &row_metrics,
                     cursor.matrix_row,
@@ -4560,139 +4559,147 @@ impl LayoutEngine {
                     row_max_height,
                     row_max_ascent,
                 );
-                let computed_slot_width = if let Some(slot_width) = cursor.slot_width {
-                    slot_width.max(1.0)
-                } else {
-                    cursor_width_for_style(
-                        style,
-                        text,
-                        cursor.byte_idx,
-                        cursor.col as i32,
-                        params,
-                        cursor.face_w,
-                    )
-                    .max(1.0)
-                };
-                let fallback_cursor_w = computed_slot_width.max(1.0);
-                let actual_cursor_w = if cursor.slot_width.is_some() {
-                    computed_slot_width
-                } else if let Some(face) = self.matrix_builder.faces().get(&cursor.face_id) {
-                    unsafe {
-                        cursor_point_advance(
+                emitted_logical_cursor = Some(WindowCursorPos {
+                    x: (cursor.x - text_area_left).round() as i64,
+                    y: (row_metric.pixel_y - text_y).round() as i64,
+                    row: cursor.matrix_row as i64,
+                    col: cursor.col as i64,
+                });
+                if let Some(style) = cursor_style_for_window(params) {
+                    let computed_slot_width = if let Some(slot_width) = cursor.slot_width {
+                        slot_width.max(1.0)
+                    } else {
+                        cursor_width_for_style(
+                            style,
                             text,
                             cursor.byte_idx,
                             cursor.col as i32,
                             params,
                             cursor.face_w,
-                            cursor.face_space_w,
-                            char_w,
-                            face.font_size.max(1.0).round() as i32,
-                            &face.font_family,
-                            face.font_weight,
-                            face.is_italic(),
-                            &mut self.ascii_width_cache,
-                            &mut self.font_metrics,
                         )
-                        .unwrap_or(fallback_cursor_w)
-                    }
-                    .max(1.0)
-                } else {
-                    fallback_cursor_w
-                };
-                let cursor_w = if cursor.stretch_like
-                    && !params.x_stretch_cursor
-                    && !matches!(style, CursorStyle::Bar(_))
-                {
-                    char_w.max(1.0)
-                } else {
-                    actual_cursor_w
-                };
-                let (cursor_y, cursor_h, cursor_ascent) = resolve_cursor_vertical_metrics(
-                    cursor.y,
-                    cursor.face_h,
-                    cursor.face_ascent,
-                    row_metric.height,
-                    row_metric.ascent,
-                    char_h,
-                    point_is_visible_eob,
-                );
-                let resolved_cursor = ResolvedCursorGeometry {
-                    x: cursor.x,
-                    y: cursor_y,
-                    width: cursor_w,
-                    height: cursor_h,
-                    ascent: cursor_ascent,
-                    row: cursor.matrix_row,
-                    col: cursor.col,
-                    style,
-                    color: Color::from_pixel(params.cursor_color),
-                    cursor_fg: cursor.bg,
-                };
-                if resolved_cursor.y >= text_y
-                    && resolved_cursor.y + resolved_cursor.height <= text_y + text_height
-                {
-                    self.matrix_builder.push_cursor(
-                        params.window_id as i32,
-                        DisplaySlotId {
-                            window_id: params.window_id,
-                            row: resolved_cursor.row as u32,
-                            col: resolved_cursor.col as u16,
-                        },
-                        resolved_cursor.x,
-                        resolved_cursor.y,
-                        resolved_cursor.width,
-                        resolved_cursor.height,
-                        resolved_cursor.style,
-                        resolved_cursor.color,
+                        .max(1.0)
+                    };
+                    let fallback_cursor_w = computed_slot_width.max(1.0);
+                    let actual_cursor_w = if cursor.slot_width.is_some() {
+                        computed_slot_width
+                    } else if let Some(face) = self.matrix_builder.faces().get(&cursor.face_id) {
+                        unsafe {
+                            cursor_point_advance(
+                                text,
+                                cursor.byte_idx,
+                                cursor.col as i32,
+                                params,
+                                cursor.face_w,
+                                cursor.face_space_w,
+                                char_w,
+                                face.font_size.max(1.0).round() as i32,
+                                &face.font_family,
+                                face.font_weight,
+                                face.is_italic(),
+                                &mut self.ascii_width_cache,
+                                &mut self.font_metrics,
+                            )
+                            .unwrap_or(fallback_cursor_w)
+                        }
+                        .max(1.0)
+                    } else {
+                        fallback_cursor_w
+                    };
+                    let cursor_w = if cursor.stretch_like
+                        && !params.x_stretch_cursor
+                        && !matches!(style, CursorStyle::Bar(_))
+                    {
+                        char_w.max(1.0)
+                    } else {
+                        actual_cursor_w
+                    };
+                    let (cursor_y, cursor_h, cursor_ascent) = resolve_cursor_vertical_metrics(
+                        cursor.y,
+                        cursor.face_h,
+                        cursor.face_ascent,
+                        row_metric.height,
+                        row_metric.ascent,
+                        char_h,
+                        point_is_visible_eob,
                     );
-                    self.matrix_builder.set_cursor_at_row(
-                        resolved_cursor.row,
-                        resolved_cursor.col as u16,
-                        resolved_cursor.style,
-                    );
-                    emitted_window_cursor = Some(WindowCursorSnapshot {
-                        kind: window_cursor_kind(resolved_cursor.style),
-                        x: (resolved_cursor.x - text_area_left).round() as i64,
-                        y: (resolved_cursor.y - text_y).round() as i64,
-                        width: resolved_cursor.width.round() as i64,
-                        height: resolved_cursor.height.round() as i64,
-                        ascent: resolved_cursor.ascent.round() as i64,
-                        row: resolved_cursor.row as i64,
-                        col: resolved_cursor.col as i64,
-                    });
-                    if params.selected {
-                        self.matrix_builder.set_phys_cursor(PhysCursor {
-                            window_id: params.window_id as i32,
-                            charpos: params.point.max(0) as usize,
-                            row: resolved_cursor.row,
-                            col: resolved_cursor.col as u16,
-                            slot_id: DisplaySlotId {
+                    let resolved_cursor = ResolvedCursorGeometry {
+                        x: cursor.x,
+                        y: cursor_y,
+                        width: cursor_w,
+                        height: cursor_h,
+                        ascent: cursor_ascent,
+                        row: cursor.matrix_row,
+                        col: cursor.col,
+                        style,
+                        color: Color::from_pixel(params.cursor_color),
+                        cursor_fg: cursor.bg,
+                    };
+                    if resolved_cursor.y >= text_y
+                        && resolved_cursor.y + resolved_cursor.height <= text_y + text_height
+                    {
+                        self.matrix_builder.push_cursor(
+                            params.window_id as i32,
+                            DisplaySlotId {
                                 window_id: params.window_id,
                                 row: resolved_cursor.row as u32,
                                 col: resolved_cursor.col as u16,
                             },
-                            x: resolved_cursor.x,
-                            y: resolved_cursor.y,
-                            width: resolved_cursor.width,
-                            height: resolved_cursor.height,
-                            ascent: resolved_cursor.ascent,
-                            style: resolved_cursor.style,
-                            color: resolved_cursor.color,
-                            cursor_fg: resolved_cursor.cursor_fg,
-                        });
-                    }
-
-                    if point_is_visible_eob {
-                        tracing::debug!(
-                            "layout_window_rust: emitting EOB cursor at x={:.1} y={:.1} w={:.1} h={:.1}",
                             resolved_cursor.x,
                             resolved_cursor.y,
                             resolved_cursor.width,
-                            resolved_cursor.height
+                            resolved_cursor.height,
+                            resolved_cursor.style,
+                            resolved_cursor.color,
                         );
+                        self.matrix_builder.set_cursor_at_row(
+                            resolved_cursor.row,
+                            resolved_cursor.col as u16,
+                            resolved_cursor.style,
+                        );
+                        emitted_window_cursor = Some(WindowCursorSnapshot {
+                            kind: window_cursor_kind(resolved_cursor.style),
+                            x: (resolved_cursor.x - text_area_left).round() as i64,
+                            y: (resolved_cursor.y - text_y).round() as i64,
+                            width: resolved_cursor.width.round() as i64,
+                            height: resolved_cursor.height.round() as i64,
+                            ascent: resolved_cursor.ascent.round() as i64,
+                            row: resolved_cursor.row as i64,
+                            col: resolved_cursor.col as i64,
+                        });
+                        if params.selected {
+                            self.matrix_builder.set_phys_cursor(PhysCursor {
+                                window_id: params.window_id as i32,
+                                charpos: params.point.max(0) as usize,
+                                row: resolved_cursor.row,
+                                col: resolved_cursor.col as u16,
+                                slot_id: DisplaySlotId {
+                                    window_id: params.window_id,
+                                    row: resolved_cursor.row as u32,
+                                    col: resolved_cursor.col as u16,
+                                },
+                                x: resolved_cursor.x,
+                                y: resolved_cursor.y,
+                                width: resolved_cursor.width,
+                                height: resolved_cursor.height,
+                                ascent: resolved_cursor.ascent,
+                                style: resolved_cursor.style,
+                                color: resolved_cursor.color,
+                                cursor_fg: resolved_cursor.cursor_fg,
+                            });
+                        }
+
+                        if point_is_visible_eob {
+                            tracing::debug!(
+                                "layout_window_rust: emitting EOB cursor at x={:.1} y={:.1} w={:.1} h={:.1}",
+                                resolved_cursor.x,
+                                resolved_cursor.y,
+                                resolved_cursor.width,
+                                resolved_cursor.height
+                            );
+                        }
                     }
                 }
-            } else if cursor_info.is_none() {
+            } else {
                 tracing::debug!(
                     "layout_window_rust: no explicit cursor capture for point={} window_start={} charpos_end={}",
                     params.point,
@@ -5083,6 +5090,7 @@ impl LayoutEngine {
             mode_line_height: mode_line_height.round() as i64,
             header_line_height: header_line_height.round() as i64,
             tab_line_height: tab_line_height.round() as i64,
+            logical_cursor: emitted_logical_cursor,
             cursor: emitted_window_cursor,
             points: display_points,
             rows: display_rows,
