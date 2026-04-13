@@ -19,7 +19,8 @@ use neovm_core::emacs_core::Value;
 use neovm_core::emacs_core::keymap::is_list_keymap;
 use neovm_core::emacs_core::value::list_to_vec;
 use neovm_core::window::{
-    DisplayPointSnapshot, DisplayRowSnapshot, WindowCursorSnapshot, WindowDisplaySnapshot,
+    DisplayPointSnapshot, DisplayRowSnapshot, WindowCursorKind, WindowCursorSnapshot,
+    WindowDisplaySnapshot,
 };
 
 /// Maximum number of characters in a ligature run before forced flush.
@@ -70,6 +71,15 @@ struct ResolvedCursorGeometry {
     style: CursorStyle,
     color: Color,
     cursor_fg: Color,
+}
+
+fn window_cursor_kind(style: CursorStyle) -> WindowCursorKind {
+    match style {
+        CursorStyle::FilledBox => WindowCursorKind::FilledBox,
+        CursorStyle::Hollow => WindowCursorKind::HollowBox,
+        CursorStyle::Bar(_) => WindowCursorKind::Bar,
+        CursorStyle::Hbar(_) => WindowCursorKind::Hbar,
+    }
 }
 
 fn capture_cursor_info(target: &mut Option<CapturedCursorInfo>, info: CapturedCursorInfo) {
@@ -4435,6 +4445,7 @@ impl LayoutEngine {
                         resolved_cursor.style,
                     );
                     emitted_window_cursor = Some(WindowCursorSnapshot {
+                        kind: window_cursor_kind(resolved_cursor.style),
                         x: (resolved_cursor.x - text_area_left).round() as i64,
                         y: (resolved_cursor.y - text_y).round() as i64,
                         width: resolved_cursor.width.round() as i64,

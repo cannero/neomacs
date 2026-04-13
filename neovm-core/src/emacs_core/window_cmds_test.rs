@@ -2089,6 +2089,7 @@ fn window_cursor_info_returns_last_redisplay_cursor_geometry() {
         frame.replace_display_snapshots(vec![crate::window::WindowDisplaySnapshot {
             window_id: wid,
             cursor: Some(crate::window::WindowCursorSnapshot {
+                kind: crate::window::WindowCursorKind::Bar,
                 x: 11,
                 y: 29,
                 width: 3,
@@ -2127,6 +2128,7 @@ fn window_cursor_info_hides_and_restores_live_cursor_geometry() {
         frame.replace_display_snapshots(vec![crate::window::WindowDisplaySnapshot {
             window_id: wid,
             cursor: Some(crate::window::WindowCursorSnapshot {
+                kind: crate::window::WindowCursorKind::Bar,
                 x: 11,
                 y: 29,
                 width: 3,

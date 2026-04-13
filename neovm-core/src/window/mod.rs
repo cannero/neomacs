@@ -98,7 +98,6 @@ pub enum SplitDirection {
 ///
 /// Remaining deferred GNU fields are:
 ///
-/// - `phys_cursor_type`
 /// - `last_cursor_off_p`/blink plumbing used by the classic redisplay loop
 /// - `last_cursor_vpos` parity with the classic redisplay loop
 /// - the full `cursor`/`output_cursor` split from GNU `struct cursor_pos`
@@ -118,6 +117,8 @@ pub struct WindowDisplayState {
     /// For now neomacs keeps this identical to `phys_cursor`; the split is
     /// preserved because GNU stores both.
     pub output_cursor: Option<WindowCursorSnapshot>,
+    /// Last physical cursor type emitted by redisplay.
+    pub phys_cursor_type: WindowCursorKind,
     /// Whether the window currently owns a live physical cursor.
     pub phys_cursor_on_p: bool,
     /// Whether the cursor is hidden without invalidating the geometry.
@@ -144,6 +145,7 @@ impl Default for WindowDisplayState {
             cursor_type: Value::T,
             phys_cursor: None,
             output_cursor: None,
+            phys_cursor_type: WindowCursorKind::NoCursor,
             phys_cursor_on_p: false,
             cursor_off_p: false,
             last_cursor_vpos: 0,
@@ -164,6 +166,7 @@ impl WindowDisplayState {
     pub fn clear_physical_cursor_state(&mut self) {
         self.phys_cursor = None;
         self.output_cursor = None;
+        self.phys_cursor_type = WindowCursorKind::NoCursor;
         self.phys_cursor_on_p = false;
         self.last_cursor_vpos = 0;
     }
@@ -171,6 +174,10 @@ impl WindowDisplayState {
     pub fn apply_physical_cursor_snapshot(&mut self, cursor: Option<WindowCursorSnapshot>) {
         self.phys_cursor = cursor.clone();
         self.output_cursor = cursor.clone();
+        self.phys_cursor_type = cursor
+            .as_ref()
+            .map(|c| c.kind)
+            .unwrap_or(WindowCursorKind::NoCursor);
         self.phys_cursor_on_p = cursor.is_some();
         self.last_cursor_vpos = cursor.as_ref().map(|c| c.row).unwrap_or(0);
     }
@@ -808,8 +815,20 @@ pub struct DisplayRowSnapshot {
 }
 
 /// Last authoritative physical cursor geometry for a window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowCursorKind {
+    NoCursor,
+    FilledBox,
+    HollowBox,
+    Bar,
+    Hbar,
+}
+
+/// Last authoritative physical cursor geometry for a window.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WindowCursorSnapshot {
+    /// Physical cursor kind that redisplay emitted for this window.
+    pub kind: WindowCursorKind,
     /// X relative to the text area's left edge, in pixels.
     pub x: i64,
     /// Y relative to the text area's top edge, in pixels.
@@ -2959,6 +2978,7 @@ mod tests {
         frame.replace_display_snapshots(vec![WindowDisplaySnapshot {
             window_id: w1,
             cursor: Some(WindowCursorSnapshot {
+                kind: WindowCursorKind::Bar,
                 x: 7,
                 y: 13,
                 width: 9,
@@ -3028,6 +3048,7 @@ mod tests {
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().selected_window;
         let cursor = WindowCursorSnapshot {
+            kind: WindowCursorKind::Bar,
             x: 11,
             y: 29,
             width: 3,
@@ -3049,6 +3070,7 @@ mod tests {
             .and_then(|window| window.display())
             .expect("window display state");
         assert!(display.phys_cursor_on_p);
+        assert_eq!(display.phys_cursor_type, WindowCursorKind::Bar);
         assert_eq!(display.last_cursor_vpos, cursor.row);
         assert_eq!(display.phys_cursor.as_ref(), Some(&cursor));
         assert_eq!(display.output_cursor.as_ref(), Some(&cursor));
