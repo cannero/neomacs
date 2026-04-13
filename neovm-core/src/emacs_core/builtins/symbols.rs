@@ -2609,23 +2609,46 @@ pub(crate) fn builtin_unix_sync(args: Vec<Value>) -> EvalResult {
     Ok(Value::NIL)
 }
 
-pub(crate) fn builtin_value_lt(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_value_lt(
+    eval: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("value<", &args, 2)?;
-    match compare_value_lt(&args[0], &args[1]) {
-        Ok(std::cmp::Ordering::Less) => Ok(Value::T),
-        Ok(_) => Ok(Value::NIL),
-        Err((lhs, rhs)) => Err(signal("type-mismatch", vec![lhs, rhs])),
+    match compare_value_lt(eval, &args[0], &args[1])? {
+        std::cmp::Ordering::Less => Ok(Value::T),
+        _ => Ok(Value::NIL),
     }
 }
 
 pub(crate) fn compare_value_lt(
+    eval: &crate::emacs_core::eval::Context,
     lhs: &Value,
     rhs: &Value,
-) -> Result<std::cmp::Ordering, (Value, Value)> {
-    if let (Some(left), Some(right)) = (as_number_for_value_lt(lhs), as_number_for_value_lt(rhs)) {
-        return Ok(left
-            .partial_cmp(&right)
-            .unwrap_or(std::cmp::Ordering::Equal));
+) -> Result<std::cmp::Ordering, Flow> {
+    compare_value_lt_inner(eval, lhs, rhs, 200)
+}
+
+fn compare_value_lt_inner(
+    eval: &crate::emacs_core::eval::Context,
+    lhs: &Value,
+    rhs: &Value,
+    maxdepth: i32,
+) -> Result<std::cmp::Ordering, Flow> {
+    use std::cmp::Ordering;
+
+    if maxdepth < 0 {
+        return Err(signal(
+            "error",
+            vec![Value::string("Maximum depth exceeded in comparison")],
+        ));
+    }
+
+    if lhs.bits() == rhs.bits() {
+        return Ok(Ordering::Equal);
+    }
+
+    if let Some(ordering) = compare_number_values_for_value_lt(lhs, rhs) {
+        return Ok(ordering);
     }
 
     if let (Some(left), Some(right)) =
@@ -2635,50 +2658,306 @@ pub(crate) fn compare_value_lt(
     }
 
     match (lhs.kind(), rhs.kind()) {
-        (ValueKind::String, ValueKind::String) => {
-            let left_str = super::lisp_string_to_runtime_string(*lhs);
-            let right_str = super::lisp_string_to_runtime_string(*rhs);
-            Ok(left_str.cmp(&right_str))
-        }
+        (ValueKind::String, ValueKind::String) => Ok(compare_lisp_strings(
+            lhs.as_lisp_string().expect("string"),
+            rhs.as_lisp_string().expect("string"),
+        )),
         (ValueKind::Cons, ValueKind::Cons) => {
             let left_car = lhs.cons_car();
             let left_cdr = lhs.cons_cdr();
             let right_car = rhs.cons_car();
             let right_cdr = rhs.cons_cdr();
 
-            let car_cmp = compare_value_lt(&left_car, &right_car)?;
-            if car_cmp != std::cmp::Ordering::Equal {
+            let car_cmp = compare_value_lt_inner(eval, &left_car, &right_car, maxdepth - 1)?;
+            if car_cmp != Ordering::Equal {
                 return Ok(car_cmp);
             }
 
             match (left_cdr.kind(), right_cdr.kind()) {
-                (ValueKind::Nil, ValueKind::Cons) => Ok(std::cmp::Ordering::Less),
-                (ValueKind::Cons, ValueKind::Nil) => Ok(std::cmp::Ordering::Greater),
-                _ => compare_value_lt(&left_cdr, &right_cdr),
+                (ValueKind::Nil, ValueKind::Cons) => Ok(Ordering::Less),
+                (ValueKind::Cons, ValueKind::Nil) => Ok(Ordering::Greater),
+                _ => compare_value_lt_inner(eval, &left_cdr, &right_cdr, maxdepth - 1),
             }
         }
-        (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) => {
-            let lv = lhs.as_vector_data().unwrap().clone();
-            let rv = rhs.as_vector_data().unwrap().clone();
-            let pairs: Vec<(Value, Value)> = lv.iter().copied().zip(rv.iter().copied()).collect();
-            for (l, r) in &pairs {
-                let cmp = compare_value_lt(l, r)?;
-                if cmp != std::cmp::Ordering::Equal {
-                    return Ok(cmp);
-                }
+        (ValueKind::Veclike(left_ty), ValueKind::Veclike(right_ty)) => {
+            if left_ty != right_ty {
+                return Err(signal_value_lt_type_mismatch(lhs, rhs));
             }
-            Ok(lv.len().cmp(&rv.len()))
+
+            match left_ty {
+                VecLikeType::Vector => match (vector_value_lt_kind(lhs), vector_value_lt_kind(rhs))
+                {
+                    (VectorValueLtKind::PlainVector, VectorValueLtKind::PlainVector) => {
+                        compare_value_sequences(eval, lhs, rhs, maxdepth - 1)
+                    }
+                    (VectorValueLtKind::BoolVector, VectorValueLtKind::BoolVector) => {
+                        compare_bool_vectors_for_value_lt(lhs, rhs)
+                    }
+                    (VectorValueLtKind::CharTable, VectorValueLtKind::CharTable) => {
+                        Ok(Ordering::Equal)
+                    }
+                    _ => Err(signal_value_lt_type_mismatch(lhs, rhs)),
+                },
+                VecLikeType::Record => compare_value_sequences(eval, lhs, rhs, maxdepth - 1),
+                VecLikeType::Marker => compare_markers_for_value_lt(eval, lhs, rhs),
+                VecLikeType::Buffer => Ok(compare_buffers_for_value_lt(eval, lhs, rhs)),
+                VecLikeType::Bignum => unreachable!("bignums are handled in compare_number_values"),
+                _ => Ok(Ordering::Equal),
+            }
         }
-        _ => Err((*lhs, *rhs)),
+        (ValueKind::Unbound, ValueKind::Unbound) | (ValueKind::Unknown, ValueKind::Unknown) => {
+            Ok(Ordering::Equal)
+        }
+        _ => Err(signal_value_lt_type_mismatch(lhs, rhs)),
     }
 }
 
-fn as_number_for_value_lt(value: &Value) -> Option<f64> {
-    match value.kind() {
-        ValueKind::Fixnum(n) => Some(n as f64),
-        ValueKind::Float => Some(value.xfloat()),
-        _ => None,
+fn signal_value_lt_type_mismatch(lhs: &Value, rhs: &Value) -> Flow {
+    signal("type-mismatch", vec![*lhs, *rhs])
+}
+
+fn compare_value_sequences(
+    eval: &crate::emacs_core::eval::Context,
+    lhs: &Value,
+    rhs: &Value,
+    maxdepth: i32,
+) -> Result<std::cmp::Ordering, Flow> {
+    use std::cmp::Ordering;
+
+    let left_values = if lhs.is_vector() {
+        lhs.as_vector_data().expect("vector")
+    } else {
+        lhs.as_record_data().expect("record")
+    };
+    let right_values = if rhs.is_vector() {
+        rhs.as_vector_data().expect("vector")
+    } else {
+        rhs.as_record_data().expect("record")
+    };
+
+    for (left, right) in left_values.iter().zip(right_values.iter()) {
+        let cmp = compare_value_lt_inner(eval, left, right, maxdepth)?;
+        if cmp != Ordering::Equal {
+            return Ok(cmp);
+        }
     }
+
+    Ok(left_values.len().cmp(&right_values.len()))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum VectorValueLtKind {
+    PlainVector,
+    BoolVector,
+    CharTable,
+}
+
+fn vector_value_lt_kind(value: &Value) -> VectorValueLtKind {
+    if crate::emacs_core::chartable::is_bool_vector(value) {
+        VectorValueLtKind::BoolVector
+    } else if crate::emacs_core::chartable::is_char_table(value) {
+        VectorValueLtKind::CharTable
+    } else {
+        VectorValueLtKind::PlainVector
+    }
+}
+
+fn compare_bool_vectors_for_value_lt(lhs: &Value, rhs: &Value) -> Result<std::cmp::Ordering, Flow> {
+    let left_len = crate::emacs_core::chartable::bool_vector_length(lhs)
+        .ok_or_else(|| signal_value_lt_type_mismatch(lhs, rhs))? as usize;
+    let right_len = crate::emacs_core::chartable::bool_vector_length(rhs)
+        .ok_or_else(|| signal_value_lt_type_mismatch(lhs, rhs))? as usize;
+    let left_values = lhs.as_vector_data().expect("bool-vector");
+    let right_values = rhs.as_vector_data().expect("bool-vector");
+    let min_len = left_len.min(right_len);
+
+    for idx in 0..min_len {
+        let left_bit = left_values[2 + idx]
+            .as_fixnum()
+            .map(|n| n != 0)
+            .unwrap_or(false);
+        let right_bit = right_values[2 + idx]
+            .as_fixnum()
+            .map(|n| n != 0)
+            .unwrap_or(false);
+        if left_bit != right_bit {
+            return Ok(left_bit.cmp(&right_bit));
+        }
+    }
+
+    Ok(left_len.cmp(&right_len))
+}
+
+fn compare_markers_for_value_lt(
+    eval: &crate::emacs_core::eval::Context,
+    lhs: &Value,
+    rhs: &Value,
+) -> Result<std::cmp::Ordering, Flow> {
+    use std::cmp::Ordering;
+
+    let left_buffer = marker_live_buffer_for_value_lt(eval, lhs);
+    let right_buffer = marker_live_buffer_for_value_lt(eval, rhs);
+    match (left_buffer, right_buffer) {
+        (None, Some(_)) => return Ok(Ordering::Less),
+        (Some(_), None) => return Ok(Ordering::Greater),
+        (Some(left), Some(right)) => {
+            let buffer_cmp = compare_buffer_ids_for_value_lt(eval, left, right);
+            if buffer_cmp != Ordering::Equal {
+                return Ok(buffer_cmp);
+            }
+        }
+        (None, None) => return Ok(Ordering::Equal),
+    }
+
+    let left_pos =
+        crate::emacs_core::marker::marker_position_as_int_with_buffers(&eval.buffers, lhs)?;
+    let right_pos =
+        crate::emacs_core::marker::marker_position_as_int_with_buffers(&eval.buffers, rhs)?;
+    Ok(left_pos.cmp(&right_pos))
+}
+
+fn marker_live_buffer_for_value_lt(
+    eval: &crate::emacs_core::eval::Context,
+    value: &Value,
+) -> Option<crate::buffer::BufferId> {
+    let buffer_id = value.as_marker_data()?.buffer?;
+    eval.buffers.get(buffer_id)?;
+    Some(buffer_id)
+}
+
+fn compare_buffers_for_value_lt(
+    eval: &crate::emacs_core::eval::Context,
+    lhs: &Value,
+    rhs: &Value,
+) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+
+    match (lhs.as_buffer_id(), rhs.as_buffer_id()) {
+        (Some(left), Some(right)) => compare_buffer_ids_for_value_lt(eval, left, right),
+        (None, Some(_)) => Ordering::Less,
+        (Some(_), None) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
+}
+
+fn compare_buffer_ids_for_value_lt(
+    eval: &crate::emacs_core::eval::Context,
+    lhs: crate::buffer::BufferId,
+    rhs: crate::buffer::BufferId,
+) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+
+    let left_name = eval.buffers.get(lhs).map(|buffer| buffer.name.as_str());
+    let right_name = eval.buffers.get(rhs).map(|buffer| buffer.name.as_str());
+    match (left_name, right_name) {
+        (Some(left), Some(right)) => left.cmp(right),
+        (None, Some(_)) => Ordering::Less,
+        (Some(_), None) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
+}
+
+fn compare_lisp_strings(
+    lhs: &crate::heap_types::LispString,
+    rhs: &crate::heap_types::LispString,
+) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+
+    let mut left_pos = 0;
+    let mut right_pos = 0;
+    loop {
+        match (
+            next_lisp_string_char_for_value_lt(lhs, &mut left_pos),
+            next_lisp_string_char_for_value_lt(rhs, &mut right_pos),
+        ) {
+            (Some(left), Some(right)) if left != right => return left.cmp(&right),
+            (Some(_), Some(_)) => {}
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (None, None) => return Ordering::Equal,
+        }
+    }
+}
+
+fn next_lisp_string_char_for_value_lt(
+    string: &crate::heap_types::LispString,
+    pos: &mut usize,
+) -> Option<u32> {
+    let bytes = string.as_bytes();
+    if *pos >= bytes.len() {
+        return None;
+    }
+
+    if string.is_multibyte() {
+        let (cp, len) = crate::emacs_core::emacs_char::string_char(&bytes[*pos..]);
+        *pos += len;
+        Some(cp)
+    } else {
+        let byte = bytes[*pos] as u32;
+        *pos += 1;
+        Some(byte)
+    }
+}
+
+fn compare_number_values_for_value_lt(lhs: &Value, rhs: &Value) -> Option<std::cmp::Ordering> {
+    use std::cmp::Ordering;
+
+    if !lhs.is_number() || !rhs.is_number() {
+        return None;
+    }
+
+    if lhs.is_float() || rhs.is_float() {
+        if let Some(big) = lhs.as_bignum() {
+            let right = match rhs.kind() {
+                ValueKind::Fixnum(n) => n as f64,
+                ValueKind::Float => rhs.xfloat(),
+                _ => return None,
+            };
+            return Some(big.partial_cmp(&right).unwrap_or(Ordering::Equal));
+        }
+        if let Some(big) = rhs.as_bignum() {
+            let left = match lhs.kind() {
+                ValueKind::Fixnum(n) => n as f64,
+                ValueKind::Float => lhs.xfloat(),
+                _ => return None,
+            };
+            return Some(
+                big.partial_cmp(&left)
+                    .map(|ordering| ordering.reverse())
+                    .unwrap_or(Ordering::Equal),
+            );
+        }
+        let left = match lhs.kind() {
+            ValueKind::Fixnum(n) => n as f64,
+            ValueKind::Float => lhs.xfloat(),
+            _ => return None,
+        };
+        let right = match rhs.kind() {
+            ValueKind::Fixnum(n) => n as f64,
+            ValueKind::Float => rhs.xfloat(),
+            _ => return None,
+        };
+        return Some(left.partial_cmp(&right).unwrap_or(Ordering::Equal));
+    }
+
+    if !lhs.is_bignum() && !rhs.is_bignum() {
+        return match (lhs.kind(), rhs.kind()) {
+            (ValueKind::Fixnum(left), ValueKind::Fixnum(right)) => Some(left.cmp(&right)),
+            _ => None,
+        };
+    }
+
+    let left = match lhs.kind() {
+        ValueKind::Fixnum(n) => rug::Integer::from(n),
+        ValueKind::Veclike(VecLikeType::Bignum) => lhs.as_bignum().expect("bignum").clone(),
+        _ => return None,
+    };
+    let right = match rhs.kind() {
+        ValueKind::Fixnum(n) => rug::Integer::from(n),
+        ValueKind::Veclike(VecLikeType::Bignum) => rhs.as_bignum().expect("bignum").clone(),
+        _ => return None,
+    };
+    Some(left.cmp(&right))
 }
 
 fn symbol_name_for_value_lt(value: &Value) -> Option<&str> {
@@ -3727,13 +4006,69 @@ pub(crate) fn builtin_dump_emacs_portable(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("dump-emacs-portable", &args, 1, 2)?;
+
+    if !ctx.noninteractive() {
+        return Err(signal(
+            "error",
+            vec![Value::string(
+                "Dumping Emacs currently works only in batch mode.  If you'd like it to work interactively, please consider contributing a patch to Emacs.",
+            )],
+        ));
+    }
+    if ctx.threads.current_thread_id() != 0 {
+        return Err(signal(
+            "error",
+            vec![Value::string(
+                "This function can be called only in the main thread",
+            )],
+        ));
+    }
+    if ctx.threads.all_thread_ids().into_iter().any(|id| id != 0) {
+        return Err(signal(
+            "error",
+            vec![Value::string(
+                "No other Lisp threads can be running when this function is called",
+            )],
+        ));
+    }
+
     let path = expect_strict_string(&args[0])?;
-    crate::emacs_core::pdump::dump_to_file(ctx, std::path::Path::new(&path)).map_err(|err| {
+    let expanded_path = crate::emacs_core::fileio::expand_file_name(
+        &path,
+        crate::emacs_core::fileio::default_directory_in_state(&ctx.obarray, &[], &ctx.buffers)
+            .as_deref(),
+    );
+    let dump_path = std::path::Path::new(&expanded_path);
+    let saved_post_gc_hook = ctx
+        .obarray()
+        .symbol_value("post-gc-hook")
+        .copied()
+        .unwrap_or(Value::NIL);
+    let saved_command_line_processed = ctx
+        .obarray()
+        .symbol_value("command-line-processed")
+        .copied()
+        .unwrap_or(Value::NIL);
+    let saved_process_environment = ctx
+        .obarray()
+        .symbol_value("process-environment")
+        .copied()
+        .unwrap_or(Value::NIL);
+    ctx.set_variable("post-gc-hook", Value::NIL);
+    ctx.gc_collect_exact();
+    ctx.set_variable("command-line-processed", Value::NIL);
+    ctx.set_variable("process-environment", Value::NIL);
+    let dump_result = crate::emacs_core::pdump::dump_to_file(ctx, dump_path);
+    ctx.set_variable("post-gc-hook", saved_post_gc_hook);
+    ctx.set_variable("command-line-processed", saved_command_line_processed);
+    ctx.set_variable("process-environment", saved_process_environment);
+
+    dump_result.map_err(|err| {
         signal(
             "file-error",
             vec![
                 Value::string("dump-emacs-portable"),
-                Value::string(path),
+                Value::string(expanded_path),
                 Value::string(err.to_string()),
             ],
         )

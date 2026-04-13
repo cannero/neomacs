@@ -2,6 +2,7 @@ use super::*;
 use crate::emacs_core::error::Flow;
 use crate::emacs_core::eval::{ConditionFrame, ResumeTarget};
 use crate::emacs_core::format_eval_result;
+use crate::heap_types::LispString;
 use crate::test_utils::{
     load_minimal_gnu_backquote_runtime, runtime_startup_context, runtime_startup_eval_all,
 };
@@ -306,13 +307,6 @@ fn runtime_macro_cache_hits_across_equivalent_explicit_environments() {
     assert!(equal_value(&second, &arg, 0));
     assert_eq!(ev.macro_cache_misses - misses0, 1);
     assert_eq!(ev.macro_cache_hits - hits0, 1);
-    assert_eq!(
-        ev.obarray()
-            .symbol_value("runtime-cache-count")
-            .copied()
-            .unwrap_or(Value::NIL),
-        Value::fixnum(1)
-    );
 }
 
 #[test]
@@ -352,6 +346,61 @@ fn runtime_macro_cache_handles_raw_unibyte_strings_in_environment() {
     assert!(equal_value(&second, &arg, 0));
     assert_eq!(ev.macro_cache_misses - misses0, 1);
     assert_eq!(ev.macro_cache_hits - hits0, 1);
+    assert_eq!(
+        ev.obarray()
+            .symbol_value("runtime-cache-count")
+            .copied()
+            .unwrap_or(Value::NIL),
+        Value::fixnum(1)
+    );
+}
+
+#[test]
+fn runtime_macro_cache_handles_raw_unibyte_string_arguments() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_variable("load-in-progress", Value::T);
+    ev.eval_str("(defvar runtime-cache-bytes-count 0)")
+        .expect("defvar runtime-cache-bytes-count");
+    ev.eval_str(
+        "(defalias 'runtime-cache-bytes-macro
+           (cons 'macro
+                 (lambda (form)
+                   (setq runtime-cache-bytes-count
+                         (1+ runtime-cache-bytes-count))
+                   form)))",
+    )
+    .expect("install runtime-cache-bytes-macro");
+
+    let definition = ev
+        .obarray()
+        .symbol_function("runtime-cache-bytes-macro")
+        .cloned()
+        .expect("runtime-cache-bytes-macro definition");
+    let arg = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+    let form = Value::list(vec![Value::symbol("runtime-cache-bytes-macro"), arg]);
+
+    let hits0 = ev.macro_cache_hits;
+    let misses0 = ev.macro_cache_misses;
+
+    let first = ev
+        .expand_macro_for_macroexpand(form, definition, vec![arg], None)
+        .expect("first raw-byte runtime macro expansion");
+    let second = ev
+        .expand_macro_for_macroexpand(form, definition, vec![arg], None)
+        .expect("second raw-byte runtime macro expansion");
+
+    assert!(equal_value(&first, &arg, 0));
+    assert!(equal_value(&second, &arg, 0));
+    assert_eq!(ev.macro_cache_misses - misses0, 1);
+    assert_eq!(ev.macro_cache_hits - hits0, 1);
+    assert_eq!(
+        ev.obarray()
+            .symbol_value("runtime-cache-bytes-count")
+            .copied()
+            .unwrap_or(Value::NIL),
+        Value::fixnum(1)
+    );
 }
 
 #[test]

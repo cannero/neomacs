@@ -47,6 +47,9 @@ default = []
 proptest.workspace = true
 tree-sitter-json = "0.24"
 
+[build-dependencies]
+sha2.workspace = true
+
 [lints.rust]
 unused_imports = "allow"
 unused_variables = "allow"

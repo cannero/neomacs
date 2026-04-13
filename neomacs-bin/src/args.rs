@@ -157,11 +157,10 @@ pub(crate) struct StandardArg {
 
 /// Direct port of GNU `standard_args[]` from `emacs.c:2646-2766`.
 ///
-/// Each row is reproduced verbatim from GNU. Rows whose underlying
-/// subsystem we don't have (`-fingerprint`, `-seccomp`, NS-only flags,
-/// `-module-assertions`) are omitted because they would never match
-/// anything in our parser, but the priority numbers and ordering of the
-/// remaining rows are preserved exactly.
+/// Each row is reproduced verbatim from GNU except for rows whose
+/// subsystems we still do not implement (`-seccomp`, NS-only flags,
+/// `-module-assertions`). Their absence does not change the relative
+/// ordering of the rows we do support.
 ///
 /// **Do not reorder this table.** Some priority values are deliberately
 /// shared (e.g. all GUI display flags share priority 10) and `sort_args`
@@ -174,7 +173,12 @@ pub(crate) static STANDARD_ARGS: &[StandardArg] = &[
         priority: 150,
         nargs: 0,
     },
-    // -fingerprint omitted (no pdumper fingerprint subsystem yet).
+    StandardArg {
+        name: "-fingerprint",
+        longname: Some("--fingerprint"),
+        priority: 140,
+        nargs: 0,
+    },
     StandardArg {
         name: "-chdir",
         longname: Some("--chdir"),

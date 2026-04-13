@@ -4207,8 +4207,9 @@ impl<'a> Vm<'a> {
             .obarray
             .symbol_value("completion-ignore-case")
             .is_some_and(|v| v.is_truthy());
-        let regexps =
-            crate::emacs_core::minibuffer::completion_regexp_list_from_obarray(&self.ctx.obarray);
+        let regexps = crate::emacs_core::minibuffer::completion_regexp_lisp_list_from_obarray(
+            &self.ctx.obarray,
+        );
         crate::emacs_core::minibuffer::builtin_try_completion_with_candidates(
             args,
             candidates,
@@ -4228,8 +4229,9 @@ impl<'a> Vm<'a> {
             .obarray
             .symbol_value("completion-ignore-case")
             .is_some_and(|v| v.is_truthy());
-        let regexps =
-            crate::emacs_core::minibuffer::completion_regexp_list_from_obarray(&self.ctx.obarray);
+        let regexps = crate::emacs_core::minibuffer::completion_regexp_lisp_list_from_obarray(
+            &self.ctx.obarray,
+        );
         crate::emacs_core::minibuffer::builtin_all_completions_with_candidates(
             args,
             candidates,
@@ -4293,8 +4295,9 @@ impl<'a> Vm<'a> {
             .obarray
             .symbol_value("completion-ignore-case")
             .is_some_and(|v| v.is_truthy());
-        let regexps =
-            crate::emacs_core::minibuffer::completion_regexp_list_from_obarray(&self.ctx.obarray);
+        let regexps = crate::emacs_core::minibuffer::completion_regexp_lisp_list_from_obarray(
+            &self.ctx.obarray,
+        );
         crate::emacs_core::minibuffer::builtin_test_completion_with_candidates(
             args,
             candidates,
@@ -4740,6 +4743,14 @@ impl crate::emacs_core::builtins::higher_order::SortRuntime for Vm<'_> {
 
     fn root_sort_value(&mut self, value: Value) {
         self.push_dynamic_vm_root(value);
+    }
+
+    fn compare_sort_keys(
+        &mut self,
+        left: &Value,
+        right: &Value,
+    ) -> Result<std::cmp::Ordering, Flow> {
+        crate::emacs_core::builtins::symbols::compare_value_lt(self.ctx, left, right)
     }
 }
 

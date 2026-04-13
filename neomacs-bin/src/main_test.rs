@@ -4,7 +4,8 @@ use super::{
     adopt_existing_primary_gui_frame, bootstrap_buffers, bootstrap_default_font_name,
     bootstrap_display_config, bootstrap_frame_metrics, classify_early_cli_action,
     configure_gnu_startup_state, current_layout_frame_id, face_height_to_pixels,
-    parse_startup_options, raw_loadup_command_line, raw_loadup_startup_surface, render_help_text,
+    parse_startup_options, raw_loadup_command_line, raw_loadup_startup_surface,
+    render_fingerprint_text, render_help_text, render_startup_image_error,
     render_version_text, run_gnu_startup, startup_dimensions, sync_live_gui_frame_titles,
     sync_selected_gui_chrome_state,
 };
@@ -12,6 +13,8 @@ use neomacs_display_runtime::thread_comm::RenderCommand;
 use neovm_core::emacs_core::Context;
 use neovm_core::emacs_core::GuiFrameHostRequest;
 use neovm_core::emacs_core::Value;
+use neovm_core::emacs_core::error::EvalError;
+use neovm_core::emacs_core::intern::intern;
 use neovm_core::emacs_core::load::{
     LoadupDumpMode, create_bootstrap_evaluator_cached_with_features,
     create_bootstrap_evaluator_with_features,
@@ -800,6 +803,14 @@ fn early_cli_handles_gnu_c_owned_help_and_version_options() {
     );
     assert_eq!(
         classify_early_cli_action(
+            ["./target/release/neomacs", "--fingerprint"]
+                .into_iter()
+                .map(str::to_string)
+        ),
+        Some(EarlyCliAction::PrintFingerprint)
+    );
+    assert_eq!(
+        classify_early_cli_action(
             ["./target/release/neomacs", "--", "--help"]
                 .into_iter()
                 .map(str::to_string)
@@ -813,6 +824,7 @@ fn early_cli_help_uses_invoked_program_name_and_gnu_style_usage() {
     let help = render_help_text("/tmp/neomacs");
     assert!(help.starts_with("Usage: /tmp/neomacs [OPTION-OR-FILENAME]...\n\n"));
     assert!(help.contains("--help                          display this help and exit"));
+    assert!(help.contains("--fingerprint                   output fingerprint and exit"));
     assert!(help.contains("--quick, -Q                 equivalent to:"));
 }
 
@@ -821,6 +833,31 @@ fn early_cli_version_reports_neomacs_identity() {
     let version = render_version_text();
     assert!(version.starts_with("Neomacs "));
     assert!(version.contains("Standalone Rust binary for Neomacs"));
+}
+
+#[test]
+fn early_cli_fingerprint_reports_shared_pdump_fingerprint() {
+    assert_eq!(
+        render_fingerprint_text(),
+        format!("{}\n", neovm_core::emacs_core::pdump::fingerprint_hex())
+    );
+}
+
+#[test]
+fn startup_image_error_renderer_surfaces_heapless_payload() {
+    let payload = Value::symbol(intern(
+        "failed to load final image /tmp/neomacs.pdump: boom",
+    ));
+    let err = EvalError::Signal {
+        symbol: intern("error"),
+        data: vec![payload],
+        raw_data: Some(payload),
+    };
+
+    assert_eq!(
+        render_startup_image_error(&err),
+        "failed to load final image /tmp/neomacs.pdump: boom"
+    );
 }
 
 #[test]

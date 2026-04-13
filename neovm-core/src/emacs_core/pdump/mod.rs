@@ -7,6 +7,7 @@
 //! ```text
 //! [8 bytes: magic "NEOPDUMP"]
 //! [4 bytes: format version u32 LE]
+//! [32 bytes: build fingerprint]
 //! [32 bytes: SHA-256 of bincode payload]
 //! [4 bytes: payload length u32 LE]
 //! [N bytes: bincode-serialized DumpContextState]
@@ -35,10 +36,50 @@ use crate::emacs_core::intern;
 use crate::emacs_core::value;
 
 const MAGIC: &[u8; 8] = b"NEOPDUMP";
-// Phase 12 bump (12): DumpHeapObject::Str stores raw Vec<u8> data
-// with size/size_byte instead of String + multibyte bool, matching
-// the LispString internal representation (Emacs encoding).
-const FORMAT_VERSION: u32 = 12;
+const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook-pending";
+// Phase 13 bump (13): embed the shared build fingerprint in the on-disk
+// header and reject mismatched runtime images at load time.
+const FORMAT_VERSION: u32 = 13;
+
+pub fn fingerprint_hex() -> &'static str {
+    env!("NEOVM_PDUMP_FINGERPRINT")
+}
+
+fn fingerprint_bytes() -> [u8; 32] {
+    let hex = fingerprint_hex().as_bytes();
+    assert_eq!(
+        hex.len(),
+        64,
+        "NEOVM_PDUMP_FINGERPRINT must be 64 hex characters"
+    );
+
+    let mut out = [0u8; 32];
+    for (idx, chunk) in hex.chunks_exact(2).enumerate() {
+        out[idx] = (decode_hex_nibble(chunk[0]) << 4) | decode_hex_nibble(chunk[1]);
+    }
+    out
+}
+
+fn decode_hex_nibble(byte: u8) -> u8 {
+    match byte {
+        b'0'..=b'9' => byte - b'0',
+        b'a'..=b'f' => byte - b'a' + 10,
+        b'A'..=b'F' => byte - b'A' + 10,
+        _ => panic!(
+            "invalid NEOVM_PDUMP_FINGERPRINT hex digit: {}",
+            byte as char
+        ),
+    }
+}
+
+fn hex_string(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(&mut out, "{byte:02X}");
+    }
+    out
+}
 
 /// Errors from dump/load operations.
 #[derive(Debug)]
@@ -46,6 +87,7 @@ pub enum DumpError {
     Io(std::io::Error),
     BadMagic,
     UnsupportedVersion(u32),
+    FingerprintMismatch { expected: String, found: String },
     ChecksumMismatch,
     SerializationError(String),
     DeserializationError(String),
@@ -57,6 +99,10 @@ impl std::fmt::Display for DumpError {
             DumpError::Io(e) => write!(f, "I/O error: {e}"),
             DumpError::BadMagic => write!(f, "not a valid pdump file (bad magic)"),
             DumpError::UnsupportedVersion(v) => write!(f, "unsupported pdump version {v}"),
+            DumpError::FingerprintMismatch { expected, found } => write!(
+                f,
+                "pdump fingerprint mismatch (expected {expected}, found {found})"
+            ),
             DumpError::ChecksumMismatch => write!(f, "pdump checksum mismatch (corrupted file)"),
             DumpError::SerializationError(s) => write!(f, "serialization error: {s}"),
             DumpError::DeserializationError(s) => write!(f, "deserialization error: {s}"),
@@ -95,22 +141,15 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
     let mut file = tempfile::NamedTempFile::new_in(parent)?;
     file.write_all(MAGIC)?;
     file.write_all(&FORMAT_VERSION.to_le_bytes())?;
+    file.write_all(&fingerprint_bytes())?;
     file.write_all(&checksum)?;
     file.write_all(&(payload.len() as u32).to_le_bytes())?;
     file.write_all(&payload)?;
     file.flush()?;
     file.as_file().sync_all()?;
 
-    match file.persist(path) {
-        Ok(_) => Ok(()),
-        Err(err) => {
-            if err.error.kind() == std::io::ErrorKind::AlreadyExists && path.exists() {
-                Ok(())
-            } else {
-                Err(DumpError::Io(err.error))
-            }
-        }
-    }
+    file.persist(path).map_err(|err| DumpError::Io(err.error))?;
+    Ok(())
 }
 
 /// Load evaluator state from a pdump file.
@@ -133,6 +172,16 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
     let version = u32::from_le_bytes(version_bytes);
     if version != FORMAT_VERSION {
         return Err(DumpError::UnsupportedVersion(version));
+    }
+
+    let mut found_fingerprint = [0u8; 32];
+    file.read_exact(&mut found_fingerprint)?;
+    let expected_fingerprint = fingerprint_bytes();
+    if found_fingerprint != expected_fingerprint {
+        return Err(DumpError::FingerprintMismatch {
+            expected: hex_string(&expected_fingerprint),
+            found: hex_string(&found_fingerprint),
+        });
     }
 
     let mut expected_checksum = [0u8; 32];
@@ -160,7 +209,7 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
     // Reconstruct evaluator
     let mut eval = reconstruct_evaluator(&state)?;
     record_loaded_dump(path, load_start.elapsed());
-    run_after_pdump_load_hook(&mut eval);
+    mark_after_pdump_load_hook_pending(&mut eval);
     Ok(eval)
 }
 
@@ -326,6 +375,21 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
     Ok(eval)
 }
 
+fn mark_after_pdump_load_hook_pending(eval: &mut Context) {
+    eval.obarray_mut()
+        .set_symbol_value(AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL, value::Value::T);
+}
+
+pub(crate) fn take_after_pdump_load_hook_pending(eval: &mut Context) -> bool {
+    let pending = eval
+        .obarray()
+        .symbol_value(AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL)
+        .is_some_and(|value| value.is_truthy());
+    eval.obarray_mut()
+        .set_symbol_value(AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL, value::Value::NIL);
+    pending
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,7 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn test_file_load_records_pdumper_stats_and_runs_after_pdump_load_hook() {
+    fn test_file_load_records_pdumper_stats_without_running_after_pdump_load_hook() {
         crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let setup = crate::emacs_core::value_reader::read_all(
@@ -441,7 +505,7 @@ mod tests {
         let mut loaded = load_from_dump(&dump_path).expect("load should succeed");
         assert_eq!(
             loaded.obarray.symbol_value("compat-pdump-hook-fired"),
-            Some(&Value::T)
+            Some(&Value::NIL)
         );
 
         let forms = crate::emacs_core::value_reader::read_all("(pdumper-stats)").unwrap();
@@ -469,6 +533,28 @@ mod tests {
             dump_file.cons_cdr().as_str_owned().as_deref(),
             Some(expected.as_str())
         );
+    }
+
+    #[test]
+    fn test_pdump_rejects_fingerprint_mismatch() {
+        crate::test_utils::init_test_tracing();
+        let eval = Context::new();
+        let dir = tempfile::tempdir().unwrap();
+        let dump_path = dir.path().join("fingerprint-mismatch.pdump");
+        dump_to_file(&eval, &dump_path).expect("dump should succeed");
+
+        let mut bytes = std::fs::read(&dump_path).expect("read dump bytes");
+        bytes[12] ^= 0x01;
+        std::fs::write(&dump_path, bytes).expect("rewrite dump bytes");
+
+        match load_from_dump(&dump_path) {
+            Err(DumpError::FingerprintMismatch { expected, found }) => {
+                assert_eq!(expected, fingerprint_hex());
+                assert_ne!(expected, found);
+            }
+            Ok(_) => panic!("expected fingerprint mismatch, but load succeeded"),
+            Err(other) => panic!("expected fingerprint mismatch, got {other}"),
+        }
     }
 
     #[test]

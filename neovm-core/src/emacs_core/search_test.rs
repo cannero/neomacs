@@ -1,9 +1,11 @@
 use super::*;
 use crate::emacs_core::builtins::search::{
-    builtin_match_data, builtin_set_match_data, builtin_string_match, builtin_string_match_p,
+    builtin_looking_at, builtin_match_data, builtin_set_match_data, builtin_string_match,
+    builtin_string_match_p,
 };
 use crate::emacs_core::search::builtin_replace_regexp_in_string;
 use crate::emacs_core::value::ValueKind;
+use crate::heap_types::LispString;
 
 // Test helpers that keep the Context alive across the returned
 // Value. Previously these created a bare Context inside a block
@@ -39,6 +41,23 @@ fn call_replace_regexp_in_string(args: Vec<Value>) -> EvalResult {
     SEARCH_TEST_CTX.with(|slot| {
         let mut new_ctx = Box::new(crate::emacs_core::eval::Context::new());
         let result = builtin_replace_regexp_in_string(&mut new_ctx, args);
+        *slot.borrow_mut() = Some(new_ctx);
+        result
+    })
+}
+
+fn call_looking_at_in_buffer(pattern: Value, buffer_text: &str) -> EvalResult {
+    SEARCH_TEST_CTX.with(|slot| {
+        let mut new_ctx = Box::new(crate::emacs_core::eval::Context::new());
+        {
+            let buf = new_ctx
+                .buffers
+                .current_buffer_mut()
+                .expect("current buffer");
+            buf.text.insert_str(0, buffer_text);
+            buf.goto_byte(0);
+        }
+        let result = builtin_looking_at(&mut new_ctx, vec![pattern]);
         *slot.borrow_mut() = Some(new_ctx);
         result
     })
@@ -123,6 +142,23 @@ fn string_match_p_defaults_to_case_fold() {
     crate::test_utils::init_test_tracing();
     let result = call_string_match_p(vec![Value::string("a"), Value::string("A")]);
     assert_int(result.unwrap(), 0);
+}
+
+#[test]
+fn string_match_accepts_raw_unibyte_regexp_pattern() {
+    crate::test_utils::init_test_tracing();
+    let pattern = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+    let haystack = Value::heap_string(LispString::from_unibyte(vec![0x80, 0xFF, 0x81]));
+    let result = call_string_match(vec![pattern, haystack]).unwrap();
+    assert_int(result, 1);
+}
+
+#[test]
+fn looking_at_accepts_raw_unibyte_regexp_pattern_in_buffer() {
+    crate::test_utils::init_test_tracing();
+    let pattern = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+    let result = call_looking_at_in_buffer(pattern, "tool-bar").unwrap();
+    assert_nil(result);
 }
 
 #[test]

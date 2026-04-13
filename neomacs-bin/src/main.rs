@@ -55,6 +55,7 @@ use neovm_core::window::{FrameId, Window};
 enum EarlyCliAction {
     PrintHelp { program: String },
     PrintVersion,
+    PrintFingerprint,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,6 +204,7 @@ const EARLY_HELP_BODY: &str = concat!(
     "--xrm XRESOURCES                set additional X resources\n",
     "--parent-id XID                 set parent window\n",
     "--help                          display this help and exit\n",
+    "--fingerprint                   output fingerprint and exit\n",
     "--version                       output version information and exit\n",
     "\n",
     "You can generally also specify long option names with a single -; for\n",
@@ -231,6 +233,9 @@ fn classify_early_cli_action(args: impl IntoIterator<Item = String>) -> Option<E
             "--version" | "-version" => {
                 return Some(EarlyCliAction::PrintVersion);
             }
+            "--fingerprint" | "-fingerprint" => {
+                return Some(EarlyCliAction::PrintFingerprint);
+            }
             _ => {}
         }
     }
@@ -249,6 +254,24 @@ fn render_version_text() -> String {
         "Neomacs {}\nStandalone Rust binary for Neomacs (no C dependency)\n",
         neomacs_display_runtime::VERSION
     )
+}
+
+fn render_fingerprint_text() -> String {
+    format!("{}\n", neovm_core::emacs_core::pdump::fingerprint_hex())
+}
+
+fn render_startup_image_error(err: &neovm_core::emacs_core::error::EvalError) -> String {
+    match err {
+        neovm_core::emacs_core::error::EvalError::Signal {
+            raw_data: Some(payload),
+            ..
+        } => payload
+            .as_symbol_name()
+            .map(str::to_owned)
+            .or_else(|| payload.as_str().map(str::to_owned))
+            .unwrap_or_else(|| format!("{err:?}")),
+        _ => format!("{err:?}"),
+    }
 }
 
 fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<StartupOptions, String> {
@@ -1363,14 +1386,24 @@ fn create_startup_evaluator_for_mode(mode: RuntimeMode, startup: &StartupOptions
                 BOOTSTRAP_CORE_FEATURES,
                 startup.dump_file_override.as_deref(),
             )
-            .unwrap_or_else(|e| panic!("bootstrap image should load: {e:?}"))
+            .unwrap_or_else(|err| {
+                panic!(
+                    "bootstrap image should load: {}",
+                    render_startup_image_error(&err)
+                )
+            })
         }
         RuntimeMode::FinalRun => neovm_core::emacs_core::load::load_runtime_image_with_features(
             RuntimeImageRole::Final,
             BOOTSTRAP_CORE_FEATURES,
             startup.dump_file_override.as_deref(),
         )
-        .unwrap_or_else(|_| panic!("final image should load; see log for details")),
+        .unwrap_or_else(|err| {
+            panic!(
+                "final image should load: {}",
+                render_startup_image_error(&err)
+            )
+        }),
     }
 }
 
@@ -1440,6 +1473,9 @@ pub fn run(mode: RuntimeMode) {
             }
             EarlyCliAction::PrintVersion => {
                 print!("{}", render_version_text());
+            }
+            EarlyCliAction::PrintFingerprint => {
+                print!("{}", render_fingerprint_text());
             }
         }
         return;
@@ -1727,6 +1763,7 @@ pub fn run(mode: RuntimeMode) {
     // 10. Enter GNU's outer command loop. This mirrors src/emacs.c, which
     //     enters recursive-edit and lets the outer command loop evaluate the
     //     `top-level` startup form before reading interactive input.
+    neovm_core::emacs_core::load::maybe_run_after_pdump_load_hook(&mut evaluator);
     tracing::info!("Entering GNU command loop (recursive-edit)...");
     let exit_status = evaluator.recursive_edit();
     if exit_status.is_ok() {

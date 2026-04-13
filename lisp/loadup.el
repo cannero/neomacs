@@ -592,6 +592,20 @@ directory got moved.  This is set to be a pair in the form of:
             (unless success
               (ignore-errors
                 (delete-file output)))))
+        (when (and (member dump-mode '("pdump" "pbootstrap"))
+                   (stringp pdumper-fingerprint)
+                   (> (length pdumper-fingerprint) 0))
+          (let ((fingerprinted
+                 (format "%s-%s.pdump"
+                         (if (equal dump-mode "pdump")
+                             "neomacs"
+                           "bootstrap-neomacs")
+                         pdumper-fingerprint)))
+            (message "Adding name %s" fingerprinted)
+            (add-name-to-file (expand-file-name output invocation-directory)
+                              (expand-file-name fingerprinted
+                                                invocation-directory)
+                              t)))
         ;; Recompute NAME now, so that it isn't set when we dump.
         (if (not (or (eq system-type 'ms-dos)
                      (eq system-type 'haiku) ;; BFS doesn't support hard links

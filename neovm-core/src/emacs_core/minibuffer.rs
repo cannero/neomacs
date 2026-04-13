@@ -75,6 +75,15 @@ fn expect_string(val: &Value) -> Result<String, Flow> {
     }
 }
 
+fn expect_lisp_string(value: &Value) -> Result<crate::heap_types::LispString, Flow> {
+    value.as_lisp_string().cloned().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), *value],
+        )
+    })
+}
+
 fn first_default_value(default: Value) -> Value {
     match default.kind() {
         ValueKind::Cons => default.cons_car(),
@@ -1294,20 +1303,12 @@ fn value_to_string_list(val: &Value) -> Vec<String> {
             items
                 .iter()
                 .filter_map(|item| match item.kind() {
-                    ValueKind::String => {
-                        Some(super::builtins::lisp_string_to_runtime_string(*item))
-                    }
+                    ValueKind::String => completion_display_string_from_value(item),
                     ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
                     // Alist entry: (STRING . _)
                     ValueKind::Cons => {
                         let pair_car = item.cons_car();
-                        match pair_car.kind() {
-                            ValueKind::String => {
-                                Some(super::builtins::lisp_string_to_runtime_string(pair_car))
-                            }
-                            ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
-                            _ => None,
-                        }
+                        completion_display_string_from_value(&pair_car)
                     }
                     _ => None,
                 })
@@ -1317,9 +1318,7 @@ fn value_to_string_list(val: &Value) -> Vec<String> {
             let vec = val.as_vector_data().unwrap().clone();
             vec.iter()
                 .filter_map(|item| match item.kind() {
-                    ValueKind::String => {
-                        Some(super::builtins::lisp_string_to_runtime_string(*item))
-                    }
+                    ValueKind::String => completion_display_string_from_value(item),
                     ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
                     _ => None,
                 })
@@ -1331,19 +1330,101 @@ fn value_to_string_list(val: &Value) -> Vec<String> {
 
 #[derive(Clone)]
 pub(crate) struct CompletionCandidate {
-    completion: String,
+    completion: CompletionText,
     predicate_arg: Value,
     predicate_extra_arg: Option<Value>,
 }
 
-fn completion_string_from_value(value: &Value) -> Option<String> {
+#[derive(Clone)]
+enum CompletionText {
+    OriginalString {
+        value: Value,
+        string: crate::heap_types::LispString,
+    },
+    Generated {
+        string: crate::heap_types::LispString,
+    },
+}
+
+impl CompletionText {
+    fn lisp_string(&self) -> &crate::heap_types::LispString {
+        match self {
+            Self::OriginalString { string, .. } | Self::Generated { string } => string,
+        }
+    }
+
+    fn as_result_value(&self) -> Value {
+        match self {
+            Self::OriginalString { value, .. } => *value,
+            Self::Generated { string } => Value::heap_string(string.clone()),
+        }
+    }
+
+    fn substring_value(&self, end_chars: usize) -> Value {
+        match self {
+            Self::OriginalString { value, string } if end_chars >= string.schars() => *value,
+            _ => {
+                let string = self.lisp_string();
+                let end_chars = end_chars.min(string.schars());
+                let end_byte = if string.is_multibyte() {
+                    crate::emacs_core::emacs_char::char_to_byte_pos(string.as_bytes(), end_chars)
+                } else {
+                    end_chars.min(string.byte_len())
+                };
+                let sliced = string
+                    .slice(0, end_byte)
+                    .expect("validated completion prefix slice");
+                Value::heap_string(sliced)
+            }
+        }
+    }
+
+    fn searched_string(&self) -> super::regex::SearchedString {
+        match self {
+            Self::OriginalString { value, .. } => super::regex::SearchedString::Heap(*value),
+            Self::Generated { string } => super::regex::SearchedString::Owned(
+                string
+                    .as_str()
+                    .expect("generated completion text must be valid utf-8")
+                    .to_owned(),
+            ),
+        }
+    }
+}
+
+fn completion_text_from_value(value: &Value) -> Option<CompletionText> {
     match value.kind() {
-        ValueKind::String => Some(super::builtins::lisp_string_to_runtime_string(*value)),
-        ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
-        ValueKind::Nil => Some("nil".to_owned()),
-        ValueKind::T => Some("t".to_owned()),
+        ValueKind::String => {
+            value
+                .as_lisp_string()
+                .cloned()
+                .map(|string| CompletionText::OriginalString {
+                    value: *value,
+                    string,
+                })
+        }
+        ValueKind::Symbol(id) => Some(CompletionText::Generated {
+            string: crate::heap_types::LispString::from_utf8(resolve_sym(id)),
+        }),
+        ValueKind::Nil => Some(CompletionText::Generated {
+            string: crate::heap_types::LispString::from_utf8("nil"),
+        }),
+        ValueKind::T => Some(CompletionText::Generated {
+            string: crate::heap_types::LispString::from_utf8("t"),
+        }),
         _ => None,
     }
+}
+
+fn completion_display_string_from_value(value: &Value) -> Option<String> {
+    let completion = completion_text_from_value(value)?;
+    let string = completion.lisp_string();
+    Some(
+        string
+            .as_str()
+            .map(|text| text.to_owned())
+            .unwrap_or_else(|| crate::emacs_core::emacs_char::to_utf8_lossy(string.as_bytes())),
+    )
 }
 
 fn completion_candidates_from_list_value(collection: &Value) -> Vec<CompletionCandidate> {
@@ -1358,7 +1439,7 @@ fn completion_candidates_from_list_value(collection: &Value) -> Vec<CompletionCa
                 ValueKind::Cons => item.cons_car(),
                 other => item,
             };
-            completion_string_from_value(&key).map(|completion| CompletionCandidate {
+            completion_text_from_value(&key).map(|completion| CompletionCandidate {
                 completion,
                 predicate_arg: item,
                 predicate_extra_arg: None,
@@ -1375,13 +1456,78 @@ fn completion_candidates_from_vector_value(collection: &Value) -> Vec<Completion
     items
         .into_iter()
         .filter_map(|item| {
-            completion_string_from_value(&item).map(|completion| CompletionCandidate {
+            completion_text_from_value(&item).map(|completion| CompletionCandidate {
                 completion,
                 predicate_arg: item,
                 predicate_extra_arg: None,
             })
         })
         .collect()
+}
+
+fn completion_char_codes(string: &crate::heap_types::LispString) -> Vec<u32> {
+    super::builtins::lisp_string_char_codes(string)
+}
+
+fn completion_fold_char(code: u32, ignore_case: bool) -> u32 {
+    if !ignore_case {
+        return code;
+    }
+    crate::emacs_core::builtins::downcase_char_code_emacs_compat(code as i64) as u32
+}
+
+fn completion_text_matches_prefix(
+    prefix: &crate::heap_types::LispString,
+    completion: &CompletionText,
+    ignore_case: bool,
+) -> bool {
+    let prefix_codes = completion_char_codes(prefix);
+    let completion_codes = completion_char_codes(completion.lisp_string());
+    if prefix_codes.len() > completion_codes.len() {
+        return false;
+    }
+    prefix_codes
+        .iter()
+        .zip(completion_codes.iter())
+        .all(|(left, right)| {
+            completion_fold_char(*left, ignore_case) == completion_fold_char(*right, ignore_case)
+        })
+}
+
+fn completion_text_equals_string(
+    completion: &CompletionText,
+    string: &crate::heap_types::LispString,
+    ignore_case: bool,
+) -> bool {
+    let left = completion_char_codes(completion.lisp_string());
+    let right = completion_char_codes(string);
+    left.len() == right.len()
+        && left.iter().zip(right.iter()).all(|(l, r)| {
+            completion_fold_char(*l, ignore_case) == completion_fold_char(*r, ignore_case)
+        })
+}
+
+fn completion_common_prefix_len(matches: &[&CompletionCandidate], ignore_case: bool) -> usize {
+    let Some((first, rest)) = matches.split_first() else {
+        return 0;
+    };
+    let mut prefix = completion_char_codes(first.completion.lisp_string());
+    for candidate in rest {
+        let other = completion_char_codes(candidate.completion.lisp_string());
+        let max = prefix.len().min(other.len());
+        let mut common = 0;
+        while common < max
+            && completion_fold_char(prefix[common], ignore_case)
+                == completion_fold_char(other[common], ignore_case)
+        {
+            common += 1;
+        }
+        prefix.truncate(common);
+        if prefix.is_empty() {
+            break;
+        }
+    }
+    prefix.len()
 }
 
 fn is_global_obarray_proxy_in_state(obarray: &Obarray, value: &Value) -> bool {
@@ -1403,7 +1549,9 @@ fn completion_candidates_from_global_obarray_in_state(
     names
         .into_iter()
         .map(|name| CompletionCandidate {
-            completion: name.clone(),
+            completion: CompletionText::Generated {
+                string: crate::heap_types::LispString::from_utf8(&name),
+            },
             predicate_arg: Value::symbol(name),
             predicate_extra_arg: None,
         })
@@ -1459,12 +1607,12 @@ pub(crate) fn builtin_try_completion_with_candidates(
     args: &[Value],
     candidates: Option<Vec<CompletionCandidate>>,
     ignore_case: bool,
-    regexps: &[String],
+    regexps: &[crate::heap_types::LispString],
     mut apply: impl FnMut(Value, Vec<Value>) -> EvalResult,
 ) -> EvalResult {
     expect_min_args("try-completion", args, 2)?;
     expect_max_args("try-completion", args, 3)?;
-    let string = expect_string(&args[0])?;
+    let string = expect_lisp_string(&args[0])?;
     let predicate = args.get(2).copied().unwrap_or(Value::NIL);
     let collection = args[1];
 
@@ -1474,39 +1622,38 @@ pub(crate) fn builtin_try_completion_with_candidates(
 
     let mut matches = Vec::new();
     for candidate in &candidates {
-        if !completion_matches_prefix(&string, &candidate.completion, ignore_case) {
+        if !completion_text_matches_prefix(&string, &candidate.completion, ignore_case) {
             continue;
         }
         if !regexps.is_empty() && !matches_completion_regexps(&candidate.completion, regexps) {
             continue;
         }
         if completion_predicate_matches_with(predicate, candidate, &mut apply)? {
-            matches.push(candidate.completion.clone());
+            matches.push(candidate);
         }
     }
 
     if matches.is_empty() {
         return Ok(Value::NIL);
     }
-    if matches.len() == 1 && matches[0] == string {
+    if matches.len() == 1 && completion_text_equals_string(&matches[0].completion, &string, false) {
         return Ok(Value::T);
     }
-    match compute_common_prefix(&matches) {
-        Some(prefix) => Ok(Value::string(prefix)),
-        None => Ok(Value::NIL),
-    }
+    Ok(matches[0]
+        .completion
+        .substring_value(completion_common_prefix_len(&matches, ignore_case)))
 }
 
 pub(crate) fn builtin_all_completions_with_candidates(
     args: &[Value],
     candidates: Option<Vec<CompletionCandidate>>,
     ignore_case: bool,
-    regexps: &[String],
+    regexps: &[crate::heap_types::LispString],
     mut apply: impl FnMut(Value, Vec<Value>) -> EvalResult,
 ) -> EvalResult {
     expect_min_args("all-completions", args, 2)?;
     expect_max_args("all-completions", args, 4)?;
-    let string = expect_string(&args[0])?;
+    let string = expect_lisp_string(&args[0])?;
     let predicate = args.get(2).copied().unwrap_or(Value::NIL);
     let collection = args[1];
 
@@ -1518,9 +1665,9 @@ pub(crate) fn builtin_all_completions_with_candidates(
     // (which may trigger GC via apply), then create string Values.
     // This avoids holding unrooted Value strings across GC-triggering
     // predicate calls.
-    let mut matching_completions: Vec<String> = Vec::new();
+    let mut matching_completions: Vec<CompletionText> = Vec::new();
     for candidate in &candidates {
-        if !completion_matches_prefix(&string, &candidate.completion, ignore_case) {
+        if !completion_text_matches_prefix(&string, &candidate.completion, ignore_case) {
             continue;
         }
         if !regexps.is_empty() && !matches_completion_regexps(&candidate.completion, regexps) {
@@ -1533,7 +1680,7 @@ pub(crate) fn builtin_all_completions_with_candidates(
     // Now create Values — no GC can trigger between creation and list building
     let matches: Vec<Value> = matching_completions
         .into_iter()
-        .map(Value::string)
+        .map(|completion| completion.as_result_value())
         .collect();
     Ok(Value::list(matches))
 }
@@ -1542,12 +1689,12 @@ pub(crate) fn builtin_test_completion_with_candidates(
     args: &[Value],
     candidates: Option<Vec<CompletionCandidate>>,
     ignore_case: bool,
-    regexps: &[String],
+    regexps: &[crate::heap_types::LispString],
     mut apply: impl FnMut(Value, Vec<Value>) -> EvalResult,
 ) -> EvalResult {
     expect_min_args("test-completion", args, 2)?;
     expect_max_args("test-completion", args, 3)?;
-    let string = expect_string(&args[0])?;
+    let string = expect_lisp_string(&args[0])?;
     let predicate = args.get(2).copied().unwrap_or(Value::NIL);
     let collection = args[1];
 
@@ -1558,16 +1705,8 @@ pub(crate) fn builtin_test_completion_with_candidates(
         );
     };
 
-    let matches = |a: &str, b: &str| -> bool {
-        if ignore_case {
-            a.to_lowercase() == b.to_lowercase()
-        } else {
-            a == b
-        }
-    };
-
     for candidate in &candidates {
-        if !matches(&candidate.completion, &string) {
+        if !completion_text_equals_string(&candidate.completion, &string, ignore_case) {
             continue;
         }
         if !regexps.is_empty() && !matches_completion_regexps(&candidate.completion, regexps) {
@@ -1591,7 +1730,7 @@ fn completion_candidates_from_custom_obarray(collection: Value) -> Vec<Completio
                 ValueKind::Cons => {
                     let pair_car = current.cons_car();
                     let pair_cdr = current.cons_cdr();
-                    if let Some(completion) = completion_string_from_value(&pair_car) {
+                    if let Some(completion) = completion_text_from_value(&pair_car) {
                         candidates.push(CompletionCandidate {
                             completion,
                             predicate_arg: pair_car,
@@ -1615,7 +1754,7 @@ fn completion_candidates_from_hash_table(collection: Value) -> Vec<CompletionCan
             continue;
         };
         let visible_key = hash_key_to_visible_value(&table, key);
-        if let Some(completion) = completion_string_from_value(&visible_key) {
+        if let Some(completion) = completion_text_from_value(&visible_key) {
             candidates.push(CompletionCandidate {
                 completion,
                 predicate_arg: visible_key,
@@ -1624,16 +1763,6 @@ fn completion_candidates_from_hash_table(collection: Value) -> Vec<CompletionCan
         }
     }
     candidates
-}
-
-fn completion_matches_prefix(prefix: &str, completion: &str, ignore_case: bool) -> bool {
-    if ignore_case {
-        let lp = prefix.to_lowercase();
-        let lc = completion.to_lowercase();
-        lc.starts_with(&lp)
-    } else {
-        completion.starts_with(prefix)
-    }
 }
 
 /// Read the `completion-ignore-case` symbol from the obarray.
@@ -1649,10 +1778,20 @@ fn completion_ignore_case(obarray: &Obarray) -> bool {
 ///
 /// Public alias for use from the bytecode VM.
 pub(crate) fn completion_regexp_list_from_obarray(obarray: &Obarray) -> Vec<String> {
-    completion_regexp_list(obarray)
+    completion_regexp_lisp_list_from_obarray(obarray)
+        .into_iter()
+        .map(|regexp| {
+            regexp
+                .as_str()
+                .map(|text| text.to_owned())
+                .unwrap_or_else(|| crate::emacs_core::emacs_char::to_utf8_lossy(regexp.as_bytes()))
+        })
+        .collect()
 }
 
-fn completion_regexp_list(obarray: &Obarray) -> Vec<String> {
+pub(crate) fn completion_regexp_lisp_list_from_obarray(
+    obarray: &Obarray,
+) -> Vec<crate::heap_types::LispString> {
     let Some(val) = obarray.symbol_value("completion-regexp-list").copied() else {
         return Vec::new();
     };
@@ -1661,10 +1800,7 @@ fn completion_regexp_list(obarray: &Obarray) -> Vec<String> {
     };
     items
         .iter()
-        .filter_map(|item| match item.kind() {
-            ValueKind::String => Some(super::builtins::lisp_string_to_runtime_string(*item)),
-            _ => None,
-        })
+        .filter_map(|item| item.as_lisp_string().cloned())
         .collect()
 }
 
@@ -1672,14 +1808,25 @@ fn completion_regexp_list(obarray: &Obarray) -> Vec<String> {
 ///
 /// Uses the Emacs regex engine (`string_match_full_with_case_fold`) so that
 /// Emacs-style `\(...\)` patterns work correctly.
-fn matches_completion_regexps(candidate: &str, regexps: &[String]) -> bool {
+fn matches_completion_regexps(
+    candidate: &CompletionText,
+    regexps: &[crate::heap_types::LispString],
+) -> bool {
     for re in regexps {
         let mut md = None;
         // case-fold = false: GNU Emacs uses case-fold-search for the
         // individual re_search, but completion-regexp-list traditionally
         // respects completion-ignore-case only for the prefix test, not
         // for the regexp filter.  We match GNU behaviour by not folding.
-        match super::regex::string_match_full_with_case_fold(re, candidate, 0, false, &mut md) {
+        match super::regex::string_match_full_with_case_fold_source_lisp_pattern_posix(
+            re,
+            candidate.lisp_string(),
+            candidate.searched_string(),
+            0,
+            false,
+            false,
+            &mut md,
+        ) {
             Ok(Some(_)) => {}  // matched — continue checking remaining regexps
             _ => return false, // no match or error — candidate rejected
         }
@@ -1693,7 +1840,7 @@ pub(crate) fn builtin_try_completion(
 ) -> EvalResult {
     let candidates = completion_candidates_from_collection(eval, &args[1])?;
     let ignore_case = completion_ignore_case(&eval.obarray);
-    let regexps = completion_regexp_list(&eval.obarray);
+    let regexps = completion_regexp_lisp_list_from_obarray(&eval.obarray);
     builtin_try_completion_with_candidates(
         &args,
         candidates,
@@ -1709,7 +1856,7 @@ pub(crate) fn builtin_all_completions(
 ) -> EvalResult {
     let candidates = completion_candidates_from_collection(eval, &args[1])?;
     let ignore_case = completion_ignore_case(&eval.obarray);
-    let regexps = completion_regexp_list(&eval.obarray);
+    let regexps = completion_regexp_lisp_list_from_obarray(&eval.obarray);
     builtin_all_completions_with_candidates(
         &args,
         candidates,
@@ -1725,7 +1872,7 @@ pub(crate) fn builtin_test_completion(
 ) -> EvalResult {
     let candidates = completion_candidates_from_collection(eval, &args[1])?;
     let ignore_case = completion_ignore_case(&eval.obarray);
-    let regexps = completion_regexp_list(&eval.obarray);
+    let regexps = completion_regexp_lisp_list_from_obarray(&eval.obarray);
     builtin_test_completion_with_candidates(
         &args,
         candidates,

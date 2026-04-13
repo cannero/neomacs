@@ -328,6 +328,11 @@ pub(crate) struct SortOptions {
 pub(crate) trait SortRuntime {
     fn call_sort_function(&mut self, function: Value, args: Vec<Value>) -> Result<Value, Flow>;
     fn root_sort_value(&mut self, value: Value);
+    fn compare_sort_keys(
+        &mut self,
+        left: &Value,
+        right: &Value,
+    ) -> Result<std::cmp::Ordering, Flow>;
 }
 
 impl SortRuntime for super::eval::Context {
@@ -337,6 +342,14 @@ impl SortRuntime for super::eval::Context {
 
     fn root_sort_value(&mut self, value: Value) {
         self.push_temp_root(value);
+    }
+
+    fn compare_sort_keys(
+        &mut self,
+        left: &Value,
+        right: &Value,
+    ) -> Result<std::cmp::Ordering, Flow> {
+        super::symbols::compare_value_lt(self, left, right)
     }
 }
 
@@ -581,8 +594,7 @@ fn compare_sort_items(
     lessp_fn: Value,
 ) -> Result<std::cmp::Ordering, Flow> {
     if lessp_fn.is_nil() {
-        return super::symbols::compare_value_lt(&left.key, &right.key)
-            .map_err(|(lhs, rhs)| signal("type-mismatch", vec![lhs, rhs]));
+        return runtime.compare_sort_keys(&left.key, &right.key);
     }
 
     if runtime

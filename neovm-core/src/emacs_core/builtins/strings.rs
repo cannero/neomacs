@@ -610,7 +610,7 @@ fn preserve_emacs_downcase_payload(code: i64) -> bool {
     )
 }
 
-pub(super) fn downcase_char_code_emacs_compat(code: i64) -> i64 {
+pub(crate) fn downcase_char_code_emacs_compat(code: i64) -> i64 {
     if preserve_emacs_downcase_payload(code) {
         return code;
     }

@@ -1552,11 +1552,26 @@ pub enum RuntimeImageRole {
 }
 
 impl RuntimeImageRole {
+    pub const fn canonical_image_stem(self) -> &'static str {
+        match self {
+            Self::Bootstrap => "bootstrap-neomacs",
+            Self::Final => "neomacs",
+        }
+    }
+
     pub const fn image_file_name(self) -> &'static str {
         match self {
             Self::Bootstrap => "bootstrap-neomacs.pdump",
             Self::Final => "neomacs.pdump",
         }
+    }
+
+    pub fn fingerprinted_image_file_name(self) -> String {
+        format!(
+            "{}-{}.pdump",
+            self.canonical_image_stem(),
+            super::pdump::fingerprint_hex()
+        )
     }
 }
 const RUNTIME_ROOT_ENV: &str = "NEOMACS_RUNTIME_ROOT";
@@ -1706,11 +1721,35 @@ fn bootstrap_dump_path(runtime_root: &Path, extra_features: &[&str]) -> PathBuf 
     ))
 }
 
+fn runtime_image_stem_for_executable(executable: &Path, role: RuntimeImageRole) -> String {
+    let file_name = executable
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or(role.canonical_image_stem());
+    file_name
+        .strip_suffix(".exe")
+        .unwrap_or(file_name)
+        .to_string()
+}
+
 pub fn runtime_image_path_for_executable(executable: &Path, role: RuntimeImageRole) -> PathBuf {
     executable
         .parent()
         .unwrap_or_else(|| Path::new("."))
-        .join(role.image_file_name())
+        .join(format!(
+            "{}.pdump",
+            runtime_image_stem_for_executable(executable, role)
+        ))
+}
+
+pub fn fingerprinted_runtime_image_path_for_executable(
+    executable: &Path,
+    role: RuntimeImageRole,
+) -> PathBuf {
+    executable
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(role.fingerprinted_image_file_name())
 }
 
 pub fn default_runtime_image_path(role: RuntimeImageRole) -> PathBuf {
@@ -1719,6 +1758,27 @@ pub fn default_runtime_image_path(role: RuntimeImageRole) -> PathBuf {
         .and_then(|path| path.canonicalize().ok().or(Some(path)))
         .unwrap_or_else(|| PathBuf::from(role.image_file_name()));
     runtime_image_path_for_executable(&executable, role)
+}
+
+fn default_fingerprinted_runtime_image_path(role: RuntimeImageRole) -> PathBuf {
+    let executable = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.canonicalize().ok().or(Some(path)))
+        .unwrap_or_else(|| PathBuf::from(role.image_file_name()));
+    fingerprinted_runtime_image_path_for_executable(&executable, role)
+}
+
+fn runtime_image_candidate_paths_for_executable(
+    executable: &Path,
+    role: RuntimeImageRole,
+) -> Vec<PathBuf> {
+    let primary = runtime_image_path_for_executable(executable, role);
+    let fingerprinted = fingerprinted_runtime_image_path_for_executable(executable, role);
+    if primary == fingerprinted {
+        vec![primary]
+    } else {
+        vec![primary, fingerprinted]
+    }
 }
 
 fn bootstrap_dump_lock_path(dump_path: &Path) -> PathBuf {
@@ -3027,6 +3087,7 @@ pub(crate) fn create_runtime_startup_evaluator_at_path(
 ) -> Result<super::eval::Context, EvalError> {
     let mut eval = create_bootstrap_evaluator_cached_at_path(extra_features, dump_path)?;
     apply_runtime_startup_state(&mut eval)?;
+    maybe_run_after_pdump_load_hook(&mut eval);
 
     Ok(eval)
 }
@@ -3061,32 +3122,70 @@ pub fn load_runtime_image_with_features(
     extra_features: &[&str],
     dump_path: Option<&Path>,
 ) -> Result<super::eval::Context, EvalError> {
+    let executable = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.canonicalize().ok().or(Some(path)))
+        .unwrap_or_else(|| {
+            if dump_path.is_some() {
+                PathBuf::from(role.image_file_name())
+            } else {
+                default_runtime_image_path(role)
+            }
+        });
+    load_runtime_image_with_features_for_executable(role, extra_features, dump_path, &executable)
+}
+
+pub(crate) fn load_runtime_image_with_features_for_executable(
+    role: RuntimeImageRole,
+    extra_features: &[&str],
+    dump_path: Option<&Path>,
+    executable: &Path,
+) -> Result<super::eval::Context, EvalError> {
     use super::pdump;
 
     let project_root = runtime_project_root();
-    let dump_path = dump_path
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| default_runtime_image_path(role));
-    let mut eval = pdump::load_from_dump(&dump_path).map_err(|err| {
-        let image_kind = match role {
-            RuntimeImageRole::Bootstrap => "bootstrap",
-            RuntimeImageRole::Final => "final",
-        };
-        let message = format!(
-            "failed to load {image_kind} image {}: {err}",
-            dump_path.display()
-        );
-        tracing::error!("{message}");
-        let payload = Value::symbol(intern(&message));
-        // Early runtime-image load happens before a tagged heap is installed on
-        // the current thread. Represent the startup failure with an interned
-        // raw symbol payload instead of allocating a Lisp string or list here.
-        EvalError::Signal {
-            symbol: intern("error"),
-            data: vec![payload],
-            raw_data: Some(payload),
+    let candidates = dump_path
+        .map(|path| vec![path.to_path_buf()])
+        .unwrap_or_else(|| runtime_image_candidate_paths_for_executable(executable, role));
+    let mut eval = {
+        let mut last_error = None;
+        let mut loaded = None;
+        for (index, candidate) in candidates.iter().enumerate() {
+            match pdump::load_from_dump(candidate) {
+                Ok(eval) => {
+                    loaded = Some(eval);
+                    break;
+                }
+                Err(pdump::DumpError::Io(err))
+                    if err.kind() == std::io::ErrorKind::NotFound
+                        && index + 1 < candidates.len() =>
+                {
+                    tracing::info!(
+                        "pdump: runtime image {} not found, trying next candidate",
+                        candidate.display()
+                    );
+                }
+                Err(err) => {
+                    last_error = Some(runtime_image_load_error(role, candidate, err));
+                    break;
+                }
+            }
         }
-    })?;
+        match (loaded, last_error) {
+            (Some(eval), _) => eval,
+            (None, Some(err)) => return Err(err),
+            (None, None) => {
+                return Err(runtime_image_load_error(
+                    role,
+                    &default_fingerprinted_runtime_image_path(role),
+                    pdump::DumpError::Io(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "runtime image not found",
+                    )),
+                ));
+            }
+        }
+    };
 
     if !extra_features.is_empty() {
         let bootstrap_features = normalized_bootstrap_features(extra_features);
@@ -3101,6 +3200,36 @@ pub fn load_runtime_image_with_features(
     })?;
 
     Ok(eval)
+}
+
+fn runtime_image_load_error(
+    role: RuntimeImageRole,
+    dump_path: &Path,
+    err: super::pdump::DumpError,
+) -> EvalError {
+    let image_kind = match role {
+        RuntimeImageRole::Bootstrap => "bootstrap",
+        RuntimeImageRole::Final => "final",
+    };
+    let message = format!(
+        "failed to load {image_kind} image {}: {err}",
+        dump_path.display()
+    );
+    tracing::error!("{message}");
+    let payload = Value::symbol(intern(&message));
+    EvalError::Signal {
+        symbol: intern("error"),
+        data: vec![payload],
+        raw_data: Some(payload),
+    }
+}
+
+pub fn maybe_run_after_pdump_load_hook(eval: &mut super::eval::Context) -> bool {
+    if super::pdump::take_after_pdump_load_hook_pending(eval) {
+        super::pdump::runtime::run_after_pdump_load_hook(eval);
+        return true;
+    }
+    false
 }
 
 pub fn create_bootstrap_evaluator_cached_with_features(

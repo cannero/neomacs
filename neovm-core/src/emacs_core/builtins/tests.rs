@@ -4983,15 +4983,60 @@ fn pure_dispatch_unicode_value_placeholder_cluster_matches_compat_contracts() {
         .expect("builtin unix-sync should evaluate");
     assert!(unix_sync.is_nil());
 
-    let value_lt = dispatch_builtin_pure("value<", vec![Value::fixnum(1), Value::fixnum(2)])
-        .expect("builtin value< should resolve")
-        .expect("builtin value< should evaluate");
-    assert!(value_lt.is_truthy());
+    assert!(
+        dispatch_builtin_pure("value<", vec![Value::fixnum(1), Value::fixnum(2)]).is_none(),
+        "value< now requires eval state because GNU ordering depends on live runtime objects"
+    );
 
     let binding_locus = dispatch_builtin_pure("variable-binding-locus", vec![Value::symbol("x")])
         .expect("builtin variable-binding-locus should resolve")
         .expect("builtin variable-binding-locus should evaluate");
     assert!(binding_locus.is_nil());
+}
+
+#[test]
+fn value_lt_accepts_raw_unibyte_strings() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let low = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFE]));
+    let high = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+
+    assert_eq!(
+        super::symbols::builtin_value_lt(&mut eval, vec![low, high]).unwrap(),
+        Value::T
+    );
+    assert_eq!(
+        super::symbols::builtin_value_lt(&mut eval, vec![high, low]).unwrap(),
+        Value::NIL
+    );
+}
+
+#[test]
+fn value_lt_compares_buffers_by_live_name_and_dead_before_live() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let z = eval.buffers.create_buffer("value-lt-z");
+    let a = eval.buffers.create_buffer("value-lt-a");
+
+    assert_eq!(
+        super::symbols::builtin_value_lt(
+            &mut eval,
+            vec![Value::make_buffer(a), Value::make_buffer(z)]
+        )
+        .unwrap(),
+        Value::T
+    );
+
+    assert!(eval.buffers.kill_buffer(a));
+
+    assert_eq!(
+        super::symbols::builtin_value_lt(
+            &mut eval,
+            vec![Value::make_buffer(a), Value::make_buffer(z)]
+        )
+        .unwrap(),
+        Value::T
+    );
 }
 
 #[test]

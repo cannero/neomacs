@@ -27,7 +27,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::emacs_core::syntax::SyntaxClass;
+use crate::emacs_core::{emacs_char, syntax::SyntaxClass};
 
 // ---------------------------------------------------------------------------
 // Phase 1: Opcodes and Data Structures
@@ -221,6 +221,12 @@ pub(crate) struct CompiledPattern {
     /// True if the pattern was compiled for POSIX backtracking.
     pub posix: bool,
 
+    /// True if the source regexp string was multibyte.
+    pub multibyte: bool,
+
+    /// True if the current search target is multibyte.
+    pub target_multibyte: bool,
+
     /// True if the pattern can match the empty string.
     pub can_be_null: bool,
 
@@ -263,6 +269,8 @@ impl CompiledPattern {
             fastmap: [false; 256],
             fastmap_accurate: false,
             posix: false,
+            multibyte: true,
+            target_multibyte: true,
             can_be_null: false,
             translate: None,
             multibyte_charsets: HashMap::new(),
@@ -415,8 +423,19 @@ pub(crate) fn regex_compile(
     posix: bool,
     case_fold: bool,
 ) -> Result<CompiledPattern, RegexCompileError> {
+    let pattern = crate::heap_types::LispString::from_utf8(pattern);
+    regex_compile_lisp(&pattern, posix, case_fold)
+}
+
+pub(crate) fn regex_compile_lisp(
+    pattern: &crate::heap_types::LispString,
+    posix: bool,
+    case_fold: bool,
+) -> Result<CompiledPattern, RegexCompileError> {
     let mut buf = CompiledPattern::new();
     buf.posix = posix;
+    buf.multibyte = pattern.is_multibyte();
+    buf.target_multibyte = pattern.is_multibyte();
 
     // Build case-fold translation table if needed.
     //
@@ -590,7 +609,14 @@ pub(crate) fn regex_compile(
             b'[' => {
                 laststart = Some(bpos!());
                 pending_exact = None;
-                compile_charset(pattern_bytes, &mut p, &mut buf, case_fold)?;
+                let pattern_multibyte = buf.multibyte;
+                compile_charset(
+                    pattern_bytes,
+                    &mut p,
+                    &mut buf,
+                    case_fold,
+                    pattern_multibyte,
+                )?;
             }
 
             // ----------------------------------------------------------
@@ -1210,15 +1236,27 @@ fn compile_repetition(
     Ok(())
 }
 
-/// Decode one UTF-8 character from a byte slice starting at position `pos`.
-/// Returns the character and how many bytes it consumed.
-fn decode_utf8_char(bytes: &[u8], pos: usize) -> Option<(char, usize)> {
+/// Decode one Emacs character from a pattern byte slice starting at `pos`.
+///
+/// Multibyte patterns use Emacs internal encoding; unibyte patterns map each
+/// byte to a single character code directly.
+fn decode_pattern_char(bytes: &[u8], pos: usize, multibyte: bool) -> Option<(u32, usize)> {
     if pos >= bytes.len() {
         return None;
     }
-    let s = std::str::from_utf8(&bytes[pos..]).ok()?;
-    let c = s.chars().next()?;
-    Some((c, c.len_utf8()))
+    if multibyte {
+        Some(emacs_char::string_char(&bytes[pos..]))
+    } else {
+        Some((bytes[pos] as u32, 1))
+    }
+}
+
+fn emacs_char_to_rust_char(code: u32) -> char {
+    if emacs_char::char_byte8_p(code) {
+        char::from(emacs_char::char_to_byte8(code))
+    } else {
+        char::from_u32(code).unwrap_or(char::REPLACEMENT_CHARACTER)
+    }
 }
 
 /// Compile a character class `[...]` into charset bytecode.
@@ -1227,6 +1265,7 @@ fn compile_charset(
     p: &mut usize,
     buf: &mut CompiledPattern,
     case_fold: bool,
+    pattern_multibyte: bool,
 ) -> Result<(), RegexCompileError> {
     let plen = pattern.len();
 
@@ -1268,8 +1307,9 @@ fn compile_charset(
     while *p < plen {
         let b = pattern[*p];
 
-        // Decode a full UTF-8 character from the pattern.
-        let (c, clen) = decode_utf8_char(pattern, *p).unwrap_or((b as char, 1));
+        // Decode a full Emacs character from the pattern.
+        let (c, clen) =
+            decode_pattern_char(pattern, *p, pattern_multibyte).unwrap_or((b as u32, 1));
         *p += clen;
 
         if b == b']' && !first {
@@ -1280,8 +1320,9 @@ fn compile_charset(
         if b == b'-' && *p < plen && pattern[*p] != b']' {
             if let Some(range_start) = last_char {
                 // Range: range_start - next_char
-                let (range_end, rlen) =
-                    decode_utf8_char(pattern, *p).unwrap_or((pattern[*p] as char, 1));
+                let (range_end, rlen) = decode_pattern_char(pattern, *p, pattern_multibyte)
+                    .unwrap_or((pattern[*p] as u32, 1));
+                let range_end = emacs_char_to_rust_char(range_end);
                 *p += rlen;
                 let translate = buf.translate.as_deref();
                 if range_start.is_ascii() && range_end.is_ascii() {
@@ -1378,6 +1419,7 @@ fn compile_charset(
         }
 
         // Regular character
+        let c = emacs_char_to_rust_char(c);
         if c.is_ascii() {
             set_bitmap_bit(
                 &mut buf.buffer,
@@ -2043,16 +2085,13 @@ pub(crate) fn re_match(
     let mut d = pos; // Data position in text
 
     let translate = &pattern.translate;
+    let pattern_multibyte = pattern.multibyte;
+    let target_multibyte = pattern.target_multibyte;
 
     // Helper: translate a character for case-folding
-    let tr = |c: u8| -> u8 {
+    let tr = |c: u32| -> u32 {
         if let Some(table) = translate {
-            let ch = c as u32;
-            if ch < 256 {
-                table[ch as usize] as u8
-            } else {
-                c
-            }
+            if c < 256 { table[c as usize] as u32 } else { c }
         } else {
             c
         }
@@ -2067,24 +2106,49 @@ pub(crate) fn re_match(
         }
     };
 
-    // Helper: decode a UTF-8 character at position
-    let text_char = |pos: usize| -> Option<(char, usize)> {
+    let unibyte_to_emacs_char = |byte: u8| -> u32 {
+        if byte < 0x80 {
+            byte as u32
+        } else {
+            emacs_char::byte8_to_char(byte)
+        }
+    };
+    let syntax_char = |code: u32| -> char {
+        if emacs_char::char_byte8_p(code) {
+            char::from(emacs_char::char_to_byte8(code))
+        } else {
+            char::from_u32(code).unwrap_or(char::REPLACEMENT_CHARACTER)
+        }
+    };
+    let emacs_char_to_unibyte = |code: u32| -> Option<u8> {
+        if code < 0x80 || emacs_char::char_byte8_p(code) {
+            Some(emacs_char::char_to_byte8(code))
+        } else {
+            None
+        }
+    };
+
+    // Helper: decode an Emacs character at position.
+    let text_char = |pos: usize| -> Option<(u32, usize)> {
         if pos >= text.len() {
             return None;
         }
-        let s = std::str::from_utf8(&text[pos..]).ok()?;
-        let c = s.chars().next()?;
-        Some((c, c.len_utf8()))
+        if target_multibyte {
+            Some(emacs_char::string_char(&text[pos..]))
+        } else {
+            Some((unibyte_to_emacs_char(text[pos]), 1))
+        }
     };
 
-    // Helper: find start of the UTF-8 character before `pos`.
-    // Scans backward past continuation bytes (10xxxxxx).
+    // Helper: find the start of the character before `pos`.
     let prev_char_start = |pos: usize| -> Option<usize> {
         if pos == 0 {
             return None;
         }
+        if !target_multibyte {
+            return Some(pos - 1);
+        }
         let mut p = pos - 1;
-        // UTF-8 continuation bytes have top bits 10
         while p > 0 && (text[p] & 0xC0) == 0x80 {
             p -= 1;
         }
@@ -2095,21 +2159,21 @@ pub(crate) fn re_match(
     let at_word_boundary = |pos: usize| -> bool {
         let prev_word = if let Some(prev) = prev_char_start(pos) {
             text_char(prev)
-                .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
+                .map(|(c, _)| syntax.char_syntax(syntax_char(c)) == SyntaxClass::Word)
                 .unwrap_or(false)
         } else {
             false
         };
         let curr_word = text_char(pos)
-            .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
+            .map(|(c, _)| syntax.char_syntax(syntax_char(c)) == SyntaxClass::Word)
             .unwrap_or(false);
         prev_word != curr_word
     };
 
     // Helper: is position at a symbol boundary?
     let at_symbol_boundary = |pos: usize| -> bool {
-        let is_symbol_char = |c: char| {
-            let syn = syntax.char_syntax(c);
+        let is_symbol_char = |c: u32| {
+            let syn = syntax.char_syntax(syntax_char(c));
             syn == SyntaxClass::Word || syn == SyntaxClass::Symbol
         };
         let prev_sym = if let Some(prev) = prev_char_start(pos) {
@@ -2221,24 +2285,68 @@ pub(crate) fn re_match(
                 let count = bytecode[pc] as usize;
                 pc += 1;
                 let mut matched = true;
-                for i in 0..count {
+                let literal_start = pc;
+                let literal_end = literal_start + count;
+                let mut pat_pos = literal_start;
+                while pat_pos < literal_end {
                     if d >= stop {
                         matched = false;
-                        pc += count - i;
                         break;
                     }
-                    let pat_byte = bytecode[pc + i];
-                    let txt_byte = text[d];
-                    if tr(txt_byte) != tr(pat_byte) {
+
+                    let Some((buf_ch, buf_len)) = text_char(d) else {
                         matched = false;
-                        pc += count - i;
                         break;
+                    };
+
+                    if target_multibyte {
+                        let (pat_ch, pat_len) = if pattern_multibyte {
+                            emacs_char::string_char(&bytecode[pat_pos..literal_end])
+                        } else {
+                            (unibyte_to_emacs_char(bytecode[pat_pos]), 1)
+                        };
+                        if tr(buf_ch) != pat_ch {
+                            matched = false;
+                            break;
+                        }
+                        pat_pos += pat_len;
+                        d += buf_len;
+                    } else {
+                        let pat_byte = if pattern_multibyte {
+                            let (pat_ch, pat_len) =
+                                emacs_char::string_char(&bytecode[pat_pos..literal_end]);
+                            let Some(byte) = emacs_char_to_unibyte(pat_ch) else {
+                                matched = false;
+                                break;
+                            };
+                            pat_pos += pat_len;
+                            byte
+                        } else {
+                            let byte = bytecode[pat_pos];
+                            pat_pos += 1;
+                            byte
+                        };
+                        let buf_byte = text[d];
+                        let mut translated = unibyte_to_emacs_char(buf_byte);
+                        if !emacs_char::char_byte8_p(translated) {
+                            translated = tr(translated);
+                            if let Some(byte) = emacs_char_to_unibyte(translated) {
+                                translated = byte as u32;
+                            } else {
+                                translated = buf_byte as u32;
+                            }
+                        } else {
+                            translated = buf_byte as u32;
+                        }
+                        if translated as u8 != pat_byte {
+                            matched = false;
+                            break;
+                        }
+                        d += 1;
                     }
-                    d += 1;
                 }
-                if matched {
-                    pc += count;
-                } else {
+                pc = literal_end;
+                if !matched {
                     try_fail!('main_loop);
                 }
             }
@@ -2249,16 +2357,15 @@ pub(crate) fn re_match(
                     continue;
                 }
                 // Match any character except newline
-                if text[d] == b'\n' {
+                let Some((buf_ch, buf_len)) = text_char(d) else {
+                    try_fail!('main_loop);
+                    continue;
+                };
+                if tr(buf_ch) == '\n' as u32 {
                     try_fail!('main_loop);
                     continue;
                 }
-                // Advance past one UTF-8 character
-                if let Some((_, len)) = text_char(d) {
-                    d += len;
-                } else {
-                    d += 1;
-                }
+                d += buf_len;
             }
 
             RegexOp::Charset | RegexOp::CharsetNot => {
@@ -2273,32 +2380,47 @@ pub(crate) fn re_match(
                     continue;
                 }
 
-                // Decode one UTF-8 character at position d
-                let (ch, ch_len) = text_char(d).unwrap_or((text[d] as char, 1));
+                let Some((orig_ch, ch_len)) = text_char(d) else {
+                    pc += bitmap_len;
+                    try_fail!('main_loop);
+                    continue;
+                };
+                let mut ch = orig_ch;
+                let mut unibyte_char = false;
 
-                let in_set = if ch.is_ascii() {
-                    // ASCII path: translate the input byte (case-fold),
-                    // then check the bitmap. GNU `regex-emacs.c:executing
-                    // charset` at regex-emacs.c:4626-4650 applies
-                    // TRANSLATE before the bitmap lookup — see audit #9
-                    // in `drafts/regex-search-audit.md`. Compile-time
-                    // translation of bitmap bits is lazy (the comment
-                    // at regex-emacs.c:2107-2110 explains why), so the
-                    // matcher must do the translation here.
-                    let c = tr(ch as u8);
-                    if (c as usize / 8) < bitmap_len {
-                        let byte = bytecode[pc + c as usize / 8];
-                        (byte >> (c as usize % 8)) & 1 != 0
-                    } else {
-                        false
+                if target_multibyte {
+                    ch = tr(ch);
+                    if let Some(byte) = emacs_char_to_unibyte(ch) {
+                        unibyte_char = true;
+                        ch = byte as u32;
                     }
                 } else {
-                    // Non-ASCII: check the multibyte ranges
-                    if let Some(ranges) = pattern.multibyte_charsets.get(&charset_op_pos) {
-                        ranges.iter().any(|&(lo, hi)| ch >= lo && ch <= hi)
+                    let mut converted = unibyte_to_emacs_char(text[d]);
+                    if !emacs_char::char_byte8_p(converted) {
+                        converted = tr(converted);
+                        if let Some(byte) = emacs_char_to_unibyte(converted) {
+                            unibyte_char = true;
+                            ch = byte as u32;
+                        }
+                    } else {
+                        unibyte_char = true;
+                        ch = text[d] as u32;
+                    }
+                }
+
+                let in_set = if unibyte_char {
+                    let c = ch as usize;
+                    if (c / 8) < bitmap_len {
+                        let byte = bytecode[pc + c / 8];
+                        (byte >> (c % 8)) & 1 != 0
                     } else {
                         false
                     }
+                } else if let Some(ranges) = pattern.multibyte_charsets.get(&charset_op_pos) {
+                    let ch = syntax_char(ch);
+                    ranges.iter().any(|&(lo, hi)| ch >= lo && ch <= hi)
+                } else {
+                    false
                 };
 
                 // GNU `regex-emacs.c:execute_charset` at lines
@@ -2315,9 +2437,10 @@ pub(crate) fn re_match(
                         .copied()
                         .map(|bits| {
                             (bits & CHARSET_CLASS_BIT_WORD != 0
-                                && syntax.char_syntax(ch) == SyntaxClass::Word)
+                                && syntax.char_syntax(syntax_char(orig_ch)) == SyntaxClass::Word)
                                 || (bits & CHARSET_CLASS_BIT_SPACE != 0
-                                    && syntax.char_syntax(ch) == SyntaxClass::Whitespace)
+                                    && syntax.char_syntax(syntax_char(orig_ch))
+                                        == SyntaxClass::Whitespace)
                         })
                         .unwrap_or(false);
 
@@ -2369,7 +2492,7 @@ pub(crate) fn re_match(
                 // Compare the backreference text
                 let mut matched = true;
                 for i in 0..ref_len {
-                    if tr(text[d + i]) != tr(text[start + i]) {
+                    if tr(text[d + i].into()) != tr(text[start + i].into()) {
                         matched = false;
                         break;
                     }
@@ -2431,10 +2554,10 @@ pub(crate) fn re_match(
                 // Word beginning: not in word before, in word after
                 let prev_word = prev_char_start(d)
                     .and_then(|p| text_char(p))
-                    .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
+                    .map(|(c, _)| syntax.char_syntax(syntax_char(c)) == SyntaxClass::Word)
                     .unwrap_or(false);
                 let curr_word = text_char(d)
-                    .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
+                    .map(|(c, _)| syntax.char_syntax(syntax_char(c)) == SyntaxClass::Word)
                     .unwrap_or(false);
                 if prev_word || !curr_word {
                     try_fail!('main_loop);
@@ -2444,10 +2567,10 @@ pub(crate) fn re_match(
             RegexOp::WordEnd => {
                 let prev_word = prev_char_start(d)
                     .and_then(|p| text_char(p))
-                    .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
+                    .map(|(c, _)| syntax.char_syntax(syntax_char(c)) == SyntaxClass::Word)
                     .unwrap_or(false);
                 let curr_word = text_char(d)
-                    .map(|(c, _)| syntax.char_syntax(c) == SyntaxClass::Word)
+                    .map(|(c, _)| syntax.char_syntax(syntax_char(c)) == SyntaxClass::Word)
                     .unwrap_or(false);
                 if !prev_word || curr_word {
                     try_fail!('main_loop);
@@ -2455,8 +2578,8 @@ pub(crate) fn re_match(
             }
 
             RegexOp::SymBeg => {
-                let is_sym = |c: char| {
-                    let s = syntax.char_syntax(c);
+                let is_sym = |c: u32| {
+                    let s = syntax.char_syntax(syntax_char(c));
                     s == SyntaxClass::Word || s == SyntaxClass::Symbol
                 };
                 let prev_sym = prev_char_start(d)
@@ -2470,8 +2593,8 @@ pub(crate) fn re_match(
             }
 
             RegexOp::SymEnd => {
-                let is_sym = |c: char| {
-                    let s = syntax.char_syntax(c);
+                let is_sym = |c: u32| {
+                    let s = syntax.char_syntax(syntax_char(c));
                     s == SyntaxClass::Word || s == SyntaxClass::Symbol
                 };
                 let prev_sym = prev_char_start(d)
@@ -2495,7 +2618,7 @@ pub(crate) fn re_match(
                     try_fail!('main_loop);
                     continue;
                 };
-                if syntax.char_syntax(c) as u8 != class_byte {
+                if syntax.char_syntax(syntax_char(c)) as u8 != class_byte {
                     try_fail!('main_loop);
                     continue;
                 }
@@ -2513,7 +2636,7 @@ pub(crate) fn re_match(
                     try_fail!('main_loop);
                     continue;
                 };
-                if syntax.char_syntax(c) as u8 == class_byte {
+                if syntax.char_syntax(syntax_char(c)) as u8 == class_byte {
                     try_fail!('main_loop);
                     continue;
                 }
@@ -2531,7 +2654,7 @@ pub(crate) fn re_match(
                     try_fail!('main_loop);
                     continue;
                 };
-                if !syntax.char_has_category(c, cat) {
+                if !syntax.char_has_category(syntax_char(c), cat) {
                     try_fail!('main_loop);
                     continue;
                 }
@@ -2549,7 +2672,7 @@ pub(crate) fn re_match(
                     try_fail!('main_loop);
                     continue;
                 };
-                if syntax.char_has_category(c, cat) {
+                if syntax.char_has_category(syntax_char(c), cat) {
                     try_fail!('main_loop);
                     continue;
                 }
@@ -3162,7 +3285,7 @@ pub(crate) fn re_search(
             }
             // Skip UTF-8 continuation bytes — only try match at character
             // boundaries to avoid matching in the middle of a multibyte char.
-            if pos < text_len && (text[pos] & 0xC0) == 0x80 {
+            if pattern.target_multibyte && pos < text_len && (text[pos] & 0xC0) == 0x80 {
                 pos += 1;
                 continue;
             }
@@ -3189,7 +3312,7 @@ pub(crate) fn re_search(
         let end = start.saturating_sub((-range) as usize);
         for pos in (end..=start).rev() {
             // Skip UTF-8 continuation bytes — only try at character boundaries.
-            if pos < text_len && (text[pos] & 0xC0) == 0x80 {
+            if pattern.target_multibyte && pos < text_len && (text[pos] & 0xC0) == 0x80 {
                 continue;
             }
             // GNU disables fastmap skipping for nullable patterns so zero-width

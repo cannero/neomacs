@@ -32,6 +32,7 @@ pub(super) use ::regex::Regex;
 pub(crate) use buffers::lisp_string_from_buffer_bytes;
 pub(super) use std::cell::RefCell;
 pub(super) use std::collections::{HashMap, HashSet};
+pub(crate) use strings::downcase_char_code_emacs_compat;
 
 // ---------------------------------------------------------------------------
 // Transitional string character iteration
@@ -543,6 +544,17 @@ pub(super) fn expect_string(value: &Value) -> Result<String, Flow> {
             vec![Value::symbol("stringp"), *value],
         )),
     }
+}
+
+pub(super) fn expect_lisp_string(
+    value: &Value,
+) -> Result<&'static crate::heap_types::LispString, Flow> {
+    value.as_lisp_string().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), *value],
+        )
+    })
 }
 
 pub(super) fn expect_string_comparison_operand(value: &Value) -> Result<String, Flow> {
@@ -5679,7 +5691,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         Some(0),
     );
-    ctx.defsubr("value<", |_ctx, args| builtin_value_lt(args), 2, Some(2));
+    ctx.defsubr("value<", builtin_value_lt, 2, Some(2));
     ctx.defsubr(
         "x-begin-drag",
         |_ctx, args| builtin_x_begin_drag(args),

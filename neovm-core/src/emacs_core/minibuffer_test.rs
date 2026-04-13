@@ -1,5 +1,6 @@
 use super::*;
 use crate::buffer::BufferId;
+use crate::heap_types::LispString;
 
 // -- Completion matching --------------------------------------------------
 
@@ -649,6 +650,79 @@ fn builtin_test_completion_rejects_more_than_three_args() {
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
     ));
+}
+
+#[test]
+fn builtin_try_completion_returns_raw_unibyte_common_prefix() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let input = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+    let coll = Value::list(vec![
+        Value::heap_string(LispString::from_unibyte(vec![0xFF, b'A'])),
+        Value::heap_string(LispString::from_unibyte(vec![0xFF, b'B'])),
+    ]);
+    let result = builtin_try_completion(&mut eval, vec![input, coll]).unwrap();
+    let string = result
+        .as_lisp_string()
+        .expect("raw completion result string");
+    assert_eq!(
+        crate::emacs_core::builtins::lisp_string_char_codes(string),
+        vec![0xFF]
+    );
+}
+
+#[test]
+fn builtin_all_completions_preserves_raw_unibyte_candidates() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let input = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+    let coll = Value::list(vec![
+        Value::heap_string(LispString::from_unibyte(vec![0xFF, b'A'])),
+        Value::heap_string(LispString::from_unibyte(vec![0xFF, b'B'])),
+        Value::heap_string(LispString::from_unibyte(vec![0xFE, b'C'])),
+    ]);
+    let result = builtin_all_completions(&mut eval, vec![input, coll]).unwrap();
+    let items = crate::emacs_core::value::list_to_vec(&result).expect("completion list");
+    assert_eq!(items.len(), 2);
+    assert_eq!(
+        crate::emacs_core::builtins::lisp_string_char_codes(
+            items[0].as_lisp_string().expect("first raw completion")
+        ),
+        vec![0xFF, b'A' as u32]
+    );
+    assert_eq!(
+        crate::emacs_core::builtins::lisp_string_char_codes(
+            items[1].as_lisp_string().expect("second raw completion")
+        ),
+        vec![0xFF, b'B' as u32]
+    );
+}
+
+#[test]
+fn builtin_all_completions_honors_raw_unibyte_completion_regexps() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    eval.obarray.set_symbol_value(
+        "completion-regexp-list",
+        Value::list(vec![Value::heap_string(LispString::from_unibyte(vec![
+            0xFF,
+        ]))]),
+    );
+    let coll = Value::list(vec![
+        Value::heap_string(LispString::from_unibyte(vec![0xFF])),
+        Value::heap_string(LispString::from_unibyte(vec![0xFE])),
+    ]);
+    let result = builtin_all_completions(&mut eval, vec![Value::string(""), coll]).unwrap();
+    let items = crate::emacs_core::value::list_to_vec(&result).expect("filtered completion list");
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        crate::emacs_core::builtins::lisp_string_char_codes(
+            items[0]
+                .as_lisp_string()
+                .expect("raw regexp-matched completion")
+        ),
+        vec![0xFF]
+    );
 }
 
 #[test]

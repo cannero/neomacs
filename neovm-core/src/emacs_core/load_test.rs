@@ -116,6 +116,125 @@ fn dump_emacs_portable_writes_reloadable_snapshot() {
 }
 
 #[test]
+fn dump_emacs_portable_overwrites_existing_target() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let dir = tempdir().expect("dump tempdir");
+    let dump_path = dir.path().join("portable-overwrite-test.pdump");
+
+    eval.set_variable("dump-portable-test-var", Value::fixnum(1));
+    crate::emacs_core::builtins::builtin_dump_emacs_portable(
+        &mut eval,
+        vec![Value::string(dump_path.to_string_lossy().into_owned())],
+    )
+    .expect("first dump-emacs-portable should succeed");
+
+    eval.set_variable("dump-portable-test-var", Value::fixnum(2));
+    crate::emacs_core::builtins::builtin_dump_emacs_portable(
+        &mut eval,
+        vec![Value::string(dump_path.to_string_lossy().into_owned())],
+    )
+    .expect("second dump-emacs-portable should overwrite");
+
+    let loaded = crate::emacs_core::pdump::load_from_dump(&dump_path)
+        .expect("reloading overwritten snapshot should succeed");
+    assert_eq!(
+        loaded.obarray().symbol_value("dump-portable-test-var"),
+        Some(&Value::fixnum(2))
+    );
+}
+
+#[test]
+fn dump_emacs_portable_expands_relative_target_against_default_directory() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let dir = tempdir().expect("dump tempdir");
+    let default_dir = dir.path().join("default-dir");
+    std::fs::create_dir_all(&default_dir).expect("create default-directory");
+    eval.set_variable(
+        "default-directory",
+        Value::string(format!("{}/", default_dir.to_string_lossy())),
+    );
+    eval.set_variable("dump-portable-test-var", Value::fixnum(7));
+
+    crate::emacs_core::builtins::builtin_dump_emacs_portable(
+        &mut eval,
+        vec![Value::string("relative-portable-test.pdump")],
+    )
+    .expect("relative dump-emacs-portable should succeed");
+
+    let dump_path = default_dir.join("relative-portable-test.pdump");
+    assert!(
+        dump_path.exists(),
+        "dump-emacs-portable should expand relative names against default-directory"
+    );
+
+    let loaded = crate::emacs_core::pdump::load_from_dump(&dump_path)
+        .expect("reloading relative dump snapshot should succeed");
+    assert_eq!(
+        loaded.obarray().symbol_value("dump-portable-test-var"),
+        Some(&Value::fixnum(7))
+    );
+}
+
+#[test]
+fn dump_emacs_portable_requires_batch_mode() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    eval.set_variable("noninteractive", Value::NIL);
+
+    let err = crate::emacs_core::builtins::builtin_dump_emacs_portable(
+        &mut eval,
+        vec![Value::string("/tmp/portable-batch-mode-test.pdump")],
+    )
+    .expect_err("interactive dump-emacs-portable should fail");
+
+    match err {
+        crate::emacs_core::error::Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "error");
+            assert_eq!(sig.data.len(), 1);
+            assert!(
+                sig.data[0]
+                    .as_str_owned()
+                    .is_some_and(|message| message.contains("only in batch mode")),
+                "unexpected error payload: {:?}",
+                sig.data
+            );
+        }
+        other => panic!("unexpected flow: {other:?}"),
+    }
+}
+
+#[test]
+fn dump_emacs_portable_rejects_other_live_lisp_threads() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    eval.threads
+        .create_thread(Value::NIL, Some("worker".to_string()));
+
+    let err = crate::emacs_core::builtins::builtin_dump_emacs_portable(
+        &mut eval,
+        vec![Value::string("/tmp/portable-thread-test.pdump")],
+    )
+    .expect_err("dump-emacs-portable should reject other live threads");
+
+    match err {
+        crate::emacs_core::error::Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "error");
+            assert_eq!(sig.data.len(), 1);
+            assert!(
+                sig.data[0].as_str_owned().is_some_and(|message| {
+                    message.contains("No other Lisp threads can be running")
+                }),
+                "unexpected error payload: {:?}",
+                sig.data
+            );
+        }
+        other => panic!("unexpected flow: {other:?}"),
+    }
+}
+
+#[test]
 fn raw_source_bootstrap_starts_without_extra_function_cells() {
     crate::test_utils::init_test_tracing();
     let eval = Context::new();
@@ -412,18 +531,34 @@ fn runtime_image_role_names_match_neomacs_pipeline() {
 }
 
 #[test]
-fn runtime_image_path_for_executable_uses_role_specific_names() {
+fn runtime_image_path_for_executable_uses_executable_basename() {
     let bootstrap = runtime_image_path_for_executable(
         PathBuf::from("/tmp/bootstrap-neomacs").as_path(),
         RuntimeImageRole::Bootstrap,
     );
     let final_image = runtime_image_path_for_executable(
-        PathBuf::from("/tmp/neomacs").as_path(),
+        PathBuf::from("/tmp/renamed-neomacs").as_path(),
         RuntimeImageRole::Final,
     );
 
     assert_eq!(bootstrap, PathBuf::from("/tmp/bootstrap-neomacs.pdump"));
-    assert_eq!(final_image, PathBuf::from("/tmp/neomacs.pdump"));
+    assert_eq!(final_image, PathBuf::from("/tmp/renamed-neomacs.pdump"));
+}
+
+#[test]
+fn fingerprinted_runtime_image_path_uses_canonical_role_name() {
+    let final_image = fingerprinted_runtime_image_path_for_executable(
+        PathBuf::from("/tmp/renamed-neomacs").as_path(),
+        RuntimeImageRole::Final,
+    );
+
+    assert_eq!(
+        final_image,
+        PathBuf::from(format!(
+            "/tmp/neomacs-{}.pdump",
+            crate::emacs_core::pdump::fingerprint_hex()
+        ))
+    );
 }
 
 #[test]
@@ -475,6 +610,148 @@ fn missing_runtime_image_reports_heapless_startup_error() {
         }
         other => panic!("unexpected error: {other:?}"),
     }
+}
+
+#[test]
+fn runtime_image_loader_falls_back_to_fingerprinted_candidate_when_primary_is_missing() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempdir().expect("runtime image tempdir");
+    let executable = dir.path().join("renamed-neomacs");
+    let dump_path =
+        fingerprinted_runtime_image_path_for_executable(&executable, RuntimeImageRole::Final);
+
+    let mut eval = Context::new();
+    eval.set_variable("runtime-image-candidate-test-var", Value::fixnum(42));
+    crate::emacs_core::pdump::dump_to_file(&eval, &dump_path)
+        .expect("write fingerprinted runtime image");
+
+    let loaded = load_runtime_image_with_features_for_executable(
+        RuntimeImageRole::Final,
+        &[],
+        None,
+        &executable,
+    )
+    .expect("fingerprinted fallback should load");
+    assert_eq!(
+        loaded
+            .obarray()
+            .symbol_value("runtime-image-candidate-test-var"),
+        Some(&Value::fixnum(42))
+    );
+}
+
+#[test]
+fn runtime_image_loader_stops_on_primary_fingerprint_mismatch() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempdir().expect("runtime image tempdir");
+    let executable = dir.path().join("renamed-neomacs");
+    let primary = runtime_image_path_for_executable(&executable, RuntimeImageRole::Final);
+    let fallback =
+        fingerprinted_runtime_image_path_for_executable(&executable, RuntimeImageRole::Final);
+
+    let mut stale = Context::new();
+    stale.set_variable("runtime-image-candidate-test-var", Value::fixnum(1));
+    crate::emacs_core::pdump::dump_to_file(&stale, &primary).expect("write primary runtime image");
+    let mut primary_bytes = fs::read(&primary).expect("read primary runtime image");
+    primary_bytes[12] ^= 0x01;
+    fs::write(&primary, primary_bytes).expect("corrupt primary fingerprint");
+
+    let mut fresh = Context::new();
+    fresh.set_variable("runtime-image-candidate-test-var", Value::fixnum(2));
+    crate::emacs_core::pdump::dump_to_file(&fresh, &fallback)
+        .expect("write fallback runtime image");
+
+    let err = match load_runtime_image_with_features_for_executable(
+        RuntimeImageRole::Final,
+        &[],
+        None,
+        &executable,
+    ) {
+        Ok(_) => panic!("fingerprint mismatch should not fall through"),
+        Err(err) => err,
+    };
+
+    match err {
+        EvalError::Signal {
+            symbol,
+            raw_data: Some(payload),
+            ..
+        } => {
+            assert_eq!(resolve_sym(symbol), "error");
+            let rendered = payload
+                .as_symbol_name()
+                .expect("heapless startup error payload");
+            assert!(
+                rendered.contains(primary.to_string_lossy().as_ref()),
+                "startup error should reference the primary candidate: {rendered}"
+            );
+            assert!(
+                rendered.contains("fingerprint mismatch"),
+                "startup error should expose the real mismatch: {rendered}"
+            );
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+}
+
+#[test]
+fn after_pdump_load_hook_runs_after_finalize_and_only_once() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let setup = crate::emacs_core::value_reader::read_all(
+        "(progn
+           (setq compat-pdump-hook-fired nil)
+           (setq compat-pdump-hook-saw-load-path nil)
+           (setq after-pdump-load-hook
+                 (list
+                  (lambda ()
+                    (setq compat-pdump-hook-fired t)
+                    (setq compat-pdump-hook-saw-load-path
+                          (consp load-path))))))",
+    )
+    .unwrap();
+    eval.eval_sub(setup[0]).expect("setup hook should evaluate");
+
+    let dir = tempdir().expect("pdump hook tempdir");
+    let dump_path = dir.path().join("after-pdump-load-hook-ordering.pdump");
+    crate::emacs_core::pdump::dump_to_file(&eval, &dump_path).expect("dump should succeed");
+    drop(eval);
+
+    let mut loaded = crate::emacs_core::pdump::load_from_dump(&dump_path).expect("load dump");
+    assert_eq!(
+        loaded.obarray().symbol_value("compat-pdump-hook-fired"),
+        Some(&Value::NIL)
+    );
+
+    finalize_cached_bootstrap_eval(&mut loaded, &runtime_project_root())
+        .expect("finalize cached bootstrap eval");
+    assert!(
+        maybe_run_after_pdump_load_hook(&mut loaded),
+        "startup helper should consume the pending pdump hook"
+    );
+    assert_eq!(
+        loaded.obarray().symbol_value("compat-pdump-hook-fired"),
+        Some(&Value::T)
+    );
+    assert_eq!(
+        loaded
+            .obarray()
+            .symbol_value("compat-pdump-hook-saw-load-path"),
+        Some(&Value::T)
+    );
+    assert!(
+        !maybe_run_after_pdump_load_hook(&mut loaded),
+        "after-pdump-load-hook should be a one-shot startup hook"
+    );
+}
+
+#[test]
+fn context_seeds_pdumper_fingerprint() {
+    let eval = Context::new();
+    assert_eq!(
+        eval.obarray().symbol_value("pdumper-fingerprint"),
+        Some(&Value::string(crate::emacs_core::pdump::fingerprint_hex()))
+    );
 }
 
 #[test]

@@ -44,6 +44,7 @@ use crate::emacs_core::casefiddle::apply_replace_match_case;
 use crate::emacs_core::regex_emacs::{
     self, BufferSyntaxLookup, CompiledPattern, DefaultSyntaxLookup, MatchRegisters, SyntaxLookup,
 };
+use crate::heap_types::LispString;
 
 pub(crate) const REPLACE_MATCH_SUBEXP_MISSING: &str = "replace-match subexpression does not exist";
 const SEARCH_PATTERN_CACHE_SIZE: usize = 20;
@@ -148,6 +149,9 @@ thread_local! {
     // audit #5 / #8 land, the key must be extended.
     static SEARCH_PATTERN_CACHE: RefCell<Vec<(bool, bool, String, CompiledSearchPattern)>> =
         const { RefCell::new(Vec::new()) };
+
+    static LISP_REGEX_PATTERN_CACHE: RefCell<Vec<(bool, bool, bool, Vec<u8>, CompiledPattern)>> =
+        const { RefCell::new(Vec::new()) };
 }
 
 // ---------------------------------------------------------------------------
@@ -178,6 +182,29 @@ impl SearchedString {
         match self {
             Self::Heap(val) => f(val.as_str().unwrap_or("")),
             Self::Owned(text) => f(text),
+        }
+    }
+
+    fn byte_to_char_pos(&self, byte_pos: usize) -> usize {
+        match self {
+            Self::Heap(val) => {
+                let Some(string) = val.as_lisp_string() else {
+                    return 0;
+                };
+                if string.is_multibyte() {
+                    crate::emacs_core::emacs_char::byte_to_char_pos(string.as_bytes(), byte_pos)
+                } else {
+                    byte_pos.min(string.byte_len())
+                }
+            }
+            Self::Owned(text) => {
+                if text.is_ascii() {
+                    byte_pos.min(text.len())
+                } else {
+                    text.get(..byte_pos)
+                        .map_or(0, |prefix| prefix.chars().count())
+                }
+            }
         }
     }
 
@@ -780,6 +807,65 @@ fn compile_search_pattern_with_posix(
     Ok(compiled)
 }
 
+fn compile_lisp_pattern_with_posix(
+    pattern: &LispString,
+    case_fold: bool,
+    posix: bool,
+    target_multibyte: bool,
+) -> Result<CompiledPattern, String> {
+    if let Some(cached) = crate::emacs_core::perf_trace::time_op(
+        crate::emacs_core::perf_trace::HotpathOp::RegexCompileHit,
+        || {
+            LISP_REGEX_PATTERN_CACHE.with(|cache| {
+                let mut cache = cache.borrow_mut();
+                let index = cache.iter().position(
+                    |(cached_posix, cached_case_fold, cached_multibyte, cached_pattern, _)| {
+                        *cached_posix == posix
+                            && *cached_case_fold == case_fold
+                            && *cached_multibyte == pattern.is_multibyte()
+                            && cached_pattern.as_slice() == pattern.as_bytes()
+                    },
+                )?;
+                let entry = cache.remove(index);
+                cache.insert(0, entry.clone());
+                Some(entry.4)
+            })
+        },
+    ) {
+        let mut cached = cached;
+        cached.target_multibyte = target_multibyte;
+        return Ok(cached);
+    }
+
+    let mut compiled = crate::emacs_core::perf_trace::time_op(
+        crate::emacs_core::perf_trace::HotpathOp::RegexCompileMiss,
+        || {
+            regex_emacs::regex_compile_lisp(pattern, posix, case_fold)
+                .map_err(|e| format!("Invalid regexp: {}", e.message))
+        },
+    )?;
+    compiled.target_multibyte = target_multibyte;
+
+    LISP_REGEX_PATTERN_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        cache.insert(
+            0,
+            (
+                posix,
+                case_fold,
+                pattern.is_multibyte(),
+                pattern.as_bytes().to_vec(),
+                compiled.clone(),
+            ),
+        );
+        if cache.len() > SEARCH_PATTERN_CACHE_SIZE {
+            cache.truncate(SEARCH_PATTERN_CACHE_SIZE);
+        }
+    });
+
+    Ok(compiled)
+}
+
 fn compiled_capture_count(compiled: &CompiledSearchPattern) -> usize {
     match compiled {
         CompiledSearchPattern::Literal(_) => 1,
@@ -878,23 +964,18 @@ fn string_char_match_data(searched_string: SearchedString, byte_md: MatchData) -
     crate::emacs_core::perf_trace::time_op(
         crate::emacs_core::perf_trace::HotpathOp::RegexMatchDataChars,
         || {
-            let char_groups = searched_string.with_str(|string| {
-                if string.is_ascii() {
-                    return byte_md.groups.clone();
-                }
-
-                byte_md
-                    .groups
-                    .iter()
-                    .map(|g| {
-                        g.map(|(bs, be)| {
-                            let cs = string.get(..bs).map_or(0, |s| s.chars().count());
-                            let ce = string.get(..be).map_or(0, |s| s.chars().count());
-                            (cs, ce)
-                        })
+            let char_groups = byte_md
+                .groups
+                .iter()
+                .map(|g| {
+                    g.map(|(bs, be)| {
+                        (
+                            searched_string.byte_to_char_pos(bs),
+                            searched_string.byte_to_char_pos(be),
+                        )
                     })
-                    .collect()
-            });
+                })
+                .collect();
 
             MatchData {
                 groups: char_groups,
@@ -1339,6 +1420,106 @@ pub fn re_search_backward_with_posix(
     }
 }
 
+pub(crate) fn re_search_forward_lisp_with_posix(
+    buf: &mut Buffer,
+    pattern: &LispString,
+    bound: Option<usize>,
+    noerror: bool,
+    case_fold: bool,
+    posix: bool,
+    match_data: &mut Option<MatchData>,
+) -> Result<Option<usize>, String> {
+    let start = buf.pt;
+    let limit = bound.unwrap_or(buf.zv).min(buf.zv);
+
+    if start > limit {
+        if noerror {
+            return Ok(None);
+        }
+        return Err("Search failed".to_string());
+    }
+
+    let region_start = buf.begv;
+    let text = buf.text.text_range(region_start, buf.zv);
+    let start_rel = start - region_start;
+    let limit_rel = limit - region_start;
+    let compiled = compile_lisp_pattern_with_posix(pattern, case_fold, posix, true)?;
+    let syn = BufferSyntaxLookup {
+        syntax_table: &buf.syntax_table,
+    };
+    let text_bytes = text.as_bytes();
+
+    if let Some((_pos, regs)) = regex_emacs::re_search(
+        &compiled,
+        &text_bytes[..limit_rel],
+        start_rel,
+        (limit_rel - start_rel) as isize,
+        &syn,
+        start_rel,
+    ) {
+        let mut md = match_data_from_registers(&regs, region_start);
+        md.searched_buffer = Some(buf.id);
+        let full_match = md.groups[0].unwrap();
+        buf.goto_byte(full_match.1);
+        *match_data = Some(md);
+        Ok(Some(full_match.1))
+    } else if noerror {
+        Ok(None)
+    } else {
+        Err("Search failed".to_string())
+    }
+}
+
+pub(crate) fn re_search_backward_lisp_with_posix(
+    buf: &mut Buffer,
+    pattern: &LispString,
+    bound: Option<usize>,
+    noerror: bool,
+    case_fold: bool,
+    posix: bool,
+    match_data: &mut Option<MatchData>,
+) -> Result<Option<usize>, String> {
+    let end = buf.pt;
+    let limit = bound.unwrap_or(buf.begv).max(buf.begv);
+
+    if end < limit {
+        if noerror {
+            return Ok(None);
+        }
+        return Err("Search failed".to_string());
+    }
+
+    let region_start = buf.begv;
+    let text = buf.text.text_range(region_start, buf.zv);
+    let start_rel = end - region_start;
+    let limit_rel = limit - region_start;
+    let compiled = compile_lisp_pattern_with_posix(pattern, case_fold, posix, true)?;
+    let syn = BufferSyntaxLookup {
+        syntax_table: &buf.syntax_table,
+    };
+    let text_bytes = text.as_bytes();
+
+    if let Some((_pos, regs)) = regex_emacs::re_search(
+        &compiled,
+        text_bytes,
+        start_rel,
+        -((start_rel - limit_rel) as isize),
+        &syn,
+        start_rel,
+    ) {
+        let mut md = match_data_from_registers(&regs, region_start);
+        md.searched_buffer = Some(buf.id);
+        let full_match = md.groups[0].unwrap();
+        buf.goto_byte(full_match.0);
+        *match_data = Some(md);
+        Ok(Some(full_match.0))
+    } else if noerror {
+        Ok(None)
+    } else {
+        Err("Search failed".to_string())
+    }
+}
+
 /// Test if text after point matches PATTERN (without moving point).
 ///
 /// Returns `true` if the regex matches starting exactly at point, and
@@ -1413,6 +1594,44 @@ pub fn looking_at_with_posix(
                 Ok(false)
             }
         }
+    }
+}
+
+pub(crate) fn looking_at_lisp_with_posix(
+    buf: &Buffer,
+    pattern: &LispString,
+    case_fold: bool,
+    posix: bool,
+    match_data: &mut Option<MatchData>,
+) -> Result<bool, String> {
+    let start = buf.pt;
+    if start > buf.zv {
+        return Ok(false);
+    }
+
+    let region_start = buf.begv;
+    let text = buf.text.text_range(region_start, buf.zv);
+    let start_rel = start - region_start;
+    let compiled = compile_lisp_pattern_with_posix(pattern, case_fold, posix, true)?;
+    let syn = BufferSyntaxLookup {
+        syntax_table: &buf.syntax_table,
+    };
+    let text_bytes = text.as_bytes();
+
+    if let Some((_end, regs)) = regex_emacs::re_match(
+        &compiled,
+        text_bytes,
+        start_rel,
+        text_bytes.len(),
+        &syn,
+        start_rel,
+    ) {
+        let mut md = match_data_from_registers(&regs, region_start);
+        md.searched_buffer = Some(buf.id);
+        *match_data = Some(md);
+        Ok(true)
+    } else {
+        Ok(false)
     }
 }
 
@@ -1529,34 +1748,46 @@ pub(crate) fn string_match_full_with_case_fold_source_lisp_posix(
     posix: bool,
     match_data: &mut Option<MatchData>,
 ) -> Result<Option<usize>, String> {
+    let pattern = LispString::from_utf8(pattern);
+    string_match_full_with_case_fold_source_lisp_pattern_posix(
+        &pattern,
+        string,
+        searched_string,
+        start,
+        case_fold,
+        posix,
+        match_data,
+    )
+}
+
+pub(crate) fn string_match_full_with_case_fold_source_lisp_pattern_posix(
+    pattern: &LispString,
+    string: &crate::heap_types::LispString,
+    searched_string: SearchedString,
+    start: usize,
+    case_fold: bool,
+    posix: bool,
+    match_data: &mut Option<MatchData>,
+) -> Result<Option<usize>, String> {
     if start > string.byte_len() {
         return Ok(None);
     }
 
-    match compile_search_pattern_with_posix(pattern, case_fold, posix)? {
-        CompiledSearchPattern::Literal(literal) => {
-            if let Some((byte_start, byte_end)) =
-                literal_find_lisp_string(string, &literal, start, case_fold)
-            {
-                let char_md = string_char_match_data(
-                    searched_string,
-                    single_group_match_data(byte_start, byte_end),
-                );
-                let result_pos = char_md.groups[0].unwrap().0;
-                *match_data = Some(char_md);
-                Ok(Some(result_pos))
-            } else {
-                Ok(None)
-            }
-        }
-        other => string_match_full_with_case_fold_source_compiled(
-            other,
-            string.as_str().unwrap_or(""),
-            searched_string,
-            start,
-            case_fold,
-            match_data,
-        ),
+    let compiled =
+        compile_lisp_pattern_with_posix(pattern, case_fold, posix, string.is_multibyte())?;
+    let syn = DefaultSyntaxLookup;
+    let text_bytes = string.as_bytes();
+    let range = (text_bytes.len() - start) as isize;
+    if let Some((_pos, regs)) =
+        regex_emacs::re_search(&compiled, text_bytes, start, range, &syn, start)
+    {
+        let byte_md = match_data_from_registers(&regs, 0);
+        let char_md = string_char_match_data(searched_string, byte_md);
+        let result_pos = char_md.groups[0].unwrap().0;
+        *match_data = Some(char_md);
+        Ok(Some(result_pos))
+    } else {
+        Ok(None)
     }
 }
 

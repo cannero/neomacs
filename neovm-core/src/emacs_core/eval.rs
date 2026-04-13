@@ -358,9 +358,13 @@ fn value_fingerprint(
                 key.hash(hasher);
                 return;
             }
-            let string = value
-                .as_lisp_string()
-                .expect("ValueKind::String must carry LispString payload");
+            let string = match value.as_lisp_string() {
+                Some(string) => string,
+                None => {
+                    key.hash(hasher);
+                    return;
+                }
+            };
             string.is_multibyte().hash(hasher);
             string.schars().hash(hasher);
             string.sbytes().hash(hasher);
@@ -2457,6 +2461,11 @@ impl Context {
         obarray.set_symbol_value("command-line-functions", Value::NIL);
         obarray.set_symbol_value("command-line-processed", Value::T);
         obarray.set_symbol_value("command-switch-alist", Value::NIL);
+        obarray.set_symbol_value(
+            "pdumper-fingerprint",
+            Value::string(crate::emacs_core::pdump::fingerprint_hex()),
+        );
+        obarray.make_special("pdumper-fingerprint");
         // GNU emacs.c: set from argv[0]. NeoVM uses current exe path.
         let exe_path = std::env::current_exe()
             .ok()
