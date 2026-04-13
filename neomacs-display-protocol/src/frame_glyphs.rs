@@ -287,6 +287,7 @@ pub enum FrameGlyph {
         window_id: i64,
         row_role: GlyphRowRole,
         clip_rect: Option<Rect>,
+        slot_id: Option<DisplaySlotId>,
         image_id: u32,
         x: f32,
         y: f32,
@@ -299,6 +300,7 @@ pub enum FrameGlyph {
         window_id: i64,
         row_role: GlyphRowRole,
         clip_rect: Option<Rect>,
+        slot_id: Option<DisplaySlotId>,
         video_id: u32,
         x: f32,
         y: f32,
@@ -313,6 +315,7 @@ pub enum FrameGlyph {
         window_id: i64,
         row_role: GlyphRowRole,
         clip_rect: Option<Rect>,
+        slot_id: Option<DisplaySlotId>,
         webkit_id: u32,
         x: f32,
         y: f32,
@@ -403,6 +406,9 @@ impl FrameGlyph {
             FrameGlyph::Char { slot_id, .. } | FrameGlyph::Stretch { slot_id, .. } => {
                 Some(*slot_id)
             }
+            FrameGlyph::Image { slot_id, .. }
+            | FrameGlyph::Video { slot_id, .. }
+            | FrameGlyph::WebKit { slot_id, .. } => *slot_id,
             FrameGlyph::Cursor { slot_id, .. } => *slot_id,
             _ => None,
         }
@@ -1187,6 +1193,7 @@ impl FrameGlyphBuffer {
             window_id: self.current_window_id,
             row_role: self.current_row_role,
             clip_rect: self.current_clip_rect,
+            slot_id: Some(self.current_slot_id(x, y)),
             image_id,
             x,
             y,
@@ -1210,6 +1217,7 @@ impl FrameGlyphBuffer {
             window_id: self.current_window_id,
             row_role: self.current_row_role,
             clip_rect: self.current_clip_rect,
+            slot_id: Some(self.current_slot_id(x, y)),
             video_id,
             x,
             y,
@@ -1226,6 +1234,7 @@ impl FrameGlyphBuffer {
             window_id: self.current_window_id,
             row_role: self.current_row_role,
             clip_rect: self.current_clip_rect,
+            slot_id: Some(self.current_slot_id(x, y)),
             webkit_id,
             x,
             y,
@@ -1388,7 +1397,40 @@ impl FrameGlyphBuffer {
     }
 
     /// Set the authoritative physical cursor for the frame.
-    pub fn set_phys_cursor(&mut self, cursor: PhysCursor) {
+    pub fn set_phys_cursor(&mut self, mut cursor: PhysCursor) {
+        if let Some(slot) = self.slot_glyph(cursor.slot_id) {
+            match slot {
+                FrameGlyph::Image {
+                    x,
+                    y,
+                    width,
+                    height,
+                    ..
+                }
+                | FrameGlyph::Video {
+                    x,
+                    y,
+                    width,
+                    height,
+                    ..
+                }
+                | FrameGlyph::WebKit {
+                    x,
+                    y,
+                    width,
+                    height,
+                    ..
+                } => {
+                    cursor.style = CursorStyle::Hollow;
+                    cursor.x = *x;
+                    cursor.y = *y;
+                    cursor.width = *width;
+                    cursor.height = *height;
+                    cursor.ascent = cursor.ascent.min(*height).max(1.0);
+                }
+                _ => {}
+            }
+        }
         self.phys_cursor = Some(cursor);
     }
 
@@ -2762,6 +2804,7 @@ mod tests {
         assert_eq!(buf.len(), 1);
         match &buf.glyphs[0] {
             FrameGlyph::Image {
+                slot_id,
                 image_id,
                 x,
                 y,
@@ -2769,6 +2812,16 @@ mod tests {
                 height,
                 ..
             } => {
+                assert_eq!(
+                    *slot_id,
+                    Some(DisplaySlotId::from_pixels(
+                        0,
+                        100.0,
+                        200.0,
+                        buf.char_width,
+                        buf.char_height
+                    ))
+                );
                 assert_eq!(*image_id, 42);
                 assert_eq!(*x, 100.0);
                 assert_eq!(*y, 200.0);
@@ -2799,6 +2852,46 @@ mod tests {
             FrameGlyph::WebKit { webkit_id, .. } => assert_eq!(*webkit_id, 99),
             other => panic!("Expected WebKit glyph, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn slot_glyph_matches_media_slots() {
+        let mut buf = FrameGlyphBuffer::new();
+        buf.add_image(42, 16.0, 32.0, 320.0, 240.0);
+
+        let slot_id = buf.glyphs[0].slot_id().expect("media slot id");
+        let slot = buf.slot_glyph(slot_id).expect("slot glyph");
+        assert!(matches!(slot, FrameGlyph::Image { image_id: 42, .. }));
+    }
+
+    #[test]
+    fn set_phys_cursor_normalizes_media_slots_to_hollow() {
+        let mut buf = FrameGlyphBuffer::new();
+        buf.add_image(9, 24.0, 48.0, 128.0, 96.0);
+        let slot_id = buf.glyphs[0].slot_id().expect("image slot id");
+
+        buf.set_phys_cursor(PhysCursor {
+            window_id: 0,
+            charpos: 0,
+            row: slot_id.row as usize,
+            col: slot_id.col,
+            slot_id,
+            x: 24.0,
+            y: 48.0,
+            width: 8.0,
+            height: 16.0,
+            ascent: 12.0,
+            style: CursorStyle::FilledBox,
+            color: Color::WHITE,
+            cursor_fg: Color::BLACK,
+        });
+
+        let stored = buf.phys_cursor.as_ref().expect("phys cursor");
+        assert_eq!(stored.style, CursorStyle::Hollow);
+        assert_eq!(stored.x, 24.0);
+        assert_eq!(stored.y, 48.0);
+        assert_eq!(stored.width, 128.0);
+        assert_eq!(stored.height, 96.0);
     }
 
     // =======================================================================

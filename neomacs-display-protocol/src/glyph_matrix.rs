@@ -372,6 +372,7 @@ pub struct ImageItem {
     pub window_id: i64,
     pub row_role: GlyphRowRole,
     pub clip_rect: Option<Rect>,
+    pub slot_id: Option<DisplaySlotId>,
     pub image_id: u32,
     pub x: f32,
     pub y: f32,
@@ -385,6 +386,7 @@ pub struct VideoItem {
     pub window_id: i64,
     pub row_role: GlyphRowRole,
     pub clip_rect: Option<Rect>,
+    pub slot_id: Option<DisplaySlotId>,
     pub video_id: u32,
     pub x: f32,
     pub y: f32,
@@ -400,6 +402,7 @@ pub struct WebKitItem {
     pub window_id: i64,
     pub row_role: GlyphRowRole,
     pub clip_rect: Option<Rect>,
+    pub slot_id: Option<DisplaySlotId>,
     pub webkit_id: u32,
     pub x: f32,
     pub y: f32,
@@ -631,6 +634,7 @@ impl FrameDisplayState {
                     window_id,
                     row_role,
                     clip_rect,
+                    slot_id,
                     image_id,
                     x,
                     y,
@@ -641,6 +645,7 @@ impl FrameDisplayState {
                         window_id: *window_id,
                         row_role: *row_role,
                         clip_rect: *clip_rect,
+                        slot_id: *slot_id,
                         image_id: *image_id,
                         x: *x,
                         y: *y,
@@ -652,6 +657,7 @@ impl FrameDisplayState {
                     window_id,
                     row_role,
                     clip_rect,
+                    slot_id,
                     video_id,
                     x,
                     y,
@@ -664,6 +670,7 @@ impl FrameDisplayState {
                         window_id: *window_id,
                         row_role: *row_role,
                         clip_rect: *clip_rect,
+                        slot_id: *slot_id,
                         video_id: *video_id,
                         x: *x,
                         y: *y,
@@ -677,6 +684,7 @@ impl FrameDisplayState {
                     window_id,
                     row_role,
                     clip_rect,
+                    slot_id,
                     webkit_id,
                     x,
                     y,
@@ -687,6 +695,7 @@ impl FrameDisplayState {
                         window_id: *window_id,
                         row_role: *row_role,
                         clip_rect: *clip_rect,
+                        slot_id: *slot_id,
                         webkit_id: *webkit_id,
                         x: *x,
                         y: *y,
@@ -754,8 +763,6 @@ impl FrameDisplayState {
 
         // Copy stipple patterns
         buf.stipple_patterns = self.stipple_patterns.clone();
-
-        buf.phys_cursor = self.phys_cursor.clone();
 
         // --- Grid conversion ---
 
@@ -926,6 +933,7 @@ impl FrameDisplayState {
                                     window_id: entry.window_id as i64,
                                     row_role,
                                     clip_rect,
+                                    slot_id: Some(slot_id),
                                     image_id: *image_id as u32,
                                     x,
                                     y,
@@ -1055,6 +1063,7 @@ impl FrameDisplayState {
                 window_id: img.window_id,
                 row_role: img.row_role,
                 clip_rect: img.clip_rect,
+                slot_id: img.slot_id,
                 image_id: img.image_id,
                 x: img.x,
                 y: img.y,
@@ -1069,6 +1078,7 @@ impl FrameDisplayState {
                 window_id: vid.window_id,
                 row_role: vid.row_role,
                 clip_rect: vid.clip_rect,
+                slot_id: vid.slot_id,
                 video_id: vid.video_id,
                 x: vid.x,
                 y: vid.y,
@@ -1085,6 +1095,7 @@ impl FrameDisplayState {
                 window_id: wk.window_id,
                 row_role: wk.row_role,
                 clip_rect: wk.clip_rect,
+                slot_id: wk.slot_id,
                 webkit_id: wk.webkit_id,
                 x: wk.x,
                 y: wk.y,
@@ -1106,6 +1117,10 @@ impl FrameDisplayState {
                 track_color: sb.track_color,
                 thumb_color: sb.thumb_color,
             });
+        }
+
+        if let Some(cursor) = self.phys_cursor.clone() {
+            buf.set_phys_cursor(cursor);
         }
 
         buf
