@@ -543,6 +543,7 @@ mod tests {
     fn make_cursor_glyph(x: f32, width: f32) -> FrameGlyph {
         FrameGlyph::Cursor {
             window_id: 0,
+            slot_id: Some(DisplaySlotId::from_pixels(0, x, 0.0, 8.0, 16.0)),
             x,
             y: 0.0,
             width,

@@ -357,6 +357,7 @@ pub struct BorderItem {
 #[derive(Clone, Debug)]
 pub struct CursorItem {
     pub window_id: i32,
+    pub slot_id: Option<DisplaySlotId>,
     pub x: f32,
     pub y: f32,
     pub width: f32,
@@ -607,6 +608,7 @@ impl FrameDisplayState {
                 }
                 FrameGlyph::Cursor {
                     window_id,
+                    slot_id,
                     x,
                     y,
                     width,
@@ -616,6 +618,7 @@ impl FrameDisplayState {
                 } => {
                     state.cursors.push(CursorItem {
                         window_id: *window_id,
+                        slot_id: *slot_id,
                         x: *x,
                         y: *y,
                         width: *width,
@@ -1036,6 +1039,7 @@ impl FrameDisplayState {
         for cursor in &self.cursors {
             buf.glyphs.push(FrameGlyph::Cursor {
                 window_id: cursor.window_id,
+                slot_id: cursor.slot_id,
                 x: cursor.x,
                 y: cursor.y,
                 width: cursor.width,

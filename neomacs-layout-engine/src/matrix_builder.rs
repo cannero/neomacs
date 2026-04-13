@@ -8,8 +8,8 @@
 use crate::bidi::{self, BidiDir};
 use neomacs_display_protocol::face::Face;
 use neomacs_display_protocol::frame_glyphs::{
-    CursorStyle, GlyphRowRole, PhysCursor, StipplePattern, WindowEffectHint, WindowInfo,
-    WindowTransitionHint,
+    CursorStyle, DisplaySlotId, GlyphRowRole, PhysCursor, StipplePattern, WindowEffectHint,
+    WindowInfo, WindowTransitionHint,
 };
 use neomacs_display_protocol::glyph_matrix::*;
 use neomacs_display_protocol::types::{Color, Rect};
@@ -373,6 +373,7 @@ impl GlyphMatrixBuilder {
     pub fn push_cursor(
         &mut self,
         window_id: i32,
+        slot_id: DisplaySlotId,
         x: f32,
         y: f32,
         w: f32,
@@ -382,6 +383,7 @@ impl GlyphMatrixBuilder {
     ) {
         self.cursors.push(CursorItem {
             window_id,
+            slot_id: Some(slot_id),
             x,
             y,
             width: w,

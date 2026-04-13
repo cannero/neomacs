@@ -323,6 +323,7 @@ pub enum FrameGlyph {
     /// Cursor
     Cursor {
         window_id: i32, // Window ID to track which window this cursor belongs to
+        slot_id: Option<DisplaySlotId>,
         x: f32,
         y: f32,
         width: f32,
@@ -402,6 +403,7 @@ impl FrameGlyph {
             FrameGlyph::Char { slot_id, .. } | FrameGlyph::Stretch { slot_id, .. } => {
                 Some(*slot_id)
             }
+            FrameGlyph::Cursor { slot_id, .. } => *slot_id,
             _ => None,
         }
     }
@@ -1245,6 +1247,13 @@ impl FrameGlyphBuffer {
     ) {
         self.glyphs.push(FrameGlyph::Cursor {
             window_id,
+            slot_id: Some(DisplaySlotId::from_pixels(
+                window_id as i64,
+                x,
+                y,
+                self.char_width,
+                self.char_height,
+            )),
             x,
             y,
             width,
@@ -2047,6 +2056,7 @@ mod tests {
         match &buf.glyphs[0] {
             FrameGlyph::Cursor {
                 window_id,
+                slot_id,
                 x,
                 y,
                 width,
@@ -2055,6 +2065,10 @@ mod tests {
                 color,
             } => {
                 assert_eq!(*window_id, 42);
+                assert_eq!(
+                    *slot_id,
+                    Some(DisplaySlotId::from_pixels(42, 100.0, 200.0, 8.0, 16.0))
+                );
                 assert_eq!(*x, 100.0);
                 assert_eq!(*y, 200.0);
                 assert_eq!(*width, 2.0);

@@ -1,5 +1,6 @@
 use super::RenderApp;
-use crate::core::frame_glyphs::{FrameGlyph, PhysCursor};
+use crate::core::frame_glyphs::{DisplaySlotId, FrameGlyph, PhysCursor};
+use std::collections::HashMap;
 
 impl RenderApp {
     pub(super) fn prepare_frame_state_for_render(&mut self) {
@@ -74,10 +75,17 @@ impl RenderApp {
         let mut row_index: i32 = -1;
         let mut char_in_row: i32 = 0;
         let mut last_window_y: f32 = f32::NEG_INFINITY;
+        let mut slot_positions: HashMap<DisplaySlotId, (f32, f32)> = HashMap::new();
 
         for glyph in glyphs.iter_mut() {
             match glyph {
-                FrameGlyph::Char { x, y, row_role, .. } => {
+                FrameGlyph::Char {
+                    x,
+                    y,
+                    row_role,
+                    slot_id,
+                    ..
+                } => {
                     if row_role.is_chrome() {
                         continue;
                     }
@@ -96,8 +104,15 @@ impl RenderApp {
                     }
                     *y += row_index as f32 * line_spacing;
                     *x += char_in_row as f32 * letter_spacing;
+                    slot_positions.insert(*slot_id, (*x, *y));
                 }
-                FrameGlyph::Stretch { x, y, row_role, .. } => {
+                FrameGlyph::Stretch {
+                    x,
+                    y,
+                    row_role,
+                    slot_id,
+                    ..
+                } => {
                     if row_role.is_chrome() {
                         continue;
                     }
@@ -116,9 +131,15 @@ impl RenderApp {
                     }
                     *y += row_index as f32 * line_spacing;
                     *x += char_in_row as f32 * letter_spacing;
+                    slot_positions.insert(*slot_id, (*x, *y));
                 }
-                FrameGlyph::Cursor { y, x, .. } => {
-                    if (*y - last_y).abs() < 0.5 {
+                FrameGlyph::Cursor { slot_id, y, x, .. } => {
+                    if let Some(slot_id) =
+                        slot_id.and_then(|slot| slot_positions.get(&slot).copied())
+                    {
+                        *x = slot_id.0;
+                        *y = slot_id.1;
+                    } else if (*y - last_y).abs() < 0.5 {
                         let old_x = *x;
                         let old_y = *y;
                         let dy = row_index.max(0) as f32 * line_spacing;
@@ -138,5 +159,66 @@ impl RenderApp {
                 _ => {}
             }
         }
+
+        if let Some(cursor) = phys_cursor.as_mut()
+            && let Some((x, y)) = slot_positions.get(&cursor.slot_id).copied()
+        {
+            cursor.x = x;
+            cursor.y = y;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::frame_glyphs::{CursorStyle, FrameGlyphBuffer, GlyphRowRole};
+    use neomacs_display_protocol::types::Color;
+
+    #[test]
+    fn apply_extra_spacing_remaps_cursor_by_slot_id() {
+        let mut frame = FrameGlyphBuffer::with_size(80.0, 32.0);
+        frame.set_draw_context(1, GlyphRowRole::Text, None);
+        frame.add_char('a', 0.0, 0.0, 8.0, 16.0, 12.0, false);
+        frame.add_char('b', 8.0, 0.0, 8.0, 16.0, 12.0, false);
+        let target_slot = frame.glyphs[1].slot_id().expect("slot id");
+
+        frame.add_cursor(1, 2.0, 0.0, 2.0, 16.0, CursorStyle::Bar(2.0), Color::WHITE);
+        if let FrameGlyph::Cursor { slot_id, .. } = &mut frame.glyphs[2] {
+            *slot_id = Some(target_slot);
+        }
+
+        frame.set_phys_cursor(PhysCursor {
+            window_id: 1,
+            charpos: 1,
+            row: 0,
+            col: 1,
+            slot_id: target_slot,
+            x: 2.0,
+            y: 0.0,
+            width: 2.0,
+            height: 16.0,
+            ascent: 12.0,
+            style: CursorStyle::Bar(2.0),
+            color: Color::WHITE,
+            cursor_fg: Color::BLACK,
+        });
+
+        RenderApp::apply_extra_spacing(&mut frame.glyphs, &mut frame.phys_cursor, 0.0, 1.0);
+
+        match &frame.glyphs[1] {
+            FrameGlyph::Char { x, .. } => assert_eq!(*x, 9.0),
+            other => panic!("expected char glyph, got {:?}", other),
+        }
+        match &frame.glyphs[2] {
+            FrameGlyph::Cursor { x, y, .. } => {
+                assert_eq!(*x, 9.0);
+                assert_eq!(*y, 0.0);
+            }
+            other => panic!("expected cursor glyph, got {:?}", other),
+        }
+        let cursor = frame.phys_cursor.as_ref().expect("phys cursor");
+        assert_eq!(cursor.x, 9.0);
+        assert_eq!(cursor.y, 0.0);
     }
 }

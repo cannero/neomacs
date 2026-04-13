@@ -205,6 +205,7 @@ impl WgpuRenderer {
                     height,
                     style,
                     color,
+                    ..
                 } => {
                     if !cursor_visible && !style.is_hollow() {
                         continue;

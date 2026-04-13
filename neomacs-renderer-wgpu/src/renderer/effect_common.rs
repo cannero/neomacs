@@ -250,6 +250,7 @@ mod tests {
 
         frame_glyphs.glyphs.push(FrameGlyph::Cursor {
             window_id: 1,
+            slot_id: None,
             x: 100.0,
             y: 200.0,
             width: 8.0,
@@ -260,6 +261,7 @@ mod tests {
 
         frame_glyphs.glyphs.push(FrameGlyph::Cursor {
             window_id: 2,
+            slot_id: None,
             x: 300.0,
             y: 400.0,
             width: 8.0,
@@ -281,6 +283,7 @@ mod tests {
         // Add only hollow cursors
         frame_glyphs.glyphs.push(FrameGlyph::Cursor {
             window_id: 1,
+            slot_id: None,
             x: 10.0,
             y: 20.0,
             width: 8.0,

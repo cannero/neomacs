@@ -4351,6 +4351,11 @@ impl LayoutEngine {
                 };
                 self.matrix_builder.push_cursor(
                     params.window_id as i32,
+                    DisplaySlotId {
+                        window_id: params.window_id,
+                        row: resolved_cursor.row as u32,
+                        col: resolved_cursor.col as u16,
+                    },
                     resolved_cursor.x,
                     resolved_cursor.y,
                     resolved_cursor.width,

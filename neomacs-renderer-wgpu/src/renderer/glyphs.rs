@@ -1075,6 +1075,7 @@ impl WgpuRenderer {
                     height,
                     style,
                     color,
+                    ..
                 } => {
                     // Compute effective cursor color (possibly overridden by color cycling)
                     let cycle_color;
