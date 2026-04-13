@@ -1619,101 +1619,10 @@ impl Frame {
         Some(WindowOutputUpdate::new(display))
     }
 
-    /// Begin a new output update for one live window on this frame.
-    pub fn begin_window_output_update(&mut self, window_id: WindowId) {
-        if let Some(mut update) = self.window_output_update(window_id) {
-            update.begin_update();
-        }
-    }
-
-    /// Finish one emitted display row for a live window.
-    pub fn finish_window_output_row(&mut self, window_id: WindowId, row: &DisplayRowSnapshot) {
-        if let Some(mut update) = self.window_output_update(window_id) {
-            update.finish_row(row);
-        }
-    }
-
-    /// Start emitting a new output row for one live window.
-    pub fn begin_window_output_row(
-        &mut self,
-        window_id: WindowId,
-        row: i64,
-        col: i64,
-        y: i64,
-        x: i64,
-    ) {
-        if let Some(mut update) = self.window_output_update(window_id) {
-            update.begin_row(row, col, y, x);
-        }
-    }
-
-    /// Advance one live window's output cursor within the current output row.
-    ///
-    /// Mirrors GNU's `output_cursor_to` helper on `struct window`.
-    pub fn advance_window_output_progress(
-        &mut self,
-        window_id: WindowId,
-        row: i64,
-        col: i64,
-        y: i64,
-        x: i64,
-    ) {
-        if let Some(mut update) = self.window_output_update(window_id) {
-            update.advance_progress(row, col, y, x);
-        }
-    }
-
-    /// Install one live window's intended cursor position from redisplay.
-    pub fn install_logical_cursor(&mut self, window_id: WindowId, cursor: Option<WindowCursorPos>) {
-        if let Some(mut update) = self.window_output_update(window_id) {
-            update.install_logical_cursor(cursor);
-        }
-    }
-
-    /// Install one live window's physical cursor geometry from redisplay.
-    pub fn apply_physical_cursor_snapshot(
-        &mut self,
-        window_id: WindowId,
-        cursor: Option<WindowCursorSnapshot>,
-    ) {
-        if let Some(mut update) = self.window_output_update(window_id) {
-            update.apply_physical_cursor_snapshot(cursor);
-        }
-    }
-
-    /// Recover missing output progress for one live window from a redisplay snapshot.
-    pub fn fallback_output_cursor_from_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
-        if let Some(mut update) = self.window_output_update(snapshot.window_id) {
-            update.fallback_output_cursor_from_snapshot(snapshot);
-        }
-    }
-
-    /// Finalize one live window's redisplay update after explicit row progress,
-    /// cursor geometry, and optional snapshot replay state have been applied.
-    pub fn finalize_window_output_update(
-        &mut self,
-        window_id: WindowId,
-        logical_cursor: Option<WindowCursorPos>,
-        phys_cursor: Option<WindowCursorSnapshot>,
-        output_fallback: Option<&WindowDisplaySnapshot>,
-    ) {
-        if let Some(mut update) = self.window_output_update(window_id) {
-            update.finalize(logical_cursor, phys_cursor, output_fallback);
-        }
-    }
-
     /// Replay a completed window snapshot through the live output lifecycle.
     pub fn replay_window_output_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
         if let Some(mut update) = self.window_output_update(snapshot.window_id) {
             update.replay_snapshot(snapshot);
-        }
-    }
-
-    /// Finalize one live window's redisplay update after output/cursor state
-    /// has been advanced explicitly.
-    pub fn finish_window_output_update(&mut self, window_id: WindowId) {
-        if let Some(mut update) = self.window_output_update(window_id) {
-            update.commit();
         }
     }
 
@@ -3820,10 +3729,10 @@ mod tests {
         };
         let frame = mgr.get_mut(fid).expect("frame");
         frame.begin_display_output_pass();
-        frame.begin_window_output_update(wid);
-        frame.finish_window_output_row(
-            wid,
-            &DisplayRowSnapshot {
+        {
+            let mut update = frame.window_output_update(wid).expect("window update");
+            update.begin_update();
+            update.finish_row(&DisplayRowSnapshot {
                 row: 2,
                 y: 32,
                 height: 16,
@@ -3831,14 +3740,13 @@ mod tests {
                 end_col: 12,
                 start_buffer_pos: Some(20),
                 end_buffer_pos: Some(32),
-            },
-        );
-        frame.finalize_window_output_update(
-            wid,
-            snapshot.logical_cursor_pos(),
-            snapshot.phys_cursor.clone(),
-            Some(&snapshot),
-        );
+            });
+            update.finalize(
+                snapshot.logical_cursor_pos(),
+                snapshot.phys_cursor.clone(),
+                Some(&snapshot),
+            );
+        }
 
         let display = frame
             .find_window(wid)
@@ -3864,9 +3772,12 @@ mod tests {
         let frame = mgr.get_mut(fid).expect("frame");
 
         frame.begin_display_output_pass();
-        frame.begin_window_output_update(wid);
-        frame.begin_window_output_row(wid, 2, 3, 32, 24);
-        frame.advance_window_output_progress(wid, 2, 7, 32, 56);
+        {
+            let mut update = frame.window_output_update(wid).expect("window update");
+            update.begin_update();
+            update.begin_row(2, 3, 32, 24);
+            update.advance_progress(2, 7, 32, 56);
+        }
 
         let display = frame
             .find_window(wid)
@@ -3932,13 +3843,11 @@ mod tests {
         let frame = mgr.get_mut(fid).expect("frame");
 
         frame.begin_display_output_pass();
-        frame.begin_window_output_update(wid);
-        frame.finalize_window_output_update(
-            wid,
-            Some(live_cursor),
-            Some(live_phys.clone()),
-            Some(&snapshot),
-        );
+        {
+            let mut update = frame.window_output_update(wid).expect("window update");
+            update.begin_update();
+            update.finalize(Some(live_cursor), Some(live_phys.clone()), Some(&snapshot));
+        }
 
         let display = frame
             .find_window(wid)
@@ -3994,13 +3903,11 @@ mod tests {
         let frame = mgr.get_mut(fid).expect("frame");
 
         frame.begin_display_output_pass();
-        frame.begin_window_output_update(wid);
-        frame.finalize_window_output_update(
-            wid,
-            Some(live_cursor),
-            Some(live_phys.clone()),
-            Some(&snapshot),
-        );
+        {
+            let mut update = frame.window_output_update(wid).expect("window update");
+            update.begin_update();
+            update.finalize(Some(live_cursor), Some(live_phys.clone()), Some(&snapshot));
+        }
 
         let display = frame
             .find_window(wid)
