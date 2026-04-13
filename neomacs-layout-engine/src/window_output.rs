@@ -98,6 +98,16 @@ impl WindowOutputEmitter {
         self.current_row_progress = Some(CurrentRowProgress { row, y, col, x });
     }
 
+    fn with_live_update<T>(
+        &self,
+        evaluator: &mut Context,
+        f: impl FnOnce(&mut neovm_core::window::WindowOutputUpdate<'_>) -> T,
+    ) -> Option<T> {
+        let frame = evaluator.frame_manager_mut().get_mut(self.frame_id)?;
+        let mut update = frame.window_output_update(self.window_id)?;
+        Some(f(&mut update))
+    }
+
     pub(crate) fn note_display_buffer_pos(&mut self, buffer_pos: usize) {
         if self.current_row_first_display_pos.is_none() {
             self.current_row_first_display_pos = Some(buffer_pos);
@@ -141,15 +151,11 @@ impl WindowOutputEmitter {
         x: i64,
     ) {
         self.set_current_row_progress(row, col, y, x);
-        if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
-            frame.begin_window_output_row(self.window_id, row, col, y, x);
-        }
+        let _ = self.with_live_update(evaluator, |update| update.begin_row(row, col, y, x));
     }
 
     pub(crate) fn begin_update(&self, evaluator: &mut Context) {
-        if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
-            frame.begin_window_output_update(self.window_id);
-        }
+        let _ = self.with_live_update(evaluator, |update| update.begin_update());
     }
 
     pub(crate) fn advance_progress(
@@ -161,9 +167,7 @@ impl WindowOutputEmitter {
         x: i64,
     ) {
         self.set_current_row_progress(row, col, y, x);
-        if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
-            frame.advance_window_output_progress(self.window_id, row, col, y, x);
-        }
+        let _ = self.with_live_update(evaluator, |update| update.advance_progress(row, col, y, x));
     }
 
     pub(crate) fn push_text_row(
@@ -192,17 +196,13 @@ impl WindowOutputEmitter {
             height: row_height.max(1.0),
             ascent: row_ascent.max(0.0).min(row_height.max(1.0)),
         });
-        if let Some(row) = self.rows.last()
-            && let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id)
-        {
-            frame.finish_window_output_row(self.window_id, row);
+        if let Some(row) = self.rows.last() {
+            let _ = self.with_live_update(evaluator, |update| update.finish_row(row));
         }
     }
 
     pub(crate) fn push_chrome_row(&mut self, evaluator: &mut Context, row: DisplayRowSnapshot) {
-        if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
-            frame.finish_window_output_row(self.window_id, &row);
-        }
+        let _ = self.with_live_update(evaluator, |update| update.finish_row(&row));
         self.rows.push(row);
     }
 
@@ -239,9 +239,11 @@ impl WindowOutputEmitter {
         header_line_height: i64,
         tab_line_height: i64,
     ) -> WindowDisplaySnapshot {
+        let frame_id = self.frame_id;
+        let window_id = self.window_id;
         self.rows.sort_by_key(|row| row.row);
         let snapshot = WindowDisplaySnapshot {
-            window_id: self.window_id,
+            window_id,
             text_area_left_offset,
             mode_line_height,
             header_line_height,
@@ -251,13 +253,10 @@ impl WindowOutputEmitter {
             points: self.points,
             rows: self.rows,
         };
-        if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
-            frame.finalize_window_output_update(
-                self.window_id,
-                logical_cursor,
-                phys_cursor,
-                Some(&snapshot),
-            );
+        if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id)
+            && let Some(mut update) = frame.window_output_update(window_id)
+        {
+            update.finalize(logical_cursor, phys_cursor, Some(&snapshot));
         }
         snapshot
     }

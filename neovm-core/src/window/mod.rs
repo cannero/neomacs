@@ -254,6 +254,79 @@ impl WindowDisplayState {
     }
 }
 
+/// Explicit live redisplay/update session for one window.
+///
+/// This mirrors GNU's per-window output/update ownership model: row progress,
+/// cursor installation, snapshot fallback, and final redisplay commit all flow
+/// through one update object over the live `WindowDisplayState`.
+pub struct WindowOutputUpdate<'a> {
+    display: &'a mut WindowDisplayState,
+}
+
+impl<'a> WindowOutputUpdate<'a> {
+    fn new(display: &'a mut WindowDisplayState) -> Self {
+        Self { display }
+    }
+
+    pub fn begin_update(&mut self) {
+        self.display.begin_window_output_update();
+    }
+
+    pub fn begin_row(&mut self, row: i64, col: i64, y: i64, x: i64) {
+        self.display.begin_output_row(row, col, y, x);
+    }
+
+    pub fn advance_progress(&mut self, row: i64, col: i64, y: i64, x: i64) {
+        self.display.advance_output_progress(row, col, y, x);
+    }
+
+    pub fn finish_row(&mut self, row: &DisplayRowSnapshot) {
+        self.display.finish_output_row(row);
+    }
+
+    pub fn install_logical_cursor(&mut self, cursor: Option<WindowCursorPos>) {
+        self.display.install_logical_cursor(cursor);
+    }
+
+    pub fn apply_physical_cursor_snapshot(&mut self, cursor: Option<WindowCursorSnapshot>) {
+        self.display.apply_physical_cursor_snapshot(cursor);
+    }
+
+    pub fn fallback_output_cursor_from_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
+        if self.display.output_cursor.is_none() {
+            self.display
+                .commit_output_cursor_from_display_snapshot(snapshot);
+        }
+    }
+
+    pub fn finalize(
+        &mut self,
+        logical_cursor: Option<WindowCursorPos>,
+        phys_cursor: Option<WindowCursorSnapshot>,
+        output_fallback: Option<&WindowDisplaySnapshot>,
+    ) {
+        self.install_logical_cursor(logical_cursor);
+        self.apply_physical_cursor_snapshot(phys_cursor);
+        if let Some(snapshot) = output_fallback {
+            self.fallback_output_cursor_from_snapshot(snapshot);
+        }
+        self.commit();
+    }
+
+    pub fn replay_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
+        self.begin_update();
+        self.finalize(
+            snapshot.logical_cursor_pos(),
+            snapshot.phys_cursor.clone(),
+            Some(snapshot),
+        );
+    }
+
+    pub fn commit(&mut self) {
+        self.display.commit_completed_redisplay();
+    }
+}
+
 /// Live-window history state that GNU Emacs stores directly on `struct window`.
 #[derive(Clone, Debug)]
 pub struct WindowHistoryState {
@@ -1541,21 +1614,22 @@ impl Frame {
         }
     }
 
+    pub fn window_output_update(&mut self, window_id: WindowId) -> Option<WindowOutputUpdate<'_>> {
+        let display = self.find_window_mut(window_id)?.display_mut()?;
+        Some(WindowOutputUpdate::new(display))
+    }
+
     /// Begin a new output update for one live window on this frame.
     pub fn begin_window_output_update(&mut self, window_id: WindowId) {
-        if let Some(window) = self.find_window_mut(window_id)
-            && let Some(display) = window.display_mut()
-        {
-            display.begin_window_output_update();
+        if let Some(mut update) = self.window_output_update(window_id) {
+            update.begin_update();
         }
     }
 
     /// Finish one emitted display row for a live window.
     pub fn finish_window_output_row(&mut self, window_id: WindowId, row: &DisplayRowSnapshot) {
-        if let Some(window) = self.find_window_mut(window_id)
-            && let Some(display) = window.display_mut()
-        {
-            display.finish_output_row(row);
+        if let Some(mut update) = self.window_output_update(window_id) {
+            update.finish_row(row);
         }
     }
 
@@ -1568,10 +1642,8 @@ impl Frame {
         y: i64,
         x: i64,
     ) {
-        if let Some(window) = self.find_window_mut(window_id)
-            && let Some(display) = window.display_mut()
-        {
-            display.begin_output_row(row, col, y, x);
+        if let Some(mut update) = self.window_output_update(window_id) {
+            update.begin_row(row, col, y, x);
         }
     }
 
@@ -1586,19 +1658,15 @@ impl Frame {
         y: i64,
         x: i64,
     ) {
-        if let Some(window) = self.find_window_mut(window_id)
-            && let Some(display) = window.display_mut()
-        {
-            display.advance_output_progress(row, col, y, x);
+        if let Some(mut update) = self.window_output_update(window_id) {
+            update.advance_progress(row, col, y, x);
         }
     }
 
     /// Install one live window's intended cursor position from redisplay.
     pub fn install_logical_cursor(&mut self, window_id: WindowId, cursor: Option<WindowCursorPos>) {
-        if let Some(window) = self.find_window_mut(window_id)
-            && let Some(display) = window.display_mut()
-        {
-            display.install_logical_cursor(cursor);
+        if let Some(mut update) = self.window_output_update(window_id) {
+            update.install_logical_cursor(cursor);
         }
     }
 
@@ -1608,20 +1676,15 @@ impl Frame {
         window_id: WindowId,
         cursor: Option<WindowCursorSnapshot>,
     ) {
-        if let Some(window) = self.find_window_mut(window_id)
-            && let Some(display) = window.display_mut()
-        {
-            display.apply_physical_cursor_snapshot(cursor);
+        if let Some(mut update) = self.window_output_update(window_id) {
+            update.apply_physical_cursor_snapshot(cursor);
         }
     }
 
     /// Recover missing output progress for one live window from a redisplay snapshot.
     pub fn fallback_output_cursor_from_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
-        if let Some(window) = self.find_window_mut(snapshot.window_id)
-            && let Some(display) = window.display_mut()
-            && display.output_cursor.is_none()
-        {
-            display.commit_output_cursor_from_display_snapshot(snapshot);
+        if let Some(mut update) = self.window_output_update(snapshot.window_id) {
+            update.fallback_output_cursor_from_snapshot(snapshot);
         }
     }
 
@@ -1634,32 +1697,23 @@ impl Frame {
         phys_cursor: Option<WindowCursorSnapshot>,
         output_fallback: Option<&WindowDisplaySnapshot>,
     ) {
-        self.install_logical_cursor(window_id, logical_cursor);
-        self.apply_physical_cursor_snapshot(window_id, phys_cursor);
-        if let Some(snapshot) = output_fallback {
-            self.fallback_output_cursor_from_snapshot(snapshot);
+        if let Some(mut update) = self.window_output_update(window_id) {
+            update.finalize(logical_cursor, phys_cursor, output_fallback);
         }
-        self.finish_window_output_update(window_id);
     }
 
     /// Replay a completed window snapshot through the live output lifecycle.
     pub fn replay_window_output_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
-        self.begin_window_output_update(snapshot.window_id);
-        self.finalize_window_output_update(
-            snapshot.window_id,
-            snapshot.logical_cursor_pos(),
-            snapshot.phys_cursor.clone(),
-            Some(snapshot),
-        );
+        if let Some(mut update) = self.window_output_update(snapshot.window_id) {
+            update.replay_snapshot(snapshot);
+        }
     }
 
     /// Finalize one live window's redisplay update after output/cursor state
     /// has been advanced explicitly.
     pub fn finish_window_output_update(&mut self, window_id: WindowId) {
-        if let Some(window) = self.find_window_mut(window_id)
-            && let Some(display) = window.display_mut()
-        {
-            display.commit_completed_redisplay();
+        if let Some(mut update) = self.window_output_update(window_id) {
+            update.commit();
         }
     }
 
