@@ -1159,12 +1159,19 @@ fn render_overlay_string(
             builder.push_char(ch, face_id, 0);
         }
 
+        let glyph_start_x = *x;
+        let glyph_start_col = *col;
         *x += ch_advance;
         *col += if is_wide_char(ch) { 2 } else { 1 };
-    }
-
-    if *row < max_rows {
-        output_emitter.advance_text_progress(evaluator, *row, *col, *y, *x);
+        output_emitter.emit_synthetic_text_span(
+            evaluator,
+            *row,
+            *y,
+            glyph_start_x,
+            *x - glyph_start_x,
+            glyph_start_col,
+            *col,
+        );
     }
 }
 
