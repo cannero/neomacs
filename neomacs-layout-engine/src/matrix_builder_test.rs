@@ -334,6 +334,9 @@ fn builder_keeps_stretch_fixed_while_reordering_rtl_chars() {
     assert_eq!(glyphs[0].glyph_type, GlyphType::Char { ch: 'ב' });
     assert_eq!(glyphs[1].glyph_type, GlyphType::Stretch { width_cols: 3 });
     assert_eq!(glyphs[2].glyph_type, GlyphType::Char { ch: 'א' });
+    assert_eq!(glyphs[0].bidi_level, 1);
+    assert_eq!(glyphs[1].bidi_level, 1);
+    assert_eq!(glyphs[2].bidi_level, 1);
 }
 
 #[test]
@@ -356,6 +359,31 @@ fn builder_reorders_wide_rtl_row() {
     assert_eq!(glyphs[0].bidi_level, 1);
     assert_eq!(glyphs[1].bidi_level, 1);
     assert_eq!(glyphs[2].bidi_level, 1);
+}
+
+#[test]
+fn builder_reorders_wide_rtl_row_across_stretch() {
+    let mut builder = GlyphMatrixBuilder::new();
+    builder.begin_window(1, 1, 10, Rect::new(0.0, 0.0, 80.0, 16.0), true);
+    builder.begin_row(0, GlyphRowRole::Text);
+    builder.push_wide_char('א', 0, 0);
+    builder.push_stretch(2, 0);
+    builder.push_char('ב', 0, 1);
+    builder.end_row();
+    builder.end_window();
+
+    let state = builder.finish(10, 1, 8.0, 16.0);
+    let glyphs = &state.window_matrices[0].matrix.rows[0].glyphs[GlyphArea::Text as usize];
+    assert_eq!(glyphs.len(), 4);
+    assert_eq!(glyphs[0].glyph_type, GlyphType::Char { ch: 'ב' });
+    assert_eq!(glyphs[1].glyph_type, GlyphType::Stretch { width_cols: 2 });
+    assert_eq!(glyphs[2].glyph_type, GlyphType::Char { ch: 'א' });
+    assert!(glyphs[2].wide);
+    assert!(glyphs[3].padding);
+    assert_eq!(glyphs[0].bidi_level, 1);
+    assert_eq!(glyphs[1].bidi_level, 1);
+    assert_eq!(glyphs[2].bidi_level, 1);
+    assert_eq!(glyphs[3].bidi_level, 1);
 }
 
 #[test]

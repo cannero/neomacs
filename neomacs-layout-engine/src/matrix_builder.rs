@@ -67,7 +67,8 @@ fn bidi_char_for_glyph(glyph: &Glyph) -> Option<char> {
     match &glyph.glyph_type {
         GlyphType::Char { ch } | GlyphType::Glyphless { ch } => Some(*ch),
         GlyphType::Composite { text } => text.chars().next(),
-        GlyphType::Stretch { .. } | GlyphType::Image { .. } => None,
+        GlyphType::Stretch { .. } => Some(' '),
+        GlyphType::Image { .. } => None,
     }
 }
 
