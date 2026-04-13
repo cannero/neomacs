@@ -7,7 +7,8 @@
 
 use neovm_core::emacs_core::Context;
 use neovm_core::window::{
-    DisplayRowSnapshot, WindowCursorPos, WindowCursorSnapshot, WindowDisplaySnapshot,
+    DisplayPointSnapshot, DisplayRowSnapshot, WindowCursorPos, WindowCursorSnapshot,
+    WindowDisplaySnapshot,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -23,6 +24,10 @@ pub(crate) struct WindowOutputEmitter {
     window_id: neovm_core::window::WindowId,
     text_x: f32,
     window_top: f32,
+    rows: Vec<DisplayRowSnapshot>,
+    row_metrics: Vec<RowMetricsSnapshot>,
+    current_row_first_display_pos: Option<usize>,
+    current_row_last_display_pos: Option<usize>,
 }
 
 impl WindowOutputEmitter {
@@ -37,7 +42,42 @@ impl WindowOutputEmitter {
             window_id,
             text_x,
             window_top,
+            rows: Vec::new(),
+            row_metrics: Vec::new(),
+            current_row_first_display_pos: None,
+            current_row_last_display_pos: None,
         }
+    }
+
+    pub(crate) fn rows(&self) -> &[DisplayRowSnapshot] {
+        &self.rows
+    }
+
+    pub(crate) fn row_metrics(&self) -> &[RowMetricsSnapshot] {
+        &self.row_metrics
+    }
+
+    pub(crate) fn current_row_display_positions(&self) -> (Option<usize>, Option<usize>) {
+        (
+            self.current_row_first_display_pos,
+            self.current_row_last_display_pos,
+        )
+    }
+
+    pub(crate) fn restore_current_row_display_positions(
+        &mut self,
+        first: Option<usize>,
+        last: Option<usize>,
+    ) {
+        self.current_row_first_display_pos = first;
+        self.current_row_last_display_pos = last;
+    }
+
+    pub(crate) fn note_display_buffer_pos(&mut self, buffer_pos: usize) {
+        if self.current_row_first_display_pos.is_none() {
+            self.current_row_first_display_pos = Some(buffer_pos);
+        }
+        self.current_row_last_display_pos = Some(buffer_pos);
     }
 
     pub(crate) fn begin_row(&self, evaluator: &mut Context, row: i64, col: i64, y: i64, x: i64) {
@@ -66,65 +106,73 @@ impl WindowOutputEmitter {
     }
 
     pub(crate) fn push_text_row(
-        &self,
+        &mut self,
         evaluator: &mut Context,
-        rows: &mut Vec<DisplayRowSnapshot>,
-        row_metrics: &mut Vec<RowMetricsSnapshot>,
         row: i64,
         row_y_start: f32,
         row_height: f32,
         row_ascent: f32,
         row_end_x: f32,
         row_end_col: usize,
-        row_first_display_pos: &mut Option<usize>,
-        row_last_display_pos: &mut Option<usize>,
     ) {
-        rows.push(DisplayRowSnapshot {
+        self.rows.push(DisplayRowSnapshot {
             row,
             y: (row_y_start - self.window_top).round() as i64,
             height: row_height.max(1.0).round() as i64,
             end_x: (row_end_x - self.text_x).round() as i64,
             end_col: row_end_col as i64,
-            start_buffer_pos: row_first_display_pos.take(),
-            end_buffer_pos: row_last_display_pos.take(),
+            start_buffer_pos: self.current_row_first_display_pos.take(),
+            end_buffer_pos: self.current_row_last_display_pos.take(),
         });
-        row_metrics.push(RowMetricsSnapshot {
+        self.row_metrics.push(RowMetricsSnapshot {
             row: row.max(0) as usize,
             pixel_y: row_y_start,
             height: row_height.max(1.0),
             ascent: row_ascent.max(0.0).min(row_height.max(1.0)),
         });
-        if let Some(row) = rows.last()
+        if let Some(row) = self.rows.last()
             && let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id)
         {
             frame.finish_window_output_row(self.window_id, row);
         }
     }
 
-    pub(crate) fn push_chrome_row(
-        &self,
-        evaluator: &mut Context,
-        chrome_rows: &mut Vec<DisplayRowSnapshot>,
-        row: DisplayRowSnapshot,
-    ) {
+    pub(crate) fn push_chrome_row(&mut self, evaluator: &mut Context, row: DisplayRowSnapshot) {
         if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
             frame.finish_window_output_row(self.window_id, &row);
         }
-        chrome_rows.push(row);
+        self.rows.push(row);
     }
 
-    pub(crate) fn finalize_snapshot(
-        &self,
+    pub(crate) fn finish_snapshot(
+        mut self,
         evaluator: &mut Context,
         logical_cursor: Option<WindowCursorPos>,
         phys_cursor: Option<WindowCursorSnapshot>,
-        snapshot: &WindowDisplaySnapshot,
-    ) {
+        text_area_left_offset: i64,
+        mode_line_height: i64,
+        header_line_height: i64,
+        tab_line_height: i64,
+        points: Vec<DisplayPointSnapshot>,
+    ) -> WindowDisplaySnapshot {
+        self.rows.sort_by_key(|row| row.row);
+        let snapshot = WindowDisplaySnapshot {
+            window_id: self.window_id,
+            text_area_left_offset,
+            mode_line_height,
+            header_line_height,
+            tab_line_height,
+            logical_cursor,
+            phys_cursor: phys_cursor.clone(),
+            points,
+            rows: self.rows,
+        };
         if let Some(frame) = evaluator.frame_manager_mut().get_mut(self.frame_id) {
             frame.install_logical_cursor(self.window_id, logical_cursor);
             frame.apply_physical_cursor_snapshot(self.window_id, phys_cursor);
-            frame.fallback_output_cursor_from_snapshot(snapshot);
+            frame.fallback_output_cursor_from_snapshot(&snapshot);
             frame.finish_window_output_update(self.window_id);
         }
+        snapshot
     }
 }

@@ -385,8 +385,7 @@ fn flush_run(_run: &LigatureRunBuffer, _ligatures: bool) {}
 
 fn push_display_point(
     points: &mut Vec<DisplayPointSnapshot>,
-    row_first_display_pos: &mut Option<usize>,
-    row_last_display_pos: &mut Option<usize>,
+    output_emitter: &mut WindowOutputEmitter,
     buffer_pos: i64,
     glyph_x: f32,
     glyph_y: f32,
@@ -401,10 +400,7 @@ fn push_display_point(
         return;
     }
     let buffer_pos = buffer_pos as usize;
-    if row_first_display_pos.is_none() {
-        *row_first_display_pos = Some(buffer_pos);
-    }
-    *row_last_display_pos = Some(buffer_pos);
+    output_emitter.note_display_buffer_pos(buffer_pos);
     points.push(DisplayPointSnapshot {
         buffer_pos,
         x: (glyph_x - text_x).round() as i64,
@@ -2616,13 +2612,9 @@ impl LayoutEngine {
         let mut hit_rows: Vec<HitRow> = Vec::new();
         let mut hit_row_charpos_start: i64 = window_start;
         let mut display_points: Vec<DisplayPointSnapshot> = Vec::new();
-        let mut display_rows: Vec<DisplayRowSnapshot> = Vec::new();
-        let mut row_metrics: Vec<RowMetricsSnapshot> = Vec::new();
-        let mut row_first_display_pos: Option<usize> = None;
-        let mut row_last_display_pos: Option<usize> = None;
         let text_area_left = text_x;
         let window_top = params.bounds.y;
-        let output_emitter =
+        let mut output_emitter =
             WindowOutputEmitter::new(frame_id, window_id, text_area_left, window_top);
         let sync_charpos_from_byte_idx = |byte_idx: usize| {
             buf_access.bytepos_to_charpos(text_start_byte as i64 + byte_idx as i64)
@@ -2764,8 +2756,10 @@ impl LayoutEngine {
                     wrap_break_byte_idx = $break_byte_idx;
                     wrap_break_charpos = charpos;
                     wrap_break_display_point_count = display_points.len();
-                    wrap_break_row_first_display_pos = row_first_display_pos;
-                    wrap_break_row_last_display_pos = row_last_display_pos;
+                    (
+                        wrap_break_row_first_display_pos,
+                        wrap_break_row_last_display_pos,
+                    ) = output_emitter.current_row_display_positions();
                     wrap_has_break = true;
                 }
             };
@@ -3016,10 +3010,7 @@ impl LayoutEngine {
                     let row_end_col = col;
                     x = content_x;
                     // Record newline position on the row (see main \n handler).
-                    row_last_display_pos = Some(charpos as usize);
-                    if row_first_display_pos.is_none() {
-                        row_first_display_pos = Some(charpos as usize);
-                    }
+                    output_emitter.note_display_buffer_pos(charpos as usize);
                     // Record hit-test row (hscroll newline)
                     hit_rows.push(HitRow {
                         y_start: y,
@@ -3029,16 +3020,12 @@ impl LayoutEngine {
                     });
                     output_emitter.push_text_row(
                         evaluator,
-                        &mut display_rows,
-                        &mut row_metrics,
                         window_text_row(row),
                         y,
                         row_max_height,
                         row_max_ascent,
                         row_end_x,
                         row_end_col,
-                        &mut row_first_display_pos,
-                        &mut row_last_display_pos,
                     );
                     hit_row_charpos_start = charpos;
                     row_extend_bg = None;
@@ -3296,8 +3283,7 @@ impl LayoutEngine {
                             );
                             push_display_point(
                                 &mut display_points,
-                                &mut row_first_display_pos,
-                                &mut row_last_display_pos,
+                                &mut output_emitter,
                                 charpos + 1,
                                 x,
                                 image_y,
@@ -3436,16 +3422,12 @@ impl LayoutEngine {
                         });
                         output_emitter.push_text_row(
                             evaluator,
-                            &mut display_rows,
-                            &mut row_metrics,
                             window_text_row(row),
                             y,
                             row_max_height,
                             row_max_ascent,
                             row_end_x,
                             row_end_col,
-                            &mut row_first_display_pos,
-                            &mut row_last_display_pos,
                         );
                         row_extend_bg = None;
                         row_extend_row = -1;
@@ -3536,10 +3518,7 @@ impl LayoutEngine {
                 // newline. Without this, trailing empty rows have
                 // end_buffer_pos=None and window-end falls short of
                 // point-max, causing %p to show "Top" instead of "All".
-                row_last_display_pos = Some(charpos as usize);
-                if row_first_display_pos.is_none() {
-                    row_first_display_pos = Some(charpos as usize);
-                }
+                output_emitter.note_display_buffer_pos(charpos as usize);
                 let row_end_x = x;
                 let row_end_col = col;
                 // Record hit-test row (newline ends the row)
@@ -3551,16 +3530,12 @@ impl LayoutEngine {
                 });
                 output_emitter.push_text_row(
                     evaluator,
-                    &mut display_rows,
-                    &mut row_metrics,
                     window_text_row(row),
                     y,
                     row_max_height,
                     row_max_ascent,
                     row_end_x,
                     row_end_col,
-                    &mut row_first_display_pos,
-                    &mut row_last_display_pos,
                 );
 
                 self.matrix_builder.end_row();
@@ -3697,8 +3672,7 @@ impl LayoutEngine {
                 }
                 push_display_point(
                     &mut display_points,
-                    &mut row_first_display_pos,
-                    &mut row_last_display_pos,
+                    &mut output_emitter,
                     charpos + 1,
                     x_before_tab,
                     y + raise_y_offset,
@@ -3768,16 +3742,12 @@ impl LayoutEngine {
                         });
                         output_emitter.push_text_row(
                             evaluator,
-                            &mut display_rows,
-                            &mut row_metrics,
                             window_text_row(row),
                             y,
                             row_max_height,
                             row_max_ascent,
                             row_end_x,
                             row_end_col,
-                            &mut row_first_display_pos,
-                            &mut row_last_display_pos,
                         );
                         row_extend_bg = None;
                         row_extend_row = -1;
@@ -3815,16 +3785,12 @@ impl LayoutEngine {
                         });
                         output_emitter.push_text_row(
                             evaluator,
-                            &mut display_rows,
-                            &mut row_metrics,
                             window_text_row(row),
                             y,
                             row_max_height,
                             row_max_ascent,
                             row_end_x,
                             row_end_col,
-                            &mut row_first_display_pos,
-                            &mut row_last_display_pos,
                         );
                         hit_row_charpos_start = charpos;
                         row_extend_bg = None;
@@ -3855,8 +3821,7 @@ impl LayoutEngine {
                 }
                 push_display_point(
                     &mut display_points,
-                    &mut row_first_display_pos,
-                    &mut row_last_display_pos,
+                    &mut output_emitter,
                     charpos + 1,
                     x,
                     y + raise_y_offset,
@@ -3891,8 +3856,7 @@ impl LayoutEngine {
                         let _display_ch = if ch == '\u{00A0}' { ' ' } else { '-' };
                         push_display_point(
                             &mut display_points,
-                            &mut row_first_display_pos,
-                            &mut row_last_display_pos,
+                            &mut output_emitter,
                             charpos + 1,
                             x,
                             y + raise_y_offset,
@@ -3922,8 +3886,7 @@ impl LayoutEngine {
                         if x + needed <= content_x + avail_width {
                             push_display_point(
                                 &mut display_points,
-                                &mut row_first_display_pos,
-                                &mut row_last_display_pos,
+                                &mut output_emitter,
                                 charpos + 1,
                                 x,
                                 y + raise_y_offset,
@@ -4059,16 +4022,12 @@ impl LayoutEngine {
                     });
                     output_emitter.push_text_row(
                         evaluator,
-                        &mut display_rows,
-                        &mut row_metrics,
                         window_text_row(row),
                         y,
                         row_max_height,
                         row_max_ascent,
                         row_end_x,
                         row_end_col,
-                        &mut row_first_display_pos,
-                        &mut row_last_display_pos,
                     );
                     row_extend_bg = None;
                     row_extend_row = -1;
@@ -4094,8 +4053,10 @@ impl LayoutEngine {
                 } else if params.word_wrap && wrap_has_break {
                     // Word-wrap: rewind to last break point
                     display_points.truncate(wrap_break_display_point_count);
-                    row_first_display_pos = wrap_break_row_first_display_pos;
-                    row_last_display_pos = wrap_break_row_last_display_pos;
+                    output_emitter.restore_current_row_display_positions(
+                        wrap_break_row_first_display_pos,
+                        wrap_break_row_last_display_pos,
+                    );
                     byte_idx = wrap_break_byte_idx;
                     charpos = wrap_break_charpos;
                     col = 0;
@@ -4118,16 +4079,12 @@ impl LayoutEngine {
                     });
                     output_emitter.push_text_row(
                         evaluator,
-                        &mut display_rows,
-                        &mut row_metrics,
                         window_text_row(row),
                         y,
                         row_max_height,
                         row_max_ascent,
                         row_end_x,
                         row_end_col,
-                        &mut row_first_display_pos,
-                        &mut row_last_display_pos,
                     );
                     row_extend_bg = None;
                     row_extend_row = -1;
@@ -4181,16 +4138,12 @@ impl LayoutEngine {
                     });
                     output_emitter.push_text_row(
                         evaluator,
-                        &mut display_rows,
-                        &mut row_metrics,
                         window_text_row(row),
                         y,
                         row_max_height,
                         row_max_ascent,
                         row_end_x,
                         row_end_col,
-                        &mut row_first_display_pos,
-                        &mut row_last_display_pos,
                     );
                     row_extend_bg = None;
                     row_extend_row = -1;
@@ -4311,8 +4264,7 @@ impl LayoutEngine {
             }
             push_display_point(
                 &mut display_points,
-                &mut row_first_display_pos,
-                &mut row_last_display_pos,
+                &mut output_emitter,
                 charpos + 1,
                 x,
                 y + raise_y_offset,
@@ -4582,7 +4534,7 @@ impl LayoutEngine {
         if params.point >= window_start && (params.point <= charpos || point_is_visible_eob) {
             if let Some(cursor) = cursor_info {
                 let row_metric = row_metrics_for_cursor(
-                    &row_metrics,
+                    output_emitter.row_metrics(),
                     text_matrix_row_base + cursor.matrix_row,
                     text_matrix_row_base + row,
                     y,
@@ -4752,16 +4704,12 @@ impl LayoutEngine {
             });
             output_emitter.push_text_row(
                 evaluator,
-                &mut display_rows,
-                &mut row_metrics,
                 window_text_row(row),
                 row_y_start,
                 row_max_height,
                 row_max_ascent,
                 x,
                 col,
-                &mut row_first_display_pos,
-                &mut row_last_display_pos,
             );
         }
 
@@ -4770,7 +4718,11 @@ impl LayoutEngine {
         // from this pass rather than rescanning by logical newlines, since
         // wrapped and variable-height lines are exactly where newline-based
         // retry selection goes wrong.
-        let visible_end_lisp = display_rows.iter().rev().find_map(|row| row.end_buffer_pos);
+        let visible_end_lisp = output_emitter
+            .rows()
+            .iter()
+            .rev()
+            .find_map(|row| row.end_buffer_pos);
         let point_lisp = (params.point as usize).saturating_add(1);
         let visible_end_lisp = if point_is_visible_eob {
             Some(visible_end_lisp.unwrap_or(point_lisp).max(point_lisp))
@@ -4788,14 +4740,14 @@ impl LayoutEngine {
             && visible_progress > window_start
             && !params.is_minibuffer
         {
-            let new_ws = next_window_start_from_visible_rows(&display_rows, window_start)
+            let new_ws = next_window_start_from_visible_rows(output_emitter.rows(), window_start)
                 .map(|new_ws| new_ws.min(params.point.max(params.buffer_begv)));
             tracing::debug!(
                 "layout_window_rust: point={} beyond visible_end={:?} (charpos_end={}), visible_rows={}, new_window_start={:?}",
                 point_lisp,
                 visible_end_lisp,
                 charpos,
-                display_rows.len(),
+                output_emitter.rows().len(),
                 new_ws
             );
             new_ws
@@ -4805,7 +4757,7 @@ impl LayoutEngine {
         let text_area_top = (text_y - window_top).round() as i64;
         let text_area_bottom = (text_y + text_height - window_top).round() as i64;
         let point_row_ws = next_window_start_for_partially_visible_point_row(
-            &display_rows,
+            output_emitter.rows(),
             params.point,
             text_area_top,
             text_area_bottom,
@@ -4821,7 +4773,7 @@ impl LayoutEngine {
             );
         }
         let point_line_ws = next_window_start_for_point_line_continuation(
-            &display_rows,
+            output_emitter.rows(),
             params.point,
             window_start,
             &buf_access,
@@ -4879,14 +4831,16 @@ impl LayoutEngine {
         // end_buffer_pos = None.  Using `.last()` hit that None and
         // fell back to 1, making the %p mode-line construct show
         // "Top" instead of "All" for short buffers.
-        let window_end_lisp = display_rows
+        let window_end_lisp = output_emitter
+            .rows()
             .iter()
             .rev()
             .find_map(|row| row.end_buffer_pos)
             .map(|pos| pos.saturating_add(1))
             .unwrap_or(1);
         let window_end_byte = text_start_byte.saturating_add(byte_idx);
-        let window_end_vpos = display_rows
+        let window_end_vpos = output_emitter
+            .rows()
             .last()
             .map(|row| row.row.max(0) as usize)
             .unwrap_or(0);
@@ -4939,11 +4893,9 @@ impl LayoutEngine {
             }
         }
 
-        let mut chrome_rows: Vec<DisplayRowSnapshot> = Vec::new();
-
         // --- GlyphMatrix builder: finalize text rows, then emit chrome rows
         // into their real glyph-matrix slots before closing the window. ---
-        for metric in &row_metrics {
+        for metric in output_emitter.row_metrics() {
             self.matrix_builder.set_row_metrics(
                 metric.row,
                 metric.pixel_y,
@@ -5022,7 +4974,7 @@ impl LayoutEngine {
                     start_buffer_pos: None,
                     end_buffer_pos: None,
                 };
-                output_emitter.push_chrome_row(evaluator, &mut chrome_rows, row);
+                output_emitter.push_chrome_row(evaluator, row);
             }
         }
 
@@ -5096,7 +5048,7 @@ impl LayoutEngine {
                     start_buffer_pos: None,
                     end_buffer_pos: None,
                 };
-                output_emitter.push_chrome_row(evaluator, &mut chrome_rows, row);
+                output_emitter.push_chrome_row(evaluator, row);
             }
         }
 
@@ -5181,12 +5133,9 @@ impl LayoutEngine {
                     start_buffer_pos: None,
                     end_buffer_pos: None,
                 };
-                output_emitter.push_chrome_row(evaluator, &mut chrome_rows, row);
+                output_emitter.push_chrome_row(evaluator, row);
             }
         }
-
-        display_rows.extend(chrome_rows);
-        display_rows.sort_by_key(|row| row.row);
 
         self.matrix_builder.end_window();
 
@@ -5198,22 +5147,15 @@ impl LayoutEngine {
             rows: hit_rows,
         });
 
-        let snapshot = WindowDisplaySnapshot {
-            window_id: neovm_core::window::WindowId(params.window_id as u64),
-            text_area_left_offset: (text_area_left - params.bounds.x).round() as i64,
-            mode_line_height: mode_line_height.round() as i64,
-            header_line_height: header_line_height.round() as i64,
-            tab_line_height: tab_line_height.round() as i64,
-            logical_cursor: emitted_logical_cursor,
-            phys_cursor: emitted_window_cursor.clone(),
-            points: display_points,
-            rows: display_rows,
-        };
-        output_emitter.finalize_snapshot(
+        let snapshot = output_emitter.finish_snapshot(
             evaluator,
             emitted_logical_cursor,
             emitted_window_cursor.clone(),
-            &snapshot,
+            (text_area_left - params.bounds.x).round() as i64,
+            mode_line_height.round() as i64,
+            header_line_height.round() as i64,
+            tab_line_height.round() as i64,
+            display_points,
         );
         self.display_snapshots.push(snapshot);
 
