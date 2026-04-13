@@ -176,33 +176,33 @@ impl WindowDisplayState {
     ///
     /// The last committed output cursor remains authoritative until redisplay
     /// emits a new cursor position for this window.
-    pub fn begin_output_pass(&mut self) {
+    fn begin_output_pass(&mut self) {
         self.cursor = None;
         self.clear_physical_cursor_state();
     }
 
     /// Start a new output update for a window that will actively emit rows in
     /// the current redisplay pass.
-    pub fn begin_window_output_update(&mut self) {
+    fn begin_window_output_update(&mut self) {
         self.begin_output_pass();
         self.clear_output_cursor_state();
     }
 
-    pub fn clear_output_cursor_state(&mut self) {
+    fn clear_output_cursor_state(&mut self) {
         self.output_cursor = None;
     }
 
-    pub fn clear_physical_cursor_state(&mut self) {
+    fn clear_physical_cursor_state(&mut self) {
         self.phys_cursor = None;
         self.phys_cursor_type = WindowCursorKind::NoCursor;
         self.phys_cursor_on_p = false;
     }
 
-    pub fn install_logical_cursor(&mut self, cursor: Option<WindowCursorPos>) {
+    fn install_logical_cursor(&mut self, cursor: Option<WindowCursorPos>) {
         self.cursor = cursor;
     }
 
-    pub fn commit_output_cursor_from_cursor(&mut self) {
+    fn commit_output_cursor_from_cursor(&mut self) {
         self.output_cursor = self.cursor;
     }
 
@@ -218,21 +218,21 @@ impl WindowDisplayState {
     }
 
     /// Start emitting a new output row.
-    pub fn begin_output_row(&mut self, row: i64, col: i64, y: i64, x: i64) {
+    fn begin_output_row(&mut self, row: i64, col: i64, y: i64, x: i64) {
         self.output_cursor = Some(WindowCursorPos { x, y, row, col });
     }
 
     /// Advance output progress within the currently emitted row.
-    pub fn advance_output_progress(&mut self, row: i64, col: i64, y: i64, x: i64) {
+    fn advance_output_progress(&mut self, row: i64, col: i64, y: i64, x: i64) {
         self.output_cursor = Some(WindowCursorPos { x, y, row, col });
     }
 
     /// Finish emitting a row from its final row geometry.
-    pub fn finish_output_row(&mut self, row: &DisplayRowSnapshot) {
+    fn finish_output_row(&mut self, row: &DisplayRowSnapshot) {
         self.advance_output_progress(row.row, row.end_col, row.y, row.end_x);
     }
 
-    pub fn apply_physical_cursor_snapshot(&mut self, cursor: Option<WindowCursorSnapshot>) {
+    fn apply_physical_cursor_snapshot(&mut self, cursor: Option<WindowCursorSnapshot>) {
         self.phys_cursor = cursor.clone();
         self.phys_cursor_type = cursor
             .as_ref()
@@ -241,7 +241,7 @@ impl WindowDisplayState {
         self.phys_cursor_on_p = cursor.is_some();
     }
 
-    pub fn commit_completed_redisplay(&mut self) {
+    fn commit_completed_redisplay(&mut self) {
         self.last_cursor_off_p = self.cursor_off_p;
         if let Some(cursor) = self.phys_cursor.as_ref() {
             self.last_cursor_vpos = cursor.row;
