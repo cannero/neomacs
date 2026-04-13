@@ -357,7 +357,7 @@ pub struct BorderItem {
 #[derive(Clone, Debug)]
 pub struct CursorItem {
     pub window_id: i32,
-    pub slot_id: Option<DisplaySlotId>,
+    pub slot_id: DisplaySlotId,
     pub x: f32,
     pub y: f32,
     pub width: f32,

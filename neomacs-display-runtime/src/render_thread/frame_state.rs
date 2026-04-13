@@ -135,22 +135,58 @@ impl RenderApp {
                     *x += char_in_row as f32 * letter_spacing;
                     slot_positions.insert(*slot_id, (*x, *y));
                 }
+                FrameGlyph::Image {
+                    x,
+                    y,
+                    row_role,
+                    slot_id,
+                    ..
+                }
+                | FrameGlyph::Video {
+                    x,
+                    y,
+                    row_role,
+                    slot_id,
+                    ..
+                }
+                | FrameGlyph::WebKit {
+                    x,
+                    y,
+                    row_role,
+                    slot_id,
+                    ..
+                } => {
+                    if row_role.is_chrome() {
+                        continue;
+                    }
+                    let Some(slot_id) = *slot_id else {
+                        continue;
+                    };
+                    if *y < last_window_y - 1.0 {
+                        row_index = -1;
+                        last_y = f32::NEG_INFINITY;
+                    }
+                    last_window_y = *y;
+
+                    if (*y - last_y).abs() > 0.5 {
+                        row_index += 1;
+                        char_in_row = 0;
+                        last_y = *y;
+                    } else {
+                        char_in_row += 1;
+                    }
+                    *y += row_index as f32 * line_spacing;
+                    *x += char_in_row as f32 * letter_spacing;
+                    slot_positions.insert(slot_id, (*x, *y));
+                }
                 _ => {}
             }
         }
 
         for cursor in window_cursors.iter_mut() {
-            if let Some((x, y)) = cursor
-                .slot_id
-                .and_then(|slot_id| slot_positions.get(&slot_id).copied())
-            {
+            if let Some((x, y)) = slot_positions.get(&cursor.slot_id).copied() {
                 cursor.x = x;
                 cursor.y = y;
-            } else if (cursor.y - last_y).abs() < 0.5 {
-                let dy = row_index.max(0) as f32 * line_spacing;
-                let dx = char_in_row as f32 * letter_spacing;
-                cursor.y += dy;
-                cursor.x += dx;
             }
         }
 
@@ -178,7 +214,7 @@ mod tests {
         let target_slot = frame.glyphs[1].slot_id().expect("slot id");
 
         frame.add_cursor(1, 2.0, 0.0, 2.0, 16.0, CursorStyle::Bar(2.0), Color::WHITE);
-        frame.window_cursors[0].slot_id = Some(target_slot);
+        frame.window_cursors[0].slot_id = target_slot;
 
         frame.set_phys_cursor(PhysCursor {
             window_id: 1,

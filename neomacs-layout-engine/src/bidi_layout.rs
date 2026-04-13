@@ -172,8 +172,7 @@ pub fn reorder_row_bidi(
             cursor.y += offset;
         }
         for cursor in &mut frame_glyphs.window_cursors {
-            if let Some(slot_id) = cursor.slot_id
-                && let Some(offset) = slot_offset_for(slot_id, &slot_y_offsets)
+            if let Some(offset) = slot_offset_for(cursor.slot_id, &slot_y_offsets)
                 && offset.abs() > 0.01
             {
                 cursor.y += offset;
@@ -274,9 +273,7 @@ pub fn reorder_row_bidi(
         }
     }
     for cursor in &mut frame_glyphs.window_cursors {
-        if let Some(slot_id) = cursor.slot_id
-            && let Some(new_cursor_x) = slot_x_for(slot_id, &slot_x_positions)
-        {
+        if let Some(new_cursor_x) = slot_x_for(cursor.slot_id, &slot_x_positions) {
             cursor.x = new_cursor_x;
         }
     }
@@ -531,7 +528,7 @@ mod tests {
     fn make_cursor_visual(x: f32, width: f32) -> WindowCursorVisual {
         WindowCursorVisual {
             window_id: 0,
-            slot_id: Some(DisplaySlotId::from_pixels(0, x, 0.0, 8.0, 16.0)),
+            slot_id: DisplaySlotId::from_pixels(0, x, 0.0, 8.0, 16.0),
             x,
             y: 0.0,
             width,

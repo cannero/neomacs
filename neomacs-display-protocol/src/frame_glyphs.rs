@@ -456,8 +456,8 @@ pub struct PhysCursor {
 pub struct WindowCursorVisual {
     /// Window that owns the cursor visual.
     pub window_id: i32,
-    /// Display slot the visual should stay attached to, when known.
-    pub slot_id: Option<DisplaySlotId>,
+    /// Display slot the visual should stay attached to.
+    pub slot_id: DisplaySlotId,
     /// Frame-absolute origin.
     pub x: f32,
     pub y: f32,
@@ -1275,13 +1275,13 @@ impl FrameGlyphBuffer {
     ) {
         self.window_cursors.push(WindowCursorVisual {
             window_id,
-            slot_id: Some(DisplaySlotId::from_pixels(
+            slot_id: DisplaySlotId::from_pixels(
                 window_id as i64,
                 x,
                 y,
                 self.char_width,
                 self.char_height,
-            )),
+            ),
             x,
             y,
             width,
@@ -2121,7 +2121,7 @@ mod tests {
         assert_eq!(cursor.window_id, 42);
         assert_eq!(
             cursor.slot_id,
-            Some(DisplaySlotId::from_pixels(42, 100.0, 200.0, 8.0, 16.0))
+            DisplaySlotId::from_pixels(42, 100.0, 200.0, 8.0, 16.0)
         );
         assert_eq!(cursor.x, 100.0);
         assert_eq!(cursor.y, 200.0);

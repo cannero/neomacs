@@ -119,18 +119,7 @@ fn window_cursor_visual_matches_phys(
     cursor: &WindowCursorVisual,
     phys_cursor: &PhysCursor,
 ) -> bool {
-    if cursor.window_id != phys_cursor.window_id {
-        return false;
-    }
-
-    if let Some(slot_id) = cursor.slot_id {
-        return slot_id == phys_cursor.slot_id;
-    }
-
-    (cursor.x - phys_cursor.x).abs() < 0.5
-        && (cursor.y - phys_cursor.y).abs() < 0.5
-        && (cursor.width - phys_cursor.width).abs() < 0.5
-        && (cursor.height - phys_cursor.height).abs() < 0.5
+    cursor.window_id == phys_cursor.window_id && cursor.slot_id == phys_cursor.slot_id
 }
 
 fn trace_face_debug_enabled() -> bool {
@@ -4675,9 +4664,10 @@ impl WgpuRenderer {
 
 #[cfg(test)]
 mod tests {
-    use super::cursor_render_rect;
+    use super::{cursor_render_rect, window_cursor_visual_matches_phys};
     use neomacs_display_protocol::frame_glyphs::{
         CursorStyle, DisplaySlotId, FrameGlyph, FrameGlyphBuffer, GlyphRowRole, PhysCursor,
+        WindowCursorVisual,
     };
     use neomacs_display_protocol::types::Color;
 
@@ -4745,5 +4735,34 @@ mod tests {
 
         let cursor = make_cursor(slot_id, 50.0, 60.0, 8.0, CursorStyle::FilledBox);
         assert_eq!(cursor_render_rect(&frame, &cursor), (50.0, 60.0, 8.0, 16.0));
+    }
+
+    #[test]
+    fn window_cursor_visual_match_uses_slot_identity() {
+        let slot_id = DisplaySlotId::from_pixels(7, 32.0, 16.0, 8.0, 16.0);
+        let phys = make_cursor(slot_id, 32.0, 16.0, 8.0, CursorStyle::FilledBox);
+        let matching = WindowCursorVisual {
+            window_id: 7,
+            slot_id,
+            x: 4.0,
+            y: 0.0,
+            width: 20.0,
+            height: 30.0,
+            style: CursorStyle::Hollow,
+            color: Color::WHITE,
+        };
+        let mismatched = WindowCursorVisual {
+            window_id: 7,
+            slot_id: DisplaySlotId::from_pixels(7, 40.0, 16.0, 8.0, 16.0),
+            x: 32.0,
+            y: 16.0,
+            width: 8.0,
+            height: 16.0,
+            style: CursorStyle::Hollow,
+            color: Color::WHITE,
+        };
+
+        assert!(window_cursor_visual_matches_phys(&matching, &phys));
+        assert!(!window_cursor_visual_matches_phys(&mismatched, &phys));
     }
 }

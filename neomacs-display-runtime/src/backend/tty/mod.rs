@@ -788,18 +788,7 @@ fn window_cursor_visual_matches_phys(
     cursor: &WindowCursorVisual,
     phys_cursor: &crate::core::frame_glyphs::PhysCursor,
 ) -> bool {
-    if cursor.window_id != phys_cursor.window_id {
-        return false;
-    }
-
-    if let Some(slot_id) = cursor.slot_id {
-        return slot_id == phys_cursor.slot_id;
-    }
-
-    (cursor.x - phys_cursor.x).abs() < 0.5
-        && (cursor.y - phys_cursor.y).abs() < 0.5
-        && (cursor.width - phys_cursor.width).abs() < 0.5
-        && (cursor.height - phys_cursor.height).abs() < 0.5
+    cursor.window_id == phys_cursor.window_id && cursor.slot_id == phys_cursor.slot_id
 }
 
 fn terminal_cursor_state(
@@ -2471,6 +2460,57 @@ mod tests {
 
         assert_eq!(backend.cursor_position, None);
         assert!(!backend.cursor_visible);
+    }
+
+    #[test]
+    fn test_window_cursor_visual_match_uses_slot_identity() {
+        let slot_id = DisplaySlotId {
+            window_id: 0,
+            row: 1,
+            col: 2,
+        };
+        let phys = crate::core::frame_glyphs::PhysCursor {
+            window_id: 0,
+            charpos: 0,
+            row: 1,
+            col: 2,
+            slot_id,
+            x: 16.0,
+            y: 16.0,
+            width: 8.0,
+            height: 16.0,
+            ascent: 12.0,
+            style: CursorStyle::FilledBox,
+            color: Color::WHITE,
+            cursor_fg: Color::BLACK,
+        };
+        let matching = WindowCursorVisual {
+            window_id: 0,
+            slot_id,
+            x: 0.0,
+            y: 0.0,
+            width: 40.0,
+            height: 24.0,
+            style: CursorStyle::Hollow,
+            color: Color::GREEN,
+        };
+        let mismatched = WindowCursorVisual {
+            window_id: 0,
+            slot_id: DisplaySlotId {
+                window_id: 0,
+                row: 1,
+                col: 3,
+            },
+            x: 16.0,
+            y: 16.0,
+            width: 8.0,
+            height: 16.0,
+            style: CursorStyle::Hollow,
+            color: Color::GREEN,
+        };
+
+        assert!(window_cursor_visual_matches_phys(&matching, &phys));
+        assert!(!window_cursor_visual_matches_phys(&mismatched, &phys));
     }
 
     // -------------------------------------------------------------------

@@ -383,7 +383,7 @@ impl GlyphMatrixBuilder {
     ) {
         self.cursors.push(CursorItem {
             window_id,
-            slot_id: Some(slot_id),
+            slot_id,
             x,
             y,
             width: w,
