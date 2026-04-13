@@ -351,9 +351,10 @@ fn rasterize_tracks_phys_cursor_position() {
     let mut rif = TtyRif::new(10, 5);
     rif.rasterize(&state);
 
-    assert!(rif.cursor_visible);
+    assert!(!rif.cursor_visible);
     assert_eq!(rif.cursor_row, 0);
     assert_eq!(rif.cursor_col, 1);
+    assert_eq!(rif.cursor_shape, TerminalCursorShape::Block);
 }
 
 #[test]
@@ -431,6 +432,127 @@ fn rasterize_ignores_matrix_cursor_columns_without_phys_cursor() {
     assert!(!rif.cursor_visible);
 }
 
+#[test]
+fn rasterize_applies_phys_filled_box_visual_to_cell() {
+    let mut state = FrameDisplayState::new(10, 5, 8.0, 16.0);
+    state.background = Color::BLACK;
+
+    let mut matrix = GlyphMatrix::new(5, 10);
+    let mut row = GlyphRow::new(GlyphRowRole::Text);
+    row.glyphs[GlyphArea::Text as usize].push(Glyph::char('a', 0, 0));
+    row.glyphs[GlyphArea::Text as usize].push(Glyph::char('b', 0, 1));
+    matrix.rows[0] = row;
+
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 1,
+        matrix,
+        pixel_bounds: Rect::new(0.0, 0.0, 80.0, 80.0),
+        selected: true,
+    });
+    state.phys_cursor = Some(PhysCursor {
+        window_id: 1,
+        charpos: 1,
+        row: 0,
+        col: 1,
+        x: 8.0,
+        y: 0.0,
+        width: 8.0,
+        height: 16.0,
+        ascent: 12.0,
+        style: CursorStyle::FilledBox,
+        color: Color::RED,
+        slot_id: DisplaySlotId {
+            window_id: 1,
+            row: 0,
+            col: 1,
+        },
+        cursor_fg: Color::BLACK,
+    });
+
+    let mut rif = TtyRif::new(10, 5);
+    rif.rasterize(&state);
+
+    let cell = &rif.desired.cells[1];
+    assert_eq!(cell.ch, 'b');
+    assert_eq!(cell.attrs.bg, (255, 0, 0));
+    assert_eq!(cell.attrs.fg, (0, 0, 0));
+    assert!(!rif.cursor_visible);
+}
+
+#[test]
+fn rasterize_preserves_nonselected_hollow_cursor_visual_without_moving_terminal_cursor() {
+    let mut state = FrameDisplayState::new(10, 5, 8.0, 16.0);
+    state.background = Color::BLACK;
+
+    let mut matrix = GlyphMatrix::new(2, 10);
+    let mut row = GlyphRow::new(GlyphRowRole::Text);
+    row.glyphs[GlyphArea::Text as usize].push(Glyph::char('x', 0, 0));
+    row.glyphs[GlyphArea::Text as usize].push(Glyph::char('y', 0, 1));
+    row.cursor_col = Some(1);
+    row.cursor_type = Some(CursorStyle::Hollow);
+    matrix.rows[0] = row;
+
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 9,
+        matrix,
+        pixel_bounds: Rect::new(0.0, 16.0, 80.0, 32.0),
+        selected: false,
+    });
+
+    let mut rif = TtyRif::new(10, 5);
+    rif.rasterize(&state);
+
+    let row_start = rif.width();
+    let cell = &rif.desired.cells[row_start + 1];
+    assert_eq!(cell.ch, 'y');
+    assert!(cell.attrs.inverse);
+    assert!(!rif.cursor_visible);
+}
+
+#[test]
+fn rasterize_uses_hardware_bar_shape_for_phys_bar_cursor() {
+    let mut state = FrameDisplayState::new(10, 5, 8.0, 16.0);
+    state.background = Color::BLACK;
+
+    let mut matrix = GlyphMatrix::new(5, 10);
+    let mut row = GlyphRow::new(GlyphRowRole::Text);
+    row.glyphs[GlyphArea::Text as usize].push(Glyph::char('a', 0, 0));
+    matrix.rows[0] = row;
+
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 1,
+        matrix,
+        pixel_bounds: Rect::new(0.0, 0.0, 80.0, 80.0),
+        selected: true,
+    });
+    state.phys_cursor = Some(PhysCursor {
+        window_id: 1,
+        charpos: 0,
+        row: 0,
+        col: 0,
+        x: 0.0,
+        y: 0.0,
+        width: 2.0,
+        height: 16.0,
+        ascent: 12.0,
+        style: CursorStyle::Bar(2.0),
+        color: Color::WHITE,
+        slot_id: DisplaySlotId {
+            window_id: 1,
+            row: 0,
+            col: 0,
+        },
+        cursor_fg: Color::BLACK,
+    });
+
+    let mut rif = TtyRif::new(10, 5);
+    rif.rasterize(&state);
+
+    assert!(rif.cursor_visible);
+    assert_eq!(rif.cursor_shape, TerminalCursorShape::Bar);
+    assert!(rif.desired.cells[0].attrs.inverse);
+}
+
 /// Regression test for a bug observed after `C-x 2` in an
 /// interactive `neomacs -nw -Q` session: the physical terminal
 /// cursor ended up inside the newly-created (non-selected)
@@ -454,10 +576,10 @@ fn rasterize_ignores_matrix_cursor_columns_without_phys_cursor() {
 /// The `selected: bool` field on `WindowMatrixEntry` is the
 /// per-frame-state equivalent of GNU's `FRAME_SELECTED_WINDOW`
 /// check: only the selected window contributes the frame-level
-/// `phys_cursor` used for the terminal cursor position.
+/// `phys_cursor` used for the terminal cursor geometry/position.
 /// Non-selected windows may still mark `cursor_col` to draw a
 /// hollow cursor glyph (via `cursor-in-non-selected-windows`),
-/// but that stays a visual cue in the cell, not a terminal
+/// but that stays a visual cue in the cell, not a hardware
 /// cursor move.
 #[test]
 fn rasterize_terminal_cursor_comes_from_selected_window_only() {
@@ -528,7 +650,10 @@ fn rasterize_terminal_cursor_comes_from_selected_window_only() {
     let mut rif = TtyRif::new(10, 5);
     rif.rasterize(&state);
 
-    assert!(rif.cursor_visible, "terminal cursor should be visible");
+    assert!(
+        !rif.cursor_visible,
+        "filled-box cursor should be software-drawn in TTY"
+    );
     assert_eq!(
         rif.cursor_row, 0,
         "cursor row must come from selected (top) window"
@@ -537,7 +662,7 @@ fn rasterize_terminal_cursor_comes_from_selected_window_only() {
         rif.cursor_col, 3,
         "cursor column must come from selected (top) window — \
          the non-selected bottom window's hollow cursor at col 7 \
-         must NOT move the physical terminal cursor"
+         must NOT move the frame-level cursor geometry"
     );
 }
 
@@ -609,7 +734,7 @@ fn rasterize_terminal_cursor_comes_from_selected_window_regardless_of_order() {
     let mut rif = TtyRif::new(10, 5);
     rif.rasterize(&state);
 
-    assert!(rif.cursor_visible);
+    assert!(!rif.cursor_visible);
     assert_eq!(rif.cursor_row, 2, "selected window starts at screen row 2");
     assert_eq!(rif.cursor_col, 2, "cursor col from selected window only");
 }
@@ -639,6 +764,23 @@ fn diff_no_changes_produces_minimal_output() {
         "Expected 0 CUP moves for no-change diff, got {}",
         cup_count
     );
+}
+
+#[test]
+fn diff_and_render_emits_hardware_cursor_shape_for_bar_cursor() {
+    let mut rif = TtyRif::new(10, 5);
+    rif.desired.set(0, 0, 'A', CellAttrs::default(), false);
+    rif.cursor_visible = true;
+    rif.cursor_row = 0;
+    rif.cursor_col = 0;
+    rif.cursor_shape = TerminalCursorShape::Bar;
+
+    rif.diff_and_render();
+    let output = String::from_utf8(rif.take_output()).expect("utf8 output");
+
+    assert!(output.contains("\x1b[1;1H"));
+    assert!(output.contains("\x1b[6 q"));
+    assert!(output.contains("\x1b[?25h"));
 }
 
 #[test]

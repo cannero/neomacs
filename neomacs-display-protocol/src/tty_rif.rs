@@ -8,6 +8,7 @@
 //! Runs on the evaluator thread (single-threaded, no channel needed).
 
 use crate::face::{Face, FaceAttributes, UnderlineStyle};
+use crate::frame_glyphs::CursorStyle;
 use crate::glyph_matrix::*;
 use crate::types::Color;
 use std::collections::HashMap;
@@ -142,6 +143,8 @@ pub struct TtyRif {
     cursor_col: u16,
     /// Whether the cursor should be visible.
     cursor_visible: bool,
+    /// Visible terminal cursor shape when the hardware cursor is shown.
+    cursor_shape: TerminalCursorShape,
     /// Face lookup table (face_id -> Face).
     faces: HashMap<u32, Face>,
     /// Default background color (r, g, b).
@@ -156,6 +159,13 @@ fn terminal_cursor_cell(x: f32, y: f32, char_width: f32, char_height: f32) -> (u
     ((x / char_width) as u16, (y / char_height) as u16)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TerminalCursorShape {
+    Block,
+    Underline,
+    Bar,
+}
+
 impl TtyRif {
     /// Create a new TtyRif for a terminal of the given dimensions.
     pub fn new(width: usize, height: usize) -> Self {
@@ -166,6 +176,7 @@ impl TtyRif {
             cursor_row: 0,
             cursor_col: 0,
             cursor_visible: false,
+            cursor_shape: TerminalCursorShape::Block,
             faces: HashMap::new(),
             default_bg: (0, 0, 0),
             default_fg: (255, 255, 255),
@@ -203,13 +214,26 @@ impl TtyRif {
         self.default_bg = color_to_rgb8(&state.background);
         self.desired.clear(self.default_bg);
         self.cursor_visible = false;
+        self.cursor_shape = TerminalCursorShape::Block;
 
         if let Some(cursor) = state.phys_cursor.as_ref() {
             let (cursor_col, cursor_row) =
                 terminal_cursor_cell(cursor.x, cursor.y, state.char_width, state.char_height);
             self.cursor_row = cursor_row;
             self.cursor_col = cursor_col;
-            self.cursor_visible = true;
+            match cursor.style {
+                CursorStyle::FilledBox | CursorStyle::Hollow => {
+                    self.cursor_visible = false;
+                }
+                CursorStyle::Bar(_) => {
+                    self.cursor_visible = true;
+                    self.cursor_shape = TerminalCursorShape::Bar;
+                }
+                CursorStyle::Hbar(_) => {
+                    self.cursor_visible = true;
+                    self.cursor_shape = TerminalCursorShape::Underline;
+                }
+            }
         }
 
         for entry in &state.window_matrices {
@@ -259,6 +283,18 @@ impl TtyRif {
                         }
                     }
                 }
+
+                if let (Some(cursor_col), Some(cursor_style)) =
+                    (glyph_row.cursor_col, glyph_row.cursor_type)
+                {
+                    self.apply_cursor_visual(
+                        screen_row,
+                        win_col + cursor_col as usize,
+                        cursor_style,
+                        None,
+                        None,
+                    );
+                }
             }
         }
 
@@ -271,6 +307,18 @@ impl TtyRif {
         // make room).
         if let Some(menu_bar) = state.menu_bar.as_ref() {
             self.rasterize_menu_bar(menu_bar);
+        }
+
+        if let Some(cursor) = state.phys_cursor.as_ref() {
+            let (col, row) =
+                terminal_cursor_cell(cursor.x, cursor.y, state.char_width, state.char_height);
+            self.apply_cursor_visual(
+                row as usize,
+                col as usize,
+                cursor.style,
+                Some(color_to_rgb8(&cursor.color)),
+                Some(color_to_rgb8(&cursor.cursor_fg)),
+            );
         }
     }
 
@@ -425,6 +473,7 @@ impl TtyRif {
         // Position cursor and show it if visible.
         if self.cursor_visible {
             write_cursor_goto(&mut self.output, self.cursor_row + 1, self.cursor_col + 1);
+            write_cursor_shape(&mut self.output, self.cursor_shape);
             self.output.extend_from_slice(b"\x1b[?25h");
         }
 
@@ -437,6 +486,39 @@ impl TtyRif {
     /// After calling this, the internal buffer is empty.
     pub fn take_output(&mut self) -> Vec<u8> {
         std::mem::take(&mut self.output)
+    }
+
+    fn apply_cursor_visual(
+        &mut self,
+        row: usize,
+        col: usize,
+        style: CursorStyle,
+        color: Option<(u8, u8, u8)>,
+        cursor_fg: Option<(u8, u8, u8)>,
+    ) {
+        if row >= self.desired.height || col >= self.desired.width {
+            return;
+        }
+
+        let idx = row * self.desired.width + col;
+        let cell = &mut self.desired.cells[idx];
+
+        match style {
+            CursorStyle::FilledBox => {
+                if let Some(bg) = color {
+                    cell.attrs.bg = bg;
+                }
+                if let Some(fg) = cursor_fg {
+                    cell.attrs.fg = fg;
+                }
+            }
+            CursorStyle::Bar(_) | CursorStyle::Hollow => {
+                cell.attrs.inverse = true;
+            }
+            CursorStyle::Hbar(_) => {
+                cell.attrs.underline = cell.attrs.underline.max(1);
+            }
+        }
     }
 }
 
@@ -494,6 +576,16 @@ fn rgb_pixel_to_tuple(pixel: u32) -> (u8, u8, u8) {
 fn write_cursor_goto(buf: &mut Vec<u8>, row: u16, col: u16) {
     use std::io::Write;
     let _ = write!(buf, "\x1b[{};{}H", row, col);
+}
+
+fn write_cursor_shape(buf: &mut Vec<u8>, shape: TerminalCursorShape) {
+    use std::io::Write;
+    let ps = match shape {
+        TerminalCursorShape::Block => 2,
+        TerminalCursorShape::Underline => 4,
+        TerminalCursorShape::Bar => 6,
+    };
+    let _ = write!(buf, "\x1b[{} q", ps);
 }
 
 /// Write ANSI SGR (select graphic rendition) escape sequences for the given
