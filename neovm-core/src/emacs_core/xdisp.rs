@@ -129,7 +129,7 @@ pub(crate) fn format_mode_line_from_state(
 
     let format_val = args[0];
     let face_spec = resolve_mode_line_face_spec(&args);
-    let pctx = build_mode_line_percent_context(frames, &*buffers, obarray, args.get(2));
+    let pctx = build_mode_line_percent_context(frames, &*buffers, None, obarray, args.get(2));
     let mut result = ModeLineRendered::default();
     let needs_eval = format_mode_line_recursive_in_state(
         obarray,
@@ -215,6 +215,7 @@ pub fn format_mode_line_for_display(
         let mut pctx = build_mode_line_percent_context(
             &eval.frames,
             &eval.buffers,
+            Some(&eval.coding_systems),
             &eval.obarray,
             args.get(2),
         );
@@ -252,6 +253,7 @@ pub(crate) fn finish_format_mode_line_in_eval(
         let pctx = build_mode_line_percent_context(
             &eval.frames,
             &eval.buffers,
+            Some(&eval.coding_systems),
             &eval.obarray,
             args.get(2),
         );
@@ -290,7 +292,7 @@ pub(crate) fn finish_format_mode_line_in_state_with_eval(
     } else {
         let format_val = args[0];
         let face_spec = resolve_mode_line_face_spec(args);
-        let pctx = build_mode_line_percent_context(frames, &*buffers, obarray, args.get(2));
+        let pctx = build_mode_line_percent_context(frames, &*buffers, None, obarray, args.get(2));
         let mut result = ModeLineRendered::default();
         format_mode_line_recursive_in_state_with_eval(
             obarray,
@@ -336,6 +338,7 @@ pub(crate) fn builtin_format_mode_line_in_vm_runtime(
         let pctx = build_mode_line_percent_context(
             &shared.frames,
             &shared.buffers,
+            Some(&shared.coding_systems),
             &shared.obarray,
             args.get(2),
         );
@@ -527,6 +530,7 @@ struct ModeLinePercentContext {
 fn build_mode_line_percent_context(
     frames: &crate::window::FrameManager,
     buffers: &crate::buffer::BufferManager,
+    coding_systems: Option<&crate::emacs_core::coding::CodingSystemManager>,
     obarray: &crate::emacs_core::symbol::Obarray,
     window_arg: Option<&Value>,
 ) -> ModeLinePercentContext {
@@ -599,21 +603,22 @@ fn build_mode_line_percent_context(
     // terminal-coding-system mnemonic, keyboard-coding-system mnemonic,
     // and buffer-file-coding-system mnemonic.
     if ctx.is_tty_frame {
-        let term_cs = obarray
-            .symbol_value("terminal-coding-system")
-            .and_then(|v| v.as_symbol_name().map(|s| s.to_string()));
-        ctx.terminal_coding_mnemonic = term_cs
-            .as_deref()
-            .map(coding_system_mnemonic_char)
-            .unwrap_or('-');
+        if let Some(coding_systems) = coding_systems {
+            ctx.terminal_coding_mnemonic =
+                coding_system_mnemonic_char(coding_systems.terminal_coding_name());
+            ctx.keyboard_coding_mnemonic =
+                coding_system_mnemonic_char(coding_systems.keyboard_coding_name());
+        } else {
+            let term_cs = obarray
+                .symbol_value("terminal-coding-system")
+                .and_then(|v| v.as_symbol_name());
+            ctx.terminal_coding_mnemonic = term_cs.map(coding_system_mnemonic_char).unwrap_or('-');
 
-        let kbd_cs = obarray
-            .symbol_value("keyboard-coding-system")
-            .and_then(|v| v.as_symbol_name().map(|s| s.to_string()));
-        ctx.keyboard_coding_mnemonic = kbd_cs
-            .as_deref()
-            .map(coding_system_mnemonic_char)
-            .unwrap_or('-');
+            let kbd_cs = obarray
+                .symbol_value("keyboard-coding-system")
+                .and_then(|v| v.as_symbol_name());
+            ctx.keyboard_coding_mnemonic = kbd_cs.map(coding_system_mnemonic_char).unwrap_or('-');
+        }
     }
 
     ctx

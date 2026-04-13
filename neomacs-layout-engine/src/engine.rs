@@ -1814,6 +1814,13 @@ impl LayoutEngine {
                 self.record_transition_hint_from_latest_window_info(&mut curr_window_infos);
                 self.record_effect_hints_from_latest_window_info();
 
+                let right_edge = params.bounds.x + params.bounds.width;
+                let bottom_edge = params.bounds.y + params.bounds.height;
+                let is_rightmost = right_edge >= frame_params.width - 1.0;
+                let is_bottommost = bottom_edge >= frame_params.height - 1.0;
+                let reserve_right_border_col =
+                    frame_params.right_divider_width == 0 && !is_rightmost;
+
                 // Simplified layout for this window (no face resolution, no overlays)
                 self.layout_window_rust(
                     evaluator,
@@ -1821,15 +1828,11 @@ impl LayoutEngine {
                     params,
                     &frame_params,
                     &face_resolver,
+                    reserve_right_border_col,
                     MAX_WINDOW_VISIBILITY_RETRIES,
                 );
 
                 // Draw window dividers
-                let right_edge = params.bounds.x + params.bounds.width;
-                let bottom_edge = params.bounds.y + params.bounds.height;
-                let is_rightmost = right_edge >= frame_params.width - 1.0;
-                let is_bottommost = bottom_edge >= frame_params.height - 1.0;
-
                 if frame_params.right_divider_width > 0 && !is_rightmost {
                     let dw = frame_params.right_divider_width as f32;
                     let _x0 = right_edge - dw;
@@ -2118,6 +2121,7 @@ impl LayoutEngine {
         params: &WindowParams,
         _frame_params: &FrameParams,
         face_resolver: &super::neovm_bridge::FaceResolver,
+        reserve_right_border_col: bool,
         remaining_visibility_retries: usize,
     ) {
         let buf_id = neovm_core::buffer::BufferId(params.buffer_id);
@@ -2630,7 +2634,12 @@ impl LayoutEngine {
             0
         };
 
-        let avail_width = text_width - lnum_pixel_width;
+        let reserve_right_border_width = if reserve_right_border_col {
+            char_w
+        } else {
+            0.0
+        };
+        let avail_width = (text_width - lnum_pixel_width - reserve_right_border_width).max(0.0);
 
         // Variable-height row tracking
         let mut row_max_height: f32 = char_h; // max glyph height on current row
@@ -4937,6 +4946,7 @@ impl LayoutEngine {
                 &retry_params,
                 _frame_params,
                 face_resolver,
+                reserve_right_border_col,
                 remaining_visibility_retries.saturating_sub(1),
             );
             return;
@@ -5022,6 +5032,17 @@ impl LayoutEngine {
             );
         }
         self.matrix_builder.end_row();
+        for (row_idx, truncated) in row_truncated.iter().copied().enumerate() {
+            if truncated {
+                let target_col = if reserve_right_border_col {
+                    matrix_cols.saturating_sub(2)
+                } else {
+                    matrix_cols.saturating_sub(1)
+                };
+                self.matrix_builder
+                    .overwrite_current_window_row_glyph_at_col(row_idx, target_col, '$', 0);
+            }
+        }
 
         // Tab-line: evaluate format-mode-line with tab-line-format
         if params.tab_line_height > 0.0 {
@@ -5032,8 +5053,10 @@ impl LayoutEngine {
                 .as_ref()
                 .expect("tab-line face should exist when tab-line height is positive");
 
-            let tab_line_target_cols =
-                (params.bounds.width / char_w.max(1.0)).round().max(1.0) as usize;
+            let tab_line_target_cols = ((params.bounds.width / char_w.max(1.0)).round().max(1.0)
+                as usize)
+                .saturating_sub(usize::from(reserve_right_border_col))
+                .max(1);
             let tab_text = eval_status_line_format_value(
                 evaluator,
                 "tab-line-format",
@@ -5086,7 +5109,9 @@ impl LayoutEngine {
                 .expect("header-line face should exist when header-line height is positive");
 
             let header_line_target_cols =
-                (params.bounds.width / char_w.max(1.0)).round().max(1.0) as usize;
+                ((params.bounds.width / char_w.max(1.0)).round().max(1.0) as usize)
+                    .saturating_sub(usize::from(reserve_right_border_col))
+                    .max(1);
             let header_text = eval_status_line_format_value(
                 evaluator,
                 "header-line-format",
@@ -5138,8 +5163,14 @@ impl LayoutEngine {
                 .as_ref()
                 .expect("mode-line face should exist when mode-line height is positive");
 
-            let mode_line_target_cols =
-                (params.bounds.width / char_w.max(1.0)).round().max(1.0) as usize;
+            // GNU `display_mode_line` walks the format in
+            // `MODE_LINE_DISPLAY` mode, so `%-` fills the remaining
+            // row width with dashes. Compute the row width in
+            // character cells and pass it through.
+            let mode_line_target_cols = ((params.bounds.width / char_w.max(1.0)).round().max(1.0)
+                as usize)
+                .saturating_sub(usize::from(reserve_right_border_col))
+                .max(1);
             let mode_text = {
                 let result = eval_status_line_format_value(
                     evaluator,

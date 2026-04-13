@@ -2073,6 +2073,9 @@ impl Context {
     }
 
     fn dispatch_signal(&mut self, mut sig: SignalData) -> Result<SignalData, Flow> {
+        if sig.symbol == self.kill_emacs_symbol {
+            return Err(Flow::Signal(sig));
+        }
         self.run_signal_hook(&sig)?;
         sig = self.canonicalize_signal_symbol(sig);
 
@@ -4430,6 +4433,7 @@ impl Context {
     pub fn recursive_edit(&mut self) -> Result<(), String> {
         match self.recursive_edit_inner() {
             Ok(_) => Ok(()),
+            Err(Flow::Signal(sig)) if sig.symbol == self.kill_emacs_symbol => Ok(()),
             Err(flow) => Err(format!("{:?}", flow)),
         }
     }

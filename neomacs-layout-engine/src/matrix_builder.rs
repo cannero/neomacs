@@ -89,6 +89,68 @@ fn apply_bidi_mirroring(glyph: &mut Glyph, level: u8) {
 }
 
 impl GlyphMatrixBuilder {
+    fn pad_row_and_write_glyph(
+        row: &mut GlyphRow,
+        target_col: usize,
+        ch: char,
+        face_id: u32,
+        area: GlyphArea,
+    ) {
+        row.enabled = true;
+
+        // Count existing glyphs across the three areas
+        // (LeftMargin, Text, RightMargin). We treat every
+        // glyph as one column advance — matching the TTY
+        // RIF's `col += 1` in rasterize.
+        let current_total = |row: &GlyphRow| -> usize {
+            row.glyphs[GlyphArea::LeftMargin as usize].len()
+                + row.glyphs[GlyphArea::Text as usize].len()
+                + row.glyphs[GlyphArea::RightMargin as usize].len()
+        };
+
+        let preserve_trailing_truncation_marker = matches!(area, GlyphArea::RightMargin)
+            && row.glyphs[GlyphArea::Text as usize]
+                .last()
+                .is_some_and(|glyph| matches!(glyph.glyph_type, GlyphType::Char { ch: '$' }));
+        let preserved_trailing = if preserve_trailing_truncation_marker {
+            row.glyphs[GlyphArea::Text as usize].pop()
+        } else {
+            None
+        };
+        let preserved_cols = usize::from(preserved_trailing.is_some());
+
+        // Truncate anything in the text area that pushes
+        // the glyph count past `target_col`. Left/right
+        // margin columns belong to the caller — we only
+        // touch the text area.
+        let before_final_cols = target_col.saturating_sub(preserved_cols);
+        while current_total(row) > before_final_cols {
+            let text_area = &mut row.glyphs[GlyphArea::Text as usize];
+            if text_area.is_empty() {
+                break;
+            }
+            text_area.pop();
+        }
+
+        // Pad the text area with spaces until the combined
+        // count reaches `target_col`.
+        while current_total(row) < before_final_cols {
+            row.glyphs[GlyphArea::Text as usize].push(Glyph::char(' ', face_id, 0));
+        }
+
+        if let Some(glyph) = preserved_trailing {
+            row.glyphs[GlyphArea::Text as usize].push(glyph);
+        }
+
+        while current_total(row) < target_col {
+            row.glyphs[GlyphArea::Text as usize].push(Glyph::char(' ', face_id, 0));
+        }
+
+        // Push the replacement glyph as the final glyph so it lands
+        // at absolute column `target_col`.
+        row.glyphs[area as usize].push(Glyph::char(ch, face_id, 0));
+    }
+
     fn write_row_metrics(row: &mut GlyphRow, pixel_y_rel: f32, height_px: f32, ascent_px: f32) {
         row.pixel_y = pixel_y_rel;
         row.height_px = height_px.max(0.0);
@@ -729,46 +791,89 @@ impl GlyphMatrixBuilder {
         let target_col = ncols - 1;
 
         for row in &mut entry.matrix.rows {
-            if !row.enabled {
-                continue;
-            }
-
-            // Count existing glyphs across the three areas
-            // (LeftMargin, Text, RightMargin). We treat every
-            // glyph as one column advance — matching the TTY
-            // RIF's `col += 1` in rasterize.
-            let left_count = row.glyphs[GlyphArea::LeftMargin as usize].len();
-            let right_count = row.glyphs[GlyphArea::RightMargin as usize].len();
-            let current_total: usize =
-                left_count + row.glyphs[GlyphArea::Text as usize].len() + right_count;
-
-            // Truncate anything in the text area that pushes
-            // the glyph count past `target_col`. Left/right
-            // margin columns belong to the caller — we only
-            // touch the text area.
-            if current_total > target_col {
-                let overshoot = current_total - target_col;
-                let text_area = &mut row.glyphs[GlyphArea::Text as usize];
-                let drop = overshoot.min(text_area.len());
-                text_area.truncate(text_area.len() - drop);
-            }
-
-            // Pad the text area with spaces until the combined
-            // count reaches `target_col`.
-            let combined = |row: &GlyphRow| -> usize {
-                row.glyphs[GlyphArea::LeftMargin as usize].len()
-                    + row.glyphs[GlyphArea::Text as usize].len()
-                    + row.glyphs[GlyphArea::RightMargin as usize].len()
-            };
-            while combined(row) < target_col {
-                row.glyphs[GlyphArea::Text as usize].push(Glyph::char(' ', face_id, 0));
-            }
-
-            // Push the border glyph as the final glyph of the
-            // text area so it lands at absolute column
-            // `target_col = ncols - 1`.
-            row.glyphs[GlyphArea::Text as usize].push(Glyph::char(ch, face_id, 0));
+            Self::pad_row_and_write_glyph(row, target_col, ch, face_id, GlyphArea::RightMargin);
         }
+    }
+
+    pub fn overwrite_current_window_row_last_glyph(
+        &mut self,
+        row_idx: usize,
+        ch: char,
+        face_id: u32,
+    ) {
+        let Some(matrix) = self.current_matrix.as_ref() else {
+            return;
+        };
+        let ncols = matrix.ncols;
+        if ncols == 0 {
+            return;
+        }
+        self.overwrite_current_window_row_glyph_at_col(row_idx, ncols - 1, ch, face_id);
+    }
+
+    pub fn overwrite_current_window_row_glyph_at_col(
+        &mut self,
+        row_idx: usize,
+        target_col: usize,
+        ch: char,
+        face_id: u32,
+    ) {
+        let Some(matrix) = self.current_matrix.as_mut() else {
+            return;
+        };
+        let ncols = matrix.ncols;
+        if ncols == 0 {
+            return;
+        }
+        let Some(row) = matrix.rows.get_mut(row_idx) else {
+            return;
+        };
+        let clamped_col = target_col.min(ncols - 1);
+        Self::pad_row_and_write_glyph(row, clamped_col, ch, face_id, GlyphArea::Text);
+    }
+
+    pub fn current_window_row_enabled(&self, row_idx: usize) -> bool {
+        self.current_matrix
+            .as_ref()
+            .and_then(|matrix| matrix.rows.get(row_idx))
+            .is_some_and(|row| row.enabled)
+    }
+
+    pub fn enable_current_window_row(&mut self, row_idx: usize) {
+        let Some(matrix) = self.current_matrix.as_mut() else {
+            return;
+        };
+        let Some(row) = matrix.rows.get_mut(row_idx) else {
+            return;
+        };
+        row.enabled = true;
+    }
+
+    pub fn set_current_window_row_role(&mut self, row_idx: usize, role: GlyphRowRole) {
+        let Some(matrix) = self.current_matrix.as_mut() else {
+            return;
+        };
+        let Some(row) = matrix.rows.get_mut(row_idx) else {
+            return;
+        };
+        row.role = role;
+    }
+
+    pub fn set_current_window_row_metrics(
+        &mut self,
+        row_idx: usize,
+        pixel_y: f32,
+        height_px: f32,
+        ascent_px: f32,
+    ) {
+        let Some(matrix) = self.current_matrix.as_mut() else {
+            return;
+        };
+        let Some(row) = matrix.rows.get_mut(row_idx) else {
+            return;
+        };
+        let pixel_y_rel = pixel_y - self.current_pixel_bounds.y;
+        Self::write_row_metrics(row, pixel_y_rel, height_px, ascent_px);
     }
 
     pub fn finish(

@@ -464,6 +464,118 @@ fn test_window_params_buffer_locals() {
 }
 
 #[test]
+fn test_window_params_partial_width_windows_force_truncation_like_gnu() {
+    use neovm_core::window::SplitDirection;
+
+    let mut evaluator = neovm_core::emacs_core::Context::new();
+    let left_buf = evaluator.buffer_manager_mut().create_buffer("*left*");
+    let right_buf = evaluator.buffer_manager_mut().create_buffer("*right*");
+    let frame_id = evaluator
+        .frame_manager_mut()
+        .create_frame("test", 640, 600, left_buf);
+    let selected = evaluator
+        .frame_manager()
+        .get(frame_id)
+        .expect("frame")
+        .selected_window;
+    assert!(
+        evaluator
+            .frame_manager_mut()
+            .split_window(
+                frame_id,
+                selected,
+                SplitDirection::Horizontal,
+                right_buf,
+                None,
+            )
+            .is_some(),
+        "expected side-by-side split"
+    );
+
+    let (_, wps) = collect_layout_params(&evaluator, frame_id, None).expect("layout params");
+    let main_windows: Vec<_> = wps.into_iter().filter(|wp| !wp.is_minibuffer).collect();
+
+    assert_eq!(main_windows.len(), 2);
+    assert!(
+        main_windows.iter().all(|wp| wp.truncate_lines),
+        "GNU truncates partial-width windows below the default threshold: {main_windows:#?}"
+    );
+}
+
+#[test]
+fn test_window_params_partial_width_windows_respect_disabled_truncate_partial_width_windows() {
+    use neovm_core::window::SplitDirection;
+
+    let mut evaluator = neovm_core::emacs_core::Context::new();
+    let left_buf = evaluator.buffer_manager_mut().create_buffer("*left*");
+    let right_buf = evaluator.buffer_manager_mut().create_buffer("*right*");
+    let frame_id = evaluator
+        .frame_manager_mut()
+        .create_frame("test", 640, 600, left_buf);
+    let selected = evaluator
+        .frame_manager()
+        .get(frame_id)
+        .expect("frame")
+        .selected_window;
+    assert!(
+        evaluator
+            .frame_manager_mut()
+            .split_window(
+                frame_id,
+                selected,
+                SplitDirection::Horizontal,
+                right_buf,
+                None,
+            )
+            .is_some(),
+        "expected side-by-side split"
+    );
+    eval_lisp(&mut evaluator, "(setq truncate-partial-width-windows nil)");
+
+    let (_, wps) = collect_layout_params(&evaluator, frame_id, None).expect("layout params");
+    let main_windows: Vec<_> = wps.into_iter().filter(|wp| !wp.is_minibuffer).collect();
+
+    assert_eq!(main_windows.len(), 2);
+    assert!(
+        main_windows.iter().all(|wp| !wp.truncate_lines),
+        "nil truncate-partial-width-windows should preserve wrapping: {main_windows:#?}"
+    );
+}
+
+#[test]
+fn test_window_params_hscroll_forces_truncation_like_gnu() {
+    let mut evaluator = neovm_core::emacs_core::Context::new();
+    let buf_id = evaluator.buffer_manager_mut().create_buffer("*hscroll*");
+    let frame_id = evaluator
+        .frame_manager_mut()
+        .create_frame("test", 800, 600, buf_id);
+    let selected = evaluator
+        .frame_manager()
+        .get(frame_id)
+        .expect("frame")
+        .selected_window;
+    let frame = evaluator
+        .frame_manager_mut()
+        .get_mut(frame_id)
+        .expect("frame");
+    let window = frame.find_window_mut(selected).expect("selected window");
+    if let Window::Leaf { hscroll, .. } = window {
+        *hscroll = 3;
+    } else {
+        panic!("expected leaf window");
+    }
+
+    let (_, wps) = collect_layout_params(&evaluator, frame_id, None).expect("layout params");
+    let wp = wps
+        .into_iter()
+        .find(|wp| !wp.is_minibuffer)
+        .expect("main window");
+
+    assert!(wp.truncate_lines);
+    assert_eq!(wp.hscroll, 3);
+}
+
+#[test]
 fn test_window_params_fringes_and_margins() {
     let mut evaluator = neovm_core::emacs_core::Context::new();
     let buf_id = evaluator.buffer_manager_mut().create_buffer("*fringe*");

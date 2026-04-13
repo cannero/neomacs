@@ -3753,6 +3753,9 @@ impl<'a> Vm<'a> {
                 Err(signal("no-catch", vec![tag, value]))
             }
             Flow::Signal(sig) => {
+                if sig.symbol == intern("kill-emacs") {
+                    return Err(Flow::Signal(sig));
+                }
                 // dispatch_signal_if_needed may call signal hooks and
                 // handler-bind handlers via eval.apply(), which can trigger
                 // GC.  We must root the current frame so values survive
@@ -4145,7 +4148,7 @@ impl<'a> Vm<'a> {
         self.builtin_run_hooks_shared(&[Value::symbol("kill-emacs-hook")])?;
         self.ctx
             .request_shutdown(request.exit_code, request.restart);
-        Ok(Value::NIL)
+        Err(signal_suppressed("kill-emacs", vec![]))
     }
 
     fn builtin_macroexpand_shared(&mut self, args: &[Value]) -> EvalResult {

@@ -829,6 +829,32 @@ fn test_format_mode_line_coding_system_z_and_big_z_specs_match_gnu() {
 }
 
 #[test]
+fn test_format_mode_line_tty_z_uses_live_coding_manager_state() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    let buffer_id = eval.buffers.create_buffer("tty-coding-test");
+    eval.buffers.set_current(buffer_id);
+    eval.frames
+        .create_frame("tty-coding-frame", 80, 24, buffer_id);
+
+    eval.buffers
+        .set_buffer_local_property(
+            buffer_id,
+            "buffer-file-coding-system",
+            Value::symbol("utf-8-unix"),
+        )
+        .expect("set coding");
+    eval.obarray
+        .set_symbol_value("terminal-coding-system", Value::NIL);
+    eval.obarray
+        .set_symbol_value("keyboard-coding-system", Value::NIL);
+
+    let rendered =
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%z")]).expect("tty coding z");
+    assert_eq!(rendered, Value::string("UUU"));
+}
+
+#[test]
 fn test_format_mode_line_position_o_and_q_specs() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();

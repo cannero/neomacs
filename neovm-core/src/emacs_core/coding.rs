@@ -597,6 +597,12 @@ impl CodingSystemManager {
     }
 
     // pdump accessors
+    pub(crate) fn keyboard_coding_name(&self) -> &str {
+        &self.keyboard_coding
+    }
+    pub(crate) fn terminal_coding_name(&self) -> &str {
+        &self.terminal_coding
+    }
     pub(crate) fn dump_keyboard_coding(&self) -> &str {
         &self.keyboard_coding
     }

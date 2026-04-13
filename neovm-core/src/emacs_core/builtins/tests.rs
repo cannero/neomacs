@@ -5827,9 +5827,16 @@ fn kill_emacs_eval_requests_shutdown_and_stops_command_loop() {
     let mut eval = crate::emacs_core::eval::Context::new();
     eval.command_loop.running = true;
 
-    let result = super::symbols::builtin_kill_emacs(&mut eval, vec![Value::fixnum(7)])
-        .expect("kill-emacs eval dispatch");
-    assert!(result.is_nil());
+    let result = super::symbols::builtin_kill_emacs(&mut eval, vec![Value::fixnum(7)]);
+    match result {
+        Err(crate::emacs_core::error::Flow::Signal(sig)) => {
+            assert_eq!(
+                crate::emacs_core::intern::resolve_sym(sig.symbol),
+                "kill-emacs"
+            );
+        }
+        other => panic!("kill-emacs should unwind with a shutdown signal, got {other:?}"),
+    }
     assert_eq!(
         eval.shutdown_request,
         Some(crate::emacs_core::eval::ShutdownRequest {

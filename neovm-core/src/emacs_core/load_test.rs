@@ -746,6 +746,48 @@ fn after_pdump_load_hook_runs_after_finalize_and_only_once() {
 }
 
 #[test]
+fn load_file_stops_immediately_on_kill_emacs() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let dir = tempdir().expect("tempdir");
+    let file = dir.path().join("kill-emacs-stop.el");
+    fs::write(
+        &file,
+        "(setq load-kill-before t)\n(kill-emacs 7)\n(setq load-kill-after t)\n",
+    )
+    .expect("write kill-emacs fixture");
+
+    let err = match load_file(&mut eval, &file) {
+        Ok(value) => panic!("kill-emacs load should not return {value:?}"),
+        Err(err) => err,
+    };
+
+    match err {
+        EvalError::Signal { symbol, data, .. } => {
+            assert_eq!(resolve_sym(symbol), "kill-emacs");
+            assert!(
+                data.is_empty(),
+                "kill-emacs should not synthesize an ordinary error payload"
+            );
+        }
+        other => panic!("unexpected load error: {other:?}"),
+    }
+
+    assert_eq!(
+        eval.shutdown_request(),
+        Some(crate::emacs_core::eval::ShutdownRequest {
+            exit_code: 7,
+            restart: false,
+        })
+    );
+    assert_eq!(
+        eval.obarray().symbol_value("load-kill-before"),
+        Some(&Value::T)
+    );
+    assert_eq!(eval.obarray().symbol_value("load-kill-after"), None);
+}
+
+#[test]
 fn context_seeds_pdumper_fingerprint() {
     let eval = Context::new();
     assert_eq!(

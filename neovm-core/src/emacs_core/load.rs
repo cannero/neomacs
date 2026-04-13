@@ -3004,24 +3004,12 @@ pub fn create_bootstrap_evaluator_with_startup_surface(
                 maybe_trace_bootstrap_step(format!(
                     "create_bootstrap_evaluator_with_features: loadup-failed={rendered}"
                 ));
-                // If kill-emacs was called (setting shutdown_request) during
-                // loadup.el, any subsequent errors (e.g. from post-dump code
-                // like `(eval top-level t)`) are expected and can be ignored.
-                if eval.shutdown_request.is_some() {
-                    tracing::info!(
-                        "loadup.el completed (shutdown requested, ignoring post-dump error: {e:?})"
-                    );
-                } else {
-                    // Check for our special exit signal from kill-emacs
-                    match &e {
-                        EvalError::Signal { symbol, .. }
-                            if resolve_sym(*symbol) == "kill-emacs" =>
-                        {
-                            tracing::info!("loadup.el completed (kill-emacs after dump)");
-                        }
-                        _ => {
-                            return Err(e);
-                        }
+                match &e {
+                    EvalError::Signal { symbol, .. } if resolve_sym(*symbol) == "kill-emacs" => {
+                        tracing::info!("loadup.el completed (kill-emacs after dump)");
+                    }
+                    _ => {
+                        return Err(e);
                     }
                 }
             }

@@ -585,14 +585,14 @@ fn overwrite_last_window_right_border_pads_and_replaces_text() {
     assert_eq!(state.window_matrices.len(), 1);
     let matrix = &state.window_matrices[0].matrix;
 
-    // Row 0: full-width text, the last glyph must be '|'
-    // (replacing the original '9'); the preceding 9 glyphs
-    // remain '0'..'8'.
+    // Row 0: full-width text, truncated to 9 columns with the
+    // border occupying the 10th column in RightMargin.
     let row0_text = &matrix.rows[0].glyphs[GlyphArea::Text as usize];
+    let row0_right = &matrix.rows[0].glyphs[GlyphArea::RightMargin as usize];
     assert_eq!(
         row0_text.len(),
-        10,
-        "row 0 must still have ncols=10 glyphs after border patch"
+        9,
+        "row 0 text area must leave one column for the border"
     );
     let row0_chars: String = row0_text
         .iter()
@@ -602,21 +602,25 @@ fn overwrite_last_window_right_border_pads_and_replaces_text() {
         })
         .collect();
     assert_eq!(
-        row0_chars, "012345678|",
-        "row 0 last glyph must be replaced with the border character"
+        row0_chars, "012345678",
+        "row 0 text must keep the first 9 glyphs"
     );
     assert_eq!(
-        row0_text[9].face_id, 99,
-        "row 0 border glyph must use the supplied face_id"
+        row0_right.len(),
+        1,
+        "row 0 must place the border in the right-margin area"
     );
+    assert_eq!(row0_right[0].glyph_type, GlyphType::Char { ch: '|' });
+    assert_eq!(row0_right[0].face_id, 99);
 
     // Row 1: short text, padded with spaces to reach 9 glyphs
     // then a '|' as the 10th. Original 'a'..'e' must remain.
     let row1_text = &matrix.rows[1].glyphs[GlyphArea::Text as usize];
+    let row1_right = &matrix.rows[1].glyphs[GlyphArea::RightMargin as usize];
     assert_eq!(
         row1_text.len(),
-        10,
-        "row 1 must be padded to ncols=10 glyphs"
+        9,
+        "row 1 text area must be padded to ncols - 1 glyphs"
     );
     let row1_chars: String = row1_text
         .iter()
@@ -626,13 +630,12 @@ fn overwrite_last_window_right_border_pads_and_replaces_text() {
         })
         .collect();
     assert_eq!(
-        row1_chars, "abcde    |",
-        "row 1 must keep original text, pad with spaces, end with border"
+        row1_chars, "abcde    ",
+        "row 1 must keep original text and pad with spaces before the border"
     );
-    assert_eq!(
-        row1_text[9].face_id, 99,
-        "row 1 border glyph must use the supplied face_id"
-    );
+    assert_eq!(row1_right.len(), 1);
+    assert_eq!(row1_right[0].glyph_type, GlyphType::Char { ch: '|' });
+    assert_eq!(row1_right[0].face_id, 99);
     // Padding spaces must also use the border face id (so the
     // tty backend renders them with mode-line-inactive bg, not
     // default bg).
@@ -640,11 +643,11 @@ fn overwrite_last_window_right_border_pads_and_replaces_text() {
     assert_eq!(row1_text[8].face_id, 99);
 }
 
-/// Disabled rows (e.g. unrendered scratch rows below text) must
-/// not get a border glyph — GNU only patches enabled rows so
-/// scrolling and clear-to-eob behave correctly.
+/// Blank visible rows below buffer text still need a vertical border
+/// in horizontally split TTY windows. GNU's final frame matrix shows
+/// `|` in that last column even when no buffer text was drawn there.
 #[test]
-fn overwrite_last_window_right_border_skips_disabled_rows() {
+fn overwrite_last_window_right_border_paints_blank_rows() {
     let mut builder = GlyphMatrixBuilder::new();
     builder.begin_window(1, 3, 5, Rect::new(0.0, 0.0, 40.0, 48.0), true);
     builder.begin_row(0, GlyphRowRole::Text);
@@ -663,14 +666,99 @@ fn overwrite_last_window_right_border_skips_disabled_rows() {
 
     // Row 0 enabled: padded + border.
     let row0 = &matrix.rows[0].glyphs[GlyphArea::Text as usize];
-    assert_eq!(row0.len(), 5, "enabled row must be padded to ncols glyphs");
-    // Row 1 disabled: untouched, still empty.
-    let row1 = &matrix.rows[1].glyphs[GlyphArea::Text as usize];
-    assert!(
-        row1.is_empty(),
-        "disabled row must not have a border glyph injected"
+    let row0_right = &matrix.rows[0].glyphs[GlyphArea::RightMargin as usize];
+    assert_eq!(
+        row0.len(),
+        4,
+        "enabled row must leave one column for the border"
     );
+    assert_eq!(row0_right.len(), 1);
+    // Row 1 blank: padded + border so the split remains visible.
+    let row1_text = &matrix.rows[1].glyphs[GlyphArea::Text as usize];
+    let row1_right = &matrix.rows[1].glyphs[GlyphArea::RightMargin as usize];
+    assert!(!row1_text.is_empty(), "blank visible row must be padded");
+    let row1_chars: String = row1_text
+        .iter()
+        .map(|g| match &g.glyph_type {
+            GlyphType::Char { ch } => *ch,
+            _ => '?',
+        })
+        .collect();
+    assert_eq!(row1_chars, "    ");
+    assert_eq!(row1_right.len(), 1);
+    assert_eq!(row1_right[0].glyph_type, GlyphType::Char { ch: '|' });
     // Row 2 enabled: padded + border.
     let row2 = &matrix.rows[2].glyphs[GlyphArea::Text as usize];
-    assert_eq!(row2.len(), 5);
+    let row2_right = &matrix.rows[2].glyphs[GlyphArea::RightMargin as usize];
+    assert_eq!(row2.len(), 4);
+    assert_eq!(row2_right.len(), 1);
+}
+
+#[test]
+fn overwrite_current_window_row_last_glyph_marks_truncated_row() {
+    let mut builder = GlyphMatrixBuilder::new();
+    builder.begin_window(1, 2, 5, Rect::new(0.0, 0.0, 40.0, 32.0), true);
+    builder.begin_row(0, GlyphRowRole::Text);
+    for ch in "ABCDE".chars() {
+        builder.push_char(ch, 0, 0);
+    }
+    builder.end_row();
+    builder.begin_row(1, GlyphRowRole::Text);
+    builder.push_char('X', 0, 0);
+    builder.end_row();
+
+    builder.overwrite_current_window_row_last_glyph(0, '$', 13);
+    builder.overwrite_current_window_row_last_glyph(1, '$', 13);
+    builder.end_window();
+
+    let state = builder.finish(10, 2, 8.0, 16.0);
+    let matrix = &state.window_matrices[0].matrix;
+
+    let row0_chars: String = matrix.rows[0].glyphs[GlyphArea::Text as usize]
+        .iter()
+        .map(|g| match &g.glyph_type {
+            GlyphType::Char { ch } => *ch,
+            _ => '?',
+        })
+        .collect();
+    assert_eq!(row0_chars, "ABCD$");
+
+    let row1_chars: String = matrix.rows[1].glyphs[GlyphArea::Text as usize]
+        .iter()
+        .map(|g| match &g.glyph_type {
+            GlyphType::Char { ch } => *ch,
+            _ => '?',
+        })
+        .collect();
+    assert_eq!(row1_chars, "X   $");
+}
+
+#[test]
+fn overwrite_last_window_right_border_preserves_truncation_marker() {
+    let mut builder = GlyphMatrixBuilder::new();
+    builder.begin_window(1, 1, 5, Rect::new(0.0, 0.0, 40.0, 16.0), true);
+    builder.begin_row(0, GlyphRowRole::Text);
+    for ch in "ABCD$".chars() {
+        builder.push_char(ch, 0, 0);
+    }
+    builder.end_row();
+    builder.end_window();
+
+    builder.overwrite_last_window_right_border('|', 21);
+
+    let state = builder.finish(5, 1, 8.0, 16.0);
+    let matrix = &state.window_matrices[0].matrix;
+    let row0_text = &matrix.rows[0].glyphs[GlyphArea::Text as usize];
+    let row0_right = &matrix.rows[0].glyphs[GlyphArea::RightMargin as usize];
+
+    let row0_chars: String = row0_text
+        .iter()
+        .map(|g| match &g.glyph_type {
+            GlyphType::Char { ch } => *ch,
+            _ => '?',
+        })
+        .collect();
+    assert_eq!(row0_chars, "ABC$");
+    assert_eq!(row0_right.len(), 1);
+    assert_eq!(row0_right[0].glyph_type, GlyphType::Char { ch: '|' });
 }

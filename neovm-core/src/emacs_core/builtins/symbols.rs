@@ -4209,7 +4209,10 @@ pub(crate) fn builtin_kill_emacs(eval: &mut super::eval::Context, args: Vec<Valu
     let request = plan_kill_emacs_request(&args)?;
     let _ = eval.run_hook_if_bound("kill-emacs-hook");
     eval.request_shutdown(request.exit_code, request.restart);
-    Ok(Value::NIL)
+    Err(crate::emacs_core::error::signal_suppressed(
+        "kill-emacs",
+        vec![],
+    ))
 }
 
 pub(crate) fn builtin_lower_frame(args: Vec<Value>) -> EvalResult {

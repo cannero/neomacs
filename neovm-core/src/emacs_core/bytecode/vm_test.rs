@@ -2798,10 +2798,12 @@ fn vm_runtime_control_tail_uses_localized_shared_paths() {
 
     let mut eval = Context::new_vm_runtime_harness();
     let kill_result = eval.eval_str("(kill-emacs 7)");
-    assert!(
-        kill_result.as_ref().map_or(false, |v| v.is_nil()),
-        "kill-emacs should return nil, got {kill_result:?}"
-    );
+    match kill_result {
+        Err(EvalError::Signal { symbol, .. }) => {
+            assert_eq!(resolve_sym(symbol), "kill-emacs");
+        }
+        other => panic!("kill-emacs should unwind, got {other:?}"),
+    }
 
     assert_eq!(
         eval.shutdown_request(),
@@ -2815,16 +2817,31 @@ fn vm_runtime_control_tail_uses_localized_shared_paths() {
 #[test]
 fn vm_kill_emacs_runs_hooks_on_shared_runtime() {
     crate::test_utils::init_test_tracing();
+    let mut eval = Context::new_vm_runtime_harness();
+    let result = eval.eval_str(
+        "(progn
+           (setq vm-kill-hook-log nil)
+           (setq kill-emacs-hook
+                 (list (lambda () (setq vm-kill-hook-log 'ran))))
+           (kill-emacs 3)
+           vm-kill-hook-log)",
+    );
+    match result {
+        Err(EvalError::Signal { symbol, .. }) => {
+            assert_eq!(resolve_sym(symbol), "kill-emacs");
+        }
+        other => panic!("kill-emacs should unwind after running hooks, got {other:?}"),
+    }
     assert_eq!(
-        vm_eval_str(
-            "(progn
-               (setq vm-kill-hook-log nil)
-               (setq kill-emacs-hook
-                     (list (lambda () (setq vm-kill-hook-log 'ran))))
-               (kill-emacs 3)
-               vm-kill-hook-log)"
-        ),
-        "OK ran"
+        eval.obarray().symbol_value("vm-kill-hook-log"),
+        Some(&Value::symbol("ran"))
+    );
+    assert_eq!(
+        eval.shutdown_request(),
+        Some(crate::emacs_core::eval::ShutdownRequest {
+            exit_code: 3,
+            restart: false,
+        })
     );
 }
 

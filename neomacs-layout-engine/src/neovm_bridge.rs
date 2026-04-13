@@ -266,6 +266,55 @@ fn global_bool(obarray: &Obarray, name: &str) -> bool {
         .is_some_and(|value| !value.is_nil())
 }
 
+fn frame_total_cols(frame: &Frame) -> i64 {
+    frame
+        .parameters
+        .get("width")
+        .and_then(|value| value.as_int())
+        .unwrap_or(frame.columns() as i64)
+}
+
+fn window_total_cols(window: &Window, char_width: f32) -> i64 {
+    let width = window.bounds().width;
+    if char_width > 0.0 {
+        (width / char_width) as i64
+    } else {
+        0
+    }
+}
+
+fn effective_truncate_lines(
+    window: &Window,
+    buffer: &Buffer,
+    frame: &Frame,
+    obarray: &Obarray,
+    hscroll: usize,
+) -> bool {
+    if effective_buffer_bool(buffer, obarray, "truncate-lines") {
+        return true;
+    }
+
+    // GNU `xdisp.c:init_iterator` only enables wrapping when the
+    // window is not horizontally scrolled.
+    if hscroll != 0 {
+        return true;
+    }
+
+    let total_cols = window_total_cols(window, frame.char_width);
+    let frame_cols = frame_total_cols(frame);
+
+    if total_cols >= frame_cols {
+        return false;
+    }
+
+    match effective_buffer_value(buffer, obarray, "truncate-partial-width-windows") {
+        Some(value) if value.is_nil() => false,
+        Some(value) if value.is_fixnum() => total_cols < value.as_fixnum().unwrap(),
+        Some(_) => true,
+        None => false,
+    }
+}
+
 pub(crate) fn buffer_local_string_owned<B: LayoutBufferView>(
     buffer: &B,
     name: &str,
@@ -593,7 +642,7 @@ pub fn window_params_from_neovm(
     let text_bounds = Rect::new(text_x, bounds.y, text_width, bounds.height);
 
     // Read buffer-local variables.
-    let truncate_lines = effective_buffer_bool(buffer, obarray, "truncate-lines");
+    let truncate_lines = effective_truncate_lines(window, buffer, frame, obarray, hscroll);
     let word_wrap = effective_buffer_bool(buffer, obarray, "word-wrap");
     let tab_width = effective_buffer_int(buffer, obarray, "tab-width", 8) as i32;
 
