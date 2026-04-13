@@ -3,7 +3,7 @@
 //! Built during layout and queried from FFI for mouse interaction.
 
 /// Per-row hit-test data: maps a Y range to a charpos range.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct HitRow {
     pub y_start: f32,
     pub y_end: f32,

@@ -1078,6 +1078,9 @@ fn render_overlay_string(
     y: &mut f32,
     col: &mut usize,
     row: &mut usize,
+    hit_rows: &mut Vec<HitRow>,
+    hit_row_charpos_start: &mut i64,
+    anchor_charpos: i64,
     row_y_positions: &mut Vec<f32>,
     row_max_height: &mut f32,
     row_max_ascent: &mut f32,
@@ -1112,6 +1115,13 @@ fn render_overlay_string(
 
         if ch == '\n' {
             // End current row, start a new one — mirrors the main text loop.
+            hit_rows.push(HitRow {
+                y_start: *y,
+                y_end: *y + *row_max_height,
+                charpos_start: *hit_row_charpos_start,
+                charpos_end: anchor_charpos,
+            });
+            *hit_row_charpos_start = anchor_charpos;
             output_emitter.advance_text_progress(evaluator, *row, *col, *y, *x);
             output_emitter.push_text_row(evaluator, *y, *row_max_height, *row_max_ascent);
             builder.end_row();
@@ -2935,6 +2945,9 @@ impl LayoutEngine {
                                     &mut y,
                                     &mut col,
                                     &mut row,
+                                    &mut hit_rows,
+                                    &mut hit_row_charpos_start,
+                                    charpos,
                                     &mut row_y_positions,
                                     &mut row_max_height,
                                     &mut row_max_ascent,
@@ -4105,6 +4118,9 @@ impl LayoutEngine {
                             &mut y,
                             &mut col,
                             &mut row,
+                            &mut hit_rows,
+                            &mut hit_row_charpos_start,
+                            charpos,
                             &mut row_y_positions,
                             &mut row_max_height,
                             &mut row_max_ascent,
@@ -4197,6 +4213,9 @@ impl LayoutEngine {
                             &mut y,
                             &mut col,
                             &mut row,
+                            &mut hit_rows,
+                            &mut hit_row_charpos_start,
+                            charpos,
                             &mut row_y_positions,
                             &mut row_max_height,
                             &mut row_max_ascent,
@@ -4295,6 +4314,9 @@ impl LayoutEngine {
                     &mut y,
                     &mut col,
                     &mut row,
+                    &mut hit_rows,
+                    &mut hit_row_charpos_start,
+                    charpos,
                     &mut row_y_positions,
                     &mut row_max_height,
                     &mut row_max_ascent,
@@ -4572,7 +4594,7 @@ impl LayoutEngine {
         }
 
         let has_pending_row_output = output_emitter.current_row_has_output();
-        if row < max_rows && charpos > hit_row_charpos_start {
+        if row < max_rows && (charpos > hit_row_charpos_start || has_pending_row_output) {
             let row_y_start = row_y_positions
                 .get(row)
                 .copied()
@@ -4583,12 +4605,6 @@ impl LayoutEngine {
                 charpos_start: hit_row_charpos_start,
                 charpos_end: charpos,
             });
-        }
-        if row < max_rows && (charpos > hit_row_charpos_start || has_pending_row_output) {
-            let row_y_start = row_y_positions
-                .get(row)
-                .copied()
-                .unwrap_or(text_y + row as f32 * char_h + row_extra_y);
             output_emitter.push_text_row(evaluator, row_y_start, row_max_height, row_max_ascent);
         }
 
@@ -8263,6 +8279,33 @@ mod tests {
             .find_window(selected_window)
             .and_then(|window| window.display())
             .expect("window display state");
+        let second_text_row = snapshot
+            .rows
+            .iter()
+            .find(|row| row.row == 1)
+            .expect("second overlay row snapshot");
+        let overlay_hit_row = unsafe {
+            (&*std::ptr::addr_of!(crate::hit_test::FRAME_HIT_DATA))
+                .as_ref()
+                .and_then(|windows| {
+                    windows
+                        .iter()
+                        .find(|window| window.window_id == selected_window.0 as i64)
+                })
+                .and_then(|window| {
+                    window.rows.iter().find(|row| {
+                        let y = second_text_row.y as f32 + 1.0;
+                        y >= row.y_start && y < row.y_end
+                    })
+                })
+                .cloned()
+        }
+        .expect("overlay hit row");
+        let overlay_hit = crate::hit_test::hit_test_window_charpos(
+            selected_window.0 as i64,
+            0.0,
+            second_text_row.y as f32 + 1.0,
+        );
 
         assert!(
             snapshot
@@ -8281,6 +8324,11 @@ mod tests {
             display.output_cursor.is_some_and(|cursor| cursor.row >= 1),
             "expected live output cursor to advance onto multiline overlay rows, output={:?}",
             display.output_cursor
+        );
+        assert!(
+            overlay_hit >= overlay_hit_row.charpos_start
+                && overlay_hit <= overlay_hit_row.charpos_end,
+            "expected multiline overlay row hit-testing to land inside the recorded overlay row span, hit={overlay_hit} row={overlay_hit_row:?}"
         );
     }
 
