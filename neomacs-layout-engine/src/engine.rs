@@ -1209,7 +1209,7 @@ pub struct LayoutEngine {
     text_buf: Vec<u8>,
     /// Per-font ASCII width cache: actual glyph widths via cosmic-text.
     /// Key: semantic font identity, Value: advance widths for chars 0-127.
-    pub(crate) ascii_width_cache: std::collections::HashMap<AsciiWidthCacheKey, [f32; 128]>,
+    ascii_width_cache: std::collections::HashMap<AsciiWidthCacheKey, [f32; 128]>,
     /// Hit-test data being built for current frame
     hit_data: Vec<WindowHitData>,
     /// Authoritative visible glyph geometry published back into core state.
@@ -5258,31 +5258,6 @@ impl LayoutEngine {
             descent: face.font_descent.max(0) as f32,
             line_height: (face.font_ascent + face.font_descent as f32).max(1.0),
             char_width: face.font_char_width.max(1.0),
-        }
-    }
-
-    /// Measure the advance of a status-line glyph using the backend requested by the spec.
-    pub(crate) unsafe fn status_line_advance(
-        &mut self,
-        advance_mode: &StatusLineAdvanceMode,
-        face: &StatusLineFace,
-        fallback_char_width: f32,
-        ch: char,
-    ) -> f32 {
-        match advance_mode {
-            StatusLineAdvanceMode::Fixed => fallback_char_width,
-            StatusLineAdvanceMode::Measured => char_advance(
-                &mut self.ascii_width_cache,
-                &mut self.font_metrics,
-                ch,
-                if is_wide_char(ch) { 2 } else { 1 },
-                fallback_char_width,
-                face.font_size.round() as i32,
-                face.font_char_width,
-                &face.font_family,
-                face.font_weight,
-                face.italic,
-            ),
         }
     }
 

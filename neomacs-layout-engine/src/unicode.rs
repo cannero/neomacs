@@ -98,6 +98,7 @@ pub(crate) fn is_emoji_presentation(cp: u32) -> bool {
 
 /// Check if a character is a grapheme cluster extender: it should be
 /// bundled with the preceding base character for proper rendering.
+#[cfg(test)]
 pub(crate) fn is_cluster_extender(ch: char) -> bool {
     let cp = ch as u32;
     // Combining Diacritical Marks
@@ -155,6 +156,7 @@ pub(crate) fn is_cluster_extender(ch: char) -> bool {
 }
 
 /// Check if a codepoint is a Regional Indicator Symbol.
+#[cfg(test)]
 pub(crate) fn is_regional_indicator(cp: u32) -> bool {
     (0x1F1E6..=0x1F1FF).contains(&cp)
 }
@@ -164,6 +166,7 @@ pub(crate) fn is_regional_indicator(cp: u32) -> bool {
 ///
 /// Returns (cluster_string, extra_bytes_consumed, extra_chars_consumed).
 /// If there are no extenders, returns (None, 0, 0) — use single-char path.
+#[cfg(test)]
 pub(crate) fn collect_grapheme_cluster(
     base_ch: char,
     remaining: &[u8],
@@ -227,6 +230,7 @@ pub(crate) fn collect_grapheme_cluster(
 /// Check if a character is potentially glyphless and should be looked up
 /// in the glyphless-char-display char-table.
 /// This is a fast pre-filter — only chars in these ranges trigger the FFI call.
+#[cfg(test)]
 pub(crate) fn is_potentially_glyphless(ch: char) -> bool {
     let cp = ch as u32;
     // C1 control characters (0x80-0x9F)
@@ -346,7 +350,7 @@ mod tests {
     }
 
     #[test]
-    fn decode_utf8_invalid_continuation_0xBF() {
+    fn decode_utf8_invalid_continuation_0x_bf() {
         let (ch, len) = decode_utf8(&[0xBF]);
         assert_eq!(ch, '\u{FFFD}');
         assert_eq!(len, 1);

@@ -808,15 +808,6 @@ impl WgpuGlyphAtlas {
         self.rasterize_text(&c.to_string(), face, x_bin, y_bin)
     }
 
-    /// Convert Face to cosmic-text Attrs.
-    ///
-    /// If the face has a `font_file_path`, pre-loads the exact font file into
-    /// fontdb and uses the fontdb-registered family name. This ensures cosmic-text
-    /// uses the identical font file that Emacs/Fontconfig resolved.
-    fn face_to_attrs(&mut self, face: Option<&Face>) -> Attrs<'static> {
-        self.face_to_attrs_for_text("", face)
-    }
-
     fn face_to_attrs_for_text(&mut self, text: &str, face: Option<&Face>) -> Attrs<'static> {
         let mut attrs = Attrs::new();
 
@@ -833,8 +824,8 @@ impl WgpuGlyphAtlas {
             } else {
                 f.font_family.clone()
             };
-            let mut effective_weight = f.font_weight;
-            let mut effective_style = if requested_italic {
+            let effective_weight = f.font_weight;
+            let effective_style = if requested_italic {
                 Some(Style::Italic)
             } else {
                 None

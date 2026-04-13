@@ -66,7 +66,6 @@ pub(crate) struct StatusLineFace {
     pub(crate) strike_through_color: Option<Color>,
     pub(crate) overline: bool,
     pub(crate) overline_color: Option<Color>,
-    pub(crate) overstrike: bool,
     pub(crate) box_type: BoxType,
     pub(crate) box_color: Option<Color>,
     pub(crate) box_line_width: i32,
@@ -80,7 +79,6 @@ pub(crate) struct StatusLineFace {
     pub(crate) font_descent: i32,
     pub(crate) underline_position: i32,
     pub(crate) underline_thickness: i32,
-    pub(crate) stipple: i32,
 }
 
 impl StatusLineFace {
@@ -114,7 +112,6 @@ impl StatusLineFace {
             overline_color: face
                 .overline
                 .then(|| Color::from_pixel(face.overline_color)),
-            overstrike: face.overstrike,
             box_type: if face.box_type != 0 {
                 BoxType::Line
             } else {
@@ -133,7 +130,6 @@ impl StatusLineFace {
             font_descent,
             underline_position: 1,
             underline_thickness: 1,
-            stipple: 0,
         }
     }
 
@@ -197,19 +193,14 @@ impl StatusLineFace {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum StatusLineAdvanceMode {
-    Fixed,
-    Measured,
-}
-
 /// A face run within an overlay/display string: byte offset + fg/bg colors + face_id.
 #[derive(Debug, Clone)]
 pub(crate) struct OverlayFaceRun {
     pub byte_offset: u16,
     pub fg: u32,
     pub bg: u32,
-    /// Face has :extend attribute (bg extends to end of visual line)
+    #[cfg(test)]
+    /// Emacs face ID for full face attribute resolution via FFI
     pub extend: bool,
     /// Emacs face ID for full face attribute resolution via FFI
     pub face_id: u32,
@@ -217,7 +208,7 @@ pub(crate) struct OverlayFaceRun {
 
 /// Parse face runs appended after text in a buffer.
 /// Runs are stored as 14-byte records: u16 byte_offset + u32 fg + u32 bg + u32 face_id.
-/// Bit 31 of bg encodes the :extend flag (1 = extends to end of line).
+#[cfg(test)]
 pub(crate) fn parse_overlay_face_runs(
     buf: &[u8],
     text_len: usize,
@@ -232,6 +223,7 @@ pub(crate) fn parse_overlay_face_runs(
             let fg = u32::from_ne_bytes([buf[off + 2], buf[off + 3], buf[off + 4], buf[off + 5]]);
             let raw_bg =
                 u32::from_ne_bytes([buf[off + 6], buf[off + 7], buf[off + 8], buf[off + 9]]);
+            #[cfg(test)]
             let extend = (raw_bg & 0x80000000) != 0;
             let bg = raw_bg & 0x00FFFFFF;
             let face_id =
@@ -240,6 +232,7 @@ pub(crate) fn parse_overlay_face_runs(
                 byte_offset,
                 fg,
                 bg,
+                #[cfg(test)]
                 extend,
                 face_id,
             });
@@ -255,77 +248,9 @@ pub(crate) struct OverlayAlignEntry {
     pub align_to_px: f32,
 }
 
-/// Parse align-to entries appended after face runs in a buffer.
-/// Entries are stored as 6-byte records: u16 byte_offset + f32 align_to_px.
-pub(crate) fn parse_overlay_align_entries(
-    buf: &[u8],
-    text_len: usize,
-    nruns: i32,
-    naligns: i32,
-) -> Vec<OverlayAlignEntry> {
-    let mut entries = Vec::with_capacity(naligns as usize);
-    let aligns_start = text_len + nruns as usize * 14;
-    for ai in 0..naligns as usize {
-        let off = aligns_start + ai * 6;
-        if off + 6 <= buf.len() {
-            let byte_offset = u16::from_ne_bytes([buf[off], buf[off + 1]]);
-            let align_to_px =
-                f32::from_ne_bytes([buf[off + 2], buf[off + 3], buf[off + 4], buf[off + 5]]);
-            entries.push(OverlayAlignEntry {
-                byte_offset,
-                align_to_px,
-            });
-        }
-    }
-    entries
-}
-
-/// Get the background color from the overlay face run covering the given byte index.
-/// Returns the run's bg color if it has one, otherwise returns `fallback`.
-/// This is used for align-to stretches within overlay strings to avoid
-/// inheriting the buffer position's face (e.g., minibuffer-prompt).
-pub(crate) fn overlay_run_bg_at(
-    runs: &[OverlayFaceRun],
-    byte_idx: usize,
-    fallback: Color,
-) -> Color {
-    if runs.is_empty() {
-        return fallback;
-    }
-    // Find the run covering byte_idx
-    let mut cr = 0;
-    while cr + 1 < runs.len() && byte_idx >= runs[cr + 1].byte_offset as usize {
-        cr += 1;
-    }
-    if byte_idx >= runs[cr].byte_offset as usize && runs[cr].bg != 0 {
-        Color::from_pixel(runs[cr].bg)
-    } else {
-        fallback
-    }
-}
-
-/// Get the background color and extend flag from the overlay face run at byte_idx.
-/// Returns (bg_color, extend) if a run covers byte_idx, otherwise None.
-pub(crate) fn overlay_run_bg_extend_at(
-    runs: &[OverlayFaceRun],
-    byte_idx: usize,
-) -> Option<(Color, bool)> {
-    if runs.is_empty() {
-        return None;
-    }
-    let mut cr = 0;
-    while cr + 1 < runs.len() && byte_idx >= runs[cr + 1].byte_offset as usize {
-        cr += 1;
-    }
-    if byte_idx >= runs[cr].byte_offset as usize && runs[cr].bg != 0 {
-        Some((Color::from_pixel(runs[cr].bg), runs[cr].extend))
-    } else {
-        None
-    }
-}
-
 /// Apply the face run covering the current byte index.
 /// Returns the updated current_run index.
+#[cfg(test)]
 pub(crate) fn apply_overlay_face_run(
     runs: &[OverlayFaceRun],
     byte_idx: usize,
@@ -346,71 +271,20 @@ pub(crate) fn apply_overlay_face_run(
 }
 
 /// A display property record extracted from a mode-line string.
-/// Each record is 16 bytes: u16 byte_offset, u16 covers_bytes,
-/// u32 gpu_id, u16 width, u16 height, u16 ascent, u16 pad.
+/// Only width participates in the current backend walker.
 #[derive(Debug, Clone)]
 struct DisplayPropRecord {
     byte_offset: u16,
     covers_bytes: u16,
-    gpu_id: u32,
     width: u16,
-    height: u16,
-    ascent: u16,
-}
-
-/// Parse display property records appended after face runs in a buffer.
-fn parse_display_props(buf: &[u8], start: usize, count: usize) -> Vec<DisplayPropRecord> {
-    let mut props = Vec::with_capacity(count);
-    for i in 0..count {
-        let off = start + i * 16;
-        if off + 16 <= buf.len() {
-            props.push(DisplayPropRecord {
-                byte_offset: u16::from_ne_bytes([buf[off], buf[off + 1]]),
-                covers_bytes: u16::from_ne_bytes([buf[off + 2], buf[off + 3]]),
-                gpu_id: u32::from_ne_bytes([
-                    buf[off + 4],
-                    buf[off + 5],
-                    buf[off + 6],
-                    buf[off + 7],
-                ]),
-                width: u16::from_ne_bytes([buf[off + 8], buf[off + 9]]),
-                height: u16::from_ne_bytes([buf[off + 10], buf[off + 11]]),
-                ascent: u16::from_ne_bytes([buf[off + 12], buf[off + 13]]),
-            });
-        }
-    }
-    props
-}
-
-fn parse_status_line_align_entries(
-    buf: &[u8],
-    start: usize,
-    count: usize,
-) -> Vec<OverlayAlignEntry> {
-    let mut entries = Vec::with_capacity(count);
-    for i in 0..count {
-        let off = start + i * 6;
-        if off + 6 <= buf.len() {
-            let byte_offset = u16::from_ne_bytes([buf[off], buf[off + 1]]);
-            let align_to_px =
-                f32::from_ne_bytes([buf[off + 2], buf[off + 3], buf[off + 4], buf[off + 5]]);
-            entries.push(OverlayAlignEntry {
-                byte_offset,
-                align_to_px,
-            });
-        }
-    }
-    entries
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct StatusLineSpec {
     kind: StatusLineKind,
-    x: f32,
     y: f32,
     width: f32,
     height: f32,
-    window_id: i64,
     char_width: f32,
     ascent: f32,
     face: StatusLineFace,
@@ -419,7 +293,6 @@ pub(crate) struct StatusLineSpec {
     run_faces: HashMap<u32, StatusLineFace>,
     display_props: Vec<DisplayPropRecord>,
     align_entries: Vec<OverlayAlignEntry>,
-    advance_mode: StatusLineAdvanceMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -433,11 +306,9 @@ pub(crate) struct StatusLineOutputProgress {
 impl StatusLineSpec {
     fn plain(
         kind: StatusLineKind,
-        x: f32,
         y: f32,
         width: f32,
         height: f32,
-        window_id: i64,
         char_width: f32,
         ascent: f32,
         face: StatusLineFace,
@@ -445,11 +316,9 @@ impl StatusLineSpec {
     ) -> Self {
         Self {
             kind,
-            x,
             y,
             width,
             height,
-            window_id,
             char_width,
             ascent,
             face,
@@ -458,7 +327,6 @@ impl StatusLineSpec {
             run_faces: HashMap::new(),
             display_props: Vec::new(),
             align_entries: Vec::new(),
-            advance_mode: StatusLineAdvanceMode::Fixed,
         }
     }
 }
@@ -480,7 +348,6 @@ fn same_resolved_face(lhs: &ResolvedFace, rhs: &ResolvedFace) -> bool {
         && lhs.box_color == rhs.box_color
         && lhs.box_line_width == rhs.box_line_width
         && lhs.extend == rhs.extend
-        && lhs.overstrike == rhs.overstrike
 }
 
 fn underline_style_from_code(code: u8) -> UnderlineStyle {
@@ -686,7 +553,6 @@ impl LayoutEngine {
         let mut current_run = 0usize;
         let mut dp_idx = 0usize;
         let mut align_idx = 0usize;
-        let mut active_run_face: Option<StatusLineFace> = None;
         let mut emit_progress = |end_x: f32| {
             if let Some(ref mut cb) = on_progress {
                 cb(StatusLineOutputProgress {
@@ -770,7 +636,6 @@ impl LayoutEngine {
                                 b.insert_face(run_face.face_id, run_face.render_face());
                             }
                             current_render_face = run_face.render_face();
-                            active_run_face = Some(run_face.clone());
                         } else if run.face_id != 0 {
                             let rf = spec.face.with_color_override(
                                 run.face_id,
@@ -781,10 +646,8 @@ impl LayoutEngine {
                                 b.insert_face(run.face_id, rf.render_face());
                             }
                             current_render_face = rf.render_face();
-                            active_run_face = Some(rf);
                         } else {
                             current_render_face = spec.face.render_face();
-                            active_run_face = None;
                         }
                     }
                 }
@@ -814,7 +677,6 @@ impl LayoutEngine {
             // backend's own char_advance and stopping when the
             // remaining width is exhausted. Mirrors the inner loop of
             // `render_text_run` for the backend path.
-            let effective_face = active_run_face.as_ref().unwrap_or(&spec.face);
             let fallback_width = spec.char_width.max(1.0);
             let mut run_offset = 0usize;
             let mut run_advance = 0.0f32;
@@ -824,9 +686,7 @@ impl LayoutEngine {
                 if ch == '\n' || ch == '\r' {
                     continue;
                 }
-                let advance = unsafe {
-                    self.status_line_advance(&spec.advance_mode, effective_face, fallback_width, ch)
-                };
+                let advance = fallback_width;
                 backend.produce_glyph(GlyphKind::Char(ch), &current_render_face, 0);
                 run_advance += advance;
                 emit_progress(sl_x_offset + run_advance);
@@ -928,11 +788,11 @@ impl LayoutEngine {
 
     pub(crate) fn build_rust_status_line_spec(
         &mut self,
-        x: f32,
+        _x: f32,
         y: f32,
         width: f32,
         height: f32,
-        window_id: i64,
+        _window_id: i64,
         char_w: f32,
         ascent: f32,
         next_face_id: &mut u32,
@@ -946,9 +806,8 @@ impl LayoutEngine {
         *next_face_id += 1;
         let face = self.realize_status_line_face(base_face_id, base_face, char_w, ascent, height);
         let char_width = self.status_line_char_width(&face, char_w);
-        let mut spec = StatusLineSpec::plain(
-            kind, x, y, width, height, window_id, char_width, ascent, face, text,
-        );
+        let mut spec =
+            StatusLineSpec::plain(kind, y, width, height, char_width, ascent, face, text);
 
         if !rendered.is_string() {
             return Some(spec);
@@ -998,6 +857,7 @@ impl LayoutEngine {
                 byte_offset: boundary as u16,
                 fg: resolved.fg,
                 bg: resolved.bg,
+                #[cfg(test)]
                 extend: resolved.extend,
                 face_id,
             });
@@ -1087,10 +947,7 @@ impl LayoutEngine {
                         spec.display_props.push(DisplayPropRecord {
                             byte_offset,
                             covers_bytes: interval.end.saturating_sub(interval.start) as u16,
-                            gpu_id: 0,
                             width: (pixels as u16).max(0),
-                            height: 0,
-                            ascent: 0,
                         });
                         done = true;
                     }

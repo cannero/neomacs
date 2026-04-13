@@ -1153,8 +1153,8 @@ impl<'a, B: LayoutBufferView> RustTextPropAccess<'a, B> {
 
     /// Get the next position where any text property changes.
     ///
-    /// This is useful for the layout engine's "next_check" optimization
-    /// to avoid per-character property lookups.
+    /// Test-only helper for direct property-table regression coverage.
+    #[cfg(test)]
     pub fn next_property_change(&self, charpos: i64) -> i64 {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
         self.buffer
