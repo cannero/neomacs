@@ -1594,7 +1594,33 @@ impl Frame {
         }
     }
 
+    /// Recover missing output progress for one live window from a redisplay snapshot.
+    pub fn fallback_output_cursor_from_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
+        if let Some(window) = self.find_window_mut(snapshot.window_id)
+            && let Some(display) = window.display_mut()
+            && display.output_cursor.is_none()
+        {
+            display.commit_output_cursor_from_display_snapshot(snapshot);
+        }
+    }
+
+    /// Finalize one live window's redisplay update after output/cursor state
+    /// has been advanced explicitly.
+    pub fn finish_window_output_update(&mut self, window_id: WindowId) {
+        if let Some(window) = self.find_window_mut(window_id)
+            && let Some(display) = window.display_mut()
+        {
+            display.commit_completed_redisplay();
+        }
+    }
+
     /// Commit the output/cursor state for one live window from a redisplay snapshot.
+    ///
+    /// This remains the snapshot-driven compatibility path. The primary Rust
+    /// layout path now installs logical/physical cursor state and advances
+    /// output progress on the live window directly, then uses
+    /// `fallback_output_cursor_from_snapshot` plus `finish_window_output_update`
+    /// to finalize the update.
     pub fn commit_window_output_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
         if let Some(window) = self.find_window_mut(snapshot.window_id)
             && let Some(display) = window.display_mut()
@@ -1608,8 +1634,8 @@ impl Frame {
             if display.phys_cursor.is_none() {
                 display.apply_physical_cursor_snapshot(snapshot.phys_cursor.clone());
             }
-            display.commit_completed_redisplay();
         }
+        self.finish_window_output_update(snapshot.window_id);
     }
 
     /// Replace the authoritative per-window redisplay geometry map without
@@ -3792,6 +3818,67 @@ mod tests {
                 col: 18,
             })
         );
+    }
+
+    #[test]
+    fn finish_window_output_update_preserves_live_cursor_state_with_snapshot_output_fallback() {
+        let mut mgr = FrameManager::new();
+        let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+        let wid = mgr.get(fid).unwrap().selected_window;
+        let live_cursor = WindowCursorPos {
+            x: 18,
+            y: 16,
+            row: 1,
+            col: 2,
+        };
+        let live_phys = WindowCursorSnapshot {
+            kind: WindowCursorKind::Bar,
+            x: 18,
+            y: 16,
+            width: 3,
+            height: 16,
+            ascent: 12,
+            row: 1,
+            col: 2,
+        };
+        let snapshot = WindowDisplaySnapshot {
+            window_id: wid,
+            rows: vec![DisplayRowSnapshot {
+                row: 4,
+                y: 64,
+                height: 16,
+                end_x: 144,
+                end_col: 18,
+                start_buffer_pos: Some(20),
+                end_buffer_pos: Some(38),
+            }],
+            ..WindowDisplaySnapshot::default()
+        };
+        let frame = mgr.get_mut(fid).expect("frame");
+
+        frame.begin_display_output_pass();
+        frame.begin_window_output_update(wid);
+        frame.install_logical_cursor(wid, Some(live_cursor));
+        frame.apply_physical_cursor_snapshot(wid, Some(live_phys.clone()));
+        frame.fallback_output_cursor_from_snapshot(&snapshot);
+        frame.finish_window_output_update(wid);
+
+        let display = frame
+            .find_window(wid)
+            .and_then(|window| window.display())
+            .expect("window display state");
+        assert_eq!(display.cursor, Some(live_cursor));
+        assert_eq!(display.phys_cursor, Some(live_phys));
+        assert_eq!(
+            display.output_cursor,
+            Some(WindowCursorPos {
+                x: 144,
+                y: 64,
+                row: 4,
+                col: 18,
+            })
+        );
+        assert_eq!(display.last_cursor_vpos, 1);
     }
 
     #[test]

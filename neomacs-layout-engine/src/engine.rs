@@ -5252,7 +5252,8 @@ impl LayoutEngine {
         if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
             frame.install_logical_cursor(window_id, emitted_logical_cursor);
             frame.apply_physical_cursor_snapshot(window_id, emitted_window_cursor.clone());
-            frame.commit_window_output_snapshot(&snapshot);
+            frame.fallback_output_cursor_from_snapshot(&snapshot);
+            frame.finish_window_output_update(window_id);
         }
         self.display_snapshots.push(snapshot);
 
