@@ -174,8 +174,6 @@ impl WindowDisplayState {
         self.output_cursor = None;
         self.phys_cursor_type = WindowCursorKind::NoCursor;
         self.phys_cursor_on_p = false;
-        self.last_cursor_off_p = self.cursor_off_p;
-        self.last_cursor_vpos = 0;
     }
 
     pub fn commit_output_cursor_from_cursor(&mut self) {
@@ -3157,7 +3155,7 @@ mod tests {
     }
 
     #[test]
-    fn clear_physical_cursor_state_preserves_logical_cursor_target() {
+    fn clear_physical_cursor_state_preserves_committed_cursor_history() {
         let cursor = WindowCursorSnapshot {
             kind: WindowCursorKind::FilledBox,
             x: 9,
@@ -3179,7 +3177,8 @@ mod tests {
         assert_eq!(display.phys_cursor, None);
         assert_eq!(display.phys_cursor_type, WindowCursorKind::NoCursor);
         assert!(!display.phys_cursor_on_p);
-        assert_eq!(display.last_cursor_vpos, 0);
+        assert!(!display.last_cursor_off_p);
+        assert_eq!(display.last_cursor_vpos, cursor.row);
     }
 
     #[test]
