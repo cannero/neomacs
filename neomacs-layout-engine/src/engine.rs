@@ -4911,16 +4911,7 @@ impl LayoutEngine {
             );
             self.matrix_builder = builder;
             if let Some(progress) = tab_output {
-                let row = DisplayRowSnapshot {
-                    row: 0,
-                    y: (progress.y - params.bounds.y).round() as i64,
-                    height: progress.height.round() as i64,
-                    end_x: progress.end_x.round() as i64,
-                    end_col: progress.end_col,
-                    start_buffer_pos: None,
-                    end_buffer_pos: None,
-                };
-                output_emitter.push_chrome_row(evaluator, row);
+                output_emitter.push_chrome_row_progress(evaluator, tl_row, progress);
             }
         }
 
@@ -4985,16 +4976,7 @@ impl LayoutEngine {
             );
             self.matrix_builder = builder;
             if let Some(progress) = header_output {
-                let row = DisplayRowSnapshot {
-                    row: i64::from(tab_line_height > 0.0),
-                    y: (progress.y - params.bounds.y).round() as i64,
-                    height: progress.height.round() as i64,
-                    end_x: progress.end_x.round() as i64,
-                    end_col: progress.end_col,
-                    start_buffer_pos: None,
-                    end_buffer_pos: None,
-                };
-                output_emitter.push_chrome_row(evaluator, row);
+                output_emitter.push_chrome_row_progress(evaluator, hl_row, progress);
             }
         }
 
@@ -5070,16 +5052,7 @@ impl LayoutEngine {
             );
             self.matrix_builder = builder;
             if let Some(progress) = mode_output {
-                let row = DisplayRowSnapshot {
-                    row: mode_line_matrix_row as i64,
-                    y: (progress.y - params.bounds.y).round() as i64,
-                    height: progress.height.round() as i64,
-                    end_x: progress.end_x.round() as i64,
-                    end_col: progress.end_col,
-                    start_buffer_pos: None,
-                    end_buffer_pos: None,
-                };
-                output_emitter.push_chrome_row(evaluator, row);
+                output_emitter.push_chrome_row_progress(evaluator, ml_row, progress);
             }
         }
 

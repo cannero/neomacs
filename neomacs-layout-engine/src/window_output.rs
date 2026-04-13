@@ -5,6 +5,7 @@
 //! progress / finish steps while simultaneously recording immutable row
 //! snapshots for renderer handoff.
 
+use super::display_status_line::StatusLineOutputProgress;
 use neovm_core::emacs_core::Context;
 use neovm_core::window::{
     DisplayPointSnapshot, DisplayRowSnapshot, WindowCursorPos, WindowCursorSnapshot,
@@ -179,6 +180,26 @@ impl WindowOutputEmitter {
             frame.finish_window_output_row(self.window_id, &row);
         }
         self.rows.push(row);
+    }
+
+    pub(crate) fn push_chrome_row_progress(
+        &mut self,
+        evaluator: &mut Context,
+        row: i64,
+        progress: StatusLineOutputProgress,
+    ) {
+        self.push_chrome_row(
+            evaluator,
+            DisplayRowSnapshot {
+                row,
+                y: (progress.y - self.window_top).round() as i64,
+                height: progress.height.round() as i64,
+                end_x: (progress.end_x - self.text_x).round() as i64,
+                end_col: progress.end_col,
+                start_buffer_pos: None,
+                end_buffer_pos: None,
+            },
+        );
     }
 
     pub(crate) fn finish_snapshot(
