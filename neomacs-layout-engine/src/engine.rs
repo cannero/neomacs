@@ -505,6 +505,20 @@ fn push_display_row(
     });
 }
 
+fn commit_latest_output_row(
+    evaluator: &mut neovm_core::emacs_core::Context,
+    frame_id: neovm_core::window::FrameId,
+    window_id: neovm_core::window::WindowId,
+    rows: &[DisplayRowSnapshot],
+) {
+    let Some(row) = rows.last() else {
+        return;
+    };
+    if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
+        frame.commit_window_output_row(window_id, row);
+    }
+}
+
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
 struct AsciiWidthCacheKey {
     family: String,
@@ -602,11 +616,11 @@ fn next_window_start_for_partially_visible_point_row(
     None
 }
 
-fn next_window_start_for_point_line_continuation(
+fn next_window_start_for_point_line_continuation<B: super::neovm_bridge::LayoutBufferView>(
     rows: &[DisplayRowSnapshot],
     point: i64,
     current_start: i64,
-    buf_access: &super::neovm_bridge::RustBufferAccess<'_>,
+    buf_access: &super::neovm_bridge::RustBufferAccess<'_, B>,
     buffer_size: i64,
 ) -> Option<i64> {
     let point_row_index = rows.iter().position(|row| {
@@ -2087,19 +2101,20 @@ impl LayoutEngine {
         if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
             frame.begin_window_output_update(window_id);
         }
-        let buffer = match evaluator.buffer_manager().get(buf_id) {
-            Some(b) => b,
+        let layout_buffer = match evaluator.buffer_manager().get(buf_id) {
+            Some(buffer) => super::neovm_bridge::LayoutBufferSnapshot::from_buffer(buffer),
             None => {
                 tracing::debug!("layout_window_rust: buffer {} not found", params.buffer_id);
                 return;
             }
         };
+        let buffer = &layout_buffer;
 
         // Capture buffer name as owned String for use in mode-line fallback.
         // This avoids holding a borrow on `evaluator` through eval calls.
         let buffer_name = buffer.name.clone();
-        let buffer_z_char = buffer.point_max_char().saturating_add(1);
-        let buffer_z_byte = buffer.point_max_byte();
+        let buffer_z_char = buffer.zv_char.saturating_add(1);
+        let buffer_z_byte = buffer.zv;
 
         let buf_access = super::neovm_bridge::RustBufferAccess::new(buffer);
 
@@ -2658,12 +2673,8 @@ impl LayoutEngine {
                 if (charpos as usize) >= face_next_check {
                     flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
-                    let buffer_ref = evaluator.buffer_manager().get(buf_id).unwrap();
-                    let resolved = face_resolver.face_at_pos(
-                        buffer_ref,
-                        charpos as usize,
-                        &mut face_next_check,
-                    );
+                    let resolved =
+                        face_resolver.face_at_pos(buffer, charpos as usize, &mut face_next_check);
                     let face_id = current_face_id;
 
                     let metrics = self.font_metrics.as_mut().map(|svc| {
@@ -3023,6 +3034,7 @@ impl LayoutEngine {
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
                     );
+                    commit_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                     hit_row_charpos_start = charpos;
                     row_extend_bg = None;
                     row_extend_row = -1;
@@ -3426,6 +3438,7 @@ impl LayoutEngine {
                             &mut row_first_display_pos,
                             &mut row_last_display_pos,
                         );
+                        commit_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                         row_extend_bg = None;
                         row_extend_row = -1;
                         if box_active {
@@ -3496,8 +3509,7 @@ impl LayoutEngine {
                 // Text property overrides buffer-local line-spacing for that line.
                 let text_prop_spacing = {
                     let nl_pos = charpos - 1; // the newline char
-                    let buffer_ref = evaluator.buffer_manager().get(buf_id).unwrap();
-                    let text_props = super::neovm_bridge::RustTextPropAccess::new(buffer_ref);
+                    let text_props = super::neovm_bridge::RustTextPropAccess::new(buffer);
                     text_props.check_line_spacing(nl_pos, char_h)
                 };
                 if text_prop_spacing > 0.0 {
@@ -3542,6 +3554,7 @@ impl LayoutEngine {
                     &mut row_first_display_pos,
                     &mut row_last_display_pos,
                 );
+                commit_latest_output_row(evaluator, frame_id, window_id, &display_rows);
 
                 self.matrix_builder.end_row();
                 row += 1;
@@ -3759,6 +3772,7 @@ impl LayoutEngine {
                             &mut row_first_display_pos,
                             &mut row_last_display_pos,
                         );
+                        commit_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                         row_extend_bg = None;
                         row_extend_row = -1;
                         row += 1;
@@ -3806,6 +3820,7 @@ impl LayoutEngine {
                             &mut row_first_display_pos,
                             &mut row_last_display_pos,
                         );
+                        commit_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                         hit_row_charpos_start = charpos;
                         row_extend_bg = None;
                         row_extend_row = -1;
@@ -4050,6 +4065,7 @@ impl LayoutEngine {
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
                     );
+                    commit_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                     row_extend_bg = None;
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
@@ -4109,6 +4125,7 @@ impl LayoutEngine {
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
                     );
+                    commit_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                     row_extend_bg = None;
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
@@ -4172,6 +4189,7 @@ impl LayoutEngine {
                         &mut row_first_display_pos,
                         &mut row_last_display_pos,
                     );
+                    commit_latest_output_row(evaluator, frame_id, window_id, &display_rows);
                     row_extend_bg = None;
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
@@ -4738,6 +4756,7 @@ impl LayoutEngine {
                 &mut row_first_display_pos,
                 &mut row_last_display_pos,
             );
+            commit_latest_output_row(evaluator, frame_id, window_id, &display_rows);
         }
 
         // GNU redisplay keeps iterating until point visibility converges or no

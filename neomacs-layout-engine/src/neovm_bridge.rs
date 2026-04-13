@@ -3,9 +3,15 @@
 //! Provides functions to build `WindowParams` and `FrameParams` from
 //! the Rust Context's state, replacing C FFI data sources.
 
-use neovm_core::buffer::Buffer;
+use neovm_core::buffer::{
+    Buffer,
+    buffer::{BUFFER_SLOT_COUNT, lookup_buffer_slot},
+    buffer_text::BufferText,
+    overlay::OverlayList,
+};
+use neovm_core::emacs_core::intern;
 use neovm_core::emacs_core::symbol::Obarray;
-use neovm_core::emacs_core::value::{ValueKind, list_to_vec};
+use neovm_core::emacs_core::value::{ValueKind, eq_value, list_to_vec};
 use neovm_core::emacs_core::{Context, Value};
 use neovm_core::face::{
     Color as NeoColor, Face as NeoFace, FaceHeight, FaceTable, FontWeight,
@@ -25,13 +31,194 @@ pub(crate) enum DisplayLineNumbersMode {
     Visual,
 }
 
-pub(crate) fn buffer_local_value(buffer: &Buffer, name: &str) -> Option<Value> {
+pub(crate) trait LayoutBufferView {
+    fn layout_get_buffer_local(&self, name: &str) -> Option<Value>;
+    fn layout_buffer_local_value(&self, name: &str) -> Option<Value>;
+    fn layout_point_min_byte(&self) -> usize;
+    fn layout_point_min_char(&self) -> usize;
+    fn layout_point_max_byte(&self) -> usize;
+    fn layout_point_max_char(&self) -> usize;
+    fn layout_point_byte(&self) -> usize;
+    fn layout_modified(&self) -> bool;
+    fn layout_name(&self) -> &str;
+    fn layout_file_name(&self) -> Option<&str>;
+    fn layout_text(&self) -> &BufferText;
+    fn layout_overlays(&self) -> &OverlayList;
+}
+
+#[derive(Clone)]
+pub(crate) struct LayoutBufferSnapshot {
+    pub name: String,
+    pub file_name: Option<String>,
+    pub text: BufferText,
+    pub pt: usize,
+    pub begv: usize,
+    pub begv_char: usize,
+    pub zv: usize,
+    pub zv_char: usize,
+    pub modified: bool,
+    pub local_var_alist: Value,
+    pub slots: [Value; BUFFER_SLOT_COUNT],
+    pub local_flags: u64,
+    pub overlays: OverlayList,
+}
+
+impl LayoutBufferSnapshot {
+    pub fn from_buffer(buffer: &Buffer) -> Self {
+        Self {
+            name: buffer.name.clone(),
+            file_name: buffer.get_file_name().map(str::to_string),
+            text: buffer.text.clone(),
+            pt: buffer.pt,
+            begv: buffer.begv,
+            begv_char: buffer.begv_char,
+            zv: buffer.zv,
+            zv_char: buffer.zv_char,
+            modified: buffer.modified,
+            local_var_alist: buffer.local_var_alist,
+            slots: buffer.slots,
+            local_flags: buffer.local_flags,
+            overlays: buffer.overlays.clone(),
+        }
+    }
+
+    fn slot_local_flag(&self, offset: usize) -> bool {
+        debug_assert!(offset < BUFFER_SLOT_COUNT);
+        (self.local_flags & (1u64 << offset)) != 0
+    }
+}
+
+fn find_layout_local_var_alist_entry(alist: Value, key: Value) -> Option<Value> {
+    let mut cursor = alist;
+    while cursor.is_cons() {
+        let entry = cursor.cons_car();
+        cursor = cursor.cons_cdr();
+        if entry.is_cons() && eq_value(&entry.cons_car(), &key) {
+            return Some(entry.cons_cdr());
+        }
+    }
+    None
+}
+
+impl LayoutBufferView for Buffer {
+    fn layout_get_buffer_local(&self, name: &str) -> Option<Value> {
+        self.get_buffer_local(name)
+    }
+
+    fn layout_buffer_local_value(&self, name: &str) -> Option<Value> {
+        self.buffer_local_value(name)
+    }
+
+    fn layout_point_min_byte(&self) -> usize {
+        self.point_min_byte()
+    }
+
+    fn layout_point_min_char(&self) -> usize {
+        self.point_min_char()
+    }
+
+    fn layout_point_max_byte(&self) -> usize {
+        self.point_max_byte()
+    }
+
+    fn layout_point_max_char(&self) -> usize {
+        self.point_max_char()
+    }
+
+    fn layout_point_byte(&self) -> usize {
+        self.point_byte()
+    }
+
+    fn layout_modified(&self) -> bool {
+        self.modified
+    }
+
+    fn layout_name(&self) -> &str {
+        &self.name
+    }
+
+    fn layout_file_name(&self) -> Option<&str> {
+        self.get_file_name()
+    }
+
+    fn layout_text(&self) -> &BufferText {
+        &self.text
+    }
+
+    fn layout_overlays(&self) -> &OverlayList {
+        &self.overlays
+    }
+}
+
+impl LayoutBufferView for LayoutBufferSnapshot {
+    fn layout_get_buffer_local(&self, name: &str) -> Option<Value> {
+        if let Some(info) = lookup_buffer_slot(name) {
+            if info.local_flags_idx >= 0 && !self.slot_local_flag(info.offset) {
+                return None;
+            }
+            return Some(self.slots[info.offset]);
+        }
+        let key = Value::from_sym_id(intern::intern(name));
+        find_layout_local_var_alist_entry(self.local_var_alist, key).filter(|v| !v.is_unbound())
+    }
+
+    fn layout_buffer_local_value(&self, name: &str) -> Option<Value> {
+        if let Some(info) = lookup_buffer_slot(name) {
+            return Some(self.slots[info.offset]);
+        }
+        let key = Value::from_sym_id(intern::intern(name));
+        find_layout_local_var_alist_entry(self.local_var_alist, key)
+            .and_then(|v| (!v.is_unbound()).then_some(v))
+    }
+
+    fn layout_point_min_byte(&self) -> usize {
+        self.begv
+    }
+
+    fn layout_point_min_char(&self) -> usize {
+        self.begv_char
+    }
+
+    fn layout_point_max_byte(&self) -> usize {
+        self.zv
+    }
+
+    fn layout_point_max_char(&self) -> usize {
+        self.zv_char
+    }
+
+    fn layout_point_byte(&self) -> usize {
+        self.pt
+    }
+
+    fn layout_modified(&self) -> bool {
+        self.modified
+    }
+
+    fn layout_name(&self) -> &str {
+        &self.name
+    }
+
+    fn layout_file_name(&self) -> Option<&str> {
+        self.file_name.as_deref()
+    }
+
+    fn layout_text(&self) -> &BufferText {
+        &self.text
+    }
+
+    fn layout_overlays(&self) -> &OverlayList {
+        &self.overlays
+    }
+}
+
+pub(crate) fn buffer_local_value<B: LayoutBufferView>(buffer: &B, name: &str) -> Option<Value> {
     // `Buffer::get_buffer_local` returns `Option<Value>` (by value)
     // since the Qunbound-sentinel refactor in commit 4d34fbde3 (void
     // buffer-local bindings): the value may come from an alist cons
     // cell that the caller can no longer borrow a stable reference
     // into. `Value` is `Copy` so this is zero-cost.
-    buffer.get_buffer_local(name)
+    buffer.layout_get_buffer_local(name)
 }
 
 fn effective_buffer_value(buffer: &Buffer, obarray: &Obarray, name: &str) -> Option<Value> {
@@ -94,7 +281,7 @@ pub fn frame_params_from_neovm(frame: &Frame, face_table: &FaceTable) -> FramePa
 }
 
 /// Helper: extract an integer buffer-local variable.
-pub(crate) fn buffer_local_int(buffer: &Buffer, name: &str, default: i64) -> i64 {
+pub(crate) fn buffer_local_int<B: LayoutBufferView>(buffer: &B, name: &str, default: i64) -> i64 {
     match buffer_local_value(buffer, name) {
         Some(v) if v.is_fixnum() => v.as_fixnum().unwrap(),
         _ => default,
@@ -109,7 +296,7 @@ fn effective_buffer_int(buffer: &Buffer, obarray: &Obarray, name: &str, default:
 }
 
 /// Helper: extract a boolean buffer-local variable (nil = false, anything else = true).
-pub(crate) fn buffer_local_bool(buffer: &Buffer, name: &str) -> bool {
+pub(crate) fn buffer_local_bool<B: LayoutBufferView>(buffer: &B, name: &str) -> bool {
     match buffer_local_value(buffer, name) {
         Some(v) if v.is_nil() => false,
         None => false,
@@ -131,7 +318,10 @@ fn global_bool(obarray: &Obarray, name: &str) -> bool {
         .is_some_and(|value| !value.is_nil())
 }
 
-pub(crate) fn buffer_local_string_owned(buffer: &Buffer, name: &str) -> Option<String> {
+pub(crate) fn buffer_local_string_owned<B: LayoutBufferView>(
+    buffer: &B,
+    name: &str,
+) -> Option<String> {
     buffer_local_value(buffer, name).and_then(|v| v.as_str_owned())
 }
 
@@ -170,7 +360,7 @@ fn chrome_face_pixel_height(face: &ResolvedFace, fallback_char_height: f32) -> f
     (line_height + box_pixels).max(minimum_row_height)
 }
 
-pub(crate) fn buffer_local_list_values(buffer: &Buffer, name: &str) -> Vec<Value> {
+pub(crate) fn buffer_local_list_values<B: LayoutBufferView>(buffer: &B, name: &str) -> Vec<Value> {
     // `list_to_vec' takes `&Value'; feed the borrowed form since
     // `buffer_local_value' returns the `Copy' `Value' by value.
     buffer_local_value(buffer, name)
@@ -178,7 +368,9 @@ pub(crate) fn buffer_local_list_values(buffer: &Buffer, name: &str) -> Vec<Value
         .unwrap_or_default()
 }
 
-pub(crate) fn buffer_display_line_numbers_mode(buffer: &Buffer) -> DisplayLineNumbersMode {
+pub(crate) fn buffer_display_line_numbers_mode<B: LayoutBufferView>(
+    buffer: &B,
+) -> DisplayLineNumbersMode {
     match buffer_local_value(buffer, "display-line-numbers") {
         Some(v) if v.bits() == Value::T.bits() => DisplayLineNumbersMode::Absolute,
         Some(value) if value.is_symbol_named("relative") => DisplayLineNumbersMode::Relative,
@@ -187,7 +379,7 @@ pub(crate) fn buffer_display_line_numbers_mode(buffer: &Buffer) -> DisplayLineNu
     }
 }
 
-pub(crate) fn buffer_selective_display(buffer: &Buffer) -> i32 {
+pub(crate) fn buffer_selective_display<B: LayoutBufferView>(buffer: &B) -> i32 {
     match buffer_local_value(buffer, "selective-display") {
         Some(v) if v.is_fixnum() => v.as_fixnum().unwrap() as i32,
         Some(v) if v.bits() == Value::T.bits() => i32::MAX,
@@ -723,13 +915,13 @@ pub fn collect_layout_params(
 /// Wraps a reference to a neovm-core `Buffer` and provides the operations
 /// that the layout engine needs: text byte copying, position conversion,
 /// and line counting.
-pub struct RustBufferAccess<'a> {
-    buffer: &'a Buffer,
+pub(crate) struct RustBufferAccess<'a, B: LayoutBufferView> {
+    buffer: &'a B,
 }
 
-impl<'a> RustBufferAccess<'a> {
+impl<'a, B: LayoutBufferView> RustBufferAccess<'a, B> {
     /// Create a new buffer accessor.
-    pub fn new(buffer: &'a Buffer) -> Self {
+    pub fn new(buffer: &'a B) -> Self {
         Self { buffer }
     }
 
@@ -742,7 +934,7 @@ impl<'a> RustBufferAccess<'a> {
         if charpos <= 0 {
             return 0;
         }
-        self.buffer.text.char_to_byte(charpos as usize) as i64
+        buffer_charpos_to_bytepos(self.buffer, charpos as usize) as i64
     }
 
     /// Convert a GNU Lisp-visible buffer position to a byte position.
@@ -753,35 +945,35 @@ impl<'a> RustBufferAccess<'a> {
         if charpos <= 1 {
             return 0;
         }
-        self.buffer.text.char_to_byte((charpos - 1) as usize) as i64
+        buffer_charpos_to_bytepos(self.buffer, (charpos - 1) as usize) as i64
     }
 
     /// Copy buffer text bytes in the range `[byte_from, byte_to)` into `out`.
     ///
     /// Uses the efficient `copy_bytes_to` method on the gap buffer.
     pub fn copy_text(&self, byte_from: i64, byte_to: i64, out: &mut Vec<u8>) {
-        let from = (byte_from as usize).min(self.buffer.text.len());
-        let to = (byte_to as usize).min(self.buffer.text.len());
+        let from = (byte_from as usize).min(self.buffer.layout_text().len());
+        let to = (byte_to as usize).min(self.buffer.layout_text().len());
         if from >= to {
             out.clear();
             return;
         }
-        self.buffer.text.copy_bytes_to(from, to, out);
+        self.buffer.layout_text().copy_bytes_to(from, to, out);
     }
 
     /// Count the number of newlines in `[byte_from, byte_to)`.
     ///
     /// Used for line number display.
     pub fn count_lines(&self, byte_from: i64, byte_to: i64) -> i64 {
-        let from = (byte_from as usize).min(self.buffer.text.len());
-        let to = (byte_to as usize).min(self.buffer.text.len());
+        let from = (byte_from as usize).min(self.buffer.layout_text().len());
+        let to = (byte_to as usize).min(self.buffer.layout_text().len());
         if from >= to {
             return 0;
         }
         // Count newlines by iterating byte by byte
         let mut count: i64 = 0;
         for pos in from..to {
-            if self.buffer.text.byte_at(pos) == b'\n' {
+            if self.buffer.layout_text().byte_at(pos) == b'\n' {
                 count += 1;
             }
         }
@@ -796,8 +988,8 @@ impl<'a> RustBufferAccess<'a> {
             return None;
         }
         let pos = byte_pos as usize;
-        if pos < self.buffer.text.len() {
-            Some(self.buffer.text.byte_at(pos))
+        if pos < self.buffer.layout_text().len() {
+            Some(self.buffer.layout_text().byte_at(pos))
         } else {
             None
         }
@@ -805,7 +997,7 @@ impl<'a> RustBufferAccess<'a> {
 
     /// Get the buffer's narrowed beginning (begv) as byte position.
     pub fn begv(&self) -> i64 {
-        self.buffer.begv as i64
+        self.buffer.layout_point_min_byte() as i64
     }
 
     /// Convert an absolute byte position to the layout engine's internal
@@ -819,33 +1011,27 @@ impl<'a> RustBufferAccess<'a> {
 
     /// Get the buffer's narrowed end (zv) as byte position.
     pub fn zv(&self) -> i64 {
-        self.buffer.zv as i64
+        self.buffer.layout_point_max_byte() as i64
     }
 
     /// Get point (cursor) byte position.
     pub fn point(&self) -> i64 {
-        self.buffer.pt as i64
+        self.buffer.layout_point_byte() as i64
     }
 
     /// Whether the buffer has been modified.
     pub fn modified(&self) -> bool {
-        self.buffer.modified
+        self.buffer.layout_modified()
     }
 
     /// Buffer name.
     pub fn name(&self) -> &str {
-        &self.buffer.name
+        self.buffer.layout_name()
     }
 
     /// Buffer file name, if any.
     pub fn file_name(&self) -> Option<&str> {
-        self.buffer.get_file_name()
-    }
-
-    /// Get the underlying neovm-core Buffer reference (for text property
-    /// and overlay access in later tasks).
-    pub fn inner(&self) -> &'a Buffer {
-        self.buffer
+        self.buffer.layout_file_name()
     }
 }
 
@@ -854,24 +1040,26 @@ impl<'a> RustBufferAccess<'a> {
 /// Wraps a reference to a neovm-core `Buffer` and provides query methods
 /// for invisible text, display properties, overlay strings, and other
 /// text property-based features.
-pub struct RustTextPropAccess<'a> {
-    buffer: &'a Buffer,
+pub(crate) struct RustTextPropAccess<'a, B: LayoutBufferView> {
+    buffer: &'a B,
 }
 
-fn buffer_charpos_to_bytepos(buffer: &Buffer, charpos: usize) -> usize {
-    buffer.char_to_byte_clamped(charpos.min(buffer.point_max_char()))
-}
-
-fn buffer_bytepos_to_charpos(buffer: &Buffer, bytepos: usize) -> usize {
+fn buffer_charpos_to_bytepos<B: LayoutBufferView>(buffer: &B, charpos: usize) -> usize {
     buffer
-        .text
-        .byte_to_char(bytepos.min(buffer.point_max_byte()))
-        .min(buffer.point_max_char())
+        .layout_text()
+        .char_to_byte(charpos.min(buffer.layout_point_max_char()))
 }
 
-impl<'a> RustTextPropAccess<'a> {
+fn buffer_bytepos_to_charpos<B: LayoutBufferView>(buffer: &B, bytepos: usize) -> usize {
+    buffer
+        .layout_text()
+        .byte_to_char(bytepos.min(buffer.layout_point_max_byte()))
+        .min(buffer.layout_point_max_char())
+}
+
+impl<'a, B: LayoutBufferView> RustTextPropAccess<'a, B> {
     /// Create a new text property accessor.
-    pub fn new(buffer: &'a Buffer) -> Self {
+    pub fn new(buffer: &'a B) -> Self {
         Self { buffer }
     }
 
@@ -884,7 +1072,7 @@ impl<'a> RustTextPropAccess<'a> {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
         let invis = self
             .buffer
-            .text
+            .layout_text()
             .text_props_get_property(bytepos, "invisible");
 
         let is_invisible = match invis {
@@ -896,10 +1084,10 @@ impl<'a> RustTextPropAccess<'a> {
         // Find the next position where the invisible property changes
         let next_change = self
             .buffer
-            .text
+            .layout_text()
             .text_props_next_change(bytepos)
             .map(|next| buffer_bytepos_to_charpos(self.buffer, next))
-            .unwrap_or(self.buffer.point_max_char());
+            .unwrap_or(self.buffer.layout_point_max_char());
 
         (is_invisible, next_change as i64)
     }
@@ -910,14 +1098,17 @@ impl<'a> RustTextPropAccess<'a> {
     /// next position where display properties change.
     pub fn check_display_prop(&self, charpos: i64) -> (Option<Value>, i64) {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
-        let display = self.buffer.text.text_props_get_property(bytepos, "display");
+        let display = self
+            .buffer
+            .layout_text()
+            .text_props_get_property(bytepos, "display");
 
         let next_change = self
             .buffer
-            .text
+            .layout_text()
             .text_props_next_change(bytepos)
             .map(|next| buffer_bytepos_to_charpos(self.buffer, next))
-            .unwrap_or(self.buffer.point_max_char());
+            .unwrap_or(self.buffer.layout_point_max_char());
 
         (display, next_change as i64)
     }
@@ -929,7 +1120,7 @@ impl<'a> RustTextPropAccess<'a> {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
         match self
             .buffer
-            .text
+            .layout_text()
             .text_props_get_property(bytepos, "line-spacing")
         {
             Some(v) if v.is_fixnum() => v.as_fixnum().unwrap() as f32,
@@ -965,13 +1156,16 @@ impl<'a> RustTextPropAccess<'a> {
         let mut after = Vec::new();
 
         // Get all overlays covering this position
-        let overlay_ids = self.buffer.overlays.overlays_at(bytepos);
+        let overlay_ids = self.buffer.layout_overlays().overlays_at(bytepos);
         for oid in &overlay_ids {
             let oid = *oid;
             // Before-string: from overlays that START at this position
-            if let Some(start) = self.buffer.overlays.overlay_start(oid) {
+            if let Some(start) = self.buffer.layout_overlays().overlay_start(oid) {
                 if start == bytepos {
-                    if let Some(val) = self.buffer.overlays.overlay_get_named(oid, "before-string")
+                    if let Some(val) = self
+                        .buffer
+                        .layout_overlays()
+                        .overlay_get_named(oid, "before-string")
                     {
                         if let Some(s) = value_as_string(&val) {
                             before.push((s.as_bytes().to_vec(), oid));
@@ -981,9 +1175,13 @@ impl<'a> RustTextPropAccess<'a> {
             }
 
             // After-string: from overlays that END at this position
-            if let Some(end) = self.buffer.overlays.overlay_end(oid) {
+            if let Some(end) = self.buffer.layout_overlays().overlay_end(oid) {
                 if end == bytepos {
-                    if let Some(val) = self.buffer.overlays.overlay_get_named(oid, "after-string") {
+                    if let Some(val) = self
+                        .buffer
+                        .layout_overlays()
+                        .overlay_get_named(oid, "after-string")
+                    {
                         if let Some(s) = value_as_string(&val) {
                             after.push((s.as_bytes().to_vec(), oid));
                         }
@@ -1000,16 +1198,18 @@ impl<'a> RustTextPropAccess<'a> {
         if bytepos > 0 {
             let nearby_ids = self
                 .buffer
-                .overlays
+                .layout_overlays()
                 .overlays_in(bytepos.saturating_sub(1), bytepos + 1);
             for oid in &nearby_ids {
                 let oid = *oid;
-                if let Some(end) = self.buffer.overlays.overlay_end(oid) {
+                if let Some(end) = self.buffer.layout_overlays().overlay_end(oid) {
                     if end == bytepos {
                         // Check we haven't already processed this overlay
                         if !overlay_ids.contains(&oid) {
-                            if let Some(val) =
-                                self.buffer.overlays.overlay_get_named(oid, "after-string")
+                            if let Some(val) = self
+                                .buffer
+                                .layout_overlays()
+                                .overlay_get_named(oid, "after-string")
                             {
                                 if let Some(s) = value_as_string(&val) {
                                     after.push((s.as_bytes().to_vec(), oid));
@@ -1031,16 +1231,18 @@ impl<'a> RustTextPropAccess<'a> {
     pub fn next_property_change(&self, charpos: i64) -> i64 {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
         self.buffer
-            .text
+            .layout_text()
             .text_props_next_change(bytepos)
             .map(|next| buffer_bytepos_to_charpos(self.buffer, next))
-            .unwrap_or(self.buffer.point_max_char()) as i64
+            .unwrap_or(self.buffer.layout_point_max_char()) as i64
     }
 
     /// Get a specific text property at a position.
     pub fn get_property(&self, charpos: i64, name: &str) -> Option<Value> {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
-        self.buffer.text.text_props_get_property(bytepos, name)
+        self.buffer
+            .layout_text()
+            .text_props_get_property(bytepos, name)
     }
 
     /// Get a text property at `charpos` as a string.
@@ -1050,11 +1252,6 @@ impl<'a> RustTextPropAccess<'a> {
     pub fn get_text_prop_string(&self, charpos: i64, prop_name: &str) -> Option<String> {
         self.get_property(charpos, prop_name)
             .and_then(|v| v.as_str_owned())
-    }
-
-    /// Get the underlying neovm-core Buffer reference.
-    pub fn inner(&self) -> &'a Buffer {
-        self.buffer
     }
 }
 
@@ -1422,8 +1619,11 @@ impl FaceResolver {
         }
     }
 
-    fn buffer_face_remapping_specs(buffer: &Buffer, face_name: &str) -> Option<Value> {
-        let mut cursor = buffer.buffer_local_value("face-remapping-alist")?;
+    fn buffer_face_remapping_specs<B: LayoutBufferView>(
+        buffer: &B,
+        face_name: &str,
+    ) -> Option<Value> {
+        let mut cursor = buffer.layout_buffer_local_value("face-remapping-alist")?;
         loop {
             if !cursor.is_cons() {
                 return None;
@@ -1441,9 +1641,9 @@ impl FaceResolver {
         }
     }
 
-    fn resolve_buffer_face_value_over(
+    fn resolve_buffer_face_value_over<B: LayoutBufferView>(
         &self,
-        buffer: &Buffer,
+        buffer: &B,
         base: &ResolvedFace,
         val: &Value,
         remap_stack: &mut Vec<String>,
@@ -1499,7 +1699,7 @@ impl FaceResolver {
         }
     }
 
-    fn resolve_buffer_default_face(&self, buffer: &Buffer) -> ResolvedFace {
+    fn resolve_buffer_default_face<B: LayoutBufferView>(&self, buffer: &B) -> ResolvedFace {
         let mut remap_stack = Vec::new();
         self.resolve_buffer_face_value_over(
             buffer,
@@ -1556,19 +1756,22 @@ impl FaceResolver {
     ///
     /// `next_check` is set to the minimum of all property change positions
     /// so the caller can skip per-character lookups until that boundary.
-    pub fn face_at_pos(
+    pub(crate) fn face_at_pos<B: LayoutBufferView>(
         &self,
-        buffer: &Buffer,
+        buffer: &B,
         charpos: usize,
         next_check: &mut usize,
     ) -> ResolvedFace {
         let bytepos = buffer_charpos_to_bytepos(buffer, charpos);
-        let mut min_next = buffer.point_max_char();
+        let mut min_next = buffer.layout_point_max_char();
         let mut resolved = self.resolve_buffer_default_face(buffer);
         let mut remap_stack = Vec::new();
 
         // 1. "face" text property
-        if let Some(val) = buffer.text.text_props_get_property(bytepos, "face") {
+        if let Some(val) = buffer
+            .layout_text()
+            .text_props_get_property(bytepos, "face")
+        {
             if let Some(next) =
                 self.resolve_buffer_face_value_over(buffer, &resolved, &val, &mut remap_stack)
             {
@@ -1576,13 +1779,13 @@ impl FaceResolver {
             }
         }
         // Update next_check from text property boundaries
-        if let Some(nc) = buffer.text.text_props_next_change(bytepos) {
+        if let Some(nc) = buffer.layout_text().text_props_next_change(bytepos) {
             min_next = min_next.min(buffer_bytepos_to_charpos(buffer, nc));
         }
 
         // 2. "font-lock-face" text property
         if let Some(val) = buffer
-            .text
+            .layout_text()
             .text_props_get_property(bytepos, "font-lock-face")
         {
             if let Some(next) =
@@ -1593,25 +1796,25 @@ impl FaceResolver {
         }
 
         // 3. Overlay faces (sorted by priority, lowest first)
-        let overlay_ids = buffer.overlays.overlays_at(bytepos);
+        let overlay_ids = buffer.layout_overlays().overlays_at(bytepos);
         if !overlay_ids.is_empty() {
             let mut overlay_faces: Vec<(i64, Value)> = Vec::new();
             for oid in &overlay_ids {
                 let oid = *oid;
                 // Update next_check from overlay boundaries
-                if let Some(end) = buffer.overlays.overlay_end(oid) {
+                if let Some(end) = buffer.layout_overlays().overlay_end(oid) {
                     if end > bytepos {
                         min_next = min_next.min(buffer_bytepos_to_charpos(buffer, end));
                     }
                 }
                 // Get priority (default 0)
                 let priority = buffer
-                    .overlays
+                    .layout_overlays()
                     .overlay_get_named(oid, "priority")
                     .and_then(|v| v.as_int())
                     .unwrap_or(0);
                 // Get face
-                if let Some(val) = buffer.overlays.overlay_get_named(oid, "face") {
+                if let Some(val) = buffer.layout_overlays().overlay_get_named(oid, "face") {
                     overlay_faces.push((priority, val));
                 }
             }
@@ -1632,7 +1835,7 @@ impl FaceResolver {
 
         // Also consider overlay boundaries so next_check doesn't skip past
         // positions where an overlay starts or ends.
-        if let Some(nb) = buffer.overlays.next_boundary_after(bytepos) {
+        if let Some(nb) = buffer.layout_overlays().next_boundary_after(bytepos) {
             min_next = min_next.min(buffer_bytepos_to_charpos(buffer, nb));
         }
 
