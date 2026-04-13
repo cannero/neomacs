@@ -407,6 +407,70 @@ fn materialize_pixel_positions_from_grid() {
 }
 
 #[test]
+fn materialize_preserves_char_bidi_level() {
+    let mut state = FrameDisplayState::new(1, 1, 8.0, 16.0);
+    state.faces.insert(0, Face::new(0));
+
+    let mut matrix = GlyphMatrix::new(1, 1);
+    matrix.rows[0].enabled = true;
+    let mut glyph = Glyph::char('א', 0, 1);
+    glyph.bidi_level = 1;
+    matrix.rows[0].glyphs[GlyphArea::Text as usize].push(glyph);
+
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 1,
+        matrix,
+        pixel_bounds: Rect::new(0.0, 0.0, 8.0, 16.0),
+        selected: true,
+    });
+
+    let buf = state.materialize();
+    match &buf.glyphs[0] {
+        FrameGlyph::Char {
+            char: ch,
+            bidi_level,
+            ..
+        } => {
+            assert_eq!(*ch, 'א');
+            assert_eq!(*bidi_level, 1);
+            assert_eq!(buf.glyphs[0].bidi_level(), Some(1));
+        }
+        other => panic!("expected Char, got {:?}", other),
+    }
+}
+
+#[test]
+fn materialize_preserves_stretch_bidi_level() {
+    let mut state = FrameDisplayState::new(4, 1, 8.0, 16.0);
+    state.faces.insert(0, Face::new(0));
+
+    let mut matrix = GlyphMatrix::new(1, 4);
+    matrix.rows[0].enabled = true;
+    let mut glyph = Glyph::stretch(3, 0);
+    glyph.bidi_level = 1;
+    matrix.rows[0].glyphs[GlyphArea::Text as usize].push(glyph);
+
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 1,
+        matrix,
+        pixel_bounds: Rect::new(0.0, 0.0, 32.0, 16.0),
+        selected: true,
+    });
+
+    let buf = state.materialize();
+    match &buf.glyphs[0] {
+        FrameGlyph::Stretch {
+            bidi_level, width, ..
+        } => {
+            assert_eq!(*bidi_level, 1);
+            assert_eq!(*width, 24.0);
+            assert_eq!(buf.glyphs[0].bidi_level(), Some(1));
+        }
+        other => panic!("expected Stretch, got {:?}", other),
+    }
+}
+
+#[test]
 fn materialize_uses_explicit_row_metrics() {
     let mut state = FrameDisplayState::new(2, 1, 10.0, 20.0);
     let mut face = Face::new(0);

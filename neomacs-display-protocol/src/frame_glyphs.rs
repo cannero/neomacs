@@ -206,6 +206,10 @@ pub enum FrameGlyph {
         clip_rect: Option<Rect>,
         /// Stable identity of the covered display slot.
         slot_id: DisplaySlotId,
+        /// Bidirectional resolved level for this displayed glyph.
+        ///
+        /// 0 is the default LTR level; odd values indicate RTL runs.
+        bidi_level: u8,
         /// Character to render (base character for single-codepoint glyphs)
         char: char,
         /// Composed text for multi-codepoint grapheme clusters (emoji ZWJ, combining marks).
@@ -262,6 +266,10 @@ pub enum FrameGlyph {
         clip_rect: Option<Rect>,
         /// Stable identity of the covered display slot.
         slot_id: DisplaySlotId,
+        /// Bidirectional resolved level for this displayed slot.
+        ///
+        /// 0 is the default LTR level; odd values indicate RTL runs.
+        bidi_level: u8,
         x: f32,
         y: f32,
         width: f32,
@@ -393,6 +401,16 @@ impl FrameGlyph {
         match self {
             FrameGlyph::Char { slot_id, .. } | FrameGlyph::Stretch { slot_id, .. } => {
                 Some(*slot_id)
+            }
+            _ => None,
+        }
+    }
+
+    /// Bidirectional resolved level for displayed character/stretch slots.
+    pub fn bidi_level(&self) -> Option<u8> {
+        match self {
+            FrameGlyph::Char { bidi_level, .. } | FrameGlyph::Stretch { bidi_level, .. } => {
+                Some(*bidi_level)
             }
             _ => None,
         }
@@ -1025,6 +1043,7 @@ impl FrameGlyphBuffer {
             row_role: self.current_row_role,
             clip_rect: self.current_clip_rect,
             slot_id: self.current_slot_id(x, y),
+            bidi_level: 0,
             char,
             composed: None,
             x,
@@ -1067,6 +1086,7 @@ impl FrameGlyphBuffer {
             row_role: self.current_row_role,
             clip_rect: self.current_clip_rect,
             slot_id: self.current_slot_id(x, y),
+            bidi_level: 0,
             char: base_char,
             composed: Some(text.into()),
             x,
@@ -1117,6 +1137,7 @@ impl FrameGlyphBuffer {
             row_role: self.current_row_role,
             clip_rect: self.current_clip_rect,
             slot_id: self.current_slot_id(x, y),
+            bidi_level: 0,
             x,
             y,
             width,
@@ -1146,6 +1167,7 @@ impl FrameGlyphBuffer {
             row_role: self.current_row_role,
             clip_rect: self.current_clip_rect,
             slot_id: self.current_slot_id(x, y),
+            bidi_level: 0,
             x,
             y,
             width,
@@ -1359,6 +1381,13 @@ impl FrameGlyphBuffer {
     /// Set the authoritative physical cursor for the frame.
     pub fn set_phys_cursor(&mut self, cursor: PhysCursor) {
         self.phys_cursor = Some(cursor);
+    }
+
+    /// Look up the text or stretch glyph occupying a given display slot.
+    pub fn slot_glyph(&self, slot_id: DisplaySlotId) -> Option<&FrameGlyph> {
+        self.glyphs
+            .iter()
+            .find(|glyph| glyph.slot_id().is_some_and(|slot| slot == slot_id))
     }
 
     /// Add border
@@ -2131,6 +2160,31 @@ mod tests {
             } => {
                 assert_eq!(*stipple_id, 7);
                 assert_eq!(*stipple_fg, Some(fg));
+            }
+            other => panic!("Expected Stretch glyph, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn slot_glyph_returns_matching_stretch() {
+        let mut buf = FrameGlyphBuffer::new();
+        buf.set_draw_context(3, GlyphRowRole::Text, None);
+        buf.add_stretch(8.0, 16.0, 24.0, 16.0, Color::BLACK, 7, false);
+
+        let slot_id = buf.glyphs[0].slot_id().expect("stretch slot id");
+        let glyph = buf.slot_glyph(slot_id).expect("slot glyph");
+
+        match glyph {
+            FrameGlyph::Stretch {
+                bidi_level,
+                width,
+                face_id,
+                ..
+            } => {
+                assert_eq!(*bidi_level, 0);
+                assert_eq!(*width, 24.0);
+                assert_eq!(*face_id, 7);
+                assert_eq!(glyph.bidi_level(), Some(0));
             }
             other => panic!("Expected Stretch glyph, got {:?}", other),
         }

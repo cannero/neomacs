@@ -7,7 +7,7 @@ use super::WgpuRenderer;
 use cosmic_text::SubpixelBin;
 use neomacs_display_protocol::face::{BoxType, Face, FaceAttributes, UnderlineStyle};
 use neomacs_display_protocol::frame_glyphs::{
-    CursorStyle, FrameGlyph, FrameGlyphBuffer, GlyphRowRole,
+    CursorStyle, FrameGlyph, FrameGlyphBuffer, GlyphRowRole, PhysCursor,
 };
 use neomacs_display_protocol::types::{AnimatedCursor, Color, Rect};
 use std::collections::{BTreeSet, HashMap};
@@ -86,6 +86,33 @@ struct BoxSpan {
     face_id: u32,
     row_role: GlyphRowRole,
     bg: Option<Color>,
+}
+
+fn cursor_render_rect(
+    frame_glyphs: &FrameGlyphBuffer,
+    cursor: &PhysCursor,
+) -> (f32, f32, f32, f32) {
+    let mut x = cursor.x;
+    let y = cursor.y;
+    let width = cursor.width;
+    let height = cursor.height;
+
+    if matches!(
+        cursor.style,
+        CursorStyle::Bar(_) | CursorStyle::Hbar(_) | CursorStyle::Hollow
+    ) && let Some(slot) = frame_glyphs.slot_glyph(cursor.slot_id)
+        && slot.bidi_level().is_some_and(|level| level & 1 != 0)
+    {
+        let slot_width = match slot {
+            FrameGlyph::Char { width, .. } | FrameGlyph::Stretch { width, .. } => *width,
+            _ => width,
+        };
+        if slot_width > width {
+            x += slot_width - width;
+        }
+    }
+
+    (x, y, width, height)
 }
 
 fn trace_face_debug_enabled() -> bool {
@@ -1091,7 +1118,7 @@ impl WgpuRenderer {
                                 .phys_cursor
                                 .as_ref()
                                 .filter(|cursor| cursor.window_id == *window_id)
-                                .map(|cursor| (cursor.x, cursor.y, cursor.width, cursor.height))
+                                .map(|cursor| cursor_render_rect(frame_glyphs, cursor))
                                 .unwrap_or((*x, *y, *width, *height));
                             if wake_active {
                                 let (sx, sy, sw, sh) = Self::scale_rect(
@@ -1176,9 +1203,21 @@ impl WgpuRenderer {
                             let (cx, cy, cw, ch) = if let Some(ref anim) = animated_cursor {
                                 if *window_id == anim.window_id && !style.is_hollow() {
                                     (anim.x, anim.y, anim.width, anim.height)
+                                } else if let Some(cursor) = frame_glyphs
+                                    .phys_cursor
+                                    .as_ref()
+                                    .filter(|cursor| cursor.window_id == *window_id)
+                                {
+                                    cursor_render_rect(frame_glyphs, cursor)
                                 } else {
                                     (*x, *y, *width, *height)
                                 }
+                            } else if let Some(cursor) = frame_glyphs
+                                .phys_cursor
+                                .as_ref()
+                                .filter(|cursor| cursor.window_id == *window_id)
+                            {
+                                cursor_render_rect(frame_glyphs, cursor)
                             } else {
                                 (*x, *y, *width, *height)
                             };
@@ -4680,5 +4719,80 @@ impl WgpuRenderer {
             "Window Switch Fade Buffer",
             super::window_effects::emit_window_switch_fade(ctx, &mut self.active_window_fades,)
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cursor_render_rect;
+    use neomacs_display_protocol::frame_glyphs::{
+        CursorStyle, DisplaySlotId, FrameGlyph, FrameGlyphBuffer, GlyphRowRole, PhysCursor,
+    };
+    use neomacs_display_protocol::types::Color;
+
+    fn make_cursor(
+        slot_id: DisplaySlotId,
+        x: f32,
+        y: f32,
+        width: f32,
+        style: CursorStyle,
+    ) -> PhysCursor {
+        PhysCursor {
+            window_id: slot_id.window_id as i32,
+            charpos: 0,
+            row: slot_id.row as usize,
+            col: slot_id.col,
+            slot_id,
+            x,
+            y,
+            width,
+            height: 16.0,
+            ascent: 12.0,
+            style,
+            color: Color::WHITE,
+            cursor_fg: Color::BLACK,
+        }
+    }
+
+    #[test]
+    fn rtl_bar_cursor_uses_right_edge_of_char_slot() {
+        let mut frame = FrameGlyphBuffer::new();
+        frame.set_draw_context(1, GlyphRowRole::Text, None);
+        frame.add_char('א', 10.0, 20.0, 12.0, 16.0, 12.0, false);
+        let slot_id = frame.glyphs[0].slot_id().expect("slot id");
+        if let FrameGlyph::Char { bidi_level, .. } = &mut frame.glyphs[0] {
+            *bidi_level = 1;
+        }
+
+        let cursor = make_cursor(slot_id, 10.0, 20.0, 2.0, CursorStyle::Bar(2.0));
+        assert_eq!(cursor_render_rect(&frame, &cursor), (20.0, 20.0, 2.0, 16.0));
+    }
+
+    #[test]
+    fn rtl_hbar_cursor_uses_right_edge_of_stretch_slot() {
+        let mut frame = FrameGlyphBuffer::new();
+        frame.set_draw_context(2, GlyphRowRole::Text, None);
+        frame.add_stretch(30.0, 40.0, 24.0, 16.0, Color::BLACK, 0, false);
+        let slot_id = frame.glyphs[0].slot_id().expect("slot id");
+        if let FrameGlyph::Stretch { bidi_level, .. } = &mut frame.glyphs[0] {
+            *bidi_level = 1;
+        }
+
+        let cursor = make_cursor(slot_id, 30.0, 40.0, 8.0, CursorStyle::Hbar(2.0));
+        assert_eq!(cursor_render_rect(&frame, &cursor), (46.0, 40.0, 8.0, 16.0));
+    }
+
+    #[test]
+    fn filled_box_cursor_keeps_slot_origin_in_rtl_runs() {
+        let mut frame = FrameGlyphBuffer::new();
+        frame.set_draw_context(3, GlyphRowRole::Text, None);
+        frame.add_char('א', 50.0, 60.0, 12.0, 16.0, 12.0, false);
+        let slot_id = frame.glyphs[0].slot_id().expect("slot id");
+        if let FrameGlyph::Char { bidi_level, .. } = &mut frame.glyphs[0] {
+            *bidi_level = 1;
+        }
+
+        let cursor = make_cursor(slot_id, 50.0, 60.0, 8.0, CursorStyle::FilledBox);
+        assert_eq!(cursor_render_rect(&frame, &cursor), (50.0, 60.0, 8.0, 16.0));
     }
 }
