@@ -982,15 +982,6 @@ impl WindowDisplaySnapshot {
         })
     }
 
-    pub fn output_cursor_pos(&self) -> Option<WindowCursorPos> {
-        self.rows.last().map(|row| WindowCursorPos {
-            x: row.end_x,
-            y: row.y,
-            row: row.row,
-            col: row.end_col,
-        })
-    }
-
     pub fn visible_buffer_span(&self) -> Option<(usize, usize)> {
         let start = self
             .rows
@@ -1534,7 +1525,10 @@ impl Frame {
         self.begin_display_output_pass();
         for snapshot in &snapshots {
             self.begin_window_output_update(snapshot.window_id);
-            self.commit_window_output_snapshot(snapshot);
+            self.install_logical_cursor(snapshot.window_id, snapshot.logical_cursor_pos());
+            self.apply_physical_cursor_snapshot(snapshot.window_id, snapshot.phys_cursor.clone());
+            self.fallback_output_cursor_from_snapshot(snapshot);
+            self.finish_window_output_update(snapshot.window_id);
         }
         self.set_display_snapshots(snapshots);
     }
@@ -1643,30 +1637,6 @@ impl Frame {
         {
             display.commit_completed_redisplay();
         }
-    }
-
-    /// Commit the output/cursor state for one live window from a redisplay snapshot.
-    ///
-    /// This remains the snapshot-driven compatibility path. The primary Rust
-    /// layout path now installs logical/physical cursor state and advances
-    /// output progress on the live window directly, then uses
-    /// `fallback_output_cursor_from_snapshot` plus `finish_window_output_update`
-    /// to finalize the update.
-    pub fn commit_window_output_snapshot(&mut self, snapshot: &WindowDisplaySnapshot) {
-        if let Some(window) = self.find_window_mut(snapshot.window_id)
-            && let Some(display) = window.display_mut()
-        {
-            if display.cursor.is_none() {
-                display.install_logical_cursor(snapshot.logical_cursor_pos());
-            }
-            if display.output_cursor.is_none() {
-                display.commit_output_cursor_from_display_snapshot(snapshot);
-            }
-            if display.phys_cursor.is_none() {
-                display.apply_physical_cursor_snapshot(snapshot.phys_cursor.clone());
-            }
-        }
-        self.finish_window_output_update(snapshot.window_id);
     }
 
     /// Replace the authoritative per-window redisplay geometry map without
@@ -3440,7 +3410,11 @@ mod tests {
 
         let frame = mgr.get_mut(fid).unwrap();
         frame.begin_display_output_pass();
-        frame.commit_window_output_snapshot(&snapshot);
+        frame.begin_window_output_update(wid);
+        frame.install_logical_cursor(wid, snapshot.logical_cursor_pos());
+        frame.apply_physical_cursor_snapshot(wid, snapshot.phys_cursor.clone());
+        frame.fallback_output_cursor_from_snapshot(&snapshot);
+        frame.finish_window_output_update(wid);
         frame.set_display_snapshots(vec![WindowDisplaySnapshot {
             window_id: wid,
             phys_cursor: None,
@@ -3741,7 +3715,7 @@ mod tests {
     }
 
     #[test]
-    fn commit_window_output_snapshot_prefers_live_output_progress() {
+    fn explicit_window_output_finalization_prefers_live_output_progress() {
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().selected_window;
@@ -3785,7 +3759,10 @@ mod tests {
                 end_buffer_pos: Some(32),
             },
         );
-        frame.commit_window_output_snapshot(&snapshot);
+        frame.install_logical_cursor(wid, snapshot.logical_cursor_pos());
+        frame.apply_physical_cursor_snapshot(wid, snapshot.phys_cursor.clone());
+        frame.fallback_output_cursor_from_snapshot(&snapshot);
+        frame.finish_window_output_update(wid);
 
         let display = frame
             .find_window(wid)
@@ -3831,7 +3808,7 @@ mod tests {
     }
 
     #[test]
-    fn commit_window_output_snapshot_preserves_live_logical_and_physical_cursor_state() {
+    fn explicit_window_output_finalization_preserves_live_logical_and_physical_cursor_state() {
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().selected_window;
@@ -3882,7 +3859,8 @@ mod tests {
         frame.begin_window_output_update(wid);
         frame.install_logical_cursor(wid, Some(live_cursor));
         frame.apply_physical_cursor_snapshot(wid, Some(live_phys.clone()));
-        frame.commit_window_output_snapshot(&snapshot);
+        frame.fallback_output_cursor_from_snapshot(&snapshot);
+        frame.finish_window_output_update(wid);
 
         let display = frame
             .find_window(wid)
