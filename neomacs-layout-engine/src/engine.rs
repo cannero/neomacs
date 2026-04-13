@@ -1122,7 +1122,7 @@ fn render_overlay_string(
                 charpos_end: anchor_charpos,
             });
             *hit_row_charpos_start = anchor_charpos;
-            output_emitter.push_text_row(evaluator, *y, *row_max_height, *row_max_ascent);
+            output_emitter.push_text_row(*y, *row_max_height, *row_max_ascent);
             builder.end_row();
             *row += 1;
             if *row >= max_rows {
@@ -3015,7 +3015,7 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    output_emitter.push_text_row(evaluator, y, row_max_height, row_max_ascent);
+                    output_emitter.push_text_row(y, row_max_height, row_max_ascent);
                     hit_row_charpos_start = charpos;
                     row_extend_bg = None;
                     row_extend_row = -1;
@@ -3470,7 +3470,7 @@ impl LayoutEngine {
                             charpos_start: hit_row_charpos_start,
                             charpos_end: charpos,
                         });
-                        output_emitter.push_text_row(evaluator, y, row_max_height, row_max_ascent);
+                        output_emitter.push_text_row(y, row_max_height, row_max_ascent);
                         row_extend_bg = None;
                         row_extend_row = -1;
                         if box_active {
@@ -3568,7 +3568,7 @@ impl LayoutEngine {
                     charpos_start: hit_row_charpos_start,
                     charpos_end: charpos,
                 });
-                output_emitter.push_text_row(evaluator, y, row_max_height, row_max_ascent);
+                output_emitter.push_text_row(y, row_max_height, row_max_ascent);
 
                 self.matrix_builder.end_row();
                 row += 1;
@@ -3769,7 +3769,7 @@ impl LayoutEngine {
                             charpos_start: hit_row_charpos_start,
                             charpos_end: charpos,
                         });
-                        output_emitter.push_text_row(evaluator, y, row_max_height, row_max_ascent);
+                        output_emitter.push_text_row(y, row_max_height, row_max_ascent);
                         row_extend_bg = None;
                         row_extend_row = -1;
                         row += 1;
@@ -3802,7 +3802,7 @@ impl LayoutEngine {
                             charpos_start: hit_row_charpos_start,
                             charpos_end: charpos,
                         });
-                        output_emitter.push_text_row(evaluator, y, row_max_height, row_max_ascent);
+                        output_emitter.push_text_row(y, row_max_height, row_max_ascent);
                         hit_row_charpos_start = charpos;
                         row_extend_bg = None;
                         row_extend_row = -1;
@@ -4042,7 +4042,7 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    output_emitter.push_text_row(evaluator, y, row_max_height, row_max_ascent);
+                    output_emitter.push_text_row(y, row_max_height, row_max_ascent);
                     row_extend_bg = None;
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
@@ -4089,7 +4089,7 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    output_emitter.push_text_row(evaluator, y, row_max_height, row_max_ascent);
+                    output_emitter.push_text_row(y, row_max_height, row_max_ascent);
                     row_extend_bg = None;
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
@@ -4138,7 +4138,7 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    output_emitter.push_text_row(evaluator, y, row_max_height, row_max_ascent);
+                    output_emitter.push_text_row(y, row_max_height, row_max_ascent);
                     row_extend_bg = None;
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
@@ -4719,7 +4719,7 @@ impl LayoutEngine {
                 charpos_start: hit_row_charpos_start,
                 charpos_end: charpos,
             });
-            output_emitter.push_text_row(evaluator, row_y_start, row_max_height, row_max_ascent);
+            output_emitter.push_text_row(row_y_start, row_max_height, row_max_ascent);
         }
 
         // GNU redisplay keeps iterating until point visibility converges or no
@@ -4962,7 +4962,7 @@ impl LayoutEngine {
             );
             self.matrix_builder = builder;
             if let Some(progress) = tab_output {
-                output_emitter.push_chrome_row_progress(evaluator, progress);
+                output_emitter.push_chrome_row_progress(progress);
             }
         }
 
@@ -5015,7 +5015,7 @@ impl LayoutEngine {
             );
             self.matrix_builder = builder;
             if let Some(progress) = header_output {
-                output_emitter.push_chrome_row_progress(evaluator, progress);
+                output_emitter.push_chrome_row_progress(progress);
             }
         }
 
@@ -5079,7 +5079,7 @@ impl LayoutEngine {
             );
             self.matrix_builder = builder;
             if let Some(progress) = mode_output {
-                output_emitter.push_chrome_row_progress(evaluator, progress);
+                output_emitter.push_chrome_row_progress(progress);
             }
         }
 

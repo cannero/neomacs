@@ -1,9 +1,9 @@
 //! Live window-output emission helpers for Rust redisplay.
 //!
 //! This layer bridges Rust layout/status-line emission to GNU-like live window
-//! output state. It updates `WindowDisplayState` through explicit row begin /
-//! progress / finish steps while simultaneously recording immutable row
-//! snapshots for renderer handoff.
+//! output state. It advances live output through explicit output-cursor moves
+//! while simultaneously recording immutable row snapshots for renderer
+//! handoff.
 
 use super::display_status_line::StatusLineOutputProgress;
 use neovm_core::emacs_core::Context;
@@ -244,7 +244,9 @@ impl WindowOutputEmitter {
         x: i64,
     ) {
         self.begin_current_row_progress(row, col, y, x);
-        let _ = self.with_live_update(evaluator, |update| update.begin_row(row, col, y, x));
+        let _ = self.with_live_update(evaluator, |update| {
+            update.output_cursor_to_coords(row, col, y, x)
+        });
     }
 
     pub(crate) fn begin_text_row(
@@ -281,7 +283,9 @@ impl WindowOutputEmitter {
         x: i64,
     ) {
         self.update_current_row_progress(row, col, y, x);
-        let _ = self.with_live_update(evaluator, |update| update.advance_progress(row, col, y, x));
+        let _ = self.with_live_update(evaluator, |update| {
+            update.output_cursor_to_coords(row, col, y, x)
+        });
     }
 
     pub(crate) fn advance_text_progress(
@@ -316,13 +320,7 @@ impl WindowOutputEmitter {
         );
     }
 
-    pub(crate) fn push_text_row(
-        &mut self,
-        evaluator: &mut Context,
-        row_y_start: f32,
-        row_height: f32,
-        row_ascent: f32,
-    ) {
+    pub(crate) fn push_text_row(&mut self, row_y_start: f32, row_height: f32, row_ascent: f32) {
         let row_progress = self
             .current_row_progress
             .take()
@@ -344,39 +342,28 @@ impl WindowOutputEmitter {
             height: row_height.max(1.0),
             ascent: row_ascent.max(0.0).min(row_height.max(1.0)),
         });
-        if let Some(row) = self.rows.last() {
-            let _ = self.with_live_update(evaluator, |update| update.finish_row(row));
-        }
     }
 
-    pub(crate) fn push_chrome_row(&mut self, evaluator: &mut Context, row: DisplayRowSnapshot) {
-        let _ = self.with_live_update(evaluator, |update| update.finish_row(&row));
+    pub(crate) fn push_chrome_row(&mut self, row: DisplayRowSnapshot) {
         self.rows.push(row);
     }
 
-    pub(crate) fn push_chrome_row_progress(
-        &mut self,
-        evaluator: &mut Context,
-        progress: StatusLineOutputProgress,
-    ) {
+    pub(crate) fn push_chrome_row_progress(&mut self, progress: StatusLineOutputProgress) {
         let row_progress = self
             .current_row_progress
             .take()
             .expect("chrome row must have live output progress before finishing");
-        self.push_chrome_row(
-            evaluator,
-            DisplayRowSnapshot {
-                row: row_progress.row,
-                y: row_progress.y,
-                height: progress.height.round() as i64,
-                start_x: row_progress.start_x,
-                start_col: row_progress.start_col,
-                end_x: row_progress.x,
-                end_col: row_progress.col,
-                start_buffer_pos: None,
-                end_buffer_pos: None,
-            },
-        );
+        self.push_chrome_row(DisplayRowSnapshot {
+            row: row_progress.row,
+            y: row_progress.y,
+            height: progress.height.round() as i64,
+            start_x: row_progress.start_x,
+            start_col: row_progress.start_col,
+            end_x: row_progress.x,
+            end_col: row_progress.col,
+            start_buffer_pos: None,
+            end_buffer_pos: None,
+        });
     }
 
     pub(crate) fn set_logical_cursor(&mut self, cursor: WindowCursorPos) {

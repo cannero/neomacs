@@ -100,10 +100,9 @@ pub enum SplitDirection {
 /// This mirrors GNU's `struct window` ownership model closely enough for
 /// `window-cursor-info` and related stateful cursor queries. The Rust
 /// redisplay path now drives this state through an explicit per-window output
-/// pass before frame snapshots are published. Text rows and window chrome rows
-/// now advance `output_cursor` as they are emitted. The main remaining gap is
-/// that neomacs still advances output at Rust row-emission granularity rather
-/// than GNU's lower-level draw-call pipeline.
+/// pass before frame snapshots are published. Rust layout/status-line emission
+/// advances `output_cursor` through explicit output-cursor moves, while row
+/// snapshots remain published artifacts for renderer handoff.
 #[derive(Clone, Debug)]
 pub struct WindowDisplayState {
     /// Window-local display table; nil means inherit from the buffer/frame.
@@ -202,23 +201,14 @@ impl WindowDisplayState {
         self.cursor = cursor;
     }
 
-    fn commit_output_cursor_from_cursor(&mut self) {
-        self.output_cursor = self.cursor;
-    }
-
-    /// Start emitting a new output row.
-    fn begin_output_row(&mut self, row: i64, col: i64, y: i64, x: i64) {
-        self.output_cursor = Some(WindowCursorPos { x, y, row, col });
-    }
-
-    /// Advance output progress within the currently emitted row.
-    fn advance_output_progress(&mut self, row: i64, col: i64, y: i64, x: i64) {
-        self.output_cursor = Some(WindowCursorPos { x, y, row, col });
-    }
-
-    /// Finish emitting a row from its final row geometry.
-    fn finish_output_row(&mut self, row: &DisplayRowSnapshot) {
-        self.advance_output_progress(row.row, row.end_col, row.y, row.end_x);
+    /// Move the live output cursor to a new nominal output position.
+    ///
+    /// This mirrors GNU's `output_cursor_to` style of update more closely
+    /// than the older row-start/row-finish helpers: Rust redisplay advances
+    /// output by explicit output positions, while row boundaries remain local
+    /// to snapshot recording in the layout/output emitter.
+    fn output_cursor_to(&mut self, pos: WindowCursorPos) {
+        self.output_cursor = Some(pos);
     }
 
     fn apply_physical_cursor_snapshot(&mut self, cursor: Option<WindowCursorSnapshot>) {
@@ -242,11 +232,11 @@ impl WindowDisplayState {
 
 /// Explicit live redisplay/update session for one window.
 ///
-/// This mirrors GNU's per-window output/update ownership model: row progress,
-/// cursor installation, and final redisplay commit all flow through one update
-/// object over the live `WindowDisplayState`. Snapshot fallback remains a
-/// narrow compatibility path for replay/bootstrap cases and is not used by the
-/// normal Rust layout pipeline.
+/// This mirrors GNU's per-window output/update ownership model: explicit
+/// output-cursor moves, cursor installation, and final redisplay commit all
+/// flow through one update object over the live `WindowDisplayState`.
+/// Snapshot replay remains a narrow compatibility path for replay/bootstrap
+/// cases and is not used by the normal Rust layout pipeline.
 pub struct WindowOutputUpdate<'a> {
     display: &'a mut WindowDisplayState,
 }
@@ -260,16 +250,12 @@ impl<'a> WindowOutputUpdate<'a> {
         self.display.begin_window_output_update();
     }
 
-    pub fn begin_row(&mut self, row: i64, col: i64, y: i64, x: i64) {
-        self.display.begin_output_row(row, col, y, x);
+    pub fn output_cursor_to(&mut self, pos: WindowCursorPos) {
+        self.display.output_cursor_to(pos);
     }
 
-    pub fn advance_progress(&mut self, row: i64, col: i64, y: i64, x: i64) {
-        self.display.advance_output_progress(row, col, y, x);
-    }
-
-    pub fn finish_row(&mut self, row: &DisplayRowSnapshot) {
-        self.display.finish_output_row(row);
+    pub fn output_cursor_to_coords(&mut self, row: i64, col: i64, y: i64, x: i64) {
+        self.output_cursor_to(WindowCursorPos { x, y, row, col });
     }
 
     fn replay_output_rows(&mut self, rows: &[DisplayRowSnapshot]) {
@@ -278,8 +264,8 @@ impl<'a> WindowOutputUpdate<'a> {
             return;
         }
         for row in rows {
-            self.begin_row(row.row, row.start_col, row.y, row.start_x);
-            self.finish_row(row);
+            self.output_cursor_to_coords(row.row, row.start_col, row.y, row.start_x);
+            self.output_cursor_to_coords(row.row, row.end_col, row.y, row.end_x);
         }
     }
 
@@ -3589,7 +3575,7 @@ mod tests {
         let mut display = WindowDisplayState::default();
 
         display.install_logical_cursor(Some(cursor_pos));
-        display.commit_output_cursor_from_cursor();
+        display.output_cursor_to(cursor_pos);
         display.apply_physical_cursor_snapshot(Some(cursor.clone()));
 
         display.begin_output_pass();
@@ -3617,7 +3603,7 @@ mod tests {
         let mut display = WindowDisplayState::default();
 
         display.install_logical_cursor(Some(cursor_pos));
-        display.commit_output_cursor_from_cursor();
+        display.output_cursor_to(cursor_pos);
         display.apply_physical_cursor_snapshot(Some(cursor));
 
         display.begin_window_output_update();
@@ -3643,10 +3629,15 @@ mod tests {
         assert_eq!(display.cursor, Some(logical_cursor));
         assert_eq!(display.output_cursor, None);
 
-        display.commit_output_cursor_from_cursor();
+        display.output_cursor_to(logical_cursor);
         assert_eq!(display.output_cursor, Some(logical_cursor));
 
-        display.advance_output_progress(1, 6, 24, 36);
+        display.output_cursor_to(WindowCursorPos {
+            x: 36,
+            y: 24,
+            row: 1,
+            col: 6,
+        });
         assert_eq!(
             display.output_cursor,
             Some(WindowCursorPos {
@@ -3668,7 +3659,12 @@ mod tests {
             row: 1,
             col: 3,
         }));
-        display.advance_output_progress(4, 9, 72, 80);
+        display.output_cursor_to(WindowCursorPos {
+            x: 80,
+            y: 72,
+            row: 4,
+            col: 9,
+        });
 
         display.commit_completed_redisplay();
 
@@ -3747,17 +3743,8 @@ mod tests {
         {
             let mut update = frame.window_output_update(wid).expect("window update");
             update.begin_update();
-            update.finish_row(&DisplayRowSnapshot {
-                row: 2,
-                y: 32,
-                height: 16,
-                start_x: 0,
-                start_col: 0,
-                end_x: 80,
-                end_col: 12,
-                start_buffer_pos: Some(20),
-                end_buffer_pos: Some(32),
-            });
+            update.output_cursor_to_coords(2, 0, 32, 0);
+            update.output_cursor_to_coords(2, 12, 32, 80);
             update.finalize_live_update(
                 Some(WindowCursorPos::from_snapshot(&cursor)),
                 Some(cursor.clone()),
@@ -3791,8 +3778,8 @@ mod tests {
         {
             let mut update = frame.window_output_update(wid).expect("window update");
             update.begin_update();
-            update.begin_row(2, 3, 32, 24);
-            update.advance_progress(2, 7, 32, 56);
+            update.output_cursor_to_coords(2, 3, 32, 24);
+            update.output_cursor_to_coords(2, 7, 32, 56);
         }
 
         let display = frame
@@ -4063,7 +4050,7 @@ mod tests {
             .and_then(|window| window.display_mut())
             .expect("window display state");
         display.install_logical_cursor(Some(cursor_pos));
-        display.commit_output_cursor_from_cursor();
+        display.output_cursor_to(cursor_pos);
         display.apply_physical_cursor_snapshot(Some(cursor));
         display.commit_completed_redisplay();
 
