@@ -2693,6 +2693,13 @@ impl Context {
         ] {
             obarray.set_symbol_value(name, Value::NIL);
         }
+        // GNU `frame.c` initializes these global minor-mode variables in C:
+        //   Vmenu_bar_mode = Qt
+        //   Vtool_bar_mode = Qt   (when built with window-system support)
+        // neomacs is a window-system-capable build, so match GNU's defaults
+        // instead of starting graphical sessions with both modes forced off.
+        obarray.set_symbol_value("menu-bar-mode", Value::T);
+        obarray.set_symbol_value("tool-bar-mode", Value::T);
         for name in [
             "auto-hscroll-mode",
             "create-lockfiles",

@@ -2092,6 +2092,7 @@ fn bootstrap_buffers(
             );
         }
         frame.sync_menu_bar_height_from_parameters();
+        frame.sync_tool_bar_height_from_parameters();
         if let Window::Leaf {
             buffer_id,
             window_start,

@@ -3892,6 +3892,38 @@ fn modify_frame_parameters_tab_bar_lines_reflows_root_window_tree() {
 }
 
 #[test]
+fn modify_frame_parameters_tool_bar_lines_reflows_root_window_tree() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    let fid = ev.frames.create_frame("F1", 800, 600, buf);
+    {
+        let frame = ev.frames.get_mut(fid).expect("frame");
+        frame.char_width = 10.0;
+        frame.char_height = 20.0;
+    }
+
+    let out =
+        ev.eval_str_each("(modify-frame-parameters (selected-frame) '((tool-bar-lines . 2)))");
+    assert!(
+        out[0].is_ok(),
+        "modify-frame-parameters failed: {:?}",
+        out[0]
+    );
+
+    let frame = ev.frames.get(fid).expect("frame should exist");
+    assert_eq!(frame.tool_bar_height, 40);
+    assert_eq!(
+        *frame.root_window.bounds(),
+        crate::window::Rect::new(0.0, 40.0, 800.0, 544.0)
+    );
+    assert_eq!(
+        *frame.minibuffer_leaf.as_ref().expect("minibuffer").bounds(),
+        crate::window::Rect::new(0.0, 584.0, 800.0, 16.0)
+    );
+}
+
+#[test]
 fn set_frame_size_builtins_preserve_pixel_dimensions() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

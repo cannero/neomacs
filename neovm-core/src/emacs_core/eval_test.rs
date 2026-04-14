@@ -9183,3 +9183,19 @@ fn cl_deftype_basic() {
         eprintln!("cl-deftype[{i}]: {r}");
     }
 }
+
+#[test]
+fn bootstrap_window_system_modes_match_gnu_defaults() {
+    crate::test_utils::init_test_tracing();
+    let eval = Context::new();
+    assert_eq!(
+        eval.obarray().symbol_value("menu-bar-mode"),
+        Some(&Value::T),
+        "GNU initializes menu-bar-mode to t in frame.c"
+    );
+    assert_eq!(
+        eval.obarray().symbol_value("tool-bar-mode"),
+        Some(&Value::T),
+        "GNU initializes tool-bar-mode to t for window-system builds"
+    );
+}

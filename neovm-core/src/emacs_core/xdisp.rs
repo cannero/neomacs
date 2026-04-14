@@ -2588,15 +2588,31 @@ pub(crate) fn builtin_tool_bar_height_ctx(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args_range("tool-bar-height", &args, 0, 2)?;
-    if let Some(frame) = args.first().filter(|frame| !frame.is_nil()) {
-        let _ = super::window_cmds::resolve_frame_id_in_state(
+    let fid = match args.first().filter(|frame| !frame.is_nil()) {
+        Some(frame) => super::window_cmds::resolve_frame_id_in_state(
             &mut eval.frames,
             &mut eval.buffers,
             Some(frame),
             "framep",
-        )?;
+        )?,
+        None => super::window_cmds::ensure_selected_frame_id_in_state(
+            &mut eval.frames,
+            &mut eval.buffers,
+        ),
+    };
+    let frame = eval
+        .frames
+        .get(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    let lines = frame
+        .frame_parameter_int("tool-bar-lines")
+        .unwrap_or(0)
+        .max(0);
+    if args.get(1).is_some_and(|pixelwise| !pixelwise.is_nil()) {
+        Ok(Value::fixnum(frame.tool_bar_height as i64))
+    } else {
+        Ok(Value::fixnum(lines))
     }
-    Ok(Value::fixnum(0))
 }
 
 /// (tab-bar-height &optional FRAME PIXELWISE) -> integer

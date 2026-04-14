@@ -1735,9 +1735,26 @@ fn test_tool_bar_height_eval_frame_validation() {
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval.frames.create_frame("xdisp-test", 80, 24, buf_id);
 
+    {
+        let frame = eval
+            .frames
+            .get_mut(frame_id)
+            .expect("xdisp test frame should exist");
+        frame.char_height = 17.0;
+        frame
+            .parameters
+            .insert("tool-bar-lines".to_string(), Value::fixnum(2));
+        frame.sync_tool_bar_height_from_parameters();
+    }
+
     let result =
         builtin_tool_bar_height_ctx(&mut eval, vec![Value::fixnum(frame_id.0 as i64)]).unwrap();
-    assert_eq!(result, Value::fixnum(0));
+    assert_eq!(result, Value::fixnum(2));
+
+    let pixelwise =
+        builtin_tool_bar_height_ctx(&mut eval, vec![Value::fixnum(frame_id.0 as i64), Value::T])
+            .unwrap();
+    assert_eq!(pixelwise, Value::fixnum(34));
 
     let err = builtin_tool_bar_height_ctx(&mut eval, vec![Value::string("x")]).unwrap_err();
     match err {

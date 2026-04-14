@@ -1641,6 +1641,21 @@ impl Frame {
         self.sync_window_area_bounds();
     }
 
+    /// Recompute `tool_bar_height` from the `tool-bar-lines` frame parameter.
+    ///
+    /// GNU stores the frame parameter as a line count and reports the pixel
+    /// height separately. Until the GUI tool-bar sender is fully wired,
+    /// neomacs uses the same one-row-per-line contract as the menu/tab bars.
+    pub fn sync_tool_bar_height_from_parameters(&mut self) {
+        let lines = self
+            .frame_parameter_int("tool-bar-lines")
+            .unwrap_or(0)
+            .max(0) as u32;
+        let char_height = self.char_height.max(1.0).round() as u32;
+        self.tool_bar_height = lines.saturating_mul(char_height);
+        self.sync_window_area_bounds();
+    }
+
     /// Select a window by ID.
     pub fn select_window(&mut self, id: WindowId) -> bool {
         if self.find_window(id).is_some() {

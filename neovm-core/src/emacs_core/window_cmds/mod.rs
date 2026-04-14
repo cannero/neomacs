@@ -5895,6 +5895,8 @@ pub(crate) fn x_create_frame_impl(
             ));
         }
         frame.sync_tab_bar_height_from_parameters();
+        frame.sync_menu_bar_height_from_parameters();
+        frame.sync_tool_bar_height_from_parameters();
     }
     if let Some(host) = display_host.as_mut() {
         let geometry_hints = frames
@@ -6264,6 +6266,8 @@ pub(crate) fn builtin_modify_frame_parameters(
     }
     if let Some(frame) = eval.frames.get_mut(fid) {
         frame.sync_tab_bar_height_from_parameters();
+        frame.sync_menu_bar_height_from_parameters();
+        frame.sync_tool_bar_height_from_parameters();
     }
 
     if requested_width_cols.is_some() || requested_total_lines.is_some() {
