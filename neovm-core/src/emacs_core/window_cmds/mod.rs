@@ -4298,20 +4298,28 @@ fn frame_uses_window_system_pixels(frame: &crate::window::Frame) -> bool {
 }
 
 fn frame_non_text_height_pixels(frame: &crate::window::Frame) -> u32 {
-    let minibuffer_height = frame
-        .minibuffer_leaf
-        .as_ref()
-        .map(|leaf| leaf.bounds().height.max(0.0).round() as u32)
-        .unwrap_or(0);
+    // GNU frame text size includes the minibuffer window.  Only true frame
+    // chrome lives outside the text area for sizing math here.
     frame
         .menu_bar_height
         .saturating_add(frame.tool_bar_height)
         .saturating_add(frame.tab_bar_height)
-        .saturating_add(minibuffer_height)
 }
 
-fn frame_text_width_pixels(frame: &crate::window::Frame) -> u32 {
-    frame.width
+fn frame_non_text_width_pixels_in_state(frames: &FrameManager, fid: FrameId) -> u32 {
+    frames
+        .get(fid)
+        .map(|frame| frame.horizontal_non_text_width().max(0) as u32)
+        .unwrap_or(0)
+}
+
+fn frame_text_width_pixels_in_state(frames: &FrameManager, fid: FrameId) -> u32 {
+    let Some(frame) = frames.get(fid) else {
+        return 0;
+    };
+    frame
+        .width
+        .saturating_sub(frame_non_text_width_pixels_in_state(frames, fid))
 }
 
 fn frame_text_height_pixels(frame: &crate::window::Frame) -> u32 {
@@ -4398,10 +4406,11 @@ fn resize_live_gui_frame(
         let frame = frames
             .get(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-        let char_width = frame.char_width.max(1.0);
-        let char_height = frame.char_height.max(1.0);
+        let char_width = frame.char_width.max(1.0).round();
+        let char_height = frame.char_height.max(1.0).round();
         let cols = ((text_width_px as f32) / char_width).floor().max(1.0) as i64;
         let text_lines = ((text_height_px as f32) / char_height).floor().max(1.0) as i64;
+        let non_text_width = frame_non_text_width_pixels_in_state(frames, fid);
         let non_text_height = frame_non_text_height_pixels(frame);
         let title = if frame.title.is_empty() {
             frame.name.clone()
@@ -4409,7 +4418,7 @@ fn resize_live_gui_frame(
             frame.title.clone()
         };
         (
-            text_width_px.max(1),
+            text_width_px.saturating_add(non_text_width).max(1),
             text_height_px.saturating_add(non_text_height).max(1),
             title,
             cols,
@@ -4458,6 +4467,79 @@ fn resize_live_gui_frame(
         .map_err(|message| signal("error", vec![Value::string(message)]))?;
     }
 
+    Ok(())
+}
+
+fn request_live_gui_frame_resize(
+    frames: &mut FrameManager,
+    display_host: &mut Option<Box<dyn super::eval::DisplayHost>>,
+    fid: FrameId,
+    text_width_px: u32,
+    text_height_px: u32,
+    pretend: bool,
+) -> Result<(), Flow> {
+    let (total_width_px, total_height_px, title, cols, text_lines) = {
+        let frame = frames
+            .get(fid)
+            .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+        let char_width = frame.char_width.max(1.0).round();
+        let char_height = frame.char_height.max(1.0).round();
+        let cols = ((text_width_px as f32) / char_width).floor().max(1.0) as i64;
+        let text_lines = ((text_height_px as f32) / char_height).floor().max(1.0) as i64;
+        let non_text_width = frame_non_text_width_pixels_in_state(frames, fid);
+        let non_text_height = frame_non_text_height_pixels(frame);
+        let title = if frame.title.is_empty() {
+            frame.name.clone()
+        } else {
+            frame.title.clone()
+        };
+        (
+            text_width_px.saturating_add(non_text_width).max(1),
+            text_height_px.saturating_add(non_text_height).max(1),
+            title,
+            cols,
+            text_lines,
+        )
+    };
+
+    tracing::debug!(
+        "request_live_gui_frame_resize: fid={:?} pretend={} total={}x{} cols={} text_lines={} host={}",
+        fid,
+        pretend,
+        total_width_px,
+        total_height_px,
+        cols,
+        text_lines,
+        display_host.is_some()
+    );
+
+    if pretend {
+        let frame = frames
+            .get_mut(fid)
+            .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+        set_frame_text_size(frame, cols, text_lines);
+        return Ok(());
+    }
+
+    if let Some(host) = display_host.as_mut() {
+        host.resize_gui_frame(super::eval::GuiFrameHostRequest {
+            frame_id: fid,
+            width: total_width_px,
+            height: total_height_px,
+            title,
+        })
+        .map_err(|message| signal("error", vec![Value::string(message)]))?;
+        return Ok(());
+    }
+
+    let frame = frames
+        .get_mut(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    frame.resize_pixelwise(total_width_px, total_height_px);
+    frame.parameters.insert(
+        FRAME_TEXT_LINES_PARAM.to_string(),
+        Value::fixnum(text_lines),
+    );
     Ok(())
 }
 
@@ -5057,7 +5139,7 @@ pub(crate) fn builtin_frame_text_width(
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     Ok(Value::fixnum(if frame_uses_window_system_pixels(frame) {
-        frame_text_width_pixels(frame) as i64
+        frame_text_width_pixels_in_state(frames, fid) as i64
     } else {
         frame_text_cols(frame)
     }))
@@ -5138,14 +5220,14 @@ pub(crate) fn builtin_set_frame_height(
             .get(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         (
-            frame_text_width_pixels(frame),
+            frame_text_width_pixels_in_state(&ctx.frames, fid),
             frame.char_height,
             frame_uses_window_system_pixels(frame),
         )
     };
     let text_height_px = check_frame_pixels(&args[1], pixelwise, char_height)?;
     if uses_window_system_pixels {
-        resize_live_gui_frame(
+        request_live_gui_frame_resize(
             &mut ctx.frames,
             &mut ctx.display_host,
             fid,
@@ -5200,7 +5282,7 @@ pub(crate) fn builtin_set_frame_width(
     };
     let text_width_px = check_frame_pixels(&args[1], pixelwise, char_width)?;
     if uses_window_system_pixels {
-        resize_live_gui_frame(
+        request_live_gui_frame_resize(
             &mut ctx.frames,
             &mut ctx.display_host,
             fid,
@@ -5265,7 +5347,7 @@ pub(crate) fn builtin_set_frame_size(
         char_height
     );
     if uses_window_system_pixels {
-        resize_live_gui_frame(
+        request_live_gui_frame_resize(
             &mut ctx.frames,
             &mut ctx.display_host,
             fid,
@@ -5644,13 +5726,11 @@ pub(crate) fn x_create_frame_impl(
             .round()
             .max(metrics.char_height)) as u32
     });
-    let height_px = text_height_px
-        .map(|text| text.saturating_add(metrics.minibuffer_height.round() as u32))
-        .unwrap_or_else(|| {
-            host_size
-                .map(|size| size.height)
-                .unwrap_or(metrics.height_px)
-        });
+    let height_px = text_height_px.map(|text| text).unwrap_or_else(|| {
+        host_size
+            .map(|size| size.height)
+            .unwrap_or(metrics.height_px)
+    });
     tracing::debug!(
         "x-create-frame: parsed width_cols={:?} height_lines={:?} host_size={:?} metrics={}x{} char={}x{} mini_h={} -> size={}x{}",
         parsed.width_columns,
@@ -6095,8 +6175,8 @@ pub(crate) fn builtin_modify_frame_parameters(
                 (
                     frame_total_cols(frame),
                     frame_total_lines(frame),
-                    frame.char_width.max(1.0),
-                    frame.char_height.max(1.0),
+                    frame.char_width.max(1.0).round(),
+                    frame.char_height.max(1.0).round(),
                     frame_non_text_height_pixels(frame),
                 )
             };

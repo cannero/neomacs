@@ -1439,6 +1439,69 @@ impl Frame {
             .saturating_add(self.tab_bar_height) as f32
     }
 
+    fn default_left_fringe_width(&self) -> i64 {
+        self.parameters
+            .get("left-fringe")
+            .and_then(|v| v.as_int())
+            .unwrap_or(8)
+            .max(0)
+    }
+
+    fn default_right_fringe_width(&self) -> i64 {
+        self.parameters
+            .get("right-fringe")
+            .and_then(|v| v.as_int())
+            .unwrap_or(8)
+            .max(0)
+    }
+
+    fn default_vertical_scroll_bar_side(&self) -> Option<&'static str> {
+        let raw = self
+            .parameters
+            .get("vertical-scroll-bars")
+            .copied()
+            .unwrap_or_else(|| {
+                if self.effective_window_system().is_some() {
+                    Value::symbol("right")
+                } else {
+                    Value::NIL
+                }
+            });
+        match raw.as_symbol_name() {
+            Some("left") => Some("left"),
+            Some("right") => Some("right"),
+            _ if raw.is_nil() => None,
+            _ if raw.is_truthy() => Some("right"),
+            _ => None,
+        }
+    }
+
+    fn default_vertical_scroll_bar_width(&self) -> i64 {
+        self.parameters
+            .get("scroll-bar-width")
+            .and_then(|v| v.as_int())
+            .filter(|value| *value > 0)
+            .unwrap_or_else(|| self.char_width.max(1.0).round() as i64)
+    }
+
+    pub(crate) fn horizontal_non_text_width(&self) -> i64 {
+        if self.effective_window_system().is_none() {
+            return 0;
+        }
+
+        let left_fringe = self.default_left_fringe_width();
+        let right_fringe = self.default_right_fringe_width();
+        let scroll_bar_width = if self.default_vertical_scroll_bar_side().is_some() {
+            self.default_vertical_scroll_bar_width()
+        } else {
+            0
+        };
+
+        left_fringe
+            .saturating_add(right_fringe)
+            .saturating_add(scroll_bar_width)
+    }
+
     fn window_text_area_bounds(&self) -> Rect {
         let frame_w = self.width as f32;
         let frame_h = self.height as f32;
@@ -1644,16 +1707,21 @@ impl Frame {
         self.height = height;
         self.sync_window_area_bounds();
 
-        let char_width = self.char_width.max(1.0);
-        let char_height = self.char_height.max(1.0);
+        let char_width = self.char_width.max(1.0).round();
+        let char_height = self.char_height.max(1.0).round();
+        let text_width = (i64::from(width) - self.horizontal_non_text_width()).max(1) as f32;
         let root_height = self.root_window.bounds().height;
-        let cols = ((width as f32) / char_width).floor().max(1.0) as i64;
+        let cols = (text_width / char_width).floor().max(1.0) as i64;
         let text_lines = (root_height / char_height).floor().max(1.0) as i64;
         let total_lines = text_lines.saturating_add(1);
         self.parameters
             .insert("width".to_string(), Value::fixnum(cols));
         self.parameters
             .insert("height".to_string(), Value::fixnum(total_lines));
+        self.parameters.insert(
+            "neovm--frame-text-lines".to_string(),
+            Value::fixnum(text_lines),
+        );
     }
 
     /// Grow the minibuffer window by `delta_rows` character-cell rows.

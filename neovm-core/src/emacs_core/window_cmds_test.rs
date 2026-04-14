@@ -2711,11 +2711,35 @@ fn frame_query_builtins_report_pixel_sizes_for_gui_frames() {
     );
     assert_eq!(
         super::builtin_frame_text_width(&mut ev, vec![Value::make_frame(fid.0)]).unwrap(),
-        Value::fixnum(800)
+        Value::fixnum(776)
     );
     assert_eq!(
         super::builtin_frame_text_height(&mut ev, vec![Value::make_frame(fid.0)]).unwrap(),
-        Value::fixnum(584)
+        Value::fixnum(600)
+    );
+}
+
+#[test]
+fn frame_text_width_ignores_window_local_fringe_overrides_for_gui_frames() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    let fid = ev.frames.create_frame("gui", 800, 600, buf);
+    let selected_window = {
+        let frame = ev.frames.get_mut(fid).expect("gui frame");
+        frame.set_window_system(Some(Value::symbol("x")));
+        frame.selected_window
+    };
+
+    assert!(
+        ev.frames
+            .set_window_fringes(selected_window, Some(5), Some(5), false, false),
+        "window-local fringes should change"
+    );
+
+    assert_eq!(
+        super::builtin_frame_text_width(&mut ev, vec![Value::make_frame(fid.0)]).unwrap(),
+        Value::fixnum(776)
     );
 }
 
@@ -3148,11 +3172,11 @@ fn x_create_frame_reserves_tab_bar_space_above_root_window() {
     assert_eq!(frame.tab_bar_height, 16);
     assert_eq!(
         *frame.root_window.bounds(),
-        crate::window::Rect::new(0.0, 16.0, 640.0, 384.0)
+        crate::window::Rect::new(0.0, 16.0, 640.0, 368.0)
     );
     assert_eq!(
         *frame.minibuffer_leaf.as_ref().expect("minibuffer").bounds(),
-        crate::window::Rect::new(0.0, 400.0, 640.0, 16.0)
+        crate::window::Rect::new(0.0, 384.0, 640.0, 16.0)
     );
 }
 
@@ -3192,7 +3216,7 @@ fn make_frame_uses_gui_creation_path_when_display_host_is_active() {
     let frame = ev.frames.get(created_id).expect("created opening frame");
     assert_eq!(frame.effective_window_system(), Some(Value::symbol("neo")));
     assert_eq!(frame.width, 800);
-    assert_eq!(frame.height, 540);
+    assert_eq!(frame.height, 500);
     assert_eq!(
         ev.frames.selected_frame().expect("selected frame").id,
         created_id
@@ -3202,7 +3226,7 @@ fn make_frame_uses_gui_creation_path_when_display_host_is_active() {
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].frame_id, created_id);
     assert_eq!(requests[0].width, 800);
-    assert_eq!(requests[0].height, 540);
+    assert_eq!(requests[0].height, 500);
 }
 
 #[test]
@@ -3600,14 +3624,52 @@ fn modify_frame_parameters_width_height_resizes_live_gui_frame() {
     let resize_requests = resized.borrow();
     assert_eq!(resize_requests.len(), 1);
     assert_eq!(resize_requests[0].frame_id, fid);
-    assert_eq!(resize_requests[0].width, 640);
+    assert_eq!(resize_requests[0].width, 664);
     assert_eq!(resize_requests[0].height, 400);
 
     let frame = ev.frames.get(fid).expect("frame should exist");
-    assert_eq!(frame.width, 640);
+    assert_eq!(frame.width, 664);
     assert_eq!(frame.height, 400);
     assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(80)));
     assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(25)));
+}
+
+#[test]
+fn modify_frame_parameters_resize_ignores_window_local_fringes_for_gui_frames() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let host = RecordingDisplayHost::new();
+    let resized = host.resized.clone();
+    ev.set_display_host(Box::new(host));
+    let buf = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buf);
+    let fid = ev.frames.create_frame("F1", 800, 600, buf);
+    let selected_window = {
+        let frame = ev.frames.get_mut(fid).expect("frame");
+        frame.set_window_system(Some(Value::symbol("neo")));
+        frame.char_width = 8.0;
+        frame.char_height = 16.0;
+        frame.selected_window
+    };
+    assert!(
+        ev.frames
+            .set_window_fringes(selected_window, Some(5), Some(5), false, false),
+        "window-local fringes should change"
+    );
+
+    let out = ev
+        .eval_str_each("(modify-frame-parameters (selected-frame) '((width . 80) (height . 25)))");
+    assert!(
+        out[0].is_ok(),
+        "modify-frame-parameters failed: {:?}",
+        out[0]
+    );
+
+    let resize_requests = resized.borrow();
+    assert_eq!(resize_requests.len(), 1);
+    assert_eq!(resize_requests[0].frame_id, fid);
+    assert_eq!(resize_requests[0].width, 664);
+    assert_eq!(resize_requests[0].height, 400);
 }
 
 #[test]
@@ -3695,20 +3757,34 @@ fn set_frame_size_builtins_resize_live_gui_frames_and_notify_host() {
 
     let frame = ev.frames.get(fid).expect("frame should exist");
     assert_eq!(frame.width, 800);
-    assert_eq!(frame.height, 576);
-    assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(100)));
-    assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(36)));
-    assert_eq!(
-        frame.parameters.get("neovm--frame-text-lines"),
-        Some(&Value::fixnum(35))
-    );
+    assert_eq!(frame.height, 600);
+    assert_eq!(frame.parameters.get("width"), None);
+    assert_eq!(frame.parameters.get("height"), None);
+    assert_eq!(frame.parameters.get("neovm--frame-text-lines"), None);
 
     let requests = resized.borrow();
     assert_eq!(requests.len(), 1);
     let request = &requests[0];
     assert_eq!(request.frame_id, fid);
-    assert_eq!(request.width, 800);
-    assert_eq!(request.height, 576);
+    assert_eq!(request.width, 824);
+    assert_eq!(request.height, 560);
+
+    drop(requests);
+
+    ev.apply_resize_input_event(824, 560, fid.0, false);
+
+    let frame = ev
+        .frames
+        .get(fid)
+        .expect("frame should exist after host ack");
+    assert_eq!(frame.width, 824);
+    assert_eq!(frame.height, 560);
+    assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(100)));
+    assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(35)));
+    assert_eq!(
+        frame.parameters.get("neovm--frame-text-lines"),
+        Some(&Value::fixnum(34))
+    );
 }
 
 #[test]

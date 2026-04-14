@@ -236,11 +236,13 @@ impl FontMetricsService {
                 let face = TtfFace::parse(font_data, face_index).ok()?;
                 let units_per_em = face.units_per_em().max(1) as f32;
                 let scale = font_size / units_per_em;
-                let ascent = (face.ascender() as f32 * scale).max(0.0);
-                let descent = (-(face.descender() as f32) * scale).max(0.0);
-                let line_height = ((face.height() as f32) * scale)
-                    .max(ascent + descent)
-                    .max(1.0);
+                // GNU GUI backends publish frame line height as the font
+                // backend's integer ascent plus integer descent.  Do the
+                // same here instead of trusting the typographic height table
+                // or a synthetic multiplier.
+                let ascent = (face.ascender() as f32 * scale).ceil().max(0.0);
+                let descent = (-(face.descender() as f32) * scale).ceil().max(0.0);
+                let line_height = (ascent + descent).max(1.0);
 
                 // GNU xdisp.c prefers font-global metrics (FONT_BASE /
                 // FONT_DESCENT) and only falls back to per-glyph extents for
@@ -632,24 +634,24 @@ impl FontMetricsService {
         buffer.shape_until_scroll(&mut self.font_system, false);
 
         let mut char_width = default_char_width.max(font_size * 0.6);
-        let mut actual_line_height = line_height;
-        let mut ascent = font_size * 0.8;
+        let mut ascent = font_size.ceil().max(1.0);
+        let mut descent = (line_height.ceil() - ascent).max(0.0);
+        let mut actual_line_height = (ascent + descent).max(1.0);
 
         if let Some(layout) = buffer.line_layout(&mut self.font_system, 0) {
             if let Some(line) = layout.first() {
-                let glyph_height = (line.max_ascent + line.max_descent).max(1.0);
-                actual_line_height = glyph_height.ceil();
+                ascent = line.max_ascent.ceil().max(1.0);
+                descent = line.max_descent.ceil().max(0.0);
+                actual_line_height = (ascent + descent).max(1.0);
                 if let Some(space_glyph) = line.glyphs.iter().find(|glyph| glyph.start == 0) {
                     char_width = space_glyph.w;
                 }
-                let centering_offset = (actual_line_height - glyph_height) / 2.0;
-                ascent = centering_offset + line.max_ascent;
             }
         }
 
         FontMetrics {
             ascent,
-            descent: (actual_line_height - ascent).max(0.0),
+            descent,
             line_height: actual_line_height,
             char_width,
         }

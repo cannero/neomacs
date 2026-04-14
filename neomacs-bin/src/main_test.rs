@@ -5,7 +5,7 @@ use super::{
     bootstrap_display_config, bootstrap_frame_metrics, classify_early_cli_action,
     configure_gnu_startup_state, current_layout_frame_id, face_height_to_pixels,
     parse_startup_options, raw_loadup_command_line, raw_loadup_startup_surface, render_help_text,
-    render_version_text, run_gnu_startup, sync_live_gui_frame_titles,
+    render_version_text, run_gnu_startup, startup_dimensions, sync_live_gui_frame_titles,
 };
 use neomacs_display_runtime::thread_comm::RenderCommand;
 use neovm_core::emacs_core::Context;
@@ -1030,6 +1030,14 @@ fn bootstrap_buffers_seed_frame_with_renderer_metrics() {
         .bounds()
         .height;
     assert_eq!(minibuffer_height, metrics.char_height);
+}
+
+#[test]
+fn startup_dimensions_gui_matches_gnu_default_text_grid() {
+    let metrics = bootstrap_frame_metrics();
+    let (width, height) = startup_dimensions(FrontendKind::Gui, metrics);
+    assert_eq!(width, (80.0 * metrics.char_width).round() as u32);
+    assert_eq!(height, (36.0 * metrics.char_height).round() as u32);
 }
 
 #[test]

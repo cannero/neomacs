@@ -2161,7 +2161,7 @@ fn vm_make_frame_uses_gui_creation_path_when_display_host_is_active() {
     let requests = requests.borrow();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].width, 800);
-    assert_eq!(requests[0].height, 540);
+    assert_eq!(requests[0].height, 500);
 }
 
 #[test]
