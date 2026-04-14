@@ -78,6 +78,30 @@ fn internal_compiler_function_overrides_sym() -> SymId {
     *SYM.get_or_init(|| intern(INTERNAL_COMPILER_FUNCTION_OVERRIDES))
 }
 
+#[inline]
+fn internal_make_interpreted_closure_function_symbol() -> SymId {
+    static SYM: OnceLock<SymId> = OnceLock::new();
+    *SYM.get_or_init(|| intern("internal-make-interpreted-closure-function"))
+}
+
+#[inline]
+fn cconv_make_interpreted_closure_symbol() -> SymId {
+    static SYM: OnceLock<SymId> = OnceLock::new();
+    *SYM.get_or_init(|| intern("cconv-make-interpreted-closure"))
+}
+
+#[inline]
+fn load_in_progress_symbol() -> SymId {
+    static SYM: OnceLock<SymId> = OnceLock::new();
+    *SYM.get_or_init(|| intern("load-in-progress"))
+}
+
+#[inline]
+fn macroexpand_all_environment_symbol() -> SymId {
+    static SYM: OnceLock<SymId> = OnceLock::new();
+    *SYM.get_or_init(|| intern("macroexpand-all-environment"))
+}
+
 pub(crate) fn compiler_function_override_in_obarray(
     obarray: &Obarray,
     sym_id: SymId,
@@ -542,6 +566,49 @@ impl RuntimeMacroExpansionCacheEntry {
             fingerprint,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct MacroPerfCounter {
+    calls: u64,
+    total_us: u64,
+    max_us: u64,
+}
+
+impl MacroPerfCounter {
+    fn note_duration(&mut self, duration: std::time::Duration) {
+        let elapsed_us = duration.as_micros() as u64;
+        self.calls = self.calls.saturating_add(1);
+        self.total_us = self.total_us.saturating_add(elapsed_us);
+        self.max_us = self.max_us.max(elapsed_us);
+    }
+
+    fn summary(&self, label: &str) -> Option<String> {
+        if self.calls == 0 {
+            return None;
+        }
+        let avg_us = self.total_us / self.calls.max(1);
+        Some(format!(
+            "{label}=count:{} total:{:.2}ms avg:{:.3}ms max:{:.3}ms",
+            self.calls,
+            self.total_us as f64 / 1000.0,
+            avg_us as f64 / 1000.0,
+            self.max_us as f64 / 1000.0
+        ))
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct MacroPerfStats {
+    scope_enter: MacroPerfCounter,
+    scope_exit: MacroPerfCounter,
+    macro_apply: MacroPerfCounter,
+    cache_lookup: MacroPerfCounter,
+    cache_store: MacroPerfCounter,
+    expand_macro: MacroPerfCounter,
+    eager_step1: MacroPerfCounter,
+    eager_step3: MacroPerfCounter,
+    eager_step4: MacroPerfCounter,
 }
 
 #[derive(Clone, Debug)]
@@ -1292,6 +1359,9 @@ pub struct Context {
     /// forms can reuse the same expansion.
     pub(crate) runtime_macro_expansion_cache:
         HashMap<(usize, usize, u64), RuntimeMacroExpansionCacheEntry>,
+    /// When true, collect detailed timing counters for macro/eager-load paths.
+    macro_perf_enabled: bool,
+    macro_perf_stats: MacroPerfStats,
     /// Bootstrapped standard interpreted-closure filter function object.
     /// Used to memoize the GNU cconv closure-trimming path without changing
     /// semantics when users later rebind/advice the hook.
@@ -2017,6 +2087,8 @@ impl Context {
         ev.macro_cache_misses = 0;
         ev.macro_expand_total_us = 0;
         ev.macro_cache_disabled = false;
+        ev.macro_perf_enabled = std::env::var_os("NEOVM_TRACE_MACRO_PERF").is_some();
+        ev.macro_perf_stats = MacroPerfStats::default();
         ev.interpreted_closure_filter_fn = None;
         ev.interpreted_closure_trim_cache.clear();
         ev.materialize_public_evaluator_function_cells();
@@ -3898,6 +3970,8 @@ impl Context {
             macro_expand_total_us: 0,
             macro_cache_disabled: false,
             runtime_macro_expansion_cache: HashMap::new(),
+            macro_perf_enabled: std::env::var_os("NEOVM_TRACE_MACRO_PERF").is_some(),
+            macro_perf_stats: MacroPerfStats::default(),
             interpreted_closure_filter_fn: None,
             interpreted_closure_trim_cache: HashMap::new(),
             interpreted_closure_value_cache: HashMap::new(),
@@ -4031,6 +4105,8 @@ impl Context {
             macro_expand_total_us: 0,
             macro_cache_disabled: false,
             runtime_macro_expansion_cache: HashMap::new(),
+            macro_perf_enabled: std::env::var_os("NEOVM_TRACE_MACRO_PERF").is_some(),
+            macro_perf_stats: MacroPerfStats::default(),
             interpreted_closure_filter_fn: None,
             interpreted_closure_trim_cache: HashMap::new(),
             interpreted_closure_value_cache: HashMap::new(),
@@ -8407,7 +8483,7 @@ impl Context {
         let Some(hook_sym) = closure_hook.as_symbol_id() else {
             return None;
         };
-        if resolve_sym(hook_sym) != "cconv-make-interpreted-closure" {
+        if hook_sym != cconv_make_interpreted_closure_symbol() {
             return None;
         }
         let Some(expected_fn) = self.interpreted_closure_filter_fn else {
@@ -8415,7 +8491,7 @@ impl Context {
         };
         let Some(current_fn) = self
             .obarray
-            .symbol_function("cconv-make-interpreted-closure")
+            .symbol_function_id(cconv_make_interpreted_closure_symbol())
             .cloned()
         else {
             return None;
@@ -8456,7 +8532,7 @@ impl Context {
         let Some(hook_sym) = closure_hook.as_symbol_id() else {
             return;
         };
-        if resolve_sym(hook_sym) != "cconv-make-interpreted-closure" {
+        if hook_sym != cconv_make_interpreted_closure_symbol() {
             return;
         }
         let Some(expected_fn) = self.interpreted_closure_filter_fn else {
@@ -8464,7 +8540,7 @@ impl Context {
         };
         let Some(current_fn) = self
             .obarray
-            .symbol_function("cconv-make-interpreted-closure")
+            .symbol_function_id(cconv_make_interpreted_closure_symbol())
             .cloned()
         else {
             return;
@@ -8520,7 +8596,7 @@ impl Context {
         let Some(hook_sym) = closure_hook.as_symbol_id() else {
             return None;
         };
-        if resolve_sym(hook_sym) != "cconv-make-interpreted-closure" {
+        if hook_sym != cconv_make_interpreted_closure_symbol() {
             return None;
         }
         let Some(expected_fn) = self.interpreted_closure_filter_fn else {
@@ -8528,7 +8604,7 @@ impl Context {
         };
         let Some(current_fn) = self
             .obarray
-            .symbol_function("cconv-make-interpreted-closure")
+            .symbol_function_id(cconv_make_interpreted_closure_symbol())
             .cloned()
         else {
             return None;
@@ -8569,7 +8645,7 @@ impl Context {
         let Some(hook_sym) = closure_hook.as_symbol_id() else {
             return;
         };
-        if resolve_sym(hook_sym) != "cconv-make-interpreted-closure" {
+        if hook_sym != cconv_make_interpreted_closure_symbol() {
             return;
         }
         let Some(expected_fn) = self.interpreted_closure_filter_fn else {
@@ -8577,7 +8653,7 @@ impl Context {
         };
         let Some(current_fn) = self
             .obarray
-            .symbol_function("cconv-make-interpreted-closure")
+            .symbol_function_id(cconv_make_interpreted_closure_symbol())
             .cloned()
         else {
             return;
@@ -8631,8 +8707,9 @@ impl Context {
         iform_value: Value,
     ) -> EvalResult {
         if !env_value.is_nil() {
-            let closure_hook =
-                self.visible_variable_value_or_nil("internal-make-interpreted-closure-function");
+            let closure_hook = self.visible_variable_value_or_nil_by_id(
+                internal_make_interpreted_closure_function_symbol(),
+            );
             if !closure_hook.is_nil() {
                 if let Some(cached) = self.maybe_use_cached_interpreted_closure_filter(
                     closure_hook,
@@ -8689,8 +8766,9 @@ impl Context {
         iform_value: Value,
     ) -> EvalResult {
         if !env_value.is_nil() {
-            let closure_hook =
-                self.visible_variable_value_or_nil("internal-make-interpreted-closure-function");
+            let closure_hook = self.visible_variable_value_or_nil_by_id(
+                internal_make_interpreted_closure_function_symbol(),
+            );
             if !closure_hook.is_nil() {
                 if let Some(cached) = self.maybe_use_cached_value_interpreted_closure_filter(
                     closure_hook,
@@ -9430,6 +9508,7 @@ impl Context {
         f: impl FnOnce(&mut Self) -> Result<T, Flow>,
     ) -> Result<T, Flow> {
         self.macro_expansion_scope_depth += 1;
+        let scope_enter_start = self.macro_perf_enabled.then(std::time::Instant::now);
         let state = begin_macro_expansion_scope_in_state(
             &mut self.obarray,
             &self.specpdl,
@@ -9438,7 +9517,13 @@ impl Context {
             self.lexenv,
             &mut self.temp_roots,
         );
+        if let Some(start) = scope_enter_start {
+            self.macro_perf_stats
+                .scope_enter
+                .note_duration(start.elapsed());
+        }
         let result = f(self);
+        let scope_exit_start = self.macro_perf_enabled.then(std::time::Instant::now);
         finish_macro_expansion_scope_in_state(
             &mut self.obarray,
             &self.specpdl,
@@ -9447,6 +9532,11 @@ impl Context {
             &mut self.temp_roots,
             state,
         );
+        if let Some(start) = scope_exit_start {
+            self.macro_perf_stats
+                .scope_exit
+                .note_duration(start.elapsed());
+        }
         self.macro_expansion_scope_depth = self.macro_expansion_scope_depth.saturating_sub(1);
         result
     }
@@ -9494,7 +9584,7 @@ impl Context {
 
         let current_macroexpand_env = self
             .obarray()
-            .symbol_value("macroexpand-all-environment")
+            .symbol_value_id(macroexpand_all_environment_symbol())
             .copied()
             .unwrap_or(Value::NIL);
         let current_dynvars = self
@@ -9515,7 +9605,7 @@ impl Context {
     fn runtime_macro_expansion_cache_enabled(&self) -> bool {
         !self.macro_cache_disabled
             && self
-                .visible_variable_value_or_nil("load-in-progress")
+                .visible_variable_value_or_nil_by_id(load_in_progress_symbol())
                 .is_truthy()
     }
 
@@ -9538,7 +9628,13 @@ impl Context {
         args: &[Value],
         environment: Option<Value>,
     ) -> Option<Value> {
+        let perf_start = self.macro_perf_enabled.then(std::time::Instant::now);
         if !self.runtime_macro_expansion_cache_enabled() {
+            if let Some(start) = perf_start {
+                self.macro_perf_stats
+                    .cache_lookup
+                    .note_duration(start.elapsed());
+            }
             return None;
         }
         let current_fp = runtime_tail_fingerprint(args);
@@ -9550,7 +9646,17 @@ impl Context {
             .cloned()?;
         if cached.fingerprint == current_fp {
             self.macro_cache_hits += 1;
+            if let Some(start) = perf_start {
+                self.macro_perf_stats
+                    .cache_lookup
+                    .note_duration(start.elapsed());
+            }
             return Some(cached.expanded);
+        }
+        if let Some(start) = perf_start {
+            self.macro_perf_stats
+                .cache_lookup
+                .note_duration(start.elapsed());
         }
         None
     }
@@ -9564,7 +9670,13 @@ impl Context {
         expand_elapsed: std::time::Duration,
         environment: Option<Value>,
     ) {
+        let perf_start = self.macro_perf_enabled.then(std::time::Instant::now);
         if !self.runtime_macro_expansion_cache_enabled() {
+            if let Some(start) = perf_start {
+                self.macro_perf_stats
+                    .cache_store
+                    .note_duration(start.elapsed());
+            }
             return;
         }
         self.macro_cache_misses += 1;
@@ -9589,6 +9701,11 @@ impl Context {
         }
         self.runtime_macro_expansion_cache
             .insert(cache_key, cache_entry);
+        if let Some(start) = perf_start {
+            self.macro_perf_stats
+                .cache_store
+                .note_duration(start.elapsed());
+        }
     }
 
     fn apply_macro_callable_with_dynamic_scope(
@@ -9596,7 +9713,14 @@ impl Context {
         callable: Value,
         args: Vec<Value>,
     ) -> Result<Value, Flow> {
-        self.with_macro_expansion_scope(|eval| eval.apply(callable, args))
+        let perf_start = self.macro_perf_enabled.then(std::time::Instant::now);
+        let result = self.with_macro_expansion_scope(|eval| eval.apply(callable, args));
+        if let Some(start) = perf_start {
+            self.macro_perf_stats
+                .macro_apply
+                .note_duration(start.elapsed());
+        }
+        result
     }
 
     pub(crate) fn expand_macro_for_macroexpand(
@@ -9606,12 +9730,18 @@ impl Context {
         args: Vec<Value>,
         environment: Option<Value>,
     ) -> Result<Value, Flow> {
+        let perf_start = self.macro_perf_enabled.then(std::time::Instant::now);
         if let Some(cached) = self.lookup_runtime_macro_expansion(definition, &args, environment) {
+            if let Some(start) = perf_start {
+                self.macro_perf_stats
+                    .expand_macro
+                    .note_duration(start.elapsed());
+            }
             return Ok(cached);
         }
         let args_for_cache = args.clone();
         let expand_start = std::time::Instant::now();
-        self.with_gc_scope_result(|ctx| {
+        let result = self.with_gc_scope_result(|ctx| {
             ctx.push_temp_root(form);
             ctx.push_temp_root(definition);
             if let Some(environment) = environment {
@@ -9643,7 +9773,63 @@ impl Context {
                 environment,
             );
             Ok(expanded)
-        })
+        });
+        if let Some(start) = perf_start {
+            self.macro_perf_stats
+                .expand_macro
+                .note_duration(start.elapsed());
+        }
+        result
+    }
+
+    pub(crate) fn note_eager_macro_perf_step1(&mut self, duration: std::time::Duration) {
+        if self.macro_perf_enabled {
+            self.macro_perf_stats.eager_step1.note_duration(duration);
+        }
+    }
+
+    pub(crate) fn note_eager_macro_perf_step3(&mut self, duration: std::time::Duration) {
+        if self.macro_perf_enabled {
+            self.macro_perf_stats.eager_step3.note_duration(duration);
+        }
+    }
+
+    pub(crate) fn note_eager_macro_perf_step4(&mut self, duration: std::time::Duration) {
+        if self.macro_perf_enabled {
+            self.macro_perf_stats.eager_step4.note_duration(duration);
+        }
+    }
+
+    pub(crate) fn macro_perf_summary(&self) -> Option<String> {
+        if !self.macro_perf_enabled {
+            return None;
+        }
+
+        let mut parts = vec![format!(
+            "cache=hits:{} misses:{} expand-total:{:.2}ms",
+            self.macro_cache_hits,
+            self.macro_cache_misses,
+            self.macro_expand_total_us as f64 / 1000.0
+        )];
+
+        for counter in [
+            self.macro_perf_stats.scope_enter.summary("scope-enter"),
+            self.macro_perf_stats.scope_exit.summary("scope-exit"),
+            self.macro_perf_stats.macro_apply.summary("macro-apply"),
+            self.macro_perf_stats.cache_lookup.summary("cache-lookup"),
+            self.macro_perf_stats.cache_store.summary("cache-store"),
+            self.macro_perf_stats.expand_macro.summary("expand-macro"),
+            self.macro_perf_stats.eager_step1.summary("eager-step1"),
+            self.macro_perf_stats.eager_step3.summary("eager-step3"),
+            self.macro_perf_stats.eager_step4.summary("eager-step4"),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            parts.push(counter);
+        }
+
+        Some(parts.join(" | "))
     }
 
     // -----------------------------------------------------------------------
@@ -10734,24 +10920,15 @@ impl Context {
     }
 
     pub(crate) fn visible_variable_value_or_nil(&self, name: &str) -> Value {
-        let name_id = intern(name);
-        if let Some(value) = self.lexenv_lookup_cached_in(self.lexenv, name_id) {
+        self.visible_variable_value_or_nil_by_id(intern(name))
+    }
+
+    pub(crate) fn visible_variable_value_or_nil_by_id(&self, sym_id: SymId) -> Value {
+        if let Some(value) = self.lexenv_lookup_cached_in(self.lexenv, sym_id) {
             return value;
         }
-        // specbind writes directly to obarray, so no dynamic stack lookup needed.
-        if let Some(buffer) = self.buffers.current_buffer() {
-            if let Some(binding) = buffer.get_buffer_local_binding_by_sym_id(name_id) {
-                return binding.as_value().unwrap_or(Value::NIL);
-            }
-        }
-        if let Some(value) = self.obarray.symbol_value(name).cloned() {
+        if let Ok(Some(value)) = self.visible_runtime_variable_value_by_id(sym_id) {
             return value;
-        }
-        if name == "nil" {
-            return Value::NIL;
-        }
-        if name == "t" {
-            return Value::T;
         }
         Value::NIL
     }

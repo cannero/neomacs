@@ -814,12 +814,18 @@ pub(crate) fn eager_expand_toplevel_forms_with_extra_roots(
     let mutation_epoch_before = eval.macro_expansion_mutation_epoch();
     // Step 1: one-level expand — val = (internal-macroexpand-for-load val nil)
     // Note: real Emacs mutates `val` here; we shadow it.
+    let step1_start = std::time::Instant::now();
     let val = eval.with_gc_scope(|ctx| {
         extra_roots(ctx);
         ctx.root(form_value);
         ctx.root(macroexpand_fn);
+        // `internal-macroexpand-for-load` is an internal loader helper.
+        // Its failures are handled here and its frames are not part of the
+        // user-facing loaded form surface, so avoid paying full backtrace
+        // bookkeeping on every eager expansion call.
         ctx.apply(macroexpand_fn, vec![form_value, Value::NIL]).ok()
     });
+    eval.note_eager_macro_perf_step1(step1_start.elapsed());
     let val = match val {
         Some(v) => v,
         None => {
@@ -886,6 +892,7 @@ pub(crate) fn eager_expand_toplevel_forms_with_extra_roots(
             }
         };
         let d3 = t3.elapsed();
+        ctx.note_eager_macro_perf_step3(d3);
         if d3.as_millis() > 200 {
             let head = if val.is_cons() {
                 val.cons_car().as_symbol_name().unwrap_or("<non-symbol>")
@@ -923,6 +930,7 @@ pub(crate) fn eager_expand_eval(
                 let t4 = std::time::Instant::now();
                 let value = ctx.eval_value(&expanded).map_err(map_flow)?;
                 let d4 = t4.elapsed();
+                ctx.note_eager_macro_perf_step4(d4);
                 if d4.as_millis() > 200 {
                     tracing::warn!("eager_expand step4 (eval) took {d4:.2?}");
                 }
@@ -1152,16 +1160,19 @@ fn streaming_readevalloop_eager_expand_eval(
     macroexpand: Value,
 ) -> Result<Value, EvalError> {
     // Step 1: one-level expand (full_p = nil)
+    let step1_start = std::time::Instant::now();
     let expanded = match eval.apply(macroexpand, vec![form, Value::NIL]) {
         Ok(v) => v,
         Err(_) => {
             // Expansion failed (cycle detection, missing macro, etc.).
             // Fall back to evaluating the original form without expansion,
             // matching .elc behavior.
+            eval.note_eager_macro_perf_step1(step1_start.elapsed());
             tracing::debug!("streaming eager_expand step1 failed, falling back to plain eval");
             return eval.eval_sub(form).map_err(map_flow);
         }
     };
+    eval.note_eager_macro_perf_step1(step1_start.elapsed());
 
     // Root the expanded form so it survives GC during progn iteration.
     let saved_temp_roots = eval.save_temp_roots();
@@ -1197,6 +1208,7 @@ fn streaming_readevalloop_eager_expand_eval_inner(
     }
 
     // Step 3: full expand (full_p = t), then eval
+    let step3_start = std::time::Instant::now();
     let fully_expanded = match eval.apply(macroexpand, vec![expanded, Value::T]) {
         Ok(v) => v,
         Err(_) => {
@@ -1205,10 +1217,13 @@ fn streaming_readevalloop_eager_expand_eval_inner(
             expanded
         }
     };
+    eval.note_eager_macro_perf_step3(step3_start.elapsed());
 
     let saved = eval.save_temp_roots();
     eval.push_temp_root(fully_expanded);
+    let step4_start = std::time::Instant::now();
     let result = eval.eval_sub(fully_expanded).map_err(map_flow);
+    eval.note_eager_macro_perf_step4(step4_start.elapsed());
     eval.restore_temp_roots(saved);
     result
 }
@@ -2762,15 +2777,15 @@ fn eval_startup_forms(eval: &mut super::eval::Context, forms_src: &str) -> Resul
 /// need the early startup buffer initialization that `startup.el` performs for
 /// the `*scratch*` buffer.
 fn sync_runtime_interpreted_closure_filter(eval: &mut super::eval::Context) {
+    let closure_filter_sym = super::intern::intern("internal-make-interpreted-closure-function");
+    let cconv_sym = super::intern::intern("cconv-make-interpreted-closure");
     let filter_fn = eval
         .obarray()
-        .symbol_value("internal-make-interpreted-closure-function")
+        .symbol_value_id(closure_filter_sym)
         .cloned()
         .and_then(|value| {
-            if value.is_symbol_named("cconv-make-interpreted-closure") {
-                eval.obarray()
-                    .symbol_function("cconv-make-interpreted-closure")
-                    .cloned()
+            if value.as_symbol_id() == Some(cconv_sym) {
+                eval.obarray().symbol_function_id(cconv_sym).cloned()
             } else {
                 None
             }
@@ -2838,6 +2853,20 @@ fn install_bootstrap_x_window_system_vars(
 fn maybe_trace_bootstrap_step(message: impl AsRef<str>) {
     if std::env::var_os("NEOVM_TRACE_BOOTSTRAP_STEPS").is_some() {
         eprintln!("bootstrap-step: {}", message.as_ref());
+    }
+}
+
+fn maybe_trace_bootstrap_macro_perf(eval: &super::eval::Context) {
+    if let Some(summary) = eval.macro_perf_summary() {
+        let gc_elapsed = eval
+            .obarray()
+            .symbol_value("gc-elapsed")
+            .and_then(|value| value.as_number_f64())
+            .unwrap_or(0.0);
+        eprintln!(
+            "bootstrap-macro-perf: {summary} | gc=gcs-done:{} elapsed:{:.3}s",
+            eval.gc_count, gc_elapsed
+        );
     }
 }
 
@@ -3025,6 +3054,7 @@ pub fn create_bootstrap_evaluator_with_startup_surface(
                 }
             }
         }
+        maybe_trace_bootstrap_macro_perf(&eval);
 
         if dump_mode.is_some() && eval.shutdown_request.is_some() {
             return Ok(eval);
