@@ -1,6 +1,6 @@
 //! Conversions between runtime types and pdump snapshot types.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -64,8 +64,6 @@ use crate::tagged::header::{
 use crate::tagged::value::TaggedValue;
 
 thread_local! {
-    static PDUMP_DUMP_STATE: Cell<*mut TaggedDumpState> = const { Cell::new(std::ptr::null_mut()) };
-    static PDUMP_LOAD_STATE: Cell<*mut TaggedLoadState> = const { Cell::new(std::ptr::null_mut()) };
     static PDUMP_LOAD_NAME_REMAP: RefCell<Option<Vec<NameId>>> = const { RefCell::new(None) };
     static PDUMP_LOAD_SYM_REMAP: RefCell<Option<Vec<SymId>>> = const { RefCell::new(None) };
 }
@@ -103,6 +101,107 @@ impl TaggedDumpState {
     }
 }
 
+pub(crate) struct DumpEncoder {
+    state: TaggedDumpState,
+}
+
+impl DumpEncoder {
+    fn new() -> Self {
+        Self {
+            state: TaggedDumpState::new(),
+        }
+    }
+
+    fn finalize(self) -> DumpTaggedHeap {
+        self.state.finalize()
+    }
+
+    fn value_to_heap_ref(&mut self, v: &Value) -> TaggedHeapRef {
+        debug_assert!(v.is_heap_object());
+        let bits = v.bits();
+        if let Some(id) = self.state.object_ids.get(&bits).copied() {
+            return id;
+        }
+
+        let id = TaggedHeapRef {
+            index: self.state.objects.len() as u32,
+        };
+        self.state.object_ids.insert(bits, id);
+        self.state.objects.push(None);
+
+        let dumped = dump_heap_object_from_value(self, *v);
+        self.state.objects[id.index as usize] = Some(dumped);
+        id
+    }
+
+    fn dump_float_id(&mut self, v: &Value) -> u32 {
+        debug_assert!(v.is_float());
+        let bits = v.bits();
+        if let Some(id) = self.state.float_ids.get(&bits).copied() {
+            return id;
+        }
+        let id = self.state.next_float_id;
+        self.state.next_float_id += 1;
+        self.state.float_ids.insert(bits, id);
+        id
+    }
+
+    fn dump_value(&mut self, v: &Value) -> DumpValue {
+        match v.kind() {
+            ValueKind::Nil => DumpValue::Nil,
+            ValueKind::T => DumpValue::True,
+            ValueKind::Fixnum(n) => DumpValue::Int(n),
+            ValueKind::Float => DumpValue::Float(v.xfloat(), self.dump_float_id(v)),
+            ValueKind::Symbol(s) => DumpValue::Symbol(dump_sym_id(s)),
+            ValueKind::String => DumpValue::Str(dump_heap_ref(self.value_to_heap_ref(v))),
+            ValueKind::Cons => DumpValue::Cons(dump_heap_ref(self.value_to_heap_ref(v))),
+            ValueKind::Veclike(VecLikeType::Vector) => {
+                DumpValue::Vector(dump_heap_ref(self.value_to_heap_ref(v)))
+            }
+            ValueKind::Veclike(VecLikeType::Record) => {
+                DumpValue::Record(dump_heap_ref(self.value_to_heap_ref(v)))
+            }
+            ValueKind::Veclike(VecLikeType::HashTable) => {
+                DumpValue::HashTable(dump_heap_ref(self.value_to_heap_ref(v)))
+            }
+            ValueKind::Veclike(VecLikeType::Lambda) => {
+                DumpValue::Lambda(dump_heap_ref(self.value_to_heap_ref(v)))
+            }
+            ValueKind::Veclike(VecLikeType::Macro) => {
+                DumpValue::Macro(dump_heap_ref(self.value_to_heap_ref(v)))
+            }
+            ValueKind::Veclike(VecLikeType::Subr) => {
+                let s = v.as_subr_id().unwrap();
+                DumpValue::Subr(dump_name_id(intern::symbol_name_id(s)))
+            }
+            ValueKind::Veclike(VecLikeType::ByteCode) => {
+                DumpValue::ByteCode(dump_heap_ref(self.value_to_heap_ref(v)))
+            }
+            ValueKind::Veclike(VecLikeType::Marker) => {
+                DumpValue::Marker(dump_heap_ref(self.value_to_heap_ref(v)))
+            }
+            ValueKind::Veclike(VecLikeType::Overlay) => {
+                DumpValue::Overlay(dump_heap_ref(self.value_to_heap_ref(v)))
+            }
+            ValueKind::Veclike(VecLikeType::Buffer) => {
+                DumpValue::Buffer(DumpBufferId(v.as_buffer_id().unwrap().0))
+            }
+            ValueKind::Veclike(VecLikeType::Window) => DumpValue::Window(v.as_window_id().unwrap()),
+            ValueKind::Veclike(VecLikeType::Frame) => DumpValue::Frame(v.as_frame_id().unwrap()),
+            ValueKind::Veclike(VecLikeType::Timer) => DumpValue::Timer(v.as_timer_id().unwrap()),
+            ValueKind::Veclike(VecLikeType::Bignum) => {
+                DumpValue::Bignum(v.as_bignum().unwrap().to_string())
+            }
+            ValueKind::Unbound => DumpValue::Unbound,
+            ValueKind::Unknown => DumpValue::Nil,
+        }
+    }
+
+    fn dump_opt_value(&mut self, v: &Option<Value>) -> Option<DumpValue> {
+        v.as_ref().map(|value| self.dump_value(value))
+    }
+}
+
 struct TaggedLoadState {
     objects: Vec<DumpHeapObject>,
     values: Vec<Option<Value>>,
@@ -130,6 +229,274 @@ impl TaggedLoadState {
     }
 }
 
+pub(crate) struct LoadDecoder {
+    state: TaggedLoadState,
+}
+
+impl LoadDecoder {
+    pub(crate) fn new(heap: &DumpTaggedHeap) -> Self {
+        Self {
+            state: TaggedLoadState::new(heap),
+        }
+    }
+
+    pub(crate) fn preload_tagged_heap(&mut self) -> Result<(), DumpError> {
+        for index in 0..self.state.objects.len() {
+            self.populate_tagged_object(TaggedHeapRef {
+                index: index as u32,
+            })?;
+        }
+        Ok(())
+    }
+
+    fn heap_ref_to_value(&mut self, id: TaggedHeapRef) -> Value {
+        self.load_tagged_object(id)
+    }
+
+    fn load_float_value(&mut self, id: u32, value: f64) -> Value {
+        *self
+            .state
+            .floats
+            .entry(id)
+            .or_insert_with(|| Value::make_float(value))
+    }
+
+    fn load_cached_buffer(&mut self, id: u64) -> Value {
+        *self
+            .state
+            .buffers
+            .entry(id)
+            .or_insert_with(|| Value::make_buffer(BufferId(id)))
+    }
+
+    fn load_cached_window(&mut self, id: u64) -> Value {
+        *self
+            .state
+            .windows
+            .entry(id)
+            .or_insert_with(|| Value::make_window(id))
+    }
+
+    fn load_cached_frame(&mut self, id: u64) -> Value {
+        *self
+            .state
+            .frames
+            .entry(id)
+            .or_insert_with(|| Value::make_frame(id))
+    }
+
+    fn load_cached_timer(&mut self, id: u64) -> Value {
+        *self
+            .state
+            .timers
+            .entry(id)
+            .or_insert_with(|| Value::make_timer(id))
+    }
+
+    fn allocate_tagged_placeholder(&mut self, id: TaggedHeapRef) -> Result<Value, DumpError> {
+        if let Some(value) = self.state.values[id.index as usize] {
+            return Ok(value);
+        }
+        let value = match &self.state.objects[id.index as usize] {
+            DumpHeapObject::Cons { .. } => Value::cons(Value::NIL, Value::NIL),
+            DumpHeapObject::Vector(items) => Value::make_vector(vec![Value::NIL; items.len()]),
+            DumpHeapObject::HashTable(ht) => with_tagged_heap(|heap| {
+                heap.alloc_hash_table(LispHashTable::new_with_options(
+                    load_hash_table_test(&ht.test),
+                    ht.size,
+                    ht.weakness.as_ref().map(load_hash_table_weakness),
+                    ht.rehash_size,
+                    ht.rehash_threshold,
+                ))
+            }),
+            DumpHeapObject::Str {
+                data,
+                size,
+                size_byte,
+                ..
+            } => Value::heap_string(LispString::from_dump(data.clone(), *size, *size_byte)),
+            DumpHeapObject::Float(value) => Value::make_float(*value),
+            DumpHeapObject::Lambda(slots) => with_tagged_heap(|heap| {
+                heap.alloc_lambda(vec![Value::NIL; slots.len().max(CLOSURE_MIN_SLOTS)])
+            }),
+            DumpHeapObject::Macro(slots) => with_tagged_heap(|heap| {
+                heap.alloc_macro(vec![Value::NIL; slots.len().max(CLOSURE_MIN_SLOTS)])
+            }),
+            DumpHeapObject::ByteCode(_) => Value::make_bytecode(ByteCodeFunction {
+                ops: Vec::new(),
+                constants: Vec::new(),
+                max_stack: 0,
+                params: LambdaParams::simple(Vec::new()),
+                lexical: false,
+                env: None,
+                gnu_byte_offset_map: None,
+                gnu_bytecode_bytes: None,
+                docstring: None,
+                doc_form: None,
+                interactive: None,
+            }),
+            DumpHeapObject::Record(items) => Value::make_record(vec![Value::NIL; items.len()]),
+            DumpHeapObject::Marker(marker) => Value::make_marker(crate::heap_types::MarkerData {
+                buffer: marker.buffer.map(|id| BufferId(id.0)),
+                position: marker.position,
+                insertion_type: marker.insertion_type,
+                marker_id: marker.marker_id,
+            }),
+            DumpHeapObject::Overlay(overlay) => {
+                Value::make_overlay(crate::heap_types::OverlayData {
+                    plist: Value::NIL,
+                    buffer: overlay.buffer.map(|id| BufferId(id.0)),
+                    start: overlay.start,
+                    end: overlay.end,
+                    front_advance: overlay.front_advance,
+                    rear_advance: overlay.rear_advance,
+                })
+            }
+            DumpHeapObject::Buffer(id) => self.load_cached_buffer(id.0),
+            DumpHeapObject::Window(id) => self.load_cached_window(*id),
+            DumpHeapObject::Frame(id) => self.load_cached_frame(*id),
+            DumpHeapObject::Timer(id) => self.load_cached_timer(*id),
+            DumpHeapObject::Subr { name, .. } => Value::subr_name_id(load_name_id(name)),
+            DumpHeapObject::Free => Value::NIL,
+        };
+        self.state.values[id.index as usize] = Some(value);
+        Ok(value)
+    }
+
+    fn populate_tagged_object(&mut self, id: TaggedHeapRef) -> Result<(), DumpError> {
+        if self.state.populated[id.index as usize] {
+            return Ok(());
+        }
+
+        let value = self.allocate_tagged_placeholder(id)?;
+        self.state.populated[id.index as usize] = true;
+        match self.state.objects[id.index as usize].clone() {
+            DumpHeapObject::Cons { car, cdr } => {
+                value.set_car(self.load_value(&car));
+                value.set_cdr(self.load_value(&cdr));
+            }
+            DumpHeapObject::Vector(items) => {
+                let _ = value.replace_vector_data(items.iter().map(|item| self.load_value(item)).collect());
+            }
+            DumpHeapObject::HashTable(ht) => {
+                let _ = value.with_hash_table_mut(|table| {
+                    table.test = load_hash_table_test(&ht.test);
+                    table.test_name = ht.test_name.map(|s| load_sym_id(&s));
+                    table.size = ht.size;
+                    table.weakness = ht.weakness.as_ref().map(load_hash_table_weakness);
+                    table.rehash_size = ht.rehash_size;
+                    table.rehash_threshold = ht.rehash_threshold;
+                    table.data = ht
+                        .entries
+                        .iter()
+                        .map(|(k, v)| (load_hash_key(self, k), self.load_value(v)))
+                        .collect();
+                    table.key_snapshots = ht
+                        .key_snapshots
+                        .iter()
+                        .map(|(k, v)| (load_hash_key(self, k), self.load_value(v)))
+                        .collect();
+                    table.insertion_order =
+                        ht.insertion_order.iter().map(|key| load_hash_key(self, key)).collect();
+                });
+            }
+            DumpHeapObject::Str { text_props, .. } => {
+                if !text_props.is_empty() {
+                    let runs = text_props
+                        .iter()
+                        .map(|run| StringTextPropertyRun {
+                            start: run.start,
+                            end: run.end,
+                            plist: self.load_value(&run.plist),
+                        })
+                        .collect();
+                    set_string_text_properties_for_value(value, runs);
+                }
+            }
+            DumpHeapObject::Float(_) => {}
+            DumpHeapObject::Lambda(slots) | DumpHeapObject::Macro(slots) => {
+                let _ =
+                    value.replace_closure_slots(slots.iter().map(|slot| self.load_value(slot)).collect());
+            }
+            DumpHeapObject::ByteCode(bc) => {
+                let _ = value
+                    .with_bytecode_data_mut(|data| {
+                        *data = load_bytecode(self, &bc)?;
+                        Ok::<(), DumpError>(())
+                    })
+                    .transpose()?;
+            }
+            DumpHeapObject::Record(items) => {
+                let _ = value.replace_record_data(items.iter().map(|item| self.load_value(item)).collect());
+            }
+            DumpHeapObject::Marker(marker) => {
+                let _ = value.with_marker_data_mut(|data| {
+                    data.buffer = marker.buffer.map(|id| BufferId(id.0));
+                    data.position = marker.position;
+                    data.insertion_type = marker.insertion_type;
+                    data.marker_id = marker.marker_id;
+                });
+            }
+            DumpHeapObject::Overlay(overlay) => {
+                let _ = value.with_overlay_data_mut(|data| {
+                    data.plist = self.load_value(&overlay.plist);
+                    data.buffer = overlay.buffer.map(|id| BufferId(id.0));
+                    data.start = overlay.start;
+                    data.end = overlay.end;
+                    data.front_advance = overlay.front_advance;
+                    data.rear_advance = overlay.rear_advance;
+                });
+            }
+            DumpHeapObject::Buffer(_)
+            | DumpHeapObject::Window(_)
+            | DumpHeapObject::Frame(_)
+            | DumpHeapObject::Timer(_)
+            | DumpHeapObject::Subr { .. }
+            | DumpHeapObject::Free => {}
+        }
+        Ok(())
+    }
+
+    fn load_tagged_object(&mut self, id: TaggedHeapRef) -> Value {
+        self.allocate_tagged_placeholder(id)
+            .expect("pdump placeholder allocation should succeed");
+        self.populate_tagged_object(id)
+            .expect("pdump object population should succeed");
+        self.state.values[id.index as usize].expect("pdump object should exist")
+    }
+
+    pub(crate) fn load_value(&mut self, v: &DumpValue) -> Value {
+        match v {
+            DumpValue::Nil => Value::NIL,
+            DumpValue::True => Value::T,
+            DumpValue::Int(n) => Value::fixnum(*n),
+            DumpValue::Float(f, id) => self.load_float_value(*id, *f),
+            DumpValue::Symbol(s) => Value::symbol(load_sym_id(s)),
+            DumpValue::Str(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
+            DumpValue::Cons(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
+            DumpValue::Vector(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
+            DumpValue::Record(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
+            DumpValue::HashTable(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
+            DumpValue::Lambda(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
+            DumpValue::Macro(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
+            DumpValue::Subr(s) => Value::subr_name_id(load_name_id(s)),
+            DumpValue::ByteCode(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
+            DumpValue::Marker(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
+            DumpValue::Overlay(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
+            DumpValue::Buffer(bid) => self.load_cached_buffer(bid.0),
+            DumpValue::Window(w) => self.load_cached_window(*w),
+            DumpValue::Frame(f) => self.load_cached_frame(*f),
+            DumpValue::Timer(t) => self.load_cached_timer(*t),
+            DumpValue::Bignum(text) => Value::make_integer_from_str_or_zero(text),
+            DumpValue::Unbound => Value::UNBOUND,
+        }
+    }
+
+    pub(crate) fn load_opt_value(&mut self, v: &Option<DumpValue>) -> Option<Value> {
+        v.as_ref().map(|value| self.load_value(value))
+    }
+}
+
 fn dump_heap_ref(id: TaggedHeapRef) -> DumpHeapRef {
     DumpHeapRef { index: id.index }
 }
@@ -152,122 +519,6 @@ pub(crate) fn dump_name_id(id: NameId) -> DumpNameId {
     DumpNameId(id.0)
 }
 
-fn with_dump_state<R>(f: impl FnOnce(&mut TaggedDumpState) -> R) -> R {
-    PDUMP_DUMP_STATE.with(|state| {
-        let ptr = state.get();
-        assert!(!ptr.is_null(), "pdump dump state should be initialized");
-        unsafe { f(&mut *ptr) }
-    })
-}
-
-fn with_load_state<R>(f: impl FnOnce(&mut TaggedLoadState) -> R) -> R {
-    PDUMP_LOAD_STATE.with(|state| {
-        let ptr = state.get();
-        assert!(!ptr.is_null(), "pdump load state should be initialized");
-        unsafe { f(&mut *ptr) }
-    })
-}
-
-fn value_to_heap_ref(v: &Value) -> TaggedHeapRef {
-    debug_assert!(v.is_heap_object());
-    let bits = v.bits();
-    with_dump_state(|state| {
-        if let Some(id) = state.object_ids.get(&bits).copied() {
-            return id;
-        }
-
-        let id = TaggedHeapRef {
-            index: state.objects.len() as u32,
-        };
-        state.object_ids.insert(bits, id);
-        state.objects.push(None);
-        let dumped = dump_heap_object_from_value(*v);
-        state.objects[id.index as usize] = Some(dumped);
-        id
-    })
-}
-
-fn heap_ref_to_value(id: TaggedHeapRef) -> Value {
-    with_load_state(|state| load_tagged_object(state, id))
-}
-
-fn dump_float_id(v: &Value) -> u32 {
-    debug_assert!(v.is_float());
-    let bits = v.bits();
-    with_dump_state(|state| {
-        if let Some(id) = state.float_ids.get(&bits).copied() {
-            return id;
-        }
-        let id = state.next_float_id;
-        state.next_float_id += 1;
-        state.float_ids.insert(bits, id);
-        id
-    })
-}
-
-fn load_float_value(id: u32, value: f64) -> Value {
-    with_load_state(|state| {
-        *state
-            .floats
-            .entry(id)
-            .or_insert_with(|| Value::make_float(value))
-    })
-}
-
-pub(crate) fn dump_value(v: &Value) -> DumpValue {
-    match v.kind() {
-        ValueKind::Nil => DumpValue::Nil,
-        ValueKind::T => DumpValue::True,
-        ValueKind::Fixnum(n) => DumpValue::Int(n),
-        ValueKind::Float => DumpValue::Float(v.xfloat(), dump_float_id(v)),
-        ValueKind::Symbol(s) => DumpValue::Symbol(dump_sym_id(s)),
-        ValueKind::String => DumpValue::Str(dump_heap_ref(value_to_heap_ref(v))),
-        ValueKind::Cons => DumpValue::Cons(dump_heap_ref(value_to_heap_ref(v))),
-        ValueKind::Veclike(VecLikeType::Vector) => {
-            DumpValue::Vector(dump_heap_ref(value_to_heap_ref(v)))
-        }
-        ValueKind::Veclike(VecLikeType::Record) => {
-            DumpValue::Record(dump_heap_ref(value_to_heap_ref(v)))
-        }
-        ValueKind::Veclike(VecLikeType::HashTable) => {
-            DumpValue::HashTable(dump_heap_ref(value_to_heap_ref(v)))
-        }
-        ValueKind::Veclike(VecLikeType::Lambda) => {
-            DumpValue::Lambda(dump_heap_ref(value_to_heap_ref(v)))
-        }
-        ValueKind::Veclike(VecLikeType::Macro) => {
-            DumpValue::Macro(dump_heap_ref(value_to_heap_ref(v)))
-        }
-        ValueKind::Veclike(VecLikeType::Subr) => {
-            let s = v.as_subr_id().unwrap();
-            DumpValue::Subr(dump_name_id(intern::symbol_name_id(s)))
-        }
-        ValueKind::Veclike(VecLikeType::ByteCode) => {
-            DumpValue::ByteCode(dump_heap_ref(value_to_heap_ref(v)))
-        }
-        ValueKind::Veclike(VecLikeType::Marker) => {
-            DumpValue::Marker(dump_heap_ref(value_to_heap_ref(v)))
-        }
-        ValueKind::Veclike(VecLikeType::Overlay) => {
-            DumpValue::Overlay(dump_heap_ref(value_to_heap_ref(v)))
-        }
-        ValueKind::Veclike(VecLikeType::Buffer) => {
-            DumpValue::Buffer(DumpBufferId(v.as_buffer_id().unwrap().0))
-        }
-        ValueKind::Veclike(VecLikeType::Window) => DumpValue::Window(v.as_window_id().unwrap()),
-        ValueKind::Veclike(VecLikeType::Frame) => DumpValue::Frame(v.as_frame_id().unwrap()),
-        ValueKind::Veclike(VecLikeType::Timer) => DumpValue::Timer(v.as_timer_id().unwrap()),
-        ValueKind::Veclike(VecLikeType::Bignum) => {
-            DumpValue::Bignum(v.as_bignum().unwrap().to_string())
-        }
-        ValueKind::Unbound => DumpValue::Unbound,
-        ValueKind::Unknown => DumpValue::Nil,
-    }
-}
-
-pub(crate) fn dump_opt_value(v: &Option<Value>) -> Option<DumpValue> {
-    v.as_ref().map(dump_value)
-}
 
 // --- Op ---
 
@@ -372,28 +623,28 @@ pub(crate) fn dump_lambda_params(p: &LambdaParams) -> DumpLambdaParams {
     }
 }
 
-pub(crate) fn dump_bytecode(bc: &ByteCodeFunction) -> DumpByteCodeFunction {
+pub(crate) fn dump_bytecode(encoder: &mut DumpEncoder, bc: &ByteCodeFunction) -> DumpByteCodeFunction {
     DumpByteCodeFunction {
         ops: bc.ops.iter().map(dump_op).collect(),
-        constants: bc.constants.iter().map(dump_value).collect(),
+        constants: bc.constants.iter().map(|value| encoder.dump_value(value)).collect(),
         max_stack: bc.max_stack,
         params: dump_lambda_params(&bc.params),
         lexical: bc.lexical,
-        env: dump_opt_value(&bc.env),
+        env: encoder.dump_opt_value(&bc.env),
         gnu_byte_offset_map: bc.gnu_byte_offset_map.as_ref().map(|map| {
             map.iter()
                 .map(|(byte_off, instr_idx)| (*byte_off as u32, *instr_idx as u32))
                 .collect()
         }),
         docstring: bc.docstring.clone(),
-        doc_form: dump_opt_value(&bc.doc_form),
-        interactive: dump_opt_value(&bc.interactive),
+        doc_form: encoder.dump_opt_value(&bc.doc_form),
+        interactive: encoder.dump_opt_value(&bc.interactive),
     }
 }
 
 // --- Hash tables ---
 
-pub(crate) fn dump_hash_key(k: &HashKey) -> DumpHashKey {
+pub(crate) fn dump_hash_key(encoder: &mut DumpEncoder, k: &HashKey) -> DumpHashKey {
     match k {
         HashKey::Nil => DumpHashKey::Nil,
         HashKey::True => DumpHashKey::True,
@@ -408,16 +659,21 @@ pub(crate) fn dump_hash_key(k: &HashKey) -> DumpHashKey {
         HashKey::Ptr(p) => {
             let value = TaggedValue(*p);
             if value.is_heap_object() {
-                let id = value_to_heap_ref(&value);
+                let id = encoder.value_to_heap_ref(&value);
                 DumpHashKey::HeapRef(id.index)
             } else {
                 DumpHashKey::Ptr(*p as u64)
             }
         }
         HashKey::EqualCons(a, b) => {
-            DumpHashKey::EqualCons(Box::new(dump_hash_key(a)), Box::new(dump_hash_key(b)))
+            DumpHashKey::EqualCons(
+                Box::new(dump_hash_key(encoder, a)),
+                Box::new(dump_hash_key(encoder, b)),
+            )
         }
-        HashKey::EqualVec(v) => DumpHashKey::EqualVec(v.iter().map(dump_hash_key).collect()),
+        HashKey::EqualVec(v) => DumpHashKey::EqualVec(
+            v.iter().map(|key| dump_hash_key(encoder, key)).collect(),
+        ),
         HashKey::Cycle(index) => DumpHashKey::Cycle(*index),
         HashKey::Text(text) => DumpHashKey::Text(text.clone()),
     }
@@ -440,7 +696,7 @@ pub(crate) fn dump_hash_table_weakness(w: &HashTableWeakness) -> DumpHashTableWe
     }
 }
 
-pub(crate) fn dump_hash_table(ht: &LispHashTable) -> DumpLispHashTable {
+pub(crate) fn dump_hash_table(encoder: &mut DumpEncoder, ht: &LispHashTable) -> DumpLispHashTable {
     DumpLispHashTable {
         test: dump_hash_table_test(&ht.test),
         test_name: ht.test_name.map(|s| dump_sym_id(s)),
@@ -451,31 +707,35 @@ pub(crate) fn dump_hash_table(ht: &LispHashTable) -> DumpLispHashTable {
         entries: ht
             .data
             .iter()
-            .map(|(k, v)| (dump_hash_key(k), dump_value(v)))
+            .map(|(k, v)| (dump_hash_key(encoder, k), encoder.dump_value(v)))
             .collect(),
         key_snapshots: ht
             .key_snapshots
             .iter()
-            .map(|(k, v)| (dump_hash_key(k), dump_value(v)))
+            .map(|(k, v)| (dump_hash_key(encoder, k), encoder.dump_value(v)))
             .collect(),
-        insertion_order: ht.insertion_order.iter().map(dump_hash_key).collect(),
+        insertion_order: ht
+            .insertion_order
+            .iter()
+            .map(|key| dump_hash_key(encoder, key))
+            .collect(),
     }
 }
 
 // --- Heap objects ---
 
-fn dump_closure_slots(value: Value) -> Vec<DumpValue> {
+fn dump_closure_slots(encoder: &mut DumpEncoder, value: Value) -> Vec<DumpValue> {
     value
         .closure_slots()
-        .map(|slots| slots.iter().map(dump_value).collect())
+        .map(|slots| slots.iter().map(|slot| encoder.dump_value(slot)).collect())
         .unwrap_or_default()
 }
 
-fn dump_heap_object_from_value(value: Value) -> DumpHeapObject {
+fn dump_heap_object_from_value(encoder: &mut DumpEncoder, value: Value) -> DumpHeapObject {
     match value.kind() {
         ValueKind::Cons => DumpHeapObject::Cons {
-            car: dump_value(&value.cons_car()),
-            cdr: dump_value(&value.cons_cdr()),
+            car: encoder.dump_value(&value.cons_car()),
+            cdr: encoder.dump_value(&value.cons_cdr()),
         },
         ValueKind::String => {
             let string = value.as_lisp_string().expect("string");
@@ -493,7 +753,7 @@ fn dump_heap_object_from_value(value: Value) -> DumpHeapObject {
                     .map(|run| DumpStringTextPropertyRun {
                         start: run.start,
                         end: run.end,
-                        plist: dump_value(&run.plist),
+                        plist: encoder.dump_value(&run.plist),
                     })
                     .collect(),
             }
@@ -504,29 +764,40 @@ fn dump_heap_object_from_value(value: Value) -> DumpHeapObject {
                 .as_vector_data()
                 .expect("vector")
                 .iter()
-                .map(dump_value)
+                .map(|item| encoder.dump_value(item))
                 .collect(),
         ),
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            DumpHeapObject::HashTable(dump_hash_table(value.as_hash_table().expect("hash-table")))
+            DumpHeapObject::HashTable(dump_hash_table(
+                encoder,
+                value.as_hash_table().expect("hash-table"),
+            ))
         }
         ValueKind::Veclike(VecLikeType::Lambda) => {
-            DumpHeapObject::Lambda(dump_closure_slots(value))
+            DumpHeapObject::Lambda(dump_closure_slots(encoder, value))
         }
-        ValueKind::Veclike(VecLikeType::Macro) => DumpHeapObject::Macro(dump_closure_slots(value)),
+        ValueKind::Veclike(VecLikeType::Macro) => {
+            DumpHeapObject::Macro(dump_closure_slots(encoder, value))
+        }
         ValueKind::Veclike(VecLikeType::ByteCode) => {
-            DumpHeapObject::ByteCode(dump_bytecode(value.get_bytecode_data().expect("bytecode")))
+            DumpHeapObject::ByteCode(dump_bytecode(
+                encoder,
+                value.get_bytecode_data().expect("bytecode"),
+            ))
         }
         ValueKind::Veclike(VecLikeType::Record) => DumpHeapObject::Record(
             value
                 .as_record_data()
                 .expect("record")
                 .iter()
-                .map(dump_value)
+                .map(|item| encoder.dump_value(item))
                 .collect(),
         ),
         ValueKind::Veclike(VecLikeType::Overlay) => {
-            DumpHeapObject::Overlay(dump_overlay(value.as_overlay_data().expect("overlay")))
+            DumpHeapObject::Overlay(dump_overlay(
+                encoder,
+                value.as_overlay_data().expect("overlay"),
+            ))
         }
         ValueKind::Veclike(VecLikeType::Marker) => {
             DumpHeapObject::Marker(dump_marker_object(value.as_marker_data().expect("marker")))
@@ -576,42 +847,42 @@ pub(crate) fn dump_symbol_table() -> DumpSymbolTable {
 
 // --- Symbol / Obarray ---
 
-fn dump_symbol_value(sv: &SymbolValue) -> DumpSymbolValue {
+fn dump_symbol_value(encoder: &mut DumpEncoder, sv: &SymbolValue) -> DumpSymbolValue {
     match sv {
-        SymbolValue::Plain(v) => DumpSymbolValue::Plain(dump_opt_value(v)),
+        SymbolValue::Plain(v) => DumpSymbolValue::Plain(encoder.dump_opt_value(v)),
         SymbolValue::Alias(target) => DumpSymbolValue::Alias(dump_sym_id(*target)),
         SymbolValue::BufferLocal {
             default,
             local_if_set,
         } => DumpSymbolValue::BufferLocal {
-            default: dump_opt_value(default),
+            default: encoder.dump_opt_value(default),
             local_if_set: *local_if_set,
         },
         SymbolValue::Forwarded => DumpSymbolValue::Forwarded,
     }
 }
 
-pub(crate) fn dump_symbol_data(sd: &SymbolData) -> DumpSymbolData {
+pub(crate) fn dump_symbol_data(encoder: &mut DumpEncoder, sd: &SymbolData) -> DumpSymbolData {
     DumpSymbolData {
         name: None,
         value: None,
-        symbol_value: Some(dump_symbol_value(&sd.value)),
-        function: dump_opt_value(&sd.function),
+        symbol_value: Some(dump_symbol_value(encoder, &sd.value)),
+        function: encoder.dump_opt_value(&sd.function),
         plist: sd
             .plist
             .iter()
-            .map(|(k, v)| (dump_sym_id(*k), dump_value(v)))
+            .map(|(k, v)| (dump_sym_id(*k), encoder.dump_value(v)))
             .collect(),
         special: sd.special,
         constant: sd.constant,
     }
 }
 
-pub(crate) fn dump_obarray(ob: &Obarray) -> DumpObarray {
+pub(crate) fn dump_obarray(encoder: &mut DumpEncoder, ob: &Obarray) -> DumpObarray {
     DumpObarray {
         symbols: ob
             .iter_symbols()
-            .map(|(id, sd)| (dump_sym_id(id), dump_symbol_data(sd)))
+            .map(|(id, sd)| (dump_sym_id(id), dump_symbol_data(encoder, sd)))
             .collect(),
         global_members: ob.global_member_ids().map(dump_sym_id).collect(),
         function_unbound: ob.function_unbound_ids().map(dump_sym_id).collect(),
@@ -621,25 +892,38 @@ pub(crate) fn dump_obarray(ob: &Obarray) -> DumpObarray {
 
 // --- OrderedSymMap ---
 
-fn dump_runtime_binding_value(value: &RuntimeBindingValue) -> DumpRuntimeBindingValue {
+fn dump_runtime_binding_value(
+    encoder: &mut DumpEncoder,
+    value: &RuntimeBindingValue,
+) -> DumpRuntimeBindingValue {
     match value {
-        RuntimeBindingValue::Bound(value) => DumpRuntimeBindingValue::Bound(dump_value(value)),
+        RuntimeBindingValue::Bound(value) => {
+            DumpRuntimeBindingValue::Bound(encoder.dump_value(value))
+        }
         RuntimeBindingValue::Void => DumpRuntimeBindingValue::Void,
     }
 }
 
-fn load_runtime_binding_value(value: &DumpRuntimeBindingValue) -> RuntimeBindingValue {
+fn load_runtime_binding_value(
+    decoder: &mut LoadDecoder,
+    value: &DumpRuntimeBindingValue,
+) -> RuntimeBindingValue {
     match value {
-        DumpRuntimeBindingValue::Bound(value) => RuntimeBindingValue::Bound(load_value(value)),
+        DumpRuntimeBindingValue::Bound(value) => {
+            RuntimeBindingValue::Bound(decoder.load_value(value))
+        }
         DumpRuntimeBindingValue::Void => RuntimeBindingValue::Void,
     }
 }
 
-pub(crate) fn dump_ordered_sym_map(m: &OrderedRuntimeBindingMap) -> DumpOrderedSymMap {
+pub(crate) fn dump_ordered_sym_map(
+    encoder: &mut DumpEncoder,
+    m: &OrderedRuntimeBindingMap,
+) -> DumpOrderedSymMap {
     DumpOrderedSymMap {
         entries: m
             .iter()
-            .map(|(k, v)| (dump_sym_id(*k), dump_runtime_binding_value(v)))
+            .map(|(k, v)| (dump_sym_id(*k), dump_runtime_binding_value(encoder, v)))
             .collect(),
     }
 }
@@ -663,31 +947,34 @@ fn dump_marker(m: &MarkerEntry) -> DumpMarkerEntry {
     }
 }
 
-fn dump_property_interval(pi: &PropertyInterval) -> DumpPropertyInterval {
+fn dump_property_interval(encoder: &mut DumpEncoder, pi: &PropertyInterval) -> DumpPropertyInterval {
     DumpPropertyInterval {
         start: pi.start,
         end: pi.end,
         properties: pi
             .properties
             .iter()
-            .map(|(k, v)| (k.clone(), dump_value(v)))
+            .map(|(k, v)| (k.clone(), encoder.dump_value(v)))
             .collect(),
     }
 }
 
-fn dump_text_property_table(tpt: &TextPropertyTable) -> DumpTextPropertyTable {
+fn dump_text_property_table(
+    encoder: &mut DumpEncoder,
+    tpt: &TextPropertyTable,
+) -> DumpTextPropertyTable {
     DumpTextPropertyTable {
         intervals: tpt
             .dump_intervals()
             .into_iter()
-            .map(|iv| dump_property_interval(&iv))
+            .map(|iv| dump_property_interval(encoder, &iv))
             .collect(),
     }
 }
 
-fn dump_overlay(o: &Overlay) -> DumpOverlay {
+fn dump_overlay(encoder: &mut DumpEncoder, o: &Overlay) -> DumpOverlay {
     DumpOverlay {
-        plist: dump_value(&o.plist),
+        plist: encoder.dump_value(&o.plist),
         buffer: o.buffer.map(|id| DumpBufferId(id.0)),
         start: o.start,
         end: o.end,
@@ -705,13 +992,13 @@ fn dump_marker_object(marker: &crate::heap_types::MarkerData) -> DumpMarker {
     }
 }
 
-fn dump_overlay_list(ol: &OverlayList) -> DumpOverlayList {
+fn dump_overlay_list(encoder: &mut DumpEncoder, ol: &OverlayList) -> DumpOverlayList {
     DumpOverlayList {
         overlays: ol
             .dump_overlays()
             .iter()
             .filter_map(|v| v.as_overlay_data())
-            .map(|data| dump_overlay(data))
+            .map(|data| dump_overlay(encoder, data))
             .collect(),
     }
 }
@@ -762,7 +1049,7 @@ fn dump_syntax_table(st: &SyntaxTable) -> DumpSyntaxTable {
 // dump_undo_record and dump_undo_list removed — undo state is now a
 // buffer-local Lisp Value serialized through the properties map.
 
-fn dump_buffer(buf: &Buffer) -> DumpBuffer {
+fn dump_buffer(encoder: &mut DumpEncoder, buf: &Buffer) -> DumpBuffer {
     let is_shared_text_owner = buf.base_buffer.is_none();
     DumpBuffer {
         id: DumpBufferId(buf.id.0),
@@ -804,23 +1091,23 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
         properties: buf
             .ordered_buffer_local_bindings()
             .into_iter()
-            .map(|(k, v)| (k, dump_runtime_binding_value(&v)))
+            .map(|(k, v)| (k, dump_runtime_binding_value(encoder, &v)))
             .collect(),
         local_binding_names: buf.ordered_buffer_local_names(),
-        local_map: dump_value(&buf.local_map()),
+        local_map: encoder.dump_value(&buf.local_map()),
         text_props: if is_shared_text_owner {
-            dump_text_property_table(&buf.text.text_props_snapshot())
+            dump_text_property_table(encoder, &buf.text.text_props_snapshot())
         } else {
-            dump_text_property_table(&TextPropertyTable::new())
+            dump_text_property_table(encoder, &TextPropertyTable::new())
         },
-        overlays: dump_overlay_list(&buf.overlays),
+        overlays: dump_overlay_list(encoder, &buf.overlays),
         syntax_table: dump_syntax_table(&buf.syntax_table),
         undo_list: None,
         // Phase 11.1: round-trip the BUFFER_OBJFWD slot table.
         // Previously blocked on the BLV GC trace bug (5699c3569);
         // with BLVs traced as roots, slot round-trip is safe for
         // the slot vector overall.
-        slots: buf.slots.iter().map(dump_value).collect(),
+        slots: buf.slots.iter().map(|slot| encoder.dump_value(slot)).collect(),
         // Phase 11: per-slot local-flag bitmap. Mirrors
         // `Buffer::local_flags` (Phase 10D bitset). Safe to
         // round-trip — it's a `u64`.
@@ -828,16 +1115,19 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
         // Phase 11: per-buffer alist for SYMBOL_LOCALIZED variables.
         // Mirrors GNU `BVAR(buf, local_var_alist)`. The cons cells
         // already round-trip safely via the dump heap.
-        local_var_alist: dump_value(&buf.local_var_alist),
+        local_var_alist: encoder.dump_value(&buf.local_var_alist),
     }
 }
 
-pub(crate) fn dump_buffer_manager(bm: &BufferManager) -> DumpBufferManager {
+pub(crate) fn dump_buffer_manager(
+    encoder: &mut DumpEncoder,
+    bm: &BufferManager,
+) -> DumpBufferManager {
     DumpBufferManager {
         buffers: bm
             .dump_buffers()
             .iter()
-            .map(|(id, buf)| (DumpBufferId(id.0), dump_buffer(buf)))
+            .map(|(id, buf)| (DumpBufferId(id.0), dump_buffer(encoder, buf)))
             .collect(),
         current: bm.dump_current().map(|id| DumpBufferId(id.0)),
         next_id: bm.dump_next_id(),
@@ -847,13 +1137,20 @@ pub(crate) fn dump_buffer_manager(bm: &BufferManager) -> DumpBufferManager {
         // (notably bindings.el's rich `mode-line-format`) are lost
         // on pdump-load, and `reset_buffer_local_variables` reverts
         // every conditional slot to its install-time seed.
-        buffer_defaults: bm.buffer_defaults.iter().map(dump_value).collect(),
+        buffer_defaults: bm
+            .buffer_defaults
+            .iter()
+            .map(|value| encoder.dump_value(value))
+            .collect(),
     }
 }
 
 // --- Sub-managers ---
 
-pub(crate) fn dump_autoload_manager(am: &AutoloadManager) -> DumpAutoloadManager {
+pub(crate) fn dump_autoload_manager(
+    encoder: &mut DumpEncoder,
+    am: &AutoloadManager,
+) -> DumpAutoloadManager {
     DumpAutoloadManager {
         entries: am
             .dump_entries()
@@ -878,7 +1175,12 @@ pub(crate) fn dump_autoload_manager(am: &AutoloadManager) -> DumpAutoloadManager
         after_load: am
             .dump_after_load()
             .iter()
-            .map(|(k, v)| (k.clone(), v.iter().map(dump_value).collect()))
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    v.iter().map(|value| encoder.dump_value(value)).collect(),
+                )
+            })
             .collect(),
         loaded_files: am.dump_loaded_files().to_vec(),
         obsolete_functions: am
@@ -918,7 +1220,7 @@ fn dump_font_lock_defaults(fld: &FontLockDefaults) -> DumpFontLockDefaults {
     }
 }
 
-fn dump_mode_custom_type(ct: &ModeCustomType) -> DumpModeCustomType {
+fn dump_mode_custom_type(encoder: &mut DumpEncoder, ct: &ModeCustomType) -> DumpModeCustomType {
     match ct {
         ModeCustomType::Boolean => DumpModeCustomType::Boolean,
         ModeCustomType::Integer => DumpModeCustomType::Integer,
@@ -929,19 +1231,19 @@ fn dump_mode_custom_type(ct: &ModeCustomType) -> DumpModeCustomType {
         ModeCustomType::Choice(choices) => DumpModeCustomType::Choice(
             choices
                 .iter()
-                .map(|(s, v)| (s.clone(), dump_value(v)))
+                .map(|(s, v)| (s.clone(), encoder.dump_value(v)))
                 .collect(),
         ),
         ModeCustomType::List(inner) => {
-            DumpModeCustomType::List(Box::new(dump_mode_custom_type(inner)))
+            DumpModeCustomType::List(Box::new(dump_mode_custom_type(encoder, inner)))
         }
         ModeCustomType::Alist(k, v) => DumpModeCustomType::Alist(
-            Box::new(dump_mode_custom_type(k)),
-            Box::new(dump_mode_custom_type(v)),
+            Box::new(dump_mode_custom_type(encoder, k)),
+            Box::new(dump_mode_custom_type(encoder, v)),
         ),
         ModeCustomType::Plist(k, v) => DumpModeCustomType::Plist(
-            Box::new(dump_mode_custom_type(k)),
-            Box::new(dump_mode_custom_type(v)),
+            Box::new(dump_mode_custom_type(encoder, k)),
+            Box::new(dump_mode_custom_type(encoder, v)),
         ),
         ModeCustomType::Color => DumpModeCustomType::Color,
         ModeCustomType::Face => DumpModeCustomType::Face,
@@ -954,7 +1256,10 @@ fn dump_mode_custom_type(ct: &ModeCustomType) -> DumpModeCustomType {
     }
 }
 
-pub(crate) fn dump_mode_registry(mr: &ModeRegistry) -> DumpModeRegistry {
+pub(crate) fn dump_mode_registry(
+    encoder: &mut DumpEncoder,
+    mr: &ModeRegistry,
+) -> DumpModeRegistry {
     DumpModeRegistry {
         major_modes: mr
             .dump_major_modes()
@@ -971,7 +1276,7 @@ pub(crate) fn dump_mode_registry(mr: &ModeRegistry) -> DumpModeRegistry {
                         syntax_table_name: m.syntax_table_name.clone(),
                         abbrev_table_name: m.abbrev_table_name.clone(),
                         font_lock: m.font_lock.as_ref().map(dump_font_lock_defaults),
-                        body: dump_opt_value(&m.body),
+                        body: encoder.dump_opt_value(&m.body),
                     },
                 )
             })
@@ -987,7 +1292,7 @@ pub(crate) fn dump_mode_registry(mr: &ModeRegistry) -> DumpModeRegistry {
                         lighter: m.lighter.clone(),
                         keymap_name: m.keymap_name.clone(),
                         global: m.global,
-                        body: dump_opt_value(&m.body),
+                        body: encoder.dump_opt_value(&m.body),
                     },
                 )
             })
@@ -1012,9 +1317,9 @@ pub(crate) fn dump_mode_registry(mr: &ModeRegistry) -> DumpModeRegistry {
                     k.clone(),
                     DumpModeCustomVariable {
                         name: cv.name.clone(),
-                        default_value: dump_value(&cv.default_value),
+                        default_value: encoder.dump_value(&cv.default_value),
                         doc: cv.doc.clone(),
-                        custom_type: dump_mode_custom_type(&cv.type_),
+                        custom_type: dump_mode_custom_type(encoder, &cv.type_),
                         group: cv.group.clone(),
                         set_function: cv.set_function.clone(),
                         get_function: cv.get_function.clone(),
@@ -1051,7 +1356,10 @@ fn dump_eol_type(e: &EolType) -> DumpEolType {
     }
 }
 
-pub(crate) fn dump_coding_system_manager(csm: &CodingSystemManager) -> DumpCodingSystemManager {
+pub(crate) fn dump_coding_system_manager(
+    encoder: &mut DumpEncoder,
+    csm: &CodingSystemManager,
+) -> DumpCodingSystemManager {
     DumpCodingSystemManager {
         systems: csm
             .systems
@@ -1073,12 +1381,12 @@ pub(crate) fn dump_coding_system_manager(csm: &CodingSystemManager) -> DumpCodin
                         properties: v
                             .properties
                             .iter()
-                            .map(|(k, v)| (k.clone(), dump_value(v)))
+                            .map(|(k, v)| (k.clone(), encoder.dump_value(v)))
                             .collect(),
                         int_properties: v
                             .int_properties
                             .iter()
-                            .map(|(k, v)| (*k, dump_value(v)))
+                            .map(|(k, v)| (*k, encoder.dump_value(v)))
                             .collect(),
                     },
                 )
@@ -1095,7 +1403,7 @@ pub(crate) fn dump_coding_system_manager(csm: &CodingSystemManager) -> DumpCodin
     }
 }
 
-pub(crate) fn dump_charset_registry() -> DumpCharsetRegistry {
+pub(crate) fn dump_charset_registry(encoder: &mut DumpEncoder) -> DumpCharsetRegistry {
     let snapshot = snapshot_charset_registry();
     DumpCharsetRegistry {
         charsets: snapshot
@@ -1133,7 +1441,7 @@ pub(crate) fn dump_charset_registry() -> DumpCharsetRegistry {
                 plist: info
                     .plist
                     .into_iter()
-                    .map(|(key, value)| (key, dump_value(&value)))
+                    .map(|(key, value)| (key, encoder.dump_value(&value)))
                     .collect(),
             })
             .collect(),
@@ -1308,7 +1616,7 @@ pub(crate) fn dump_rectangle(r: &RectangleState) -> DumpRectangleState {
     }
 }
 
-pub(crate) fn dump_kmacro(km: &KmacroManager) -> DumpKmacroManager {
+pub(crate) fn dump_kmacro(encoder: &mut DumpEncoder, km: &KmacroManager) -> DumpKmacroManager {
     DumpKmacroManager {
         // Live recording/playback state is keyboard-runtime owned and is not
         // persisted in fresh dumps. Keep the fields for backward-compatible
@@ -1318,14 +1626,17 @@ pub(crate) fn dump_kmacro(km: &KmacroManager) -> DumpKmacroManager {
         macro_ring: km
             .macro_ring
             .iter()
-            .map(|m| m.iter().map(dump_value).collect())
+            .map(|m| m.iter().map(|value| encoder.dump_value(value)).collect())
             .collect(),
         counter: km.counter,
         counter_format: km.counter_format.clone(),
     }
 }
 
-pub(crate) fn dump_register_manager(rm: &RegisterManager) -> DumpRegisterManager {
+pub(crate) fn dump_register_manager(
+    encoder: &mut DumpEncoder,
+    rm: &RegisterManager,
+) -> DumpRegisterManager {
     DumpRegisterManager {
         registers: rm
             .dump_registers()
@@ -1346,11 +1657,13 @@ pub(crate) fn dump_register_manager(rm: &RegisterManager) -> DumpRegisterManager
                             DumpRegisterContent::Rectangle(lines.clone())
                         }
                         RegisterContent::FrameConfig(v) => {
-                            DumpRegisterContent::FrameConfig(dump_value(v))
+                            DumpRegisterContent::FrameConfig(encoder.dump_value(v))
                         }
                         RegisterContent::File(s) => DumpRegisterContent::File(s.clone()),
                         RegisterContent::KbdMacro(keys) => {
-                            DumpRegisterContent::KbdMacro(keys.iter().map(dump_value).collect())
+                            DumpRegisterContent::KbdMacro(
+                                keys.iter().map(|value| encoder.dump_value(value)).collect(),
+                            )
                         }
                     },
                 )
@@ -1438,7 +1751,10 @@ pub(crate) fn dump_interactive_registry(ir: &InteractiveRegistry) -> DumpInterac
     }
 }
 
-pub(crate) fn dump_watcher_list(wl: &VariableWatcherList) -> DumpVariableWatcherList {
+pub(crate) fn dump_watcher_list(
+    encoder: &mut DumpEncoder,
+    wl: &VariableWatcherList,
+) -> DumpVariableWatcherList {
     DumpVariableWatcherList {
         watchers: wl
             .dump_watchers()
@@ -1446,24 +1762,33 @@ pub(crate) fn dump_watcher_list(wl: &VariableWatcherList) -> DumpVariableWatcher
             .map(|(k, watchers)| {
                 (
                     dump_sym_id(*k),
-                    watchers.iter().map(|w| dump_value(&w.callback)).collect(),
+                    watchers
+                        .iter()
+                        .map(|w| encoder.dump_value(&w.callback))
+                        .collect(),
                 )
             })
             .collect(),
     }
 }
 
-pub(crate) fn dump_string_text_prop_run(r: &StringTextPropertyRun) -> DumpStringTextPropertyRun {
+pub(crate) fn dump_string_text_prop_run(
+    encoder: &mut DumpEncoder,
+    r: &StringTextPropertyRun,
+) -> DumpStringTextPropertyRun {
     DumpStringTextPropertyRun {
         start: r.start,
         end: r.end,
-        plist: dump_value(&r.plist),
+        plist: encoder.dump_value(&r.plist),
     }
 }
 
 /// Convert a TextPropertyTable to a list of DumpPropertyInterval entries (for string props).
 /// Does NOT allocate heap objects — serializes property values directly.
-fn dump_string_text_property_table(table: &TextPropertyTable) -> Vec<DumpPropertyInterval> {
+fn dump_string_text_property_table(
+    encoder: &mut DumpEncoder,
+    table: &TextPropertyTable,
+) -> Vec<DumpPropertyInterval> {
     let mut intervals = Vec::new();
     for iv in table.dump_intervals() {
         if iv.properties.is_empty() {
@@ -1472,7 +1797,7 @@ fn dump_string_text_property_table(table: &TextPropertyTable) -> Vec<DumpPropert
         let properties: Vec<(String, DumpValue)> = iv
             .properties
             .iter()
-            .map(|(key, val)| (key.clone(), dump_value(val)))
+            .map(|(key, val)| (key.clone(), encoder.dump_value(val)))
             .collect();
         intervals.push(DumpPropertyInterval {
             start: iv.start,
@@ -1486,17 +1811,16 @@ fn dump_string_text_property_table(table: &TextPropertyTable) -> Vec<DumpPropert
 // --- Top-level dump ---
 
 pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
-    let mut dump_state = TaggedDumpState::new();
-    PDUMP_DUMP_STATE.with(|state| state.set(&mut dump_state));
+    let mut encoder = DumpEncoder::new();
 
     let dump = DumpContextState {
         symbol_table: dump_symbol_table(),
         tagged_heap: DumpTaggedHeap {
             objects: Vec::new(),
         },
-        obarray: dump_obarray(&eval.obarray),
+        obarray: dump_obarray(&mut encoder, &eval.obarray),
         dynamic: Vec::new(),
-        lexenv: dump_value(&eval.lexenv),
+        lexenv: encoder.dump_value(&eval.lexenv),
         features: eval.features.iter().copied().map(dump_sym_id).collect(),
         require_stack: eval
             .require_stack
@@ -1509,28 +1833,27 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
             .iter()
             .map(|path| path.to_string_lossy().to_string())
             .collect(),
-        buffers: dump_buffer_manager(&eval.buffers),
-        autoloads: dump_autoload_manager(&eval.autoloads),
+        buffers: dump_buffer_manager(&mut encoder, &eval.buffers),
+        autoloads: dump_autoload_manager(&mut encoder, &eval.autoloads),
         custom: dump_custom_manager(&eval.custom),
-        modes: dump_mode_registry(&eval.modes),
-        coding_systems: dump_coding_system_manager(&eval.coding_systems),
-        charset_registry: dump_charset_registry(),
+        modes: dump_mode_registry(&mut encoder, &eval.modes),
+        coding_systems: dump_coding_system_manager(&mut encoder, &eval.coding_systems),
+        charset_registry: dump_charset_registry(&mut encoder),
         fontset_registry: dump_fontset_registry(),
         face_table: dump_face_table(&eval.face_table),
         abbrevs: dump_abbrev_manager(&eval.abbrevs),
         interactive: dump_interactive_registry(&eval.interactive),
         rectangle: dump_rectangle(&eval.rectangle),
-        standard_syntax_table: dump_value(&eval.standard_syntax_table),
-        standard_category_table: dump_value(&eval.standard_category_table),
-        current_local_map: dump_value(&eval.current_local_map),
-        kmacro: dump_kmacro(&eval.kmacro),
-        registers: dump_register_manager(&eval.registers),
+        standard_syntax_table: encoder.dump_value(&eval.standard_syntax_table),
+        standard_category_table: encoder.dump_value(&eval.standard_category_table),
+        current_local_map: encoder.dump_value(&eval.current_local_map),
+        kmacro: dump_kmacro(&mut encoder, &eval.kmacro),
+        registers: dump_register_manager(&mut encoder, &eval.registers),
         bookmarks: dump_bookmark_manager(&eval.bookmarks),
-        watchers: dump_watcher_list(&eval.watchers),
+        watchers: dump_watcher_list(&mut encoder, &eval.watchers),
     };
 
-    PDUMP_DUMP_STATE.with(|state| state.set(std::ptr::null_mut()));
-    let tagged_heap = dump_state.finalize();
+    let tagged_heap = encoder.finalize();
 
     DumpContextState {
         tagged_heap,
@@ -1565,272 +1888,6 @@ pub(crate) fn load_name_id(id: &DumpNameId) -> NameId {
             .copied()
             .unwrap_or_else(|| panic!("pdump name slot {} should have a runtime remap", id.0))
     })
-}
-
-fn load_cached_buffer(id: u64) -> Value {
-    with_load_state(|state| {
-        *state
-            .buffers
-            .entry(id)
-            .or_insert_with(|| Value::make_buffer(BufferId(id)))
-    })
-}
-
-fn load_cached_window(id: u64) -> Value {
-    with_load_state(|state| {
-        *state
-            .windows
-            .entry(id)
-            .or_insert_with(|| Value::make_window(id))
-    })
-}
-
-fn load_cached_frame(id: u64) -> Value {
-    with_load_state(|state| {
-        *state
-            .frames
-            .entry(id)
-            .or_insert_with(|| Value::make_frame(id))
-    })
-}
-
-fn load_cached_timer(id: u64) -> Value {
-    with_load_state(|state| {
-        *state
-            .timers
-            .entry(id)
-            .or_insert_with(|| Value::make_timer(id))
-    })
-}
-
-fn allocate_tagged_placeholder(
-    state: &mut TaggedLoadState,
-    id: TaggedHeapRef,
-) -> Result<Value, DumpError> {
-    if let Some(value) = state.values[id.index as usize] {
-        return Ok(value);
-    }
-    let value = match &state.objects[id.index as usize] {
-        DumpHeapObject::Cons { .. } => Value::cons(Value::NIL, Value::NIL),
-        DumpHeapObject::Vector(items) => Value::make_vector(vec![Value::NIL; items.len()]),
-        DumpHeapObject::HashTable(ht) => with_tagged_heap(|heap| {
-            heap.alloc_hash_table(LispHashTable::new_with_options(
-                load_hash_table_test(&ht.test),
-                ht.size,
-                ht.weakness.as_ref().map(load_hash_table_weakness),
-                ht.rehash_size,
-                ht.rehash_threshold,
-            ))
-        }),
-        DumpHeapObject::Str {
-            data,
-            size,
-            size_byte,
-            ..
-        } => Value::heap_string(LispString::from_dump(data.clone(), *size, *size_byte)),
-        DumpHeapObject::Float(value) => Value::make_float(*value),
-        DumpHeapObject::Lambda(slots) => with_tagged_heap(|heap| {
-            heap.alloc_lambda(vec![Value::NIL; slots.len().max(CLOSURE_MIN_SLOTS)])
-        }),
-        DumpHeapObject::Macro(slots) => with_tagged_heap(|heap| {
-            heap.alloc_macro(vec![Value::NIL; slots.len().max(CLOSURE_MIN_SLOTS)])
-        }),
-        DumpHeapObject::ByteCode(_) => Value::make_bytecode(ByteCodeFunction {
-            ops: Vec::new(),
-            constants: Vec::new(),
-            max_stack: 0,
-            params: LambdaParams::simple(Vec::new()),
-            lexical: false,
-            env: None,
-            gnu_byte_offset_map: None,
-            gnu_bytecode_bytes: None,
-            docstring: None,
-            doc_form: None,
-            interactive: None,
-        }),
-        DumpHeapObject::Record(items) => Value::make_record(vec![Value::NIL; items.len()]),
-        DumpHeapObject::Marker(marker) => Value::make_marker(crate::heap_types::MarkerData {
-            buffer: marker.buffer.map(|id| BufferId(id.0)),
-            position: marker.position,
-            insertion_type: marker.insertion_type,
-            marker_id: marker.marker_id,
-        }),
-        DumpHeapObject::Overlay(overlay) => Value::make_overlay(crate::heap_types::OverlayData {
-            plist: Value::NIL,
-            buffer: overlay.buffer.map(|id| BufferId(id.0)),
-            start: overlay.start,
-            end: overlay.end,
-            front_advance: overlay.front_advance,
-            rear_advance: overlay.rear_advance,
-        }),
-        DumpHeapObject::Buffer(id) => load_cached_buffer(id.0),
-        DumpHeapObject::Window(id) => load_cached_window(*id),
-        DumpHeapObject::Frame(id) => load_cached_frame(*id),
-        DumpHeapObject::Timer(id) => load_cached_timer(*id),
-        DumpHeapObject::Subr { name, .. } => Value::subr_name_id(load_name_id(name)),
-        DumpHeapObject::Free => Value::NIL,
-    };
-    state.values[id.index as usize] = Some(value);
-    Ok(value)
-}
-
-fn populate_tagged_object(state: &mut TaggedLoadState, id: TaggedHeapRef) -> Result<(), DumpError> {
-    if state.populated[id.index as usize] {
-        return Ok(());
-    }
-
-    let value = allocate_tagged_placeholder(state, id)?;
-    state.populated[id.index as usize] = true;
-    match state.objects[id.index as usize].clone() {
-        DumpHeapObject::Cons { car, cdr } => {
-            value.set_car(load_value(&car));
-            value.set_cdr(load_value(&cdr));
-        }
-        DumpHeapObject::Vector(items) => {
-            let _ = value.replace_vector_data(items.iter().map(load_value).collect());
-        }
-        DumpHeapObject::HashTable(ht) => {
-            let _ = value.with_hash_table_mut(|table| {
-                table.test = load_hash_table_test(&ht.test);
-                table.test_name = ht.test_name.map(|s| load_sym_id(&s));
-                table.size = ht.size;
-                table.weakness = ht.weakness.as_ref().map(load_hash_table_weakness);
-                table.rehash_size = ht.rehash_size;
-                table.rehash_threshold = ht.rehash_threshold;
-                table.data = ht
-                    .entries
-                    .iter()
-                    .map(|(k, v)| (load_hash_key(k), load_value(v)))
-                    .collect();
-                table.key_snapshots = ht
-                    .key_snapshots
-                    .iter()
-                    .map(|(k, v)| (load_hash_key(k), load_value(v)))
-                    .collect();
-                table.insertion_order = ht.insertion_order.iter().map(load_hash_key).collect();
-            });
-        }
-        DumpHeapObject::Str { text_props, .. } => {
-            if !text_props.is_empty() {
-                let runs = text_props
-                    .iter()
-                    .map(|run| StringTextPropertyRun {
-                        start: run.start,
-                        end: run.end,
-                        plist: load_value(&run.plist),
-                    })
-                    .collect();
-                set_string_text_properties_for_value(value, runs);
-            }
-        }
-        DumpHeapObject::Float(_) => {}
-        DumpHeapObject::Lambda(slots) | DumpHeapObject::Macro(slots) => {
-            let _ = value.replace_closure_slots(slots.iter().map(load_value).collect());
-        }
-        DumpHeapObject::ByteCode(bc) => {
-            let _ = value
-                .with_bytecode_data_mut(|data| {
-                    *data = load_bytecode(&bc)?;
-                    Ok::<(), DumpError>(())
-                })
-                .transpose()?;
-        }
-        DumpHeapObject::Record(items) => {
-            let _ = value.replace_record_data(items.iter().map(load_value).collect());
-        }
-        DumpHeapObject::Marker(marker) => {
-            let _ = value.with_marker_data_mut(|data| {
-                data.buffer = marker.buffer.map(|id| BufferId(id.0));
-                data.position = marker.position;
-                data.insertion_type = marker.insertion_type;
-                data.marker_id = marker.marker_id;
-            });
-        }
-        DumpHeapObject::Overlay(overlay) => {
-            let _ = value.with_overlay_data_mut(|data| {
-                data.plist = load_value(&overlay.plist);
-                data.buffer = overlay.buffer.map(|id| BufferId(id.0));
-                data.start = overlay.start;
-                data.end = overlay.end;
-                data.front_advance = overlay.front_advance;
-                data.rear_advance = overlay.rear_advance;
-            });
-        }
-        DumpHeapObject::Buffer(_)
-        | DumpHeapObject::Window(_)
-        | DumpHeapObject::Frame(_)
-        | DumpHeapObject::Timer(_)
-        | DumpHeapObject::Subr { .. }
-        | DumpHeapObject::Free => {}
-    }
-    Ok(())
-}
-
-fn load_tagged_object(state: &mut TaggedLoadState, id: TaggedHeapRef) -> Value {
-    allocate_tagged_placeholder(state, id).expect("pdump placeholder allocation should succeed");
-    populate_tagged_object(state, id).expect("pdump object population should succeed");
-    state.values[id.index as usize].expect("pdump object should exist")
-}
-
-pub(crate) fn preload_tagged_heap(heap: &DumpTaggedHeap) -> Result<(), DumpError> {
-    let mut load_state = Box::new(TaggedLoadState::new(heap));
-    let ptr: *mut TaggedLoadState = &mut *load_state;
-    PDUMP_LOAD_STATE.with(|state| state.set(ptr));
-    for index in 0..load_state.objects.len() {
-        if let Err(err) = populate_tagged_object(
-            &mut load_state,
-            TaggedHeapRef {
-                index: index as u32,
-            },
-        ) {
-            PDUMP_LOAD_STATE.with(|state| state.set(std::ptr::null_mut()));
-            return Err(err);
-        }
-    }
-    std::mem::forget(load_state);
-    Ok(())
-}
-
-pub(crate) fn finish_preload_tagged_heap() {
-    PDUMP_LOAD_STATE.with(|state| {
-        let ptr = state.replace(std::ptr::null_mut());
-        if !ptr.is_null() {
-            unsafe {
-                drop(Box::from_raw(ptr));
-            }
-        }
-    });
-}
-
-pub(crate) fn load_value(v: &DumpValue) -> Value {
-    match v {
-        DumpValue::Nil => Value::NIL,
-        DumpValue::True => Value::T,
-        DumpValue::Int(n) => Value::fixnum(*n),
-        DumpValue::Float(f, id) => load_float_value(*id, *f),
-        DumpValue::Symbol(s) => Value::symbol(load_sym_id(s)),
-        DumpValue::Str(id) => heap_ref_to_value(tagged_heap_ref(id)),
-        DumpValue::Cons(id) => heap_ref_to_value(tagged_heap_ref(id)),
-        DumpValue::Vector(id) => heap_ref_to_value(tagged_heap_ref(id)),
-        DumpValue::Record(id) => heap_ref_to_value(tagged_heap_ref(id)),
-        DumpValue::HashTable(id) => heap_ref_to_value(tagged_heap_ref(id)),
-        DumpValue::Lambda(id) => heap_ref_to_value(tagged_heap_ref(id)),
-        DumpValue::Macro(id) => heap_ref_to_value(tagged_heap_ref(id)),
-        DumpValue::Subr(s) => Value::subr_name_id(load_name_id(s)),
-        DumpValue::ByteCode(id) => heap_ref_to_value(tagged_heap_ref(id)),
-        DumpValue::Marker(id) => heap_ref_to_value(tagged_heap_ref(id)),
-        DumpValue::Overlay(id) => heap_ref_to_value(tagged_heap_ref(id)),
-        DumpValue::Buffer(bid) => load_cached_buffer(bid.0),
-        DumpValue::Window(w) => load_cached_window(*w),
-        DumpValue::Frame(f) => load_cached_frame(*f),
-        DumpValue::Timer(t) => load_cached_timer(*t),
-        DumpValue::Bignum(text) => Value::make_integer_from_str_or_zero(text),
-        DumpValue::Unbound => Value::UNBOUND,
-    }
-}
-
-pub(crate) fn load_opt_value(v: &Option<DumpValue>) -> Option<Value> {
-    v.as_ref().map(load_value)
 }
 
 // --- Op ---
@@ -1942,14 +1999,17 @@ pub(crate) fn load_lambda_params(p: &DumpLambdaParams) -> LambdaParams {
     }
 }
 
-pub(crate) fn load_bytecode(bc: &DumpByteCodeFunction) -> Result<ByteCodeFunction, DumpError> {
+pub(crate) fn load_bytecode(
+    decoder: &mut LoadDecoder,
+    bc: &DumpByteCodeFunction,
+) -> Result<ByteCodeFunction, DumpError> {
     Ok(ByteCodeFunction {
         ops: bc.ops.iter().map(load_op).collect::<Result<Vec<_>, _>>()?,
-        constants: bc.constants.iter().map(load_value).collect(),
+        constants: bc.constants.iter().map(|value| decoder.load_value(value)).collect(),
         max_stack: bc.max_stack,
         params: load_lambda_params(&bc.params),
         lexical: bc.lexical,
-        env: load_opt_value(&bc.env),
+        env: decoder.load_opt_value(&bc.env),
         gnu_byte_offset_map: bc.gnu_byte_offset_map.as_ref().map(|pairs| {
             pairs
                 .iter()
@@ -1958,14 +2018,14 @@ pub(crate) fn load_bytecode(bc: &DumpByteCodeFunction) -> Result<ByteCodeFunctio
         }),
         gnu_bytecode_bytes: None,
         docstring: bc.docstring.clone(),
-        doc_form: load_opt_value(&bc.doc_form),
-        interactive: load_opt_value(&bc.interactive),
+        doc_form: decoder.load_opt_value(&bc.doc_form),
+        interactive: decoder.load_opt_value(&bc.interactive),
     })
 }
 
 // --- Hash tables ---
 
-pub(crate) fn load_hash_key(k: &DumpHashKey) -> HashKey {
+pub(crate) fn load_hash_key(decoder: &mut LoadDecoder, k: &DumpHashKey) -> HashKey {
     match k {
         DumpHashKey::Nil => HashKey::Nil,
         DumpHashKey::True => HashKey::True,
@@ -1974,18 +2034,23 @@ pub(crate) fn load_hash_key(k: &DumpHashKey) -> HashKey {
         DumpHashKey::FloatEq(bits, id) => HashKey::FloatEq(*bits, *id),
         DumpHashKey::Symbol(s) => HashKey::Symbol(load_sym_id(s)),
         DumpHashKey::Keyword(s) => HashKey::Keyword(load_sym_id(s)),
-        DumpHashKey::Str(id) => HashKey::Ptr(heap_ref_to_value(tagged_heap_ref(id)).bits()),
+        DumpHashKey::Str(id) => HashKey::Ptr(decoder.heap_ref_to_value(tagged_heap_ref(id)).bits()),
         DumpHashKey::Char(c) => HashKey::Char(*c),
         DumpHashKey::Window(w) => HashKey::Window(*w),
         DumpHashKey::Frame(f) => HashKey::Frame(*f),
         DumpHashKey::Ptr(p) => HashKey::Ptr(*p as usize),
         DumpHashKey::HeapRef(a) => {
-            HashKey::Ptr(heap_ref_to_value(TaggedHeapRef { index: *a }).bits())
+            HashKey::Ptr(decoder.heap_ref_to_value(TaggedHeapRef { index: *a }).bits())
         }
         DumpHashKey::EqualCons(a, b) => {
-            HashKey::EqualCons(Box::new(load_hash_key(a)), Box::new(load_hash_key(b)))
+            HashKey::EqualCons(
+                Box::new(load_hash_key(decoder, a)),
+                Box::new(load_hash_key(decoder, b)),
+            )
         }
-        DumpHashKey::EqualVec(v) => HashKey::EqualVec(v.iter().map(load_hash_key).collect()),
+        DumpHashKey::EqualVec(v) => {
+            HashKey::EqualVec(v.iter().map(|item| load_hash_key(decoder, item)).collect())
+        }
         DumpHashKey::Cycle(index) => HashKey::Cycle(*index),
         DumpHashKey::Text(text) => HashKey::Text(text.clone()),
     }
@@ -2008,18 +2073,25 @@ pub(crate) fn load_hash_table_weakness(w: &DumpHashTableWeakness) -> HashTableWe
     }
 }
 
-pub(crate) fn load_hash_table(ht: &DumpLispHashTable) -> LispHashTable {
+pub(crate) fn load_hash_table(
+    decoder: &mut LoadDecoder,
+    ht: &DumpLispHashTable,
+) -> LispHashTable {
     let data: HashMap<HashKey, Value> = ht
         .entries
         .iter()
-        .map(|(k, v)| (load_hash_key(k), load_value(v)))
+        .map(|(k, v)| (load_hash_key(decoder, k), decoder.load_value(v)))
         .collect();
     let key_snapshots: HashMap<HashKey, Value> = ht
         .key_snapshots
         .iter()
-        .map(|(k, v)| (load_hash_key(k), load_value(v)))
+        .map(|(k, v)| (load_hash_key(decoder, k), decoder.load_value(v)))
         .collect();
-    let insertion_order: Vec<HashKey> = ht.insertion_order.iter().map(load_hash_key).collect();
+    let insertion_order: Vec<HashKey> = ht
+        .insertion_order
+        .iter()
+        .map(|key| load_hash_key(decoder, key))
+        .collect();
 
     LispHashTable {
         test: load_hash_table_test(&ht.test),
@@ -2072,28 +2144,32 @@ pub(crate) fn finish_load_interner() {
 
 // --- Symbol / Obarray ---
 
-fn load_symbol_value_enum(dsv: &DumpSymbolValue) -> SymbolValue {
+fn load_symbol_value_enum(decoder: &mut LoadDecoder, dsv: &DumpSymbolValue) -> SymbolValue {
     match dsv {
-        DumpSymbolValue::Plain(v) => SymbolValue::Plain(load_opt_value(v)),
+        DumpSymbolValue::Plain(v) => SymbolValue::Plain(decoder.load_opt_value(v)),
         DumpSymbolValue::Alias(target) => SymbolValue::Alias(load_sym_id(target)),
         DumpSymbolValue::BufferLocal {
             default,
             local_if_set,
         } => SymbolValue::BufferLocal {
-            default: load_opt_value(default),
+            default: decoder.load_opt_value(default),
             local_if_set: *local_if_set,
         },
         DumpSymbolValue::Forwarded => SymbolValue::Forwarded,
     }
 }
 
-pub(crate) fn load_symbol_data(sym_id: SymId, sd: &DumpSymbolData) -> SymbolData {
+pub(crate) fn load_symbol_data(
+    decoder: &mut LoadDecoder,
+    sym_id: SymId,
+    sd: &DumpSymbolData,
+) -> SymbolData {
     // Prefer the new `symbol_value` field; fall back to legacy `value` field
     // for backward compatibility with older pdump files.
     let value = if let Some(ref sv) = sd.symbol_value {
-        load_symbol_value_enum(sv)
+        load_symbol_value_enum(decoder, sv)
     } else {
-        SymbolValue::Plain(load_opt_value(&sd.value))
+        SymbolValue::Plain(decoder.load_opt_value(&sd.value))
     };
     let mut symbol = SymbolData::new(sym_id);
     // Mirror the legacy `value` cell into the new redirect-shape fields
@@ -2125,18 +2201,21 @@ pub(crate) fn load_symbol_data(sym_id: SymId, sd: &DumpSymbolData) -> SymbolData
         }
     }
     symbol.value = value;
-    symbol.function = load_opt_value(&sd.function);
+    symbol.function = decoder.load_opt_value(&sd.function);
     symbol.plist = sd
         .plist
         .iter()
-        .map(|(k, v)| (load_sym_id(k), load_value(v)))
+        .map(|(k, v)| (load_sym_id(k), decoder.load_value(v)))
         .collect();
     symbol.special = sd.special;
     symbol.constant = sd.constant;
     symbol
 }
 
-pub(crate) fn load_obarray(dob: &DumpObarray) -> Result<Obarray, DumpError> {
+pub(crate) fn load_obarray(
+    decoder: &mut LoadDecoder,
+    dob: &DumpObarray,
+) -> Result<Obarray, DumpError> {
     let mut seen_symbol_ids = FxHashSet::default();
     let mut symbols = Vec::with_capacity(dob.symbols.len());
     for (id, sd) in &dob.symbols {
@@ -2147,7 +2226,7 @@ pub(crate) fn load_obarray(dob: &DumpObarray) -> Result<Obarray, DumpError> {
                 sym_id.0
             )));
         }
-        symbols.push((sym_id, load_symbol_data(sym_id, sd)));
+        symbols.push((sym_id, load_symbol_data(decoder, sym_id, sd)));
     }
 
     let load_member_set = |label: &str, ids: &[DumpSymId]| -> Result<Vec<SymId>, DumpError> {
@@ -2202,11 +2281,11 @@ fn load_marker(m: &DumpMarkerEntry, text: &BufferText) -> MarkerEntry {
     }
 }
 
-fn load_property_interval(pi: &DumpPropertyInterval) -> PropertyInterval {
+fn load_property_interval(decoder: &mut LoadDecoder, pi: &DumpPropertyInterval) -> PropertyInterval {
     let properties: std::collections::HashMap<String, crate::emacs_core::value::Value> = pi
         .properties
         .iter()
-        .map(|(k, v)| (k.clone(), load_value(v)))
+        .map(|(k, v)| (k.clone(), decoder.load_value(v)))
         .collect();
     let key_order: Vec<String> = pi.properties.iter().map(|(k, _)| k.clone()).collect();
     PropertyInterval {
@@ -2258,7 +2337,7 @@ fn load_syntax_table(st: &DumpSyntaxTable) -> SyntaxTable {
 
 // load_undo_record removed — undo state is loaded from buffer-local properties.
 
-fn load_buffer(db: &DumpBuffer) -> Buffer {
+fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
     let text = BufferText::from_dump(db.text.text.clone());
     let total_chars = text.char_count();
     let begv_char = db.begv_char.unwrap_or_else(|| text.byte_to_char(db.begv));
@@ -2310,11 +2389,11 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
     //   * Everything else → `local_var_alist`, walked in the
     //     original `local_binding_names` order so the dumped
     //     ordering is preserved.
-    let loaded_keymap = load_value(&db.local_map);
+    let loaded_keymap = decoder.load_value(&db.local_map);
     let mut loaded_properties: std::collections::HashMap<String, RuntimeBindingValue> = db
         .properties
         .iter()
-        .map(|(k, v)| (k.clone(), load_runtime_binding_value(v)))
+        .map(|(k, v)| (k.clone(), load_runtime_binding_value(decoder, v)))
         .collect();
     let mut loaded_undo_list = Value::NIL;
     if let Some(RuntimeBindingValue::Bound(value)) = loaded_properties.remove("buffer-undo-list") {
@@ -2373,7 +2452,7 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         db.text_props
             .intervals
             .iter()
-            .map(load_property_interval)
+            .map(|interval| load_property_interval(decoder, interval))
             .collect(),
     );
     text.text_props_replace(text_props);
@@ -2413,7 +2492,7 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         // legacy `properties` table for older dumps that didn't
         // carry the alist directly.
         local_var_alist: {
-            let dumped = load_value(&db.local_var_alist);
+            let dumped = decoder.load_value(&db.local_var_alist);
             if dumped.is_nil() && !loaded_local_var_alist.is_nil() {
                 loaded_local_var_alist
             } else {
@@ -2441,7 +2520,7 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
                 if idx >= crate::buffer::buffer::BUFFER_SLOT_COUNT {
                     break;
                 }
-                s[idx] = load_value(dumped);
+                s[idx] = decoder.load_value(dumped);
             }
             // Legacy header field overrides (older dump compat).
             if let Some(ref fname) = db.file_name {
@@ -2470,7 +2549,7 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
                 .iter()
                 .map(|d| {
                     Value::make_overlay(crate::heap_types::OverlayData {
-                        plist: load_value(&d.plist),
+                        plist: decoder.load_value(&d.plist),
                         buffer: d.buffer.map(|id| BufferId(id.0)),
                         start: d.start,
                         end: d.end,
@@ -2485,19 +2564,25 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
     }
 }
 
-pub(crate) fn load_buffer_manager(dbm: &DumpBufferManager) -> BufferManager {
+pub(crate) fn load_buffer_manager(
+    decoder: &mut LoadDecoder,
+    dbm: &DumpBufferManager,
+) -> BufferManager {
     let buffers: HashMap<BufferId, Buffer> = dbm
         .buffers
         .iter()
-        .map(|(id, buf)| (BufferId(id.0), load_buffer(buf)))
+        .map(|(id, buf)| (BufferId(id.0), load_buffer(decoder, buf)))
         .collect();
     // New in the current dump format: `buffer_defaults` ride through
     // pdump so runtime `setq-default` writes survive. Older dumps
     // (no `buffer_defaults` field) deserialize as an empty Vec via
     // `#[serde(default)]`, and `BufferManager::from_dump` then falls
     // back to the install-time seeds from `BUFFER_SLOT_INFO`.
-    let defaults_values: Vec<crate::emacs_core::value::Value> =
-        dbm.buffer_defaults.iter().map(load_value).collect();
+    let defaults_values: Vec<crate::emacs_core::value::Value> = dbm
+        .buffer_defaults
+        .iter()
+        .map(|value| decoder.load_value(value))
+        .collect();
     let dumped_defaults = if defaults_values.is_empty() {
         None
     } else {
@@ -2514,7 +2599,10 @@ pub(crate) fn load_buffer_manager(dbm: &DumpBufferManager) -> BufferManager {
 
 // --- Sub-managers ---
 
-pub(crate) fn load_autoload_manager(dam: &DumpAutoloadManager) -> AutoloadManager {
+pub(crate) fn load_autoload_manager(
+    decoder: &mut LoadDecoder,
+    dam: &DumpAutoloadManager,
+) -> AutoloadManager {
     let entries: HashMap<String, AutoloadEntry> = dam
         .entries
         .iter()
@@ -2538,7 +2626,12 @@ pub(crate) fn load_autoload_manager(dam: &DumpAutoloadManager) -> AutoloadManage
     let after_load: HashMap<String, Vec<Value>> = dam
         .after_load
         .iter()
-        .map(|(k, v)| (k.clone(), v.iter().map(load_value).collect()))
+        .map(|(k, v)| {
+            (
+                k.clone(),
+                v.iter().map(|value| decoder.load_value(value)).collect(),
+            )
+        })
         .collect();
     AutoloadManager::from_dump(
         entries,
@@ -2561,7 +2654,7 @@ pub(crate) fn load_custom_manager(dcm: &DumpCustomManager) -> CustomManager {
     }
 }
 
-fn load_mode_custom_type(ct: &DumpModeCustomType) -> ModeCustomType {
+fn load_mode_custom_type(decoder: &mut LoadDecoder, ct: &DumpModeCustomType) -> ModeCustomType {
     match ct {
         DumpModeCustomType::Boolean => ModeCustomType::Boolean,
         DumpModeCustomType::Integer => ModeCustomType::Integer,
@@ -2572,19 +2665,19 @@ fn load_mode_custom_type(ct: &DumpModeCustomType) -> ModeCustomType {
         DumpModeCustomType::Choice(choices) => ModeCustomType::Choice(
             choices
                 .iter()
-                .map(|(s, v)| (s.clone(), load_value(v)))
+                .map(|(s, v)| (s.clone(), decoder.load_value(v)))
                 .collect(),
         ),
         DumpModeCustomType::List(inner) => {
-            ModeCustomType::List(Box::new(load_mode_custom_type(inner)))
+            ModeCustomType::List(Box::new(load_mode_custom_type(decoder, inner)))
         }
         DumpModeCustomType::Alist(k, v) => ModeCustomType::Alist(
-            Box::new(load_mode_custom_type(k)),
-            Box::new(load_mode_custom_type(v)),
+            Box::new(load_mode_custom_type(decoder, k)),
+            Box::new(load_mode_custom_type(decoder, v)),
         ),
         DumpModeCustomType::Plist(k, v) => ModeCustomType::Plist(
-            Box::new(load_mode_custom_type(k)),
-            Box::new(load_mode_custom_type(v)),
+            Box::new(load_mode_custom_type(decoder, k)),
+            Box::new(load_mode_custom_type(decoder, v)),
         ),
         DumpModeCustomType::Color => ModeCustomType::Color,
         DumpModeCustomType::Face => ModeCustomType::Face,
@@ -2597,7 +2690,10 @@ fn load_mode_custom_type(ct: &DumpModeCustomType) -> ModeCustomType {
     }
 }
 
-pub(crate) fn load_mode_registry(dmr: &DumpModeRegistry) -> ModeRegistry {
+pub(crate) fn load_mode_registry(
+    decoder: &mut LoadDecoder,
+    dmr: &DumpModeRegistry,
+) -> ModeRegistry {
     let major_modes: HashMap<String, MajorMode> = dmr
         .major_modes
         .iter()
@@ -2627,7 +2723,7 @@ pub(crate) fn load_mode_registry(dmr: &DumpModeRegistry) -> ModeRegistry {
                         case_fold: fl.case_fold,
                         syntax_table: fl.syntax_table.clone(),
                     }),
-                    body: load_opt_value(&m.body),
+                    body: decoder.load_opt_value(&m.body),
                 },
             )
         })
@@ -2643,7 +2739,7 @@ pub(crate) fn load_mode_registry(dmr: &DumpModeRegistry) -> ModeRegistry {
                     lighter: m.lighter.clone(),
                     keymap_name: m.keymap_name.clone(),
                     global: m.global,
-                    body: load_opt_value(&m.body),
+                    body: decoder.load_opt_value(&m.body),
                 },
             )
         })
@@ -2656,9 +2752,9 @@ pub(crate) fn load_mode_registry(dmr: &DumpModeRegistry) -> ModeRegistry {
                 k.clone(),
                 ModeCustomVariable {
                     name: cv.name.clone(),
-                    default_value: load_value(&cv.default_value),
+                    default_value: decoder.load_value(&cv.default_value),
                     doc: cv.doc.clone(),
-                    type_: load_mode_custom_type(&cv.custom_type),
+                    type_: load_mode_custom_type(decoder, &cv.custom_type),
                     group: cv.group.clone(),
                     set_function: cv.set_function.clone(),
                     get_function: cv.get_function.clone(),
@@ -2701,7 +2797,10 @@ pub(crate) fn load_mode_registry(dmr: &DumpModeRegistry) -> ModeRegistry {
     )
 }
 
-pub(crate) fn load_coding_system_manager(dcsm: &DumpCodingSystemManager) -> CodingSystemManager {
+pub(crate) fn load_coding_system_manager(
+    decoder: &mut LoadDecoder,
+    dcsm: &DumpCodingSystemManager,
+) -> CodingSystemManager {
     let systems: HashMap<String, CodingSystemInfo> = dcsm
         .systems
         .iter()
@@ -2727,12 +2826,12 @@ pub(crate) fn load_coding_system_manager(dcsm: &DumpCodingSystemManager) -> Codi
                     properties: v
                         .properties
                         .iter()
-                        .map(|(k, v)| (k.clone(), load_value(v)))
+                        .map(|(k, v)| (k.clone(), decoder.load_value(v)))
                         .collect(),
                     int_properties: v
                         .int_properties
                         .iter()
-                        .map(|(k, v)| (*k, load_value(v)))
+                        .map(|(k, v)| (*k, decoder.load_value(v)))
                         .collect(),
                 },
             )
@@ -2750,7 +2849,7 @@ pub(crate) fn load_coding_system_manager(dcsm: &DumpCodingSystemManager) -> Codi
     )
 }
 
-pub(crate) fn load_charset_registry(dcr: &DumpCharsetRegistry) {
+pub(crate) fn load_charset_registry(decoder: &mut LoadDecoder, dcr: &DumpCharsetRegistry) {
     let snapshot = CharsetRegistrySnapshot {
         charsets: dcr
             .charsets
@@ -2789,7 +2888,7 @@ pub(crate) fn load_charset_registry(dcr: &DumpCharsetRegistry) {
                 plist: info
                     .plist
                     .iter()
-                    .map(|(key, value)| (key.clone(), load_value(value)))
+                    .map(|(key, value)| (key.clone(), decoder.load_value(value)))
                     .collect(),
             })
             .collect(),
@@ -2952,19 +3051,22 @@ pub(crate) fn load_rectangle(dr: &DumpRectangleState) -> RectangleState {
     }
 }
 
-pub(crate) fn load_kmacro(dkm: &DumpKmacroManager) -> KmacroManager {
+pub(crate) fn load_kmacro(decoder: &mut LoadDecoder, dkm: &DumpKmacroManager) -> KmacroManager {
     KmacroManager {
         macro_ring: dkm
             .macro_ring
             .iter()
-            .map(|m| m.iter().map(load_value).collect())
+            .map(|m| m.iter().map(|value| decoder.load_value(value)).collect())
             .collect(),
         counter: dkm.counter,
         counter_format: dkm.counter_format.clone(),
     }
 }
 
-pub(crate) fn load_register_manager(drm: &DumpRegisterManager) -> RegisterManager {
+pub(crate) fn load_register_manager(
+    decoder: &mut LoadDecoder,
+    drm: &DumpRegisterManager,
+) -> RegisterManager {
     let registers: HashMap<char, RegisterContent> = drm
         .registers
         .iter()
@@ -2982,11 +3084,13 @@ pub(crate) fn load_register_manager(drm: &DumpRegisterManager) -> RegisterManage
                         RegisterContent::Rectangle(lines.clone())
                     }
                     DumpRegisterContent::FrameConfig(v) => {
-                        RegisterContent::FrameConfig(load_value(v))
+                        RegisterContent::FrameConfig(decoder.load_value(v))
                     }
                     DumpRegisterContent::File(s) => RegisterContent::File(s.clone()),
                     DumpRegisterContent::KbdMacro(keys) => {
-                        RegisterContent::KbdMacro(keys.iter().map(load_value).collect())
+                        RegisterContent::KbdMacro(
+                            keys.iter().map(|value| decoder.load_value(value)).collect(),
+                        )
                     }
                 },
             )
@@ -3068,7 +3172,10 @@ pub(crate) fn load_interactive_registry(dir: &DumpInteractiveRegistry) -> Intera
     InteractiveRegistry::from_dump(specs)
 }
 
-pub(crate) fn load_watcher_list(dwl: &DumpVariableWatcherList) -> VariableWatcherList {
+pub(crate) fn load_watcher_list(
+    decoder: &mut LoadDecoder,
+    dwl: &DumpVariableWatcherList,
+) -> VariableWatcherList {
     let watchers: HashMap<SymId, Vec<VariableWatcher>> = dwl
         .watchers
         .iter()
@@ -3078,7 +3185,7 @@ pub(crate) fn load_watcher_list(dwl: &DumpVariableWatcherList) -> VariableWatche
                 callbacks
                     .iter()
                     .map(|v| VariableWatcher {
-                        callback: load_value(v),
+                        callback: decoder.load_value(v),
                     })
                     .collect(),
             )
@@ -3087,20 +3194,26 @@ pub(crate) fn load_watcher_list(dwl: &DumpVariableWatcherList) -> VariableWatche
     VariableWatcherList::from_dump(watchers)
 }
 
-pub(crate) fn load_string_text_prop_run(r: &DumpStringTextPropertyRun) -> StringTextPropertyRun {
+pub(crate) fn load_string_text_prop_run(
+    decoder: &mut LoadDecoder,
+    r: &DumpStringTextPropertyRun,
+) -> StringTextPropertyRun {
     StringTextPropertyRun {
         start: r.start,
         end: r.end,
-        plist: load_value(&r.plist),
+        plist: decoder.load_value(&r.plist),
     }
 }
 
 /// Convert a list of DumpPropertyInterval entries back to a TextPropertyTable.
-pub(crate) fn load_text_property_table(intervals: &[DumpPropertyInterval]) -> TextPropertyTable {
+pub(crate) fn load_text_property_table(
+    decoder: &mut LoadDecoder,
+    intervals: &[DumpPropertyInterval],
+) -> TextPropertyTable {
     let mut table = TextPropertyTable::new();
     for iv in intervals {
         for (name, dump_val) in &iv.properties {
-            let val = load_value(dump_val);
+            let val = decoder.load_value(dump_val);
             table.put_property(iv.start, iv.end, name, val);
         }
     }

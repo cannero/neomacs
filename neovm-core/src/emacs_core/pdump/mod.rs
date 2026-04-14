@@ -282,7 +282,6 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
 
     impl Drop for RestoreCleanup {
         fn drop(&mut self) {
-            finish_preload_tagged_heap();
             finish_load_interner();
         }
     }
@@ -296,19 +295,20 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
     // so tagged dump references can resolve directly to live tagged objects.
     let mut tagged_heap = Box::new(crate::tagged::gc::TaggedHeap::new());
     crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
-    preload_tagged_heap(&state.tagged_heap)?;
+    let mut decoder = LoadDecoder::new(&state.tagged_heap);
+    decoder.preload_tagged_heap()?;
 
     // 3. Reset thread-local runtime caches before replaying semantic state.
     reset_runtime_for_new_heap(HeapResetMode::PdumpRestore);
 
     // 4b. Restore thread-local registries whose contents are semantic runtime
     // state, not disposable caches.
-    load_charset_registry(&state.charset_registry);
+    load_charset_registry(&mut decoder, &state.charset_registry);
     load_fontset_registry(&state.fontset_registry);
 
     // 5. Reconstruct all subsystems
-    let obarray = load_obarray(&state.obarray)?;
-    let lexenv = load_value(&state.lexenv);
+    let obarray = load_obarray(&mut decoder, &state.obarray)?;
+    let lexenv = decoder.load_value(&state.lexenv);
     let features: Vec<_> = state.features.iter().map(load_sym_id).collect();
     let require_stack: Vec<_> = state.require_stack.iter().map(load_sym_id).collect();
     let loads_in_progress: Vec<_> = state
@@ -324,22 +324,22 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
         features,
         require_stack,
         loads_in_progress,
-        load_buffer_manager(&state.buffers),
-        load_autoload_manager(&state.autoloads),
+        load_buffer_manager(&mut decoder, &state.buffers),
+        load_autoload_manager(&mut decoder, &state.autoloads),
         load_custom_manager(&state.custom),
-        load_mode_registry(&state.modes),
-        load_coding_system_manager(&state.coding_systems),
+        load_mode_registry(&mut decoder, &state.modes),
+        load_coding_system_manager(&mut decoder, &state.coding_systems),
         load_face_table(&state.face_table),
         load_abbrev_manager(&state.abbrevs),
         load_interactive_registry(&state.interactive),
         load_rectangle(&state.rectangle),
-        load_value(&state.standard_syntax_table),
-        load_value(&state.standard_category_table),
-        load_value(&state.current_local_map),
-        load_kmacro(&state.kmacro),
-        load_register_manager(&state.registers),
+        decoder.load_value(&state.standard_syntax_table),
+        decoder.load_value(&state.standard_category_table),
+        decoder.load_value(&state.current_local_map),
+        load_kmacro(&mut decoder, &state.kmacro),
+        load_register_manager(&mut decoder, &state.registers),
         load_bookmark_manager(&state.bookmarks),
-        load_watcher_list(&state.watchers),
+        load_watcher_list(&mut decoder, &state.watchers),
     );
 
     // Phase 10E follow-up: re-install BUFFER_OBJFWD forwarders.
