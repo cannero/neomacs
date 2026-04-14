@@ -2568,7 +2568,7 @@ fn run_after_insert_file_pipeline(
                 buf.pt_byte,
                 buf.pt,
                 buf.point_min_byte(),
-                buf.chars_modified_tick,
+                buf.chars_modified_tick(),
             )
         })
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
@@ -2622,7 +2622,7 @@ fn run_after_insert_file_pipeline(
     let chars_modiff_after = eval
         .buffers
         .get(current_id)
-        .map(|buf| buf.chars_modified_tick)
+        .map(|buf| buf.chars_modified_tick())
         .unwrap_or(chars_modiff_before + 1);
     if replace_requested
         && chars_modiff_after == chars_modiff_before
@@ -3401,7 +3401,7 @@ pub(crate) fn builtin_do_auto_save(
 
             // Buffer must be modified since last auto-save
             // (modified_tick > autosave_modified_tick means unsaved changes)
-            if buf.autosave_modified_tick >= buf.modified_tick {
+            if buf.autosave_modified_tick >= buf.modified_tick() {
                 continue;
             }
 

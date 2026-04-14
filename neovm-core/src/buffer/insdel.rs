@@ -61,7 +61,6 @@ impl Buffer {
         self.overlays
             .adjust_for_insert(insert_pos, byte_len, overlay_before_markers);
         self.record_char_modification(char_len);
-        self.sync_modified_flag();
     }
 
     fn apply_byte_delete_side_effects(
@@ -129,7 +128,6 @@ impl Buffer {
         }
         self.overlays.adjust_for_delete(start, end);
         self.record_char_modification(char_len);
-        self.sync_modified_flag();
     }
 
     fn apply_same_len_edit_side_effects(
@@ -140,9 +138,8 @@ impl Buffer {
         let old_state = self.modified_state_value();
         self.record_char_modification(changed_chars);
         if preserve_modified_state && old_state.is_nil() {
-            self.save_modified_tick = self.modified_tick;
+            self.text.set_save_modified_tick(self.text.modified_tick());
         }
-        self.sync_modified_flag();
     }
 
     fn modification_tick_delta(changed_chars: usize) -> i64 {
@@ -156,8 +153,8 @@ impl Buffer {
     /// GNU `modiff` increments logarithmically with edit size, and
     /// `chars_modiff` is reset to the new `modiff` on each character change.
     fn record_char_modification(&mut self, changed_chars: usize) {
-        self.modified_tick += Self::modification_tick_delta(changed_chars);
-        self.chars_modified_tick = self.modified_tick;
+        self.text
+            .record_char_modification(Self::modification_tick_delta(changed_chars));
     }
 
     /// Prepare to record a buffer change: ensure the first-change sentinel

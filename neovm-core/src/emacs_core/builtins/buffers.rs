@@ -3503,7 +3503,7 @@ pub(crate) fn builtin_buffer_modified_tick(
     if let Some(id) = target
         && let Some(buf) = eval.buffers.get(id)
     {
-        return Ok(Value::fixnum(buf.modified_tick));
+        return Ok(Value::fixnum(buf.modified_tick()));
     }
     Ok(Value::fixnum(1))
 }
@@ -3517,7 +3517,7 @@ pub(crate) fn builtin_buffer_chars_modified_tick(
     if let Some(id) = target
         && let Some(buf) = eval.buffers.get(id)
     {
-        return Ok(Value::fixnum(buf.chars_modified_tick));
+        return Ok(Value::fixnum(buf.chars_modified_tick()));
     }
     Ok(Value::fixnum(1))
 }

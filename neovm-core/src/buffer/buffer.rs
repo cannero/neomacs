@@ -1340,16 +1340,8 @@ pub struct Buffer {
     pub zv: usize,
     /// End of accessible (narrowed) portion (byte pos, exclusive).
     pub zv_byte: usize,
-    /// Whether the buffer has been modified since last save.
-    pub modified: bool,
-    /// Monotonic buffer modification tick.
-    pub modified_tick: i64,
-    /// Monotonic character-content modification tick.
-    pub chars_modified_tick: i64,
-    /// GNU `SAVE_MODIFF`: buffer-modified state is `save_modified_tick < modified_tick`.
-    pub save_modified_tick: i64,
     /// GNU `BUF_AUTOSAVE_MODIFF`: recent auto-save state is
-    /// `save_modified_tick < autosave_modified_tick`.
+    /// `save_modiff < autosave_modified_tick`.
     pub autosave_modified_tick: i64,
     /// GNU `last_window_start`: start position of the most recently
     /// disconnected window that showed this buffer.
@@ -1428,10 +1420,6 @@ impl Buffer {
             begv_byte: 0,
             zv: 0,
             zv_byte: 0,
-            modified: false,
-            modified_tick: 1,
-            chars_modified_tick: 1,
-            save_modified_tick: 1,
             autosave_modified_tick: 1,
             last_window_start: 1,
             last_selected_window: None,
@@ -1910,13 +1898,25 @@ impl Buffer {
 
     // -- Modified flag -------------------------------------------------------
 
+    pub fn modified_tick(&self) -> i64 {
+        self.text.modified_tick()
+    }
+
+    pub fn chars_modified_tick(&self) -> i64 {
+        self.text.chars_modified_tick()
+    }
+
+    pub fn save_modified_tick(&self) -> i64 {
+        self.text.save_modified_tick()
+    }
+
     pub fn is_modified(&self) -> bool {
-        self.modified
+        self.save_modified_tick() < self.modified_tick()
     }
 
     pub fn modified_state_value(&self) -> Value {
-        if self.save_modified_tick < self.modified_tick {
-            if self.autosave_modified_tick == self.modified_tick {
+        if self.save_modified_tick() < self.modified_tick() {
+            if self.autosave_modified_tick == self.modified_tick() {
                 Value::symbol("autosaved")
             } else {
                 Value::T
@@ -1927,41 +1927,35 @@ impl Buffer {
     }
 
     pub fn recent_auto_save_p(&self) -> bool {
-        self.save_modified_tick < self.autosave_modified_tick
-    }
-
-    pub(crate) fn sync_modified_flag(&mut self) {
-        self.modified = self.save_modified_tick < self.modified_tick;
+        self.save_modified_tick() < self.autosave_modified_tick
     }
 
     pub fn set_modified(&mut self, flag: bool) {
         if flag {
-            if self.save_modified_tick >= self.modified_tick {
-                self.modified_tick += 1;
+            if self.save_modified_tick() >= self.modified_tick() {
+                self.text.increment_modified_tick(1);
             }
         } else {
-            self.save_modified_tick = self.modified_tick;
+            self.text.set_save_modified_tick(self.modified_tick());
         }
-        self.sync_modified_flag();
     }
 
     pub fn restore_modified_state(&mut self, flag: Value) -> Value {
         if flag.is_nil() {
-            self.save_modified_tick = self.modified_tick;
+            self.text.set_save_modified_tick(self.modified_tick());
         } else {
-            if self.save_modified_tick >= self.modified_tick {
-                self.modified_tick += 1;
+            if self.save_modified_tick() >= self.modified_tick() {
+                self.text.increment_modified_tick(1);
             }
             if flag == Value::symbol("autosaved") {
-                self.autosave_modified_tick = self.modified_tick;
+                self.autosave_modified_tick = self.modified_tick();
             }
         }
-        self.sync_modified_flag();
         flag
     }
 
     pub fn mark_auto_saved(&mut self) {
-        self.autosave_modified_tick = self.modified_tick;
+        self.autosave_modified_tick = self.modified_tick();
     }
 
     // -- Buffer-local variables ----------------------------------------------
@@ -2620,10 +2614,6 @@ impl BufferManager {
         indirect.narrow_to_byte_region(root.begv_byte, root.zv_byte);
         indirect.goto_byte(root.pt_byte);
         indirect.set_multibyte_value(root.get_multibyte());
-        indirect.modified = root.modified;
-        indirect.modified_tick = root.modified_tick;
-        indirect.chars_modified_tick = root.chars_modified_tick;
-        indirect.save_modified_tick = root.save_modified_tick;
         indirect.autosave_modified_tick = root.autosave_modified_tick;
         indirect.slots[BUFFER_SLOT_FILE_NAME] = Value::NIL;
         if !clone {
@@ -3000,29 +2990,6 @@ impl BufferManager {
         self.shared_text_root_id(id)
     }
 
-    fn sync_shared_modification_state(&mut self, root_id: BufferId) -> Option<()> {
-        // GNU shares MODIFF/SAVE_MODIFF across indirect buffers via the
-        // underlying text, but BUF_AUTOSAVE_MODIFF stays per-buffer.
-        let (modified, modified_tick, chars_modified_tick, save_modified_tick) = {
-            let root = self.buffers.get(&root_id)?;
-            (
-                root.modified,
-                root.modified_tick,
-                root.chars_modified_tick,
-                root.save_modified_tick,
-            )
-        };
-
-        for shared_id in self.buffers_sharing_root_ids(root_id) {
-            let buf = self.buffers.get_mut(&shared_id)?;
-            buf.modified = modified;
-            buf.modified_tick = modified_tick;
-            buf.chars_modified_tick = chars_modified_tick;
-            buf.save_modified_tick = save_modified_tick;
-        }
-        Some(())
-    }
-
     pub fn goto_buffer_byte(&mut self, id: BufferId, pos: usize) -> Option<usize> {
         {
             let buf = self.buffers.get_mut(&id)?;
@@ -3228,13 +3195,12 @@ impl BufferManager {
     pub fn set_buffer_modified_flag(&mut self, id: BufferId, flag: bool) -> Option<()> {
         let root_id = self.modified_state_root_id(id)?;
         self.buffers.get_mut(&root_id)?.set_modified(flag);
-        self.sync_shared_modification_state(root_id)
+        Some(())
     }
 
     pub fn restore_buffer_modified_state(&mut self, id: BufferId, flag: Value) -> Option<Value> {
         let root_id = self.modified_state_root_id(id)?;
         let out = self.buffers.get_mut(&root_id)?.restore_modified_state(flag);
-        self.sync_shared_modification_state(root_id)?;
         Some(out)
     }
 
@@ -3246,9 +3212,8 @@ impl BufferManager {
     pub fn set_buffer_modified_tick(&mut self, id: BufferId, tick: i64) -> Option<()> {
         let root_id = self.modified_state_root_id(id)?;
         let buf = self.buffers.get_mut(&root_id)?;
-        buf.modified_tick = tick;
-        buf.sync_modified_flag();
-        self.sync_shared_modification_state(root_id)
+        buf.text.set_modified_tick(tick);
+        Some(())
     }
 
     pub fn set_buffer_file_name(&mut self, id: BufferId, file_name: Option<String>) -> Option<()> {
@@ -4603,13 +4568,13 @@ mod tests {
         let mut buf = Buffer::new(BufferId(1), "test".into());
         assert_eq!(buf.modified_state_value(), Value::NIL);
         assert!(!buf.recent_auto_save_p());
-        assert_eq!(buf.modified_tick, 1);
-        assert_eq!(buf.chars_modified_tick, 1);
+        assert_eq!(buf.modified_tick(), 1);
+        assert_eq!(buf.chars_modified_tick(), 1);
 
         assert_eq!(buf.restore_modified_state(Value::T), Value::T);
         assert_eq!(buf.modified_state_value(), Value::T);
-        assert_eq!(buf.modified_tick, 2);
-        assert_eq!(buf.chars_modified_tick, 1);
+        assert_eq!(buf.modified_tick(), 2);
+        assert_eq!(buf.chars_modified_tick(), 1);
         assert!(!buf.recent_auto_save_p());
 
         assert_eq!(
@@ -4617,14 +4582,14 @@ mod tests {
             Value::symbol("autosaved")
         );
         assert_eq!(buf.modified_state_value(), Value::symbol("autosaved"));
-        assert_eq!(buf.modified_tick, 2);
-        assert_eq!(buf.chars_modified_tick, 1);
+        assert_eq!(buf.modified_tick(), 2);
+        assert_eq!(buf.chars_modified_tick(), 1);
         assert!(buf.recent_auto_save_p());
 
         assert_eq!(buf.restore_modified_state(Value::NIL), Value::NIL);
         assert_eq!(buf.modified_state_value(), Value::NIL);
-        assert_eq!(buf.modified_tick, 2);
-        assert_eq!(buf.chars_modified_tick, 1);
+        assert_eq!(buf.modified_tick(), 2);
+        assert_eq!(buf.chars_modified_tick(), 1);
         assert!(!buf.recent_auto_save_p());
     }
 
@@ -4632,21 +4597,21 @@ mod tests {
     fn modification_ticks_track_content_changes() {
         crate::test_utils::init_test_tracing();
         let mut buf = Buffer::new(BufferId(1), "test".into());
-        assert_eq!(buf.modified_tick, 1);
-        assert_eq!(buf.chars_modified_tick, 1);
+        assert_eq!(buf.modified_tick(), 1);
+        assert_eq!(buf.chars_modified_tick(), 1);
 
         buf.insert("abcdef");
-        assert_eq!(buf.modified_tick, 4);
-        assert_eq!(buf.chars_modified_tick, 4);
+        assert_eq!(buf.modified_tick(), 4);
+        assert_eq!(buf.chars_modified_tick(), 4);
 
         buf.set_modified(false);
-        assert_eq!(buf.modified_tick, 4);
-        assert_eq!(buf.chars_modified_tick, 4);
+        assert_eq!(buf.modified_tick(), 4);
+        assert_eq!(buf.chars_modified_tick(), 4);
         assert_eq!(buf.modified_state_value(), Value::NIL);
 
         buf.delete_region(0, 6);
-        assert_eq!(buf.modified_tick, 7);
-        assert_eq!(buf.chars_modified_tick, 7);
+        assert_eq!(buf.modified_tick(), 7);
+        assert_eq!(buf.chars_modified_tick(), 7);
         assert_eq!(buf.modified_state_value(), Value::T);
     }
 
@@ -4655,12 +4620,12 @@ mod tests {
         crate::test_utils::init_test_tracing();
         let mut buf = Buffer::new(BufferId(1), "test".into());
         assert_eq!(buf.restore_modified_state(Value::T), Value::T);
-        assert_eq!(buf.modified_tick, 2);
-        assert_eq!(buf.chars_modified_tick, 1);
+        assert_eq!(buf.modified_tick(), 2);
+        assert_eq!(buf.chars_modified_tick(), 1);
 
         buf.insert("x");
-        assert_eq!(buf.modified_tick, 3);
-        assert_eq!(buf.chars_modified_tick, 3);
+        assert_eq!(buf.modified_tick(), 3);
+        assert_eq!(buf.chars_modified_tick(), 3);
         assert_eq!(buf.modified_state_value(), Value::T);
     }
 

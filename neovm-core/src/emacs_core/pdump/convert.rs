@@ -762,10 +762,10 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
         begv_char: Some(buf.begv),
         zv: buf.zv_byte,
         zv_char: Some(buf.zv),
-        modified: buf.modified,
-        modified_tick: buf.modified_tick,
-        chars_modified_tick: buf.chars_modified_tick,
-        save_modified_tick: Some(buf.save_modified_tick),
+        modified: buf.is_modified(),
+        modified_tick: buf.modified_tick(),
+        chars_modified_tick: buf.chars_modified_tick(),
+        save_modified_tick: Some(buf.save_modified_tick()),
         autosave_modified_tick: Some(buf.autosave_modified_tick),
         last_window_start: Some(buf.last_window_start),
         read_only: buf.get_read_only(),
@@ -2276,6 +2276,8 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
     );
     text.text_props_replace(text_props);
 
+    text.set_modification_state(db.modified_tick, db.chars_modified_tick, save_modified_tick);
+
     Buffer {
         id: BufferId(db.id.0),
         name: db.name.clone(),
@@ -2289,10 +2291,6 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         begv_byte: db.begv,
         zv: zv_char,
         zv_byte: db.zv,
-        modified: db.modified,
-        modified_tick: db.modified_tick,
-        chars_modified_tick: db.chars_modified_tick,
-        save_modified_tick,
         autosave_modified_tick,
         last_window_start,
         last_selected_window: None,

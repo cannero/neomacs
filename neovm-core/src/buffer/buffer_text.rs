@@ -31,6 +31,9 @@ pub struct BufferTextLayout {
 struct BufferTextStorage {
     layout: BufferTextLayout,
     gap: GapBuffer,
+    modified_tick: i64,
+    chars_modified_tick: i64,
+    save_modified_tick: i64,
     text_props: TextPropertyTable,
     markers: Vec<MarkerEntry>,
 }
@@ -71,6 +74,9 @@ impl BufferText {
             storage: Rc::new(RefCell::new(BufferTextStorage {
                 layout: Self::layout_from_gap(&gap),
                 gap,
+                modified_tick: 1,
+                chars_modified_tick: 1,
+                save_modified_tick: 1,
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
             })),
@@ -83,6 +89,9 @@ impl BufferText {
             storage: Rc::new(RefCell::new(BufferTextStorage {
                 layout: Self::layout_from_gap(&gap),
                 gap,
+                modified_tick: 1,
+                chars_modified_tick: 1,
+                save_modified_tick: 1,
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
             })),
@@ -107,6 +116,18 @@ impl BufferText {
 
     pub fn layout(&self) -> BufferTextLayout {
         self.storage.borrow().layout
+    }
+
+    pub fn modified_tick(&self) -> i64 {
+        self.storage.borrow().modified_tick
+    }
+
+    pub fn chars_modified_tick(&self) -> i64 {
+        self.storage.borrow().chars_modified_tick
+    }
+
+    pub fn save_modified_tick(&self) -> i64 {
+        self.storage.borrow().save_modified_tick
     }
 
     pub fn byte_at(&self, pos: usize) -> u8 {
@@ -218,10 +239,43 @@ impl BufferText {
             storage: Rc::new(RefCell::new(BufferTextStorage {
                 layout: Self::layout_from_gap(&gap),
                 gap,
+                modified_tick: 1,
+                chars_modified_tick: 1,
+                save_modified_tick: 1,
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
             })),
         }
+    }
+
+    pub fn set_modification_state(
+        &self,
+        modified_tick: i64,
+        chars_modified_tick: i64,
+        save_modified_tick: i64,
+    ) {
+        let mut storage = self.storage.borrow_mut();
+        storage.modified_tick = modified_tick;
+        storage.chars_modified_tick = chars_modified_tick;
+        storage.save_modified_tick = save_modified_tick;
+    }
+
+    pub fn set_modified_tick(&self, tick: i64) {
+        self.storage.borrow_mut().modified_tick = tick;
+    }
+
+    pub fn set_save_modified_tick(&self, tick: i64) {
+        self.storage.borrow_mut().save_modified_tick = tick;
+    }
+
+    pub fn increment_modified_tick(&self, delta: i64) {
+        self.storage.borrow_mut().modified_tick += delta;
+    }
+
+    pub fn record_char_modification(&self, delta: i64) {
+        let mut storage = self.storage.borrow_mut();
+        storage.modified_tick += delta;
+        storage.chars_modified_tick = storage.modified_tick;
     }
 
     pub fn range_contains_char_code(&self, start: usize, end: usize, code: u32) -> bool {
