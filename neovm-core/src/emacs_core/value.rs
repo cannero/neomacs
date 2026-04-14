@@ -1653,7 +1653,13 @@ fn closure_to_equal_key(value: Value, depth: usize, seen: &mut Vec<usize>) -> Ha
     {
         slots.push(HashKey::Nil);
         let doc = if doc_value.is_string() {
-            HashKey::Text(doc_value.as_str().unwrap().to_owned())
+            let string = doc_value.as_lisp_string().expect("string");
+            HashKey::Text(
+                crate::emacs_core::string_escape::emacs_bytes_to_storage_string(
+                    string.as_bytes(),
+                    string.is_multibyte(),
+                ),
+            )
         } else {
             doc_value.to_equal_key_depth(0, seen)
         };

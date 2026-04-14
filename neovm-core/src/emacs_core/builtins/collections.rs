@@ -107,7 +107,6 @@ pub(crate) fn aset_string_replacement(
     };
 
     let idx = expect_fixnum(index)? as usize;
-    let original_str = array.as_str().unwrap().to_owned();
     let multibyte = array.string_is_multibyte();
     let mut codes = super::lisp_string_char_codes(array.as_lisp_string().expect("string"));
     if idx >= codes.len() {

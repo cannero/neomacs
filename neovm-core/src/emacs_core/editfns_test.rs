@@ -111,6 +111,17 @@ fn collect_insert_text_int_as_char() {
 }
 
 #[test]
+fn collect_insert_text_nonunicode_char_preserves_emacs_code() {
+    crate::test_utils::init_test_tracing();
+    install_test_runtime();
+
+    let code = 0x3F_FF80i64;
+    let result = collect_insert_text("insert", &[Value::fixnum(code)]).unwrap();
+    let decoded = crate::emacs_core::string_escape::decode_storage_char_codes(&result);
+    assert_eq!(decoded, vec![code as u32]);
+}
+
+#[test]
 fn collect_insert_text_wrong_type() {
     crate::test_utils::init_test_tracing();
     install_test_runtime();

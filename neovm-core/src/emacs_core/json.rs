@@ -273,10 +273,9 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
             }
         }
 
-        ValueKind::String => {
-            let s = value.as_str().unwrap();
-            Ok(json_encode_string(s))
-        }
+        ValueKind::String => Ok(json_encode_string(
+            &crate::emacs_core::builtins::lisp_string_to_runtime_string(*value),
+        )),
 
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = value.as_vector_data().unwrap().clone();
@@ -1040,7 +1039,7 @@ pub(crate) fn builtin_json_serialize(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_json_parse_string(args: Vec<Value>) -> EvalResult {
     expect_min_args("json-parse-string", &args, 1)?;
     let input = match args[0].kind() {
-        ValueKind::String => args[0].as_str().unwrap().to_owned(),
+        ValueKind::String => crate::emacs_core::builtins::lisp_string_to_runtime_string(args[0]),
         _ => {
             return Err(signal(
                 "wrong-type-argument",

@@ -527,10 +527,23 @@ pub(crate) fn collect_insert_text(_name: &str, args: &[Value]) -> Result<String,
     for arg in args {
         match arg.kind() {
             ValueKind::String => {
-                let s = arg.as_str().unwrap().to_owned();
+                let s = super::builtins::lisp_string_to_runtime_string(*arg);
                 text.push_str(&s);
             }
-            ValueKind::Fixnum(c) => text.push(char::from_u32(c as u32).unwrap_or('\0')),
+            ValueKind::Fixnum(_) => {
+                let code = super::builtins::expect_character_code(arg)? as u32;
+                let rendered =
+                    crate::emacs_core::string_escape::encode_char_code_for_string_storage(
+                        code, true,
+                    )
+                    .ok_or_else(|| {
+                        signal(
+                            "wrong-type-argument",
+                            vec![Value::symbol("characterp"), *arg],
+                        )
+                    })?;
+                text.push_str(&rendered);
+            }
             other => {
                 return Err(signal(
                     "wrong-type-argument",

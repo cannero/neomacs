@@ -1309,7 +1309,7 @@ pub(crate) fn builtin_random(args: Vec<Value>) -> EvalResult {
         match limit.kind() {
             ValueKind::T => emacs_init_random(),
             ValueKind::String => {
-                let bytes = limit.as_str().unwrap().as_bytes().to_vec();
+                let bytes = limit.as_lisp_string().expect("string").as_bytes().to_vec();
                 emacs_seed_random(&bytes);
             }
             ValueKind::Fixnum(lim) => {

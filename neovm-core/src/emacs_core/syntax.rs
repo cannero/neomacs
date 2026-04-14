@@ -1173,7 +1173,7 @@ pub(crate) fn builtin_string_to_syntax(args: Vec<Value>) -> EvalResult {
         ));
     }
     let s = match args[0].kind() {
-        ValueKind::String => args[0].as_str().unwrap().to_string(),
+        ValueKind::String => crate::emacs_core::builtins::lisp_string_to_runtime_string(args[0]),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1775,7 +1775,7 @@ pub(crate) fn modify_syntax_entry_in_buffers(
         ));
     }
     let descriptor = match args[1].kind() {
-        ValueKind::String => args[1].as_str().unwrap().to_string(),
+        ValueKind::String => crate::emacs_core::builtins::lisp_string_to_runtime_string(args[1]),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3616,7 +3616,7 @@ pub(crate) fn builtin_skip_syntax_forward_in_buffers(
         ));
     }
     let syntax_chars = match args[0].kind() {
-        ValueKind::String => args[0].as_str().unwrap().to_string(),
+        ValueKind::String => crate::emacs_core::builtins::lisp_string_to_runtime_string(args[0]),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3690,7 +3690,7 @@ pub(crate) fn builtin_skip_syntax_backward_in_buffers(
         ));
     }
     let syntax_chars = match args[0].kind() {
-        ValueKind::String => args[0].as_str().unwrap().to_string(),
+        ValueKind::String => crate::emacs_core::builtins::lisp_string_to_runtime_string(args[0]),
         other => {
             return Err(signal(
                 "wrong-type-argument",

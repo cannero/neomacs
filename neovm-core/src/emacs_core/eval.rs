@@ -1502,7 +1502,7 @@ pub(crate) fn plan_require_in_state(
 
     let filename = match filename {
         Some(v) if v.is_nil() => name.clone(),
-        Some(v) if v.is_string() => v.as_str().unwrap().to_owned(),
+        Some(v) if v.is_string() => super::builtins::lisp_string_to_runtime_string(v),
         Some(other) => {
             return Err(signal(
                 "wrong-type-argument",

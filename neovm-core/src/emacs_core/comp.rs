@@ -36,7 +36,9 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
     if value.is_string() {
-        Ok(value.as_str().unwrap().to_owned())
+        Ok(crate::emacs_core::builtins::lisp_string_to_runtime_string(
+            *value,
+        ))
     } else {
         Err(signal(
             "wrong-type-argument",

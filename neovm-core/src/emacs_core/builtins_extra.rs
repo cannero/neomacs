@@ -165,10 +165,12 @@ fn collect_sequence_strict(val: &Value) -> Result<Vec<Value>, Flow> {
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             Ok(val.as_vector_data().unwrap().clone())
         }
-        ValueKind::String => {
-            let s = val.as_str().unwrap().to_owned();
-            Ok(s.chars().map(|ch| Value::fixnum(ch as i64)).collect())
-        }
+        ValueKind::String => Ok(super::builtins::lisp_string_char_codes(
+            val.as_lisp_string().expect("string"),
+        )
+        .into_iter()
+        .map(|code| Value::fixnum(code as i64))
+        .collect()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), *val],

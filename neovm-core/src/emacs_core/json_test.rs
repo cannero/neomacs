@@ -1,5 +1,6 @@
 use super::*;
 use crate::emacs_core::value::{ValueKind, VecLikeType};
+use crate::heap_types::LispString;
 
 // -----------------------------------------------------------------------
 // Serializer tests
@@ -87,6 +88,14 @@ fn serialize_string_with_escapes() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::string("a\"b\\c\ndef")]);
     assert_eq!(result.unwrap().as_str(), Some("\"a\\\"b\\\\c\\ndef\""));
+}
+
+#[test]
+fn serialize_raw_unibyte_string_does_not_panic() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+    let result = builtin_json_serialize(vec![raw]);
+    assert!(result.is_ok());
 }
 
 #[test]
@@ -298,6 +307,14 @@ fn parse_string_simple() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![Value::string("\"hello\"")]);
     assert_eq!(result.unwrap().as_str(), Some("hello"));
+}
+
+#[test]
+fn parse_raw_unibyte_input_signals_instead_of_panicking() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+    let result = builtin_json_parse_string(vec![raw]);
+    assert!(result.is_err());
 }
 
 #[test]
