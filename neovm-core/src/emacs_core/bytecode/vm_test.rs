@@ -6817,6 +6817,37 @@ fn vm_compiled_autoload_do_load_uses_shared_runtime_and_load_bridge() {
 }
 
 #[test]
+fn vm_compiled_autoload_do_load_survives_exact_gc() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("vm-bytecode-autoload-do-load-exact.el"),
+        "(setq vm-bytecode-autoload-junk (make-list 20000 nil))\n\
+         (defalias 'vm-bytecode-autoload-do-load-exact #'(lambda () 91))\n",
+    )
+    .expect("write autoload-do-load exact fixture");
+
+    let mut eval = Context::new_vm_runtime_harness();
+    eval.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
+    eval.gc_stress = true;
+    eval.obarray.set_symbol_value(
+        "load-path",
+        Value::list(vec![Value::string(dir.path().to_string_lossy())]),
+    );
+    let result = eval
+        .eval_str(
+            r#"(progn
+             (autoload 'vm-bytecode-autoload-do-load-exact "vm-bytecode-autoload-do-load-exact")
+             (autoload-do-load (symbol-function 'vm-bytecode-autoload-do-load-exact)
+                               'vm-bytecode-autoload-do-load-exact)
+             (vm-bytecode-autoload-do-load-exact))"#,
+        )
+        .expect("autoload-do-load should execute under exact gc");
+
+    assert_eq!(result, Value::fixnum(91));
+}
+
+#[test]
 fn vm_compiled_named_autoload_call_uses_shared_runtime_and_load_bridge() {
     crate::test_utils::init_test_tracing();
     let dir = tempfile::tempdir().expect("tempdir");

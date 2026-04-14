@@ -85,19 +85,17 @@ fn expect_string(val: &Value) -> Result<String, Flow> {
 }
 
 fn expect_lisp_string(val: &Value) -> Result<&'static crate::heap_types::LispString, Flow> {
-    val.as_lisp_string().ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("stringp"), *val],
-        )
-    })
+    val.as_lisp_string()
+        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("stringp"), *val]))
 }
 
 fn cloned_lisp_string_value(string: &crate::heap_types::LispString) -> Value {
     Value::heap_string(string.clone())
 }
 
-fn regexp_quote_lisp_string(input: &crate::heap_types::LispString) -> crate::heap_types::LispString {
+fn regexp_quote_lisp_string(
+    input: &crate::heap_types::LispString,
+) -> crate::heap_types::LispString {
     let mut out = Vec::with_capacity(input.as_bytes().len() + 8);
     for &byte in input.as_bytes() {
         match byte {

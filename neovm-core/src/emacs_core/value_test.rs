@@ -123,7 +123,10 @@ fn uninterned_colon_name_is_not_treated_as_keyword() {
 
         let canonical = Value::keyword(":vm-shadow-keyword");
         assert!(canonical.is_keyword());
-        assert_eq!(canonical.as_keyword_id(), Some(intern(":vm-shadow-keyword")));
+        assert_eq!(
+            canonical.as_keyword_id(),
+            Some(intern(":vm-shadow-keyword"))
+        );
     });
 }
 

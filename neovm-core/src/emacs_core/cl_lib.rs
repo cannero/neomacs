@@ -826,7 +826,9 @@ pub(crate) fn builtin_cl_gensym(args: Vec<Value>) -> EvalResult {
             CL_GENSYM_COUNTER.fetch_add(1, Ordering::Relaxed),
         ),
     };
-    Ok(Value::from_sym_id(intern_uninterned(&format!("{prefix}{n}"))))
+    Ok(Value::from_sym_id(intern_uninterned(&format!(
+        "{prefix}{n}"
+    ))))
 }
 
 /// `(cl-find ITEM SEQ)` -- return first element in SEQ equal to ITEM.

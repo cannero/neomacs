@@ -139,9 +139,9 @@ fn eval_forms_from_source_streaming(
         eval_result?;
 
         if let Some(mexp_fn) = macroexpand_fn {
-            eval.gc_safe_point_exact_with_extra_roots(&[mexp_fn]);
+            eval.gc_safe_point_exact_with_extra_roots(&[form, mexp_fn]);
         } else {
-            eval.gc_safe_point_exact();
+            eval.gc_safe_point_exact_with_extra_roots(&[form]);
         }
     }
 

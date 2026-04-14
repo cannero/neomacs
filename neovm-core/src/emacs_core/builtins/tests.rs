@@ -4051,7 +4051,9 @@ fn pure_dispatch_typed_plist_and_symbol_round_trip() {
 #[test]
 fn make_symbol_and_symbol_name_preserve_raw_unibyte_bytes() {
     crate::test_utils::init_test_tracing();
-    let raw_name = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF, b'a']));
+    let raw_name = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b'a',
+    ]));
 
     let sym = dispatch_builtin_pure("make-symbol", vec![raw_name])
         .expect("builtin make-symbol should resolve")
@@ -4071,7 +4073,9 @@ fn make_symbol_and_symbol_name_preserve_raw_unibyte_bytes() {
 fn intern_and_intern_soft_preserve_raw_unibyte_symbol_names() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
-    let raw_name = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF, b'a']));
+    let raw_name = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b'a',
+    ]));
 
     let sym = dispatch_builtin(&mut eval, "intern", vec![raw_name])
         .expect("builtin intern should resolve")

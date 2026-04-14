@@ -588,6 +588,76 @@ def
 }
 
 #[test]
+fn selected_window_sync_prefers_live_current_buffer_point_before_resync() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut ev);
+    let selected_wid = ev
+        .frame_manager()
+        .get(frame_id)
+        .expect("frame")
+        .selected_window;
+    let buffer_id = ev
+        .frame_manager()
+        .get(frame_id)
+        .and_then(|frame| frame.find_window(selected_wid))
+        .and_then(|window| window.buffer_id())
+        .expect("selected window buffer");
+
+    ev.buffer_manager_mut()
+        .replace_buffer_contents(buffer_id, "abc\ndef\n")
+        .expect("replace selected buffer contents");
+    ev.buffer_manager_mut()
+        .goto_buffer_byte(buffer_id, 4)
+        .expect("move selected buffer point");
+    if let Some(crate::window::Window::Leaf { point, .. }) = ev
+        .frame_manager_mut()
+        .get_mut(frame_id)
+        .and_then(|frame| frame.find_window_mut(selected_wid))
+    {
+        *point = 1;
+    }
+
+    let pre_buffer_point = ev
+        .buffer_manager()
+        .get(buffer_id)
+        .expect("selected buffer")
+        .point_char()
+        + 1;
+    assert_eq!(pre_buffer_point, 5);
+
+    crate::emacs_core::window_cmds::remember_selected_window_point_in_state(
+        &mut ev.frames,
+        &ev.buffers,
+        frame_id,
+    );
+    crate::emacs_core::window_cmds::sync_selected_window_buffer_in_state(
+        &ev.frames,
+        &mut ev.buffers,
+        frame_id,
+    );
+
+    let selected_point = ev
+        .frame_manager()
+        .get(frame_id)
+        .and_then(|frame| frame.find_window(selected_wid))
+        .and_then(|window| match window {
+            crate::window::Window::Leaf { point, .. } => Some(*point),
+            crate::window::Window::Internal { .. } => None,
+        })
+        .expect("selected window point");
+    let buffer_point = ev
+        .buffer_manager()
+        .get(buffer_id)
+        .expect("selected buffer")
+        .point_char()
+        + 1;
+
+    assert_eq!(selected_point, 5);
+    assert_eq!(buffer_point, 5);
+}
+
+#[test]
 fn set_window_start_point_and_group_start_accept_marker_positions() {
     crate::test_utils::init_test_tracing();
     let mut ev = runtime_startup_context();

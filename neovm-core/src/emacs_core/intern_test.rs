@@ -106,7 +106,11 @@ fn canonical_id_survives_dump_style_reconstruction() {
     let mut registry = SymbolRegistry::new();
     let remap = registry
         .restore_dump_symbol_table(
-            &[unibyte_name(b"nil"), unibyte_name(b"t"), unibyte_name(b"dup")],
+            &[
+                unibyte_name(b"nil"),
+                unibyte_name(b"t"),
+                unibyte_name(b"dup"),
+            ],
             &[0, 1, 2, 2],
             None,
         )
@@ -149,7 +153,11 @@ fn restore_dump_slots_preserves_lone_uninterned_slot() {
     let mut registry = SymbolRegistry::new();
     let remap = registry
         .restore_dump_symbol_table(
-            &[unibyte_name(b"nil"), unibyte_name(b"t"), unibyte_name(b"solo")],
+            &[
+                unibyte_name(b"nil"),
+                unibyte_name(b"t"),
+                unibyte_name(b"solo"),
+            ],
             &[0, 1, 2],
             Some(&[true, true, false]),
         )
@@ -252,7 +260,11 @@ fn restore_dump_symbol_table_rejects_duplicate_canonical_names() {
 
     let err = registry
         .restore_dump_symbol_table(
-            &[unibyte_name(b"nil"), unibyte_name(b"t"), unibyte_name(b"dup")],
+            &[
+                unibyte_name(b"nil"),
+                unibyte_name(b"t"),
+                unibyte_name(b"dup"),
+            ],
             &[0, 1, 2, 2],
             Some(&[true, true, true, true]),
         )

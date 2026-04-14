@@ -1554,9 +1554,7 @@ fn completion_candidates_from_global_obarray_in_state(
     entries
         .into_iter()
         .map(|(name, sym)| CompletionCandidate {
-            completion: CompletionText::Generated {
-                string: name,
-            },
+            completion: CompletionText::Generated { string: name },
             predicate_arg: sym,
             predicate_extra_arg: None,
         })

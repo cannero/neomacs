@@ -82,7 +82,10 @@ fn print_gensym_raw_unibyte_symbol_bytes_match_gnu_encoding() {
     let options = PrintOptions::with_print_gensym(true);
     let raw_name = crate::heap_types::LispString::from_unibyte(vec![0xFF, b'a']);
     let sym = Value::symbol(intern_uninterned_lisp_string(&raw_name));
-    assert_eq!(print_value_bytes_with_options(&sym, options), vec![b'#', b':', 0xC1, 0xBF, b'a']);
+    assert_eq!(
+        print_value_bytes_with_options(&sym, options),
+        vec![b'#', b':', 0xC1, 0xBF, b'a']
+    );
 }
 
 #[test]
@@ -163,9 +166,9 @@ fn print_string_keeps_non_bmp_visible() {
 fn print_string_bytes_preserve_non_utf8_payloads() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        print_value_bytes(&Value::heap_string(crate::heap_types::LispString::from_emacs_bytes(
-            vec![0xC1, 0xBF],
-        ))),
+        print_value_bytes(&Value::heap_string(
+            crate::heap_types::LispString::from_emacs_bytes(vec![0xC1, 0xBF],)
+        )),
         b"\"\\377\""
     );
 }

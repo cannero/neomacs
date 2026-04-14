@@ -697,6 +697,72 @@ fn activate_minibuffer_window_switches_displayed_buffer_and_restores_state() {
 }
 
 #[test]
+fn active_minibuffer_window_sync_keeps_live_buffer_point() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut ev);
+    let minibuffer_window = ev
+        .frame_manager()
+        .get(frame_id)
+        .and_then(|frame| frame.minibuffer_window)
+        .expect("initial frame minibuffer window");
+    let active_buffer = ev.buffer_manager_mut().create_buffer(" *Minibuf-1*");
+    let _saved = activate_minibuffer_window(&mut ev, active_buffer).expect("activate minibuffer");
+
+    ev.buffer_manager_mut()
+        .replace_buffer_contents(active_buffer, "Eval: (+ 1 2)")
+        .expect("replace active minibuffer contents");
+    ev.buffer_manager_mut()
+        .goto_buffer_byte(active_buffer, 13)
+        .expect("move active minibuffer point");
+    if let Some(crate::window::Window::Leaf { point, .. }) = ev
+        .frame_manager_mut()
+        .get_mut(frame_id)
+        .and_then(|frame| frame.find_window_mut(minibuffer_window))
+    {
+        *point = 7;
+    }
+
+    let pre_buffer_point = ev
+        .buffer_manager()
+        .get(active_buffer)
+        .expect("active minibuffer buffer")
+        .point_char()
+        + 1;
+    assert_eq!(pre_buffer_point, 14);
+
+    crate::emacs_core::window_cmds::remember_selected_window_point_in_state(
+        &mut ev.frames,
+        &ev.buffers,
+        frame_id,
+    );
+    crate::emacs_core::window_cmds::sync_selected_window_buffer_in_state(
+        &ev.frames,
+        &mut ev.buffers,
+        frame_id,
+    );
+
+    let window_point = ev
+        .frame_manager()
+        .get(frame_id)
+        .and_then(|frame| frame.find_window(minibuffer_window))
+        .and_then(|window| match window {
+            crate::window::Window::Leaf { point, .. } => Some(*point),
+            crate::window::Window::Internal { .. } => None,
+        })
+        .expect("minibuffer window point");
+    let buffer_point = ev
+        .buffer_manager()
+        .get(active_buffer)
+        .expect("active minibuffer buffer")
+        .point_char()
+        + 1;
+
+    assert_eq!(window_point, 14);
+    assert_eq!(buffer_point, 14);
+}
+
+#[test]
 fn read_string_signals_end_of_file() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

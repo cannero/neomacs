@@ -429,6 +429,48 @@ fn gnu_subr_el_defines_wholenump_without_rust_shim() {
 }
 
 #[test]
+fn load_subr_survives_exact_post_form_gc_after_byte_run() {
+    crate::test_utils::init_test_tracing();
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let lisp_dir = project_root.join("lisp");
+    let mut eval = Context::new();
+
+    let mut load_path_entries = Vec::new();
+    for subdir in ["", "emacs-lisp"] {
+        let dir = if subdir.is_empty() {
+            lisp_dir.clone()
+        } else {
+            lisp_dir.join(subdir)
+        };
+        if dir.is_dir() {
+            load_path_entries.push(Value::string(dir.to_string_lossy().to_string()));
+        }
+    }
+    eval.set_variable("load-path", Value::list(load_path_entries));
+    eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
+    eval.set_variable("purify-flag", Value::NIL);
+    eval.set_variable("max-lisp-eval-depth", Value::fixnum(1600));
+
+    let load_path = get_load_path(&eval.obarray());
+    for name in &[
+        "emacs-lisp/debug-early",
+        "emacs-lisp/byte-run",
+        "emacs-lisp/backquote",
+        "subr",
+    ] {
+        let path = find_file_in_load_path(name, &load_path)
+            .unwrap_or_else(|| panic!("cannot find {name} in load-path"));
+        load_file(&mut eval, &path).unwrap_or_else(|err| panic!("failed to load {name}: {err:?}"));
+    }
+
+    let zerop = eval
+        .eval_str("(list (zerop 0) (zerop 1))")
+        .expect("zerop after subr load");
+    assert_eq!(list_to_vec(&zerop), Some(vec![Value::T, Value::NIL]));
+}
+
+#[test]
 fn raw_context_does_not_prebind_frame_creation_function() {
     crate::test_utils::init_test_tracing();
     let eval = Context::new();
@@ -2829,6 +2871,30 @@ fn bootstrap_runtime_cl_transform_lambda_matches_gnu() {
 }
 
 #[test]
+fn bootstrap_runtime_autoload_do_load_survives_exact_gc() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    eval.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
+    eval.gc_stress = true;
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(progn
+             (require 'cl-lib)
+             (let ((before (symbol-function 'cl-defstruct)))
+               (list
+                 (autoloadp before)
+                 (condition-case err
+                     (progn
+                       (autoload-do-load before 'cl-defstruct t)
+                       (cl-defstruct vm-autoload-exact slot)
+                       (vm-autoload-exact-slot (make-vm-autoload-exact :slot 91)))
+                   (error err)))))"#,
+    );
+    assert_eq!(rendered, "OK (t 91)");
+}
+
+#[test]
 fn bootstrap_runtime_cl_defun_entry_point_matches_gnu() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
@@ -3949,6 +4015,67 @@ fn nested_load_restores_parent_load_file_name() {
         eval.obarray().symbol_value("load-file-name").cloned(),
         Some(Value::NIL),
         "load-file-name should be restored after top-level load",
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn nested_load_exact_gc_preserves_reader_load_file_name() {
+    crate::test_utils::init_test_tracing();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("neovm-load-file-name-reader-exact-{unique}"));
+    fs::create_dir_all(&dir).expect("create temp fixture dir");
+    let parent = dir.join("parent.el");
+    let child = dir.join("child.el");
+
+    fs::write(
+        &parent,
+        "(setq vm-parent-reader-before #$)\n\
+         (load (expand-file-name \"child\" (file-name-directory load-file-name)) nil 'nomessage)\n\
+         (setq vm-parent-reader-after #$)\n",
+    )
+    .expect("write parent fixture");
+    fs::write(
+        &child,
+        "(setq vm-child-reader #$)\n\
+         (setq vm-child-junk (make-list 20000 nil))\n",
+    )
+    .expect("write child fixture");
+
+    let mut eval = super::super::eval::Context::new();
+    eval.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
+    eval.gc_stress = true;
+
+    let loaded = load_file(&mut eval, &parent).expect("load nested fixture under exact gc");
+    assert_eq!(loaded, Value::T);
+    assert!(
+        eval.gc_count > 0,
+        "exact GC should have run during nested load"
+    );
+
+    let parent_str = parent.to_string_lossy().to_string();
+    let child_str = child.to_string_lossy().to_string();
+    assert_eq!(
+        eval.obarray()
+            .symbol_value("vm-parent-reader-before")
+            .and_then(|v| v.as_str()),
+        Some(parent_str.as_str())
+    );
+    assert_eq!(
+        eval.obarray()
+            .symbol_value("vm-child-reader")
+            .and_then(|v| v.as_str()),
+        Some(child_str.as_str())
+    );
+    assert_eq!(
+        eval.obarray()
+            .symbol_value("vm-parent-reader-after")
+            .and_then(|v| v.as_str()),
+        Some(parent_str.as_str())
     );
 
     let _ = fs::remove_dir_all(&dir);

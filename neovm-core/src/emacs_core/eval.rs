@@ -822,6 +822,7 @@ fn collect_thread_local_gc_roots(roots: &mut Vec<Value>) {
     super::syntax::collect_syntax_gc_roots(roots);
     super::casetab::collect_casetab_gc_roots(roots);
     super::category::collect_category_gc_roots(roots);
+    super::value_reader::collect_value_reader_gc_roots(roots);
     super::terminal::pure::collect_terminal_gc_roots(roots);
     super::font::collect_font_gc_roots(roots);
     super::charset::collect_charset_gc_roots(roots);
@@ -1935,7 +1936,8 @@ impl Context {
     }
 
     fn register_subr_slot(&mut self, sym_id: SymId, subr: Value) {
-        self.tagged_heap.register_subr_value(symbol_name_id(sym_id), subr);
+        self.tagged_heap
+            .register_subr_value(symbol_name_id(sym_id), subr);
     }
 
     pub fn new() -> Self {
@@ -4103,6 +4105,7 @@ impl Context {
                     old_value: Some(val),
                     ..
                 } => roots.push(*val),
+                SpecBinding::LexicalEnv { old_lexenv } => roots.push(*old_lexenv),
                 _ => {}
             }
         }
@@ -4878,6 +4881,10 @@ impl Context {
             // wrapper.
             let exec_result = self.dispatch_command_in_loop(binding);
 
+            // Keep the selected window's point and current buffer/runtime view
+            // aligned before post-command work and redisplay observe state.
+            self.sync_current_buffer_to_selected_window();
+
             if let Err(ref flow) = exec_result {
                 match flow {
                     Flow::Throw { .. } => return exec_result,
@@ -5385,7 +5392,7 @@ impl Context {
     /// Perform a full mark-and-sweep garbage collection using only explicit roots.
     #[tracing::instrument(level = "debug", skip(self))]
     pub fn gc_collect_exact(&mut self) {
-        self.gc_collect();
+        self.gc_collect_with_mode(crate::tagged::gc::RootScanMode::ExactOnly);
     }
 
     /// Perform a collection while retaining additional caller-owned roots.
@@ -5393,8 +5400,10 @@ impl Context {
         &mut self,
         extra_root_slices: &[&[Value]],
     ) {
-        let mode = self.tagged_heap.root_scan_mode();
-        self.gc_collect_with_mode_and_extra_root_slices(mode, extra_root_slices);
+        self.gc_collect_with_mode_and_extra_root_slices(
+            crate::tagged::gc::RootScanMode::ExactOnly,
+            extra_root_slices,
+        );
     }
 
     /// Convenience wrapper for a single additional root slice.
@@ -5464,8 +5473,10 @@ impl Context {
         &mut self,
         extra_root_slices: &[&[Value]],
     ) {
-        let mode = self.tagged_heap.root_scan_mode();
-        self.gc_safe_point_with_mode_and_extra_root_slices(mode, extra_root_slices);
+        self.gc_safe_point_with_mode_and_extra_root_slices(
+            crate::tagged::gc::RootScanMode::ExactOnly,
+            extra_root_slices,
+        );
     }
 
     /// Convenience wrapper for a single extra-root slice at an exact safe point.
@@ -6448,56 +6459,9 @@ impl Context {
         if cons_head_symbol_id(&func) == Some(macro_symbol()) {
             // Cons-cell macro: (macro . fn) — GNU eval.c:2730
             let macro_fn = func.cons_cdr();
-
-            // GNU eval.c:2737-2750: bind lexical-binding and macroexp--dynvars
-            let saved_lexbind = self
-                .obarray()
-                .symbol_value_id(lexical_binding_symbol())
-                .cloned();
-            let lexbind_val = if self.lexenv.is_nil() {
-                Value::NIL
-            } else {
-                Value::T
-            };
-            self.obarray
-                .set_symbol_value_id(lexical_binding_symbol(), lexbind_val);
-
-            let saved_dynvars = self
-                .obarray()
-                .symbol_value_id(macroexp_dynvars_symbol())
-                .cloned();
-            let mut dynvars = saved_dynvars.unwrap_or(Value::NIL);
-            {
-                let mut p = self.lexenv;
-                while p.is_cons() {
-                    let e = p.cons_car();
-                    if e.is_symbol() {
-                        dynvars = Value::cons(e, dynvars);
-                    }
-                    p = p.cons_cdr();
-                }
-            }
-            self.obarray
-                .set_symbol_value_id(macroexp_dynvars_symbol(), dynvars);
-
-            // GNU eval.c:2752: exp = apply1(Fcdr(fun), original_args)
             let arg_values = value_list_to_values(&original_args);
-            let expanded = self.apply(macro_fn, arg_values)?;
-
-            // Restore bindings
-            if let Some(v) = saved_lexbind {
-                self.obarray
-                    .set_symbol_value_id(lexical_binding_symbol(), v);
-            }
-            if let Some(v) = saved_dynvars {
-                self.obarray
-                    .set_symbol_value_id(macroexp_dynvars_symbol(), v);
-            } else {
-                self.obarray
-                    .set_symbol_value_id(macroexp_dynvars_symbol(), Value::NIL);
-            }
-
-            // GNU eval.c:2754: val = eval_sub(exp)
+            let expanded =
+                self.with_macro_expansion_scope(|eval| eval.apply(macro_fn, arg_values))?;
             return self.eval_sub(expanded);
         }
 
@@ -6761,7 +6725,7 @@ impl Context {
         // the global default via `find_symbol_value` (which routes
         // FORWARDED reads through the forwarder descriptor).
         if resolved_is_canonical && let Some(buf) = self.buffers.current_buffer() {
-            if let Some(binding) = buf.get_buffer_local_binding(resolved_name) {
+            if let Some(binding) = buf.get_buffer_local_binding_by_sym_id(resolved) {
                 return binding
                     .as_value()
                     .ok_or_else(|| signal("void-variable", vec![value_from_symbol_id(sym_id)]));
@@ -8792,7 +8756,10 @@ impl Context {
     pub(crate) fn push_runtime_backtrace_frame(&mut self, function: Value, args: &[Value]) {
         self.runtime_backtrace.push(RuntimeBacktraceFrame {
             function,
-            args: RuntimeBacktraceArgs::borrowed(args),
+            // GC root collection walks active backtrace frames. The frame
+            // therefore must not borrow an args slice whose backing Vec can
+            // be reallocated or dropped while the frame is still active.
+            args: RuntimeBacktraceArgs::owned_from_slice(args),
             evaluated: true,
             debug_on_exit: false,
         });
@@ -9629,55 +9596,7 @@ impl Context {
         callable: Value,
         args: Vec<Value>,
     ) -> Result<Value, Flow> {
-        self.push_temp_root(callable);
-        let saved_lexbind = self
-            .obarray()
-            .symbol_value_id(lexical_binding_symbol())
-            .cloned();
-        let lexbind_val = if self.lexenv.is_nil() {
-            Value::NIL
-        } else {
-            Value::T
-        };
-        self.obarray
-            .set_symbol_value_id(lexical_binding_symbol(), lexbind_val);
-
-        let saved_dynvars = self
-            .obarray()
-            .symbol_value_id(macroexp_dynvars_symbol())
-            .cloned();
-        let mut dynvars = saved_dynvars.unwrap_or(Value::NIL);
-        {
-            let mut p = self.lexenv;
-            while p.is_cons() {
-                let e = p.cons_car();
-                if e.is_symbol() {
-                    dynvars = Value::cons(e, dynvars);
-                }
-                p = p.cons_cdr();
-            }
-        }
-        self.obarray
-            .set_symbol_value_id(macroexp_dynvars_symbol(), dynvars);
-
-        let result = self.with_macro_expansion_scope(|eval| eval.apply(callable, args));
-
-        if let Some(v) = saved_lexbind {
-            self.obarray
-                .set_symbol_value_id(lexical_binding_symbol(), v);
-        } else {
-            self.obarray
-                .set_symbol_value_id(lexical_binding_symbol(), Value::NIL);
-        }
-        if let Some(v) = saved_dynvars {
-            self.obarray
-                .set_symbol_value_id(macroexp_dynvars_symbol(), v);
-        } else {
-            self.obarray
-                .set_symbol_value_id(macroexp_dynvars_symbol(), Value::NIL);
-        }
-
-        result
+        self.with_macro_expansion_scope(|eval| eval.apply(callable, args))
     }
 
     pub(crate) fn expand_macro_for_macroexpand(
@@ -9836,7 +9755,8 @@ impl Context {
                                 "let",
                             );
                         }
-                        let info_ref = crate::buffer::buffer::lookup_buffer_slot(name);
+                        let info_ref =
+                            crate::buffer::buffer::lookup_buffer_slot_by_sym_id(resolved);
                         if let Some(info) = info_ref {
                             self.buffers.set_buffer_default_slot(info, value);
                         }
@@ -9928,7 +9848,7 @@ impl Context {
         if self.obarray.is_buffer_local(name) || self.custom.is_auto_buffer_local(name) {
             if let Some(buf_id) = self.buffers.current_buffer_id() {
                 if let Some(buf) = self.buffers.get(buf_id) {
-                    if let Some(binding) = buf.get_buffer_local_binding(name) {
+                    if let Some(binding) = buf.get_buffer_local_binding_by_sym_id(resolved) {
                         let old_val = binding.as_value().unwrap_or(Value::NIL);
                         self.specpdl.push(SpecBinding::LetLocal {
                             sym_id: resolved,
@@ -9943,7 +9863,9 @@ impl Context {
                                 "let",
                             );
                         }
-                        let _ = self.buffers.set_buffer_local_property(buf_id, name, value);
+                        let _ = self
+                            .buffers
+                            .set_buffer_local_property_by_sym_id(buf_id, resolved, value);
                         if resolved == self.noninteractive_symbol {
                             self.noninteractive = value.is_truthy();
                         }
@@ -10088,7 +10010,7 @@ impl Context {
                         } else {
                             let _ = self
                                 .buffers
-                                .set_buffer_local_property(buffer_id, name, old_value);
+                                .set_buffer_local_property_by_sym_id(buffer_id, sym_id, old_value);
                         }
                         if sym_id == self.noninteractive_symbol {
                             self.noninteractive = old_value.is_truthy();
@@ -10123,7 +10045,7 @@ impl Context {
                             if matches!(fwd.ty, LispFwdType::BufferObj) {
                                 let buf_fwd =
                                     unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
-                                crate::buffer::buffer::lookup_buffer_slot(name)
+                                crate::buffer::buffer::lookup_buffer_slot_by_sym_id(sym_id)
                                     .map(|info| (info, buf_fwd))
                             } else {
                                 None
@@ -10346,8 +10268,8 @@ pub(crate) fn set_runtime_binding(
         && let Some(current_id) = buffers.current_buffer_id()
         && let Some(buf) = buffers.get(current_id)
     {
-        if buf.has_buffer_local(name) {
-            let _ = buffers.set_buffer_local_property(current_id, name, value);
+        if buf.has_buffer_local_by_sym_id(sym_id) {
+            let _ = buffers.set_buffer_local_property_by_sym_id(current_id, sym_id, value);
             return Some(current_id);
         }
     }
@@ -10360,7 +10282,7 @@ pub(crate) fn set_runtime_binding(
             |entry| matches!(entry, SpecBinding::LetDefault { sym_id: s, .. } if *s == sym_id),
         );
         if !let_shadows && let Some(current_id) = buffers.current_buffer_id() {
-            let _ = buffers.set_buffer_local_property(current_id, name, value);
+            let _ = buffers.set_buffer_local_property_by_sym_id(current_id, sym_id, value);
             return Some(current_id);
         }
     }
@@ -10384,9 +10306,9 @@ pub(crate) fn makunbound_runtime_binding_in_state(
     if symbol_is_canonical
         && let Some(current_id) = buffers.current_buffer_id()
         && let Some(buf) = buffers.get(current_id)
-        && buf.has_buffer_local(name)
+        && buf.has_buffer_local_by_sym_id(sym_id)
     {
-        let _ = buffers.set_buffer_local_void_property(current_id, name);
+        let _ = buffers.set_buffer_local_void_property_by_sym_id(current_id, sym_id);
         return;
     }
 
@@ -10400,7 +10322,7 @@ pub(crate) fn makunbound_runtime_binding_in_state(
         || custom.is_auto_buffer_local(name);
     if symbol_is_canonical && local_if_set {
         if let Some(current_id) = buffers.current_buffer_id() {
-            let _ = buffers.set_buffer_local_void_property(current_id, name);
+            let _ = buffers.set_buffer_local_void_property_by_sym_id(current_id, sym_id);
             return;
         }
     }
@@ -10654,6 +10576,11 @@ impl Context {
         let Some(frame_id) = self.frames.selected_frame().map(|frame| frame.id) else {
             return;
         };
+        super::window_cmds::remember_selected_window_point_in_state(
+            &mut self.frames,
+            &self.buffers,
+            frame_id,
+        );
         super::window_cmds::sync_selected_window_buffer_in_state(
             &self.frames,
             &mut self.buffers,
@@ -10813,7 +10740,7 @@ impl Context {
         }
         // specbind writes directly to obarray, so no dynamic stack lookup needed.
         if let Some(buffer) = self.buffers.current_buffer() {
-            if let Some(binding) = buffer.get_buffer_local_binding(name) {
+            if let Some(binding) = buffer.get_buffer_local_binding_by_sym_id(name_id) {
                 return binding.as_value().unwrap_or(Value::NIL);
             }
         }
@@ -10874,7 +10801,7 @@ impl Context {
 
         if resolved_is_canonical
             && let Some(buf) = self.buffers.current_buffer()
-            && let Some(binding) = buf.get_buffer_local_binding(resolved_name)
+            && let Some(binding) = buf.get_buffer_local_binding_by_sym_id(resolved)
         {
             return binding.as_value();
         }

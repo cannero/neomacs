@@ -8,6 +8,7 @@
 mod insdel;
 
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 
 use super::buffer_text::BufferText;
 // Phase 10F: BufferLocals is gone. Per-buffer Lisp bindings now live
@@ -20,11 +21,13 @@ use super::overlay::OverlayList;
 use super::shared::SharedUndoState;
 use super::text_props::TextPropertyTable;
 use super::undo;
+use crate::emacs_core::intern::{SymId, intern, resolve_sym};
 use crate::emacs_core::syntax::SyntaxTable;
 use crate::emacs_core::value::{RuntimeBindingValue, Value, ValueKind};
 use crate::gc_trace::GcTrace;
 use crate::tagged::gc::with_tagged_heap;
 use crate::window::WindowId;
+use rustc_hash::FxHashMap;
 
 // ---------------------------------------------------------------------------
 // BUFFER_SLOT_COUNT — sized to mirror GNU's `MAX_PER_BUFFER_VARS = 50`.
@@ -1078,9 +1081,29 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
 /// GNU where those symbols signal void-variable if read as Lisp
 /// variables.
 pub fn lookup_buffer_slot(name: &str) -> Option<&'static BufferSlotInfo> {
-    BUFFER_SLOT_INFO
-        .iter()
-        .find(|info| info.install_as_forwarder && info.name == name)
+    static BUFFER_SLOT_NAME_MAP: OnceLock<FxHashMap<&'static str, &'static BufferSlotInfo>> =
+        OnceLock::new();
+    BUFFER_SLOT_NAME_MAP
+        .get_or_init(|| {
+            let mut map = FxHashMap::default();
+            for info in BUFFER_SLOT_INFO {
+                if info.install_as_forwarder {
+                    map.insert(info.name, info);
+                }
+            }
+            map
+        })
+        .get(name)
+        .copied()
+}
+
+pub fn lookup_buffer_slot_by_sym_id(sym_id: SymId) -> Option<&'static BufferSlotInfo> {
+    lookup_buffer_slot(resolve_sym(sym_id))
+}
+
+fn buffer_undo_list_sym() -> SymId {
+    static SYM: OnceLock<SymId> = OnceLock::new();
+    *SYM.get_or_init(|| intern("buffer-undo-list"))
 }
 
 /// Coerce a write value to fit a slot's predicate. Mirrors GNU's
@@ -1983,22 +2006,25 @@ impl Buffer {
     ///   `valcell` still points at the same cons. New entries are
     ///   prepended to the alist.
     pub fn set_buffer_local(&mut self, name: &str, value: Value) {
-        if let Some(info) = lookup_buffer_slot(name) {
+        self.set_buffer_local_by_sym_id(intern(name), value);
+    }
+
+    pub fn set_buffer_local_by_sym_id(&mut self, sym_id: SymId, value: Value) {
+        if let Some(info) = lookup_buffer_slot_by_sym_id(sym_id) {
             self.slots[info.offset] = coerce_to_slot(info, value, self.slots[info.offset]);
             if info.local_flags_idx >= 0 {
                 self.set_slot_local_flag(info.offset, true);
             }
             return;
         }
-        if name == "buffer-undo-list" {
+        if sym_id == buffer_undo_list_sym() {
             self.undo_state.set_list(value);
             if value.is_nil() {
                 self.undo_state.set_recorded_first_change(false);
             }
             return;
         }
-        let key = Value::from_sym_id(crate::emacs_core::intern::intern(name));
-        set_local_var_alist_entry(&mut self.local_var_alist, key, value);
+        set_local_var_alist_entry(&mut self.local_var_alist, Value::from_sym_id(sym_id), value);
     }
 
     /// Mark a per-buffer binding as void. Slot-backed names reset
@@ -2007,27 +2033,34 @@ impl Buffer {
     /// GNU doesn't have a true "void per-buffer binding" — removing
     /// the alist entry is the closest equivalent.
     pub fn set_buffer_local_void(&mut self, name: &str) {
-        if let Some(info) = lookup_buffer_slot(name) {
+        self.set_buffer_local_void_by_sym_id(intern(name));
+    }
+
+    pub fn set_buffer_local_void_by_sym_id(&mut self, sym_id: SymId) {
+        if let Some(info) = lookup_buffer_slot_by_sym_id(sym_id) {
             self.slots[info.offset] = Value::NIL;
             return;
         }
-        if name == "buffer-undo-list" {
+        if sym_id == buffer_undo_list_sym() {
             self.undo_state.set_list(Value::NIL);
             self.undo_state.set_recorded_first_change(false);
             return;
         }
-        let key = Value::from_sym_id(crate::emacs_core::intern::intern(name));
-        remove_local_var_alist_entry(&mut self.local_var_alist, key);
+        remove_local_var_alist_entry(&mut self.local_var_alist, Value::from_sym_id(sym_id));
     }
 
     /// Drop a per-buffer binding. Returns the previous binding if
     /// one existed. Mirrors the non-special path of GNU
     /// `Fkill_local_variable` (`data.c:2314-2378`).
     pub fn kill_buffer_local(&mut self, name: &str) -> Option<RuntimeBindingValue> {
-        if name == "buffer-undo-list" {
+        self.kill_buffer_local_by_sym_id(intern(name))
+    }
+
+    pub fn kill_buffer_local_by_sym_id(&mut self, sym_id: SymId) -> Option<RuntimeBindingValue> {
+        if sym_id == buffer_undo_list_sym() {
             return None;
         }
-        let key = Value::from_sym_id(crate::emacs_core::intern::intern(name));
+        let key = Value::from_sym_id(sym_id);
         let existing = find_local_var_alist_entry(self.local_var_alist, key)?;
         remove_local_var_alist_entry(&mut self.local_var_alist, key);
         Some(RuntimeBindingValue::Bound(existing))
@@ -2191,12 +2224,16 @@ impl Buffer {
     }
 
     pub fn get_buffer_local(&self, name: &str) -> Option<Value> {
+        self.get_buffer_local_by_sym_id(intern(name))
+    }
+
+    pub fn get_buffer_local_by_sym_id(&self, sym_id: SymId) -> Option<Value> {
         // Slot-backed names resolve to the live slot value, mirroring
         // GNU's `BVAR(buf, …)` accessor. Conditional slots only
         // report a per-buffer binding when the local-flags bit is
         // set; the caller falls through to the global default at a
         // higher layer that has access to `BufferManager::buffer_defaults`.
-        if let Some(info) = lookup_buffer_slot(name) {
+        if let Some(info) = lookup_buffer_slot_by_sym_id(sym_id) {
             if info.local_flags_idx >= 0 && !self.slot_local_flag(info.offset) {
                 return None;
             }
@@ -2204,7 +2241,7 @@ impl Buffer {
         }
         // `buffer-undo-list` reads through `SharedUndoState` so
         // indirect buffers see the root buffer's undo state.
-        if name == "buffer-undo-list" {
+        if sym_id == buffer_undo_list_sym() {
             return Some(self.get_undo_list());
         }
         // Everything else: walk `local_var_alist`. Mirrors GNU's
@@ -2214,8 +2251,8 @@ impl Buffer {
         // since callers want a readable value. Use
         // `get_buffer_local_binding` when the Bound/Void/absent
         // distinction matters.
-        let key = Value::from_sym_id(crate::emacs_core::intern::intern(name));
-        find_local_var_alist_entry(self.local_var_alist, key).filter(|v| !v.is_unbound())
+        find_local_var_alist_entry(self.local_var_alist, Value::from_sym_id(sym_id))
+            .filter(|v| !v.is_unbound())
     }
 
     /// Walk this buffer's `local_var_alist` for an `(sym . val)`
@@ -2239,28 +2276,31 @@ impl Buffer {
     }
 
     pub fn get_buffer_local_binding(&self, name: &str) -> Option<RuntimeBindingValue> {
+        self.get_buffer_local_binding_by_sym_id(intern(name))
+    }
+
+    pub fn get_buffer_local_binding_by_sym_id(&self, sym_id: SymId) -> Option<RuntimeBindingValue> {
         // BUFFER_OBJFWD slots are always live and bypass any
         // "present/absent" short-circuit. They never go void in
         // GNU — a nil slot still resolves as Bound(nil).
         // Conditional slots (`local_flags_idx >= 0`) only report a
         // per-buffer binding when the local-flag bit is set;
         // otherwise the caller falls through to the global default.
-        if let Some(info) = lookup_buffer_slot(name) {
+        if let Some(info) = lookup_buffer_slot_by_sym_id(sym_id) {
             if info.local_flags_idx >= 0 && !self.slot_local_flag(info.offset) {
                 return None;
             }
             return Some(RuntimeBindingValue::Bound(self.slots[info.offset]));
         }
-        if name == "buffer-undo-list" {
+        if sym_id == buffer_undo_list_sym() {
             return Some(RuntimeBindingValue::Bound(self.get_undo_list()));
         }
-        let key = Value::from_sym_id(crate::emacs_core::intern::intern(name));
         // An UNBOUND cdr in the alist marks a void per-buffer
         // binding — the variable IS local (Some) but has no
         // value (Void). Mirrors GNU's `(var . Qunbound)` alist
         // entries created by `Fmake_local_variable` on a void
         // symbol at `data.c:2285-2289`.
-        find_local_var_alist_entry(self.local_var_alist, key).map(|v| {
+        find_local_var_alist_entry(self.local_var_alist, Value::from_sym_id(sym_id)).map(|v| {
             if v.is_unbound() {
                 RuntimeBindingValue::Void
             } else {
@@ -2270,6 +2310,10 @@ impl Buffer {
     }
 
     pub fn has_buffer_local(&self, name: &str) -> bool {
+        self.has_buffer_local_by_sym_id(intern(name))
+    }
+
+    pub fn has_buffer_local_by_sym_id(&self, sym_id: SymId) -> bool {
         // BUFFER_OBJFWD-style names are conceptually always
         // per-buffer (mirrors GNU's `local-variable-p` returning t
         // for DEFVAR_PER_BUFFER variables regardless of whether the
@@ -2278,7 +2322,7 @@ impl Buffer {
         // flag bit is set — mirrors GNU `local-variable-p`
         // dispatching through `PER_BUFFER_VALUE_P` at
         // `data.c:2347-2380`.
-        if let Some(info) = lookup_buffer_slot(name) {
+        if let Some(info) = lookup_buffer_slot_by_sym_id(sym_id) {
             if info.local_flags_idx >= 0 {
                 return self.slot_local_flag(info.offset);
             }
@@ -2286,11 +2330,10 @@ impl Buffer {
         }
         // `buffer-undo-list` is always present (its SharedUndoState
         // is unconditionally allocated; there's no "unset" state).
-        if name == "buffer-undo-list" {
+        if sym_id == buffer_undo_list_sym() {
             return true;
         }
-        let key = Value::from_sym_id(crate::emacs_core::intern::intern(name));
-        find_local_var_alist_entry(self.local_var_alist, key).is_some()
+        find_local_var_alist_entry(self.local_var_alist, Value::from_sym_id(sym_id)).is_some()
     }
 
     pub fn local_map(&self) -> Value {
@@ -3269,6 +3312,18 @@ impl BufferManager {
         Some(())
     }
 
+    pub fn set_buffer_local_property_by_sym_id(
+        &mut self,
+        id: BufferId,
+        sym_id: SymId,
+        value: Value,
+    ) -> Option<()> {
+        self.buffers
+            .get_mut(&id)?
+            .set_buffer_local_by_sym_id(sym_id, value);
+        Some(())
+    }
+
     pub fn buffer_local_map(&self, id: BufferId) -> Option<Value> {
         Some(self.buffers.get(&id)?.local_map())
     }
@@ -3291,6 +3346,17 @@ impl BufferManager {
 
     pub fn set_buffer_local_void_property(&mut self, id: BufferId, name: &str) -> Option<()> {
         self.buffers.get_mut(&id)?.set_buffer_local_void(name);
+        Some(())
+    }
+
+    pub fn set_buffer_local_void_property_by_sym_id(
+        &mut self,
+        id: BufferId,
+        sym_id: SymId,
+    ) -> Option<()> {
+        self.buffers
+            .get_mut(&id)?
+            .set_buffer_local_void_by_sym_id(sym_id);
         Some(())
     }
 

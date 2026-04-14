@@ -91,7 +91,7 @@ type BoxedLayer = Box<dyn Layer<Registry> + Send + Sync + 'static>;
 ///
 /// Behavior shared across all targets:
 ///
-/// - Filter comes from `RUST_LOG`; defaults to `info`.
+/// - Filter comes from `RUST_LOG`; defaults to `warn`.
 /// - Bridges crates using the `log` facade into tracing (via
 ///   `tracing_subscriber`'s own `LogTracer` install inside
 ///   `try_init`).
@@ -167,7 +167,7 @@ pub fn init_for_tests() {
 }
 
 fn make_env_filter() -> EnvFilter {
-    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
+    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"))
 }
 
 /// Resolve the log file path from environment.

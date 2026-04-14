@@ -239,7 +239,11 @@ impl TaggedValue {
             return value;
         }
         let (min_args, max_args, dispatch_kind) =
-            crate::emacs_core::subr_info::lookup_compat_subr_metadata(resolve_name(name_id), 0, None);
+            crate::emacs_core::subr_info::lookup_compat_subr_metadata(
+                resolve_name(name_id),
+                0,
+                None,
+            );
         let value = crate::tagged::gc::with_tagged_heap(|h| {
             h.alloc_subr(name_id, None, min_args, max_args, dispatch_kind)
         });

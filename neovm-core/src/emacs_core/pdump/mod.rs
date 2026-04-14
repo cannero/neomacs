@@ -447,7 +447,10 @@ mod tests {
         let decoded: DumpSymbolData =
             bincode::deserialize(&encoded).expect("symbol data should deserialize");
 
-        assert!(decoded.name.is_none(), "legacy name field should stay omitted");
+        assert!(
+            decoded.name.is_none(),
+            "legacy name field should stay omitted"
+        );
         assert!(matches!(
             decoded.symbol_value,
             Some(DumpSymbolValue::Alias(DumpSymId(7)))
@@ -891,12 +894,14 @@ mod tests {
         let raw_name = crate::heap_types::LispString::from_unibyte(vec![0xFF, b'a']);
         let uninterned = crate::emacs_core::intern::intern_uninterned_lisp_string(&raw_name);
         let canonical = crate::emacs_core::intern::intern_lisp_string(&raw_name);
-        template
-            .obarray
-            .set_symbol_value("compat-pdump-raw-uninterned-holder", Value::from_sym_id(uninterned));
-        template
-            .obarray
-            .set_symbol_value("compat-pdump-raw-canonical-holder", Value::from_sym_id(canonical));
+        template.obarray.set_symbol_value(
+            "compat-pdump-raw-uninterned-holder",
+            Value::from_sym_id(uninterned),
+        );
+        template.obarray.set_symbol_value(
+            "compat-pdump-raw-canonical-holder",
+            Value::from_sym_id(canonical),
+        );
         template.obarray.ensure_interned_global_id(canonical);
         let snapshot = snapshot_evaluator(&template);
 

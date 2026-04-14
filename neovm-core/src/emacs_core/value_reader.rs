@@ -23,6 +23,14 @@ thread_local! {
     static READER_LOAD_FILE_NAME: RefCell<Option<Value>> = const { RefCell::new(None) };
 }
 
+pub(crate) fn collect_value_reader_gc_roots(roots: &mut Vec<Value>) {
+    READER_LOAD_FILE_NAME.with(|slot| {
+        if let Some(value) = *slot.borrow() {
+            roots.push(value);
+        }
+    });
+}
+
 /// Set the current load-file-name for the `#$` reader macro.
 pub fn set_reader_load_file_name(value: Option<Value>) {
     READER_LOAD_FILE_NAME.with(|slot| *slot.borrow_mut() = value);

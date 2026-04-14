@@ -1331,8 +1331,7 @@ fn append_symbol_name_bytes(name: &crate::heap_types::LispString, out: &mut Vec<
     for (idx, byte) in bytes.iter().copied().enumerate() {
         let needs_escape = matches!(
             byte,
-            b' '
-                | b'\t'
+            b' ' | b'\t'
                 | b'\n'
                 | b'\r'
                 | 0x0c

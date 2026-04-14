@@ -405,7 +405,7 @@ pub struct TaggedHeap {
     /// Cached HashSet of non-cons object addresses for O(1) lookup
     /// during conservative stack scanning.  Built lazily before each
     /// scan and cleared after.
-    non_cons_object_set: Option<std::collections::HashSet<usize>>,
+    non_cons_object_set: Option<FxHashSet<usize>>,
 
     /// Reclaimed cons cells threaded through the dead cells themselves,
     /// matching GNU alloc.c's `cons_free_list`.
@@ -1159,7 +1159,7 @@ impl TaggedHeap {
             // Validate each entry — the all_objects list can become corrupt
             // if a GcHeader.next pointer is stale, causing traversal into
             // unmapped or stacker memory.
-            let mut set = std::collections::HashSet::new();
+            let mut set = FxHashSet::default();
             let mut obj = self.all_objects;
             let mut count = 0usize;
             while !obj.is_null() {
@@ -1215,13 +1215,18 @@ impl TaggedHeap {
         // Guard: for non-cons heap objects, verify ownership before
         // dereferencing.  Conservative scanning can produce values that
         // passed the initial check but point to stale/corrupt memory.
-        match val.tag() {
-            0b011 | 0b100 | 0b110 => {
-                if !self.is_valid_heap_pointer(val) {
-                    return; // Skip invalid pointer
+        // Conservative stack scanning can enqueue false positives. Re-validate
+        // those values before dereferencing them, but keep the exact-root path
+        // on the fast O(1) object traversal it is supposed to use.
+        if self.non_cons_object_set.is_some() {
+            match val.tag() {
+                0b011 | 0b100 | 0b110 => {
+                    if !self.is_valid_heap_pointer(val) {
+                        return; // Skip invalid pointer
+                    }
                 }
+                _ => {}
             }
-            _ => {}
         }
         match val.tag() {
             0b010 => {

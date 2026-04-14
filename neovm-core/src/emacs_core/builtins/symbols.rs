@@ -1338,9 +1338,9 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
     if let Some(obarray_val) = args.get(1).filter(|v| !v.is_nil() && v.is_vector()) {
         let name = match args[0].kind() {
             ValueKind::String => std::borrow::Cow::Borrowed(args[0].as_lisp_string().unwrap()),
-            ValueKind::Symbol(id) => std::borrow::Cow::Borrowed(
-                crate::emacs_core::intern::resolve_sym_lisp_string(id),
-            ),
+            ValueKind::Symbol(id) => {
+                std::borrow::Cow::Borrowed(crate::emacs_core::intern::resolve_sym_lisp_string(id))
+            }
             ValueKind::Nil => std::borrow::Cow::Borrowed(
                 crate::emacs_core::intern::resolve_sym_lisp_string(NIL_SYM_ID),
             ),
@@ -1370,12 +1370,12 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
         ValueKind::Nil => std::borrow::Cow::Borrowed(
             crate::emacs_core::intern::resolve_sym_lisp_string(NIL_SYM_ID),
         ),
-        ValueKind::T => std::borrow::Cow::Borrowed(
-            crate::emacs_core::intern::resolve_sym_lisp_string(T_SYM_ID),
-        ),
-        ValueKind::Symbol(id) => std::borrow::Cow::Borrowed(
-            crate::emacs_core::intern::resolve_sym_lisp_string(id),
-        ),
+        ValueKind::T => {
+            std::borrow::Cow::Borrowed(crate::emacs_core::intern::resolve_sym_lisp_string(T_SYM_ID))
+        }
+        ValueKind::Symbol(id) => {
+            std::borrow::Cow::Borrowed(crate::emacs_core::intern::resolve_sym_lisp_string(id))
+        }
         _other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -2678,10 +2678,9 @@ fn compare_value_lt_inner(
         return Ok(ordering);
     }
 
-    if let (Some(left), Some(right)) = (
-        symbol_name_for_value_lt(lhs),
-        symbol_name_for_value_lt(rhs),
-    ) {
+    if let (Some(left), Some(right)) =
+        (symbol_name_for_value_lt(lhs), symbol_name_for_value_lt(rhs))
+    {
         return Ok(compare_lisp_strings(left.as_ref(), right.as_ref()));
     }
 

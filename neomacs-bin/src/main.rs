@@ -1552,15 +1552,7 @@ pub fn run(mode: RuntimeMode) {
     // This avoids ~500ms of FontMetricsService initialization at
     // startup. GUI mode computes real pixel dimensions from font
     // metrics via bootstrap_frame_metrics().
-    let frame_metrics = if startup.frontend == FrontendKind::Tty {
-        BootstrapFrameMetrics {
-            char_width: 1.0,
-            char_height: 1.0,
-            font_pixel_size: 16.0,
-        }
-    } else {
-        bootstrap_frame_metrics()
-    };
+    let frame_metrics = bootstrap_frame_metrics_for_frontend(startup.frontend);
     let (width, height) = startup_dimensions(startup.frontend, frame_metrics);
     // 2. Initialize the evaluator from the canonical bootstrap surface.
     //    GNU loads the dumped bootstrap image here, then lets the outer
@@ -2053,13 +2045,25 @@ fn bootstrap_frame_metrics() -> BootstrapFrameMetrics {
     }
 }
 
+fn bootstrap_frame_metrics_for_frontend(frontend: FrontendKind) -> BootstrapFrameMetrics {
+    if frontend == FrontendKind::Tty {
+        BootstrapFrameMetrics {
+            char_width: 1.0,
+            char_height: 1.0,
+            font_pixel_size: 16.0,
+        }
+    } else {
+        bootstrap_frame_metrics()
+    }
+}
+
 fn bootstrap_buffers(
     eval: &mut Context,
     width: u32,
     height: u32,
     display: BootstrapDisplayConfig,
 ) -> BootstrapResult {
-    let frame_metrics = bootstrap_frame_metrics();
+    let frame_metrics = bootstrap_frame_metrics_for_frontend(display.frontend);
     let find_or_create_buffer = |eval: &mut Context, name: &str| {
         eval.buffer_manager()
             .find_buffer_by_name(name)

@@ -3524,7 +3524,7 @@ pub(crate) fn builtin_delete_other_windows_internal(
     }
     Ok(Value::NIL)
 }
-fn remember_selected_window_point_in_state(
+pub(crate) fn remember_selected_window_point_in_state(
     frames: &mut FrameManager,
     buffers: &BufferManager,
     fid: FrameId,
@@ -3539,9 +3539,6 @@ fn remember_selected_window_point_in_state(
     else {
         return;
     };
-    if buffers.current_buffer_id() != Some(buffer_id) {
-        return;
-    }
     let Some(point) = buffers
         .get(buffer_id)
         .map(|buffer| buffer.point_char().saturating_add(1))

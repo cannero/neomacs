@@ -950,11 +950,15 @@ where
     let old_lexical = eval.lexical_binding();
     let old_lexenv = eval.lexenv;
     let old_load_file = eval.obarray().symbol_value("load-file-name").cloned();
+    let old_reader_load_file = super::value_reader::get_reader_load_file_name_public();
 
     eval.with_gc_scope(|ctx| {
         ctx.root(old_lexenv);
         if let Some(ref v) = old_load_file {
             ctx.root(*v);
+        }
+        if let Some(v) = old_reader_load_file {
+            ctx.root(v);
         }
 
         if lexical_binding {
@@ -966,7 +970,6 @@ where
         ctx.set_variable("load-file-name", load_file_value);
         // Set the reader's #$ thread-local so value_reader produces the
         // actual file path string (matching GNU lread.c Vload_file_name).
-        let old_reader_load_file = super::value_reader::get_reader_load_file_name_public();
         super::value_reader::set_reader_load_file_name(Some(load_file_value));
 
         let result = body(ctx);
@@ -1124,7 +1127,11 @@ fn streaming_readevalloop(
         }
         eval_result?;
 
-        eval.gc_safe_point_exact();
+        // GNU keeps the current top-level form protected across the
+        // post-form GC in readevalloop. Exact GC needs the same root here:
+        // freshly installed closures/macros can still share structure with the
+        // just-evaluated source form.
+        eval.gc_safe_point_exact_with_extra_roots(&[form]);
         form_idx += 1;
     }
 
@@ -1199,7 +1206,11 @@ fn streaming_readevalloop_eager_expand_eval_inner(
         }
     };
 
-    eval.eval_sub(fully_expanded).map_err(map_flow)
+    let saved = eval.save_temp_roots();
+    eval.push_temp_root(fully_expanded);
+    let result = eval.eval_sub(fully_expanded).map_err(map_flow);
+    eval.restore_temp_roots(saved);
+    result
 }
 
 /// Load and evaluate a file. Returns the last result.
@@ -1439,7 +1450,7 @@ fn elc_has_lexical_binding(raw_bytes: &[u8]) -> bool {
 
 fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
     let path_str = path.to_string_lossy().to_string();
-    tracing::info!("record_load_history: {}", path_str);
+    tracing::debug!("record_load_history: {}", path_str);
     eval.with_gc_scope(|eval| {
         // GNU protects the same post-load temporaries with GCPRO/specpdl roots
         // in lread.c. Exact GC needs explicit rooting here as well.

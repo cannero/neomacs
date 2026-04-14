@@ -714,17 +714,11 @@ fn defsubr_run_hooks(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalR
     let dominated_by_noise = hook_names
         .iter()
         .all(|h| h == "custom-define-hook" || h == "change-major-mode-hook");
-    if dominated_by_noise {
-        tracing::debug!(hooks = ?hook_names, "run-hooks");
-    } else {
-        tracing::info!(hooks = ?hook_names, "run-hooks called");
-    }
+    tracing::debug!(hooks = ?hook_names, noisy = dominated_by_noise, "run-hooks called");
     let result = builtin_run_hooks(eval, args);
-    if !dominated_by_noise {
-        tracing::info!(hooks = ?hook_names, "run-hooks returned");
-    }
+    tracing::debug!(hooks = ?hook_names, noisy = dominated_by_noise, "run-hooks returned");
     if hook_names.iter().any(|h| h == "window-setup-hook") {
-        tracing::info!("Enabling post-startup builtin tracing");
+        tracing::debug!("Enabling post-startup builtin tracing");
         TRACE_ALL_BUILTINS.store(true, Ordering::Relaxed);
     }
     result
@@ -732,9 +726,9 @@ fn defsubr_run_hooks(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalR
 
 fn defsubr_load(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let file_name = args.first().map(|a| format!("{}", a)).unwrap_or_default();
-    tracing::info!(file = %file_name, "load called");
+    tracing::debug!(file = %file_name, "load called");
     let result = builtin_load(eval, args);
-    tracing::info!(file = %file_name, ok = result.is_ok(), "load returned");
+    tracing::debug!(file = %file_name, ok = result.is_ok(), "load returned");
     result
 }
 
@@ -750,7 +744,7 @@ fn defsubr_message(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalRes
             }
         })
         .unwrap_or_default();
-    tracing::info!(msg = %msg_preview, "message");
+    tracing::debug!(msg = %msg_preview, "message");
     builtin_message(eval, args)
 }
 

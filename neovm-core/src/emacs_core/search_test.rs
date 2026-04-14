@@ -172,7 +172,9 @@ fn match_string_preserves_raw_unibyte_bytes_with_explicit_string() {
     assert_int(matched, 1);
 
     let slice = builtin_match_string(&mut eval, vec![Value::fixnum(0), haystack]).unwrap();
-    let string = slice.as_lisp_string().expect("match-string should return string");
+    let string = slice
+        .as_lisp_string()
+        .expect("match-string should return string");
     assert!(!string.is_multibyte());
     assert_eq!(string.as_bytes(), &[0xFF]);
 }
@@ -212,9 +214,14 @@ fn regexp_quote_preserves_raw_unibyte_bytes() {
     crate::test_utils::init_test_tracing();
     let input = Value::heap_string(LispString::from_unibyte(vec![b'a', 0xFF, b'*', b'[', b'z']));
     let result = builtin_regexp_quote(vec![input]).unwrap();
-    let string = result.as_lisp_string().expect("regexp-quote should return string");
+    let string = result
+        .as_lisp_string()
+        .expect("regexp-quote should return string");
     assert!(!string.is_multibyte());
-    assert_eq!(string.as_bytes(), &[b'a', 0xFF, b'\\', b'*', b'\\', b'[', b'z']);
+    assert_eq!(
+        string.as_bytes(),
+        &[b'a', 0xFF, b'\\', b'*', b'\\', b'[', b'z']
+    );
     assert!(string.as_str().is_none());
 }
 

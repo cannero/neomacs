@@ -829,13 +829,12 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
     }
 
     let target = match args[0].kind() {
-        ValueKind::Symbol(id) => UninternTarget::Symbol(
-            id,
-            crate::emacs_core::intern::resolve_sym_lisp_string(id),
-        ),
-        ValueKind::String => {
-            UninternTarget::Name(std::borrow::Cow::Borrowed(args[0].as_lisp_string().unwrap()))
+        ValueKind::Symbol(id) => {
+            UninternTarget::Symbol(id, crate::emacs_core::intern::resolve_sym_lisp_string(id))
         }
+        ValueKind::String => UninternTarget::Name(std::borrow::Cow::Borrowed(
+            args[0].as_lisp_string().unwrap(),
+        )),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -857,8 +856,10 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
             if vec_len == 0 {
                 return Ok(Value::NIL);
             }
-            let bucket_idx =
-                crate::emacs_core::builtins::symbols::obarray_hash_lisp_string(target_name, vec_len);
+            let bucket_idx = crate::emacs_core::builtins::symbols::obarray_hash_lisp_string(
+                target_name,
+                vec_len,
+            );
             let bucket = vec_data[bucket_idx];
 
             // Walk the bucket chain and rebuild without the matching symbol
@@ -873,13 +874,13 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
                         let cdr = current.cons_cdr();
                         if !found {
                             let should_remove = match (&target, car.kind()) {
-                                (UninternTarget::Symbol(target_id, _), ValueKind::Symbol(car_id)) => {
-                                    car_id == *target_id
-                                }
-                                (UninternTarget::Name(name), _) => {
-                                    car.as_symbol_lisp_string()
-                                        .is_some_and(|sym_name| sym_name == name.as_ref())
-                                }
+                                (
+                                    UninternTarget::Symbol(target_id, _),
+                                    ValueKind::Symbol(car_id),
+                                ) => car_id == *target_id,
+                                (UninternTarget::Name(name), _) => car
+                                    .as_symbol_lisp_string()
+                                    .is_some_and(|sym_name| sym_name == name.as_ref()),
                                 _ => false,
                             };
                             if should_remove {

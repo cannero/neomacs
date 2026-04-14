@@ -8150,6 +8150,35 @@ fn gc_collect_exact_retains_reachable() {
 }
 
 #[test]
+fn gc_collect_exact_ignores_context_root_scan_mode() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ConservativeStack);
+    let marker = 0u8;
+    ev.tagged_heap.set_stack_bottom(&marker as *const u8);
+
+    ev.gc_collect_exact();
+    let baseline = ev.tagged_heap.allocated_count();
+    let stack_only = Value::cons(Value::fixnum(31), Value::fixnum(32));
+    let keep_visible = [stack_only];
+    std::hint::black_box(&keep_visible);
+    let after_alloc = ev.tagged_heap.allocated_count();
+    assert_eq!(
+        after_alloc,
+        baseline + 1,
+        "stack-only cons should have allocated exactly one object after the baseline collection: baseline={baseline}, after_alloc={after_alloc}"
+    );
+
+    ev.gc_collect_exact();
+
+    let after_gc = ev.tagged_heap.allocated_count();
+    assert_eq!(
+        after_gc, baseline,
+        "exact GC must ignore the configured conservative stack scan and free stack-only objects: baseline={baseline}, after_alloc={after_alloc}, after_gc={after_gc}"
+    );
+}
+
+#[test]
 fn gc_collect_exact_with_extra_roots_retains_explicit_slice() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
@@ -8165,6 +8194,30 @@ fn gc_collect_exact_with_extra_roots_retains_explicit_slice() {
         after < before,
         "exact collection with explicit roots should free unrelated garbage: before={before}, after={after}"
     );
+}
+
+#[test]
+fn runtime_backtrace_frame_owns_args_across_exact_gc() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
+
+    let payload = Value::vector(vec![Value::fixnum(7)]);
+    {
+        let args = vec![payload];
+        ev.push_runtime_backtrace_frame(Value::symbol("runtime-backtrace-root"), &args);
+    }
+
+    ev.gc_collect_exact();
+
+    let rooted = ev
+        .runtime_backtrace
+        .last()
+        .expect("runtime backtrace frame should remain present")
+        .args()[0];
+    assert_eq!(rooted.as_vector_data().unwrap().as_slice(), &[Value::fixnum(7)]);
+
+    ev.pop_runtime_backtrace_frame();
 }
 
 #[test]
@@ -8320,6 +8373,39 @@ fn gc_safe_point_exact_with_extra_roots_retains_explicit_slice() {
     assert!(
         after < before,
         "exact safe point with explicit roots should free unrelated garbage: before={before}, after={after}"
+    );
+}
+
+#[test]
+fn gc_safe_point_exact_ignores_context_root_scan_mode() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ConservativeStack);
+    ev.tagged_heap.set_gc_threshold(1);
+    let marker = 0u8;
+    ev.tagged_heap.set_stack_bottom(&marker as *const u8);
+
+    ev.gc_collect_exact();
+    let baseline = ev.tagged_heap.allocated_count();
+    let gc_count_before = ev.gc_count;
+    let stack_only = Value::cons(Value::fixnum(41), Value::fixnum(42));
+    let keep_visible = [stack_only];
+    std::hint::black_box(&keep_visible);
+    let after_alloc = ev.tagged_heap.allocated_count();
+    assert_eq!(
+        after_alloc,
+        baseline + 1,
+        "stack-only cons should have allocated exactly one object after the baseline collection: baseline={baseline}, after_alloc={after_alloc}"
+    );
+
+    while ev.gc_count == gc_count_before {
+        ev.gc_safe_point_exact();
+    }
+
+    let after_gc = ev.tagged_heap.allocated_count();
+    assert_eq!(
+        after_gc, baseline,
+        "exact GC safe points must ignore the configured conservative stack scan and free stack-only objects: baseline={baseline}, after_alloc={after_alloc}, after_gc={after_gc}"
     );
 }
 
@@ -8536,6 +8622,24 @@ fn gc_stress_builtin_apply_roots_closure_function_argument() {
                (apply f nil)))"#,
     ));
     assert_eq!(result, "OK (7 8 9)");
+}
+
+#[test]
+fn gc_stress_closure_call_restores_outer_lexenv_after_exact_gc() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_lexical_binding(true);
+    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
+    ev.gc_stress = true;
+    ev.tagged_heap.set_gc_threshold(1);
+    let result = format_eval_result(&ev.eval_str(
+        r#"(let ((warnings nil))
+             (let ((warn (lambda (form)
+                           (setq warnings (cons form warnings)))))
+               (funcall warn 'a)
+               warnings))"#,
+    ));
+    assert_eq!(result, "OK (a)");
 }
 
 #[test]

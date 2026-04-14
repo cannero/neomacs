@@ -5108,10 +5108,10 @@ impl LayoutEngine {
                 .as_ref()
                 .expect("header-line face should exist when header-line height is positive");
 
-            let header_line_target_cols =
-                ((params.bounds.width / char_w.max(1.0)).round().max(1.0) as usize)
-                    .saturating_sub(usize::from(reserve_right_border_col))
-                    .max(1);
+            let header_line_target_cols = ((params.bounds.width / char_w.max(1.0)).round().max(1.0)
+                as usize)
+                .saturating_sub(usize::from(reserve_right_border_col))
+                .max(1);
             let header_text = eval_status_line_format_value(
                 evaluator,
                 "header-line-format",

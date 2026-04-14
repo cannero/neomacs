@@ -382,15 +382,18 @@ pub(crate) fn builtin_autoload_do_load(
     let original_fundef = args.first().copied();
     match plan_autoload_do_load_in_state(&eval.obarray, &args)? {
         AutoloadDoLoadPlan::Return(value) => Ok(value),
-        AutoloadDoLoadPlan::Load { file, funname } => {
-            let path = resolve_autoload_load_path(&eval.obarray, &file)?;
-            eval.load_file_internal(&path)?;
+        AutoloadDoLoadPlan::Load { file, funname } => eval.with_gc_scope(|ctx| {
+            if let Some(fundef) = original_fundef {
+                ctx.root(fundef);
+            }
+            let path = resolve_autoload_load_path(&ctx.obarray, &file)?;
+            ctx.load_file_internal(&path)?;
             finish_autoload_do_load_in_state(
-                &eval.obarray,
+                &ctx.obarray,
                 funname.as_deref(),
                 original_fundef.as_ref(),
             )
-        }
+        }),
     }
 }
 
@@ -405,7 +408,13 @@ pub(crate) fn builtin_autoload_do_load_in_vm_runtime(
         AutoloadDoLoadPlan::Return(value) => Ok(value),
         AutoloadDoLoadPlan::Load { file, funname } => {
             let path = resolve_autoload_load_path(&shared.obarray, &file)?;
-            shared.with_extra_gc_roots(vm_gc_roots, extra_roots, move |eval| {
+            let mut rooted_extra_roots =
+                Vec::with_capacity(extra_roots.len() + usize::from(original_fundef.is_some()));
+            rooted_extra_roots.extend_from_slice(extra_roots);
+            if let Some(fundef) = original_fundef {
+                rooted_extra_roots.push(fundef);
+            }
+            shared.with_extra_gc_roots(vm_gc_roots, &rooted_extra_roots, move |eval| {
                 eval.load_file_internal(&path)
             })?;
             finish_autoload_do_load_in_state(
