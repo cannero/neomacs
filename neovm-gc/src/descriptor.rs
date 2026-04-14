@@ -54,6 +54,11 @@ impl ObjectKey {
     pub(crate) fn from_header(header: NonNull<ObjectHeader>) -> Self {
         Self(header.as_ptr() as usize)
     }
+
+    #[inline]
+    pub(crate) fn as_usize(self) -> usize {
+        self.0
+    }
 }
 
 /// Policy describing whether and how objects may move across collections.

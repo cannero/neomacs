@@ -119,6 +119,7 @@ fn evacuate_marked_nursery_serial(
     let mut forwarding = crate::index_state::ForwardingMap::default();
     let mut evacuated: Vec<(ObjectRecord, SpaceKind)> = Vec::new();
     let mut promoted_bytes = 0usize;
+    let mut latest_old_reserved_bytes = old_gen.reserved_bytes();
 
     for object in objects.iter() {
         if object.space() == SpaceKind::Nursery && object.is_marked() {
@@ -149,8 +150,10 @@ fn evacuate_marked_nursery_serial(
                     object.layout_align(),
                 )
                 .map_err(|_| AllocError::LayoutOverflow)?;
-                match old_gen.try_alloc_in_block(old_config, layout) {
-                    Some((placement, base)) => {
+                match old_gen.try_alloc_in_block_with_reserved(old_config, layout) {
+                    Some((placement, base, reserved_bytes)) => {
+                        latest_old_reserved_bytes = reserved_bytes;
+                        old_gen.record_block_object_accounting_for_placement(placement);
                         let mut record =
                             unsafe { object.evacuate_to_arena_slot(target_space, base)? };
                         record.set_old_block_placement(placement);
@@ -170,15 +173,12 @@ fn evacuate_marked_nursery_serial(
     let mut records = Vec::with_capacity(evacuated.len());
     for (new_record, target_space) in evacuated {
         if target_space == SpaceKind::Old {
-            // Block accounting was already wired by
-            // try_alloc_in_block above; calling record_object
-            // here just updates the block-side counters for the
-            // newly-promoted survivor.
-            old_gen.record_object(&new_record);
-            stats.old.reserved_bytes = old_gen.reserved_bytes();
             promoted_bytes = promoted_bytes.saturating_add(new_record.total_size());
         }
         records.push(new_record);
+    }
+    if promoted_bytes > 0 {
+        stats.old.reserved_bytes = latest_old_reserved_bytes;
     }
 
     let start = objects.len();

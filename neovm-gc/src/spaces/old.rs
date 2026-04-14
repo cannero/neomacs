@@ -1,5 +1,4 @@
-use core::sync::atomic::{AtomicU8, Ordering};
-use std::collections::HashSet;
+use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 
 use crate::card_table::CardTable;
 use crate::object::{ObjectRecord, OldBlockPlacement};
@@ -76,25 +75,27 @@ pub(crate) struct OldBlock {
     /// lifting out of `OldRegion`. Reset to 0 when the block is
     /// cleared (currently unused — blocks are dropped, not cleared,
     /// on reclaim — but preserved for future sweep paths).
-    used_bytes: usize,
+    used_bytes: AtomicUsize,
     /// Sum of `total_size` over every live object currently placed
     /// in the block. Mirrors `OldRegion::live_bytes`. Updated by
     /// `record_object_accounting` and cleared by
     /// `clear_live_accounting`.
-    live_bytes: usize,
+    live_bytes: AtomicUsize,
     /// Count of live objects currently placed in the block. Mirrors
     /// `OldRegion::object_count`. Updated alongside `live_bytes`.
-    object_count: usize,
-    /// Set of line indices that contain at least one live object.
+    object_count: AtomicUsize,
+    /// One byte per line. `1` means at least one live object overlaps
+    /// that line in the current accounting snapshot.
     /// Distinct from `line_marks`: the atomic `line_marks` array is
     /// set only during sweep (by the post-sweep survivor walk), while
-    /// this `HashSet` mirrors the exact semantics of
+    /// these flags mirror the exact semantics of
     /// `OldRegion::occupied_lines` — updated at allocation time by
     /// `record_object_accounting` so `region_stats` can report
-    /// `occupied_lines` without a sweep having run yet. A later
-    /// consolidation can fold this into `line_marks` once the
-    /// sweep path is also migrated.
-    occupied_lines: HashSet<usize>,
+    /// `occupied_lines` without a sweep having run yet.
+    occupied_lines: Box<[AtomicU8]>,
+    /// Cached count of lines whose corresponding `occupied_lines`
+    /// byte is currently non-zero.
+    occupied_line_count: AtomicUsize,
     /// Per-block card table covering the backing buffer. The write barrier
     /// dirties cards through this table when the owner of an old-to-young
     /// edge lives inside the block; the minor GC root scan walks the dirty
@@ -122,8 +123,10 @@ impl OldBlock {
         let buffer_len = line_count.saturating_mul(line_bytes);
         let buffer: Box<[u8]> = vec![0u8; buffer_len].into_boxed_slice();
         let mut marks = Vec::with_capacity(line_count);
+        let mut occupied = Vec::with_capacity(line_count);
         for _ in 0..line_count {
             marks.push(AtomicU8::new(0));
+            occupied.push(AtomicU8::new(0));
         }
         let base_addr = buffer.as_ptr() as usize;
         let card_table = CardTable::with_default_card_size(base_addr, buffer_len);
@@ -133,10 +136,11 @@ impl OldBlock {
             line_marks: marks.into_boxed_slice(),
             line_bytes,
             cursor: 0,
-            used_bytes: 0,
-            live_bytes: 0,
-            object_count: 0,
-            occupied_lines: HashSet::new(),
+            used_bytes: AtomicUsize::new(0),
+            live_bytes: AtomicUsize::new(0),
+            object_count: AtomicUsize::new(0),
+            occupied_lines: occupied.into_boxed_slice(),
+            occupied_line_count: AtomicUsize::new(0),
             card_table,
             object_starts,
         }
@@ -147,7 +151,7 @@ impl OldBlock {
     /// [`record_object_accounting`] and reset by
     /// [`clear_live_accounting`].
     pub(crate) fn live_bytes(&self) -> usize {
-        self.live_bytes
+        self.live_bytes.load(Ordering::Relaxed)
     }
 
     /// Count of live objects currently placed in this block.
@@ -155,7 +159,7 @@ impl OldBlock {
     /// [`record_object_accounting`] and reset by
     /// [`clear_live_accounting`].
     pub(crate) fn object_count(&self) -> usize {
-        self.object_count
+        self.object_count.load(Ordering::Relaxed)
     }
 
     /// Allocation high-water mark: the largest buffer offset any
@@ -165,7 +169,7 @@ impl OldBlock {
     /// `used_bytes` as the upper bound of ever-allocated space
     /// (useful for stats and compaction planning).
     pub(crate) fn used_bytes(&self) -> usize {
-        self.used_bytes
+        self.used_bytes.load(Ordering::Relaxed)
     }
 
     /// Number of lines currently containing at least one live
@@ -174,32 +178,73 @@ impl OldBlock {
     /// `record_object_accounting` has recorded, while `line_marks`
     /// is populated only during post-sweep rebuild.
     pub(crate) fn occupied_line_count(&self) -> usize {
-        self.occupied_lines.len()
+        self.occupied_line_count.load(Ordering::Relaxed)
     }
 
-    /// Record a newly-placed live object in the block's
-    /// accounting counters. Bumps `live_bytes`, `object_count`,
-    /// lifts `used_bytes` to cover the object's tail, and
-    /// inserts every line the object overlaps into the
-    /// `occupied_lines` set. These per-block counters drive
-    /// `block_region_stats()`, the major-cycle compaction
-    /// candidate selector, and the cached
-    /// `HeapStats.old_gen_used_bytes` field.
+    /// Exclusive accounting path used while the caller already
+    /// holds mutable access to the block (e.g. sweep rebuild and
+    /// serial nursery promotion). Avoids atomic RMW traffic.
     pub(crate) fn record_object_accounting(&mut self, offset: usize, size: usize) {
         if size == 0 {
             return;
         }
-        self.live_bytes = self.live_bytes.saturating_add(size);
-        self.object_count = self.object_count.saturating_add(1);
+        *self.live_bytes.get_mut() = self.live_bytes().saturating_add(size);
+        *self.object_count.get_mut() = self.object_count().saturating_add(1);
         let end = offset.saturating_add(size);
-        if end > self.used_bytes {
-            self.used_bytes = end.min(self.buffer.len());
+        let bounded_end = end.min(self.buffer.len());
+        if bounded_end > self.used_bytes() {
+            *self.used_bytes.get_mut() = bounded_end;
         }
         let first_line = offset / self.line_bytes;
         let last_byte = end.saturating_sub(1);
         let last_line = last_byte / self.line_bytes;
         for line in first_line..=last_line {
-            self.occupied_lines.insert(line);
+            let Some(slot) = self.occupied_lines.get_mut(line) else {
+                continue;
+            };
+            if *slot.get_mut() == 0 {
+                *slot.get_mut() = 1;
+                *self.occupied_line_count.get_mut() = self.occupied_line_count().saturating_add(1);
+            }
+        }
+    }
+
+    /// Shared accounting path used by the concurrent old-allocation
+    /// commit once the record is already published. Uses atomics so
+    /// the caller only needs `&self`.
+    pub(crate) fn record_object_accounting_shared(&self, offset: usize, size: usize) {
+        if size == 0 {
+            return;
+        }
+        self.live_bytes.fetch_add(size, Ordering::Relaxed);
+        self.object_count.fetch_add(1, Ordering::Relaxed);
+        let end = offset.saturating_add(size);
+        let bounded_end = end.min(self.buffer.len());
+        let mut observed = self.used_bytes.load(Ordering::Relaxed);
+        while bounded_end > observed {
+            match self.used_bytes.compare_exchange_weak(
+                observed,
+                bounded_end,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(next) => observed = next,
+            }
+        }
+        let first_line = offset / self.line_bytes;
+        let last_byte = end.saturating_sub(1);
+        let last_line = last_byte / self.line_bytes;
+        for line in first_line..=last_line {
+            let Some(slot) = self.occupied_lines.get(line) else {
+                continue;
+            };
+            if slot
+                .compare_exchange(0, 1, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+            {
+                self.occupied_line_count.fetch_add(1, Ordering::Relaxed);
+            }
         }
     }
 
@@ -211,9 +256,12 @@ impl OldBlock {
     /// physical layout does not shrink even after dead objects are
     /// reclaimed.
     pub(crate) fn clear_live_accounting(&mut self) {
-        self.live_bytes = 0;
-        self.object_count = 0;
-        self.occupied_lines.clear();
+        self.live_bytes.store(0, Ordering::Relaxed);
+        self.object_count.store(0, Ordering::Relaxed);
+        self.occupied_line_count.store(0, Ordering::Relaxed);
+        for line in self.occupied_lines.iter_mut() {
+            line.store(0, Ordering::Relaxed);
+        }
     }
 
     /// Read-only view of the per-card object-start index. Each entry is
@@ -402,8 +450,8 @@ impl OldBlock {
                 }
                 let after_lines = offset + lines_needed * self.line_bytes;
                 self.cursor = after_lines.min(self.buffer.len());
-                if self.cursor > self.used_bytes {
-                    self.used_bytes = self.cursor;
+                if self.cursor > self.used_bytes.load(Ordering::Relaxed) {
+                    self.used_bytes.store(self.cursor, Ordering::Relaxed);
                 }
                 // Maintain the per-card object-start index. The first
                 // object in each card stays as the index entry, so we
@@ -427,6 +475,8 @@ pub(crate) struct OldGenState {
     /// post-sweep reclaim path drops blocks whose line marks are entirely
     /// empty (Immix-style block reclaim).
     blocks: Vec<OldBlock>,
+    reserved_bytes: AtomicUsize,
+    total_used_bytes: AtomicUsize,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -447,11 +497,7 @@ impl OldGenState {
     }
 
     pub(crate) fn reserved_bytes(&self) -> usize {
-        // Sum every block's capacity. The block pool is the
-        // single source of truth for old-gen storage; the
-        // logical regions vec was retired with the legacy
-        // rebuild path.
-        self.blocks.iter().map(|block| block.capacity_bytes()).sum()
+        self.reserved_bytes.load(Ordering::Relaxed)
     }
 
     /// Total bytes the block-pool bump allocator has consumed
@@ -461,7 +507,15 @@ impl OldGenState {
     /// that want the ratio lock-free can read it from the shared
     /// snapshot.
     pub(crate) fn total_used_bytes(&self) -> usize {
-        self.blocks.iter().map(|block| block.used_bytes()).sum()
+        self.total_used_bytes.load(Ordering::Relaxed)
+    }
+
+    fn refresh_cached_layout_totals(&self) {
+        let reserved_bytes = self.blocks.iter().map(|block| block.capacity_bytes()).sum();
+        let total_used_bytes = self.blocks.iter().map(|block| block.used_bytes()).sum();
+        self.reserved_bytes.store(reserved_bytes, Ordering::Relaxed);
+        self.total_used_bytes
+            .store(total_used_bytes, Ordering::Relaxed);
     }
 
     /// Immix-style block allocation. Walks every block looking
@@ -481,7 +535,11 @@ impl OldGenState {
         // pass — start the search at the beginning so we always re-use the
         // earliest available hole, mirroring the Immix paper recommendation.
         for index in 0..self.blocks.len() {
+            let used_before = self.blocks[index].used_bytes();
             if let Some((offset, ptr)) = self.blocks[index].try_alloc(layout) {
+                let used_after = self.blocks[index].used_bytes();
+                self.total_used_bytes
+                    .fetch_add(used_after.saturating_sub(used_before), Ordering::Relaxed);
                 let placement = OldBlockPlacement {
                     block_index: index,
                     offset_bytes: offset,
@@ -498,8 +556,12 @@ impl OldGenState {
         let line_bytes = config.line_bytes.max(1);
         let mut block = OldBlock::new(capacity, line_bytes);
         let (offset, ptr) = block.try_alloc(layout)?;
+        let used_bytes = block.used_bytes();
         let block_index = self.blocks.len();
         self.blocks.push(block);
+        self.reserved_bytes.fetch_add(capacity, Ordering::Relaxed);
+        self.total_used_bytes
+            .fetch_add(used_bytes, Ordering::Relaxed);
         Some((
             OldBlockPlacement {
                 block_index,
@@ -508,6 +570,16 @@ impl OldGenState {
             },
             ptr,
         ))
+    }
+
+    pub(crate) fn try_alloc_in_block_with_reserved(
+        &mut self,
+        config: &OldGenConfig,
+        layout: core::alloc::Layout,
+    ) -> Option<(OldBlockPlacement, core::ptr::NonNull<u8>, usize)> {
+        let (placement, ptr) = self.try_alloc_in_block(config, layout)?;
+        let reserved = self.reserved_bytes();
+        Some((placement, ptr, reserved))
     }
 
     /// Compaction target allocator: try to place `layout` into the
@@ -571,8 +643,12 @@ impl OldGenState {
         let line_bytes = config.line_bytes.max(1);
         let mut block = OldBlock::new(capacity, line_bytes);
         let (offset, ptr) = block.try_alloc(layout)?;
+        let used_bytes = block.used_bytes();
         let block_index = self.blocks.len();
         self.blocks.push(block);
+        self.reserved_bytes.fetch_add(capacity, Ordering::Relaxed);
+        self.total_used_bytes
+            .fetch_add(used_bytes, Ordering::Relaxed);
         Some((
             OldBlockPlacement {
                 block_index,
@@ -687,6 +763,15 @@ impl OldGenState {
         }
     }
 
+    pub(crate) fn record_block_object_accounting_for_placement_shared(
+        &self,
+        placement: OldBlockPlacement,
+    ) {
+        if let Some(block) = self.blocks.get(placement.block_index) {
+            block.record_object_accounting_shared(placement.offset_bytes, placement.total_size);
+        }
+    }
+
     /// Record an object start in the block identified by `placement`.
     /// Used by the post-sweep rebuild to repopulate the per-card
     /// object-start index from surviving records.
@@ -758,6 +843,7 @@ impl OldGenState {
             next += 1;
             keep
         });
+        self.refresh_cached_layout_totals();
 
         // Reset cursors on the surviving blocks so newly opened holes are
         // visible to the next allocation cycle.
@@ -766,7 +852,7 @@ impl OldGenState {
         remap
     }
 
-    pub(crate) fn record_object(&mut self, object: &ObjectRecord) {
+    pub(crate) fn record_object(&self, object: &ObjectRecord) {
         // Block-side accounting. Every promoted or direct-allocated
         // old-gen record goes through `try_alloc_in_block` for its
         // physical bytes, so it has an `OldBlockPlacement` set by
@@ -774,24 +860,11 @@ impl OldGenState {
         // live_bytes / object_count counters so subsequent stats
         // queries reflect the new survivor.
         if let Some(block_placement) = object.old_block_placement()
-            && let Some(block) = self.blocks.get_mut(block_placement.block_index)
+            && let Some(block) = self.blocks.get(block_placement.block_index)
         {
-            block.record_object_accounting(block_placement.offset_bytes, object.total_size());
+            block
+                .record_object_accounting_shared(block_placement.offset_bytes, object.total_size());
         }
-    }
-
-    pub(crate) fn record_allocated_object(
-        &mut self,
-        _config: &OldGenConfig,
-        object: &mut ObjectRecord,
-    ) -> usize {
-        // The production allocation path always goes through
-        // try_alloc_in_block, which sets the OldBlockPlacement
-        // on `object` before this is called. record_object
-        // simply updates the per-block accounting from that
-        // placement.
-        self.record_object(object);
-        self.reserved_bytes()
     }
 
     /// Per-block region-stats reader. Aliases

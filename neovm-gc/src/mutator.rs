@@ -250,6 +250,7 @@ impl<'heap> Mutator<'heap> {
         let space = snapshot.space;
         local.remember_descriptor::<T>(desc);
         let mut value = Some(value);
+        let mut old_reserved_bytes = 0usize;
 
         let record = match space {
             crate::object::SpaceKind::Nursery => {
@@ -301,8 +302,12 @@ impl<'heap> Mutator<'heap> {
             crate::object::SpaceKind::Old => {
                 let (layout, payload_offset) = crate::object::allocation_layout_for::<T>()?;
                 let mut core = heap.write_core();
-                match core.old_gen_mut().try_alloc_in_block(&config.old, layout) {
-                    Some((placement, base)) => {
+                match core
+                    .old_gen_mut()
+                    .try_alloc_in_block_with_reserved(&config.old, layout)
+                {
+                    Some((placement, base, reserved_bytes)) => {
+                        old_reserved_bytes = reserved_bytes;
                         let mut record = unsafe {
                             crate::object::ObjectRecord::allocate_in_arena::<T>(
                                 desc,
@@ -316,11 +321,14 @@ impl<'heap> Mutator<'heap> {
                         record.set_old_block_placement(placement);
                         record
                     }
-                    None => crate::object::ObjectRecord::allocate(
-                        desc,
-                        space,
-                        value.take().expect("allocation value should be present"),
-                    )?,
+                    None => {
+                        old_reserved_bytes = core.old_gen().reserved_bytes();
+                        crate::object::ObjectRecord::allocate(
+                            desc,
+                            space,
+                            value.take().expect("allocation value should be present"),
+                        )?
+                    }
                 }
             }
             _ => crate::object::ObjectRecord::allocate(
@@ -330,13 +338,11 @@ impl<'heap> Mutator<'heap> {
             )?,
         };
 
-        let commit = if space == crate::object::SpaceKind::Old {
-            heap.write_core()
-                .commit_allocated_record(record, local.publish_local_mut())?
-        } else {
-            heap.read_core()
-                .commit_allocated_record_shared(record, local.publish_local_mut())?
-        };
+        let commit = heap.read_core().commit_allocated_record_shared(
+            record,
+            old_reserved_bytes,
+            local.publish_local_mut(),
+        )?;
         if commit.plans_dirty {
             heap.mark_collector_plans_dirty();
         }

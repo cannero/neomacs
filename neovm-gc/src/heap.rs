@@ -1507,56 +1507,25 @@ impl HeapCore {
         self.stats.remembered_owners = self.stats.remembered_owners.saturating_add(dirty_cards);
     }
 
-    pub(crate) fn commit_allocated_record(
-        &mut self,
-        mut record: ObjectRecord,
-        publish_local: &mut ObjectPublishLocal,
-    ) -> Result<AllocationCommit, AllocError> {
-        let total_size = record.header().total_size();
-        let space = record.space();
-        let Self {
-            config,
-            alloc_counters,
-            objects,
-            old_gen,
-            collector,
-            ..
-        } = self;
-        let old_reserved = if space == SpaceKind::Old {
-            old_gen.record_allocated_object(&config.old, &mut record)
-        } else {
-            old_gen.reserved_bytes()
-        };
-        let gc = record.erased();
-        alloc_counters.record_allocation(space, total_size, old_reserved);
-        objects.publish_shared(record, publish_local);
-        let recorded = if collector.has_active_major_mark() {
-            let read = objects.read();
-            collector.record_active_major_reachable_object(
-                read.raw(),
-                gc,
-                config.old.mutator_assist_slices,
-            )?
-        } else {
-            false
-        };
-        Ok(AllocationCommit {
-            gc,
-            plans_dirty: !recorded,
-        })
-    }
-
     pub(crate) fn commit_allocated_record_shared(
         &self,
         record: ObjectRecord,
+        old_reserved_bytes: usize,
         publish_local: &mut ObjectPublishLocal,
     ) -> Result<AllocationCommit, AllocError> {
         let total_size = record.header().total_size();
         let space = record.space();
-        debug_assert_ne!(space, SpaceKind::Old);
         let gc = record.erased();
-        self.alloc_counters.record_allocation(space, total_size, 0);
+        let old_placement = (space == SpaceKind::Old)
+            .then(|| record.old_block_placement())
+            .flatten();
         self.objects.publish_shared(record, publish_local);
+        if let Some(placement) = old_placement {
+            self.old_gen
+                .record_block_object_accounting_for_placement_shared(placement);
+        }
+        self.alloc_counters
+            .record_allocation(space, total_size, old_reserved_bytes);
         let recorded = if self.collector.has_active_major_mark() {
             let read = self.objects.read();
             self.collector.record_active_major_reachable_object(

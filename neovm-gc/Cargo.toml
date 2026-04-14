@@ -11,6 +11,7 @@ categories = ["memory-management"]
 [dependencies]
 bitflags.workspace = true
 crossbeam-deque.workspace = true
+parking_lot.workspace = true
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = ["plotters", "cargo_bench_support"] }

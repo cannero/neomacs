@@ -387,6 +387,7 @@ impl<'heap> CollectorRuntime<'heap> {
             return Err(AllocError::CollectionInProgress);
         }
         let (desc, space, _) = self.typed_allocation_profile::<T>()?;
+        let mut old_reserved_bytes = 0usize;
 
         let record = match space {
             SpaceKind::Nursery => {
@@ -412,9 +413,10 @@ impl<'heap> CollectorRuntime<'heap> {
                 match self
                     .heap
                     .old_gen_mut()
-                    .try_alloc_in_block(&old_config, layout)
+                    .try_alloc_in_block_with_reserved(&old_config, layout)
                 {
-                    Some((placement, base)) => {
+                    Some((placement, base, reserved_bytes)) => {
+                        old_reserved_bytes = reserved_bytes;
                         let mut record = unsafe {
                             crate::object::ObjectRecord::allocate_in_arena::<T>(
                                 desc,
@@ -428,14 +430,19 @@ impl<'heap> CollectorRuntime<'heap> {
                         record.set_old_block_placement(placement);
                         record
                     }
-                    None => crate::object::ObjectRecord::allocate(desc, space, value)?,
+                    None => {
+                        old_reserved_bytes = self.heap.old_gen().reserved_bytes();
+                        crate::object::ObjectRecord::allocate(desc, space, value)?
+                    }
                 }
             }
             _ => crate::object::ObjectRecord::allocate(desc, space, value)?,
         };
-        let commit = self
-            .heap
-            .commit_allocated_record(record, self.local.get_mut().publish_local_mut())?;
+        let commit = self.heap.commit_allocated_record_shared(
+            record,
+            old_reserved_bytes,
+            self.local.get_mut().publish_local_mut(),
+        )?;
         if commit.plans_dirty {
             self.heap.refresh_recommended_plans();
         }

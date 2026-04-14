@@ -1,14 +1,12 @@
-use std::hash::{BuildHasher, Hash, Hasher};
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{RwLock, RwLockReadGuard};
+
+use parking_lot::{RwLock, RwLockReadGuard};
 
 use crate::descriptor::{ObjectKey, TypeDesc, TypeFlags};
-use crate::index_state::{
-    HeapIndexState, ObjectIndex, ObjectKeyBuildHasher, ObjectLocator, RememberedSetState,
-};
+use crate::index_state::{HeapIndexState, ObjectIndex, ObjectLocator, RememberedSetState};
 use crate::object::ObjectRecord;
 
 pub(crate) const OBJECT_STORE_SHARDS: usize = 32;
@@ -416,28 +414,19 @@ struct ObjectShard {
 
 impl ObjectShard {
     fn clear(&mut self) {
-        self.chunks
-            .get_mut()
-            .expect("object shard chunk lock poisoned")
-            .clear();
-        self.indexes
-            .get_mut()
-            .expect("object shard index lock poisoned")
-            .clear();
+        self.chunks.get_mut().clear();
+        self.indexes.get_mut().clear();
     }
 
     fn publish_owned_mut(&mut self, shard: usize, record: ObjectRecord) {
         let desc = record.header().desc();
         let object_key = record.object_key();
-        let chunks = self
-            .chunks
-            .get_mut()
-            .expect("object shard chunk lock poisoned");
-        let indexes = self
-            .indexes
-            .get_mut()
-            .expect("object shard index lock poisoned");
-        let needs_chunk = chunks.last().is_none_or(|chunk| chunk.is_full());
+        let chunks = self.chunks.get_mut();
+        let indexes = self.indexes.get_mut();
+        let needs_chunk = chunks
+            .last()
+            .map(|chunk: &Arc<ObjectChunk>| chunk.is_full())
+            .unwrap_or(true);
         if needs_chunk {
             chunks.push(Arc::new(ObjectChunk::new()));
         }
@@ -487,10 +476,7 @@ impl ObjectStore {
     fn reserve_publish_chunk(&self, shard_index: usize) -> ObjectPublishReservation {
         let generation = self.generation();
         let chunk = Arc::new(ObjectChunk::new());
-        let mut chunks = self.shards[shard_index]
-            .chunks
-            .write()
-            .expect("object shard chunk lock poisoned");
+        let mut chunks = self.shards[shard_index].chunks.write();
         let chunk_index = chunks.len();
         chunks.push(Arc::clone(&chunk));
         ObjectPublishReservation {
@@ -507,14 +493,8 @@ impl ObjectStore {
         let mut object_count = 0usize;
 
         for shard in self.shards.iter() {
-            let chunk_guard = shard
-                .chunks
-                .read()
-                .expect("object shard chunk lock poisoned");
-            let index_guard = shard
-                .indexes
-                .read()
-                .expect("object shard index lock poisoned");
+            let chunk_guard = shard.chunks.read();
+            let index_guard = shard.indexes.read();
             object_count = object_count.saturating_add(
                 chunk_guard
                     .iter()
@@ -572,10 +552,7 @@ impl ObjectStore {
             .saturating_mul(OBJECT_STORE_CHUNK_CAPACITY)
             .saturating_add(chunk_offset);
         unsafe { reservation.chunk.write_reserved(chunk_offset, record) };
-        let mut indexes = self.shards[shard_index]
-            .indexes
-            .write()
-            .expect("object shard index lock poisoned");
+        let mut indexes = self.shards[shard_index].indexes.write();
         indexes.record_allocated_object(shard_index, slot, object_key, desc);
         reservation.chunk.publish_reserved(chunk_offset);
         reservation.next_offset = reservation.next_offset.saturating_add(1);
@@ -586,19 +563,12 @@ impl ObjectStore {
         let mut objects = Vec::new();
         let mut remembered = std::mem::take(&mut self.remembered);
         for shard in self.shards.iter_mut() {
-            let chunks = shard
-                .chunks
-                .get_mut()
-                .expect("object shard chunk lock poisoned");
+            let chunks = shard.chunks.get_mut();
             for chunk in chunks.iter() {
                 chunk.drain_published_into(&mut objects);
             }
             chunks.clear();
-            shard
-                .indexes
-                .get_mut()
-                .expect("object shard index lock poisoned")
-                .clear();
+            shard.indexes.get_mut().clear();
         }
 
         let mut indexes = HeapIndexState::default();
@@ -630,7 +600,12 @@ impl ObjectStore {
 
 fn shard_index_for_key(key: ObjectKey, shard_count: usize) -> usize {
     debug_assert!(shard_count > 0);
-    let mut hasher = ObjectKeyBuildHasher.build_hasher();
-    key.hash(&mut hasher);
-    (hasher.finish() as usize) % shard_count
+    let addr = key.as_usize() >> 4;
+    let mixed =
+        addr ^ addr.rotate_right(13) ^ addr.wrapping_mul(0x9e37_79b9_7f4a_7c15_u64 as usize);
+    if shard_count.is_power_of_two() {
+        mixed & (shard_count - 1)
+    } else {
+        mixed % shard_count
+    }
 }

@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasher, Hasher};
 use std::ops::BitXor;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+use parking_lot::Mutex;
 
 use crate::descriptor::{GcErased, ObjectKey, Tracer, TypeDesc, TypeFlags};
 use crate::object::{ObjectRecord, SpaceKind};
@@ -212,10 +213,7 @@ impl RememberedSetState {
     /// [`merge_pending_owners`] so the hot path stays as cheap
     /// as one atomic mutex acquisition plus one vec push.
     pub(crate) fn record_owner_shared(&self, owner_key: ObjectKey) {
-        let mut pending = self
-            .pending_inserts
-            .lock()
-            .expect("remembered pending_inserts poisoned");
+        let mut pending = self.pending_inserts.lock();
         pending.push(owner_key);
         self.pending_count.store(pending.len(), Ordering::Relaxed);
     }
@@ -225,11 +223,7 @@ impl RememberedSetState {
     /// deduping new entries against both the existing canonical
     /// set and the other pending entries.
     pub(crate) fn merge_pending_owners(&mut self) {
-        let drained = std::mem::take(
-            self.pending_inserts
-                .get_mut()
-                .expect("remembered pending_inserts poisoned"),
-        );
+        let drained = std::mem::take(self.pending_inserts.get_mut());
         self.pending_count.store(0, Ordering::Relaxed);
         for key in drained {
             if self.owner_set.insert(key) {
@@ -257,10 +251,7 @@ impl RememberedSetState {
         // against itself. Matches the dedup
         // `owners_including_pending` would produce without
         // allocating a full combined `Vec`.
-        let pending = self
-            .pending_inserts
-            .lock()
-            .expect("remembered pending_inserts poisoned");
+        let pending = self.pending_inserts.lock();
         let mut extra = 0usize;
         let mut seen: HashSet<ObjectKey> = HashSet::new();
         for key in pending.iter().copied() {
@@ -280,10 +271,7 @@ impl RememberedSetState {
         if self.pending_count.load(Ordering::Relaxed) == 0 {
             return self.owners.clone();
         }
-        let pending = self
-            .pending_inserts
-            .lock()
-            .expect("remembered pending_inserts poisoned");
+        let pending = self.pending_inserts.lock();
         if pending.is_empty() {
             return self.owners.clone();
         }
@@ -371,10 +359,7 @@ impl RememberedSetState {
         // owner list during `owners_for_collection`, so clear
         // them atomically here to avoid re-introducing stale
         // entries on the next merge.
-        self.pending_inserts
-            .get_mut()
-            .expect("remembered pending_inserts poisoned")
-            .clear();
+        self.pending_inserts.get_mut().clear();
         self.pending_count.store(0, Ordering::Relaxed);
     }
 }
