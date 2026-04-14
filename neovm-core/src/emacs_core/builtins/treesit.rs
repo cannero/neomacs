@@ -182,6 +182,20 @@ fn maybe_remap_language(eval: &super::eval::Context, language: &str) -> String {
         .to_owned()
 }
 
+fn language_requires_linecol_tracking(eval: &super::eval::Context, language: &str) -> bool {
+    let remapped = maybe_remap_language(eval, language);
+    let Some(languages) = super::misc_eval::dynamic_or_global_symbol_value(
+        eval,
+        "treesit-languages-require-line-column-tracking",
+    ) else {
+        return false;
+    };
+    crate::emacs_core::value::list_to_vec(&languages)
+        .unwrap_or_default()
+        .into_iter()
+        .any(|value| value.as_symbol_name().is_some_and(|name| name == remapped))
+}
+
 fn treesit_override_names(eval: &super::eval::Context, language: &str) -> Option<(String, String)> {
     let overrides =
         super::misc_eval::dynamic_or_global_symbol_value(eval, "treesit-load-name-override-list");
@@ -1825,6 +1839,11 @@ pub(crate) fn builtin_treesit_parser_create(
         .set_language(&loaded_language)
         .map_err(|err| signal("error", vec![Value::string(format!("ABI mismatch: {err}"))]))?;
 
+    let tracking_linecol = eval.treesit.linecol_cache(orig_buffer_id).is_some()
+        || language_requires_linecol_tracking(eval, &language);
+    if tracking_linecol {
+        eval.treesit.enable_linecol_tracking(orig_buffer_id);
+    }
     let placeholder = Value::NIL;
     let id = eval.treesit.insert_parser(
         placeholder,
@@ -1833,7 +1852,7 @@ pub(crate) fn builtin_treesit_parser_create(
         language.clone(),
         tag,
         parser,
-        eval.treesit.linecol_cache(orig_buffer_id).is_some(),
+        tracking_linecol,
     );
     let value = runtime::make_parser_value(id, Value::symbol(&language), buffer_value, tag);
     let entry = eval.treesit.parser_mut(id).ok_or_else(|| {
@@ -1852,7 +1871,17 @@ pub(crate) fn builtin_treesit_parser_delete(
 ) -> EvalResult {
     expect_args("treesit-parser-delete", &args, 1)?;
     let parser_id = expect_live_parser_id(eval, "treesit-parser-delete", args[0])?;
+    let (need_to_gc_buffer, buffer_id) = {
+        let parser = eval
+            .treesit
+            .parser(parser_id)
+            .ok_or_else(|| parser_deleted_error(args[0]))?;
+        (parser.need_to_gc_buffer, parser.orig_buffer_id)
+    };
     let _ = eval.treesit.mark_parser_deleted(parser_id);
+    if need_to_gc_buffer {
+        let _ = eval.buffers.kill_buffer(buffer_id);
+    }
     Ok(Value::NIL)
 }
 
@@ -2492,6 +2521,11 @@ pub(crate) fn builtin_treesit_parse_string(
             Value::NIL,
         ],
     )?;
+    if let Some(parser_id) = runtime::parser_id(parser)
+        && let Some(entry) = eval.treesit.parser_mut(parser_id)
+    {
+        entry.need_to_gc_buffer = true;
+    }
     if let Some(saved) = saved_current {
         let _ = eval.buffers.switch_current(saved);
     }

@@ -7401,6 +7401,118 @@ fn treesit_parse_string_and_linecol_cache_are_runtime_backed() {
 }
 
 #[test]
+fn treesit_parse_string_temp_buffer_is_cleaned_up_with_parser_delete() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    install_test_treesit_json_language(&mut eval);
+
+    let root = crate::emacs_core::builtins::builtin_treesit_parse_string(
+        &mut eval,
+        vec![Value::string("{\"x\": 1}"), Value::symbol("json")],
+    )
+    .unwrap();
+    let parser = crate::emacs_core::builtins::builtin_treesit_node_parser(vec![root]).unwrap();
+    let buffer =
+        crate::emacs_core::builtins::builtin_treesit_parser_buffer(&mut eval, vec![parser])
+            .unwrap();
+    let buffer_id = buffer.as_buffer_id().unwrap();
+    assert!(eval.buffers.get(buffer_id).is_some());
+
+    crate::emacs_core::builtins::builtin_treesit_parser_delete(&mut eval, vec![parser]).unwrap();
+    assert!(eval.buffers.get(buffer_id).is_none());
+}
+
+#[test]
+fn treesit_parser_create_enables_linecol_tracking_for_configured_languages() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    install_test_treesit_json_language(&mut eval);
+    eval.obarray.set_symbol_value(
+        "treesit-languages-require-line-column-tracking",
+        Value::list(vec![Value::symbol("json")]),
+    );
+
+    let buffer = create_unique_test_buffer(&mut eval, "*treesit-linecol-parser*");
+    let _ = eval.buffers.switch_current(buffer.as_buffer_id().unwrap());
+    builtin_insert(&mut eval, vec![Value::string("{\"x\": 1}")]).unwrap();
+
+    let parser = crate::emacs_core::builtins::builtin_treesit_parser_create(
+        &mut eval,
+        vec![Value::symbol("json"), Value::NIL, Value::T, Value::NIL],
+    )
+    .unwrap();
+
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_treesit_parser_tracking_line_column_p(
+            &mut eval,
+            vec![parser],
+        )
+        .unwrap(),
+        Value::T
+    );
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_treesit_tracking_line_column_p(&mut eval, vec![])
+            .unwrap(),
+        Value::T
+    );
+}
+
+#[test]
+fn treesit_linecol_cache_invalidates_when_edit_moves_before_cached_point() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let buffer = create_unique_test_buffer(&mut eval, "*treesit-linecol-edit*");
+    let _ = eval.buffers.switch_current(buffer.as_buffer_id().unwrap());
+    builtin_insert(&mut eval, vec![Value::string("a\nbc")]).unwrap();
+
+    crate::emacs_core::builtins::builtin_treesit_linecol_cache_set(
+        &mut eval,
+        vec![Value::fixnum(2), Value::fixnum(2), Value::fixnum(3)],
+    )
+    .unwrap();
+    builtin_goto_char(&mut eval, vec![Value::fixnum(1)]).unwrap();
+    builtin_insert(&mut eval, vec![Value::string("z")]).unwrap();
+
+    let cache =
+        crate::emacs_core::builtins::builtin_treesit_linecol_cache(&mut eval, vec![]).unwrap();
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_plist_get(vec![cache, Value::keyword(":bytepos")],)
+            .unwrap(),
+        Value::fixnum(0)
+    );
+}
+
+#[test]
+fn treesit_parser_changed_regions_reports_buffer_edits() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    install_test_treesit_json_language(&mut eval);
+    let buffer = create_unique_test_buffer(&mut eval, "*treesit-changes*");
+    let _ = eval.buffers.switch_current(buffer.as_buffer_id().unwrap());
+    builtin_insert(&mut eval, vec![Value::string("{\"a\": 1}")]).unwrap();
+
+    let parser = crate::emacs_core::builtins::builtin_treesit_parser_create(
+        &mut eval,
+        vec![Value::symbol("json"), Value::NIL, Value::T, Value::NIL],
+    )
+    .unwrap();
+    let _ = crate::emacs_core::builtins::builtin_treesit_parser_root_node(&mut eval, vec![parser])
+        .unwrap();
+
+    builtin_goto_char(&mut eval, vec![Value::fixnum(8)]).unwrap();
+    builtin_insert(&mut eval, vec![Value::string(", \"b\": 2")]).unwrap();
+
+    let changed = crate::emacs_core::builtins::builtin_treesit_parser_changed_regions(
+        &mut eval,
+        vec![parser],
+    )
+    .unwrap();
+    let regions = crate::emacs_core::value::list_to_vec(&changed).unwrap();
+    assert!(!regions.is_empty());
+    assert!(regions[0].is_cons());
+}
+
+#[test]
 fn dispatch_builtin_pure_handles_inotify_watch_lifecycle() {
     crate::test_utils::init_test_tracing();
     let watch = dispatch_builtin_pure(

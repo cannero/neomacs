@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use libloading::Library;
-use tree_sitter::{Language, Parser, Query, Tree};
+use tree_sitter::{InputEdit, Language, Parser, Point, Query, Tree};
 
 use super::value::Value;
 use crate::buffer::BufferId;
@@ -68,6 +68,14 @@ pub(crate) struct QueryEntry {
     pub(crate) compiled: Option<Query>,
 }
 
+#[derive(Clone, Copy)]
+struct PendingBufferEdit {
+    start_byte: usize,
+    old_end_byte: usize,
+    start_position: Point,
+    old_end_position: Point,
+}
+
 #[derive(Default)]
 pub(crate) struct TreeSitterManager {
     next_parser_id: u64,
@@ -78,6 +86,7 @@ pub(crate) struct TreeSitterManager {
     nodes: BTreeMap<u64, NodeEntry>,
     queries: BTreeMap<u64, QueryEntry>,
     linecol_caches: HashMap<BufferId, LineColCache>,
+    pending_edits: HashMap<BufferId, PendingBufferEdit>,
 }
 
 impl TreeSitterManager {
@@ -91,6 +100,7 @@ impl TreeSitterManager {
             nodes: BTreeMap::new(),
             queries: BTreeMap::new(),
             linecol_caches: HashMap::new(),
+            pending_edits: HashMap::new(),
         }
     }
 
@@ -267,6 +277,103 @@ impl TreeSitterManager {
                 parser.tracking_linecol = true;
             }
         }
+    }
+
+    pub(crate) fn enable_linecol_tracking(&mut self, buffer_id: BufferId) {
+        self.linecol_caches
+            .entry(buffer_id)
+            .or_insert(LineColCache {
+                line: 1,
+                col: 1,
+                bytepos: 0,
+            });
+        for parser in self.parsers.values_mut() {
+            if parser.orig_buffer_id == buffer_id && !parser.deleted {
+                parser.tracking_linecol = true;
+            }
+        }
+    }
+
+    pub(crate) fn note_buffer_change(&mut self, buffer_id: BufferId, start_byte: usize) {
+        if let Some(cache) = self.linecol_caches.get_mut(&buffer_id)
+            && cache.bytepos > start_byte
+        {
+            *cache = LineColCache {
+                line: 1,
+                col: 1,
+                bytepos: 0,
+            };
+        }
+    }
+
+    pub(crate) fn begin_buffer_edit(
+        &mut self,
+        buffer_id: BufferId,
+        source: &str,
+        start_byte: usize,
+        old_end_byte: usize,
+    ) {
+        self.pending_edits.insert(
+            buffer_id,
+            PendingBufferEdit {
+                start_byte,
+                old_end_byte,
+                start_position: point_for_byte(source, start_byte),
+                old_end_position: point_for_byte(source, old_end_byte),
+            },
+        );
+    }
+
+    pub(crate) fn finish_buffer_edit(
+        &mut self,
+        buffer_id: BufferId,
+        source: &str,
+        new_end_byte: usize,
+    ) {
+        let Some(edit) = self.pending_edits.remove(&buffer_id) else {
+            return;
+        };
+        let input_edit = InputEdit {
+            start_byte: edit.start_byte,
+            old_end_byte: edit.old_end_byte,
+            new_end_byte,
+            start_position: edit.start_position,
+            old_end_position: edit.old_end_position,
+            new_end_position: point_for_byte(source, new_end_byte),
+        };
+
+        let mut edited_parser_ids = Vec::new();
+        for (parser_id, parser) in &mut self.parsers {
+            if parser.deleted || parser.orig_buffer_id != buffer_id {
+                continue;
+            }
+            if let Some(tree) = parser.tree.as_mut() {
+                tree.edit(&input_edit);
+                parser.generation = parser.generation.saturating_add(1);
+                parser.last_changed_ranges.clear();
+                edited_parser_ids.push(*parser_id);
+            }
+        }
+
+        for parser_id in edited_parser_ids {
+            self.clear_nodes_for_parser(parser_id);
+        }
+    }
+}
+
+fn point_for_byte(source: &str, byte_offset: usize) -> Point {
+    let target = byte_offset.min(source.len());
+    let mut row = 0usize;
+    let mut last_newline = 0usize;
+    for (idx, byte) in source.as_bytes().iter().enumerate().take(target) {
+        if *byte == b'\n' {
+            row += 1;
+            last_newline = idx + 1;
+        }
+    }
+    Point {
+        row,
+        column: target.saturating_sub(last_newline),
     }
 }
 
