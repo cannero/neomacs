@@ -5883,7 +5883,7 @@ fn pure_dispatch_treesit_placeholder_cluster_matches_compat_contracts() {
     let available = dispatch_builtin_pure("treesit-available-p", vec![])
         .expect("builtin treesit-available-p should resolve")
         .expect("builtin treesit-available-p should evaluate");
-    assert!(available.is_nil());
+    assert!(available.is_truthy());
 
     let compiled_query = dispatch_builtin_pure("treesit-compiled-query-p", vec![Value::NIL])
         .expect("builtin treesit-compiled-query-p should resolve")
@@ -5903,7 +5903,7 @@ fn pure_dispatch_treesit_placeholder_cluster_matches_compat_contracts() {
 
     let language_available = dispatch_builtin_pure(
         "treesit-language-available-p",
-        vec![Value::symbol("rust"), Value::NIL],
+        vec![Value::symbol("definitely-missing-language"), Value::NIL],
     )
     .expect("builtin treesit-language-available-p should resolve")
     .expect("builtin treesit-language-available-p should evaluate");
@@ -5912,7 +5912,10 @@ fn pure_dispatch_treesit_placeholder_cluster_matches_compat_contracts() {
     let library_abi = dispatch_builtin_pure("treesit-library-abi-version", vec![])
         .expect("builtin treesit-library-abi-version should resolve")
         .expect("builtin treesit-library-abi-version should evaluate");
-    assert!(library_abi.is_nil());
+    assert_eq!(
+        library_abi.as_fixnum(),
+        Some(tree_sitter::LANGUAGE_VERSION as i64)
+    );
 
     let node_check = dispatch_builtin_pure("treesit-node-check", vec![Value::NIL, Value::NIL])
         .expect("builtin treesit-node-check should resolve")

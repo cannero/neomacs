@@ -422,10 +422,10 @@ fn window_bottom_divider_width_rejects_non_window_designator() {
 }
 
 #[test]
-fn treesit_available_p_defaults_to_nil() {
+fn treesit_available_p_reports_runtime_support() {
     crate::test_utils::init_test_tracing();
     let out = crate::emacs_core::builtins::builtin_treesit_available_p(vec![]).unwrap();
-    assert_eq!(out, Value::NIL);
+    assert_eq!(out, Value::T);
 }
 
 #[test]

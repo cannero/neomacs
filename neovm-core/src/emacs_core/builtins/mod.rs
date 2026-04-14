@@ -5886,13 +5886,13 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-language-abi-version",
-        |_ctx, args| builtin_treesit_language_abi_version(args),
+        |ctx, args| builtin_treesit_language_abi_version(ctx, args),
         0,
         Some(1),
     );
     ctx.defsubr(
         "treesit-language-available-p",
-        |_ctx, args| builtin_treesit_language_available_p(args),
+        |ctx, args| builtin_treesit_language_available_p(ctx, args),
         1,
         Some(2),
     );
@@ -6144,75 +6144,75 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-grammar-location",
-        |_ctx, args| builtin_treesit_grammar_location(args),
-        0,
-        None,
+        |ctx, args| builtin_treesit_grammar_location(ctx, args),
+        1,
+        Some(1),
     );
     ctx.defsubr(
         "treesit-tracking-line-column-p",
         |_ctx, args| builtin_treesit_tracking_line_column_p(args),
         0,
-        None,
+        Some(1),
     );
     ctx.defsubr(
         "treesit-parser-tracking-line-column-p",
         |_ctx, args| builtin_treesit_parser_tracking_line_column_p(args),
-        0,
-        None,
+        1,
+        Some(1),
     );
     ctx.defsubr(
         "treesit-query-eagerly-compiled-p",
         |_ctx, args| builtin_treesit_query_eagerly_compiled_p(args),
-        0,
-        None,
+        1,
+        Some(1),
     );
     ctx.defsubr(
         "treesit-query-source",
         |_ctx, args| builtin_treesit_query_source(args),
-        0,
-        None,
+        1,
+        Some(1),
     );
     ctx.defsubr(
         "treesit-parser-embed-level",
         |_ctx, args| builtin_treesit_parser_embed_level(args),
-        0,
-        None,
+        1,
+        Some(1),
     );
     ctx.defsubr(
         "treesit-parser-set-embed-level",
         |_ctx, args| builtin_treesit_parser_set_embed_level(args),
-        0,
-        None,
+        2,
+        Some(2),
     );
     ctx.defsubr(
         "treesit-parse-string",
         |_ctx, args| builtin_treesit_parse_string(args),
-        0,
-        None,
+        2,
+        Some(2),
     );
     ctx.defsubr(
         "treesit-parser-changed-regions",
         |_ctx, args| builtin_treesit_parser_changed_regions(args),
-        0,
-        None,
+        1,
+        Some(1),
     );
     ctx.defsubr(
         "treesit--linecol-at",
         |_ctx, args| builtin_treesit_linecol_at(args),
-        0,
-        None,
+        1,
+        Some(1),
     );
     ctx.defsubr(
         "treesit--linecol-cache-set",
         |_ctx, args| builtin_treesit_linecol_cache_set(args),
-        0,
-        None,
+        3,
+        Some(3),
     );
     ctx.defsubr(
         "treesit--linecol-cache",
         |_ctx, args| builtin_treesit_linecol_cache(args),
         0,
-        None,
+        Some(0),
     );
     ctx.defsubr(
         "sqlite-available-p",
