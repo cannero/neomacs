@@ -112,6 +112,17 @@ fn slot_char_width(ch: char, face_char_w: f32) -> f32 {
     }
 }
 
+fn finish_text_row(
+    builder: &mut crate::matrix_builder::GlyphMatrixBuilder,
+    output_emitter: &mut WindowOutputEmitter,
+    row_y: f32,
+    row_height: f32,
+    row_ascent: f32,
+) {
+    builder.set_current_row_metrics(row_y, row_height, row_ascent);
+    output_emitter.push_text_row(row_y, row_height, row_ascent);
+}
+
 #[allow(dead_code)]
 fn eval_status_line_format(
     evaluator: &mut neovm_core::emacs_core::Context,
@@ -1122,7 +1133,13 @@ fn render_overlay_string(
                 charpos_end: anchor_charpos,
             });
             *hit_row_charpos_start = anchor_charpos;
-            output_emitter.push_text_row(*y, *row_max_height, *row_max_ascent);
+            finish_text_row(
+                builder,
+                output_emitter,
+                *y,
+                *row_max_height,
+                *row_max_ascent,
+            );
             builder.end_row();
             *row += 1;
             if *row >= max_rows {
@@ -3015,7 +3032,13 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    output_emitter.push_text_row(y, row_max_height, row_max_ascent);
+                    finish_text_row(
+                        &mut self.matrix_builder,
+                        &mut output_emitter,
+                        y,
+                        row_max_height,
+                        row_max_ascent,
+                    );
                     hit_row_charpos_start = charpos;
                     row_extend_bg = None;
                     row_extend_row = -1;
@@ -3470,7 +3493,13 @@ impl LayoutEngine {
                             charpos_start: hit_row_charpos_start,
                             charpos_end: charpos,
                         });
-                        output_emitter.push_text_row(y, row_max_height, row_max_ascent);
+                        finish_text_row(
+                            &mut self.matrix_builder,
+                            &mut output_emitter,
+                            y,
+                            row_max_height,
+                            row_max_ascent,
+                        );
                         row_extend_bg = None;
                         row_extend_row = -1;
                         if box_active {
@@ -3568,7 +3597,13 @@ impl LayoutEngine {
                     charpos_start: hit_row_charpos_start,
                     charpos_end: charpos,
                 });
-                output_emitter.push_text_row(y, row_max_height, row_max_ascent);
+                finish_text_row(
+                    &mut self.matrix_builder,
+                    &mut output_emitter,
+                    y,
+                    row_max_height,
+                    row_max_ascent,
+                );
 
                 self.matrix_builder.end_row();
                 row += 1;
@@ -3769,7 +3804,13 @@ impl LayoutEngine {
                             charpos_start: hit_row_charpos_start,
                             charpos_end: charpos,
                         });
-                        output_emitter.push_text_row(y, row_max_height, row_max_ascent);
+                        finish_text_row(
+                            &mut self.matrix_builder,
+                            &mut output_emitter,
+                            y,
+                            row_max_height,
+                            row_max_ascent,
+                        );
                         row_extend_bg = None;
                         row_extend_row = -1;
                         row += 1;
@@ -3802,7 +3843,13 @@ impl LayoutEngine {
                             charpos_start: hit_row_charpos_start,
                             charpos_end: charpos,
                         });
-                        output_emitter.push_text_row(y, row_max_height, row_max_ascent);
+                        finish_text_row(
+                            &mut self.matrix_builder,
+                            &mut output_emitter,
+                            y,
+                            row_max_height,
+                            row_max_ascent,
+                        );
                         hit_row_charpos_start = charpos;
                         row_extend_bg = None;
                         row_extend_row = -1;
@@ -4042,7 +4089,13 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    output_emitter.push_text_row(y, row_max_height, row_max_ascent);
+                    finish_text_row(
+                        &mut self.matrix_builder,
+                        &mut output_emitter,
+                        y,
+                        row_max_height,
+                        row_max_ascent,
+                    );
                     row_extend_bg = None;
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
@@ -4089,7 +4142,13 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    output_emitter.push_text_row(y, row_max_height, row_max_ascent);
+                    finish_text_row(
+                        &mut self.matrix_builder,
+                        &mut output_emitter,
+                        y,
+                        row_max_height,
+                        row_max_ascent,
+                    );
                     row_extend_bg = None;
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
@@ -4138,7 +4197,13 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    output_emitter.push_text_row(y, row_max_height, row_max_ascent);
+                    finish_text_row(
+                        &mut self.matrix_builder,
+                        &mut output_emitter,
+                        y,
+                        row_max_height,
+                        row_max_ascent,
+                    );
                     row_extend_bg = None;
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
@@ -4719,7 +4784,13 @@ impl LayoutEngine {
                 charpos_start: hit_row_charpos_start,
                 charpos_end: charpos,
             });
-            output_emitter.push_text_row(row_y_start, row_max_height, row_max_ascent);
+            finish_text_row(
+                &mut self.matrix_builder,
+                &mut output_emitter,
+                row_y_start,
+                row_max_height,
+                row_max_ascent,
+            );
         }
 
         // GNU redisplay keeps iterating until point visibility converges or no
@@ -5936,6 +6007,48 @@ mod tests {
             "expected next point after 'b' to advance by {expected_b}, got {} -> {} with points={all_points:?}",
             b.x,
             space.x
+        );
+    }
+
+    #[test]
+    fn layout_frame_rust_records_row_metrics_for_plain_text_rows() {
+        let mut eval = Context::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert("plain text row\n");
+            buf.goto_byte(0);
+        }
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-plain-row-metrics", 800, 160, buf_id);
+
+        let mut engine = LayoutEngine::new();
+        engine.layout_frame_rust(&mut eval, frame_id);
+
+        let text_row = engine
+            .last_frame_display_state
+            .as_ref()
+            .and_then(|state| {
+                state
+                    .window_matrices
+                    .iter()
+                    .flat_map(|wm| wm.matrix.rows.iter())
+                    .find(|row| row.role == GlyphRowRole::Text && row.enabled)
+            })
+            .expect("text row");
+
+        assert!(
+            text_row.height_px > 0.0,
+            "expected ordinary text rows to record authoritative height, got {text_row:?}"
+        );
+        assert!(
+            text_row.ascent_px > 0.0,
+            "expected ordinary text rows to record authoritative ascent, got {text_row:?}"
         );
     }
 
@@ -7460,6 +7573,13 @@ mod tests {
             }
             pos
         };
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            // Selected-window point lives in the buffer; keep pt_char in
+            // sync with the target point so redisplay retries read the same
+            // location the leaf window advertises.
+            buf.goto_byte(target_pos - 1);
+        }
         {
             let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
             let window = frame
