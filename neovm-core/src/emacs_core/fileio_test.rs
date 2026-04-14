@@ -1,5 +1,6 @@
 use super::*;
 use crate::emacs_core::eval::Context;
+use crate::emacs_core::format_eval_result;
 use crate::emacs_core::value::list_to_vec;
 use crate::test_utils::runtime_startup_eval_all;
 use std::io::Write;
@@ -2319,6 +2320,58 @@ fn test_insert_file_contents_visit_rejects_partial_and_nonempty_visits() {
         }
         other => panic!("unexpected flow: {other:?}"),
     }
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn insert_file_contents_visit_decodes_text_enriched_formats() {
+    crate::test_utils::init_test_tracing();
+
+    let dir = std::env::temp_dir().join("neovm_eval_insert_file_contents_text_enriched");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+
+    let path = dir.join("hello.enriched");
+    fs::write(
+        &path,
+        concat!(
+            "Content-Type: text/enriched\n",
+            "\n",
+            "<x-color><param>orange red</param>hello</x-color>\n",
+        ),
+    )
+    .unwrap();
+
+    let path_str = path.to_string_lossy().to_string();
+
+    let mut eval = Context::new();
+    eval.eval_str(
+        r#"(progn
+             (defalias 'format-decode
+               (lambda (_format len _visit)
+                 (delete-region (point-min) (point-max))
+                 (insert "hello\n")
+                 (setq buffer-file-format '(text/enriched))
+                 6))
+             (setq after-insert-file-functions
+                   (list (lambda (len)
+                           (setq enriched-mode t)
+                           len))))"#,
+    )
+    .expect("stub format decode setup");
+
+    builtin_insert_file_contents(&mut eval, vec![Value::string(&path_str), Value::T])
+        .expect("insert-file-contents should decode text/enriched");
+
+    assert_eq!(
+        format_eval_result(&eval.eval_str("buffer-file-format")),
+        "OK (text/enriched)"
+    );
+    assert_eq!(format_eval_result(&eval.eval_str("enriched-mode")), "OK t");
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.buffer_string(), "hello\n");
+    assert_eq!(buf.get_file_name(), Some(path_str.as_str()));
 
     let _ = fs::remove_dir_all(&dir);
 }

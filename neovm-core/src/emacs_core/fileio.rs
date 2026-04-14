@@ -2525,6 +2525,117 @@ fn insert_file_contents_into_current_buffer_in_state(
     }
 }
 
+fn expect_inserted_char_count(value: &Value) -> Result<i64, Flow> {
+    let inserted = expect_int(value)?;
+    if inserted < 0 {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("integer-or-marker-p"), *value],
+        ));
+    }
+    Ok(inserted)
+}
+
+fn run_after_insert_file_pipeline(
+    eval: &mut Context,
+    current_id: crate::buffer::BufferId,
+    visit: bool,
+    replace_requested: bool,
+    inserted_chars: i64,
+) -> Result<i64, Flow> {
+    let visit_value = if visit { Value::T } else { Value::NIL };
+    let mut inserted = inserted_chars;
+
+    if eval.obarray.fboundp("after-insert-file-set-coding") {
+        let result = eval.funcall_general(
+            Value::symbol("after-insert-file-set-coding"),
+            vec![Value::fixnum(inserted), visit_value],
+        )?;
+        if !result.is_nil() {
+            inserted = expect_inserted_char_count(&result)?;
+        }
+    }
+
+    if inserted <= 0 || !eval.obarray.fboundp("format-decode") {
+        return Ok(inserted);
+    }
+
+    let (saved_pt, saved_pt_char, point_min, chars_modiff_before) = eval
+        .buffers
+        .get(current_id)
+        .map(|buf| {
+            (
+                buf.pt,
+                buf.pt_char,
+                buf.point_min_byte(),
+                buf.chars_modified_tick,
+            )
+        })
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let specpdl_count = eval.specpdl.len();
+    eval.specbind(intern("inhibit-point-motion-hooks"), Value::T);
+    eval.specbind(intern("inhibit-modification-hooks"), Value::T);
+    eval.specbind(intern("buffer-undo-list"), Value::T);
+
+    let pipeline_result = (|| -> Result<i64, Flow> {
+        if replace_requested {
+            eval.buffers
+                .goto_buffer_byte(current_id, point_min)
+                .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        }
+
+        let format_result = eval.funcall_general(
+            Value::symbol("format-decode"),
+            vec![Value::NIL, Value::fixnum(inserted), visit_value],
+        )?;
+        if !format_result.is_nil() {
+            inserted = expect_inserted_char_count(&format_result)?;
+        }
+
+        let hook_sym = intern("after-insert-file-functions");
+        let hook_value = eval.visible_variable_value_or_nil("after-insert-file-functions");
+        let hook_functions = crate::emacs_core::hook_runtime::collect_hook_functions_in_state(
+            eval, hook_sym, hook_value, true,
+        );
+        if !hook_functions.is_empty() {
+            let mut roots = hook_functions.clone();
+            roots.push(Value::fixnum(inserted));
+            inserted = eval.with_gc_scope_result(|ctx| {
+                for root in &roots {
+                    ctx.root(*root);
+                }
+                let mut inserted_now = inserted;
+                for function in &hook_functions {
+                    let result = ctx.apply(*function, vec![Value::fixnum(inserted_now)])?;
+                    if !result.is_nil() {
+                        inserted_now = expect_inserted_char_count(&result)?;
+                    }
+                }
+                Ok(inserted_now)
+            })?;
+        }
+
+        Ok(inserted)
+    })();
+
+    eval.restore_current_buffer_if_live(current_id);
+    let chars_modiff_after = eval
+        .buffers
+        .get(current_id)
+        .map(|buf| buf.chars_modified_tick)
+        .unwrap_or(chars_modiff_before + 1);
+    if replace_requested
+        && chars_modiff_after == chars_modiff_before
+        && let Some(buf) = eval.buffers.get_mut(current_id)
+    {
+        buf.pt = saved_pt;
+        buf.pt_char = saved_pt_char;
+    }
+    eval.unbind_to(specpdl_count);
+
+    pipeline_result
+}
+
 fn write_region_content_in_state(
     buffers: &crate::buffer::BufferManager,
     current_id: crate::buffer::BufferId,
@@ -2756,13 +2867,21 @@ pub(crate) fn builtin_insert_file_contents(
         source_load_context,
         coding_system_for_read.as_deref(),
     )?;
-    let char_count = contents.chars().count() as i64;
+    let decoded_char_count = contents.chars().count() as i64;
 
     insert_file_contents_into_current_buffer_in_state(
         &mut eval.buffers,
         current_id,
         &contents,
         replace_requested,
+    )?;
+
+    let inserted_char_count = run_after_insert_file_pipeline(
+        eval,
+        current_id,
+        visit,
+        replace_requested,
+        decoded_char_count,
     )?;
 
     if visit {
@@ -2772,7 +2891,10 @@ pub(crate) fn builtin_insert_file_contents(
         let _ = eval.buffers.set_buffer_modified_flag(current_id, false);
     }
 
-    let value = Value::list(vec![Value::string(resolved), Value::fixnum(char_count)]);
+    let value = Value::list(vec![
+        Value::string(resolved),
+        Value::fixnum(inserted_char_count),
+    ]);
     eval.set_variable("last-coding-system-used", Value::symbol(&used_coding));
 
     // Fire after-change hooks.
