@@ -5891,6 +5891,12 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         Some(1),
     );
     ctx.defsubr(
+        "treesit-language-version",
+        |ctx, args| builtin_treesit_language_version(ctx, args),
+        0,
+        Some(1),
+    );
+    ctx.defsubr(
         "treesit-language-available-p",
         |ctx, args| builtin_treesit_language_available_p(ctx, args),
         1,
@@ -6193,6 +6199,12 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr(
         "treesit-parser-changed-regions",
         |ctx, args| builtin_treesit_parser_changed_regions(ctx, args),
+        1,
+        Some(1),
+    );
+    ctx.defsubr(
+        "treesit-parser-changed-ranges",
+        |ctx, args| builtin_treesit_parser_changed_ranges(ctx, args),
         1,
         Some(1),
     );

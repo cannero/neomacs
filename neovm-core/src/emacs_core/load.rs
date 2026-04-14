@@ -1522,7 +1522,7 @@ fn normalized_bootstrap_features(extra_features: &[&str]) -> Vec<String> {
 // Bump when bootstrap image semantics change in ways an older dump cannot
 // represent correctly. V16 invalidates older caches because category-table
 // ownership moved from a parallel manager into dumped Lisp objects.
-const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 16;
+const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 17;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoadupDumpMode {

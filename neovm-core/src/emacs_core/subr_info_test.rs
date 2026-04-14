@@ -926,6 +926,7 @@ fn subr_arity_command_read_primitives_match_oracle() {
     assert_subr_arity("treesit-induce-sparse-tree", 2, Some(4));
     assert_subr_arity("treesit-language-abi-version", 0, Some(1));
     assert_subr_arity("treesit-language-available-p", 1, Some(2));
+    assert_subr_arity("treesit-language-version", 0, Some(1));
     assert_subr_arity("treesit-library-abi-version", 0, Some(1));
     assert_subr_arity("treesit-node-check", 2, Some(2));
     assert_subr_arity("treesit-node-child", 2, Some(3));
@@ -949,6 +950,7 @@ fn subr_arity_command_read_primitives_match_oracle() {
     assert_subr_arity("treesit-parser-buffer", 1, Some(1));
     assert_subr_arity("treesit-parser-create", 1, Some(4));
     assert_subr_arity("treesit-parser-delete", 1, Some(1));
+    assert_subr_arity("treesit-parser-changed-ranges", 1, Some(1));
     assert_subr_arity("treesit-parser-included-ranges", 1, Some(1));
     assert_subr_arity("treesit-parser-language", 1, Some(1));
     assert_subr_arity("treesit-parser-list", 0, Some(3));
