@@ -715,6 +715,7 @@ struct PrimaryWindowDisplayHost {
     cmd_tx: crossbeam_channel::Sender<RenderCommand>,
     primary_window_adopted: bool,
     primary_frame_id: Option<neovm_core::window::FrameId>,
+    last_window_titles: Mutex<HashMap<neovm_core::window::FrameId, String>>,
     font_metrics: Option<FontMetricsService>,
     primary_window_size: SharedPrimaryWindowSize,
     image_dimensions: SharedImageDimensions,
@@ -855,7 +856,7 @@ impl DisplayHost for PrimaryWindowDisplayHost {
         if !self.primary_window_adopted {
             self.cmd_tx
                 .send(RenderCommand::SetWindowTitle {
-                    title: request.title,
+                    title: request.title.clone(),
                 })
                 .map_err(|err| format!("failed to update primary window title: {err}"))?;
             // The opening GUI frame adopts the already-existing primary host
@@ -870,10 +871,14 @@ impl DisplayHost for PrimaryWindowDisplayHost {
                     emacs_frame_id: request.frame_id.0,
                     width: request.width,
                     height: request.height,
-                    title: request.title,
+                    title: request.title.clone(),
                 })
                 .map_err(|err| format!("failed to create additional GUI window: {err}"))?;
         }
+        self.last_window_titles
+            .lock()
+            .map_err(|err| format!("failed to cache GUI frame title: {err}"))?
+            .insert(request.frame_id, request.title);
         Ok(())
     }
 
@@ -901,6 +906,38 @@ impl DisplayHost for PrimaryWindowDisplayHost {
                 height: request.height,
             })
             .map_err(|err| format!("failed to resize GUI frame: {err}"))?;
+        Ok(())
+    }
+
+    fn set_gui_frame_title(
+        &mut self,
+        frame_id: neovm_core::window::FrameId,
+        title: String,
+    ) -> Result<(), String> {
+        let mut cached_titles = self
+            .last_window_titles
+            .lock()
+            .map_err(|err| format!("failed to cache GUI frame title: {err}"))?;
+        if cached_titles
+            .get(&frame_id)
+            .is_some_and(|cached| cached == &title)
+        {
+            return Ok(());
+        }
+        cached_titles.insert(frame_id, title.clone());
+        drop(cached_titles);
+
+        let emacs_frame_id = if self.primary_frame_id == Some(frame_id) {
+            0
+        } else {
+            frame_id.0
+        };
+        self.cmd_tx
+            .send(RenderCommand::SetFrameWindowTitle {
+                emacs_frame_id,
+                title,
+            })
+            .map_err(|err| format!("failed to update GUI frame title: {err}"))?;
         Ok(())
     }
 
@@ -1042,6 +1079,101 @@ impl DisplayHost for PrimaryWindowDisplayHost {
             }
         }
         Ok(Some(resolved))
+    }
+}
+
+fn frame_host_title(eval: &mut Context, frame_id: FrameId) -> String {
+    let Some((selected_window_id, buffer_id, fallback_title, target_cols)) =
+        eval.frame_manager().get(frame_id).map(|frame| {
+            let fallback_title = if !frame.title.is_empty() {
+                frame.title.clone()
+            } else if !frame.name.is_empty() {
+                frame.name.clone()
+            } else {
+                "Neomacs".to_string()
+            };
+            let buffer_id = match frame.selected_window() {
+                Some(Window::Leaf { buffer_id, .. }) => Some(*buffer_id),
+                _ => None,
+            };
+            let target_cols = if frame.char_width > 0.0 {
+                ((frame.width as f32) / frame.char_width.max(1.0))
+                    .floor()
+                    .max(1.0) as usize
+            } else {
+                frame.width.max(1) as usize
+            };
+            (
+                frame.selected_window,
+                buffer_id,
+                fallback_title,
+                target_cols.max(1),
+            )
+        })
+    else {
+        return "Neomacs".to_string();
+    };
+
+    let format = eval
+        .obarray()
+        .symbol_value("frame-title-format")
+        .copied()
+        .unwrap_or(Value::NIL);
+    if format.is_nil() {
+        return fallback_title;
+    }
+
+    let rendered = neovm_core::emacs_core::xdisp::format_mode_line_for_display(
+        eval,
+        format,
+        Value::make_window(selected_window_id.0),
+        buffer_id.map(Value::make_buffer).unwrap_or(Value::NIL),
+        target_cols,
+    );
+    rendered.as_str().unwrap_or(&fallback_title).to_owned()
+}
+
+fn adopt_existing_primary_gui_frame(eval: &mut Context) -> Result<(), String> {
+    if eval
+        .display_host
+        .as_ref()
+        .is_none_or(|host| !host.opening_gui_frame_pending())
+    {
+        return Ok(());
+    }
+    let Some((frame_id, width, height)) = eval
+        .frame_manager()
+        .selected_frame()
+        .map(|frame| (frame.id, frame.width, frame.height))
+    else {
+        return Ok(());
+    };
+    let title = frame_host_title(eval, frame_id);
+    let Some(host) = eval.display_host.as_mut() else {
+        return Ok(());
+    };
+    host.realize_gui_frame(GuiFrameHostRequest {
+        frame_id,
+        width,
+        height,
+        title,
+    })
+}
+
+fn sync_live_gui_frame_titles(eval: &mut Context) {
+    let frame_ids = eval.frame_manager().frame_list();
+    for frame_id in frame_ids {
+        let is_gui_frame = eval
+            .frame_manager()
+            .get(frame_id)
+            .is_some_and(|frame| frame.effective_window_system().is_some());
+        if !is_gui_frame {
+            continue;
+        }
+        let title = frame_host_title(eval, frame_id);
+        if let Some(host) = eval.display_host.as_mut() {
+            let _ = host.set_gui_frame_title(frame_id, title);
+        }
     }
 }
 
@@ -1287,11 +1419,14 @@ pub fn run(mode: RuntimeMode) {
             cmd_tx: emacs_comms.cmd_tx.clone(),
             primary_window_adopted: false,
             primary_frame_id: None,
+            last_window_titles: Mutex::new(HashMap::new()),
             font_metrics: None,
             primary_window_size: Arc::clone(&primary_window_size),
             image_dimensions: Arc::clone(&gui_image_dimensions),
             resolved_images: Mutex::new(HashMap::new()),
         }));
+        adopt_existing_primary_gui_frame(&mut evaluator)
+            .expect("bootstrap GUI frame adoption should succeed");
     }
 
     // 5. Spawn the frontend loop matching the requested startup mode.
@@ -1387,6 +1522,7 @@ pub fn run(mode: RuntimeMode) {
             evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
                 eval.setup_thread_locals();
                 run_layout(eval);
+                sync_live_gui_frame_titles(eval);
                 // Take the complete FrameDisplayState produced by the layout
                 // engine's GlyphMatrixBuilder.
                 let display_state = LAYOUT_ENGINE

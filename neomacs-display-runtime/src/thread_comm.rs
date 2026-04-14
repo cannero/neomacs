@@ -344,6 +344,12 @@ pub enum RenderCommand {
     SetWindowTitle {
         title: String,
     },
+    /// Set the title for a specific GUI frame window. `emacs_frame_id == 0`
+    /// targets the adopted primary window.
+    SetFrameWindowTitle {
+        emacs_frame_id: u64,
+        title: String,
+    },
     /// Set fullscreen mode (0=none, 1=fullscreen, 4=maximized)
     SetWindowFullscreen {
         mode: u32,

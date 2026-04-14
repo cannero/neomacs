@@ -1,10 +1,11 @@
 use super::{
     BOOTSTRAP_CORE_FEATURES, BootstrapDisplayConfig, DumpImageKind, EarlyCliAction, FrontendKind,
     PrimaryWindowDisplayHost, PrimaryWindowSize, RuntimeMode, StartupOptions, TtyTerminalHost,
-    bootstrap_buffers, bootstrap_default_font_name, bootstrap_display_config,
-    bootstrap_frame_metrics, classify_early_cli_action, configure_gnu_startup_state,
-    current_layout_frame_id, face_height_to_pixels, parse_startup_options, raw_loadup_command_line,
-    raw_loadup_startup_surface, render_help_text, render_version_text, run_gnu_startup,
+    adopt_existing_primary_gui_frame, bootstrap_buffers, bootstrap_default_font_name,
+    bootstrap_display_config, bootstrap_frame_metrics, classify_early_cli_action,
+    configure_gnu_startup_state, current_layout_frame_id, face_height_to_pixels,
+    parse_startup_options, raw_loadup_command_line, raw_loadup_startup_surface, render_help_text,
+    render_version_text, run_gnu_startup, sync_live_gui_frame_titles,
 };
 use neomacs_display_runtime::thread_comm::RenderCommand;
 use neovm_core::emacs_core::Context;
@@ -522,6 +523,7 @@ fn opening_gui_frame_adoption_does_not_push_stale_window_size() {
         cmd_tx,
         primary_window_adopted: false,
         primary_frame_id: None,
+        last_window_titles: Mutex::new(std::collections::HashMap::new()),
         font_metrics: None,
         primary_window_size: Arc::new(Mutex::new(PrimaryWindowSize {
             width: 1600,
@@ -553,6 +555,95 @@ fn opening_gui_frame_adoption_does_not_push_stale_window_size() {
     }
     assert!(host.primary_window_adopted);
     assert_eq!(host.primary_frame_id, Some(FrameId(0x100000001)));
+}
+
+#[test]
+fn bootstrap_gui_frame_adoption_routes_future_resizes_to_primary_window() {
+    let mut eval = Context::new();
+    let _bootstrap = bootstrap_buffers(&mut eval, 843, 489, gui_display());
+    let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
+
+    eval.set_display_host(Box::new(PrimaryWindowDisplayHost {
+        cmd_tx,
+        primary_window_adopted: false,
+        primary_frame_id: None,
+        last_window_titles: Mutex::new(std::collections::HashMap::new()),
+        font_metrics: None,
+        primary_window_size: Arc::new(Mutex::new(PrimaryWindowSize {
+            width: 843,
+            height: 489,
+        })),
+        image_dimensions: Arc::new((
+            Mutex::new(std::collections::HashMap::new()),
+            std::sync::Condvar::new(),
+        )),
+        resolved_images: Mutex::new(std::collections::HashMap::new()),
+    }));
+
+    adopt_existing_primary_gui_frame(&mut eval).expect("bootstrap GUI frame should adopt");
+    eval.eval_str("(set-frame-size (selected-frame) 132 42)")
+        .expect("set-frame-size should succeed");
+
+    let commands: Vec<_> = cmd_rx.try_iter().collect();
+    assert!(
+        commands
+            .iter()
+            .any(|cmd| matches!(cmd, RenderCommand::SetWindowTitle { .. })),
+        "expected bootstrap adoption to set the primary window title, got {commands:?}"
+    );
+    assert!(
+        commands.iter().any(|cmd| matches!(
+            cmd,
+            RenderCommand::ResizeWindow {
+                emacs_frame_id: 0,
+                ..
+            }
+        )),
+        "expected bootstrap resize to target the adopted primary window, got {commands:?}"
+    );
+}
+
+#[test]
+fn redisplay_title_sync_formats_frame_title_format_for_primary_window() {
+    let mut eval = Context::new();
+    let _bootstrap = bootstrap_buffers(&mut eval, 843, 489, gui_display());
+    let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
+
+    eval.set_display_host(Box::new(PrimaryWindowDisplayHost {
+        cmd_tx,
+        primary_window_adopted: false,
+        primary_frame_id: None,
+        last_window_titles: Mutex::new(std::collections::HashMap::new()),
+        font_metrics: None,
+        primary_window_size: Arc::new(Mutex::new(PrimaryWindowSize {
+            width: 843,
+            height: 489,
+        })),
+        image_dimensions: Arc::new((
+            Mutex::new(std::collections::HashMap::new()),
+            std::sync::Condvar::new(),
+        )),
+        resolved_images: Mutex::new(std::collections::HashMap::new()),
+    }));
+
+    adopt_existing_primary_gui_frame(&mut eval).expect("bootstrap GUI frame should adopt");
+    let _ = cmd_rx.try_iter().collect::<Vec<_>>();
+
+    eval.eval_str(r#"(setq frame-title-format "oracle-title")"#)
+        .expect("frame-title-format should set");
+    sync_live_gui_frame_titles(&mut eval);
+
+    let commands: Vec<_> = cmd_rx.try_iter().collect();
+    assert!(
+        commands.iter().any(|cmd| matches!(
+            cmd,
+            RenderCommand::SetFrameWindowTitle {
+                emacs_frame_id: 0,
+                title
+            } if title == "oracle-title"
+        )),
+        "expected redisplay title sync to publish the formatted primary title, got {commands:?}"
+    );
 }
 
 #[test]

@@ -907,6 +907,13 @@ pub struct ResolvedImage {
 pub trait DisplayHost {
     fn realize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String>;
     fn resize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String>;
+    fn set_gui_frame_title(
+        &mut self,
+        _frame_id: crate::window::FrameId,
+        _title: String,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     fn opening_gui_frame_pending(&self) -> bool {
         false
     }

@@ -53,6 +53,28 @@ impl RenderApp {
                 }
                 Ok(())
             }
+            RenderCommand::SetFrameWindowTitle {
+                emacs_frame_id,
+                title,
+            } => {
+                if emacs_frame_id == 0 {
+                    self.chrome.title = title.clone();
+                    if let Some(ref window) = self.window {
+                        window.set_title(&title);
+                    }
+                    if !self.chrome.decorations_enabled {
+                        self.frame_dirty = true;
+                    }
+                } else if let Some(window_state) = self.multi_windows.get(emacs_frame_id) {
+                    window_state.window.set_title(&title);
+                } else {
+                    tracing::warn!(
+                        "SetFrameWindowTitle requested for unknown frame_id=0x{:x}",
+                        emacs_frame_id
+                    );
+                }
+                Ok(())
+            }
             RenderCommand::SetWindowFullscreen { mode } => {
                 if let Some(ref window) = self.window {
                     match mode {
