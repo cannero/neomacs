@@ -102,6 +102,40 @@ fn convert_unibyte_to_multibyte_bytes(src: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Reinterpret unibyte bytes as an Emacs multibyte sequence.
+///
+/// Valid multibyte sequences are preserved as-is; lone high bytes become
+/// raw-byte characters.
+fn reinterpret_unibyte_as_multibyte_bytes(src: &[u8]) -> Vec<u8> {
+    use crate::emacs_core::emacs_char;
+
+    let mut out = Vec::with_capacity(src.len() * 2);
+    let mut pos = 0usize;
+    while pos < src.len() {
+        let (cp, len) = emacs_char::string_char(&src[pos..]);
+        if len > 1 {
+            let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+            let enc_len = emacs_char::char_string(cp, &mut buf);
+            if enc_len == len && src.get(pos..pos + len) == Some(&buf[..len]) {
+                out.extend_from_slice(&src[pos..pos + len]);
+                pos += len;
+                continue;
+            }
+        } else if src[pos] < 0x80 {
+            out.push(src[pos]);
+            pos += 1;
+            continue;
+        }
+
+        let c = emacs_char::byte8_to_char(src[pos]);
+        let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+        let enc_len = emacs_char::char_string(c, &mut buf);
+        out.extend_from_slice(&buf[..enc_len]);
+        pos += 1;
+    }
+    out
+}
+
 // ===========================================================================
 // Special forms
 // ===========================================================================
@@ -390,7 +424,7 @@ pub(crate) fn builtin_string_as_multibyte(args: Vec<Value>) -> EvalResult {
     if ls.is_multibyte() {
         return Ok(args[0]);
     }
-    let out = convert_unibyte_to_multibyte_bytes(ls.as_bytes());
+    let out = reinterpret_unibyte_as_multibyte_bytes(ls.as_bytes());
     Ok(Value::heap_string(
         crate::heap_types::LispString::from_emacs_bytes(out),
     ))

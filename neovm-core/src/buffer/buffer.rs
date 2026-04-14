@@ -2947,6 +2947,10 @@ impl BufferManager {
             .collect()
     }
 
+    pub(crate) fn shared_text_buffer_ids(&self, root_id: BufferId) -> Vec<BufferId> {
+        self.buffers_sharing_root_ids(root_id)
+    }
+
     pub(crate) fn modified_state_root_id(&self, id: BufferId) -> Option<BufferId> {
         self.shared_text_root_id(id)
     }

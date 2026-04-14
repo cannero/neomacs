@@ -8912,6 +8912,121 @@ fn buffer_string_returns_unibyte_storage_for_unibyte_buffer() {
 }
 
 #[test]
+fn set_buffer_multibyte_reinterprets_bytes_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    builtin_insert(&mut eval, vec![Value::string("é")]).unwrap();
+    assert_eq!(
+        builtin_set_buffer_multibyte(&mut eval, vec![Value::NIL]).unwrap(),
+        Value::NIL
+    );
+
+    let unibyte = builtin_buffer_string(&mut eval, vec![]).unwrap();
+    let unibyte_ls = unibyte.as_lisp_string().expect("unibyte buffer-string");
+    assert!(!unibyte_ls.is_multibyte());
+    assert_eq!(unibyte_ls.as_bytes(), &[0xC3, 0xA9]);
+    assert_eq!(
+        builtin_point_max(&mut eval, vec![]).unwrap(),
+        Value::fixnum(3)
+    );
+    assert_eq!(
+        builtin_position_bytes(&mut eval, vec![Value::fixnum(3)]).unwrap(),
+        Value::fixnum(3)
+    );
+    assert_eq!(
+        builtin_get_byte(&mut eval, vec![Value::fixnum(2)]).unwrap(),
+        Value::fixnum(169)
+    );
+
+    builtin_erase_buffer(&mut eval, vec![]).unwrap();
+    builtin_insert_byte(&mut eval, vec![Value::fixnum(195), Value::fixnum(1)]).unwrap();
+    builtin_insert_byte(&mut eval, vec![Value::fixnum(169), Value::fixnum(1)]).unwrap();
+    assert_eq!(
+        builtin_set_buffer_multibyte(&mut eval, vec![Value::T]).unwrap(),
+        Value::T
+    );
+    let multibyte = builtin_buffer_string(&mut eval, vec![]).unwrap();
+    let multibyte_ls = multibyte.as_lisp_string().expect("multibyte buffer-string");
+    assert!(multibyte_ls.is_multibyte());
+    assert_eq!(multibyte_ls.as_str(), Some("é"));
+    assert_eq!(
+        builtin_point_max(&mut eval, vec![]).unwrap(),
+        Value::fixnum(2)
+    );
+    assert_eq!(
+        builtin_position_bytes(&mut eval, vec![Value::fixnum(2)]).unwrap(),
+        Value::fixnum(3)
+    );
+
+    builtin_erase_buffer(&mut eval, vec![]).unwrap();
+    builtin_set_buffer_multibyte(&mut eval, vec![Value::NIL]).unwrap();
+    builtin_insert_byte(&mut eval, vec![Value::fixnum(200), Value::fixnum(1)]).unwrap();
+    assert_eq!(
+        builtin_set_buffer_multibyte(&mut eval, vec![Value::symbol("to")]).unwrap(),
+        Value::symbol("to")
+    );
+    let raw = builtin_buffer_string(&mut eval, vec![]).unwrap();
+    assert_eq!(decode_value_char_codes(&raw), vec![0x3FFF00 + 200]);
+    assert_eq!(
+        builtin_point_max(&mut eval, vec![]).unwrap(),
+        Value::fixnum(2)
+    );
+    assert_eq!(
+        builtin_position_bytes(&mut eval, vec![Value::fixnum(2)]).unwrap(),
+        Value::fixnum(3)
+    );
+}
+
+#[test]
+fn set_buffer_multibyte_rejects_narrowed_and_indirect_buffers() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    builtin_insert(&mut eval, vec![Value::string("abcdef")]).unwrap();
+    builtin_narrow_to_region(&mut eval, vec![Value::fixnum(2), Value::fixnum(5)]).unwrap();
+    let narrowed = builtin_set_buffer_multibyte(&mut eval, vec![Value::NIL]).unwrap_err();
+    match narrowed {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "error");
+            assert_eq!(
+                sig.data,
+                vec![Value::string("Changing multibyteness in a narrowed buffer")]
+            );
+        }
+        other => panic!("expected signal, got: {other:?}"),
+    }
+
+    builtin_widen(&mut eval, vec![]).unwrap();
+    let base = eval.buffers.current_buffer_id().expect("current buffer");
+    let indirect = builtin_make_indirect_buffer(
+        &mut eval,
+        vec![
+            Value::make_buffer(base),
+            Value::string("*set-buffer-multibyte-indirect*"),
+        ],
+    )
+    .unwrap()
+    .as_buffer_id()
+    .expect("indirect buffer id");
+    eval.buffers.set_current(indirect);
+
+    let indirect_err = builtin_set_buffer_multibyte(&mut eval, vec![Value::NIL]).unwrap_err();
+    match indirect_err {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "error");
+            assert_eq!(
+                sig.data,
+                vec![Value::string(
+                    "Cannot do `set-buffer-multibyte' on an indirect buffer"
+                )]
+            );
+        }
+        other => panic!("expected signal, got: {other:?}"),
+    }
+}
+
+#[test]
 fn insert_string_converts_props_from_multibyte_source_to_unibyte_buffer() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
@@ -8941,6 +9056,90 @@ fn insert_string_converts_props_from_multibyte_source_to_unibyte_buffer() {
     assert_eq!(
         intervals[0].properties.get("face"),
         Some(&Value::symbol("bold"))
+    );
+}
+
+#[test]
+fn byte_position_helpers_count_multibyte_raw_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    builtin_insert_byte(&mut eval, vec![Value::fixnum(200), Value::fixnum(1)]).unwrap();
+
+    assert_eq!(
+        builtin_position_bytes(&mut eval, vec![Value::fixnum(1)]).unwrap(),
+        Value::fixnum(1)
+    );
+    assert_eq!(
+        builtin_position_bytes(&mut eval, vec![Value::fixnum(2)]).unwrap(),
+        Value::fixnum(3)
+    );
+    assert_eq!(
+        builtin_byte_to_position(&mut eval, vec![Value::fixnum(1)]).unwrap(),
+        Value::fixnum(1)
+    );
+    assert_eq!(
+        builtin_byte_to_position(&mut eval, vec![Value::fixnum(2)]).unwrap(),
+        Value::fixnum(1)
+    );
+    assert_eq!(
+        builtin_byte_to_position(&mut eval, vec![Value::fixnum(3)]).unwrap(),
+        Value::fixnum(2)
+    );
+}
+
+#[test]
+fn set_buffer_multibyte_preserves_marker_and_text_properties() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    builtin_insert(&mut eval, vec![Value::string("é")]).unwrap();
+    crate::emacs_core::textprop::builtin_put_text_property(
+        &mut eval,
+        vec![
+            Value::fixnum(1),
+            Value::fixnum(2),
+            Value::symbol("face"),
+            Value::symbol("bold"),
+        ],
+    )
+    .unwrap();
+    builtin_goto_char(&mut eval, vec![Value::fixnum(2)]).unwrap();
+    let marker = crate::emacs_core::marker::builtin_point_marker(&mut eval, vec![])
+        .expect("point-marker should succeed");
+
+    builtin_set_buffer_multibyte(&mut eval, vec![Value::NIL]).unwrap();
+
+    assert_eq!(builtin_point(&mut eval, vec![]).unwrap(), Value::fixnum(3));
+    assert_eq!(
+        crate::emacs_core::marker::marker_position_as_int_with_buffers(&eval.buffers, &marker)
+            .expect("marker position"),
+        3
+    );
+
+    assert_eq!(
+        crate::emacs_core::textprop::builtin_get_text_property(
+            &mut eval,
+            vec![Value::fixnum(1), Value::symbol("face")]
+        )
+        .unwrap(),
+        Value::symbol("bold")
+    );
+    assert_eq!(
+        crate::emacs_core::textprop::builtin_get_text_property(
+            &mut eval,
+            vec![Value::fixnum(2), Value::symbol("face")]
+        )
+        .unwrap(),
+        Value::symbol("bold")
+    );
+    assert_eq!(
+        crate::emacs_core::textprop::builtin_get_text_property(
+            &mut eval,
+            vec![Value::fixnum(3), Value::symbol("face")]
+        )
+        .unwrap(),
+        Value::NIL
     );
 }
 

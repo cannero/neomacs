@@ -387,6 +387,139 @@ pub(crate) fn storage_byte_len(s: &str) -> usize {
         .sum()
 }
 
+/// Convert a 0-based Emacs character index to a logical Emacs byte offset.
+pub(crate) fn storage_char_to_logical_byte(s: &str, char_idx: usize) -> usize {
+    if !storage_has_special_units(s) {
+        return plain_utf8_char_to_byte(s, char_idx);
+    }
+    let units = scan_storage_units(s);
+    units
+        .iter()
+        .take(char_idx.min(units.len()))
+        .map(|unit| unit.logical_byte_len)
+        .sum()
+}
+
+/// Convert a logical Emacs byte offset to a 0-based Emacs character index.
+///
+/// Interior multibyte offsets map to the containing character, matching GNU
+/// `byte-to-position`.
+pub(crate) fn storage_logical_byte_to_char(s: &str, byte_pos: usize) -> usize {
+    if !storage_has_special_units(s) {
+        return storage_byte_to_char(s, byte_pos);
+    }
+
+    let units = scan_storage_units(s);
+    let mut logical = 0usize;
+    for (idx, unit) in units.iter().enumerate() {
+        if byte_pos < logical + unit.logical_byte_len {
+            return idx;
+        }
+        logical += unit.logical_byte_len;
+    }
+    units.len()
+}
+
+/// Convert a storage-byte boundary to the corresponding logical Emacs byte offset.
+pub(crate) fn storage_byte_to_logical_byte(s: &str, storage_byte_pos: usize) -> usize {
+    if !storage_has_special_units(s) {
+        return storage_byte_pos.min(s.len());
+    }
+
+    let units = scan_storage_units(s);
+    let mut logical = 0usize;
+    for unit in &units {
+        if storage_byte_pos <= unit.storage_start {
+            return logical;
+        }
+        if storage_byte_pos < unit.storage_end {
+            return logical;
+        }
+        logical += unit.logical_byte_len;
+        if storage_byte_pos == unit.storage_end {
+            return logical;
+        }
+    }
+    logical
+}
+
+/// Convert a logical Emacs byte offset at a character boundary to a storage-byte offset.
+pub(crate) fn storage_logical_byte_to_storage_byte(s: &str, logical_byte_pos: usize) -> usize {
+    if !storage_has_special_units(s) {
+        return logical_byte_pos.min(s.len());
+    }
+
+    let units = scan_storage_units(s);
+    let mut logical = 0usize;
+    for unit in &units {
+        if logical_byte_pos == logical {
+            return unit.storage_start;
+        }
+        logical += unit.logical_byte_len;
+        if logical_byte_pos == logical {
+            return unit.storage_end;
+        }
+        assert!(
+            logical_byte_pos > logical,
+            "logical byte position {logical_byte_pos} is not at a character boundary"
+        );
+    }
+    assert!(
+        logical_byte_pos == logical,
+        "logical byte position {logical_byte_pos} exceeds logical length {logical}"
+    );
+    s.len()
+}
+
+/// Return the logical Emacs byte at `byte_pos`.
+pub(crate) fn storage_logical_byte_at(s: &str, byte_pos: usize) -> Option<u8> {
+    if !storage_has_special_units(s) {
+        return s.as_bytes().get(byte_pos).copied();
+    }
+
+    let units = scan_storage_units(s);
+    let mut logical = 0usize;
+    for unit in &units {
+        let next = logical + unit.logical_byte_len;
+        if byte_pos < next {
+            let bytes = storage_unit_logical_bytes(unit);
+            return bytes.get(byte_pos - logical).copied();
+        }
+        logical = next;
+    }
+    None
+}
+
+/// Advance `byte_pos` to the next logical character boundary.
+pub(crate) fn advance_logical_byte_to_char_boundary(s: &str, byte_pos: usize) -> usize {
+    if !storage_has_special_units(s) {
+        let clamped = byte_pos.min(s.len());
+        if s.is_ascii() {
+            return clamped;
+        }
+        for (idx, _) in s.char_indices() {
+            if idx >= clamped {
+                return idx;
+            }
+        }
+        return s.len();
+    }
+
+    let units = scan_storage_units(s);
+    let mut logical = 0usize;
+    for unit in &units {
+        if byte_pos <= logical {
+            return logical;
+        }
+        let next = logical + unit.logical_byte_len;
+        if byte_pos < next {
+            return next;
+        }
+        logical = next;
+    }
+    logical
+}
+
 /// Convert a 0-based Emacs character index to a byte offset in NeoVM string storage.
 /// Clamps to the string length if the index is out of bounds.
 pub(crate) fn storage_char_to_byte(s: &str, char_idx: usize) -> usize {
@@ -467,6 +600,17 @@ pub(crate) fn storage_contains_char_code(s: &str, code: u32) -> bool {
     scan_storage_units(s)
         .into_iter()
         .any(|unit| unit.code == code)
+}
+
+fn storage_unit_logical_bytes(unit: &StorageUnit) -> Vec<u8> {
+    if unit.logical_byte_len == 1 && unit.code <= 0xFF {
+        return vec![unit.code as u8];
+    }
+
+    let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+    let len = crate::emacs_core::emacs_char::char_string(unit.code, &mut buf);
+    debug_assert_eq!(len, unit.logical_byte_len);
+    buf[..len].to_vec()
 }
 
 pub(crate) fn replace_storage_char_code_same_len(

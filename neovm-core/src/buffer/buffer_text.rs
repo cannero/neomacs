@@ -77,8 +77,16 @@ impl BufferText {
         self.storage.borrow().gap.char_count()
     }
 
+    pub fn emacs_byte_len(&self) -> usize {
+        self.storage.borrow().gap.emacs_byte_len()
+    }
+
     pub fn byte_at(&self, pos: usize) -> u8 {
         self.storage.borrow().gap.byte_at(pos)
+    }
+
+    pub fn emacs_byte_at(&self, pos: usize) -> Option<u8> {
+        self.storage.borrow().gap.emacs_byte_at(pos)
     }
 
     pub fn char_at(&self, pos: usize) -> Option<char> {
@@ -135,6 +143,21 @@ impl BufferText {
 
     pub fn char_to_byte(&self, char_pos: usize) -> usize {
         self.storage.borrow().gap.char_to_byte(char_pos)
+    }
+
+    pub fn emacs_byte_to_char(&self, byte_pos: usize) -> usize {
+        self.storage.borrow().gap.emacs_byte_to_char(byte_pos)
+    }
+
+    pub fn char_to_emacs_byte(&self, char_pos: usize) -> usize {
+        self.storage.borrow().gap.char_to_emacs_byte(char_pos)
+    }
+
+    pub fn storage_byte_to_emacs_byte(&self, byte_pos: usize) -> usize {
+        self.storage
+            .borrow()
+            .gap
+            .storage_byte_to_emacs_byte(byte_pos)
     }
 
     pub fn shared_clone(&self) -> Self {
@@ -205,6 +228,18 @@ impl BufferText {
 
     pub fn text_props_replace(&self, table: TextPropertyTable) {
         self.storage.borrow_mut().text_props = table;
+    }
+
+    pub fn replace_storage(
+        &self,
+        text: &str,
+        text_props: TextPropertyTable,
+        markers: Vec<MarkerEntry>,
+    ) {
+        let mut storage = self.storage.borrow_mut();
+        storage.gap = GapBuffer::from_str(text);
+        storage.text_props = text_props;
+        storage.markers = markers;
     }
 
     pub fn text_props_put_property(

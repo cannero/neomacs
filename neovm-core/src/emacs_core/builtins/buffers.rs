@@ -6,6 +6,7 @@ use super::*;
 
 use crate::buffer::{BufferId, BufferManager};
 use crate::emacs_core::filelock;
+use crate::emacs_core::misc;
 use crate::emacs_core::value::{
     ValueKind, VecLikeType, get_string_text_properties_table_for_value,
     set_string_text_properties_table_for_value,
@@ -1308,13 +1309,262 @@ pub(crate) fn builtin_set_buffer_multibyte(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("set-buffer-multibyte", &args, 1)?;
-    let flag = args[0].is_truthy();
+    let flag = args[0];
+    let target_multibyte = !flag.is_nil();
     let current_id = eval
         .buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = eval.buffers.set_buffer_multibyte_flag(current_id, flag);
-    Ok(args[0])
+
+    let (already_multibyte, narrowed, base_buffer, shared_ids) = {
+        let current = eval
+            .buffers
+            .get(current_id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        (
+            current.get_multibyte(),
+            current.begv > 0 || current.zv < current.text.len(),
+            current.base_buffer,
+            eval.buffers.shared_text_buffer_ids(current_id),
+        )
+    };
+
+    if base_buffer.is_some() {
+        return Err(signal(
+            "error",
+            vec![Value::string(
+                "Cannot do `set-buffer-multibyte' on an indirect buffer",
+            )],
+        ));
+    }
+
+    if already_multibyte == target_multibyte {
+        return Ok(flag);
+    }
+
+    if narrowed {
+        return Err(signal(
+            "error",
+            vec![Value::string("Changing multibyteness in a narrowed buffer")],
+        ));
+    }
+
+    #[derive(Clone, Copy)]
+    struct OverlaySnapshot {
+        overlay: Value,
+        start_byte: usize,
+        end_byte: usize,
+    }
+
+    struct BufferSnapshot {
+        id: BufferId,
+        pt_byte: usize,
+        begv_byte: usize,
+        zv_byte: usize,
+        mark_byte: Option<usize>,
+        last_window_start_byte: usize,
+        overlays: Vec<OverlaySnapshot>,
+    }
+
+    let snapshots = {
+        let mut snapshots = Vec::with_capacity(shared_ids.len());
+        for id in &shared_ids {
+            let buffer = eval
+                .buffers
+                .get(*id)
+                .ok_or_else(|| signal("error", vec![Value::string("Missing shared buffer")]))?;
+            let overlays = buffer
+                .overlays
+                .dump_overlays()
+                .into_iter()
+                .filter_map(|overlay| {
+                    let data = overlay.as_overlay_data()?;
+                    Some(OverlaySnapshot {
+                        overlay,
+                        start_byte: buffer.text.storage_byte_to_emacs_byte(data.start),
+                        end_byte: buffer.text.storage_byte_to_emacs_byte(data.end),
+                    })
+                })
+                .collect();
+            snapshots.push(BufferSnapshot {
+                id: *id,
+                pt_byte: buffer
+                    .text
+                    .storage_byte_to_emacs_byte(buffer.pt.min(buffer.text.len())),
+                begv_byte: buffer
+                    .text
+                    .storage_byte_to_emacs_byte(buffer.begv.min(buffer.text.len())),
+                zv_byte: buffer
+                    .text
+                    .storage_byte_to_emacs_byte(buffer.zv.min(buffer.text.len())),
+                mark_byte: buffer.mark.map(|mark| {
+                    buffer
+                        .text
+                        .storage_byte_to_emacs_byte(mark.min(buffer.text.len()))
+                }),
+                last_window_start_byte: buffer
+                    .text
+                    .storage_byte_to_emacs_byte(buffer.last_window_start.min(buffer.text.len())),
+                overlays,
+            });
+        }
+        snapshots
+    };
+
+    let source_value = {
+        let buffer = eval
+            .buffers
+            .get(current_id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        buffer_slice_value(buffer, 0, buffer.text.len())
+    };
+    let (converted_value, mode) = convert_buffer_string_for_multibyte(source_value, flag)?;
+    let piece = buffer_insert_piece_from_string(converted_value, target_multibyte)?;
+    let new_storage = piece.text;
+    let new_total_bytes = crate::emacs_core::string_escape::storage_byte_len(&new_storage);
+
+    let shared_text = {
+        let buffer = eval
+            .buffers
+            .get(current_id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        buffer.text.shared_clone()
+    };
+    let old_props = shared_text.text_props_snapshot();
+
+    let new_props = match mode {
+        BufferMultibyteConversionMode::ToMultibyte => remap_text_property_table(
+            &old_props,
+            |byte_pos| shared_text.byte_to_char(byte_pos),
+            |char_pos| {
+                crate::emacs_core::string_escape::storage_char_to_byte(&new_storage, char_pos)
+            },
+        ),
+        BufferMultibyteConversionMode::AsUnibyte | BufferMultibyteConversionMode::AsMultibyte => {
+            remap_text_property_table_bytes(&old_props, |byte_pos| {
+                let logical_byte = shared_text.storage_byte_to_emacs_byte(byte_pos);
+                let boundary =
+                    crate::emacs_core::string_escape::advance_logical_byte_to_char_boundary(
+                        &new_storage,
+                        logical_byte.min(new_total_bytes),
+                    );
+                crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+                    &new_storage,
+                    boundary,
+                )
+            })
+        }
+    };
+
+    let mut markers = shared_text.marker_entries_snapshot();
+    for marker in &mut markers {
+        let logical_byte = shared_text.storage_byte_to_emacs_byte(marker.byte_pos);
+        let boundary = crate::emacs_core::string_escape::advance_logical_byte_to_char_boundary(
+            &new_storage,
+            logical_byte.min(new_total_bytes),
+        );
+        marker.char_pos =
+            crate::emacs_core::string_escape::storage_logical_byte_to_char(&new_storage, boundary);
+        marker.byte_pos = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+            &new_storage,
+            boundary,
+        );
+    }
+    shared_text.replace_storage(&new_storage, new_props, markers);
+
+    for snapshot in snapshots {
+        let buf = eval
+            .buffers
+            .get_mut(snapshot.id)
+            .ok_or_else(|| signal("error", vec![Value::string("Missing shared buffer")]))?;
+
+        let map_boundary = |logical_byte: usize| {
+            crate::emacs_core::string_escape::advance_logical_byte_to_char_boundary(
+                &new_storage,
+                logical_byte.min(new_total_bytes),
+            )
+        };
+
+        let pt_byte = map_boundary(snapshot.pt_byte);
+        let begv_byte = map_boundary(snapshot.begv_byte);
+        let zv_byte = map_boundary(snapshot.zv_byte);
+        let mark_byte = snapshot.mark_byte.map(map_boundary);
+        let last_window_start_byte = map_boundary(snapshot.last_window_start_byte);
+
+        buf.pt_char =
+            crate::emacs_core::string_escape::storage_logical_byte_to_char(&new_storage, pt_byte);
+        buf.pt = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+            &new_storage,
+            pt_byte,
+        );
+
+        buf.begv_char =
+            crate::emacs_core::string_escape::storage_logical_byte_to_char(&new_storage, begv_byte);
+        buf.begv = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+            &new_storage,
+            begv_byte,
+        );
+
+        buf.zv_char =
+            crate::emacs_core::string_escape::storage_logical_byte_to_char(&new_storage, zv_byte);
+        buf.zv = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+            &new_storage,
+            zv_byte,
+        );
+
+        if let Some(mark_byte) = mark_byte {
+            buf.mark_char = Some(
+                crate::emacs_core::string_escape::storage_logical_byte_to_char(
+                    &new_storage,
+                    mark_byte,
+                ),
+            );
+            buf.mark = Some(
+                crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+                    &new_storage,
+                    mark_byte,
+                ),
+            );
+        } else {
+            buf.mark = None;
+            buf.mark_char = None;
+        }
+
+        buf.last_window_start =
+            crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+                &new_storage,
+                last_window_start_byte,
+            );
+
+        for overlay in snapshot.overlays {
+            let start_byte = map_boundary(overlay.start_byte);
+            let end_byte = map_boundary(overlay.end_byte);
+            let start = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+                &new_storage,
+                start_byte,
+            );
+            let end = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+                &new_storage,
+                end_byte,
+            );
+            buf.overlays.move_overlay(overlay.overlay, start, end);
+        }
+
+        buf.set_multibyte_value(target_multibyte);
+        buf.set_buffer_local(
+            "enable-multibyte-characters",
+            if target_multibyte {
+                Value::T
+            } else {
+                Value::NIL
+            },
+        );
+    }
+
+    let _ = eval
+        .buffers
+        .configure_buffer_undo_list(current_id, Value::NIL);
+    Ok(flag)
 }
 
 /// `(split-window-internal OLD PIXEL-SIZE SIDE NORMAL-SIZE &optional REFER)`
@@ -2323,6 +2573,27 @@ fn lisp_string_char_to_byte(string: &crate::heap_types::LispString, char_pos: us
     }
 }
 
+fn lisp_string_advance_byte_to_boundary(
+    string: &crate::heap_types::LispString,
+    byte_pos: usize,
+) -> usize {
+    let clamped = byte_pos.min(string.sbytes());
+    if !string.is_multibyte() {
+        return clamped;
+    }
+
+    let bytes = string.as_bytes();
+    let mut pos = 0usize;
+    while pos < clamped && pos < bytes.len() {
+        let (_, len) = crate::emacs_core::emacs_char::string_char(&bytes[pos..]);
+        if pos + len >= clamped {
+            return pos + len;
+        }
+        pos += len;
+    }
+    clamped
+}
+
 fn remap_text_property_table(
     table: &crate::buffer::text_props::TextPropertyTable,
     source_byte_to_char: impl Fn(usize) -> usize,
@@ -2334,6 +2605,27 @@ fn remap_text_property_table(
         .filter_map(|interval| {
             let start = target_char_to_byte(source_byte_to_char(interval.start));
             let end = target_char_to_byte(source_byte_to_char(interval.end));
+            (start < end).then_some(crate::buffer::text_props::PropertyInterval {
+                start,
+                end,
+                properties: interval.properties,
+                key_order: interval.key_order,
+            })
+        })
+        .collect();
+    crate::buffer::text_props::TextPropertyTable::from_dump(intervals)
+}
+
+fn remap_text_property_table_bytes(
+    table: &crate::buffer::text_props::TextPropertyTable,
+    target_byte_map: impl Fn(usize) -> usize,
+) -> crate::buffer::text_props::TextPropertyTable {
+    let intervals = table
+        .intervals_snapshot()
+        .into_iter()
+        .filter_map(|interval| {
+            let start = target_byte_map(interval.start);
+            let end = target_byte_map(interval.end);
             (start < end).then_some(crate::buffer::text_props::PropertyInterval {
                 start,
                 end,
@@ -2485,6 +2777,72 @@ pub(crate) fn buffer_slice_value(
         }
     }
     value
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum BufferMultibyteConversionMode {
+    AsUnibyte,
+    AsMultibyte,
+    ToMultibyte,
+}
+
+fn remap_string_text_props_for_conversion(
+    source: Value,
+    target: Value,
+    mode: BufferMultibyteConversionMode,
+) {
+    let Some(table) = get_string_text_properties_table_for_value(source) else {
+        return;
+    };
+    if table.is_empty() {
+        return;
+    }
+    let remapped = match mode {
+        BufferMultibyteConversionMode::ToMultibyte => {
+            let source_string = source.as_lisp_string().expect("source string");
+            let target_string = target.as_lisp_string().expect("target string");
+            remap_text_property_table(
+                &table,
+                |byte_pos| lisp_string_byte_to_char(source_string, byte_pos),
+                |char_pos| lisp_string_char_to_byte(target_string, char_pos),
+            )
+        }
+        BufferMultibyteConversionMode::AsUnibyte | BufferMultibyteConversionMode::AsMultibyte => {
+            let target_string = target.as_lisp_string().expect("target string");
+            remap_text_property_table_bytes(&table, |byte_pos| {
+                lisp_string_advance_byte_to_boundary(target_string, byte_pos)
+            })
+        }
+    };
+    if !remapped.is_empty() {
+        set_string_text_properties_table_for_value(target, remapped);
+    }
+}
+
+fn convert_buffer_string_for_multibyte(
+    source: Value,
+    flag: Value,
+) -> Result<(Value, BufferMultibyteConversionMode), Flow> {
+    let (converted, mode) = if flag.is_nil() {
+        (
+            misc::builtin_string_as_unibyte(vec![source])?,
+            BufferMultibyteConversionMode::AsUnibyte,
+        )
+    } else if flag.as_symbol_name() == Some("to") {
+        (
+            misc::builtin_string_to_multibyte(vec![source])?,
+            BufferMultibyteConversionMode::ToMultibyte,
+        )
+    } else {
+        (
+            misc::builtin_string_as_multibyte(vec![source])?,
+            BufferMultibyteConversionMode::AsMultibyte,
+        )
+    };
+    if converted != source {
+        remap_string_text_props_for_conversion(source, converted, mode);
+    }
+    Ok((converted, mode))
 }
 
 fn collect_insert_pieces(args: &[Value], target_multibyte: bool) -> Result<Vec<InsertPiece>, Flow> {
@@ -3395,23 +3753,15 @@ pub(crate) fn builtin_byte_to_position(
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
-    let byte_len = buf.text.len();
+    let byte_len = buf.text.emacs_byte_len();
     let byte_pos0 = (byte_pos - 1) as usize;
     if byte_pos0 > byte_len {
         return Ok(Value::NIL);
     }
 
-    // Emacs maps interior UTF-8 continuation bytes to the containing character.
-    let mut boundary = byte_pos0;
-    while boundary > 0 && boundary < byte_len {
-        let b = buf.text.byte_at(boundary);
-        if (b & 0b1100_0000) != 0b1000_0000 {
-            break;
-        }
-        boundary -= 1;
-    }
-
-    Ok(Value::fixnum(buf.text.byte_to_char(boundary) as i64 + 1))
+    Ok(Value::fixnum(
+        buf.text.emacs_byte_to_char(byte_pos0) as i64 + 1,
+    ))
 }
 
 pub(crate) fn builtin_position_bytes(
@@ -3431,7 +3781,7 @@ pub(crate) fn builtin_position_bytes(
         return Ok(Value::NIL);
     }
 
-    let byte_pos = buf.text.char_to_byte((pos - 1) as usize);
+    let byte_pos = buf.text.char_to_emacs_byte((pos - 1) as usize);
     Ok(Value::fixnum(byte_pos as i64 + 1))
 }
 
