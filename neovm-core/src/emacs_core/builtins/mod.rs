@@ -519,6 +519,7 @@ mod misc_eval;
 pub(crate) mod search;
 mod stubs;
 pub(crate) mod symbols;
+mod treesit;
 
 pub(crate) use buffers::*;
 pub(crate) use higher_order::*;
@@ -528,6 +529,7 @@ pub(crate) use misc_eval::*;
 pub(crate) use search::*;
 pub(crate) use stubs::*;
 pub(crate) use symbols::*;
+pub(crate) use treesit::*;
 
 // ===========================================================================
 // Helpers
