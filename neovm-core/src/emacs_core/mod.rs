@@ -97,6 +97,7 @@ pub mod textprop;
 pub mod threads;
 pub mod timefns;
 pub mod timer;
+pub mod treesit;
 pub mod undo;
 pub mod value;
 pub mod value_reader;

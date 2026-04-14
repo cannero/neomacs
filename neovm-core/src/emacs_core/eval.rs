@@ -1146,6 +1146,9 @@ pub struct Context {
     pub(crate) rectangle: RectangleState,
     /// Interactive command registry — tracks interactive commands.
     pub(crate) interactive: InteractiveRegistry,
+    /// Tree-sitter runtime manager — loaded grammars, parser state, node handles,
+    /// and compiled queries backing `treesit-*` builtins.
+    pub(crate) treesit: super::treesit::TreeSitterManager,
     /// Minibuffer runtime state — active minibuffer stack, prompt metadata, and history.
     pub(crate) minibuffers: MinibufferManager,
     /// Current echo-area message text, mirroring GNU `current-message`.
@@ -3820,6 +3823,7 @@ impl Context {
             custom,
             rectangle: RectangleState::new(),
             interactive: InteractiveRegistry::new(),
+            treesit: super::treesit::TreeSitterManager::new(),
             minibuffers: MinibufferManager::new(),
             current_message: None,
             minibuffer_selected_window: None,
@@ -3952,6 +3956,7 @@ impl Context {
             custom,
             rectangle,
             interactive,
+            treesit: super::treesit::TreeSitterManager::new(),
             minibuffers: MinibufferManager::new(),
             current_message: None,
             minibuffer_selected_window: None,
@@ -4039,6 +4044,7 @@ impl Context {
         // Direct Context fields
         roots.extend(self.temp_roots.iter().cloned());
         roots.extend(self.vm_gc_roots.iter().cloned());
+        roots.extend(self.treesit.roots());
         // Scan bytecode stack buffer — all live stack values across all frames
         roots.extend(self.bc_buf.iter().copied());
         // Root function objects from active bytecode frames

@@ -5904,55 +5904,55 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-node-check",
-        |_ctx, args| builtin_treesit_node_check(args),
+        |ctx, args| builtin_treesit_node_check(ctx, args),
         2,
         Some(2),
     );
     ctx.defsubr(
         "treesit-node-child",
-        |_ctx, args| builtin_treesit_node_child(args),
+        |ctx, args| builtin_treesit_node_child(ctx, args),
         2,
         Some(3),
     );
     ctx.defsubr(
         "treesit-node-child-by-field-name",
-        |_ctx, args| builtin_treesit_node_child_by_field_name(args),
+        |ctx, args| builtin_treesit_node_child_by_field_name(ctx, args),
         2,
         Some(2),
     );
     ctx.defsubr(
         "treesit-node-child-count",
-        |_ctx, args| builtin_treesit_node_child_count(args),
+        |ctx, args| builtin_treesit_node_child_count(ctx, args),
         1,
         Some(2),
     );
     ctx.defsubr(
         "treesit-node-descendant-for-range",
-        |_ctx, args| builtin_treesit_node_descendant_for_range(args),
+        |ctx, args| builtin_treesit_node_descendant_for_range(ctx, args),
         3,
         Some(4),
     );
     ctx.defsubr(
         "treesit-node-end",
-        |_ctx, args| builtin_treesit_node_end(args),
+        |ctx, args| builtin_treesit_node_end(ctx, args),
         1,
         Some(1),
     );
     ctx.defsubr(
         "treesit-node-eq",
-        |_ctx, args| builtin_treesit_node_eq(args),
+        |ctx, args| builtin_treesit_node_eq(ctx, args),
         2,
         Some(2),
     );
     ctx.defsubr(
         "treesit-node-field-name-for-child",
-        |_ctx, args| builtin_treesit_node_field_name_for_child(args),
+        |ctx, args| builtin_treesit_node_field_name_for_child(ctx, args),
         2,
         Some(2),
     );
     ctx.defsubr(
         "treesit-node-first-child-for-pos",
-        |_ctx, args| builtin_treesit_node_first_child_for_pos(args),
+        |ctx, args| builtin_treesit_node_first_child_for_pos(ctx, args),
         2,
         Some(3),
     );
@@ -5964,7 +5964,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-node-next-sibling",
-        |_ctx, args| builtin_treesit_node_next_sibling(args),
+        |ctx, args| builtin_treesit_node_next_sibling(ctx, args),
         1,
         Some(2),
     );
@@ -5976,7 +5976,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-node-parent",
-        |_ctx, args| builtin_treesit_node_parent(args),
+        |ctx, args| builtin_treesit_node_parent(ctx, args),
         1,
         Some(1),
     );
@@ -5988,25 +5988,25 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-node-prev-sibling",
-        |_ctx, args| builtin_treesit_node_prev_sibling(args),
+        |ctx, args| builtin_treesit_node_prev_sibling(ctx, args),
         1,
         Some(2),
     );
     ctx.defsubr(
         "treesit-node-start",
-        |_ctx, args| builtin_treesit_node_start(args),
+        |ctx, args| builtin_treesit_node_start(ctx, args),
         1,
         Some(1),
     );
     ctx.defsubr(
         "treesit-node-string",
-        |_ctx, args| builtin_treesit_node_string(args),
+        |ctx, args| builtin_treesit_node_string(ctx, args),
         1,
         Some(1),
     );
     ctx.defsubr(
         "treesit-node-type",
-        |_ctx, args| builtin_treesit_node_type(args),
+        |ctx, args| builtin_treesit_node_type(ctx, args),
         1,
         Some(1),
     );
@@ -6018,43 +6018,43 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-parser-buffer",
-        |_ctx, args| builtin_treesit_parser_buffer(args),
+        |ctx, args| builtin_treesit_parser_buffer(ctx, args),
         1,
         Some(1),
     );
     ctx.defsubr(
         "treesit-parser-create",
-        |_ctx, args| builtin_treesit_parser_create(args),
+        |ctx, args| builtin_treesit_parser_create(ctx, args),
         1,
         Some(4),
     );
     ctx.defsubr(
         "treesit-parser-delete",
-        |_ctx, args| builtin_treesit_parser_delete(args),
+        |ctx, args| builtin_treesit_parser_delete(ctx, args),
         1,
         Some(1),
     );
     ctx.defsubr(
         "treesit-parser-included-ranges",
-        |_ctx, args| builtin_treesit_parser_included_ranges(args),
+        |ctx, args| builtin_treesit_parser_included_ranges(ctx, args),
         1,
         Some(1),
     );
     ctx.defsubr(
         "treesit-parser-language",
-        |_ctx, args| builtin_treesit_parser_language(args),
+        |ctx, args| builtin_treesit_parser_language(ctx, args),
         1,
         Some(1),
     );
     ctx.defsubr(
         "treesit-parser-list",
-        |_ctx, args| builtin_treesit_parser_list(args),
+        |ctx, args| builtin_treesit_parser_list(ctx, args),
         0,
         Some(3),
     );
     ctx.defsubr(
         "treesit-parser-notifiers",
-        |_ctx, args| builtin_treesit_parser_notifiers(args),
+        |ctx, args| builtin_treesit_parser_notifiers(ctx, args),
         1,
         Some(1),
     );
@@ -6072,7 +6072,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-parser-root-node",
-        |_ctx, args| builtin_treesit_parser_root_node(args),
+        |ctx, args| builtin_treesit_parser_root_node(ctx, args),
         1,
         Some(1),
     );
@@ -6084,7 +6084,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-parser-tag",
-        |_ctx, args| builtin_treesit_parser_tag(args),
+        |ctx, args| builtin_treesit_parser_tag(ctx, args),
         1,
         Some(1),
     );
@@ -6102,7 +6102,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-query-compile",
-        |_ctx, args| builtin_treesit_query_compile(args),
+        |ctx, args| builtin_treesit_query_compile(ctx, args),
         2,
         Some(3),
     );
@@ -6162,7 +6162,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-query-eagerly-compiled-p",
-        |_ctx, args| builtin_treesit_query_eagerly_compiled_p(args),
+        |ctx, args| builtin_treesit_query_eagerly_compiled_p(ctx, args),
         1,
         Some(1),
     );
@@ -6174,13 +6174,13 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-parser-embed-level",
-        |_ctx, args| builtin_treesit_parser_embed_level(args),
+        |ctx, args| builtin_treesit_parser_embed_level(ctx, args),
         1,
         Some(1),
     );
     ctx.defsubr(
         "treesit-parser-set-embed-level",
-        |_ctx, args| builtin_treesit_parser_set_embed_level(args),
+        |ctx, args| builtin_treesit_parser_set_embed_level(ctx, args),
         2,
         Some(2),
     );

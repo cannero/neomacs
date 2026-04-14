@@ -6020,10 +6020,13 @@ fn pure_dispatch_treesit_node_placeholder_cluster_matches_compat_contracts() {
         .expect("builtin treesit-node-parent should evaluate");
     assert!(parent.is_nil());
 
-    let parser = dispatch_builtin_pure("treesit-node-parser", vec![Value::NIL])
+    let err = dispatch_builtin_pure("treesit-node-parser", vec![Value::NIL])
         .expect("builtin treesit-node-parser should resolve")
-        .expect("builtin treesit-node-parser should evaluate");
-    assert!(parser.is_nil());
+        .unwrap_err();
+    match err {
+        Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
+        other => panic!("expected signal, got {other:?}"),
+    }
 
     let prev_sibling = dispatch_builtin_pure("treesit-node-prev-sibling", vec![Value::NIL])
         .expect("builtin treesit-node-prev-sibling should resolve")
@@ -7116,10 +7119,13 @@ fn dispatch_builtin_pure_defers_evaluator_window_accessors_and_mutators() {
 #[test]
 fn dispatch_builtin_pure_handles_treesit_parser_query_and_search_placeholders() {
     crate::test_utils::init_test_tracing();
-    let parser = dispatch_builtin_pure("treesit-parser-buffer", vec![Value::NIL])
+    let err = dispatch_builtin_pure("treesit-parser-buffer", vec![Value::NIL])
         .expect("treesit-parser-buffer should resolve")
-        .expect("treesit-parser-buffer should evaluate");
-    assert_eq!(parser, Value::NIL);
+        .unwrap_err();
+    match err {
+        Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
+        other => panic!("expected signal, got {other:?}"),
+    }
 
     let search = dispatch_builtin_pure(
         "treesit-search-forward",
@@ -7134,6 +7140,65 @@ fn dispatch_builtin_pure_handles_treesit_parser_query_and_search_placeholders() 
         .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
+        other => panic!("expected signal, got {other:?}"),
+    }
+}
+
+#[test]
+fn treesit_query_compile_creates_lazy_compiled_query_record() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let query = crate::emacs_core::builtins::builtin_treesit_query_compile(
+        &mut eval,
+        vec![
+            Value::symbol("definitely-missing-language"),
+            Value::string("(identifier) @id"),
+            Value::NIL,
+        ],
+    )
+    .expect("lazy treesit-query-compile should not need a loaded grammar");
+
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_treesit_compiled_query_p(vec![query]).unwrap(),
+        Value::T
+    );
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_treesit_query_p(vec![query]).unwrap(),
+        Value::T
+    );
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_treesit_query_language(vec![query]).unwrap(),
+        Value::symbol("definitely-missing-language")
+    );
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_treesit_query_source(vec![query]).unwrap(),
+        Value::string("(identifier) @id")
+    );
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_treesit_query_eagerly_compiled_p(
+            &mut eval,
+            vec![query],
+        )
+        .unwrap(),
+        Value::NIL
+    );
+}
+
+#[test]
+fn treesit_query_compile_eager_missing_language_signals_treesit_query_error() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let err = crate::emacs_core::builtins::builtin_treesit_query_compile(
+        &mut eval,
+        vec![
+            Value::symbol("definitely-missing-language"),
+            Value::string("(identifier) @id"),
+            Value::T,
+        ],
+    )
+    .unwrap_err();
+    match err {
+        Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "treesit-query-error"),
         other => panic!("expected signal, got {other:?}"),
     }
 }

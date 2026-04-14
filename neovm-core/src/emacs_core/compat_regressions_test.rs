@@ -431,8 +431,10 @@ fn treesit_available_p_reports_runtime_support() {
 #[test]
 fn treesit_query_compile_validates_arity() {
     crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::Context::new();
     let err =
-        crate::emacs_core::builtins::builtin_treesit_query_compile(vec![Value::NIL]).unwrap_err();
+        crate::emacs_core::builtins::builtin_treesit_query_compile(&mut eval, vec![Value::NIL])
+            .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected signal, got {other:?}"),
