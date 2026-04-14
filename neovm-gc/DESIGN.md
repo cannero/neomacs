@@ -231,10 +231,14 @@ Still staging compromises:
 
   The allocation path still takes the `HeapCore` write
   lock for the final commit because that block mutates
-  `objects`, `indexes`, `old_gen`, and `stats`
-  simultaneously. TLAB bump itself is per-mutator and
-  never touches shared state on hit; the remaining
-  serialization point is the commit bookkeeping.
+  `indexes`, `old_gen`, and `stats` simultaneously.
+  The `ObjectStore` side of publish is no longer a
+  per-object shard-lock append: mutators now reserve
+  chunk slots through `ObjectPublishLocal` and publish
+  into fixed-capacity shard chunks. TLAB bump itself is
+  per-mutator and never touches shared state on hit; the
+  remaining serialization point is the broader commit
+  bookkeeping around the heap core.
 
   This is correctness-correct, with positive multi-mutator
   scaling on the barrier side and improved but still
@@ -943,8 +947,9 @@ Under the current split-lock model:
 - **Descriptor lookup** (mutator): single-entry `MutatorLocal` cache, otherwise `HeapCore` read lock and only falls back to write for first install
 - **TLAB refill** (mutator): safepoint read lock + brief `HeapCore` write lock + `reserve_tlab(size)`
 - **Old / pinned / large alloc** (mutator): safepoint read lock + brief `HeapCore` write lock
-- **Allocation commit** (mutator): safepoint read lock + `HeapCore` write lock
+- **Allocation commit** (mutator): safepoint read lock + `HeapCore` write lock; object-record publication itself uses mutator-owned chunk reservations inside `ObjectStore`
 - **Barrier common path** (mutator): safepoint read lock spanning the slot store + barrier, read-side observation / atomic stats, no `HeapCore` write lock
+- **Shared collector begin / poll**: shared `SharedHeap` read lock + collector-state write lock; no outer shared-heap write lock required
 - **Collection / compaction** (collector): safepoint write lock + `HeapCore` write lock for the critical section
 - **Observation** (SharedHeap accessors): snapshot-backed, unchanged at the public API level
 
@@ -1031,12 +1036,13 @@ passes the full test suite:
    `fetch_add` and never needs the heap write lock for this bookkeeping.
    `HeapCore::bump_barrier_stats` and `clear_barrier_stats` both relax
    to `&self`. **Status:** landed.
-9. **Shard allocation commit ownership** if profiling shows the shared
-   storage write lock is still the bottleneck. The next step is not
-   "more random mutexes"; it is ownership-based splitting of the
-   commit path (`ObjectStore`, index shards, old-gen allocation pool,
-   collector publication) so allocation publish stops serializing on
-   one `HeapCore` write lock.
+9. **Shard the remaining allocation commit ownership** if profiling
+   shows the shared storage write lock is still the bottleneck. The
+   `ObjectStore` side of publish is already sharded via mutator-owned
+   chunk reservations; the next step is the rest of the ownership
+   split (`index` shards, old-gen allocation pool, collector
+   publication, stats) so allocation publish stops serializing on one
+   `HeapCore` write lock.
 
 ### Success Criteria
 

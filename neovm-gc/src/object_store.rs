@@ -1,4 +1,8 @@
 use std::hash::{BuildHasher, Hash, Hasher};
+use std::marker::PhantomData;
+use std::mem::MaybeUninit;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{RwLock, RwLockReadGuard};
 
 use crate::descriptor::{ObjectKey, TypeDesc, TypeFlags};
@@ -7,20 +11,19 @@ use crate::index_state::{
 };
 use crate::object::ObjectRecord;
 
-const OBJECT_STORE_SHARDS: usize = 32;
+pub(crate) const OBJECT_STORE_SHARDS: usize = 32;
+const OBJECT_STORE_CHUNK_CAPACITY: usize = 64;
 
 #[derive(Debug, Default)]
-struct ObjectShard {
-    objects: Vec<ObjectRecord>,
+struct ObjectShardIndexState {
     object_index: ObjectIndex,
     finalizable_candidates: Vec<ObjectKey>,
     weak_candidates: Vec<ObjectKey>,
     ephemeron_candidates: Vec<ObjectKey>,
 }
 
-impl ObjectShard {
+impl ObjectShardIndexState {
     fn clear(&mut self) {
-        self.objects.clear();
         self.object_index.clear();
         self.finalizable_candidates.clear();
         self.weak_candidates.clear();
@@ -30,8 +33,8 @@ impl ObjectShard {
     fn record_allocated_object(
         &mut self,
         shard: usize,
-        object_key: ObjectKey,
         slot: usize,
+        object_key: ObjectKey,
         desc: &'static TypeDesc,
     ) {
         self.object_index
@@ -48,43 +51,125 @@ impl ObjectShard {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct ObjectShardReadRaw {
+#[derive(Debug)]
+struct ObjectChunk {
+    objects: Box<[MaybeUninit<ObjectRecord>]>,
+    published_len: AtomicUsize,
+}
+
+impl ObjectChunk {
+    fn new() -> Self {
+        Self {
+            objects: Box::new_uninit_slice(OBJECT_STORE_CHUNK_CAPACITY),
+            published_len: AtomicUsize::new(0),
+        }
+    }
+
+    #[inline]
+    fn published_len(&self) -> usize {
+        self.published_len.load(Ordering::Acquire)
+    }
+
+    #[inline]
+    fn is_full(&self) -> bool {
+        self.published_len() >= OBJECT_STORE_CHUNK_CAPACITY
+    }
+
+    unsafe fn write_reserved(&self, offset: usize, record: ObjectRecord) {
+        debug_assert!(offset < OBJECT_STORE_CHUNK_CAPACITY);
+        debug_assert_eq!(offset, self.published_len.load(Ordering::Relaxed));
+        let slot = unsafe { self.objects.as_ptr().add(offset) as *mut MaybeUninit<ObjectRecord> };
+        unsafe { (*slot).write(record) };
+    }
+
+    fn publish_reserved(&self, offset: usize) {
+        self.published_len
+            .store(offset.saturating_add(1), Ordering::Release);
+    }
+
+    fn read_raw(&self) -> ObjectChunkReadRaw {
+        ObjectChunkReadRaw {
+            objects_ptr: self.objects.as_ptr() as *const ObjectRecord,
+            published_len: self.published_len(),
+        }
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &ObjectRecord> + '_ {
+        let published = self.published_len();
+        (0..published).map(|slot| unsafe { &*self.objects[slot].as_ptr() })
+    }
+
+    fn drain_published_into(&self, out: &mut Vec<ObjectRecord>) {
+        let published = self.published_len.swap(0, Ordering::AcqRel);
+        out.reserve(published);
+        for slot in 0..published {
+            out.push(unsafe { self.objects[slot].assume_init_read() });
+        }
+    }
+}
+
+impl Drop for ObjectChunk {
+    fn drop(&mut self) {
+        let published = *self.published_len.get_mut();
+        for slot in 0..published {
+            unsafe { self.objects[slot].assume_init_drop() };
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct ObjectChunkReadRaw {
     objects_ptr: *const ObjectRecord,
-    objects_len: usize,
+    published_len: usize,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ObjectShardReadRaw {
+    chunks: Arc<[ObjectChunkReadRaw]>,
     index_ptr: *const ObjectIndex,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct ObjectReadRaw<'a> {
-    shards: &'a [ObjectShardReadRaw],
+    shards: Arc<[ObjectShardReadRaw]>,
     object_count: usize,
+    _marker: PhantomData<&'a ObjectIndex>,
 }
 
 impl<'a> ObjectReadRaw<'a> {
     #[inline]
-    pub(crate) fn len(self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.object_count
     }
 
     #[inline]
-    pub(crate) fn get(self, locator: ObjectLocator) -> &'a ObjectRecord {
+    pub(crate) fn get(&self, locator: ObjectLocator) -> &'a ObjectRecord {
         let shard = &self.shards[locator.shard];
-        debug_assert!(locator.slot < shard.objects_len);
-        unsafe { &*shard.objects_ptr.add(locator.slot) }
+        let chunk_index = locator.slot / OBJECT_STORE_CHUNK_CAPACITY;
+        let chunk_offset = locator.slot % OBJECT_STORE_CHUNK_CAPACITY;
+        debug_assert!(chunk_index < shard.chunks.len());
+        let chunk = &shard.chunks[chunk_index];
+        debug_assert!(chunk_offset < chunk.published_len);
+        unsafe { &*chunk.objects_ptr.add(chunk_offset) }
     }
 
     #[inline]
-    pub(crate) fn locator_of_key(self, key: ObjectKey) -> Option<ObjectLocator> {
+    pub(crate) fn locator_of_key(&self, key: ObjectKey) -> Option<ObjectLocator> {
         let shard = shard_index_for_key(key, self.shards.len());
         unsafe { (&*self.shards[shard].index_ptr).get(&key).copied() }
     }
 
-    pub(crate) fn all_locators(self) -> Vec<ObjectLocator> {
+    pub(crate) fn all_locators(&self) -> Vec<ObjectLocator> {
         let mut locators = Vec::with_capacity(self.object_count);
         for (shard_index, shard) in self.shards.iter().enumerate() {
-            for slot in 0..shard.objects_len {
-                locators.push(ObjectLocator::new(shard_index, slot));
+            for (chunk_index, chunk) in shard.chunks.iter().enumerate() {
+                let base_slot = chunk_index.saturating_mul(OBJECT_STORE_CHUNK_CAPACITY);
+                for chunk_offset in 0..chunk.published_len {
+                    locators.push(ObjectLocator::new(
+                        shard_index,
+                        base_slot.saturating_add(chunk_offset),
+                    ));
+                }
             }
         }
         locators
@@ -120,8 +205,8 @@ pub(crate) trait ObjectReadView {
 
 #[derive(Debug)]
 pub(crate) struct ObjectStoreReadGuard<'a> {
-    _guards: Vec<RwLockReadGuard<'a, ObjectShard>>,
-    raw: Vec<ObjectShardReadRaw>,
+    _chunk_guards: Vec<RwLockReadGuard<'a, Vec<Arc<ObjectChunk>>>>,
+    _index_guards: Vec<RwLockReadGuard<'a, ObjectShardIndexState>>,
     object_count: usize,
     remembered: &'a RememberedSetState,
 }
@@ -130,8 +215,23 @@ impl<'a> ObjectStoreReadGuard<'a> {
     #[inline]
     pub(crate) fn raw(&'a self) -> ObjectReadRaw<'a> {
         ObjectReadRaw {
-            shards: &self.raw,
+            shards: Arc::from(
+                self._chunk_guards
+                    .iter()
+                    .zip(self._index_guards.iter())
+                    .map(|(chunks, indexes)| ObjectShardReadRaw {
+                        chunks: Arc::from(
+                            chunks
+                                .iter()
+                                .map(|chunk| chunk.read_raw())
+                                .collect::<Vec<_>>(),
+                        ),
+                        index_ptr: &indexes.object_index as *const _,
+                    })
+                    .collect::<Vec<_>>(),
+            ),
             object_count: self.object_count,
+            _marker: PhantomData,
         }
     }
 
@@ -146,25 +246,28 @@ impl<'a> ObjectStoreReadGuard<'a> {
     }
 
     pub(crate) fn iter(&'a self) -> impl Iterator<Item = &'a ObjectRecord> + 'a {
-        self._guards.iter().flat_map(|shard| shard.objects.iter())
+        self._chunk_guards
+            .iter()
+            .flat_map(|chunks| chunks.iter())
+            .flat_map(|chunk| chunk.iter())
     }
 
     pub(crate) fn finalizable_candidates(&self) -> Vec<ObjectKey> {
-        self._guards
+        self._index_guards
             .iter()
             .flat_map(|shard| shard.finalizable_candidates.iter().copied())
             .collect()
     }
 
     pub(crate) fn weak_candidates(&self) -> Vec<ObjectKey> {
-        self._guards
+        self._index_guards
             .iter()
             .flat_map(|shard| shard.weak_candidates.iter().copied())
             .collect()
     }
 
     pub(crate) fn ephemeron_candidates(&self) -> Vec<ObjectKey> {
-        self._guards
+        self._index_guards
             .iter()
             .flat_map(|shard| shard.ephemeron_candidates.iter().copied())
             .collect()
@@ -176,21 +279,38 @@ impl<'a> ObjectStoreReadGuard<'a> {
     }
 
     pub(crate) fn candidate_counts(&self) -> (usize, usize, usize) {
-        self._guards.iter().fold((0, 0, 0), |(f, w, e), shard| {
-            (
-                f + shard.finalizable_candidates.len(),
-                w + shard.weak_candidates.len(),
-                e + shard.ephemeron_candidates.len(),
-            )
-        })
+        self._index_guards
+            .iter()
+            .fold((0, 0, 0), |(f, w, e), shard| {
+                (
+                    f + shard.finalizable_candidates.len(),
+                    w + shard.weak_candidates.len(),
+                    e + shard.ephemeron_candidates.len(),
+                )
+            })
     }
 }
 
 impl ObjectReadView for ObjectStoreReadGuard<'_> {
     fn raw(&self) -> ObjectReadRaw<'_> {
         ObjectReadRaw {
-            shards: &self.raw,
+            shards: Arc::from(
+                self._chunk_guards
+                    .iter()
+                    .zip(self._index_guards.iter())
+                    .map(|(chunks, indexes)| ObjectShardReadRaw {
+                        chunks: Arc::from(
+                            chunks
+                                .iter()
+                                .map(|chunk| chunk.read_raw())
+                                .collect::<Vec<_>>(),
+                        ),
+                        index_ptr: &indexes.object_index as *const _,
+                    })
+                    .collect::<Vec<_>>(),
+            ),
             object_count: self.object_count,
+            _marker: PhantomData,
         }
     }
 }
@@ -203,7 +323,6 @@ pub(crate) struct FlatObjectStore {
 
 #[derive(Debug)]
 pub(crate) struct FlatReadView<'a> {
-    raw: [ObjectShardReadRaw; 1],
     object_count: usize,
     pub(crate) objects: &'a [ObjectRecord],
     pub(crate) indexes: &'a HeapIndexState,
@@ -212,11 +331,6 @@ pub(crate) struct FlatReadView<'a> {
 impl<'a> FlatReadView<'a> {
     pub(crate) fn new(objects: &'a [ObjectRecord], indexes: &'a HeapIndexState) -> Self {
         Self {
-            raw: [ObjectShardReadRaw {
-                objects_ptr: objects.as_ptr(),
-                objects_len: objects.len(),
-                index_ptr: &indexes.object_index as *const _,
-            }],
             object_count: objects.len(),
             objects,
             indexes,
@@ -226,8 +340,20 @@ impl<'a> FlatReadView<'a> {
     #[inline]
     pub(crate) fn raw(&'a self) -> ObjectReadRaw<'a> {
         ObjectReadRaw {
-            shards: &self.raw,
+            shards: Arc::from(vec![ObjectShardReadRaw {
+                chunks: Arc::from(
+                    self.objects
+                        .chunks(OBJECT_STORE_CHUNK_CAPACITY)
+                        .map(|chunk| ObjectChunkReadRaw {
+                            objects_ptr: chunk.as_ptr(),
+                            published_len: chunk.len(),
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+                index_ptr: &self.indexes.object_index as *const _,
+            }]),
             object_count: self.object_count,
+            _marker: PhantomData,
         }
     }
 }
@@ -235,49 +361,173 @@ impl<'a> FlatReadView<'a> {
 impl ObjectReadView for FlatReadView<'_> {
     fn raw(&self) -> ObjectReadRaw<'_> {
         ObjectReadRaw {
-            shards: &self.raw,
+            shards: Arc::from(vec![ObjectShardReadRaw {
+                chunks: Arc::from(
+                    self.objects
+                        .chunks(OBJECT_STORE_CHUNK_CAPACITY)
+                        .map(|chunk| ObjectChunkReadRaw {
+                            objects_ptr: chunk.as_ptr(),
+                            published_len: chunk.len(),
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+                index_ptr: &self.indexes.object_index as *const _,
+            }]),
             object_count: self.object_count,
+            _marker: PhantomData,
         }
     }
 }
 
 #[derive(Debug)]
+pub(crate) struct ObjectPublishReservation {
+    generation: u64,
+    chunk_index: usize,
+    next_offset: usize,
+    chunk: Arc<ObjectChunk>,
+}
+
+#[derive(Debug)]
+pub(crate) struct ObjectPublishLocal {
+    reservations: Box<[Option<ObjectPublishReservation>]>,
+}
+
+impl Default for ObjectPublishLocal {
+    fn default() -> Self {
+        let reservations = std::iter::repeat_with(|| None)
+            .take(OBJECT_STORE_SHARDS)
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        Self { reservations }
+    }
+}
+
+impl ObjectPublishLocal {
+    fn reservation_mut(&mut self, shard: usize) -> &mut Option<ObjectPublishReservation> {
+        &mut self.reservations[shard]
+    }
+}
+
+#[derive(Debug, Default)]
+struct ObjectShard {
+    chunks: RwLock<Vec<Arc<ObjectChunk>>>,
+    indexes: RwLock<ObjectShardIndexState>,
+}
+
+impl ObjectShard {
+    fn clear(&mut self) {
+        self.chunks
+            .get_mut()
+            .expect("object shard chunk lock poisoned")
+            .clear();
+        self.indexes
+            .get_mut()
+            .expect("object shard index lock poisoned")
+            .clear();
+    }
+
+    fn publish_owned_mut(&mut self, shard: usize, record: ObjectRecord) {
+        let desc = record.header().desc();
+        let object_key = record.object_key();
+        let chunks = self
+            .chunks
+            .get_mut()
+            .expect("object shard chunk lock poisoned");
+        let indexes = self
+            .indexes
+            .get_mut()
+            .expect("object shard index lock poisoned");
+        let needs_chunk = chunks.last().is_none_or(|chunk| chunk.is_full());
+        if needs_chunk {
+            chunks.push(Arc::new(ObjectChunk::new()));
+        }
+        let chunk_index = chunks.len().saturating_sub(1);
+        let chunk = chunks[chunk_index].clone();
+        let chunk_offset = chunk.published_len();
+        let slot = chunk_index
+            .saturating_mul(OBJECT_STORE_CHUNK_CAPACITY)
+            .saturating_add(chunk_offset);
+        unsafe { chunk.write_reserved(chunk_offset, record) };
+        indexes.record_allocated_object(shard, slot, object_key, desc);
+        chunk.publish_reserved(chunk_offset);
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct ObjectStore {
-    shards: Box<[RwLock<ObjectShard>]>,
+    shards: Box<[ObjectShard]>,
     remembered: RememberedSetState,
+    generation: AtomicU64,
 }
 
 impl Default for ObjectStore {
     fn default() -> Self {
         let mut shards = Vec::with_capacity(OBJECT_STORE_SHARDS);
         for _ in 0..OBJECT_STORE_SHARDS {
-            shards.push(RwLock::new(ObjectShard::default()));
+            shards.push(ObjectShard::default());
         }
         Self {
             shards: shards.into_boxed_slice(),
             remembered: RememberedSetState::default(),
+            generation: AtomicU64::new(0),
         }
     }
 }
 
 impl ObjectStore {
-    pub(crate) fn read(&self) -> ObjectStoreReadGuard<'_> {
-        let mut guards = Vec::with_capacity(self.shards.len());
-        let mut raw = Vec::with_capacity(self.shards.len());
-        let mut object_count = 0usize;
-        for shard in self.shards.iter() {
-            let guard = shard.read().expect("object shard lock poisoned");
-            object_count = object_count.saturating_add(guard.objects.len());
-            raw.push(ObjectShardReadRaw {
-                objects_ptr: guard.objects.as_ptr(),
-                objects_len: guard.objects.len(),
-                index_ptr: &guard.object_index as *const _,
-            });
-            guards.push(guard);
+    #[inline]
+    fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Acquire)
+    }
+
+    fn bump_generation(&self) {
+        self.generation.fetch_add(1, Ordering::AcqRel);
+    }
+
+    fn reserve_publish_chunk(&self, shard_index: usize) -> ObjectPublishReservation {
+        let generation = self.generation();
+        let chunk = Arc::new(ObjectChunk::new());
+        let mut chunks = self.shards[shard_index]
+            .chunks
+            .write()
+            .expect("object shard chunk lock poisoned");
+        let chunk_index = chunks.len();
+        chunks.push(Arc::clone(&chunk));
+        ObjectPublishReservation {
+            generation,
+            chunk_index,
+            next_offset: 0,
+            chunk,
         }
+    }
+
+    pub(crate) fn read(&self) -> ObjectStoreReadGuard<'_> {
+        let mut chunk_guards = Vec::with_capacity(self.shards.len());
+        let mut index_guards = Vec::with_capacity(self.shards.len());
+        let mut object_count = 0usize;
+
+        for shard in self.shards.iter() {
+            let chunk_guard = shard
+                .chunks
+                .read()
+                .expect("object shard chunk lock poisoned");
+            let index_guard = shard
+                .indexes
+                .read()
+                .expect("object shard index lock poisoned");
+            object_count = object_count.saturating_add(
+                chunk_guard
+                    .iter()
+                    .map(|chunk| chunk.published_len())
+                    .sum::<usize>(),
+            );
+            chunk_guards.push(chunk_guard);
+            index_guards.push(index_guard);
+        }
+
         ObjectStoreReadGuard {
-            _guards: guards,
-            raw,
+            _chunk_guards: chunk_guards,
+            _index_guards: index_guards,
             object_count,
             remembered: &self.remembered,
         }
@@ -295,27 +545,62 @@ impl ObjectStore {
         self.remembered.replace(owners);
     }
 
-    pub(crate) fn publish_shared(&self, record: ObjectRecord) -> ObjectLocator {
+    pub(crate) fn publish_shared(
+        &self,
+        record: ObjectRecord,
+        publish_local: &mut ObjectPublishLocal,
+    ) -> ObjectLocator {
         let object_key = record.object_key();
-        let shard_index = shard_index_for_key(object_key, self.shards.len());
-        let mut shard = self.shards[shard_index]
-            .write()
-            .expect("object shard lock poisoned");
-        let slot = shard.objects.len();
         let desc = record.header().desc();
-        shard.objects.push(record);
-        shard.record_allocated_object(shard_index, object_key, slot, desc);
+        let shard_index = shard_index_for_key(object_key, self.shards.len());
+        let reservation = publish_local.reservation_mut(shard_index);
+        let generation = self.generation();
+        let needs_reservation = reservation.as_ref().is_none_or(|reservation| {
+            reservation.generation != generation
+                || reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY
+        });
+        if needs_reservation {
+            *reservation = Some(self.reserve_publish_chunk(shard_index));
+        }
+
+        let reservation = reservation
+            .as_mut()
+            .expect("publish reservation should exist after refill");
+        let chunk_offset = reservation.next_offset;
+        let slot = reservation
+            .chunk_index
+            .saturating_mul(OBJECT_STORE_CHUNK_CAPACITY)
+            .saturating_add(chunk_offset);
+        unsafe { reservation.chunk.write_reserved(chunk_offset, record) };
+        let mut indexes = self.shards[shard_index]
+            .indexes
+            .write()
+            .expect("object shard index lock poisoned");
+        indexes.record_allocated_object(shard_index, slot, object_key, desc);
+        reservation.chunk.publish_reserved(chunk_offset);
+        reservation.next_offset = reservation.next_offset.saturating_add(1);
         ObjectLocator::new(shard_index, slot)
     }
 
     pub(crate) fn take_flat(&mut self) -> FlatObjectStore {
         let mut objects = Vec::new();
         let mut remembered = std::mem::take(&mut self.remembered);
-        for shard_lock in self.shards.iter_mut() {
-            let shard = shard_lock.get_mut().expect("object shard lock poisoned");
-            objects.append(&mut shard.objects);
-            shard.clear();
+        for shard in self.shards.iter_mut() {
+            let chunks = shard
+                .chunks
+                .get_mut()
+                .expect("object shard chunk lock poisoned");
+            for chunk in chunks.iter() {
+                chunk.drain_published_into(&mut objects);
+            }
+            chunks.clear();
+            shard
+                .indexes
+                .get_mut()
+                .expect("object shard index lock poisoned")
+                .clear();
         }
+
         let mut indexes = HeapIndexState::default();
         indexes.remembered = std::mem::take(&mut remembered);
         indexes.reset_candidate_indexes(objects.len());
@@ -331,23 +616,15 @@ impl ObjectStore {
 
     pub(crate) fn restore_from_flat(&mut self, mut flat: FlatObjectStore) {
         self.remembered = std::mem::take(&mut flat.indexes.remembered);
-        for shard_lock in self.shards.iter_mut() {
-            shard_lock
-                .get_mut()
-                .expect("object shard lock poisoned")
-                .clear();
+        for shard in self.shards.iter_mut() {
+            shard.clear();
         }
         for object in flat.objects.drain(..) {
             let object_key = object.object_key();
             let shard_index = shard_index_for_key(object_key, self.shards.len());
-            let shard = self.shards[shard_index]
-                .get_mut()
-                .expect("object shard lock poisoned");
-            let slot = shard.objects.len();
-            let desc = object.header().desc();
-            shard.objects.push(object);
-            shard.record_allocated_object(shard_index, object_key, slot, desc);
+            self.shards[shard_index].publish_owned_mut(shard_index, object);
         }
+        self.bump_generation();
     }
 }
 

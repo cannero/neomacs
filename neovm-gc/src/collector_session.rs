@@ -94,7 +94,7 @@ pub(crate) fn assist_active_major_mark_slices(
     let mut total_drained_objects = 0usize;
     let mut final_progress = None;
     for _ in 0..max_slices {
-        let progress = advance_major_mark_slice(collector, objects)?;
+        let progress = advance_major_mark_slice(collector, objects.clone())?;
         total_drained_objects = total_drained_objects.saturating_add(progress.drained_objects);
         let completed = progress.completed;
         final_progress = Some(progress);
@@ -144,17 +144,14 @@ pub(crate) fn record_active_major_reachable_object(
         return Ok(false);
     }
 
-    let _enqueued = mark_active_major_session_object(collector, objects, object);
+    let _enqueued = mark_active_major_session_object(collector, objects.clone(), object);
     if assist_slices > 0 {
         let _progress = assist_active_major_mark_slices(collector, objects, assist_slices)?;
     }
     Ok(true)
 }
 
-fn is_marked_active_major_session_object(
-    objects: ObjectReadRaw<'_>,
-    object: GcErased,
-) -> bool {
+fn is_marked_active_major_session_object(objects: ObjectReadRaw<'_>, object: GcErased) -> bool {
     let Some(object_index) = objects.locator_of_key(object.object_key()) else {
         return false;
     };
@@ -175,12 +172,12 @@ pub(crate) fn record_active_major_post_write(
     }
 
     if let Some(value) = old_value {
-        let _enqueued = mark_active_major_session_object(collector, objects, value);
+        let _enqueued = mark_active_major_session_object(collector, objects.clone(), value);
     }
-    if is_marked_active_major_session_object(objects, owner)
+    if is_marked_active_major_session_object(objects.clone(), owner)
         && let Some(value) = new_value
     {
-        let _enqueued = mark_active_major_session_object(collector, objects, value);
+        let _enqueued = mark_active_major_session_object(collector, objects.clone(), value);
     }
     if assist_slices > 0 {
         let _progress = assist_active_major_mark_slices(collector, objects, assist_slices)?;
@@ -216,7 +213,7 @@ pub(crate) fn poll_active_major_mark_with_completion(
     trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
     prepare_major_reclaim: impl FnOnce(&CollectionPlan) -> PreparedReclaim,
 ) -> Result<Option<MajorMarkProgress>, AllocError> {
-    let progress = poll_active_major_mark_round(collector, objects)?;
+    let progress = poll_active_major_mark_round(collector, objects.clone())?;
     if let Some(progress) = progress.as_ref()
         && progress.completed
     {

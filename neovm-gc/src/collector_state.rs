@@ -239,7 +239,12 @@ impl CollectorStateHandle {
         assist_slices: usize,
     ) -> Result<bool, AllocError> {
         self.with_state(|state| {
-            collector_session::record_active_major_reachable_object(state, objects, object, assist_slices)
+            collector_session::record_active_major_reachable_object(
+                state,
+                objects,
+                object,
+                assist_slices,
+            )
         })
     }
 
@@ -356,6 +361,11 @@ impl CollectorStateHandle {
     pub(crate) fn active_reclaim_prep_request(&self) -> Option<ActiveReclaimPrepRequest> {
         let state = self.lock();
         collector_session::active_reclaim_prep_request(&state)
+    }
+
+    pub(crate) fn active_major_mark_has_prepared_reclaim(&self) -> bool {
+        let state = self.lock();
+        state.active_major_mark_has_prepared_reclaim()
     }
 
     pub(crate) fn complete_active_reclaim_prep_and_refresh(
@@ -538,7 +548,6 @@ impl CollectorState {
             .is_some_and(|state| state.reclaim_prepared)
     }
 
-    #[cfg(test)]
     pub(crate) fn active_major_mark_has_prepared_reclaim(&self) -> bool {
         self.major_mark_state
             .as_ref()

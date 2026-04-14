@@ -56,7 +56,9 @@ fn flat(slot: usize) -> ObjectLocator {
     ObjectLocator::flat(slot)
 }
 
-fn flat_indexes(entries: impl IntoIterator<Item = (crate::descriptor::ObjectKey, usize)>) -> HeapIndexState {
+fn flat_indexes(
+    entries: impl IntoIterator<Item = (crate::descriptor::ObjectKey, usize)>,
+) -> HeapIndexState {
     HeapIndexState {
         object_index: entries
             .into_iter()
@@ -76,13 +78,8 @@ fn begin_major_mark_seeds_sources_into_initial_worklist() {
     let objects = [object];
     let view = FlatReadView::new(&objects, &indexes);
 
-    begin_major_mark(
-        &mut state,
-        view.raw(),
-        major_plan(),
-        [objects[0].erased()],
-    )
-    .expect("begin major mark");
+    begin_major_mark(&mut state, view.raw(), major_plan(), [objects[0].erased()])
+        .expect("begin major mark");
 
     let progress = state.major_mark_progress().expect("major mark progress");
     assert_eq!(progress.remaining_work, 1);
@@ -158,8 +155,9 @@ fn record_active_major_reachable_object_marks_and_enqueues_object() {
     let view = FlatReadView::new(&objects, &indexes);
     state.begin_major_mark(major_plan(), MarkWorklist::default());
 
-    let recorded = record_active_major_reachable_object(&mut state, view.raw(), objects[0].erased(), 0)
-        .expect("record active major reachable object");
+    let recorded =
+        record_active_major_reachable_object(&mut state, view.raw(), objects[0].erased(), 0)
+            .expect("record active major reachable object");
 
     assert!(recorded);
     assert!(objects[0].is_marked());

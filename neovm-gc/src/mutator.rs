@@ -46,7 +46,7 @@ const BARRIER_EVENT_HIGH_WATER: usize = 2 * MAX_BARRIER_EVENTS;
 /// across mutators even when they allocate against the same
 /// heap: the per-mutator nursery TLAB slab, the per-mutator
 /// barrier event ring, and the per-mutator root stack.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct MutatorLocal {
     /// Per-mutator nursery TLAB slab. Carved out of the
     /// shared `NurseryState::from_space` via
@@ -87,6 +87,24 @@ pub struct MutatorLocal {
     /// Single-entry descriptor cache for the most recently
     /// allocated payload type in this mutator.
     descriptor_cache: Option<(TypeId, &'static TypeDesc)>,
+    /// Per-mutator object-store publish reservations. Each
+    /// reservation owns one append-only shard chunk so the
+    /// common allocation path only has to touch the shard
+    /// index lock, not the object storage lock, once the
+    /// chunk is reserved.
+    publish_local: crate::object_store::ObjectPublishLocal,
+}
+
+impl Default for MutatorLocal {
+    fn default() -> Self {
+        Self {
+            tlab: None,
+            barrier_events: Vec::new(),
+            roots: RootStack::default(),
+            descriptor_cache: None,
+            publish_local: crate::object_store::ObjectPublishLocal::default(),
+        }
+    }
 }
 
 impl MutatorLocal {
@@ -121,6 +139,10 @@ impl MutatorLocal {
 
     fn remember_descriptor<T: Trace + 'static>(&mut self, desc: &'static TypeDesc) {
         self.descriptor_cache = Some((TypeId::of::<T>(), desc));
+    }
+
+    pub(crate) fn publish_local_mut(&mut self) -> &mut crate::object_store::ObjectPublishLocal {
+        &mut self.publish_local
     }
 }
 
@@ -309,9 +331,11 @@ impl<'heap> Mutator<'heap> {
         };
 
         let commit = if space == crate::object::SpaceKind::Old {
-            heap.write_core().commit_allocated_record(record)?
+            heap.write_core()
+                .commit_allocated_record(record, local.publish_local_mut())?
         } else {
-            heap.read_core().commit_allocated_record_shared(record)?
+            heap.read_core()
+                .commit_allocated_record_shared(record, local.publish_local_mut())?
         };
         if commit.plans_dirty {
             heap.mark_collector_plans_dirty();

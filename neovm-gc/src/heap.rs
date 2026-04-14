@@ -5,6 +5,7 @@ use crate::collector_state::{CollectorSharedSnapshot, CollectorStateHandle};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
 use crate::mutator::Mutator;
 use crate::object::{ObjectRecord, SpaceKind};
+use crate::object_store::{FlatObjectStore, ObjectPublishLocal, ObjectStore, ObjectStoreReadGuard};
 use crate::pacer::{Pacer, PacerConfig, PacerStats};
 use crate::pause_stats::{PauseHistogram, PauseStatsHandle};
 use crate::plan::{
@@ -13,7 +14,6 @@ use crate::plan::{
 };
 use crate::runtime::CollectorRuntime;
 use crate::runtime_state::RuntimeStateHandle;
-use crate::object_store::{FlatObjectStore, ObjectReadView, ObjectStore, ObjectStoreReadGuard};
 use crate::spaces::{
     LargeObjectSpaceConfig, NurseryConfig, NurseryState, OldGenConfig, OldGenPlanSelection,
     OldGenState, PinnedSpaceConfig,
@@ -21,6 +21,9 @@ use crate::spaces::{
 use crate::stats::{CollectionStats, HeapStats, OldRegionStats};
 use core::any::TypeId;
 use std::collections::HashMap;
+
+#[cfg(test)]
+use crate::object_store::ObjectReadView;
 
 /// Heap creation configuration.
 ///
@@ -1507,6 +1510,7 @@ impl HeapCore {
     pub(crate) fn commit_allocated_record(
         &mut self,
         mut record: ObjectRecord,
+        publish_local: &mut ObjectPublishLocal,
     ) -> Result<AllocationCommit, AllocError> {
         let total_size = record.header().total_size();
         let space = record.space();
@@ -1525,7 +1529,7 @@ impl HeapCore {
         };
         let gc = record.erased();
         alloc_counters.record_allocation(space, total_size, old_reserved);
-        objects.publish_shared(record);
+        objects.publish_shared(record, publish_local);
         let recorded = if collector.has_active_major_mark() {
             let read = objects.read();
             collector.record_active_major_reachable_object(
@@ -1545,13 +1549,14 @@ impl HeapCore {
     pub(crate) fn commit_allocated_record_shared(
         &self,
         record: ObjectRecord,
+        publish_local: &mut ObjectPublishLocal,
     ) -> Result<AllocationCommit, AllocError> {
         let total_size = record.header().total_size();
         let space = record.space();
         debug_assert_ne!(space, SpaceKind::Old);
         let gc = record.erased();
         self.alloc_counters.record_allocation(space, total_size, 0);
-        self.objects.publish_shared(record);
+        self.objects.publish_shared(record, publish_local);
         let recorded = if self.collector.has_active_major_mark() {
             let read = self.objects.read();
             self.collector.record_active_major_reachable_object(

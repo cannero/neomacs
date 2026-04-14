@@ -71,7 +71,7 @@ impl WeakProcessor for WeakRetention<'_> {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct ParallelWeakShared<'a> {
     objects: ObjectReadRaw<'a>,
     forwarding_ptr: *const ForwardingMap,
@@ -93,8 +93,12 @@ impl<'a> ParallelWeakShared<'a> {
         }
     }
 
-    pub(crate) fn processor(self) -> WeakRetention<'a> {
-        WeakRetention::new(self.objects, unsafe { &*self.forwarding_ptr }, self.kind)
+    pub(crate) fn processor(&self) -> WeakRetention<'a> {
+        WeakRetention::new(
+            self.objects.clone(),
+            unsafe { &*self.forwarding_ptr },
+            self.kind,
+        )
     }
 }
 
@@ -177,7 +181,7 @@ impl<'a> MajorMarkSession<'a> {
         slice_budget: usize,
     ) -> Self {
         Self {
-            objects,
+            objects: objects.clone(),
             tracer: MarkTracer::new(objects),
             worker_count,
             slice_budget,
@@ -229,10 +233,11 @@ impl<'a> MajorMarkSession<'a> {
         let locators = Arc::new(self.objects.all_locators());
         let workers = self.worker_count.max(1).min(locators.len().max(1));
         let chunk_size = locators.len().max(1).div_ceil(workers);
-        let shared = ParallelMarkShared::new(self.objects);
+        let shared = ParallelMarkShared::new(self.objects.clone());
         let worker_outputs = thread::scope(|scope| {
             let mut handles = Vec::with_capacity(workers);
             for worker_index in 0..workers {
+                let shared = shared.clone();
                 let locators = Arc::clone(&locators);
                 let start = worker_index.saturating_mul(chunk_size);
                 let end = (start + chunk_size).min(locators.len());
@@ -842,7 +847,7 @@ pub(crate) fn trace_minor(
     slice_budget: usize,
     sources: impl IntoIterator<Item = GcErased>,
 ) -> (u64, u64) {
-    let mut tracer = MinorTracer::new(objects);
+    let mut tracer = MinorTracer::new(objects.clone());
     for source in sources {
         tracer.scan_source(source);
     }
@@ -912,7 +917,7 @@ pub(crate) struct MarkTracer<'a> {
     pub(crate) worklist: MarkWorklist<ObjectLocator>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct ParallelMarkShared<'a> {
     objects: ObjectReadRaw<'a>,
     _marker: PhantomData<&'a ()>,
@@ -920,19 +925,22 @@ pub(crate) struct ParallelMarkShared<'a> {
 
 impl<'a> ParallelMarkShared<'a> {
     pub(crate) fn new(objects: ObjectReadRaw<'a>) -> Self {
-        Self { objects, _marker: PhantomData }
+        Self {
+            objects,
+            _marker: PhantomData,
+        }
     }
 
-    pub(crate) fn tracer(self, worklist: MarkWorklist<ObjectLocator>) -> MarkTracer<'a> {
-        MarkTracer::with_worklist(self.objects, worklist)
+    pub(crate) fn tracer(&self, worklist: MarkWorklist<ObjectLocator>) -> MarkTracer<'a> {
+        MarkTracer::with_worklist(self.objects.clone(), worklist)
     }
 
-    pub(crate) fn minor_tracer(self, worklist: MarkWorklist<ObjectLocator>) -> MinorTracer<'a> {
-        MinorTracer::with_worklist(self.objects, worklist)
+    pub(crate) fn minor_tracer(&self, worklist: MarkWorklist<ObjectLocator>) -> MinorTracer<'a> {
+        MinorTracer::with_worklist(self.objects.clone(), worklist)
     }
 
-    pub(crate) fn objects(self) -> ObjectReadRaw<'a> {
-        self.objects
+    pub(crate) fn objects(&self) -> ObjectReadRaw<'a> {
+        self.objects.clone()
     }
 }
 
@@ -947,7 +955,10 @@ impl<'a> MarkTracer<'a> {
     const SPLIT_THRESHOLD: usize = 32;
 
     pub(crate) fn new(objects: ObjectReadRaw<'a>) -> Self {
-        Self { objects, worklist: MarkWorklist::default() }
+        Self {
+            objects,
+            worklist: MarkWorklist::default(),
+        }
     }
 
     pub(crate) fn with_worklist(
@@ -1013,7 +1024,7 @@ impl<'a> MarkTracer<'a> {
         // dynamically steal from each other whenever their local
         // deque empties.
         run_stealing_round_major(
-            self.objects,
+            self.objects.clone(),
             &mut self.worklist,
             workers,
             slice_budget,
@@ -1056,14 +1067,20 @@ impl<'a> MinorTracer<'a> {
     const SPLIT_THRESHOLD: usize = 32;
 
     pub(crate) fn new(objects: ObjectReadRaw<'a>) -> Self {
-        Self { objects, young_worklist: MarkWorklist::default() }
+        Self {
+            objects,
+            young_worklist: MarkWorklist::default(),
+        }
     }
 
     pub(crate) fn with_worklist(
         objects: ObjectReadRaw<'a>,
         young_worklist: MarkWorklist<ObjectLocator>,
     ) -> Self {
-        Self { objects, young_worklist }
+        Self {
+            objects,
+            young_worklist,
+        }
     }
 
     pub(crate) fn into_worklist(self) -> MarkWorklist<ObjectLocator> {
@@ -1127,7 +1144,7 @@ impl<'a> MinorTracer<'a> {
 
         // Lock-free work-stealing path.
         run_stealing_round_minor(
-            self.objects,
+            self.objects.clone(),
             &mut self.young_worklist,
             workers,
             slice_budget,
@@ -1349,6 +1366,7 @@ fn run_stealing_round_major(
     let outputs: Vec<(usize, Vec<ObjectLocator>)> = thread::scope(|scope| {
         let mut handles = Vec::with_capacity(worker_count);
         for (worker_idx, worker) in workers.into_iter().enumerate() {
+            let shared = shared.clone();
             let stealers = Arc::clone(&stealers);
             handles.push(scope.spawn(move || {
                 let mut tracer = StealingMarkTracer::new(shared.objects(), worker);
@@ -1425,6 +1443,7 @@ fn run_stealing_round_minor(
     let outputs: Vec<(usize, Vec<ObjectLocator>)> = thread::scope(|scope| {
         let mut handles = Vec::with_capacity(worker_count);
         for (worker_idx, worker) in workers.into_iter().enumerate() {
+            let shared = shared.clone();
             let stealers = Arc::clone(&stealers);
             handles.push(scope.spawn(move || {
                 let mut tracer = StealingMinorTracer::new(shared.objects(), worker);
@@ -1551,7 +1570,12 @@ pub(crate) fn trace_minor_ephemerons(
             let _tracer = visitor.finish();
             changed
         } else {
-            scan_minor_ephemerons_parallel(objects, ephemeron_candidates, tracer, worker_count)
+            scan_minor_ephemerons_parallel(
+                objects.clone(),
+                ephemeron_candidates,
+                tracer,
+                worker_count,
+            )
         };
         let (steps, rounds) = tracer.drain_parallel_until_empty(worker_count, slice_budget);
         mark_steps = mark_steps.saturating_add(steps);
@@ -1576,6 +1600,7 @@ fn scan_minor_ephemerons_parallel(
     let worker_outputs = thread::scope(|scope| {
         let mut handles = Vec::with_capacity(workers);
         for worker_index in 0..workers {
+            let shared = shared.clone();
             let ephemeron_candidates = Arc::clone(&ephemeron_candidates);
             let start = worker_index.saturating_mul(chunk_size);
             let end = (start + chunk_size).min(ephemeron_candidates.len());
@@ -1628,7 +1653,7 @@ pub(crate) fn process_weak_references(
     let weak_candidates = Arc::new(weak_candidates.to_vec());
     let worker_count = worker_count.max(1);
     if worker_count == 1 || weak_candidates.len() <= 1 {
-        let mut processor = WeakRetention::new(objects, forwarding, kind);
+        let mut processor = WeakRetention::new(objects.clone(), forwarding, kind);
         for &index in weak_candidates.iter() {
             let object = objects.get(index);
             if survives_collection_kind(kind, object) {
@@ -1644,6 +1669,7 @@ pub(crate) fn process_weak_references(
     thread::scope(|scope| {
         let mut handles = Vec::with_capacity(workers);
         for worker_index in 0..workers {
+            let shared = shared.clone();
             let weak_candidates = Arc::clone(&weak_candidates);
             let start = worker_index.saturating_mul(chunk_size);
             let end = (start + chunk_size).min(weak_candidates.len());
