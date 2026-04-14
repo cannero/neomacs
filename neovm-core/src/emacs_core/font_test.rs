@@ -1,7 +1,7 @@
 use super::*;
 use crate::emacs_core::eval::{
     Context, DisplayHost, FontResolveRequest, FontSpecResolveRequest, GuiFrameHostRequest,
-    ResolvedFontMatch, ResolvedFontSpecMatch,
+    ResolvedFontMatch, ResolvedFontSpecMatch, ResolvedFrameFont,
 };
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::face::{Color, FaceAttrValue};
@@ -138,6 +138,28 @@ impl DisplayHost for CapturingFindFontDisplayHost {
     ) -> Result<Option<ResolvedFontSpecMatch>, String> {
         *self.last_request.borrow_mut() = Some(request);
         Ok(self.matched.clone())
+    }
+}
+
+struct LiveFrameFontDisplayHost {
+    realized: Option<ResolvedFrameFont>,
+}
+
+impl DisplayHost for LiveFrameFontDisplayHost {
+    fn realize_gui_frame(&mut self, _request: GuiFrameHostRequest) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn resize_gui_frame(&mut self, _request: GuiFrameHostRequest) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn resolve_frame_font(
+        &mut self,
+        _frame_id: crate::window::FrameId,
+        _face: crate::face::Face,
+    ) -> Result<Option<ResolvedFrameFont>, String> {
+        Ok(self.realized.clone())
     }
 }
 
@@ -1238,6 +1260,98 @@ fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_defa
         .expect("default face height")
         .as_int(),
         Some(102)
+    );
+}
+
+#[test]
+fn internal_set_lisp_face_attribute_eval_realizes_string_font_requests_for_live_default_face() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::Context::new();
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+    {
+        let frame = eval
+            .frame_manager_mut()
+            .get_mut(frame_id)
+            .expect("selected frame");
+        frame.window_system = Some(Value::symbol("neo"));
+    }
+    eval.set_display_host(Box::new(LiveFrameFontDisplayHost {
+        realized: Some(ResolvedFrameFont {
+            family: "Noto Sans Mono".to_string(),
+            foundry: None,
+            weight: FontWeight::NORMAL,
+            slant: FontSlant::Normal,
+            width: FontWidth::Normal,
+            postscript_name: Some("NotoSansMono-Regular".to_string()),
+            font_size_px: 22.0,
+            char_width: 13.0,
+            line_height: 31.0,
+        }),
+    }));
+
+    builtin_internal_set_lisp_face_attribute(
+        &mut eval,
+        vec![
+            Value::symbol("default"),
+            Value::keyword("font"),
+            Value::string("Noto Sans Mono-16"),
+            Value::make_frame(frame_id.0),
+        ],
+    )
+    .expect("set live default face font from string");
+
+    let frame = eval
+        .frame_manager()
+        .get(frame_id)
+        .expect("selected frame after font change");
+    assert_eq!(
+        frame
+            .parameters
+            .get("font")
+            .and_then(|value| value.as_str()),
+        Some("Noto Sans Mono-16")
+    );
+    let font_parameter = frame
+        .parameters
+        .get("font-parameter")
+        .copied()
+        .expect("font-parameter should be set");
+    assert!(
+        builtin_fontp(vec![font_parameter, Value::symbol("font-object")])
+            .expect("font-object check")
+            .is_truthy()
+    );
+    assert_eq!(frame.char_width, 13.0);
+    assert_eq!(frame.char_height, 31.0);
+    assert_eq!(frame.font_pixel_size, 22.0);
+
+    let default_font = builtin_internal_get_lisp_face_attribute(
+        &mut eval,
+        vec![
+            Value::symbol("default"),
+            Value::keyword(":font"),
+            Value::make_frame(frame_id.0),
+        ],
+    )
+    .expect("default face font");
+    assert_eq!(
+        builtin_font_get(vec![default_font, Value::keyword(":family")])
+            .expect("default font family")
+            .as_str(),
+        Some("Noto Sans Mono")
+    );
+    assert_eq!(
+        builtin_internal_get_lisp_face_attribute(
+            &mut eval,
+            vec![
+                Value::symbol("default"),
+                Value::keyword(":height"),
+                Value::make_frame(frame_id.0),
+            ],
+        )
+        .expect("default face height")
+        .as_int(),
+        Some(160)
     );
 }
 

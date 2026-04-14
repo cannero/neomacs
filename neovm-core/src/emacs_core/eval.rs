@@ -871,6 +871,19 @@ pub struct ResolvedFontMatch {
     pub postscript_name: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResolvedFrameFont {
+    pub family: String,
+    pub foundry: Option<String>,
+    pub weight: FontWeight,
+    pub slant: FontSlant,
+    pub width: FontWidth,
+    pub postscript_name: Option<String>,
+    pub font_size_px: f32,
+    pub char_width: f32,
+    pub line_height: f32,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedFontSpecMatch {
     pub family: String,
@@ -924,6 +937,13 @@ pub trait DisplayHost {
         &mut self,
         _request: FontResolveRequest,
     ) -> Result<Option<ResolvedFontMatch>, String> {
+        Ok(None)
+    }
+    fn resolve_frame_font(
+        &mut self,
+        _frame_id: crate::window::FrameId,
+        _face: RuntimeFace,
+    ) -> Result<Option<ResolvedFrameFont>, String> {
         Ok(None)
     }
     fn resolve_font_for_spec(

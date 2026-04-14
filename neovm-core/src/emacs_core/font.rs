@@ -118,6 +118,212 @@ fn font_value_text(value: &Value) -> Option<String> {
     }
 }
 
+struct LiveFrameFontResolution {
+    font_value: Value,
+    realized: Option<super::eval::ResolvedFrameFont>,
+}
+
+fn face_from_named_font_string(name: &str) -> Option<RuntimeFace> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut face = RuntimeFace::new("default");
+
+    if !trimmed.starts_with('-') {
+        if let Some((family, size)) = trimmed.rsplit_once('-')
+            && !family.trim().is_empty()
+            && size.chars().all(|ch| ch.is_ascii_digit())
+            && let Ok(points) = size.parse::<i32>()
+            && points > 0
+        {
+            face.family = Some(family.trim().to_string());
+            face.height = Some(FaceHeight::Absolute(points * 10));
+            return Some(face);
+        }
+        face.family = Some(trimmed.to_string());
+        return Some(face);
+    }
+
+    let fields = trimmed.split('-').collect::<Vec<_>>();
+    if fields.len() < 12 {
+        return None;
+    }
+
+    let foundry = fields[1];
+    let family = fields[2];
+    let weight = fields[3];
+    let slant = fields[4];
+    let set_width = fields[5];
+    let pixel = fields[7];
+
+    if foundry != "*" && !foundry.is_empty() {
+        face.foundry = Some(foundry.to_string());
+    }
+    if family != "*" && !family.is_empty() {
+        face.family = Some(family.to_string());
+    }
+    if let Some(parsed_weight) = FontWeight::from_symbol(weight) {
+        face.weight = Some(parsed_weight);
+    }
+    face.slant = match slant {
+        "i" | "italic" => Some(FontSlant::Italic),
+        "o" | "oblique" => Some(FontSlant::Oblique),
+        "ri" | "reverse-italic" => Some(FontSlant::ReverseItalic),
+        "ro" | "reverse-oblique" => Some(FontSlant::ReverseOblique),
+        "r" | "normal" | "*" => Some(FontSlant::Normal),
+        _ => None,
+    };
+    face.width = match set_width {
+        "normal" | "*" => Some(FontWidth::Normal),
+        other => FontWidth::from_symbol(other),
+    };
+    if pixel.chars().all(|ch| ch.is_ascii_digit())
+        && let Ok(size_px) = pixel.parse::<i32>()
+        && size_px > 0
+    {
+        face.height = Some(FaceHeight::Absolute(size_px * 10));
+    }
+
+    Some(face)
+}
+
+fn face_from_font_value(value: &Value) -> Option<RuntimeFace> {
+    if let Some(text) = font_value_text(value) {
+        return face_from_named_font_string(&text);
+    }
+    if !is_font(value) {
+        return None;
+    }
+
+    let elems = value.as_vector_data().unwrap().clone();
+    let mut face = RuntimeFace::new("default");
+
+    face.family =
+        font_vector_get_flexible(&elems, "family").and_then(|value| font_value_text(&value));
+    face.foundry =
+        font_vector_get_flexible(&elems, "foundry").and_then(|value| font_value_text(&value));
+    face.weight = font_vector_get_flexible(&elems, "weight").and_then(font_weight_from_value);
+    face.slant = font_vector_get_flexible(&elems, "slant").and_then(font_slant_from_value);
+    face.width = font_vector_get_flexible(&elems, "width").and_then(|value| match value.kind() {
+        ValueKind::Symbol(id) => FontWidth::from_symbol(resolve_sym(id)),
+        _ => None,
+    });
+    face.height = font_vector_get_flexible(&elems, "height")
+        .or_else(|| font_vector_get_flexible(&elems, "size"))
+        .and_then(|value| match value.kind() {
+            ValueKind::Fixnum(n) if n > 0 => Some(FaceHeight::Absolute(n as i32)),
+            ValueKind::Float if value.xfloat() > 0.0 => Some(FaceHeight::Relative(value.xfloat())),
+            _ => None,
+        });
+
+    Some(face)
+}
+
+fn build_frame_font_object_from_resolution(
+    requested_face: &RuntimeFace,
+    resolved: &super::eval::ResolvedFrameFont,
+) -> Value {
+    let mut selected = requested_face.clone();
+    selected.family = Some(resolved.family.clone());
+    selected.foundry = resolved
+        .foundry
+        .clone()
+        .or_else(|| requested_face.foundry.clone());
+    selected.weight = Some(resolved.weight);
+    selected.slant = Some(resolved.slant);
+    selected.width = Some(resolved.width);
+    selected.height = match requested_face.height {
+        Some(FaceHeight::Absolute(height)) => Some(FaceHeight::Absolute(height)),
+        Some(FaceHeight::Relative(scale)) => Some(FaceHeight::Relative(scale)),
+        None => Some(FaceHeight::Absolute(
+            (resolved.font_size_px * 10.0).round() as i32
+        )),
+    };
+
+    build_font_object(&selected)
+}
+
+fn resolve_live_frame_font_request(
+    eval: &mut super::eval::Context,
+    frame_id: FrameId,
+    requested: &Value,
+) -> LiveFrameFontResolution {
+    if is_font_object(requested) {
+        return LiveFrameFontResolution {
+            font_value: *requested,
+            realized: None,
+        };
+    }
+
+    if let Some(frame) = eval.frames.get(frame_id)
+        && font_value_matches_frame_font_parameter(frame, requested)
+        && let Some(font_value) = frame.parameters.get("font-parameter").copied()
+        && is_font(&font_value)
+    {
+        return LiveFrameFontResolution {
+            font_value,
+            realized: None,
+        };
+    }
+
+    let Some(requested_face) = face_from_font_value(requested) else {
+        return LiveFrameFontResolution {
+            font_value: *requested,
+            realized: None,
+        };
+    };
+
+    let realized = eval
+        .display_host
+        .as_mut()
+        .and_then(|host| {
+            host.resolve_frame_font(frame_id, requested_face.clone())
+                .ok()
+        })
+        .flatten();
+    let font_value = realized
+        .as_ref()
+        .map(|resolved| build_frame_font_object_from_resolution(&requested_face, resolved))
+        .unwrap_or_else(|| build_font_object(&requested_face));
+
+    LiveFrameFontResolution {
+        font_value,
+        realized,
+    }
+}
+
+fn sync_live_frame_font_state(
+    eval: &mut super::eval::Context,
+    frame_id: FrameId,
+    requested: &Value,
+    resolution: &LiveFrameFontResolution,
+) {
+    let Some(frame) = eval.frames.get_mut(frame_id) else {
+        return;
+    };
+
+    let public_font_name = if requested.is_string() {
+        *requested
+    } else {
+        font_name_value(&resolution.font_value).unwrap_or(*requested)
+    };
+
+    frame
+        .parameters
+        .insert("font".to_string(), public_font_name);
+    frame
+        .parameters
+        .insert("font-parameter".to_string(), resolution.font_value);
+
+    if let Some(realized) = &resolution.realized {
+        frame.font_pixel_size = realized.font_size_px.max(1.0);
+        frame.char_width = realized.char_width.max(1.0);
+        frame.char_height = realized.line_height.max(1.0);
+    }
+}
+
 fn expect_optional_frame_designator_in_state(
     frames: &FrameManager,
     value: Option<&Value>,
@@ -1304,30 +1510,6 @@ fn font_value_matches_frame_font_parameter(
         }
         _ => false,
     }
-}
-
-fn resolved_live_frame_font_value(
-    eval: &super::eval::Context,
-    frame_id: FrameId,
-    requested: &Value,
-) -> Value {
-    if is_font(requested) {
-        return *requested;
-    }
-
-    let Some(frame) = eval.frames.get(frame_id) else {
-        return *requested;
-    };
-    if !font_value_matches_frame_font_parameter(frame, requested) {
-        return *requested;
-    }
-
-    frame
-        .parameters
-        .get("font-parameter")
-        .copied()
-        .filter(is_font)
-        .unwrap_or(*requested)
 }
 
 fn public_live_frame_font_value(font_value: Value) -> Value {
@@ -2632,13 +2814,16 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute(
         let value = args[2];
 
         if !face_name.is_empty() && !attr_name.is_empty() {
-            let effective_value = if attr_name == ":font" {
-                live_frame_id_for_face_update(eval, args.get(3))?
-                    .map(|frame_id| resolved_live_frame_font_value(eval, frame_id, &value))
-                    .unwrap_or(value)
+            let live_frame_id = live_frame_id_for_face_update(eval, args.get(3))?;
+            let font_resolution = if attr_name == ":font" {
+                live_frame_id
+                    .map(|frame_id| resolve_live_frame_font_request(eval, frame_id, &value))
             } else {
-                value
+                None
             };
+            let effective_value = font_resolution
+                .as_ref()
+                .map_or(value, |resolution| resolution.font_value);
             let public_effective_value = if attr_name == ":font" {
                 public_live_frame_font_value(effective_value)
             } else {
@@ -2664,7 +2849,15 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute(
                 }
             }
 
-            if let Some(frame_id) = live_frame_id_for_face_update(eval, args.get(3))? {
+            if attr_name == ":font" && face_name == "default" {
+                if let (Some(frame_id), Some(resolution)) =
+                    (live_frame_id, font_resolution.as_ref())
+                {
+                    sync_live_frame_font_state(eval, frame_id, &value, resolution);
+                }
+            }
+
+            if let Some(frame_id) = live_frame_id {
                 mirror_runtime_face_into_frame(eval, frame_id, &face_name);
             }
         }

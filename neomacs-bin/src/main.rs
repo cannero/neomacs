@@ -35,7 +35,7 @@ use neovm_core::emacs_core::builtins::set_neomacs_monitor_info;
 use neovm_core::emacs_core::display::gui_window_system_symbol;
 use neovm_core::emacs_core::eval::{
     FontResolveRequest, FontSpecResolveRequest, GuiFrameHostSize, ImageResolveRequest,
-    ImageResolveSource, ResolvedFontMatch, ResolvedFontSpecMatch, ResolvedImage,
+    ImageResolveSource, ResolvedFontMatch, ResolvedFontSpecMatch, ResolvedFrameFont, ResolvedImage,
 };
 use neovm_core::emacs_core::load::LoadupDumpMode;
 use neovm_core::emacs_core::load::LoadupStartupSurface;
@@ -995,6 +995,50 @@ impl DisplayHost for PrimaryWindowDisplayHost {
             slant: font.slant,
             width: font.width,
             postscript_name: font.postscript_name,
+        }))
+    }
+
+    fn resolve_frame_font(
+        &mut self,
+        _frame_id: FrameId,
+        face: neovm_core::face::Face,
+    ) -> Result<Option<ResolvedFrameFont>, String> {
+        let requested_family = face.family.as_deref().unwrap_or("Monospace");
+        let requested_weight = face.weight.unwrap_or(FontWeight::NORMAL).0;
+        let requested_italic = face.slant.map(|slant| slant.is_italic()).unwrap_or(false);
+        let font_size = font_size_px_for_face(&face);
+        let selected = self
+            .font_metrics
+            .get_or_insert_with(FontMetricsService::new)
+            .select_font_for_char(
+                'M',
+                requested_family,
+                requested_weight,
+                requested_italic,
+                font_size,
+            );
+        let Some(font) = selected else {
+            return Ok(None);
+        };
+        let metrics = self
+            .font_metrics
+            .get_or_insert_with(FontMetricsService::new)
+            .font_metrics(
+                &font.family,
+                font.weight.0,
+                font.slant.is_italic(),
+                font_size,
+            );
+        Ok(Some(ResolvedFrameFont {
+            family: font.family,
+            foundry: None,
+            weight: font.weight,
+            slant: font.slant,
+            width: font.width,
+            postscript_name: font.postscript_name,
+            font_size_px: font_size,
+            char_width: metrics.char_width.max(1.0),
+            line_height: metrics.line_height.max(1.0),
         }))
     }
 
