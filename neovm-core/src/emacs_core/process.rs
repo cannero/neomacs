@@ -2764,7 +2764,7 @@ pub(crate) fn builtin_internal_default_process_filter(
     };
 
     // Save current point, move point to insert position, insert, then restore.
-    let saved_pt = eval.buffers.get(buf_id).map(|b| b.pt);
+    let saved_pt = eval.buffers.get(buf_id).map(|b| b.pt_byte);
     let old_read_only = eval.buffers.get(buf_id).map(|b| b.get_read_only());
 
     // Temporarily clear read-only so process output can be inserted.
@@ -2781,7 +2781,7 @@ pub(crate) fn builtin_internal_default_process_filter(
     let new_mark = eval
         .buffers
         .get(buf_id)
-        .map(|b| b.pt)
+        .map(|b| b.pt_byte)
         .unwrap_or(insert_pos + text_byte_len);
 
     // Restore read-only flag.

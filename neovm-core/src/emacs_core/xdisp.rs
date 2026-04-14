@@ -1682,10 +1682,10 @@ fn expand_mode_line_percent_in_state(
     let read_only = buf.is_some_and(|b| {
         crate::emacs_core::editfns::buffer_read_only_active_in_state(obarray, dynamic, b)
     });
-    let narrowed = buf.is_some_and(|b| b.begv > 0 || b.zv < b.text.len());
+    let narrowed = buf.is_some_and(|b| b.begv_byte > 0 || b.zv_byte < b.text.len());
 
     let (line_num, col_num) = if let Some(b) = buf {
-        let pt = b.pt;
+        let pt = b.pt_byte;
         let text = b.text.to_string();
         let before = &text[..pt.min(text.len())];
         let line = before.chars().filter(|&c| c == '\n').count() + 1;
@@ -1744,14 +1744,14 @@ fn expand_mode_line_percent_in_state(
             }
             Some('i') => {
                 let size = buf
-                    .map(|buffer| buffer.zv.saturating_sub(buffer.begv))
+                    .map(|buffer| buffer.zv_byte.saturating_sub(buffer.begv_byte))
                     .unwrap_or(0);
                 append_spec(&size.to_string());
                 index += 1;
             }
             Some('I') => {
                 let size = buf
-                    .map(|buffer| buffer.zv.saturating_sub(buffer.begv))
+                    .map(|buffer| buffer.zv_byte.saturating_sub(buffer.begv_byte))
                     .unwrap_or(0);
                 append_spec(&mode_line_human_readable_size(size));
                 index += 1;

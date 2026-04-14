@@ -269,7 +269,7 @@ pub(crate) fn builtin_current_indentation(
 
     let tabw = tab_width_in_state(&ctx.obarray, &[], Some(buf));
     let text = buf.text.to_string();
-    let (bol, eol) = line_bounds(&text, buf.begv, buf.zv, buf.pt);
+    let (bol, eol) = line_bounds(&text, buf.begv_byte, buf.zv_byte, buf.pt_byte);
     let line = &text[bol..eol];
 
     let mut column = 0usize;
@@ -297,8 +297,8 @@ pub(crate) fn builtin_current_column(
 
     let tabw = tab_width_in_state(&ctx.obarray, &[], Some(buf));
     let text = buf.text.to_string();
-    let pt = buf.pt.clamp(buf.begv, buf.zv);
-    let (bol, _) = line_bounds(&text, buf.begv, buf.zv, pt);
+    let pt = buf.pt_byte.clamp(buf.begv_byte, buf.zv_byte);
+    let (bol, _) = line_bounds(&text, buf.begv_byte, buf.zv_byte, pt);
     let prefix = &text[bol..pt];
 
     Ok(Value::fixnum(column_for_prefix(prefix, tabw) as i64))
@@ -324,8 +324,8 @@ pub(crate) fn builtin_move_to_column(
     let tabw = tab_width_in_state(&ctx.obarray, &[], Some(buf));
     let read_only = buffer_read_only_active_in_state(&ctx.obarray, &[], buf);
     let text = buf.text.to_string();
-    let pt = buf.pt.clamp(buf.begv, buf.zv);
-    let (bol, eol) = line_bounds(&text, buf.begv, buf.zv, pt);
+    let pt = buf.pt_byte.clamp(buf.begv_byte, buf.zv_byte);
+    let (bol, eol) = line_bounds(&text, buf.begv_byte, buf.zv_byte, pt);
     let line = &text[bol..eol];
     let buffer_name = buf.name.clone();
 
@@ -388,7 +388,7 @@ pub(crate) fn builtin_move_to_column(
             return Err(signal("buffer-read-only", vec![Value::string(buffer_name)]));
         }
         let pad = padding_to_column(reached, target, tabw);
-        let insert_pos = ctx.buffers.get(current_id).map(|b| b.pt).unwrap_or(0);
+        let insert_pos = ctx.buffers.get(current_id).map(|b| b.pt_byte).unwrap_or(0);
         let pad_len = pad.len();
         super::editfns::signal_before_change(ctx, insert_pos, insert_pos)?;
         let _ = ctx.buffers.insert_into_buffer(current_id, &pad);
@@ -471,7 +471,7 @@ pub(crate) fn builtin_indent_to(
         col += 1;
     }
 
-    let insert_pos = ctx.buffers.get(current_id).map(|b| b.pt).unwrap_or(0);
+    let insert_pos = ctx.buffers.get(current_id).map(|b| b.pt_byte).unwrap_or(0);
     let indent_len = indent.len();
     if indent_len > 0 {
         super::editfns::signal_before_change(ctx, insert_pos, insert_pos)?;

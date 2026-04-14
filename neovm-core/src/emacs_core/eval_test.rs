@@ -316,6 +316,45 @@ fn runtime_macro_cache_hits_across_equivalent_explicit_environments() {
 }
 
 #[test]
+fn runtime_macro_cache_handles_raw_unibyte_strings_in_environment() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_variable("load-in-progress", Value::T);
+    ev.eval_str(
+        "(defalias 'runtime-cache-macro
+           (cons 'macro
+                 (lambda (form)
+                   form)))",
+    )
+    .expect("install runtime-cache-macro");
+    let definition = ev
+        .obarray()
+        .symbol_function("runtime-cache-macro")
+        .cloned()
+        .expect("runtime-cache-macro definition");
+    let arg = Value::list(vec![Value::symbol("+"), Value::fixnum(1), Value::fixnum(2)]);
+    let form = Value::list(vec![Value::symbol("runtime-cache-macro"), arg]);
+    let raw_unibyte = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let env1 = Value::list(vec![Value::cons(Value::symbol("context"), raw_unibyte)]);
+    let env2 = Value::list(vec![Value::cons(Value::symbol("context"), raw_unibyte)]);
+
+    let hits0 = ev.macro_cache_hits;
+    let misses0 = ev.macro_cache_misses;
+
+    let first = ev
+        .expand_macro_for_macroexpand(form, definition, vec![arg], Some(env1))
+        .expect("first runtime macro expansion");
+    let second = ev
+        .expand_macro_for_macroexpand(form, definition, vec![arg], Some(env2))
+        .expect("second runtime macro expansion");
+
+    assert!(equal_value(&first, &arg, 0));
+    assert!(equal_value(&second, &arg, 0));
+    assert_eq!(ev.macro_cache_misses - misses0, 1);
+    assert_eq!(ev.macro_cache_hits - hits0, 1);
+}
+
+#[test]
 fn catch_leaves_shared_condition_stack_balanced() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

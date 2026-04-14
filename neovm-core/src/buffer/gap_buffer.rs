@@ -113,6 +113,26 @@ impl GapBuffer {
         self.total_bytes
     }
 
+    /// GNU `GPT`: character position of the gap.
+    pub fn gpt(&self) -> usize {
+        self.gap_start_chars
+    }
+
+    /// GNU `Z`: character position of the end of buffer text.
+    pub fn z(&self) -> usize {
+        self.total_chars
+    }
+
+    /// GNU `GPT_BYTE`: logical Emacs byte position of the gap.
+    pub fn gpt_byte(&self) -> usize {
+        self.gap_start_bytes
+    }
+
+    /// GNU `Z_BYTE`: logical Emacs byte position of the end of buffer text.
+    pub fn z_byte(&self) -> usize {
+        self.total_bytes
+    }
+
     /// Size of the gap in bytes.
     #[inline]
     pub fn gap_size(&self) -> usize {

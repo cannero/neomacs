@@ -2960,7 +2960,7 @@ pub(crate) fn builtin_self_insert_command(eval: &mut Context, args: Vec<Value>) 
         text.push(ch);
     }
     if let Some(current_id) = eval.buffers.current_buffer_id() {
-        let insert_pos = eval.buffers.get(current_id).map(|b| b.pt).unwrap_or(0);
+        let insert_pos = eval.buffers.get(current_id).map(|b| b.pt_byte).unwrap_or(0);
         let text_len = text.len();
         tracing::info!(
             "self-insert-command: inserting {:?} at pos {} in buffer {:?}",

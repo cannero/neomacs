@@ -192,7 +192,7 @@ fn parse_search_options_in_manager(
     let steps = count.unsigned_abs() as usize;
 
     if let Some(limit) = bound_lisp {
-        let point_lisp = buf.text.byte_to_char(buf.pt) as i64 + 1;
+        let point_lisp = buf.text.byte_to_char(buf.pt_byte) as i64 + 1;
         match direction {
             SearchDirection::Forward if limit < point_lisp => {
                 return Err(signal(
@@ -230,8 +230,8 @@ fn current_search_context_in_manager(
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let opts = parse_search_options_in_manager(buffers, buf, args, kind)?;
-    let start_pt = buf.pt;
-    let start_char = buf.text.byte_to_char(buf.pt) as i64 + 1;
+    let start_pt = buf.pt_byte;
+    let start_char = buf.text.byte_to_char(buf.pt_byte) as i64 + 1;
     Ok((current_id, opts, start_pt, start_char))
 }
 
@@ -248,10 +248,10 @@ fn buffer_byte_to_char_result_in_manager(
 
 fn search_failure_position(buf: &crate::buffer::Buffer, opts: SearchOptions) -> usize {
     match opts.bound {
-        Some(limit) => limit.clamp(buf.begv, buf.zv),
+        Some(limit) => limit.clamp(buf.begv_byte, buf.zv_byte),
         None => match opts.direction {
-            SearchDirection::Forward => buf.zv,
-            SearchDirection::Backward => buf.begv,
+            SearchDirection::Forward => buf.zv_byte,
+            SearchDirection::Backward => buf.begv_byte,
         },
     }
 }

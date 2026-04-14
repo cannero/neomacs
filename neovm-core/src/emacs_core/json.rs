@@ -1125,7 +1125,7 @@ pub(crate) fn builtin_json_insert(eval: &mut super::eval::Context, args: Vec<Val
         .buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let insert_pos = eval.buffers.get(current_id).map(|b| b.pt).unwrap_or(0);
+    let insert_pos = eval.buffers.get(current_id).map(|b| b.pt_byte).unwrap_or(0);
     let json_len = json.len();
     super::editfns::signal_before_change(eval, insert_pos, insert_pos)?;
     let _ = eval.buffers.insert_into_buffer(current_id, &json);

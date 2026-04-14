@@ -544,7 +544,7 @@ pub(crate) fn builtin_insert_before_markers(
     }
     ensure_current_buffer_writable_in_state(&ctx.obarray, &[], &ctx.buffers)?;
     if let Some(id) = ctx.buffers.current_buffer_id() {
-        let insert_pos = ctx.buffers.get(id).map(|buf| buf.pt).unwrap_or(0);
+        let insert_pos = ctx.buffers.get(id).map(|buf| buf.pt_byte).unwrap_or(0);
         let text_len = text.len();
         signal_before_change(ctx, insert_pos, insert_pos)?;
         let _ = ctx.buffers.insert_into_buffer_before_markers(id, &text);
@@ -567,12 +567,12 @@ pub(crate) fn builtin_delete_char(
             let Some(buf) = ctx.buffers.get(current_id) else {
                 return Ok(Value::NIL);
             };
-            let pt = buf.pt;
+            let pt = buf.pt_byte;
             if n > 0 {
                 // Delete N characters forward from point.
                 let mut end = pt;
                 for _ in 0..n {
-                    if end >= buf.zv {
+                    if end >= buf.zv_byte {
                         return Err(signal("end-of-buffer", vec![]));
                     }
                     match buf.char_after_storage_len(end) {
@@ -587,7 +587,7 @@ pub(crate) fn builtin_delete_char(
                 // Delete |N| characters backward from point.
                 let mut start = pt;
                 for _ in 0..(-n) {
-                    if start <= buf.begv {
+                    if start <= buf.begv_byte {
                         return Err(signal("beginning-of-buffer", vec![]));
                     }
                     match buf.char_before_storage_len(start) {
@@ -785,8 +785,8 @@ pub(crate) fn builtin_following_char(
 ) -> EvalResult {
     expect_args("following-char", &args, 0)?;
     match ctx.buffers.current_buffer() {
-        Some(buf) => match (buf.pt < buf.zv)
-            .then(|| buf.char_code_after(buf.pt))
+        Some(buf) => match (buf.pt_byte < buf.zv_byte)
+            .then(|| buf.char_code_after(buf.pt_byte))
             .flatten()
         {
             Some(code) => Ok(Value::fixnum(code as i64)),
@@ -803,8 +803,8 @@ pub(crate) fn builtin_preceding_char(
 ) -> EvalResult {
     expect_args("preceding-char", &args, 0)?;
     match ctx.buffers.current_buffer() {
-        Some(buf) => match (buf.pt > buf.begv)
-            .then(|| buf.char_code_before(buf.pt))
+        Some(buf) => match (buf.pt_byte > buf.begv_byte)
+            .then(|| buf.char_code_before(buf.pt_byte))
             .flatten()
         {
             Some(code) => Ok(Value::fixnum(code as i64)),

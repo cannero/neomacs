@@ -535,7 +535,7 @@ pub(crate) use symbols::*;
 
 pub(super) fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(lisp_string_to_runtime_string(*value)),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -545,7 +545,7 @@ pub(super) fn expect_string(value: &Value) -> Result<String, Flow> {
 
 pub(super) fn expect_string_comparison_operand(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(lisp_string_to_runtime_string(*value)),
         _ => value.as_symbol_name().map(str::to_owned).ok_or_else(|| {
             signal(
                 "wrong-type-argument",
@@ -557,12 +557,25 @@ pub(super) fn expect_string_comparison_operand(value: &Value) -> Result<String, 
 
 pub(super) fn expect_strict_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(lisp_string_to_runtime_string(*value)),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
         )),
     }
+}
+
+pub(crate) fn lisp_string_to_runtime_string(value: Value) -> String {
+    let string = value
+        .as_lisp_string()
+        .expect("ValueKind::String must carry LispString payload");
+    if !string.is_multibyte() {
+        return bytes_to_unibyte_storage_string(string.as_bytes());
+    }
+    string
+        .as_str()
+        .map(str::to_owned)
+        .unwrap_or_else(|| crate::emacs_core::emacs_char::to_utf8_lossy(string.as_bytes()))
 }
 
 // Search / regex builtins are defined at the end of this file.

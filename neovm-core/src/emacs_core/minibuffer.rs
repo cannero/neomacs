@@ -67,7 +67,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
     match val.kind() {
-        ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*val)),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *val],
@@ -861,7 +861,7 @@ fn symbol_reader_minibuffer_args(args: &[Value]) -> [Value; 6] {
 
 fn intern_symbol_reader_result(result: Value) -> Value {
     if result.is_string() {
-        let name = result.as_str().unwrap().to_owned();
+        let name = super::builtins::lisp_string_to_runtime_string(result);
         return Value::symbol(&name);
     }
     result
@@ -1294,13 +1294,17 @@ fn value_to_string_list(val: &Value) -> Vec<String> {
             items
                 .iter()
                 .filter_map(|item| match item.kind() {
-                    ValueKind::String => Some(item.as_str().unwrap().to_owned()),
+                    ValueKind::String => {
+                        Some(super::builtins::lisp_string_to_runtime_string(*item))
+                    }
                     ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
                     // Alist entry: (STRING . _)
                     ValueKind::Cons => {
                         let pair_car = item.cons_car();
                         match pair_car.kind() {
-                            ValueKind::String => Some(pair_car.as_str().unwrap().to_owned()),
+                            ValueKind::String => {
+                                Some(super::builtins::lisp_string_to_runtime_string(pair_car))
+                            }
                             ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
                             _ => None,
                         }
@@ -1313,7 +1317,9 @@ fn value_to_string_list(val: &Value) -> Vec<String> {
             let vec = val.as_vector_data().unwrap().clone();
             vec.iter()
                 .filter_map(|item| match item.kind() {
-                    ValueKind::String => Some(item.as_str().unwrap().to_owned()),
+                    ValueKind::String => {
+                        Some(super::builtins::lisp_string_to_runtime_string(*item))
+                    }
                     ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
                     _ => None,
                 })
@@ -1332,7 +1338,7 @@ pub(crate) struct CompletionCandidate {
 
 fn completion_string_from_value(value: &Value) -> Option<String> {
     match value.kind() {
-        ValueKind::String => Some(value.as_str().unwrap().to_owned()),
+        ValueKind::String => Some(super::builtins::lisp_string_to_runtime_string(*value)),
         ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
         ValueKind::Nil => Some("nil".to_owned()),
         ValueKind::T => Some("t".to_owned()),
@@ -1656,7 +1662,7 @@ fn completion_regexp_list(obarray: &Obarray) -> Vec<String> {
     items
         .iter()
         .filter_map(|item| match item.kind() {
-            ValueKind::String => Some(item.as_str().unwrap().to_owned()),
+            ValueKind::String => Some(super::builtins::lisp_string_to_runtime_string(*item)),
             _ => None,
         })
         .collect()

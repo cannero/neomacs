@@ -1324,22 +1324,22 @@ pub struct Buffer {
     pub base_buffer: Option<BufferId>,
     /// The underlying text storage.
     pub text: BufferText,
-    /// Point — the current cursor byte position.
-    pub pt: usize,
     /// Point — the current cursor character position.
-    pub pt_char: usize,
-    /// Mark — optional byte position for region operations.
-    pub mark: Option<usize>,
+    pub pt: usize,
+    /// Point — the current cursor byte position.
+    pub pt_byte: usize,
     /// Mark — optional character position for region operations.
-    pub mark_char: Option<usize>,
-    /// Beginning of accessible (narrowed) portion (byte pos, inclusive).
-    pub begv: usize,
+    pub mark: Option<usize>,
+    /// Mark — optional byte position for region operations.
+    pub mark_byte: Option<usize>,
     /// Beginning of accessible (narrowed) portion (char pos, inclusive).
-    pub begv_char: usize,
-    /// End of accessible (narrowed) portion (byte pos, exclusive).
-    pub zv: usize,
+    pub begv: usize,
+    /// Beginning of accessible (narrowed) portion (byte pos, inclusive).
+    pub begv_byte: usize,
     /// End of accessible (narrowed) portion (char pos, exclusive).
-    pub zv_char: usize,
+    pub zv: usize,
+    /// End of accessible (narrowed) portion (byte pos, exclusive).
+    pub zv_byte: usize,
     /// Whether the buffer has been modified since last save.
     pub modified: bool,
     /// Monotonic buffer modification tick.
@@ -1421,13 +1421,13 @@ impl Buffer {
             base_buffer: None,
             text: BufferText::new(),
             pt: 0,
-            pt_char: 0,
+            pt_byte: 0,
             mark: None,
-            mark_char: None,
+            mark_byte: None,
             begv: 0,
-            begv_char: 0,
+            begv_byte: 0,
             zv: 0,
-            zv_char: 0,
+            zv_byte: 0,
             modified: false,
             modified_tick: 1,
             chars_modified_tick: 1,
@@ -1567,7 +1567,7 @@ impl Buffer {
 
     /// Current point as a byte position.
     pub fn point_byte(&self) -> usize {
-        self.pt
+        self.pt_byte
     }
 
     /// Legacy point accessor retained while buffer internals are byte-only.
@@ -1577,17 +1577,17 @@ impl Buffer {
 
     /// Current point converted to a character position.
     pub fn point_char(&self) -> usize {
-        self.pt_char
+        self.pt
     }
 
     /// Beginning of the accessible portion (byte position).
     pub fn point_min_byte(&self) -> usize {
-        self.begv
+        self.begv_byte
     }
 
     /// Beginning of the accessible portion (character position).
     pub fn point_min_char(&self) -> usize {
-        self.begv_char
+        self.begv
     }
 
     /// Legacy narrowing accessor retained while buffer internals are byte-only.
@@ -1597,12 +1597,12 @@ impl Buffer {
 
     /// End of the accessible portion (byte position).
     pub fn point_max_byte(&self) -> usize {
-        self.zv
+        self.zv_byte
     }
 
     /// End of the accessible portion (character position).
     pub fn point_max_char(&self) -> usize {
-        self.zv_char
+        self.zv
     }
 
     /// Total number of characters in the buffer text.
@@ -1663,13 +1663,13 @@ impl Buffer {
 
     /// Set point in bytes, clamping to the accessible region `[begv, zv]`.
     pub fn goto_byte(&mut self, pos: usize) {
-        self.pt = pos.clamp(self.begv, self.zv);
-        self.pt_char = if self.pt == self.begv {
-            self.begv_char
-        } else if self.pt == self.zv {
-            self.zv_char
+        self.pt_byte = pos.clamp(self.begv_byte, self.zv_byte);
+        self.pt = if self.pt_byte == self.begv_byte {
+            self.begv
+        } else if self.pt_byte == self.zv_byte {
+            self.zv
         } else {
-            self.text.byte_to_char(self.pt)
+            self.text.byte_to_char(self.pt_byte)
         };
     }
 
@@ -1703,12 +1703,12 @@ impl Buffer {
 
     /// Return the entire accessible portion of the buffer as a `String`.
     pub fn buffer_string(&self) -> String {
-        self.text.text_range(self.begv, self.zv)
+        self.text.text_range(self.begv_byte, self.zv_byte)
     }
 
     /// Byte-length of the accessible portion.
     pub fn buffer_size(&self) -> usize {
-        self.zv - self.begv
+        self.zv_byte - self.begv_byte
     }
 
     /// Character at byte position `pos`, or `None` if out of range.
@@ -1772,16 +1772,16 @@ impl Buffer {
         let s = start.min(total);
         let e = end.clamp(s, total);
         let total_chars = self.text.char_count();
-        self.begv = s;
-        self.begv_char = self.text.byte_to_char(s);
-        self.zv = e;
-        self.zv_char = if e == total {
+        self.begv_byte = s;
+        self.begv = self.text.byte_to_char(s);
+        self.zv_byte = e;
+        self.zv = if e == total {
             total_chars
         } else {
             self.text.byte_to_char(e)
         };
         // Clamp point into the new accessible region.
-        self.goto_byte(self.pt);
+        self.goto_byte(self.pt_byte);
     }
 
     /// Legacy narrowing API retained while buffer internals are byte-only.
@@ -1796,10 +1796,10 @@ impl Buffer {
 
     pub fn register_marker(&mut self, marker_id: u64, pos: usize, insertion_type: InsertionType) {
         let clamped = pos.min(self.text.len());
-        let char_pos = if clamped == self.begv {
-            self.begv_char
-        } else if clamped == self.zv {
-            self.zv_char
+        let char_pos = if clamped == self.begv_byte {
+            self.begv
+        } else if clamped == self.zv_byte {
+            self.zv
         } else {
             self.text.byte_to_char(clamped)
         };
@@ -1832,16 +1832,16 @@ impl Buffer {
 
     /// Set the mark to the byte position `pos`.
     pub fn set_mark_byte(&mut self, pos: usize) {
-        let clamped = pos.clamp(self.begv, self.zv);
-        let char_pos = if clamped == self.begv {
-            self.begv_char
-        } else if clamped == self.zv {
-            self.zv_char
+        let clamped = pos.clamp(self.begv_byte, self.zv_byte);
+        let char_pos = if clamped == self.begv_byte {
+            self.begv
+        } else if clamped == self.zv_byte {
+            self.zv
         } else {
             self.text.byte_to_char(clamped)
         };
-        self.mark = Some(clamped);
-        self.mark_char = Some(char_pos);
+        self.mark = Some(char_pos);
+        self.mark_byte = Some(clamped);
     }
 
     /// Legacy mark setter retained while buffer internals are byte-only.
@@ -1851,12 +1851,12 @@ impl Buffer {
 
     /// Return the mark, if set.
     pub fn mark_byte(&self) -> Option<usize> {
-        self.mark
+        self.mark_byte
     }
 
     /// Return the mark character position, if set.
     pub fn mark_char(&self) -> Option<usize> {
-        self.mark_char
+        self.mark
     }
 
     /// Legacy mark accessor retained while buffer internals are byte-only.
@@ -2573,8 +2573,8 @@ impl BufferManager {
         indirect.inhibit_buffer_hooks = inhibit_buffer_hooks;
         indirect.text = shared_text;
         indirect.undo_state = root.undo_state.clone();
-        indirect.narrow_to_byte_region(root.begv, root.zv);
-        indirect.goto_byte(root.pt);
+        indirect.narrow_to_byte_region(root.begv_byte, root.zv_byte);
+        indirect.goto_byte(root.pt_byte);
         indirect.set_multibyte_value(root.get_multibyte());
         indirect.modified = root.modified;
         indirect.modified_tick = root.modified_tick;
@@ -2585,6 +2585,7 @@ impl BufferManager {
         if !clone {
             indirect.overlays = OverlayList::new();
             indirect.mark = None;
+            indirect.mark_byte = None;
         }
 
         self.buffers.insert(id, indirect);
@@ -2637,7 +2638,7 @@ impl BufferManager {
         }
         let (pt, begv, zv) = {
             let buffer = self.buffers.get(&buffer_id)?;
-            (buffer.pt, buffer.begv, buffer.zv)
+            (buffer.pt_byte, buffer.begv_byte, buffer.zv_byte)
         };
         let pt_marker = self.create_marker(buffer_id, pt, InsertionType::Before);
         let begv_marker = self.create_marker(buffer_id, begv, InsertionType::Before);
@@ -2654,7 +2655,7 @@ impl BufferManager {
         let markers = self.buffers.get(&buffer_id)?.state_markers?;
         let (pt, begv, zv) = {
             let buffer = self.buffers.get(&buffer_id)?;
-            (buffer.pt, buffer.begv, buffer.zv)
+            (buffer.pt_byte, buffer.begv_byte, buffer.zv_byte)
         };
         self.register_marker_id(buffer_id, markers.pt_marker, pt, InsertionType::Before)?;
         self.register_marker_id(buffer_id, markers.begv_marker, begv, InsertionType::Before)?;
@@ -2671,12 +2672,12 @@ impl BufferManager {
         let zv = self.marker_position(buffer_id, markers.zv_marker)?;
         let zv_char = self.marker_char_position(buffer_id, markers.zv_marker)?;
         let buffer = self.buffers.get_mut(&buffer_id)?;
-        buffer.pt = pt;
-        buffer.pt_char = pt_char;
-        buffer.begv = begv;
-        buffer.begv_char = begv_char;
-        buffer.zv = zv;
-        buffer.zv_char = zv_char;
+        buffer.pt = pt_char;
+        buffer.pt_byte = pt;
+        buffer.begv = begv_char;
+        buffer.begv_byte = begv;
+        buffer.zv = zv_char;
+        buffer.zv_byte = zv;
         Some(())
     }
 
@@ -2908,7 +2909,7 @@ impl BufferManager {
     ) -> Option<()> {
         let (begv, zv) = {
             let buf = self.buffers.get(&buffer_id)?;
-            (buf.begv, buf.zv)
+            (buf.begv_byte, buf.zv_byte)
         };
         let beg_marker = self.create_marker(buffer_id, begv, InsertionType::Before);
         let end_marker = self.create_marker(buffer_id, zv, InsertionType::After);
@@ -3238,7 +3239,7 @@ impl BufferManager {
     pub fn clear_buffer_mark(&mut self, id: BufferId) -> Option<()> {
         let buf = self.buffers.get_mut(&id)?;
         buf.mark = None;
-        buf.mark_char = None;
+        buf.mark_byte = None;
         Some(())
     }
 
@@ -3312,7 +3313,7 @@ impl BufferManager {
         let buffer_id = self.current_buffer_id()?;
         let (begv, zv, len) = {
             let buffer = self.get(buffer_id)?;
-            (buffer.begv, buffer.zv, buffer.text.len())
+            (buffer.begv_byte, buffer.zv_byte, buffer.text.len())
         };
         let restriction = if begv == 0 && zv == len {
             SavedRestrictionKind::None
@@ -4055,6 +4056,24 @@ mod tests {
         let mut buf = buf_with_text("hello");
         buf.goto_char(3);
         assert_eq!(buf.point_char(), 3);
+    }
+
+    #[test]
+    fn gnu_style_buffer_fields_track_char_and_byte_positions() {
+        crate::test_utils::init_test_tracing();
+        let mut buf = buf_with_text("éz");
+        assert_eq!(buf.begv, 0);
+        assert_eq!(buf.begv_byte, 0);
+        assert_eq!(buf.zv, 2);
+        assert_eq!(buf.zv_byte, 3);
+
+        buf.goto_byte('é'.len_utf8());
+        assert_eq!(buf.pt, 1);
+        assert_eq!(buf.pt_byte, 2);
+
+        buf.set_mark_byte(3);
+        assert_eq!(buf.mark, Some(2));
+        assert_eq!(buf.mark_byte, Some(3));
     }
 
     #[test]

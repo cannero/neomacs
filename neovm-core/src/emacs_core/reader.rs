@@ -507,7 +507,7 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
                     .buffers
                     .get(buf_id)
                     .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
-                (buf.buffer_string(), buf.pt)
+                (buf.buffer_string(), buf.pt_byte)
             };
             // Buffer point is a 0-based byte offset.
             let start = pt;

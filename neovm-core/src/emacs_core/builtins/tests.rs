@@ -6463,6 +6463,34 @@ fn looking_at_p_preserves_match_data() {
 }
 
 #[test]
+fn looking_at_handles_raw_unibyte_pattern_without_panicking() {
+    crate::test_utils::init_test_tracing();
+    use crate::emacs_core::eval::Context;
+
+    let mut eval = Context::new();
+    {
+        let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
+        buffer.insert("abc");
+        buffer.goto_char(0);
+    }
+
+    let pattern = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let _ = builtin_looking_at(&mut eval, vec![pattern]);
+}
+
+#[test]
+fn compare_value_lt_handles_raw_unibyte_strings_without_panicking() {
+    crate::test_utils::init_test_tracing();
+
+    let left = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFE]));
+    let right = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+
+    let ordering = crate::emacs_core::builtins::symbols::compare_value_lt(&left, &right)
+        .expect("raw unibyte string comparison should succeed");
+    assert_eq!(ordering, std::cmp::Ordering::Less);
+}
+
+#[test]
 fn string_match_inhibit_modify_preserves_match_data() {
     crate::test_utils::init_test_tracing();
     use crate::emacs_core::eval::Context;

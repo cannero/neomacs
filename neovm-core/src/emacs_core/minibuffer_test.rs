@@ -565,6 +565,16 @@ fn builtin_try_completion_no_match() {
 }
 
 #[test]
+fn builtin_try_completion_handles_raw_unibyte_candidates_without_panicking() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let coll = Value::list(vec![raw]);
+    let result = builtin_try_completion(&mut eval, vec![Value::string(""), coll]);
+    assert!(result.is_ok(), "try-completion should return a Lisp result");
+}
+
+#[test]
 fn builtin_try_completion_rejects_more_than_three_args() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();

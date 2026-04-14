@@ -741,7 +741,7 @@ impl<'a> Vm<'a> {
                         .ctx
                         .buffers
                         .current_buffer()
-                        .map(|buffer| (buffer.id, buffer.pt))
+                        .map(|buffer| (buffer.id, buffer.pt_byte))
                     {
                         let marker_id =
                             self.ctx

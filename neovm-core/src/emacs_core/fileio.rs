@@ -2511,15 +2511,15 @@ fn insert_file_contents_into_current_buffer_in_state(
         // beginning of the inserted region.
         let pt_before = buffers
             .get(current_id)
-            .map(|b| (b.pt, b.pt_char))
+            .map(|b| (b.pt_byte, b.pt))
             .unwrap_or((0, 0));
         buffers
             .insert_into_buffer(current_id, contents)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         // Restore point to before the insertion (matching GNU).
         if let Some(buf) = buffers.get_mut(current_id) {
-            buf.pt = pt_before.0;
-            buf.pt_char = pt_before.1;
+            buf.pt_byte = pt_before.0;
+            buf.pt = pt_before.1;
         }
         Ok(())
     }
@@ -2565,8 +2565,8 @@ fn run_after_insert_file_pipeline(
         .get(current_id)
         .map(|buf| {
             (
+                buf.pt_byte,
                 buf.pt,
-                buf.pt_char,
                 buf.point_min_byte(),
                 buf.chars_modified_tick,
             )
@@ -2628,8 +2628,8 @@ fn run_after_insert_file_pipeline(
         && chars_modiff_after == chars_modiff_before
         && let Some(buf) = eval.buffers.get_mut(current_id)
     {
-        buf.pt = saved_pt;
-        buf.pt_char = saved_pt_char;
+        buf.pt_byte = saved_pt;
+        buf.pt = saved_pt_char;
     }
     eval.unbind_to(specpdl_count);
 
@@ -2778,7 +2778,7 @@ pub(crate) fn builtin_insert_file_contents(
                 super::editfns::byte_span_char_len(buf, buf.point_min_byte(), buf.point_max_byte()),
             )
         } else {
-            (buf.pt, buf.pt, 0)
+            (buf.pt_byte, buf.pt_byte, 0)
         }
     });
     if let Some((beg, end, _old_len)) = pre_state {
@@ -2906,7 +2906,7 @@ pub(crate) fn builtin_insert_file_contents(
                 if replace_requested {
                     buf.point_max_byte()
                 } else {
-                    buf.pt
+                    buf.pt_byte
                 }
             })
             .unwrap_or(beg);

@@ -26,24 +26,25 @@ impl Buffer {
         }
 
         if update_state_fields {
-            if self.pt > insert_pos || (advance_point_at_insert && self.pt == insert_pos) {
-                self.pt += byte_len;
-                self.pt_char += char_len;
+            if self.pt_byte > insert_pos || (advance_point_at_insert && self.pt_byte == insert_pos)
+            {
+                self.pt_byte += byte_len;
+                self.pt += char_len;
             }
-            if shift_begv && self.begv > insert_pos {
-                self.begv += byte_len;
-                self.begv_char += char_len;
+            if shift_begv && self.begv_byte > insert_pos {
+                self.begv_byte += byte_len;
+                self.begv += char_len;
             }
-            if self.zv >= insert_pos {
-                self.zv += byte_len;
-                self.zv_char += char_len;
+            if self.zv_byte >= insert_pos {
+                self.zv_byte += byte_len;
+                self.zv += char_len;
             }
         }
-        if let Some(mark) = self.mark
-            && mark > insert_pos
+        if let Some(mark_byte) = self.mark_byte
+            && mark_byte > insert_pos
         {
-            self.mark = Some(mark + byte_len);
-            self.mark_char = self.mark_char.map(|mark_char| mark_char + char_len);
+            self.mark_byte = Some(mark_byte + byte_len);
+            self.mark = self.mark.map(|mark_char| mark_char + char_len);
         }
         if adjust_shared_markers {
             self.text
@@ -81,40 +82,40 @@ impl Buffer {
         let char_len = end_char - start_char;
 
         if update_state_fields {
-            if self.pt >= end {
-                self.pt -= byte_len;
-                self.pt_char -= char_len;
-            } else if self.pt > start {
-                self.pt = start;
-                self.pt_char = start_char;
+            if self.pt_byte >= end {
+                self.pt_byte -= byte_len;
+                self.pt -= char_len;
+            } else if self.pt_byte > start {
+                self.pt_byte = start;
+                self.pt = start_char;
             }
 
             if shift_begv {
-                if self.begv >= end {
-                    self.begv -= byte_len;
-                    self.begv_char -= char_len;
-                } else if self.begv > start {
-                    self.begv = start;
-                    self.begv_char = start_char;
+                if self.begv_byte >= end {
+                    self.begv_byte -= byte_len;
+                    self.begv -= char_len;
+                } else if self.begv_byte > start {
+                    self.begv_byte = start;
+                    self.begv = start_char;
                 }
             }
 
-            if self.zv >= end {
-                self.zv -= byte_len;
-                self.zv_char -= char_len;
-            } else if self.zv > start {
-                self.zv = start;
-                self.zv_char = start_char;
+            if self.zv_byte >= end {
+                self.zv_byte -= byte_len;
+                self.zv -= char_len;
+            } else if self.zv_byte > start {
+                self.zv_byte = start;
+                self.zv = start_char;
             }
         }
 
-        if let Some(mark) = self.mark {
-            if mark >= end {
-                self.mark = Some(mark - byte_len);
-                self.mark_char = self.mark_char.map(|mark_char| mark_char - char_len);
-            } else if mark > start {
-                self.mark = Some(start);
-                self.mark_char = Some(start_char);
+        if let Some(mark_byte) = self.mark_byte {
+            if mark_byte >= end {
+                self.mark_byte = Some(mark_byte - byte_len);
+                self.mark = self.mark.map(|mark_char| mark_char - char_len);
+            } else if mark_byte > start {
+                self.mark_byte = Some(start);
+                self.mark = Some(start_char);
             }
         }
 
@@ -188,8 +189,8 @@ impl Buffer {
     ///
     /// Markers at the insertion site move according to their `InsertionType`.
     fn insert_internal(&mut self, text: &str, before_markers: bool) {
-        let insert_pos = self.pt;
-        let insert_char_pos = self.pt_char;
+        let insert_pos = self.pt_byte;
+        let insert_char_pos = self.pt;
         let byte_len = text.len();
         if byte_len == 0 {
             return;
@@ -198,10 +199,10 @@ impl Buffer {
 
         // Record undo before modifying.
         if !self.undo_state.in_progress() {
-            self.undo_prepare_change(insert_pos, self.pt);
+            self.undo_prepare_change(insert_pos, self.pt_byte);
             let mut ul = self.get_undo_list();
             if !undo::undo_list_is_disabled(&ul) {
-                undo::undo_list_record_insert(&mut ul, insert_pos, byte_len, self.pt);
+                undo::undo_list_record_insert(&mut ul, insert_pos, byte_len, self.pt_byte);
                 self.set_undo_list(ul);
             }
         }
@@ -244,10 +245,10 @@ impl Buffer {
         // Record undo: save the deleted text for restoration.
         let deleted_text = self.text.text_range(start, end);
         if !self.undo_state.in_progress() {
-            self.undo_prepare_change(start, self.pt);
+            self.undo_prepare_change(start, self.pt_byte);
             let mut ul = self.get_undo_list();
             if !undo::undo_list_is_disabled(&ul) {
-                undo::undo_list_record_delete(&mut ul, start, &deleted_text, self.pt);
+                undo::undo_list_record_delete(&mut ul, start, &deleted_text, self.pt_byte);
                 self.set_undo_list(ul);
             }
         }
@@ -286,11 +287,11 @@ impl Buffer {
         };
 
         if !noundo && !self.undo_state.in_progress() {
-            self.undo_prepare_change(start, self.pt);
+            self.undo_prepare_change(start, self.pt_byte);
             let mut ul = self.get_undo_list();
             if !undo::undo_list_is_disabled(&ul) {
-                undo::undo_list_record_delete(&mut ul, start, &original, self.pt);
-                undo::undo_list_record_insert(&mut ul, start, replacement.len(), self.pt);
+                undo::undo_list_record_delete(&mut ul, start, &original, self.pt_byte);
+                undo::undo_list_record_insert(&mut ul, start, replacement.len(), self.pt_byte);
                 self.set_undo_list(ul);
             }
         }
@@ -377,8 +378,8 @@ impl BufferManager {
         let root_id = self.shared_text_root_id(id)?;
         let shared_ids = self.buffers_sharing_root_ids(root_id);
         let source = self.buffers.get(&id)?;
-        let insert_pos = source.pt;
-        let insert_char_pos = source.pt_char;
+        let insert_pos = source.pt_byte;
+        let insert_char_pos = source.pt;
 
         self.buffers.get_mut(&id)?.insert(text);
 
@@ -412,8 +413,8 @@ impl BufferManager {
         let root_id = self.shared_text_root_id(id)?;
         let shared_ids = self.buffers_sharing_root_ids(root_id);
         let source = self.buffers.get(&id)?;
-        let insert_pos = source.pt;
-        let insert_char_pos = source.pt_char;
+        let insert_pos = source.pt_byte;
+        let insert_char_pos = source.pt;
 
         self.buffers.get_mut(&id)?.insert_before_markers(text);
 

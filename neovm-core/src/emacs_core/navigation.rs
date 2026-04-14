@@ -299,12 +299,12 @@ fn point_motion_property(
     property: &str,
 ) -> Value {
     if after_point {
-        if point_byte >= buf.zv {
+        if point_byte >= buf.zv_byte {
             return Value::NIL;
         }
         lookup_buffer_text_property(obarray, buffers, buf, point_byte, property)
     } else {
-        if point_byte <= buf.begv {
+        if point_byte <= buf.begv_byte {
             return Value::NIL;
         }
         lookup_buffer_text_property(obarray, buffers, buf, point_byte - 1, property)
@@ -355,7 +355,7 @@ pub(crate) fn adjust_for_intangible(
                     }
                 }
                 None => {
-                    cursor = buf.zv;
+                    cursor = buf.zv_byte;
                     break;
                 }
             }
@@ -378,7 +378,7 @@ pub(crate) fn adjust_for_intangible(
                     }
                 }
                 None => {
-                    cursor = buf.begv;
+                    cursor = buf.begv_byte;
                     break;
                 }
             }
@@ -395,36 +395,37 @@ pub(crate) fn adjust_for_intangible(
 pub(crate) fn builtin_bobp(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("bobp", &args, 0)?;
     let buf = current_buffer_in_manager(&ctx.buffers)?;
-    Ok(Value::bool_val(buf.pt == buf.begv))
+    Ok(Value::bool_val(buf.pt_byte == buf.begv_byte))
 }
 
 /// (eobp) -- at end of buffer?
 pub(crate) fn builtin_eobp(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("eobp", &args, 0)?;
     let buf = current_buffer_in_manager(&ctx.buffers)?;
-    Ok(Value::bool_val(buf.pt == buf.zv))
+    Ok(Value::bool_val(buf.pt_byte == buf.zv_byte))
 }
 
 /// (bolp) -- at beginning of line?
 pub(crate) fn builtin_bolp(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("bolp", &args, 0)?;
     let buf = current_buffer_in_manager(&ctx.buffers)?;
-    if buf.pt == buf.begv {
+    if buf.pt_byte == buf.begv_byte {
         return Ok(Value::T);
     }
     let text = buffer_text(buf);
-    let at_bol = buf.pt > 0 && buf.pt <= text.len() && text.as_bytes()[buf.pt - 1] == b'\n';
-    Ok(Value::bool_val(buf.pt == 0 || at_bol))
+    let at_bol =
+        buf.pt_byte > 0 && buf.pt_byte <= text.len() && text.as_bytes()[buf.pt_byte - 1] == b'\n';
+    Ok(Value::bool_val(buf.pt_byte == 0 || at_bol))
 }
 
 /// (eolp) -- at end of line?
 pub(crate) fn builtin_eolp(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("eolp", &args, 0)?;
     let buf = current_buffer_in_manager(&ctx.buffers)?;
-    if buf.pt == buf.zv {
+    if buf.pt_byte == buf.zv_byte {
         return Ok(Value::T);
     }
-    match buf.char_after(buf.pt) {
+    match buf.char_after(buf.pt_byte) {
         Some('\n') => Ok(Value::T),
         _ => Ok(Value::NIL),
     }
@@ -447,9 +448,9 @@ pub(crate) fn builtin_line_beginning_position(
     };
     let buf = current_buffer_in_manager(&ctx.buffers)?;
     let text = buffer_text(buf);
-    let begv = buf.begv;
-    let zv = buf.zv;
-    let mut pos = buf.pt;
+    let begv = buf.begv_byte;
+    let zv = buf.zv_byte;
+    let mut pos = buf.pt_byte;
     if n != 1 {
         let delta = n - 1;
         let (new_pos, _) = move_by_lines_narrowed(&text, pos, delta, begv, zv);
@@ -472,9 +473,9 @@ pub(crate) fn builtin_line_end_position(
     };
     let buf = current_buffer_in_manager(&ctx.buffers)?;
     let text = buffer_text(buf);
-    let begv = buf.begv;
-    let zv = buf.zv;
-    let mut pos = buf.pt;
+    let begv = buf.begv_byte;
+    let zv = buf.zv_byte;
+    let mut pos = buf.pt_byte;
     let mut moved = 0;
     if n != 1 {
         let delta = n - 1;
@@ -496,14 +497,14 @@ pub(crate) fn builtin_line_number_at_pos(
 ) -> EvalResult {
     let buf = eval.buffers.current_buffer().ok_or_else(no_buffer)?;
     let byte_pos = if args.is_empty() || args[0].is_nil() {
-        buf.pt
+        buf.pt_byte
     } else {
         char_pos_to_byte(buf, expect_int(&args[0])?)
     };
     let _absolute = args.get(1).is_some_and(|v| v.is_truthy());
     // Count newlines from start of buffer to byte_pos.
     let text = buffer_text(buf);
-    let start = if _absolute { 0 } else { buf.begv };
+    let start = if _absolute { 0 } else { buf.begv_byte };
     let line_num = count_newlines(&text, start, byte_pos) + 1;
     Ok(Value::fixnum(line_num as i64))
 }
@@ -546,7 +547,7 @@ pub(crate) fn builtin_forward_line(
     let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (text, begv, zv, pt) = {
         let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
-        (buffer_text(buf), buf.begv, buf.zv, buf.pt)
+        (buffer_text(buf), buf.begv_byte, buf.zv_byte, buf.pt_byte)
     };
     let old_byte = pt;
     let (new_pos, moved) = move_by_lines_narrowed(&text, pt, n, begv, zv);
@@ -581,7 +582,7 @@ pub(crate) fn builtin_beginning_of_line(
     let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (text, begv, zv, pt) = {
         let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
-        (buffer_text(buf), buf.begv, buf.zv, buf.pt)
+        (buffer_text(buf), buf.begv_byte, buf.zv_byte, buf.pt_byte)
     };
     let old_byte = pt;
     let mut pos = pt;
@@ -607,7 +608,7 @@ pub(crate) fn builtin_end_of_line(eval: &mut super::eval::Context, args: Vec<Val
     let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (text, begv, zv, pt) = {
         let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
-        (buffer_text(buf), buf.begv, buf.zv, buf.pt)
+        (buffer_text(buf), buf.begv_byte, buf.zv_byte, buf.pt_byte)
     };
     let old_byte = pt;
     let mut pos = pt;
@@ -654,7 +655,7 @@ pub(crate) fn builtin_forward_char(
     let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (old_byte, cur_char, begv_char, zv_char, new_byte) = {
         let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
-        let old_byte = buf.pt;
+        let old_byte = buf.pt_byte;
         let cur_char = buf.point_char();
         let begv_char = buf.point_min_char();
         let zv_char = buf.point_max_char();
@@ -767,11 +768,11 @@ pub(crate) fn builtin_skip_chars_forward(
         let lim_byte = if args.len() > 1 && !args[1].is_nil() {
             char_pos_to_byte(buf, expect_int(&args[1])?)
         } else {
-            buf.zv
+            buf.zv_byte
         };
         let text = buffer_text(buf);
-        let start_pos = buf.pt;
-        let mut pos = buf.pt;
+        let start_pos = buf.pt_byte;
+        let mut pos = buf.pt_byte;
         let limit = lim_byte.min(text.len());
 
         while pos < limit {
@@ -822,10 +823,10 @@ pub(crate) fn builtin_skip_chars_backward(
         let limit = if args.len() > 1 && !args[1].is_nil() {
             char_pos_to_byte(buf, expect_int(&args[1])?)
         } else {
-            buf.begv
+            buf.begv_byte
         };
-        let start_pos = buf.pt;
-        let mut pos = buf.pt;
+        let start_pos = buf.pt_byte;
+        let mut pos = buf.pt_byte;
 
         while pos > limit {
             // Find the character before `pos`.
@@ -881,7 +882,7 @@ pub(crate) fn builtin_region_beginning(
             )],
         )
     })?;
-    let pt = buf.pt;
+    let pt = buf.pt_byte;
     let start = pt.min(mark);
     Ok(Value::fixnum(byte_to_char_pos(buf, start)))
 }
@@ -898,7 +899,7 @@ pub(crate) fn builtin_region_end(eval: &mut super::eval::Context, args: Vec<Valu
             )],
         )
     })?;
-    let pt = buf.pt;
+    let pt = buf.pt_byte;
     let end = pt.max(mark);
     Ok(Value::fixnum(byte_to_char_pos(buf, end)))
 }

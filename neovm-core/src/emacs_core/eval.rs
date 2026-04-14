@@ -358,9 +358,13 @@ fn value_fingerprint(
                 key.hash(hasher);
                 return;
             }
-            let s = value.as_str().unwrap();
-            s.len().hash(hasher);
-            for byte in s.as_bytes().iter().take(32) {
+            let string = value
+                .as_lisp_string()
+                .expect("ValueKind::String must carry LispString payload");
+            string.is_multibyte().hash(hasher);
+            string.schars().hash(hasher);
+            string.sbytes().hash(hasher);
+            for byte in string.as_bytes().iter().take(32) {
                 byte.hash(hasher);
             }
         }
@@ -8047,7 +8051,7 @@ impl Context {
     fn sf_save_excursion_value(&mut self, tail: Value) -> EvalResult {
         let saved_buf = self.buffers.current_buffer().map(|b| b.id);
         let saved_marker = saved_buf.and_then(|buf_id| {
-            let point = self.buffers.get(buf_id).map(|buf| buf.pt)?;
+            let point = self.buffers.get(buf_id).map(|buf| buf.pt_byte)?;
             Some(
                 self.buffers
                     .create_marker(buf_id, point, InsertionType::Before),

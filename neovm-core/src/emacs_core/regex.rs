@@ -1051,8 +1051,8 @@ pub fn search_forward(
     case_fold: bool,
     match_data: &mut Option<MatchData>,
 ) -> Result<Option<usize>, String> {
-    let start = buf.pt;
-    let limit = bound.unwrap_or(buf.zv).min(buf.zv);
+    let start = buf.pt_byte;
+    let limit = bound.unwrap_or(buf.zv_byte).min(buf.zv_byte);
 
     if start > limit {
         if noerror {
@@ -1096,8 +1096,8 @@ pub fn search_backward(
     case_fold: bool,
     match_data: &mut Option<MatchData>,
 ) -> Result<Option<usize>, String> {
-    let end = buf.pt;
-    let limit = bound.unwrap_or(buf.begv).max(buf.begv);
+    let end = buf.pt_byte;
+    let limit = bound.unwrap_or(buf.begv_byte).max(buf.begv_byte);
 
     if end < limit {
         if noerror {
@@ -1153,8 +1153,8 @@ pub fn re_search_forward_with_posix(
     posix: bool,
     match_data: &mut Option<MatchData>,
 ) -> Result<Option<usize>, String> {
-    let start = buf.pt;
-    let limit = bound.unwrap_or(buf.zv).min(buf.zv);
+    let start = buf.pt_byte;
+    let limit = bound.unwrap_or(buf.zv_byte).min(buf.zv_byte);
 
     if start > limit {
         if noerror {
@@ -1163,8 +1163,8 @@ pub fn re_search_forward_with_posix(
         return Err(format!("Search failed: \"{}\"", pattern));
     }
 
-    let region_start = buf.begv;
-    let text = buf.text.text_range(region_start, buf.zv);
+    let region_start = buf.begv_byte;
+    let text = buf.text.text_range(region_start, buf.zv_byte);
     let start_rel = start - region_start;
     let limit_rel = limit - region_start;
 
@@ -1238,8 +1238,8 @@ pub fn re_search_backward_with_posix(
     posix: bool,
     match_data: &mut Option<MatchData>,
 ) -> Result<Option<usize>, String> {
-    let end = buf.pt;
-    let limit = bound.unwrap_or(buf.begv).max(buf.begv);
+    let end = buf.pt_byte;
+    let limit = bound.unwrap_or(buf.begv_byte).max(buf.begv_byte);
 
     if end < limit {
         if noerror {
@@ -1248,8 +1248,8 @@ pub fn re_search_backward_with_posix(
         return Err(format!("Search failed: \"{}\"", pattern));
     }
 
-    let region_start = buf.begv;
-    let text = buf.text.text_range(region_start, buf.zv);
+    let region_start = buf.begv_byte;
+    let text = buf.text.text_range(region_start, buf.zv_byte);
     let start_rel = end - region_start;
     let limit_rel = limit - region_start;
 
@@ -1314,13 +1314,13 @@ pub fn looking_at_with_posix(
     posix: bool,
     match_data: &mut Option<MatchData>,
 ) -> Result<bool, String> {
-    let start = buf.pt;
-    if start > buf.zv {
+    let start = buf.pt_byte;
+    if start > buf.zv_byte {
         return Ok(false);
     }
 
-    let region_start = buf.begv;
-    let text = buf.text.text_range(region_start, buf.zv);
+    let region_start = buf.begv_byte;
+    let text = buf.text.text_range(region_start, buf.zv_byte);
     let start_rel = start - region_start;
 
     match compile_search_pattern_with_posix(pattern, case_fold, posix)? {

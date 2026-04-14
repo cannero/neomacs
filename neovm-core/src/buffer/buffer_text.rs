@@ -18,8 +18,18 @@ use super::buffer::{BufferId, InsertionType, MarkerEntry};
 use super::gap_buffer::GapBuffer;
 use super::text_props::{PropertyInterval, TextPropertyTable};
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BufferTextLayout {
+    pub gpt: usize,
+    pub z: usize,
+    pub gpt_byte: usize,
+    pub z_byte: usize,
+    pub gap_size: usize,
+}
+
 #[derive(Clone)]
 struct BufferTextStorage {
+    layout: BufferTextLayout,
     gap: GapBuffer,
     text_props: TextPropertyTable,
     markers: Vec<MarkerEntry>,
@@ -45,10 +55,22 @@ impl Default for BufferText {
 }
 
 impl BufferText {
+    fn layout_from_gap(gap: &GapBuffer) -> BufferTextLayout {
+        BufferTextLayout {
+            gpt: gap.gpt(),
+            z: gap.z(),
+            gpt_byte: gap.gpt_byte(),
+            z_byte: gap.z_byte(),
+            gap_size: gap.gap_size(),
+        }
+    }
+
     pub fn new() -> Self {
+        let gap = GapBuffer::new();
         Self {
             storage: Rc::new(RefCell::new(BufferTextStorage {
-                gap: GapBuffer::new(),
+                layout: Self::layout_from_gap(&gap),
+                gap,
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
             })),
@@ -56,9 +78,11 @@ impl BufferText {
     }
 
     pub fn from_str(text: &str) -> Self {
+        let gap = GapBuffer::from_str(text);
         Self {
             storage: Rc::new(RefCell::new(BufferTextStorage {
-                gap: GapBuffer::from_str(text),
+                layout: Self::layout_from_gap(&gap),
+                gap,
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
             })),
@@ -79,6 +103,10 @@ impl BufferText {
 
     pub fn emacs_byte_len(&self) -> usize {
         self.storage.borrow().gap.emacs_byte_len()
+    }
+
+    pub fn layout(&self) -> BufferTextLayout {
+        self.storage.borrow().layout
     }
 
     pub fn byte_at(&self, pos: usize) -> u8 {
@@ -117,24 +145,27 @@ impl BufferText {
         if text.is_empty() {
             return;
         }
-        self.storage.borrow_mut().gap.insert_str(pos, text);
+        let mut storage = self.storage.borrow_mut();
+        storage.gap.insert_str(pos, text);
+        storage.layout = Self::layout_from_gap(&storage.gap);
     }
 
     pub fn delete_range(&mut self, start: usize, end: usize) {
         if start >= end {
             return;
         }
-        self.storage.borrow_mut().gap.delete_range(start, end);
+        let mut storage = self.storage.borrow_mut();
+        storage.gap.delete_range(start, end);
+        storage.layout = Self::layout_from_gap(&storage.gap);
     }
 
     pub fn replace_same_len_range(&mut self, start: usize, end: usize, replacement: &str) {
         if start >= end {
             return;
         }
-        self.storage
-            .borrow_mut()
-            .gap
-            .replace_same_len_range(start, end, replacement);
+        let mut storage = self.storage.borrow_mut();
+        storage.gap.replace_same_len_range(start, end, replacement);
+        storage.layout = Self::layout_from_gap(&storage.gap);
     }
 
     pub fn byte_to_char(&self, byte_pos: usize) -> usize {
@@ -175,9 +206,11 @@ impl BufferText {
     }
 
     pub(crate) fn from_dump(text: Vec<u8>) -> Self {
+        let gap = GapBuffer::from_dump(text);
         Self {
             storage: Rc::new(RefCell::new(BufferTextStorage {
-                gap: GapBuffer::from_dump(text),
+                layout: Self::layout_from_gap(&gap),
+                gap,
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
             })),
@@ -211,10 +244,9 @@ impl BufferText {
             return false;
         };
         debug_assert_eq!(replacement.len(), original.len());
-        self.storage
-            .borrow_mut()
-            .gap
-            .replace_same_len_range(start, end, &replacement);
+        let mut storage = self.storage.borrow_mut();
+        storage.gap.replace_same_len_range(start, end, &replacement);
+        storage.layout = Self::layout_from_gap(&storage.gap);
         true
     }
 
@@ -238,6 +270,7 @@ impl BufferText {
     ) {
         let mut storage = self.storage.borrow_mut();
         storage.gap = GapBuffer::from_str(text);
+        storage.layout = Self::layout_from_gap(&storage.gap);
         storage.text_props = text_props;
         storage.markers = markers;
     }
@@ -494,5 +527,24 @@ mod tests {
         text.insert_str(2, "é");
         assert_eq!(text.char_count(), 3);
         assert_eq!(cloned.char_count(), 2);
+    }
+
+    #[test]
+    fn layout_tracks_gnu_style_gap_and_end_positions() {
+        crate::test_utils::init_test_tracing();
+        let mut text = BufferText::from_str("éz");
+        let layout = text.layout();
+        assert_eq!(layout.gpt, 2);
+        assert_eq!(layout.z, 2);
+        assert_eq!(layout.gpt_byte, 3);
+        assert_eq!(layout.z_byte, 3);
+
+        text.insert_str('é'.len_utf8(), "x");
+        let layout = text.layout();
+        assert_eq!(layout.gpt, 2);
+        assert_eq!(layout.z, 3);
+        assert_eq!(layout.gpt_byte, 3);
+        assert_eq!(layout.z_byte, 4);
+        assert_eq!(text.to_string(), "éxz");
     }
 }

@@ -1323,7 +1323,7 @@ pub(crate) fn builtin_set_buffer_multibyte(
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         (
             current.get_multibyte(),
-            current.begv > 0 || current.zv < current.text.len(),
+            current.begv_byte > 0 || current.zv_byte < current.text.len(),
             current.base_buffer,
             eval.buffers.shared_text_buffer_ids(current_id),
         )
@@ -1390,14 +1390,14 @@ pub(crate) fn builtin_set_buffer_multibyte(
                 id: *id,
                 pt_byte: buffer
                     .text
-                    .storage_byte_to_emacs_byte(buffer.pt.min(buffer.text.len())),
+                    .storage_byte_to_emacs_byte(buffer.pt_byte.min(buffer.text.len())),
                 begv_byte: buffer
                     .text
-                    .storage_byte_to_emacs_byte(buffer.begv.min(buffer.text.len())),
+                    .storage_byte_to_emacs_byte(buffer.begv_byte.min(buffer.text.len())),
                 zv_byte: buffer
                     .text
-                    .storage_byte_to_emacs_byte(buffer.zv.min(buffer.text.len())),
-                mark_byte: buffer.mark.map(|mark| {
+                    .storage_byte_to_emacs_byte(buffer.zv_byte.min(buffer.text.len())),
+                mark_byte: buffer.mark_byte.map(|mark| {
                     buffer
                         .text
                         .storage_byte_to_emacs_byte(mark.min(buffer.text.len()))
@@ -1491,35 +1491,35 @@ pub(crate) fn builtin_set_buffer_multibyte(
         let mark_byte = snapshot.mark_byte.map(map_boundary);
         let last_window_start_byte = map_boundary(snapshot.last_window_start_byte);
 
-        buf.pt_char =
+        buf.pt =
             crate::emacs_core::string_escape::storage_logical_byte_to_char(&new_storage, pt_byte);
-        buf.pt = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+        buf.pt_byte = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
             &new_storage,
             pt_byte,
         );
 
-        buf.begv_char =
+        buf.begv =
             crate::emacs_core::string_escape::storage_logical_byte_to_char(&new_storage, begv_byte);
-        buf.begv = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+        buf.begv_byte = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
             &new_storage,
             begv_byte,
         );
 
-        buf.zv_char =
+        buf.zv =
             crate::emacs_core::string_escape::storage_logical_byte_to_char(&new_storage, zv_byte);
-        buf.zv = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+        buf.zv_byte = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
             &new_storage,
             zv_byte,
         );
 
         if let Some(mark_byte) = mark_byte {
-            buf.mark_char = Some(
+            buf.mark = Some(
                 crate::emacs_core::string_escape::storage_logical_byte_to_char(
                     &new_storage,
                     mark_byte,
                 ),
             );
-            buf.mark = Some(
+            buf.mark_byte = Some(
                 crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
                     &new_storage,
                     mark_byte,
@@ -1527,7 +1527,7 @@ pub(crate) fn builtin_set_buffer_multibyte(
             );
         } else {
             buf.mark = None;
-            buf.mark_char = None;
+            buf.mark_byte = None;
         }
 
         buf.last_window_start =
@@ -1854,8 +1854,8 @@ pub(crate) fn builtin_compute_motion(
         ]));
     };
     let text = buf.text.to_string();
-    let begv = buf.begv;
-    let zv = buf.zv;
+    let begv = buf.begv_byte;
+    let zv = buf.zv_byte;
     let tab_width = buf
         .get_buffer_local("tab-width")
         .or_else(|| obarray.symbol_value("tab-width").copied())
@@ -2234,8 +2234,8 @@ fn resolve_field_position_in_buffers(
     let point_min = buf.point_min_char() as i64 + 1;
     let point_max = buf.point_max_char() as i64 + 1;
     let pos = match position_value {
-        None => buf.text.byte_to_char(buf.pt) as i64 + 1,
-        Some(value) if value.is_nil() => buf.text.byte_to_char(buf.pt) as i64 + 1,
+        None => buf.text.byte_to_char(buf.pt_byte) as i64 + 1,
+        Some(value) if value.is_nil() => buf.text.byte_to_char(buf.pt_byte) as i64 + 1,
         Some(value) => expect_integer_or_marker_in_buffers(buffers, value)?,
     };
     if pos < point_min || pos > point_max {
@@ -2529,7 +2529,7 @@ pub(crate) fn builtin_goto_char(eval: &mut super::eval::Context, args: Vec<Value
             .buffers
             .get(current_id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        (buf.pt, buf.lisp_pos_to_accessible_byte(pos))
+        (buf.pt_byte, buf.lisp_pos_to_accessible_byte(pos))
     };
     // Adjust for intangible text property
     let direction = if byte_pos >= old_byte { 1 } else { -1 };
@@ -2917,7 +2917,11 @@ pub(crate) fn builtin_insert(eval: &mut super::eval::Context, args: Vec<Value>) 
     if total_len == 0 {
         return Ok(Value::NIL);
     }
-    let insert_pos = eval.buffers.current_buffer().map(|buf| buf.pt).unwrap_or(0);
+    let insert_pos = eval
+        .buffers
+        .current_buffer()
+        .map(|buf| buf.pt_byte)
+        .unwrap_or(0);
     super::editfns::signal_before_change(eval, insert_pos, insert_pos)?;
     insert_pieces_in_state(&eval.obarray, &[], &mut eval.buffers, pieces, false, false)?;
     super::editfns::signal_after_change(eval, insert_pos, insert_pos + total_len, 0)?;
@@ -2934,7 +2938,11 @@ pub(crate) fn builtin_insert_and_inherit(
     if total_len == 0 {
         return Ok(Value::NIL);
     }
-    let insert_pos = eval.buffers.current_buffer().map(|buf| buf.pt).unwrap_or(0);
+    let insert_pos = eval
+        .buffers
+        .current_buffer()
+        .map(|buf| buf.pt_byte)
+        .unwrap_or(0);
     super::editfns::signal_before_change(eval, insert_pos, insert_pos)?;
     insert_pieces_in_state(&eval.obarray, &[], &mut eval.buffers, pieces, false, true)?;
     super::editfns::signal_after_change(eval, insert_pos, insert_pos + total_len, 0)?;
@@ -2951,7 +2959,11 @@ pub(crate) fn builtin_insert_before_markers_and_inherit(
     if total_len == 0 {
         return Ok(Value::NIL);
     }
-    let insert_pos = eval.buffers.current_buffer().map(|buf| buf.pt).unwrap_or(0);
+    let insert_pos = eval
+        .buffers
+        .current_buffer()
+        .map(|buf| buf.pt_byte)
+        .unwrap_or(0);
     super::editfns::signal_before_change(eval, insert_pos, insert_pos)?;
     insert_pieces_in_state(&eval.obarray, &[], &mut eval.buffers, pieces, true, true)?;
     super::editfns::signal_after_change(eval, insert_pos, insert_pos + total_len, 0)?;
@@ -2987,7 +2999,7 @@ fn insert_pieces_in_state(
         if piece.text.is_empty() {
             continue;
         }
-        let insert_pos = buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
+        let insert_pos = buffers.get(current_id).map(|buf| buf.pt_byte).unwrap_or(0);
         if before_markers {
             let _ = buffers.insert_into_buffer_before_markers(current_id, &piece.text);
         } else {
@@ -3064,7 +3076,11 @@ pub(crate) fn builtin_insert_char(eval: &mut super::eval::Context, args: Vec<Val
         ));
     }
 
-    let insert_pos = eval.buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
+    let insert_pos = eval
+        .buffers
+        .get(current_id)
+        .map(|buf| buf.pt_byte)
+        .unwrap_or(0);
     let text_len = to_insert.len();
     super::editfns::signal_before_change(eval, insert_pos, insert_pos)?;
     let _ = eval.buffers.insert_into_buffer(current_id, &to_insert);
@@ -3125,7 +3141,11 @@ pub(crate) fn builtin_insert_byte(eval: &mut super::eval::Context, args: Vec<Val
             .expect("raw byte char should encode")
     };
     let to_insert = unit.repeat(count as usize);
-    let insert_pos = eval.buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
+    let insert_pos = eval
+        .buffers
+        .get(current_id)
+        .map(|buf| buf.pt_byte)
+        .unwrap_or(0);
     let text_len = to_insert.len();
     super::editfns::signal_before_change(eval, insert_pos, insert_pos)?;
     let _ = eval.buffers.insert_into_buffer(current_id, &to_insert);
@@ -3667,14 +3687,14 @@ pub(crate) fn builtin_char_after(eval: &mut super::eval::Context, args: Vec<Valu
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let byte_pos = if args.is_empty() || args[0].is_nil() {
-        (buf.point() < buf.zv).then_some(buf.point())
+        (buf.point() < buf.zv_byte).then_some(buf.point())
     } else {
         let pos = expect_integer_or_marker_in_buffers(&eval.buffers, &args[0])?;
         if pos <= 0 {
             return Ok(Value::NIL);
         }
-        let point_min = point_char_pos(buf, buf.begv);
-        let point_max = point_char_pos(buf, buf.zv);
+        let point_min = point_char_pos(buf, buf.begv_byte);
+        let point_max = point_char_pos(buf, buf.zv_byte);
         if pos < point_min || pos >= point_max {
             return Ok(Value::NIL);
         }
@@ -3693,14 +3713,14 @@ pub(crate) fn builtin_char_before(eval: &mut super::eval::Context, args: Vec<Val
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let byte_pos = if args.is_empty() || args[0].is_nil() {
-        (buf.point() > buf.begv).then_some(buf.point())
+        (buf.point() > buf.begv_byte).then_some(buf.point())
     } else {
         let pos = expect_integer_or_marker_in_buffers(&eval.buffers, &args[0])?;
         if pos <= 0 {
             return Ok(Value::NIL);
         }
-        let point_min = point_char_pos(buf, buf.begv);
-        let point_max = point_char_pos(buf, buf.zv);
+        let point_min = point_char_pos(buf, buf.begv_byte);
+        let point_max = point_char_pos(buf, buf.zv_byte);
         if pos <= point_min || pos > point_max {
             return Ok(Value::NIL);
         }

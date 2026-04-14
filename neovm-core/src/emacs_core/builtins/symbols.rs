@@ -1551,10 +1551,10 @@ pub(crate) fn builtin_vertical_motion(
         return Ok(Value::fixnum(0));
     };
     let text = buf.text.to_string();
-    let pt = buf.pt.clamp(buf.begv, buf.zv);
+    let pt = buf.pt_byte.clamp(buf.begv_byte, buf.zv_byte);
     let bytes = text.as_bytes();
-    let begv = buf.begv;
-    let zv = buf.zv;
+    let begv = buf.begv_byte;
+    let zv = buf.zv_byte;
 
     if lines == 0 && cols.is_none() {
         // Move to beginning of current screen line (= beginning of line).
@@ -2636,9 +2636,9 @@ pub(crate) fn compare_value_lt(
 
     match (lhs.kind(), rhs.kind()) {
         (ValueKind::String, ValueKind::String) => {
-            let left_str = lhs.as_str().unwrap();
-            let right_str = rhs.as_str().unwrap();
-            Ok(left_str.cmp(right_str))
+            let left_str = super::lisp_string_to_runtime_string(*lhs);
+            let right_str = super::lisp_string_to_runtime_string(*rhs);
+            Ok(left_str.cmp(&right_str))
         }
         (ValueKind::Cons, ValueKind::Cons) => {
             let left_car = lhs.cons_car();
