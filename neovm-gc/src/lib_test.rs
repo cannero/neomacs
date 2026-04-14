@@ -1770,7 +1770,9 @@ fn parallel_minor_gc_with_deferred_old_promotion() {
     let holder_ref = unsafe { holder_after.as_non_null().as_ref() };
     assert_eq!(holder_ref.children.len(), LEAF_COUNT);
     for child_cell in &holder_ref.children {
-        let child = child_cell.get().expect("child still present after promotion");
+        let child = child_cell
+            .get()
+            .expect("child still present after promotion");
         let space = mutator.heap().space_of(child);
         assert_eq!(
             space,
@@ -2179,9 +2181,7 @@ fn pause_histogram_records_samples_from_completed_cycles() {
         {
             let mut scope = mutator.handle_scope();
             for _ in 0..8usize {
-                let _leaf = mutator
-                    .alloc(&mut scope, Leaf(17))
-                    .expect("alloc leaf");
+                let _leaf = mutator.alloc(&mut scope, Leaf(17)).expect("alloc leaf");
             }
         }
         mutator
@@ -2200,10 +2200,7 @@ fn pause_histogram_records_samples_from_completed_cycles() {
         "expected at least 5 total samples, got {}",
         snapshot.total_samples
     );
-    assert!(
-        snapshot.max_nanos > 0,
-        "expected non-zero max pause, got 0"
-    );
+    assert!(snapshot.max_nanos > 0, "expected non-zero max pause, got 0");
     assert!(
         snapshot.p50_nanos <= snapshot.p95_nanos,
         "p50 ({}) must be <= p95 ({})",
@@ -4733,10 +4730,7 @@ fn major_region_candidates_respect_compaction_byte_budget() {
     }
 
     let blocks = mutator.heap().old_block_region_stats();
-    let holey_blocks: Vec<_> = blocks
-        .iter()
-        .filter(|block| block.hole_bytes > 0)
-        .collect();
+    let holey_blocks: Vec<_> = blocks.iter().filter(|block| block.hole_bytes > 0).collect();
     assert!(
         holey_blocks.len() >= 2,
         "fixture should expose multiple holey blocks before budgeting"
@@ -4814,10 +4808,7 @@ fn major_region_candidates_prefer_more_reclaim_efficient_regions_under_budget() 
     let b_tiny = mutator.root(&mut keep_scope, b_tiny);
 
     let blocks = mutator.heap().old_block_region_stats();
-    let holey_blocks: Vec<_> = blocks
-        .iter()
-        .filter(|block| block.hole_bytes > 0)
-        .collect();
+    let holey_blocks: Vec<_> = blocks.iter().filter(|block| block.hole_bytes > 0).collect();
     assert!(
         holey_blocks.len() >= 2,
         "fixture should expose at least two holey blocks"
@@ -5218,7 +5209,10 @@ fn execute_major_plan_honors_exact_selected_old_regions() {
     let block_count_before = before_blocks.len();
 
     let moved = mutator.compact_old_gen_blocks(&[manual_selected]);
-    assert!(moved >= 1, "manually selected block must move at least one survivor");
+    assert!(
+        moved >= 1,
+        "manually selected block must move at least one survivor"
+    );
     let after = mutator.heap().compaction_stats();
     assert_eq!(after.cycles, baseline.cycles + 1);
     assert!(after.records_moved >= baseline.records_moved + (moved as u64));
@@ -10799,7 +10793,8 @@ fn object_start_index_rebuilds_after_sweep() {
     // Snapshot the populated card indices before the GC.
     let starts_before: Vec<Vec<(usize, u32)>> = mutator
         .heap()
-        .read_core().old_gen()
+        .read_core()
+        .old_gen()
         .blocks()
         .iter()
         .map(|block| {
@@ -10993,9 +10988,11 @@ fn dirty_card_scan_index_avoids_linear_objects_walk() {
 
     let total_objects = mutator.heap().read_core().objects().len();
     let mut counter = 0usize;
-    let roots = crate::collector_exec::collect_dirty_card_root_indices_with_counter(
-        mutator.heap().read_core().objects(),
-        mutator.heap().read_core().old_gen(),
+    let core = mutator.heap().read_core();
+    let objects = core.objects();
+    let roots = crate::collector_exec::collect_dirty_card_root_locators_with_counter(
+        objects.raw(),
+        core.old_gen(),
         &mut counter,
     );
     assert!(!roots.is_empty(), "expected at least one dirty-card root");
@@ -11432,8 +11429,7 @@ fn pacer_default_threshold_starts_at_min_trigger() {
 }
 
 #[test]
-fn pacer_record_completed_cycle_updates_threshold_based_on_live_bytes_and_growth_ratio()
-{
+fn pacer_record_completed_cycle_updates_threshold_based_on_live_bytes_and_growth_ratio() {
     let heap = Heap::new(HeapConfig {
         pacer: PacerConfig {
             target_pause: Duration::from_secs(1),
@@ -11593,9 +11589,7 @@ fn pacer_in_heap_triggers_major_via_allocation_pressure() {
 
     // Heap should still be bounded — we capped it at the pacer trigger
     // plus a small bounded slack.
-    let live_bytes = stats.nursery.live_bytes
-        + stats.old.live_bytes
-        + stats.pinned.live_bytes;
+    let live_bytes = stats.nursery.live_bytes + stats.old.live_bytes + stats.pinned.live_bytes;
     assert!(
         live_bytes < 16 * 1024 * 1024,
         "live bytes ({}) should remain bounded under pacer-driven GC",
@@ -11686,10 +11680,10 @@ fn pacer_driven_major_starts_background_session_when_concurrent_workers_configur
     // The pacer-driven path should have started a major-mark
     // session via begin_major_mark, so the heap reports an
     // active major-mark plan with concurrent = true.
-    let active = heap
-        .active_major_mark_plan()
-        .expect("expected pacer-driven concurrent major to start a \
-                 major-mark session");
+    let active = heap.active_major_mark_plan().expect(
+        "expected pacer-driven concurrent major to start a \
+                 major-mark session",
+    );
     assert!(active.concurrent);
     assert_eq!(active.kind, CollectionKind::Major);
 }

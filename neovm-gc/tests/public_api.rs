@@ -3630,9 +3630,7 @@ fn public_api_collection_stats_track_nursery_survival_inputs() {
     for value in 0..32u64 {
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
-        mutator
-            .alloc(&mut scope, Leaf(value))
-            .expect("alloc leaf");
+        mutator.alloc(&mut scope, Leaf(value)).expect("alloc leaf");
     }
     let nursery_live_before_minor = heap.stats().nursery.live_bytes;
     assert!(nursery_live_before_minor > 0);
@@ -3640,7 +3638,10 @@ fn public_api_collection_stats_track_nursery_survival_inputs() {
     let cycle = heap.collect(CollectionKind::Minor).expect("minor collect");
 
     assert_eq!(cycle.minor_collections, 1);
-    assert_eq!(cycle.nursery_bytes_before as usize, nursery_live_before_minor);
+    assert_eq!(
+        cycle.nursery_bytes_before as usize,
+        nursery_live_before_minor
+    );
     // Every leaf above is unrooted by the time the minor cycle
     // runs (the per-iteration scope already dropped), so no
     // bytes should survive.
@@ -3689,9 +3690,7 @@ fn public_api_collection_stats_track_concurrent_mark_duration() {
     for value in 0..16u64 {
         let mut mutator = heap.mutator();
         let mut scope = mutator.handle_scope();
-        mutator
-            .alloc(&mut scope, Leaf(value))
-            .expect("alloc leaf");
+        mutator.alloc(&mut scope, Leaf(value)).expect("alloc leaf");
     }
 
     // Minor cycles do not run a concurrent mark session, so they
@@ -4014,8 +4013,7 @@ fn public_api_major_block_candidates_ranking_for_fragmented_workload() {
     // region-side selector; the legacy selector has been
     // deleted now that both code paths consume the same block
     // view.)
-    let old_bytes = neovm_gc::estimated_allocation_size::<OldLeaf>()
-        .expect("old allocation size");
+    let old_bytes = neovm_gc::estimated_allocation_size::<OldLeaf>().expect("old allocation size");
     let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
@@ -4082,8 +4080,7 @@ fn public_api_compact_old_gen_blocks_compacts_named_blocks_only() {
     // index of one specific block. The named block's survivors
     // should physically move into a fresh target block; other
     // blocks should be untouched.
-    let old_bytes = neovm_gc::estimated_allocation_size::<OldLeaf>()
-        .expect("old allocation size");
+    let old_bytes = neovm_gc::estimated_allocation_size::<OldLeaf>().expect("old allocation size");
     let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
@@ -4125,7 +4122,9 @@ fn public_api_compact_old_gen_blocks_compacts_named_blocks_only() {
 
         // Run a major to clear the dropped survivors so live_bytes
         // accurately reflects the post-mark state inside each block.
-        mutator.collect(CollectionKind::Major).expect("major collect");
+        mutator
+            .collect(CollectionKind::Major)
+            .expect("major collect");
 
         // Pick a specific block to compact: the first block that
         // has fewer live bytes than its used bytes (i.e. has a real
@@ -4148,7 +4147,10 @@ fn public_api_compact_old_gen_blocks_compacts_named_blocks_only() {
         // Compacting the named block moves at least one survivor
         // and bumps the cycle count.
         let moved = mutator.compact_old_gen_blocks(&[target]);
-        assert!(moved >= 1, "named block should have at least 1 survivor moved");
+        assert!(
+            moved >= 1,
+            "named block should have at least 1 survivor moved"
+        );
         let after = mutator.heap().compaction_stats();
         assert_eq!(after.cycles, baseline.cycles + 1);
         assert!(after.records_moved > baseline.records_moved);
@@ -4168,8 +4170,7 @@ fn public_api_block_region_stats_report_holes_after_dropping_some_objects() {
     // high-water mark until physical compaction actually moves
     // bytes. This test pins that contract so future migrations
     // know which view to consult.
-    let old_bytes = neovm_gc::estimated_allocation_size::<OldLeaf>()
-        .expect("old allocation size");
+    let old_bytes = neovm_gc::estimated_allocation_size::<OldLeaf>().expect("old allocation size");
     let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             max_regular_object_bytes: 1,
@@ -4205,7 +4206,9 @@ fn public_api_block_region_stats_report_holes_after_dropping_some_objects() {
         mutator.root(&mut keep_scope, gc);
     }
 
-    let cycle = mutator.collect(CollectionKind::Major).expect("major collect");
+    let cycle = mutator
+        .collect(CollectionKind::Major)
+        .expect("major collect");
     assert_eq!(cycle.major_collections, 1);
 
     let blocks = mutator.heap().old_block_region_stats();
@@ -4599,10 +4602,7 @@ fn public_api_major_region_candidates_respect_compaction_byte_budget() {
     }
 
     let blocks = mutator.heap().old_block_region_stats();
-    let holey_blocks: Vec<_> = blocks
-        .iter()
-        .filter(|block| block.hole_bytes > 0)
-        .collect();
+    let holey_blocks: Vec<_> = blocks.iter().filter(|block| block.hole_bytes > 0).collect();
     assert!(
         holey_blocks.len() >= 2,
         "fixture should expose multiple holey blocks before budgeting"
@@ -4677,10 +4677,7 @@ fn public_api_major_region_candidates_prefer_more_reclaim_efficient_regions_unde
     let b_tiny = mutator.root(&mut keep_scope, b_tiny);
 
     let blocks = mutator.heap().old_block_region_stats();
-    let holey_blocks: Vec<_> = blocks
-        .iter()
-        .filter(|block| block.hole_bytes > 0)
-        .collect();
+    let holey_blocks: Vec<_> = blocks.iter().filter(|block| block.hole_bytes > 0).collect();
     assert!(
         holey_blocks.len() >= 2,
         "fixture should expose at least two holey blocks"
@@ -5039,7 +5036,10 @@ fn public_api_execute_major_plan_honors_exact_selected_old_regions() {
     let block_count_before = before_blocks.len();
 
     let moved = mutator.compact_old_gen_blocks(&[manual_selected]);
-    assert!(moved >= 1, "manually selected block must move at least one survivor");
+    assert!(
+        moved >= 1,
+        "manually selected block must move at least one survivor"
+    );
     let after = mutator.heap().compaction_stats();
     assert_eq!(after.cycles, baseline.cycles + 1);
     assert!(after.records_moved >= baseline.records_moved + (moved as u64));
@@ -9369,8 +9369,7 @@ fn public_api_concurrent_marker_drives_major_mark_to_completion() {
         .expect("seed shared heap with immortal leaves");
 
     // Spawn the dedicated mark thread via the public API.
-    let marker =
-        ConcurrentMarker::start(shared.clone(), ConcurrentMarkerConfig::default());
+    let marker = ConcurrentMarker::start(shared.clone(), ConcurrentMarkerConfig::default());
 
     // Open a major-mark session through the mutator surface so the
     // marker has something to drive. Use a tiny mark_slice_budget so
@@ -9461,9 +9460,7 @@ fn public_api_shared_update_pacer_config_works_while_heap_write_locked() {
     assert_eq!(updated.nursery_soft_trigger_bytes, 8765);
 
     // Release the helper and verify it never panicked.
-    release_tx
-        .send(())
-        .expect("release shared heap write lock");
+    release_tx.send(()).expect("release shared heap write lock");
     waiter.join().expect("join write-lock helper thread");
 
     // The new config persists after the helper releases the lock.
@@ -9517,10 +9514,7 @@ fn public_api_shared_drain_pending_finalizers_bounded_runs_while_heap_is_write_l
             assert_eq!(cycle.queued_finalizers, 2);
         })
         .expect("collect through shared mutator");
-    assert_eq!(
-        shared.pending_finalizer_count().expect("pending count"),
-        2
-    );
+    assert_eq!(shared.pending_finalizer_count().expect("pending count"), 2);
 
     let (release_tx, waiter) = lock_shared_heap_on_other_thread(shared.clone());
 
@@ -9532,10 +9526,7 @@ fn public_api_shared_drain_pending_finalizers_bounded_runs_while_heap_is_write_l
         1
     );
     assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
-    assert_eq!(
-        shared.pending_finalizer_count().expect("pending count"),
-        1
-    );
+    assert_eq!(shared.pending_finalizer_count().expect("pending count"), 1);
 
     // Second slice while the heap is write-locked: budget 5.
     assert_eq!(
@@ -9545,10 +9536,7 @@ fn public_api_shared_drain_pending_finalizers_bounded_runs_while_heap_is_write_l
         1
     );
     assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 2);
-    assert_eq!(
-        shared.pending_finalizer_count().expect("pending count"),
-        0
-    );
+    assert_eq!(shared.pending_finalizer_count().expect("pending count"), 0);
 
     release_tx.send(()).expect("release shared heap write lock");
     waiter.join().expect("join write-lock helper thread");
@@ -9590,10 +9578,7 @@ fn public_api_shared_try_drain_pending_finalizers_bounded_runs_in_slices() {
         })
         .expect("collect through shared mutator");
 
-    assert_eq!(
-        shared.pending_finalizer_count().expect("pending count"),
-        3
-    );
+    assert_eq!(shared.pending_finalizer_count().expect("pending count"), 3);
 
     // First slice: budget 2.
     assert_eq!(
@@ -9602,10 +9587,7 @@ fn public_api_shared_try_drain_pending_finalizers_bounded_runs_in_slices() {
             .expect("try bounded drain"),
         2
     );
-    assert_eq!(
-        shared.pending_finalizer_count().expect("pending count"),
-        1
-    );
+    assert_eq!(shared.pending_finalizer_count().expect("pending count"), 1);
     assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 2);
 
     // Second slice: budget 5 (only 1 remaining).
@@ -9615,10 +9597,7 @@ fn public_api_shared_try_drain_pending_finalizers_bounded_runs_in_slices() {
             .expect("try bounded drain"),
         1
     );
-    assert_eq!(
-        shared.pending_finalizer_count().expect("pending count"),
-        0
-    );
+    assert_eq!(shared.pending_finalizer_count().expect("pending count"), 0);
     assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 3);
 }
 
@@ -9656,10 +9635,7 @@ fn public_api_shared_drain_pending_finalizers_bounded_runs_in_slices() {
         })
         .expect("collect through shared mutator");
 
-    assert_eq!(
-        shared.pending_finalizer_count().expect("pending count"),
-        3
-    );
+    assert_eq!(shared.pending_finalizer_count().expect("pending count"), 3);
 
     // First slice: budget 1 → exactly 1 should run, 2 remain.
     assert_eq!(
@@ -9668,10 +9644,7 @@ fn public_api_shared_drain_pending_finalizers_bounded_runs_in_slices() {
             .expect("bounded drain 1"),
         1
     );
-    assert_eq!(
-        shared.pending_finalizer_count().expect("pending count"),
-        2
-    );
+    assert_eq!(shared.pending_finalizer_count().expect("pending count"), 2);
     assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
 
     // Second slice: budget 10 → only the remaining 2 run.
@@ -9681,10 +9654,7 @@ fn public_api_shared_drain_pending_finalizers_bounded_runs_in_slices() {
             .expect("bounded drain 10"),
         2
     );
-    assert_eq!(
-        shared.pending_finalizer_count().expect("pending count"),
-        0
-    );
+    assert_eq!(shared.pending_finalizer_count().expect("pending count"), 0);
     assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 3);
 
     let stats = shared.stats().expect("read stats after bounded drain");
@@ -9840,9 +9810,7 @@ fn public_api_shared_clear_compaction_stats_resets_to_zero() {
     shared
         .clear_compaction_stats()
         .expect("clear_compaction_stats call");
-    let stats = shared
-        .compaction_stats()
-        .expect("read after clear");
+    let stats = shared.compaction_stats().expect("read after clear");
     assert_eq!(stats.cycles, 0);
     assert_eq!(stats.records_moved, 0);
 }
@@ -9875,9 +9843,7 @@ fn public_api_auto_compaction_hook_fires_in_major_cycle_when_threshold_set() {
     shared
         .with_mutator(|mutator| {
             let mut keep = mutator.handle_scope();
-            let _surv = mutator
-                .alloc(&mut keep, Leaf(7))
-                .expect("alloc survivor");
+            let _surv = mutator.alloc(&mut keep, Leaf(7)).expect("alloc survivor");
             mutator
                 .collect(CollectionKind::Major)
                 .expect("major + auto compact");
@@ -9888,9 +9854,7 @@ fn public_api_auto_compaction_hook_fires_in_major_cycle_when_threshold_set() {
     // exact counters depend on whether any block actually
     // qualified as sparse, so the assertion is best-effort:
     // cycles is non-decreasing across the call.
-    let stats = shared
-        .compaction_stats()
-        .expect("read compaction stats");
+    let stats = shared.compaction_stats().expect("read compaction stats");
     let _ = stats; // smoke test only -- the call must succeed
 }
 
@@ -10040,9 +10004,7 @@ fn public_api_pacer_drives_minor_collection_via_shared_mutator() {
         baseline_minors
     );
 
-    let pacer_stats = shared
-        .pacer_stats()
-        .expect("read pacer stats after alloc");
+    let pacer_stats = shared.pacer_stats().expect("read pacer stats after alloc");
     assert!(
         pacer_stats.observed_minor_cycles >= 1,
         "expected pacer to observe at least one minor cycle, got {}",
@@ -10114,9 +10076,7 @@ fn public_api_shared_pause_histogram_accessor_reads_lock_free() {
     shared
         .with_mutator(|mutator| {
             let mut scope = mutator.handle_scope();
-            let _leaf = mutator
-                .alloc(&mut scope, Leaf(99))
-                .expect("alloc leaf");
+            let _leaf = mutator.alloc(&mut scope, Leaf(99)).expect("alloc leaf");
             mutator.collect(CollectionKind::Major).expect("major");
         })
         .expect("collect via shared mutator");
@@ -10149,9 +10109,7 @@ fn public_api_shared_status_reports_pause_histogram() {
         .with_mutator(|mutator| {
             let mut scope = mutator.handle_scope();
             // Allocate a leaf to give the collector something to do.
-            let _leaf = mutator
-                .alloc(&mut scope, Leaf(42))
-                .expect("alloc leaf");
+            let _leaf = mutator.alloc(&mut scope, Leaf(42)).expect("alloc leaf");
             mutator.collect(CollectionKind::Major).expect("major");
             mutator.collect(CollectionKind::Major).expect("major");
         })
@@ -10385,9 +10343,7 @@ fn public_api_multi_mutator_concurrent_store_edge_fallback_dedupes_per_owner() {
 
     let heap = Heap::new(HeapConfig::default());
     let (writes_done_tx, writes_done_rx) = mpsc::channel::<()>();
-    let release_channels: Vec<_> = (0..N_WORKERS)
-        .map(|_| mpsc::channel::<()>())
-        .collect();
+    let release_channels: Vec<_> = (0..N_WORKERS).map(|_| mpsc::channel::<()>()).collect();
     let mut release_txs = Vec::with_capacity(N_WORKERS);
     let mut release_rxs: Vec<_> = release_channels
         .into_iter()
@@ -10455,7 +10411,8 @@ fn public_api_multi_mutator_concurrent_store_edge_fallback_dedupes_per_owner() {
     // be exactly N.
     let stats = heap.stats();
     assert_eq!(
-        stats.remembered_explicit_owners, N_WORKERS,
+        stats.remembered_explicit_owners,
+        N_WORKERS,
         "expected exactly {} deduped pinned owners after {} concurrent writes",
         N_WORKERS,
         N_WORKERS * WRITES_PER_THREAD

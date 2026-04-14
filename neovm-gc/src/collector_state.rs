@@ -8,9 +8,9 @@ use crate::collector_session::{
     self, ActiveReclaimPrepRequest, FinishedActiveCollection, PreparedActiveReclaim,
 };
 use crate::heap::AllocError;
-use crate::index_state::ObjectIndex;
+use crate::index_state::ObjectLocator;
 use crate::mark::MarkWorklist;
-use crate::object::ObjectRecord;
+use crate::object_store::ObjectReadRaw;
 use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress};
 use crate::reclaim::PreparedReclaim;
 use crate::spaces::{OldGenConfig, OldGenState};
@@ -42,10 +42,13 @@ pub(crate) struct CollectorStateHandle {
     /// Refreshed whenever the inner state is mutated through
     /// [`with_state`] or [`try_with_state`], so the barrier
     /// hot path can check "is there an active major-mark
-    /// session?" with a single relaxed atomic load instead
-    /// of acquiring the collector mutex. The single-digit-
-    /// nanosecond atomic load replaces an ~50 ns uncontended
-    /// mutex acquisition on every barrier call.
+    /// session?" with a single atomic load instead of
+    /// acquiring the collector mutex. Callers that hold the
+    /// heap safepoint read lock use this mirror as an exact
+    /// phase predicate: `begin_major_mark` / finish paths
+    /// mutate the authoritative state while holding the
+    /// safepoint write lock, then publish the mirror before
+    /// releasing that lock.
     has_active_major_mark_mirror: Arc<AtomicBool>,
     /// Lock-free mirror of [`CollectorState::has_prepared_full_reclaim`].
     ///
@@ -71,14 +74,14 @@ impl CollectorStateHandle {
     /// and `has_prepared_full_reclaim` from the currently-held
     /// mutex guard. Called by `with_state` and
     /// `try_with_state` after every mutation, so the mirrors
-    /// stay within one mutation of the authoritative state
-    /// and the hot-path checks can use relaxed atomic loads.
+    /// track the authoritative state with release/acquire
+    /// synchronization.
     #[inline]
     fn refresh_mirrors(&self, state: &CollectorState) {
         self.has_active_major_mark_mirror
-            .store(state.has_active_major_mark(), Ordering::Relaxed);
+            .store(state.has_active_major_mark(), Ordering::Release);
         self.has_prepared_full_reclaim_mirror
-            .store(state.has_prepared_full_reclaim(), Ordering::Relaxed);
+            .store(state.has_prepared_full_reclaim(), Ordering::Release);
     }
 
     pub(crate) fn with_state<R>(&self, f: impl FnOnce(&mut CollectorState) -> R) -> R {
@@ -134,25 +137,17 @@ impl CollectorStateHandle {
         self.lock().major_mark_progress()
     }
 
-    /// Lock-free hot-path read. See
-    /// [`Self::has_active_major_mark_mirror`]. The mirror is
-    /// refreshed on every mutation through
-    /// [`Self::with_state`] / [`Self::try_with_state`], so
-    /// readers see a value that is at most one mutation
-    /// behind the authoritative state. That is sufficient
-    /// for the barrier path, which only uses the result to
-    /// decide whether to push an SATB diagnostic event and
-    /// whether to dispatch into the active-major-mark assist
-    /// (both paths are eventually-consistent).
+    /// Lock-free hot-path read. Exact for callers that hold
+    /// the heap safepoint lock; advisory elsewhere.
     pub(crate) fn has_active_major_mark(&self) -> bool {
-        self.has_active_major_mark_mirror.load(Ordering::Relaxed)
+        self.has_active_major_mark_mirror.load(Ordering::Acquire)
     }
 
     /// Lock-free hot-path read. See
     /// [`Self::has_prepared_full_reclaim_mirror`].
     pub(crate) fn has_prepared_full_reclaim(&self) -> bool {
         self.has_prepared_full_reclaim_mirror
-            .load(Ordering::Relaxed)
+            .load(Ordering::Acquire)
     }
 
     pub(crate) fn take_major_mark_state(&self) -> Option<MajorMarkState> {
@@ -195,8 +190,7 @@ impl CollectorStateHandle {
 
     pub(crate) fn begin_major_mark_and_refresh(
         &self,
-        objects: &[ObjectRecord],
-        index: &ObjectIndex,
+        objects: ObjectReadRaw<'_>,
         plan: CollectionPlan,
         sources: impl IntoIterator<Item = crate::descriptor::GcErased>,
         stats: &HeapStats,
@@ -205,7 +199,7 @@ impl CollectorStateHandle {
         plan_for: impl FnMut(CollectionKind) -> CollectionPlan,
     ) -> Result<(), AllocError> {
         self.with_state(|state| {
-            collector_session::begin_major_mark(state, objects, index, plan, sources)?;
+            collector_session::begin_major_mark(state, objects, plan, sources)?;
             refresh_cached_collector_plans(state, stats, old_gen, old_config, plan_for);
             Ok(())
         })
@@ -214,20 +208,16 @@ impl CollectorStateHandle {
     #[cfg(test)]
     pub(crate) fn begin_major_mark(
         &self,
-        objects: &[ObjectRecord],
-        index: &ObjectIndex,
+        objects: ObjectReadRaw<'_>,
         plan: CollectionPlan,
         sources: impl IntoIterator<Item = crate::descriptor::GcErased>,
     ) -> Result<(), AllocError> {
-        self.with_state(|state| {
-            collector_session::begin_major_mark(state, objects, index, plan, sources)
-        })
+        self.with_state(|state| collector_session::begin_major_mark(state, objects, plan, sources))
     }
 
     pub(crate) fn assist_active_major_mark_slices_and_refresh(
         &self,
-        objects: &[ObjectRecord],
-        index: &ObjectIndex,
+        objects: ObjectReadRaw<'_>,
         max_slices: usize,
         stats: &HeapStats,
         old_gen: &OldGenState,
@@ -235,30 +225,21 @@ impl CollectorStateHandle {
         plan_for: impl FnMut(CollectionKind) -> CollectionPlan,
     ) -> Result<Option<MajorMarkProgress>, AllocError> {
         self.with_state(|state| {
-            let progress = collector_session::assist_active_major_mark_slices(
-                state, objects, index, max_slices,
-            )?;
+            let progress =
+                collector_session::assist_active_major_mark_slices(state, objects, max_slices)?;
             refresh_cached_collector_plans(state, stats, old_gen, old_config, plan_for);
             Ok(progress)
         })
     }
 
-    #[cfg(test)]
     pub(crate) fn record_active_major_reachable_object(
         &self,
-        objects: &[ObjectRecord],
-        index: &ObjectIndex,
+        objects: ObjectReadRaw<'_>,
         object: crate::descriptor::GcErased,
         assist_slices: usize,
     ) -> Result<bool, AllocError> {
         self.with_state(|state| {
-            collector_session::record_active_major_reachable_object(
-                state,
-                objects,
-                index,
-                object,
-                assist_slices,
-            )
+            collector_session::record_active_major_reachable_object(state, objects, object, assist_slices)
         })
     }
 
@@ -271,8 +252,7 @@ impl CollectorStateHandle {
     /// computing a full `HeapStats` on every allocation.
     pub(crate) fn record_active_major_reachable_object_and_refresh(
         &self,
-        objects: &[ObjectRecord],
-        index: &ObjectIndex,
+        objects: ObjectReadRaw<'_>,
         object: crate::descriptor::GcErased,
         assist_slices: usize,
         stats_fn: impl FnOnce() -> HeapStats,
@@ -284,7 +264,6 @@ impl CollectorStateHandle {
             let recorded = collector_session::record_active_major_reachable_object(
                 state,
                 objects,
-                index,
                 object,
                 assist_slices,
             )?;
@@ -303,8 +282,7 @@ impl CollectorStateHandle {
     /// avoids computing a full `HeapStats` on every call.
     pub(crate) fn record_active_major_post_write_and_refresh(
         &self,
-        objects: &[ObjectRecord],
-        index: &ObjectIndex,
+        objects: ObjectReadRaw<'_>,
         owner: crate::descriptor::GcErased,
         old_value: Option<crate::descriptor::GcErased>,
         new_value: Option<crate::descriptor::GcErased>,
@@ -318,7 +296,6 @@ impl CollectorStateHandle {
             let updated = collector_session::record_active_major_post_write(
                 state,
                 objects,
-                index,
                 owner,
                 old_value,
                 new_value,
@@ -334,8 +311,7 @@ impl CollectorStateHandle {
 
     pub(crate) fn poll_active_major_mark_with_completion_and_refresh(
         &self,
-        objects: &[ObjectRecord],
-        index: &ObjectIndex,
+        objects: ObjectReadRaw<'_>,
         trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
         prepare_major_reclaim: impl FnOnce(&CollectionPlan) -> PreparedReclaim,
         stats: &HeapStats,
@@ -347,7 +323,6 @@ impl CollectorStateHandle {
             let progress = collector_session::poll_active_major_mark_with_completion(
                 state,
                 objects,
-                index,
                 trace_ephemerons,
                 prepare_major_reclaim,
             )?;
@@ -359,8 +334,7 @@ impl CollectorStateHandle {
     pub(crate) fn prepare_active_collection_reclaim_with_request_and_refresh(
         &self,
         request: ActiveReclaimPrepRequest,
-        objects: &[ObjectRecord],
-        index: &ObjectIndex,
+        objects: ObjectReadRaw<'_>,
         trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
         prepare_reclaim: impl FnOnce(&CollectionPlan) -> Result<PreparedReclaim, AllocError>,
         stats: &HeapStats,
@@ -372,7 +346,6 @@ impl CollectorStateHandle {
             request,
             trace_ephemerons,
             objects,
-            index,
             prepare_reclaim,
         )?;
         Ok(self.complete_active_reclaim_prep_and_refresh(
@@ -404,8 +377,7 @@ impl CollectorStateHandle {
 
     pub(crate) fn finish_active_collection_if_ready(
         &self,
-        objects: &[ObjectRecord],
-        index: &ObjectIndex,
+        objects: ObjectReadRaw<'_>,
         trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
         prepare_reclaim: impl FnOnce(&CollectionPlan) -> Result<PreparedReclaim, AllocError>,
     ) -> Result<Option<FinishedActiveCollection>, AllocError> {
@@ -413,7 +385,6 @@ impl CollectorStateHandle {
             collector_session::finish_active_collection_if_ready(
                 state,
                 objects,
-                index,
                 trace_ephemerons,
                 prepare_reclaim,
             )
@@ -422,8 +393,7 @@ impl CollectorStateHandle {
 
     pub(crate) fn finish_active_collection_now(
         &self,
-        objects: &[ObjectRecord],
-        index: &ObjectIndex,
+        objects: ObjectReadRaw<'_>,
         trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
         prepare_reclaim: impl FnOnce(&CollectionPlan) -> Result<PreparedReclaim, AllocError>,
     ) -> Result<FinishedActiveCollection, AllocError> {
@@ -431,7 +401,6 @@ impl CollectorStateHandle {
             collector_session::finish_active_collection_now(
                 state,
                 objects,
-                index,
                 trace_ephemerons,
                 prepare_reclaim,
             )
@@ -442,7 +411,7 @@ impl CollectorStateHandle {
 #[derive(Debug)]
 pub(crate) struct MajorMarkState {
     pub(crate) plan: CollectionPlan,
-    pub(crate) worklist: MarkWorklist<usize>,
+    pub(crate) worklist: MarkWorklist<ObjectLocator>,
     pub(crate) mark_started_at: Instant,
     pub(crate) mark_elapsed_nanos: u64,
     pub(crate) mark_steps: u64,
@@ -454,7 +423,7 @@ pub(crate) struct MajorMarkState {
 }
 
 pub(crate) struct MajorMarkUpdate {
-    pub(crate) worklist: MarkWorklist<usize>,
+    pub(crate) worklist: MarkWorklist<ObjectLocator>,
     pub(crate) drained_objects: usize,
     pub(crate) mark_steps_delta: u64,
     pub(crate) mark_rounds_delta: u64,
@@ -513,7 +482,11 @@ impl CollectorState {
         self.major_mark_state.is_some()
     }
 
-    pub(crate) fn begin_major_mark(&mut self, plan: CollectionPlan, worklist: MarkWorklist<usize>) {
+    pub(crate) fn begin_major_mark(
+        &mut self,
+        plan: CollectionPlan,
+        worklist: MarkWorklist<ObjectLocator>,
+    ) {
         self.major_mark_state = Some(MajorMarkState {
             plan,
             worklist,
@@ -528,7 +501,7 @@ impl CollectorState {
         });
     }
 
-    pub(crate) fn enqueue_active_major_mark_index(&mut self, index: usize) -> bool {
+    pub(crate) fn enqueue_active_major_mark_index(&mut self, index: ObjectLocator) -> bool {
         let Some(state) = self.major_mark_state.as_mut() else {
             return false;
         };
@@ -607,7 +580,7 @@ impl CollectorState {
         mark_steps_delta: u64,
         mark_rounds_delta: u64,
         reclaim_prepare_time: Duration,
-        prepared_reclaim: PreparedReclaim,
+        prepared_reclaim: Option<PreparedReclaim>,
     ) -> bool {
         let Some(state) = self.major_mark_state.as_mut() else {
             return false;
@@ -621,13 +594,13 @@ impl CollectorState {
         state.reclaim_prepare_nanos = saturating_duration_nanos(reclaim_prepare_time);
         state.ephemerons_processed = true;
         state.reclaim_prepared = true;
-        state.prepared_reclaim = Some(prepared_reclaim);
+        state.prepared_reclaim = prepared_reclaim;
         true
     }
 
     pub(crate) fn update_active_major_mark(
         &mut self,
-        update: impl FnOnce(&CollectionPlan, MarkWorklist<usize>) -> MajorMarkUpdate,
+        update: impl FnOnce(&CollectionPlan, MarkWorklist<ObjectLocator>) -> MajorMarkUpdate,
     ) -> Result<MajorMarkProgress, AllocError> {
         let Some(mut state) = self.major_mark_state.take() else {
             return Err(AllocError::NoCollectionInProgress);

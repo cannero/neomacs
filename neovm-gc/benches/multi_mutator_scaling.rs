@@ -73,11 +73,8 @@ fn bench_multi_mutator_scaling(c: &mut Criterion) {
                                 let mut mutator = heap.mutator();
                                 let mut scope = mutator.handle_scope();
                                 for i in 0..ALLOCS_PER_THREAD {
-                                    let label =
-                                        (worker_id as u64) * 1_000_000 + i;
-                                    mutator
-                                        .alloc(&mut scope, SmallLeaf(label))
-                                        .expect("alloc");
+                                    let label = (worker_id as u64) * 1_000_000 + i;
+                                    mutator.alloc(&mut scope, SmallLeaf(label)).expect("alloc");
                                 }
                             }));
                         }
@@ -141,12 +138,7 @@ fn bench_multi_mutator_store_edge(c: &mut Criterion) {
                                     )
                                     .expect("alloc owner");
                                 for _ in 0..BARRIERS_PER_THREAD {
-                                    mutator.store_edge(
-                                        &owner,
-                                        0,
-                                        |n| &n.next,
-                                        None,
-                                    );
+                                    mutator.store_edge(&owner, 0, |n| &n.next, None);
                                 }
                             }));
                         }

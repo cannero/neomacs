@@ -167,7 +167,6 @@ impl PauseStatsHandle {
     pub(crate) fn snapshot(&self) -> PauseHistogram {
         self.lock().snapshot()
     }
-
 }
 
 #[cfg(test)]

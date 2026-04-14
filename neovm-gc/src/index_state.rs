@@ -11,6 +11,24 @@ use crate::reclaim::PreparedReclaimSurvivor;
 use crate::spaces::OldGenState;
 use crate::stats::HeapStats;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub(crate) struct ObjectLocator {
+    pub(crate) shard: usize,
+    pub(crate) slot: usize,
+}
+
+impl ObjectLocator {
+    #[inline]
+    pub(crate) const fn new(shard: usize, slot: usize) -> Self {
+        Self { shard, slot }
+    }
+
+    #[inline]
+    pub(crate) const fn flat(slot: usize) -> Self {
+        Self { shard: 0, slot }
+    }
+}
+
 /// Fast non-cryptographic hasher specialized for
 /// [`ObjectKey`] and other `usize`-width keys that don't
 /// need HashDoS resistance. Uses the FxHash algorithm
@@ -89,7 +107,7 @@ impl BuildHasher for ObjectKeyBuildHasher {
     }
 }
 
-pub(crate) type ObjectIndex = HashMap<ObjectKey, usize, ObjectKeyBuildHasher>;
+pub(crate) type ObjectIndex = HashMap<ObjectKey, ObjectLocator, ObjectKeyBuildHasher>;
 pub(crate) type ForwardingMap = HashMap<ObjectKey, GcErased, ObjectKeyBuildHasher>;
 
 /// Explicit-edge fallback remembered set, owner-only model.
@@ -279,7 +297,6 @@ impl RememberedSetState {
         combined
     }
 
-
     /// Re-derive the current owner set by walking each tracked
     /// owner's record edges. Owners that are dead (no longer in
     /// `object_index`), moved out, no longer in an old-gen
@@ -298,16 +315,14 @@ impl RememberedSetState {
         let mut next_owners = Vec::with_capacity(self.owners.len());
         let mut next_set = HashSet::with_capacity(self.owners.len());
         for owner_key in &self.owners {
-            let Some(&owner_index) = object_index.get(owner_key) else {
+            let Some(&owner_locator) = object_index.get(owner_key) else {
                 continue;
             };
-            let owner = &objects[owner_index];
+            let owner = flat_record(objects, owner_locator);
             if !owner_qualifies_as_explicit_remembered_owner(owner) {
                 continue;
             }
-            if owner_has_nursery_edge(objects, object_index, owner)
-                && next_set.insert(*owner_key)
-            {
+            if owner_has_nursery_edge(objects, object_index, owner) && next_set.insert(*owner_key) {
                 next_owners.push(*owner_key);
             }
         }
@@ -331,10 +346,10 @@ impl RememberedSetState {
         self.owners_including_pending()
             .into_iter()
             .filter(|owner_key| {
-                let Some(&owner_index) = object_index.get(owner_key) else {
+                let Some(&owner_locator) = object_index.get(owner_key) else {
                     return false;
                 };
-                let owner = &objects[owner_index];
+                let owner = flat_record(objects, owner_locator);
                 if !keep_object_for_collection(kind, owner) {
                     return false;
                 }
@@ -371,9 +386,7 @@ impl RememberedSetState {
 /// records do not.
 fn owner_qualifies_as_explicit_remembered_owner(owner: &ObjectRecord) -> bool {
     let space = owner.space();
-    space != SpaceKind::Nursery
-        && space != SpaceKind::Immortal
-        && !owner.header().is_moved_out()
+    space != SpaceKind::Nursery && space != SpaceKind::Immortal && !owner.header().is_moved_out()
 }
 
 /// Predicate: does `owner` currently hold at least one
@@ -396,8 +409,8 @@ fn owner_has_nursery_edge(
             if self.seen {
                 return;
             }
-            if let Some(&target_index) = self.index.get(&object.object_key())
-                && self.objects[target_index].space() == SpaceKind::Nursery
+            if let Some(&target_locator) = self.index.get(&object.object_key())
+                && flat_record(self.objects, target_locator).space() == SpaceKind::Nursery
             {
                 self.seen = true;
             }
@@ -414,16 +427,6 @@ fn owner_has_nursery_edge(
 }
 
 impl HeapIndexState {
-    pub(crate) fn space_for_erased(
-        &self,
-        objects: &[ObjectRecord],
-        object: GcErased,
-    ) -> Option<SpaceKind> {
-        self.object_index
-            .get(&object.object_key())
-            .map(|&index| objects[index].space())
-    }
-
     pub(crate) fn apply_storage_stats(&self, stats: &mut HeapStats) {
         // The explicit-edge fallback is now an owner-only set
         // (one entry per non-block-backed old-gen owner that
@@ -473,10 +476,10 @@ impl HeapIndexState {
     pub(crate) fn record_allocated_object(
         &mut self,
         object_key: ObjectKey,
-        index: usize,
+        locator: ObjectLocator,
         desc: &'static TypeDesc,
     ) {
-        self.object_index.insert(object_key, index);
+        self.object_index.insert(object_key, locator);
         self.record_descriptor_candidates(object_key, desc);
     }
 
@@ -496,7 +499,7 @@ impl HeapIndexState {
         }
     }
 
-    pub(crate) fn candidate_indices(&self, candidates: &[ObjectKey]) -> Vec<usize> {
+    pub(crate) fn candidate_indices(&self, candidates: &[ObjectKey]) -> Vec<ObjectLocator> {
         candidates
             .iter()
             .filter_map(|key| self.object_index.get(key).copied())
@@ -523,20 +526,18 @@ impl HeapIndexState {
     /// [`RememberedSetState::owners_for_collection`].
     pub(crate) fn record_remembered_edge_if_needed(
         &self,
-        objects: &[ObjectRecord],
         old_gen: &OldGenState,
         owner: GcErased,
         new_value: Option<GcErased>,
     ) {
-        let Some(owner_space) = self.space_for_erased(objects, owner) else {
-            return;
-        };
+        // Safe because mutator barriers call this while holding
+        // the heap safepoint read lock, which excludes any
+        // stop-the-world reclamation or relocation.
+        let owner_space = unsafe { owner.header().as_ref().space() };
         let Some(target) = new_value else {
             return;
         };
-        let Some(target_space) = self.space_for_erased(objects, target) else {
-            return;
-        };
+        let target_space = unsafe { target.header().as_ref().space() };
 
         let owner_is_old = owner_space != SpaceKind::Nursery && owner_space != SpaceKind::Immortal;
         if owner_is_old && target_space == SpaceKind::Nursery {
@@ -604,7 +605,7 @@ impl HeapIndexState {
         let mut ephemeron_candidates = Vec::new();
         for (rebuilt_index, survivor) in survivors.iter().enumerate() {
             let object_key = objects[survivor.object_index].object_key();
-            rebuilt_object_index.insert(object_key, rebuilt_index);
+            rebuilt_object_index.insert(object_key, ObjectLocator::flat(rebuilt_index));
             survivor_keys.insert(object_key);
             if finalizable_candidate_set.contains(&object_key) {
                 finalizable_candidates.push(object_key);
@@ -654,6 +655,11 @@ impl HeapIndexState {
         self.remembered
             .refresh_from_records(objects, &self.object_index);
     }
+}
+
+fn flat_record(objects: &[ObjectRecord], locator: ObjectLocator) -> &ObjectRecord {
+    debug_assert_eq!(locator.shard, 0);
+    &objects[locator.slot]
 }
 
 impl PostSweepIndexRebuild {

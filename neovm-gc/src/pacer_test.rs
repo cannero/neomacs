@@ -97,14 +97,8 @@ fn compute_cpu_aware_growth_zero_when_inputs_non_finite() {
         compute_cpu_aware_growth(1000, f64::INFINITY, 4000.0, 0.25),
         0
     );
-    assert_eq!(
-        compute_cpu_aware_growth(1000, f64::NAN, 4000.0, 0.25),
-        0
-    );
-    assert_eq!(
-        compute_cpu_aware_growth(1000, 2000.0, f64::NAN, 0.25),
-        0
-    );
+    assert_eq!(compute_cpu_aware_growth(1000, f64::NAN, 4000.0, 0.25), 0);
+    assert_eq!(compute_cpu_aware_growth(1000, 2000.0, f64::NAN, 0.25), 0);
 }
 
 #[test]
@@ -447,8 +441,7 @@ fn pacer_update_config_preserves_runtime_state() {
     // (only by the next record_completed_cycle), so it stays at
     // the previous cycle's value.
     assert_eq!(
-        after.next_major_trigger_bytes,
-        before_trigger,
+        after.next_major_trigger_bytes, before_trigger,
         "next_major_trigger_bytes preserved until next cycle"
     );
     // The new config IS observable.

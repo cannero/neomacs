@@ -134,6 +134,7 @@ mod mark;
 /// `Mutator<'heap>` — the only allocating view onto a `Heap`.
 pub mod mutator;
 mod object;
+mod object_store;
 /// Adaptive Go-style pacer with EWMA trigger thresholds.
 pub mod pacer;
 mod pause_stats;
@@ -165,11 +166,11 @@ pub use background::{
     SharedBackgroundStatus, SharedBackgroundWaitResult, SharedHeap, SharedHeapAccessError,
     SharedHeapError, SharedHeapStatus,
 };
+pub use barrier::{BarrierEvent, BarrierKind};
 pub use concurrent_marker::{
     ConcurrentMarker, ConcurrentMarkerConfig, ConcurrentMarkerError, ConcurrentMarkerStats,
     ConcurrentMarkerStatus,
 };
-pub use barrier::{BarrierEvent, BarrierKind};
 pub use descriptor::{
     EphemeronVisitor, GcErased, LayoutKind, MovePolicy, Relocator, Trace, TraceFn, Tracer,
     TypeDesc, TypeFlags, WeakProcessor, trace_edge,

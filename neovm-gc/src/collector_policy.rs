@@ -1,7 +1,7 @@
 use crate::collector_state::CollectorState;
 use crate::descriptor::{MovePolicy, TypeDesc};
 use crate::heap::HeapConfig;
-use crate::object::{ObjectRecord, SpaceKind};
+use crate::object::SpaceKind;
 use crate::plan::{CollectionKind, CollectionPlan};
 use crate::spaces::{
     LargeObjectSpaceConfig, NurseryConfig, OldGenConfig, OldGenState, PinnedSpaceConfig,
@@ -20,7 +20,7 @@ const MARK_SLICE_BUDGET_AVG_OBJECT_BYTES: usize = 16;
 
 pub(crate) fn build_plan(
     kind: CollectionKind,
-    objects: &[ObjectRecord],
+    object_count: usize,
     stats: &HeapStats,
     nursery_config: &NurseryConfig,
     old_config: &OldGenConfig,
@@ -71,7 +71,7 @@ pub(crate) fn build_plan(
             let estimated_compaction_bytes = old_selection.estimated_compaction_bytes;
             let old_reclaim_bytes = old_selection.estimated_reclaim_bytes;
             let worker_count = old_config.concurrent_mark_workers.max(1);
-            let mark_slice_budget = objects.len().max(1).div_ceil(worker_count);
+            let mark_slice_budget = object_count.max(1).div_ceil(worker_count);
             let estimated_reclaim_bytes = match kind {
                 CollectionKind::Major => old_reclaim_bytes,
                 CollectionKind::Full => old_reclaim_bytes

@@ -33,8 +33,8 @@
 //! chain is fully inlined; debug builds report wildly
 //! pessimistic numbers.
 
-use neovm_gc::{Heap, HeapConfig, Relocator, Trace, Tracer};
 use neovm_gc::spaces::NurseryConfig;
+use neovm_gc::{Heap, HeapConfig, Relocator, Trace, Tracer};
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
@@ -90,9 +90,7 @@ fn bench_single_mutator(allocations: u64) -> f64 {
         let batch = remaining.min(BATCH_SIZE);
         let mut scope = mutator.handle_scope();
         for i in 0..batch {
-            mutator
-                .alloc(&mut scope, Leaf(i))
-                .expect("alloc leaf");
+            mutator.alloc(&mut scope, Leaf(i)).expect("alloc leaf");
         }
         drop(scope);
         remaining -= batch;
@@ -148,7 +146,10 @@ fn format_rate(rate: f64) -> String {
 fn main() {
     println!("neovm-gc allocation throughput bench");
     println!("=====================================");
-    println!("(each measurement runs {} allocations per thread)", ALLOCATIONS_PER_RUN);
+    println!(
+        "(each measurement runs {} allocations per thread)",
+        ALLOCATIONS_PER_RUN
+    );
     println!();
 
     // Single-mutator baseline.

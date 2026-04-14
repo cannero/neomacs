@@ -1,5 +1,5 @@
 use crate::heap::AllocError;
-use crate::index_state::{ForwardingMap, HeapIndexState, PreparedIndexReclaim};
+use crate::index_state::{ForwardingMap, HeapIndexState, ObjectLocator, PreparedIndexReclaim};
 use crate::object::{ObjectRecord, OldBlockPlacement, PendingFinalizer, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPlan};
 use crate::runtime_state::RuntimeStateHandle;
@@ -79,10 +79,7 @@ pub(crate) fn find_sparse_old_block_candidates(
     // first. Density values come from (live_bytes / capacity)
     // and are bounded in [0.0, 1.0]; partial_cmp is safe here
     // because the inputs are real, finite, non-NaN.
-    candidates.sort_by(|a, b| {
-        a.1.partial_cmp(&b.1)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
     candidates.into_iter().map(|(index, _)| index).collect()
 }
 
@@ -122,11 +119,8 @@ pub(crate) fn compact_sparse_old_blocks(
     // Phase A: compute per-block live_bytes from the post-mark
     // object slice and pick sparse candidates.
     let live_by_block = compute_per_block_live_bytes(objects, old_gen.block_count());
-    let candidates = find_sparse_old_block_candidates(
-        &live_by_block,
-        old_gen.blocks(),
-        density_threshold,
-    );
+    let candidates =
+        find_sparse_old_block_candidates(&live_by_block, old_gen.blocks(), density_threshold);
     if candidates.is_empty() {
         return ForwardingMap::default();
     }
@@ -191,10 +185,7 @@ pub(crate) fn compact_specific_old_blocks(
         // Derive the allocation layout from the source record.
         let layout = {
             let source = &objects[slot_index];
-            match core::alloc::Layout::from_size_align(
-                source.total_size(),
-                source.layout_align(),
-            ) {
+            match core::alloc::Layout::from_size_align(source.total_size(), source.layout_align()) {
                 Ok(l) => l,
                 Err(_) => continue,
             }
@@ -215,11 +206,10 @@ pub(crate) fn compact_specific_old_blocks(
             // a freshly-reserved slot in a non-source block
             // backed by a buffer owned by the pool. The layout
             // matches what evacuate_to_arena_slot expects.
-            let mut record =
-                match unsafe { source.evacuate_to_arena_slot(SpaceKind::Old, base) } {
-                    Ok(r) => r,
-                    Err(_) => continue,
-                };
+            let mut record = match unsafe { source.evacuate_to_arena_slot(SpaceKind::Old, base) } {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
             record.set_old_block_placement(placement);
             record
         };
@@ -633,7 +623,7 @@ pub(crate) fn sweep_minor_and_rebuild_post_collection(
         let total_size = object.total_size();
         let index = rebuilt_objects.len();
         rebuilt_objects.push(object);
-        indexes.record_allocated_object(object_key, index, desc);
+        indexes.record_allocated_object(object_key, ObjectLocator::flat(index), desc);
         rebuilt_stats.record_live_object(space, total_size);
     }
 

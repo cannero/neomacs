@@ -148,9 +148,7 @@ fn nursery_state_swaps_from_and_to_spaces() {
     let layout = Layout::from_size_align(32, 8).unwrap();
     let from_ptr = state.try_alloc(layout).expect("alloc from-space");
     assert_eq!(state.from_space().used_bytes(), 32);
-    let to_ptr = state
-        .try_alloc_in_to_space(layout)
-        .expect("alloc to-space");
+    let to_ptr = state.try_alloc_in_to_space(layout).expect("alloc to-space");
     assert_eq!(state.to_space().used_bytes(), 32);
     assert!(state.from_space_contains(from_ptr.as_ptr()));
     assert!(state.contains_ptr(to_ptr.as_ptr()));
@@ -298,8 +296,5 @@ fn nursery_tlab_multiple_reservations_carve_disjoint_slabs() {
     // Slab A and slab B must not overlap. Either A is
     // entirely before B, or B is entirely before A.
     let disjoint = a_end <= b_base || b_end <= a_base;
-    assert!(
-        disjoint,
-        "tlab reservations must carve disjoint ranges",
-    );
+    assert!(disjoint, "tlab reservations must carve disjoint ranges",);
 }

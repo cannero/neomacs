@@ -272,14 +272,8 @@ impl ConcurrentMarker {
     ///   stopped before completion.
     /// * `Err(ConcurrentMarkerError::Heap(_))` if a shared-heap status
     ///   read fails.
-    pub fn wait_for_mark_complete(
-        &self,
-        timeout: Duration,
-    ) -> Result<bool, ConcurrentMarkerError> {
-        let worker = self
-            .worker
-            .as_ref()
-            .ok_or(ConcurrentMarkerError::Stopped)?;
+    pub fn wait_for_mark_complete(&self, timeout: Duration) -> Result<bool, ConcurrentMarkerError> {
+        let worker = self.worker.as_ref().ok_or(ConcurrentMarkerError::Stopped)?;
 
         let deadline = Instant::now() + timeout;
         let mut observed_epoch = self.shared.background_epoch()?;

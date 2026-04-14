@@ -41,9 +41,7 @@ fn bench_minor_gc_small_nursery(c: &mut Criterion) {
                 {
                     let mut scope = mutator.handle_scope();
                     for i in 0..1_000u64 {
-                        mutator
-                            .alloc(&mut scope, SmallLeaf(i))
-                            .expect("alloc");
+                        mutator.alloc(&mut scope, SmallLeaf(i)).expect("alloc");
                     }
                 }
                 // Scope is dropped; all 1000 leaves are
@@ -77,9 +75,7 @@ fn bench_minor_gc_all_survive(c: &mut Criterion) {
                 let mut mutator = heap.mutator();
                 let mut scope = mutator.handle_scope();
                 for i in 0..1_000u64 {
-                    mutator
-                        .alloc(&mut scope, SmallLeaf(i))
-                        .expect("alloc");
+                    mutator.alloc(&mut scope, SmallLeaf(i)).expect("alloc");
                 }
                 // Scope is still alive: every allocation
                 // is rooted. The minor cycle must evacuate
@@ -115,9 +111,7 @@ fn bench_major_gc_small(c: &mut Criterion) {
                 let mut mutator = heap.mutator();
                 let mut scope = mutator.handle_scope();
                 for i in 0..1_000u64 {
-                    mutator
-                        .alloc(&mut scope, SmallLeaf(i))
-                        .expect("alloc");
+                    mutator.alloc(&mut scope, SmallLeaf(i)).expect("alloc");
                 }
                 // Run two minor cycles to age survivors
                 // into the old gen (default promotion_age

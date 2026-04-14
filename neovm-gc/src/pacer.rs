@@ -38,10 +38,9 @@ impl From<SpaceKind> for PacerAllocationSpace {
     fn from(space: SpaceKind) -> Self {
         match space {
             SpaceKind::Nursery => PacerAllocationSpace::Nursery,
-            SpaceKind::Old
-            | SpaceKind::Pinned
-            | SpaceKind::Large
-            | SpaceKind::Immortal => PacerAllocationSpace::Other,
+            SpaceKind::Old | SpaceKind::Pinned | SpaceKind::Large | SpaceKind::Immortal => {
+                PacerAllocationSpace::Other
+            }
         }
     }
 }
@@ -247,9 +246,8 @@ impl Pacer {
     ) -> PacerDecision {
         let space = space.into();
         let mut state = self.lock();
-        state.bytes_allocated_since_last_cycle = state
-            .bytes_allocated_since_last_cycle
-            .saturating_add(bytes);
+        state.bytes_allocated_since_last_cycle =
+            state.bytes_allocated_since_last_cycle.saturating_add(bytes);
         if matches!(space, PacerAllocationSpace::Nursery) {
             state.bytes_allocated_to_nursery_since_last_minor = state
                 .bytes_allocated_to_nursery_since_last_minor
@@ -316,11 +314,7 @@ impl Pacer {
 
     /// Tell the pacer a major collection just completed. Updates the
     /// EWMA estimates and computes the next trigger threshold.
-    pub fn record_completed_cycle(
-        &self,
-        cycle: &CollectionStats,
-        live_bytes_after: usize,
-    ) {
+    pub fn record_completed_cycle(&self, cycle: &CollectionStats, live_bytes_after: usize) {
         self.record_completed_cycle_at(cycle, live_bytes_after, Instant::now());
     }
 
@@ -357,8 +351,7 @@ impl Pacer {
         if mark_nanos > 0 {
             let mark_secs = nanos_as_secs_f64(mark_nanos);
             let observed = (live_bytes_after as f64) / mark_secs;
-            state.last_mark_rate_bps =
-                ewma_update(state.last_mark_rate_bps, observed, alpha);
+            state.last_mark_rate_bps = ewma_update(state.last_mark_rate_bps, observed, alpha);
         }
 
         // 2. Allocation rate (bytes per second observed by the mutator
@@ -407,8 +400,7 @@ impl Pacer {
             config.heap_growth_target_ratio,
             config.min_trigger_bytes,
         );
-        let max_safe_growth =
-            compute_max_safe_growth(state.last_mark_rate_bps, target_pause_secs);
+        let max_safe_growth = compute_max_safe_growth(state.last_mark_rate_bps, target_pause_secs);
         let cpu_aware_growth = compute_cpu_aware_growth(
             live_bytes_after,
             state.last_allocation_rate_bps,

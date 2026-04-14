@@ -1,5 +1,4 @@
 use core::marker::PhantomData;
-use core::slice;
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
@@ -8,9 +7,10 @@ use crossbeam_deque::{Steal, Stealer, Worker};
 
 use crate::descriptor::{EphemeronVisitor, GcErased, ObjectKey, Relocator, Tracer, WeakProcessor};
 use crate::heap::AllocError;
-use crate::index_state::{ForwardingMap, HeapIndexState, ObjectIndex};
+use crate::index_state::{ForwardingMap, HeapIndexState, ObjectIndex, ObjectLocator};
 use crate::mark::MarkWorklist;
 use crate::object::{ObjectRecord, SpaceKind};
+use crate::object_store::{FlatReadView, ObjectReadRaw, ObjectReadView};
 use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan};
 use crate::reclaim::{
     PreparedReclaim, finish_prepared_reclaim_cycle,
@@ -28,31 +28,28 @@ use crate::spaces::{OldGenConfig, OldGenState};
 use crate::stats::{CollectionStats, HeapStats};
 
 pub(crate) struct WeakRetention<'a> {
-    objects: &'a [ObjectRecord],
-    index: &'a ObjectIndex,
+    objects: ObjectReadRaw<'a>,
     forwarding: &'a ForwardingMap,
     kind: CollectionKind,
 }
 
 impl<'a> WeakRetention<'a> {
     pub(crate) fn new(
-        objects: &'a [ObjectRecord],
-        index: &'a ObjectIndex,
+        objects: ObjectReadRaw<'a>,
         forwarding: &'a ForwardingMap,
         kind: CollectionKind,
     ) -> Self {
         Self {
             objects,
-            index,
             forwarding,
             kind,
         }
     }
 
     fn record_for(&self, object: GcErased) -> Option<&'a ObjectRecord> {
-        self.index
-            .get(&object.object_key())
-            .map(|&index| &self.objects[index])
+        self.objects
+            .locator_of_key(object.object_key())
+            .map(|locator| self.objects.get(locator))
     }
 }
 
@@ -76,9 +73,7 @@ impl WeakProcessor for WeakRetention<'_> {
 
 #[derive(Clone, Copy)]
 pub(crate) struct ParallelWeakShared<'a> {
-    objects_ptr: *const ObjectRecord,
-    objects_len: usize,
-    index_ptr: *const ObjectIndex,
+    objects: ObjectReadRaw<'a>,
     forwarding_ptr: *const ForwardingMap,
     kind: CollectionKind,
     _marker: PhantomData<&'a ()>,
@@ -86,32 +81,20 @@ pub(crate) struct ParallelWeakShared<'a> {
 
 impl<'a> ParallelWeakShared<'a> {
     pub(crate) fn new(
-        objects: &'a [ObjectRecord],
-        index: &'a ObjectIndex,
+        objects: ObjectReadRaw<'a>,
         forwarding: &'a ForwardingMap,
         kind: CollectionKind,
     ) -> Self {
         Self {
-            objects_ptr: objects.as_ptr(),
-            objects_len: objects.len(),
-            index_ptr: index as *const _,
+            objects,
             forwarding_ptr: forwarding as *const _,
             kind,
             _marker: PhantomData,
         }
     }
 
-    pub(crate) fn objects(self) -> &'a [ObjectRecord] {
-        unsafe { slice::from_raw_parts(self.objects_ptr, self.objects_len) }
-    }
-
     pub(crate) fn processor(self) -> WeakRetention<'a> {
-        WeakRetention::new(
-            self.objects(),
-            unsafe { &*self.index_ptr },
-            unsafe { &*self.forwarding_ptr },
-            self.kind,
-        )
+        WeakRetention::new(self.objects, unsafe { &*self.forwarding_ptr }, self.kind)
     }
 }
 
@@ -160,17 +143,17 @@ impl<'a, 'b> MajorEphemeronTracer<'a, 'b> {
 
 impl EphemeronVisitor for MajorEphemeronTracer<'_, '_> {
     fn visit_ephemeron(&mut self, key: GcErased, value: GcErased) {
-        let Some(&key_index) = self.tracer.index.get(&key.object_key()) else {
+        let Some(key_index) = self.tracer.objects.locator_of_key(key.object_key()) else {
             return;
         };
-        if !self.tracer.objects[key_index].is_marked() {
+        if !self.tracer.objects.get(key_index).is_marked() {
             return;
         }
 
-        let Some(&value_index) = self.tracer.index.get(&value.object_key()) else {
+        let Some(value_index) = self.tracer.objects.locator_of_key(value.object_key()) else {
             return;
         };
-        let value_record = &self.tracer.objects[value_index];
+        let value_record = self.tracer.objects.get(value_index);
         if value_record.mark_if_unmarked() {
             self.tracer.worklist.push(value_index);
             self.changed = true;
@@ -179,7 +162,7 @@ impl EphemeronVisitor for MajorEphemeronTracer<'_, '_> {
 }
 
 pub(crate) struct MajorMarkSession<'a> {
-    objects: &'a [ObjectRecord],
+    objects: ObjectReadRaw<'a>,
     tracer: MarkTracer<'a>,
     worker_count: usize,
     slice_budget: usize,
@@ -189,14 +172,13 @@ pub(crate) struct MajorMarkSession<'a> {
 
 impl<'a> MajorMarkSession<'a> {
     pub(crate) fn new(
-        objects: &'a [ObjectRecord],
-        index: &'a ObjectIndex,
+        objects: ObjectReadRaw<'a>,
         worker_count: usize,
         slice_budget: usize,
     ) -> Self {
         Self {
             objects,
-            tracer: MarkTracer::new(objects, index),
+            tracer: MarkTracer::new(objects),
             worker_count,
             slice_budget,
             mark_steps: 0,
@@ -220,7 +202,8 @@ impl<'a> MajorMarkSession<'a> {
         loop {
             let changed = if self.worker_count.max(1) == 1 || self.objects.len() <= 1 {
                 let mut visitor = MajorEphemeronTracer::new(&mut self.tracer);
-                for object in self.objects {
+                for locator in self.objects.all_locators() {
+                    let object = self.objects.get(locator);
                     if object.is_marked() {
                         object.visit_ephemerons(&mut visitor);
                     }
@@ -243,14 +226,16 @@ impl<'a> MajorMarkSession<'a> {
     }
 
     fn scan_ephemerons_parallel(&mut self) -> bool {
-        let workers = self.worker_count.max(1).min(self.objects.len().max(1));
-        let chunk_size = self.objects.len().max(1).div_ceil(workers);
-        let shared = ParallelMarkShared::new(self.objects, self.tracer.index);
+        let locators = Arc::new(self.objects.all_locators());
+        let workers = self.worker_count.max(1).min(locators.len().max(1));
+        let chunk_size = locators.len().max(1).div_ceil(workers);
+        let shared = ParallelMarkShared::new(self.objects);
         let worker_outputs = thread::scope(|scope| {
             let mut handles = Vec::with_capacity(workers);
             for worker_index in 0..workers {
+                let locators = Arc::clone(&locators);
                 let start = worker_index.saturating_mul(chunk_size);
-                let end = (start + chunk_size).min(self.objects.len());
+                let end = (start + chunk_size).min(locators.len());
                 if start >= end {
                     continue;
                 }
@@ -258,7 +243,8 @@ impl<'a> MajorMarkSession<'a> {
                     let mut worker = shared.tracer(MarkWorklist::default());
                     let changed = {
                         let mut visitor = MajorEphemeronTracer::new(&mut worker);
-                        for object in &shared.objects()[start..end] {
+                        for &locator in &locators[start..end] {
+                            let object = shared.objects().get(locator);
                             if object.is_marked() {
                                 object.visit_ephemerons(&mut visitor);
                             }
@@ -294,13 +280,12 @@ impl<'a> MajorMarkSession<'a> {
 }
 
 pub(crate) fn trace_major(
-    objects: &[ObjectRecord],
-    index: &ObjectIndex,
+    objects: ObjectReadRaw<'_>,
     worker_count: usize,
     slice_budget: usize,
     sources: impl IntoIterator<Item = GcErased>,
 ) -> (u64, u64) {
-    let mut session = MajorMarkSession::new(objects, index, worker_count, slice_budget);
+    let mut session = MajorMarkSession::new(objects, worker_count, slice_budget);
     for source in sources {
         session.seed(source);
     }
@@ -309,16 +294,18 @@ pub(crate) fn trace_major(
     (session.mark_steps(), session.mark_rounds())
 }
 
-pub(crate) fn collect_global_sources(roots: &RootStack, objects: &[ObjectRecord]) -> Vec<GcErased> {
-    roots
-        .iter()
-        .chain(
-            objects
-                .iter()
-                .filter(|object| object.space() == SpaceKind::Immortal)
-                .map(ObjectRecord::erased),
-        )
-        .collect()
+pub(crate) fn collect_global_sources(
+    roots: &RootStack,
+    objects: &impl ObjectReadView,
+) -> Vec<GcErased> {
+    let raw = objects.raw();
+    let immortal_sources = raw
+        .all_locators()
+        .into_iter()
+        .map(|locator| raw.get(locator))
+        .filter(|object| object.space() == SpaceKind::Immortal)
+        .map(ObjectRecord::erased);
+    roots.iter().chain(immortal_sources).collect()
 }
 
 /// Round `value` up to the next multiple of `align` (assumed non-zero).
@@ -422,6 +409,59 @@ pub(crate) fn collect_dirty_card_root_indices_with_counter(
     roots
 }
 
+pub(crate) fn collect_dirty_card_root_locators_with_counter(
+    objects: ObjectReadRaw<'_>,
+    old_gen: &OldGenState,
+    counter: &mut usize,
+) -> Vec<crate::index_state::ObjectLocator> {
+    let mut roots = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    let mut header_index: std::collections::HashMap<usize, crate::index_state::ObjectLocator> =
+        std::collections::HashMap::with_capacity(objects.len());
+    for locator in objects.all_locators() {
+        let header_addr = objects.get(locator).erased().header().as_ptr() as usize;
+        header_index.insert(header_addr, locator);
+    }
+
+    for block in old_gen.blocks() {
+        let card_table = block.card_table();
+        let dirty = card_table.dirty_card_indices();
+        if dirty.is_empty() {
+            continue;
+        }
+        let card_size = card_table.card_size();
+        let block_base = block.base_ptr() as usize;
+        let block_len = block.capacity_bytes();
+        let line_bytes = block.line_bytes().max(1);
+        let object_starts = block.object_starts();
+        for card_index in dirty {
+            let Some(start_offset) = object_starts.get(card_index).copied().flatten() else {
+                continue;
+            };
+            let card_end_offset = ((card_index + 1) * card_size).min(block_len);
+            let mut offset = start_offset as usize;
+            while offset < card_end_offset {
+                let header_addr = block_base + offset;
+                if let Some(locator) = header_index.get(&header_addr).copied() {
+                    *counter += 1;
+                    let record = objects.get(locator);
+                    let total_size = record.total_size().max(1);
+                    if seen.insert(locator) {
+                        roots.push(locator);
+                    }
+                    offset = align_up_to(offset.saturating_add(total_size), line_bytes);
+                    continue;
+                }
+                *counter += 1;
+                offset = align_up_to(offset.saturating_add(1), line_bytes);
+            }
+        }
+    }
+
+    roots
+}
+
 /// After a minor GC clears all dirty cards, walk every block-backed
 /// old-gen object whose payload still references a nursery survivor
 /// and re-mark its card so the next minor cycle picks the edge up
@@ -444,7 +484,7 @@ pub(crate) fn refresh_block_card_marks_after_minor(
                 return;
             }
             if let Some(&target_index) = self.index.get(&object.object_key())
-                && self.objects[target_index].space() == SpaceKind::Nursery
+                && self.objects[target_index.slot].space() == SpaceKind::Nursery
             {
                 self.seen_nursery_target = true;
             }
@@ -481,6 +521,7 @@ pub(crate) fn trace_collection(
     sources: &[GcErased],
     mut record_phase: impl FnMut(CollectionPhase),
 ) -> (u64, u64) {
+    let view = FlatReadView::new(objects, indexes);
     match plan.kind {
         CollectionKind::Minor => {
             // The hot barrier path appends to
@@ -489,8 +530,7 @@ pub(crate) fn trace_collection(
             // sees the same view the mutator just recorded.
             let remembered_owners = indexes.remembered.owners_including_pending();
             trace_minor(
-                objects,
-                &indexes.object_index,
+                view.raw(),
                 &remembered_owners,
                 &indexes.candidate_indices(&indexes.ephemeron_candidates),
                 plan.worker_count.max(1),
@@ -505,8 +545,7 @@ pub(crate) fn trace_collection(
             }
             record_phase(CollectionPhase::Remark);
             trace_major(
-                objects,
-                &indexes.object_index,
+                view.raw(),
                 plan.worker_count.max(1),
                 plan.mark_slice_budget,
                 sources.iter().copied(),
@@ -526,13 +565,13 @@ pub(crate) fn prepare_major_reclaim_for_plan(
         plan,
         |plan| {
             let empty_forwarding = ForwardingMap::default();
+            let view = FlatReadView::new(objects, indexes);
             process_weak_references_for_candidates(
-                objects,
+                view.raw(),
                 &indexes.weak_candidates,
                 plan.kind,
                 plan.worker_count.max(1),
                 &empty_forwarding,
-                &indexes.object_index,
             );
         },
         |plan| prepare_reclaim(objects, indexes, old_gen, old_config, plan.kind, plan),
@@ -597,13 +636,13 @@ pub(crate) fn prepare_full_reclaim_for_plan(
             )
         },
         |state, plan, forwarding| {
+            let view = FlatReadView::new(state.objects, state.indexes);
             process_weak_references_for_candidates(
-                state.objects,
+                view.raw(),
                 &state.indexes.weak_candidates,
                 plan.kind,
                 plan.worker_count.max(1),
                 forwarding,
-                &state.indexes.object_index,
             );
         },
         |state, plan| {
@@ -638,7 +677,8 @@ pub(crate) fn execute_collection_plan(
         object.clear_mark();
     }
 
-    let mut sources = collect_global_sources(roots, objects);
+    let view = FlatReadView::new(objects, indexes);
+    let mut sources = collect_global_sources(roots, &view);
     // Dirty-card scan for minor collections: walk every dirty
     // card in every old-gen block and add the records living in
     // those cards as additional roots so the trace picks up any
@@ -669,13 +709,13 @@ pub(crate) fn execute_collection_plan(
                 nursery,
             )?;
             relocate_forwarded_roots_and_edges(roots, objects, indexes, &evacuation.forwarding);
+            let view = FlatReadView::new(objects, indexes);
             process_weak_references_for_candidates(
-                objects,
+                view.raw(),
                 &indexes.weak_candidates,
                 plan.kind,
                 plan.worker_count.max(1),
                 &evacuation.forwarding,
-                &indexes.object_index,
             );
             record_phase(CollectionPhase::Reclaim);
             let runtime_state_for_callback = runtime_state.clone();
@@ -795,22 +835,21 @@ fn saturating_duration_nanos(duration: std::time::Duration) -> u64 {
 }
 
 pub(crate) fn trace_minor(
-    objects: &[ObjectRecord],
-    index: &ObjectIndex,
+    objects: ObjectReadRaw<'_>,
     remembered_owners: &[ObjectKey],
-    ephemeron_candidates: &[usize],
+    ephemeron_candidates: &[ObjectLocator],
     worker_count: usize,
     slice_budget: usize,
     sources: impl IntoIterator<Item = GcErased>,
 ) -> (u64, u64) {
-    let mut tracer = MinorTracer::new(objects, index);
+    let mut tracer = MinorTracer::new(objects);
     for source in sources {
         tracer.scan_source(source);
     }
 
     for &owner in remembered_owners {
-        if let Some(&owner_index) = index.get(&owner) {
-            tracer.scan_source(objects[owner_index].erased());
+        if let Some(owner_index) = objects.locator_of_key(owner) {
+            tracer.scan_source(objects.get(owner_index).erased());
         }
     }
 
@@ -848,19 +887,19 @@ impl<'a, 'b> MinorEphemeronTracer<'a, 'b> {
 
 impl EphemeronVisitor for MinorEphemeronTracer<'_, '_> {
     fn visit_ephemeron(&mut self, key: GcErased, value: GcErased) {
-        let Some(&key_index) = self.tracer.index.get(&key.object_key()) else {
+        let Some(key_index) = self.tracer.objects.locator_of_key(key.object_key()) else {
             return;
         };
-        let key_record = &self.tracer.objects[key_index];
+        let key_record = self.tracer.objects.get(key_index);
         let key_is_live = key_record.space() != SpaceKind::Nursery || key_record.is_marked();
         if !key_is_live {
             return;
         }
 
-        let Some(&value_index) = self.tracer.index.get(&value.object_key()) else {
+        let Some(value_index) = self.tracer.objects.locator_of_key(value.object_key()) else {
             return;
         };
-        let value_record = &self.tracer.objects[value_index];
+        let value_record = self.tracer.objects.get(value_index);
         if value_record.space() == SpaceKind::Nursery && value_record.mark_if_unmarked() {
             self.tracer.young_worklist.push(value_index);
             self.changed = true;
@@ -869,43 +908,31 @@ impl EphemeronVisitor for MinorEphemeronTracer<'_, '_> {
 }
 
 pub(crate) struct MarkTracer<'a> {
-    pub(crate) objects: &'a [ObjectRecord],
-    pub(crate) index: &'a ObjectIndex,
-    pub(crate) worklist: MarkWorklist<usize>,
+    pub(crate) objects: ObjectReadRaw<'a>,
+    pub(crate) worklist: MarkWorklist<ObjectLocator>,
 }
 
 #[derive(Clone, Copy)]
 pub(crate) struct ParallelMarkShared<'a> {
-    objects_ptr: *const ObjectRecord,
-    objects_len: usize,
-    index_ptr: *const ObjectIndex,
+    objects: ObjectReadRaw<'a>,
     _marker: PhantomData<&'a ()>,
 }
 
 impl<'a> ParallelMarkShared<'a> {
-    pub(crate) fn new(objects: &'a [ObjectRecord], index: &'a ObjectIndex) -> Self {
-        Self {
-            objects_ptr: objects.as_ptr(),
-            objects_len: objects.len(),
-            index_ptr: index as *const _,
-            _marker: PhantomData,
-        }
+    pub(crate) fn new(objects: ObjectReadRaw<'a>) -> Self {
+        Self { objects, _marker: PhantomData }
     }
 
-    pub(crate) fn tracer(self, worklist: MarkWorklist<usize>) -> MarkTracer<'a> {
-        MarkTracer::with_worklist(self.objects(), self.index(), worklist)
+    pub(crate) fn tracer(self, worklist: MarkWorklist<ObjectLocator>) -> MarkTracer<'a> {
+        MarkTracer::with_worklist(self.objects, worklist)
     }
 
-    pub(crate) fn minor_tracer(self, worklist: MarkWorklist<usize>) -> MinorTracer<'a> {
-        MinorTracer::with_worklist(self.objects(), self.index(), worklist)
+    pub(crate) fn minor_tracer(self, worklist: MarkWorklist<ObjectLocator>) -> MinorTracer<'a> {
+        MinorTracer::with_worklist(self.objects, worklist)
     }
 
-    pub(crate) fn objects(self) -> &'a [ObjectRecord] {
-        unsafe { slice::from_raw_parts(self.objects_ptr, self.objects_len) }
-    }
-
-    fn index(self) -> &'a ObjectIndex {
-        unsafe { &*self.index_ptr }
+    pub(crate) fn objects(self) -> ObjectReadRaw<'a> {
+        self.objects
     }
 }
 
@@ -919,32 +946,23 @@ unsafe impl Sync for ParallelMarkShared<'_> {}
 impl<'a> MarkTracer<'a> {
     const SPLIT_THRESHOLD: usize = 32;
 
-    pub(crate) fn new(objects: &'a [ObjectRecord], index: &'a ObjectIndex) -> Self {
-        Self {
-            objects,
-            index,
-            worklist: MarkWorklist::default(),
-        }
+    pub(crate) fn new(objects: ObjectReadRaw<'a>) -> Self {
+        Self { objects, worklist: MarkWorklist::default() }
     }
 
     pub(crate) fn with_worklist(
-        objects: &'a [ObjectRecord],
-        index: &'a ObjectIndex,
-        worklist: MarkWorklist<usize>,
+        objects: ObjectReadRaw<'a>,
+        worklist: MarkWorklist<ObjectLocator>,
     ) -> Self {
-        Self {
-            objects,
-            index,
-            worklist,
-        }
+        Self { objects, worklist }
     }
 
-    pub(crate) fn into_worklist(self) -> MarkWorklist<usize> {
+    pub(crate) fn into_worklist(self) -> MarkWorklist<ObjectLocator> {
         self.worklist
     }
 
-    fn mark_index(&mut self, index: usize) {
-        let object = &self.objects[index];
+    fn mark_index(&mut self, index: ObjectLocator) {
+        let object = self.objects.get(index);
         if object.mark_if_unmarked() {
             self.worklist.push(index);
         }
@@ -960,7 +978,7 @@ impl<'a> MarkTracer<'a> {
                 let Some(index) = spill.pop() else {
                     break;
                 };
-                self.objects[index].trace_edges(self);
+                self.objects.get(index).trace_edges(self);
                 drained += 1;
             }
             while let Some(index) = spill.pop() {
@@ -971,7 +989,7 @@ impl<'a> MarkTracer<'a> {
                 let Some(index) = self.worklist.pop() else {
                     break;
                 };
-                self.objects[index].trace_edges(self);
+                self.objects.get(index).trace_edges(self);
                 drained += 1;
             }
         }
@@ -996,7 +1014,6 @@ impl<'a> MarkTracer<'a> {
         // deque empties.
         run_stealing_round_major(
             self.objects,
-            self.index,
             &mut self.worklist,
             workers,
             slice_budget,
@@ -1024,50 +1041,40 @@ impl<'a> MarkTracer<'a> {
 
 impl Tracer for MarkTracer<'_> {
     fn mark_erased(&mut self, object: GcErased) {
-        if let Some(&index) = self.index.get(&object.object_key()) {
+        if let Some(index) = self.objects.locator_of_key(object.object_key()) {
             self.mark_index(index);
         }
     }
 }
 
 pub(crate) struct MinorTracer<'a> {
-    pub(crate) objects: &'a [ObjectRecord],
-    pub(crate) index: &'a ObjectIndex,
-    pub(crate) young_worklist: MarkWorklist<usize>,
+    pub(crate) objects: ObjectReadRaw<'a>,
+    pub(crate) young_worklist: MarkWorklist<ObjectLocator>,
 }
 
 impl<'a> MinorTracer<'a> {
     const SPLIT_THRESHOLD: usize = 32;
 
-    pub(crate) fn new(objects: &'a [ObjectRecord], index: &'a ObjectIndex) -> Self {
-        Self {
-            objects,
-            index,
-            young_worklist: MarkWorklist::default(),
-        }
+    pub(crate) fn new(objects: ObjectReadRaw<'a>) -> Self {
+        Self { objects, young_worklist: MarkWorklist::default() }
     }
 
     pub(crate) fn with_worklist(
-        objects: &'a [ObjectRecord],
-        index: &'a ObjectIndex,
-        young_worklist: MarkWorklist<usize>,
+        objects: ObjectReadRaw<'a>,
+        young_worklist: MarkWorklist<ObjectLocator>,
     ) -> Self {
-        Self {
-            objects,
-            index,
-            young_worklist,
-        }
+        Self { objects, young_worklist }
     }
 
-    pub(crate) fn into_worklist(self) -> MarkWorklist<usize> {
+    pub(crate) fn into_worklist(self) -> MarkWorklist<ObjectLocator> {
         self.young_worklist
     }
 
     pub(crate) fn scan_source(&mut self, object: GcErased) {
-        let Some(&index) = self.index.get(&object.object_key()) else {
+        let Some(index) = self.objects.locator_of_key(object.object_key()) else {
             return;
         };
-        let source = &self.objects[index];
+        let source = self.objects.get(index);
         if source.space() == SpaceKind::Nursery {
             self.mark_young(index);
         } else {
@@ -1075,8 +1082,8 @@ impl<'a> MinorTracer<'a> {
         }
     }
 
-    fn mark_young(&mut self, index: usize) {
-        let object = &self.objects[index];
+    fn mark_young(&mut self, index: ObjectLocator) {
+        let object = self.objects.get(index);
         if object.space() == SpaceKind::Nursery && object.mark_if_unmarked() {
             self.young_worklist.push(index);
         }
@@ -1092,7 +1099,7 @@ impl<'a> MinorTracer<'a> {
                 let Some(index) = spill.pop() else {
                     break;
                 };
-                self.objects[index].trace_edges(self);
+                self.objects.get(index).trace_edges(self);
                 drained += 1;
             }
             while let Some(index) = spill.pop() {
@@ -1103,7 +1110,7 @@ impl<'a> MinorTracer<'a> {
                 let Some(index) = self.young_worklist.pop() else {
                     break;
                 };
-                self.objects[index].trace_edges(self);
+                self.objects.get(index).trace_edges(self);
                 drained += 1;
             }
         }
@@ -1121,7 +1128,6 @@ impl<'a> MinorTracer<'a> {
         // Lock-free work-stealing path.
         run_stealing_round_minor(
             self.objects,
-            self.index,
             &mut self.young_worklist,
             workers,
             slice_budget,
@@ -1149,10 +1155,10 @@ impl<'a> MinorTracer<'a> {
 
 impl Tracer for MinorTracer<'_> {
     fn mark_erased(&mut self, object: GcErased) {
-        let Some(&index) = self.index.get(&object.object_key()) else {
+        let Some(index) = self.objects.locator_of_key(object.object_key()) else {
             return;
         };
-        if self.objects[index].space() == SpaceKind::Nursery {
+        if self.objects.get(index).space() == SpaceKind::Nursery {
             self.mark_young(index);
         }
     }
@@ -1190,32 +1196,27 @@ impl Tracer for MinorTracer<'_> {
 /// Stealing tracer for major (full heap) marking. Pushes newly marked indices
 /// to a local `crossbeam_deque::Worker<usize>` deque.
 pub(crate) struct StealingMarkTracer<'a> {
-    objects: &'a [ObjectRecord],
-    index: &'a ObjectIndex,
-    worker: Worker<usize>,
+    objects: ObjectReadRaw<'a>,
+    worker: Worker<ObjectLocator>,
 }
 
 impl<'a> StealingMarkTracer<'a> {
-    fn new(objects: &'a [ObjectRecord], index: &'a ObjectIndex, worker: Worker<usize>) -> Self {
-        Self {
-            objects,
-            index,
-            worker,
-        }
+    fn new(objects: ObjectReadRaw<'a>, worker: Worker<ObjectLocator>) -> Self {
+        Self { objects, worker }
     }
 
-    fn mark_index(&mut self, index: usize) {
-        let object = &self.objects[index];
+    fn mark_index(&mut self, index: ObjectLocator) {
+        let object = self.objects.get(index);
         if object.mark_if_unmarked() {
             self.worker.push(index);
         }
     }
 
-    fn trace_one(&mut self, index: usize) {
-        self.objects[index].trace_edges(self);
+    fn trace_one(&mut self, index: ObjectLocator) {
+        self.objects.get(index).trace_edges(self);
     }
 
-    fn into_remainder(self) -> Vec<usize> {
+    fn into_remainder(self) -> Vec<ObjectLocator> {
         let Self { worker, .. } = self;
         drain_worker_remainder(&worker)
     }
@@ -1223,7 +1224,7 @@ impl<'a> StealingMarkTracer<'a> {
 
 impl Tracer for StealingMarkTracer<'_> {
     fn mark_erased(&mut self, object: GcErased) {
-        if let Some(&index) = self.index.get(&object.object_key()) {
+        if let Some(index) = self.objects.locator_of_key(object.object_key()) {
             self.mark_index(index);
         }
     }
@@ -1231,32 +1232,27 @@ impl Tracer for StealingMarkTracer<'_> {
 
 /// Stealing tracer for minor (nursery-only) marking.
 pub(crate) struct StealingMinorTracer<'a> {
-    objects: &'a [ObjectRecord],
-    index: &'a ObjectIndex,
-    worker: Worker<usize>,
+    objects: ObjectReadRaw<'a>,
+    worker: Worker<ObjectLocator>,
 }
 
 impl<'a> StealingMinorTracer<'a> {
-    fn new(objects: &'a [ObjectRecord], index: &'a ObjectIndex, worker: Worker<usize>) -> Self {
-        Self {
-            objects,
-            index,
-            worker,
-        }
+    fn new(objects: ObjectReadRaw<'a>, worker: Worker<ObjectLocator>) -> Self {
+        Self { objects, worker }
     }
 
-    fn mark_young(&mut self, index: usize) {
-        let object = &self.objects[index];
+    fn mark_young(&mut self, index: ObjectLocator) {
+        let object = self.objects.get(index);
         if object.space() == SpaceKind::Nursery && object.mark_if_unmarked() {
             self.worker.push(index);
         }
     }
 
-    fn trace_one(&mut self, index: usize) {
-        self.objects[index].trace_edges(self);
+    fn trace_one(&mut self, index: ObjectLocator) {
+        self.objects.get(index).trace_edges(self);
     }
 
-    fn into_remainder(self) -> Vec<usize> {
+    fn into_remainder(self) -> Vec<ObjectLocator> {
         let Self { worker, .. } = self;
         drain_worker_remainder(&worker)
     }
@@ -1264,16 +1260,16 @@ impl<'a> StealingMinorTracer<'a> {
 
 impl Tracer for StealingMinorTracer<'_> {
     fn mark_erased(&mut self, object: GcErased) {
-        let Some(&index) = self.index.get(&object.object_key()) else {
+        let Some(index) = self.objects.locator_of_key(object.object_key()) else {
             return;
         };
-        if self.objects[index].space() == SpaceKind::Nursery {
+        if self.objects.get(index).space() == SpaceKind::Nursery {
             self.mark_young(index);
         }
     }
 }
 
-fn drain_worker_remainder(worker: &Worker<usize>) -> Vec<usize> {
+fn drain_worker_remainder(worker: &Worker<ObjectLocator>) -> Vec<ObjectLocator> {
     let mut remainder = Vec::new();
     while let Some(value) = worker.pop() {
         remainder.push(value);
@@ -1287,10 +1283,11 @@ fn drain_worker_remainder(worker: &Worker<usize>) -> Vec<usize> {
 /// Work stealing balances the rest during the round, so the initial split
 /// doesn't need to be perfectly even.
 fn distribute_into_workers(
-    initial: &mut MarkWorklist<usize>,
+    initial: &mut MarkWorklist<ObjectLocator>,
     worker_count: usize,
-) -> Vec<Worker<usize>> {
-    let workers: Vec<Worker<usize>> = (0..worker_count).map(|_| Worker::new_lifo()).collect();
+) -> Vec<Worker<ObjectLocator>> {
+    let workers: Vec<Worker<ObjectLocator>> =
+        (0..worker_count).map(|_| Worker::new_lifo()).collect();
     let mut slot = 0usize;
     while let Some(value) = initial.pop() {
         workers[slot].push(value);
@@ -1304,8 +1301,8 @@ fn distribute_into_workers(
 /// `Steal::Retry`.
 fn try_steal_from_siblings(
     worker_idx: usize,
-    stealers: &[Stealer<usize>],
-) -> (Option<usize>, bool) {
+    stealers: &[Stealer<ObjectLocator>],
+) -> (Option<ObjectLocator>, bool) {
     let mut should_retry = false;
     for (sibling_idx, stealer) in stealers.iter().enumerate() {
         if sibling_idx == worker_idx {
@@ -1334,28 +1331,27 @@ fn try_steal_from_siblings(
 /// This preserves the "per-round total work ≤ worker_count * slice_budget"
 /// semantic that the outer loop relies on for pause-time budgeting.
 fn run_stealing_round_major(
-    objects: &[ObjectRecord],
-    index: &ObjectIndex,
-    initial: &mut MarkWorklist<usize>,
+    objects: ObjectReadRaw<'_>,
+    initial: &mut MarkWorklist<ObjectLocator>,
     worker_count: usize,
     slice_budget: usize,
 ) -> (usize, u64) {
     let worker_count = worker_count.max(1);
     let slice_budget = slice_budget.max(1);
     let workers = distribute_into_workers(initial, worker_count);
-    let stealers: Arc<[Stealer<usize>]> = workers
+    let stealers: Arc<[Stealer<ObjectLocator>]> = workers
         .iter()
         .map(|w| w.stealer())
         .collect::<Vec<_>>()
         .into();
 
-    let shared = ParallelMarkShared::new(objects, index);
-    let outputs: Vec<(usize, Vec<usize>)> = thread::scope(|scope| {
+    let shared = ParallelMarkShared::new(objects);
+    let outputs: Vec<(usize, Vec<ObjectLocator>)> = thread::scope(|scope| {
         let mut handles = Vec::with_capacity(worker_count);
         for (worker_idx, worker) in workers.into_iter().enumerate() {
             let stealers = Arc::clone(&stealers);
             handles.push(scope.spawn(move || {
-                let mut tracer = StealingMarkTracer::new(shared.objects(), shared.index(), worker);
+                let mut tracer = StealingMarkTracer::new(shared.objects(), worker);
                 let mut drained = 0usize;
                 'outer: while drained < slice_budget {
                     // Drain local queue until we hit the budget or run out.
@@ -1370,8 +1366,7 @@ fn run_stealing_round_major(
                         break;
                     }
                     // Local queue empty — try to steal from siblings.
-                    let (stolen, should_retry) =
-                        try_steal_from_siblings(worker_idx, &stealers);
+                    let (stolen, should_retry) = try_steal_from_siblings(worker_idx, &stealers);
                     match stolen {
                         Some(value) => {
                             tracer.worker.push(value);
@@ -1389,7 +1384,10 @@ fn run_stealing_round_major(
         }
         handles
             .into_iter()
-            .map(|h| h.join().expect("parallel stealing major mark worker panicked"))
+            .map(|h| {
+                h.join()
+                    .expect("parallel stealing major mark worker panicked")
+            })
             .collect()
     });
 
@@ -1409,28 +1407,27 @@ fn run_stealing_round_major(
 
 /// Run one work-stealing mark round for minor (nursery-only) marking.
 fn run_stealing_round_minor(
-    objects: &[ObjectRecord],
-    index: &ObjectIndex,
-    initial: &mut MarkWorklist<usize>,
+    objects: ObjectReadRaw<'_>,
+    initial: &mut MarkWorklist<ObjectLocator>,
     worker_count: usize,
     slice_budget: usize,
 ) -> (usize, u64) {
     let worker_count = worker_count.max(1);
     let slice_budget = slice_budget.max(1);
     let workers = distribute_into_workers(initial, worker_count);
-    let stealers: Arc<[Stealer<usize>]> = workers
+    let stealers: Arc<[Stealer<ObjectLocator>]> = workers
         .iter()
         .map(|w| w.stealer())
         .collect::<Vec<_>>()
         .into();
 
-    let shared = ParallelMarkShared::new(objects, index);
-    let outputs: Vec<(usize, Vec<usize>)> = thread::scope(|scope| {
+    let shared = ParallelMarkShared::new(objects);
+    let outputs: Vec<(usize, Vec<ObjectLocator>)> = thread::scope(|scope| {
         let mut handles = Vec::with_capacity(worker_count);
         for (worker_idx, worker) in workers.into_iter().enumerate() {
             let stealers = Arc::clone(&stealers);
             handles.push(scope.spawn(move || {
-                let mut tracer = StealingMinorTracer::new(shared.objects(), shared.index(), worker);
+                let mut tracer = StealingMinorTracer::new(shared.objects(), worker);
                 let mut drained = 0usize;
                 'outer: while drained < slice_budget {
                     while drained < slice_budget {
@@ -1443,8 +1440,7 @@ fn run_stealing_round_minor(
                     if drained >= slice_budget {
                         break;
                     }
-                    let (stolen, should_retry) =
-                        try_steal_from_siblings(worker_idx, &stealers);
+                    let (stolen, should_retry) = try_steal_from_siblings(worker_idx, &stealers);
                     match stolen {
                         Some(value) => {
                             tracer.worker.push(value);
@@ -1462,7 +1458,10 @@ fn run_stealing_round_minor(
         }
         handles
             .into_iter()
-            .map(|h| h.join().expect("parallel stealing minor mark worker panicked"))
+            .map(|h| {
+                h.join()
+                    .expect("parallel stealing minor mark worker panicked")
+            })
             .collect()
     });
 
@@ -1481,8 +1480,8 @@ fn run_stealing_round_minor(
 }
 
 pub(crate) fn trace_major_ephemerons(
-    objects: &[ObjectRecord],
-    ephemeron_candidates: &[usize],
+    objects: ObjectReadRaw<'_>,
+    ephemeron_candidates: &[ObjectLocator],
     tracer: &mut MarkTracer<'_>,
     worker_count: usize,
     slice_budget: usize,
@@ -1492,7 +1491,7 @@ pub(crate) fn trace_major_ephemerons(
     loop {
         let mut visitor = MajorEphemeronTracer::new(tracer);
         for &index in ephemeron_candidates {
-            let object = &objects[index];
+            let object = objects.get(index);
             if object.is_marked() {
                 object.visit_ephemerons(&mut visitor);
             }
@@ -1510,8 +1509,7 @@ pub(crate) fn trace_major_ephemerons(
 }
 
 pub(crate) fn trace_major_ephemerons_for_candidates(
-    objects: &[ObjectRecord],
-    index: &ObjectIndex,
+    objects: ObjectReadRaw<'_>,
     ephemeron_candidates: &[ObjectKey],
     tracer: &mut MarkTracer<'_>,
     worker_count: usize,
@@ -1519,7 +1517,7 @@ pub(crate) fn trace_major_ephemerons_for_candidates(
 ) -> (u64, u64) {
     let ephemeron_candidate_indices = ephemeron_candidates
         .iter()
-        .filter_map(|key| index.get(key).copied())
+        .filter_map(|key| objects.locator_of_key(*key))
         .collect::<Vec<_>>();
     trace_major_ephemerons(
         objects,
@@ -1531,8 +1529,8 @@ pub(crate) fn trace_major_ephemerons_for_candidates(
 }
 
 pub(crate) fn trace_minor_ephemerons(
-    objects: &[ObjectRecord],
-    ephemeron_candidates: &[usize],
+    objects: ObjectReadRaw<'_>,
+    ephemeron_candidates: &[ObjectLocator],
     tracer: &mut MinorTracer<'_>,
     worker_count: usize,
     slice_budget: usize,
@@ -1542,7 +1540,8 @@ pub(crate) fn trace_minor_ephemerons(
     loop {
         let changed = if worker_count.max(1) == 1 || objects.len() <= 1 {
             let mut visitor = MinorEphemeronTracer::new(tracer);
-            for object in objects {
+            for locator in objects.all_locators() {
+                let object = objects.get(locator);
                 let survives = object.space() != SpaceKind::Nursery || object.is_marked();
                 if survives {
                     object.visit_ephemerons(&mut visitor);
@@ -1565,15 +1564,15 @@ pub(crate) fn trace_minor_ephemerons(
 }
 
 fn scan_minor_ephemerons_parallel(
-    objects: &[ObjectRecord],
-    ephemeron_candidates: &[usize],
+    objects: ObjectReadRaw<'_>,
+    ephemeron_candidates: &[ObjectLocator],
     tracer: &mut MinorTracer<'_>,
     worker_count: usize,
 ) -> bool {
     let ephemeron_candidates = Arc::new(ephemeron_candidates.to_vec());
     let workers = worker_count.max(1).min(ephemeron_candidates.len().max(1));
     let chunk_size = ephemeron_candidates.len().max(1).div_ceil(workers);
-    let shared = ParallelMarkShared::new(objects, tracer.index);
+    let shared = ParallelMarkShared::new(objects);
     let worker_outputs = thread::scope(|scope| {
         let mut handles = Vec::with_capacity(workers);
         for worker_index in 0..workers {
@@ -1588,7 +1587,7 @@ fn scan_minor_ephemerons_parallel(
                 let changed = {
                     let mut visitor = MinorEphemeronTracer::new(&mut worker);
                     for &candidate_index in &ephemeron_candidates[start..end] {
-                        let object = &shared.objects()[candidate_index];
+                        let object = shared.objects().get(candidate_index);
                         let survives = object.space() != SpaceKind::Nursery || object.is_marked();
                         if survives {
                             object.visit_ephemerons(&mut visitor);
@@ -1620,19 +1619,18 @@ fn scan_minor_ephemerons_parallel(
 }
 
 pub(crate) fn process_weak_references(
-    objects: &[ObjectRecord],
-    weak_candidates: &[usize],
+    objects: ObjectReadRaw<'_>,
+    weak_candidates: &[ObjectLocator],
     kind: CollectionKind,
     worker_count: usize,
     forwarding: &ForwardingMap,
-    index: &ObjectIndex,
 ) {
     let weak_candidates = Arc::new(weak_candidates.to_vec());
     let worker_count = worker_count.max(1);
     if worker_count == 1 || weak_candidates.len() <= 1 {
-        let mut processor = WeakRetention::new(objects, index, forwarding, kind);
+        let mut processor = WeakRetention::new(objects, forwarding, kind);
         for &index in weak_candidates.iter() {
-            let object = &objects[index];
+            let object = objects.get(index);
             if survives_collection_kind(kind, object) {
                 object.process_weak_edges(&mut processor);
             }
@@ -1642,7 +1640,7 @@ pub(crate) fn process_weak_references(
 
     let workers = worker_count.min(weak_candidates.len().max(1));
     let chunk_size = weak_candidates.len().max(1).div_ceil(workers);
-    let shared = ParallelWeakShared::new(objects, index, forwarding, kind);
+    let shared = ParallelWeakShared::new(objects, forwarding, kind);
     thread::scope(|scope| {
         let mut handles = Vec::with_capacity(workers);
         for worker_index in 0..workers {
@@ -1655,7 +1653,7 @@ pub(crate) fn process_weak_references(
             handles.push(scope.spawn(move || {
                 let mut processor = shared.processor();
                 for &candidate_index in &weak_candidates[start..end] {
-                    let object = &shared.objects()[candidate_index];
+                    let object = shared.objects.get(candidate_index);
                     if survives_collection_kind(kind, object) {
                         object.process_weak_edges(&mut processor);
                     }
@@ -1669,16 +1667,15 @@ pub(crate) fn process_weak_references(
 }
 
 pub(crate) fn process_weak_references_for_candidates(
-    objects: &[ObjectRecord],
+    objects: ObjectReadRaw<'_>,
     weak_candidates: &[ObjectKey],
     kind: CollectionKind,
     worker_count: usize,
     forwarding: &ForwardingMap,
-    index: &ObjectIndex,
 ) {
     let weak_candidate_indices = weak_candidates
         .iter()
-        .filter_map(|key| index.get(key).copied())
+        .filter_map(|key| objects.locator_of_key(*key))
         .collect::<Vec<_>>();
     process_weak_references(
         objects,
@@ -1686,7 +1683,6 @@ pub(crate) fn process_weak_references_for_candidates(
         kind,
         worker_count,
         forwarding,
-        index,
     );
 }
 

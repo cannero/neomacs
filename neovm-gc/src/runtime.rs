@@ -18,10 +18,12 @@ use crate::plan::{
     RuntimeWorkStatus,
 };
 use crate::reclaim::{PreparedReclaim, finish_prepared_reclaim_cycle};
-use crate::root::{HandleScope, Root};
 use crate::stats::{CollectionStats, HeapStats};
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
+
+#[cfg(test)]
+use crate::root::{HandleScope, Root};
 
 /// Collector-side runtime bound to one heap.
 ///
@@ -75,7 +77,7 @@ impl CollectorLocal<'_> {
 /// `tlab_bytes` comes from
 /// [`crate::spaces::NurseryConfig::tlab_bytes`] and controls
 /// how much from-space capacity each refill reserves.
-fn try_bump_nursery_tlab_or_refill(
+pub(crate) fn try_bump_nursery_tlab_or_refill(
     tlab_slot: &mut Option<crate::spaces::nursery_arena::NurseryTlab>,
     nursery: &mut crate::spaces::nursery_arena::NurseryState,
     layout: core::alloc::Layout,
@@ -192,20 +194,22 @@ impl<'heap> CollectorRuntime<'heap> {
         let runtime_state = self.heap.runtime_state_handle();
         let mut phases = Vec::new();
         let roots = self.local.get_mut().roots_mut();
-        let (objects, indexes, old_gen, stats, old_config, nursery_config, nursery) =
-            self.heap.collection_exec_parts();
-        let mut cycle = execute_collection_plan(
-            &plan,
-            roots,
-            objects,
-            indexes,
-            old_gen,
-            old_config,
-            nursery_config,
-            stats,
-            nursery,
-            &runtime_state,
-            |phase| phases.push(phase),
+        let mut cycle = self.heap.with_flat_store_for_collection(
+            |flat, old_gen, old_config, nursery_config, stats, nursery| {
+                execute_collection_plan(
+                    &plan,
+                    roots,
+                    &mut flat.objects,
+                    &mut flat.indexes,
+                    old_gen,
+                    old_config,
+                    nursery_config,
+                    stats,
+                    nursery,
+                    &runtime_state,
+                    |phase| phases.push(phase),
+                )
+            },
         )?;
         self.heap.collector_handle().push_phases(phases);
         // Physical compaction hook (physical-compaction step 6).
@@ -219,10 +223,7 @@ impl<'heap> CollectorRuntime<'heap> {
         // `commit_finished_active_collection` covers the
         // background concurrent path.
         if matches!(plan.kind, CollectionKind::Major | CollectionKind::Full) {
-            let density_threshold = self
-                .heap
-                .old_config()
-                .physical_compaction_density_threshold;
+            let density_threshold = self.heap.old_config().physical_compaction_density_threshold;
             if density_threshold > 0.0 {
                 let roots = self.local.get_mut().roots_mut();
                 self.heap.compact_old_gen_physical(roots, density_threshold);
@@ -336,6 +337,7 @@ impl<'heap> CollectorRuntime<'heap> {
     /// by bumping within the carried local's TLAB. Returns
     /// `None` if both the TLAB refill and the shared
     /// from-space cursor fail.
+    #[cfg(test)]
     fn try_alloc_nursery_with_local(
         &mut self,
         layout: core::alloc::Layout,
@@ -370,7 +372,12 @@ impl<'heap> CollectorRuntime<'heap> {
     ///
     /// Pinned, large, and immortal-space allocations always
     /// bypass the TLAB and go through the system allocator.
-    pub(crate) fn alloc_typed_scoped<'scope, 'handle_heap, T: crate::descriptor::Trace + 'static>(
+    #[cfg(test)]
+    pub(crate) fn alloc_typed_scoped<
+        'scope,
+        'handle_heap,
+        T: crate::descriptor::Trace + 'static,
+    >(
         &mut self,
         scope: &mut HandleScope<'scope, 'handle_heap>,
         value: T,
@@ -380,10 +387,9 @@ impl<'heap> CollectorRuntime<'heap> {
         }
         let (desc, space, _) = self.typed_allocation_profile::<T>()?;
 
-        let mut record = match space {
+        let record = match space {
             SpaceKind::Nursery => {
-                let (layout, payload_offset) =
-                    crate::object::allocation_layout_for::<T>()?;
+                let (layout, payload_offset) = crate::object::allocation_layout_for::<T>()?;
                 let base = self.try_alloc_nursery_with_local(layout);
                 match base {
                     Some(base) => unsafe {
@@ -400,8 +406,7 @@ impl<'heap> CollectorRuntime<'heap> {
                 }
             }
             SpaceKind::Old => {
-                let (layout, payload_offset) =
-                    crate::object::allocation_layout_for::<T>()?;
+                let (layout, payload_offset) = crate::object::allocation_layout_for::<T>()?;
                 let old_config = *self.heap.old_config();
                 match self
                     .heap
@@ -427,44 +432,11 @@ impl<'heap> CollectorRuntime<'heap> {
             }
             _ => crate::object::ObjectRecord::allocate(desc, space, value)?,
         };
-        let total_size = record.header().total_size();
-        let (objects, indexes, old_gen, stats, old_config, alloc_counters) =
-            self.heap.allocation_commit_parts();
-        if space == SpaceKind::Old {
-            stats.old.reserved_bytes = old_gen.record_allocated_object(old_config, &mut record);
-        }
-        let gc = unsafe { crate::root::Gc::from_erased(record.erased()) };
-        let old_reserved = old_gen.reserved_bytes();
-        stats.record_allocation(space, total_size, old_reserved);
-        alloc_counters.record_allocation(space, total_size, old_reserved);
-        objects.push(record);
-        let index = objects.len() - 1;
-        let object_key = objects[index].object_key();
-        let desc = objects[index].header().desc();
-        indexes.record_allocated_object(object_key, index, desc);
-        // Borrow the collector handle once. Both calls below
-        // only need `&self` on the handle, so returning a
-        // reference instead of cloning the Arc saves one
-        // atomic increment on the hot allocation path.
-        let collector = self.heap.collector_handle_ref();
-        let had_active_major_mark = collector.has_active_major_mark();
-        collector.record_active_major_reachable_object_and_refresh(
-            self.heap.objects(),
-            &self.heap.indexes().object_index,
-            gc.erase(),
-            self.heap.config().old.mutator_assist_slices,
-            // Lazy: the closure only runs when the assist
-            // actually updated collector state. In the common
-            // path (no active major-mark session) the full
-            // HeapStats copy + block walk is skipped.
-            || self.heap.storage_stats(),
-            self.heap.old_gen(),
-            self.heap.old_config(),
-            |kind| self.heap.plan_for(kind),
-        )?;
-        if !had_active_major_mark {
+        let commit = self.heap.commit_allocated_record(record)?;
+        if commit.plans_dirty {
             self.heap.refresh_recommended_plans();
         }
+        let gc = unsafe { crate::root::Gc::from_erased(commit.gc) };
         Ok(scope.root(gc))
     }
 
@@ -487,12 +459,12 @@ impl<'heap> CollectorRuntime<'heap> {
             !self.heap.prepared_full_reclaim_active(),
             "cannot add new roots while prepared full reclaim is active"
         );
+        let objects = self.heap.objects();
         let _ = self
             .heap
             .collector_handle()
             .record_active_major_reachable_object_and_refresh(
-                self.heap.objects(),
-                &self.heap.indexes().object_index,
+                objects.raw(),
                 object,
                 self.heap.config().old.mutator_assist_slices,
                 || self.heap.storage_stats(),
@@ -511,12 +483,10 @@ impl<'heap> CollectorRuntime<'heap> {
 
     /// Begin a persistent major-mark session for one scheduler-provided plan.
     pub fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
-        let sources = self
-            .heap
-            .global_sources_with_roots(&self.local.get().roots);
+        let sources = self.heap.global_sources_with_roots(&self.local.get().roots);
+        let objects = self.heap.objects();
         self.heap.collector_handle().begin_major_mark_and_refresh(
-            self.heap.objects(),
-            &self.heap.indexes().object_index,
+            objects.raw(),
             plan,
             sources,
             &self.heap.storage_stats(),
@@ -528,18 +498,29 @@ impl<'heap> CollectorRuntime<'heap> {
 
     /// Advance one scheduler-style concurrent major-mark round using the active plan worker count.
     pub fn poll_active_major_mark(&mut self) -> Result<Option<MajorMarkProgress>, AllocError> {
-        self.heap
-            .collector_handle()
-            .poll_active_major_mark_with_completion_and_refresh(
-                self.heap.objects(),
-                &self.heap.indexes().object_index,
-                |tracer, plan| trace_heap_major_ephemerons(self.heap, tracer, plan),
-                |plan| prepare_heap_major_reclaim(self.heap, plan),
-                &self.heap.storage_stats(),
-                self.heap.old_gen(),
-                self.heap.old_config(),
-                |kind| self.heap.plan_for(kind),
-            )
+        let progress = {
+            let objects = self.heap.objects();
+            self.heap
+                .collector_handle()
+                .with_state(|state| collector_session::poll_active_major_mark_round(state, objects.raw()))
+        }?;
+        let auto_prepare_major_reclaim = progress.as_ref().is_some_and(|progress| progress.completed)
+            && self
+                .heap
+                .collector_handle()
+                .active_reclaim_prep_request()
+                .is_some_and(|request| request.plan.kind == CollectionKind::Major);
+        if auto_prepare_major_reclaim {
+            let _ = self.prepare_active_reclaim_if_needed()?;
+            return Ok(progress);
+        }
+        self.heap.collector_handle().refresh_cached_plans(
+            &self.heap.storage_stats(),
+            self.heap.old_gen(),
+            self.heap.old_config(),
+            |kind| self.heap.plan_for(kind),
+        );
+        Ok(progress)
     }
 
     /// Advance one slice of the current persistent major-mark session.
@@ -563,8 +544,7 @@ impl<'heap> CollectorRuntime<'heap> {
         self.heap
             .collector_handle()
             .assist_active_major_mark_slices_and_refresh(
-                self.heap.objects(),
-                &self.heap.indexes().object_index,
+                self.heap.objects().raw(),
                 max_slices,
                 &self.heap.storage_stats(),
                 self.heap.old_gen(),
@@ -584,12 +564,14 @@ impl<'heap> CollectorRuntime<'heap> {
             .collector_handle()
             .push_phase(CollectionPhase::Remark);
         let mut state = state;
-        collector_session::finish_major_mark(
-            &mut state,
-            self.heap.objects(),
-            &self.heap.indexes().object_index,
-            |tracer, plan| trace_heap_major_ephemerons(self.heap, tracer, plan),
-        );
+        {
+            let objects = self.heap.objects();
+            collector_session::finish_major_mark(
+                &mut state,
+                objects.raw(),
+                |tracer, plan| trace_heap_major_ephemerons(self.heap, tracer, plan),
+            );
+        }
         let finished = collector_session::finish_active_collection(state, |plan| {
             self.prepare_reclaim_for_plan(plan)
         })?;
@@ -615,29 +597,14 @@ impl<'heap> CollectorRuntime<'heap> {
         let Some(request) = request else {
             return Ok(false);
         };
-        if request.plan.kind == crate::plan::CollectionKind::Major {
-            return self
-                .heap
-                .collector_handle()
-                .prepare_active_collection_reclaim_with_request_and_refresh(
-                    request,
-                    self.heap.objects(),
-                    &self.heap.indexes().object_index,
-                    |tracer, plan| trace_heap_major_ephemerons(self.heap, tracer, plan),
-                    |plan| Ok(prepare_heap_major_reclaim(self.heap, plan)),
-                    &self.heap.storage_stats(),
-                    self.heap.old_gen(),
-                    self.heap.old_config(),
-                    |kind| self.heap.plan_for(kind),
-                );
-        }
-
-        let (mark_steps_delta, mark_rounds_delta) = prepare_active_reclaim(
-            &request,
-            |tracer, plan| trace_heap_major_ephemerons(self.heap, tracer, plan),
-            self.heap.objects(),
-            &self.heap.indexes().object_index,
-        );
+        let (mark_steps_delta, mark_rounds_delta) = {
+            let objects = self.heap.objects();
+            prepare_active_reclaim(
+                &request,
+                |tracer, plan| trace_heap_major_ephemerons(self.heap, tracer, plan),
+                objects.raw(),
+            )
+        };
         let prepared =
             build_prepared_active_reclaim(&request, mark_steps_delta, mark_rounds_delta, |plan| {
                 self.prepare_reclaim_for_plan(plan)
@@ -673,9 +640,10 @@ impl<'heap> CollectorRuntime<'heap> {
             .active_major_mark_plan
             .as_ref()
             .is_some_and(|plan| plan.phase != CollectionPhase::Reclaim)
-            && self.prepare_active_reclaim_if_needed()? {
-                return Ok(None);
-            }
+            && self.prepare_active_reclaim_if_needed()?
+        {
+            return Ok(None);
+        }
         let snapshot = self.heap.collector_shared_snapshot();
         if snapshot.active_major_mark_plan.is_none() {
             return Ok(None);
@@ -699,8 +667,7 @@ impl<'heap> CollectorRuntime<'heap> {
             .heap
             .collector_handle()
             .finish_active_collection_if_ready(
-                self.heap.objects(),
-                &self.heap.indexes().object_index,
+                self.heap.objects().raw(),
                 |_tracer, _plan| panic!("reclaim-ready session should not re-run remark"),
                 |plan| Err(AllocError::UnsupportedCollectionKind { kind: plan.kind }),
             )?;
@@ -736,8 +703,7 @@ impl<'heap> CollectorRuntime<'heap> {
         let before_bytes = self.heap.stats().total_live_bytes();
         let pause_start = Instant::now();
         let finished = self.heap.collector_handle().finish_active_collection_now(
-            self.heap.objects(),
-            &self.heap.indexes().object_index,
+            self.heap.objects().raw(),
             |_tracer, _plan| panic!("reclaim-ready session should not re-run remark"),
             |plan| Err(AllocError::UnsupportedCollectionKind { kind: plan.kind }),
         )?;
@@ -782,26 +748,21 @@ impl<'heap> CollectorRuntime<'heap> {
             CollectionKind::Full => {
                 let mut phases = Vec::new();
                 let roots = self.local.get_mut().roots_mut();
-                let (
-                    objects,
-                    indexes,
-                    old_gen,
-                    stats,
-                    old_config,
-                    nursery_config,
-                    nursery,
-                ) = self.heap.collection_exec_parts();
-                let prepared = crate::collector_exec::prepare_full_reclaim_for_plan(
-                    plan,
-                    roots,
-                    objects,
-                    indexes,
-                    old_gen,
-                    old_config,
-                    nursery_config,
-                    stats,
-                    nursery,
-                    |phase| phases.push(phase),
+                let prepared = self.heap.with_flat_store_for_collection(
+                    |flat, old_gen, old_config, nursery_config, stats, nursery| {
+                        crate::collector_exec::prepare_full_reclaim_for_plan(
+                            plan,
+                            roots,
+                            &mut flat.objects,
+                            &mut flat.indexes,
+                            old_gen,
+                            old_config,
+                            nursery_config,
+                            stats,
+                            nursery,
+                            |phase| phases.push(phase),
+                        )
+                    },
                 )?;
                 self.heap.collector_handle().push_phases(phases);
                 Ok(prepared)
@@ -820,21 +781,22 @@ impl<'heap> CollectorRuntime<'heap> {
     ) -> CollectionStats {
         let runtime_state = self.heap.runtime_state_handle();
         let runtime_state_for_callback = runtime_state.clone();
-        let (objects, indexes, old_gen, stats) = self.heap.finished_reclaim_commit_parts();
-        let mut cycle = finish_prepared_reclaim_cycle(
-            objects,
-            indexes,
-            old_gen,
-            stats,
-            &runtime_state,
-            before_bytes,
-            finished.mark_steps,
-            finished.mark_rounds,
-            finished.mark_elapsed_nanos,
-            finished.reclaim_prepare_nanos,
-            finished.prepared_reclaim,
-            move |object| runtime_state_for_callback.enqueue_pending_finalizer(object),
-        );
+        let mut cycle = self.heap.with_flat_store_for_reclaim_commit(|flat, old_gen, stats| {
+            finish_prepared_reclaim_cycle(
+                &mut flat.objects,
+                &mut flat.indexes,
+                old_gen,
+                stats,
+                &runtime_state,
+                before_bytes,
+                finished.mark_steps,
+                finished.mark_rounds,
+                finished.mark_elapsed_nanos,
+                finished.reclaim_prepare_nanos,
+                finished.prepared_reclaim,
+                move |object| runtime_state_for_callback.enqueue_pending_finalizer(object),
+            )
+        });
         // Physical compaction hook (physical-compaction step 6).
         //
         // After the major reclaim commits, the objects vec
@@ -846,10 +808,7 @@ impl<'heap> CollectorRuntime<'heap> {
         // by the next sweep. The threshold defaults to 0.0
         // (disabled) so existing workloads that do not opt in
         // see no behavior change.
-        let density_threshold = self
-            .heap
-            .old_config()
-            .physical_compaction_density_threshold;
+        let density_threshold = self.heap.old_config().physical_compaction_density_threshold;
         if density_threshold > 0.0 {
             let roots = self.local.get_mut().roots_mut();
             self.heap.compact_old_gen_physical(roots, density_threshold);
@@ -876,14 +835,17 @@ impl<'heap> CollectorRuntime<'heap> {
     }
 }
 
-fn prepare_heap_major_reclaim(heap: &HeapCore, plan: &CollectionPlan) -> PreparedReclaim {
-    prepare_major_reclaim_for_plan(
+fn prepare_heap_major_reclaim(heap: &mut HeapCore, plan: &CollectionPlan) -> PreparedReclaim {
+    let mut flat = heap.take_flat_store();
+    let prepared = prepare_major_reclaim_for_plan(
         plan,
-        heap.objects(),
-        heap.indexes(),
+        &flat.objects,
+        &flat.indexes,
         heap.old_gen(),
         heap.old_config(),
-    )
+    );
+    heap.restore_flat_store(flat);
+    prepared
 }
 
 fn trace_heap_major_ephemerons(
@@ -891,10 +853,11 @@ fn trace_heap_major_ephemerons(
     tracer: &mut crate::collector_exec::MarkTracer<'_>,
     plan: &CollectionPlan,
 ) -> (u64, u64) {
+    let objects = heap.objects();
+    let ephemeron_candidates = objects.ephemeron_candidates();
     trace_major_ephemerons_for_candidates(
-        heap.objects(),
-        &heap.indexes().object_index,
-        &heap.indexes().ephemeron_candidates,
+        objects.raw(),
+        &ephemeron_candidates,
         tracer,
         plan.worker_count.max(1),
         plan.mark_slice_budget,
@@ -941,10 +904,7 @@ impl SharedCollectorRuntime {
         self.runtime.publish_collector_snapshot(next_collector)
     }
 
-    fn with_heap_read<R>(
-        &self,
-        f: impl FnOnce(&HeapCore) -> R,
-    ) -> Result<R, SharedHeapError> {
+    fn with_heap_read<R>(&self, f: impl FnOnce(&HeapCore) -> R) -> Result<R, SharedHeapError> {
         let heap = self
             .heap
             .read()
@@ -953,10 +913,7 @@ impl SharedCollectorRuntime {
         Ok(f(&core))
     }
 
-    fn try_with_heap_read<R>(
-        &self,
-        f: impl FnOnce(&HeapCore) -> R,
-    ) -> Result<R, SharedHeapError> {
+    fn try_with_heap_read<R>(&self, f: impl FnOnce(&HeapCore) -> R) -> Result<R, SharedHeapError> {
         let heap = self.heap.try_read().map_err(|error| match error {
             std::sync::TryLockError::Poisoned(_) => SharedHeapError::LockPoisoned,
             std::sync::TryLockError::WouldBlock => SharedHeapError::WouldBlock,
@@ -1272,48 +1229,22 @@ impl SharedCollectorRuntime {
 
     /// Begin a persistent major-mark session for one scheduler-provided plan.
     pub fn begin_major_mark(&self, plan: CollectionPlan) -> Result<(), SharedBackgroundError> {
-        self.with_heap_read_collector_update(|heap, collector| {
-            collector_session::begin_major_mark(
-                collector,
-                heap.objects(),
-                &heap.indexes().object_index,
-                plan,
-                heap.global_sources_with_roots(&crate::root::RootStack::default()),
-            )?;
-            refresh_cached_collector_plans(
-                collector,
-                &heap.storage_stats(),
-                heap.old_gen(),
-                heap.old_config(),
-                |kind| heap.plan_for(kind),
-            );
-            Ok(())
-        })
-        .map_err(Self::map_shared_heap_error)?
-        .map_err(SharedBackgroundError::Collection)
+        self.with_runtime_update(|runtime| runtime.begin_major_mark(plan))
+            .map_err(Self::map_shared_heap_error)?
+            .map_err(SharedBackgroundError::Collection)?;
+        self.publish_collector_snapshot(self.collector.state_snapshot())
+            .map_err(Self::map_shared_heap_error)?;
+        Ok(())
     }
 
     /// Begin a persistent major-mark session without blocking on heap contention.
     pub fn try_begin_major_mark(&self, plan: CollectionPlan) -> Result<(), SharedBackgroundError> {
-        self.try_with_heap_read_collector_update(|heap, collector| {
-            collector_session::begin_major_mark(
-                collector,
-                heap.objects(),
-                &heap.indexes().object_index,
-                plan,
-                heap.global_sources_with_roots(&crate::root::RootStack::default()),
-            )?;
-            refresh_cached_collector_plans(
-                collector,
-                &heap.storage_stats(),
-                heap.old_gen(),
-                heap.old_config(),
-                |kind| heap.plan_for(kind),
-            );
-            Ok(())
-        })
-        .map_err(Self::map_shared_heap_error)?
-        .map_err(SharedBackgroundError::Collection)
+        self.try_with_runtime_update(|runtime| runtime.begin_major_mark(plan))
+            .map_err(Self::map_shared_heap_error)?
+            .map_err(SharedBackgroundError::Collection)?;
+        self.publish_collector_snapshot(self.collector.state_snapshot())
+            .map_err(Self::map_shared_heap_error)?;
+        Ok(())
     }
 
     /// Advance one scheduler-style concurrent major-mark round using the active plan worker
@@ -1321,25 +1252,13 @@ impl SharedCollectorRuntime {
     pub fn poll_active_major_mark(
         &self,
     ) -> Result<Option<MajorMarkProgress>, SharedBackgroundError> {
-        self.with_heap_read_collector_update(|heap, collector| {
-            let progress = collector_session::poll_active_major_mark_with_completion(
-                collector,
-                heap.objects(),
-                &heap.indexes().object_index,
-                |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
-                |plan| prepare_heap_major_reclaim(heap, plan),
-            )?;
-            refresh_cached_collector_plans(
-                collector,
-                &heap.storage_stats(),
-                heap.old_gen(),
-                heap.old_config(),
-                |kind| heap.plan_for(kind),
-            );
-            Ok(progress)
-        })
-        .map_err(Self::map_shared_heap_error)?
-        .map_err(SharedBackgroundError::Collection)
+        let progress = self
+            .with_runtime_update(|runtime| runtime.poll_active_major_mark())
+            .map_err(Self::map_shared_heap_error)?
+            .map_err(SharedBackgroundError::Collection)?;
+        self.publish_collector_snapshot(self.collector.state_snapshot())
+            .map_err(Self::map_shared_heap_error)?;
+        Ok(progress)
     }
 
     /// Advance one scheduler-style concurrent major-mark round without blocking on heap
@@ -1347,25 +1266,13 @@ impl SharedCollectorRuntime {
     pub fn try_poll_active_major_mark(
         &self,
     ) -> Result<Option<MajorMarkProgress>, SharedBackgroundError> {
-        self.try_with_heap_read_collector_update(|heap, collector| {
-            let progress = collector_session::poll_active_major_mark_with_completion(
-                collector,
-                heap.objects(),
-                &heap.indexes().object_index,
-                |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
-                |plan| prepare_heap_major_reclaim(heap, plan),
-            )?;
-            refresh_cached_collector_plans(
-                collector,
-                &heap.storage_stats(),
-                heap.old_gen(),
-                heap.old_config(),
-                |kind| heap.plan_for(kind),
-            );
-            Ok(progress)
-        })
-        .map_err(Self::map_shared_heap_error)?
-        .map_err(SharedBackgroundError::Collection)
+        let progress = self
+            .try_with_runtime_update(|runtime| runtime.poll_active_major_mark())
+            .map_err(Self::map_shared_heap_error)?
+            .map_err(SharedBackgroundError::Collection)?;
+        self.publish_collector_snapshot(self.collector.state_snapshot())
+            .map_err(Self::map_shared_heap_error)?;
+        Ok(progress)
     }
 
     /// Prepare reclaim for the active major collection once mark work is fully drained.
@@ -1384,31 +1291,33 @@ impl SharedCollectorRuntime {
         let Some(request) = request else {
             return Ok(false);
         };
-        if request.plan.kind == crate::plan::CollectionKind::Major {
+        if request.plan.kind == CollectionKind::Major {
             let prepared = self
-                .with_heap_read(|heap| {
-                    self.collector
-                        .prepare_active_collection_reclaim_with_request_and_refresh(
-                            request,
-                            heap.objects(),
-                            &heap.indexes().object_index,
-                            |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
-                            |plan| Ok(prepare_heap_major_reclaim(heap, plan)),
-                            &heap.storage_stats(),
-                            heap.old_gen(),
-                            heap.old_config(),
-                            |kind| heap.plan_for(kind),
-                        )
+                .with_heap_read_collector_update(|core, collector| {
+                    let objects = core.objects();
+                    let (mark_steps_delta, mark_rounds_delta) = collector_session::prepare_active_reclaim(
+                        &request,
+                        |tracer, plan| trace_heap_major_ephemerons(core, tracer, plan),
+                        objects.raw(),
+                    );
+                    Ok(collector.complete_active_major_reclaim_prep(
+                        mark_steps_delta,
+                        mark_rounds_delta,
+                        Duration::ZERO,
+                        None,
+                    ))
                 })
                 .map_err(Self::map_shared_heap_error)?
                 .map_err(SharedBackgroundError::Collection)?;
-            self.publish_collector_snapshot(self.collector.state_snapshot())
-                .map_err(Self::map_shared_heap_error)?;
             return Ok(prepared);
         }
-        self.with_runtime_update(|runtime| runtime.prepare_active_reclaim_if_needed())
+        let prepared = self
+            .with_runtime_update(|runtime| runtime.prepare_active_reclaim_if_needed())
             .map_err(Self::map_shared_heap_error)?
-            .map_err(SharedBackgroundError::Collection)
+            .map_err(SharedBackgroundError::Collection)?;
+        self.publish_collector_snapshot(self.collector.state_snapshot())
+            .map_err(Self::map_shared_heap_error)?;
+        Ok(prepared)
     }
 
     /// Prepare reclaim for the active major collection once mark work is fully drained, without
@@ -1428,31 +1337,33 @@ impl SharedCollectorRuntime {
         let Some(request) = request else {
             return Ok(false);
         };
-        if request.plan.kind == crate::plan::CollectionKind::Major {
+        if request.plan.kind == CollectionKind::Major {
             let prepared = self
-                .try_with_heap_read(|heap| {
-                    self.collector
-                        .prepare_active_collection_reclaim_with_request_and_refresh(
-                            request,
-                            heap.objects(),
-                            &heap.indexes().object_index,
-                            |tracer, plan| trace_heap_major_ephemerons(heap, tracer, plan),
-                            |plan| Ok(prepare_heap_major_reclaim(heap, plan)),
-                            &heap.storage_stats(),
-                            heap.old_gen(),
-                            heap.old_config(),
-                            |kind| heap.plan_for(kind),
-                        )
+                .try_with_heap_read_collector_update(|core, collector| {
+                    let objects = core.objects();
+                    let (mark_steps_delta, mark_rounds_delta) = collector_session::prepare_active_reclaim(
+                        &request,
+                        |tracer, plan| trace_heap_major_ephemerons(core, tracer, plan),
+                        objects.raw(),
+                    );
+                    Ok(collector.complete_active_major_reclaim_prep(
+                        mark_steps_delta,
+                        mark_rounds_delta,
+                        Duration::ZERO,
+                        None,
+                    ))
                 })
                 .map_err(Self::map_shared_heap_error)?
                 .map_err(SharedBackgroundError::Collection)?;
-            self.publish_collector_snapshot(self.collector.state_snapshot())
-                .map_err(Self::map_shared_heap_error)?;
             return Ok(prepared);
         }
-        self.try_with_runtime_update(|runtime| runtime.prepare_active_reclaim_if_needed())
+        let prepared = self
+            .try_with_runtime_update(|runtime| runtime.prepare_active_reclaim_if_needed())
             .map_err(Self::map_shared_heap_error)?
-            .map_err(SharedBackgroundError::Collection)
+            .map_err(SharedBackgroundError::Collection)?;
+        self.publish_collector_snapshot(self.collector.state_snapshot())
+            .map_err(Self::map_shared_heap_error)?;
+        Ok(prepared)
     }
 
     /// Finish the active major collection if its mark work is fully drained.
@@ -1476,12 +1387,18 @@ impl SharedCollectorRuntime {
                 plan.kind == crate::plan::CollectionKind::Major
                     && plan.phase != CollectionPhase::Reclaim
             })
-            && self.prepare_active_reclaim_if_needed()? {
-                return Ok(None);
+        {
+            match self.try_prepare_active_reclaim_if_needed() {
+                Ok(true) | Err(SharedBackgroundError::WouldBlock) => return Ok(None),
+                Ok(false) => {}
+                Err(error) => return Err(error),
             }
-        self.with_runtime_update(|runtime| runtime.finish_active_major_collection_if_ready())
-            .map_err(Self::map_shared_heap_error)?
-            .map_err(SharedBackgroundError::Collection)
+        }
+        match self.try_with_runtime_update(|runtime| runtime.finish_active_major_collection_if_ready()) {
+            Ok(result) => result.map_err(SharedBackgroundError::Collection),
+            Err(SharedHeapError::WouldBlock) => Ok(None),
+            Err(error) => Err(Self::map_shared_heap_error(error)),
+        }
     }
 
     /// Commit the active major collection once reclaim has already been prepared.
@@ -1505,9 +1422,11 @@ impl SharedCollectorRuntime {
         {
             return Ok(None);
         }
-        self.with_runtime_update(|runtime| runtime.commit_active_reclaim_if_ready())
-            .map_err(Self::map_shared_heap_error)?
-            .map_err(SharedBackgroundError::Collection)
+        match self.try_with_runtime_update(|runtime| runtime.commit_active_reclaim_if_ready()) {
+            Ok(result) => result.map_err(SharedBackgroundError::Collection),
+            Err(SharedHeapError::WouldBlock) => Ok(None),
+            Err(error) => Err(Self::map_shared_heap_error(error)),
+        }
     }
 
     /// Finish the active major collection if its mark work is fully drained, without blocking on
@@ -1532,9 +1451,13 @@ impl SharedCollectorRuntime {
                 plan.kind == crate::plan::CollectionKind::Major
                     && plan.phase != CollectionPhase::Reclaim
             })
-            && self.try_prepare_active_reclaim_if_needed()? {
-                return Ok(None);
+        {
+            match self.try_prepare_active_reclaim_if_needed() {
+                Ok(true) | Err(SharedBackgroundError::WouldBlock) => return Ok(None),
+                Ok(false) => {}
+                Err(error) => return Err(error),
             }
+        }
         self.try_with_runtime_update(|runtime| runtime.finish_active_major_collection_if_ready())
             .map_err(Self::map_shared_heap_error)?
             .map_err(SharedBackgroundError::Collection)

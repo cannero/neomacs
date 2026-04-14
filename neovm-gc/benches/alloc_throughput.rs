@@ -38,30 +38,22 @@ fn bench_small_leaf_long_scope(c: &mut Criterion) {
     let mut group = c.benchmark_group("alloc_throughput/small_leaf/long_scope");
     for &batch in BATCH_SIZES {
         group.throughput(Throughput::Elements(batch));
-        group.bench_with_input(
-            BenchmarkId::from_parameter(batch),
-            &batch,
-            |b, &batch| {
-                b.iter_custom(|iters| {
-                    let mut total = Duration::ZERO;
-                    for _ in 0..iters {
-                        let heap = Heap::new(fast_alloc_config());
-                        let mut mutator = heap.mutator();
-                        let mut scope = mutator.handle_scope();
-                        let start = Instant::now();
-                        for i in 0..batch {
-                            black_box(
-                                mutator
-                                    .alloc(&mut scope, SmallLeaf(i))
-                                    .expect("alloc"),
-                            );
-                        }
-                        total += start.elapsed();
+        group.bench_with_input(BenchmarkId::from_parameter(batch), &batch, |b, &batch| {
+            b.iter_custom(|iters| {
+                let mut total = Duration::ZERO;
+                for _ in 0..iters {
+                    let heap = Heap::new(fast_alloc_config());
+                    let mut mutator = heap.mutator();
+                    let mut scope = mutator.handle_scope();
+                    let start = Instant::now();
+                    for i in 0..batch {
+                        black_box(mutator.alloc(&mut scope, SmallLeaf(i)).expect("alloc"));
                     }
-                    total
-                });
-            },
-        );
+                    total += start.elapsed();
+                }
+                total
+            });
+        });
     }
     group.finish();
 }
@@ -71,36 +63,28 @@ fn bench_small_leaf_scoped_batches(c: &mut Criterion) {
     const SCOPE_SIZE: u64 = 1_000;
     for &batch in BATCH_SIZES {
         group.throughput(Throughput::Elements(batch));
-        group.bench_with_input(
-            BenchmarkId::from_parameter(batch),
-            &batch,
-            |b, &batch| {
-                b.iter_custom(|iters| {
-                    let mut total = Duration::ZERO;
-                    for _ in 0..iters {
-                        let heap = Heap::new(fast_alloc_config());
-                        let mut mutator = heap.mutator();
-                        let start = Instant::now();
-                        let mut remaining = batch;
-                        while remaining > 0 {
-                            let step = remaining.min(SCOPE_SIZE);
-                            let mut scope = mutator.handle_scope();
-                            for i in 0..step {
-                                black_box(
-                                    mutator
-                                        .alloc(&mut scope, SmallLeaf(i))
-                                        .expect("alloc"),
-                                );
-                            }
-                            drop(scope);
-                            remaining -= step;
+        group.bench_with_input(BenchmarkId::from_parameter(batch), &batch, |b, &batch| {
+            b.iter_custom(|iters| {
+                let mut total = Duration::ZERO;
+                for _ in 0..iters {
+                    let heap = Heap::new(fast_alloc_config());
+                    let mut mutator = heap.mutator();
+                    let start = Instant::now();
+                    let mut remaining = batch;
+                    while remaining > 0 {
+                        let step = remaining.min(SCOPE_SIZE);
+                        let mut scope = mutator.handle_scope();
+                        for i in 0..step {
+                            black_box(mutator.alloc(&mut scope, SmallLeaf(i)).expect("alloc"));
                         }
-                        total += start.elapsed();
+                        drop(scope);
+                        remaining -= step;
                     }
-                    total
-                });
-            },
-        );
+                    total += start.elapsed();
+                }
+                total
+            });
+        });
     }
     group.finish();
 }

@@ -1,6 +1,7 @@
 use super::*;
 use crate::descriptor::{Trace, fixed_type_desc};
-use crate::index_state::{HeapIndexState, ObjectIndex};
+use crate::index_state::{HeapIndexState, ObjectIndex, ObjectLocator};
+use crate::object_store::FlatReadView;
 use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan};
 use crate::root::RootStack;
 use crate::runtime_state::RuntimeStateHandle;
@@ -20,7 +21,7 @@ fn object_index_for(objects: &[ObjectRecord]) -> ObjectIndex {
     objects
         .iter()
         .enumerate()
-        .map(|(index, object)| (object.object_key(), index))
+        .map(|(index, object)| (object.object_key(), ObjectLocator::flat(index)))
         .collect()
 }
 
@@ -31,9 +32,13 @@ fn trace_major_marks_seeded_source() {
         ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate pinned leaf");
     let source = object.erased();
     let objects = vec![object];
-    let index = object_index_for(&objects);
+    let indexes = HeapIndexState {
+        object_index: object_index_for(&objects),
+        ..HeapIndexState::default()
+    };
+    let view = FlatReadView::new(&objects, &indexes);
 
-    let (steps, rounds) = super::trace_major(&objects, &index, 1, 8, [source]);
+    let (steps, rounds) = super::trace_major(view.raw(), 1, 8, [source]);
 
     assert_eq!(steps, 1);
     assert_eq!(rounds, 1);
@@ -47,9 +52,13 @@ fn trace_minor_marks_seeded_nursery_source() {
         ObjectRecord::allocate(desc, SpaceKind::Nursery, Leaf).expect("allocate nursery leaf");
     let source = object.erased();
     let objects = vec![object];
-    let index = object_index_for(&objects);
+    let indexes = HeapIndexState {
+        object_index: object_index_for(&objects),
+        ..HeapIndexState::default()
+    };
+    let view = FlatReadView::new(&objects, &indexes);
 
-    let (steps, rounds) = super::trace_minor(&objects, &index, &[], &[], 1, 8, [source]);
+    let (steps, rounds) = super::trace_minor(view.raw(), &[], &[], 1, 8, [source]);
 
     assert_eq!(steps, 1);
     assert_eq!(rounds, 1);
@@ -182,7 +191,12 @@ fn collect_global_sources_includes_roots_and_immortal_objects() {
     let mut roots = RootStack::default();
     roots.push(rooted_source);
 
-    let sources = super::collect_global_sources(&roots, &objects);
+    let indexes = HeapIndexState {
+        object_index: object_index_for(&objects),
+        ..HeapIndexState::default()
+    };
+    let view = FlatReadView::new(&objects, &indexes);
+    let sources = super::collect_global_sources(&roots, &view);
 
     assert!(sources.contains(&rooted_source));
     assert!(sources.contains(&immortal_source));

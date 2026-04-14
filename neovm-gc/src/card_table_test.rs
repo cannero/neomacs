@@ -55,7 +55,7 @@ fn clear_all_restores_every_card_to_clean() {
 fn dirty_card_indices_reports_indices_in_ascending_order() {
     let table = CardTable::new(0x0, 0x2000, 512);
     table.record_write(0x1000); // card 8
-    table.record_write(0x200);  // card 1
+    table.record_write(0x200); // card 1
     table.record_write(0x1800); // card 12
     let dirty = table.dirty_card_indices();
     assert_eq!(dirty, vec![1, 8, 12]);

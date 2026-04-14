@@ -56,6 +56,10 @@ fn weak_ephemeron_leaf_desc() -> &'static crate::descriptor::TypeDesc {
     Box::leak(Box::new(fixed_type_desc::<WeakEphemeronLeaf>()))
 }
 
+fn flat(slot: usize) -> ObjectLocator {
+    ObjectLocator::flat(slot)
+}
+
 #[test]
 fn remembered_set_record_owner_deduplicates() {
     // The owner-only fallback set dedupes by ObjectKey.
@@ -103,9 +107,9 @@ fn heap_index_state_record_allocated_object_updates_index_and_candidates() {
     let object_key = object.object_key();
     let mut indexes = HeapIndexState::default();
 
-    indexes.record_allocated_object(object_key, 3, desc);
+    indexes.record_allocated_object(object_key, flat(3), desc);
 
-    assert_eq!(indexes.object_index.get(&object_key), Some(&3));
+    assert_eq!(indexes.object_index.get(&object_key), Some(&flat(3)));
     assert!(indexes.finalizable_candidates.is_empty());
     assert!(indexes.weak_candidates.is_empty());
     assert!(indexes.ephemeron_candidates.is_empty());
@@ -153,7 +157,7 @@ fn heap_index_state_prepare_reclaim_state_rebuilds_candidates_and_remembered_own
     ];
     let mut indexes = HeapIndexState::default();
     for (index, object) in objects.iter().enumerate() {
-        indexes.record_allocated_object(object.object_key(), index, object.header().desc());
+        indexes.record_allocated_object(object.object_key(), flat(index), object.header().desc());
     }
     indexes.record_remembered_owner(objects[3].erased());
 
@@ -168,11 +172,11 @@ fn heap_index_state_prepare_reclaim_state_rebuilds_candidates_and_remembered_own
 
     assert_eq!(
         prepared.rebuilt_object_index.get(&objects[1].object_key()),
-        Some(&0)
+        Some(&flat(0))
     );
     assert_eq!(
         prepared.rebuilt_object_index.get(&objects[2].object_key()),
-        Some(&1)
+        Some(&flat(1))
     );
     assert_eq!(prepared.finalize_indices, vec![0]);
     assert_eq!(
@@ -195,7 +199,7 @@ fn begin_post_sweep_rebuild_preserves_dead_finalizable_membership() {
         .expect("allocate finalizable object");
     let object_key = object.object_key();
     let mut indexes = HeapIndexState::default();
-    indexes.record_allocated_object(object_key, 0, finalizable_desc);
+    indexes.record_allocated_object(object_key, flat(0), finalizable_desc);
 
     let rebuild = indexes.begin_post_sweep_rebuild(4);
 
@@ -220,12 +224,16 @@ fn heap_index_state_apply_storage_stats_reports_candidate_and_remembered_counts(
     )
     .expect("allocate weak ephemeron");
     let mut indexes = HeapIndexState::default();
-    indexes.record_allocated_object(owner.object_key(), 0, desc);
-    indexes.record_allocated_object(target.object_key(), 1, desc);
-    indexes.record_allocated_object(finalizable.object_key(), 2, finalizable.header().desc());
+    indexes.record_allocated_object(owner.object_key(), flat(0), desc);
+    indexes.record_allocated_object(target.object_key(), flat(1), desc);
+    indexes.record_allocated_object(
+        finalizable.object_key(),
+        flat(2),
+        finalizable.header().desc(),
+    );
     indexes.record_allocated_object(
         weak_ephemeron.object_key(),
-        3,
+        flat(3),
         weak_ephemeron.header().desc(),
     );
     indexes.record_remembered_owner(owner.erased());
@@ -251,18 +259,16 @@ fn heap_index_state_record_remembered_edge_if_needed_only_keeps_old_to_nursery()
     let objects = vec![owner, nursery_target, old_target];
     let mut indexes = HeapIndexState::default();
     for (index, object) in objects.iter().enumerate() {
-        indexes.record_allocated_object(object.object_key(), index, desc);
+        indexes.record_allocated_object(object.object_key(), flat(index), desc);
     }
 
     let old_gen = crate::spaces::OldGenState::default();
     indexes.record_remembered_edge_if_needed(
-        &objects,
         &old_gen,
         objects[0].erased(),
         Some(objects[1].erased()),
     );
     indexes.record_remembered_edge_if_needed(
-        &objects,
         &old_gen,
         objects[0].erased(),
         Some(objects[2].erased()),

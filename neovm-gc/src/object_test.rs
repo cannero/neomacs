@@ -94,8 +94,8 @@ fn pending_finalizer_run_returns_false_for_non_finalizable_descriptor() {
 #[test]
 fn pending_finalizer_block_placement_passes_through_wrapped_record() {
     let desc = Box::leak(Box::new(fixed_type_desc::<MarkLeaf>()));
-    let mut record = ObjectRecord::allocate(desc, SpaceKind::Old, MarkLeaf)
-        .expect("allocate test record");
+    let mut record =
+        ObjectRecord::allocate(desc, SpaceKind::Old, MarkLeaf).expect("allocate test record");
     record.set_old_block_placement(super::OldBlockPlacement {
         block_index: 7,
         offset_bytes: 16,
@@ -104,7 +104,10 @@ fn pending_finalizer_block_placement_passes_through_wrapped_record() {
 
     let mut pending = PendingFinalizer::new(record);
     assert_eq!(
-        pending.block_placement().expect("placement set above").block_index,
+        pending
+            .block_placement()
+            .expect("placement set above")
+            .block_index,
         7
     );
 
@@ -118,8 +121,8 @@ fn pending_finalizer_block_placement_passes_through_wrapped_record() {
 #[test]
 fn pending_finalizer_block_placement_none_when_record_has_no_block() {
     let desc = Box::leak(Box::new(fixed_type_desc::<MarkLeaf>()));
-    let record = ObjectRecord::allocate(desc, SpaceKind::Old, MarkLeaf)
-        .expect("allocate test record");
+    let record =
+        ObjectRecord::allocate(desc, SpaceKind::Old, MarkLeaf).expect("allocate test record");
     let pending = PendingFinalizer::new(record);
     assert!(pending.block_placement().is_none());
 }

@@ -3,17 +3,17 @@ use crate::barrier::BarrierKind;
 use crate::collector_exec::collect_global_sources;
 use crate::collector_state::{CollectorSharedSnapshot, CollectorStateHandle};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
-use crate::index_state::HeapIndexState;
 use crate::mutator::Mutator;
 use crate::object::{ObjectRecord, SpaceKind};
 use crate::pacer::{Pacer, PacerConfig, PacerStats};
 use crate::pause_stats::{PauseHistogram, PauseStatsHandle};
 use crate::plan::{
-    BackgroundCollectionStatus, CollectionKind, CollectionPhase, CollectionPlan,
-    MajorMarkProgress, RuntimeWorkStatus,
+    BackgroundCollectionStatus, CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress,
+    RuntimeWorkStatus,
 };
 use crate::runtime::CollectorRuntime;
 use crate::runtime_state::RuntimeStateHandle;
+use crate::object_store::{FlatObjectStore, ObjectReadView, ObjectStore, ObjectStoreReadGuard};
 use crate::spaces::{
     LargeObjectSpaceConfig, NurseryConfig, NurseryState, OldGenConfig, OldGenPlanSelection,
     OldGenState, PinnedSpaceConfig,
@@ -72,8 +72,8 @@ pub enum AllocError {
 /// statistics, descriptors, the object log, runtime state,
 /// indexes, old-generation pool, collector handle, pacer,
 /// barrier stats, and the nursery. It is the sole owner of
-/// the heap's storage; the public [`Heap`] type is a
-/// `#[repr(transparent)]` newtype around a `HeapCore`.
+/// the heap's storage; the public [`Heap`] type wraps it in
+/// one storage lock plus a separate safepoint lock.
 ///
 /// Field order matters: `ObjectRecord` storage (both the live
 /// `objects` vec and the `runtime_state` pending-finalizer
@@ -82,12 +82,6 @@ pub enum AllocError {
 /// would run their payload `Drop` implementations against
 /// already-freed buffers.
 ///
-/// The multi-mutator refactor (DESIGN.md Appendix A) will
-/// eventually wrap `HeapCore` in `Arc<RwLock<HeapCore>>`
-/// inside [`Heap`] so multiple `Mutator` instances can
-/// coexist against the same heap. This commit introduces the
-/// split as a concrete type so later commits can slot the
-/// lock in without churning the interior field layout.
 #[derive(Debug)]
 pub(crate) struct HeapCore {
     config: HeapConfig,
@@ -102,10 +96,9 @@ pub(crate) struct HeapCore {
     alloc_counters: crate::stats::AtomicAllocationCounters,
     descriptors: HashMap<TypeId, &'static TypeDesc>,
     // --- record storage (drops first, before nursery) ---
-    objects: Vec<ObjectRecord>,
+    objects: ObjectStore,
     runtime_state: RuntimeStateHandle,
-    // --- index and collector bookkeeping ---
-    indexes: HeapIndexState,
+    // --- collector bookkeeping ---
     old_gen: OldGenState,
     collector: CollectorStateHandle,
     pause_stats: PauseStatsHandle,
@@ -132,31 +125,64 @@ pub(crate) struct HeapCore {
 // synchronization, so `HeapCore` is `Send` but intentionally not `Sync`.
 unsafe impl Send for HeapCore {}
 
+#[derive(Debug)]
+struct HeapState {
+    safepoint: std::sync::RwLock<()>,
+    core: std::sync::RwLock<HeapCore>,
+    allocation_config: HeapConfig,
+    collector: CollectorStateHandle,
+    nursery_generation: std::sync::atomic::AtomicU64,
+    collector_plans_dirty: std::sync::atomic::AtomicBool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct AllocationSnapshot {
+    pub(crate) config: HeapConfig,
+    pub(crate) desc: &'static TypeDesc,
+    pub(crate) nursery_generation: u64,
+    pub(crate) space: SpaceKind,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct AllocationCommit {
+    pub(crate) gc: GcErased,
+    pub(crate) plans_dirty: bool,
+}
+
 /// Global heap object.
 ///
-/// `Heap` owns an `Arc<RwLock<HeapCore>>` so multiple
-/// `Mutator` instances can coexist against the same heap.
-/// Each mutator briefly acquires the write lock to perform
-/// allocation, barrier, or collection work, and drops it at
-/// the end of the operation. The hot-path TLAB bump still
-/// lives on the per-mutator nursery slab inside the
-/// mutator's local state and does not need to acquire the
-/// lock on hit.
+/// `Heap` owns one shared heap state containing a safepoint
+/// lock plus a storage lock. Mutators hold a safepoint read
+/// guard while they operate so collector / compaction paths
+/// can stop the world by taking the safepoint write guard.
+/// The common nursery-TLAB path can therefore avoid taking
+/// the storage write lock until it actually needs to touch
+/// shared heap state.
 ///
 /// `Heap` is `Clone` via `Arc::clone` — passing the heap to
 /// another thread or storing additional handles is cheap.
 /// The cloned handles all reference the same underlying
-/// `HeapCore`.
+/// heap state.
 #[derive(Clone, Debug)]
 pub struct Heap {
-    core: std::sync::Arc<std::sync::RwLock<HeapCore>>,
+    state: std::sync::Arc<HeapState>,
 }
 
 impl Heap {
     /// Create a new heap with `config`.
     pub fn new(config: HeapConfig) -> Self {
+        let core = HeapCore::new(config);
+        let collector = core.collector_handle();
+        let nursery_generation = core.nursery().generation();
         Self {
-            core: std::sync::Arc::new(std::sync::RwLock::new(HeapCore::new(config))),
+            state: std::sync::Arc::new(HeapState {
+                safepoint: std::sync::RwLock::new(()),
+                core: std::sync::RwLock::new(core),
+                allocation_config: config,
+                collector,
+                nursery_generation: std::sync::atomic::AtomicU64::new(nursery_generation),
+                collector_plans_dirty: std::sync::atomic::AtomicBool::new(false),
+            }),
         }
     }
 
@@ -165,12 +191,40 @@ impl Heap {
         SharedHeap::from_heap(self)
     }
 
+    /// Acquire a mutator-side safepoint read guard.
+    #[inline]
+    pub(crate) fn read_safepoint(&self) -> std::sync::RwLockReadGuard<'_, ()> {
+        self.state
+            .safepoint
+            .read()
+            .expect("heap safepoint lock poisoned")
+    }
+
+    /// Acquire a collector-side safepoint write guard.
+    #[inline]
+    pub(crate) fn write_safepoint(&self) -> std::sync::RwLockWriteGuard<'_, ()> {
+        self.state
+            .safepoint
+            .write()
+            .expect("heap safepoint lock poisoned")
+    }
+
+    #[inline]
+    pub(crate) fn try_write_safepoint(
+        &self,
+    ) -> Result<
+        std::sync::RwLockWriteGuard<'_, ()>,
+        std::sync::TryLockError<std::sync::RwLockWriteGuard<'_, ()>>,
+    > {
+        self.state.safepoint.try_write()
+    }
+
     /// Acquire a write guard on the underlying `HeapCore`.
-    /// Used by every mutating heap operation. The guard is
-    /// dropped when the returned value goes out of scope.
+    /// Callers are responsible for holding the appropriate
+    /// safepoint guard first.
     #[inline]
     pub(crate) fn write_core(&self) -> std::sync::RwLockWriteGuard<'_, HeapCore> {
-        self.core.write().expect("heap core lock poisoned")
+        self.state.core.write().expect("heap core lock poisoned")
     }
 
     /// Acquire a read guard on the underlying `HeapCore`.
@@ -179,14 +233,7 @@ impl Heap {
     /// multiple statements.
     #[inline]
     pub(crate) fn read_core(&self) -> std::sync::RwLockReadGuard<'_, HeapCore> {
-        self.core.read().expect("heap core lock poisoned")
-    }
-
-    /// Crate-internal `Arc` clone helper.
-    #[inline]
-    #[allow(dead_code)]
-    pub(crate) fn clone_arc(&self) -> std::sync::Arc<std::sync::RwLock<HeapCore>> {
-        std::sync::Arc::clone(&self.core)
+        self.state.core.read().expect("heap core lock poisoned")
     }
 
     // -- Public forwarders --------------------------------------------------
@@ -218,15 +265,17 @@ impl Heap {
     /// Run physical old-gen compaction.
     pub fn compact_old_gen_physical(&self, density_threshold: f64) -> usize {
         let mut roots = crate::root::RootStack::default();
-        self.write_core()
-            .compact_old_gen_physical(&mut roots, density_threshold)
+        let _safepoint = self.write_safepoint();
+        let mut core = self.write_core();
+        core.compact_old_gen_physical(&mut roots, density_threshold)
     }
 
     /// Run targeted block compaction.
     pub fn compact_old_gen_blocks(&self, block_indices: &[usize]) -> usize {
         let mut roots = crate::root::RootStack::default();
-        self.write_core()
-            .compact_old_gen_blocks(&mut roots, block_indices)
+        let _safepoint = self.write_safepoint();
+        let mut core = self.write_core();
+        core.compact_old_gen_blocks(&mut roots, block_indices)
     }
 
     /// Cumulative compaction stats.
@@ -236,6 +285,7 @@ impl Heap {
 
     /// Reset compaction stats.
     pub fn clear_compaction_stats(&self) {
+        let _safepoint = self.read_safepoint();
         self.write_core().clear_compaction_stats();
     }
 
@@ -250,29 +300,25 @@ impl Heap {
     }
 
     /// Opportunistic compaction trigger.
-    pub fn compact_old_gen_if_fragmented(
-        &self,
-        fragmentation_threshold: f64,
-    ) -> (f64, usize) {
+    pub fn compact_old_gen_if_fragmented(&self, fragmentation_threshold: f64) -> (f64, usize) {
         let mut roots = crate::root::RootStack::default();
-        self.write_core()
-            .compact_old_gen_if_fragmented(&mut roots, fragmentation_threshold)
+        let _safepoint = self.write_safepoint();
+        let mut core = self.write_core();
+        core.compact_old_gen_if_fragmented(&mut roots, fragmentation_threshold)
     }
 
     /// Predicate-only fragmentation check.
     pub fn should_compact_old_gen(&self, fragmentation_threshold: f64) -> bool {
-        self.read_core().should_compact_old_gen(fragmentation_threshold)
+        self.read_core()
+            .should_compact_old_gen(fragmentation_threshold)
     }
 
     /// Aggressive compaction wrapper.
-    pub fn compact_old_gen_aggressive(
-        &self,
-        density_threshold: f64,
-        max_passes: usize,
-    ) -> usize {
+    pub fn compact_old_gen_aggressive(&self, density_threshold: f64, max_passes: usize) -> usize {
         let mut roots = crate::root::RootStack::default();
-        self.write_core()
-            .compact_old_gen_aggressive(&mut roots, density_threshold, max_passes)
+        let _safepoint = self.write_safepoint();
+        let mut core = self.write_core();
+        core.compact_old_gen_aggressive(&mut roots, density_threshold, max_passes)
     }
 
     /// Build a scheduler-visible collection plan.
@@ -282,11 +328,13 @@ impl Heap {
 
     /// Recommend the next collection plan.
     pub fn recommended_plan(&self) -> CollectionPlan {
+        self.ensure_collector_plans_current();
         self.read_core().recommended_plan()
     }
 
     /// Recommend the next background concurrent collection plan, if any.
     pub fn recommended_background_plan(&self) -> Option<CollectionPlan> {
+        self.ensure_collector_plans_current();
         self.read_core().recommended_background_plan()
     }
 
@@ -342,13 +390,12 @@ impl Heap {
     pub fn finish_active_major_collection_if_ready(
         &self,
     ) -> Result<Option<CollectionStats>, AllocError> {
-        self.collector_runtime().finish_active_major_collection_if_ready()
+        self.collector_runtime()
+            .finish_active_major_collection_if_ready()
     }
 
     /// Commit the active major collection once reclaim has already been prepared.
-    pub fn commit_active_reclaim_if_ready(
-        &self,
-    ) -> Result<Option<CollectionStats>, AllocError> {
+    pub fn commit_active_reclaim_if_ready(&self) -> Result<Option<CollectionStats>, AllocError> {
         self.collector_runtime().commit_active_reclaim_if_ready()
     }
 
@@ -417,26 +464,33 @@ impl Heap {
     /// Takes `&self` so multiple mutators can coexist
     /// against the same heap at the type level. Each mutator
     /// owns its own [`crate::mutator::MutatorLocal`] and
-    /// briefly acquires the heap core write lock per
-    /// operation.
+    /// holds a safepoint read guard while it operates,
+    /// taking the heap-core write lock only when it needs to
+    /// touch shared heap state.
     pub fn mutator(&self) -> Mutator<'_> {
         Mutator::new(self)
     }
 
     /// Create a collector-side runtime guard bound to this
-    /// heap. The returned guard holds an exclusive write
-    /// lock on the heap core for its entire lifetime, so
-    /// only one outstanding `HeapCollectorRuntime` can exist
-    /// at a time.
+    /// heap. The returned guard holds the safepoint write
+    /// lock plus the heap-core write lock for its entire
+    /// lifetime, so only one outstanding
+    /// `HeapCollectorRuntime` can exist at a time.
     pub fn collector_runtime(&self) -> HeapCollectorRuntime<'_> {
-        HeapCollectorRuntime::new(self.write_core())
+        let safepoint = self.write_safepoint();
+        let refresh_plans = self.take_collector_plans_dirty();
+        let guard = {
+            let guard = self.write_core();
+            if refresh_plans {
+                guard.refresh_recommended_plans();
+            }
+            guard
+        };
+        HeapCollectorRuntime::new(safepoint, guard, &self.state.nursery_generation)
     }
 
     /// Create a background collection service loop bound to this heap.
-    pub fn background_service(
-        &self,
-        config: BackgroundCollectorConfig,
-    ) -> BackgroundService<'_> {
+    pub fn background_service(&self, config: BackgroundCollectorConfig) -> BackgroundService<'_> {
         BackgroundService::from_runtime_guard(self.collector_runtime(), config)
     }
 
@@ -467,6 +521,7 @@ impl Heap {
 
     /// Override the pacer's configuration in place.
     pub fn set_pacer_config(&self, config: PacerConfig) {
+        let _safepoint = self.read_safepoint();
         self.write_core().set_pacer_config(config);
     }
 
@@ -495,7 +550,67 @@ impl Heap {
     }
 
     pub(crate) fn collector_shared_snapshot(&self) -> CollectorSharedSnapshot {
+        self.ensure_collector_plans_current();
         self.read_core().collector_shared_snapshot()
+    }
+
+    pub(crate) fn allocation_snapshot<T: Trace + 'static>(
+        &self,
+        cached_desc: Option<&'static TypeDesc>,
+    ) -> Result<AllocationSnapshot, AllocError> {
+        let payload_bytes = core::mem::size_of::<T>();
+        if self.state.collector.has_prepared_full_reclaim() {
+            return Err(AllocError::CollectionInProgress);
+        }
+        let desc = match cached_desc {
+            Some(desc) => desc,
+            None => {
+                let type_id = TypeId::of::<T>();
+                let known_desc = {
+                    let core = self.read_core();
+                    core.descriptor(type_id)
+                };
+                match known_desc {
+                    Some(desc) => desc,
+                    None => self.write_core().descriptor_for::<T>(),
+                }
+            }
+        };
+        let config = self.state.allocation_config;
+        Ok(AllocationSnapshot {
+            config,
+            desc,
+            nursery_generation: self
+                .state
+                .nursery_generation
+                .load(std::sync::atomic::Ordering::Relaxed),
+            space: crate::collector_policy::select_allocation_space(&config, desc, payload_bytes),
+        })
+    }
+
+    pub(crate) fn store_nursery_generation(&self, generation: u64) {
+        self.state
+            .nursery_generation
+            .store(generation, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn mark_collector_plans_dirty(&self) {
+        self.state
+            .collector_plans_dirty
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    pub(crate) fn take_collector_plans_dirty(&self) -> bool {
+        self.state
+            .collector_plans_dirty
+            .swap(false, std::sync::atomic::Ordering::AcqRel)
+    }
+
+    pub(crate) fn ensure_collector_plans_current(&self) {
+        if !self.take_collector_plans_dirty() {
+            return;
+        }
+        self.read_core().refresh_recommended_plans();
     }
 
     // -- Test-only forwarders ----------------------------------------------
@@ -532,8 +647,19 @@ impl Heap {
         &'a self,
         local: &'a mut crate::mutator::MutatorLocal,
     ) -> HeapCollectorRuntimeWithLocal<'a> {
+        let safepoint = self.write_safepoint();
+        let refresh_plans = self.take_collector_plans_dirty();
+        let guard = {
+            let guard = self.write_core();
+            if refresh_plans {
+                guard.refresh_recommended_plans();
+            }
+            guard
+        };
         HeapCollectorRuntimeWithLocal {
-            guard: self.write_core(),
+            _safepoint: safepoint,
+            guard,
+            nursery_generation: &self.state.nursery_generation,
             local,
         }
     }
@@ -550,21 +676,29 @@ impl Heap {
 }
 
 /// Guard type returned by [`Heap::collector_runtime`] that
-/// holds an exclusive write guard on the heap core and a
-/// scratch `MutatorLocal` for the duration of collector
-/// operations. Each method builds a fresh
+/// holds the safepoint write guard plus the heap-core write
+/// guard and a scratch `MutatorLocal` for the duration of
+/// collector operations. Each method builds a fresh
 /// [`CollectorRuntime`] against the held borrows and runs
 /// the operation through it.
 #[derive(Debug)]
 pub struct HeapCollectorRuntime<'a> {
+    _safepoint: std::sync::RwLockWriteGuard<'a, ()>,
     guard: std::sync::RwLockWriteGuard<'a, HeapCore>,
+    nursery_generation: &'a std::sync::atomic::AtomicU64,
     local: crate::mutator::MutatorLocal,
 }
 
 impl<'a> HeapCollectorRuntime<'a> {
-    fn new(guard: std::sync::RwLockWriteGuard<'a, HeapCore>) -> Self {
+    fn new(
+        safepoint: std::sync::RwLockWriteGuard<'a, ()>,
+        guard: std::sync::RwLockWriteGuard<'a, HeapCore>,
+        nursery_generation: &'a std::sync::atomic::AtomicU64,
+    ) -> Self {
         Self {
+            _safepoint: safepoint,
             guard,
+            nursery_generation,
             local: crate::mutator::MutatorLocal::default(),
         }
     }
@@ -604,9 +738,7 @@ impl<'a> HeapCollectorRuntime<'a> {
     }
 
     /// Advance one scheduler-style concurrent major-mark round.
-    pub fn poll_active_major_mark(
-        &mut self,
-    ) -> Result<Option<MajorMarkProgress>, AllocError> {
+    pub fn poll_active_major_mark(&mut self) -> Result<Option<MajorMarkProgress>, AllocError> {
         self.runtime().poll_active_major_mark()
     }
 
@@ -710,10 +842,7 @@ impl<'a> HeapCollectorRuntime<'a> {
 
     /// Convert this collector runtime guard into a background
     /// service loop.
-    pub fn background_service(
-        self,
-        config: BackgroundCollectorConfig,
-    ) -> BackgroundService<'a> {
+    pub fn background_service(self, config: BackgroundCollectorConfig) -> BackgroundService<'a> {
         BackgroundService::from_runtime_guard(self, config)
     }
 
@@ -723,6 +852,15 @@ impl<'a> HeapCollectorRuntime<'a> {
     #[allow(dead_code)]
     pub(crate) fn heap_core(&self) -> &HeapCore {
         &self.guard
+    }
+}
+
+impl Drop for HeapCollectorRuntime<'_> {
+    fn drop(&mut self) {
+        self.nursery_generation.store(
+            self.guard.nursery().generation(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
     }
 }
 
@@ -739,9 +877,7 @@ impl crate::background::BackgroundCollectionRuntime for HeapCollectorRuntime<'_>
         HeapCollectorRuntime::begin_major_mark(self, plan)
     }
 
-    fn poll_background_mark_round(
-        &mut self,
-    ) -> Result<Option<MajorMarkProgress>, AllocError> {
+    fn poll_background_mark_round(&mut self) -> Result<Option<MajorMarkProgress>, AllocError> {
         HeapCollectorRuntime::poll_active_major_mark(self)
     }
 
@@ -755,9 +891,7 @@ impl crate::background::BackgroundCollectionRuntime for HeapCollectorRuntime<'_>
         HeapCollectorRuntime::finish_active_major_collection_if_ready(self)
     }
 
-    fn commit_active_reclaim_if_ready(
-        &mut self,
-    ) -> Result<Option<CollectionStats>, AllocError> {
+    fn commit_active_reclaim_if_ready(&mut self) -> Result<Option<CollectionStats>, AllocError> {
         HeapCollectorRuntime::commit_active_reclaim_if_ready(self)
     }
 }
@@ -769,13 +903,19 @@ impl crate::background::BackgroundCollectionRuntime for HeapCollectorRuntime<'_>
 #[cfg(test)]
 #[derive(Debug)]
 pub struct HeapCollectorRuntimeWithLocal<'a> {
+    _safepoint: std::sync::RwLockWriteGuard<'a, ()>,
     guard: std::sync::RwLockWriteGuard<'a, HeapCore>,
+    nursery_generation: &'a std::sync::atomic::AtomicU64,
     local: &'a mut crate::mutator::MutatorLocal,
 }
 
 #[cfg(test)]
 impl<'a> HeapCollectorRuntimeWithLocal<'a> {
-    pub(crate) fn alloc_typed_scoped<'scope, 'handle_heap, T: crate::descriptor::Trace + 'static>(
+    pub(crate) fn alloc_typed_scoped<
+        'scope,
+        'handle_heap,
+        T: crate::descriptor::Trace + 'static,
+    >(
         &mut self,
         scope: &mut crate::root::HandleScope<'scope, 'handle_heap>,
         value: T,
@@ -789,8 +929,17 @@ impl<'a> HeapCollectorRuntimeWithLocal<'a> {
     }
 
     pub(crate) fn finish_major_collection(&mut self) -> Result<CollectionStats, AllocError> {
-        CollectorRuntime::with_local(&mut self.guard, &mut *self.local)
-            .finish_major_collection()
+        CollectorRuntime::with_local(&mut self.guard, &mut *self.local).finish_major_collection()
+    }
+}
+
+#[cfg(test)]
+impl Drop for HeapCollectorRuntimeWithLocal<'_> {
+    fn drop(&mut self) {
+        self.nursery_generation.store(
+            self.guard.nursery().generation(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
     }
 }
 
@@ -831,8 +980,7 @@ impl HeapCore {
             },
             config,
             descriptors: HashMap::default(),
-            objects: Vec::new(),
-            indexes: HeapIndexState::default(),
+            objects: ObjectStore::default(),
             old_gen: OldGenState::default(),
             runtime_state: RuntimeStateHandle::default(),
             collector: CollectorStateHandle::default(),
@@ -878,6 +1026,10 @@ impl HeapCore {
         &self.collector
     }
 
+    pub(crate) fn descriptor(&self, type_id: TypeId) -> Option<&'static TypeDesc> {
+        self.descriptors.get(&type_id).copied()
+    }
+
     /// Build the list of global trace sources the collector
     /// walks alongside mutator roots. Mutator roots now live
     /// on per-mutator `MutatorLocal` instances; this helper
@@ -887,15 +1039,12 @@ impl HeapCore {
         &self,
         roots: &crate::root::RootStack,
     ) -> Vec<GcErased> {
-        collect_global_sources(roots, &self.objects)
+        let objects = self.objects();
+        collect_global_sources(roots, &objects)
     }
 
-    pub(crate) fn objects(&self) -> &[ObjectRecord] {
-        &self.objects
-    }
-
-    pub(crate) fn indexes(&self) -> &HeapIndexState {
-        &self.indexes
+    pub(crate) fn objects(&self) -> ObjectStoreReadGuard<'_> {
+        self.objects.read()
     }
 
     pub(crate) fn old_gen(&self) -> &OldGenState {
@@ -908,6 +1057,14 @@ impl HeapCore {
 
     pub(crate) fn old_config(&self) -> &OldGenConfig {
         &self.config.old
+    }
+
+    pub(crate) fn nursery_config(&self) -> &NurseryConfig {
+        &self.config.nursery
+    }
+
+    pub(crate) fn stats_mut(&mut self) -> &mut HeapStats {
+        &mut self.stats
     }
 
     /// Physical old-gen compaction (opt-in, stop-the-world).
@@ -984,26 +1141,26 @@ impl HeapCore {
     ) -> usize {
         let runtime_state = self.runtime_state.clone();
         let block_count_before = self.old_gen.block_count();
-        let Self {
-            objects,
-            indexes,
-            old_gen,
-            config,
-            ..
-        } = self;
-        let old_config = &config.old;
+        let old_config = self.config.old;
+        let mut flat = self.take_flat_store();
         let forwarding = crate::reclaim::compact_sparse_old_blocks(
-            objects,
-            old_gen,
-            old_config,
+            &mut flat.objects,
+            &mut self.old_gen,
+            &old_config,
             density_threshold,
         );
         let moved = forwarding.len();
         if moved == 0 {
+            self.restore_flat_store(flat);
             return 0;
         }
-        crate::spaces::nursery::relocate_roots_and_edges(roots, objects, indexes, &forwarding);
-        let block_count_after_evacuation = old_gen.block_count();
+        crate::spaces::nursery::relocate_roots_and_edges(
+            roots,
+            &mut flat.objects,
+            &mut flat.indexes,
+            &forwarding,
+        );
+        let block_count_after_evacuation = self.old_gen.block_count();
         // After the compaction pass: source blocks have stale
         // line_marks reflecting their pre-compaction placements,
         // and fresh target blocks have zeroed line_marks because
@@ -1014,11 +1171,12 @@ impl HeapCore {
         // their line_marks repopulated from the survivors that
         // now live in them.
         crate::reclaim::rebuild_line_marks_and_reclaim_empty_old_blocks(
-            objects,
-            old_gen,
+            &mut flat.objects,
+            &mut self.old_gen,
             &runtime_state,
         );
-        let block_count_after_rebuild = old_gen.block_count();
+        self.restore_flat_store(flat);
+        let block_count_after_rebuild = self.old_gen.block_count();
         // target_blocks_created = blocks that appeared between
         // the pre-compact count and the post-evacuation count.
         // source_blocks_reclaimed = blocks that disappeared
@@ -1026,8 +1184,8 @@ impl HeapCore {
         // count.
         let target_blocks_created =
             block_count_after_evacuation.saturating_sub(block_count_before) as u64;
-        let source_blocks_reclaimed = block_count_after_evacuation
-            .saturating_sub(block_count_after_rebuild) as u64;
+        let source_blocks_reclaimed =
+            block_count_after_evacuation.saturating_sub(block_count_after_rebuild) as u64;
         self.compaction_stats.cycles = self.compaction_stats.cycles.saturating_add(1);
         self.compaction_stats.records_moved = self
             .compaction_stats
@@ -1075,36 +1233,37 @@ impl HeapCore {
         let block_count_before = self.old_gen.block_count();
         let candidate_set: std::collections::HashSet<usize> =
             block_indices.iter().copied().collect();
-        let Self {
-            objects,
-            indexes,
-            old_gen,
-            config,
-            ..
-        } = self;
-        let old_config = &config.old;
+        let old_config = self.config.old;
+        let mut flat = self.take_flat_store();
         let forwarding = crate::reclaim::compact_specific_old_blocks(
-            objects,
-            old_gen,
-            old_config,
+            &mut flat.objects,
+            &mut self.old_gen,
+            &old_config,
             &candidate_set,
         );
         let moved = forwarding.len();
         if moved == 0 {
+            self.restore_flat_store(flat);
             return 0;
         }
-        crate::spaces::nursery::relocate_roots_and_edges(roots, objects, indexes, &forwarding);
-        let block_count_after_evacuation = old_gen.block_count();
+        crate::spaces::nursery::relocate_roots_and_edges(
+            roots,
+            &mut flat.objects,
+            &mut flat.indexes,
+            &forwarding,
+        );
+        let block_count_after_evacuation = self.old_gen.block_count();
         crate::reclaim::rebuild_line_marks_and_reclaim_empty_old_blocks(
-            objects,
-            old_gen,
+            &mut flat.objects,
+            &mut self.old_gen,
             &runtime_state,
         );
-        let block_count_after_rebuild = old_gen.block_count();
+        self.restore_flat_store(flat);
+        let block_count_after_rebuild = self.old_gen.block_count();
         let target_blocks_created =
             block_count_after_evacuation.saturating_sub(block_count_before) as u64;
-        let source_blocks_reclaimed = block_count_after_evacuation
-            .saturating_sub(block_count_after_rebuild) as u64;
+        let source_blocks_reclaimed =
+            block_count_after_evacuation.saturating_sub(block_count_after_rebuild) as u64;
         self.compaction_stats.cycles = self.compaction_stats.cycles.saturating_add(1);
         self.compaction_stats.records_moved = self
             .compaction_stats
@@ -1274,75 +1433,139 @@ impl HeapCore {
         total_moved
     }
 
-    pub(crate) fn collection_exec_parts(
-        &mut self,
-    ) -> (
-        &mut Vec<ObjectRecord>,
-        &mut HeapIndexState,
-        &mut OldGenState,
-        &mut HeapStats,
-        &OldGenConfig,
-        &NurseryConfig,
-        &mut NurseryState,
-    ) {
-        let Self {
-            config,
-            stats,
-            objects,
-            indexes,
-            old_gen,
-            nursery,
-            ..
-        } = self;
-        (
-            objects,
-            indexes,
-            old_gen,
-            stats,
-            &config.old,
-            &config.nursery,
-            nursery,
-        )
+    pub(crate) fn take_flat_store(&mut self) -> FlatObjectStore {
+        // The hot allocation path updates the atomic mirror,
+        // not `self.stats`, so sync the storage snapshot once
+        // before any stop-the-world collector path computes
+        // `before_bytes` / `nursery_bytes_before`.
+        self.refresh_storage_stats_snapshot();
+        self.objects.take_flat()
     }
 
-    pub(crate) fn finished_reclaim_commit_parts(
-        &mut self,
-    ) -> (
-        &mut Vec<ObjectRecord>,
-        &mut HeapIndexState,
-        &mut OldGenState,
-        &mut HeapStats,
-    ) {
-        let Self {
-            objects,
-            indexes,
-            old_gen,
-            stats,
-            ..
-        } = self;
-        (objects, indexes, old_gen, stats)
+    pub(crate) fn restore_flat_store(&mut self, flat: FlatObjectStore) {
+        self.objects.restore_from_flat(flat);
     }
 
-    pub(crate) fn allocation_commit_parts(
+    pub(crate) fn with_flat_store_for_collection<R>(
         &mut self,
-    ) -> (
-        &mut Vec<ObjectRecord>,
-        &mut HeapIndexState,
-        &mut OldGenState,
-        &mut HeapStats,
-        &OldGenConfig,
-        &crate::stats::AtomicAllocationCounters,
-    ) {
+        f: impl FnOnce(
+            &mut FlatObjectStore,
+            &mut OldGenState,
+            &OldGenConfig,
+            &NurseryConfig,
+            &mut HeapStats,
+            &mut NurseryState,
+        ) -> R,
+    ) -> R {
+        let old_config = self.config.old;
+        let nursery_config = self.config.nursery;
+        let mut flat = self.take_flat_store();
+        let result = f(
+            &mut flat,
+            &mut self.old_gen,
+            &old_config,
+            &nursery_config,
+            &mut self.stats,
+            &mut self.nursery,
+        );
+        self.restore_flat_store(flat);
+        result
+    }
+
+    pub(crate) fn with_flat_store_for_reclaim_commit<R>(
+        &mut self,
+        f: impl FnOnce(&mut FlatObjectStore, &mut OldGenState, &mut HeapStats) -> R,
+    ) -> R {
+        let mut flat = self.take_flat_store();
+        let result = f(&mut flat, &mut self.old_gen, &mut self.stats);
+        self.restore_flat_store(flat);
+        result
+    }
+
+    fn refresh_storage_stats_snapshot(&mut self) {
+        self.alloc_counters.apply_to(&mut self.stats);
+        let read = self.objects.read();
+        let (finalizable, weak, ephemeron) = read.candidate_counts();
+        let explicit_owners = read.remembered().effective_len();
+        self.stats.remembered_explicit_edges = explicit_owners;
+        self.stats.remembered_explicit_owners = explicit_owners;
+        self.stats.remembered_edges = explicit_owners;
+        self.stats.remembered_owners = explicit_owners;
+        self.stats.remembered_dirty_cards = 0;
+        self.stats.remembered_dirty_card_owners = 0;
+        self.stats.finalizable_candidates = finalizable;
+        self.stats.weak_candidates = weak;
+        self.stats.ephemeron_candidates = ephemeron;
+        self.stats.old_gen_used_bytes = self.old_gen.total_used_bytes();
+        let dirty_cards = self.old_gen.dirty_card_count();
+        self.stats.remembered_dirty_cards = dirty_cards;
+        self.stats.remembered_dirty_card_owners = dirty_cards;
+        self.stats.remembered_edges = self.stats.remembered_edges.saturating_add(dirty_cards);
+        self.stats.remembered_owners = self.stats.remembered_owners.saturating_add(dirty_cards);
+    }
+
+    pub(crate) fn commit_allocated_record(
+        &mut self,
+        mut record: ObjectRecord,
+    ) -> Result<AllocationCommit, AllocError> {
+        let total_size = record.header().total_size();
+        let space = record.space();
         let Self {
             config,
-            objects,
-            indexes,
-            old_gen,
-            stats,
             alloc_counters,
+            objects,
+            old_gen,
+            collector,
             ..
         } = self;
-        (objects, indexes, old_gen, stats, &config.old, alloc_counters)
+        let old_reserved = if space == SpaceKind::Old {
+            old_gen.record_allocated_object(&config.old, &mut record)
+        } else {
+            old_gen.reserved_bytes()
+        };
+        let gc = record.erased();
+        alloc_counters.record_allocation(space, total_size, old_reserved);
+        objects.publish_shared(record);
+        let recorded = if collector.has_active_major_mark() {
+            let read = objects.read();
+            collector.record_active_major_reachable_object(
+                read.raw(),
+                gc,
+                config.old.mutator_assist_slices,
+            )?
+        } else {
+            false
+        };
+        Ok(AllocationCommit {
+            gc,
+            plans_dirty: !recorded,
+        })
+    }
+
+    pub(crate) fn commit_allocated_record_shared(
+        &self,
+        record: ObjectRecord,
+    ) -> Result<AllocationCommit, AllocError> {
+        let total_size = record.header().total_size();
+        let space = record.space();
+        debug_assert_ne!(space, SpaceKind::Old);
+        let gc = record.erased();
+        self.alloc_counters.record_allocation(space, total_size, 0);
+        self.objects.publish_shared(record);
+        let recorded = if self.collector.has_active_major_mark() {
+            let read = self.objects.read();
+            self.collector.record_active_major_reachable_object(
+                read.raw(),
+                gc,
+                self.config.old.mutator_assist_slices,
+            )?
+        } else {
+            false
+        };
+        Ok(AllocationCommit {
+            gc,
+            plans_dirty: !recorded,
+        })
     }
 
     /// Synchronize the atomic allocation counters from the
@@ -1374,17 +1597,21 @@ impl HeapCore {
         // the non-atomic `self.stats` copy is stale (it is
         // only refreshed at GC-time boundaries).
         self.alloc_counters.apply_to(&mut stats);
-        self.indexes.apply_storage_stats(&mut stats);
-        // Fold dirty card counts into the unified
-        // remembered_edges / remembered_owners counters so
-        // observers see one combined view across the explicit
-        // Vec+HashSet fallback path and the per-block
-        // card-table fast path. The split counters
-        // (remembered_explicit_*, remembered_dirty_card_*)
-        // remain available for callers that want to attribute
-        // pressure to one specific path.
-        self.indexes
-            .apply_dirty_card_storage_stats(&mut stats, &self.old_gen);
+        let read = self.objects.read();
+        let (finalizable, weak, ephemeron) = read.candidate_counts();
+        let explicit_owners = read.remembered().effective_len();
+        stats.remembered_explicit_edges = explicit_owners;
+        stats.remembered_explicit_owners = explicit_owners;
+        stats.remembered_edges = explicit_owners;
+        stats.remembered_owners = explicit_owners;
+        let dirty_cards = self.old_gen.dirty_card_count();
+        stats.remembered_dirty_cards = dirty_cards;
+        stats.remembered_dirty_card_owners = dirty_cards;
+        stats.remembered_edges = stats.remembered_edges.saturating_add(dirty_cards);
+        stats.remembered_owners = stats.remembered_owners.saturating_add(dirty_cards);
+        stats.finalizable_candidates = finalizable;
+        stats.weak_candidates = weak;
+        stats.ephemeron_candidates = ephemeron;
         // Cache the old-gen block bump cursor sum into the shared
         // stats surface so `SharedHeap::old_gen_fragmentation_ratio`
         // can read it from the cached snapshot without taking the
@@ -1409,10 +1636,11 @@ impl HeapCore {
 
     /// Build a scheduler-visible collection plan from current heap state.
     pub fn plan_for(&self, kind: CollectionKind) -> CollectionPlan {
+        let stats = self.storage_stats();
         crate::collector_policy::build_plan(
             kind,
-            &self.objects,
-            &self.stats,
+            self.object_count(),
+            &stats,
             &self.config.nursery,
             &self.config.old,
             &self.old_gen,
@@ -1498,7 +1726,7 @@ impl HeapCore {
 
     /// Number of live objects currently tracked by the heap.
     pub fn object_count(&self) -> usize {
-        self.objects.len()
+        self.objects().len()
     }
 
     /// Return the number of queued finalizers waiting to run.
@@ -1542,12 +1770,12 @@ impl HeapCore {
         // allocating when pending is empty, so external
         // observers see the same number GC-time consumers will
         // see after `merge_pending_owners`.
-        self.indexes.remembered.effective_len()
+        self.objects.effective_remembered_len()
     }
 
     #[cfg(test)]
     pub(crate) fn remembered_owner_count(&self) -> usize {
-        self.indexes.remembered.effective_len()
+        self.objects.effective_remembered_len()
     }
 
     /// Sum live_bytes and object_count across every old-gen block
@@ -1586,7 +1814,8 @@ impl HeapCore {
     /// via `HeapStats::remembered_explicit_edges` /
     /// `remembered_dirty_cards`.
     pub fn total_remembered_count(&self) -> usize {
-        self.remembered_edge_count().saturating_add(self.dirty_card_count())
+        self.remembered_edge_count()
+            .saturating_add(self.dirty_card_count())
     }
 
     /// Cumulative write-barrier traffic counters.
@@ -1649,12 +1878,19 @@ impl HeapCore {
         owner: GcErased,
         new_value: Option<GcErased>,
     ) {
-        self.indexes.record_remembered_edge_if_needed(
-            &self.objects,
-            &self.old_gen,
-            owner,
-            new_value,
-        );
+        let Some(target) = new_value else {
+            return;
+        };
+        let owner_space = unsafe { owner.header().as_ref().space() };
+        let target_space = unsafe { target.header().as_ref().space() };
+        let owner_is_old = owner_space != SpaceKind::Nursery && owner_space != SpaceKind::Immortal;
+        if owner_is_old && target_space == SpaceKind::Nursery {
+            let owner_addr = owner.header().as_ptr() as usize;
+            if self.old_gen.record_write_barrier(owner_addr) {
+                return;
+            }
+            self.objects.remember_owner_shared(owner.object_key());
+        }
     }
 
     pub(crate) fn prepared_full_reclaim_active(&self) -> bool {
@@ -1673,8 +1909,9 @@ impl HeapCore {
         space: SpaceKind,
         bytes: usize,
     ) -> Option<CollectionPlan> {
+        let stats = self.storage_stats();
         crate::collector_policy::allocation_pressure_plan(
-            &self.stats,
+            &stats,
             &self.config.nursery,
             &self.config.pinned,
             &self.config.large,
@@ -1736,32 +1973,32 @@ impl HeapCore {
 
     #[cfg(test)]
     pub(crate) fn contains<T>(&self, gc: crate::root::Gc<T>) -> bool {
-        self.indexes
-            .object_index
-            .contains_key(&gc.erase().object_key())
+        self.objects()
+            .locator_of_key(gc.erase().object_key())
+            .is_some()
     }
 
     #[cfg(test)]
     pub(crate) fn finalizable_candidate_count(&self) -> usize {
-        self.indexes.finalizable_candidates.len()
+        self.objects().finalizable_candidates().len()
     }
 
     #[cfg(test)]
     pub(crate) fn weak_candidate_count(&self) -> usize {
-        self.indexes.weak_candidates.len()
+        self.objects().weak_candidates().len()
     }
 
     #[cfg(test)]
     pub(crate) fn ephemeron_candidate_count(&self) -> usize {
-        self.indexes.ephemeron_candidates.len()
+        self.objects().ephemeron_candidates().len()
     }
 
     #[cfg(test)]
     pub(crate) fn space_of<T>(&self, gc: crate::root::Gc<T>) -> Option<SpaceKind> {
-        self.indexes
-            .object_index
-            .get(&gc.erase().object_key())
-            .map(|&index| self.objects[index].space())
+        let objects = self.objects();
+        objects
+            .locator_of_key(gc.erase().object_key())
+            .map(|locator| objects.get(locator).space())
     }
 }
 

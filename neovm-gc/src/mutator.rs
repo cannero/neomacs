@@ -1,6 +1,6 @@
 use crate::background::BackgroundCollectionRuntime;
 use crate::barrier::{BarrierEvent, BarrierKind};
-use crate::descriptor::{GcErased, Trace};
+use crate::descriptor::{GcErased, Trace, TypeDesc};
 use crate::edge::EdgeCell;
 use crate::heap::{AllocError, Heap};
 use crate::plan::{
@@ -10,6 +10,7 @@ use crate::plan::{
 use crate::root::{Gc, HandleScope, Root, RootStack};
 use crate::stats::CollectionStats;
 use core::ptr::NonNull;
+use std::any::TypeId;
 
 /// Bounded ring retained per mutator for diagnostic
 /// inspection of recent barrier events. The count matches
@@ -83,6 +84,9 @@ pub struct MutatorLocal {
     /// collector still operates on a single `&mut MutatorLocal`
     /// threaded in from the caller.
     pub(crate) roots: RootStack,
+    /// Single-entry descriptor cache for the most recently
+    /// allocated payload type in this mutator.
+    descriptor_cache: Option<(TypeId, &'static TypeDesc)>,
 }
 
 impl MutatorLocal {
@@ -108,6 +112,15 @@ impl MutatorLocal {
     /// Mutable accessor for the root stack.
     pub(crate) fn roots_mut(&mut self) -> &mut RootStack {
         &mut self.roots
+    }
+
+    fn cached_descriptor<T: Trace + 'static>(&self) -> Option<&'static TypeDesc> {
+        self.descriptor_cache
+            .and_then(|(type_id, desc)| (type_id == TypeId::of::<T>()).then_some(desc))
+    }
+
+    fn remember_descriptor<T: Trace + 'static>(&mut self, desc: &'static TypeDesc) {
+        self.descriptor_cache = Some((TypeId::of::<T>(), desc));
     }
 }
 
@@ -147,10 +160,11 @@ impl MutatorLocal {
 ///
 /// Holds a shared `&Heap` borrow plus a per-mutator
 /// `MutatorLocal`. Multiple mutators can coexist against
-/// the same heap because they all borrow `&Heap`. Each
-/// collector operation briefly acquires the heap core write
-/// lock via `with_runtime` and releases it at the end of
-/// the method.
+/// the same heap because they all borrow `&Heap`.
+/// Collector-style operations take the safepoint write lock
+/// through `with_runtime`; the common allocation path holds
+/// only a safepoint read lock and takes the heap-core write
+/// lock only when it actually needs shared heap state.
 #[derive(Debug)]
 pub struct Mutator<'heap> {
     heap: &'heap Heap,
@@ -165,18 +179,28 @@ impl<'heap> Mutator<'heap> {
         }
     }
 
-    /// Acquire the heap core write lock and run the closure
-    /// with a live `CollectorRuntime` built against the lock
-    /// guard plus this mutator's local. The lock is released
-    /// when the closure returns.
+    /// Acquire the safepoint write lock plus the heap-core
+    /// write lock and run the closure with a live
+    /// `CollectorRuntime` built against those guards plus
+    /// this mutator's local. Used by collection and other
+    /// collector-style operations that must exclude other
+    /// mutators.
     fn with_runtime<R>(
         &mut self,
         f: impl FnOnce(&mut crate::runtime::CollectorRuntime<'_>) -> R,
     ) -> R {
+        let _safepoint = self.heap.write_safepoint();
+        let refresh_plans = self.heap.take_collector_plans_dirty();
         let mut guard = self.heap.write_core();
-        let mut runtime =
-            crate::runtime::CollectorRuntime::with_local(&mut guard, &mut self.local);
-        f(&mut runtime)
+        if refresh_plans {
+            guard.refresh_recommended_plans();
+        }
+        let mut runtime = crate::runtime::CollectorRuntime::with_local(&mut guard, &mut self.local);
+        let result = f(&mut runtime);
+        drop(runtime);
+        self.heap
+            .store_nursery_generation(guard.nursery().generation());
+        result
     }
 
     /// Create a new rooted handle scope backed by this
@@ -188,6 +212,112 @@ impl<'heap> Mutator<'heap> {
     /// Return a shared view of the underlying heap.
     pub fn heap(&self) -> &Heap {
         self.heap
+    }
+
+    fn alloc_typed_scoped<'scope, 'handle_heap, T: Trace + 'static>(
+        &mut self,
+        scope: &mut HandleScope<'scope, 'handle_heap>,
+        value: T,
+    ) -> Result<Root<'scope, T>, AllocError> {
+        let Self { heap, local } = self;
+        let _safepoint = heap.read_safepoint();
+
+        let snapshot = heap.allocation_snapshot::<T>(local.cached_descriptor::<T>())?;
+        let config = snapshot.config;
+        let desc = snapshot.desc;
+        let space = snapshot.space;
+        local.remember_descriptor::<T>(desc);
+        let mut value = Some(value);
+
+        let record = match space {
+            crate::object::SpaceKind::Nursery => {
+                let (layout, payload_offset) = crate::object::allocation_layout_for::<T>()?;
+                match local
+                    .tlab
+                    .as_mut()
+                    .and_then(|tlab| tlab.try_alloc(snapshot.nursery_generation, layout))
+                {
+                    Some(base) => unsafe {
+                        crate::object::ObjectRecord::allocate_in_arena::<T>(
+                            desc,
+                            space,
+                            base,
+                            layout,
+                            payload_offset,
+                            value.take().expect("allocation value should be present"),
+                        )
+                    },
+                    None => {
+                        let mut core = heap.write_core();
+                        let base = crate::runtime::try_bump_nursery_tlab_or_refill(
+                            &mut local.tlab,
+                            core.nursery_mut(),
+                            layout,
+                            config.nursery.tlab_bytes,
+                        )
+                        .or_else(|| core.nursery_mut().try_alloc(layout));
+                        match base {
+                            Some(base) => unsafe {
+                                crate::object::ObjectRecord::allocate_in_arena::<T>(
+                                    desc,
+                                    space,
+                                    base,
+                                    layout,
+                                    payload_offset,
+                                    value.take().expect("allocation value should be present"),
+                                )
+                            },
+                            None => crate::object::ObjectRecord::allocate(
+                                desc,
+                                space,
+                                value.take().expect("allocation value should be present"),
+                            )?,
+                        }
+                    }
+                }
+            }
+            crate::object::SpaceKind::Old => {
+                let (layout, payload_offset) = crate::object::allocation_layout_for::<T>()?;
+                let mut core = heap.write_core();
+                match core.old_gen_mut().try_alloc_in_block(&config.old, layout) {
+                    Some((placement, base)) => {
+                        let mut record = unsafe {
+                            crate::object::ObjectRecord::allocate_in_arena::<T>(
+                                desc,
+                                space,
+                                base,
+                                layout,
+                                payload_offset,
+                                value.take().expect("allocation value should be present"),
+                            )
+                        };
+                        record.set_old_block_placement(placement);
+                        record
+                    }
+                    None => crate::object::ObjectRecord::allocate(
+                        desc,
+                        space,
+                        value.take().expect("allocation value should be present"),
+                    )?,
+                }
+            }
+            _ => crate::object::ObjectRecord::allocate(
+                desc,
+                space,
+                value.take().expect("allocation value should be present"),
+            )?,
+        };
+
+        let commit = if space == crate::object::SpaceKind::Old {
+            heap.write_core().commit_allocated_record(record)?
+        } else {
+            heap.read_core().commit_allocated_record_shared(record)?
+        };
+        if commit.plans_dirty {
+            heap.mark_collector_plans_dirty();
+        }
+        let gc = unsafe { Gc::from_erased(commit.gc) };
+        Ok(scope.root(gc))
     }
 
     /// Allocate one managed object.
@@ -206,7 +336,7 @@ impl<'heap> Mutator<'heap> {
         scope: &mut HandleScope<'scope, 'heap>,
         value: T,
     ) -> Result<Root<'scope, T>, AllocError> {
-        self.with_runtime(|runtime| runtime.alloc_typed_scoped(scope, value))
+        self.alloc_typed_scoped(scope, value)
     }
 
     /// Allocate one managed object, collecting first if nursery pressure requires it.
@@ -215,10 +345,8 @@ impl<'heap> Mutator<'heap> {
         scope: &mut HandleScope<'scope, 'heap>,
         value: T,
     ) -> Result<Root<'scope, T>, AllocError> {
-        self.with_runtime(|runtime| {
-            runtime.prepare_typed_allocation::<T>()?;
-            runtime.alloc_typed_scoped(scope, value)
-        })
+        self.with_runtime(|runtime| runtime.prepare_typed_allocation::<T>())?;
+        self.alloc_typed_scoped(scope, value)
     }
 
     /// Return whether this mutator currently holds a
@@ -251,10 +379,6 @@ impl<'heap> Mutator<'heap> {
         scope: &mut HandleScope<'scope, 'heap>,
         gc: Gc<T>,
     ) -> Root<'scope, T> {
-        assert!(
-            !self.heap.read_core().prepared_full_reclaim_active(),
-            "cannot add new roots while prepared full reclaim is active; finish the active full collection first"
-        );
         self.with_runtime(|runtime| runtime.root_during_active_major_mark(gc.erase()));
         scope.root(gc)
     }
@@ -271,6 +395,7 @@ impl<'heap> Mutator<'heap> {
     ///
     /// Returns the number of records physically evacuated.
     pub fn compact_old_gen_physical(&mut self, density_threshold: f64) -> usize {
+        let _safepoint = self.heap.write_safepoint();
         let mut guard = self.heap.write_core();
         guard.compact_old_gen_physical(self.local.roots_mut(), density_threshold)
     }
@@ -284,6 +409,7 @@ impl<'heap> Mutator<'heap> {
         density_threshold: f64,
         max_passes: usize,
     ) -> usize {
+        let _safepoint = self.heap.write_safepoint();
         let mut guard = self.heap.write_core();
         guard.compact_old_gen_aggressive(self.local.roots_mut(), density_threshold, max_passes)
     }
@@ -293,6 +419,7 @@ impl<'heap> Mutator<'heap> {
     /// borrow so scoped roots created from the same mutator
     /// stay valid across the call.
     pub fn compact_old_gen_blocks(&mut self, block_indices: &[usize]) -> usize {
+        let _safepoint = self.heap.write_safepoint();
         let mut guard = self.heap.write_core();
         guard.compact_old_gen_blocks(self.local.roots_mut(), block_indices)
     }
@@ -352,10 +479,8 @@ impl<'heap> Mutator<'heap> {
 
     /// Opportunistic compaction trigger. Mirrors
     /// [`Heap::compact_old_gen_if_fragmented`].
-    pub fn compact_old_gen_if_fragmented(
-        &mut self,
-        fragmentation_threshold: f64,
-    ) -> (f64, usize) {
+    pub fn compact_old_gen_if_fragmented(&mut self, fragmentation_threshold: f64) -> (f64, usize) {
+        let _safepoint = self.heap.write_safepoint();
         let mut guard = self.heap.write_core();
         guard.compact_old_gen_if_fragmented(self.local.roots_mut(), fragmentation_threshold)
     }
@@ -467,31 +592,28 @@ impl<'heap> Mutator<'heap> {
 
     /// Record a post-write barrier for one mutated GC edge.
     ///
-    /// Runs entirely under a `HeapCore` read lock. All
-    /// operations the barrier needs — barrier stats
-    /// bookkeeping, per-mutator event ring, collector-handle
-    /// active-major-mark assist, and the owner-only
-    /// remembered-set fallback — are either atomic, use their
-    /// own internal mutex, or mutate per-mutator state. The
-    /// only historical reason the barrier held the write lock
-    /// was that `HeapCore::record_remembered_edge_if_needed`
-    /// took `&mut self`; since the fallback insert now goes
-    /// through `RememberedSetState::record_owner_shared`
-    /// (per-set mutex on `pending_inserts`), the whole barrier
-    /// can run concurrent with other mutators.
-    pub fn post_write_barrier<Owner: ?Sized, Value: ?Sized>(
+    /// Runs under a mutator-held safepoint read lock plus a
+    /// `HeapCore` read lock. That safepoint matters for
+    /// correctness: it prevents `begin_major_mark` from
+    /// starting in the middle of a pointer mutation, so the
+    /// barrier can use the collector's atomic active-mark
+    /// mirror as an exact "is SATB required right now?"
+    /// predicate instead of taking the collector mutex on the
+    /// common non-marking path.
+    ///
+    /// All other barrier work — stats bookkeeping,
+    /// per-mutator event logging, active-major-mark assist,
+    /// and remembered-set fallback — is either atomic, uses
+    /// its own internal mutex, or mutates per-mutator state.
+    fn post_write_barrier_with_core(
         &mut self,
-        owner: Gc<Owner>,
+        core: &crate::heap::HeapCore,
+        owner_erased: GcErased,
         slot: Option<usize>,
-        old_value: Option<Gc<Value>>,
-        new_value: Option<Gc<Value>>,
+        old_erased: Option<GcErased>,
+        new_erased: Option<GcErased>,
     ) {
-        let owner_erased = owner.erase();
-        let old_erased = old_value.map(Gc::erase);
-        let new_erased = new_value.map(Gc::erase);
-        let Self { heap, local } = self;
-        let core = heap.read_core();
-
+        let local = &mut self.local;
         assert!(
             !core.prepared_full_reclaim_active(),
             "cannot mutate heap edges while prepared full reclaim is active; finish the active full collection first"
@@ -520,28 +642,49 @@ impl<'heap> Mutator<'heap> {
             );
         }
 
-        collector
-            .record_active_major_post_write_and_refresh(
-                core.objects(),
-                &core.indexes().object_index,
-                owner_erased,
-                old_erased,
-                new_erased,
-                core.config().old.mutator_assist_slices,
-                // The storage_stats closure is only called
-                // when the post-write actually updated
-                // collector state. In the common path (no
-                // active major-mark session) the closure is
-                // never invoked and the barrier skips the
-                // full HeapStats copy + block walk.
-                || core.storage_stats(),
-                core.old_gen(),
-                core.old_config(),
-                |kind| core.plan_for(kind),
-            )
-            .expect("post-write active major-mark assist should not fail");
+        if active_major_mark {
+            let objects = core.objects();
+            collector
+                .record_active_major_post_write_and_refresh(
+                    objects.raw(),
+                    owner_erased,
+                    old_erased,
+                    new_erased,
+                    core.config().old.mutator_assist_slices,
+                    || core.storage_stats(),
+                    core.old_gen(),
+                    core.old_config(),
+                    |kind| core.plan_for(kind),
+                )
+                .expect("post-write active major-mark assist should not fail");
+        }
 
         core.record_remembered_edge_if_needed(owner_erased, new_erased);
+    }
+
+    /// Record a post-write barrier for one mutated GC edge.
+    ///
+    /// This is only exposed for callers that already mutated
+    /// the edge themselves. `store_edge` is preferred because
+    /// it holds the safepoint read lock across the actual
+    /// pointer store and the barrier, which avoids races with
+    /// `begin_major_mark`.
+    pub fn post_write_barrier<Owner: ?Sized, Value: ?Sized>(
+        &mut self,
+        owner: Gc<Owner>,
+        slot: Option<usize>,
+        old_value: Option<Gc<Value>>,
+        new_value: Option<Gc<Value>>,
+    ) {
+        let _safepoint = self.heap.read_safepoint();
+        let core = self.heap.read_core();
+        self.post_write_barrier_with_core(
+            &core,
+            owner.erase(),
+            slot,
+            old_value.map(Gc::erase),
+            new_value.map(Gc::erase),
+        );
     }
 
     /// Store a managed edge and record the required post-write barrier.
@@ -552,14 +695,19 @@ impl<'heap> Mutator<'heap> {
         project: impl FnOnce(&Owner) -> &EdgeCell<Value>,
         new_value: Option<Gc<Value>>,
     ) {
-        let owner_ref = unsafe { owner.as_gc().as_non_null().as_ref() };
+        let owner_gc = owner.as_gc();
+        let owner_ref = unsafe { owner_gc.as_non_null().as_ref() };
+        let _safepoint = self.heap.read_safepoint();
         let edge = project(owner_ref);
         let old_value = edge.replace(new_value);
-        // The prepared-full-reclaim-active assertion now runs
-        // inside `post_write_barrier` under the same read lock
-        // the barrier path takes, so there is no point in
-        // duplicating it here.
-        self.post_write_barrier(owner.as_gc(), Some(slot), old_value, new_value);
+        let core = self.heap.read_core();
+        self.post_write_barrier_with_core(
+            &core,
+            owner_gc.erase(),
+            Some(slot),
+            old_value.map(Gc::erase),
+            new_value.map(Gc::erase),
+        );
     }
 }
 

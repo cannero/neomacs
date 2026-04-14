@@ -84,8 +84,8 @@ impl CollectionStats {
     ) -> Self {
         // Survivors include the bytes that aged into the next
         // semispace plus the bytes promoted out to old/pinned.
-        let nursery_survivor_bytes = (nursery_bytes_after as u64)
-            .saturating_add(promoted_bytes as u64);
+        let nursery_survivor_bytes =
+            (nursery_bytes_after as u64).saturating_add(promoted_bytes as u64);
         Self {
             collections: 1,
             minor_collections: 1,
@@ -312,8 +312,7 @@ impl AtomicAllocationCounters {
     ) {
         match space {
             SpaceKind::Nursery => {
-                self.nursery_live_bytes
-                    .fetch_add(bytes, Ordering::Relaxed);
+                self.nursery_live_bytes.fetch_add(bytes, Ordering::Relaxed);
             }
             SpaceKind::Old => {
                 self.old_live_bytes.fetch_add(bytes, Ordering::Relaxed);
@@ -321,18 +320,15 @@ impl AtomicAllocationCounters {
                     .store(old_reserved_bytes, Ordering::Relaxed);
             }
             SpaceKind::Pinned => {
-                self.pinned_live_bytes
-                    .fetch_add(bytes, Ordering::Relaxed);
+                self.pinned_live_bytes.fetch_add(bytes, Ordering::Relaxed);
             }
             SpaceKind::Large => {
-                self.large_live_bytes
-                    .fetch_add(bytes, Ordering::Relaxed);
+                self.large_live_bytes.fetch_add(bytes, Ordering::Relaxed);
                 self.large_reserved_bytes
                     .fetch_add(bytes, Ordering::Relaxed);
             }
             SpaceKind::Immortal => {
-                self.immortal_live_bytes
-                    .fetch_add(bytes, Ordering::Relaxed);
+                self.immortal_live_bytes.fetch_add(bytes, Ordering::Relaxed);
                 self.immortal_reserved_bytes
                     .fetch_add(bytes, Ordering::Relaxed);
             }
@@ -345,22 +341,14 @@ impl AtomicAllocationCounters {
     /// observers see the latest allocation counters without
     /// needing exclusive access.
     pub(crate) fn apply_to(&self, stats: &mut HeapStats) {
-        stats.nursery.live_bytes =
-            self.nursery_live_bytes.load(Ordering::Relaxed);
-        stats.old.live_bytes =
-            self.old_live_bytes.load(Ordering::Relaxed);
-        stats.old.reserved_bytes =
-            self.old_reserved_bytes.load(Ordering::Relaxed);
-        stats.pinned.live_bytes =
-            self.pinned_live_bytes.load(Ordering::Relaxed);
-        stats.large.live_bytes =
-            self.large_live_bytes.load(Ordering::Relaxed);
-        stats.large.reserved_bytes =
-            self.large_reserved_bytes.load(Ordering::Relaxed);
-        stats.immortal.live_bytes =
-            self.immortal_live_bytes.load(Ordering::Relaxed);
-        stats.immortal.reserved_bytes =
-            self.immortal_reserved_bytes.load(Ordering::Relaxed);
+        stats.nursery.live_bytes = self.nursery_live_bytes.load(Ordering::Relaxed);
+        stats.old.live_bytes = self.old_live_bytes.load(Ordering::Relaxed);
+        stats.old.reserved_bytes = self.old_reserved_bytes.load(Ordering::Relaxed);
+        stats.pinned.live_bytes = self.pinned_live_bytes.load(Ordering::Relaxed);
+        stats.large.live_bytes = self.large_live_bytes.load(Ordering::Relaxed);
+        stats.large.reserved_bytes = self.large_reserved_bytes.load(Ordering::Relaxed);
+        stats.immortal.live_bytes = self.immortal_live_bytes.load(Ordering::Relaxed);
+        stats.immortal.reserved_bytes = self.immortal_reserved_bytes.load(Ordering::Relaxed);
     }
 
     /// Synchronize the atomics from a `HeapStats` snapshot.
@@ -566,6 +554,7 @@ impl HeapStats {
             .saturating_add(self.immortal.live_bytes)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn record_allocation(
         &mut self,
         space: SpaceKind,

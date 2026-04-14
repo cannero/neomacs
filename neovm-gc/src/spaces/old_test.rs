@@ -73,12 +73,8 @@ fn compute_per_block_live_bytes_sums_total_size_by_block_index() {
     let layout = core::alloc::Layout::from_size_align(64, 8).unwrap();
     let mut objects = Vec::new();
     for _ in 0..2 {
-        let mut record = ObjectRecord::allocate(
-            old_leaf_desc(),
-            SpaceKind::Old,
-            OldLeaf,
-        )
-        .expect("alloc obj in block 0");
+        let mut record = ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf)
+            .expect("alloc obj in block 0");
         let (placement, _) = old_gen
             .try_alloc_in_block(&config, layout)
             .expect("alloc in block 0");
@@ -133,16 +129,14 @@ fn find_sparse_old_block_candidates_picks_low_density_blocks() {
     let live_by_block = vec![640usize, 64usize];
     // Threshold 0.30: block 0 density = 640/1024 = 0.625 (not
     // candidate); block 1 density = 64/1024 = 0.0625 (candidate).
-    let candidates =
-        find_sparse_old_block_candidates(&live_by_block, old_gen.blocks(), 0.30);
+    let candidates = find_sparse_old_block_candidates(&live_by_block, old_gen.blocks(), 0.30);
     assert_eq!(candidates, vec![1]);
 
     // Threshold 0.8 includes both. The result is sorted by
     // ASCENDING density so block 1 (density 0.0625) precedes
     // block 0 (density 0.625) -- step 22 sorts candidates so
     // the most-wasted blocks evacuate first.
-    let candidates =
-        find_sparse_old_block_candidates(&live_by_block, old_gen.blocks(), 0.80);
+    let candidates = find_sparse_old_block_candidates(&live_by_block, old_gen.blocks(), 0.80);
     assert_eq!(candidates, vec![1, 0]);
 
     // Empty blocks are skipped even with a permissive threshold.
@@ -256,7 +250,8 @@ fn sweep_rebuilds_block_live_accounting_from_survivors() {
     // Six objects total in the block, 2 rooted.
     let before_total_live: usize = mutator
         .heap()
-        .read_core().old_gen()
+        .read_core()
+        .old_gen()
         .blocks()
         .iter()
         .map(|block| block.live_bytes())
@@ -277,14 +272,16 @@ fn sweep_rebuilds_block_live_accounting_from_survivors() {
     // the 2 surviving records. 2 * total_size is what we expect.
     let after_total_live: usize = mutator
         .heap()
-        .read_core().old_gen()
+        .read_core()
+        .old_gen()
         .blocks()
         .iter()
         .map(|block| block.live_bytes())
         .sum();
     let after_total_count: usize = mutator
         .heap()
-        .read_core().old_gen()
+        .read_core()
+        .old_gen()
         .blocks()
         .iter()
         .map(|block| block.object_count())
@@ -435,7 +432,8 @@ fn physical_compaction_shrinks_block_hole_bytes_after_major() {
     // Snapshot block-side hole bytes before the major.
     let before_holes: usize = mutator
         .heap()
-        .read_core().old_gen()
+        .read_core()
+        .old_gen()
         .block_region_stats()
         .iter()
         .map(|s| s.hole_bytes)
@@ -452,7 +450,8 @@ fn physical_compaction_shrinks_block_hole_bytes_after_major() {
 
     let after_holes: usize = mutator
         .heap()
-        .read_core().old_gen()
+        .read_core()
+        .old_gen()
         .block_region_stats()
         .iter()
         .map(|s| s.hole_bytes)
@@ -834,7 +833,10 @@ fn major_cycle_physical_compaction_preserves_live_rooted_survivor() {
     // automatic compaction hook will evacuate it if its block
     // qualifies as sparse.
     let before_gc = mutator.heap().read_core().old_gen().block_count();
-    assert!(before_gc >= 1, "should have at least one old-gen block before cycle");
+    assert!(
+        before_gc >= 1,
+        "should have at least one old-gen block before cycle"
+    );
 
     mutator
         .collect(CollectionKind::Major)
@@ -987,8 +989,7 @@ fn compact_sparse_old_blocks_packs_survivors_into_shared_target() {
     let mut objects: Vec<ObjectRecord> = Vec::new();
     // Source block 0: one survivor.
     let mut rec_a =
-        ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf)
-            .expect("alloc rec a");
+        ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf).expect("alloc rec a");
     let (pa, _) = old_gen
         .try_alloc_in_block(&config, layout)
         .expect("alloc into block 0");
@@ -996,8 +997,7 @@ fn compact_sparse_old_blocks_packs_survivors_into_shared_target() {
     objects.push(rec_a);
     // Source block 1: one survivor.
     let mut rec_b =
-        ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf)
-            .expect("alloc rec b");
+        ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf).expect("alloc rec b");
     let (pb, _) = old_gen
         .alloc_in_fresh_block(&config, layout)
         .expect("alloc into block 1");
@@ -1028,9 +1028,14 @@ fn compact_sparse_old_blocks_packs_survivors_into_shared_target() {
             target_blocks.insert(p.block_index);
         }
     }
-    assert!(target_blocks.contains(&2), "both records should point at the new shared target block 2");
-    assert!(!target_blocks.contains(&0) && !target_blocks.contains(&1),
-        "source blocks 0 and 1 should no longer be referenced by any record");
+    assert!(
+        target_blocks.contains(&2),
+        "both records should point at the new shared target block 2"
+    );
+    assert!(
+        !target_blocks.contains(&0) && !target_blocks.contains(&1),
+        "source blocks 0 and 1 should no longer be referenced by any record"
+    );
 }
 
 #[test]
@@ -1054,12 +1059,8 @@ fn compact_sparse_old_blocks_moves_survivors_into_fresh_targets() {
     // Seed block 0 with enough allocations to keep it dense.
     let mut objects: Vec<ObjectRecord> = Vec::new();
     for _ in 0..10 {
-        let mut record = ObjectRecord::allocate(
-            old_leaf_desc(),
-            SpaceKind::Old,
-            OldLeaf,
-        )
-        .expect("alloc dense record");
+        let mut record = ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf)
+            .expect("alloc dense record");
         let (placement, _) = old_gen
             .try_alloc_in_block(&config, layout)
             .expect("alloc in block 0");
@@ -1067,12 +1068,8 @@ fn compact_sparse_old_blocks_moves_survivors_into_fresh_targets() {
         objects.push(record);
     }
     // Seed block 1 with a single object (sparse).
-    let mut sparse_record = ObjectRecord::allocate(
-        old_leaf_desc(),
-        SpaceKind::Old,
-        OldLeaf,
-    )
-    .expect("alloc sparse record");
+    let mut sparse_record = ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf)
+        .expect("alloc sparse record");
     let (sparse_placement, _) = old_gen
         .alloc_in_fresh_block(&config, layout)
         .expect("alloc sparse");
@@ -1101,9 +1098,18 @@ fn compact_sparse_old_blocks_moves_survivors_into_fresh_targets() {
             blocks_with_records.insert(placement.block_index);
         }
     }
-    assert!(!blocks_with_records.contains(&1), "sparse source block 1 should have no surviving records");
-    assert!(blocks_with_records.contains(&0), "dense block 0 should still hold its records");
-    assert!(blocks_with_records.contains(&2), "freshly-created target block 2 should hold the evacuated record");
+    assert!(
+        !blocks_with_records.contains(&1),
+        "sparse source block 1 should have no surviving records"
+    );
+    assert!(
+        blocks_with_records.contains(&0),
+        "dense block 0 should still hold its records"
+    );
+    assert!(
+        blocks_with_records.contains(&2),
+        "freshly-created target block 2 should hold the evacuated record"
+    );
 
     // Total block count is now 3: blocks 0, 1 (empty), 2 (new).
     // Block 1 is still in the pool until the next
@@ -1123,12 +1129,8 @@ fn evacuate_old_object_to_fresh_block_copies_payload_and_forwards() {
     };
     // Place a source object via the normal block allocator so it
     // lives in an existing block at index 0.
-    let mut source = ObjectRecord::allocate(
-        old_leaf_desc(),
-        SpaceKind::Old,
-        OldLeaf,
-    )
-    .expect("allocate source");
+    let mut source =
+        ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf).expect("allocate source");
     let layout = core::alloc::Layout::from_size_align(source.total_size(), 8).unwrap();
     let (source_placement, _) = old_gen
         .try_alloc_in_block(&config, layout)
@@ -1262,8 +1264,7 @@ fn old_block_accounting_tracks_allocations_alongside_regions() {
 
     // Block-side accounting for the same heap: sum live_bytes
     // across every block in the old-gen pool.
-    let (block_live_bytes, block_object_count) =
-        heap.inspect_old_gen_block_accounting_for_test();
+    let (block_live_bytes, block_object_count) = heap.inspect_old_gen_block_accounting_for_test();
     assert!(
         block_live_bytes > 0,
         "expected block live_bytes to be populated after 4 old-gen \
@@ -1396,7 +1397,8 @@ fn sweep_marks_only_surviving_lines() {
         // Sanity: at least one block has live lines while objects exist.
         let any_marked_before_drop = mutator
             .heap()
-            .read_core().old_gen()
+            .read_core()
+            .old_gen()
             .blocks()
             .iter()
             .any(|block| (0..block.line_count()).any(|line| block.is_line_marked(line)));
@@ -1462,11 +1464,16 @@ fn sweep_marks_lines_for_surviving_records_only() {
     // and pointing into a live block whose lines are marked. The number
     // of marked lines across all blocks should be > 0 because the
     // survivor anchors at least one line.
-    let total_marked: usize = heap.read_core()
+    let total_marked: usize = heap
+        .read_core()
         .old_gen()
         .blocks()
         .iter()
-        .map(|block| (0..block.line_count()).filter(|&l| block.is_line_marked(l)).count())
+        .map(|block| {
+            (0..block.line_count())
+                .filter(|&l| block.is_line_marked(l))
+                .count()
+        })
         .sum();
     assert!(
         total_marked > 0,
@@ -1474,7 +1481,8 @@ fn sweep_marks_lines_for_surviving_records_only() {
     );
     // The survivor record should still be tracked.
     assert!(
-        heap.read_core().objects()
+        heap.read_core()
+            .objects()
             .iter()
             .any(|object| object.object_key() == survivor_key),
         "survivor record should remain in objects after major GC"
@@ -1565,8 +1573,8 @@ fn promotion_uses_old_block_allocator() {
         "promotion should have allocated at least one OldBlock"
     );
     let guard = heap.read_core();
-    let found = guard
-        .objects()
+    let objects = guard.objects();
+    let found = objects
         .iter()
         .find(|object| object.object_key() == leaf_key)
         .expect("promoted record present in heap");

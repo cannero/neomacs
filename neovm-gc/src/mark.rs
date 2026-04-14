@@ -1,9 +1,17 @@
 //! Mark-phase worklist primitives.
 
 /// Splittable LIFO worklist used by mark tracers.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct MarkWorklist<T> {
     entries: Vec<T>,
+}
+
+impl<T> Default for MarkWorklist<T> {
+    fn default() -> Self {
+        Self {
+            entries: Vec::default(),
+        }
+    }
 }
 
 impl<T> MarkWorklist<T> {

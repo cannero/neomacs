@@ -94,7 +94,7 @@ fn build_plan_minor_uses_parallel_nursery_budget() {
 
     let plan = build_plan(
         CollectionKind::Minor,
-        &objects,
+        objects.len(),
         &stats,
         &NurseryConfig {
             parallel_minor_workers: 2,
@@ -140,7 +140,7 @@ fn build_plan_full_includes_old_nursery_and_large_reclaim() {
 
     let plan = build_plan(
         CollectionKind::Full,
-        &objects,
+        objects.len(),
         &stats,
         &NurseryConfig::default(),
         &OldGenConfig {

@@ -139,14 +139,16 @@ Still staging compromises:
   benefit. Revisit only if a profile shows the clear call
   is contending with observers in production.
 
-  The `Arc<RwLock<HeapCore>>` wrap (DESIGN.md Appendix A
-  commits 4 and 5) has now landed: `Heap` is a thin handle
-  around `Arc<RwLock<HeapCore>>` and `Heap::mutator(&self)`
-  takes a shared borrow, so multiple `Mutator` instances
-  can coexist against the same heap. Each mutator briefly
-  acquires the heap core write lock per operation;
-  collection takes the lock for the cycle. Multi-mutator
-  stress tests pin the contract end-to-end.
+  The Appendix A multi-mutator refactor has now landed in a
+  stronger form than the original sketch: `Heap` is a thin
+  `Arc` handle around one shared `HeapState` with a
+  safepoint `RwLock<()>` plus a storage
+  `RwLock<HeapCore>`. `Heap::mutator(&self)` takes a shared
+  borrow, so multiple `Mutator` instances coexist against
+  the same heap. Mutators hold the safepoint read lock
+  while they operate; collector / compaction paths take the
+  safepoint write lock for stop-the-world work. Multi-
+  mutator stress tests pin the contract end-to-end.
 - nursery allocation is a single bump-pointer cursor on the
   from-space arena. The allocation hot path is already ~8
   arithmetic ops and a single byte store, so it is "lock-free"
@@ -176,63 +178,76 @@ Still staging compromises:
   the root stack — it comes from the runtime's carried
   local instead.
 
-  The `Arc<RwLock<HeapCore>>` wrap has now landed:
+  The shared-heap refactor has now landed:
   `Heap::mutator(&self)` takes a shared borrow and
   multiple `Mutator` instances coexist against the same
-  heap. The compromise is closed at the correctness and
-  architectural level.
+  heap. The common allocation path now runs under the
+  safepoint read lock, consults mirrored allocation state
+  (`collector.has_prepared_full_reclaim`, cached config,
+  nursery generation) and only takes the `HeapCore` write
+  lock when it actually needs shared storage state
+  (descriptor install, TLAB refill, old-gen placement, or
+  final commit). The compromise is closed at the
+  correctness and architectural level.
 
-  **Known performance limitation — single-lock
+  **Known performance limitation — shared write-lock
   contention on the allocation commit.** The criterion
   suite in `benches/` has a committed baseline in
-  `benches/BASELINE.md`. The post-Stage-0 post-Phase-1
-  numbers (small-object allocation through `Mutator::alloc`,
+  `benches/BASELINE.md`. The current Phase-1 numbers
+  (small-object allocation through `Mutator::alloc`,
   release build, same machine A/B) are:
 
   ```text
-  # alloc path (still under HeapCore write lock)
-  single-mutator    : ~6.9 M alloc/sec
-   1 thread         : ~3.8 M elem/s (uncontended baseline)
-   2 threads        : ~3.4 M elem/s (0.88x vs 1 thread)
-   4 threads        : ~2.4 M elem/s (0.61x vs 1 thread)
-   8 threads        : ~2.1 M elem/s (0.54x vs 1 thread)
+  # alloc path (TLAB hit stays off the storage write lock;
+  # commit still takes HeapCore write lock)
+   1 thread         : ~11.7 M elem/s
+   2 threads        : ~5.8 M elem/s (0.50x vs 1 thread)
+   4 threads        : ~4.0 M elem/s (0.34x vs 1 thread)
+   8 threads        : ~3.1 M elem/s (0.27x vs 1 thread)
 
-  # store_edge barrier path (moved onto HeapCore read lock
-  # in Phase 1, commit 22c68887e)
-   1 thread         : ~1.04 M elem/s (1.00x baseline)
-   2 threads        : ~1.35 M elem/s (1.30x)
-   4 threads        : ~1.98 M elem/s (1.90x)
-   8 threads        : ~2.51 M elem/s (2.42x)
+  # store_edge barrier path (no HeapCore write lock on the
+  # common path; safepoint spans the slot store; inactive
+  # path skips the collector mutex)
+   2 threads        : ~11.8 M elem/s
+   4 threads        : ~9.1 M elem/s
+   8 threads        : ~7.7 M elem/s
   ```
 
   The session-3 numbers (~50 K alloc/sec single-mutator,
   actively degrading past 1 thread) were fixed by the
   Stage-0 O(n²) repair in `collector_policy::build_plan`
-  (commit 390303d36). Phase 1 then moved the write-barrier
-  path onto a `HeapCore` read lock so multi-mutator barrier
-  traffic no longer serializes on a single writer; pre-
-  Phase-1 multi-mutator barrier scaling was *negative*
-  (0.45x at 8 threads) and is now positive sub-linear.
+  (commit 390303d36). Phase 1 then split the stop-the-world
+  safepoint from heap storage, moved allocation profile
+  reads onto mirrored state plus a per-mutator descriptor
+  cache, and kept the write-barrier off the storage write
+  lock. A follow-up tightened the barrier semantics so the
+  safepoint spans the actual slot store plus barrier, which
+  makes the collector's active-major-mark atomic mirror
+  exact on that path and lets the common non-marking case
+  skip the collector mutex entirely. Multi-mutator barrier
+  throughput is now materially better than the committed
+  baseline, and allocation no longer collapses at 4-8
+  threads the way it did in the earlier single-lock path.
 
   The allocation path still takes the `HeapCore` write
-  lock because the commit block mutates `objects`,
-  `indexes`, `old_gen`, and `stats` simultaneously. Every
-  `Mutator::alloc` call briefly acquires the write lock
-  for that commit block. The TLAB bump itself is per-
-  mutator and never touches the shared cursor on hit, but
-  the commit bookkeeping still runs under the write lock.
+  lock for the final commit because that block mutates
+  `objects`, `indexes`, `old_gen`, and `stats`
+  simultaneously. TLAB bump itself is per-mutator and
+  never touches shared state on hit; the remaining
+  serialization point is the commit bookkeeping.
 
   This is correctness-correct, with positive multi-mutator
-  scaling on the barrier side and sub-linear-but-positive
-  scaling on the allocation side. Closing the remaining
-  alloc-side gap requires the fine-grained-locks step
-  (Appendix A step 9) which splits `HeapCore` into
-  independently-locked substructures (`ObjectStore` /
-  `OldGenPool` / `NurseryState` / collector state) so the
-  allocation commit path stops serializing on one lock.
-  That work is outside the current DESIGN.md Final
-  Position bullet list — every Final Position property is
-  satisfied by the single-lock implementation already.
+  scaling on the barrier side and improved but still
+  sub-linear scaling on the allocation side. Closing the
+  remaining alloc-side gap requires the sharded-ownership
+  step (Appendix A step 9): split the commit path into
+  independently-owned substructures (`ObjectStore` /
+  `OldGenPool` / index shards / collector state) so the
+  allocation publish path stops serializing on one storage
+  write lock. That work is outside the current DESIGN.md
+  Final Position bullet list — every Final Position
+  property is satisfied by the safepoint + storage-lock
+  implementation already.
 - physical old-gen compaction is the only old-gen compaction
   mechanism. The legacy logical-region rebuild infrastructure
   is fully retired: the `regions` vec, `OldRegion` struct,
@@ -916,26 +931,37 @@ New fields on `MutatorLocal`:
 
 ### Lock Structure
 
-Start with a single `Arc<RwLock<HeapCore>>` so the diff is minimal and the
-existing `with_heap` / `with_heap_read` protocol is preserved. Only move to
-fine-grained per-substructure locks if profiling shows the single-lock model
-serializes allocation bandwidth.
+The landed Phase-1 structure is:
 
-Under the single-lock model:
+- `HeapState::safepoint: RwLock<()>` — stop-the-world protocol only
+- `HeapState::core: RwLock<HeapCore>` — shared storage state
+- atomic / mirrored allocation metadata on `HeapState` for hot reads
 
-- **Allocation hot path** (mutator): bump within `MutatorLocal.tlab` — no lock
-- **TLAB refill** (mutator): brief heap write lock + `reserve_tlab(size)`
-- **Large/old/pinned alloc** (mutator): brief heap write lock via existing path
-- **Collection** (collector): exclusive heap write lock for the cycle
-- **Observation** (SharedHeap accessors): lock-free today, unchanged
+Under the current split-lock model:
+
+- **Allocation hot path** (mutator): safepoint read lock + local TLAB bump; no storage lock on hit
+- **Descriptor lookup** (mutator): single-entry `MutatorLocal` cache, otherwise `HeapCore` read lock and only falls back to write for first install
+- **TLAB refill** (mutator): safepoint read lock + brief `HeapCore` write lock + `reserve_tlab(size)`
+- **Old / pinned / large alloc** (mutator): safepoint read lock + brief `HeapCore` write lock
+- **Allocation commit** (mutator): safepoint read lock + `HeapCore` write lock
+- **Barrier common path** (mutator): safepoint read lock spanning the slot store + barrier, read-side observation / atomic stats, no `HeapCore` write lock
+- **Collection / compaction** (collector): safepoint write lock + `HeapCore` write lock for the critical section
+- **Observation** (SharedHeap accessors): snapshot-backed, unchanged at the public API level
 
 ### Safepoint Protocol
 
-With the single-RwLock model, a mutator is "at a safepoint" whenever it is not
-holding the heap write lock. Since mutators only hold the write lock during
-TLAB refill, large/old/pinned alloc, or barrier path (microseconds each), the
-collector can simply request a write lock and wait. Once granted, no mutator is
-mid-critical-section. This is the standard "safepoint = lock boundary" model.
+The safepoint protocol is now explicit rather than implicit:
+
+- mutators take the safepoint **read** lock while they allocate, run barriers,
+  or inspect heap-backed state
+- collector / compaction paths take the safepoint **write** lock before they
+  touch stop-the-world state
+- the storage `HeapCore` lock does **not** define safepoints by itself; it only
+  protects shared heap storage once a caller is already in the correct
+  safepoint mode
+
+This keeps the stop-the-world boundary exact while still allowing the common
+mutator path to avoid holding the storage write lock longer than necessary.
 
 **TLAB staleness invariant:** the `NurseryTlab` generation counter bumps on
 every `swap_spaces_and_reset`, so any post-collect `try_alloc` call against a
@@ -982,15 +1008,17 @@ passes the full test suite:
    `HeapCore::compact_old_gen_*` take `&mut RootStack` explicitly so
    the Mutator wrappers can pass `self.local.roots_mut()` and the bare
    `Heap` wrappers can pass an empty stack. **Status:** landed.
-6. **Wrap `HeapCore` in `Arc<RwLock<HeapCore>>` and relax
-   `Heap::mutator(&self)`** (~900 lines). `Heap` is a thin handle
-   around `Arc<RwLock<HeapCore>>` and `Heap::mutator(&self)` takes a
-   shared borrow so multiple `Mutator` instances coexist against the
-   same heap. Each mutator briefly acquires the heap core write lock
-   per operation via a `with_runtime` helper; collection takes the
-   lock for the cycle. `HeapCollectorRuntime` is a new guard type that
-   owns the write lock for the duration of test/non-mutator collector
-   sessions; `BackgroundService` stores one and rebuilds a fresh
+6. **Wrap `HeapCore` in shared heap state and relax
+   `Heap::mutator(&self)`** (~900 lines). `Heap` becomes a thin
+   handle around one shared `HeapState` containing a safepoint
+   `RwLock<()>` plus a storage `RwLock<HeapCore>`, and
+   `Heap::mutator(&self)` takes a shared borrow so multiple
+   `Mutator` instances coexist against the same heap. Collector-style
+   operations take the safepoint write lock; mutator hot paths run
+   under the safepoint read lock and only take the storage write lock
+   when they actually need shared heap state. `HeapCollectorRuntime`
+   is the guard type for test/non-mutator collector sessions;
+   `BackgroundService` stores one and rebuilds a fresh
    `CollectorRuntime` per tick. `SharedHeapGuard::dirty` moved to a
    `Cell` so `deref` can flip it without `&mut self`. **Status:** landed.
 7. **Multi-mutator stress tests** (~175 lines): four tests covering
@@ -1003,8 +1031,12 @@ passes the full test suite:
    `fetch_add` and never needs the heap write lock for this bookkeeping.
    `HeapCore::bump_barrier_stats` and `clear_barrier_stats` both relax
    to `&self`. **Status:** landed.
-9. **(Optional) Fine-grained locks** if profiling shows the single-lock
-   model is the bottleneck.
+9. **Shard allocation commit ownership** if profiling shows the shared
+   storage write lock is still the bottleneck. The next step is not
+   "more random mutexes"; it is ownership-based splitting of the
+   commit path (`ObjectStore`, index shards, old-gen allocation pool,
+   collector publication) so allocation publish stops serializing on
+   one `HeapCore` write lock.
 
 ### Success Criteria
 
@@ -1025,6 +1057,9 @@ current implementation:
    each mutator owns its own `MutatorLocal` with TLAB, root stack,
    and barrier event ring; the TLAB hot path bumps without touching
    the shared from-space cursor.
+6. ✅ Stop-the-world collection is now protected by an explicit
+   safepoint protocol rather than implicit reliance on one shared
+   heap lock boundary.
 
 Every bullet in the Final Position section is now satisfied by the
 current implementation.

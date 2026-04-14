@@ -252,7 +252,9 @@ impl ObjectRecord {
             requested_bytes: layout.size(),
         })?;
 
-        unsafe { Self::write_header_and_payload::<T>(base, layout, payload_offset, desc, space, 0, value) };
+        unsafe {
+            Self::write_header_and_payload::<T>(base, layout, payload_offset, desc, space, 0, value)
+        };
         let header = base.cast::<ObjectHeader>();
 
         Ok(Self {
@@ -556,7 +558,12 @@ impl ObjectRecord {
     ///
     /// `base` must point to `layout.size()` bytes of uninitialized
     /// storage matching `layout.align()`.
-    unsafe fn populate_evacuated_header(&self, base: NonNull<u8>, layout: Layout, space: SpaceKind) {
+    unsafe fn populate_evacuated_header(
+        &self,
+        base: NonNull<u8>,
+        layout: Layout,
+        space: SpaceKind,
+    ) {
         let total_size = self.total_size();
         let header = base.cast::<ObjectHeader>();
         unsafe {

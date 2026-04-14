@@ -368,9 +368,7 @@ impl OldBlock {
         let mut search_line = cursor_line;
         while search_line + lines_needed <= line_count {
             // Skip over any occupied lines to reach the next free run.
-            while search_line + lines_needed <= line_count
-                && self.is_line_marked(search_line)
-            {
+            while search_line + lines_needed <= line_count && self.is_line_marked(search_line) {
                 search_line += 1;
             }
             if search_line + lines_needed > line_count {
@@ -532,17 +530,18 @@ impl OldGenState {
     ) -> Option<(OldBlockPlacement, core::ptr::NonNull<u8>, usize)> {
         if let Some(index) = target_hint
             && let Some(block) = self.blocks.get_mut(index)
-                && let Some((offset, ptr)) = block.try_alloc(layout) {
-                    return Some((
-                        OldBlockPlacement {
-                            block_index: index,
-                            offset_bytes: offset,
-                            total_size: layout.size(),
-                        },
-                        ptr,
-                        index,
-                    ));
-                }
+            && let Some((offset, ptr)) = block.try_alloc(layout)
+        {
+            return Some((
+                OldBlockPlacement {
+                    block_index: index,
+                    offset_bytes: offset,
+                    total_size: layout.size(),
+                },
+                ptr,
+                index,
+            ));
+        }
         let (placement, ptr) = self.alloc_in_fresh_block(config, layout)?;
         let new_target = placement.block_index;
         Some((placement, ptr, new_target))
@@ -691,10 +690,7 @@ impl OldGenState {
     /// Record an object start in the block identified by `placement`.
     /// Used by the post-sweep rebuild to repopulate the per-card
     /// object-start index from surviving records.
-    pub(crate) fn record_block_object_start_for_placement(
-        &mut self,
-        placement: OldBlockPlacement,
-    ) {
+    pub(crate) fn record_block_object_start_for_placement(&mut self, placement: OldBlockPlacement) {
         if let Some(block) = self.blocks.get_mut(placement.block_index) {
             block.record_object_start(placement.offset_bytes);
         }

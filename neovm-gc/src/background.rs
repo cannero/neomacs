@@ -363,8 +363,7 @@ impl SharedCollectorHandle {
     pub(crate) fn prepare_active_collection_reclaim_with_request_and_refresh(
         &self,
         request: crate::collector_session::ActiveReclaimPrepRequest,
-        objects: &[crate::object::ObjectRecord],
-        index: &crate::index_state::ObjectIndex,
+        objects: crate::object_store::ObjectReadRaw<'_>,
         trace_ephemerons: impl FnOnce(
             &mut crate::collector_exec::MarkTracer<'_>,
             &crate::plan::CollectionPlan,
@@ -382,7 +381,6 @@ impl SharedCollectorHandle {
             .prepare_active_collection_reclaim_with_request_and_refresh(
                 request,
                 objects,
-                index,
                 trace_ephemerons,
                 prepare_reclaim,
                 stats,
@@ -929,6 +927,7 @@ impl Drop for SharedHeapGuard<'_> {
                 .guard
                 .as_deref()
                 .expect("shared heap guard should hold heap lock");
+            heap.ensure_collector_plans_current();
             (
                 SharedHeapSnapshot::capture(heap),
                 SharedRuntimeSnapshot::capture(heap),
@@ -1486,10 +1485,7 @@ impl SharedHeap {
 
     /// Run at most `max` queued finalizers and return the number
     /// that actually ran. See [`Heap::drain_pending_finalizers_bounded`].
-    pub fn drain_pending_finalizers_bounded(
-        &self,
-        max: usize,
-    ) -> Result<u64, SharedHeapError> {
+    pub fn drain_pending_finalizers_bounded(&self, max: usize) -> Result<u64, SharedHeapError> {
         self.runtime.drain_pending_finalizers_bounded(max)
     }
 
@@ -1502,10 +1498,7 @@ impl SharedHeap {
     /// heap contention. Returns
     /// [`SharedHeapError::WouldBlock`] when the runtime state
     /// mutex is currently held by another caller.
-    pub fn try_drain_pending_finalizers_bounded(
-        &self,
-        max: usize,
-    ) -> Result<u64, SharedHeapError> {
+    pub fn try_drain_pending_finalizers_bounded(&self, max: usize) -> Result<u64, SharedHeapError> {
         self.runtime.try_drain_pending_finalizers_bounded(max)
     }
 
@@ -1827,13 +1820,14 @@ impl BackgroundCollector {
         &mut self,
         runtime: &mut R,
     ) -> Result<bool, AllocError> {
-        if runtime.active_major_mark_plan().is_none() && self.config.auto_start_concurrent
+        if runtime.active_major_mark_plan().is_none()
+            && self.config.auto_start_concurrent
             && let Some(plan) = runtime.recommended_background_plan()
-                && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full)
-            {
-                runtime.begin_major_mark(plan)?;
-                self.stats.sessions_started = self.stats.sessions_started.saturating_add(1);
-            }
+            && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full)
+        {
+            runtime.begin_major_mark(plan)?;
+            self.stats.sessions_started = self.stats.sessions_started.saturating_add(1);
+        }
 
         Ok(runtime.active_major_mark_plan().is_some())
     }
@@ -1993,17 +1987,18 @@ impl BackgroundCollector {
         runtime: &SharedCollectorRuntime,
         nonblocking: bool,
     ) -> Result<bool, SharedBackgroundError> {
-        if runtime.active_major_mark_plan()?.is_none() && self.config.auto_start_concurrent
+        if runtime.active_major_mark_plan()?.is_none()
+            && self.config.auto_start_concurrent
             && let Some(plan) = runtime.recommended_background_plan()?
-                && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full)
-            {
-                if nonblocking {
-                    runtime.try_begin_major_mark(plan)?;
-                } else {
-                    runtime.begin_major_mark(plan)?;
-                }
-                self.stats.sessions_started = self.stats.sessions_started.saturating_add(1);
+            && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full)
+        {
+            if nonblocking {
+                runtime.try_begin_major_mark(plan)?;
+            } else {
+                runtime.begin_major_mark(plan)?;
             }
+            self.stats.sessions_started = self.stats.sessions_started.saturating_add(1);
+        }
 
         runtime.active_major_mark_plan().map(|plan| plan.is_some())
     }
@@ -2098,11 +2093,12 @@ impl BackgroundCollector {
                 BackgroundCollectionStatus::Progress(_) => {}
                 BackgroundCollectionStatus::ReadyToFinish(progress) => {
                     if progress.completed
-                        && let Some(cycle) = runtime.finish_active_major_collection_if_ready()? {
-                            self.stats.sessions_finished =
-                                self.stats.sessions_finished.saturating_add(1);
-                            return Ok(Some(cycle));
-                        }
+                        && let Some(cycle) = runtime.finish_active_major_collection_if_ready()?
+                    {
+                        self.stats.sessions_finished =
+                            self.stats.sessions_finished.saturating_add(1);
+                        return Ok(Some(cycle));
+                    }
                 }
                 BackgroundCollectionStatus::Finished(cycle) => return Ok(Some(cycle)),
             }

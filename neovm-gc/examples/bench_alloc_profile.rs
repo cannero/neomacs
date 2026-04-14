@@ -64,11 +64,22 @@ fn format_rate(allocations: u64, elapsed_ns: u64) -> String {
     let per_alloc_ns = (elapsed_ns as f64) / (allocations as f64);
     let rate = (allocations as f64) / ((elapsed_ns as f64) / 1e9);
     if rate >= 1e6 {
-        format!("{:>8.2} ns/alloc  ({:>7.2} M alloc/sec)", per_alloc_ns, rate / 1e6)
+        format!(
+            "{:>8.2} ns/alloc  ({:>7.2} M alloc/sec)",
+            per_alloc_ns,
+            rate / 1e6
+        )
     } else if rate >= 1e3 {
-        format!("{:>8.2} ns/alloc  ({:>7.2} K alloc/sec)", per_alloc_ns, rate / 1e3)
+        format!(
+            "{:>8.2} ns/alloc  ({:>7.2} K alloc/sec)",
+            per_alloc_ns,
+            rate / 1e3
+        )
     } else {
-        format!("{:>8.2} ns/alloc  ({:>7.2}   alloc/sec)", per_alloc_ns, rate)
+        format!(
+            "{:>8.2} ns/alloc  ({:>7.2}   alloc/sec)",
+            per_alloc_ns, rate
+        )
     }
 }
 

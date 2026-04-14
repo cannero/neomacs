@@ -3,7 +3,7 @@ use std::thread;
 use crate::collector_exec::ForwardingRelocator;
 use crate::descriptor::MovePolicy;
 use crate::heap::AllocError;
-use crate::index_state::{ForwardingMap, HeapIndexState};
+use crate::index_state::{ForwardingMap, HeapIndexState, ObjectLocator};
 use crate::object::{ObjectRecord, SpaceKind};
 use crate::root::RootStack;
 use crate::spaces::nursery_arena::{NurseryState, WorkerEvacuationArena};
@@ -140,9 +140,7 @@ fn evacuate_marked_nursery_serial(
                 )
                 .map_err(|_| AllocError::LayoutOverflow)?;
                 match nursery.try_alloc_in_to_space(layout) {
-                    Some(base) => unsafe {
-                        object.evacuate_to_arena_slot(target_space, base)?
-                    },
+                    Some(base) => unsafe { object.evacuate_to_arena_slot(target_space, base)? },
                     None => object.evacuate_to_space(target_space)?,
                 }
             } else if target_space == SpaceKind::Old {
@@ -153,9 +151,8 @@ fn evacuate_marked_nursery_serial(
                 .map_err(|_| AllocError::LayoutOverflow)?;
                 match old_gen.try_alloc_in_block(old_config, layout) {
                     Some((placement, base)) => {
-                        let mut record = unsafe {
-                            object.evacuate_to_arena_slot(target_space, base)?
-                        };
+                        let mut record =
+                            unsafe { object.evacuate_to_arena_slot(target_space, base)? };
                         record.set_old_block_placement(placement);
                         record
                     }
@@ -189,7 +186,9 @@ fn evacuate_marked_nursery_serial(
     for (offset, object) in objects[start..].iter().enumerate() {
         let index = start + offset;
         let object_key = object.object_key();
-        indexes.object_index.insert(object_key, index);
+        indexes
+            .object_index
+            .insert(object_key, ObjectLocator::flat(index));
         let desc = object.header().desc();
         indexes.record_descriptor_candidates(object_key, desc);
     }
@@ -295,7 +294,10 @@ fn evacuate_marked_nursery_parallel(
         }
         handles
             .into_iter()
-            .map(|h| h.join().expect("parallel nursery evacuation worker panicked"))
+            .map(|h| {
+                h.join()
+                    .expect("parallel nursery evacuation worker panicked")
+            })
             .collect()
     });
 
@@ -335,7 +337,9 @@ fn evacuate_marked_nursery_parallel(
     for (offset, object) in objects[start..].iter().enumerate() {
         let index = start + offset;
         let object_key = object.object_key();
-        indexes.object_index.insert(object_key, index);
+        indexes
+            .object_index
+            .insert(object_key, ObjectLocator::flat(index));
         let desc = object.header().desc();
         indexes.record_descriptor_candidates(object_key, desc);
     }
@@ -365,16 +369,13 @@ fn evacuate_chunk(
             nursery_config.promotion_age,
         );
         let new_record = if target_space == SpaceKind::Nursery {
-            let layout = core::alloc::Layout::from_size_align(
-                object.total_size(),
-                object.layout_align(),
-            )
-            .map_err(|_| AllocError::LayoutOverflow)?;
+            let layout =
+                core::alloc::Layout::from_size_align(object.total_size(), object.layout_align())
+                    .map_err(|_| AllocError::LayoutOverflow)?;
             match arena.try_alloc(layout) {
                 Some(base) => {
-                    let candidate = unsafe {
-                        object.try_evacuate_to_arena_slot(target_space, base)?
-                    };
+                    let candidate =
+                        unsafe { object.try_evacuate_to_arena_slot(target_space, base)? };
                     match candidate {
                         Some(record) => record,
                         None => {

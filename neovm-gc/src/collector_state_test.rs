@@ -1,8 +1,9 @@
 use super::*;
 use crate::descriptor::{Relocator, Trace, Tracer, fixed_type_desc};
-use crate::index_state::{ObjectIndex, PreparedIndexReclaim};
+use crate::index_state::{HeapIndexState, ObjectLocator, PreparedIndexReclaim};
 use crate::mark::MarkWorklist;
 use crate::object::{ObjectRecord, SpaceKind};
+use crate::object_store::FlatReadView;
 use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan};
 use crate::reclaim::PreparedReclaimSurvivor;
 use crate::spaces::{OldGenConfig, OldGenState, OldRegionCollectionStats, PreparedOldGenReclaim};
@@ -56,21 +57,37 @@ unsafe impl Trace for Leaf {
     fn relocate(&self, _relocator: &mut dyn Relocator) {}
 }
 
+fn flat(slot: usize) -> ObjectLocator {
+    ObjectLocator::flat(slot)
+}
+
+fn flat_indexes(
+    entries: impl IntoIterator<Item = (crate::descriptor::ObjectKey, usize)>,
+) -> HeapIndexState {
+    HeapIndexState {
+        object_index: entries
+            .into_iter()
+            .map(|(key, slot)| (key, flat(slot)))
+            .collect(),
+        ..HeapIndexState::default()
+    }
+}
+
 #[test]
 fn enqueue_active_major_mark_index_requires_active_session() {
     let mut state = CollectorState::default();
 
-    assert!(!state.enqueue_active_major_mark_index(3));
+    assert!(!state.enqueue_active_major_mark_index(flat(3)));
 }
 
 #[test]
 fn enqueue_active_major_mark_index_updates_remaining_work() {
     let mut state = CollectorState::default();
     let mut worklist = MarkWorklist::default();
-    worklist.push(1usize);
+    worklist.push(flat(1));
     state.begin_major_mark(major_plan(), worklist);
 
-    assert!(state.enqueue_active_major_mark_index(7));
+    assert!(state.enqueue_active_major_mark_index(flat(7)));
 
     let progress = state
         .major_mark_progress()
@@ -87,13 +104,13 @@ fn enqueue_active_major_mark_index_updates_remaining_work() {
 fn update_active_major_mark_switches_phase_to_remark_when_drained() {
     let mut state = CollectorState::default();
     let mut worklist = MarkWorklist::default();
-    worklist.push(5usize);
+    worklist.push(flat(5));
     state.begin_major_mark(major_plan(), worklist);
 
     let progress = state
         .update_active_major_mark(|plan, mut worklist| {
             assert_eq!(plan.kind, CollectionKind::Major);
-            assert_eq!(worklist.pop(), Some(5));
+            assert_eq!(worklist.pop(), Some(flat(5)));
             MajorMarkUpdate {
                 worklist,
                 drained_objects: 1,
@@ -129,7 +146,7 @@ fn update_active_major_mark_switches_phase_to_remark_when_drained() {
 fn major_ready_requires_reclaim_prep_after_worklist_drains() {
     let mut state = CollectorState::default();
     let mut worklist = MarkWorklist::default();
-    worklist.push(5usize);
+    worklist.push(flat(5));
     state.begin_major_mark(major_plan(), worklist);
 
     let progress = state
@@ -156,7 +173,7 @@ fn major_ready_requires_reclaim_prep_after_worklist_drains() {
         2,
         3,
         Duration::from_nanos(7),
-        prepared_reclaim(),
+        Some(prepared_reclaim()),
     ));
     assert!(state.active_major_mark_is_ready());
     assert!(state.active_major_mark_reclaim_prepared());
@@ -174,7 +191,7 @@ fn major_ready_requires_reclaim_prep_after_worklist_drains() {
     assert_eq!(progress.mark_steps, 3);
     assert_eq!(progress.mark_rounds, 4);
 
-    assert!(state.enqueue_active_major_mark_index(9));
+    assert!(state.enqueue_active_major_mark_index(flat(9)));
     assert!(!state.active_major_mark_is_ready());
     assert!(!state.active_major_mark_reclaim_prepared());
     assert!(!state.active_major_mark_has_prepared_reclaim());
@@ -191,7 +208,7 @@ fn major_ready_requires_reclaim_prep_after_worklist_drains() {
 fn full_requires_reclaim_prep_after_remark() {
     let mut state = CollectorState::default();
     let mut worklist = MarkWorklist::default();
-    worklist.push(7usize);
+    worklist.push(flat(7));
     state.begin_major_mark(full_plan(), worklist);
 
     let progress = state
@@ -229,7 +246,7 @@ fn full_requires_reclaim_prep_after_remark() {
         0,
         0,
         Duration::from_nanos(11),
-        prepared_reclaim(),
+        Some(prepared_reclaim()),
     ));
     assert!(state.active_major_mark_is_ready());
     assert!(state.active_major_mark_reclaim_prepared());
@@ -271,16 +288,15 @@ fn collector_state_handle_begin_and_record_reachable_object_updates_progress() {
     let desc = Box::leak(Box::new(fixed_type_desc::<Leaf>()));
     let object =
         ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate pinned leaf");
-    let index = [(object.object_key(), 0usize)]
-        .into_iter()
-        .collect::<ObjectIndex>();
     let objects = [object];
+    let indexes = flat_indexes([(objects[0].object_key(), 0usize)]);
+    let view = FlatReadView::new(&objects, &indexes);
 
     handle
-        .begin_major_mark(&objects, &index, major_plan(), std::iter::empty())
+        .begin_major_mark(view.raw(), major_plan(), std::iter::empty())
         .expect("begin major mark through handle");
     let recorded = handle
-        .record_active_major_reachable_object(&objects, &index, objects[0].erased(), 0)
+        .record_active_major_reachable_object(view.raw(), objects[0].erased(), 0)
         .expect("record active major reachable object through handle");
 
     assert!(recorded);
@@ -300,15 +316,13 @@ fn collector_state_handle_begin_major_mark_and_refresh_updates_recommended_plan(
     let desc = Box::leak(Box::new(fixed_type_desc::<Leaf>()));
     let object =
         ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate pinned leaf");
-    let index = [(object.object_key(), 0usize)]
-        .into_iter()
-        .collect::<ObjectIndex>();
     let objects = [object];
+    let indexes = flat_indexes([(objects[0].object_key(), 0usize)]);
+    let view = FlatReadView::new(&objects, &indexes);
 
     handle
         .begin_major_mark_and_refresh(
-            &objects,
-            &index,
+            view.raw(),
             major_plan(),
             [objects[0].erased()],
             &HeapStats::default(),
@@ -338,20 +352,22 @@ fn collector_state_handle_begin_major_mark_and_refresh_updates_recommended_plan(
 #[test]
 fn collector_state_handle_finish_active_collection_if_ready_finishes_prepared_session() {
     let handle = CollectorStateHandle::default();
+    let empty_indexes = HeapIndexState::default();
+    let empty_objects: [ObjectRecord; 0] = [];
+    let view = FlatReadView::new(&empty_objects, &empty_indexes);
     handle.with_state(|state| {
         state.begin_major_mark(major_plan(), MarkWorklist::default());
         assert!(state.complete_active_major_reclaim_prep(
             2,
             3,
             Duration::from_nanos(11),
-            prepared_reclaim(),
+            Some(prepared_reclaim()),
         ));
     });
 
     let finished = handle
         .finish_active_collection_if_ready(
-            &[],
-            &ObjectIndex::default(),
+            view.raw(),
             |_tracer, _plan| panic!("prepared session should not re-run remark"),
             |_plan| Ok(prepared_reclaim()),
         )
@@ -366,20 +382,22 @@ fn collector_state_handle_finish_active_collection_if_ready_finishes_prepared_se
 #[test]
 fn collector_state_handle_finish_active_collection_now_finishes_prepared_session() {
     let handle = CollectorStateHandle::default();
+    let empty_indexes = HeapIndexState::default();
+    let empty_objects: [ObjectRecord; 0] = [];
+    let view = FlatReadView::new(&empty_objects, &empty_indexes);
     handle.with_state(|state| {
         state.begin_major_mark(major_plan(), MarkWorklist::default());
         assert!(state.complete_active_major_reclaim_prep(
             5,
             7,
             Duration::from_nanos(13),
-            prepared_reclaim(),
+            Some(prepared_reclaim()),
         ));
     });
 
     let finished = handle
         .finish_active_collection_now(
-            &[],
-            &ObjectIndex::default(),
+            view.raw(),
             |_tracer, _plan| panic!("prepared session should not re-run remark"),
             |_plan| Ok(prepared_reclaim()),
         )
@@ -395,6 +413,9 @@ fn collector_state_handle_finish_active_collection_now_finishes_prepared_session
 #[test]
 fn collector_state_handle_prepare_active_collection_reclaim_and_refresh_updates_major_plan() {
     let handle = CollectorStateHandle::default();
+    let empty_indexes = HeapIndexState::default();
+    let empty_objects: [ObjectRecord; 0] = [];
+    let view = FlatReadView::new(&empty_objects, &empty_indexes);
     handle.with_state(|state| {
         state.begin_major_mark(major_plan(), MarkWorklist::default());
         assert!(state.complete_active_major_remark(2, 3));
@@ -406,8 +427,7 @@ fn collector_state_handle_prepare_active_collection_reclaim_and_refresh_updates_
     let prepared = handle
         .prepare_active_collection_reclaim_with_request_and_refresh(
             request,
-            &[],
-            &ObjectIndex::default(),
+            view.raw(),
             |_tracer, _plan| (0, 0),
             |_plan| Ok(prepared_reclaim()),
             &HeapStats::default(),
@@ -435,6 +455,9 @@ fn collector_state_handle_prepare_active_collection_reclaim_and_refresh_updates_
 #[test]
 fn collector_state_handle_prepare_active_collection_reclaim_and_refresh_updates_full_plan() {
     let handle = CollectorStateHandle::default();
+    let empty_indexes = HeapIndexState::default();
+    let empty_objects: [ObjectRecord; 0] = [];
+    let view = FlatReadView::new(&empty_objects, &empty_indexes);
     handle.with_state(|state| {
         state.begin_major_mark(full_plan(), MarkWorklist::default());
         assert!(state.complete_active_major_remark(2, 3));
@@ -446,8 +469,7 @@ fn collector_state_handle_prepare_active_collection_reclaim_and_refresh_updates_
     let prepared = handle
         .prepare_active_collection_reclaim_with_request_and_refresh(
             request,
-            &[],
-            &ObjectIndex::default(),
+            view.raw(),
             |_tracer, _plan| (0, 0),
             |_plan| Ok(prepared_reclaim()),
             &HeapStats::default(),
@@ -579,7 +601,7 @@ fn collector_state_handle_atomic_mirrors_track_state_transitions() {
             0,
             0,
             Duration::from_secs(0),
-            prepared_reclaim(),
+            Some(prepared_reclaim()),
         );
     });
     assert!(handle.has_active_major_mark());
