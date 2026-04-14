@@ -359,6 +359,17 @@ impl BufferManager {
         buf.apply_same_len_edit_side_effects(changed_chars, preserve_modified_state);
     }
 
+    fn refresh_shared_buffer_state_cache(
+        &mut self,
+        buffer_id: BufferId,
+        update_state_fields: bool,
+    ) -> Option<()> {
+        if !update_state_fields && self.buffer_has_state_markers(buffer_id) {
+            self.fetch_buffer_state_markers(buffer_id)?;
+        }
+        Some(())
+    }
+
     pub fn insert_into_buffer(&mut self, id: BufferId, text: &str) -> Option<()> {
         let byte_len = text.len();
         if byte_len == 0 {
@@ -392,7 +403,6 @@ impl BufferManager {
             );
             self.refresh_shared_buffer_state_cache(sibling_id, update_state_fields)?;
         }
-        self.sync_shared_undo_binding_cache(root_id)?;
         Some(())
     }
 
@@ -428,7 +438,6 @@ impl BufferManager {
             );
             self.refresh_shared_buffer_state_cache(sibling_id, update_state_fields)?;
         }
-        self.sync_shared_undo_binding_cache(root_id)?;
         Some(())
     }
 
@@ -461,7 +470,6 @@ impl BufferManager {
             );
             self.refresh_shared_buffer_state_cache(sibling_id, update_state_fields)?;
         }
-        self.sync_shared_undo_binding_cache(root_id)?;
         Some(())
     }
 
@@ -498,9 +506,6 @@ impl BufferManager {
             }
             let sibling = self.buffers.get_mut(&sibling_id)?;
             Self::adjust_shared_same_len_edit_metadata(sibling, changed_chars, noundo);
-        }
-        if !noundo {
-            self.sync_shared_undo_binding_cache(root_id)?;
         }
         Some(true)
     }

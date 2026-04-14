@@ -2587,7 +2587,6 @@ impl BufferManager {
         self.buffers.insert(id, indirect);
         let _ = self.ensure_buffer_state_markers(root_id);
         let _ = self.ensure_buffer_state_markers(id);
-        let _ = self.sync_shared_undo_binding_cache(root_id);
         Some(id)
     }
 
@@ -2687,9 +2686,6 @@ impl BufferManager {
             return false;
         }
         if self.current == Some(id) {
-            if let Some(root_id) = self.shared_text_root_id(id) {
-                let _ = self.sync_shared_undo_binding_cache(root_id);
-            }
             return true;
         }
 
@@ -2697,13 +2693,7 @@ impl BufferManager {
         self.current = Some(id);
 
         if let Some(old_id) = old_id {
-            if let Some(root_id) = self.shared_text_root_id(old_id) {
-                let _ = self.sync_shared_undo_binding_cache(root_id);
-            }
             let _ = self.record_buffer_state_markers(old_id);
-        }
-        if let Some(root_id) = self.shared_text_root_id(id) {
-            let _ = self.sync_shared_undo_binding_cache(root_id);
         }
         let _ = self.fetch_buffer_state_markers(id);
         true
@@ -2977,28 +2967,6 @@ impl BufferManager {
             buf.modified_tick = modified_tick;
             buf.chars_modified_tick = chars_modified_tick;
             buf.save_modified_tick = save_modified_tick;
-        }
-        Some(())
-    }
-
-    fn sync_shared_undo_binding_cache(&mut self, root_id: BufferId) -> Option<()> {
-        // After the Phase 10F deletion of BufferLocals::lisp_bindings,
-        // `buffer-undo-list` is read directly from `SharedUndoState`
-        // by every Buffer in the indirect-buffer chain — the shared
-        // undo state IS the cache. No per-buffer mirror needs to be
-        // refreshed. Left as a no-op stub so call sites don't need
-        // to be audited; can be fully removed in a follow-up.
-        let _ = root_id;
-        Some(())
-    }
-
-    fn refresh_shared_buffer_state_cache(
-        &mut self,
-        buffer_id: BufferId,
-        update_state_fields: bool,
-    ) -> Option<()> {
-        if !update_state_fields && self.buffer_has_state_markers(buffer_id) {
-            self.fetch_buffer_state_markers(buffer_id)?;
         }
         Some(())
     }
@@ -3312,7 +3280,6 @@ impl BufferManager {
     }
 
     pub fn add_undo_boundary(&mut self, id: BufferId) -> Option<()> {
-        let root_id = self.shared_text_root_id(id)?;
         let buf = self.buffers.get_mut(&id)?;
         let mut ul = buf.get_undo_list();
         undo::undo_list_boundary(&mut ul);
@@ -3320,7 +3287,6 @@ impl BufferManager {
         // Default limits match GNU Emacs: undo-limit=160000, undo-strong-limit=240000.
         ul = undo::truncate_undo_list(ul, 160_000, 240_000);
         buf.set_undo_list(ul);
-        self.sync_shared_undo_binding_cache(root_id)?;
         Some(())
     }
 
@@ -3463,7 +3429,6 @@ impl BufferManager {
     }
 
     pub fn configure_buffer_undo_list(&mut self, id: BufferId, value: Value) -> Option<()> {
-        let root_id = self.shared_text_root_id(id)?;
         {
             let buf = self.buffers.get_mut(&id)?;
             match value.kind() {
@@ -3479,7 +3444,6 @@ impl BufferManager {
                 }
             }
         }
-        self.sync_shared_undo_binding_cache(root_id)?;
         Some(())
     }
 
@@ -3579,8 +3543,6 @@ impl BufferManager {
             .get_mut(&id)?
             .undo_state
             .set_in_progress(previous_undoing);
-        let root_id = self.shared_text_root_id(id)?;
-        self.sync_shared_undo_binding_cache(root_id)?;
         Some(UndoExecutionResult {
             had_any_records,
             had_boundary,
@@ -3764,7 +3726,7 @@ impl BufferManager {
                 buffer_defaults[idx] = *value;
             }
         }
-        let mut manager = Self {
+        let manager = Self {
             buffers,
             current,
             next_id,
@@ -3773,14 +3735,6 @@ impl BufferManager {
             dead_buffer_last_names: HashMap::new(),
             buffer_defaults,
         };
-        let root_ids: Vec<BufferId> = manager
-            .buffers
-            .values()
-            .map(|buffer| buffer.base_buffer.unwrap_or(buffer.id))
-            .collect();
-        for root_id in root_ids {
-            let _ = manager.sync_shared_undo_binding_cache(root_id);
-        }
         manager
     }
 }
@@ -3836,6 +3790,7 @@ impl GcTrace for BufferManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::heap_types::OverlayData;
 
     // -----------------------------------------------------------------------
     // Helper: create a buffer with some text and correct zv.
@@ -4021,6 +3976,47 @@ mod tests {
         assert_eq!(indirect.point_max(), 6);
         assert_eq!(indirect.point(), 4);
         assert_eq!(indirect.buffer_string(), "cdef");
+    }
+
+    #[test]
+    fn indirect_buffer_overlays_track_shared_edits() {
+        crate::test_utils::init_test_tracing();
+        let mut mgr = BufferManager::new();
+        let base_id = mgr.current_buffer_id().expect("scratch buffer");
+        let _ = mgr.insert_into_buffer(base_id, "abcdef");
+        let indirect_id = mgr
+            .create_indirect_buffer(base_id, "*indirect-overlays*", false)
+            .expect("indirect buffer");
+
+        let overlay = Value::make_overlay(OverlayData {
+            plist: Value::NIL,
+            buffer: Some(indirect_id),
+            start: 2,
+            end: 4,
+            front_advance: false,
+            rear_advance: false,
+        });
+        mgr.get_mut(indirect_id)
+            .expect("indirect buffer")
+            .overlays
+            .insert_overlay(overlay);
+
+        let _ = mgr.goto_buffer_byte(base_id, 0);
+        let _ = mgr.insert_into_buffer(base_id, "zz");
+        let indirect = mgr.get(indirect_id).expect("indirect buffer");
+        assert_eq!(indirect.overlays.overlay_start(overlay), Some(4));
+        assert_eq!(indirect.overlays.overlay_end(overlay), Some(6));
+
+        let _ = mgr.goto_buffer_byte(base_id, 4);
+        let _ = mgr.insert_into_buffer_before_markers(base_id, "yy");
+        let indirect = mgr.get(indirect_id).expect("indirect buffer");
+        assert_eq!(indirect.overlays.overlay_start(overlay), Some(6));
+        assert_eq!(indirect.overlays.overlay_end(overlay), Some(8));
+
+        let _ = mgr.delete_buffer_region(base_id, 0, 2);
+        let indirect = mgr.get(indirect_id).expect("indirect buffer");
+        assert_eq!(indirect.overlays.overlay_start(overlay), Some(4));
+        assert_eq!(indirect.overlays.overlay_end(overlay), Some(6));
     }
 
     // -----------------------------------------------------------------------
