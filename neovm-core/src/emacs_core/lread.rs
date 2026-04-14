@@ -173,7 +173,10 @@ pub(crate) fn eval_buffer_source_text_in_state(
     let buffer_id = resolve_eval_buffer_id_in_state(buffers, arg)?;
     buffers
         .get(buffer_id)
-        .map(|buffer| buffer.buffer_string())
+        .map(|buffer| {
+            let text = buffer.buffer_substring_lisp_string(buffer.point_min(), buffer.point_max());
+            super::builtins::runtime_string_from_lisp_string(&text)
+        })
         .ok_or_else(|| signal("error", vec![Value::string("No such buffer")]))
 }
 
@@ -286,8 +289,9 @@ pub(crate) fn eval_region_source_text_in_state(
 
         let start_byte = buffer.text.char_to_byte((raw_start - 1) as usize);
         let end_byte = buffer.text.char_to_byte((raw_end - 1) as usize);
+        let text = buffer.buffer_substring_lisp_string(start_byte, end_byte);
         (
-            buffer.buffer_substring(start_byte, end_byte),
+            super::builtins::runtime_string_from_lisp_string(&text),
             raw_start,
             raw_end,
         )

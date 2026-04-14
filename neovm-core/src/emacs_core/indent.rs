@@ -426,7 +426,10 @@ pub(crate) fn builtin_indent_to(
 
     let pt = buf.point();
     let pmin = buf.point_min();
-    let text_before = buf.buffer_substring(pmin, pt);
+    let text_before = {
+        let string = buf.buffer_substring_lisp_string(pmin, pt);
+        crate::emacs_core::builtins::runtime_string_from_lisp_string(&string)
+    };
     let line_start = text_before.rfind('\n').map(|pos| pos + 1).unwrap_or(0);
     let line_prefix = &text_before[line_start..];
     let tab_width = tab_width_in_state(&ctx.obarray, &[], Some(buf));

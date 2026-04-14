@@ -5380,7 +5380,8 @@ pub(crate) fn builtin_process_send_region_impl(
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         let (region_beg, region_end) = checked_region_bytes(buf, start, end)?;
-        buf.buffer_substring(region_beg, region_end)
+        let text = buf.buffer_substring_lisp_string(region_beg, region_end);
+        super::builtins::runtime_string_from_lisp_string(&text)
     };
 
     if !processes.send_input(id, &region_text) {

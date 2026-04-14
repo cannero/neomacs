@@ -266,7 +266,10 @@ fn clamped_rect_inputs(
     let clamped_end = end.clamp(point_min_char, point_max_char);
     let pmin = buf.point_min();
     let pmax = buf.point_max();
-    let text = buf.buffer_substring(pmin, pmax);
+    let text = {
+        let string = buf.buffer_substring_lisp_string(pmin, pmax);
+        super::builtins::runtime_string_from_lisp_string(&string)
+    };
 
     let rel_start = (clamped_start - point_min_char).max(0) as usize;
     let rel_end = (clamped_end - point_min_char).max(0) as usize;

@@ -2308,20 +2308,23 @@ impl LayoutEngine {
                 .buffer_manager()
                 .get(buf_id)
                 .map(|b| {
-                    // Count newlines in buffer text
-                    let text_lines = b.buffer_string().chars().filter(|&c| c == '\n').count();
+                    // Count newlines in accessible buffer text.
+                    let text_lines = b
+                        .buffer_substring_bytes(b.point_min(), b.point_max())
+                        .into_iter()
+                        .filter(|&byte| byte == b'\n')
+                        .count();
                     // Count newlines in overlay after-strings.
-                    // Scan all overlays in the buffer's full range.
+                    // Scan all overlays in the buffer's Emacs-byte range.
                     let overlay_lines: usize = b
                         .overlays
-                        .overlays_in(0, b.text.len())
+                        .overlays_in(0, b.total_bytes())
                         .iter()
                         .filter_map(|ov| {
                             b.overlays
                                 .overlay_get_named(*ov, "after-string")
-                                .and_then(|v| {
-                                    v.as_str().map(|s| s.chars().filter(|&c| c == '\n').count())
-                                })
+                                .and_then(|v| v.as_lisp_string())
+                                .map(|s| s.as_bytes().iter().filter(|&&byte| byte == b'\n').count())
                         })
                         .sum();
                     // Total lines = text lines + overlay lines + 1

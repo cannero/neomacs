@@ -368,7 +368,12 @@ fn casify_region_in_state(
             ));
         }
         let (beg, end) = resolve_case_region_in_buffers(buffers, beg_val, end_val, args.get(2))?;
-        (beg, end, buf.buffer_substring(beg, end))
+        let text = buf.buffer_substring_lisp_string(beg, end);
+        (
+            beg,
+            end,
+            super::builtins::runtime_string_from_lisp_string(&text),
+        )
     };
 
     let replacement = transform(&text);
@@ -402,10 +407,11 @@ fn casify_word_in_state(
         } else {
             (target, pt)
         };
+        let text = buf.buffer_substring_lisp_string(beg, end);
         (
             beg,
             end,
-            buf.buffer_substring(beg, end),
+            super::builtins::runtime_string_from_lisp_string(&text),
             buf.name.clone(),
             super::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf),
         )

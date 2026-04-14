@@ -1230,9 +1230,12 @@ fn minibuffer_contents_string(minibuffers: &MinibufferManager, buffers: &BufferM
     if let Some(state) = minibuffers.current()
         && state.buffer_id == buffer.id
     {
-        return buffer.buffer_substring(state.prompt_end.min(buffer.text.len()), buffer.text.len());
+        let start = state.prompt_end.min(buffer.point_max());
+        let text = buffer.buffer_substring_lisp_string(start, buffer.point_max());
+        return super::builtins::runtime_string_from_lisp_string(&text);
     }
-    buffer.buffer_string()
+    let text = buffer.buffer_substring_lisp_string(buffer.point_min(), buffer.point_max());
+    super::builtins::runtime_string_from_lisp_string(&text)
 }
 
 fn resolve_minibuffer_buffer_arg(

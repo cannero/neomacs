@@ -507,7 +507,12 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
                     .buffers
                     .get(buf_id)
                     .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
-                (buf.buffer_string(), buf.pt_byte, buf.begv_byte)
+                let text = buf.buffer_substring_lisp_string(buf.point_min(), buf.point_max());
+                (
+                    crate::emacs_core::builtins::runtime_string_from_lisp_string(&text),
+                    buf.pt_byte,
+                    buf.begv_byte,
+                )
             };
             let start = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
                 &text,
@@ -772,7 +777,8 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     let result_string = if let Some(buf) = buffers.get(minibuf_id) {
         let total_len = buf.total_bytes();
         if total_len > prompt_byte_len {
-            buf.buffer_substring(prompt_byte_len, total_len)
+            let text = buf.buffer_substring_lisp_string(prompt_byte_len, total_len);
+            crate::emacs_core::builtins::runtime_string_from_lisp_string(&text)
         } else {
             String::new()
         }
@@ -1285,7 +1291,8 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     let result_string = if let Some(buf) = shared.buffers.get(minibuf_id) {
         let total_len = buf.total_bytes();
         if total_len > prompt_byte_len {
-            buf.buffer_substring(prompt_byte_len, total_len)
+            let text = buf.buffer_substring_lisp_string(prompt_byte_len, total_len);
+            crate::emacs_core::builtins::runtime_string_from_lisp_string(&text)
         } else {
             String::new()
         }

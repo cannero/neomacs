@@ -661,12 +661,8 @@ pub(crate) fn builtin_buffer_substring(
     }
     let start = start as usize;
     let end = end as usize;
-    // Emacs uses 1-based positions, convert to 0-based byte positions
-    let s = if start > 0 { start - 1 } else { 0 };
-    let e = if end > 0 { end - 1 } else { 0 };
-    // Convert char positions to byte positions
-    let byte_start = buf.text.char_to_byte(s);
-    let byte_end = buf.text.char_to_byte(e);
+    let byte_start = buf.lisp_pos_to_accessible_byte(start as i64);
+    let byte_end = buf.lisp_pos_to_accessible_byte(end as i64);
     let (byte_lo, byte_hi) = if byte_start <= byte_end {
         (byte_start, byte_end)
     } else {
@@ -749,10 +745,10 @@ fn buffer_slice_for_char_region(
     };
     let from_char = if from > 0 { from as usize - 1 } else { 0 };
     let to_char = if to > 0 { to as usize - 1 } else { 0 };
-    let char_count = buf.text.char_count();
-    let from_byte = buf.text.char_to_byte(from_char.min(char_count));
-    let to_byte = buf.text.char_to_byte(to_char.min(char_count));
-    buf.buffer_substring(from_byte, to_byte)
+    let char_count = buf.total_chars();
+    let from_byte = buf.text.char_to_emacs_byte(from_char.min(char_count));
+    let to_byte = buf.text.char_to_emacs_byte(to_char.min(char_count));
+    super::runtime_string_from_lisp_string(&buf.buffer_substring_lisp_string(from_byte, to_byte))
 }
 
 fn checked_buffer_slice_for_char_region(
@@ -783,7 +779,9 @@ fn checked_buffer_slice_for_char_region(
     };
     let from_byte = buf.lisp_pos_to_accessible_byte(from);
     let to_byte = buf.lisp_pos_to_accessible_byte(to);
-    Ok(buf.buffer_substring(from_byte, to_byte))
+    Ok(super::runtime_string_from_lisp_string(
+        &buf.buffer_substring_lisp_string(from_byte, to_byte),
+    ))
 }
 
 pub(crate) fn resolve_buffer_designator_allow_nil_current_in_manager(
@@ -850,7 +848,9 @@ fn checked_buffer_slice_for_char_region_in_manager(
     };
     let from_byte = buf.lisp_pos_to_accessible_byte(from);
     let to_byte = buf.lisp_pos_to_accessible_byte(to);
-    Ok(buf.buffer_substring(from_byte, to_byte))
+    Ok(super::runtime_string_from_lisp_string(
+        &buf.buffer_substring_lisp_string(from_byte, to_byte),
+    ))
 }
 
 fn checked_buffer_substring_for_char_region_in_manager(
@@ -931,7 +931,13 @@ pub(crate) fn builtin_buffer_line_statistics(
     };
 
     let text = buffer_id
-        .and_then(|id| buffers.get(id).map(|buf| buf.buffer_string()))
+        .and_then(|id| {
+            buffers.get(id).map(|buf| {
+                super::runtime_string_from_lisp_string(
+                    &buf.buffer_substring_lisp_string(buf.point_min(), buf.point_max()),
+                )
+            })
+        })
         .unwrap_or_default();
 
     if text.is_empty() {
@@ -1644,7 +1650,9 @@ pub(crate) fn builtin_buffer_text_pixel_size(
 
     let text = if let Some(id) = buffer_id {
         if let Some(buf) = buffers.get(id) {
-            buf.buffer_string()
+            super::runtime_string_from_lisp_string(
+                &buf.buffer_substring_lisp_string(buf.point_min(), buf.point_max()),
+            )
         } else {
             String::new()
         }

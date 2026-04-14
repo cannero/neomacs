@@ -1090,8 +1090,9 @@ pub(crate) fn builtin_json_parse_buffer(
             .buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        let input = buf.buffer_substring_lisp_string(buf.point(), buf.point_max());
         (
-            buf.buffer_substring(buf.point(), buf.point_max()),
+            super::builtins::runtime_string_from_lisp_string(&input),
             buf.point(),
         )
     };

@@ -96,10 +96,7 @@ pub(crate) fn builtin_compose_region_internal(
     let start = integer_value(&args[0]);
     let end = integer_value(&args[1]);
     let (buffer_handle, point_max) = if let Some(buf) = ctx.buffers.current_buffer() {
-        (
-            Value::make_buffer(buf.id),
-            buf.buffer_string().chars().count() as i64 + 1,
-        )
+        (Value::make_buffer(buf.id), buf.point_max_char() as i64 + 1)
     } else {
         (Value::NIL, 1)
     };

@@ -579,10 +579,7 @@ pub(super) fn expect_strict_string(value: &Value) -> Result<String, Flow> {
     }
 }
 
-pub(crate) fn lisp_string_to_runtime_string(value: Value) -> String {
-    let string = value
-        .as_lisp_string()
-        .expect("ValueKind::String must carry LispString payload");
+pub(crate) fn runtime_string_from_lisp_string(string: &crate::heap_types::LispString) -> String {
     if !string.is_multibyte() {
         return bytes_to_unibyte_storage_string(string.as_bytes());
     }
@@ -590,6 +587,13 @@ pub(crate) fn lisp_string_to_runtime_string(value: Value) -> String {
         .as_str()
         .map(str::to_owned)
         .unwrap_or_else(|| crate::emacs_core::emacs_char::to_utf8_lossy(string.as_bytes()))
+}
+
+pub(crate) fn lisp_string_to_runtime_string(value: Value) -> String {
+    let string = value
+        .as_lisp_string()
+        .expect("ValueKind::String must carry LispString payload");
+    runtime_string_from_lisp_string(string)
 }
 
 // Search / regex builtins are defined at the end of this file.

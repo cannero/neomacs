@@ -1226,7 +1226,10 @@ pub(crate) fn builtin_find_charset_region(
         return Ok(Value::list(vec![Value::symbol("ascii")]));
     }
 
-    let text = buf.buffer_substring(start_byte, end_byte);
+    let text = {
+        let string = buf.buffer_substring_lisp_string(start_byte, end_byte);
+        super::builtins::runtime_string_from_lisp_string(&string)
+    };
     let charsets = classify_string_charsets(&text);
     if charsets.is_empty() {
         return Ok(Value::list(vec![Value::symbol("ascii")]));

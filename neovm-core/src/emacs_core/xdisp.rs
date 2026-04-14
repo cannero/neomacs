@@ -19,7 +19,7 @@ use super::chartable::{make_char_table_value, make_char_table_with_extra_slots};
 use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
 use super::value::*;
-use crate::buffer::{BufferId, TextPropertyTable};
+use crate::buffer::{Buffer, BufferId, TextPropertyTable};
 use crate::encoding::char_to_byte_pos;
 use crate::window::{DisplayPointSnapshot, FrameId, Window, WindowId};
 
@@ -67,6 +67,59 @@ fn expect_fixnum_arg(name: &str, arg: &Value) -> Result<(), Flow> {
             vec![Value::symbol(name), *arg],
         )),
     }
+}
+
+fn emacs_char_count(bytes: &[u8], multibyte: bool) -> usize {
+    if multibyte {
+        crate::emacs_core::emacs_char::chars_in_multibyte(bytes)
+    } else {
+        bytes.len()
+    }
+}
+
+fn prefix_line_and_column(buf: &Buffer, end_byte: usize) -> (usize, usize) {
+    let mut bytes = Vec::new();
+    buf.copy_emacs_bytes_to(0, end_byte.min(buf.total_bytes()), &mut bytes);
+    let line = bytes.iter().filter(|&&b| b == b'\n').count() + 1;
+    let tail = match bytes.iter().rposition(|&b| b == b'\n') {
+        Some(idx) => &bytes[idx + 1..],
+        None => &bytes[..],
+    };
+    let col = emacs_char_count(tail, buf.get_multibyte());
+    (line, col)
+}
+
+fn region_text_metrics(bytes: &[u8], multibyte: bool) -> (usize, usize) {
+    let mut max_cols = 0usize;
+    let mut lines = 1usize;
+    let mut cur_col = 0usize;
+
+    let mut visit = |code: u32| {
+        if code == '\n' as u32 {
+            lines += 1;
+            max_cols = max_cols.max(cur_col);
+            cur_col = 0;
+        } else if code == '\t' as u32 {
+            cur_col = (cur_col + 8) & !7;
+        } else {
+            cur_col += 1;
+        }
+    };
+
+    if multibyte {
+        let mut pos = 0usize;
+        while pos < bytes.len() {
+            let (code, len) = crate::emacs_core::emacs_char::string_char(&bytes[pos..]);
+            visit(code);
+            pos += len;
+        }
+    } else {
+        for &byte in bytes {
+            visit(byte as u32);
+        }
+    }
+
+    (lines, max_cols.max(cur_col))
 }
 
 // ---------------------------------------------------------------------------
@@ -1690,16 +1743,7 @@ fn expand_mode_line_percent_in_state(
     let narrowed = buf.is_some_and(|b| b.begv_byte > 0 || b.zv_byte < b.total_bytes());
 
     let (line_num, col_num) = if let Some(b) = buf {
-        let pt = b.pt_byte;
-        let text = b.buffer_substring(0, b.total_bytes());
-        let before = b.buffer_substring(0, pt.min(b.total_bytes()));
-        let line = before.chars().filter(|&c| c == '\n').count() + 1;
-        let col = before
-            .rsplit('\n')
-            .next()
-            .map(|segment| segment.chars().count())
-            .unwrap_or(0);
-        (line, col)
+        prefix_line_and_column(b, b.pt_byte)
     } else {
         (1, 0)
     };
@@ -1981,9 +2025,10 @@ fn expand_mode_line_percent_in_state(
             }
             Some('z') => {
                 // GNU xdisp.c:29494 — coding system mnemonic without EOL indicator.
-                // On TTY: 3 chars (terminal + keyboard + buffer).
-                // On GUI: 1 char (buffer only).
-                if pctx.is_tty_frame {
+                // In MODE_LINE_DISPLAY on TTY: 3 chars (terminal + keyboard + buffer).
+                // In MODE_LINE_STRING, including Lisp `format-mode-line`, GNU keeps the
+                // single buffer-coding mnemonic.
+                if pctx.is_tty_frame && pctx.target_width.is_some() {
                     append_spec(&format!(
                         "{}{}{}",
                         pctx.terminal_coding_mnemonic,
@@ -2157,26 +2202,9 @@ pub(crate) fn builtin_window_text_pixel_size_ctx(
         .unwrap_or(buf.total_bytes());
 
     // Count lines and max columns in the region
-    let text = buf.buffer_substring(from_pos, to_pos.min(buf.total_bytes()));
-    let mut max_cols = 0usize;
-    let mut lines = 1usize;
-    let mut cur_col = 0usize;
-    for ch in text.chars() {
-        if ch == '\n' {
-            lines += 1;
-            if cur_col > max_cols {
-                max_cols = cur_col;
-            }
-            cur_col = 0;
-        } else if ch == '\t' {
-            cur_col = (cur_col + 8) & !7; // Tab stops at 8
-        } else {
-            cur_col += 1;
-        }
-    }
-    if cur_col > max_cols {
-        max_cols = cur_col;
-    }
+    let mut bytes = Vec::new();
+    buf.copy_emacs_bytes_to(from_pos, to_pos.min(buf.total_bytes()), &mut bytes);
+    let (lines, max_cols) = region_text_metrics(&bytes, buf.get_multibyte());
 
     let width = (max_cols as f32 * char_w).ceil() as i64;
     let height = (lines as f32 * char_h).ceil() as i64;
