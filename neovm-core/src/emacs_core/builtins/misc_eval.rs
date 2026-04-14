@@ -20,7 +20,7 @@ pub(crate) fn builtin_get_pos_property_impl(
     let prop = super::textprop::expect_symbol_name(&args[1])?;
 
     if let Some(str_val) = args.get(2).filter(|v| v.is_string()) {
-        let s = str_val.as_str().unwrap().to_owned();
+        let s = super::lisp_string_to_runtime_string(*str_val);
         if let Some(table) = get_string_text_properties_table_for_value(*str_val) {
             let byte_pos = super::textprop::string_elisp_pos_to_byte(&s, pos);
             return Ok(super::textprop::builtin_get_text_property_in_state(
@@ -133,7 +133,7 @@ pub(crate) fn builtin_previous_property_change_in_buffers(
 
     // --- String OBJECT ---
     if let Some(str_val) = args.get(1).filter(|v| v.is_string()) {
-        let s = str_val.as_str().unwrap().to_owned();
+        let s = super::lisp_string_to_runtime_string(*str_val);
         let table = get_string_text_properties_table_for_value(*str_val).unwrap_or_default();
         let byte_pos = textprop::string_elisp_pos_to_byte(&s, pos);
         let (byte_limit, limit_val) = match args.get(2) {
@@ -230,7 +230,7 @@ pub(crate) fn builtin_previous_property_change_in_buffers(
                 let check = if prev > 0 { prev - 1 } else { 0 };
                 let new_props = buf.text.text_props_get_properties(check);
                 if new_props != current_props {
-                    return Ok(Value::fixnum(buf.text.byte_to_char(prev) as i64 + 1));
+                    return Ok(Value::fixnum(buf.text.emacs_byte_to_char(prev) as i64 + 1));
                 }
 
                 if prev == 0 {
@@ -298,8 +298,9 @@ pub(crate) fn builtin_next_single_char_property_change_in_buffers(
                 return Ok(Value::fixnum(expect_integer_or_marker(limit)?));
             }
         }
+        let s = super::lisp_string_to_runtime_string(*str_val);
         return Ok(Value::fixnum(
-            str_val.as_str().unwrap().chars().count() as i64
+            crate::emacs_core::string_escape::storage_char_len(&s) as i64,
         ));
     }
 
@@ -1006,7 +1007,7 @@ fn write_print_output_to_target(
             Ok(())
         }
         ValueKind::String => {
-            let name = target.as_str().unwrap().to_owned();
+            let name = super::lisp_string_to_runtime_string(target);
             let Some(id) = buffers.find_buffer_by_name(&name) else {
                 return Err(signal(
                     "error",
@@ -1144,7 +1145,7 @@ fn write_terpri_output(eval: &mut super::eval::Context, target: Value) -> Result
             Ok(())
         }
         ValueKind::String => {
-            let name = target.as_str().unwrap().to_owned();
+            let name = super::lisp_string_to_runtime_string(target);
             let Some(id) = eval.buffers.find_buffer_by_name(&name) else {
                 return Err(signal(
                     "error",
@@ -1202,7 +1203,7 @@ fn print_value_princ_list_shorthand(
 
 pub(super) fn print_value_princ(value: &Value) -> String {
     match value.kind() {
-        ValueKind::String => value.as_str().unwrap().to_owned(),
+        ValueKind::String => super::lisp_string_to_runtime_string(*value),
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         ValueKind::Cons => {
             if let Some(shorthand) = print_value_princ_list_shorthand(value, &print_value_princ) {
@@ -1265,7 +1266,7 @@ pub(crate) fn print_value_princ_in_state(
         return super::error::print_value_in_state(ctx, value);
     }
     match value.kind() {
-        ValueKind::String => value.as_str().unwrap().to_owned(),
+        ValueKind::String => super::lisp_string_to_runtime_string(*value),
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         ValueKind::Veclike(VecLikeType::Buffer) => {
             let id = value.as_buffer_id().unwrap();
@@ -1568,7 +1569,7 @@ pub(crate) fn finish_write_char_in_eval(
         }
         ValueKind::String => {
             if let Some(text) = write_char_rendered_text(char_code) {
-                let name = target.as_str().unwrap().to_owned();
+                let name = super::lisp_string_to_runtime_string(target);
                 let Some(id) = eval.buffers.find_buffer_by_name(&name) else {
                     return Err(signal(
                         "error",
@@ -1622,8 +1623,11 @@ pub(crate) fn builtin_write_char_impl(
 pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
     expect_min_args("propertize", &args, 1)?;
 
-    let s = match args[0].kind() {
-        ValueKind::String => args[0].as_str().unwrap().to_owned(),
+    let (s, multibyte) = match args[0].kind() {
+        ValueKind::String => (
+            super::lisp_string_to_runtime_string(args[0]),
+            args[0].string_is_multibyte(),
+        ),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1644,7 +1648,7 @@ pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
     }
 
     // Create a copy of the string
-    let new_str = Value::string(&s);
+    let new_str = Value::heap_string(super::runtime_string_to_lisp_string(&s, multibyte));
 
     // Copy existing text properties from source string
     if args[0].is_string() {

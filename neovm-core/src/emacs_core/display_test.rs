@@ -818,12 +818,19 @@ fn x_close_connection_argument_shape_errors() {
     let x_nil = builtin_x_close_connection(&mut eval, vec![Value::NIL]);
     let x_int = builtin_x_close_connection(&mut eval, vec![Value::fixnum(1)]);
     let x_str = builtin_x_close_connection(&mut eval, vec![Value::string("")]);
+    let x_raw = builtin_x_close_connection(
+        &mut eval,
+        vec![Value::heap_string(
+            crate::heap_types::LispString::from_unibyte(vec![0xFF]),
+        )],
+    );
     let x_term = builtin_x_close_connection(&mut eval, vec![terminal_handle_value()]);
     let x_close_none = builtin_x_close_connection(&mut eval, vec![]);
     let x_close_two = builtin_x_close_connection(&mut eval, vec![Value::string("foo"), Value::NIL]);
     assert!(x_nil.is_err());
     assert!(x_int.is_err());
     assert!(x_str.is_err());
+    assert!(x_raw.is_err());
     assert!(x_close_none.is_err());
     assert!(x_close_two.is_err());
     match x_close_none {

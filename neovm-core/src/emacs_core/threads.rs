@@ -23,6 +23,7 @@ use super::error::{
 };
 use super::value::{Value, ValueKind, eq_value};
 use crate::gc_trace::GcTrace;
+use crate::heap_types::LispString;
 
 // ---------------------------------------------------------------------------
 // Thread state
@@ -47,7 +48,7 @@ pub struct ThreadState {
     /// Unique thread id.  0 is always the main thread.
     pub id: u64,
     /// Optional human-readable name.
-    pub name: Option<String>,
+    pub name: Option<LispString>,
     /// The function to invoke (value passed to `make-thread`).
     pub function: Value,
     /// Current status.
@@ -80,7 +81,7 @@ pub struct ThreadState {
 #[derive(Clone, Debug)]
 pub struct MutexState {
     pub id: u64,
-    pub name: Option<String>,
+    pub name: Option<LispString>,
     /// Id of the thread that currently holds the lock, or `None`.
     pub owner: Option<u64>,
     /// Recursive lock count.
@@ -95,7 +96,7 @@ pub struct MutexState {
 #[derive(Clone, Debug)]
 pub struct ConditionVarState {
     pub id: u64,
-    pub name: Option<String>,
+    pub name: Option<LispString>,
     /// The mutex id this condition variable is associated with.
     pub mutex_id: u64,
 }
@@ -161,7 +162,7 @@ impl ThreadManager {
     // -- Thread operations --------------------------------------------------
 
     /// Create a new thread.  Returns the id.
-    pub fn create_thread(&mut self, function: Value, name: Option<String>) -> u64 {
+    pub fn create_thread(&mut self, function: Value, name: Option<LispString>) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
         self.threads.insert(
@@ -251,8 +252,8 @@ impl ThreadManager {
     }
 
     /// Get thread name.
-    pub fn thread_name(&self, id: u64) -> Option<&str> {
-        self.threads.get(&id).and_then(|t| t.name.as_deref())
+    pub fn thread_name(&self, id: u64) -> Option<&LispString> {
+        self.threads.get(&id).and_then(|t| t.name.as_ref())
     }
 
     /// Check if a value represents a known thread id.
@@ -353,7 +354,7 @@ impl ThreadManager {
     // -- Mutex operations ---------------------------------------------------
 
     /// Create a new mutex.  Returns the id.
-    pub fn create_mutex(&mut self, name: Option<String>) -> u64 {
+    pub fn create_mutex(&mut self, name: Option<LispString>) -> u64 {
         let id = self.next_mutex_id;
         self.next_mutex_id += 1;
         self.mutexes.insert(
@@ -436,8 +437,8 @@ impl ThreadManager {
     }
 
     /// Get mutex name.
-    pub fn mutex_name(&self, id: u64) -> Option<&str> {
-        self.mutexes.get(&id).and_then(|m| m.name.as_deref())
+    pub fn mutex_name(&self, id: u64) -> Option<&LispString> {
+        self.mutexes.get(&id).and_then(|m| m.name.as_ref())
     }
 
     /// Return true when MUTEX-ID is owned by the current thread.
@@ -453,7 +454,7 @@ impl ThreadManager {
     pub fn create_condition_variable(
         &mut self,
         mutex_id: u64,
-        name: Option<String>,
+        name: Option<LispString>,
     ) -> Option<u64> {
         if !self.mutexes.contains_key(&mutex_id) {
             return None;
@@ -483,10 +484,8 @@ impl ThreadManager {
     }
 
     /// Get condition variable name.
-    pub fn condition_variable_name(&self, id: u64) -> Option<&str> {
-        self.condition_vars
-            .get(&id)
-            .and_then(|cv| cv.name.as_deref())
+    pub fn condition_variable_name(&self, id: u64) -> Option<&LispString> {
+        self.condition_vars.get(&id).and_then(|cv| cv.name.as_ref())
     }
 
     /// Get the mutex associated with a condition variable.
@@ -668,7 +667,7 @@ pub(crate) fn prepare_make_thread(
     let function = args[0];
     let name = if args.len() > 1 {
         match args[1].kind() {
-            ValueKind::String => Some(args[1].as_str().unwrap().to_string()),
+            ValueKind::String => Some(args[1].as_lisp_string().expect("string").clone()),
             ValueKind::Nil => None,
             other => {
                 return Err(signal(
@@ -830,7 +829,7 @@ pub(crate) fn builtin_thread_name(
         ));
     }
     match ctx.threads.thread_name(id) {
-        Some(name) => Ok(Value::string(name)),
+        Some(name) => Ok(Value::heap_string(name.clone())),
         None => Ok(Value::NIL),
     }
 }
@@ -1008,7 +1007,7 @@ pub(crate) fn builtin_make_mutex(
     }
     let name = if let Some(v) = args.first() {
         match v.kind() {
-            ValueKind::String => Some(v.as_str().unwrap().to_string()),
+            ValueKind::String => Some(v.as_lisp_string().expect("string").clone()),
             ValueKind::Nil => None,
             other => {
                 return Err(signal(
@@ -1052,7 +1051,7 @@ pub(crate) fn builtin_mutex_name(
         ));
     }
     match ctx.threads.mutex_name(id) {
-        Some(name) => Ok(Value::string(name)),
+        Some(name) => Ok(Value::heap_string(name.clone())),
         None => Ok(Value::NIL),
     }
 }
@@ -1121,7 +1120,7 @@ pub(crate) fn builtin_make_condition_variable(
     }
     let name = if args.len() > 1 {
         match args[1].kind() {
-            ValueKind::String => Some(args[1].as_str().unwrap().to_string()),
+            ValueKind::String => Some(args[1].as_lisp_string().expect("string").clone()),
             ValueKind::Nil => None,
             other => {
                 return Err(signal(
@@ -1172,7 +1171,7 @@ pub(crate) fn builtin_condition_name(
         ));
     }
     match ctx.threads.condition_variable_name(id) {
-        Some(name) => Ok(Value::string(name)),
+        Some(name) => Ok(Value::heap_string(name.clone())),
         None => Ok(Value::NIL),
     }
 }

@@ -1,6 +1,7 @@
 use super::super::eval::Context;
 use super::super::intern::intern;
 use super::*;
+use crate::heap_types::LispString;
 
 // -- ThreadManager unit tests -------------------------------------------
 
@@ -19,8 +20,8 @@ fn thread_manager_new_has_main_thread() {
 fn create_thread_assigns_unique_ids() {
     crate::test_utils::init_test_tracing();
     let mut mgr = ThreadManager::new();
-    let id1 = mgr.create_thread(Value::NIL, Some("t1".into()));
-    let id2 = mgr.create_thread(Value::NIL, Some("t2".into()));
+    let id1 = mgr.create_thread(Value::NIL, Some(LispString::from_unibyte(b"t1".to_vec())));
+    let id2 = mgr.create_thread(Value::NIL, Some(LispString::from_unibyte(b"t2".to_vec())));
     assert_ne!(id1, id2);
     assert!(mgr.is_thread(id1));
     assert!(mgr.is_thread(id2));
@@ -130,9 +131,9 @@ fn last_error_get_and_cleanup() {
 fn mutex_create_and_lookup() {
     crate::test_utils::init_test_tracing();
     let mut mgr = ThreadManager::new();
-    let id = mgr.create_mutex(Some("my-lock".into()));
+    let id = mgr.create_mutex(Some(LispString::from_unibyte(b"my-lock".to_vec())));
     assert!(mgr.is_mutex(id));
-    assert_eq!(mgr.mutex_name(id), Some("my-lock"));
+    assert_eq!(mgr.mutex_name(id).and_then(|s| s.as_str()), Some("my-lock"));
     assert!(!mgr.is_mutex(999));
 }
 
@@ -172,11 +173,14 @@ fn condition_variable_create() {
     crate::test_utils::init_test_tracing();
     let mut mgr = ThreadManager::new();
     let mx = mgr.create_mutex(None);
-    let cv = mgr.create_condition_variable(mx, Some("cv1".into()));
+    let cv = mgr.create_condition_variable(mx, Some(LispString::from_unibyte(b"cv1".to_vec())));
     assert!(cv.is_some());
     let cv_id = cv.unwrap();
     assert!(mgr.is_condition_variable(cv_id));
-    assert_eq!(mgr.condition_variable_name(cv_id), Some("cv1"));
+    assert_eq!(
+        mgr.condition_variable_name(cv_id).and_then(|s| s.as_str()),
+        Some("cv1")
+    );
     assert_eq!(mgr.condition_variable_mutex(cv_id), Some(mx));
 }
 
@@ -720,6 +724,45 @@ fn test_builtin_condition_name() {
 
     let named_name = builtin_condition_name(&mut eval, vec![named]).unwrap();
     assert_eq!(named_name, Value::string("cv-compat-name"));
+}
+
+#[test]
+fn thread_mutex_and_condition_names_preserve_raw_unibyte_payloads() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let raw = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+
+    let thread = builtin_make_thread(
+        &mut eval,
+        vec![
+            Value::make_lambda(super::super::value::LambdaData {
+                params: super::super::value::LambdaParams::simple(vec![]),
+                body: vec![].into(),
+                env: None,
+                docstring: None,
+                doc_form: None,
+                interactive: None,
+            }),
+            raw,
+        ],
+    )
+    .unwrap();
+    let thread_name = builtin_thread_name(&mut eval, vec![thread]).unwrap();
+    let thread_name = thread_name.as_lisp_string().expect("thread name");
+    assert!(!thread_name.is_multibyte());
+    assert_eq!(thread_name.as_bytes(), &[0xFF]);
+
+    let mutex = builtin_make_mutex(&mut eval, vec![raw]).unwrap();
+    let mutex_name = builtin_mutex_name(&mut eval, vec![mutex]).unwrap();
+    let mutex_name = mutex_name.as_lisp_string().expect("mutex name");
+    assert!(!mutex_name.is_multibyte());
+    assert_eq!(mutex_name.as_bytes(), &[0xFF]);
+
+    let cv = builtin_make_condition_variable(&mut eval, vec![mutex, raw]).unwrap();
+    let cv_name = builtin_condition_name(&mut eval, vec![cv]).unwrap();
+    let cv_name = cv_name.as_lisp_string().expect("condition name");
+    assert!(!cv_name.is_multibyte());
+    assert_eq!(cv_name.as_bytes(), &[0xFF]);
 }
 
 #[test]

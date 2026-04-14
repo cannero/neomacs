@@ -218,7 +218,9 @@ pub(crate) fn describe_single_key_value(value: &Value, no_angles: bool) -> Resul
         ValueKind::Symbol(id) => Ok(describe_symbol_key(resolve_sym(id), no_angles)),
         ValueKind::T => Ok(describe_symbol_key("t", no_angles)),
         ValueKind::Nil => Ok(describe_symbol_key("nil", no_angles)),
-        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(crate::emacs_core::builtins::lisp_string_to_runtime_string(
+            *value,
+        )),
         ValueKind::Cons => {
             let items = list_to_vec(value).ok_or_else(invalid_single_key_error)?;
             if items.len() == 1 {
@@ -237,10 +239,12 @@ pub(crate) fn describe_single_key_value(value: &Value, no_angles: bool) -> Resul
 pub(crate) fn key_sequence_values(value: &Value) -> Result<Vec<Value>, Flow> {
     match value.kind() {
         ValueKind::Nil => Ok(vec![]),
-        ValueKind::String => {
-            let s = value.as_str().unwrap().to_owned();
-            Ok(s.chars().map(|ch| Value::fixnum(ch as i64)).collect())
-        }
+        ValueKind::String => Ok(crate::emacs_core::builtins::lisp_string_char_codes(
+            value.as_lisp_string().expect("string"),
+        )
+        .into_iter()
+        .map(|code| Value::fixnum(code as i64))
+        .collect()),
         ValueKind::Veclike(VecLikeType::Vector) => {
             let elems = value.as_vector_data().unwrap().clone();
             // Convert any Lucid-style event lists inside the vector

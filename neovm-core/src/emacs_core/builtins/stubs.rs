@@ -327,7 +327,7 @@ pub(crate) fn builtin_neomacs_clipboard_set(args: Vec<Value>) -> EvalResult {
     expect_args("neomacs-clipboard-set", &args, 1)?;
     let text = match args[0].kind() {
         ValueKind::Nil => None,
-        ValueKind::String => Some(args[0].as_str().unwrap().to_owned()),
+        ValueKind::String => Some(super::lisp_string_to_runtime_string(args[0])),
         _ => Some(format!("{}", args[0])),
     };
     set_cached_clipboard_text(text.clone());
@@ -349,7 +349,7 @@ pub(crate) fn builtin_neomacs_primary_selection_set(args: Vec<Value>) -> EvalRes
     expect_args("neomacs-primary-selection-set", &args, 1)?;
     let text = match args[0].kind() {
         ValueKind::Nil => None,
-        ValueKind::String => Some(args[0].as_str().unwrap().to_owned()),
+        ValueKind::String => Some(super::lisp_string_to_runtime_string(args[0])),
         _ => Some(format!("{}", args[0])),
     };
     set_cached_primary_selection_text(text.clone());
@@ -765,12 +765,24 @@ pub(crate) fn builtin_fillarray(args: Vec<Value>) -> EvalResult {
         }
         ValueKind::String => {
             let fill = fillarray_character_from_value(&args[1])?;
-            let len = args[0].as_str().unwrap().chars().count();
-            let new_str = fill.to_string().repeat(len);
+            let string = args[0].as_lisp_string().expect("string");
+            let len = string.schars();
+            let mut data = Vec::new();
+            if string.is_multibyte() {
+                let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+                let written = crate::emacs_core::emacs_char::char_string(fill as u32, &mut buf);
+                data.reserve(len * written);
+                for _ in 0..len {
+                    data.extend_from_slice(&buf[..written]);
+                }
+            } else {
+                data = vec![fill as u8; len];
+            }
             let _ = args[0].with_lisp_string_mut(|lisp_str| {
-                let mut lisp_str = lisp_str.make_mut();
-                lisp_str.clear();
-                lisp_str.push_str(&new_str);
+                let bytes = lisp_str.data_mut();
+                bytes.clear();
+                bytes.extend_from_slice(&data);
+                lisp_str.recompute_size();
             });
             Ok(args[0])
         }

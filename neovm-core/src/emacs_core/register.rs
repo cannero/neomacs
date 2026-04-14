@@ -16,6 +16,7 @@ use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::value::{Value, ValueKind, next_float_id};
 use crate::gc_trace::GcTrace;
+use crate::heap_types::LispString;
 
 // ---------------------------------------------------------------------------
 // Register content types
@@ -25,7 +26,7 @@ use crate::gc_trace::GcTrace;
 #[derive(Clone, Debug)]
 pub enum RegisterContent {
     /// Plain text string.
-    Text(String),
+    Text(LispString),
     /// An integer value.
     Number(i64),
     /// A saved buffer position: (buffer name, point offset).
@@ -114,7 +115,7 @@ impl RegisterManager {
     /// Convenience: get the text stored in a register, if it holds text.
     pub fn get_text(&self, register: char) -> Option<&str> {
         match self.registers.get(&register) {
-            Some(RegisterContent::Text(s)) => Some(s.as_str()),
+            Some(RegisterContent::Text(s)) => s.as_str(),
             _ => None,
         }
     }
@@ -123,20 +124,20 @@ impl RegisterManager {
     /// If the register is empty or not text, it becomes a Text register
     /// containing just the new text.
     pub fn append_text(&mut self, register: char, text: &str, prepend: bool) {
+        let make_text =
+            |multibyte: bool| super::builtins::runtime_string_to_lisp_string(text, multibyte);
         match self.registers.get_mut(&register) {
             Some(RegisterContent::Text(existing)) => {
+                let new = make_text(existing.is_multibyte() || !text.is_ascii());
                 if prepend {
-                    let mut new = String::with_capacity(text.len() + existing.len());
-                    new.push_str(text);
-                    new.push_str(existing);
-                    *existing = new;
+                    *existing = new.concat(existing);
                 } else {
-                    existing.push_str(text);
+                    *existing = existing.concat(&new);
                 }
             }
             _ => {
                 self.registers
-                    .insert(register, RegisterContent::Text(text.to_string()));
+                    .insert(register, RegisterContent::Text(make_text(!text.is_ascii())));
             }
         }
     }
@@ -205,12 +206,14 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     }
 }
 
-fn expect_string(value: &Value) -> Result<String, Flow> {
+fn expect_string(value: &Value) -> Result<LispString, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(value.as_str().unwrap().to_string()),
-        ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
-        ValueKind::Nil => Ok("nil".to_string()),
-        ValueKind::T => Ok("t".to_string()),
+        ValueKind::String => Ok(value.as_lisp_string().expect("string").clone()),
+        ValueKind::Symbol(id) => Ok(LispString::from_unibyte(
+            resolve_sym(id).as_bytes().to_vec(),
+        )),
+        ValueKind::Nil => Ok(LispString::from_unibyte(b"nil".to_vec())),
+        ValueKind::T => Ok(LispString::from_unibyte(b"t".to_vec())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -235,15 +238,20 @@ fn expect_register(value: &Value) -> Result<char, Flow> {
     match value.kind() {
         ValueKind::Fixnum(c) => Ok(char::from_u32(c as u32).unwrap_or('\0')),
         ValueKind::String => {
-            let st = value.as_str().unwrap();
-            let mut chars = st.chars();
-            match (chars.next(), chars.next()) {
-                (Some(c), None) => Ok(c),
-                _ => Err(signal(
+            let string = value.as_lisp_string().expect("string");
+            if string.schars() != 1 {
+                return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("characterp"), *value],
-                )),
+                ));
             }
+            let code = if string.is_multibyte() {
+                crate::emacs_core::emacs_char::string_char(string.as_bytes()).0
+            } else {
+                string.as_bytes()[0] as u32
+            };
+            Ok(char::from_u32(code)
+                .unwrap_or_else(|| crate::emacs_core::emacs_char::char_to_byte8(code) as char))
         }
         other => Err(signal(
             "wrong-type-argument",
@@ -287,7 +295,7 @@ pub(crate) fn builtin_insert_register(
     expect_max_args("insert-register", &args, 2)?;
     let reg = expect_register(&args[0])?;
     match eval.registers.get(reg) {
-        Some(RegisterContent::Text(s)) => Ok(Value::string(s.clone())),
+        Some(RegisterContent::Text(s)) => Ok(Value::heap_string(s.clone())),
         Some(RegisterContent::Number(n)) => Ok(Value::string(n.to_string())),
         Some(RegisterContent::Rectangle(lines)) => Ok(Value::string(lines.join("\n"))),
         Some(_) => Err(signal(
@@ -362,9 +370,10 @@ pub(crate) fn builtin_increment_register(
             eval.registers.set(reg, RegisterContent::Number(n + inc));
             Ok(Value::NIL)
         }
-        Some(RegisterContent::Text(mut s)) => {
-            s.push_str(&inc.to_string());
-            eval.registers.set(reg, RegisterContent::Text(s));
+        Some(RegisterContent::Text(s)) => {
+            let digits = LispString::from_unibyte(inc.to_string().into_bytes());
+            eval.registers
+                .set(reg, RegisterContent::Text(s.concat(&digits)));
             Ok(Value::NIL)
         }
         Some(_) => Err(signal(
@@ -393,10 +402,11 @@ pub(crate) fn builtin_view_register(
     let reg = expect_register(&args[0])?;
     match eval.registers.get(reg) {
         Some(RegisterContent::Text(s)) => {
-            let desc = if s.len() > 60 {
-                format!("Register {} contains text: {}...", reg, &s[..60])
+            let rendered = super::builtins::runtime_string_from_lisp_string(s);
+            let desc = if rendered.len() > 60 {
+                format!("Register {} contains text: {}...", reg, &rendered[..60])
             } else {
-                format!("Register {} contains text: {}", reg, s)
+                format!("Register {} contains text: {}", reg, rendered)
             };
             Ok(Value::string(desc))
         }
@@ -441,7 +451,7 @@ pub(crate) fn builtin_get_register(
     expect_args("get-register", &args, 1)?;
     let reg = expect_register(&args[0])?;
     match eval.registers.get(reg) {
-        Some(RegisterContent::Text(s)) => Ok(Value::string(s.clone())),
+        Some(RegisterContent::Text(s)) => Ok(Value::heap_string(s.clone())),
         Some(RegisterContent::Number(n)) => Ok(Value::fixnum(*n)),
         Some(RegisterContent::Position { buffer, point }) => Ok(Value::cons(
             Value::string(buffer.clone()),
@@ -469,7 +479,7 @@ pub(crate) fn builtin_register_to_string(
     expect_args("register-to-string", &args, 1)?;
     let reg = expect_register(&args[0])?;
     match eval.registers.get(reg) {
-        Some(RegisterContent::Text(s)) => Ok(Value::string(s.clone())),
+        Some(RegisterContent::Text(s)) => Ok(Value::heap_string(s.clone())),
         Some(RegisterContent::Rectangle(lines)) => Ok(Value::string(lines.join("\n"))),
         _ => Ok(Value::NIL),
     }
@@ -486,7 +496,9 @@ pub(crate) fn builtin_set_register(
     expect_args("set-register", &args, 2)?;
     let reg = expect_register(&args[0])?;
     let content = match args[1].kind() {
-        ValueKind::String => RegisterContent::Text(args[1].as_str().unwrap().to_string()),
+        ValueKind::String => {
+            RegisterContent::Text(args[1].as_lisp_string().expect("string").clone())
+        }
         ValueKind::Fixnum(n) => RegisterContent::Number(n),
         ValueKind::Nil => {
             eval.registers.clear(reg);

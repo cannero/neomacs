@@ -458,7 +458,7 @@ pub(crate) fn builtin_set_marker_in_buffers(
     let buffer_id: Option<BufferId> = if args.len() > 2 && args[2].is_truthy() {
         match args[2].kind() {
             ValueKind::String => {
-                let name = args[2].as_str().unwrap().to_owned();
+                let name = super::builtins::lisp_string_to_runtime_string(args[2]);
                 buffers.find_buffer_by_name(&name)
             }
             ValueKind::Veclike(VecLikeType::Buffer) => args[2].as_buffer_id(),

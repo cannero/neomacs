@@ -31,7 +31,7 @@ pub(super) fn expect_buffer_id(value: &Value) -> Result<BufferId, Flow> {
 }
 
 fn point_char_pos(buf: &crate::buffer::Buffer, byte_pos: usize) -> i64 {
-    buf.text.byte_to_char(byte_pos) as i64 + 1
+    buf.text.emacs_byte_to_char(byte_pos) as i64 + 1
 }
 
 pub(crate) fn normalize_narrow_region_in_buffers(
@@ -66,8 +66,8 @@ pub(crate) fn normalize_narrow_region_in_buffers(
     let start_char = if s > 0 { s as usize - 1 } else { 0 };
     let end_char = if e > 0 { e as usize - 1 } else { 0 };
     Ok((
-        buf.text.char_to_byte(start_char),
-        buf.text.char_to_byte(end_char),
+        buf.text.char_to_emacs_byte(start_char),
+        buf.text.char_to_emacs_byte(end_char),
     ))
 }
 
@@ -145,7 +145,7 @@ pub(crate) fn prepare_make_indirect_buffer_in_manager(
             id
         }
         ValueKind::String => {
-            let name = args[0].as_str().unwrap().to_owned();
+            let name = super::lisp_string_to_runtime_string(args[0]);
             buffers.find_buffer_by_name(&name).ok_or_else(|| {
                 signal(
                     "error",
@@ -218,7 +218,7 @@ pub(crate) fn builtin_get_buffer(eval: &mut super::eval::Context, args: Vec<Valu
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Buffer) => Ok(args[0]),
         ValueKind::String => {
-            let s = args[0].as_str().unwrap().to_owned();
+            let s = super::lisp_string_to_runtime_string(args[0]);
             if let Some(buf_id) = buffers.find_buffer_by_name(&s) {
                 Ok(Value::make_buffer(buf_id))
             } else {
@@ -375,7 +375,7 @@ pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Val
                 bid
             }
             ValueKind::String => {
-                let name = arg.as_str().unwrap().to_owned();
+                let name = super::lisp_string_to_runtime_string(*arg);
                 match eval.buffers.find_buffer_by_name(&name) {
                     Some(id) => id,
                     None => {
@@ -514,7 +514,7 @@ pub(crate) fn builtin_set_buffer(eval: &mut super::eval::Context, args: Vec<Valu
             bid
         }
         ValueKind::String => {
-            let s = args[0].as_str().unwrap().to_owned();
+            let s = super::lisp_string_to_runtime_string(args[0]);
             eval.buffers.find_buffer_by_name(&s).ok_or_else(|| {
                 signal("error", vec![Value::string(format!("No buffer named {s}"))])
             })?
@@ -707,7 +707,7 @@ fn resolve_buffer_designator_allow_nil_current(
             }
         }
         ValueKind::String => {
-            let name = arg.as_str().unwrap().to_owned();
+            let name = super::lisp_string_to_runtime_string(*arg);
             eval.buffers
                 .find_buffer_by_name(&name)
                 .map(Some)
@@ -805,7 +805,7 @@ pub(crate) fn resolve_buffer_designator_allow_nil_current_in_manager(
             }
         }
         ValueKind::String => {
-            let name = arg.as_str().unwrap().to_owned();
+            let name = super::lisp_string_to_runtime_string(*arg);
             buffers.find_buffer_by_name(&name).map(Some).ok_or_else(|| {
                 signal(
                     "error",
@@ -1853,10 +1853,10 @@ pub(crate) fn builtin_compute_motion(
     let max_chars = buf.text.char_count();
     let from_byte = buf
         .text
-        .char_to_byte(((from - 1).max(0) as usize).min(max_chars));
+        .char_to_emacs_byte(((from - 1).max(0) as usize).min(max_chars));
     let to_byte = buf
         .text
-        .char_to_byte(((to - 1).max(0) as usize).min(max_chars));
+        .char_to_emacs_byte(((to - 1).max(0) as usize).min(max_chars));
 
     let from_pos = from_byte.clamp(begv, zv);
     let to_pos = to_byte.clamp(begv, zv);
@@ -1916,7 +1916,7 @@ pub(crate) fn builtin_compute_motion(
     }
 
     // Convert byte pos back to 1-based char position.
-    let final_charpos = buf.text.byte_to_char(pos.min(zv)) as i64 + 1;
+    let final_charpos = buf.text.emacs_byte_to_char(pos.min(zv)) as i64 + 1;
 
     Ok(Value::list(vec![
         Value::fixnum(final_charpos),
@@ -2218,8 +2218,8 @@ fn resolve_field_position_in_buffers(
     let point_min = buf.point_min_char() as i64 + 1;
     let point_max = buf.point_max_char() as i64 + 1;
     let pos = match position_value {
-        None => buf.text.byte_to_char(buf.pt_byte) as i64 + 1,
-        Some(value) if value.is_nil() => buf.text.byte_to_char(buf.pt_byte) as i64 + 1,
+        None => buf.text.emacs_byte_to_char(buf.pt_byte) as i64 + 1,
+        Some(value) if value.is_nil() => buf.text.emacs_byte_to_char(buf.pt_byte) as i64 + 1,
         Some(value) => expect_integer_or_marker_in_buffers(buffers, value)?,
     };
     if pos < point_min || pos > point_max {
@@ -3209,8 +3209,8 @@ pub(crate) fn builtin_subst_char_in_region(
         let hi = start.max(end) as usize;
         let start_char = lo.saturating_sub(1);
         let end_char = hi.saturating_sub(1);
-        let byte_start = buf.text.char_to_byte(start_char);
-        let byte_end = buf.text.char_to_byte(end_char);
+        let byte_start = buf.text.char_to_emacs_byte(start_char);
+        let byte_end = buf.text.char_to_emacs_byte(end_char);
         let needs_change = from_code != to_code
             && byte_start < byte_end
             && buf
@@ -3276,7 +3276,7 @@ pub(crate) fn builtin_buffer_enable_undo(
                 bid
             }
             ValueKind::String => {
-                let name = args[0].as_str().unwrap().to_owned();
+                let name = super::lisp_string_to_runtime_string(args[0]);
                 eval.buffers.find_buffer_by_name(&name).ok_or_else(|| {
                     signal(
                         "error",
@@ -3330,7 +3330,7 @@ pub(crate) fn builtin_buffer_disable_undo(
                 bid
             }
             ValueKind::String => {
-                let name = args[0].as_str().unwrap().to_owned();
+                let name = super::lisp_string_to_runtime_string(args[0]);
                 match eval.buffers.find_buffer_by_name(&name) {
                     Some(id) => id,
                     None => {
@@ -3577,7 +3577,7 @@ fn other_buffer_designator(
             }
         }
         ValueKind::String => {
-            let name = v.as_str().unwrap().to_owned();
+            let name = super::lisp_string_to_runtime_string(*v);
             buffers.find_buffer_by_name(&name)
         }
         _ => None,
@@ -3850,7 +3850,7 @@ pub(crate) fn builtin_get_byte(eval: &mut super::eval::Context, args: Vec<Value>
                 vec![args[0], Value::fixnum(point_min), Value::fixnum(point_max)],
             ));
         }
-        buf.text.char_to_byte((pos - 1) as usize)
+        buf.lisp_pos_to_accessible_byte(pos)
     };
 
     if byte_pos >= buf.text.len() {

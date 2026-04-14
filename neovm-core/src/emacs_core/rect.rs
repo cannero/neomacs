@@ -66,7 +66,7 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(value.as_str().unwrap().to_string()),
+        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -94,7 +94,7 @@ fn rectangle_strings_from_value(value: &Value) -> Result<Vec<String>, Flow> {
     let mut out = Vec::with_capacity(items.len());
     for item in items {
         match item.kind() {
-            ValueKind::String => out.push(item.as_str().unwrap().to_string()),
+            ValueKind::String => out.push(super::builtins::lisp_string_to_runtime_string(item)),
             other => {
                 return Err(signal(
                     "wrong-type-argument",

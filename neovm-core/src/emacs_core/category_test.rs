@@ -1,5 +1,6 @@
 use super::*;
 use crate::emacs_core::value::{ValueKind, VecLikeType};
+use crate::heap_types::LispString;
 
 fn fresh_eval() -> super::super::eval::Context {
     reset_category_thread_locals();
@@ -180,4 +181,17 @@ fn modify_category_entry_honors_optional_table_argument() {
         builtin_category_set_mnemonics(vec![current_set]).unwrap(),
         Value::string("")
     );
+}
+
+#[test]
+fn define_category_preserves_raw_unibyte_docstring() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = fresh_eval();
+    let table = builtin_make_category_table(vec![]).unwrap();
+    let raw = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+    builtin_define_category(&mut eval, vec![Value::char('x'), raw, table]).unwrap();
+    let result = builtin_category_docstring(&mut eval, vec![Value::char('x'), table]).unwrap();
+    let text = result.as_lisp_string().expect("string");
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[0xFF]);
 }

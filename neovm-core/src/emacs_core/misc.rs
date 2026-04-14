@@ -61,7 +61,7 @@ fn expect_wholenump(val: &Value) -> Result<i64, Flow> {
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
     match val.kind() {
-        ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*val)),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *val],

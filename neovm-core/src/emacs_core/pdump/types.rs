@@ -1007,9 +1007,16 @@ pub struct DumpKmacroManager {
 // Register
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum DumpRegisterContent {
-    Text(String),
+    Text {
+        data: Vec<u8>,
+        size: usize,
+        size_byte: i64,
+    },
     Number(i64),
-    Position { buffer: String, point: usize },
+    Position {
+        buffer: String,
+        point: usize,
+    },
     Rectangle(Vec<String>),
     FrameConfig(DumpValue),
     File(String),

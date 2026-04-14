@@ -2,11 +2,11 @@
 //! substring extraction, and miscellaneous user/system info.
 //!
 //! Emacs Lisp uses **1-based character positions** while the internal
-//! `Buffer` stores **0-based byte positions**.  Every Lisp↔Buffer boundary
+//! `Buffer` stores **0-based Emacs-byte positions**.  Every Lisp↔Buffer boundary
 //! must convert:
 //!
-//! - Lisp char pos  →  byte pos:  `buf.text.char_to_byte(lisp_pos - 1)`
-//! - byte pos       →  Lisp char: `buf.text.byte_to_char(byte_pos) + 1`
+//! - Lisp char pos  →  byte pos:  `buf.text.char_to_emacs_byte(lisp_pos - 1)`
+//! - byte pos       →  Lisp char: `buf.text.emacs_byte_to_char(byte_pos) + 1`
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
@@ -133,8 +133,8 @@ pub(crate) fn byte_span_char_len(buf: &crate::buffer::Buffer, beg: usize, end: u
     let lo = beg.min(end);
     let hi = beg.max(end);
     buf.text
-        .byte_to_char(hi)
-        .saturating_sub(buf.text.byte_to_char(lo))
+        .emacs_byte_to_char(hi)
+        .saturating_sub(buf.text.emacs_byte_to_char(lo))
 }
 
 pub(crate) fn current_buffer_byte_span_char_len(
@@ -226,8 +226,8 @@ pub(crate) fn signal_before_change(
         let Some(buf) = ctx.buffers.get(current_id) else {
             return Ok(());
         };
-        let beg_char = buf.text.byte_to_char(beg) as i64 + 1;
-        let end_char = buf.text.byte_to_char(end) as i64 + 1;
+        let beg_char = buf.text.emacs_byte_to_char(beg) as i64 + 1;
+        let end_char = buf.text.emacs_byte_to_char(end) as i64 + 1;
         (beg_char, end_char)
     };
 
@@ -303,8 +303,8 @@ pub(crate) fn signal_after_change(
         let Some(buf) = ctx.buffers.get(current_id) else {
             return Ok(());
         };
-        let beg_char = buf.text.byte_to_char(beg) as i64 + 1;
-        let end_char = buf.text.byte_to_char(end) as i64 + 1;
+        let beg_char = buf.text.emacs_byte_to_char(beg) as i64 + 1;
+        let end_char = buf.text.emacs_byte_to_char(end) as i64 + 1;
         (beg_char, end_char, old_len as i64)
     };
 

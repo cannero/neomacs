@@ -410,8 +410,8 @@ pub(crate) fn builtin_copy_category_table(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_make_category_set(args: Vec<Value>) -> EvalResult {
     expect_args("make-category-set", &args, 1)?;
 
-    let categories = match args[0].kind() {
-        ValueKind::String => args[0].as_str().unwrap().to_owned(),
+    let categories = match args[0].as_lisp_string() {
+        Some(string) => super::builtins::runtime_string_from_lisp_string(string),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -554,7 +554,7 @@ pub(crate) fn builtin_define_category(
         ));
     }
     let docstring = match args[1].kind() {
-        ValueKind::String => Value::string(args[1].as_str().unwrap().to_owned()),
+        ValueKind::String => args[1],
         _ => {
             return Err(signal(
                 "wrong-type-argument",

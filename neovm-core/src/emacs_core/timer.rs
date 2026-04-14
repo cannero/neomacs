@@ -399,7 +399,8 @@ fn parse_run_at_time_delay(value: &Value) -> Result<f64, Flow> {
     }
     match value.kind() {
         ValueKind::String => {
-            let s_str = value.as_str().unwrap();
+            let rendered = crate::emacs_core::builtins::lisp_string_to_runtime_string(*value);
+            let s_str = rendered.as_str();
             let spec = s_str.trim();
             if spec.is_empty() {
                 return Err(signal(

@@ -226,8 +226,8 @@ fn expect_display_designator(value: &Value) -> Result<(), Flow> {
         return Ok(());
     }
     if value.is_string() {
-        let display = value.as_str().unwrap();
-        return Err(display_does_not_exist_error(display));
+        let display = super::builtins::lisp_string_to_runtime_string(*value);
+        return Err(display_does_not_exist_error(&display));
     }
     Err(invalid_get_device_terminal_error(value))
 }
@@ -243,8 +243,8 @@ pub(crate) fn expect_display_designator_in_state(
         return Ok(());
     }
     if value.is_string() {
-        let display = value.as_str().unwrap();
-        return Err(display_does_not_exist_error(display));
+        let display = super::builtins::lisp_string_to_runtime_string(*value);
+        return Err(display_does_not_exist_error(&display));
     }
     Err(invalid_get_device_terminal_error(value))
 }
@@ -261,8 +261,8 @@ fn expect_display_designator_eval(
         return Ok(());
     }
     if value.is_string() {
-        let display = value.as_str().unwrap();
-        return Err(display_does_not_exist_error(display));
+        let display = super::builtins::lisp_string_to_runtime_string(*value);
+        return Err(display_does_not_exist_error(&display));
     }
     Err(invalid_get_device_terminal_error_eval(eval, value))
 }
@@ -281,7 +281,7 @@ fn expect_optional_display_designator_eval(
 
 fn frame_not_live_error(value: &Value) -> Flow {
     let printable = match value.kind() {
-        ValueKind::String => value.as_str().unwrap().to_string(),
+        ValueKind::String => super::builtins::lisp_string_to_runtime_string(*value),
         _ => super::print::print_value(value),
     };
     signal(
@@ -292,7 +292,7 @@ fn frame_not_live_error(value: &Value) -> Flow {
 
 fn frame_not_live_error_eval(_eval: &super::eval::Context, value: &Value) -> Flow {
     let printable = match value.kind() {
-        ValueKind::String => value.as_str().unwrap().to_string(),
+        ValueKind::String => super::builtins::lisp_string_to_runtime_string(*value),
         _ => format_get_device_terminal_arg_eval(_eval, value),
     };
     signal(
@@ -332,7 +332,9 @@ fn x_display_open_error(display: &str) -> Flow {
 fn x_display_query_first_arg_error(value: &Value) -> Flow {
     match value.kind() {
         ValueKind::Nil => x_windows_not_initialized_error(),
-        ValueKind::String => x_display_open_error(value.as_str().unwrap()),
+        ValueKind::String => {
+            x_display_open_error(&super::builtins::lisp_string_to_runtime_string(*value))
+        }
         ValueKind::Veclike(VecLikeType::Frame) => x_window_system_frame_error(),
         _ => {
             if let Some(err) = terminal_not_x_display_error(value) {
@@ -393,7 +395,9 @@ pub(crate) fn display_window_system_symbol_eval(
         }
         Some(d) if terminal_designator_p(d) => Ok(None),
         Some(d) if live_frame_designator_p(eval, d) => frame_window_system_symbol(eval, Some(d)),
-        Some(d) if d.is_string() => Err(display_does_not_exist_error(d.as_str().unwrap())),
+        Some(d) if d.is_string() => Err(display_does_not_exist_error(
+            &super::builtins::lisp_string_to_runtime_string(*d),
+        )),
         Some(other) => Err(invalid_get_device_terminal_error_eval(eval, other)),
     }
 }
@@ -439,7 +443,9 @@ pub(crate) fn display_window_system_symbol_in_state(
         Some(d) if live_frame_designator_p_in_state(frames, d) => {
             frame_window_system_symbol_read_only_in_state(frames, Some(d))
         }
-        Some(d) if d.is_string() => Err(display_does_not_exist_error(d.as_str().unwrap())),
+        Some(d) if d.is_string() => Err(display_does_not_exist_error(
+            &super::builtins::lisp_string_to_runtime_string(*d),
+        )),
         Some(other) => Err(invalid_get_device_terminal_error(other)),
     }
 }
@@ -624,7 +630,7 @@ fn display_optional_capability_p(name: &str, args: &[Value]) -> EvalResult {
         Some(v) if v.is_nil() => Ok(Value::NIL),
         Some(display) if is_terminal_handle(display) => Ok(Value::NIL),
         Some(v) if v.is_string() => {
-            let display = v.as_str().unwrap();
+            let display = super::builtins::lisp_string_to_runtime_string(*v);
             Err(signal(
                 "error",
                 vec![Value::string(format!("Display {display} does not exist"))],
@@ -646,7 +652,7 @@ fn display_optional_capability_p_eval(
         Some(display) if is_terminal_handle(display) => Ok(Value::NIL),
         Some(display) if live_frame_designator_p(eval, display) => Ok(Value::NIL),
         Some(v) if v.is_string() => {
-            let display = v.as_str().unwrap();
+            let display = super::builtins::lisp_string_to_runtime_string(*v);
             Err(signal(
                 "error",
                 vec![Value::string(format!("Display {display} does not exist"))],
@@ -669,7 +675,7 @@ fn x_optional_display_query_error(name: &str, args: &[Value]) -> EvalResult {
             }
         }
         Some(v) if v.is_string() => {
-            let display = v.as_str().unwrap();
+            let display = super::builtins::lisp_string_to_runtime_string(*v);
             Err(signal(
                 "error",
                 vec![Value::string(format!("Display {display} can’t be opened"))],
@@ -1393,7 +1399,7 @@ pub(crate) fn builtin_x_parse_geometry(args: Vec<Value>) -> EvalResult {
     expect_args("x-parse-geometry", &args, 1)?;
     match args[0].kind() {
         ValueKind::String => {
-            let spec = args[0].as_str().unwrap().to_owned();
+            let spec = super::builtins::lisp_string_to_runtime_string(args[0]);
             Ok(parse_x_geometry(&spec).unwrap_or(Value::NIL))
         }
         _ => Err(signal(
@@ -1685,7 +1691,7 @@ pub(crate) fn builtin_x_open_connection(
             vec![Value::string("Display nil can’t be opened")],
         )),
         ValueKind::String => {
-            let display = args[0].as_str().unwrap().to_owned();
+            let display = super::builtins::lisp_string_to_runtime_string(args[0]);
             Err(signal(
                 "error",
                 vec![Value::string(format!("Display {display} can’t be opened"))],
@@ -1720,7 +1726,7 @@ pub(crate) fn builtin_x_close_connection(
             vec![Value::string("X windows are not in use or not initialized")],
         )),
         ValueKind::String => {
-            let display = args[0].as_str().unwrap().to_owned();
+            let display = super::builtins::lisp_string_to_runtime_string(args[0]);
             Err(signal(
                 "error",
                 vec![Value::string(format!("Display {display} can’t be opened"))],
@@ -1773,7 +1779,7 @@ pub(crate) fn builtin_x_display_pixel_width(
             }
         }
         Some(v) if v.is_string() => {
-            let display = v.as_str().unwrap();
+            let display = super::builtins::lisp_string_to_runtime_string(*v);
             Err(signal(
                 "error",
                 vec![Value::string(format!("Display {display} can’t be opened"))],
@@ -1820,7 +1826,7 @@ pub(crate) fn builtin_x_display_pixel_height(
             }
         }
         Some(v) if v.is_string() => {
-            let display = v.as_str().unwrap();
+            let display = super::builtins::lisp_string_to_runtime_string(*v);
             Err(signal(
                 "error",
                 vec![Value::string(format!("Display {display} can’t be opened"))],

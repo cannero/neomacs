@@ -294,8 +294,8 @@ fn resolve_region(buf: &Buffer, beg: i64, end: i64) -> (usize, usize) {
         std::mem::swap(&mut a, &mut b);
     }
 
-    let a_byte = buf.text.char_to_byte((a - 1).max(0) as usize);
-    let b_byte = buf.text.char_to_byte((b - 1).max(0) as usize);
+    let a_byte = buf.lisp_pos_to_accessible_byte(a);
+    let b_byte = buf.lisp_pos_to_accessible_byte(b);
     (a_byte, b_byte)
 }
 
@@ -438,9 +438,12 @@ pub(crate) fn builtin_capitalize(args: Vec<Value>) -> EvalResult {
     expect_args("capitalize", &args, 1)?;
     match args[0].kind() {
         ValueKind::String => {
-            let s = args[0].as_str().unwrap();
-            let capitalized = capitalize_string(s);
-            Ok(Value::string(capitalized))
+            let string = args[0].as_lisp_string().expect("string");
+            let storage = super::builtins::runtime_string_from_lisp_string(string);
+            let capitalized = capitalize_string(&storage);
+            Ok(Value::heap_string(
+                super::builtins::runtime_string_to_lisp_string(&capitalized, string.is_multibyte()),
+            ))
         }
         ValueKind::Fixnum(c) => {
             let code = c as i64;
@@ -484,9 +487,12 @@ pub(crate) fn builtin_upcase_initials(args: Vec<Value>) -> EvalResult {
     expect_args("upcase-initials", &args, 1)?;
     match args[0].kind() {
         ValueKind::String => {
-            let s = args[0].as_str().unwrap();
-            let result = upcase_initials_string(s);
-            Ok(Value::string(result))
+            let string = args[0].as_lisp_string().expect("string");
+            let storage = super::builtins::runtime_string_from_lisp_string(string);
+            let result = upcase_initials_string(&storage);
+            Ok(Value::heap_string(
+                super::builtins::runtime_string_to_lisp_string(&result, string.is_multibyte()),
+            ))
         }
         ValueKind::Fixnum(c) => {
             let code = c as i64;

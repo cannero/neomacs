@@ -509,9 +509,15 @@ pub(crate) fn builtin_number_to_string(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_upcase(args: Vec<Value>) -> EvalResult {
     expect_args("upcase", &args, 1)?;
     match args[0].kind() {
-        ValueKind::String => Ok(Value::string(upcase_string_emacs_compat(
-            args[0].as_str().unwrap(),
-        ))),
+        ValueKind::String => {
+            let string = args[0].as_lisp_string().expect("string");
+            let rendered = super::runtime_string_from_lisp_string(string);
+            let upcased = upcase_string_emacs_compat(&rendered);
+            Ok(Value::heap_string(super::runtime_string_to_lisp_string(
+                &upcased,
+                runtime_string_result_multibyte(string.is_multibyte(), &upcased),
+            )))
+        }
         ValueKind::Fixnum(c) if (0..=0x3F_FFFF).contains(&c) => {
             let mapped = upcase_char_code_emacs_compat(c as i64);
             if let Some(ch) = u32::try_from(mapped).ok().and_then(char::from_u32) {
@@ -629,6 +635,13 @@ fn preserve_emacs_upcase_string_payload(code: i64) -> bool {
     )
 }
 
+fn runtime_string_result_multibyte(source_is_multibyte: bool, rendered: &str) -> bool {
+    source_is_multibyte
+        || super::super::string_escape::decode_storage_char_codes(rendered)
+            .into_iter()
+            .any(|code| code > 0xFF)
+}
+
 fn preserve_emacs_downcase_payload(code: i64) -> bool {
     matches!(
         code,
@@ -661,9 +674,15 @@ pub(crate) fn downcase_char_code_emacs_compat(code: i64) -> i64 {
 pub(crate) fn builtin_downcase(args: Vec<Value>) -> EvalResult {
     expect_args("downcase", &args, 1)?;
     match args[0].kind() {
-        ValueKind::String => Ok(Value::string(downcase_string_emacs_compat(
-            args[0].as_str().unwrap(),
-        ))),
+        ValueKind::String => {
+            let string = args[0].as_lisp_string().expect("string");
+            let rendered = super::runtime_string_from_lisp_string(string);
+            let downcased = downcase_string_emacs_compat(&rendered);
+            Ok(Value::heap_string(super::runtime_string_to_lisp_string(
+                &downcased,
+                runtime_string_result_multibyte(string.is_multibyte(), &downcased),
+            )))
+        }
         ValueKind::Fixnum(c) if (0..=0x3F_FFFF).contains(&c) => {
             let mapped = downcase_char_code_emacs_compat(c as i64);
             if let Some(ch) = u32::try_from(mapped).ok().and_then(char::from_u32) {
@@ -1179,7 +1198,11 @@ pub(crate) fn builtin_format_wrapper_strict(
         let s = do_format(&args, &|v| format_percent_s_in_state(ctx, v), &|v| {
             super::error::print_value_in_state(ctx, v)
         })?;
-        Ok(Value::string(s))
+        let multibyte = args.iter().any(|value| value.string_is_multibyte())
+            || runtime_string_result_multibyte(false, &s);
+        Ok(Value::heap_string(super::runtime_string_to_lisp_string(
+            &s, multibyte,
+        )))
     })
 }
 
@@ -1210,8 +1233,13 @@ pub(crate) fn builtin_format_message(
     let formatted = builtin_format_wrapper_strict(ctx, args)?;
     match formatted.kind() {
         ValueKind::String => {
-            let s = formatted.as_str().unwrap();
-            Ok(Value::string(apply_text_quoting(s)))
+            let string = formatted.as_lisp_string().expect("string");
+            let rendered = super::runtime_string_from_lisp_string(string);
+            let quoted = apply_text_quoting(&rendered);
+            Ok(Value::heap_string(super::runtime_string_to_lisp_string(
+                &quoted,
+                runtime_string_result_multibyte(string.is_multibyte(), &quoted),
+            )))
         }
         _other => Ok(formatted),
     }

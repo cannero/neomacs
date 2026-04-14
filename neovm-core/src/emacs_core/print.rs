@@ -748,8 +748,8 @@ fn format_overlay_handle(
 
     Some(format!(
         "#<overlay from {} to {} in {}>",
-        buffer.text.byte_to_char(overlay.start) + 1,
-        buffer.text.byte_to_char(overlay.end) + 1,
+        buffer.text.emacs_byte_to_char(overlay.start) + 1,
+        buffer.text.emacs_byte_to_char(overlay.end) + 1,
         buffer.name
     ))
 }

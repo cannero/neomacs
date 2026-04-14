@@ -287,8 +287,8 @@ pub(crate) fn eval_region_source_text_in_state(
             return Ok(String::new());
         }
 
-        let start_byte = buffer.text.char_to_byte((raw_start - 1) as usize);
-        let end_byte = buffer.text.char_to_byte((raw_end - 1) as usize);
+        let start_byte = buffer.lisp_pos_to_accessible_byte(raw_start);
+        let end_byte = buffer.lisp_pos_to_accessible_byte(raw_end);
         let text = buffer.buffer_substring_lisp_string(start_byte, end_byte);
         (
             super::builtins::runtime_string_from_lisp_string(&text),

@@ -509,7 +509,9 @@ fn parse_zone_rule(zone: &Value) -> Result<ZoneRule, Flow> {
         ValueKind::T => Ok(ZoneRule::Utc),
         ValueKind::Symbol(id) if resolve_sym(id) == "wall" => Ok(ZoneRule::Local),
         ValueKind::Fixnum(n) => Ok(ZoneRule::FixedOffset(n)),
-        ValueKind::String => Ok(ZoneRule::TzString(zone.as_str().unwrap().to_string())),
+        ValueKind::String => Ok(ZoneRule::TzString(
+            crate::emacs_core::builtins::lisp_string_to_runtime_string(*zone),
+        )),
         ValueKind::Cons => {
             let items = list_to_vec(zone).ok_or_else(|| invalid_time_zone_spec(zone))?;
             if items.len() != 2 {
@@ -519,7 +521,9 @@ fn parse_zone_rule(zone: &Value) -> Result<ZoneRule, Flow> {
                 return Err(invalid_time_zone_spec(zone));
             };
             let name = match items[1].kind() {
-                ValueKind::String => items[1].as_str().unwrap().to_string(),
+                ValueKind::String => {
+                    crate::emacs_core::builtins::lisp_string_to_runtime_string(items[1])
+                }
                 ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
                 _ => return Err(invalid_time_zone_spec(zone)),
             };

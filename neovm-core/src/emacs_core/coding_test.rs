@@ -558,6 +558,15 @@ fn eol_type_unknown_returns_nil() {
     assert!(result.is_nil());
 }
 
+#[test]
+fn find_coding_systems_region_internal_accepts_raw_unibyte_string() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::Context::new();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let result = builtin_find_coding_systems_region_internal(&mut eval, vec![raw, Value::NIL]);
+    assert_eq!(result.unwrap(), Value::T);
+}
+
 // ----- coding-system-type -----
 
 #[test]

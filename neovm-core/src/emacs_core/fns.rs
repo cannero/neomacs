@@ -305,8 +305,8 @@ pub(crate) fn normalize_current_buffer_region_bounds_in_manager(
         (end_raw, start_raw)
     };
 
-    let start_byte = buf.text.char_to_byte((lo - 1) as usize);
-    let end_byte = buf.text.char_to_byte((hi - 1) as usize);
+    let start_byte = buf.lisp_pos_to_accessible_byte(lo);
+    let end_byte = buf.lisp_pos_to_accessible_byte(hi);
     Ok((buffer_id, start_byte, end_byte))
 }
 

@@ -1,6 +1,7 @@
 use super::*;
 use crate::emacs_core::intern::intern;
 use crate::emacs_core::value::ValueKind;
+use crate::heap_types::LispString;
 use crate::test_utils::runtime_startup_eval_all;
 use std::sync::{Mutex, OnceLock};
 
@@ -849,4 +850,14 @@ fn current_time_string_epoch() {
     assert!(s.contains("Jan"));
     assert!(s.contains("1970"));
     assert!(s.contains("00:00:00"));
+}
+
+#[test]
+fn parse_zone_rule_accepts_raw_unibyte_string_without_panicking() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+    match parse_zone_rule(&raw).unwrap() {
+        ZoneRule::TzString(spec) => assert_eq!(spec.chars().count(), 1),
+        other => panic!("expected TzString, got {other:?}"),
+    }
 }

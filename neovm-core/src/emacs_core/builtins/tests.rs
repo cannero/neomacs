@@ -795,6 +795,30 @@ fn pure_dispatch_typed_upcase_unicode_edge_payloads_match_oracle() {
 }
 
 #[test]
+fn pure_dispatch_typed_case_conversion_preserves_raw_unibyte_payloads() {
+    crate::test_utils::init_test_tracing();
+    let upper_raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        b'A', 0xFF,
+    ]));
+    let downcased = dispatch_builtin_pure("downcase", vec![upper_raw])
+        .expect("builtin downcase should resolve")
+        .expect("builtin downcase should evaluate");
+    let downcased = downcased.as_lisp_string().expect("downcase string");
+    assert!(!downcased.is_multibyte());
+    assert_eq!(downcased.as_bytes(), &[b'a', 0xFF]);
+
+    let lower_raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        b'a', 0xFF,
+    ]));
+    let upcased = dispatch_builtin_pure("upcase", vec![lower_raw])
+        .expect("builtin upcase should resolve")
+        .expect("builtin upcase should evaluate");
+    let upcased = upcased.as_lisp_string().expect("upcase string");
+    assert!(!upcased.is_multibyte());
+    assert_eq!(upcased.as_bytes(), &[b'A', 0xFF]);
+}
+
+#[test]
 fn keymapp_accepts_lisp_keymap_cons_cells() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
@@ -1030,6 +1054,14 @@ fn key_description_integer_modifier_and_nonunicode_edges_match_emacs() {
             .expect("key-description should succeed"),
         Value::string("C-M-i")
     );
+}
+
+#[test]
+fn key_description_accepts_raw_unibyte_string_sequences() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let described = builtin_key_description(vec![raw]).expect("key-description should succeed");
+    assert!(described.is_string());
 }
 
 #[test]
@@ -3536,6 +3568,23 @@ fn pure_dispatch_typed_propertize_accepts_non_symbol_property_keys() {
     .expect("builtin propertize should resolve")
     .expect("builtin propertize should evaluate");
     assert_eq!(result, Value::string("x"));
+}
+
+#[test]
+fn pure_dispatch_typed_propertize_preserves_raw_unibyte_payload() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        b'x', 0xFF,
+    ]));
+    let result = dispatch_builtin_pure(
+        "propertize",
+        vec![raw, Value::symbol("face"), Value::symbol("bold")],
+    )
+    .expect("builtin propertize should resolve")
+    .expect("builtin propertize should evaluate");
+    let result = result.as_lisp_string().expect("string");
+    assert!(!result.is_multibyte());
+    assert_eq!(result.as_bytes(), &[b'x', 0xFF]);
 }
 
 #[test]
@@ -6160,6 +6209,29 @@ fn pure_dispatch_treesit_placeholder_cluster_matches_compat_contracts() {
 }
 
 #[test]
+fn pure_dispatch_make_interpreted_closure_accepts_raw_unibyte_docstring() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let closure = dispatch_builtin_pure(
+        "make-interpreted-closure",
+        vec![Value::list(vec![]), Value::list(vec![]), raw],
+    )
+    .expect("builtin make-interpreted-closure should resolve")
+    .expect("builtin make-interpreted-closure should evaluate");
+    assert!(closure.is_lambda());
+}
+
+#[test]
+fn pure_dispatch_intern_soft_accepts_raw_unibyte_string_name() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let value = dispatch_builtin_pure("intern-soft", vec![raw])
+        .expect("builtin intern-soft should resolve")
+        .expect("builtin intern-soft should evaluate");
+    assert!(value.is_symbol() || value.is_nil());
+}
+
+#[test]
 fn make_byte_code_from_parts_preserves_non_string_doc_slot_as_doc_form() {
     crate::test_utils::init_test_tracing();
     let value = make_byte_code_from_parts(
@@ -6463,6 +6535,20 @@ fn string_match_start_handles_nil_and_negative_offsets() {
         vec![Value::string("a"), Value::string("ba"), Value::fixnum(3)],
     );
     assert!(out_of_range.is_err());
+}
+
+#[test]
+fn string_match_handles_raw_unibyte_pattern_without_panicking() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let result = builtin_string_match(&mut eval, vec![raw, raw]).expect("raw string-match");
+    assert_eq!(result, Value::fixnum(0));
+
+    let matched = builtin_match_string(&mut eval, vec![Value::fixnum(0)]).expect("match-string");
+    let matched = matched.as_lisp_string().expect("matched string");
+    assert!(!matched.is_multibyte());
+    assert_eq!(matched.as_bytes(), &[0xFF]);
 }
 
 #[test]
@@ -7882,6 +7968,20 @@ fn dispatch_builtin_pure_handles_fillarray_and_find_coding_region_internal() {
     .expect("find-coding-systems-region-internal should resolve")
     .expect("find-coding-systems-region-internal should evaluate");
     assert_eq!(coding, Value::T);
+}
+
+#[test]
+fn dispatch_builtin_pure_fillarray_preserves_unibyte_strings() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b'b', b'c',
+    ]));
+    let filled = dispatch_builtin_pure("fillarray", vec![raw, Value::fixnum('A' as i64)])
+        .expect("fillarray should resolve")
+        .expect("fillarray should evaluate");
+    let filled = filled.as_lisp_string().expect("filled string");
+    assert!(!filled.is_multibyte());
+    assert_eq!(filled.as_bytes(), b"AAA");
 }
 
 #[test]
@@ -9415,6 +9515,31 @@ fn message_nil_returns_nil() {
     let current_after_clear =
         builtin_current_message(&mut eval, vec![]).expect("current-message should clear");
     assert!(current_after_clear.is_nil());
+}
+
+#[test]
+fn format_message_preserves_raw_unibyte_payload_without_quoting() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let formatted = dispatch_builtin(&mut eval, "format-message", vec![raw])
+        .expect("format-message should resolve")
+        .expect("format-message should evaluate");
+    let formatted = formatted.as_lisp_string().expect("format-message string");
+    assert!(!formatted.is_multibyte());
+    assert_eq!(formatted.as_bytes(), &[0xFF]);
+}
+
+#[test]
+fn format_message_promotes_unibyte_ascii_to_multibyte_when_quoting() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let formatted = dispatch_builtin(&mut eval, "format-message", vec![Value::string("`'")])
+        .expect("format-message should resolve")
+        .expect("format-message should evaluate");
+    let formatted = formatted.as_lisp_string().expect("format-message string");
+    assert!(formatted.is_multibyte());
+    assert_eq!(formatted.as_str(), Some("\u{2018}\u{2019}"));
 }
 
 #[test]

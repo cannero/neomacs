@@ -32,6 +32,18 @@ fn capitalize_empty_string() {
     assert_eq!(result.as_str(), Some(""));
 }
 
+#[test]
+fn capitalize_raw_unibyte_string_preserves_bytes() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        b'a', 0xFF, b'b',
+    ]));
+    let result = builtin_capitalize(vec![raw]).unwrap();
+    let result = result.as_lisp_string().expect("string");
+    assert!(!result.is_multibyte());
+    assert_eq!(result.as_bytes(), &[b'A', 0xFF, b'B']);
+}
+
 // =======================================================================
 // upcase-initials
 // =======================================================================
@@ -56,6 +68,18 @@ fn upcase_initials_char() {
     crate::test_utils::init_test_tracing();
     let result = builtin_upcase_initials(vec![Value::char('a')]).unwrap();
     assert_eq!(result.as_int(), Some('A' as i64));
+}
+
+#[test]
+fn upcase_initials_raw_unibyte_string_preserves_bytes() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        b'a', 0xFF, b'b',
+    ]));
+    let result = builtin_upcase_initials(vec![raw]).unwrap();
+    let result = result.as_lisp_string().expect("string");
+    assert!(!result.is_multibyte());
+    assert_eq!(result.as_bytes(), &[b'A', 0xFF, b'B']);
 }
 
 // =======================================================================

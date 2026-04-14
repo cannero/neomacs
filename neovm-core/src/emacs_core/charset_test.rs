@@ -700,6 +700,16 @@ fn find_charset_string_unibyte_ascii_and_eight_bit() {
 }
 
 #[test]
+fn find_charset_string_raw_unibyte_value_reports_eight_bit() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let r = builtin_find_charset_string(vec![raw]).unwrap();
+    let items = list_to_vec(&r).unwrap();
+    assert_eq!(items.len(), 1);
+    assert!(items[0].is_symbol_named("eight-bit"));
+}
+
+#[test]
 fn find_charset_string_with_table() {
     crate::test_utils::init_test_tracing();
     let r = builtin_find_charset_string(vec![Value::string("hello"), Value::NIL]).unwrap();

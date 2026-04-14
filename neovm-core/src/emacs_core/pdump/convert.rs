@@ -1653,7 +1653,15 @@ pub(crate) fn dump_register_manager(
                 (
                     *c,
                     match r {
-                        RegisterContent::Text(s) => DumpRegisterContent::Text(s.clone()),
+                        RegisterContent::Text(s) => DumpRegisterContent::Text {
+                            data: s.as_bytes().to_vec(),
+                            size: s.schars(),
+                            size_byte: if s.is_multibyte() {
+                                s.sbytes() as i64
+                            } else {
+                                -1
+                            },
+                        },
                         RegisterContent::Number(n) => DumpRegisterContent::Number(*n),
                         RegisterContent::Position { buffer, point } => {
                             DumpRegisterContent::Position {
@@ -3084,7 +3092,15 @@ pub(crate) fn load_register_manager(
             (
                 *c,
                 match r {
-                    DumpRegisterContent::Text(s) => RegisterContent::Text(s.clone()),
+                    DumpRegisterContent::Text {
+                        data,
+                        size,
+                        size_byte,
+                    } => RegisterContent::Text(LispString::from_dump(
+                        data.clone(),
+                        *size,
+                        *size_byte,
+                    )),
                     DumpRegisterContent::Number(n) => RegisterContent::Number(*n),
                     DumpRegisterContent::Position { buffer, point } => RegisterContent::Position {
                         buffer: buffer.clone(),

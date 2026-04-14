@@ -747,7 +747,7 @@ fn encode_char_input(value: &Value) -> Result<i64, Flow> {
 
 fn charset_value_text(value: &Value) -> Option<String> {
     match value.kind() {
-        ValueKind::String => Some(value.as_str().unwrap().to_owned()),
+        ValueKind::String => Some(super::builtins::lisp_string_to_runtime_string(*value)),
         ValueKind::Symbol(id) => Some(resolve_sym(id).to_string()),
         _ => None,
     }
@@ -1148,7 +1148,7 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
     // arg[16]: plist
     let unify_map = match args[15].kind() {
         ValueKind::Nil => None,
-        ValueKind::String => Some(args[15].as_str().unwrap().to_owned()),
+        ValueKind::String => Some(super::builtins::lisp_string_to_runtime_string(args[15])),
         ValueKind::Symbol(id) => Some(resolve_sym(id).to_string()),
         _ => None,
     };
@@ -1220,8 +1220,8 @@ pub(crate) fn builtin_find_charset_region(
         std::mem::swap(&mut a, &mut b);
     }
 
-    let start_byte = buf.text.char_to_byte((a - 1).max(0) as usize);
-    let end_byte = buf.text.char_to_byte((b - 1).max(0) as usize);
+    let start_byte = buf.lisp_pos_to_accessible_byte(a);
+    let end_byte = buf.lisp_pos_to_accessible_byte(b);
     if start_byte == end_byte {
         return Ok(Value::list(vec![Value::symbol("ascii")]));
     }
@@ -1348,9 +1348,9 @@ pub(crate) fn builtin_find_charset_string(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("stringp"), args[0]],
         ));
     }
-    let s_ref = args[0].as_str().unwrap();
+    let text = super::builtins::lisp_string_to_runtime_string(args[0]);
 
-    let charsets = classify_string_charsets(s_ref);
+    let charsets = classify_string_charsets(&text);
     if charsets.is_empty() {
         Ok(Value::NIL)
     } else {
@@ -1419,7 +1419,7 @@ pub(crate) fn builtin_charset_after(
         if pos < point_min || pos > point_max {
             return Ok(Value::NIL);
         }
-        buf.text.char_to_byte((pos - 1).max(0) as usize)
+        buf.lisp_pos_to_accessible_byte(pos)
     } else {
         buf.point()
     };

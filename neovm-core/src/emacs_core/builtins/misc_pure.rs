@@ -64,7 +64,12 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
         return Ok(Value::NIL);
     }
     if args[0].is_string() {
-        if args[0].as_str().unwrap().is_empty() {
+        if args[0]
+            .as_lisp_string()
+            .expect("string")
+            .as_bytes()
+            .is_empty()
+        {
             ctx.clear_current_message();
             return Ok(args[0]);
         }
@@ -72,11 +77,9 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
     // GNU Emacs's `message` ALWAYS calls `format-message` on the args,
     // even for a single string argument.  This converts %% -> % and
     // applies text-quoting (curly quotes).
-    let msg = match super::strings::builtin_format_message(ctx, args.clone())?.kind() {
-        ValueKind::String => super::strings::builtin_format_message(ctx, args.clone())?
-            .as_str()
-            .unwrap()
-            .to_owned(),
+    let formatted = super::strings::builtin_format_message(ctx, args.clone())?;
+    let msg = match formatted.kind() {
+        ValueKind::String => super::lisp_string_to_runtime_string(formatted),
         _ => String::new(),
     };
     ctx.set_current_message(Some(msg.clone()));
@@ -90,7 +93,7 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
     // autoloading, showing stale buffer state (the real modification hasn't
     // happened yet).  The M-x prompt is shown via minibuffer buffer text
     // (minibuf.c:846 Finsert), not through message().
-    Ok(Value::string(msg))
+    Ok(formatted)
 }
 
 pub(crate) fn builtin_message_box(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -99,15 +102,13 @@ pub(crate) fn builtin_message_box(ctx: &mut super::eval::Context, args: Vec<Valu
         return Ok(Value::NIL);
     }
     // GNU Emacs: always calls format-message, even for single-arg.
-    let msg = match super::strings::builtin_format_message(ctx, args.clone())?.kind() {
-        ValueKind::String => super::strings::builtin_format_message(ctx, args.clone())?
-            .as_str()
-            .unwrap()
-            .to_owned(),
+    let formatted = super::strings::builtin_format_message(ctx, args.clone())?;
+    let msg = match formatted.kind() {
+        ValueKind::String => super::lisp_string_to_runtime_string(formatted),
         _ => String::new(),
     };
     tracing::info!(msg = %msg);
-    Ok(Value::string(msg))
+    Ok(formatted)
 }
 
 pub(crate) fn builtin_message_or_box(
@@ -119,15 +120,13 @@ pub(crate) fn builtin_message_or_box(
         return Ok(Value::NIL);
     }
     // GNU Emacs: always calls format-message, even for single-arg.
-    let msg = match super::strings::builtin_format_message(ctx, args.clone())?.kind() {
-        ValueKind::String => super::strings::builtin_format_message(ctx, args.clone())?
-            .as_str()
-            .unwrap()
-            .to_owned(),
+    let formatted = super::strings::builtin_format_message(ctx, args.clone())?;
+    let msg = match formatted.kind() {
+        ValueKind::String => super::lisp_string_to_runtime_string(formatted),
         _ => String::new(),
     };
     tracing::info!(msg = %msg);
-    Ok(Value::string(msg))
+    Ok(formatted)
 }
 
 pub(crate) fn builtin_current_message(
@@ -226,23 +225,27 @@ pub(crate) fn builtin_invocation_name(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_error(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("error", &args, 1)?;
     let formatted = builtin_format_message(eval, args)?;
-    let msg = if formatted.is_string() {
-        formatted.as_str().unwrap().to_owned()
-    } else {
-        "error".to_string()
-    };
-    Err(signal("error", vec![Value::string(msg)]))
+    Err(signal(
+        "error",
+        vec![if formatted.is_string() {
+            formatted
+        } else {
+            Value::string("error")
+        }],
+    ))
 }
 
 pub(crate) fn builtin_user_error(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("user-error", &args, 1)?;
     let formatted = builtin_format_message(eval, args)?;
-    let msg = if formatted.is_string() {
-        formatted.as_str().unwrap().to_owned()
-    } else {
-        "user-error".to_string()
-    };
-    Err(signal("user-error", vec![Value::string(msg)]))
+    Err(signal(
+        "user-error",
+        vec![if formatted.is_string() {
+            formatted
+        } else {
+            Value::string("user-error")
+        }],
+    ))
 }
 
 pub(crate) fn builtin_secure_hash_algorithms(args: Vec<Value>) -> EvalResult {

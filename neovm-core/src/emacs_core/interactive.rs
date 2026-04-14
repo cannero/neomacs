@@ -1301,8 +1301,8 @@ fn interactive_region_args_in_buffers(
     let beg = pt.min(mark);
     let end = pt.max(mark);
     // Region-taking builtins use Emacs-style 1-based character positions.
-    let beg_char = buf.text.byte_to_char(beg) as i64 + 1;
-    let end_char = buf.text.byte_to_char(end) as i64 + 1;
+    let beg_char = buf.text.emacs_byte_to_char(beg) as i64 + 1;
+    let end_char = buf.text.emacs_byte_to_char(end) as i64 + 1;
     Ok(vec![Value::fixnum(beg_char), Value::fixnum(end_char)])
 }
 
@@ -2129,7 +2129,7 @@ fn parse_interactive_spec_from_value(spec: &Value) -> Option<ParsedInteractiveSp
     match spec.kind() {
         ValueKind::Nil => Some(ParsedInteractiveSpec::NoArgs),
         ValueKind::String => {
-            let s = spec.as_str().unwrap().to_owned();
+            let s = super::builtins::lisp_string_to_runtime_string(*spec);
             if s.is_empty() {
                 Some(ParsedInteractiveSpec::NoArgs)
             } else {

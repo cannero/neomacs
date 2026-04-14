@@ -3120,8 +3120,8 @@ pub(crate) fn builtin_get_buffer_window(
     let val = args.first().unwrap();
     let target = match val.kind() {
         ValueKind::String => {
-            let name_s = val.as_str().unwrap();
-            match eval.buffers.find_buffer_by_name(name_s) {
+            let name_s = super::builtins::lisp_string_to_runtime_string(*val);
+            match eval.buffers.find_buffer_by_name(&name_s) {
                 Some(id) => id,
                 None => return Ok(Value::NIL),
             }
@@ -3807,8 +3807,8 @@ pub(crate) fn builtin_set_window_buffer(
                 bid
             }
             ValueKind::String => {
-                let name_s = args[1].as_str().unwrap();
-                match buffers.find_buffer_by_name(name_s) {
+                let name_s = super::builtins::lisp_string_to_runtime_string(args[1]);
+                match buffers.find_buffer_by_name(&name_s) {
                     Some(id) => id,
                     None => {
                         return Err(signal(
@@ -4024,10 +4024,10 @@ pub(crate) fn builtin_switch_to_buffer(
                 bid
             }
             ValueKind::String => {
-                let name_s = args[0].as_str().unwrap();
-                match eval.buffers.find_buffer_by_name(name_s) {
+                let name_s = super::builtins::lisp_string_to_runtime_string(args[0]);
+                match eval.buffers.find_buffer_by_name(&name_s) {
                     Some(id) => id,
-                    None => eval.buffers.create_buffer(name_s),
+                    None => eval.buffers.create_buffer(&name_s),
                 }
             }
             _ => {
@@ -4095,8 +4095,8 @@ pub(crate) fn builtin_display_buffer(
             bid
         }
         ValueKind::String => {
-            let name_s = args[0].as_str().unwrap();
-            match eval.buffers.find_buffer_by_name(name_s) {
+            let name_s = super::builtins::lisp_string_to_runtime_string(args[0]);
+            match eval.buffers.find_buffer_by_name(&name_s) {
                 Some(id) => id,
                 None => return Err(signal("error", vec![Value::string("Invalid buffer")])),
             }
@@ -4243,10 +4243,10 @@ pub(crate) fn builtin_pop_to_buffer(
             bid
         }
         ValueKind::String => {
-            let name_s = args[0].as_str().unwrap();
-            match eval.buffers.find_buffer_by_name(name_s) {
+            let name_s = super::builtins::lisp_string_to_runtime_string(args[0]);
+            match eval.buffers.find_buffer_by_name(&name_s) {
                 Some(id) => id,
-                None => eval.buffers.create_buffer(name_s),
+                None => eval.buffers.create_buffer(&name_s),
             }
         }
         _ => {
@@ -4808,7 +4808,7 @@ fn scroll_by_lines_in_state(
         }
     }
 
-    let point_lisp = buf.text.byte_to_char(pos) + 1;
+    let point_lisp = buf.text.emacs_byte_to_char(pos) + 1;
     let _ = buffers.goto_buffer_byte(buffer_id, pos);
     if let Some(Window::Leaf {
         point,
@@ -4897,7 +4897,7 @@ pub(crate) fn builtin_recenter(eval: &mut super::eval::Context, args: Vec<Value>
         }
 
         // Set window-start.
-        let pos_lisp = buf.text.byte_to_char(pos) as i64 + 1;
+        let pos_lisp = buf.text.emacs_byte_to_char(pos) as i64 + 1;
         if let Some(clamped) = clamped_window_position_in_state(frames, buffers, fid, wid, pos_lisp)
         {
             if let Some(Window::Leaf { window_start, .. }) = frames

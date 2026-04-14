@@ -1,4 +1,5 @@
 use super::*;
+use crate::heap_types::LispString;
 
 // -----------------------------------------------------------------------
 // RegisterManager unit tests
@@ -13,7 +14,10 @@ fn set_get_clear() {
     assert!(mgr.get('a').is_none());
 
     // Set text
-    mgr.set('a', RegisterContent::Text("hello".to_string()));
+    mgr.set(
+        'a',
+        RegisterContent::Text(LispString::from_unibyte(b"hello".to_vec())),
+    );
     assert!(mgr.get('a').is_some());
     assert_eq!(mgr.get_text('a'), Some("hello"));
 
@@ -34,8 +38,14 @@ fn set_get_clear() {
 fn clear_all() {
     crate::test_utils::init_test_tracing();
     let mut mgr = RegisterManager::new();
-    mgr.set('a', RegisterContent::Text("one".to_string()));
-    mgr.set('b', RegisterContent::Text("two".to_string()));
+    mgr.set(
+        'a',
+        RegisterContent::Text(LispString::from_unibyte(b"one".to_vec())),
+    );
+    mgr.set(
+        'b',
+        RegisterContent::Text(LispString::from_unibyte(b"two".to_vec())),
+    );
     mgr.set('c', RegisterContent::Number(3));
 
     assert_eq!(mgr.list().len(), 3);
@@ -94,7 +104,10 @@ fn position_storage() {
 fn list_registers_sorted() {
     crate::test_utils::init_test_tracing();
     let mut mgr = RegisterManager::new();
-    mgr.set('z', RegisterContent::Text("z-text".to_string()));
+    mgr.set(
+        'z',
+        RegisterContent::Text(LispString::from_unibyte(b"z-text".to_vec())),
+    );
     mgr.set('a', RegisterContent::Number(1));
     mgr.set('m', RegisterContent::File("/tmp/foo".to_string()));
 
@@ -263,8 +276,10 @@ fn test_builtin_view_register() {
     assert!(desc.as_str().unwrap().contains("empty"));
 
     // Text register
-    eval.registers
-        .set('v', RegisterContent::Text("some text".to_string()));
+    eval.registers.set(
+        'v',
+        RegisterContent::Text(LispString::from_unibyte(b"some text".to_vec())),
+    );
     let result = builtin_view_register(&mut eval, vec![Value::char('v')]);
     assert!(result.is_ok());
     let desc = result.unwrap();
@@ -310,4 +325,25 @@ fn test_wrong_arg_count() {
     // point-to-register needs exactly 1 arg
     let result = builtin_point_to_register(&mut eval, vec![]);
     assert!(result.is_err());
+}
+
+#[test]
+fn register_text_preserves_raw_unibyte_payload() {
+    crate::test_utils::init_test_tracing();
+    use super::super::eval::Context;
+
+    let mut eval = Context::new();
+    let raw = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+
+    builtin_set_register(&mut eval, vec![Value::char('r'), raw]).unwrap();
+
+    let got = builtin_get_register(&mut eval, vec![Value::char('r')]).unwrap();
+    let got = got.as_lisp_string().expect("register text");
+    assert!(!got.is_multibyte());
+    assert_eq!(got.as_bytes(), &[0xFF]);
+
+    let rendered = builtin_register_to_string(&mut eval, vec![Value::char('r')]).unwrap();
+    let rendered = rendered.as_lisp_string().expect("register string");
+    assert!(!rendered.is_multibyte());
+    assert_eq!(rendered.as_bytes(), &[0xFF]);
 }

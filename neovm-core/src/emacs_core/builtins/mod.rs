@@ -579,14 +579,27 @@ pub(super) fn expect_strict_string(value: &Value) -> Result<String, Flow> {
     }
 }
 
+pub(crate) fn storage_string_from_lisp_string(string: &crate::heap_types::LispString) -> String {
+    crate::emacs_core::string_escape::emacs_bytes_to_storage_string(
+        string.as_bytes(),
+        string.is_multibyte(),
+    )
+}
+
 pub(crate) fn runtime_string_from_lisp_string(string: &crate::heap_types::LispString) -> String {
-    if !string.is_multibyte() {
-        return bytes_to_unibyte_storage_string(string.as_bytes());
+    storage_string_from_lisp_string(string)
+}
+
+pub(crate) fn runtime_string_to_lisp_string(
+    text: &str,
+    multibyte: bool,
+) -> crate::heap_types::LispString {
+    let bytes = crate::emacs_core::string_escape::storage_string_to_buffer_bytes(text, multibyte);
+    if multibyte {
+        crate::heap_types::LispString::from_emacs_bytes(bytes)
+    } else {
+        crate::heap_types::LispString::from_unibyte(bytes)
     }
-    string
-        .as_str()
-        .map(str::to_owned)
-        .unwrap_or_else(|| crate::emacs_core::emacs_char::to_utf8_lossy(string.as_bytes()))
 }
 
 pub(crate) fn lisp_string_to_runtime_string(value: Value) -> String {

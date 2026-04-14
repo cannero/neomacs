@@ -104,7 +104,7 @@ fn normalize_keyboard_coding_system(name: &str) -> String {
 fn coding_system_name(val: &Value) -> Result<String, Flow> {
     match val.kind() {
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
-        ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*val)),
         ValueKind::Nil => Ok("nil".to_string()),
         _ => Err(signal(
             "wrong-type-argument",
@@ -2115,7 +2115,7 @@ pub(crate) fn builtin_find_coding_systems_region_internal(
 
     if args[0].is_string() {
         let exclude = args.get(2).and_then(super::value::list_to_vec);
-        let text = args[0].as_str().unwrap().to_owned();
+        let text = super::builtins::lisp_string_to_runtime_string(args[0]);
         let multibyte = args[0].string_is_multibyte();
         return Ok(safe_coding_systems_for_text(
             &eval.coding_systems,
@@ -2143,13 +2143,15 @@ pub(crate) fn builtin_find_coding_systems_region_internal(
         return Err(signal("args-out-of-range", vec![args[0], args[1]]));
     }
 
-    let start_byte = buffer.text.char_to_byte((start - 1) as usize);
-    let end_byte = buffer.text.char_to_byte((end - 1) as usize);
-    let text = buffer.text.to_string();
-    let slice = &text[start_byte..end_byte];
+    let start_byte = buffer.lisp_pos_to_full_buffer_byte(start);
+    let end_byte = buffer.lisp_pos_to_full_buffer_byte(end);
+    let text = {
+        let string = buffer.buffer_substring_lisp_string(start_byte, end_byte);
+        super::builtins::runtime_string_from_lisp_string(&string)
+    };
     Ok(safe_coding_systems_for_text(
         &eval.coding_systems,
-        slice,
+        &text,
         buffer.get_multibyte(),
         exclude.as_deref(),
     ))
