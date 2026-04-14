@@ -191,6 +191,7 @@ impl MutatorLocal {
 pub struct Mutator<'heap> {
     heap: &'heap Heap,
     local: MutatorLocal,
+    handle_scope_state: crate::root::HandleScopeState<'heap>,
 }
 
 impl<'heap> Mutator<'heap> {
@@ -198,6 +199,7 @@ impl<'heap> Mutator<'heap> {
         Self {
             heap,
             local: MutatorLocal::default(),
+            handle_scope_state: crate::root::HandleScopeState::new(heap),
         }
     }
 
@@ -211,6 +213,7 @@ impl<'heap> Mutator<'heap> {
         &mut self,
         f: impl FnOnce(&mut crate::runtime::CollectorRuntime<'_>) -> R,
     ) -> R {
+        self.handle_scope_state.release_safepoint();
         let _safepoint = self.heap.write_safepoint();
         let refresh_plans = self.heap.take_collector_plans_dirty();
         let mut guard = self.heap.write_core();
@@ -228,7 +231,11 @@ impl<'heap> Mutator<'heap> {
     /// Create a new rooted handle scope backed by this
     /// mutator's per-local root stack.
     pub fn handle_scope<'scope>(&mut self) -> HandleScope<'scope, 'heap> {
-        HandleScope::new(self.local.root_stack_ptr())
+        self.handle_scope_state.begin_scope();
+        HandleScope::new_with_state(
+            self.local.root_stack_ptr(),
+            NonNull::from(&mut self.handle_scope_state),
+        )
     }
 
     /// Return a shared view of the underlying heap.
@@ -241,8 +248,10 @@ impl<'heap> Mutator<'heap> {
         scope: &mut HandleScope<'scope, 'handle_heap>,
         value: T,
     ) -> Result<Root<'scope, T>, AllocError> {
-        let Self { heap, local } = self;
-        let _safepoint = heap.read_safepoint();
+        self.handle_scope_state.ensure_safepoint();
+        let _safepoint =
+            (!self.handle_scope_state.has_safepoint()).then(|| self.heap.read_safepoint());
+        let Self { heap, local, .. } = self;
 
         let snapshot = heap.allocation_snapshot::<T>(local.cached_descriptor::<T>())?;
         let config = snapshot.config;
@@ -706,7 +715,9 @@ impl<'heap> Mutator<'heap> {
         old_value: Option<Gc<Value>>,
         new_value: Option<Gc<Value>>,
     ) {
-        let _safepoint = self.heap.read_safepoint();
+        self.handle_scope_state.ensure_safepoint();
+        let _safepoint =
+            (!self.handle_scope_state.has_safepoint()).then(|| self.heap.read_safepoint());
         let core = self.heap.read_core();
         self.post_write_barrier_with_core(
             &core,
@@ -727,7 +738,9 @@ impl<'heap> Mutator<'heap> {
     ) {
         let owner_gc = owner.as_gc();
         let owner_ref = unsafe { owner_gc.as_non_null().as_ref() };
-        let _safepoint = self.heap.read_safepoint();
+        self.handle_scope_state.ensure_safepoint();
+        let _safepoint =
+            (!self.handle_scope_state.has_safepoint()).then(|| self.heap.read_safepoint());
         let edge = project(owner_ref);
         let old_value = edge.replace(new_value);
         let core = self.heap.read_core();
