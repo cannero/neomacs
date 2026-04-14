@@ -216,6 +216,11 @@ pub(crate) fn signal_before_change(
         return Ok(());
     };
 
+    if let Some(buf) = ctx.buffers.get(current_id) {
+        ctx.treesit
+            .begin_buffer_edit(current_id, &buf.buffer_string(), beg.min(end), beg.max(end));
+    }
+
     // Convert byte positions to 1-based character positions.
     let (lisp_beg, lisp_end) = {
         let Some(buf) = ctx.buffers.get(current_id) else {
@@ -286,6 +291,12 @@ pub(crate) fn signal_after_change(
     let Some(current_id) = ctx.buffers.current_buffer_id() else {
         return Ok(());
     };
+
+    ctx.treesit.note_buffer_change(current_id, beg);
+    if let Some(buf) = ctx.buffers.get(current_id) {
+        ctx.treesit
+            .finish_buffer_edit(current_id, &buf.buffer_string(), end);
+    }
 
     // Convert byte positions to 1-based character positions.
     let (lisp_beg, lisp_end, lisp_old_len) = {
