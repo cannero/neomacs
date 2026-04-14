@@ -1208,7 +1208,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         ValueKind::Nil => Ok("nil".to_string()),
         ValueKind::T => Ok("t".to_string()),
@@ -1252,23 +1252,29 @@ fn signal_wrong_type_character(value: Value) -> Flow {
     )
 }
 
-fn char_from_codepoint_value(value: &Value) -> Result<char, Flow> {
+fn storage_char_from_codepoint_value(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::Fixnum(c) => Ok(char::from_u32(c as u32).unwrap_or('\0')),
+        ValueKind::Fixnum(c) => {
+            crate::emacs_core::string_escape::encode_char_code_for_string_storage(
+                super::builtins::expect_character_code(value)? as u32,
+                true,
+            )
+            .ok_or_else(|| signal_wrong_type_character(*value))
+        }
         _ => Err(signal_wrong_type_character(*value)),
     }
 }
 
 pub(crate) fn sequence_value_to_env_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
         ValueKind::Veclike(VecLikeType::Vector) => {
             let vec = value.as_vector_data().unwrap().clone();
             let chars = vec
                 .iter()
-                .map(char_from_codepoint_value)
+                .map(storage_char_from_codepoint_value)
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(chars.into_iter().collect())
+            Ok(chars.concat())
         }
         ValueKind::Cons | ValueKind::Nil => {
             let mut out = String::new();
@@ -1282,7 +1288,7 @@ pub(crate) fn sequence_value_to_env_string(value: &Value) -> Result<String, Flow
                             let pair_cdr = cursor.cons_cdr();
                             (pair_car, pair_cdr)
                         };
-                        out.push(char_from_codepoint_value(&car)?);
+                        out.push_str(&storage_char_from_codepoint_value(&car)?);
                         cursor = cdr;
                     }
                     _ => {
@@ -1360,14 +1366,14 @@ fn signal_wrong_type_string(value: Value) -> Flow {
 
 pub(crate) fn expect_string_strict(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
         _ => Err(signal_wrong_type_string(*value)),
     }
 }
 
 fn expect_process_name_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
         _ => Err(signal(
             "error",
             vec![Value::string(":name value not a string")],
@@ -1461,7 +1467,7 @@ fn resolve_process_or_wrong_type(
             }
         }
         ValueKind::String => {
-            let name = value.as_str().unwrap().to_owned();
+            let name = super::builtins::lisp_string_to_runtime_string(*value);
             eval.processes
                 .find_by_name(&name)
                 .ok_or_else(|| signal_wrong_type_processp(*value))
@@ -1484,7 +1490,7 @@ fn resolve_process_or_wrong_type_any(
             }
         }
         ValueKind::String => {
-            let name = value.as_str().unwrap().to_owned();
+            let name = super::builtins::lisp_string_to_runtime_string(*value);
             eval.processes
                 .find_by_name(&name)
                 .ok_or_else(|| signal_wrong_type_processp(*value))
@@ -1507,7 +1513,7 @@ fn resolve_process_or_wrong_type_any_in_manager(
             }
         }
         ValueKind::String => {
-            let name = value.as_str().unwrap().to_owned();
+            let name = super::builtins::lisp_string_to_runtime_string(*value);
             processes
                 .find_by_name(&name)
                 .ok_or_else(|| signal_wrong_type_processp(*value))
@@ -1529,7 +1535,7 @@ fn resolve_process_or_missing_error_in_manager(
 ) -> Result<ProcessId, Flow> {
     match value.kind() {
         ValueKind::String => {
-            let name = value.as_str().unwrap().to_owned();
+            let name = super::builtins::lisp_string_to_runtime_string(*value);
             processes
                 .find_by_name(&name)
                 .ok_or_else(|| signal_process_does_not_exist(&name))
@@ -1551,7 +1557,7 @@ fn resolve_process_or_missing_error_any_in_manager(
 ) -> Result<ProcessId, Flow> {
     match value.kind() {
         ValueKind::String => {
-            let name = value.as_str().unwrap().to_owned();
+            let name = super::builtins::lisp_string_to_runtime_string(*value);
             processes
                 .find_by_name(&name)
                 .ok_or_else(|| signal_process_does_not_exist(&name))
@@ -1574,7 +1580,7 @@ fn resolve_process_for_status(
             }
         }
         ValueKind::String => {
-            let name = value.as_str().unwrap().to_owned();
+            let name = super::builtins::lisp_string_to_runtime_string(*value);
             Ok(eval.processes.find_by_name(&name))
         }
         _ => Err(signal_wrong_type_processp(*value)),
@@ -1594,7 +1600,7 @@ fn resolve_buffer_name_for_process_lookup_in_state(
             .and_then(|id| buffers.get(id))
             .map(|buf| buf.name.clone())),
         ValueKind::String => {
-            let name_str = value.as_str().unwrap().to_owned();
+            let name_str = super::builtins::lisp_string_to_runtime_string(*value);
             Ok(buffers
                 .find_buffer_by_name(&name_str)
                 .and_then(|id| buffers.get(id))
@@ -1834,7 +1840,7 @@ fn resolve_signal_process_target_in_state(
         if !v.is_nil() {
             return match v.kind() {
                 ValueKind::String => {
-                    let name_str = v.as_str().unwrap().to_owned();
+                    let name_str = super::builtins::lisp_string_to_runtime_string(*v);
                     Ok(match processes.find_by_name(&name_str) {
                         Some(id) => SignalProcessTarget::Process(id),
                         None => SignalProcessTarget::MissingNamedProcess,
@@ -2228,7 +2234,7 @@ fn parse_make_process_buffer_in_state(
     match value.kind() {
         ValueKind::Nil => Ok(None),
         ValueKind::String => {
-            let name_str = value.as_str().unwrap().to_owned();
+            let name_str = super::builtins::lisp_string_to_runtime_string(*value);
             if buffers.find_buffer_by_name(&name_str).is_none() {
                 let _ = buffers.create_buffer(&name_str);
             }
@@ -3081,7 +3087,7 @@ pub(crate) fn builtin_format_network_address_impl(args: Vec<Value>) -> EvalResul
 
     let omit_port = args.get(1).is_some_and(|v| v.is_truthy());
     match args[0].kind() {
-        ValueKind::String => Ok(Value::string(args[0].as_str().unwrap().to_owned())),
+        ValueKind::String => Ok(args[0]),
         ValueKind::Nil => Ok(Value::NIL),
         ValueKind::Veclike(VecLikeType::Vector) => {
             let Some(items) = vector_nonnegative_integers(&args[0]) else {
@@ -3757,7 +3763,7 @@ pub(crate) fn builtin_serial_process_configure_impl(
             }
             ":name" => match value.kind() {
                 ValueKind::String => {
-                    let name_str = value.as_str().unwrap().to_owned();
+                    let name_str = super::builtins::lisp_string_to_runtime_string(value);
                     process_id = Some(
                         processes
                             .find_by_name(&name_str)
@@ -4527,7 +4533,9 @@ pub(crate) fn builtin_make_process_impl(
         };
         match key_name {
             Some(":name") => match value.kind() {
-                ValueKind::String => name = Some(value.as_str().unwrap().to_owned()),
+                ValueKind::String => {
+                    name = Some(super::builtins::lisp_string_to_runtime_string(value))
+                }
                 _ => {
                     return Err(signal(
                         "error",
@@ -4757,7 +4765,7 @@ pub(crate) fn builtin_process_status_impl(
             }
         }
         ValueKind::String => {
-            let name = args[0].as_str().unwrap().to_owned();
+            let name = super::builtins::lisp_string_to_runtime_string(args[0]);
             processes.find_by_name(&name)
         }
         _ => return Err(signal_wrong_type_processp(args[0])),

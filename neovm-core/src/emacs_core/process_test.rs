@@ -1,5 +1,6 @@
 use super::*;
 use crate::emacs_core::{Context, format_eval_result};
+use crate::heap_types::LispString;
 use crate::test_utils::{runtime_startup_eval_all, runtime_startup_eval_one};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -28,6 +29,28 @@ fn eval_with_process_shims() -> Context {
 "#;
     let _ = ev.eval_str(shims);
     ev
+}
+
+#[test]
+fn sequence_value_to_env_string_preserves_nonunicode_char_codes() {
+    crate::test_utils::init_test_tracing();
+    let code = 0x3F_FF80i64;
+    let result = sequence_value_to_env_string(&Value::vector(vec![Value::fixnum(code)]))
+        .expect("sequence should convert");
+    let decoded = crate::emacs_core::string_escape::decode_storage_char_codes(&result);
+    assert_eq!(decoded, vec![code as u32]);
+}
+
+#[test]
+fn format_network_address_preserves_raw_unibyte_string_payload() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let raw = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+    let result =
+        builtin_format_network_address(&mut eval, vec![raw]).expect("format-network-address");
+    let text = result.as_lisp_string().expect("string result");
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[0xFF]);
 }
 
 fn install_minimal_special_event_command_runtime(ev: &mut Context) {
