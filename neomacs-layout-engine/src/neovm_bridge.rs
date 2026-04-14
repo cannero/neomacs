@@ -61,7 +61,7 @@ impl LayoutBufferSnapshot {
             text: buffer.text.clone(),
             begv: buffer.begv,
             zv: buffer.zv,
-            zv_char: buffer.zv_char,
+            zv_char: buffer.zv,
             local_var_alist: buffer.local_var_alist,
             slots: buffer.slots,
             local_flags: buffer.local_flags,
@@ -687,11 +687,11 @@ pub fn window_params_from_neovm(
         // windows, `Window::point` is the right source (it was snapshotted
         // from `buf->pt` the last time the window was deselected).
         //
-        // `buffer.pt_char` is already 0-based (matches the layout engine's
+        // `buffer.pt` is already 0-based (matches the layout engine's
         // internal coordinate system); `Window::point` is GNU/Lisp 1-based
         // and gets normalized with the usual `-1`.
         point: if is_selected {
-            buffer.pt_char as i64
+            buffer.pt as i64
         } else {
             point.saturating_sub(1) as i64
         },

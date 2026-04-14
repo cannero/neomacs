@@ -1786,7 +1786,7 @@ impl LayoutEngine {
                     evaluator
                         .buffer_manager()
                         .get(buf_id)
-                        .map(|b| b.modified)
+                        .map(|b| b.is_modified())
                         .unwrap_or(false)
                 };
                 let window_info = neomacs_display_protocol::frame_glyphs::WindowInfo {
