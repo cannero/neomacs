@@ -18,7 +18,10 @@ use super::custom::CustomManager;
 use super::doc::{STARTUP_VARIABLE_DOC_STRING_PROPERTIES, STARTUP_VARIABLE_DOC_STUBS};
 use super::error::*;
 use super::interactive::InteractiveRegistry;
-use super::intern::{SymId, intern, intern_uninterned, resolve_sym, resolve_sym_metadata};
+use super::intern::{
+    NameId, SymId, intern, intern_uninterned, resolve_name, resolve_sym, resolve_sym_metadata,
+    symbol_name_id,
+};
 use super::keymap::{
     list_keymap_define, list_keymap_set_parent, make_list_keymap, make_sparse_list_keymap,
 };
@@ -1886,20 +1889,20 @@ impl Default for Context {
 
 impl Context {
     #[inline]
-    pub(crate) fn subr_value(&self, sym_id: SymId) -> Option<Value> {
-        self.tagged_heap.subr_value(sym_id)
+    pub(crate) fn subr_value(&self, name_id: NameId) -> Option<Value> {
+        self.tagged_heap.subr_value(name_id)
     }
 
     #[inline]
     pub(crate) fn subr_slot(&self, sym_id: SymId) -> Option<&'static SubrObj> {
-        let value = self.subr_value(sym_id)?;
+        let value = self.subr_value(symbol_name_id(sym_id))?;
         let ptr = value.as_veclike_ptr()? as *const SubrObj;
         Some(unsafe { &*ptr })
     }
 
     #[inline]
     fn subr_slot_mut(&mut self, sym_id: SymId) -> Option<&'static mut SubrObj> {
-        let value = self.subr_value(sym_id)?;
+        let value = self.subr_value(symbol_name_id(sym_id))?;
         let ptr = value.as_veclike_ptr()? as *mut SubrObj;
         Some(unsafe { &mut *ptr })
     }
@@ -1932,7 +1935,7 @@ impl Context {
     }
 
     fn register_subr_slot(&mut self, sym_id: SymId, subr: Value) {
-        self.tagged_heap.register_subr_value(sym_id, subr);
+        self.tagged_heap.register_subr_value(symbol_name_id(sym_id), subr);
     }
 
     pub fn new() -> Self {
@@ -10480,11 +10483,12 @@ impl Context {
         let (min_args, max_args, dispatch_kind) =
             super::subr_info::lookup_compat_subr_metadata(name, min_args, max_args);
         let sym_id = intern(name);
-        let subr_value = if let Some(existing) = self.subr_value(sym_id) {
+        let name_id = symbol_name_id(sym_id);
+        let subr_value = if let Some(existing) = self.subr_value(name_id) {
             let subr = self
                 .subr_slot_mut(sym_id)
                 .expect("subr registry points to non-subr value");
-            subr.name = sym_id;
+            subr.name = name_id;
             subr.min_args = min_args;
             subr.max_args = max_args;
             subr.dispatch_kind = dispatch_kind;
@@ -10492,9 +10496,9 @@ impl Context {
             existing
         } else {
             let value = crate::tagged::gc::with_tagged_heap(|h| {
-                h.alloc_subr(sym_id, Some(func), min_args, max_args, dispatch_kind)
+                h.alloc_subr(name_id, Some(func), min_args, max_args, dispatch_kind)
             });
-            crate::tagged::value::register_current_subr(sym_id, value);
+            crate::tagged::value::register_current_subr(name_id, value);
             value
         };
         self.register_subr_slot(sym_id, subr_value);
@@ -10510,7 +10514,7 @@ impl Context {
     pub fn dispatch_subr_id(&mut self, sym_id: SymId, args: Vec<Value>) -> Option<EvalResult> {
         let subr = self.subr_slot(sym_id)?;
         let func = subr.function?;
-        let name = resolve_sym(subr.name);
+        let name = resolve_name(subr.name);
         // Debug: trace (cdr t) to find the calling context
         if name == "cdr" && args.len() == 1 && args[0].is_t() {
             tracing::error!("(cdr t) called! Lisp backtrace:");

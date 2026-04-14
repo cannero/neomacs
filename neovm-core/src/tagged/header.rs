@@ -323,8 +323,8 @@ pub enum SubrDispatchKind {
 #[repr(C)]
 pub struct SubrObj {
     pub header: VecLikeHeader,
-    /// The SymId of the subr's name (e.g., intern("car")).
-    pub name: crate::emacs_core::intern::SymId,
+    /// The runtime-local name atom for the subr's public name.
+    pub name: crate::emacs_core::intern::NameId,
     /// Minimum number of arguments.
     pub min_args: u16,
     /// Maximum number of arguments (None = unlimited/&rest).

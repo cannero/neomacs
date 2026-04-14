@@ -1,28 +1,35 @@
-//! String interner for symbol, keyword, and subr names.
+//! Process-global symbol registry backed by a separate string atom table.
 //!
-//! `SymId` must stay stable across evaluator creation/destruction so values can
-//! be formatted, compared, and moved between contexts without keeping an old
-//! `Context` alive just for name resolution. The runtime therefore uses a
-//! single append-only process interner, while tests can still instantiate local
-//! `StringInterner`s directly for unit coverage.
+//! `SymId` is Lisp symbol identity and must stay stable across evaluator
+//! creation/destruction so values can be formatted, compared, and moved
+//! between contexts without keeping an old `Context` alive just for name
+//! resolution. The runtime therefore uses a single append-only process symbol
+//! registry.
+//!
+//! Name atoms are tracked separately via [`NameId`]. This mirrors GNU's model
+//! more closely: a symbol is an object with a name, not just "slot N in the
+//! string interner".
 
 use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
 use std::cell::RefCell;
 use std::sync::OnceLock;
 
-/// A compact handle to an interned string. Copy, 4 bytes.
+/// A compact handle to a Lisp symbol object. Copy, 4 bytes.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct SymId(pub(crate) u32);
+
+/// A compact handle to a deduplicated symbol-name atom. Runtime-local only.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct NameId(pub(crate) u32);
 
 pub const NIL_SYM_ID: SymId = SymId(0);
 pub const T_SYM_ID: SymId = SymId(1);
 
-/// Append-only string interner. Guarantees: same string → same SymId.
+/// Append-only string interner used only for symbol names.
 pub struct StringInterner {
     strings: Vec<&'static str>,
-    map: FxHashMap<&'static str, u32>,
-    canonical: Vec<bool>,
+    map: FxHashMap<&'static str, NameId>,
 }
 
 impl Default for StringInterner {
@@ -33,177 +40,352 @@ impl Default for StringInterner {
 
 impl StringInterner {
     pub fn new() -> Self {
-        let mut interner = Self {
+        Self {
             strings: Vec::new(),
             map: FxHashMap::default(),
-            canonical: Vec::new(),
-        };
-        // Pre-intern "nil" and "t" as SymId(0) and SymId(1) respectively.
-        // TaggedValue::NIL = Symbol(0) and TaggedValue::T = Symbol(1)
-        // rely on these exact assignments.
-        let nil_id = interner.intern("nil");
-        debug_assert_eq!(nil_id, NIL_SYM_ID);
-        let t_id = interner.intern("t");
-        debug_assert_eq!(t_id, T_SYM_ID);
-        interner
+        }
     }
 
-    /// Intern a string, returning its unique id.
-    /// If the string was already interned, returns the existing id.
-    pub fn intern(&mut self, s: &str) -> SymId {
+    /// Intern a symbol-name atom, returning its unique id.
+    pub fn intern(&mut self, s: &str) -> NameId {
         if let Some(&idx) = self.map.get(s) {
-            return SymId(idx);
+            return idx;
         }
-        let idx = self.strings.len() as u32;
+        let idx = NameId(self.strings.len() as u32);
         let leaked = Box::leak(s.to_owned().into_boxed_str()) as &'static str;
         self.strings.push(leaked);
         self.map.insert(leaked, idx);
-        self.canonical.push(true);
-        SymId(idx)
+        idx
     }
 
-    /// Create an uninterned symbol with the given name.
-    /// Always allocates a NEW SymId, even if the name already exists.
-    /// The new SymId is NOT added to the dedup map, so `intern(name)`
-    /// will still return the original interned SymId.
-    /// This implements Emacs Lisp's `make-symbol` semantics.
-    pub fn intern_uninterned(&mut self, s: &str) -> SymId {
-        let idx = self.strings.len() as u32;
-        let leaked = Box::leak(s.to_owned().into_boxed_str()) as &'static str;
-        self.strings.push(leaked);
-        // Deliberately NOT inserting into self.map
-        self.canonical.push(false);
-        SymId(idx)
+    /// Look up a symbol-name atom without interning it.
+    pub fn lookup(&self, s: &str) -> Option<NameId> {
+        self.map.get(s).copied()
     }
 
-    /// Look up the canonical interned id for a string without interning it.
-    pub fn lookup(&self, s: &str) -> Option<SymId> {
-        self.map.get(s).copied().map(SymId)
-    }
-
+    /// Resolve a name id back to its string. Panics if id is invalid.
     #[inline]
-    pub fn is_canonical_id(&self, id: SymId) -> bool {
-        self.canonical.get(id.0 as usize).copied().unwrap_or(false)
-    }
-
-    /// Resolve a SymId back to its string. Panics if id is invalid.
-    #[inline]
-    pub fn resolve(&self, id: SymId) -> &'static str {
+    pub fn resolve(&self, id: NameId) -> &'static str {
         self.strings[id.0 as usize]
     }
+}
 
-    /// Access all interned strings (for pdump serialization).
-    pub(crate) fn strings(&self) -> &[&'static str] {
-        &self.strings
+#[derive(Clone, Copy, Debug)]
+struct SymbolSlot {
+    name: NameId,
+    canonical: bool,
+}
+
+pub(crate) struct DumpedSymbolTable {
+    pub names: Vec<String>,
+    pub symbol_names: Vec<u32>,
+    pub canonical: Vec<bool>,
+}
+
+#[derive(Debug)]
+pub(crate) struct RestoredDumpSymbolTable {
+    pub names: Vec<NameId>,
+    pub symbols: Vec<SymId>,
+}
+
+/// Process-global append-only registry of Lisp symbols.
+struct SymbolRegistry {
+    names: StringInterner,
+    symbols: Vec<SymbolSlot>,
+    canonical_by_name: FxHashMap<NameId, SymId>,
+}
+
+impl Default for SymbolRegistry {
+    fn default() -> Self {
+        Self::new()
     }
+}
 
-    /// Reconstruct a StringInterner from a list of strings (for pdump load).
-    /// Rebuilds the dedup map. Strings that appear multiple times (uninterned
-    /// symbols) are NOT added to the dedup map after the first occurrence.
-    pub(crate) fn from_strings(strings: Vec<String>) -> Self {
-        let mut interner = Self {
-            strings: Vec::with_capacity(strings.len()),
-            map: FxHashMap::with_capacity_and_hasher(strings.len(), Default::default()),
-            canonical: Vec::with_capacity(strings.len()),
+impl SymbolRegistry {
+    fn new() -> Self {
+        let mut registry = Self {
+            names: StringInterner::new(),
+            symbols: Vec::new(),
+            canonical_by_name: FxHashMap::default(),
         };
-        for s in strings {
-            interner.push_preserving_slot(s);
-        }
-        interner
+        let nil_name = registry.names.intern("nil");
+        let nil_id = registry.alloc_symbol(nil_name, true);
+        debug_assert_eq!(nil_id, NIL_SYM_ID);
+
+        let t_name = registry.names.intern("t");
+        let t_id = registry.alloc_symbol(t_name, true);
+        debug_assert_eq!(t_id, T_SYM_ID);
+
+        registry
     }
 
-    /// Extend this interner so its first `strings.len()` slots exactly match
-    /// the provided serialized dump order.
-    pub(crate) fn ensure_from_strings(&mut self, strings: &[String]) {
-        for (idx, expected) in strings.iter().enumerate() {
-            if let Some(existing) = self.strings.get(idx) {
-                assert_eq!(
-                    *existing,
-                    expected.as_str(),
-                    "global interner slot {idx} diverged from dump state"
-                );
-                continue;
-            }
-            let inserted = self.push_preserving_slot(expected.clone());
-            debug_assert_eq!(inserted.0 as usize, idx);
+    fn alloc_symbol(&mut self, name: NameId, canonical: bool) -> SymId {
+        let id = SymId(self.symbols.len() as u32);
+        self.symbols.push(SymbolSlot { name, canonical });
+        if canonical {
+            self.canonical_by_name.insert(name, id);
+        }
+        id
+    }
+
+    fn slot(&self, id: SymId) -> Option<&SymbolSlot> {
+        self.symbols.get(id.0 as usize)
+    }
+
+    fn intern(&mut self, s: &str) -> SymId {
+        let name = self.names.intern(s);
+        if let Some(existing) = self.canonical_by_name.get(&name) {
+            return *existing;
+        }
+        self.alloc_symbol(name, true)
+    }
+
+    fn intern_uninterned(&mut self, s: &str) -> SymId {
+        let name = self.names.intern(s);
+        self.alloc_symbol(name, false)
+    }
+
+    fn lookup(&self, s: &str) -> Option<SymId> {
+        let name = self.names.lookup(s)?;
+        self.canonical_by_name.get(&name).copied()
+    }
+
+    #[inline]
+    fn is_canonical_id(&self, id: SymId) -> bool {
+        self.slot(id).map(|slot| slot.canonical).unwrap_or(false)
+    }
+
+    #[inline]
+    fn resolve(&self, id: SymId) -> &'static str {
+        let slot = self
+            .slot(id)
+            .unwrap_or_else(|| panic!("invalid symbol id {:?}", id));
+        self.names.resolve(slot.name)
+    }
+
+    #[inline]
+    fn name_id(&self, id: SymId) -> NameId {
+        self.slot(id)
+            .unwrap_or_else(|| panic!("invalid symbol id {:?}", id))
+            .name
+    }
+
+    #[inline]
+    fn resolve_name(&self, id: NameId) -> &'static str {
+        self.names.resolve(id)
+    }
+
+    fn dump_symbol_table(&self) -> DumpedSymbolTable {
+        let names = self
+            .names
+            .strings
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect();
+        let mut symbol_names = Vec::with_capacity(self.symbols.len());
+        let mut canonical = Vec::with_capacity(self.symbols.len());
+        for slot in &self.symbols {
+            symbol_names.push(slot.name.0);
+            canonical.push(slot.canonical);
+        }
+        DumpedSymbolTable {
+            names,
+            symbol_names,
+            canonical,
         }
     }
 
-    fn push_preserving_slot(&mut self, s: String) -> SymId {
-        let idx = self.strings.len() as u32;
-        let leaked = Box::leak(s.into_boxed_str()) as &'static str;
-        self.strings.push(leaked);
-        let canonical = match self.map.entry(leaked) {
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                entry.insert(idx);
-                true
+    fn restore_dump_symbol_table(
+        &mut self,
+        names: &[String],
+        symbol_names: &[u32],
+        canonical: Option<&[bool]>,
+    ) -> Result<RestoredDumpSymbolTable, String> {
+        let mut name_remap = Vec::with_capacity(names.len());
+        for name in names {
+            name_remap.push(self.names.intern(name));
+        }
+
+        let derived_flags;
+        let canonical = match canonical {
+            Some(flags) if flags.len() == symbol_names.len() => flags,
+            Some(flags) if flags.is_empty() => {
+                derived_flags = derive_legacy_canonical_flags_from_names(names, symbol_names)?;
+                &derived_flags
             }
-            std::collections::hash_map::Entry::Occupied(_) => false,
+            None => {
+                derived_flags = derive_legacy_canonical_flags_from_names(names, symbol_names)?;
+                &derived_flags
+            }
+            Some(flags) => {
+                return Err(format!(
+                    "pdump symbol metadata is inconsistent: {} symbols but {} canonical flags",
+                    symbol_names.len(),
+                    flags.len()
+                ));
+            }
         };
-        self.canonical.push(canonical);
-        SymId(idx)
+
+        if symbol_names.len() != canonical.len() {
+            return Err(format!(
+                "pdump symbol metadata is inconsistent: {} symbols but {} canonical flags",
+                symbol_names.len(),
+                canonical.len()
+            ));
+        }
+
+        let mut dump_canonical_slots: FxHashMap<NameId, usize> = FxHashMap::default();
+
+        let symbol_remap = symbol_names
+            .iter()
+            .copied()
+            .zip(canonical.iter().copied())
+            .enumerate()
+            .map(|(slot, (dump_name_id, is_canonical))| {
+                let runtime_name = name_remap
+                    .get(dump_name_id as usize)
+                    .copied()
+                    .ok_or_else(|| {
+                        format!(
+                            "pdump symbol metadata is inconsistent: symbol name id {} out of range for {} names",
+                            dump_name_id,
+                            names.len()
+                        )
+                    })?;
+                if is_canonical {
+                    if let Some(previous_slot) = dump_canonical_slots.insert(runtime_name, slot) {
+                        return Err(format!(
+                            "pdump symbol metadata is inconsistent: canonical symbol slots {} and {} both name {}",
+                            previous_slot,
+                            slot,
+                            self.names.resolve(runtime_name)
+                        ));
+                    }
+                    Ok::<SymId, String>(
+                        self.canonical_by_name
+                            .get(&runtime_name)
+                            .copied()
+                            .unwrap_or_else(|| self.alloc_symbol(runtime_name, true)),
+                    )
+                } else {
+                    Ok::<SymId, String>(self.alloc_symbol(runtime_name, false))
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(RestoredDumpSymbolTable {
+            names: name_remap,
+            symbols: symbol_remap,
+        })
+    }
+
+    #[inline]
+    fn canonical_symbol_for_name(&self, name: NameId) -> Option<SymId> {
+        self.canonical_by_name.get(&name).copied()
     }
 }
 
-fn global_interner() -> &'static RwLock<StringInterner> {
-    static GLOBAL_INTERNER: OnceLock<RwLock<StringInterner>> = OnceLock::new();
-    GLOBAL_INTERNER.get_or_init(|| RwLock::new(StringInterner::new()))
+fn derive_legacy_canonical_flags_from_names(
+    names: &[String],
+    symbol_names: &[u32],
+) -> Result<Vec<bool>, String> {
+    let mut seen = FxHashMap::default();
+    symbol_names
+        .iter()
+        .copied()
+        .map(|dump_name_id| {
+            let name = names.get(dump_name_id as usize).ok_or_else(|| {
+                format!(
+                    "pdump symbol metadata is inconsistent: symbol name id {} out of range for {} names",
+                    dump_name_id,
+                    names.len()
+                )
+            })?;
+            Ok(seen.insert(name.clone(), ()).is_none())
+        })
+        .collect()
 }
 
-pub(crate) fn dump_runtime_interner() -> StringInterner {
-    let interner = global_interner().read();
-    StringInterner::from_strings(interner.strings().iter().map(|s| (*s).to_owned()).collect())
+fn global_symbol_registry() -> &'static RwLock<SymbolRegistry> {
+    static GLOBAL_SYMBOL_REGISTRY: OnceLock<RwLock<SymbolRegistry>> = OnceLock::new();
+    GLOBAL_SYMBOL_REGISTRY.get_or_init(|| RwLock::new(SymbolRegistry::new()))
 }
 
-pub(crate) fn ensure_runtime_interner(strings: &[String]) {
-    let mut interner = global_interner().write();
-    interner.ensure_from_strings(strings);
+pub(crate) fn dump_runtime_interner() -> DumpedSymbolTable {
+    let registry = global_symbol_registry().read();
+    registry.dump_symbol_table()
 }
 
-/// Intern a string using the global runtime interner.
+pub(crate) fn restore_runtime_interner(
+    names: &[String],
+    symbol_names: &[u32],
+    canonical: Option<&[bool]>,
+) -> Result<RestoredDumpSymbolTable, String> {
+    let mut registry = global_symbol_registry().write();
+    registry.restore_dump_symbol_table(names, symbol_names, canonical)
+}
+
+/// Intern a string using the global runtime symbol registry.
 #[inline]
 pub fn intern(s: &str) -> SymId {
-    let mut interner = global_interner().write();
-    interner.intern(s)
+    let mut registry = global_symbol_registry().write();
+    registry.intern(s)
 }
 
-/// Create an uninterned symbol using the global runtime interner.
+/// Create an uninterned symbol using the global runtime symbol registry.
 /// Always creates a new unique SymId, never reuses an existing one.
 #[inline]
 pub fn intern_uninterned(s: &str) -> SymId {
-    let mut interner = global_interner().write();
-    interner.intern_uninterned(s)
+    let mut registry = global_symbol_registry().write();
+    registry.intern_uninterned(s)
 }
 
-/// Look up the canonical interned id for a string without interning it.
+/// Look up the canonical interned symbol id for a string without interning it.
 #[inline]
 pub fn lookup_interned(s: &str) -> Option<SymId> {
-    let interner = global_interner().read();
-    interner.lookup(s)
+    let registry = global_symbol_registry().read();
+    registry.lookup(s)
 }
 
 #[inline]
 pub fn is_canonical_id(id: SymId) -> bool {
-    let interner = global_interner().read();
-    interner.is_canonical_id(id)
+    let registry = global_symbol_registry().read();
+    registry.is_canonical_id(id)
 }
 
 #[inline]
 pub fn resolve_sym_metadata(id: SymId) -> (&'static str, bool) {
-    let interner = global_interner().read();
-    (interner.resolve(id), interner.is_canonical_id(id))
+    let registry = global_symbol_registry().read();
+    (registry.resolve(id), registry.is_canonical_id(id))
 }
 
-/// Resolve a SymId to its string using the global runtime interner.
-///
+#[inline]
+pub(crate) fn symbol_name_id(id: SymId) -> NameId {
+    let registry = global_symbol_registry().read();
+    registry.name_id(id)
+}
+
+#[inline]
+pub(crate) fn resolve_name(id: NameId) -> &'static str {
+    let registry = global_symbol_registry().read();
+    registry.resolve_name(id)
+}
+
+#[inline]
+pub(crate) fn canonical_symbol_for_name(id: NameId) -> Option<SymId> {
+    let registry = global_symbol_registry().read();
+    registry.canonical_symbol_for_name(id)
+}
+
+/// Resolve a SymId to its string using the global runtime symbol registry.
 #[inline]
 pub fn resolve_sym(id: SymId) -> &'static str {
     if let Some(s) = thread_local_resolve(id) {
         return s;
     }
-    let interner = global_interner().read();
-    let s = interner.resolve(id);
-    drop(interner);
+    let registry = global_symbol_registry().read();
+    let s = registry.resolve(id);
+    drop(registry);
     thread_local_record(id, s);
     s
 }
@@ -214,15 +396,9 @@ pub fn resolve_sym(id: SymId) -> &'static str {
 //
 // `resolve_sym` is called from many bytecode hot paths (e.g. `is_keyword`,
 // debug formatting) and acquiring the global RwLock — even with parking_lot
-// — is many extra atomic ops per call.  Once a SymId is interned, the
-// underlying `&'static str` is permanently valid (the strings are Box::leaked
-// into static storage), so the (id -> str) mapping is monotonic and stable
-// for the lifetime of the process.  We can therefore safely cache it
-// per-thread without any locks.
-//
-// The cache is a `RefCell<Vec<Option<&'static str>>>`, lazily extended.  A
-// hit is one bounds check + one Option compare; a miss falls back through
-// the global interner, populates the cache, and returns the string.
+// — is many extra atomic ops per call. Once a SymId is interned, the
+// underlying `&'static str` is permanently valid, so the (id -> str) mapping
+// is monotonic and stable for the lifetime of the process.
 
 thread_local! {
     static SYM_NAME_CACHE: RefCell<Vec<Option<&'static str>>> = const { RefCell::new(Vec::new()) };
@@ -248,16 +424,19 @@ fn thread_local_record(id: SymId, name: &'static str) {
     });
 }
 
-/// Resolve a SymId to its string using the global runtime interner.
+/// Resolve a SymId to its string using the global runtime symbol registry.
 ///
-/// Returns `None` if the id is outside the current interner range instead of
+/// Returns `None` if the id is outside the current symbol range instead of
 /// panicking. This is useful at serialization boundaries where we want a
 /// structured error instead of aborting the process on malformed runtime data.
 #[inline]
 pub fn try_resolve_sym(id: SymId) -> Option<&'static str> {
-    let interner = global_interner().read();
-    interner.strings().get(id.0 as usize).copied()
+    let registry = global_symbol_registry().read();
+    registry
+        .slot(id)
+        .map(|slot| registry.names.resolve(slot.name))
 }
+
 #[cfg(test)]
 #[path = "intern_test.rs"]
 mod tests;

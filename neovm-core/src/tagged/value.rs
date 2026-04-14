@@ -26,7 +26,9 @@
 
 use std::fmt;
 
-use crate::emacs_core::intern::{SymId, resolve_sym};
+use crate::emacs_core::intern::{
+    NameId, SymId, canonical_symbol_for_name, resolve_name, resolve_sym, symbol_name_id,
+};
 
 use super::header::{
     BignumObj, ConsCell, FloatObj, GcHeader, StringObj, VecLikeHeader, VecLikeType,
@@ -36,11 +38,11 @@ pub(crate) fn reset_current_subrs() {
     crate::tagged::gc::with_tagged_heap(|heap| heap.clear_subr_registry());
 }
 
-pub(crate) fn current_subr_value(id: SymId) -> Option<TaggedValue> {
+pub(crate) fn current_subr_value(id: NameId) -> Option<TaggedValue> {
     crate::tagged::gc::with_tagged_heap(|heap| heap.subr_value(id))
 }
 
-pub(crate) fn register_current_subr(id: SymId, value: TaggedValue) {
+pub(crate) fn register_current_subr(id: NameId, value: TaggedValue) {
     crate::tagged::gc::with_tagged_heap(|heap| heap.register_subr_value(id, value));
 }
 
@@ -227,15 +229,19 @@ impl TaggedValue {
     /// In GNU Emacs, subrs are PVEC_SUBR heap objects. We allocate a SubrObj
     /// on the tagged heap.
     pub fn subr(id: SymId) -> Self {
-        if let Some(value) = current_subr_value(id) {
+        Self::subr_name_id(symbol_name_id(id))
+    }
+
+    pub(crate) fn subr_name_id(name_id: NameId) -> Self {
+        if let Some(value) = current_subr_value(name_id) {
             return value;
         }
         let (min_args, max_args, dispatch_kind) =
-            crate::emacs_core::subr_info::lookup_compat_subr_metadata(resolve_sym(id), 0, None);
+            crate::emacs_core::subr_info::lookup_compat_subr_metadata(resolve_name(name_id), 0, None);
         let value = crate::tagged::gc::with_tagged_heap(|h| {
-            h.alloc_subr(id, None, min_args, max_args, dispatch_kind)
+            h.alloc_subr(name_id, None, min_args, max_args, dispatch_kind)
         });
-        register_current_subr(id, value);
+        register_current_subr(name_id, value);
         value
     }
 
@@ -457,12 +463,13 @@ impl TaggedValue {
         }
     }
 
-    /// Extract subr SymId. Returns None if not a subr.
+    /// Extract the canonical public symbol id for a subr. Returns None if not a
+    /// subr or if its name does not currently map to a canonical symbol.
     #[inline]
     pub fn as_subr_id(self) -> Option<SymId> {
         if self.is_subr() {
             let ptr = self.as_veclike_ptr().unwrap() as *const super::header::SubrObj;
-            Some(unsafe { (*ptr).name })
+            canonical_symbol_for_name(unsafe { (*ptr).name })
         } else {
             None
         }

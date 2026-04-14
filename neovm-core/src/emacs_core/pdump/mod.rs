@@ -32,14 +32,14 @@ use crate::emacs_core::eval::Context;
 use crate::emacs_core::fontset::{
     FontsetRegistrySnapshot, restore_fontset_registry, snapshot_fontset_registry,
 };
-use crate::emacs_core::intern;
 use crate::emacs_core::value;
 
 const MAGIC: &[u8; 8] = b"NEOPDUMP";
 const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook-pending";
-// Phase 13 bump (13): embed the shared build fingerprint in the on-disk
-// header and reject mismatched runtime images at load time.
-const FORMAT_VERSION: u32 = 13;
+// Phase 18 bump (18): phase 16 introduced an explicit dump-local symbol table,
+// phase 17 fixed the on-disk `DumpSymbolData` layout, and phase 18 stores subr
+// names as dump-local name atoms instead of dump-local symbol slots.
+const FORMAT_VERSION: u32 = 18;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
@@ -278,9 +278,19 @@ pub fn clone_active_evaluator(eval: &mut Context) -> Result<Context, DumpError> 
 
 /// Reconstruct an `Context` from deserialized dump state.
 fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError> {
-    // 1. Reconstruct the global append-only symbol table before any values that
-    // refer to SymIds are loaded.
-    load_interner(&state.interner);
+    struct RestoreCleanup;
+
+    impl Drop for RestoreCleanup {
+        fn drop(&mut self) {
+            finish_preload_tagged_heap();
+            finish_load_interner();
+        }
+    }
+
+    // 1. Reconstruct the dump-local symbol table before any values that refer
+    // to dump-local `DumpSymId`s are loaded.
+    load_symbol_table(&state.symbol_table)?;
+    let _cleanup = RestoreCleanup;
 
     // 2. Reconstruct the tagged heap before any heap-backed value/object loads
     // so tagged dump references can resolve directly to live tagged objects.
@@ -297,14 +307,10 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
     load_fontset_registry(&state.fontset_registry);
 
     // 5. Reconstruct all subsystems
-    let obarray = load_obarray(&state.obarray);
+    let obarray = load_obarray(&state.obarray)?;
     let lexenv = load_value(&state.lexenv);
-    let features: Vec<_> = state.features.iter().map(|id| intern::SymId(*id)).collect();
-    let require_stack: Vec<_> = state
-        .require_stack
-        .iter()
-        .map(|id| intern::SymId(*id))
-        .collect();
+    let features: Vec<_> = state.features.iter().map(load_sym_id).collect();
+    let require_stack: Vec<_> = state.require_stack.iter().map(load_sym_id).collect();
     let loads_in_progress: Vec<_> = state
         .loads_in_progress
         .iter()
@@ -370,8 +376,6 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
         }
     }
 
-    finish_preload_tagged_heap();
-
     Ok(eval)
 }
 
@@ -395,7 +399,8 @@ mod tests {
     use super::*;
     use crate::emacs_core::intern::intern;
     use crate::emacs_core::pdump::types::{
-        DumpByteCodeFunction, DumpHeapObject, DumpLambdaParams, DumpOp,
+        DumpByteCodeFunction, DumpHeapObject, DumpLambdaParams, DumpOp, DumpSymId, DumpSymbolData,
+        DumpSymbolValue, DumpValue,
     };
     use crate::emacs_core::value::Value;
 
@@ -422,6 +427,37 @@ mod tests {
             loaded.obarray.symbol_value("test-pdump-var"),
             Some(&Value::fixnum(42))
         );
+    }
+
+    #[test]
+    fn test_dump_symbol_data_bincode_round_trip_with_legacy_name_omitted() {
+        crate::test_utils::init_test_tracing();
+
+        let original = DumpSymbolData {
+            name: None,
+            value: None,
+            symbol_value: Some(DumpSymbolValue::Alias(DumpSymId(7))),
+            function: Some(DumpValue::Int(9)),
+            plist: vec![(DumpSymId(3), DumpValue::Int(11))],
+            special: true,
+            constant: false,
+        };
+
+        let encoded = bincode::serialize(&original).expect("symbol data should serialize");
+        let decoded: DumpSymbolData =
+            bincode::deserialize(&encoded).expect("symbol data should deserialize");
+
+        assert!(decoded.name.is_none(), "legacy name field should stay omitted");
+        assert!(matches!(
+            decoded.symbol_value,
+            Some(DumpSymbolValue::Alias(DumpSymId(7)))
+        ));
+        assert!(matches!(decoded.function, Some(DumpValue::Int(9))));
+        assert_eq!(decoded.plist.len(), 1);
+        assert_eq!(decoded.plist[0].0, DumpSymId(3));
+        assert!(matches!(decoded.plist[0].1, DumpValue::Int(11)));
+        assert!(decoded.special);
+        assert!(!decoded.constant);
     }
 
     #[test]
@@ -823,6 +859,52 @@ mod tests {
     }
 
     #[test]
+    fn test_restore_snapshot_preserves_lone_uninterned_symbol_identity() {
+        crate::test_utils::init_test_tracing();
+        let mut template = Context::new();
+        let solo = crate::emacs_core::intern::intern_uninterned("compat-pdump-solo-uninterned");
+        template
+            .obarray
+            .set_symbol_value("compat-pdump-uninterned-holder", Value::from_sym_id(solo));
+        let snapshot = snapshot_evaluator(&template);
+
+        let restored = restore_snapshot(&snapshot).expect("restored snapshot should succeed");
+        let held = *restored
+            .obarray
+            .symbol_value("compat-pdump-uninterned-holder")
+            .expect("holder binding should exist");
+        let held_id = held.as_symbol_id().expect("holder should contain a symbol");
+        assert_eq!(
+            crate::emacs_core::intern::resolve_sym(held_id),
+            "compat-pdump-solo-uninterned"
+        );
+        assert!(
+            !crate::emacs_core::intern::is_canonical_id(held_id),
+            "round-tripped lone uninterned symbol should stay uninterned"
+        );
+    }
+
+    #[test]
+    fn test_restore_snapshot_preserves_subr_name_identity_via_name_atoms() {
+        crate::test_utils::init_test_tracing();
+        let mut template = Context::new();
+        let subr = Value::subr(intern("car"));
+        template
+            .obarray
+            .set_symbol_value("compat-pdump-subr-holder", subr);
+        let snapshot = snapshot_evaluator(&template);
+
+        let restored = restore_snapshot(&snapshot).expect("restored snapshot should succeed");
+        let held = *restored
+            .obarray
+            .symbol_value("compat-pdump-subr-holder")
+            .expect("holder binding should exist");
+
+        assert!(held.is_subr(), "holder should round-trip a subr object");
+        assert_eq!(held.as_subr_id(), Some(intern("car")));
+    }
+
+    #[test]
     fn test_restore_snapshot_does_not_report_file_based_pdump_session() {
         crate::test_utils::init_test_tracing();
         let mut template = Context::new();
@@ -910,5 +992,244 @@ mod tests {
             Ok(_) => panic!("expected deserialization error, got successful restore"),
             Err(err) => panic!("expected deserialization error, got {err}"),
         }
+    }
+
+    #[test]
+    fn test_restore_snapshot_rejects_duplicate_obarray_symbol_slots() {
+        crate::test_utils::init_test_tracing();
+        let mut snapshot = snapshot_evaluator(&Context::new());
+        let duplicate = snapshot
+            .obarray
+            .symbols
+            .first()
+            .cloned()
+            .expect("snapshot should contain at least one symbol");
+        snapshot.obarray.symbols.push(duplicate);
+
+        let result = restore_snapshot(&snapshot);
+        match result {
+            Err(DumpError::DeserializationError(message)) => {
+                assert!(
+                    message.contains("duplicate symbol slot"),
+                    "unexpected error: {message}"
+                );
+            }
+            Ok(_) => panic!("expected deserialization error, got successful restore"),
+            Err(err) => panic!("expected deserialization error, got {err}"),
+        }
+    }
+
+    #[test]
+    fn test_restore_snapshot_rejects_global_member_without_symbol_entry() {
+        crate::test_utils::init_test_tracing();
+        let template = Context::new();
+        let dangling = crate::emacs_core::intern::intern_uninterned("compat-pdump-missing-global");
+        let mut snapshot = snapshot_evaluator(&template);
+        snapshot.obarray.global_members.push(DumpSymId(dangling.0));
+
+        let result = restore_snapshot(&snapshot);
+        match result {
+            Err(DumpError::DeserializationError(message)) => {
+                assert!(
+                    message.contains("global_members entry references missing symbol slot"),
+                    "unexpected error: {message}"
+                );
+            }
+            Ok(_) => panic!("expected deserialization error, got successful restore"),
+            Err(err) => panic!("expected deserialization error, got {err}"),
+        }
+    }
+
+    fn summarize_timings(label: &str, samples: &[std::time::Duration]) {
+        let mut millis: Vec<f64> = samples.iter().map(|d| d.as_secs_f64() * 1000.0).collect();
+        millis.sort_by(|a, b| a.partial_cmp(b).expect("timing values should compare"));
+        let count = millis.len();
+        let mean = millis.iter().sum::<f64>() / count as f64;
+        let min = millis[0];
+        let max = millis[count - 1];
+        let median = millis[count / 2];
+        eprintln!(
+            "pdump bench: {label}: mean={mean:.1}ms median={median:.1}ms min={min:.1}ms max={max:.1}ms n={count}"
+        );
+    }
+
+    fn measure_timings<T>(
+        iterations: usize,
+        mut op: impl FnMut() -> T,
+    ) -> Vec<std::time::Duration> {
+        let mut samples = Vec::with_capacity(iterations);
+        for _ in 0..iterations {
+            let start = std::time::Instant::now();
+            let _ = op();
+            samples.push(start.elapsed());
+        }
+        samples
+    }
+
+    fn workspace_pdump_paths() -> (std::path::PathBuf, std::path::PathBuf) {
+        let workspace_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("workspace root")
+            .to_path_buf();
+        let final_path = workspace_root.join("target/debug/neomacs.pdump");
+        let bootstrap_path = workspace_root.join("target/debug/bootstrap-neomacs.pdump");
+        assert!(
+            final_path.exists(),
+            "missing final image at {}; run a fresh build first",
+            final_path.display()
+        );
+        assert!(
+            bootstrap_path.exists(),
+            "missing bootstrap image at {}; run a fresh build first",
+            bootstrap_path.display()
+        );
+        (final_path, bootstrap_path)
+    }
+
+    #[test]
+    fn test_measure_current_workspace_final_pdump_performance() {
+        crate::test_utils::init_test_tracing();
+        let (final_path, bootstrap_path) = workspace_pdump_paths();
+        let final_size = std::fs::metadata(&final_path)
+            .expect("stat final pdump")
+            .len();
+        let bootstrap_size = std::fs::metadata(&bootstrap_path)
+            .expect("stat bootstrap pdump")
+            .len();
+        eprintln!(
+            "pdump bench: final image size={} bytes ({:.1} MiB)",
+            final_size,
+            final_size as f64 / 1048576.0
+        );
+        eprintln!(
+            "pdump bench: bootstrap image size={} bytes ({:.1} MiB)",
+            bootstrap_size,
+            bootstrap_size as f64 / 1048576.0
+        );
+
+        let iterations = 5;
+        let final_raw_load = measure_timings(iterations, || {
+            load_from_dump(&final_path).expect("raw final load should succeed")
+        });
+        summarize_timings("raw final load_from_dump", &final_raw_load);
+
+        let finalized_runtime_load = measure_timings(iterations, || {
+            crate::emacs_core::load::load_runtime_image_with_features(
+                crate::emacs_core::load::RuntimeImageRole::Final,
+                &[],
+                Some(&final_path),
+            )
+            .expect("final runtime image load should succeed")
+        });
+        summarize_timings("final load+finalize", &finalized_runtime_load);
+
+        let loaded_final = load_from_dump(&final_path).expect("prepare final eval for dump bench");
+        let dump_dir = tempfile::tempdir().expect("dump tempdir");
+        let mut dump_sizes = Vec::with_capacity(iterations);
+        let dump_samples = measure_timings(iterations, || {
+            let output = dump_dir
+                .path()
+                .join(format!("bench-{}.pdump", dump_sizes.len()));
+            dump_to_file(&loaded_final, &output).expect("dump should succeed");
+            dump_sizes.push(std::fs::metadata(&output).expect("stat dumped image").len());
+        });
+        summarize_timings("dump_to_file from loaded final image", &dump_samples);
+        if let Some(last_size) = dump_sizes.last() {
+            eprintln!(
+                "pdump bench: dumped bench image size={} bytes ({:.1} MiB)",
+                last_size,
+                *last_size as f64 / 1048576.0
+            );
+        }
+    }
+
+    #[test]
+    fn test_measure_current_workspace_bootstrap_pdump_raw_load() {
+        crate::test_utils::init_test_tracing();
+        let (_final_path, bootstrap_path) = workspace_pdump_paths();
+        let bootstrap_size = std::fs::metadata(&bootstrap_path)
+            .expect("stat bootstrap pdump")
+            .len();
+        eprintln!(
+            "pdump bench: bootstrap image size={} bytes ({:.1} MiB)",
+            bootstrap_size,
+            bootstrap_size as f64 / 1048576.0
+        );
+
+        let bootstrap_raw_load = measure_timings(5, || {
+            load_from_dump(&bootstrap_path).expect("raw bootstrap load should succeed")
+        });
+        summarize_timings("raw bootstrap load_from_dump", &bootstrap_raw_load);
+    }
+
+    #[test]
+    fn test_pdump_sequential_decode_round_trip() {
+        crate::test_utils::init_test_tracing();
+        let mut eval = Context::new();
+        eval.obarray
+            .set_symbol_value("pdump-sequential-decode-probe", Value::fixnum(17));
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let dump_path = dir.path().join("sequential-decode.pdump");
+        dump_to_file(&eval, &dump_path).expect("dump should succeed");
+
+        let bytes = std::fs::read(&dump_path).expect("read test pdump");
+        assert!(bytes.len() > 80, "pdump header should exist");
+        let payload_len = u32::from_le_bytes(bytes[76..80].try_into().unwrap()) as usize;
+        let payload = &bytes[80..80 + payload_len];
+
+        let mut cursor = std::io::Cursor::new(payload);
+
+        macro_rules! decode_field {
+            ($label:literal, $ty:ty) => {{
+                let start = cursor.position();
+                let value: $ty = bincode::deserialize_from(&mut cursor).unwrap_or_else(|err| {
+                    panic!(
+                        "failed decoding {} at payload offset {}: {}",
+                        $label, start, err
+                    )
+                });
+                eprintln!(
+                    "pdump decode: {} ok ({} -> {})",
+                    $label,
+                    start,
+                    cursor.position()
+                );
+                value
+            }};
+        }
+
+        let _symbol_table = decode_field!("symbol_table", types::DumpSymbolTable);
+        let _tagged_heap = decode_field!("tagged_heap", types::DumpTaggedHeap);
+        let _obarray = decode_field!("obarray", types::DumpObarray);
+        let _dynamic = decode_field!("dynamic", Vec<types::DumpOrderedSymMap>);
+        let _lexenv = decode_field!("lexenv", types::DumpValue);
+        let _features = decode_field!("features", Vec<types::DumpSymId>);
+        let _require_stack = decode_field!("require_stack", Vec<types::DumpSymId>);
+        let _loads_in_progress = decode_field!("loads_in_progress", Vec<String>);
+        let _buffers = decode_field!("buffers", types::DumpBufferManager);
+        let _autoloads = decode_field!("autoloads", types::DumpAutoloadManager);
+        let _custom = decode_field!("custom", types::DumpCustomManager);
+        let _modes = decode_field!("modes", types::DumpModeRegistry);
+        let _coding_systems = decode_field!("coding_systems", types::DumpCodingSystemManager);
+        let _charset_registry = decode_field!("charset_registry", types::DumpCharsetRegistry);
+        let _fontset_registry = decode_field!("fontset_registry", types::DumpFontsetRegistry);
+        let _face_table = decode_field!("face_table", types::DumpFaceTable);
+        let _abbrevs = decode_field!("abbrevs", types::DumpAbbrevManager);
+        let _interactive = decode_field!("interactive", types::DumpInteractiveRegistry);
+        let _rectangle = decode_field!("rectangle", types::DumpRectangleState);
+        let _standard_syntax_table = decode_field!("standard_syntax_table", types::DumpValue);
+        let _standard_category_table = decode_field!("standard_category_table", types::DumpValue);
+        let _current_local_map = decode_field!("current_local_map", types::DumpValue);
+        let _kmacro = decode_field!("kmacro", types::DumpKmacroManager);
+        let _registers = decode_field!("registers", types::DumpRegisterManager);
+        let _bookmarks = decode_field!("bookmarks", types::DumpBookmarkManager);
+        let _watchers = decode_field!("watchers", types::DumpVariableWatcherList);
+
+        assert_eq!(
+            cursor.position() as usize,
+            payload.len(),
+            "sequential decode should consume the whole payload"
+        );
     }
 }

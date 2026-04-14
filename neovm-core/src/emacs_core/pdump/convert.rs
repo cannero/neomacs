@@ -1,8 +1,10 @@
 //! Conversions between runtime types and pdump snapshot types.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
+
+use rustc_hash::FxHashSet;
 
 use super::DumpError;
 use super::types::*;
@@ -30,7 +32,7 @@ use crate::emacs_core::fontset::{
     FontsetRegistrySnapshot, StoredFontSpec, restore_fontset_registry, snapshot_fontset_registry,
 };
 use crate::emacs_core::interactive::{InteractiveRegistry, InteractiveSpec};
-use crate::emacs_core::intern::{self, SymId};
+use crate::emacs_core::intern::{self, NameId, SymId};
 use crate::emacs_core::kmacro::KmacroManager;
 use crate::emacs_core::mode::{
     self, CustomGroup as ModeCustomGroup, CustomType as ModeCustomType,
@@ -64,6 +66,8 @@ use crate::tagged::value::TaggedValue;
 thread_local! {
     static PDUMP_DUMP_STATE: Cell<*mut TaggedDumpState> = const { Cell::new(std::ptr::null_mut()) };
     static PDUMP_LOAD_STATE: Cell<*mut TaggedLoadState> = const { Cell::new(std::ptr::null_mut()) };
+    static PDUMP_LOAD_NAME_REMAP: RefCell<Option<Vec<NameId>>> = const { RefCell::new(None) };
+    static PDUMP_LOAD_SYM_REMAP: RefCell<Option<Vec<SymId>>> = const { RefCell::new(None) };
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -142,6 +146,10 @@ fn tagged_heap_ref(id: &DumpHeapRef) -> TaggedHeapRef {
 
 pub(crate) fn dump_sym_id(id: SymId) -> DumpSymId {
     DumpSymId(id.0)
+}
+
+pub(crate) fn dump_name_id(id: NameId) -> DumpNameId {
+    DumpNameId(id.0)
 }
 
 fn with_dump_state<R>(f: impl FnOnce(&mut TaggedDumpState) -> R) -> R {
@@ -232,7 +240,7 @@ pub(crate) fn dump_value(v: &Value) -> DumpValue {
         }
         ValueKind::Veclike(VecLikeType::Subr) => {
             let s = v.as_subr_id().unwrap();
-            DumpValue::Subr(dump_sym_id(s))
+            DumpValue::Subr(dump_name_id(intern::symbol_name_id(s)))
         }
         ValueKind::Veclike(VecLikeType::ByteCode) => {
             DumpValue::ByteCode(dump_heap_ref(value_to_heap_ref(v)))
@@ -539,7 +547,7 @@ fn dump_heap_object_from_value(value: Value) -> DumpHeapObject {
             let ptr = value.as_veclike_ptr().expect("subr") as *const SubrObj;
             let subr = unsafe { &*ptr };
             DumpHeapObject::Subr {
-                name: dump_sym_id(subr.name),
+                name: dump_name_id(subr.name),
                 min_args: subr.min_args,
                 max_args: subr.max_args,
             }
@@ -548,12 +556,21 @@ fn dump_heap_object_from_value(value: Value) -> DumpHeapObject {
     }
 }
 
-// --- Interner ---
+// --- Dump-wide symbol table ---
 
-pub(crate) fn dump_interner() -> DumpStringInterner {
-    let interner = intern::dump_runtime_interner();
-    DumpStringInterner {
-        strings: interner.strings().iter().map(|s| (*s).to_owned()).collect(),
+pub(crate) fn dump_symbol_table() -> DumpSymbolTable {
+    let dumped = intern::dump_runtime_interner();
+    DumpSymbolTable {
+        names: dumped.names,
+        symbols: dumped
+            .symbol_names
+            .into_iter()
+            .zip(dumped.canonical)
+            .map(|(name, canonical)| DumpSymbolEntry {
+                name: DumpNameId(name),
+                canonical,
+            })
+            .collect(),
     }
 }
 
@@ -576,7 +593,7 @@ fn dump_symbol_value(sv: &SymbolValue) -> DumpSymbolValue {
 
 pub(crate) fn dump_symbol_data(sd: &SymbolData) -> DumpSymbolData {
     DumpSymbolData {
-        name: dump_sym_id(sd.name),
+        name: None,
         value: None,
         symbol_value: Some(dump_symbol_value(&sd.value)),
         function: dump_opt_value(&sd.function),
@@ -594,10 +611,10 @@ pub(crate) fn dump_obarray(ob: &Obarray) -> DumpObarray {
     DumpObarray {
         symbols: ob
             .iter_symbols()
-            .map(|(id, sd)| (id.0, dump_symbol_data(sd)))
+            .map(|(id, sd)| (dump_sym_id(id), dump_symbol_data(sd)))
             .collect(),
-        global_members: ob.global_member_ids().map(|id| id.0).collect(),
-        function_unbound: ob.function_unbound_ids().map(|id| id.0).collect(),
+        global_members: ob.global_member_ids().map(dump_sym_id).collect(),
+        function_unbound: ob.function_unbound_ids().map(dump_sym_id).collect(),
         function_epoch: ob.function_epoch(),
     }
 }
@@ -1428,7 +1445,7 @@ pub(crate) fn dump_watcher_list(wl: &VariableWatcherList) -> DumpVariableWatcher
             .iter()
             .map(|(k, watchers)| {
                 (
-                    k.0,
+                    dump_sym_id(*k),
                     watchers.iter().map(|w| dump_value(&w.callback)).collect(),
                 )
             })
@@ -1473,15 +1490,20 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
     PDUMP_DUMP_STATE.with(|state| state.set(&mut dump_state));
 
     let dump = DumpContextState {
-        interner: dump_interner(),
+        symbol_table: dump_symbol_table(),
         tagged_heap: DumpTaggedHeap {
             objects: Vec::new(),
         },
         obarray: dump_obarray(&eval.obarray),
         dynamic: Vec::new(),
         lexenv: dump_value(&eval.lexenv),
-        features: eval.features.iter().map(|s| s.0).collect(),
-        require_stack: eval.require_stack.iter().map(|s| s.0).collect(),
+        features: eval.features.iter().copied().map(dump_sym_id).collect(),
+        require_stack: eval
+            .require_stack
+            .iter()
+            .copied()
+            .map(dump_sym_id)
+            .collect(),
         loads_in_progress: eval
             .loads_in_progress
             .iter()
@@ -1523,7 +1545,26 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
 // --- Primitives ---
 
 pub(crate) fn load_sym_id(id: &DumpSymId) -> SymId {
-    SymId(id.0)
+    // Dump symbol slots are local to the serialized interner ordering. They
+    // must be translated back into the current process interner before any
+    // runtime value or object can safely refer to them.
+    PDUMP_LOAD_SYM_REMAP.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .and_then(|remap| remap.get(id.0 as usize))
+            .copied()
+            .unwrap_or_else(|| panic!("pdump symbol slot {} should have a runtime remap", id.0))
+    })
+}
+
+pub(crate) fn load_name_id(id: &DumpNameId) -> NameId {
+    PDUMP_LOAD_NAME_REMAP.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .and_then(|remap| remap.get(id.0 as usize))
+            .copied()
+            .unwrap_or_else(|| panic!("pdump name slot {} should have a runtime remap", id.0))
+    })
 }
 
 fn load_cached_buffer(id: u64) -> Value {
@@ -1626,7 +1667,7 @@ fn allocate_tagged_placeholder(
         DumpHeapObject::Window(id) => load_cached_window(*id),
         DumpHeapObject::Frame(id) => load_cached_frame(*id),
         DumpHeapObject::Timer(id) => load_cached_timer(*id),
-        DumpHeapObject::Subr { name, .. } => Value::subr(load_sym_id(name)),
+        DumpHeapObject::Subr { name, .. } => Value::subr_name_id(load_name_id(name)),
         DumpHeapObject::Free => Value::NIL,
     };
     state.values[id.index as usize] = Some(value);
@@ -1775,7 +1816,7 @@ pub(crate) fn load_value(v: &DumpValue) -> Value {
         DumpValue::HashTable(id) => heap_ref_to_value(tagged_heap_ref(id)),
         DumpValue::Lambda(id) => heap_ref_to_value(tagged_heap_ref(id)),
         DumpValue::Macro(id) => heap_ref_to_value(tagged_heap_ref(id)),
-        DumpValue::Subr(s) => Value::subr(load_sym_id(s)),
+        DumpValue::Subr(s) => Value::subr_name_id(load_name_id(s)),
         DumpValue::ByteCode(id) => heap_ref_to_value(tagged_heap_ref(id)),
         DumpValue::Marker(id) => heap_ref_to_value(tagged_heap_ref(id)),
         DumpValue::Overlay(id) => heap_ref_to_value(tagged_heap_ref(id)),
@@ -1993,10 +2034,40 @@ pub(crate) fn load_hash_table(ht: &DumpLispHashTable) -> LispHashTable {
     }
 }
 
-// --- Interner ---
+// --- Dump-wide symbol table ---
 
-pub(crate) fn load_interner(di: &DumpStringInterner) {
-    intern::ensure_runtime_interner(&di.strings);
+pub(crate) fn load_symbol_table(table: &DumpSymbolTable) -> Result<(), DumpError> {
+    let symbol_names: Vec<u32> = table.symbols.iter().map(|entry| entry.name.0).collect();
+    let canonical: Vec<bool> = table.symbols.iter().map(|entry| entry.canonical).collect();
+    let remap = intern::restore_runtime_interner(&table.names, &symbol_names, Some(&canonical))
+        .map_err(DumpError::DeserializationError)?;
+    let intern::RestoredDumpSymbolTable { names, symbols } = remap;
+    PDUMP_LOAD_NAME_REMAP.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        assert!(
+            slot.is_none(),
+            "pdump name remap should not already be initialized"
+        );
+        *slot = Some(names);
+    });
+    PDUMP_LOAD_SYM_REMAP.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        assert!(
+            slot.is_none(),
+            "pdump symbol remap should not already be initialized"
+        );
+        *slot = Some(symbols);
+    });
+    Ok(())
+}
+
+pub(crate) fn finish_load_interner() {
+    PDUMP_LOAD_NAME_REMAP.with(|slot| {
+        slot.borrow_mut().take();
+    });
+    PDUMP_LOAD_SYM_REMAP.with(|slot| {
+        slot.borrow_mut().take();
+    });
 }
 
 // --- Symbol / Obarray ---
@@ -2016,7 +2087,7 @@ fn load_symbol_value_enum(dsv: &DumpSymbolValue) -> SymbolValue {
     }
 }
 
-pub(crate) fn load_symbol_data(sd: &DumpSymbolData) -> SymbolData {
+pub(crate) fn load_symbol_data(sym_id: SymId, sd: &DumpSymbolData) -> SymbolData {
     // Prefer the new `symbol_value` field; fall back to legacy `value` field
     // for backward compatibility with older pdump files.
     let value = if let Some(ref sv) = sd.symbol_value {
@@ -2024,7 +2095,7 @@ pub(crate) fn load_symbol_data(sd: &DumpSymbolData) -> SymbolData {
     } else {
         SymbolValue::Plain(load_opt_value(&sd.value))
     };
-    let mut symbol = SymbolData::new(load_sym_id(&sd.name));
+    let mut symbol = SymbolData::new(sym_id);
     // Mirror the legacy `value` cell into the new redirect-shape fields
     // (Phase 1 of the symbol-redirect refactor — both representations
     // are kept in sync until Phase 4-10 removes the legacy enum).
@@ -2065,20 +2136,51 @@ pub(crate) fn load_symbol_data(sd: &DumpSymbolData) -> SymbolData {
     symbol
 }
 
-pub(crate) fn load_obarray(dob: &DumpObarray) -> Obarray {
-    let symbols: Vec<(SymId, SymbolData)> = dob
-        .symbols
-        .iter()
-        .map(|(id, sd)| (SymId(*id), load_symbol_data(sd)))
-        .collect();
-    let global_members: Vec<SymId> = dob.global_members.iter().map(|id| SymId(*id)).collect();
-    let function_unbound: Vec<SymId> = dob.function_unbound.iter().map(|id| SymId(*id)).collect();
-    Obarray::from_dump(
+pub(crate) fn load_obarray(dob: &DumpObarray) -> Result<Obarray, DumpError> {
+    let mut seen_symbol_ids = FxHashSet::default();
+    let mut symbols = Vec::with_capacity(dob.symbols.len());
+    for (id, sd) in &dob.symbols {
+        let sym_id = load_sym_id(id);
+        if !seen_symbol_ids.insert(sym_id) {
+            return Err(DumpError::DeserializationError(format!(
+                "pdump obarray is inconsistent: duplicate symbol slot {}",
+                sym_id.0
+            )));
+        }
+        symbols.push((sym_id, load_symbol_data(sym_id, sd)));
+    }
+
+    let load_member_set = |label: &str, ids: &[DumpSymId]| -> Result<Vec<SymId>, DumpError> {
+        let mut seen = FxHashSet::default();
+        let mut loaded = Vec::with_capacity(ids.len());
+        for id in ids {
+            let sym_id = load_sym_id(id);
+            if !seen.insert(sym_id) {
+                return Err(DumpError::DeserializationError(format!(
+                    "pdump obarray is inconsistent: duplicate {label} entry for symbol slot {}",
+                    sym_id.0
+                )));
+            }
+            if !seen_symbol_ids.contains(&sym_id) {
+                return Err(DumpError::DeserializationError(format!(
+                    "pdump obarray is inconsistent: {label} entry references missing symbol slot {}",
+                    sym_id.0
+                )));
+            }
+            loaded.push(sym_id);
+        }
+        Ok(loaded)
+    };
+
+    let global_members = load_member_set("global_members", &dob.global_members)?;
+    let function_unbound = load_member_set("function_unbound", &dob.function_unbound)?;
+
+    Ok(Obarray::from_dump(
         symbols,
         global_members,
         function_unbound,
         dob.function_epoch,
-    )
+    ))
 }
 
 // --- Buffer types ---
@@ -2972,7 +3074,7 @@ pub(crate) fn load_watcher_list(dwl: &DumpVariableWatcherList) -> VariableWatche
         .iter()
         .map(|(k, callbacks)| {
             (
-                SymId(*k),
+                load_sym_id(k),
                 callbacks
                     .iter()
                     .map(|v| VariableWatcher {

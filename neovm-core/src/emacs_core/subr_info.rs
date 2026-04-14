@@ -7,7 +7,7 @@
 //! - `func-arity`, `indirect-function`
 
 use super::error::{EvalResult, Flow, signal};
-use super::intern::{SymId, lookup_interned, resolve_sym};
+use super::intern::{SymId, lookup_interned, resolve_name, resolve_sym};
 use super::value::*;
 use crate::tagged::header::{SubrDispatchKind, SubrObj};
 use std::collections::HashMap;
@@ -422,8 +422,8 @@ fn special_form_min_arity(subr: &SubrObj) -> usize {
     if subr.min_args > 0 || subr.max_args.is_some() {
         subr.min_args as usize
     } else {
-        lookup_special_form_min_arity(resolve_sym(subr.name))
-            .or_else(|| lookup_compat_subr_arity(resolve_sym(subr.name)).map(|(min, _)| min))
+        lookup_special_form_min_arity(resolve_name(subr.name))
+            .or_else(|| lookup_compat_subr_arity(resolve_name(subr.name)).map(|(min, _)| min))
             .map(|min| min as usize)
             .unwrap_or(0)
     }

@@ -534,11 +534,15 @@ impl TaggedHeap {
         self.live_bytes
     }
 
-    pub fn subr_value(&self, id: SymId) -> Option<TaggedValue> {
+    pub fn subr_value(&self, id: crate::emacs_core::intern::NameId) -> Option<TaggedValue> {
         self.subr_registry.get(id.0 as usize).copied().flatten()
     }
 
-    pub fn register_subr_value(&mut self, id: SymId, value: TaggedValue) {
+    pub fn register_subr_value(
+        &mut self,
+        id: crate::emacs_core::intern::NameId,
+        value: TaggedValue,
+    ) {
         let index = id.0 as usize;
         if self.subr_registry.len() <= index {
             self.subr_registry.resize(index + 1, None);
@@ -812,7 +816,7 @@ impl TaggedHeap {
     /// any new `unsafe` reader path.
     pub fn alloc_subr(
         &mut self,
-        name: crate::emacs_core::intern::SymId,
+        name: crate::emacs_core::intern::NameId,
         function: Option<SubrFn>,
         min_args: u16,
         max_args: Option<u16>,

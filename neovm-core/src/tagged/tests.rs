@@ -3,7 +3,7 @@
 use super::gc::{HeapWriteKind, HeapWriteRecord};
 use super::header::*;
 use super::value::*;
-use crate::emacs_core::intern::{SymId, intern};
+use crate::emacs_core::intern::{SymId, intern, intern_uninterned};
 
 #[test]
 fn nil_is_zero() {
@@ -140,6 +140,21 @@ fn subr_materializes_gnu_dispatch_kind_metadata() {
         context_callable.dispatch_kind,
         SubrDispatchKind::ContextCallable
     );
+}
+
+#[test]
+fn subr_registry_keys_by_name_atom_not_symbol_slot() {
+    crate::test_utils::init_test_tracing();
+
+    let canonical = intern("car");
+    let uninterned = intern_uninterned("car");
+
+    let canonical_subr = TaggedValue::subr(canonical);
+    let uninterned_subr = TaggedValue::subr(uninterned);
+
+    assert_eq!(canonical_subr, uninterned_subr);
+    assert_eq!(canonical_subr.as_subr_id(), Some(canonical));
+    assert_eq!(uninterned_subr.as_subr_id(), Some(canonical));
 }
 
 #[test]

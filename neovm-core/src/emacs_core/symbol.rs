@@ -27,7 +27,10 @@
 //! the legacy `SymbolValue` enum during the transition; Phases 4-8 cut them
 //! over to the redirect dispatch and Phase 10 deletes the legacy enum.
 
-use super::intern::{SymId, intern, is_canonical_id, lookup_interned, resolve_sym};
+use super::intern::{
+    NameId, SymId, intern, is_canonical_id, lookup_interned, resolve_name, resolve_sym,
+    symbol_name_id,
+};
 use super::value::{Value, ValueKind};
 use crate::gc_trace::GcTrace;
 use rustc_hash::FxHashMap;
@@ -269,7 +272,7 @@ impl Default for SymbolValue {
 #[derive(Clone, Debug)]
 pub struct LispSymbol {
     /// The symbol's name.
-    pub name: SymId,
+    pub name: NameId,
     /// Packed flags: redirect tag, trapped-write tag, interned tag,
     /// declared-special bit. Mirrors the first byte of GNU
     /// `Lisp_Symbol::s` (`lisp.h:786-792`).
@@ -393,11 +396,11 @@ pub enum MakeAliasError {
 }
 
 impl LispSymbol {
-    pub fn new(name: SymId) -> Self {
+    pub fn new(id: SymId) -> Self {
         let mut flags = SymbolFlags::default();
         flags.set_redirect(SymbolRedirect::Plainval);
         Self {
-            name,
+            name: symbol_name_id(id),
             flags,
             val: SymbolVal { plain: Value::NIL },
             value: SymbolValue::Plain(None),
@@ -1836,7 +1839,7 @@ impl Obarray {
             .iter()
             .flatten()
             .filter(|sym| sym.interned_global)
-            .map(|sym| resolve_sym(sym.name))
+            .map(|sym| resolve_name(sym.name))
             .collect()
     }
 

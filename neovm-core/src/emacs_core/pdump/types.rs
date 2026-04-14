@@ -19,6 +19,9 @@ pub struct DumpHeapRef {
 pub struct DumpSymId(pub u32);
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DumpNameId(pub u32);
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DumpBufferId(pub u64);
 
 // ---------------------------------------------------------------------------
@@ -39,7 +42,7 @@ pub enum DumpValue {
     HashTable(DumpHeapRef),
     Lambda(DumpHeapRef),
     Macro(DumpHeapRef),
-    Subr(DumpSymId),
+    Subr(DumpNameId),
     ByteCode(DumpHeapRef),
     Marker(DumpHeapRef),
     Overlay(DumpHeapRef),
@@ -95,7 +98,7 @@ pub enum DumpHeapObject {
     Frame(u64),
     Timer(u64),
     Subr {
-        name: DumpSymId,
+        name: DumpNameId,
         min_args: u16,
         max_args: Option<u16>,
     },
@@ -300,7 +303,10 @@ pub enum DumpSymbolValue {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpSymbolData {
-    pub name: DumpSymId,
+    /// Legacy redundant symbol-name field from older dumps. New dumps derive
+    /// the symbol name from the symbol id in `DumpObarray.symbols`.
+    #[serde(default)]
+    pub name: Option<DumpSymId>,
     /// The symbol value cell.  Older dumps may still have the `value` field
     /// (kept for backward compatibility via `#[serde(default)]`).
     #[serde(default)]
@@ -317,19 +323,32 @@ pub struct DumpSymbolData {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpObarray {
-    pub symbols: Vec<(u32, DumpSymbolData)>,
-    pub global_members: Vec<u32>,
-    pub function_unbound: Vec<u32>,
+    pub symbols: Vec<(DumpSymId, DumpSymbolData)>,
+    pub global_members: Vec<DumpSymId>,
+    pub function_unbound: Vec<DumpSymId>,
     pub function_epoch: u64,
 }
 
 // ---------------------------------------------------------------------------
-// String interner
+// Dump-wide symbol table
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DumpStringInterner {
-    pub strings: Vec<String>,
+pub struct DumpSymbolEntry {
+    /// Dump-local name atom id for this symbol slot.
+    pub name: DumpNameId,
+    /// `true` when the corresponding symbol id is canonical/interned and
+    /// `false` for uninterned symbols created via `make-symbol`.
+    pub canonical: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DumpSymbolTable {
+    /// Dump-local symbol-name atoms. Multiple symbols may point at the same
+    /// `DumpNameId` when they share a print name.
+    pub names: Vec<String>,
+    /// One entry per dump-local symbol id.
+    pub symbols: Vec<DumpSymbolEntry>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1021,7 +1040,7 @@ pub struct DumpBookmarkManager {
 // Variable watchers
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpVariableWatcherList {
-    pub watchers: Vec<(u32, Vec<DumpValue>)>,
+    pub watchers: Vec<(DumpSymId, Vec<DumpValue>)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1030,13 +1049,13 @@ pub struct DumpVariableWatcherList {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpContextState {
-    pub interner: DumpStringInterner,
+    pub symbol_table: DumpSymbolTable,
     pub tagged_heap: DumpTaggedHeap,
     pub obarray: DumpObarray,
     pub dynamic: Vec<DumpOrderedSymMap>,
     pub lexenv: DumpValue,
-    pub features: Vec<u32>,
-    pub require_stack: Vec<u32>,
+    pub features: Vec<DumpSymId>,
+    pub require_stack: Vec<DumpSymId>,
     pub loads_in_progress: Vec<String>,
     pub buffers: DumpBufferManager,
     pub autoloads: DumpAutoloadManager,
