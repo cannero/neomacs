@@ -407,6 +407,34 @@ fn get_pos_property_on_string_delegates_to_text_property() {
 }
 
 #[test]
+fn string_text_properties_handle_raw_unibyte_storage() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let string = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b'A', 0x80, b'Z',
+    ]));
+
+    builtin_put_text_property(
+        &mut eval,
+        vec![
+            Value::fixnum(2),
+            Value::fixnum(4),
+            Value::symbol("face"),
+            Value::symbol("bold"),
+            string,
+        ],
+    )
+    .unwrap();
+
+    let result = builtin_get_text_property(
+        &mut eval,
+        vec![Value::fixnum(3), Value::symbol("face"), string],
+    )
+    .unwrap();
+    assert_eq!(result.as_symbol_name(), Some("bold"));
+}
+
+#[test]
 fn get_display_property_queries_display_only() {
     crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("abcd");

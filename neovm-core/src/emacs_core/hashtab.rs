@@ -224,7 +224,12 @@ fn emacs_sxhash_obj(value: &Value, depth: usize) -> Option<u64> {
     match value.kind() {
         ValueKind::Fixnum(n) => Some(n as u64),
         ValueKind::Float => Some(value.xfloat().to_bits()),
-        ValueKind::String => Some(emacs_hash_char_array(value.as_str().unwrap().as_bytes())),
+        ValueKind::String => Some(emacs_hash_char_array(
+            value
+                .as_lisp_string()
+                .expect("ValueKind::String must carry LispString payload")
+                .as_bytes(),
+        )),
         ValueKind::Cons => Some(emacs_sxhash_list(value, depth)),
         ValueKind::Veclike(VecLikeType::Vector) => Some(emacs_sxhash_vector(value, depth)),
         _ => None,
@@ -287,7 +292,11 @@ fn hash_value_for_equal(value: &Value, hasher: &mut DefaultHasher, depth: usize)
         }
         ValueKind::String => {
             6_u8.hash(hasher);
-            value.as_str().unwrap().hash(hasher);
+            let string = value
+                .as_lisp_string()
+                .expect("ValueKind::String must carry LispString payload");
+            string.is_multibyte().hash(hasher);
+            string.as_bytes().hash(hasher);
         }
         ValueKind::Cons => {
             7_u8.hash(hasher);
@@ -815,7 +824,7 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
     validate_optional_obarray_arg(&args)?;
     let name = match args[0].kind() {
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-        ValueKind::String => args[0].as_str().unwrap().to_owned(),
+        ValueKind::String => super::builtins::lisp_string_to_runtime_string(args[0]),
         _ => {
             return Err(signal(
                 "wrong-type-argument",

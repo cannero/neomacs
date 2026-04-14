@@ -156,7 +156,7 @@ pub(crate) fn expect_symbol_name(value: &Value) -> Result<String, Flow> {
     match value.as_symbol_name() {
         Some(s) => Ok(s.to_string()),
         None => match value.kind() {
-            ValueKind::String => Ok(value.as_str().unwrap().to_string()),
+            ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
             ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
             _ => Err(signal(
                 "wrong-type-argument",
@@ -518,7 +518,7 @@ pub(crate) fn builtin_put_text_property_in_buffers(
     let val = args[3];
 
     if let Some(str_val) = is_string_object(args.get(4)) {
-        let s = str_val.as_str().unwrap().to_owned();
+        let s = super::builtins::lisp_string_to_runtime_string(str_val);
         let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
@@ -557,7 +557,7 @@ pub(crate) fn builtin_get_text_property_in_state(
     let prop = expect_symbol_name(&args[1])?;
 
     if let Some(str_val) = is_string_object(args.get(2)) {
-        let s = str_val.as_str().unwrap().to_owned();
+        let s = super::builtins::lisp_string_to_runtime_string(str_val);
         if let Some(table) = get_string_text_properties_table_for_value(str_val) {
             let byte_pos = string_elisp_pos_to_byte(&s, pos);
             return Ok(lookup_string_text_property(
@@ -674,7 +674,7 @@ pub(crate) fn builtin_add_text_properties_in_buffers(
     let pairs = plist_pairs(&args[2])?;
 
     if let Some(str_val) = is_string_object(args.get(3)) {
-        let s = str_val.as_str().unwrap().to_owned();
+        let s = super::builtins::lisp_string_to_runtime_string(str_val);
         let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
@@ -751,7 +751,7 @@ pub(crate) fn builtin_add_face_text_property_in_buffers(
     let object = args.get(4);
 
     if let Some(str_val) = is_string_object(object) {
-        let s = str_val.as_str().unwrap().to_owned();
+        let s = super::builtins::lisp_string_to_runtime_string(str_val);
         let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
@@ -810,7 +810,7 @@ pub(crate) fn builtin_remove_text_properties_in_buffers(
     let pairs = plist_pairs(&args[2])?;
 
     if let Some(str_val) = is_string_object(args.get(3)) {
-        let s = str_val.as_str().unwrap().to_owned();
+        let s = super::builtins::lisp_string_to_runtime_string(str_val);
         let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
@@ -867,7 +867,7 @@ pub(crate) fn builtin_set_text_properties_in_buffers(
     };
 
     if let Some(str_val) = is_string_object(args.get(3)) {
-        let s = str_val.as_str().unwrap().to_owned();
+        let s = super::builtins::lisp_string_to_runtime_string(str_val);
         let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
@@ -913,7 +913,7 @@ pub(crate) fn builtin_remove_list_of_text_properties_in_buffers(
         .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("listp"), args[2]]))?;
 
     if let Some(str_val) = is_string_object(args.get(3)) {
-        let s = str_val.as_str().unwrap().to_owned();
+        let s = super::builtins::lisp_string_to_runtime_string(str_val);
         let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
@@ -976,7 +976,7 @@ pub(crate) fn builtin_text_properties_at_in_buffers(
     let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
 
     if let Some(str_val) = is_string_object(args.get(1)) {
-        let s = str_val.as_str().unwrap().to_owned();
+        let s = super::builtins::lisp_string_to_runtime_string(str_val);
         if let Some(table) = get_string_text_properties_table_for_value(str_val) {
             let byte_pos = string_elisp_pos_to_byte(&s, pos);
             let props = table.get_properties_ordered(byte_pos);
@@ -1014,7 +1014,7 @@ pub(crate) fn builtin_next_single_property_change_in_state(
     let prop = expect_symbol_name(&args[1])?;
 
     if let Some(str_val) = is_string_object(args.get(2)) {
-        let s = str_val.as_str().unwrap().to_owned();
+        let s = super::builtins::lisp_string_to_runtime_string(str_val);
         let table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_pos = string_elisp_pos_to_byte(&s, pos);
         let (byte_limit, limit_val) = match args.get(3) {
@@ -1127,7 +1127,7 @@ pub(crate) fn builtin_previous_single_property_change_in_state(
     let prop = expect_symbol_name(&args[1])?;
 
     if let Some(str_val) = is_string_object(args.get(2)) {
-        let s = str_val.as_str().unwrap().to_owned();
+        let s = super::builtins::lisp_string_to_runtime_string(str_val);
         let table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_pos = string_elisp_pos_to_byte(&s, pos);
         let (byte_limit, limit_val) = match args.get(3) {
@@ -1240,7 +1240,7 @@ pub(crate) fn builtin_next_property_change_in_buffers(
     let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
 
     if let Some(str_val) = is_string_object(args.get(1)) {
-        let s = str_val.as_str().unwrap().to_owned();
+        let s = super::builtins::lisp_string_to_runtime_string(str_val);
         let table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_pos = string_elisp_pos_to_byte(&s, pos);
         let limit_arg = args.get(2);
@@ -1344,7 +1344,7 @@ pub(crate) fn builtin_text_property_any_in_state(
     let val = &args[3];
 
     if let Some(str_val) = is_string_object(args.get(4)) {
-        let s = str_val.as_str().unwrap().to_owned();
+        let s = super::builtins::lisp_string_to_runtime_string(str_val);
         let table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
@@ -1408,7 +1408,7 @@ pub(crate) fn builtin_text_property_not_all_in_state(
     let val = &args[3];
 
     if let Some(str_val) = is_string_object(args.get(4)) {
-        let s = str_val.as_str().unwrap().to_owned();
+        let s = super::builtins::lisp_string_to_runtime_string(str_val);
         let table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);

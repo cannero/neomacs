@@ -132,6 +132,26 @@ fn sxhash_variants_return_fixnums_and_preserve_hash_contracts() {
 }
 
 #[test]
+fn sxhash_equal_handles_raw_unibyte_strings() {
+    crate::test_utils::init_test_tracing();
+    let left = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b'A',
+    ]));
+    let right = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b'A',
+    ]));
+
+    assert_eq!(
+        builtin_sxhash_equal(vec![left]).unwrap(),
+        builtin_sxhash_equal(vec![right]).unwrap()
+    );
+    assert_eq!(
+        builtin_sxhash_equal_including_properties(vec![left]).unwrap(),
+        builtin_sxhash_equal_including_properties(vec![right]).unwrap()
+    );
+}
+
+#[test]
 fn sxhash_equal_matches_oracle_for_small_int_and_string_values() {
     crate::test_utils::init_test_tracing();
     assert_eq!(

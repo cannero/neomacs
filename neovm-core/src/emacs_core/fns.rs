@@ -55,7 +55,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 
 fn require_string(_name: &str, val: &Value) -> Result<String, Flow> {
     match val.kind() {
-        ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*val)),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *val],
@@ -872,7 +872,7 @@ pub(crate) fn builtin_buffer_hash(eval: &mut super::eval::Context, args: Vec<Val
         match args[0].kind() {
             ValueKind::Veclike(VecLikeType::Buffer) => args[0].as_buffer_id().unwrap(),
             ValueKind::String => {
-                let name = args[0].as_str().unwrap().to_owned();
+                let name = super::builtins::lisp_string_to_runtime_string(args[0]);
                 eval.buffers.find_buffer_by_name(&name).ok_or_else(|| {
                     signal(
                         "error",
