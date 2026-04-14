@@ -4,7 +4,7 @@
 //! and JSON parsing/serialization for the Elisp interpreter.
 
 use super::error::{EvalResult, Flow, signal};
-use super::intern::{intern, resolve_sym};
+use super::intern::{intern, intern_uninterned, resolve_sym};
 use super::value::*;
 #[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -805,19 +805,28 @@ pub(crate) fn builtin_cl_notevery(eval: &mut super::eval::Context, args: Vec<Val
 #[cfg(test)]
 pub(crate) fn builtin_cl_gensym(args: Vec<Value>) -> EvalResult {
     expect_max_args("cl-gensym", &args, 1)?;
-    let prefix = match args.first() {
-        None => "G".to_string(),
-        Some(v) if v.is_nil() => "G".to_string(),
-        Some(v) if v.is_string() => super::builtins::lisp_string_to_runtime_string(*v),
-        Some(other) => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
-            ));
+    let (prefix, n) = match args.first() {
+        None => (
+            "G".to_string(),
+            CL_GENSYM_COUNTER.fetch_add(1, Ordering::Relaxed),
+        ),
+        Some(v) if v.is_nil() => (
+            "G".to_string(),
+            CL_GENSYM_COUNTER.fetch_add(1, Ordering::Relaxed),
+        ),
+        Some(v) if v.is_string() => (
+            v.as_str().unwrap().to_owned(),
+            CL_GENSYM_COUNTER.fetch_add(1, Ordering::Relaxed),
+        ),
+        Some(v) if matches!(v.kind(), ValueKind::Fixnum(_)) => {
+            ("G".to_string(), v.as_int().unwrap() as u64)
         }
+        Some(_) => (
+            "G".to_string(),
+            CL_GENSYM_COUNTER.fetch_add(1, Ordering::Relaxed),
+        ),
     };
-    let n = CL_GENSYM_COUNTER.fetch_add(1, Ordering::Relaxed);
-    Ok(Value::symbol(format!("{prefix}{n}")))
+    Ok(Value::from_sym_id(intern_uninterned(&format!("{prefix}{n}"))))
 }
 
 /// `(cl-find ITEM SEQ)` -- return first element in SEQ equal to ITEM.

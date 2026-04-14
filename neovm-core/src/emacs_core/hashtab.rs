@@ -8,7 +8,7 @@
 //! - `mapatoms`, `unintern`
 
 use super::error::{EvalResult, Flow, signal};
-use super::intern::resolve_sym;
+use super::intern::{SymId, resolve_sym};
 use super::print::print_value;
 use super::value::*;
 use crate::tagged::gc::with_tagged_heap;
@@ -820,17 +820,28 @@ pub(crate) fn collect_mapatoms_symbols(
 
 /// (unintern NAME OBARRAY) — remove symbol from obarray.
 pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    expect_args("unintern", &args, 2)?;
+    expect_min_args("unintern", &args, 1)?;
+    expect_max_args("unintern", &args, 2)?;
     validate_optional_obarray_arg(&args)?;
-    let name = match args[0].kind() {
-        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-        ValueKind::String => super::builtins::lisp_string_to_runtime_string(args[0]),
+
+    enum UninternTarget {
+        Symbol(SymId, String),
+        Name(String),
+    }
+
+    let target = match args[0].kind() {
+        ValueKind::Symbol(id) => UninternTarget::Symbol(id, resolve_sym(id).to_owned()),
+        ValueKind::String => UninternTarget::Name(args[0].as_str().unwrap().to_owned()),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("stringp"), args[0]],
             ));
         }
+    };
+
+    let target_name = match &target {
+        UninternTarget::Symbol(_, name) | UninternTarget::Name(name) => name,
     };
 
     // Custom obarray path
@@ -841,7 +852,7 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
             if vec_len == 0 {
                 return Ok(Value::NIL);
             }
-            let bucket_idx = name
+            let bucket_idx = target_name
                 .bytes()
                 .fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64))
                 as usize
@@ -859,12 +870,19 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
                         let car = current.cons_car();
                         let cdr = current.cons_cdr();
                         if !found {
-                            if let Some(sym_name) = car.as_symbol_name() {
-                                if sym_name == name {
-                                    found = true;
-                                    current = cdr;
-                                    continue;
+                            let should_remove = match (&target, car.kind()) {
+                                (UninternTarget::Symbol(target_id, _), ValueKind::Symbol(car_id)) => {
+                                    car_id == *target_id
                                 }
+                                (UninternTarget::Name(name), _) => {
+                                    car.as_symbol_name().is_some_and(|sym_name| sym_name == name)
+                                }
+                                _ => false,
+                            };
+                            if should_remove {
+                                found = true;
+                                current = cdr;
+                                continue;
                             }
                         }
                         items.push(car);
@@ -888,7 +906,10 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
     }
 
     // Global obarray path
-    let removed = eval.obarray.unintern(&name);
+    let removed = match target {
+        UninternTarget::Symbol(id, _) => eval.obarray.unintern_id(id),
+        UninternTarget::Name(name) => eval.obarray.unintern_name(&name),
+    };
     Ok(if removed { Value::T } else { Value::NIL })
 }
 #[cfg(test)]

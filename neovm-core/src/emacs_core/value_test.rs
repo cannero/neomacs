@@ -1,5 +1,5 @@
 use super::*;
-use crate::emacs_core::intern::resolve_sym;
+use crate::emacs_core::intern::{intern, intern_uninterned, resolve_sym};
 use crate::emacs_core::marker::make_marker_value_with_id;
 use crate::tagged::header::CLOSURE_ARGLIST;
 
@@ -110,6 +110,20 @@ fn keyword_identity_is_consistent_across_constructors() {
             let right = bare_symbol.to_hash_key(&test);
             assert_ne!(left, right);
         }
+    });
+}
+
+#[test]
+fn uninterned_colon_name_is_not_treated_as_keyword() {
+    crate::test_utils::init_test_tracing();
+    with_test_heap(|| {
+        let uninterned = Value::symbol(intern_uninterned(":vm-shadow-keyword"));
+        assert!(!uninterned.is_keyword());
+        assert!(uninterned.as_keyword_id().is_none());
+
+        let canonical = Value::keyword(":vm-shadow-keyword");
+        assert!(canonical.is_keyword());
+        assert_eq!(canonical.as_keyword_id(), Some(intern(":vm-shadow-keyword")));
     });
 }
 

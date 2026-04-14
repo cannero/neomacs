@@ -2,6 +2,7 @@ use super::*;
 use crate::emacs_core::builtins::{
     builtin_gethash, builtin_hash_table_count, builtin_make_hash_table, builtin_puthash,
 };
+use crate::emacs_core::intern::{intern, intern_uninterned, lookup_interned};
 
 #[test]
 fn hash_table_keys_values_basics() {
@@ -240,6 +241,60 @@ fn sxhash_float_matches_oracle_fixnum_values() {
     assert_eq!(
         builtin_sxhash_equal(vec![Value::make_float(2.0)]).unwrap(),
         Value::fixnum(1_152_921_504_606_846_976)
+    );
+}
+
+#[test]
+fn unintern_accepts_single_argument_for_initial_obarray() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    eval.obarray_mut().intern("vm-unintern-single");
+    assert!(eval.obarray().intern_soft("vm-unintern-single").is_some());
+
+    let removed = builtin_unintern(&mut eval, vec![Value::string("vm-unintern-single")])
+        .expect("unintern should accept one argument");
+
+    assert_eq!(removed, Value::T);
+    assert!(eval.obarray().intern_soft("vm-unintern-single").is_none());
+}
+
+#[test]
+fn unintern_symbol_argument_removes_only_the_exact_symbol() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let name = "vm-unintern-exact-symbol";
+    let canonical = intern(name);
+    let uninterned = intern_uninterned(name);
+    eval.obarray_mut().ensure_interned_global_id(canonical);
+
+    let removed_shadow = builtin_unintern(&mut eval, vec![Value::symbol(uninterned)])
+        .expect("unintern should accept uninterned symbol argument");
+    assert!(removed_shadow.is_nil());
+    assert!(
+        eval.obarray().intern_soft(name).is_some(),
+        "uninterned shadow must not remove canonical namesake"
+    );
+
+    let removed_canonical = builtin_unintern(&mut eval, vec![Value::symbol(canonical)])
+        .expect("unintern should remove exact canonical symbol");
+    assert_eq!(removed_canonical, Value::T);
+    assert!(eval.obarray().intern_soft(name).is_none());
+}
+
+#[test]
+fn unintern_missing_string_does_not_intern_new_canonical_symbol() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let missing = "vm-unintern-missing-6f20e7c2-c0d2-4d63-b337-93ac7fe9a6bd";
+    assert!(lookup_interned(missing).is_none());
+
+    let removed = builtin_unintern(&mut eval, vec![Value::string(missing)])
+        .expect("unintern should return nil for missing names");
+
+    assert!(removed.is_nil());
+    assert!(
+        lookup_interned(missing).is_none(),
+        "missing-name unintern must not allocate a canonical symbol"
     );
 }
 

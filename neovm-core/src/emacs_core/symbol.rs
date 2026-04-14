@@ -1844,8 +1844,16 @@ impl Obarray {
     }
 
     /// Remove a symbol from the obarray.  Returns `true` if it was present.
-    pub fn unintern(&mut self, name: &str) -> bool {
-        let id = intern(name);
+    pub fn unintern_name(&mut self, name: &str) -> bool {
+        let Some(id) = lookup_interned(name) else {
+            return false;
+        };
+        self.unintern_id(id)
+    }
+
+    /// Remove an exact symbol object from the obarray. Returns `true` if that
+    /// symbol was interned in this obarray.
+    pub fn unintern_id(&mut self, id: SymId) -> bool {
         let removed_symbol = self.clear_global_member(id);
         if removed_symbol {
             self.function_epoch = self.function_epoch.wrapping_add(1);

@@ -27,7 +27,8 @@
 use std::fmt;
 
 use crate::emacs_core::intern::{
-    NameId, SymId, canonical_symbol_for_name, resolve_name, resolve_sym, symbol_name_id,
+    NameId, SymId, canonical_symbol_for_name, is_canonical_id, resolve_name, resolve_sym,
+    symbol_name_id,
 };
 
 use super::header::{
@@ -340,13 +341,8 @@ impl TaggedValue {
     /// In GNU Emacs, keywords are symbols whose name starts with `:`.
     #[inline]
     pub fn is_keyword(self) -> bool {
-        // Keywords are symbols with : prefix name
-        if self.0 & TAG_MASK == TAG_SYMBOL {
-            if let Some(name) = self.as_symbol_name() {
-                return name.starts_with(':');
-            }
-        }
-        false
+        self.as_symbol_id()
+            .is_some_and(|id| is_canonical_id(id) && resolve_sym(id).starts_with(':'))
     }
 
     /// Subrs are PVEC_SUBR veclike heap objects.

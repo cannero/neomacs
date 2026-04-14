@@ -3478,7 +3478,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr("maphash", super::hashtab::builtin_maphash, 2, Some(2));
     ctx.defsubr("mapatoms", super::hashtab::builtin_mapatoms, 1, Some(2));
-    ctx.defsubr("unintern", super::hashtab::builtin_unintern, 2, Some(2));
+    ctx.defsubr("unintern", super::hashtab::builtin_unintern, 1, Some(2));
     ctx.defsubr("set-marker", super::marker::builtin_set_marker, 2, Some(3));
     ctx.defsubr(
         "move-marker",

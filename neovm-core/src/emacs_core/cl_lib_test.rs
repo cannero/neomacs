@@ -783,7 +783,15 @@ fn cl_gensym_default_prefix() {
     crate::test_utils::init_test_tracing();
     let result = builtin_cl_gensym(vec![]).unwrap();
     match result.kind() {
-        ValueKind::Symbol(id) => assert!(resolve_sym(id).starts_with('G')),
+        ValueKind::Symbol(id) => {
+            let name = resolve_sym(id);
+            assert!(name.starts_with('G'));
+            let eval = super::super::eval::Context::new();
+            assert!(eval.obarray().intern_soft(&name).is_none());
+            let canonical = intern(&name);
+            assert_ne!(id, canonical);
+            assert_eq!(resolve_sym(canonical), name);
+        }
         other => panic!("expected symbol, got {other:?}"),
     }
 }
@@ -791,17 +799,41 @@ fn cl_gensym_default_prefix() {
 #[test]
 fn cl_gensym_custom_prefix() {
     crate::test_utils::init_test_tracing();
-    let result = builtin_cl_gensym(vec![Value::string("P")]).unwrap();
+    let result = builtin_cl_gensym(vec![Value::string("vm-gensym-")]).unwrap();
     match result.kind() {
-        ValueKind::Symbol(id) => assert!(resolve_sym(id).starts_with('P')),
+        ValueKind::Symbol(id) => {
+            let name = resolve_sym(id);
+            assert!(name.starts_with("vm-gensym-"));
+            let eval = super::super::eval::Context::new();
+            assert!(eval.obarray().intern_soft(&name).is_none());
+        }
         other => panic!("expected symbol, got {other:?}"),
     }
 }
 
 #[test]
-fn cl_gensym_wrong_type() {
+fn cl_gensym_integer_uses_explicit_suffix_without_interning() {
     crate::test_utils::init_test_tracing();
-    assert!(builtin_cl_gensym(vec![Value::fixnum(1)]).is_err());
+    let result = builtin_cl_gensym(vec![Value::fixnum(9)]).unwrap();
+    match result.kind() {
+        ValueKind::Symbol(id) => {
+            let name = resolve_sym(id);
+            assert_eq!(name, "G9");
+            let eval = super::super::eval::Context::new();
+            assert!(eval.obarray().intern_soft(&name).is_none());
+        }
+        other => panic!("expected symbol, got {other:?}"),
+    }
+}
+
+#[test]
+fn cl_gensym_non_string_non_integer_uses_default_prefix_and_counter() {
+    crate::test_utils::init_test_tracing();
+    let result = builtin_cl_gensym(vec![Value::symbol("vm-gensym-marker")]).unwrap();
+    match result.kind() {
+        ValueKind::Symbol(id) => assert!(resolve_sym(id).starts_with('G')),
+        other => panic!("expected symbol, got {other:?}"),
+    }
 }
 
 #[test]
