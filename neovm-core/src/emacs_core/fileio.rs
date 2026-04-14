@@ -889,7 +889,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         ValueKind::Nil => Ok("nil".to_string()),
         ValueKind::T => Ok("t".to_string()),
@@ -902,7 +902,7 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
 
 fn expect_string_strict(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -912,7 +912,7 @@ fn expect_string_strict(value: &Value) -> Result<String, Flow> {
 
 fn expect_temp_prefix(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
         ValueKind::Nil | ValueKind::Cons | ValueKind::Veclike(VecLikeType::Vector) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -1145,7 +1145,7 @@ pub(crate) fn builtin_expand_file_name(eval: &mut Context, args: Vec<Value>) -> 
     let default_dir = if let Some(arg) = args.get(1) {
         match arg.kind() {
             ValueKind::Nil => default_directory_in_state(&eval.obarray, &[], &eval.buffers),
-            ValueKind::String => Some(arg.as_str().unwrap().to_owned()),
+            ValueKind::String => Some(super::builtins::lisp_string_to_runtime_string(*arg)),
             _ => Some("/".to_string()),
         }
     } else {
@@ -1219,7 +1219,7 @@ pub(crate) fn builtin_make_temp_file(eval: &mut Context, args: Vec<Value>) -> Ev
     let text = match args.get(3) {
         None => None,
         Some(v) if v.is_nil() => None,
-        Some(v) if v.is_string() => Some(v.as_str().unwrap().to_owned()),
+        Some(v) if v.is_string() => Some(super::builtins::lisp_string_to_runtime_string(*v)),
         Some(_) => None,
     };
     let temp_dir = temporary_file_directory_for_eval(eval)
@@ -1349,7 +1349,7 @@ pub(crate) fn builtin_file_name_concat(args: Vec<Value>) -> EvalResult {
         match value.kind() {
             ValueKind::Nil => {}
             ValueKind::String => {
-                let s = value.as_str().unwrap().to_owned();
+                let s = super::builtins::lisp_string_to_runtime_string(value);
                 if !s.is_empty() {
                     parts.push(s);
                 }
@@ -1398,13 +1398,13 @@ pub(crate) fn default_directory_in_state(
 ) -> Option<String> {
     if let Some(buf) = buffers.current_buffer() {
         if let Some(val) = buf.get_buffer_local("default-directory") {
-            if let Some(s) = val.as_str() {
-                return Some(s.to_owned());
+            if val.is_string() {
+                return Some(super::builtins::lisp_string_to_runtime_string(val));
             }
         }
     }
     match obarray.symbol_value("default-directory") {
-        Some(val) if val.is_string() => Some(val.as_str().unwrap().to_owned()),
+        Some(val) if val.is_string() => Some(super::builtins::lisp_string_to_runtime_string(*val)),
         _ => None,
     }
 }
@@ -2733,7 +2733,10 @@ fn decode_insert_file_contents(
     ])?;
 
     match decoded.kind() {
-        ValueKind::String => Ok((decoded.as_str().unwrap().to_owned(), coding.to_string())),
+        ValueKind::String => Ok((
+            super::builtins::lisp_string_to_runtime_string(decoded),
+            coding.to_string(),
+        )),
         other => Err(signal(
             "error",
             vec![Value::string(format!(
@@ -2762,7 +2765,7 @@ pub(crate) fn builtin_insert_file_contents(
     let coding_system_for_read: Option<String> = match coding_val.kind() {
         ValueKind::Nil => None,
         ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
-        ValueKind::String => Some(coding_val.as_str().unwrap().to_owned()),
+        ValueKind::String => Some(super::builtins::lisp_string_to_runtime_string(coding_val)),
         _ => None,
     };
     let source_load_context = eval
@@ -2998,11 +3001,11 @@ fn lookup_backup_directory(obarray: &Obarray, filename: &str) -> Option<String> 
             let car = entry.cons_car();
             let cdr = entry.cons_cdr();
             let pattern = match car.kind() {
-                ValueKind::String => car.as_str().unwrap().to_owned(),
+                ValueKind::String => super::builtins::lisp_string_to_runtime_string(car),
                 _ => continue,
             };
             let dir = match cdr.kind() {
-                ValueKind::String => cdr.as_str().unwrap().to_owned(),
+                ValueKind::String => super::builtins::lisp_string_to_runtime_string(cdr),
                 _ => continue,
             };
             // Simple substring match (GNU uses regex, but for now substring is
@@ -3110,7 +3113,7 @@ fn coding_system_value_to_name(val: &Value) -> Option<String> {
             if name == "nil" { None } else { Some(name) }
         }
         ValueKind::String => {
-            let name = val.as_str().unwrap().to_owned();
+            let name = super::builtins::lisp_string_to_runtime_string(*val);
             if name.is_empty() || name == "nil" {
                 None
             } else {

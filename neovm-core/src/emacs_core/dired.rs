@@ -33,7 +33,9 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 
 fn expect_string(_name: &str, value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(crate::emacs_core::builtins::lisp_string_to_runtime_string(
+            *value,
+        )),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -1085,7 +1087,9 @@ fn extract_car_string(_name: &str, val: &Value) -> Result<String, Flow> {
             let pair_car = val.cons_car();
             let pair_cdr = val.cons_cdr();
             match pair_car.kind() {
-                ValueKind::String => Ok(pair_car.as_str().unwrap().to_owned()),
+                ValueKind::String => Ok(
+                    crate::emacs_core::builtins::lisp_string_to_runtime_string(pair_car),
+                ),
                 other => Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("stringp"), *val],
