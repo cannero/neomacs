@@ -8,7 +8,7 @@ use super::{Buffer, BufferId, BufferManager};
 use crate::buffer::undo;
 
 impl Buffer {
-    pub(crate) fn apply_byte_insert_side_effects(
+    fn apply_byte_insert_side_effects(
         &mut self,
         insert_pos: usize,
         insert_char_pos: usize,
@@ -63,7 +63,7 @@ impl Buffer {
         self.sync_modified_flag();
     }
 
-    pub(crate) fn apply_byte_delete_side_effects(
+    fn apply_byte_delete_side_effects(
         &mut self,
         start: usize,
         end: usize,
@@ -131,7 +131,7 @@ impl Buffer {
         self.sync_modified_flag();
     }
 
-    pub(crate) fn apply_same_len_edit_side_effects(
+    fn apply_same_len_edit_side_effects(
         &mut self,
         changed_chars: usize,
         preserve_modified_state: bool,
@@ -194,7 +194,7 @@ impl Buffer {
         if byte_len == 0 {
             return;
         }
-        let char_len = text.chars().count();
+        let char_len = crate::emacs_core::string_escape::storage_char_len(text);
 
         // Record undo before modifying.
         if !self.undo_state.in_progress() {
@@ -364,7 +364,7 @@ impl BufferManager {
         if byte_len == 0 {
             return Some(());
         }
-        let char_len = text.chars().count();
+        let char_len = crate::emacs_core::string_escape::storage_char_len(text);
 
         let root_id = self.shared_text_root_id(id)?;
         let shared_ids = self.buffers_sharing_root_ids(root_id);
@@ -401,7 +401,7 @@ impl BufferManager {
         if byte_len == 0 {
             return Some(());
         }
-        let char_len = text.chars().count();
+        let char_len = crate::emacs_core::string_escape::storage_char_len(text);
         let root_id = self.shared_text_root_id(id)?;
         let shared_ids = self.buffers_sharing_root_ids(root_id);
         let source = self.buffers.get(&id)?;

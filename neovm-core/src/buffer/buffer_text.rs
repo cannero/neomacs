@@ -61,7 +61,7 @@ impl BufferText {
         Self {
             storage: Rc::new(RefCell::new(BufferTextStorage {
                 gap: GapBuffer::from_str(text),
-                char_count: text.chars().count(),
+                char_count: crate::emacs_core::string_escape::storage_char_len(text),
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
             })),
@@ -88,6 +88,10 @@ impl BufferText {
         self.storage.borrow().gap.char_at(pos)
     }
 
+    pub fn char_code_at(&self, pos: usize) -> Option<u32> {
+        self.storage.borrow().gap.char_code_at(pos)
+    }
+
     pub fn text_range(&self, start: usize, end: usize) -> String {
         self.storage.borrow().gap.text_range(start, end)
     }
@@ -106,7 +110,7 @@ impl BufferText {
         }
         let mut storage = self.storage.borrow_mut();
         storage.gap.insert_str(pos, text);
-        storage.char_count += text.chars().count();
+        storage.char_count += crate::emacs_core::string_escape::storage_char_len(text);
     }
 
     pub fn delete_range(&mut self, start: usize, end: usize) {

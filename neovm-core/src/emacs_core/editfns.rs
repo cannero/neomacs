@@ -763,12 +763,19 @@ pub(crate) fn builtin_buffer_substring_no_properties(
     let Some((start_byte, end_byte)) =
         current_buffer_accessible_char_region_in_buffers(&ctx.buffers, &args[0], &args[1])?
     else {
-        return Ok(Value::string(""));
+        return Ok(Value::heap_string(
+            crate::heap_types::LispString::from_emacs_bytes(Vec::new()),
+        ));
     };
     let Some(buf) = ctx.buffers.current_buffer() else {
-        return Ok(Value::string(""));
+        return Ok(Value::heap_string(
+            crate::heap_types::LispString::from_emacs_bytes(Vec::new()),
+        ));
     };
-    Ok(Value::string(buf.buffer_substring(start_byte, end_byte)))
+    let storage = buf.buffer_substring(start_byte, end_byte);
+    Ok(Value::heap_string(
+        crate::emacs_core::builtins::lisp_string_from_buffer_storage(&storage, buf.get_multibyte()),
+    ))
 }
 
 /// `(following-char)` — return character after point (0 if at end).
@@ -778,8 +785,11 @@ pub(crate) fn builtin_following_char(
 ) -> EvalResult {
     expect_args("following-char", &args, 0)?;
     match ctx.buffers.current_buffer() {
-        Some(buf) => match (buf.pt < buf.zv).then(|| buf.char_after(buf.pt)).flatten() {
-            Some(ch) => Ok(Value::fixnum(ch as i64)),
+        Some(buf) => match (buf.pt < buf.zv)
+            .then(|| buf.char_code_after(buf.pt))
+            .flatten()
+        {
+            Some(code) => Ok(Value::fixnum(code as i64)),
             None => Ok(Value::fixnum(0)),
         },
         None => Ok(Value::fixnum(0)),
@@ -794,10 +804,10 @@ pub(crate) fn builtin_preceding_char(
     expect_args("preceding-char", &args, 0)?;
     match ctx.buffers.current_buffer() {
         Some(buf) => match (buf.pt > buf.begv)
-            .then(|| buf.char_before(buf.pt))
+            .then(|| buf.char_code_before(buf.pt))
             .flatten()
         {
-            Some(ch) => Ok(Value::fixnum(ch as i64)),
+            Some(code) => Ok(Value::fixnum(code as i64)),
             None => Ok(Value::fixnum(0)),
         },
         None => Ok(Value::fixnum(0)),

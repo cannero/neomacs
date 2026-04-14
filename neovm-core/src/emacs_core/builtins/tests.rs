@@ -8748,25 +8748,14 @@ fn insert_char_nonunicode_char_code_bounds_match_oracle() {
     builtin_erase_buffer(&mut eval, vec![]).expect("erase-buffer should succeed");
     builtin_insert_char(&mut eval, vec![Value::fixnum(0x11_0000), Value::fixnum(1)])
         .expect("insert-char should accept nonunicode char code");
-    let first = builtin_buffer_string(&mut eval, vec![])
-        .expect("buffer-string should evaluate")
-        .as_str()
-        .expect("buffer-string should return text")
-        .to_string();
-    assert_eq!(decode_storage_char_codes(&first), vec![0x11_0000]);
+    let first = builtin_buffer_string(&mut eval, vec![]).expect("buffer-string should evaluate");
+    assert_eq!(decode_value_char_codes(&first), vec![0x11_0000]);
 
     builtin_erase_buffer(&mut eval, vec![]).expect("erase-buffer should succeed");
     builtin_insert_char(&mut eval, vec![Value::fixnum(0x20_0000), Value::fixnum(2)])
         .expect("insert-char should repeat nonunicode char code");
-    let second = builtin_buffer_string(&mut eval, vec![])
-        .expect("buffer-string should evaluate")
-        .as_str()
-        .expect("buffer-string should return text")
-        .to_string();
-    assert_eq!(
-        decode_storage_char_codes(&second),
-        vec![0x20_0000, 0x20_0000]
-    );
+    let second = builtin_buffer_string(&mut eval, vec![]).expect("buffer-string should evaluate");
+    assert_eq!(decode_value_char_codes(&second), vec![0x20_0000, 0x20_0000]);
 
     let overflow = builtin_insert_char(&mut eval, vec![Value::fixnum(0x40_0000), Value::fixnum(1)])
         .expect_err("insert-char should reject out-of-range character code");
@@ -8790,12 +8779,8 @@ fn insert_nonunicode_integer_arguments_match_oracle() {
     builtin_erase_buffer(&mut eval, vec![]).expect("erase-buffer should succeed");
     builtin_insert(&mut eval, vec![Value::fixnum(0x11_0000)])
         .expect("insert should accept nonunicode integer char code");
-    let first = builtin_buffer_string(&mut eval, vec![])
-        .expect("buffer-string should evaluate")
-        .as_str()
-        .expect("buffer-string should return text")
-        .to_string();
-    assert_eq!(decode_storage_char_codes(&first), vec![0x11_0000]);
+    let first = builtin_buffer_string(&mut eval, vec![]).expect("buffer-string should evaluate");
+    assert_eq!(decode_value_char_codes(&first), vec![0x11_0000]);
 
     builtin_erase_buffer(&mut eval, vec![]).expect("erase-buffer should succeed");
     builtin_insert(
@@ -8803,15 +8788,8 @@ fn insert_nonunicode_integer_arguments_match_oracle() {
         vec![Value::fixnum(0x20_0000), Value::fixnum(0x20_0000)],
     )
     .expect("insert should repeat nonunicode integer char codes");
-    let second = builtin_buffer_string(&mut eval, vec![])
-        .expect("buffer-string should evaluate")
-        .as_str()
-        .expect("buffer-string should return text")
-        .to_string();
-    assert_eq!(
-        decode_storage_char_codes(&second),
-        vec![0x20_0000, 0x20_0000]
-    );
+    let second = builtin_buffer_string(&mut eval, vec![]).expect("buffer-string should evaluate");
+    assert_eq!(decode_value_char_codes(&second), vec![0x20_0000, 0x20_0000]);
 
     let overflow = builtin_insert(&mut eval, vec![Value::fixnum(0x40_0000)])
         .expect_err("insert should reject out-of-range integer char code");
@@ -8834,22 +8812,23 @@ fn insert_byte_matches_gnu_multibyte_and_unibyte_storage() {
 
     builtin_insert_byte(&mut eval, vec![Value::fixnum(65), Value::fixnum(2)])
         .expect("insert-byte should insert ASCII bytes");
-    let ascii = builtin_buffer_string(&mut eval, vec![])
-        .expect("buffer-string should evaluate")
-        .as_str()
-        .expect("buffer-string should return text")
-        .to_string();
-    assert_eq!(ascii, "AA");
+    let ascii = builtin_buffer_string(&mut eval, vec![]).expect("buffer-string should evaluate");
+    let ascii_ls = ascii
+        .as_lisp_string()
+        .expect("buffer-string should return string");
+    assert!(ascii_ls.is_multibyte());
+    assert_eq!(ascii_ls.as_str(), Some("AA"));
 
     builtin_erase_buffer(&mut eval, vec![]).expect("erase-buffer should succeed");
     builtin_insert_byte(&mut eval, vec![Value::fixnum(200), Value::fixnum(1)])
         .expect("insert-byte should insert raw byte chars in multibyte buffers");
-    let multibyte = builtin_buffer_string(&mut eval, vec![])
-        .expect("buffer-string should evaluate")
-        .as_str()
-        .expect("buffer-string should return text")
-        .to_string();
-    assert_eq!(decode_storage_char_codes(&multibyte), vec![0x3FFF00 + 200]);
+    let multibyte =
+        builtin_buffer_string(&mut eval, vec![]).expect("buffer-string should evaluate");
+    let multibyte_ls = multibyte
+        .as_lisp_string()
+        .expect("buffer-string should return string");
+    assert!(multibyte_ls.is_multibyte());
+    assert_eq!(decode_value_char_codes(&multibyte), vec![0x3FFF00 + 200]);
 
     builtin_erase_buffer(&mut eval, vec![]).expect("erase-buffer should succeed");
     let current_id = eval.buffers.current_buffer_id().expect("current buffer");
@@ -8858,12 +8837,118 @@ fn insert_byte_matches_gnu_multibyte_and_unibyte_storage() {
         .expect("set-buffer-multibyte should accept current buffer");
     builtin_insert_byte(&mut eval, vec![Value::fixnum(200), Value::fixnum(1)])
         .expect("insert-byte should insert plain bytes in unibyte buffers");
-    let unibyte = builtin_buffer_string(&mut eval, vec![])
-        .expect("buffer-string should evaluate")
-        .as_str()
-        .expect("buffer-string should return text")
-        .to_string();
-    assert_eq!(decode_storage_char_codes(&unibyte), vec![200]);
+    let unibyte = builtin_buffer_string(&mut eval, vec![]).expect("buffer-string should evaluate");
+    let unibyte_ls = unibyte
+        .as_lisp_string()
+        .expect("buffer-string should return string");
+    assert!(!unibyte_ls.is_multibyte());
+    assert_eq!(unibyte_ls.as_bytes(), &[200]);
+}
+
+#[test]
+fn buffer_string_returns_unibyte_storage_for_unibyte_buffer() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    let current_id = eval.buffers.current_buffer_id().expect("current buffer");
+    eval.buffers
+        .set_buffer_multibyte_flag(current_id, false)
+        .expect("set-buffer-multibyte should accept current buffer");
+    builtin_insert(&mut eval, vec![Value::string("é")]).unwrap();
+
+    let value = builtin_buffer_string(&mut eval, vec![]).unwrap();
+    let ls = value.as_lisp_string().expect("buffer-string result");
+    assert!(!ls.is_multibyte());
+    assert_eq!(ls.as_bytes(), &[0xE9]);
+}
+
+#[test]
+fn insert_string_converts_props_from_multibyte_source_to_unibyte_buffer() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let current_id = eval.buffers.current_buffer_id().expect("current buffer");
+    eval.buffers
+        .set_buffer_multibyte_flag(current_id, false)
+        .expect("set-buffer-multibyte should accept current buffer");
+
+    let text = Value::string("éz");
+    let mut table = crate::buffer::text_props::TextPropertyTable::new();
+    let _ = table.put_property(0, 2, "face", Value::symbol("bold"));
+    crate::emacs_core::value::set_string_text_properties_table_for_value(text, table);
+
+    builtin_insert(&mut eval, vec![text]).unwrap();
+
+    let result = builtin_buffer_string(&mut eval, vec![]).unwrap();
+    let ls = result.as_lisp_string().expect("buffer-string result");
+    assert!(!ls.is_multibyte());
+    assert_eq!(ls.as_bytes(), &[0xE9, b'z']);
+
+    let props = crate::emacs_core::value::get_string_text_properties_table_for_value(result)
+        .expect("string properties");
+    let intervals = props.intervals_snapshot();
+    assert_eq!(intervals.len(), 1);
+    assert_eq!(intervals[0].start, 0);
+    assert_eq!(intervals[0].end, 1);
+    assert_eq!(
+        intervals[0].properties.get("face"),
+        Some(&Value::symbol("bold"))
+    );
+}
+
+#[test]
+fn insert_unibyte_string_converts_props_into_multibyte_buffer() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    let text = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xE9, b'z',
+    ]));
+    let mut table = crate::buffer::text_props::TextPropertyTable::new();
+    let _ = table.put_property(0, 1, "face", Value::symbol("bold"));
+    crate::emacs_core::value::set_string_text_properties_table_for_value(text, table);
+
+    builtin_insert(&mut eval, vec![text]).unwrap();
+
+    let result = builtin_buffer_string(&mut eval, vec![]).unwrap();
+    let ls = result.as_lisp_string().expect("buffer-string result");
+    assert!(ls.is_multibyte());
+    assert_eq!(
+        decode_value_char_codes(&result),
+        vec![0x3FFF00 + 0xE9, b'z' as u32]
+    );
+
+    let props = crate::emacs_core::value::get_string_text_properties_table_for_value(result)
+        .expect("string properties");
+    let intervals = props.intervals_snapshot();
+    assert_eq!(intervals.len(), 1);
+    assert_eq!(intervals[0].start, 0);
+    assert_eq!(intervals[0].end, 2);
+    assert_eq!(
+        intervals[0].properties.get("face"),
+        Some(&Value::symbol("bold"))
+    );
+}
+
+#[test]
+fn char_queries_return_nonunicode_emacs_character_codes() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    builtin_insert_char(&mut eval, vec![Value::fixnum(0x20_0000), Value::fixnum(1)]).unwrap();
+
+    assert_eq!(
+        builtin_char_after(&mut eval, vec![Value::fixnum(1)]).unwrap(),
+        Value::fixnum(0x20_0000)
+    );
+    assert_eq!(
+        crate::emacs_core::editfns::builtin_following_char(&eval, vec![]).unwrap(),
+        Value::fixnum(0)
+    );
+    builtin_goto_char(&mut eval, vec![Value::fixnum(2)]).unwrap();
+    assert_eq!(
+        crate::emacs_core::editfns::builtin_preceding_char(&eval, vec![]).unwrap(),
+        Value::fixnum(0x20_0000)
+    );
 }
 
 #[test]

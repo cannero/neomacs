@@ -1719,6 +1719,14 @@ impl Buffer {
         self.text.char_at(pos)
     }
 
+    /// Emacs character code at byte position `pos`, or `None` if out of range.
+    pub fn char_code_after(&self, pos: usize) -> Option<u32> {
+        if pos >= self.text.len() {
+            return None;
+        }
+        self.text.char_code_at(pos)
+    }
+
     /// Character immediately before byte position `pos`, or `None`.
     pub fn char_before(&self, pos: usize) -> Option<char> {
         if pos == 0 || pos > self.text.len() {
@@ -1738,6 +1746,19 @@ impl Buffer {
             back += 1;
         }
         None
+    }
+
+    /// Emacs character code immediately before byte position `pos`, or `None`.
+    pub fn char_code_before(&self, pos: usize) -> Option<u32> {
+        if pos == 0 || pos > self.text.len() {
+            return None;
+        }
+        let prior_char = self.text.byte_to_char(pos);
+        if prior_char == 0 {
+            return None;
+        }
+        let prior_byte = self.text.char_to_byte(prior_char - 1);
+        self.text.char_code_at(prior_byte)
     }
 
     // -- Narrowing -----------------------------------------------------------

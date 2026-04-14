@@ -1,4 +1,4 @@
-//! A UTF-8 aware gap buffer for efficient text editing.
+//! A NeoVM storage-aware gap buffer for efficient text editing.
 //!
 //! The gap buffer stores text in a contiguous `Vec<u8>` with a movable "gap"
 //! (unused region) that makes insertions and deletions near the gap O(1)
@@ -7,8 +7,8 @@
 //!
 //! All public positions are **byte** positions into the logical text (i.e. the
 //! text with the gap removed) unless a parameter is explicitly named
-//! `char_pos`. The caller is responsible for ensuring byte positions fall on
-//! UTF-8 character boundaries.
+//! `char_pos`. Byte/character conversions follow NeoVM's internal storage
+//! format, including sentinel sequences for non-Unicode Emacs characters.
 
 use std::fmt;
 
@@ -19,7 +19,7 @@ const DEFAULT_GAP_SIZE: usize = 64;
 /// this many bytes, or the requested size, whichever is larger.
 const MIN_GAP_GROW: usize = 64;
 
-/// A gap buffer holding UTF-8 encoded text.
+/// A gap buffer holding NeoVM internal string storage.
 ///
 /// Internally the backing store looks like:
 ///
@@ -85,14 +85,9 @@ impl GapBuffer {
         self.len() == 0
     }
 
-    /// Number of Unicode scalar values (chars) in the buffer.
+    /// Number of logical Emacs characters in the buffer storage.
     pub fn char_count(&self) -> usize {
-        // Count chars in the two text segments on either side of the gap.
-        let before = std::str::from_utf8(&self.buf[..self.gap_start])
-            .expect("pre-gap text is not valid UTF-8");
-        let after = std::str::from_utf8(&self.buf[self.gap_end..])
-            .expect("post-gap text is not valid UTF-8");
-        before.chars().count() + after.chars().count()
+        crate::emacs_core::string_escape::storage_char_len(&self.to_string())
     }
 
     /// Size of the gap in bytes.
@@ -146,6 +141,23 @@ impl GapBuffer {
         }
         let s = std::str::from_utf8(&tmp[..char_len]).expect("char_at: invalid UTF-8 sequence");
         s.chars().next()
+    }
+
+    /// Return the Emacs character code whose first storage byte begins at
+    /// logical byte position `pos`, or `None` if `pos >= self.len()`.
+    pub fn char_code_at(&self, pos: usize) -> Option<u32> {
+        if pos >= self.len() {
+            return None;
+        }
+        assert!(
+            self.is_char_boundary(pos),
+            "char_code_at: byte position {pos} is not a storage character boundary"
+        );
+        let logical = self.to_string();
+        let char_idx = crate::emacs_core::string_escape::storage_byte_to_char(&logical, pos);
+        crate::emacs_core::string_escape::decode_storage_char_codes(&logical)
+            .get(char_idx)
+            .copied()
     }
 
     // -----------------------------------------------------------------------
@@ -409,45 +421,30 @@ impl GapBuffer {
     // Position conversion
     // -----------------------------------------------------------------------
 
-    /// Convert a logical byte position to a char (scalar value) position.
+    /// Convert a logical byte position to a logical character position.
     ///
     /// Returns the number of complete characters before `byte_pos`.
     ///
     /// # Panics
     ///
-    /// Panics if `byte_pos > self.len()` or is not on a character boundary.
+    /// Panics if `byte_pos > self.len()` or is not on a storage character
+    /// boundary.
     pub fn byte_to_char(&self, byte_pos: usize) -> usize {
         assert!(
             byte_pos <= self.len(),
             "byte_to_char: byte_pos ({byte_pos}) > len ({})",
             self.len()
         );
-        if byte_pos == 0 {
-            return 0;
-        }
-
-        // Count chars in pre-gap portion that falls within [0, byte_pos).
-        let mut chars = 0usize;
-
-        if byte_pos <= self.gap_start {
-            // Entirely within segment A.
-            let slice = &self.buf[..byte_pos];
-            let s = std::str::from_utf8(slice)
-                .expect("byte_to_char: not a valid UTF-8 boundary (segment A)");
-            chars = s.chars().count();
-        } else {
-            // Spans both segments.
-            let pre = std::str::from_utf8(&self.buf[..self.gap_start])
-                .expect("byte_to_char: pre-gap segment is not valid UTF-8");
-            chars += pre.chars().count();
-
-            let remaining = byte_pos - self.gap_start;
-            let post_slice = &self.buf[self.gap_end..self.gap_end + remaining];
-            let post = std::str::from_utf8(post_slice)
-                .expect("byte_to_char: not a valid UTF-8 boundary (segment B)");
-            chars += post.chars().count();
-        }
-        chars
+        let logical = self.to_string();
+        assert!(
+            byte_pos
+                == crate::emacs_core::string_escape::storage_char_to_byte(
+                    &logical,
+                    crate::emacs_core::string_escape::storage_byte_to_char(&logical, byte_pos),
+                ),
+            "byte_to_char: byte_pos ({byte_pos}) is not a storage character boundary"
+        );
+        crate::emacs_core::string_escape::storage_byte_to_char(&logical, byte_pos)
     }
 
     /// Convert a char position to a logical byte position.
@@ -462,42 +459,17 @@ impl GapBuffer {
             return 0;
         }
 
-        let mut remaining = char_pos;
-
-        // Walk segment A (pre-gap).
-        let pre = std::str::from_utf8(&self.buf[..self.gap_start])
-            .expect("char_to_byte: pre-gap segment is not valid UTF-8");
-        for (byte_offset, _ch) in pre.char_indices() {
-            if remaining == 0 {
-                return byte_offset;
-            }
-            remaining -= 1;
-        }
-        // If we consumed all of segment A and remaining == 0, the byte position
-        // is at gap_start.
-        if remaining == 0 {
-            return self.gap_start;
-        }
-
-        // Walk segment B (post-gap).
-        let post = std::str::from_utf8(&self.buf[self.gap_end..])
-            .expect("char_to_byte: post-gap segment is not valid UTF-8");
-        for (byte_offset, _ch) in post.char_indices() {
-            if remaining == 0 {
-                // byte_offset is relative to segment B; logical = gap_start + byte_offset.
-                return self.gap_start + byte_offset;
-            }
-            remaining -= 1;
-        }
-        if remaining == 0 {
-            return self.len();
+        let logical = self.to_string();
+        let char_count = crate::emacs_core::string_escape::storage_char_len(&logical);
+        if char_pos <= char_count {
+            return crate::emacs_core::string_escape::storage_char_to_byte(&logical, char_pos);
         }
 
         // Clamp to end of buffer instead of panicking — this can happen
         // when window_start / point are stale after buffer modification.
         tracing::debug!(
             "char_to_byte: char_pos ({char_pos}) exceeds char_count ({}), clamping",
-            self.char_count()
+            char_count
         );
         return self.len();
     }
@@ -506,16 +478,15 @@ impl GapBuffer {
     // Internal helpers
     // -----------------------------------------------------------------------
 
-    /// Check whether `pos` falls on a UTF-8 character boundary in the logical
+    /// Check whether `pos` falls on a logical storage-character boundary in the
     /// text.
     fn is_char_boundary(&self, pos: usize) -> bool {
         if pos == 0 || pos >= self.len() {
             return true;
         }
-        let b = self.byte_at(pos);
-        // In UTF-8, a continuation byte has the bit pattern 10xxxxxx.
-        // A character boundary is any byte that is NOT a continuation byte.
-        is_utf8_start_byte(b)
+        let logical = self.to_string();
+        let char_idx = crate::emacs_core::string_escape::storage_byte_to_char(&logical, pos);
+        crate::emacs_core::string_escape::storage_char_to_byte(&logical, char_idx) == pos
     }
 
     // pdump accessors

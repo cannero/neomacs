@@ -671,17 +671,7 @@ pub(crate) fn builtin_buffer_substring(
     } else {
         (byte_end, byte_start)
     };
-    let result = Value::string(buf.buffer_substring(byte_lo, byte_hi));
-    // Copy buffer text properties to the result string
-    if !buf.text.text_props_is_empty() {
-        if result.is_string() {
-            let sliced = buf.text.text_props_slice(byte_lo, byte_hi);
-            if !sliced.is_empty() {
-                set_string_text_properties_table_for_value(result, sliced);
-            }
-        }
-    }
-    Ok(result)
+    Ok(buffer_slice_value(buf, byte_lo, byte_hi))
 }
 
 pub(crate) fn builtin_buffer_string(
@@ -695,14 +685,7 @@ pub(crate) fn builtin_buffer_string(
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let byte_start = buf.point_min();
     let byte_end = buf.point_max();
-    let result = Value::string(buf.buffer_string());
-    if !buf.text.text_props_is_empty() && result.is_string() {
-        let sliced = buf.text.text_props_slice(byte_start, byte_end);
-        if !sliced.is_empty() {
-            set_string_text_properties_table_for_value(result, sliced);
-        }
-    }
-    Ok(result)
+    Ok(buffer_slice_value(buf, byte_start, byte_end))
 }
 
 fn resolve_buffer_designator_allow_nil_current(
@@ -878,10 +861,14 @@ fn checked_buffer_substring_for_char_region_in_manager(
     end_arg: Value,
 ) -> Result<Value, Flow> {
     let Some(buffer_id) = buffer_id else {
-        return Ok(Value::string(""));
+        return Ok(Value::heap_string(
+            crate::heap_types::LispString::from_emacs_bytes(Vec::new()),
+        ));
     };
     let Some(buf) = buffers.get(buffer_id) else {
-        return Ok(Value::string(""));
+        return Ok(Value::heap_string(
+            crate::heap_types::LispString::from_emacs_bytes(Vec::new()),
+        ));
     };
 
     let point_min = buf.point_min_char() as i64 + 1;
@@ -897,14 +884,7 @@ fn checked_buffer_substring_for_char_region_in_manager(
     };
     let from_byte = buf.lisp_pos_to_accessible_byte(from);
     let to_byte = buf.lisp_pos_to_accessible_byte(to);
-    let result = Value::string(buf.buffer_substring(from_byte, to_byte));
-    if !buf.text.text_props_is_empty() && result.is_string() {
-        let sliced = buf.text.text_props_slice(from_byte, to_byte);
-        if !sliced.is_empty() {
-            set_string_text_properties_table_for_value(result, sliced);
-        }
-    }
-    Ok(result)
+    Ok(buffer_slice_value(buf, from_byte, to_byte))
 }
 
 fn compare_buffer_substring_strings(left: &str, right: &str, case_fold: bool) -> i64 {
@@ -1306,7 +1286,8 @@ pub(crate) fn builtin_replace_region_contents(
     // The insert builtins already call signal hooks internally, but the
     // surrounding before/after pair covers the whole replace operation.
     // To avoid double-firing, we use insert_pieces_in_state directly.
-    let source_pieces = collect_insert_pieces(&[source_value])?;
+    let target_multibyte = current_buffer_multibyte(&eval.buffers)?;
+    let source_pieces = collect_insert_pieces(&[source_value], target_multibyte)?;
     let new_len: usize = source_pieces.iter().map(|p| p.text.len()).sum();
     let inherit = args.get(5).is_some_and(|value| value.is_truthy());
     insert_pieces_in_state(
@@ -2314,34 +2295,209 @@ struct InsertPiece {
     text_props: Option<crate::buffer::text_props::TextPropertyTable>,
 }
 
-fn collect_insert_pieces(args: &[Value]) -> Result<Vec<InsertPiece>, Flow> {
+fn current_buffer_multibyte(buffers: &BufferManager) -> Result<bool, Flow> {
+    let current_id = buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    buffers
+        .get(current_id)
+        .map(|buf| buf.get_multibyte())
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))
+}
+
+fn lisp_string_byte_to_char(string: &crate::heap_types::LispString, byte_pos: usize) -> usize {
+    let clamped = byte_pos.min(string.sbytes());
+    if string.is_multibyte() {
+        crate::emacs_core::emacs_char::byte_to_char_pos(string.as_bytes(), clamped)
+    } else {
+        clamped
+    }
+}
+
+fn lisp_string_char_to_byte(string: &crate::heap_types::LispString, char_pos: usize) -> usize {
+    let clamped = char_pos.min(string.schars());
+    if string.is_multibyte() {
+        crate::emacs_core::emacs_char::char_to_byte_pos(string.as_bytes(), clamped)
+    } else {
+        clamped
+    }
+}
+
+fn remap_text_property_table(
+    table: &crate::buffer::text_props::TextPropertyTable,
+    source_byte_to_char: impl Fn(usize) -> usize,
+    target_char_to_byte: impl Fn(usize) -> usize,
+) -> crate::buffer::text_props::TextPropertyTable {
+    let intervals = table
+        .intervals_snapshot()
+        .into_iter()
+        .filter_map(|interval| {
+            let start = target_char_to_byte(source_byte_to_char(interval.start));
+            let end = target_char_to_byte(source_byte_to_char(interval.end));
+            (start < end).then_some(crate::buffer::text_props::PropertyInterval {
+                start,
+                end,
+                properties: interval.properties,
+                key_order: interval.key_order,
+            })
+        })
+        .collect();
+    crate::buffer::text_props::TextPropertyTable::from_dump(intervals)
+}
+
+fn buffer_insert_char_codes(
+    string: &crate::heap_types::LispString,
+    target_multibyte: bool,
+) -> Vec<u32> {
+    let mut codes = super::lisp_string_char_codes(string);
+    if target_multibyte {
+        if !string.is_multibyte() {
+            for code in &mut codes {
+                if *code > 0x7F {
+                    *code = crate::emacs_core::emacs_char::byte8_to_char(*code as u8);
+                }
+            }
+        }
+    } else {
+        for code in &mut codes {
+            *code &= 0xFF;
+        }
+    }
+    codes
+}
+
+fn encode_char_code_for_buffer_storage(code: u32, multibyte: bool) -> Option<String> {
+    if code > crate::emacs_core::emacs_char::MAX_CHAR {
+        return None;
+    }
+    if multibyte {
+        crate::emacs_core::string_escape::encode_char_code_for_string_storage(code, true)
+    } else {
+        Some(
+            crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(&[
+                (code & 0xFF) as u8
+            ]),
+        )
+    }
+}
+
+fn buffer_insert_storage_from_lisp_string(
+    string: &crate::heap_types::LispString,
+    target_multibyte: bool,
+) -> String {
+    let codes = buffer_insert_char_codes(string, target_multibyte);
+    if target_multibyte {
+        let mut out = String::new();
+        for code in codes {
+            out.push_str(
+                &encode_char_code_for_buffer_storage(code, true)
+                    .expect("valid Emacs character code must encode into buffer storage"),
+            );
+        }
+        out
+    } else {
+        let bytes: Vec<u8> = codes
+            .into_iter()
+            .map(|code| {
+                assert!(
+                    code <= 0xFF,
+                    "unibyte insertion produced non-byte character code {code:#X}"
+                );
+                code as u8
+            })
+            .collect();
+        crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(&bytes)
+    }
+}
+
+fn buffer_insert_piece_from_string(
+    value: Value,
+    target_multibyte: bool,
+) -> Result<InsertPiece, Flow> {
+    let source = value
+        .as_lisp_string()
+        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("stringp"), value]))?;
+    let text = buffer_insert_storage_from_lisp_string(source, target_multibyte);
+    let text_props = get_string_text_properties_table_for_value(value).and_then(|table| {
+        if table.is_empty() {
+            return None;
+        }
+        let remapped = remap_text_property_table(
+            &table,
+            |byte_pos| lisp_string_byte_to_char(source, byte_pos),
+            |char_pos| crate::emacs_core::string_escape::storage_char_to_byte(&text, char_pos),
+        );
+        (!remapped.is_empty()).then_some(remapped)
+    });
+    Ok(InsertPiece { text, text_props })
+}
+
+pub(crate) fn lisp_string_from_buffer_storage(
+    storage: &str,
+    multibyte: bool,
+) -> crate::heap_types::LispString {
+    let codes = crate::emacs_core::string_escape::decode_storage_char_codes(storage);
+    if multibyte {
+        let mut bytes = Vec::new();
+        for code in codes {
+            let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+            let len = crate::emacs_core::emacs_char::char_string(code, &mut buf);
+            bytes.extend_from_slice(&buf[..len]);
+        }
+        crate::heap_types::LispString::from_emacs_bytes(bytes)
+    } else {
+        let bytes: Vec<u8> = codes
+            .into_iter()
+            .map(|code| {
+                assert!(
+                    code <= 0xFF,
+                    "unibyte buffer storage contained non-byte character code {code:#X}"
+                );
+                code as u8
+            })
+            .collect();
+        crate::heap_types::LispString::from_unibyte(bytes)
+    }
+}
+
+pub(crate) fn buffer_slice_value(
+    buf: &crate::buffer::Buffer,
+    start_byte: usize,
+    end_byte: usize,
+) -> Value {
+    let storage = buf.buffer_substring(start_byte, end_byte);
+    let string = lisp_string_from_buffer_storage(&storage, buf.get_multibyte());
+    let value = Value::heap_string(string);
+    if !buf.text.text_props_is_empty() {
+        let sliced = buf.text.text_props_slice(start_byte, end_byte);
+        if !sliced.is_empty() {
+            let result_string = value.as_lisp_string().expect("heap string");
+            let remapped = remap_text_property_table(
+                &sliced,
+                |byte_pos| {
+                    crate::emacs_core::string_escape::storage_byte_to_char(&storage, byte_pos)
+                },
+                |char_pos| lisp_string_char_to_byte(result_string, char_pos),
+            );
+            if !remapped.is_empty() {
+                set_string_text_properties_table_for_value(value, remapped);
+            }
+        }
+    }
+    value
+}
+
+fn collect_insert_pieces(args: &[Value], target_multibyte: bool) -> Result<Vec<InsertPiece>, Flow> {
     let mut pieces = Vec::with_capacity(args.len());
     for arg in args {
         match arg.kind() {
             ValueKind::String => {
-                let text = match arg.as_str() {
-                    Some(s) => s.to_owned(),
-                    None => {
-                        // String contains raw-byte sequences (non-UTF-8 Emacs
-                        // encoding).  Convert lossy for the buffer layer which
-                        // still uses `String`-based `GapBuffer::insert`.
-                        let ls = arg.as_lisp_string().unwrap();
-                        crate::emacs_core::emacs_char::to_utf8_lossy(ls.as_bytes())
-                    }
-                };
-                pieces.push(InsertPiece {
-                    text,
-                    text_props: get_string_text_properties_table_for_value(*arg),
-                });
+                pieces.push(buffer_insert_piece_from_string(*arg, target_multibyte)?);
             }
             ValueKind::Fixnum(c) => {
                 let code = u32::try_from(c).ok();
                 let text = code
-                    .and_then(|code| {
-                        char::from_u32(code)
-                            .map(|ch| ch.to_string())
-                            .or_else(|| encode_nonunicode_char_for_storage(code))
-                    })
+                    .and_then(|code| encode_char_code_for_buffer_storage(code, target_multibyte))
                     .ok_or_else(|| {
                         signal(
                             "wrong-type-argument",
@@ -2397,7 +2553,8 @@ fn apply_inherited_text_properties(
 }
 
 pub(crate) fn builtin_insert(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    let pieces = collect_insert_pieces(&args)?;
+    let target_multibyte = current_buffer_multibyte(&eval.buffers)?;
+    let pieces = collect_insert_pieces(&args, target_multibyte)?;
     let total_len: usize = pieces.iter().map(|p| p.text.len()).sum();
     if total_len == 0 {
         return Ok(Value::NIL);
@@ -2413,7 +2570,8 @@ pub(crate) fn builtin_insert_and_inherit(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let pieces = collect_insert_pieces(&args)?;
+    let target_multibyte = current_buffer_multibyte(&eval.buffers)?;
+    let pieces = collect_insert_pieces(&args, target_multibyte)?;
     let total_len: usize = pieces.iter().map(|p| p.text.len()).sum();
     if total_len == 0 {
         return Ok(Value::NIL);
@@ -2429,7 +2587,8 @@ pub(crate) fn builtin_insert_before_markers_and_inherit(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let pieces = collect_insert_pieces(&args)?;
+    let target_multibyte = current_buffer_multibyte(&eval.buffers)?;
+    let pieces = collect_insert_pieces(&args, target_multibyte)?;
     let total_len: usize = pieces.iter().map(|p| p.text.len()).sum();
     if total_len == 0 {
         return Ok(Value::NIL);
@@ -2516,9 +2675,17 @@ pub(crate) fn builtin_insert_char(eval: &mut super::eval::Context, args: Vec<Val
         return Ok(Value::NIL);
     }
 
+    let multibyte = current_buffer_multibyte(&eval.buffers)?;
     let to_insert = if let Some(ch) = char::from_u32(char_code as u32) {
-        ch.to_string().repeat(count as usize)
-    } else if let Some(encoded) = encode_nonunicode_char_for_storage(char_code as u32) {
+        if multibyte {
+            ch.to_string().repeat(count as usize)
+        } else {
+            crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(&[(char_code as u32
+                & 0xFF)
+                as u8])
+            .repeat(count as usize)
+        }
+    } else if let Some(encoded) = encode_char_code_for_buffer_storage(char_code as u32, multibyte) {
         encoded.repeat(count as usize)
     } else {
         return Err(signal(
@@ -3143,8 +3310,8 @@ pub(crate) fn builtin_char_after(eval: &mut super::eval::Context, args: Vec<Valu
         }
         Some(buf.lisp_pos_to_accessible_byte(pos))
     };
-    match byte_pos.and_then(|pos| buf.char_after(pos)) {
-        Some(c) => Ok(Value::fixnum(c as i64)),
+    match byte_pos.and_then(|pos| buf.char_code_after(pos)) {
+        Some(code) => Ok(Value::fixnum(code as i64)),
         None => Ok(Value::NIL),
     }
 }
@@ -3169,8 +3336,8 @@ pub(crate) fn builtin_char_before(eval: &mut super::eval::Context, args: Vec<Val
         }
         Some(buf.lisp_pos_to_accessible_byte(pos))
     };
-    match byte_pos.and_then(|pos| buf.char_before(pos)) {
-        Some(c) => Ok(Value::fixnum(c as i64)),
+    match byte_pos.and_then(|pos| buf.char_code_before(pos)) {
+        Some(code) => Ok(Value::fixnum(code as i64)),
         None => Ok(Value::NIL),
     }
 }
@@ -3326,27 +3493,21 @@ pub(crate) fn builtin_get_byte(eval: &mut super::eval::Context, args: Vec<Value>
     }
 
     if !buf.get_multibyte() {
-        let code = match buf.char_after(byte_pos) {
-            Some(ch) => ch as u32,
+        let code = match buf.char_code_after(byte_pos) {
+            Some(code) => code,
             None => return Ok(Value::fixnum(0)),
         };
-        if (0xE300..=0xE3FF).contains(&code) {
-            return Ok(Value::fixnum((code - 0xE300) as i64));
-        }
+        assert!(
+            code <= 0xFF,
+            "unibyte buffer storage contained non-byte character code {code:#X}"
+        );
         return Ok(Value::fixnum(code as i64));
     }
 
-    let code = match buf.char_after(byte_pos) {
-        Some(ch) => ch as u32,
+    let code = match buf.char_code_after(byte_pos) {
+        Some(code) => code,
         None => return Ok(Value::fixnum(0)),
     };
-
-    if (0xE080..=0xE0FF).contains(&code) {
-        return Ok(Value::fixnum((code - 0xE000) as i64));
-    }
-    if (0xE300..=0xE3FF).contains(&code) {
-        return Ok(Value::fixnum((code - 0xE300) as i64));
-    }
 
     get_byte_from_multibyte_char_code(code)
 }
