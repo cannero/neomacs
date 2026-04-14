@@ -4484,6 +4484,10 @@ fn resize_live_gui_frame(
     }
 
     if !pretend && let Some(host) = display_host.as_mut() {
+        let geometry_hints = frames
+            .get(fid)
+            .map(|frame| frame.gui_geometry_hints())
+            .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         tracing::debug!(
             "resize_live_gui_frame: notifying host fid={:?} size={}x{} title={}",
             fid,
@@ -4496,6 +4500,7 @@ fn resize_live_gui_frame(
             width: total_width_px,
             height: total_height_px,
             title,
+            geometry_hints,
         })
         .map_err(|message| signal("error", vec![Value::string(message)]))?;
     }
@@ -4560,11 +4565,16 @@ fn request_live_gui_frame_resize(
     }
 
     if let Some(host) = display_host.as_mut() {
+        let geometry_hints = frames
+            .get(fid)
+            .map(|frame| frame.gui_geometry_hints())
+            .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         host.resize_gui_frame(super::eval::GuiFrameHostRequest {
             frame_id: fid,
             width: total_width_px,
             height: total_height_px,
             title,
+            geometry_hints,
         })
         .map_err(|message| signal("error", vec![Value::string(message)]))?;
         return Ok(());
@@ -5887,11 +5897,16 @@ pub(crate) fn x_create_frame_impl(
         frame.sync_tab_bar_height_from_parameters();
     }
     if let Some(host) = display_host.as_mut() {
+        let geometry_hints = frames
+            .get(fid)
+            .map(|frame| frame.gui_geometry_hints())
+            .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         host.realize_gui_frame(super::eval::GuiFrameHostRequest {
             frame_id: fid,
             width: width_px,
             height: height_px,
             title,
+            geometry_hints,
         })
         .map_err(|message| signal("error", vec![Value::string(message)]))?;
     }

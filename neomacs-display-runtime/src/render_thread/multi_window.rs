@@ -12,7 +12,9 @@ use winit::window::{Window, WindowId};
 
 use super::child_frames::ChildFrameManager;
 use super::state::{effective_window_scale_factor, window_size_from_emacs_pixels};
+use super::x11_hints::apply_window_geometry_hints;
 use crate::core::frame_glyphs::FrameGlyphBuffer;
+use neovm_core::window::GuiFrameGeometryHints;
 
 /// Per-window state. Each Emacs top-level frame gets its own OS window
 /// with a separate wgpu surface.
@@ -77,6 +79,7 @@ pub(crate) struct PendingWindow {
     pub width: u32,
     pub height: u32,
     pub title: String,
+    pub geometry_hints: GuiFrameGeometryHints,
 }
 
 impl MultiWindowManager {
@@ -90,12 +93,20 @@ impl MultiWindowManager {
     }
 
     /// Schedule a new window to be created on the next event loop iteration.
-    pub fn request_create(&mut self, emacs_frame_id: u64, width: u32, height: u32, title: String) {
+    pub fn request_create(
+        &mut self,
+        emacs_frame_id: u64,
+        width: u32,
+        height: u32,
+        title: String,
+        geometry_hints: GuiFrameGeometryHints,
+    ) {
         self.pending_creates.push(PendingWindow {
             emacs_frame_id,
             width,
             height,
             title,
+            geometry_hints,
         });
     }
 
@@ -179,6 +190,7 @@ impl MultiWindowManager {
 
                     // Enable IME
                     window.set_ime_allowed(true);
+                    apply_window_geometry_hints(&window, req.geometry_hints);
 
                     let winit_id = window.id();
                     tracing::info!(
@@ -325,6 +337,17 @@ mod tests {
     // Helper: create a FrameGlyphBuffer with specified identity fields
     // =======================================================================
 
+    fn default_geometry_hints() -> GuiFrameGeometryHints {
+        GuiFrameGeometryHints {
+            base_width: 24,
+            base_height: 16,
+            min_width: 24,
+            min_height: 16,
+            width_inc: 8,
+            height_inc: 16,
+        }
+    }
+
     fn make_frame(frame_id: u64, parent_id: u64) -> FrameGlyphBuffer {
         let mut buf = FrameGlyphBuffer::with_size(800.0, 600.0);
         buf.frame_id = frame_id;
@@ -370,7 +393,13 @@ mod tests {
     #[test]
     fn request_create_adds_to_pending() {
         let mut mgr = MultiWindowManager::new();
-        mgr.request_create(1, 800, 600, "Test Window".to_string());
+        mgr.request_create(
+            1,
+            800,
+            600,
+            "Test Window".to_string(),
+            default_geometry_hints(),
+        );
 
         assert_eq!(mgr.pending_creates.len(), 1);
         assert_eq!(mgr.pending_creates[0].emacs_frame_id, 1);
@@ -382,9 +411,27 @@ mod tests {
     #[test]
     fn request_create_multiple_preserves_order() {
         let mut mgr = MultiWindowManager::new();
-        mgr.request_create(1, 800, 600, "Window 1".to_string());
-        mgr.request_create(2, 1024, 768, "Window 2".to_string());
-        mgr.request_create(3, 1920, 1080, "Window 3".to_string());
+        mgr.request_create(
+            1,
+            800,
+            600,
+            "Window 1".to_string(),
+            default_geometry_hints(),
+        );
+        mgr.request_create(
+            2,
+            1024,
+            768,
+            "Window 2".to_string(),
+            default_geometry_hints(),
+        );
+        mgr.request_create(
+            3,
+            1920,
+            1080,
+            "Window 3".to_string(),
+            default_geometry_hints(),
+        );
 
         assert_eq!(mgr.pending_creates.len(), 3);
         assert_eq!(mgr.pending_creates[0].emacs_frame_id, 1);
@@ -395,7 +442,7 @@ mod tests {
     #[test]
     fn request_create_does_not_modify_windows_map() {
         let mut mgr = MultiWindowManager::new();
-        mgr.request_create(1, 800, 600, "Test".to_string());
+        mgr.request_create(1, 800, 600, "Test".to_string(), default_geometry_hints());
 
         // The window should NOT be in the windows map yet —
         // only in the pending queue until process_creates runs
@@ -406,8 +453,14 @@ mod tests {
     #[test]
     fn request_create_allows_duplicate_frame_ids() {
         let mut mgr = MultiWindowManager::new();
-        mgr.request_create(1, 800, 600, "First".to_string());
-        mgr.request_create(1, 1024, 768, "Duplicate".to_string());
+        mgr.request_create(1, 800, 600, "First".to_string(), default_geometry_hints());
+        mgr.request_create(
+            1,
+            1024,
+            768,
+            "Duplicate".to_string(),
+            default_geometry_hints(),
+        );
 
         // Both are queued (process_creates will skip duplicates)
         assert_eq!(mgr.pending_creates.len(), 2);
@@ -416,7 +469,7 @@ mod tests {
     #[test]
     fn request_create_zero_dimensions() {
         let mut mgr = MultiWindowManager::new();
-        mgr.request_create(1, 0, 0, "Zero".to_string());
+        mgr.request_create(1, 0, 0, "Zero".to_string(), default_geometry_hints());
 
         assert_eq!(mgr.pending_creates.len(), 1);
         assert_eq!(mgr.pending_creates[0].width, 0);
@@ -426,7 +479,7 @@ mod tests {
     #[test]
     fn request_create_empty_title() {
         let mut mgr = MultiWindowManager::new();
-        mgr.request_create(1, 800, 600, String::new());
+        mgr.request_create(1, 800, 600, String::new(), default_geometry_hints());
 
         assert_eq!(mgr.pending_creates[0].title, "");
     }
@@ -435,7 +488,13 @@ mod tests {
     fn request_create_large_frame_id() {
         let mut mgr = MultiWindowManager::new();
         let large_id = u64::MAX;
-        mgr.request_create(large_id, 800, 600, "Max ID".to_string());
+        mgr.request_create(
+            large_id,
+            800,
+            600,
+            "Max ID".to_string(),
+            default_geometry_hints(),
+        );
 
         assert_eq!(mgr.pending_creates[0].emacs_frame_id, large_id);
     }
@@ -616,6 +675,7 @@ mod tests {
             width: 1920,
             height: 1080,
             title: "My Emacs Frame".to_string(),
+            geometry_hints: default_geometry_hints(),
         };
 
         assert_eq!(pw.emacs_frame_id, 123);
@@ -631,6 +691,7 @@ mod tests {
             width: 800,
             height: 600,
             title: "Emacs \u{2014} \u{1F680} Neomacs".to_string(),
+            geometry_hints: default_geometry_hints(),
         };
 
         assert!(pw.title.contains('\u{2014}')); // em dash
@@ -645,8 +706,8 @@ mod tests {
     fn create_and_destroy_queues_are_independent() {
         let mut mgr = MultiWindowManager::new();
 
-        mgr.request_create(1, 800, 600, "Win1".to_string());
-        mgr.request_create(2, 1024, 768, "Win2".to_string());
+        mgr.request_create(1, 800, 600, "Win1".to_string(), default_geometry_hints());
+        mgr.request_create(2, 1024, 768, "Win2".to_string(), default_geometry_hints());
         mgr.request_destroy(3);
         mgr.request_destroy(4);
 
@@ -793,7 +854,13 @@ mod tests {
     fn many_pending_creates() {
         let mut mgr = MultiWindowManager::new();
         for i in 0..1000 {
-            mgr.request_create(i, 800, 600, format!("Window {}", i));
+            mgr.request_create(
+                i,
+                800,
+                600,
+                format!("Window {}", i),
+                default_geometry_hints(),
+            );
         }
         assert_eq!(mgr.pending_creates.len(), 1000);
         assert_eq!(mgr.pending_creates[0].emacs_frame_id, 0);

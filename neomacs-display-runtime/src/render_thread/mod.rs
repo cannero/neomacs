@@ -27,6 +27,7 @@ mod transitions;
 mod ui_commands;
 mod window_commands;
 mod window_events;
+mod x11_hints;
 
 pub use bootstrap::run_render_loop;
 #[cfg(feature = "wpe-webkit")]

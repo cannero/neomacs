@@ -2,6 +2,7 @@
 
 use super::RenderApp;
 use super::state::window_size_from_emacs_pixels;
+use super::x11_hints::apply_window_geometry_hints;
 use crate::thread_comm::RenderCommand;
 use winit::dpi::PhysicalPosition;
 use winit::window::{CursorIcon, Fullscreen, UserAttentionType};
@@ -120,6 +121,7 @@ impl RenderApp {
                 emacs_frame_id,
                 width,
                 height,
+                geometry_hints,
             } => {
                 tracing::debug!(
                     "RenderCommand::ResizeWindow frame_id=0x{:x} {}x{}",
@@ -129,14 +131,44 @@ impl RenderApp {
                 );
                 let size = window_size_from_emacs_pixels(width, height);
                 if emacs_frame_id == 0 {
+                    self.primary_geometry_hints = Some(geometry_hints);
                     if let Some(ref window) = self.window {
+                        apply_window_geometry_hints(window, geometry_hints);
                         let _ = window.request_inner_size(size);
                     }
                 } else if let Some(window_state) = self.multi_windows.get(emacs_frame_id) {
+                    apply_window_geometry_hints(&window_state.window, geometry_hints);
                     let _ = window_state.window.request_inner_size(size);
                 } else {
                     tracing::warn!(
                         "ResizeWindow requested for unknown frame_id=0x{:x}",
+                        emacs_frame_id
+                    );
+                }
+                Ok(())
+            }
+            RenderCommand::SetFrameGeometryHints {
+                emacs_frame_id,
+                geometry_hints,
+            } => {
+                tracing::debug!(
+                    "RenderCommand::SetFrameGeometryHints frame_id=0x{:x} base={}x{} inc={}x{}",
+                    emacs_frame_id,
+                    geometry_hints.base_width,
+                    geometry_hints.base_height,
+                    geometry_hints.width_inc,
+                    geometry_hints.height_inc
+                );
+                if emacs_frame_id == 0 {
+                    self.primary_geometry_hints = Some(geometry_hints);
+                    if let Some(ref window) = self.window {
+                        apply_window_geometry_hints(window, geometry_hints);
+                    }
+                } else if let Some(window_state) = self.multi_windows.get(emacs_frame_id) {
+                    apply_window_geometry_hints(&window_state.window, geometry_hints);
+                } else {
+                    tracing::warn!(
+                        "SetFrameGeometryHints requested for unknown frame_id=0x{:x}",
                         emacs_frame_id
                     );
                 }
@@ -166,6 +198,7 @@ impl RenderApp {
                 width,
                 height,
                 title,
+                geometry_hints,
             } => {
                 tracing::info!(
                     "CreateWindow request: frame_id=0x{:x} {}x{} \"{}\"",
@@ -174,8 +207,13 @@ impl RenderApp {
                     height,
                     title
                 );
-                self.multi_windows
-                    .request_create(emacs_frame_id, width, height, title);
+                self.multi_windows.request_create(
+                    emacs_frame_id,
+                    width,
+                    height,
+                    title,
+                    geometry_hints,
+                );
                 Ok(())
             }
             RenderCommand::DestroyWindow { emacs_frame_id } => {

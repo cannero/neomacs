@@ -96,3 +96,6 @@ neo-term = [
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11-dl.workspace = true

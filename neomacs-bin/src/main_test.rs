@@ -19,7 +19,7 @@ use neovm_core::emacs_core::print_value_with_eval;
 use neovm_core::emacs_core::terminal::pure::TerminalHost;
 use neovm_core::emacs_core::value::list_to_vec;
 use neovm_core::face::FaceHeight;
-use neovm_core::window::FrameId;
+use neovm_core::window::{FrameId, GuiFrameGeometryHints};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -545,16 +545,40 @@ fn opening_gui_frame_adoption_does_not_push_stale_window_size() {
             width: 960,
             height: 640,
             title: "Neomacs".to_string(),
+            geometry_hints: GuiFrameGeometryHints {
+                base_width: 24,
+                base_height: 16,
+                min_width: 24,
+                min_height: 16,
+                width_inc: 8,
+                height_inc: 16,
+            },
         },
     )
     .expect("adopt opening gui frame");
 
     let commands: Vec<_> = cmd_rx.try_iter().collect();
-    assert_eq!(commands.len(), 1);
-    match &commands[0] {
-        RenderCommand::SetWindowTitle { title } => assert_eq!(title, "Neomacs"),
-        other => panic!("expected SetWindowTitle, got {other:?}"),
-    }
+    assert_eq!(commands.len(), 2);
+    assert!(
+        commands.iter().any(
+            |cmd| matches!(cmd, RenderCommand::SetWindowTitle { title } if title == "Neomacs")
+        )
+    );
+    assert!(commands.iter().any(|cmd| matches!(
+        cmd,
+        RenderCommand::SetFrameGeometryHints {
+            emacs_frame_id: 0,
+            geometry_hints,
+        } if *geometry_hints
+            == GuiFrameGeometryHints {
+                base_width: 24,
+                base_height: 16,
+                min_width: 24,
+                min_height: 16,
+                width_inc: 8,
+                height_inc: 16,
+            }
+    )));
     assert!(host.primary_window_adopted);
     assert_eq!(host.primary_frame_id, Some(FrameId(0x100000001)));
 }
@@ -589,6 +613,16 @@ fn bootstrap_gui_frame_adoption_routes_future_resizes_to_primary_window() {
             .iter()
             .any(|cmd| matches!(cmd, RenderCommand::SetWindowTitle { .. })),
         "expected bootstrap adoption to set the primary window title, got {commands:?}"
+    );
+    assert!(
+        commands.iter().any(|cmd| matches!(
+            cmd,
+            RenderCommand::SetFrameGeometryHints {
+                emacs_frame_id: 0,
+                ..
+            }
+        )),
+        "expected bootstrap adoption to publish primary window geometry hints, got {commands:?}"
     );
     assert!(
         commands.iter().any(|cmd| matches!(
@@ -628,6 +662,14 @@ fn primary_window_resize_does_not_wait_for_host_acknowledgement() {
             width: 1068,
             height: 1386,
             title: "Neomacs".to_string(),
+            geometry_hints: GuiFrameGeometryHints {
+                base_width: 29,
+                base_height: 31,
+                min_width: 29,
+                min_height: 31,
+                width_inc: 13,
+                height_inc: 31,
+            },
         },
     )
     .expect("primary resize should succeed");
@@ -645,6 +687,7 @@ fn primary_window_resize_does_not_wait_for_host_acknowledgement() {
                 emacs_frame_id: 0,
                 width: 1068,
                 height: 1386,
+                ..
             }
         )),
         "expected primary resize command, got {commands:?}"

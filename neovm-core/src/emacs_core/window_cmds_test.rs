@@ -83,6 +83,8 @@ fn active_minibuffer_window_tracks_live_minibuffer_state() {
 struct RecordingDisplayHost {
     realized: Rc<RefCell<Vec<GuiFrameHostRequest>>>,
     resized: Rc<RefCell<Vec<GuiFrameHostRequest>>>,
+    geometry_hints:
+        Rc<RefCell<Vec<(crate::window::FrameId, crate::window::GuiFrameGeometryHints)>>>,
     primary_size: Option<GuiFrameHostSize>,
     resolved_frame_font: Option<ResolvedFrameFont>,
 }
@@ -115,6 +117,17 @@ impl DisplayHost for RecordingDisplayHost {
 
     fn resize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String> {
         self.resized.borrow_mut().push(request);
+        Ok(())
+    }
+
+    fn set_gui_frame_geometry_hints(
+        &mut self,
+        frame_id: crate::window::FrameId,
+        geometry_hints: crate::window::GuiFrameGeometryHints,
+    ) -> Result<(), String> {
+        self.geometry_hints
+            .borrow_mut()
+            .push((frame_id, geometry_hints));
         Ok(())
     }
 
@@ -3643,6 +3656,13 @@ fn modify_frame_parameters_width_height_resizes_live_gui_frame() {
     assert_eq!(resize_requests[0].frame_id, fid);
     assert_eq!(resize_requests[0].width, 664);
     assert_eq!(resize_requests[0].height, 400);
+    assert_eq!(
+        resize_requests[0].geometry_hints,
+        ev.frames
+            .get(fid)
+            .expect("frame should exist")
+            .gui_geometry_hints()
+    );
 
     let frame = ev.frames.get(fid).expect("frame should exist");
     assert_eq!(frame.width, 664);
@@ -3736,6 +3756,63 @@ fn modify_frame_parameters_after_live_font_change_defers_gui_resize_until_geomet
     assert_eq!(resize_requests[0].frame_id, fid);
     assert_eq!(resize_requests[0].width, expected_width as u32);
     assert_eq!(resize_requests[0].height, 775);
+    assert_eq!(
+        resize_requests[0].geometry_hints,
+        ev.frames
+            .get(fid)
+            .expect("frame should exist")
+            .gui_geometry_hints()
+    );
+}
+
+#[test]
+fn live_default_font_change_updates_gui_geometry_hints() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let host = RecordingDisplayHost::with_resolved_frame_font(ResolvedFrameFont {
+        family: "Noto Sans Mono".to_string(),
+        foundry: None,
+        weight: FontWeight::NORMAL,
+        slant: FontSlant::Normal,
+        width: FontWidth::Normal,
+        postscript_name: Some("NotoSansMono-Regular".to_string()),
+        font_size_px: 22.0,
+        char_width: 13.0,
+        line_height: 31.0,
+    });
+    let geometry_hints = host.geometry_hints.clone();
+    ev.set_display_host(Box::new(host));
+    let buf = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buf);
+    let fid = ev.frames.create_frame("F1", 800, 600, buf);
+    {
+        let frame = ev.frames.get_mut(fid).expect("frame");
+        frame.set_window_system(Some(Value::symbol("neo")));
+        frame.char_width = 8.0;
+        frame.char_height = 16.0;
+    }
+
+    crate::emacs_core::font::builtin_internal_set_lisp_face_attribute(
+        &mut ev,
+        vec![
+            Value::symbol("default"),
+            Value::keyword("font"),
+            Value::string("Noto Sans Mono-16"),
+            Value::make_frame(fid.0),
+        ],
+    )
+    .expect("set live default face font");
+
+    let hints = geometry_hints.borrow();
+    assert_eq!(hints.len(), 1);
+    assert_eq!(hints[0].0, fid);
+    assert_eq!(
+        hints[0].1,
+        ev.frames
+            .get(fid)
+            .expect("frame should exist")
+            .gui_geometry_hints()
+    );
 }
 
 #[test]
@@ -3774,6 +3851,13 @@ fn modify_frame_parameters_resize_ignores_window_local_fringes_for_gui_frames() 
     assert_eq!(resize_requests[0].frame_id, fid);
     assert_eq!(resize_requests[0].width, 664);
     assert_eq!(resize_requests[0].height, 400);
+    assert_eq!(
+        resize_requests[0].geometry_hints,
+        ev.frames
+            .get(fid)
+            .expect("frame should exist")
+            .gui_geometry_hints()
+    );
 }
 
 #[test]
@@ -3872,6 +3956,13 @@ fn set_frame_size_builtins_resize_live_gui_frames_and_notify_host() {
     assert_eq!(request.frame_id, fid);
     assert_eq!(request.width, 824);
     assert_eq!(request.height, 560);
+    assert_eq!(
+        request.geometry_hints,
+        ev.frames
+            .get(fid)
+            .expect("frame should exist")
+            .gui_geometry_hints()
+    );
 
     drop(requests);
 
@@ -3944,6 +4035,13 @@ fn set_frame_size_syncs_resize_event_before_followup_frame_width_queries() {
     assert_eq!(requests[0].frame_id, fid);
     assert_eq!(requests[0].width, 2144);
     assert_eq!(requests[0].height, 1386);
+    assert_eq!(
+        requests[0].geometry_hints,
+        ev.frames
+            .get(fid)
+            .expect("frame should exist")
+            .gui_geometry_hints()
+    );
 }
 
 #[test]

@@ -1194,6 +1194,16 @@ pub struct PendingGuiResize {
     pub total_lines: i64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GuiFrameGeometryHints {
+    pub base_width: u32,
+    pub base_height: u32,
+    pub min_width: u32,
+    pub min_height: u32,
+    pub width_inc: u32,
+    pub height_inc: u32,
+}
+
 // ---------------------------------------------------------------------------
 // Frame
 // ---------------------------------------------------------------------------
@@ -1472,6 +1482,25 @@ impl Frame {
     pub fn clear_pending_gui_resize(&mut self) {
         self.defer_next_gui_parameter_resize = false;
         self.pending_gui_resize = None;
+    }
+
+    pub fn gui_geometry_hints(&self) -> GuiFrameGeometryHints {
+        let width_inc = self.char_width.max(1.0).round() as u32;
+        let height_inc = self.char_height.max(1.0).round() as u32;
+        let base_width = width_inc.saturating_add(self.horizontal_non_text_width().max(0) as u32);
+        let base_height = height_inc.saturating_add(
+            self.menu_bar_height
+                .saturating_add(self.tool_bar_height)
+                .saturating_add(self.tab_bar_height),
+        );
+        GuiFrameGeometryHints {
+            base_width,
+            base_height,
+            min_width: base_width,
+            min_height: base_height,
+            width_inc,
+            height_inc,
+        }
     }
 
     fn chrome_top_height(&self) -> f32 {

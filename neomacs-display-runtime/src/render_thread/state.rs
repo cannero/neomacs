@@ -11,6 +11,7 @@ pub use crate::thread_comm::MonitorInfo;
 use crate::thread_comm::{MenuBarItem, RenderComms, TabBarItem, ToolBarItem};
 use neomacs_display_protocol::EffectsConfig;
 use neomacs_renderer_wgpu::{PopupMenuState, TooltipState, WgpuGlyphAtlas, WgpuRenderer};
+use neovm_core::window::GuiFrameGeometryHints;
 
 use super::child_frames::ChildFrameManager;
 use super::cursor::CursorState;
@@ -183,6 +184,7 @@ pub(super) struct RenderApp {
     pub(super) width: u32,
     pub(super) height: u32,
     pub(super) title: String,
+    pub(super) primary_geometry_hints: Option<GuiFrameGeometryHints>,
 
     // wgpu state
     pub(super) renderer: Option<WgpuRenderer>,
@@ -345,6 +347,7 @@ impl RenderApp {
             width,
             height,
             title,
+            primary_geometry_hints: None,
             scale_factor: 1.0,
             renderer: None,
             surface: None,

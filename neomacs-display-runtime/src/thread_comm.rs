@@ -18,6 +18,7 @@ use neomacs_display_protocol::glyph_matrix::FrameDisplayState;
 pub use neomacs_display_protocol::{
     EffectsConfig, MenuBarItem, PopupMenuItem, TabBarItem, ToolBarItem, TransitionPolicy,
 };
+use neovm_core::window::GuiFrameGeometryHints;
 
 /// Monitor information transported from the frontend to the evaluator.
 #[derive(Debug, Clone, PartialEq)]
@@ -374,6 +375,13 @@ pub enum RenderCommand {
         emacs_frame_id: u64,
         width: u32,
         height: u32,
+        geometry_hints: GuiFrameGeometryHints,
+    },
+    /// Update geometry hints for a specific GUI frame window. `emacs_frame_id == 0`
+    /// targets the adopted primary window.
+    SetFrameGeometryHints {
+        emacs_frame_id: u64,
+        geometry_hints: GuiFrameGeometryHints,
     },
     /// Set window decorations (title bar, borders)
     SetWindowDecorated {
@@ -515,6 +523,7 @@ pub enum RenderCommand {
         width: u32,
         height: u32,
         title: String,
+        geometry_hints: GuiFrameGeometryHints,
     },
     /// Destroy an OS window for a top-level Emacs frame
     DestroyWindow {
@@ -1829,22 +1838,59 @@ mod tests {
 
     #[test]
     fn render_command_resize_window() {
+        let geometry_hints = GuiFrameGeometryHints {
+            base_width: 42,
+            base_height: 58,
+            min_width: 42,
+            min_height: 58,
+            width_inc: 26,
+            height_inc: 58,
+        };
         let cmd = RenderCommand::ResizeWindow {
             emacs_frame_id: 99,
             width: 1024,
             height: 768,
+            geometry_hints,
         };
         match cmd {
             RenderCommand::ResizeWindow {
                 emacs_frame_id,
                 width,
                 height,
+                geometry_hints: actual_hints,
             } => {
                 assert_eq!(emacs_frame_id, 99);
                 assert_eq!(width, 1024);
                 assert_eq!(height, 768);
+                assert_eq!(actual_hints, geometry_hints);
             }
             other => panic!("Expected ResizeWindow, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn render_command_set_frame_geometry_hints() {
+        let geometry_hints = GuiFrameGeometryHints {
+            base_width: 42,
+            base_height: 58,
+            min_width: 42,
+            min_height: 58,
+            width_inc: 26,
+            height_inc: 58,
+        };
+        let cmd = RenderCommand::SetFrameGeometryHints {
+            emacs_frame_id: 0,
+            geometry_hints,
+        };
+        match cmd {
+            RenderCommand::SetFrameGeometryHints {
+                emacs_frame_id,
+                geometry_hints: actual_hints,
+            } => {
+                assert_eq!(emacs_frame_id, 0);
+                assert_eq!(actual_hints, geometry_hints);
+            }
+            other => panic!("Expected SetFrameGeometryHints, got {:?}", other),
         }
     }
 
@@ -2191,11 +2237,20 @@ mod tests {
 
     #[test]
     fn render_command_create_window() {
+        let geometry_hints = GuiFrameGeometryHints {
+            base_width: 42,
+            base_height: 58,
+            min_width: 42,
+            min_height: 58,
+            width_inc: 26,
+            height_inc: 58,
+        };
         let cmd = RenderCommand::CreateWindow {
             emacs_frame_id: 99,
             width: 1024,
             height: 768,
             title: "New Frame".to_string(),
+            geometry_hints,
         };
         match cmd {
             RenderCommand::CreateWindow {
@@ -2203,11 +2258,13 @@ mod tests {
                 width,
                 height,
                 title,
+                geometry_hints: actual_hints,
             } => {
                 assert_eq!(emacs_frame_id, 99);
                 assert_eq!(width, 1024);
                 assert_eq!(height, 768);
                 assert_eq!(title, "New Frame");
+                assert_eq!(actual_hints, geometry_hints);
             }
             other => panic!("Expected CreateWindow, got {:?}", other),
         }

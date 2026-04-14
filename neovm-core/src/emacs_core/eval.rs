@@ -836,6 +836,7 @@ pub struct GuiFrameHostRequest {
     pub width: u32,
     pub height: u32,
     pub title: String,
+    pub geometry_hints: crate::window::GuiFrameGeometryHints,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -920,6 +921,13 @@ pub struct ResolvedImage {
 pub trait DisplayHost {
     fn realize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String>;
     fn resize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String>;
+    fn set_gui_frame_geometry_hints(
+        &mut self,
+        _frame_id: crate::window::FrameId,
+        _geometry_hints: crate::window::GuiFrameGeometryHints,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     fn set_gui_frame_title(
         &mut self,
         _frame_id: crate::window::FrameId,

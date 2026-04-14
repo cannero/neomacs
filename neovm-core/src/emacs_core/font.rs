@@ -317,13 +317,26 @@ fn sync_live_frame_font_state(
         .parameters
         .insert("font-parameter".to_string(), resolution.font_value);
 
+    let mut geometry_hints = None;
     if let Some(realized) = &resolution.realized {
         frame.font_pixel_size = realized.font_size_px.max(1.0);
         frame.char_width = realized.char_width.max(1.0);
         frame.char_height = realized.line_height.max(1.0);
         if frame.effective_window_system().is_some() {
             frame.defer_next_gui_parameter_resize();
+            geometry_hints = Some(frame.gui_geometry_hints());
         }
+    }
+
+    if let Some(geometry_hints) = geometry_hints
+        && let Some(host) = eval.display_host.as_mut()
+        && let Err(err) = host.set_gui_frame_geometry_hints(frame_id, geometry_hints)
+    {
+        tracing::warn!(
+            "failed to update live frame geometry hints after font change for frame 0x{:x}: {}",
+            frame_id.0,
+            err
+        );
     }
 }
 

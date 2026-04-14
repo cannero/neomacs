@@ -867,6 +867,12 @@ impl DisplayHost for PrimaryWindowDisplayHost {
                     title: request.title.clone(),
                 })
                 .map_err(|err| format!("failed to update primary window title: {err}"))?;
+            self.cmd_tx
+                .send(RenderCommand::SetFrameGeometryHints {
+                    emacs_frame_id: 0,
+                    geometry_hints: request.geometry_hints,
+                })
+                .map_err(|err| format!("failed to update primary window geometry hints: {err}"))?;
             // The opening GUI frame adopts the already-existing primary host
             // window. Do not push stale Lisp bootstrap dimensions back into
             // that window during adoption; host resize events remain the
@@ -880,6 +886,7 @@ impl DisplayHost for PrimaryWindowDisplayHost {
                     width: request.width,
                     height: request.height,
                     title: request.title.clone(),
+                    geometry_hints: request.geometry_hints,
                 })
                 .map_err(|err| format!("failed to create additional GUI window: {err}"))?;
         }
@@ -912,8 +919,29 @@ impl DisplayHost for PrimaryWindowDisplayHost {
                 emacs_frame_id,
                 width: request.width,
                 height: request.height,
+                geometry_hints: request.geometry_hints,
             })
             .map_err(|err| format!("failed to resize GUI frame: {err}"))?;
+        Ok(())
+    }
+
+    fn set_gui_frame_geometry_hints(
+        &mut self,
+        frame_id: neovm_core::window::FrameId,
+        geometry_hints: neovm_core::window::GuiFrameGeometryHints,
+    ) -> Result<(), String> {
+        let emacs_frame_id =
+            if !self.primary_window_adopted || self.primary_frame_id == Some(frame_id) {
+                0
+            } else {
+                frame_id.0
+            };
+        self.cmd_tx
+            .send(RenderCommand::SetFrameGeometryHints {
+                emacs_frame_id,
+                geometry_hints,
+            })
+            .map_err(|err| format!("failed to update GUI frame geometry hints: {err}"))?;
         Ok(())
     }
 
@@ -1198,6 +1226,11 @@ fn adopt_existing_primary_gui_frame(eval: &mut Context) -> Result<(), String> {
         return Ok(());
     };
     let title = frame_host_title(eval, frame_id);
+    let geometry_hints = eval
+        .frame_manager()
+        .get(frame_id)
+        .map(|frame| frame.gui_geometry_hints())
+        .ok_or_else(|| "selected GUI frame disappeared before adoption".to_string())?;
     let Some(host) = eval.display_host.as_mut() else {
         return Ok(());
     };
@@ -1206,6 +1239,7 @@ fn adopt_existing_primary_gui_frame(eval: &mut Context) -> Result<(), String> {
         width,
         height,
         title,
+        geometry_hints,
     })
 }
 
