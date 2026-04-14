@@ -164,7 +164,6 @@ pub fn run_oracle_eval(form: &str) -> Result<String, String> {
 
 pub fn run_neovm_eval(form: &str) -> Result<String, String> {
     let mut eval = RUNTIME_TEMPLATE.with(|slot| {
-        println!("run neovm");
         if slot.borrow().is_none() {
             let mut template = create_bootstrap_evaluator_cached()
                 .map_err(|_| "NeoVM bootstrap failed".to_string())?;
