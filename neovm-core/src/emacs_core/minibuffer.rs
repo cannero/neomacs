@@ -1088,7 +1088,7 @@ pub(crate) fn builtin_minibuffer_innermost_command_loop_p_ctx(
     let Some(buffer_id) = resolve_minibuffer_buffer_arg(&eval.buffers, args.first())? else {
         return Ok(Value::NIL);
     };
-    let recursive_depth = eval.command_loop.recursive_depth;
+    let recursive_depth = eval.recursive_command_loop_depth();
     let command_loop_depth = eval
         .minibuffers
         .state_stack
@@ -1172,7 +1172,7 @@ pub(crate) fn builtin_exit_recursive_edit(
 ) -> EvalResult {
     expect_args("exit-recursive-edit", &args, 0)?;
     // GNU Emacs checks: command_loop_level > 0 || minibuf_level > 0
-    if eval.command_loop.recursive_depth == 0 && eval.minibuffers.depth() == 0 {
+    if eval.recursive_command_loop_depth() == 0 && eval.minibuffers.depth() == 0 {
         return Err(signal(
             "user-error",
             vec![Value::string("No recursive edit is in progress")],
@@ -1269,7 +1269,7 @@ pub(crate) fn builtin_abort_recursive_edit(
 ) -> EvalResult {
     expect_args("abort-recursive-edit", &args, 0)?;
     // GNU Emacs checks: command_loop_level > 0 || minibuf_level > 0
-    if eval.command_loop.recursive_depth == 0 && eval.minibuffers.depth() == 0 {
+    if eval.recursive_command_loop_depth() == 0 && eval.minibuffers.depth() == 0 {
         return Err(signal(
             "user-error",
             vec![Value::string("No recursive edit is in progress")],
@@ -1534,20 +1534,30 @@ fn is_global_obarray_proxy_in_state(obarray: &Obarray, value: &Value) -> bool {
 fn completion_candidates_from_global_obarray_in_state(
     obarray: &Obarray,
 ) -> Vec<CompletionCandidate> {
-    let mut names: Vec<String> = obarray
-        .all_symbols()
-        .into_iter()
-        .map(|name| name.to_owned())
+    let mut entries: Vec<(crate::heap_types::LispString, Value)> = obarray
+        .global_member_ids()
+        .map(|id| {
+            (
+                crate::emacs_core::intern::resolve_sym_lisp_string(id).clone(),
+                Value::from_sym_id(id),
+            )
+        })
         .collect();
-    names.sort();
-    names.dedup();
-    names
+    entries.sort_by(|(left, _), (right, _)| {
+        left.as_bytes()
+            .cmp(right.as_bytes())
+            .then(left.is_multibyte().cmp(&right.is_multibyte()))
+    });
+    entries.dedup_by(|(left_name, left_sym), (right_name, right_sym)| {
+        left_name == right_name && left_sym.bits() == right_sym.bits()
+    });
+    entries
         .into_iter()
-        .map(|name| CompletionCandidate {
+        .map(|(name, sym)| CompletionCandidate {
             completion: CompletionText::Generated {
-                string: crate::heap_types::LispString::from_utf8(&name),
+                string: name,
             },
-            predicate_arg: Value::symbol(name),
+            predicate_arg: sym,
             predicate_extra_arg: None,
         })
         .collect()

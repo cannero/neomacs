@@ -6,6 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::heap_types::LispString;
+
 // ---------------------------------------------------------------------------
 // Primitive identifiers
 // ---------------------------------------------------------------------------
@@ -346,7 +348,7 @@ pub struct DumpSymbolEntry {
 pub struct DumpSymbolTable {
     /// Dump-local symbol-name atoms. Multiple symbols may point at the same
     /// `DumpNameId` when they share a print name.
-    pub names: Vec<String>,
+    pub names: Vec<LispString>,
     /// One entry per dump-local symbol id.
     pub symbols: Vec<DumpSymbolEntry>,
 }

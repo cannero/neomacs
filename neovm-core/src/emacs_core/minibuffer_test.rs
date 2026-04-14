@@ -350,6 +350,34 @@ fn recursive_depth_limit() {
 }
 
 #[test]
+fn exit_recursive_edit_rejects_top_level_command_loop_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    eval.command_loop.recursive_depth = 1;
+
+    let result = builtin_exit_recursive_edit(&mut eval, vec![]);
+    assert!(matches!(
+        result,
+        Err(crate::emacs_core::error::Flow::Signal(sig))
+            if sig.symbol_name() == "user-error"
+    ));
+}
+
+#[test]
+fn abort_recursive_edit_rejects_top_level_command_loop_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    eval.command_loop.recursive_depth = 1;
+
+    let result = builtin_abort_recursive_edit(&mut eval, vec![]);
+    assert!(matches!(
+        result,
+        Err(crate::emacs_core::error::Flow::Signal(sig))
+            if sig.symbol_name() == "user-error"
+    ));
+}
+
+#[test]
 fn recursive_disabled() {
     crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();

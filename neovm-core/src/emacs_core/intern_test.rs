@@ -1,5 +1,9 @@
 use super::*;
 
+fn unibyte_name(bytes: &[u8]) -> crate::heap_types::LispString {
+    crate::heap_types::LispString::from_unibyte(bytes.to_vec())
+}
+
 #[test]
 fn name_interner_dedup() {
     crate::test_utils::init_test_tracing();
@@ -102,7 +106,7 @@ fn canonical_id_survives_dump_style_reconstruction() {
     let mut registry = SymbolRegistry::new();
     let remap = registry
         .restore_dump_symbol_table(
-            &["nil".to_owned(), "t".to_owned(), "dup".to_owned()],
+            &[unibyte_name(b"nil"), unibyte_name(b"t"), unibyte_name(b"dup")],
             &[0, 1, 2, 2],
             None,
         )
@@ -123,10 +127,10 @@ fn restore_dump_slots_remaps_reordered_layout() {
     let remap = registry
         .restore_dump_symbol_table(
             &[
-                "nil".to_owned(),
-                "t".to_owned(),
-                "bar".to_owned(),
-                "foo".to_owned(),
+                unibyte_name(b"nil"),
+                unibyte_name(b"t"),
+                unibyte_name(b"bar"),
+                unibyte_name(b"foo"),
             ],
             &[0, 1, 3, 2],
             Some(&[true, true, true, true]),
@@ -145,7 +149,7 @@ fn restore_dump_slots_preserves_lone_uninterned_slot() {
     let mut registry = SymbolRegistry::new();
     let remap = registry
         .restore_dump_symbol_table(
-            &["nil".to_owned(), "t".to_owned(), "solo".to_owned()],
+            &[unibyte_name(b"nil"), unibyte_name(b"t"), unibyte_name(b"solo")],
             &[0, 1, 2],
             Some(&[true, true, false]),
         )
@@ -167,7 +171,10 @@ fn dump_symbol_table_separates_name_atoms_from_symbol_slots() {
 
     let shared_name_id = registry.name_id(canonical);
     assert_eq!(registry.name_id(uninterned), shared_name_id);
-    assert_eq!(dumped.names[shared_name_id.0 as usize], "shared-name");
+    assert_eq!(
+        dumped.names[shared_name_id.0 as usize],
+        unibyte_name(b"shared-name")
+    );
     assert_eq!(dumped.symbol_names[canonical.0 as usize], shared_name_id.0);
     assert_eq!(dumped.symbol_names[uninterned.0 as usize], shared_name_id.0);
     assert!(dumped.canonical[canonical.0 as usize]);
@@ -183,7 +190,11 @@ fn restore_dump_symbol_table_reuses_existing_name_atoms() {
 
     let remap = registry
         .restore_dump_symbol_table(
-            &["nil".to_owned(), "t".to_owned(), "shared-name".to_owned()],
+            &[
+                unibyte_name(b"nil"),
+                unibyte_name(b"t"),
+                unibyte_name(b"shared-name"),
+            ],
             &[0, 1, 2, 2],
             Some(&[true, true, true, false]),
         )
@@ -203,10 +214,10 @@ fn restore_dump_symbol_table_supports_multiple_independent_layouts() {
     let first = registry
         .restore_dump_symbol_table(
             &[
-                "nil".to_owned(),
-                "t".to_owned(),
-                "foo".to_owned(),
-                "bar".to_owned(),
+                unibyte_name(b"nil"),
+                unibyte_name(b"t"),
+                unibyte_name(b"foo"),
+                unibyte_name(b"bar"),
             ],
             &[0, 1, 2, 3],
             Some(&[true, true, true, true]),
@@ -216,10 +227,10 @@ fn restore_dump_symbol_table_supports_multiple_independent_layouts() {
     let second = registry
         .restore_dump_symbol_table(
             &[
-                "nil".to_owned(),
-                "t".to_owned(),
-                "bar".to_owned(),
-                "foo".to_owned(),
+                unibyte_name(b"nil"),
+                unibyte_name(b"t"),
+                unibyte_name(b"bar"),
+                unibyte_name(b"foo"),
             ],
             &[0, 1, 2, 3],
             Some(&[true, true, true, true]),
@@ -241,7 +252,7 @@ fn restore_dump_symbol_table_rejects_duplicate_canonical_names() {
 
     let err = registry
         .restore_dump_symbol_table(
-            &["nil".to_owned(), "t".to_owned(), "dup".to_owned()],
+            &[unibyte_name(b"nil"), unibyte_name(b"t"), unibyte_name(b"dup")],
             &[0, 1, 2, 2],
             Some(&[true, true, true, true]),
         )

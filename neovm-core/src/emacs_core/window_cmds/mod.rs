@@ -3559,7 +3559,7 @@ fn remember_selected_window_point_in_state(
     }
 }
 
-fn sync_selected_window_buffer_in_state(
+pub(crate) fn sync_selected_window_buffer_in_state(
     frames: &FrameManager,
     buffers: &mut BufferManager,
     fid: FrameId,

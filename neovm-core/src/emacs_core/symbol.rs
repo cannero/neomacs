@@ -28,11 +28,13 @@
 //! over to the redirect dispatch and Phase 10 deletes the legacy enum.
 
 use super::intern::{
-    NameId, SymId, intern, is_canonical_id, lookup_interned, resolve_name, resolve_sym,
+    NameId, SymId, intern, intern_lisp_string, is_canonical_id, lookup_interned,
+    lookup_interned_lisp_string, resolve_name, resolve_sym, resolve_sym_lisp_string,
     symbol_name_id,
 };
 use super::value::{Value, ValueKind};
 use crate::gc_trace::GcTrace;
+use crate::heap_types::LispString;
 use rustc_hash::FxHashMap;
 
 // ===========================================================================
@@ -577,8 +579,8 @@ impl Obarray {
                 return;
             }
             sym.interned_global = true;
-            let name = resolve_sym(id);
-            if name.starts_with(':') {
+            let name = resolve_sym_lisp_string(id);
+            if name.as_bytes().first().is_some_and(|byte| *byte == b':') {
                 // Match GNU lread.c intern_sym: keywords interned in the
                 // initial obarray are self-evaluating constants and are marked
                 // declared-special.
@@ -621,15 +623,15 @@ impl Obarray {
     }
 
     fn value_from_symbol_id(&self, id: SymId) -> Value {
-        let name = resolve_sym(id);
         if self.is_global_member(id) {
-            if name == "nil" {
+            let name = resolve_sym_lisp_string(id);
+            if name.as_bytes() == b"nil" {
                 return Value::NIL;
             }
-            if name == "t" {
+            if name.as_bytes() == b"t" {
                 return Value::T;
             }
-            if name.starts_with(':') {
+            if name.as_bytes().first().is_some_and(|byte| *byte == b':') {
                 return Value::keyword_id(id);
             }
         }
@@ -680,6 +682,15 @@ impl Obarray {
         name.to_string()
     }
 
+    /// Intern a symbol from an exact Lisp-string name, preserving raw
+    /// unibyte and multibyte storage.
+    pub fn intern_lisp_string(&mut self, name: &LispString) -> SymId {
+        let id = intern_lisp_string(name);
+        self.ensure_symbol_id(id);
+        self.mark_global_member(id);
+        id
+    }
+
     /// Materialize a canonical symbol in the global obarray.
     ///
     /// GNU does this as part of interning into the initial obarray. Neomacs
@@ -694,6 +705,13 @@ impl Obarray {
     pub fn intern_soft(&self, name: &str) -> Option<&SymbolData> {
         let id = lookup_interned(name)?;
         self.slot(id).filter(|sym| sym.interned_global)
+    }
+
+    /// Look up a symbol without creating it, using exact Lisp-string storage.
+    pub fn intern_soft_lisp_string(&self, name: &LispString) -> Option<SymId> {
+        let id = lookup_interned_lisp_string(name)?;
+        self.slot(id).filter(|sym| sym.interned_global)?;
+        Some(id)
     }
 
     /// Get symbol data (mutable). Interns the symbol if needed.
@@ -1594,7 +1612,11 @@ impl Obarray {
 
     /// Check if a symbol is a constant by identity.
     pub fn is_constant_id(&self, id: SymId) -> bool {
-        (Self::is_canonical_symbol_id(id) && resolve_sym(id).starts_with(':'))
+        (Self::is_canonical_symbol_id(id)
+            && resolve_sym_lisp_string(id)
+                .as_bytes()
+                .first()
+                .is_some_and(|byte| *byte == b':'))
             || self.slot(id).is_some_and(|s| s.constant)
     }
 
@@ -1846,6 +1868,14 @@ impl Obarray {
     /// Remove a symbol from the obarray.  Returns `true` if it was present.
     pub fn unintern_name(&mut self, name: &str) -> bool {
         let Some(id) = lookup_interned(name) else {
+            return false;
+        };
+        self.unintern_id(id)
+    }
+
+    /// Remove a symbol from the obarray by exact Lisp-string name.
+    pub fn unintern_lisp_string(&mut self, name: &LispString) -> bool {
+        let Some(id) = lookup_interned_lisp_string(name) else {
             return false;
         };
         self.unintern_id(id)

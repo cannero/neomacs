@@ -259,8 +259,10 @@ pub(crate) fn builtin_secure_hash_algorithms(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_symbol_name(args: Vec<Value>) -> EvalResult {
     expect_args("symbol-name", &args, 1)?;
-    match args[0].as_symbol_name() {
-        Some(name) => Ok(Value::string(name)),
+    match symbol_id(&args[0]) {
+        Some(id) => Ok(Value::heap_string(
+            crate::emacs_core::intern::resolve_sym_lisp_string(id).clone(),
+        )),
         None => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), args[0]],
@@ -270,6 +272,8 @@ pub(crate) fn builtin_symbol_name(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_make_symbol(args: Vec<Value>) -> EvalResult {
     expect_args("make-symbol", &args, 1)?;
-    let name = expect_string(&args[0])?;
-    Ok(Value::symbol(intern_uninterned(&name)))
+    let name = expect_lisp_string(&args[0])?;
+    Ok(Value::from_sym_id(
+        crate::emacs_core::intern::intern_uninterned_lisp_string(name),
+    ))
 }

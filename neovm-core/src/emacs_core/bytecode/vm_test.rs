@@ -6246,13 +6246,13 @@ fn vm_format_mode_line_recursive_depth_specs_match_gnu() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(r#"(format-mode-line "%[|%]")"#, |eval| {
-            eval.command_loop.recursive_depth = 3;
+            eval.command_loop.recursive_depth = 4;
         }),
         r#"OK "[[[|]]]""#
     );
     assert_eq!(
         vm_eval_with_init_str(r#"(format-mode-line "%[|%]")"#, |eval| {
-            eval.command_loop.recursive_depth = 6;
+            eval.command_loop.recursive_depth = 7;
         }),
         r#"OK "[[[... | ...]]]""#
     );

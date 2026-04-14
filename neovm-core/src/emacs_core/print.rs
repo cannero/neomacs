@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use super::chartable::{bool_vector_length, char_table_external_slots};
-use super::intern::{SymId, lookup_interned, resolve_sym};
+use super::intern::{SymId, lookup_interned_lisp_string, resolve_sym, resolve_sym_lisp_string};
 use super::string_escape::{
     format_lisp_string, format_lisp_string_bytes, format_lisp_string_bytes_emacs,
     format_lisp_string_bytes_inner, format_lisp_string_emacs, format_lisp_string_with_options,
@@ -131,8 +131,8 @@ fn is_print_circle_candidate(value: &Value, print_gensym: bool) -> bool {
         }
         ValueKind::Symbol(id) if print_gensym => {
             // Uninterned symbols only
-            let name = resolve_sym(id);
-            lookup_interned(name) != Some(id)
+            let name = resolve_sym_lisp_string(id);
+            lookup_interned_lisp_string(name) != Some(id)
         }
         _ => false,
     }
@@ -1265,23 +1265,11 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
 }
 
 fn format_symbol(id: super::intern::SymId, options: PrintOptions) -> String {
-    let name = resolve_sym(id);
-    let canonical = lookup_interned(name);
-    if canonical == Some(id) {
-        format_symbol_name(name)
-    } else if options.print_gensym {
-        if name.is_empty() {
-            "#:".to_string()
-        } else {
-            format!("#:{}", format_symbol_name(name))
-        }
-    } else {
-        format_symbol_name(name)
-    }
+    String::from_utf8_lossy(&symbol_bytes(id, options)).into_owned()
 }
 
 fn append_symbol_bytes(id: super::intern::SymId, out: &mut Vec<u8>, options: PrintOptions) {
-    out.extend_from_slice(format_symbol(id, options).as_bytes());
+    out.extend_from_slice(&symbol_bytes(id, options));
 }
 
 fn format_symbol_name(name: &str) -> String {
@@ -1314,6 +1302,66 @@ fn format_symbol_name(name: &str) -> String {
         out.push(ch);
     }
     out
+}
+
+fn symbol_bytes(id: super::intern::SymId, options: PrintOptions) -> Vec<u8> {
+    let name = resolve_sym_lisp_string(id);
+    let canonical = lookup_interned_lisp_string(name);
+    let mut out = Vec::new();
+    if canonical == Some(id) {
+        append_symbol_name_bytes(name, &mut out);
+    } else if options.print_gensym {
+        out.extend_from_slice(b"#:");
+        if !name.is_empty() {
+            append_symbol_name_bytes(name, &mut out);
+        }
+    } else {
+        append_symbol_name_bytes(name, &mut out);
+    }
+    out
+}
+
+fn append_symbol_name_bytes(name: &crate::heap_types::LispString, out: &mut Vec<u8>) {
+    let bytes = name.as_bytes();
+    if bytes.is_empty() {
+        out.extend_from_slice(b"##");
+        return;
+    }
+
+    for (idx, byte) in bytes.iter().copied().enumerate() {
+        let needs_escape = matches!(
+            byte,
+            b' '
+                | b'\t'
+                | b'\n'
+                | b'\r'
+                | 0x0c
+                | b'('
+                | b')'
+                | b'['
+                | b']'
+                | b'"'
+                | b'\\'
+                | b';'
+                | b'#'
+                | b'\''
+                | b'`'
+                | b','
+        ) || (idx == 0 && matches!(byte, b'.' | b'?'));
+        if needs_escape {
+            out.push(b'\\');
+        }
+        if !name.is_multibyte() && byte >= 0x80 {
+            let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+            let len = crate::emacs_core::emacs_char::char_string(
+                crate::emacs_core::emacs_char::byte8_to_char(byte),
+                &mut buf,
+            );
+            out.extend_from_slice(&buf[..len]);
+        } else {
+            out.push(byte);
+        }
+    }
 }
 
 pub(crate) fn format_float(f: f64) -> String {

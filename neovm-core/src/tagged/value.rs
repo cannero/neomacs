@@ -28,8 +28,9 @@ use std::fmt;
 
 use crate::emacs_core::intern::{
     NameId, SymId, canonical_symbol_for_name, is_canonical_id, resolve_name, resolve_sym,
-    symbol_name_id,
+    resolve_sym_lisp_string, symbol_name_id,
 };
+use crate::heap_types::LispString;
 
 use super::header::{
     BignumObj, ConsCell, FloatObj, GcHeader, StringObj, VecLikeHeader, VecLikeType,
@@ -341,8 +342,13 @@ impl TaggedValue {
     /// In GNU Emacs, keywords are symbols whose name starts with `:`.
     #[inline]
     pub fn is_keyword(self) -> bool {
-        self.as_symbol_id()
-            .is_some_and(|id| is_canonical_id(id) && resolve_sym(id).starts_with(':'))
+        self.as_symbol_id().is_some_and(|id| {
+            is_canonical_id(id)
+                && resolve_sym_lisp_string(id)
+                    .as_bytes()
+                    .first()
+                    .is_some_and(|byte| *byte == b':')
+        })
     }
 
     /// Subrs are PVEC_SUBR veclike heap objects.
@@ -781,8 +787,12 @@ impl TaggedValue {
     /// For keywords (which are symbols in GNU Emacs), returns the keyword name
     /// (e.g., ":foo").
     pub fn as_symbol_name(self) -> Option<&'static str> {
-        self.as_symbol_id()
-            .map(|id| crate::emacs_core::intern::resolve_sym(id))
+        self.as_symbol_lisp_string().and_then(LispString::as_str)
+    }
+
+    /// Get the exact Lisp-string storage for a symbol name.
+    pub fn as_symbol_lisp_string(self) -> Option<&'static LispString> {
+        self.as_symbol_id().map(resolve_sym_lisp_string)
     }
 
     /// Check if this symbol has the given name.

@@ -6,6 +6,7 @@
 
 use crate::buffer::BufferId;
 use crate::emacs_core::emacs_char;
+use serde::{Deserialize, Serialize};
 
 /// A Lisp string.
 ///
@@ -16,6 +17,7 @@ use crate::emacs_core::emacs_char;
 ///
 /// - **Multibyte:** `size_byte >= 0`.  `size` = char count, `size_byte` = byte count.
 /// - **Unibyte:**   `size_byte == -1`. `size` = byte count (each byte is one char).
+#[derive(Serialize, Deserialize)]
 pub struct LispString {
     data: Vec<u8>,
     /// Character count (cached).
@@ -258,6 +260,13 @@ impl PartialEq for LispString {
 }
 
 impl Eq for LispString {}
+
+impl std::hash::Hash for LispString {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.data.hash(state);
+        self.size_byte.hash(state);
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct OverlayData {

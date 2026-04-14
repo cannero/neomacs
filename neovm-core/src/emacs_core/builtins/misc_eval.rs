@@ -1357,29 +1357,42 @@ fn prin1_to_string_value_eval(
     prin1_to_string_value_in_state(eval, value, noescape)
 }
 
-pub(crate) fn prin1_to_string_value_in_state(
+pub(crate) fn prin1_to_lisp_string_value_in_state(
     ctx: &crate::emacs_core::eval::Context,
     value: &Value,
     noescape: bool,
-) -> String {
+) -> crate::heap_types::LispString {
     if noescape {
         match value.kind() {
-            ValueKind::String => {
-                let ls = value.as_lisp_string().unwrap();
-                crate::emacs_core::emacs_char::to_utf8_lossy(ls.as_bytes())
-            }
-            _other => super::error::print_value_in_state(ctx, value),
+            ValueKind::String => value.as_lisp_string().unwrap().clone(),
+            _other => crate::heap_types::LispString::from_emacs_bytes(
+                super::error::print_value_bytes_in_state(
+                    &ctx.obarray,
+                    &ctx.buffers,
+                    &ctx.frames,
+                    &ctx.threads,
+                    value,
+                ),
+            ),
         }
     } else {
-        String::from_utf8_lossy(&super::error::print_value_bytes_in_state(
+        crate::heap_types::LispString::from_emacs_bytes(super::error::print_value_bytes_in_state(
             &ctx.obarray,
             &ctx.buffers,
             &ctx.frames,
             &ctx.threads,
             value,
         ))
-        .into_owned()
     }
+}
+
+pub(crate) fn prin1_to_string_value_in_state(
+    ctx: &crate::emacs_core::eval::Context,
+    value: &Value,
+    noescape: bool,
+) -> String {
+    let printed = prin1_to_lisp_string_value_in_state(ctx, value, noescape);
+    crate::emacs_core::emacs_char::to_utf8_lossy(printed.as_bytes())
 }
 
 pub(crate) fn builtin_princ(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -1445,7 +1458,7 @@ pub(crate) fn builtin_prin1_to_string_impl(
 ) -> EvalResult {
     expect_min_args("prin1-to-string", &args, 1)?;
     let noescape = args.get(1).is_some_and(|v| v.is_truthy());
-    Ok(Value::string(prin1_to_string_value_in_state(
+    Ok(Value::heap_string(prin1_to_lisp_string_value_in_state(
         ctx, &args[0], noescape,
     )))
 }

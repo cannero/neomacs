@@ -691,12 +691,12 @@ fn test_format_mode_line_recursive_depth_specs_match_gnu() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
 
-    eval.command_loop.recursive_depth = 3;
+    eval.command_loop.recursive_depth = 4;
     let shallow =
         builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%[|%]")]).expect("depth 3");
     assert_eq!(shallow, Value::string("[[[|]]]"));
 
-    eval.command_loop.recursive_depth = 6;
+    eval.command_loop.recursive_depth = 7;
     let deep =
         builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%[|%]")]).expect("depth 6");
     assert_eq!(deep, Value::string("[[[... | ...]]]"));

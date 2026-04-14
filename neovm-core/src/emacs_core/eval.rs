@@ -4775,6 +4775,7 @@ impl Context {
             }
 
             self.flush_pending_safe_funcalls();
+            self.sync_current_buffer_to_selected_window();
 
             if self.executing_kbd_macro_iteration_complete_for_command_loop() {
                 self.assign("this-command", Value::NIL);
@@ -4796,6 +4797,7 @@ impl Context {
 
             // Read a complete key sequence (may be multi-key, e.g. C-x C-f).
             let (keys, binding) = self.read_key_sequence()?;
+            self.sync_current_buffer_to_selected_window();
 
             if keys.is_empty() && binding.is_nil() {
                 self.assign("this-command", Value::NIL);
@@ -10640,7 +10642,24 @@ impl Context {
     }
 
     pub(crate) fn recursive_command_loop_depth(&self) -> usize {
-        self.command_loop.recursive_depth
+        // GNU's `command_loop_level` starts at -1 before entering the
+        // top-level recursive edit, so ordinary interactive execution happens
+        // at level 0. Neomacs stores the raw active-loop count instead
+        // (0 outside the loop, 1 at top level), so translate here to the
+        // GNU-visible level used by mode-line and minibuffer semantics.
+        self.command_loop.recursive_depth.saturating_sub(1)
+    }
+
+    fn sync_current_buffer_to_selected_window(&mut self) {
+        let Some(frame_id) = self.frames.selected_frame().map(|frame| frame.id) else {
+            return;
+        };
+        super::window_cmds::sync_selected_window_buffer_in_state(
+            &self.frames,
+            &mut self.buffers,
+            frame_id,
+        );
+        let _ = self.sync_current_buffer_runtime_state();
     }
 
     // -----------------------------------------------------------------------

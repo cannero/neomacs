@@ -39,7 +39,7 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 // Phase 18 bump (18): phase 16 introduced an explicit dump-local symbol table,
 // phase 17 fixed the on-disk `DumpSymbolData` layout, and phase 18 stores subr
 // names as dump-local name atoms instead of dump-local symbol slots.
-const FORMAT_VERSION: u32 = 18;
+const FORMAT_VERSION: u32 = 19;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
@@ -882,6 +882,43 @@ mod tests {
             !crate::emacs_core::intern::is_canonical_id(held_id),
             "round-tripped lone uninterned symbol should stay uninterned"
         );
+    }
+
+    #[test]
+    fn test_restore_snapshot_preserves_raw_unibyte_symbol_name_storage() {
+        crate::test_utils::init_test_tracing();
+        let mut template = Context::new();
+        let raw_name = crate::heap_types::LispString::from_unibyte(vec![0xFF, b'a']);
+        let uninterned = crate::emacs_core::intern::intern_uninterned_lisp_string(&raw_name);
+        let canonical = crate::emacs_core::intern::intern_lisp_string(&raw_name);
+        template
+            .obarray
+            .set_symbol_value("compat-pdump-raw-uninterned-holder", Value::from_sym_id(uninterned));
+        template
+            .obarray
+            .set_symbol_value("compat-pdump-raw-canonical-holder", Value::from_sym_id(canonical));
+        template.obarray.ensure_interned_global_id(canonical);
+        let snapshot = snapshot_evaluator(&template);
+
+        let restored = restore_snapshot(&snapshot).expect("restored snapshot should succeed");
+
+        for (holder, should_be_canonical) in [
+            ("compat-pdump-raw-uninterned-holder", false),
+            ("compat-pdump-raw-canonical-holder", true),
+        ] {
+            let held = *restored
+                .obarray
+                .symbol_value(holder)
+                .expect("holder binding should exist");
+            let held_id = held.as_symbol_id().expect("holder should contain a symbol");
+            let restored_name = crate::emacs_core::intern::resolve_sym_lisp_string(held_id);
+            assert_eq!(restored_name.as_bytes(), &[0xFF, b'a']);
+            assert!(!restored_name.is_multibyte());
+            assert_eq!(
+                crate::emacs_core::intern::is_canonical_id(held_id),
+                should_be_canonical
+            );
+        }
     }
 
     #[test]

@@ -1190,6 +1190,16 @@ pub(crate) fn builtin_macrop(eval: &mut super::eval::Context, args: Vec<Value>) 
 }
 
 /// Hash a string for custom obarray bucket index.
+pub(crate) fn obarray_hash_lisp_string(s: &crate::heap_types::LispString, len: usize) -> usize {
+    let hash = s
+        .as_bytes()
+        .iter()
+        .fold(if s.is_multibyte() { 1u64 } else { 0u64 }, |h, b| {
+            h.wrapping_mul(31).wrapping_add(*b as u64)
+        });
+    hash as usize % len
+}
+
 pub(crate) fn obarray_hash(s: &str, len: usize) -> usize {
     let hash = s
         .bytes()
@@ -1199,7 +1209,10 @@ pub(crate) fn obarray_hash(s: &str, len: usize) -> usize {
 
 /// Search a bucket chain (cons list) for a symbol with the given name.
 /// Returns the symbol Value if found.
-pub(crate) fn obarray_bucket_find(bucket: Value, name: &str) -> Option<Value> {
+pub(crate) fn obarray_bucket_find(
+    bucket: Value,
+    name: &crate::heap_types::LispString,
+) -> Option<Value> {
     let mut current = bucket;
     loop {
         match current.kind() {
@@ -1207,7 +1220,7 @@ pub(crate) fn obarray_bucket_find(bucket: Value, name: &str) -> Option<Value> {
             ValueKind::Cons => {
                 let car = current.cons_car();
                 let cdr = current.cons_cdr();
-                if let Some(sym_name) = car.as_symbol_name() {
+                if let Some(sym_name) = car.as_symbol_lisp_string() {
                     if sym_name == name {
                         return Some(car);
                     }
@@ -1264,7 +1277,7 @@ pub(crate) fn builtin_intern_fn(eval: &mut super::eval::Context, args: Vec<Value
             ));
         }
     }
-    let name = expect_string(&args[0])?;
+    let name = expect_lisp_string(&args[0])?;
 
     // Custom obarray path
     if let Some(obarray_val) = args
@@ -1276,24 +1289,26 @@ pub(crate) fn builtin_intern_fn(eval: &mut super::eval::Context, args: Vec<Value
         if vec_len == 0 {
             return Err(signal("args-out-of-range", vec![Value::fixnum(0)]));
         }
-        let bucket_idx = obarray_hash(&name, vec_len);
+        let bucket_idx = obarray_hash_lisp_string(name, vec_len);
         let bucket = vec_data[bucket_idx];
 
         // Check if already interned
-        if let Some(sym) = obarray_bucket_find(bucket, &name) {
+        if let Some(sym) = obarray_bucket_find(bucket, name) {
             return Ok(sym);
         }
 
         // Not found: create symbol and prepend to bucket chain
-        let sym = Value::from_sym_id(intern_uninterned(&name));
+        let sym = Value::from_sym_id(crate::emacs_core::intern::intern_uninterned_lisp_string(
+            name,
+        ));
         let new_bucket = Value::cons(sym, bucket);
         let _ = obarray_val.set_vector_slot(bucket_idx, new_bucket);
         return Ok(sym);
     }
 
     // Global obarray path
-    eval.obarray_mut().intern(&name);
-    Ok(Value::symbol(name))
+    let sym = eval.obarray_mut().intern_lisp_string(name);
+    Ok(Value::from_sym_id(sym))
 }
 
 pub(crate) fn builtin_intern_soft(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -1322,10 +1337,16 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
     // Custom obarray path
     if let Some(obarray_val) = args.get(1).filter(|v| !v.is_nil() && v.is_vector()) {
         let name = match args[0].kind() {
-            ValueKind::String => args[0].as_str().unwrap().to_owned(),
-            ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-            ValueKind::Nil => "nil".to_owned(),
-            ValueKind::T => "t".to_owned(),
+            ValueKind::String => std::borrow::Cow::Borrowed(args[0].as_lisp_string().unwrap()),
+            ValueKind::Symbol(id) => std::borrow::Cow::Borrowed(
+                crate::emacs_core::intern::resolve_sym_lisp_string(id),
+            ),
+            ValueKind::Nil => std::borrow::Cow::Borrowed(
+                crate::emacs_core::intern::resolve_sym_lisp_string(NIL_SYM_ID),
+            ),
+            ValueKind::T => std::borrow::Cow::Borrowed(
+                crate::emacs_core::intern::resolve_sym_lisp_string(T_SYM_ID),
+            ),
             _other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -1338,17 +1359,23 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
         if vec_len == 0 {
             return Ok(Value::NIL);
         }
-        let bucket_idx = obarray_hash(&name, vec_len);
+        let bucket_idx = obarray_hash_lisp_string(name.as_ref(), vec_len);
         let bucket = vec_data[bucket_idx];
-        return Ok(obarray_bucket_find(bucket, &name).unwrap_or(Value::NIL));
+        return Ok(obarray_bucket_find(bucket, name.as_ref()).unwrap_or(Value::NIL));
     }
 
     // Global obarray path
     let name = match args[0].kind() {
-        ValueKind::String => args[0].as_str().unwrap().to_owned(),
-        ValueKind::Nil => "nil".to_owned(),
-        ValueKind::T => "t".to_owned(),
-        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
+        ValueKind::String => std::borrow::Cow::Borrowed(args[0].as_lisp_string().unwrap()),
+        ValueKind::Nil => std::borrow::Cow::Borrowed(
+            crate::emacs_core::intern::resolve_sym_lisp_string(NIL_SYM_ID),
+        ),
+        ValueKind::T => std::borrow::Cow::Borrowed(
+            crate::emacs_core::intern::resolve_sym_lisp_string(T_SYM_ID),
+        ),
+        ValueKind::Symbol(id) => std::borrow::Cow::Borrowed(
+            crate::emacs_core::intern::resolve_sym_lisp_string(id),
+        ),
         _other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1356,8 +1383,8 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
             ));
         }
     };
-    if obarray.intern_soft(&name).is_some() {
-        Ok(Value::symbol(name))
+    if let Some(id) = obarray.intern_soft_lisp_string(name.as_ref()) {
+        Ok(Value::from_sym_id(id))
     } else {
         Ok(Value::NIL)
     }
@@ -2651,10 +2678,11 @@ fn compare_value_lt_inner(
         return Ok(ordering);
     }
 
-    if let (Some(left), Some(right)) =
-        (symbol_name_for_value_lt(lhs), symbol_name_for_value_lt(rhs))
-    {
-        return Ok(left.cmp(right));
+    if let (Some(left), Some(right)) = (
+        symbol_name_for_value_lt(lhs),
+        symbol_name_for_value_lt(rhs),
+    ) {
+        return Ok(compare_lisp_strings(left.as_ref(), right.as_ref()));
     }
 
     match (lhs.kind(), rhs.kind()) {
@@ -2960,11 +2988,19 @@ fn compare_number_values_for_value_lt(lhs: &Value, rhs: &Value) -> Option<std::c
     Some(left.cmp(&right))
 }
 
-fn symbol_name_for_value_lt(value: &Value) -> Option<&str> {
+fn symbol_name_for_value_lt(
+    value: &Value,
+) -> Option<std::borrow::Cow<'static, crate::heap_types::LispString>> {
     match value.kind() {
-        ValueKind::Nil => Some("nil"),
-        ValueKind::T => Some("t"),
-        ValueKind::Symbol(id) => Some(resolve_sym(id)),
+        ValueKind::Nil => Some(std::borrow::Cow::Borrowed(
+            crate::emacs_core::intern::resolve_sym_lisp_string(NIL_SYM_ID),
+        )),
+        ValueKind::T => Some(std::borrow::Cow::Borrowed(
+            crate::emacs_core::intern::resolve_sym_lisp_string(T_SYM_ID),
+        )),
+        ValueKind::Symbol(id) => Some(std::borrow::Cow::Borrowed(
+            crate::emacs_core::intern::resolve_sym_lisp_string(id),
+        )),
         _ => None,
     }
 }

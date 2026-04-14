@@ -583,6 +583,7 @@ pub(crate) fn finish_read_from_minibuffer_in_eval(
     args: &[Value],
 ) -> EvalResult {
     let eval_ptr = std::ptr::NonNull::from(&mut *eval);
+    let command_loop_depth = eval.recursive_command_loop_depth();
     finish_read_from_minibuffer_in_state_with_recursive_edit(
         &mut eval.obarray,
         &mut eval.buffers,
@@ -590,7 +591,7 @@ pub(crate) fn finish_read_from_minibuffer_in_eval(
         &mut eval.minibuffers,
         &mut eval.minibuffer_selected_window,
         &mut eval.active_minibuffer_window,
-        eval.command_loop.recursive_depth,
+        command_loop_depth,
         args,
         move || unsafe {
             eval_ptr

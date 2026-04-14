@@ -92,7 +92,7 @@ fn hash_key_to_value(key: &HashKey) -> Value {
         HashKey::Float(bits) => Value::make_float(f64::from_bits(*bits)),
         HashKey::FloatEq(bits, _id) => Value::make_float(f64::from_bits(*bits)),
         HashKey::Symbol(id) => Value::from_sym_id(*id),
-        HashKey::Keyword(id) => Value::keyword(resolve_sym(*id)),
+        HashKey::Keyword(id) => Value::keyword_id(*id),
         HashKey::Text(text) => Value::string(text.clone()),
         HashKey::Char(c) => Value::char(*c),
         HashKey::Window(id) => Value::make_window(*id),
@@ -811,9 +811,8 @@ pub(crate) fn collect_mapatoms_symbols(
     }
 
     let symbols = obarray
-        .all_symbols()
-        .iter()
-        .map(|s| Value::symbol(s.to_string()))
+        .global_member_ids()
+        .map(Value::from_sym_id)
         .collect();
     Ok((func, symbols))
 }
@@ -825,13 +824,18 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
     validate_optional_obarray_arg(&args)?;
 
     enum UninternTarget {
-        Symbol(SymId, String),
-        Name(String),
+        Symbol(SymId, &'static crate::heap_types::LispString),
+        Name(std::borrow::Cow<'static, crate::heap_types::LispString>),
     }
 
     let target = match args[0].kind() {
-        ValueKind::Symbol(id) => UninternTarget::Symbol(id, resolve_sym(id).to_owned()),
-        ValueKind::String => UninternTarget::Name(args[0].as_str().unwrap().to_owned()),
+        ValueKind::Symbol(id) => UninternTarget::Symbol(
+            id,
+            crate::emacs_core::intern::resolve_sym_lisp_string(id),
+        ),
+        ValueKind::String => {
+            UninternTarget::Name(std::borrow::Cow::Borrowed(args[0].as_lisp_string().unwrap()))
+        }
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -841,7 +845,8 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
     };
 
     let target_name = match &target {
-        UninternTarget::Symbol(_, name) | UninternTarget::Name(name) => name,
+        UninternTarget::Symbol(_, name) => *name,
+        UninternTarget::Name(name) => name.as_ref(),
     };
 
     // Custom obarray path
@@ -852,11 +857,8 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
             if vec_len == 0 {
                 return Ok(Value::NIL);
             }
-            let bucket_idx = target_name
-                .bytes()
-                .fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64))
-                as usize
-                % vec_len;
+            let bucket_idx =
+                crate::emacs_core::builtins::symbols::obarray_hash_lisp_string(target_name, vec_len);
             let bucket = vec_data[bucket_idx];
 
             // Walk the bucket chain and rebuild without the matching symbol
@@ -875,7 +877,8 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
                                     car_id == *target_id
                                 }
                                 (UninternTarget::Name(name), _) => {
-                                    car.as_symbol_name().is_some_and(|sym_name| sym_name == name)
+                                    car.as_symbol_lisp_string()
+                                        .is_some_and(|sym_name| sym_name == name.as_ref())
                                 }
                                 _ => false,
                             };
@@ -908,7 +911,7 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
     // Global obarray path
     let removed = match target {
         UninternTarget::Symbol(id, _) => eval.obarray.unintern_id(id),
-        UninternTarget::Name(name) => eval.obarray.unintern_name(&name),
+        UninternTarget::Name(name) => eval.obarray.unintern_lisp_string(name.as_ref()),
     };
     Ok(if removed { Value::T } else { Value::NIL })
 }

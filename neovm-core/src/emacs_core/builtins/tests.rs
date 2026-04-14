@@ -4049,6 +4049,49 @@ fn pure_dispatch_typed_plist_and_symbol_round_trip() {
 }
 
 #[test]
+fn make_symbol_and_symbol_name_preserve_raw_unibyte_bytes() {
+    crate::test_utils::init_test_tracing();
+    let raw_name = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF, b'a']));
+
+    let sym = dispatch_builtin_pure("make-symbol", vec![raw_name])
+        .expect("builtin make-symbol should resolve")
+        .expect("builtin make-symbol should evaluate");
+    let printed_name = dispatch_builtin_pure("symbol-name", vec![sym])
+        .expect("builtin symbol-name should resolve")
+        .expect("builtin symbol-name should evaluate");
+
+    let ls = printed_name
+        .as_lisp_string()
+        .expect("symbol-name should return a string");
+    assert_eq!(ls.as_bytes(), &[0xFF, b'a']);
+    assert!(!ls.is_multibyte());
+}
+
+#[test]
+fn intern_and_intern_soft_preserve_raw_unibyte_symbol_names() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let raw_name = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF, b'a']));
+
+    let sym = dispatch_builtin(&mut eval, "intern", vec![raw_name])
+        .expect("builtin intern should resolve")
+        .expect("builtin intern should evaluate");
+    let soft = dispatch_builtin(&mut eval, "intern-soft", vec![raw_name])
+        .expect("builtin intern-soft should resolve")
+        .expect("builtin intern-soft should evaluate");
+    let roundtrip = dispatch_builtin(&mut eval, "symbol-name", vec![sym])
+        .expect("builtin symbol-name should resolve")
+        .expect("builtin symbol-name should evaluate");
+
+    assert_eq!(soft, sym);
+    let ls = roundtrip
+        .as_lisp_string()
+        .expect("symbol-name should return a string");
+    assert_eq!(ls.as_bytes(), &[0xFF, b'a']);
+    assert!(!ls.is_multibyte());
+}
+
+#[test]
 fn pure_dispatch_typed_math_ops_work() {
     crate::test_utils::init_test_tracing();
     let sqrt = dispatch_builtin_pure("sqrt", vec![Value::fixnum(4)])
@@ -8548,6 +8591,35 @@ fn prin1_to_string_respects_print_gensym_binding() {
         .expect("prin1-to-string should resolve with print-gensym")
         .expect("prin1-to-string should evaluate with print-gensym");
     assert_eq!(gensym_text, Value::string("#:vm-print-gensym"));
+}
+
+#[test]
+fn prin1_to_string_preserves_raw_unibyte_symbol_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let raw_name = crate::heap_types::LispString::from_unibyte(vec![0xFF, b'a']);
+    let sym = Value::symbol(crate::emacs_core::intern::intern_uninterned_lisp_string(
+        &raw_name,
+    ));
+
+    let default_text = dispatch_builtin(&mut eval, "prin1-to-string", vec![sym])
+        .expect("prin1-to-string should resolve")
+        .expect("prin1-to-string should evaluate");
+    let default_ls = default_text
+        .as_lisp_string()
+        .expect("prin1-to-string should return a string");
+    assert_eq!(default_ls.as_bytes(), &[0xC1, 0xBF, b'a']);
+    assert!(default_ls.is_multibyte());
+
+    eval.set_variable("print-gensym", Value::T);
+    let gensym_text = dispatch_builtin(&mut eval, "prin1-to-string", vec![sym])
+        .expect("prin1-to-string should resolve with print-gensym")
+        .expect("prin1-to-string should evaluate with print-gensym");
+    let gensym_ls = gensym_text
+        .as_lisp_string()
+        .expect("prin1-to-string should return a string");
+    assert_eq!(gensym_ls.as_bytes(), &[b'#', b':', 0xC1, 0xBF, b'a']);
+    assert!(gensym_ls.is_multibyte());
 }
 
 #[test]

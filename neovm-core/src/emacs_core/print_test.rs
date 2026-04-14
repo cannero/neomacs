@@ -1,4 +1,4 @@
-use super::super::intern::{intern, intern_uninterned};
+use super::super::intern::{intern, intern_uninterned, intern_uninterned_lisp_string};
 use super::super::marker::make_marker_value;
 use super::*;
 use crate::emacs_core::value::{
@@ -51,6 +51,14 @@ fn print_uninterned_symbols_follow_gnu_default_print_gensym_nil() {
 }
 
 #[test]
+fn print_raw_unibyte_uninterned_symbol_bytes_match_gnu_encoding() {
+    crate::test_utils::init_test_tracing();
+    let raw_name = crate::heap_types::LispString::from_unibyte(vec![0xFF, b'a']);
+    let sym = Value::symbol(intern_uninterned_lisp_string(&raw_name));
+    assert_eq!(print_value_bytes(&sym), vec![0xC1, 0xBF, b'a']);
+}
+
+#[test]
 fn print_uninterned_symbols_support_print_gensym_round_trip_syntax() {
     crate::test_utils::init_test_tracing();
     let options = PrintOptions::with_print_gensym(true);
@@ -66,6 +74,15 @@ fn print_uninterned_symbols_support_print_gensym_round_trip_syntax() {
         print_value_with_options(&Value::symbol(intern_uninterned("")), options),
         "#:"
     );
+}
+
+#[test]
+fn print_gensym_raw_unibyte_symbol_bytes_match_gnu_encoding() {
+    crate::test_utils::init_test_tracing();
+    let options = PrintOptions::with_print_gensym(true);
+    let raw_name = crate::heap_types::LispString::from_unibyte(vec![0xFF, b'a']);
+    let sym = Value::symbol(intern_uninterned_lisp_string(&raw_name));
+    assert_eq!(print_value_bytes_with_options(&sym, options), vec![b'#', b':', 0xC1, 0xBF, b'a']);
 }
 
 #[test]
@@ -145,10 +162,21 @@ fn print_string_keeps_non_bmp_visible() {
 #[test]
 fn print_string_bytes_preserve_non_utf8_payloads() {
     crate::test_utils::init_test_tracing();
-    let raw = char::from_u32(0xE0FF).expect("raw-byte sentinel");
     assert_eq!(
-        print_value_bytes(&Value::string(raw.to_string())),
+        print_value_bytes(&Value::heap_string(crate::heap_types::LispString::from_emacs_bytes(
+            vec![0xC1, 0xBF],
+        ))),
         b"\"\\377\""
+    );
+}
+
+#[test]
+fn print_literal_private_use_unicode_does_not_masquerade_as_raw_byte() {
+    crate::test_utils::init_test_tracing();
+    let private_use = char::from_u32(0xE0FF).expect("private use scalar");
+    assert_eq!(
+        print_value_bytes(&Value::string(private_use.to_string())),
+        format!("\"{}\"", private_use).into_bytes()
     );
 }
 
