@@ -42,7 +42,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
             };
             let src = args[0].as_lisp_string().unwrap();
             let (result, sliced_props) = (|| {
-                let s = src.as_str().unwrap_or("");
+                let src_bytes = src.as_bytes();
                 let normalize_index =
                     |value: &Value, default: i64, len: i64| -> Result<i64, Flow> {
                         let raw = if value.is_nil() {
@@ -60,8 +60,10 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                         Ok(idx)
                     };
 
-                if src_props.is_none() && s.is_ascii() {
-                    let len = s.len() as i64;
+                // Unibyte strings count storage bytes as characters, even when
+                // the underlying bytes are not valid UTF-8.
+                if src_props.is_none() && !src.is_multibyte() {
+                    let len = src_bytes.len() as i64;
                     let from = if args.len() > 1 {
                         normalize_index(&args[1], 0, len)?
                     } else {
@@ -111,7 +113,6 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                         ],
                     ));
                 }
-                let src_bytes = src.as_bytes();
                 let (byte_from, byte_to) = if src.is_multibyte() {
                     let bf = crate::emacs_core::emacs_char::char_to_byte_pos(src_bytes, from);
                     let bt = crate::emacs_core::emacs_char::char_to_byte_pos(src_bytes, to);
@@ -198,6 +199,38 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
             let _ = s;
             unreachable!("expect_string either returns a string or signals")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::heap_types::LispString;
+
+    #[test]
+    fn substring_preserves_raw_unibyte_storage_semantics() {
+        crate::test_utils::init_test_tracing();
+
+        let source = Value::heap_string(LispString::from_unibyte(vec![0xff, b'a', b'b']));
+        let result = builtin_substring(vec![source, Value::fixnum(1), Value::fixnum(3)])
+            .expect("substring should accept raw unibyte storage");
+        let string = result.as_lisp_string().expect("substring should return a string");
+
+        assert!(!string.is_multibyte());
+        assert_eq!(string.as_bytes(), b"ab");
+    }
+
+    #[test]
+    fn substring_can_return_raw_non_utf8_unibyte_bytes() {
+        crate::test_utils::init_test_tracing();
+
+        let source = Value::heap_string(LispString::from_unibyte(vec![0xff, 0xfe, b'x']));
+        let result = builtin_substring(vec![source, Value::fixnum(0), Value::fixnum(2)])
+            .expect("substring should slice raw unibyte bytes");
+        let string = result.as_lisp_string().expect("substring should return a string");
+
+        assert!(!string.is_multibyte());
+        assert_eq!(string.as_bytes(), &[0xff, 0xfe]);
     }
 }
 

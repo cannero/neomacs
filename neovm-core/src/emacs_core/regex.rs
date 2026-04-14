@@ -174,43 +174,47 @@ pub struct MatchData {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SearchedString {
     Heap(super::value::Value),
-    Owned(String),
+    Owned(LispString),
 }
 
 impl SearchedString {
-    pub(crate) fn with_str<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+    pub(crate) fn as_lisp_string(&self) -> Option<&LispString> {
         match self {
-            Self::Heap(val) => f(val.as_str().unwrap_or("")),
-            Self::Owned(text) => f(text),
+            Self::Heap(val) => val.as_lisp_string(),
+            Self::Owned(text) => Some(text),
         }
     }
 
     fn byte_to_char_pos(&self, byte_pos: usize) -> usize {
-        match self {
-            Self::Heap(val) => {
-                let Some(string) = val.as_lisp_string() else {
-                    return 0;
-                };
-                if string.is_multibyte() {
-                    crate::emacs_core::emacs_char::byte_to_char_pos(string.as_bytes(), byte_pos)
-                } else {
-                    byte_pos.min(string.byte_len())
-                }
-            }
-            Self::Owned(text) => {
-                if text.is_ascii() {
-                    byte_pos.min(text.len())
-                } else {
-                    text.get(..byte_pos)
-                        .map_or(0, |prefix| prefix.chars().count())
-                }
-            }
+        let Some(string) = self.as_lisp_string() else {
+            return 0;
+        };
+        if string.is_multibyte() {
+            crate::emacs_core::emacs_char::byte_to_char_pos(string.as_bytes(), byte_pos)
+        } else {
+            byte_pos.min(string.byte_len())
         }
     }
 
     pub(crate) fn to_owned(&self) -> String {
-        self.with_str(str::to_owned)
+        let Some(string) = self.as_lisp_string() else {
+            return String::new();
+        };
+        string
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| String::from_utf8_lossy(string.as_bytes()).into_owned())
     }
+}
+
+pub fn char_pos_to_byte_lisp_string(s: &crate::heap_types::LispString, char_pos: usize) -> usize {
+    if !s.is_multibyte() {
+        return char_pos.min(s.byte_len());
+    }
+    if char_pos >= s.schars() {
+        return s.byte_len();
+    }
+    crate::emacs_core::emacs_char::char_to_byte_pos(s.as_bytes(), char_pos)
 }
 
 impl MatchData {
@@ -1111,7 +1115,31 @@ fn literal_find_lisp_string(
                 return None;
             }
 
-            literal_find(&text.as_str().unwrap_or("")[start..], literal, case_fold)
+            if !text.is_multibyte() {
+                let haystack = &text.as_bytes()[start..];
+                let needle = literal.as_bytes();
+                if needle.is_empty() {
+                    return Some((start, start));
+                }
+                if needle.len() > haystack.len() {
+                    return None;
+                }
+                let match_start = haystack.windows(needle.len()).position(|window| {
+                    if case_fold {
+                        window
+                            .iter()
+                            .zip(needle.iter())
+                            .all(|(lhs, rhs)| lhs.eq_ignore_ascii_case(rhs))
+                    } else {
+                        window == needle
+                    }
+                })?;
+                let match_end = match_start + needle.len();
+                return Some((start + match_start, start + match_end));
+            }
+
+            let text = text.as_str()?;
+            literal_find(&text[start..], literal, case_fold)
                 .map(|(match_start, match_end)| (start + match_start, start + match_end))
         },
     )
@@ -1654,7 +1682,7 @@ pub fn looking_at_string(
                 return Ok(false);
             }
             *match_data = Some(string_char_match_data(
-                SearchedString::Owned(string.to_string()),
+                SearchedString::Owned(LispString::from_utf8(string)),
                 single_group_match_data(0, literal.len()),
             ));
             Ok(true)
@@ -1667,7 +1695,7 @@ pub fn looking_at_string(
             {
                 let byte_md = match_data_from_registers(&regs, 0);
                 *match_data = Some(string_char_match_data(
-                    SearchedString::Owned(string.to_string()),
+                    SearchedString::Owned(LispString::from_utf8(string)),
                     byte_md,
                 ));
                 Ok(true)
@@ -1708,7 +1736,7 @@ pub fn string_match_full_with_case_fold_and_posix(
     string_match_full_with_case_fold_source_posix(
         pattern,
         string,
-        SearchedString::Owned(string.to_string()),
+        SearchedString::Owned(LispString::from_utf8(string)),
         start,
         case_fold,
         posix,

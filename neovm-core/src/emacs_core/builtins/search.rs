@@ -1,5 +1,5 @@
 use super::*;
-use crate::emacs_core::regex::char_pos_to_byte;
+use crate::emacs_core::regex::{char_pos_to_byte, char_pos_to_byte_lisp_string};
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 // ===========================================================================
@@ -1005,26 +1005,27 @@ pub(crate) fn builtin_match_string(
         _ => return Ok(Value::NIL),
     };
 
+    let slice_lisp_string = |string: &crate::heap_types::LispString, use_char_positions: bool| {
+        let (byte_start, byte_end) = if use_char_positions {
+            (
+                char_pos_to_byte_lisp_string(string, start),
+                char_pos_to_byte_lisp_string(string, end),
+            )
+        } else {
+            (start, end)
+        };
+        if byte_end <= string.byte_len() && byte_start <= byte_end {
+            string.slice(byte_start, byte_end).map(Value::heap_string)
+        } else {
+            None
+        }
+    };
+
     // If an optional second arg is a string, use that first.
     if args.len() > 1 {
         if let Some(string) = args[1].as_lisp_string() {
-            let text = string.as_str().unwrap_or("");
-            let (byte_start, byte_end) = if md.searched_string.is_some() {
-                (char_pos_to_byte(text, start), char_pos_to_byte(text, end))
-            } else {
-                (
-                    crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
-                        text, start,
-                    ),
-                    crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
-                        text, end,
-                    ),
-                )
-            };
-            if byte_end <= text.len() && byte_start <= byte_end {
-                if let Some(slice) = string.slice(byte_start, byte_end) {
-                    return Ok(Value::heap_string(slice));
-                }
+            if let Some(slice) = slice_lisp_string(string, md.searched_string.is_some()) {
+                return Ok(slice);
             }
             return Ok(Value::NIL);
         }
@@ -1051,27 +1052,19 @@ pub(crate) fn builtin_match_string(
     if let Some(ref searched) = md.searched_string {
         if let super::regex::SearchedString::Heap(val) = searched {
             if let Some(string) = val.as_lisp_string() {
-                let text = string.as_str().unwrap_or("");
-                let byte_start = char_pos_to_byte(text, start);
-                let byte_end = char_pos_to_byte(text, end);
-                if byte_end <= text.len() && byte_start <= byte_end {
-                    if let Some(slice) = string.slice(byte_start, byte_end) {
-                        return Ok(Value::heap_string(slice));
-                    }
+                if let Some(slice) = slice_lisp_string(string, true) {
+                    return Ok(slice);
                 }
                 return Ok(Value::NIL);
             }
         }
 
-        return searched.with_str(|searched| {
-            let byte_start = char_pos_to_byte(searched, start);
-            let byte_end = char_pos_to_byte(searched, end);
-            if byte_end <= searched.len() {
-                Ok(Value::string(&searched[byte_start..byte_end]))
-            } else {
-                Ok(Value::NIL)
+        if let Some(string) = searched.as_lisp_string() {
+            if let Some(slice) = slice_lisp_string(string, true) {
+                return Ok(slice);
             }
-        });
+        }
+        return Ok(Value::NIL);
     }
 
     let buf = match eval.buffers.current_buffer() {

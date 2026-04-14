@@ -84,6 +84,38 @@ fn expect_string(val: &Value) -> Result<String, Flow> {
     }
 }
 
+fn expect_lisp_string(val: &Value) -> Result<&'static crate::heap_types::LispString, Flow> {
+    val.as_lisp_string().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), *val],
+        )
+    })
+}
+
+fn cloned_lisp_string_value(string: &crate::heap_types::LispString) -> Value {
+    Value::heap_string(string.clone())
+}
+
+fn regexp_quote_lisp_string(input: &crate::heap_types::LispString) -> crate::heap_types::LispString {
+    let mut out = Vec::with_capacity(input.as_bytes().len() + 8);
+    for &byte in input.as_bytes() {
+        match byte {
+            b'.' | b'*' | b'+' | b'?' | b'[' | b'^' | b'$' | b'\\' => {
+                out.push(b'\\');
+                out.push(byte);
+            }
+            _ => out.push(byte),
+        }
+    }
+
+    if input.is_multibyte() {
+        crate::heap_types::LispString::from_emacs_bytes(out)
+    } else {
+        crate::heap_types::LispString::from_unibyte(out)
+    }
+}
+
 fn normalize_string_start_arg(string: &str, start: Option<&Value>) -> Result<usize, Flow> {
     let Some(start_val) = start else {
         return Ok(0);
@@ -138,7 +170,7 @@ pub(crate) fn normalize_lisp_string_start_arg(
     }
 
     let raw_start = expect_int(start_val)?;
-    if string.is_ascii() {
+    if !string.is_multibyte() {
         let len = string.byte_len() as i64;
         let normalized = if raw_start < 0 {
             len.checked_add(raw_start)
@@ -148,25 +180,44 @@ pub(crate) fn normalize_lisp_string_start_arg(
         let Some(start_idx) = normalized else {
             return Err(signal(
                 "args-out-of-range",
-                vec![
-                    Value::string(string.as_str().unwrap_or("")),
-                    Value::fixnum(raw_start),
-                ],
+                vec![cloned_lisp_string_value(string), Value::fixnum(raw_start)],
             ));
         };
         if !(0..=len).contains(&start_idx) {
             return Err(signal(
                 "args-out-of-range",
-                vec![
-                    Value::string(string.as_str().unwrap_or("")),
-                    Value::fixnum(raw_start),
-                ],
+                vec![cloned_lisp_string_value(string), Value::fixnum(raw_start)],
             ));
         }
         return Ok(start_idx as usize);
     }
 
-    normalize_string_start_arg(string.as_str().unwrap_or(""), start)
+    let len = string.schars() as i64;
+    let normalized = if raw_start < 0 {
+        len.checked_add(raw_start)
+    } else {
+        Some(raw_start)
+    };
+    let Some(start_idx) = normalized else {
+        return Err(signal(
+            "args-out-of-range",
+            vec![cloned_lisp_string_value(string), Value::fixnum(raw_start)],
+        ));
+    };
+    if !(0..=len).contains(&start_idx) {
+        return Err(signal(
+            "args-out-of-range",
+            vec![cloned_lisp_string_value(string), Value::fixnum(raw_start)],
+        ));
+    }
+    let start_char_idx = start_idx as usize;
+    if start_char_idx == len as usize {
+        return Ok(string.byte_len());
+    }
+    Ok(crate::emacs_core::emacs_char::char_to_byte_pos(
+        string.as_bytes(),
+        start_char_idx,
+    ))
 }
 
 fn preserve_case(replacement: &str, matched: &str) -> String {
@@ -255,18 +306,8 @@ pub(crate) fn builtin_regexp_quote(args: Vec<Value>) -> EvalResult {
         crate::emacs_core::perf_trace::HotpathOp::RegexpQuote,
         || {
             expect_args("regexp-quote", &args, 1)?;
-            let s = expect_string(&args[0])?;
-            let mut result = String::with_capacity(s.len() + 8);
-            for ch in s.chars() {
-                match ch {
-                    '.' | '*' | '+' | '?' | '[' | '^' | '$' | '\\' => {
-                        result.push('\\');
-                        result.push(ch);
-                    }
-                    _ => result.push(ch),
-                }
-            }
-            Ok(Value::string(result))
+            let string = expect_lisp_string(&args[0])?;
+            Ok(Value::heap_string(regexp_quote_lisp_string(string)))
         },
     )
 }
@@ -433,7 +474,7 @@ pub(crate) fn builtin_replace_regexp_in_string(
     let prefix_chars = s[..start].chars().count();
     let searched_string = match args[2].kind() {
         ValueKind::String => super::regex::SearchedString::Heap(args[2]),
-        _ => super::regex::SearchedString::Owned(s.clone()),
+        _ => super::regex::SearchedString::Owned(crate::heap_types::LispString::from_utf8(&s)),
     };
 
     eval.with_gc_scope_result(|ctx| {

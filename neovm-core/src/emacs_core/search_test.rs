@@ -1,7 +1,7 @@
 use super::*;
 use crate::emacs_core::builtins::search::{
-    builtin_looking_at, builtin_match_data, builtin_set_match_data, builtin_string_match,
-    builtin_string_match_p,
+    builtin_looking_at, builtin_match_data, builtin_match_string, builtin_set_match_data,
+    builtin_string_match, builtin_string_match_p,
 };
 use crate::emacs_core::search::builtin_replace_regexp_in_string;
 use crate::emacs_core::value::ValueKind;
@@ -154,6 +154,30 @@ fn string_match_accepts_raw_unibyte_regexp_pattern() {
 }
 
 #[test]
+fn string_match_accepts_start_on_raw_unibyte_haystack() {
+    crate::test_utils::init_test_tracing();
+    let pattern = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+    let haystack = Value::heap_string(LispString::from_unibyte(vec![0x80, 0xFF, 0x81]));
+    let result = call_string_match(vec![pattern, haystack, Value::fixnum(1)]).unwrap();
+    assert_int(result, 1);
+}
+
+#[test]
+fn match_string_preserves_raw_unibyte_bytes_with_explicit_string() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let pattern = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+    let haystack = Value::heap_string(LispString::from_unibyte(vec![0x80, 0xFF, 0x81]));
+    let matched = builtin_string_match(&mut eval, vec![pattern, haystack]).unwrap();
+    assert_int(matched, 1);
+
+    let slice = builtin_match_string(&mut eval, vec![Value::fixnum(0), haystack]).unwrap();
+    let string = slice.as_lisp_string().expect("match-string should return string");
+    assert!(!string.is_multibyte());
+    assert_eq!(string.as_bytes(), &[0xFF]);
+}
+
+#[test]
 fn looking_at_accepts_raw_unibyte_regexp_pattern_in_buffer() {
     crate::test_utils::init_test_tracing();
     let pattern = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
@@ -181,6 +205,17 @@ fn regexp_quote_all_specials() {
     let result = builtin_regexp_quote(vec![Value::string(".*+?[]^$\\")]);
     // GNU regexp-quote does NOT escape ']' — only '[' is special.
     assert_str(result.unwrap(), "\\.\\*\\+\\?\\[]\\^\\$\\\\");
+}
+
+#[test]
+fn regexp_quote_preserves_raw_unibyte_bytes() {
+    crate::test_utils::init_test_tracing();
+    let input = Value::heap_string(LispString::from_unibyte(vec![b'a', 0xFF, b'*', b'[', b'z']));
+    let result = builtin_regexp_quote(vec![input]).unwrap();
+    let string = result.as_lisp_string().expect("regexp-quote should return string");
+    assert!(!string.is_multibyte());
+    assert_eq!(string.as_bytes(), &[b'a', 0xFF, b'\\', b'*', b'\\', b'[', b'z']);
+    assert!(string.as_str().is_none());
 }
 
 #[test]

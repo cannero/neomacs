@@ -8,11 +8,12 @@ fn extract_heap_match_string(md: &MatchData, group: usize) -> Option<String> {
         SearchedString::Owned(text) => SearchedString::Owned(text.clone()),
     };
     let (start, end) = md.groups.get(group).and_then(|group| *group)?;
-    searched.with_str(|text| {
-        let byte_start = char_pos_to_byte(text, start);
-        let byte_end = char_pos_to_byte(text, end);
-        text.get(byte_start..byte_end).map(str::to_owned)
-    })
+    let string = searched.as_lisp_string()?;
+    let byte_start = char_pos_to_byte_lisp_string(string, start);
+    let byte_end = char_pos_to_byte_lisp_string(string, end);
+    string
+        .slice(byte_start, byte_end)
+        .and_then(|slice| slice.as_str().map(str::to_owned))
 }
 
 // -----------------------------------------------------------------------
@@ -672,7 +673,7 @@ fn string_match_posix_upper_class_folds_to_alpha_on_lisp_string() {
     let result = string_match_full_with_case_fold_source_lisp(
         "[[:upper:]]+",
         &string,
-        SearchedString::Owned("helloWORLDfoo".to_string()),
+        SearchedString::Owned(LispString::from_utf8("helloWORLDfoo")),
         0,
         true,
         &mut md,
@@ -876,13 +877,40 @@ fn string_match_anchored_operator_char_class_on_lisp_slice_mirrors_gnu_bracket_c
     let result = string_match_full_with_case_fold_source_lisp(
         "\\`[-+*/=<>!&|(){}\\[\\];,.]",
         &slice,
-        SearchedString::Owned(slice.as_str().unwrap_or("").to_string()),
+        SearchedString::Owned(slice.clone()),
         0,
         true,
         &mut md,
     );
     assert_eq!(result, Ok(None));
     assert!(md.is_none());
+}
+
+#[test]
+fn owned_raw_unibyte_match_data_preserves_bytes() {
+    crate::test_utils::init_test_tracing();
+    let pattern = LispString::from_unibyte(vec![0xFF]);
+    let haystack = LispString::from_unibyte(vec![0x80, 0xFF, 0x81]);
+    let mut md = None;
+    let result = string_match_full_with_case_fold_source_lisp_pattern_posix(
+        &pattern,
+        &haystack,
+        SearchedString::Owned(haystack.clone()),
+        0,
+        true,
+        false,
+        &mut md,
+    );
+    assert_eq!(result, Ok(Some(1)));
+    let md = md.expect("match data");
+    let searched = md.searched_string.expect("searched string");
+    let string = searched.as_lisp_string().expect("lisp string");
+    let (start, end) = md.groups[0].expect("full match");
+    let byte_start = char_pos_to_byte_lisp_string(string, start);
+    let byte_end = char_pos_to_byte_lisp_string(string, end);
+    let slice = string.slice(byte_start, byte_end).expect("slice");
+    assert!(!slice.is_multibyte());
+    assert_eq!(slice.as_bytes(), &[0xFF]);
 }
 
 #[test]

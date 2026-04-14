@@ -1382,12 +1382,7 @@ impl CompletionText {
     fn searched_string(&self) -> super::regex::SearchedString {
         match self {
             Self::OriginalString { value, .. } => super::regex::SearchedString::Heap(*value),
-            Self::Generated { string } => super::regex::SearchedString::Owned(
-                string
-                    .as_str()
-                    .expect("generated completion text must be valid utf-8")
-                    .to_owned(),
-            ),
+            Self::Generated { string } => super::regex::SearchedString::Owned(string.clone()),
         }
     }
 }
