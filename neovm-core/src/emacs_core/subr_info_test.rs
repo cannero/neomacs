@@ -959,7 +959,7 @@ fn subr_arity_command_read_primitives_match_oracle() {
     assert_subr_arity("treesit-parser-set-included-ranges", 2, Some(2));
     assert_subr_arity("treesit-parser-tag", 1, Some(1));
     assert_subr_arity("treesit-pattern-expand", 1, Some(1));
-    assert_subr_arity("treesit-query-capture", 2, Some(5));
+    assert_subr_arity("treesit-query-capture", 2, Some(6));
     assert_subr_arity("treesit-query-compile", 2, Some(3));
     assert_subr_arity("treesit-query-expand", 1, Some(1));
     assert_subr_arity("treesit-query-language", 1, Some(1));

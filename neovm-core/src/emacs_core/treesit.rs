@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use libloading::Library;
 use tree_sitter::{Language, Parser, Query, Tree};
@@ -31,7 +31,14 @@ pub(crate) const QUERY_SLOT_SOURCE: usize = 3;
 pub(crate) struct LoadedLanguage {
     pub(crate) language: Language,
     pub(crate) filename: Option<String>,
-    pub(crate) _library: Library,
+    pub(crate) _library: Option<Library>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct LineColCache {
+    pub(crate) line: i64,
+    pub(crate) col: i64,
+    pub(crate) bytepos: usize,
 }
 
 pub(crate) struct ParserEntry {
@@ -46,6 +53,8 @@ pub(crate) struct ParserEntry {
     pub(crate) generation: u64,
     pub(crate) need_to_gc_buffer: bool,
     pub(crate) deleted: bool,
+    pub(crate) tracking_linecol: bool,
+    pub(crate) last_changed_ranges: Vec<(usize, usize)>,
 }
 
 pub(crate) struct NodeEntry {
@@ -68,6 +77,7 @@ pub(crate) struct TreeSitterManager {
     parsers: BTreeMap<u64, ParserEntry>,
     nodes: BTreeMap<u64, NodeEntry>,
     queries: BTreeMap<u64, QueryEntry>,
+    linecol_caches: HashMap<BufferId, LineColCache>,
 }
 
 impl TreeSitterManager {
@@ -80,6 +90,7 @@ impl TreeSitterManager {
             parsers: BTreeMap::new(),
             nodes: BTreeMap::new(),
             queries: BTreeMap::new(),
+            linecol_caches: HashMap::new(),
         }
     }
 
@@ -122,6 +133,7 @@ impl TreeSitterManager {
         language_name: String,
         tag: Value,
         parser: Parser,
+        tracking_linecol: bool,
     ) -> u64 {
         let id = self.next_parser_id;
         self.next_parser_id += 1;
@@ -139,6 +151,8 @@ impl TreeSitterManager {
                 generation: 0,
                 need_to_gc_buffer: false,
                 deleted: false,
+                tracking_linecol,
+                last_changed_ranges: Vec::new(),
             },
         );
         id
@@ -240,6 +254,19 @@ impl TreeSitterManager {
 
     pub(crate) fn query_mut(&mut self, id: u64) -> Option<&mut QueryEntry> {
         self.queries.get_mut(&id)
+    }
+
+    pub(crate) fn linecol_cache(&self, buffer_id: BufferId) -> Option<LineColCache> {
+        self.linecol_caches.get(&buffer_id).copied()
+    }
+
+    pub(crate) fn set_linecol_cache(&mut self, buffer_id: BufferId, cache: LineColCache) {
+        self.linecol_caches.insert(buffer_id, cache);
+        for parser in self.parsers.values_mut() {
+            if parser.orig_buffer_id == buffer_id && !parser.deleted {
+                parser.tracking_linecol = true;
+            }
+        }
     }
 }
 

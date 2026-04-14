@@ -5880,7 +5880,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-induce-sparse-tree",
-        |_ctx, args| builtin_treesit_induce_sparse_tree(args),
+        |ctx, args| builtin_treesit_induce_sparse_tree(ctx, args),
         2,
         Some(4),
     );
@@ -5958,7 +5958,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-node-match-p",
-        |_ctx, args| builtin_treesit_node_match_p(args),
+        |ctx, args| builtin_treesit_node_match_p(ctx, args),
         2,
         Some(3),
     );
@@ -6012,7 +6012,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-parser-add-notifier",
-        |_ctx, args| builtin_treesit_parser_add_notifier(args),
+        |ctx, args| builtin_treesit_parser_add_notifier(ctx, args),
         2,
         Some(2),
     );
@@ -6066,7 +6066,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-parser-remove-notifier",
-        |_ctx, args| builtin_treesit_parser_remove_notifier(args),
+        |ctx, args| builtin_treesit_parser_remove_notifier(ctx, args),
         2,
         Some(2),
     );
@@ -6078,7 +6078,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-parser-set-included-ranges",
-        |_ctx, args| builtin_treesit_parser_set_included_ranges(args),
+        |ctx, args| builtin_treesit_parser_set_included_ranges(ctx, args),
         2,
         Some(2),
     );
@@ -6096,9 +6096,9 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-query-capture",
-        |_ctx, args| builtin_treesit_query_capture(args),
+        |ctx, args| builtin_treesit_query_capture(ctx, args),
         2,
-        Some(5),
+        Some(6),
     );
     ctx.defsubr(
         "treesit-query-compile",
@@ -6126,19 +6126,19 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-search-forward",
-        |_ctx, args| builtin_treesit_search_forward(args),
+        |ctx, args| builtin_treesit_search_forward(ctx, args),
         2,
         Some(4),
     );
     ctx.defsubr(
         "treesit-search-subtree",
-        |_ctx, args| builtin_treesit_search_subtree(args),
+        |ctx, args| builtin_treesit_search_subtree(ctx, args),
         2,
         Some(5),
     );
     ctx.defsubr(
         "treesit-subtree-stat",
-        |_ctx, args| builtin_treesit_subtree_stat(args),
+        |ctx, args| builtin_treesit_subtree_stat(ctx, args),
         1,
         Some(1),
     );
@@ -6150,13 +6150,13 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-tracking-line-column-p",
-        |_ctx, args| builtin_treesit_tracking_line_column_p(args),
+        |ctx, args| builtin_treesit_tracking_line_column_p(ctx, args),
         0,
         Some(1),
     );
     ctx.defsubr(
         "treesit-parser-tracking-line-column-p",
-        |_ctx, args| builtin_treesit_parser_tracking_line_column_p(args),
+        |ctx, args| builtin_treesit_parser_tracking_line_column_p(ctx, args),
         1,
         Some(1),
     );
@@ -6186,31 +6186,31 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "treesit-parse-string",
-        |_ctx, args| builtin_treesit_parse_string(args),
+        |ctx, args| builtin_treesit_parse_string(ctx, args),
         2,
         Some(2),
     );
     ctx.defsubr(
         "treesit-parser-changed-regions",
-        |_ctx, args| builtin_treesit_parser_changed_regions(args),
+        |ctx, args| builtin_treesit_parser_changed_regions(ctx, args),
         1,
         Some(1),
     );
     ctx.defsubr(
         "treesit--linecol-at",
-        |_ctx, args| builtin_treesit_linecol_at(args),
+        |ctx, args| builtin_treesit_linecol_at(ctx, args),
         1,
         Some(1),
     );
     ctx.defsubr(
         "treesit--linecol-cache-set",
-        |_ctx, args| builtin_treesit_linecol_cache_set(args),
+        |ctx, args| builtin_treesit_linecol_cache_set(ctx, args),
         3,
         Some(3),
     );
     ctx.defsubr(
         "treesit--linecol-cache",
-        |_ctx, args| builtin_treesit_linecol_cache(args),
+        |ctx, args| builtin_treesit_linecol_cache(ctx, args),
         0,
         Some(0),
     );

@@ -1,7 +1,11 @@
 use super::*;
+use ::regex::Regex;
 use libloading::Library;
 use std::path::{Path, PathBuf};
-use tree_sitter::{LANGUAGE_VERSION, Language, MIN_COMPATIBLE_LANGUAGE_VERSION, Parser, Query};
+use tree_sitter::{
+    LANGUAGE_VERSION, Language, MIN_COMPATIBLE_LANGUAGE_VERSION, Parser, Point, Query, QueryCursor,
+    Range as TSRange, StreamingIterator,
+};
 use tree_sitter_language::LanguageFn;
 
 use crate::buffer::{Buffer, BufferId};
@@ -250,7 +254,7 @@ fn load_language_from_path(path: &str, c_symbol: &str) -> Result<runtime::Loaded
     Ok(runtime::LoadedLanguage {
         language,
         filename,
-        _library: library,
+        _library: Some(library),
     })
 }
 
@@ -493,15 +497,7 @@ fn ensure_query_compiled(eval: &mut super::eval::Context, query: Value) -> Resul
     let language = query_record_slot(query, QUERY_SLOT_LANGUAGE)?;
     let language_name = parse_symbol_arg("treesit-query-compile", &language)?;
     let source = query_record_slot(query, QUERY_SLOT_SOURCE)?;
-    let source_string = if let Some(source) = source.as_str_owned() {
-        source
-    } else if source.is_cons() {
-        return Err(treesit_query_error(
-            "S-expression tree-sitter queries are not implemented yet",
-        ));
-    } else {
-        return Err(query_type_error("treesit-query-compile", source));
-    };
+    let source_string = expand_query_value("treesit-query-compile", source)?;
 
     let (lang, _) = load_language(eval, &language_name).map_err(|_| {
         treesit_query_error(format!(
@@ -515,6 +511,741 @@ fn ensure_query_compiled(eval: &mut super::eval::Context, query: Value) -> Resul
         .ok_or_else(|| compiled_query_type_error("treesit-query-compile", query))?;
     query_entry.compiled = Some(compiled);
     Ok(())
+}
+
+fn ensure_parser_parsed_with_changes(
+    eval: &mut super::eval::Context,
+    parser_id: u64,
+) -> Result<Option<Vec<(usize, usize)>>, Flow> {
+    let (parser_value, orig_buffer_id) = {
+        let parser = eval
+            .treesit
+            .parser(parser_id)
+            .ok_or_else(|| signal("error", vec![Value::string("Missing tree-sitter parser")]))?;
+        if parser.deleted {
+            return Err(parser_deleted_error(parser.value));
+        }
+        (parser.value, parser.orig_buffer_id)
+    };
+
+    let source = {
+        let buffer = eval.buffers.get(orig_buffer_id).ok_or_else(|| {
+            signal(
+                "error",
+                vec![Value::string("Parser buffer has been killed")],
+            )
+        })?;
+        buffer.buffer_string()
+    };
+
+    let (changed_ranges, reparsed) = {
+        let parser = eval
+            .treesit
+            .parser_mut(parser_id)
+            .ok_or_else(|| signal("error", vec![Value::string("Missing tree-sitter parser")]))?;
+        let needs_parse =
+            parser.tree.is_none() || parser.last_source.as_deref() != Some(source.as_str());
+        if !needs_parse {
+            return Ok(None);
+        }
+
+        let old_tree = parser.tree.clone();
+        let tree = parser
+            .parser
+            .parse(source.as_str(), parser.tree.as_ref())
+            .ok_or_else(|| treesit_parse_error(parser_value))?;
+        let ranges = if let Some(old_tree) = old_tree.as_ref() {
+            old_tree
+                .changed_ranges(&tree)
+                .map(|range| (range.start_byte, range.end_byte))
+                .collect::<Vec<_>>()
+        } else if source.is_empty() {
+            Vec::new()
+        } else {
+            vec![(0, source.len())]
+        };
+        parser.tree = Some(tree);
+        parser.last_source = Some(source);
+        parser.generation = parser.generation.saturating_add(1);
+        parser.last_changed_ranges = ranges.clone();
+        (Some(ranges), true)
+    };
+    if reparsed {
+        eval.treesit.clear_nodes_for_parser(parser_id);
+    }
+    Ok(changed_ranges)
+}
+
+fn expand_query_string(source: &str) -> String {
+    let mut expanded = String::with_capacity(source.len() + 2);
+    expanded.push('"');
+    for ch in source.chars() {
+        match ch {
+            '\0' => expanded.push_str("\\0"),
+            '\n' => expanded.push_str("\\n"),
+            '\r' => expanded.push_str("\\r"),
+            '\t' => expanded.push_str("\\t"),
+            '"' | '\\' => {
+                expanded.push('\\');
+                expanded.push(ch);
+            }
+            _ => expanded.push(ch),
+        }
+    }
+    expanded.push('"');
+    expanded
+}
+
+fn pattern_keyword_expansion(name: &str) -> Option<&'static str> {
+    match name {
+        ":anchor" => Some("."),
+        ":?" => Some("?"),
+        ":*" => Some("*"),
+        ":+" => Some("+"),
+        ":equal" | ":eq?" => Some("#eq?"),
+        ":match" | ":match?" => Some("#match?"),
+        ":pred" | ":pred?" => Some("#pred?"),
+        _ => None,
+    }
+}
+
+fn expand_pattern_value(pattern: Value) -> Result<String, Flow> {
+    if let Some(name) = pattern.as_symbol_name() {
+        if let Some(expanded) = pattern_keyword_expansion(name) {
+            return Ok(expanded.to_string());
+        }
+    }
+
+    if let Some(text) = pattern.as_str_owned() {
+        return Ok(expand_query_string(&text));
+    }
+
+    if let Some(items) = pattern.as_vector_data() {
+        let mut pieces = Vec::with_capacity(items.len());
+        for item in items {
+            pieces.push(expand_pattern_value(*item)?);
+        }
+        return Ok(format!("[{}]", pieces.join(" ")));
+    }
+
+    if let Some(items) = crate::emacs_core::value::list_to_vec(&pattern) {
+        let mut pieces = Vec::with_capacity(items.len());
+        for item in items {
+            pieces.push(expand_pattern_value(item)?);
+        }
+        return Ok(format!("({})", pieces.join(" ")));
+    }
+
+    Ok(crate::emacs_core::print::print_value(&pattern))
+}
+
+fn expand_query_value(caller: &str, query: Value) -> Result<String, Flow> {
+    if let Some(source) = query.as_str_owned() {
+        return Ok(source);
+    }
+    if let Some(items) = crate::emacs_core::value::list_to_vec(&query) {
+        let mut pieces = Vec::with_capacity(items.len());
+        for item in items {
+            pieces.push(expand_pattern_value(item)?);
+        }
+        return Ok(pieces.join(" "));
+    }
+    Err(query_type_error(caller, query))
+}
+
+fn byte_offset_to_linecol(
+    source: &str,
+    byte_offset: usize,
+    hint: runtime::LineColCache,
+) -> runtime::LineColCache {
+    let bytes = source.as_bytes();
+    let target = byte_offset.min(bytes.len());
+    let (mut line, mut col, mut idx) =
+        if hint.bytepos <= target && hint.bytepos <= bytes.len() && hint.line > 0 && hint.col > 0 {
+            (hint.line, hint.col, hint.bytepos)
+        } else {
+            (1, 1, 0)
+        };
+
+    while idx < target {
+        if bytes[idx] == b'\n' {
+            line += 1;
+            col = 1;
+        } else {
+            col += 1;
+        }
+        idx += 1;
+    }
+
+    runtime::LineColCache {
+        line,
+        col,
+        bytepos: target,
+    }
+}
+
+fn byte_offset_to_point(source: &str, byte_offset: usize, hint: runtime::LineColCache) -> Point {
+    let linecol = byte_offset_to_linecol(source, byte_offset, hint);
+    Point {
+        row: linecol.line.saturating_sub(1) as usize,
+        column: linecol.col.saturating_sub(1) as usize,
+    }
+}
+
+fn query_range_bytes(
+    buf: &Buffer,
+    args: &[Value],
+    beg_index: usize,
+    end_index: usize,
+) -> Result<Option<std::ops::Range<usize>>, Flow> {
+    let Some(beg) = args.get(beg_index).copied() else {
+        return Ok(None);
+    };
+    let Some(end) = args.get(end_index).copied() else {
+        return Ok(None);
+    };
+    if beg.is_nil() || end.is_nil() {
+        return Ok(None);
+    }
+    let start = lisp_pos_to_relative_byte(buf, expect_integer_or_marker(&beg)?)?;
+    let finish = lisp_pos_to_relative_byte(buf, expect_integer_or_marker(&end)?)?;
+    Ok(Some(start..finish))
+}
+
+fn changed_ranges_to_lisp(
+    eval: &super::eval::Context,
+    parser_id: u64,
+    changed_ranges: &[(usize, usize)],
+) -> Result<Value, Flow> {
+    let parser = eval
+        .treesit
+        .parser(parser_id)
+        .ok_or_else(|| signal("error", vec![Value::string("Missing tree-sitter parser")]))?;
+    let buf = eval.buffers.get(parser.orig_buffer_id).ok_or_else(|| {
+        signal(
+            "error",
+            vec![Value::string("Parser buffer has been killed")],
+        )
+    })?;
+    let source = parser
+        .last_source
+        .as_deref()
+        .ok_or_else(|| treesit_parse_error(parser.value))?;
+    Ok(Value::list(
+        changed_ranges
+            .iter()
+            .map(|(start, end)| {
+                Value::cons(
+                    byte_offset_to_lisp_pos(buf, source, *start),
+                    byte_offset_to_lisp_pos(buf, source, *end),
+                )
+            })
+            .collect(),
+    ))
+}
+
+fn resolve_compiled_query_value(
+    eval: &mut super::eval::Context,
+    language_symbol: Value,
+    query: Value,
+    caller: &str,
+) -> Result<Value, Flow> {
+    let language_name = parse_symbol_arg(caller, &language_symbol)?;
+    let compiled_query = if runtime::is_compiled_query(query) {
+        query
+    } else {
+        builtin_treesit_query_compile(eval, vec![language_symbol, query, Value::T])?
+    };
+    let query_language = query_record_slot(compiled_query, QUERY_SLOT_LANGUAGE)?;
+    if query_language != language_symbol {
+        return Err(treesit_query_error(format!(
+            "Query language mismatch: expected `{language_name}`"
+        )));
+    }
+    ensure_query_compiled(eval, compiled_query)?;
+    Ok(compiled_query)
+}
+
+#[derive(Clone, Copy)]
+struct ResolvedNodeInput {
+    parser_id: u64,
+    parser_value: Value,
+    language_symbol: Value,
+    node_value: Value,
+    node_raw: tree_sitter::ffi::TSNode,
+}
+
+fn resolve_node_input(
+    eval: &mut super::eval::Context,
+    value: Value,
+    caller: &str,
+) -> Result<ResolvedNodeInput, Flow> {
+    if runtime::is_node(value) {
+        let handle = ensure_current_node(eval, caller, value)?;
+        let parser = eval
+            .treesit
+            .parser(handle.parser_id)
+            .ok_or_else(|| node_outdated_error(value))?;
+        return Ok(ResolvedNodeInput {
+            parser_id: handle.parser_id,
+            parser_value: parser.value,
+            language_symbol: parser_record_slot(parser.value, PARSER_SLOT_LANGUAGE)?,
+            node_value: value,
+            node_raw: handle.raw,
+        });
+    }
+
+    if runtime::is_parser(value) {
+        let parser_id = expect_live_parser_id(eval, caller, value)?;
+        ensure_parser_parsed(eval, parser_id)?;
+        let root_raw = {
+            let parser = eval
+                .treesit
+                .parser(parser_id)
+                .ok_or_else(|| parser_deleted_error(value))?;
+            parser
+                .tree
+                .as_ref()
+                .map(|tree| tree.root_node().into_raw())
+                .ok_or_else(|| treesit_parse_error(value))?
+        };
+        let node_value = make_node_value_for_parser(eval, parser_id, unsafe {
+            tree_sitter::Node::from_raw(root_raw)
+        });
+        return resolve_node_input(eval, node_value, caller);
+    }
+
+    if value.as_symbol_name().is_some() {
+        let parser =
+            builtin_treesit_parser_create(eval, vec![value, Value::NIL, Value::NIL, Value::NIL])?;
+        return resolve_node_input(eval, parser, caller);
+    }
+
+    Err(node_type_error(caller, value))
+}
+
+fn lookup_thing_definition(
+    eval: &super::eval::Context,
+    language_symbol: Value,
+    thing_symbol: Value,
+) -> Option<Value> {
+    let language_name = language_symbol.as_symbol_name()?;
+    let thing_name = thing_symbol.as_symbol_name()?;
+    let settings =
+        super::misc_eval::dynamic_or_global_symbol_value(eval, "treesit-thing-settings")?;
+    let languages = crate::emacs_core::value::list_to_vec(&settings)?;
+    for language_entry in languages {
+        if !language_entry.is_cons() {
+            continue;
+        }
+        let lang = language_entry.cons_car();
+        if lang.as_symbol_name() != Some(language_name) {
+            continue;
+        }
+        let defs = language_entry.cons_cdr();
+        let defs = if defs.is_cons() && defs.cons_cdr().is_nil() {
+            defs.cons_car()
+        } else {
+            defs
+        };
+        let defs = crate::emacs_core::value::list_to_vec(&defs)?;
+        for def in defs {
+            if !def.is_cons() {
+                continue;
+            }
+            let key = def.cons_car();
+            if key.as_symbol_name() != Some(thing_name) {
+                continue;
+            }
+            let rest = def.cons_cdr();
+            return Some(if rest.is_cons() {
+                rest.cons_car()
+            } else {
+                rest
+            });
+        }
+    }
+    None
+}
+
+fn treesit_predicate_not_found(predicate: Value) -> Flow {
+    signal("treesit-predicate-not-found", vec![predicate])
+}
+
+fn treesit_invalid_predicate(message: impl Into<String>, predicate: Value) -> Flow {
+    signal(
+        "treesit-invalid-predicate",
+        vec![Value::string(message.into()), predicate],
+    )
+}
+
+fn predicate_function_p(eval: &super::eval::Context, predicate: Value) -> bool {
+    if predicate.is_nil() {
+        return false;
+    }
+    if predicate.as_symbol_name().is_some() {
+        return eval
+            .obarray()
+            .symbol_function_of_value(&predicate)
+            .is_some();
+    }
+    true
+}
+
+fn call_node_predicate(
+    eval: &mut super::eval::Context,
+    predicate: Value,
+    parser_id: u64,
+    node: tree_sitter::Node<'_>,
+) -> Result<bool, Flow> {
+    let node_value = make_node_value_for_parser(eval, parser_id, node);
+    Ok(!eval.funcall_general(predicate, vec![node_value])?.is_nil())
+}
+
+fn predicate_matches_node(
+    eval: &mut super::eval::Context,
+    parser_id: u64,
+    parser_value: Value,
+    node: tree_sitter::Node<'_>,
+    predicate: Value,
+    named_only: bool,
+    ignore_missing: bool,
+) -> Result<bool, Flow> {
+    if named_only && !node.is_named() {
+        return Ok(false);
+    }
+
+    if let Some(pattern) = predicate.as_str_owned() {
+        let regex = Regex::new(&pattern)
+            .map_err(|err| treesit_invalid_predicate(err.to_string(), predicate))?;
+        return Ok(regex.is_match(node.kind()));
+    }
+
+    if predicate.as_symbol_name() == Some("named") {
+        return Ok(node.is_named());
+    }
+    if predicate.as_symbol_name() == Some("anonymous") {
+        return Ok(!node.is_named());
+    }
+
+    if let Some(definition) = lookup_thing_definition(
+        eval,
+        parser_record_slot(parser_value, PARSER_SLOT_LANGUAGE)?,
+        predicate,
+    ) {
+        return predicate_matches_node(
+            eval,
+            parser_id,
+            parser_value,
+            node,
+            definition,
+            named_only,
+            ignore_missing,
+        );
+    }
+
+    if predicate.as_symbol_name().is_some() && !predicate_function_p(eval, predicate) {
+        return if ignore_missing {
+            Ok(false)
+        } else {
+            Err(treesit_predicate_not_found(predicate))
+        };
+    }
+
+    if predicate_function_p(eval, predicate) && !predicate.is_cons() {
+        return call_node_predicate(eval, predicate, parser_id, node);
+    }
+
+    if !predicate.is_cons() {
+        return Err(treesit_invalid_predicate(
+            "Unsupported tree-sitter predicate",
+            predicate,
+        ));
+    }
+
+    let head = predicate.cons_car();
+    let tail = predicate.cons_cdr();
+    if head.as_symbol_name() == Some("not") {
+        let args = crate::emacs_core::value::list_to_vec(&tail)
+            .ok_or_else(|| treesit_invalid_predicate("`not' expects one predicate", predicate))?;
+        if args.len() != 1 {
+            return Err(treesit_invalid_predicate(
+                "`not' expects one predicate",
+                predicate,
+            ));
+        }
+        return Ok(!predicate_matches_node(
+            eval,
+            parser_id,
+            parser_value,
+            node,
+            args[0],
+            named_only,
+            ignore_missing,
+        )?);
+    }
+    if head.as_symbol_name() == Some("or") || head.as_symbol_name() == Some("and") {
+        let args = crate::emacs_core::value::list_to_vec(&tail).ok_or_else(|| {
+            treesit_invalid_predicate("Malformed boolean tree-sitter predicate", predicate)
+        })?;
+        if head.as_symbol_name() == Some("or") {
+            for item in args {
+                if predicate_matches_node(
+                    eval,
+                    parser_id,
+                    parser_value,
+                    node,
+                    item,
+                    named_only,
+                    ignore_missing,
+                )? {
+                    return Ok(true);
+                }
+            }
+            return Ok(false);
+        }
+        for item in args {
+            if !predicate_matches_node(
+                eval,
+                parser_id,
+                parser_value,
+                node,
+                item,
+                named_only,
+                ignore_missing,
+            )? {
+                return Ok(false);
+            }
+        }
+        return Ok(true);
+    }
+
+    if let Some(pattern) = head.as_str_owned() {
+        if !predicate_function_p(eval, tail) {
+            return Err(treesit_invalid_predicate(
+                "Dotted tree-sitter predicates expect a callable cdr",
+                predicate,
+            ));
+        }
+        let regex = Regex::new(&pattern)
+            .map_err(|err| treesit_invalid_predicate(err.to_string(), predicate))?;
+        if !regex.is_match(node.kind()) {
+            return Ok(false);
+        }
+        return call_node_predicate(eval, tail, parser_id, node);
+    }
+
+    Err(treesit_invalid_predicate(
+        "Malformed tree-sitter predicate",
+        predicate,
+    ))
+}
+
+fn first_child_for_search(
+    node: tree_sitter::Node<'_>,
+    forward: bool,
+    named_only: bool,
+) -> Option<tree_sitter::Node<'_>> {
+    if named_only {
+        let count = node.named_child_count();
+        if count == 0 {
+            None
+        } else if forward {
+            node.named_child(0)
+        } else {
+            node.named_child((count - 1) as u32)
+        }
+    } else {
+        let count = node.child_count();
+        if count == 0 {
+            None
+        } else if forward {
+            node.child(0)
+        } else {
+            node.child((count - 1) as u32)
+        }
+    }
+}
+
+fn sibling_for_search(
+    node: tree_sitter::Node<'_>,
+    forward: bool,
+    named_only: bool,
+) -> Option<tree_sitter::Node<'_>> {
+    match (forward, named_only) {
+        (true, true) => node.next_named_sibling(),
+        (true, false) => node.next_sibling(),
+        (false, true) => node.prev_named_sibling(),
+        (false, false) => node.prev_sibling(),
+    }
+}
+
+fn descend_to_leaf(mut node: tree_sitter::Node<'_>, forward: bool) -> tree_sitter::Node<'_> {
+    while let Some(child) = first_child_for_search(node, forward, false) {
+        node = child;
+    }
+    node
+}
+
+fn search_subtree_impl<'tree>(
+    eval: &mut super::eval::Context,
+    parser_id: u64,
+    parser_value: Value,
+    node: tree_sitter::Node<'tree>,
+    predicate: Value,
+    forward: bool,
+    named_only: bool,
+    depth: i64,
+    skip_root: bool,
+) -> Result<Option<tree_sitter::Node<'tree>>, Flow> {
+    if !skip_root
+        && predicate_matches_node(
+            eval,
+            parser_id,
+            parser_value,
+            node,
+            predicate,
+            named_only,
+            false,
+        )?
+    {
+        return Ok(Some(node));
+    }
+    if depth == 0 {
+        return Ok(None);
+    }
+    let Some(mut child) = first_child_for_search(node, forward, named_only) else {
+        return Ok(None);
+    };
+    loop {
+        if let Some(found) = search_subtree_impl(
+            eval,
+            parser_id,
+            parser_value,
+            child,
+            predicate,
+            forward,
+            named_only,
+            depth - 1,
+            false,
+        )? {
+            return Ok(Some(found));
+        }
+        let Some(next) = sibling_for_search(child, forward, false) else {
+            break;
+        };
+        child = next;
+    }
+    Ok(None)
+}
+
+fn search_forward_impl<'tree>(
+    eval: &mut super::eval::Context,
+    parser_id: u64,
+    parser_value: Value,
+    start: tree_sitter::Node<'tree>,
+    predicate: Value,
+    forward: bool,
+    named_only: bool,
+) -> Result<Option<tree_sitter::Node<'tree>>, Flow> {
+    let mut current = start;
+    loop {
+        while let Some(sibling) = sibling_for_search(current, forward, named_only) {
+            let candidate = descend_to_leaf(sibling, forward);
+            if predicate_matches_node(
+                eval,
+                parser_id,
+                parser_value,
+                candidate,
+                predicate,
+                named_only,
+                false,
+            )? {
+                return Ok(Some(candidate));
+            }
+            current = candidate;
+            break;
+        }
+        if sibling_for_search(current, forward, named_only).is_some() {
+            continue;
+        }
+        let Some(parent) = current.parent() else {
+            return Ok(None);
+        };
+        current = parent;
+        if predicate_matches_node(
+            eval,
+            parser_id,
+            parser_value,
+            current,
+            predicate,
+            named_only,
+            false,
+        )? {
+            return Ok(Some(current));
+        }
+    }
+}
+
+fn subtree_stats(node: tree_sitter::Node<'_>) -> (i64, i64, i64) {
+    let child_count = node.child_count() as i64;
+    let mut max_depth = 1;
+    let mut max_width = child_count;
+    let mut count = 1;
+    for idx in 0..node.child_count() {
+        if let Some(child) = node.child(idx as u32) {
+            let (child_depth, child_width, child_count) = subtree_stats(child);
+            max_depth = max_depth.max(child_depth + 1);
+            max_width = max_width.max(child_width);
+            count += child_count;
+        }
+    }
+    (max_depth, max_width, count)
+}
+
+fn build_sparse_tree(
+    eval: &mut super::eval::Context,
+    parser_id: u64,
+    parser_value: Value,
+    node: tree_sitter::Node<'_>,
+    predicate: Value,
+    process_fn: Value,
+    depth: i64,
+) -> Result<Option<Value>, Flow> {
+    let matched =
+        predicate_matches_node(eval, parser_id, parser_value, node, predicate, false, true)?;
+    let mut children = Vec::new();
+    if depth != 0 {
+        for idx in 0..node.child_count() {
+            if let Some(child) = node.child(idx as u32)
+                && let Some(item) = build_sparse_tree(
+                    eval,
+                    parser_id,
+                    parser_value,
+                    child,
+                    predicate,
+                    process_fn,
+                    depth.saturating_sub(1),
+                )?
+            {
+                children.push(item);
+            }
+        }
+    }
+    if !matched && children.is_empty() {
+        return Ok(None);
+    }
+    let payload = if matched {
+        let node_value = make_node_value_for_parser(eval, parser_id, node);
+        if process_fn.is_nil() {
+            node_value
+        } else {
+            eval.funcall_general(process_fn, vec![node_value])?
+        }
+    } else {
+        Value::NIL
+    };
+    Ok(Some(Value::cons(payload, Value::list(children))))
 }
 
 pub(crate) fn builtin_treesit_available_p(args: Vec<Value>) -> EvalResult {
@@ -531,9 +1262,38 @@ pub(crate) fn builtin_treesit_compiled_query_p(args: Vec<Value>) -> EvalResult {
     })
 }
 
-pub(crate) fn builtin_treesit_induce_sparse_tree(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_treesit_induce_sparse_tree(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("treesit-induce-sparse-tree", &args, 2, 4)?;
-    Ok(Value::NIL)
+    let depth = match args.get(3).copied().unwrap_or(Value::NIL) {
+        value if value.is_nil() => 1000,
+        value => expect_fixnum(&value)?,
+    };
+    let handle = ensure_current_node(eval, "treesit-induce-sparse-tree", args[0])?;
+    let parser_value = eval
+        .treesit
+        .parser(handle.parser_id)
+        .ok_or_else(|| node_outdated_error(args[0]))?
+        .value;
+    let root = unsafe { tree_sitter::Node::from_raw(handle.raw) };
+    match build_sparse_tree(
+        eval,
+        handle.parser_id,
+        parser_value,
+        root,
+        args[1],
+        args.get(2).copied().unwrap_or(Value::NIL),
+        depth,
+    ) {
+        Ok(Some(tree)) => Ok(tree),
+        Ok(None) => Ok(Value::NIL),
+        Err(Flow::Signal(sig)) if sig.symbol_name() == "treesit-predicate-not-found" => {
+            Ok(Value::NIL)
+        }
+        Err(err) => Err(err),
+    }
 }
 
 pub(crate) fn builtin_treesit_language_abi_version(
@@ -832,9 +1592,31 @@ pub(crate) fn builtin_treesit_node_first_child_for_pos(
     }))
 }
 
-pub(crate) fn builtin_treesit_node_match_p(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_treesit_node_match_p(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("treesit-node-match-p", &args, 2, 3)?;
-    Ok(Value::NIL)
+    if args[0].is_nil() {
+        return Ok(Value::NIL);
+    }
+    let ignore_missing = args.get(2).is_some_and(|value| !value.is_nil());
+    let handle = ensure_current_node(eval, "treesit-node-match-p", args[0])?;
+    let parser_value = eval
+        .treesit
+        .parser(handle.parser_id)
+        .ok_or_else(|| node_outdated_error(args[0]))?
+        .value;
+    let matched = predicate_matches_node(
+        eval,
+        handle.parser_id,
+        parser_value,
+        unsafe { tree_sitter::Node::from_raw(handle.raw) },
+        args[1],
+        false,
+        ignore_missing,
+    )?;
+    Ok(if matched { Value::T } else { Value::NIL })
 }
 
 pub(crate) fn builtin_treesit_node_next_sibling(
@@ -962,8 +1744,30 @@ pub(crate) fn builtin_treesit_node_type(
     Ok(Value::string(node.kind()))
 }
 
-pub(crate) fn builtin_treesit_parser_add_notifier(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_treesit_parser_add_notifier(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("treesit-parser-add-notifier", &args, 2)?;
+    let _ = expect_live_parser_id(eval, "treesit-parser-add-notifier", args[0])?;
+    if args[1].as_symbol_name().is_none() {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("symbolp"), args[1]],
+        ));
+    }
+    let mut items =
+        crate::emacs_core::value::list_to_vec(&parser_record_slot(args[0], PARSER_SLOT_NOTIFIERS)?)
+            .unwrap_or_default();
+    if !items.contains(&args[1]) {
+        items.insert(0, args[1]);
+        if !args[0].set_record_slot(PARSER_SLOT_NOTIFIERS, Value::list(items)) {
+            return Err(signal(
+                "error",
+                vec![Value::string("Failed to update parser notifiers")],
+            ));
+        }
+    }
     Ok(Value::NIL)
 }
 
@@ -1029,6 +1833,7 @@ pub(crate) fn builtin_treesit_parser_create(
         language.clone(),
         tag,
         parser,
+        eval.treesit.linecol_cache(orig_buffer_id).is_some(),
     );
     let value = runtime::make_parser_value(id, Value::symbol(&language), buffer_value, tag);
     let entry = eval.treesit.parser_mut(id).ok_or_else(|| {
@@ -1113,8 +1918,30 @@ pub(crate) fn builtin_treesit_parser_p(args: Vec<Value>) -> EvalResult {
     })
 }
 
-pub(crate) fn builtin_treesit_parser_remove_notifier(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_treesit_parser_remove_notifier(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("treesit-parser-remove-notifier", &args, 2)?;
+    let _ = expect_live_parser_id(eval, "treesit-parser-remove-notifier", args[0])?;
+    if args[1].as_symbol_name().is_none() {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("symbolp"), args[1]],
+        ));
+    }
+    let items =
+        crate::emacs_core::value::list_to_vec(&parser_record_slot(args[0], PARSER_SLOT_NOTIFIERS)?)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|item| *item != args[1])
+            .collect::<Vec<_>>();
+    if !args[0].set_record_slot(PARSER_SLOT_NOTIFIERS, Value::list(items)) {
+        return Err(signal(
+            "error",
+            vec![Value::string("Failed to update parser notifiers")],
+        ));
+    }
     Ok(Value::NIL)
 }
 
@@ -1142,8 +1969,114 @@ pub(crate) fn builtin_treesit_parser_root_node(
     }))
 }
 
-pub(crate) fn builtin_treesit_parser_set_included_ranges(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_treesit_parser_set_included_ranges(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("treesit-parser-set-included-ranges", &args, 2)?;
+    let parser_id = expect_live_parser_id(eval, "treesit-parser-set-included-ranges", args[0])?;
+    let current_ranges = parser_record_slot(args[0], runtime::PARSER_SLOT_INCLUDED_RANGES)?;
+    if current_ranges == args[1] {
+        return Ok(Value::NIL);
+    }
+
+    let source = {
+        let parser = eval
+            .treesit
+            .parser(parser_id)
+            .ok_or_else(|| parser_deleted_error(args[0]))?;
+        let buffer = eval.buffers.get(parser.orig_buffer_id).ok_or_else(|| {
+            signal(
+                "error",
+                vec![Value::string("Parser buffer has been killed")],
+            )
+        })?;
+        buffer.buffer_string()
+    };
+    let buffer = {
+        let parser = eval
+            .treesit
+            .parser(parser_id)
+            .ok_or_else(|| parser_deleted_error(args[0]))?;
+        eval.buffers.get(parser.orig_buffer_id).ok_or_else(|| {
+            signal(
+                "error",
+                vec![Value::string("Parser buffer has been killed")],
+            )
+        })?
+    };
+
+    let ts_ranges = if args[1].is_nil() {
+        Vec::new()
+    } else {
+        let mut hint = runtime::LineColCache {
+            line: 1,
+            col: 1,
+            bytepos: 0,
+        };
+        let mut ranges = Vec::new();
+        for value in crate::emacs_core::value::list_to_vec(&args[1]).ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![
+                    Value::symbol("consp"),
+                    args[1],
+                    Value::symbol("treesit-parser-set-included-ranges"),
+                ],
+            )
+        })? {
+            if !value.is_cons() {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("consp"), value],
+                ));
+            }
+            let start =
+                lisp_pos_to_relative_byte(buffer, expect_integer_or_marker(&value.cons_car())?)?;
+            let end =
+                lisp_pos_to_relative_byte(buffer, expect_integer_or_marker(&value.cons_cdr())?)?;
+            let start_point = byte_offset_to_point(&source, start, hint);
+            let next_hint = byte_offset_to_linecol(&source, end, hint);
+            let end_point = Point {
+                row: next_hint.line.saturating_sub(1) as usize,
+                column: next_hint.col.saturating_sub(1) as usize,
+            };
+            hint = next_hint;
+            ranges.push(TSRange {
+                start_byte: start,
+                end_byte: end,
+                start_point,
+                end_point,
+            });
+        }
+        ranges
+    };
+
+    let parser = eval
+        .treesit
+        .parser_mut(parser_id)
+        .ok_or_else(|| parser_deleted_error(args[0]))?;
+    parser
+        .parser
+        .set_included_ranges(&ts_ranges)
+        .map_err(|err| {
+            signal(
+                "error",
+                vec![Value::string(format!(
+                    "Invalid tree-sitter ranges at index {}",
+                    err.0
+                ))],
+            )
+        })?;
+    parser.tree = None;
+    parser.last_source = None;
+    parser.last_changed_ranges.clear();
+    if !args[0].set_record_slot(runtime::PARSER_SLOT_INCLUDED_RANGES, args[1]) {
+        return Err(signal(
+            "error",
+            vec![Value::string("Failed to update parser included ranges")],
+        ));
+    }
     Ok(Value::NIL)
 }
 
@@ -1158,12 +2091,140 @@ pub(crate) fn builtin_treesit_parser_tag(
 
 pub(crate) fn builtin_treesit_pattern_expand(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-pattern-expand", &args, 1)?;
-    Ok(args[0])
+    Ok(Value::string(expand_pattern_value(args[0])?))
 }
 
-pub(crate) fn builtin_treesit_query_capture(args: Vec<Value>) -> EvalResult {
-    expect_range_args("treesit-query-capture", &args, 2, 5)?;
-    Ok(Value::NIL)
+pub(crate) fn builtin_treesit_query_capture(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("treesit-query-capture", &args, 2, 6)?;
+    let input = resolve_node_input(eval, args[0], "treesit-query-capture")?;
+    let compiled_query = resolve_compiled_query_value(
+        eval,
+        input.language_symbol,
+        args[1],
+        "treesit-query-capture",
+    )?;
+    let query_id = runtime::query_id(compiled_query)
+        .ok_or_else(|| compiled_query_type_error("treesit-query-capture", compiled_query))?;
+    let byte_range = {
+        let parser = eval
+            .treesit
+            .parser(input.parser_id)
+            .ok_or_else(|| parser_deleted_error(input.parser_value))?;
+        let buf = eval.buffers.get(parser.orig_buffer_id).ok_or_else(|| {
+            signal(
+                "error",
+                vec![Value::string("Parser buffer has been killed")],
+            )
+        })?;
+        query_range_bytes(buf, &args, 2, 3)?
+    };
+    let node_only = args.get(4).is_some_and(|value| !value.is_nil());
+    let grouped = args.get(5).is_some_and(|value| !value.is_nil());
+
+    enum CaptureResult {
+        Flat(Vec<(u32, tree_sitter::ffi::TSNode)>),
+        Grouped(Vec<Vec<(u32, tree_sitter::ffi::TSNode)>>),
+    }
+
+    let (capture_names, captures) = {
+        let parser = eval
+            .treesit
+            .parser(input.parser_id)
+            .ok_or_else(|| parser_deleted_error(input.parser_value))?;
+        let query = eval
+            .treesit
+            .query(query_id)
+            .and_then(|entry| entry.compiled.as_ref())
+            .ok_or_else(|| compiled_query_type_error("treesit-query-capture", compiled_query))?;
+        let source = parser
+            .last_source
+            .as_deref()
+            .ok_or_else(|| treesit_parse_error(input.parser_value))?;
+        let capture_names = query
+            .capture_names()
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect::<Vec<_>>();
+        let node = unsafe { tree_sitter::Node::from_raw(input.node_raw) };
+        let mut cursor = QueryCursor::new();
+        if let Some(range) = byte_range.clone() {
+            cursor.set_byte_range(range);
+        }
+        if grouped {
+            let mut matches = cursor.matches(query, node, source.as_bytes());
+            matches.advance();
+            let mut out = Vec::new();
+            while let Some(query_match) = matches.get() {
+                out.push(
+                    query_match
+                        .captures
+                        .iter()
+                        .map(|capture| (capture.index, capture.node.into_raw()))
+                        .collect::<Vec<_>>(),
+                );
+                matches.advance();
+            }
+            (capture_names, CaptureResult::Grouped(out))
+        } else {
+            let mut matches = cursor.captures(query, node, source.as_bytes());
+            matches.advance();
+            let mut out = Vec::new();
+            while let Some((query_match, capture_index)) = matches.get() {
+                let capture = query_match.captures[*capture_index];
+                out.push((capture.index, capture.node.into_raw()));
+                matches.advance();
+            }
+            (capture_names, CaptureResult::Flat(out))
+        }
+    };
+
+    let result = match captures {
+        CaptureResult::Flat(items) => Value::list(
+            items
+                .into_iter()
+                .map(|(capture_index, raw)| {
+                    let node = make_node_value_for_parser(eval, input.parser_id, unsafe {
+                        tree_sitter::Node::from_raw(raw)
+                    });
+                    if node_only {
+                        node
+                    } else {
+                        Value::cons(Value::symbol(&capture_names[capture_index as usize]), node)
+                    }
+                })
+                .collect(),
+        ),
+        CaptureResult::Grouped(groups) => Value::list(
+            groups
+                .into_iter()
+                .map(|group| {
+                    Value::list(
+                        group
+                            .into_iter()
+                            .map(|(capture_index, raw)| {
+                                let node =
+                                    make_node_value_for_parser(eval, input.parser_id, unsafe {
+                                        tree_sitter::Node::from_raw(raw)
+                                    });
+                                if node_only {
+                                    node
+                                } else {
+                                    Value::cons(
+                                        Value::symbol(&capture_names[capture_index as usize]),
+                                        node,
+                                    )
+                                }
+                            })
+                            .collect(),
+                    )
+                })
+                .collect(),
+        ),
+    };
+    Ok(result)
 }
 
 pub(crate) fn builtin_treesit_query_compile(
@@ -1215,11 +2276,14 @@ pub(crate) fn builtin_treesit_query_eagerly_compiled_p(
 
 pub(crate) fn builtin_treesit_query_expand(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-query-expand", &args, 1)?;
-    Ok(match args[0] {
+    let source = match args[0] {
         value if runtime::is_compiled_query(value) => query_record_slot(value, QUERY_SLOT_SOURCE)?,
-        value if query_like_p(value) => value,
-        value => return Err(query_type_error("treesit-query-expand", value)),
-    })
+        value => value,
+    };
+    Ok(Value::string(expand_query_value(
+        "treesit-query-expand",
+        source,
+    )?))
 }
 
 pub(crate) fn builtin_treesit_query_language(args: Vec<Value>) -> EvalResult {
@@ -1245,19 +2309,86 @@ pub(crate) fn builtin_treesit_query_source(args: Vec<Value>) -> EvalResult {
     query_record_slot(args[0], QUERY_SLOT_SOURCE)
 }
 
-pub(crate) fn builtin_treesit_search_forward(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_treesit_search_forward(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("treesit-search-forward", &args, 2, 4)?;
-    Ok(Value::NIL)
+    let handle = ensure_current_node(eval, "treesit-search-forward", args[0])?;
+    let parser_value = eval
+        .treesit
+        .parser(handle.parser_id)
+        .ok_or_else(|| node_outdated_error(args[0]))?
+        .value;
+    let forward = args.get(2).is_none_or(|value| value.is_nil());
+    let named_only = args.get(3).is_none_or(|value| value.is_nil());
+    match search_forward_impl(
+        eval,
+        handle.parser_id,
+        parser_value,
+        unsafe { tree_sitter::Node::from_raw(handle.raw) },
+        args[1],
+        forward,
+        named_only,
+    ) {
+        Ok(Some(node)) => Ok(make_node_value_for_parser(eval, handle.parser_id, node)),
+        Ok(None) => Ok(Value::NIL),
+        Err(Flow::Signal(sig)) if sig.symbol_name() == "treesit-predicate-not-found" => {
+            Ok(Value::NIL)
+        }
+        Err(err) => Err(err),
+    }
 }
 
-pub(crate) fn builtin_treesit_search_subtree(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_treesit_search_subtree(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("treesit-search-subtree", &args, 2, 5)?;
-    Ok(Value::NIL)
+    let handle = ensure_current_node(eval, "treesit-search-subtree", args[0])?;
+    let parser_value = eval
+        .treesit
+        .parser(handle.parser_id)
+        .ok_or_else(|| node_outdated_error(args[0]))?
+        .value;
+    let forward = args.get(2).is_none_or(|value| value.is_nil());
+    let named_only = args.get(3).is_none_or(|value| value.is_nil());
+    let depth = match args.get(4).copied().unwrap_or(Value::NIL) {
+        value if value.is_nil() => 1000,
+        value => expect_fixnum(&value)?,
+    };
+    match search_subtree_impl(
+        eval,
+        handle.parser_id,
+        parser_value,
+        unsafe { tree_sitter::Node::from_raw(handle.raw) },
+        args[1],
+        forward,
+        named_only,
+        depth,
+        false,
+    ) {
+        Ok(Some(node)) => Ok(make_node_value_for_parser(eval, handle.parser_id, node)),
+        Ok(None) => Ok(Value::NIL),
+        Err(Flow::Signal(sig)) if sig.symbol_name() == "treesit-predicate-not-found" => {
+            Ok(Value::NIL)
+        }
+        Err(err) => Err(err),
+    }
 }
 
-pub(crate) fn builtin_treesit_subtree_stat(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_treesit_subtree_stat(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("treesit-subtree-stat", &args, 1)?;
-    Ok(Value::NIL)
+    let handle = ensure_current_node(eval, "treesit-subtree-stat", args[0])?;
+    let (depth, width, count) = subtree_stats(unsafe { tree_sitter::Node::from_raw(handle.raw) });
+    Ok(Value::list(vec![
+        Value::fixnum(depth),
+        Value::fixnum(width),
+        Value::fixnum(count),
+    ]))
 }
 
 pub(crate) fn builtin_treesit_grammar_location(
@@ -1272,14 +2403,37 @@ pub(crate) fn builtin_treesit_grammar_location(
     }
 }
 
-pub(crate) fn builtin_treesit_tracking_line_column_p(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_treesit_tracking_line_column_p(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("treesit-tracking-line-column-p", &args, 0, 1)?;
-    Ok(Value::NIL)
+    let buffer_id = match args.first().copied().unwrap_or(Value::NIL) {
+        value if value.is_nil() => eval
+            .buffers
+            .current_buffer_id()
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?,
+        value => expect_buffer_id(&value)?,
+    };
+    Ok(if eval.treesit.linecol_cache(buffer_id).is_some() {
+        Value::T
+    } else {
+        Value::NIL
+    })
 }
 
-pub(crate) fn builtin_treesit_parser_tracking_line_column_p(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_treesit_parser_tracking_line_column_p(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("treesit-parser-tracking-line-column-p", &args, 1)?;
-    Ok(Value::NIL)
+    let parser_id = expect_live_parser_id(eval, "treesit-parser-tracking-line-column-p", args[0])?;
+    let tracking = eval
+        .treesit
+        .parser(parser_id)
+        .ok_or_else(|| parser_deleted_error(args[0]))?
+        .tracking_linecol;
+    Ok(if tracking { Value::T } else { Value::NIL })
 }
 
 pub(crate) fn builtin_treesit_parser_embed_level(
@@ -1312,27 +2466,141 @@ pub(crate) fn builtin_treesit_parser_set_embed_level(
     Ok(level)
 }
 
-pub(crate) fn builtin_treesit_parse_string(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_treesit_parse_string(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("treesit-parse-string", &args, 2)?;
-    Ok(Value::NIL)
+    let language = expect_symbol_or_nil("treesit-parse-string", args[1])?;
+    if language.is_nil() {
+        return Err(query_type_error("treesit-parse-string", language));
+    }
+    let text = expect_string(&args[0])?;
+    let name = format!(" *treesit-parse-string-{}*", eval.treesit.roots().len() + 1);
+    let buffer_id = eval.buffers.create_buffer_with_hook_inhibition(&name, true);
+    let saved_current = eval.buffers.current_buffer_id();
+    let _ = eval.buffers.switch_current(buffer_id);
+    if let Some(buffer) = eval.buffers.current_buffer_mut() {
+        buffer.insert(&text);
+    }
+    let parser = builtin_treesit_parser_create(
+        eval,
+        vec![
+            language,
+            Value::make_buffer(buffer_id),
+            Value::T,
+            Value::NIL,
+        ],
+    )?;
+    if let Some(saved) = saved_current {
+        let _ = eval.buffers.switch_current(saved);
+    }
+    builtin_treesit_parser_root_node(eval, vec![parser])
 }
 
-pub(crate) fn builtin_treesit_parser_changed_regions(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_treesit_parser_changed_regions(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("treesit-parser-changed-regions", &args, 1)?;
-    Ok(Value::NIL)
+    let parser_id = expect_live_parser_id(eval, "treesit-parser-changed-regions", args[0])?;
+    let changed_ranges = ensure_parser_parsed_with_changes(eval, parser_id)?;
+    let Some(changed_ranges) = changed_ranges else {
+        return Ok(Value::NIL);
+    };
+    if changed_ranges.is_empty() {
+        return Ok(Value::NIL);
+    }
+    let regions = changed_ranges_to_lisp(eval, parser_id, &changed_ranges)?;
+    for notifier in
+        crate::emacs_core::value::list_to_vec(&parser_record_slot(args[0], PARSER_SLOT_NOTIFIERS)?)
+            .unwrap_or_default()
+    {
+        let _ = eval.funcall_general(notifier, vec![regions, args[0]])?;
+    }
+    Ok(regions)
 }
 
-pub(crate) fn builtin_treesit_linecol_at(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_treesit_linecol_at(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("treesit--linecol-at", &args, 1)?;
-    Ok(Value::NIL)
+    let pos = expect_integer_or_marker(&args[0])?;
+    let buffer_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let buffer = eval
+        .buffers
+        .get(buffer_id)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let source = buffer.buffer_string();
+    let byte_offset = lisp_pos_to_relative_byte(buffer, pos)?;
+    let hint = eval
+        .treesit
+        .linecol_cache(buffer_id)
+        .unwrap_or(runtime::LineColCache {
+            line: 1,
+            col: 1,
+            bytepos: 0,
+        });
+    let linecol = byte_offset_to_linecol(&source, byte_offset, hint);
+    Ok(Value::cons(
+        Value::fixnum(linecol.line),
+        Value::fixnum(linecol.col),
+    ))
 }
 
-pub(crate) fn builtin_treesit_linecol_cache_set(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_treesit_linecol_cache_set(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("treesit--linecol-cache-set", &args, 3)?;
+    let buffer_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let line = expect_fixnum(&args[0])?;
+    let col = expect_fixnum(&args[1])?;
+    let bytepos = expect_fixnum(&args[2])?;
+    eval.treesit.set_linecol_cache(
+        buffer_id,
+        runtime::LineColCache {
+            line,
+            col,
+            bytepos: bytepos.max(0) as usize,
+        },
+    );
     Ok(Value::NIL)
 }
 
-pub(crate) fn builtin_treesit_linecol_cache(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_treesit_linecol_cache(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("treesit--linecol-cache", &args, 0)?;
-    Ok(Value::NIL)
+    let buffer_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let Some(cache) = eval.treesit.linecol_cache(buffer_id) else {
+        return Ok(Value::NIL);
+    };
+    let buffer = eval
+        .buffers
+        .get(buffer_id)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let source = buffer.buffer_string();
+    let pos = byte_offset_to_lisp_pos(buffer, &source, cache.bytepos);
+    Ok(Value::list(vec![
+        Value::keyword(":line"),
+        Value::fixnum(cache.line),
+        Value::keyword(":col"),
+        Value::fixnum(cache.col),
+        Value::keyword(":pos"),
+        pos,
+        Value::keyword(":bytepos"),
+        Value::fixnum(cache.bytepos as i64),
+    ]))
 }

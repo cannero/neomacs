@@ -3,10 +3,12 @@ use crate::emacs_core::editfns::{
     builtin_delete_and_extract_region, builtin_delete_region, builtin_erase_buffer,
 };
 use crate::emacs_core::textprop::builtin_make_overlay;
+use crate::emacs_core::treesit as runtime_treesit;
 use crate::emacs_core::value::{LambdaData, LambdaParams, Value, ValueKind, VecLikeType};
 use crate::emacs_core::{Context, format_eval_result};
 use crate::test_utils::{load_minimal_gnu_backquote_runtime, runtime_startup_eval_all};
 use std::fs;
+use tree_sitter::Language;
 
 /// Decode char codes from a Value's LispString using emacs_char.
 fn decode_value_char_codes(v: &Value) -> Vec<u32> {
@@ -80,6 +82,17 @@ fn install_noarg_hook_probe(
 fn create_unique_test_buffer(eval: &mut crate::emacs_core::eval::Context, name: &str) -> Value {
     let unique_name = eval.buffers.generate_new_buffer_name(name);
     Value::make_buffer(eval.buffers.create_buffer(&unique_name))
+}
+
+fn install_test_treesit_json_language(eval: &mut Context) {
+    eval.treesit.cache_loaded_language(
+        "json".to_string(),
+        runtime_treesit::LoadedLanguage {
+            language: Language::new(tree_sitter_json::LANGUAGE),
+            filename: Some("test:json".to_string()),
+            _library: None,
+        },
+    );
 }
 
 fn eval_first_gnu_form_after_marker(eval: &mut Context, source: &str, marker: &str) {
@@ -5890,12 +5903,6 @@ fn pure_dispatch_treesit_placeholder_cluster_matches_compat_contracts() {
         .expect("builtin treesit-compiled-query-p should evaluate");
     assert!(compiled_query.is_nil());
 
-    let induce_sparse =
-        dispatch_builtin_pure("treesit-induce-sparse-tree", vec![Value::NIL, Value::NIL])
-            .expect("builtin treesit-induce-sparse-tree should resolve")
-            .expect("builtin treesit-induce-sparse-tree should evaluate");
-    assert!(induce_sparse.is_nil());
-
     let language_abi = dispatch_builtin_pure("treesit-language-abi-version", vec![])
         .expect("builtin treesit-language-abi-version should resolve")
         .expect("builtin treesit-language-abi-version should evaluate");
@@ -5999,11 +6006,6 @@ fn pure_dispatch_treesit_node_placeholder_cluster_matches_compat_contracts() {
     .expect("builtin treesit-node-first-child-for-pos should resolve")
     .expect("builtin treesit-node-first-child-for-pos should evaluate");
     assert!(first_child_for_pos.is_nil());
-
-    let match_p = dispatch_builtin_pure("treesit-node-match-p", vec![Value::NIL, Value::NIL])
-        .expect("builtin treesit-node-match-p should resolve")
-        .expect("builtin treesit-node-match-p should evaluate");
-    assert!(match_p.is_nil());
 
     let next_sibling = dispatch_builtin_pure("treesit-node-next-sibling", vec![Value::NIL])
         .expect("builtin treesit-node-next-sibling should resolve")
@@ -7117,7 +7119,7 @@ fn dispatch_builtin_pure_defers_evaluator_window_accessors_and_mutators() {
 }
 
 #[test]
-fn dispatch_builtin_pure_handles_treesit_parser_query_and_search_placeholders() {
+fn dispatch_builtin_pure_handles_treesit_parser_and_query_entrypoints() {
     crate::test_utils::init_test_tracing();
     let err = dispatch_builtin_pure("treesit-parser-buffer", vec![Value::NIL])
         .expect("treesit-parser-buffer should resolve")
@@ -7126,14 +7128,6 @@ fn dispatch_builtin_pure_handles_treesit_parser_query_and_search_placeholders() 
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected signal, got {other:?}"),
     }
-
-    let search = dispatch_builtin_pure(
-        "treesit-search-forward",
-        vec![Value::NIL, Value::NIL, Value::NIL, Value::NIL],
-    )
-    .expect("treesit-search-forward should resolve")
-    .expect("treesit-search-forward should evaluate");
-    assert_eq!(search, Value::NIL);
 
     let err = dispatch_builtin_pure("treesit-query-compile", vec![Value::NIL])
         .expect("treesit-query-compile should resolve")
@@ -7185,6 +7179,47 @@ fn treesit_query_compile_creates_lazy_compiled_query_record() {
 }
 
 #[test]
+fn treesit_query_expand_and_pattern_expand_follow_gnu_sexp_forms() {
+    crate::test_utils::init_test_tracing();
+    let query = Value::list(vec![
+        Value::list(vec![Value::symbol("identifier")]),
+        Value::symbol("@id"),
+        Value::keyword(":anchor"),
+        Value::string("return"),
+        Value::symbol("@ret"),
+        Value::keyword(":equal"),
+        Value::symbol("@lhs"),
+        Value::symbol("@rhs"),
+    ]);
+
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_treesit_pattern_expand(vec![Value::keyword(
+            ":anchor",
+        )])
+        .unwrap(),
+        Value::string(".")
+    );
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_treesit_pattern_expand(vec![Value::list(vec![
+            Value::symbol("identifier"),
+        ])])
+        .unwrap(),
+        Value::string("(identifier)")
+    );
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_treesit_pattern_expand(vec![
+            Value::keyword(":equal",)
+        ])
+        .unwrap(),
+        Value::string("#eq?")
+    );
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_treesit_query_expand(vec![query]).unwrap(),
+        Value::string("(identifier) @id . \"return\" @ret #eq? @lhs @rhs")
+    );
+}
+
+#[test]
 fn treesit_query_compile_eager_missing_language_signals_treesit_query_error() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
@@ -7201,6 +7236,168 @@ fn treesit_query_compile_eager_missing_language_signals_treesit_query_error() {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "treesit-query-error"),
         other => panic!("expected signal, got {other:?}"),
     }
+}
+
+#[test]
+fn treesit_query_capture_runs_against_cached_json_grammar() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    install_test_treesit_json_language(&mut eval);
+    let buffer = create_unique_test_buffer(&mut eval, "*treesit-json*");
+    let _ = eval.buffers.switch_current(buffer.as_buffer_id().unwrap());
+    builtin_insert(&mut eval, vec![Value::string("{\"a\": 1, \"b\": 2}")]).unwrap();
+
+    let parser = crate::emacs_core::builtins::builtin_treesit_parser_create(
+        &mut eval,
+        vec![Value::symbol("json"), Value::NIL, Value::T, Value::NIL],
+    )
+    .unwrap();
+    let captures = crate::emacs_core::builtins::builtin_treesit_query_capture(
+        &mut eval,
+        vec![
+            parser,
+            Value::string("(object) @obj"),
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+        ],
+    )
+    .unwrap();
+    let items = crate::emacs_core::value::list_to_vec(&captures).unwrap();
+    assert!(!items.is_empty());
+    let first = items[0];
+    assert!(first.is_cons());
+    assert_eq!(first.cons_car(), Value::symbol("obj"));
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_treesit_node_type(&mut eval, vec![first.cons_cdr()])
+            .unwrap(),
+        Value::string("object")
+    );
+}
+
+#[test]
+fn treesit_query_compile_and_capture_accept_sexp_queries() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    install_test_treesit_json_language(&mut eval);
+    let buffer = create_unique_test_buffer(&mut eval, "*treesit-json-sexp*");
+    let _ = eval.buffers.switch_current(buffer.as_buffer_id().unwrap());
+    builtin_insert(&mut eval, vec![Value::string("{\"a\": 1, \"b\": 2}")]).unwrap();
+
+    let query = Value::list(vec![
+        Value::list(vec![Value::symbol("object")]),
+        Value::symbol("@obj"),
+    ]);
+    let compiled = crate::emacs_core::builtins::builtin_treesit_query_compile(
+        &mut eval,
+        vec![Value::symbol("json"), query, Value::T],
+    )
+    .unwrap();
+
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_treesit_query_expand(vec![compiled]).unwrap(),
+        Value::string("(object) @obj")
+    );
+
+    let parser = crate::emacs_core::builtins::builtin_treesit_parser_create(
+        &mut eval,
+        vec![Value::symbol("json"), Value::NIL, Value::T, Value::NIL],
+    )
+    .unwrap();
+    let captures = crate::emacs_core::builtins::builtin_treesit_query_capture(
+        &mut eval,
+        vec![
+            parser,
+            compiled,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+        ],
+    )
+    .unwrap();
+    let items = crate::emacs_core::value::list_to_vec(&captures).unwrap();
+    assert!(!items.is_empty());
+    assert_eq!(items[0].cons_car(), Value::symbol("obj"));
+}
+
+#[test]
+fn treesit_search_and_match_work_against_cached_json_grammar() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    install_test_treesit_json_language(&mut eval);
+    let buffer = create_unique_test_buffer(&mut eval, "*treesit-search*");
+    let _ = eval.buffers.switch_current(buffer.as_buffer_id().unwrap());
+    builtin_insert(&mut eval, vec![Value::string("{\"a\": 1, \"b\": 2}")]).unwrap();
+
+    let parser = crate::emacs_core::builtins::builtin_treesit_parser_create(
+        &mut eval,
+        vec![Value::symbol("json"), Value::NIL, Value::T, Value::NIL],
+    )
+    .unwrap();
+    let root =
+        crate::emacs_core::builtins::builtin_treesit_parser_root_node(&mut eval, vec![parser])
+            .unwrap();
+    let number = crate::emacs_core::builtins::builtin_treesit_search_subtree(
+        &mut eval,
+        vec![
+            root,
+            Value::string("number"),
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_treesit_node_type(&mut eval, vec![number]).unwrap(),
+        Value::string("number")
+    );
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_treesit_node_match_p(
+            &mut eval,
+            vec![number, Value::string("number"), Value::NIL],
+        )
+        .unwrap(),
+        Value::T
+    );
+}
+
+#[test]
+fn treesit_parse_string_and_linecol_cache_are_runtime_backed() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    install_test_treesit_json_language(&mut eval);
+
+    let root = crate::emacs_core::builtins::builtin_treesit_parse_string(
+        &mut eval,
+        vec![Value::string("{\"x\": 1}"), Value::symbol("json")],
+    )
+    .unwrap();
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_treesit_node_type(&mut eval, vec![root]).unwrap(),
+        Value::string("document")
+    );
+
+    let buffer = create_unique_test_buffer(&mut eval, "*treesit-linecol*");
+    let _ = eval.buffers.switch_current(buffer.as_buffer_id().unwrap());
+    builtin_insert(&mut eval, vec![Value::string("a\nbc")]).unwrap();
+    crate::emacs_core::builtins::builtin_treesit_linecol_cache_set(
+        &mut eval,
+        vec![Value::fixnum(1), Value::fixnum(1), Value::fixnum(0)],
+    )
+    .unwrap();
+    let linecol =
+        crate::emacs_core::builtins::builtin_treesit_linecol_at(&mut eval, vec![Value::fixnum(3)])
+            .unwrap();
+    assert_eq!(linecol.cons_car(), Value::fixnum(2));
+    assert_eq!(linecol.cons_cdr(), Value::fixnum(1));
+    assert_eq!(
+        crate::emacs_core::builtins::builtin_treesit_tracking_line_column_p(&mut eval, vec![],)
+            .unwrap(),
+        Value::T
+    );
 }
 
 #[test]
