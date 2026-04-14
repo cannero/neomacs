@@ -6491,6 +6491,59 @@ fn compare_value_lt_handles_raw_unibyte_strings_without_panicking() {
 }
 
 #[test]
+fn reverse_handles_raw_unibyte_strings_without_panicking() {
+    crate::test_utils::init_test_tracing();
+
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b'A', 0x80,
+    ]));
+    let result = builtin_reverse(vec![raw]).expect("reverse should handle raw unibyte strings");
+    let reversed = result
+        .as_lisp_string()
+        .expect("reverse should return a string");
+
+    assert!(!reversed.is_multibyte());
+    assert_eq!(reversed.as_bytes(), &[0x80, b'A', 0xFF]);
+}
+
+#[test]
+fn copy_sequence_handles_raw_unibyte_strings_and_preserves_text_properties() {
+    crate::test_utils::init_test_tracing();
+
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b'A',
+    ]));
+    let mut table = crate::buffer::text_props::TextPropertyTable::new();
+    let _ = table.put_property(0, 2, "face", Value::symbol("bold"));
+    crate::emacs_core::value::set_string_text_properties_table_for_value(raw, table);
+
+    let result =
+        builtin_copy_sequence(vec![raw]).expect("copy-sequence should handle raw unibyte strings");
+    let copied = result
+        .as_lisp_string()
+        .expect("copy-sequence should return a string");
+
+    assert_ne!(
+        result.bits(),
+        raw.bits(),
+        "non-empty strings should be copied"
+    );
+    assert!(!copied.is_multibyte());
+    assert_eq!(copied.as_bytes(), &[0xFF, b'A']);
+
+    let props = crate::emacs_core::value::get_string_text_properties_table_for_value(result)
+        .expect("copied string should keep text properties");
+    let intervals = props.intervals_snapshot();
+    assert_eq!(intervals.len(), 1);
+    assert_eq!(intervals[0].start, 0);
+    assert_eq!(intervals[0].end, 2);
+    assert_eq!(
+        intervals[0].properties.get("face"),
+        Some(&Value::symbol("bold"))
+    );
+}
+
+#[test]
 fn string_match_inhibit_modify_preserves_match_data() {
     crate::test_utils::init_test_tracing();
     use crate::emacs_core::eval::Context;

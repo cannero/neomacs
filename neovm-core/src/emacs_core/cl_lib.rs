@@ -72,12 +72,64 @@ fn expect_number_or_marker(val: &Value) -> Result<f64, Flow> {
 }
 
 /// Collect elements from any sequence type into a Vec.
+fn lisp_string_elements(value: &Value) -> Vec<Value> {
+    let string = value
+        .as_lisp_string()
+        .expect("ValueKind::String must carry LispString payload");
+    super::builtins::lisp_string_char_codes(string)
+        .into_iter()
+        .map(|cp| Value::fixnum(cp as i64))
+        .collect()
+}
+
+fn make_lisp_string_like(
+    string: &crate::heap_types::LispString,
+    codes: impl IntoIterator<Item = u32>,
+) -> Value {
+    if !string.is_multibyte() {
+        let bytes = codes
+            .into_iter()
+            .map(|cp| {
+                debug_assert!(cp <= 0xFF);
+                cp as u8
+            })
+            .collect();
+        return Value::heap_string(crate::heap_types::LispString::from_unibyte(bytes));
+    }
+
+    let mut bytes = Vec::new();
+    let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+    for cp in codes {
+        let len = crate::emacs_core::emacs_char::char_string(cp, &mut buf);
+        bytes.extend_from_slice(&buf[..len]);
+    }
+    Value::heap_string(crate::heap_types::LispString::from_emacs_bytes(bytes))
+}
+
+fn lisp_string_char_subseq(value: Value, start: usize, end: usize) -> Value {
+    let string = value
+        .as_lisp_string()
+        .expect("ValueKind::String must carry LispString payload");
+    if !string.is_multibyte() {
+        return Value::heap_string(crate::heap_types::LispString::from_unibyte(
+            string.as_bytes()[start..end].to_vec(),
+        ));
+    }
+
+    let bytes = string.as_bytes();
+    let start_byte = crate::emacs_core::emacs_char::char_to_byte_pos(bytes, start);
+    let end_byte = crate::emacs_core::emacs_char::char_to_byte_pos(bytes, end);
+    Value::heap_string(crate::heap_types::LispString::from_emacs_bytes(
+        bytes[start_byte..end_byte].to_vec(),
+    ))
+}
+
 fn collect_sequence(val: &Value) -> Vec<Value> {
     match val.kind() {
         ValueKind::Nil => Vec::new(),
         ValueKind::Cons => list_to_vec(val).unwrap_or_default(),
         ValueKind::Veclike(VecLikeType::Vector) => val.as_vector_data().unwrap().clone(),
-        ValueKind::String => val.as_str().unwrap().chars().map(Value::char).collect(),
+        ValueKind::String => lisp_string_elements(val),
         _ => vec![*val],
     }
 }
@@ -288,12 +340,7 @@ fn seq_position_elements(seq: &Value) -> Result<Vec<Value>, Flow> {
         ValueKind::Nil => Ok(Vec::new()),
         ValueKind::Cons => seq_position_list_elements(seq),
         ValueKind::Veclike(VecLikeType::Vector) => Ok(seq.as_vector_data().unwrap().clone()),
-        ValueKind::String => Ok(seq
-            .as_str()
-            .unwrap()
-            .chars()
-            .map(|ch| Value::fixnum(ch as i64))
-            .collect()),
+        ValueKind::String => Ok(lisp_string_elements(seq)),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), *seq],
@@ -336,12 +383,7 @@ fn seq_collect_concat_arg(arg: &Value) -> Result<Vec<Value>, Flow> {
             }
         }
         ValueKind::Veclike(VecLikeType::Vector) => Ok(arg.as_vector_data().unwrap().clone()),
-        ValueKind::String => Ok(arg
-            .as_str()
-            .unwrap()
-            .chars()
-            .map(|ch| Value::fixnum(ch as i64))
-            .collect()),
+        ValueKind::String => Ok(lisp_string_elements(arg)),
         _ => Err(signal(
             "error",
             vec![Value::string(format!(
@@ -364,20 +406,20 @@ pub(crate) fn builtin_seq_reverse(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(elems)),
         ValueKind::String => {
-            let mut s = String::new();
+            let string = args[0]
+                .as_lisp_string()
+                .expect("ValueKind::String must carry LispString payload");
+            let mut codes = Vec::with_capacity(elems.len());
             for value in &elems {
-                let ch = match value.kind() {
-                    ValueKind::Fixnum(c) => char::from_u32(c as u32).unwrap_or('\0'),
-                    _ => {
-                        return Err(signal(
-                            "wrong-type-argument",
-                            vec![Value::symbol("characterp"), args[0]],
-                        ));
-                    }
+                let ValueKind::Fixnum(c) = value.kind() else {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("characterp"), args[0]],
+                    ));
                 };
-                s.push(ch);
+                codes.push(c as u32);
             }
-            Ok(Value::string(s))
+            Ok(make_lisp_string_like(string, codes))
         }
         _ => Ok(Value::list(elems)),
     }
@@ -399,14 +441,15 @@ pub(crate) fn builtin_seq_drop(args: Vec<Value>) -> EvalResult {
             Ok(Value::vector(elems[n..].to_vec()))
         }
         ValueKind::String => {
-            let string = args[0].as_str().unwrap().to_owned();
-            let chars: Vec<char> = string.chars().collect();
+            let char_len = args[0]
+                .as_lisp_string()
+                .expect("ValueKind::String must carry LispString payload")
+                .schars();
             if n <= 0 {
-                return Ok(Value::string(string));
+                return Ok(args[0]);
             }
-            let n = (n as usize).min(chars.len());
-            let out: String = chars[n..].iter().collect();
-            Ok(Value::string(out))
+            let start = (n as usize).min(char_len);
+            Ok(lisp_string_char_subseq(args[0], start, char_len))
         }
         ValueKind::Cons => {
             if n <= 0 {
@@ -456,14 +499,15 @@ pub(crate) fn builtin_seq_take(args: Vec<Value>) -> EvalResult {
             Ok(Value::vector(elems[..n].to_vec()))
         }
         ValueKind::String => {
-            let string = args[0].as_str().unwrap().to_owned();
-            let chars: Vec<char> = string.chars().collect();
+            let char_len = args[0]
+                .as_lisp_string()
+                .expect("ValueKind::String must carry LispString payload")
+                .schars();
             if n <= 0 {
                 return Ok(Value::string(""));
             }
-            let n = (n as usize).min(chars.len());
-            let out: String = chars[..n].iter().collect();
-            Ok(Value::string(out))
+            let end = (n as usize).min(char_len);
+            Ok(lisp_string_char_subseq(args[0], 0, end))
         }
         ValueKind::Cons => {
             if n <= 0 {
@@ -619,7 +663,12 @@ pub(crate) fn builtin_seq_empty_p(args: Vec<Value>) -> EvalResult {
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
             Ok(Value::NIL)
         }
-        ValueKind::String => Ok(Value::bool_val(args[0].as_str().unwrap().is_empty())),
+        ValueKind::String => Ok(Value::bool_val(
+            args[0]
+                .as_lisp_string()
+                .expect("ValueKind::String must carry LispString payload")
+                .is_empty(),
+        )),
         ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::bool_val(
             args[0].as_vector_data().unwrap().len() == 0,
         )),
@@ -759,7 +808,7 @@ pub(crate) fn builtin_cl_gensym(args: Vec<Value>) -> EvalResult {
     let prefix = match args.first() {
         None => "G".to_string(),
         Some(v) if v.is_nil() => "G".to_string(),
-        Some(v) if v.is_string() => v.as_str().unwrap().to_owned(),
+        Some(v) if v.is_string() => super::builtins::lisp_string_to_runtime_string(*v),
         Some(other) => {
             return Err(signal(
                 "wrong-type-argument",

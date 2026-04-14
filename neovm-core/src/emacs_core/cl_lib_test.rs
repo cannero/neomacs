@@ -27,6 +27,42 @@ fn seq_reverse_string() {
 }
 
 #[test]
+fn seq_reverse_raw_unibyte_string() {
+    crate::test_utils::init_test_tracing();
+    let s = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b'A', 0x80,
+    ]));
+    let result = builtin_seq_reverse(vec![s]).unwrap();
+    let reversed = result.as_lisp_string().expect("seq-reverse string result");
+    assert!(!reversed.is_multibyte());
+    assert_eq!(reversed.as_bytes(), &[0x80, b'A', 0xFF]);
+}
+
+#[test]
+fn seq_take_raw_unibyte_string() {
+    crate::test_utils::init_test_tracing();
+    let s = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b'A', 0x80,
+    ]));
+    let result = builtin_seq_take(vec![s, Value::fixnum(2)]).unwrap();
+    let taken = result.as_lisp_string().expect("seq-take string result");
+    assert!(!taken.is_multibyte());
+    assert_eq!(taken.as_bytes(), &[0xFF, b'A']);
+}
+
+#[test]
+fn seq_drop_raw_unibyte_string() {
+    crate::test_utils::init_test_tracing();
+    let s = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b'A', 0x80,
+    ]));
+    let result = builtin_seq_drop(vec![s, Value::fixnum(1)]).unwrap();
+    let dropped = result.as_lisp_string().expect("seq-drop string result");
+    assert!(!dropped.is_multibyte());
+    assert_eq!(dropped.as_bytes(), &[b'A', 0x80]);
+}
+
+#[test]
 fn cl_first_list() {
     crate::test_utils::init_test_tracing();
     let list = Value::list(vec![Value::symbol("a"), Value::symbol("b")]);

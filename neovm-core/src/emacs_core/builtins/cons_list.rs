@@ -715,9 +715,36 @@ pub(crate) fn builtin_reverse(args: Vec<Value>) -> EvalResult {
             Ok(Value::vector(items))
         }
         ValueKind::String => {
-            let s = args[0].as_str().unwrap().to_owned();
-            let reversed: String = s.chars().rev().collect();
-            Ok(Value::string(reversed))
+            let string = args[0]
+                .as_lisp_string()
+                .expect("ValueKind::String must carry LispString payload");
+            if !string.is_multibyte() {
+                let mut bytes = string.as_bytes().to_vec();
+                bytes.reverse();
+                return Ok(Value::heap_string(
+                    crate::heap_types::LispString::from_unibyte(bytes),
+                ));
+            }
+
+            let mut reversed = Vec::with_capacity(string.sbytes());
+            let mut codes = Vec::with_capacity(string.schars());
+            let mut pos = 0usize;
+            let bytes = string.as_bytes();
+            while pos < bytes.len() {
+                let (cp, len) = crate::emacs_core::emacs_char::string_char(&bytes[pos..]);
+                codes.push(cp);
+                pos += len;
+            }
+
+            let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+            for cp in codes.into_iter().rev() {
+                let len = crate::emacs_core::emacs_char::char_string(cp, &mut buf);
+                reversed.extend_from_slice(&buf[..len]);
+            }
+
+            Ok(Value::heap_string(
+                crate::heap_types::LispString::from_emacs_bytes(reversed),
+            ))
         }
         _ => Err(signal(
             "wrong-type-argument",
@@ -999,12 +1026,14 @@ pub(crate) fn builtin_copy_sequence(args: Vec<Value>) -> EvalResult {
             Ok(Value::list(items))
         }
         ValueKind::String => {
-            let s = args[0].as_str().unwrap().to_owned();
+            let string = args[0]
+                .as_lisp_string()
+                .expect("ValueKind::String must carry LispString payload");
             // GNU Emacs: (copy-sequence "") returns "" itself (eq).
-            if s.is_empty() {
+            if string.is_empty() {
                 return Ok(args[0]);
             }
-            let new_val = Value::string(&s);
+            let new_val = Value::heap_string(string.clone());
             // Copy text properties
             if new_val.is_string() {
                 if let Some(table) = get_string_text_properties_table_for_value(args[0]) {
