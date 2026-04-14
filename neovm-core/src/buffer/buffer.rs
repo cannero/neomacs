@@ -4,6 +4,9 @@
 //! markers, and buffer-local variables.  `BufferManager` owns all live buffers
 //! and tracks the current buffer.
 
+#[path = "insdel.rs"]
+mod insdel;
+
 use std::collections::{HashMap, HashSet};
 
 use super::buffer_text::BufferText;
@@ -2957,57 +2960,6 @@ impl BufferManager {
         Some(())
     }
 
-    fn adjust_shared_insert_metadata(
-        buf: &mut Buffer,
-        insert_pos: usize,
-        insert_char_pos: usize,
-        byte_len: usize,
-        char_len: usize,
-        update_state_fields: bool,
-        overlay_before_markers: bool,
-    ) {
-        buf.apply_byte_insert_side_effects(
-            insert_pos,
-            insert_char_pos,
-            byte_len,
-            char_len,
-            update_state_fields,
-            true,
-            false,
-            false,
-            false,
-            overlay_before_markers,
-        );
-    }
-
-    fn adjust_shared_delete_metadata(
-        buf: &mut Buffer,
-        start: usize,
-        end: usize,
-        start_char: usize,
-        end_char: usize,
-        update_state_fields: bool,
-    ) {
-        buf.apply_byte_delete_side_effects(
-            start,
-            end,
-            start_char,
-            end_char,
-            update_state_fields,
-            true,
-            false,
-            false,
-        );
-    }
-
-    fn adjust_shared_same_len_edit_metadata(
-        buf: &mut Buffer,
-        changed_chars: usize,
-        preserve_modified_state: bool,
-    ) {
-        buf.apply_same_len_edit_side_effects(changed_chars, preserve_modified_state);
-    }
-
     fn sync_shared_undo_binding_cache(&mut self, root_id: BufferId) -> Option<()> {
         // After the Phase 10F deletion of BufferLocals::lisp_bindings,
         // `buffer-undo-list` is read directly from `SharedUndoState`
@@ -3030,11 +2982,6 @@ impl BufferManager {
         Some(())
     }
 
-    /// Centralized structural text mutations.
-    ///
-    /// Indirect buffers will eventually share a single text object.  When that
-    /// happens, sibling buffers must be updated from one place instead of every
-    /// ad hoc `buf.insert` / `buf.delete_region` call site in the tree.
     pub fn goto_buffer_byte(&mut self, id: BufferId, pos: usize) -> Option<usize> {
         {
             let buf = self.buffers.get_mut(&id)?;
@@ -3043,152 +2990,6 @@ impl BufferManager {
         let point = self.buffers.get(&id)?.point_byte();
         let _ = self.record_buffer_state_markers(id);
         Some(point)
-    }
-
-    pub fn insert_into_buffer(&mut self, id: BufferId, text: &str) -> Option<()> {
-        let byte_len = text.len();
-        if byte_len == 0 {
-            return Some(());
-        }
-        let char_len = text.chars().count();
-
-        let root_id = self.shared_text_root_id(id)?;
-        let shared_ids = self.buffers_sharing_root_ids(root_id);
-        let source = self.buffers.get(&id)?;
-        let insert_pos = source.pt;
-        let insert_char_pos = source.pt_char;
-
-        self.buffers.get_mut(&id)?.insert(text);
-
-        for sibling_id in shared_ids {
-            if sibling_id == id {
-                continue;
-            }
-            let update_state_fields =
-                self.current == Some(sibling_id) || !self.buffer_has_state_markers(sibling_id);
-            let sibling = self.buffers.get_mut(&sibling_id)?;
-            Self::adjust_shared_insert_metadata(
-                sibling,
-                insert_pos,
-                insert_char_pos,
-                byte_len,
-                char_len,
-                update_state_fields,
-                false,
-            );
-            self.refresh_shared_buffer_state_cache(sibling_id, update_state_fields)?;
-        }
-        self.sync_shared_undo_binding_cache(root_id)?;
-        Some(())
-    }
-
-    pub fn insert_into_buffer_before_markers(&mut self, id: BufferId, text: &str) -> Option<()> {
-        let byte_len = text.len();
-        if byte_len == 0 {
-            return Some(());
-        }
-        let char_len = text.chars().count();
-        let root_id = self.shared_text_root_id(id)?;
-        let shared_ids = self.buffers_sharing_root_ids(root_id);
-        let source = self.buffers.get(&id)?;
-        let insert_pos = source.pt;
-        let insert_char_pos = source.pt_char;
-
-        self.buffers.get_mut(&id)?.insert_before_markers(text);
-
-        for sibling_id in shared_ids {
-            if sibling_id == id {
-                continue;
-            }
-            let update_state_fields =
-                self.current == Some(sibling_id) || !self.buffer_has_state_markers(sibling_id);
-            let sibling = self.buffers.get_mut(&sibling_id)?;
-            Self::adjust_shared_insert_metadata(
-                sibling,
-                insert_pos,
-                insert_char_pos,
-                byte_len,
-                char_len,
-                update_state_fields,
-                true,
-            );
-            self.refresh_shared_buffer_state_cache(sibling_id, update_state_fields)?;
-        }
-        self.sync_shared_undo_binding_cache(root_id)?;
-        Some(())
-    }
-
-    pub fn delete_buffer_region(&mut self, id: BufferId, start: usize, end: usize) -> Option<()> {
-        if start >= end {
-            return Some(());
-        }
-
-        let root_id = self.shared_text_root_id(id)?;
-        let shared_ids = self.buffers_sharing_root_ids(root_id);
-        let source = self.buffers.get(&id)?;
-        let start_char = source.text.byte_to_char(start);
-        let end_char = source.text.byte_to_char(end);
-        self.buffers.get_mut(&id)?.delete_region(start, end);
-
-        for sibling_id in shared_ids {
-            if sibling_id == id {
-                continue;
-            }
-            let update_state_fields =
-                self.current == Some(sibling_id) || !self.buffer_has_state_markers(sibling_id);
-            let sibling = self.buffers.get_mut(&sibling_id)?;
-            Self::adjust_shared_delete_metadata(
-                sibling,
-                start,
-                end,
-                start_char,
-                end_char,
-                update_state_fields,
-            );
-            self.refresh_shared_buffer_state_cache(sibling_id, update_state_fields)?;
-        }
-        self.sync_shared_undo_binding_cache(root_id)?;
-        Some(())
-    }
-
-    pub fn subst_char_in_buffer_region(
-        &mut self,
-        id: BufferId,
-        start: usize,
-        end: usize,
-        from: char,
-        to: char,
-        noundo: bool,
-    ) -> Option<bool> {
-        if start >= end || from == to {
-            return Some(false);
-        }
-
-        let root_id = self.shared_text_root_id(id)?;
-        let shared_ids = self.buffers_sharing_root_ids(root_id);
-        let changed_chars = {
-            let source = self.buffers.get(&id)?;
-            source.text.byte_to_char(end) - source.text.byte_to_char(start)
-        };
-        let changed = self
-            .buffers
-            .get_mut(&id)?
-            .subst_char_in_region(start, end, from, to, noundo);
-        if !changed {
-            return Some(false);
-        }
-
-        for sibling_id in shared_ids {
-            if sibling_id == id {
-                continue;
-            }
-            let sibling = self.buffers.get_mut(&sibling_id)?;
-            Self::adjust_shared_same_len_edit_metadata(sibling, changed_chars, noundo);
-        }
-        if !noundo {
-            self.sync_shared_undo_binding_cache(root_id)?;
-        }
-        Some(true)
     }
 
     pub fn delete_all_buffer_overlays(&mut self, id: BufferId) -> Option<()> {

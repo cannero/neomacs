@@ -1,7 +1,6 @@
 pub mod buffer;
 pub mod buffer_text;
 pub mod gap_buffer;
-mod insdel;
 pub mod overlay;
 pub mod shared;
 pub mod text_props;
