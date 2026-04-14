@@ -21,7 +21,6 @@ use super::text_props::{PropertyInterval, TextPropertyTable};
 #[derive(Clone)]
 struct BufferTextStorage {
     gap: GapBuffer,
-    char_count: usize,
     text_props: TextPropertyTable,
     markers: Vec<MarkerEntry>,
 }
@@ -50,7 +49,6 @@ impl BufferText {
         Self {
             storage: Rc::new(RefCell::new(BufferTextStorage {
                 gap: GapBuffer::new(),
-                char_count: 0,
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
             })),
@@ -61,7 +59,6 @@ impl BufferText {
         Self {
             storage: Rc::new(RefCell::new(BufferTextStorage {
                 gap: GapBuffer::from_str(text),
-                char_count: crate::emacs_core::string_escape::storage_char_len(text),
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
             })),
@@ -77,7 +74,7 @@ impl BufferText {
     }
 
     pub fn char_count(&self) -> usize {
-        self.storage.borrow().char_count
+        self.storage.borrow().gap.char_count()
     }
 
     pub fn byte_at(&self, pos: usize) -> u8 {
@@ -85,7 +82,11 @@ impl BufferText {
     }
 
     pub fn char_at(&self, pos: usize) -> Option<char> {
-        self.storage.borrow().gap.char_at(pos)
+        self.storage
+            .borrow()
+            .gap
+            .char_code_at(pos)
+            .and_then(char::from_u32)
     }
 
     pub fn char_code_at(&self, pos: usize) -> Option<u32> {
@@ -108,19 +109,14 @@ impl BufferText {
         if text.is_empty() {
             return;
         }
-        let mut storage = self.storage.borrow_mut();
-        storage.gap.insert_str(pos, text);
-        storage.char_count += crate::emacs_core::string_escape::storage_char_len(text);
+        self.storage.borrow_mut().gap.insert_str(pos, text);
     }
 
     pub fn delete_range(&mut self, start: usize, end: usize) {
         if start >= end {
             return;
         }
-        let mut storage = self.storage.borrow_mut();
-        let deleted_chars = storage.gap.byte_to_char(end) - storage.gap.byte_to_char(start);
-        storage.gap.delete_range(start, end);
-        storage.char_count -= deleted_chars;
+        self.storage.borrow_mut().gap.delete_range(start, end);
     }
 
     pub fn replace_same_len_range(&mut self, start: usize, end: usize, replacement: &str) {
@@ -156,16 +152,47 @@ impl BufferText {
     }
 
     pub(crate) fn from_dump(text: Vec<u8>) -> Self {
-        let gap = GapBuffer::from_dump(text);
-        let char_count = gap.char_count();
         Self {
             storage: Rc::new(RefCell::new(BufferTextStorage {
-                gap,
-                char_count,
+                gap: GapBuffer::from_dump(text),
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
             })),
         }
+    }
+
+    pub fn range_contains_char_code(&self, start: usize, end: usize, code: u32) -> bool {
+        if start >= end {
+            return false;
+        }
+        let text = self.storage.borrow().gap.text_range(start, end);
+        crate::emacs_core::string_escape::storage_contains_char_code(&text, code)
+    }
+
+    pub fn replace_char_code_same_len_range(
+        &mut self,
+        start: usize,
+        end: usize,
+        from_code: u32,
+        to_storage: &str,
+    ) -> bool {
+        if start >= end {
+            return false;
+        }
+        let original = self.storage.borrow().gap.text_range(start, end);
+        let Some(replacement) =
+            crate::emacs_core::string_escape::replace_storage_char_code_same_len(
+                &original, from_code, to_storage,
+            )
+        else {
+            return false;
+        };
+        debug_assert_eq!(replacement.len(), original.len());
+        self.storage
+            .borrow_mut()
+            .gap
+            .replace_same_len_range(start, end, &replacement);
+        true
     }
 
     pub fn text_props_is_empty(&self) -> bool {

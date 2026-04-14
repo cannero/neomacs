@@ -1828,6 +1828,55 @@ fn subst_char_in_region_uses_live_marker_end_after_insertions() {
 }
 
 #[test]
+fn subst_char_in_region_replaces_raw_byte_chars_in_multibyte_buffer() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+
+    builtin_insert_byte(&mut eval, vec![Value::fixnum(200), Value::fixnum(2)]).unwrap();
+    builtin_subst_char_in_region(
+        &mut eval,
+        vec![
+            Value::fixnum(1),
+            Value::fixnum(3),
+            Value::fixnum(0x3FFF00 + 200),
+            Value::fixnum(0x3FFF00 + 201),
+        ],
+    )
+    .expect("subst-char-in-region should replace raw-byte chars");
+
+    let result = builtin_buffer_string(&mut eval, vec![]).unwrap();
+    assert_eq!(
+        decode_value_char_codes(&result),
+        vec![0x3FFF00 + 201, 0x3FFF00 + 201]
+    );
+}
+
+#[test]
+fn subst_char_in_region_replaces_nonunicode_emacs_chars() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+
+    builtin_insert(
+        &mut eval,
+        vec![Value::fixnum(0x11_0000), Value::fixnum(0x11_0000)],
+    )
+    .unwrap();
+    builtin_subst_char_in_region(
+        &mut eval,
+        vec![
+            Value::fixnum(1),
+            Value::fixnum(3),
+            Value::fixnum(0x11_0000),
+            Value::fixnum(0x12_0000),
+        ],
+    )
+    .expect("subst-char-in-region should replace nonunicode chars");
+
+    let result = builtin_buffer_string(&mut eval, vec![]).unwrap();
+    assert_eq!(decode_value_char_codes(&result), vec![0x12_0000, 0x12_0000]);
+}
+
+#[test]
 fn goto_char_uses_live_marker_position_after_insertions() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
@@ -8949,6 +8998,40 @@ fn char_queries_return_nonunicode_emacs_character_codes() {
         crate::emacs_core::editfns::builtin_preceding_char(&eval, vec![]).unwrap(),
         Value::fixnum(0x20_0000)
     );
+}
+
+#[test]
+fn delete_char_handles_nonunicode_storage_units() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    builtin_insert_char(&mut eval, vec![Value::fixnum(0x20_0000), Value::fixnum(1)]).unwrap();
+    builtin_insert(&mut eval, vec![Value::string("A")]).unwrap();
+    builtin_goto_char(&mut eval, vec![Value::fixnum(1)]).unwrap();
+    crate::emacs_core::editfns::builtin_delete_char(&mut eval, vec![Value::fixnum(1)]).unwrap();
+
+    let result = builtin_buffer_string(&mut eval, vec![]).unwrap();
+    assert_eq!(decode_value_char_codes(&result), vec![b'A' as u32]);
+}
+
+#[test]
+fn delete_char_handles_unibyte_high_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    let current_id = eval.buffers.current_buffer_id().expect("current buffer");
+    eval.buffers
+        .set_buffer_multibyte_flag(current_id, false)
+        .expect("set-buffer-multibyte should accept current buffer");
+    builtin_insert_byte(&mut eval, vec![Value::fixnum(200), Value::fixnum(1)]).unwrap();
+    builtin_insert_byte(&mut eval, vec![Value::fixnum(65), Value::fixnum(1)]).unwrap();
+    builtin_goto_char(&mut eval, vec![Value::fixnum(1)]).unwrap();
+    crate::emacs_core::editfns::builtin_delete_char(&mut eval, vec![Value::fixnum(1)]).unwrap();
+
+    let result = builtin_buffer_string(&mut eval, vec![]).unwrap();
+    let ls = result.as_lisp_string().expect("buffer-string result");
+    assert!(!ls.is_multibyte());
+    assert_eq!(ls.as_bytes(), &[65]);
 }
 
 #[test]

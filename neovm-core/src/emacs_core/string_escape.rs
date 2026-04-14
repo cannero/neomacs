@@ -193,7 +193,16 @@ fn push_unibyte_literal_byte(out: &mut Vec<u8>, byte: u8) {
     }
 }
 
-fn scan_storage_units(s: &str) -> Vec<(usize, usize, u32, usize, usize)> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct StorageUnit {
+    pub storage_start: usize,
+    pub storage_end: usize,
+    pub code: u32,
+    pub display_width: usize,
+    pub logical_byte_len: usize,
+}
+
+pub(crate) fn scan_storage_units(s: &str) -> Vec<StorageUnit> {
     let mut out = Vec::new();
     let mut idx = 0usize;
 
@@ -204,14 +213,26 @@ fn scan_storage_units(s: &str) -> Vec<(usize, usize, u32, usize, usize)> {
 
         if (RAW_BYTE_SENTINEL_MIN..=RAW_BYTE_SENTINEL_MAX).contains(&code) {
             let raw = (code - RAW_BYTE_SENTINEL_BASE) as u8;
-            out.push((idx, next, 0x3FFF00 + raw as u32, 4, 2));
+            out.push(StorageUnit {
+                storage_start: idx,
+                storage_end: next,
+                code: 0x3FFF00 + raw as u32,
+                display_width: 4,
+                logical_byte_len: 2,
+            });
             idx = next;
             continue;
         }
 
         if (UNIBYTE_BYTE_SENTINEL_MIN..=UNIBYTE_BYTE_SENTINEL_MAX).contains(&code) {
             let byte = (code - UNIBYTE_BYTE_SENTINEL_BASE) as u8;
-            out.push((idx, next, byte as u32, 1, 1));
+            out.push(StorageUnit {
+                storage_start: idx,
+                storage_end: next,
+                code: byte as u32,
+                display_width: 1,
+                logical_byte_len: 1,
+            });
             idx = next;
             continue;
         }
@@ -220,14 +241,26 @@ fn scan_storage_units(s: &str) -> Vec<(usize, usize, u32, usize, usize)> {
             if let Some((end, cp)) = decode_extended_sequence_span(s, idx) {
                 let byte_len = ((s[idx..end].chars().nth(1).expect("extended len sentinel") as u32)
                     - EXT_SEQ_LEN_BASE) as usize;
-                out.push((idx, end, cp, 1, byte_len));
+                out.push(StorageUnit {
+                    storage_start: idx,
+                    storage_end: end,
+                    code: cp,
+                    display_width: 1,
+                    logical_byte_len: byte_len,
+                });
                 idx = end;
                 continue;
             }
         }
 
         let width = crate::encoding::char_width(ch);
-        out.push((idx, next, code, width, ch.len_utf8()));
+        out.push(StorageUnit {
+            storage_start: idx,
+            storage_end: next,
+            code,
+            display_width: width,
+            logical_byte_len: ch.len_utf8(),
+        });
         idx = next;
     }
 
@@ -311,7 +344,7 @@ pub(crate) fn decode_storage_units(s: &str) -> Vec<(u32, usize)> {
     }
     scan_storage_units(s)
         .into_iter()
-        .map(|(_, _, cp, width, _)| (cp, width))
+        .map(|unit| (unit.code, unit.display_width))
         .collect()
 }
 
@@ -350,7 +383,7 @@ pub(crate) fn storage_byte_len(s: &str) -> usize {
     }
     scan_storage_units(s)
         .into_iter()
-        .map(|(_, _, _, _, byte_len)| byte_len)
+        .map(|unit| unit.logical_byte_len)
         .sum()
 }
 
@@ -364,7 +397,7 @@ pub(crate) fn storage_char_to_byte(s: &str, char_idx: usize) -> usize {
     if char_idx >= units.len() {
         s.len()
     } else {
-        units[char_idx].0
+        units[char_idx].storage_start
     }
 }
 
@@ -382,7 +415,7 @@ pub(crate) fn storage_byte_to_char(s: &str, byte_pos: usize) -> usize {
     }
     let units = scan_storage_units(s);
     for (i, unit) in units.iter().enumerate() {
-        if byte_pos < unit.1 {
+        if byte_pos < unit.storage_end {
             return i;
         }
     }
@@ -417,14 +450,75 @@ pub(crate) fn storage_substring_bounds(s: &str, from: usize, to: usize) -> Optio
     let start_byte = if from == units.len() {
         s.len()
     } else {
-        units[from].0
+        units[from].storage_start
     };
     let end_byte = if to == units.len() {
         s.len()
     } else {
-        units[to].0
+        units[to].storage_start
     };
     Some((start_byte, end_byte))
+}
+
+pub(crate) fn storage_contains_char_code(s: &str, code: u32) -> bool {
+    if !storage_has_special_units(s) {
+        return s.chars().any(|ch| ch as u32 == code);
+    }
+    scan_storage_units(s)
+        .into_iter()
+        .any(|unit| unit.code == code)
+}
+
+pub(crate) fn replace_storage_char_code_same_len(
+    s: &str,
+    from_code: u32,
+    to_storage: &str,
+) -> Option<String> {
+    if !storage_has_special_units(s) {
+        let from_char = char::from_u32(from_code)?;
+        if !s.contains(from_char) {
+            return None;
+        }
+        let mut out = String::with_capacity(s.len());
+        let mut changed = false;
+        for ch in s.chars() {
+            if ch as u32 == from_code {
+                debug_assert_eq!(
+                    ch.len_utf8(),
+                    to_storage.len(),
+                    "replacement storage length must match matched unit length"
+                );
+                out.push_str(to_storage);
+                changed = true;
+            } else {
+                out.push(ch);
+            }
+        }
+        return changed.then_some(out);
+    }
+
+    let units = scan_storage_units(s);
+    let matched_len = units
+        .iter()
+        .find(|unit| unit.code == from_code)
+        .map(|unit| unit.storage_end - unit.storage_start)?;
+    debug_assert_eq!(
+        matched_len,
+        to_storage.len(),
+        "replacement storage length must match matched unit length"
+    );
+
+    let mut out = String::with_capacity(s.len());
+    let mut changed = false;
+    for unit in units {
+        if unit.code == from_code {
+            out.push_str(to_storage);
+            changed = true;
+        } else {
+            out.push_str(&s[unit.storage_start..unit.storage_end]);
+        }
+    }
+    changed.then_some(out)
 }
 
 /// Slice NeoVM string storage by logical Emacs character index.

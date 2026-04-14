@@ -2797,20 +2797,31 @@ pub(crate) fn builtin_subst_char_in_region(
     let to_code = expect_character_code(&args[3])?;
     let noundo = args.get(4).is_some_and(|value| !value.is_nil());
 
-    let from_char = char::from_u32(from_code as u32).ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("characterp"), args[2]],
-        )
-    })?;
-    let to_char = char::from_u32(to_code as u32).ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("characterp"), args[3]],
-        )
-    })?;
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let target_multibyte = eval
+        .buffers
+        .get(current_id)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
+        .get_multibyte();
+    let from_storage = encode_char_code_for_buffer_storage(from_code as u32, target_multibyte)
+        .ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![Value::symbol("characterp"), args[2]],
+            )
+        })?;
+    let to_storage = encode_char_code_for_buffer_storage(to_code as u32, target_multibyte)
+        .ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![Value::symbol("characterp"), args[3]],
+            )
+        })?;
 
-    if from_char.len_utf8() != to_char.len_utf8() {
+    if from_storage.len() != to_storage.len() {
         return Err(signal(
             "error",
             vec![Value::string(
@@ -2819,10 +2830,6 @@ pub(crate) fn builtin_subst_char_in_region(
         ));
     }
 
-    let current_id = eval
-        .buffers
-        .current_buffer_id()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let (byte_start, byte_end, needs_change) = {
         let buf = &mut eval
             .buffers
@@ -2843,11 +2850,11 @@ pub(crate) fn builtin_subst_char_in_region(
         let end_char = hi.saturating_sub(1);
         let byte_start = buf.text.char_to_byte(start_char);
         let byte_end = buf.text.char_to_byte(end_char);
-        let needs_change = from_char != to_char
+        let needs_change = from_code != to_code
             && byte_start < byte_end
             && buf
-                .buffer_substring(byte_start, byte_end)
-                .contains(from_char);
+                .text
+                .range_contains_char_code(byte_start, byte_end, from_code as u32);
         (byte_start, byte_end, needs_change)
     };
     if !needs_change {
@@ -2867,9 +2874,14 @@ pub(crate) fn builtin_subst_char_in_region(
     // so the region size does not change.
     let region_len = super::editfns::current_buffer_byte_span_char_len(eval, byte_start, byte_end);
     super::editfns::signal_before_change(eval, byte_start, byte_end)?;
-    let _ = &mut eval
-        .buffers
-        .subst_char_in_buffer_region(current_id, byte_start, byte_end, from_char, to_char, noundo);
+    let _ = &mut eval.buffers.subst_char_in_buffer_region(
+        current_id,
+        byte_start,
+        byte_end,
+        from_code as u32,
+        &to_storage,
+        noundo,
+    );
     super::editfns::signal_after_change(eval, byte_start, byte_end, region_len)?;
     Ok(Value::NIL)
 }

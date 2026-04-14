@@ -258,36 +258,32 @@ impl Buffer {
         );
     }
 
-    /// Replace every occurrence of `from` with `to` in the byte range
+    /// Replace every occurrence of `from_code` with `to_storage` in the byte range
     /// `[start, end)`.
     ///
     /// The replacement is performed in place, so callers must ensure the
-    /// characters have the same UTF-8 byte length.
+    /// matched storage units have the same storage-byte length.
     pub fn subst_char_in_region(
         &mut self,
         start: usize,
         end: usize,
-        from: char,
-        to: char,
+        from_code: u32,
+        to_storage: &str,
         noundo: bool,
     ) -> bool {
-        if start >= end || from == to {
+        if start >= end {
             return false;
         }
         let changed_chars = self.text.byte_to_char(end) - self.text.byte_to_char(start);
 
         let original = self.text.text_range(start, end);
-        if !original.contains(from) {
+        let Some(replacement) =
+            crate::emacs_core::string_escape::replace_storage_char_code_same_len(
+                &original, from_code, to_storage,
+            )
+        else {
             return false;
-        }
-
-        let replacement: String = original
-            .chars()
-            .map(|ch| if ch == from { to } else { ch })
-            .collect();
-        if replacement == original {
-            return false;
-        }
+        };
 
         if !noundo && !self.undo_state.in_progress() {
             self.undo_prepare_change(start, self.pt);
@@ -299,7 +295,8 @@ impl Buffer {
             }
         }
 
-        self.text.replace_same_len_range(start, end, &replacement);
+        self.text
+            .replace_char_code_same_len_range(start, end, from_code, to_storage);
         self.apply_same_len_edit_side_effects(changed_chars, noundo);
         true
     }
@@ -478,11 +475,11 @@ impl BufferManager {
         id: BufferId,
         start: usize,
         end: usize,
-        from: char,
-        to: char,
+        from_code: u32,
+        to_storage: &str,
         noundo: bool,
     ) -> Option<bool> {
-        if start >= end || from == to {
+        if start >= end {
             return Some(false);
         }
 
@@ -495,7 +492,7 @@ impl BufferManager {
         let changed = self
             .buffers
             .get_mut(&id)?
-            .subst_char_in_region(start, end, from, to, noundo);
+            .subst_char_in_region(start, end, from_code, to_storage, noundo);
         if !changed {
             return Some(false);
         }

@@ -1713,10 +1713,7 @@ impl Buffer {
 
     /// Character at byte position `pos`, or `None` if out of range.
     pub fn char_after(&self, pos: usize) -> Option<char> {
-        if pos >= self.text.len() {
-            return None;
-        }
-        self.text.char_at(pos)
+        self.char_code_after(pos).and_then(char::from_u32)
     }
 
     /// Emacs character code at byte position `pos`, or `None` if out of range.
@@ -1729,23 +1726,7 @@ impl Buffer {
 
     /// Character immediately before byte position `pos`, or `None`.
     pub fn char_before(&self, pos: usize) -> Option<char> {
-        if pos == 0 || pos > self.text.len() {
-            return None;
-        }
-        // Walk backwards to find the start of the previous UTF-8 character.
-        // The gap buffer stores valid UTF-8, so we can probe up to 4 bytes back.
-        let text = self.text.to_string();
-        let bytes = text.as_bytes();
-        let mut back = 1;
-        while back <= 4 && back <= pos {
-            let idx = pos - back;
-            if (bytes[idx] & 0xC0) != 0x80 {
-                // Found a leading byte.
-                return text[idx..pos].chars().next();
-            }
-            back += 1;
-        }
-        None
+        self.char_code_before(pos).and_then(char::from_u32)
     }
 
     /// Emacs character code immediately before byte position `pos`, or `None`.
@@ -1759,6 +1740,28 @@ impl Buffer {
         }
         let prior_byte = self.text.char_to_byte(prior_char - 1);
         self.text.char_code_at(prior_byte)
+    }
+
+    /// Storage-byte width of the character starting at `pos`.
+    pub fn char_after_storage_len(&self, pos: usize) -> Option<usize> {
+        if pos >= self.text.len() {
+            return None;
+        }
+        let char_idx = self.text.byte_to_char(pos);
+        Some(self.text.char_to_byte(char_idx + 1) - pos)
+    }
+
+    /// Storage-byte width of the character ending at `pos`.
+    pub fn char_before_storage_len(&self, pos: usize) -> Option<usize> {
+        if pos == 0 || pos > self.text.len() {
+            return None;
+        }
+        let prior_char = self.text.byte_to_char(pos);
+        if prior_char == 0 {
+            return None;
+        }
+        let prior_byte = self.text.char_to_byte(prior_char - 1);
+        Some(pos - prior_byte)
     }
 
     // -- Narrowing -----------------------------------------------------------
