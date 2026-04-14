@@ -3573,6 +3573,44 @@ fn modify_frame_parameters_width_height_preserve_pixel_dimensions() {
 }
 
 #[test]
+fn modify_frame_parameters_width_height_resizes_live_gui_frame() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let host = RecordingDisplayHost::new();
+    let resized = host.resized.clone();
+    ev.set_display_host(Box::new(host));
+    let buf = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buf);
+    let fid = ev.frames.create_frame("F1", 800, 600, buf);
+    {
+        let frame = ev.frames.get_mut(fid).expect("frame");
+        frame.set_window_system(Some(Value::symbol("neo")));
+        frame.char_width = 8.0;
+        frame.char_height = 16.0;
+    }
+
+    let out = ev
+        .eval_str_each("(modify-frame-parameters (selected-frame) '((width . 80) (height . 25)))");
+    assert!(
+        out[0].is_ok(),
+        "modify-frame-parameters failed: {:?}",
+        out[0]
+    );
+
+    let resize_requests = resized.borrow();
+    assert_eq!(resize_requests.len(), 1);
+    assert_eq!(resize_requests[0].frame_id, fid);
+    assert_eq!(resize_requests[0].width, 640);
+    assert_eq!(resize_requests[0].height, 400);
+
+    let frame = ev.frames.get(fid).expect("frame should exist");
+    assert_eq!(frame.width, 640);
+    assert_eq!(frame.height, 400);
+    assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(80)));
+    assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(25)));
+}
+
+#[test]
 fn modify_frame_parameters_tab_bar_lines_reflows_root_window_tree() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

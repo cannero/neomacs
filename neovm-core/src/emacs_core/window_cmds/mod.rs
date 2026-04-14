@@ -6014,6 +6014,9 @@ pub(crate) fn builtin_modify_frame_parameters(
         return Err(signal("error", vec![Value::string("Frame not found")]));
     }
 
+    let mut requested_width_cols = None;
+    let mut requested_total_lines = None;
+
     for item in items.into_iter().rev() {
         if item.is_cons() {
             let pair_car = item.cons_car();
@@ -6042,6 +6045,7 @@ pub(crate) fn builtin_modify_frame_parameters(
                                     .parameters
                                     .insert("width".to_string(), Value::fixnum(n));
                             }
+                            requested_width_cols = Some(n);
                         }
                     }
                     "height" => {
@@ -6051,6 +6055,7 @@ pub(crate) fn builtin_modify_frame_parameters(
                                     .parameters
                                     .insert("height".to_string(), Value::fixnum(n));
                             }
+                            requested_total_lines = Some(n);
                         }
                     }
                     "visibility" => {
@@ -6075,6 +6080,46 @@ pub(crate) fn builtin_modify_frame_parameters(
     if let Some(frame) = eval.frames.get_mut(fid) {
         frame.sync_tab_bar_height_from_parameters();
     }
+
+    if requested_width_cols.is_some() || requested_total_lines.is_some() {
+        let uses_window_system_pixels = eval
+            .frames
+            .get(fid)
+            .is_some_and(frame_uses_window_system_pixels);
+        if uses_window_system_pixels {
+            let (current_cols, current_total_lines, char_width, char_height, non_text_height) = {
+                let frame = eval
+                    .frames
+                    .get(fid)
+                    .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+                (
+                    frame_total_cols(frame),
+                    frame_total_lines(frame),
+                    frame.char_width.max(1.0),
+                    frame.char_height.max(1.0),
+                    frame_non_text_height_pixels(frame),
+                )
+            };
+            let desired_cols = requested_width_cols.unwrap_or(current_cols).max(1);
+            let desired_total_lines = requested_total_lines.unwrap_or(current_total_lines).max(1);
+            let total_height_px = ((desired_total_lines as f32) * char_height)
+                .round()
+                .max(1.0) as u32;
+            let text_width_px = ((desired_cols as f32) * char_width).round().max(1.0) as u32;
+            let text_height_px = total_height_px
+                .saturating_sub(non_text_height)
+                .max(char_height.round().max(1.0) as u32);
+            resize_live_gui_frame(
+                &mut eval.frames,
+                &mut eval.display_host,
+                fid,
+                text_width_px,
+                text_height_px,
+                false,
+            )?;
+        }
+    }
+
     Ok(Value::NIL)
 }
 /// `(frame-visible-p FRAME)` -> t or nil.
