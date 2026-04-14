@@ -490,6 +490,53 @@ pub(crate) fn storage_logical_byte_at(s: &str, byte_pos: usize) -> Option<u8> {
     None
 }
 
+/// Append the logical Emacs-byte range `[start, end)` from NeoVM string
+/// storage into `out`.
+pub(crate) fn append_storage_logical_byte_range_as_emacs_bytes(
+    s: &str,
+    start: usize,
+    end: usize,
+    out: &mut Vec<u8>,
+) {
+    assert!(
+        start <= end,
+        "start logical byte position {start} exceeds end {end}"
+    );
+    let logical_len = storage_byte_len(s);
+    assert!(
+        end <= logical_len,
+        "end logical byte position {end} exceeds logical length {logical_len}"
+    );
+    if start == end {
+        return;
+    }
+
+    if !storage_has_special_units(s) {
+        out.extend_from_slice(&s.as_bytes()[start..end]);
+        return;
+    }
+
+    let units = scan_storage_units(s);
+    let mut logical = 0usize;
+    for unit in &units {
+        if logical >= end {
+            break;
+        }
+
+        let next = logical + unit.logical_byte_len;
+        if next <= start {
+            logical = next;
+            continue;
+        }
+
+        let bytes = storage_unit_logical_bytes(unit);
+        let slice_start = start.saturating_sub(logical);
+        let slice_end = end.min(next) - logical;
+        out.extend_from_slice(&bytes[slice_start..slice_end]);
+        logical = next;
+    }
+}
+
 /// Advance `byte_pos` to the next logical character boundary.
 pub(crate) fn advance_logical_byte_to_char_boundary(s: &str, byte_pos: usize) -> usize {
     if !storage_has_special_units(s) {

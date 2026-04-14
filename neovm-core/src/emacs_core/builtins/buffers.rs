@@ -1416,7 +1416,7 @@ pub(crate) fn builtin_set_buffer_multibyte(
             .buffers
             .get(current_id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        buffer_slice_value(buffer, 0, buffer.text.len())
+        buffer_slice_value(buffer, 0, buffer.total_bytes())
     };
     let (converted_value, mode) = convert_buffer_string_for_multibyte(source_value, flag)?;
     let piece = buffer_insert_piece_from_string(converted_value, target_multibyte)?;
@@ -2724,30 +2724,13 @@ fn buffer_insert_piece_from_string(
     Ok(InsertPiece { text, text_props })
 }
 
-pub(crate) fn lisp_string_from_buffer_storage(
-    storage: &str,
+pub(crate) fn lisp_string_from_buffer_bytes(
+    bytes: Vec<u8>,
     multibyte: bool,
 ) -> crate::heap_types::LispString {
-    let codes = crate::emacs_core::string_escape::decode_storage_char_codes(storage);
     if multibyte {
-        let mut bytes = Vec::new();
-        for code in codes {
-            let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
-            let len = crate::emacs_core::emacs_char::char_string(code, &mut buf);
-            bytes.extend_from_slice(&buf[..len]);
-        }
         crate::heap_types::LispString::from_emacs_bytes(bytes)
     } else {
-        let bytes: Vec<u8> = codes
-            .into_iter()
-            .map(|code| {
-                assert!(
-                    code <= 0xFF,
-                    "unibyte buffer storage contained non-byte character code {code:#X}"
-                );
-                code as u8
-            })
-            .collect();
         crate::heap_types::LispString::from_unibyte(bytes)
     }
 }
@@ -2757,8 +2740,9 @@ pub(crate) fn buffer_slice_value(
     start_byte: usize,
     end_byte: usize,
 ) -> Value {
-    let storage = buf.buffer_substring(start_byte, end_byte);
-    let string = lisp_string_from_buffer_storage(&storage, buf.get_multibyte());
+    let mut bytes = Vec::new();
+    buf.copy_emacs_bytes_to(start_byte, end_byte, &mut bytes);
+    let string = lisp_string_from_buffer_bytes(bytes, buf.get_multibyte());
     let value = Value::heap_string(string);
     if !buf.text.text_props_is_empty() {
         let sliced = buf.text.text_props_slice(start_byte, end_byte);
@@ -2766,9 +2750,7 @@ pub(crate) fn buffer_slice_value(
             let result_string = value.as_lisp_string().expect("heap string");
             let remapped = remap_text_property_table(
                 &sliced,
-                |byte_pos| {
-                    crate::emacs_core::string_escape::storage_byte_to_char(&storage, byte_pos)
-                },
+                |byte_pos| lisp_string_byte_to_char(result_string, byte_pos),
                 |char_pos| lisp_string_char_to_byte(result_string, char_pos),
             );
             if !remapped.is_empty() {

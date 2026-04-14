@@ -29,7 +29,7 @@ pub(super) use super::string_escape::{
 };
 pub(super) use super::value::*;
 pub(super) use ::regex::Regex;
-pub(crate) use buffers::lisp_string_from_buffer_storage;
+pub(crate) use buffers::lisp_string_from_buffer_bytes;
 pub(super) use std::cell::RefCell;
 pub(super) use std::collections::{HashMap, HashSet};
 
@@ -2130,6 +2130,12 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         super::navigation::builtin_line_number_at_pos,
         0,
         Some(2),
+    );
+    ctx.defsubr(
+        "count-lines",
+        super::navigation::builtin_count_lines,
+        2,
+        Some(3),
     );
     ctx.defsubr(
         "forward-line",

@@ -158,6 +158,13 @@ impl BufferText {
         self.storage.borrow().gap.copy_bytes_to(start, end, out);
     }
 
+    pub fn copy_emacs_bytes_to(&self, start: usize, end: usize, out: &mut Vec<u8>) {
+        self.storage
+            .borrow()
+            .gap
+            .copy_emacs_bytes_to(start, end, out);
+    }
+
     pub fn to_string(&self) -> String {
         self.storage.borrow().gap.to_string()
     }

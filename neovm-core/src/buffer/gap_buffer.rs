@@ -407,6 +407,49 @@ impl GapBuffer {
         }
     }
 
+    /// Copy logical Emacs bytes in the range `[start, end)` into `out`.
+    ///
+    /// `out` is cleared first, then the Emacs bytes are appended.
+    ///
+    /// # Panics
+    /// Panics if `start > end` or `end > self.emacs_byte_len()`.
+    pub fn copy_emacs_bytes_to(&self, start: usize, end: usize, out: &mut Vec<u8>) {
+        assert!(
+            start <= end,
+            "copy_emacs_bytes_to: start ({start}) > end ({end})"
+        );
+        assert!(
+            end <= self.total_bytes,
+            "copy_emacs_bytes_to: end ({end}) > emacs len ({})",
+            self.total_bytes
+        );
+        out.clear();
+        if start == end {
+            return;
+        }
+        out.reserve(end - start);
+
+        if start < self.gap_start_bytes {
+            let seg_end = end.min(self.gap_start_bytes);
+            let text =
+                storage_slice_to_str(&self.buf[..self.gap_start], "copy_emacs_bytes_to pre-gap");
+            crate::emacs_core::string_escape::append_storage_logical_byte_range_as_emacs_bytes(
+                text, start, seg_end, out,
+            );
+        }
+
+        if end > self.gap_start_bytes {
+            let seg_start = start.max(self.gap_start_bytes);
+            let rel_start = seg_start - self.gap_start_bytes;
+            let rel_end = end - self.gap_start_bytes;
+            let text =
+                storage_slice_to_str(&self.buf[self.gap_end..], "copy_emacs_bytes_to post-gap");
+            crate::emacs_core::string_escape::append_storage_logical_byte_range_as_emacs_bytes(
+                text, rel_start, rel_end, out,
+            );
+        }
+    }
+
     /// Return the full buffer contents as a `String`.
     pub fn to_string(&self) -> String {
         self.text_range(0, self.len())
@@ -1504,5 +1547,23 @@ mod tests {
         let mut out = vec![1, 2, 3]; // pre-existing contents
         gb.copy_bytes_to(2, 2, &mut out);
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn copy_emacs_bytes_to_unibyte_storage_sentinels() {
+        crate::test_utils::init_test_tracing();
+        let storage = crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(&[
+            0xFF, b'\n', 0x80, b'A',
+        ]);
+        let mut gb = GapBuffer::from_str(&storage);
+        let gap_pos = gb.emacs_byte_to_storage_byte(2);
+        gb.move_gap_to(gap_pos);
+
+        let mut out = Vec::new();
+        gb.copy_emacs_bytes_to(0, 4, &mut out);
+        assert_eq!(out, vec![0xFF, b'\n', 0x80, b'A']);
+
+        gb.copy_emacs_bytes_to(1, 3, &mut out);
+        assert_eq!(out, vec![b'\n', 0x80]);
     }
 }

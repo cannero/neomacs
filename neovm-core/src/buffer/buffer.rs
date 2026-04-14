@@ -1700,6 +1700,13 @@ impl Buffer {
             .storage_byte_to_emacs_byte(pos.min(self.text.len()))
     }
 
+    pub fn copy_emacs_bytes_to(&self, start: usize, end: usize, out: &mut Vec<u8>) {
+        let total = self.total_bytes();
+        let s = start.min(total);
+        let e = end.max(s).min(total);
+        self.text.copy_emacs_bytes_to(s, e, out);
+    }
+
     /// Return a `String` copy of the Emacs-byte range `[start, end)`.
     pub fn buffer_substring(&self, start: usize, end: usize) -> String {
         let start_storage = self.emacs_byte_to_storage_byte(start);

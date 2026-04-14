@@ -772,9 +772,10 @@ pub(crate) fn builtin_buffer_substring_no_properties(
             crate::heap_types::LispString::from_emacs_bytes(Vec::new()),
         ));
     };
-    let storage = buf.buffer_substring(start_byte, end_byte);
+    let mut bytes = Vec::new();
+    buf.copy_emacs_bytes_to(start_byte, end_byte, &mut bytes);
     Ok(Value::heap_string(
-        crate::emacs_core::builtins::lisp_string_from_buffer_storage(&storage, buf.get_multibyte()),
+        crate::emacs_core::builtins::lisp_string_from_buffer_bytes(bytes, buf.get_multibyte()),
     ))
 }
 

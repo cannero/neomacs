@@ -16,6 +16,18 @@ fn eval_with_text(text: &str) -> Context {
     ev
 }
 
+fn eval_with_unibyte_bytes(bytes: &[u8]) -> Context {
+    let mut ev = Context::new();
+    let storage = crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(bytes);
+    {
+        let buf = ev.buffers.current_buffer_mut().unwrap();
+        buf.set_multibyte_value(false);
+        buf.insert(&storage);
+        buf.goto_char(0);
+    }
+    ev
+}
+
 fn bootstrap_eval_with_text(text: &str) -> Context {
     let mut ev = runtime_startup_context();
     {
@@ -232,6 +244,15 @@ fn test_line_end_position() {
 }
 
 #[test]
+fn test_line_positions_on_unibyte_raw_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = eval_with_unibyte_bytes(&[0xFF, b'\n', 0x80, b'A']);
+    eval_str(&mut ev, "(goto-char 4)");
+    assert_eq!(eval_int(&mut ev, "(line-beginning-position)"), 3);
+    assert_eq!(eval_int(&mut ev, "(line-end-position)"), 5);
+}
+
+#[test]
 fn test_line_beginning_position_with_offset() {
     crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("aaa\nbbb\nccc");
@@ -281,6 +302,16 @@ fn test_line_number_at_pos_default() {
     // Point is at 1 (first char)
     let n = eval_int(&mut ev, "(line-number-at-pos)");
     assert_eq!(n, 1);
+}
+
+#[test]
+fn test_line_counting_on_unibyte_raw_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = eval_with_unibyte_bytes(&[0xFF, b'\n', 0x80, b'A']);
+    assert_eq!(eval_int(&mut ev, "(line-number-at-pos 4)"), 2);
+    assert_eq!(eval_int(&mut ev, "(count-lines 1 5)"), 2);
+    assert_eq!(eval_int(&mut ev, "(forward-line 1)"), 0);
+    assert_eq!(eval_int(&mut ev, "(point)"), 3);
 }
 
 #[test]

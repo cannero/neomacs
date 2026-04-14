@@ -97,74 +97,29 @@ fn byte_to_char_pos(buf: &crate::buffer::Buffer, byte_pos: usize) -> i64 {
     buf.text.emacs_byte_to_char(byte_pos) as i64 + 1
 }
 
-/// Return the full buffer text as a String.
-fn buffer_text(buf: &crate::buffer::Buffer) -> String {
-    buf.text.to_string()
-}
-
-fn emacs_byte_to_storage(text: &str, byte_pos: usize) -> usize {
-    crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
-        text,
-        byte_pos.min(crate::emacs_core::string_escape::storage_byte_len(text)),
-    )
-}
-
-fn storage_byte_to_emacs(text: &str, byte_pos: usize) -> usize {
-    crate::emacs_core::string_escape::storage_byte_to_logical_byte(text, byte_pos.min(text.len()))
-}
-
-/// Find the Emacs byte position of the beginning of the line containing `byte_pos`.
-fn line_beginning_byte(text: &str, byte_pos: usize) -> usize {
-    // Search backwards for '\n'.
-    let pos = emacs_byte_to_storage(text, byte_pos);
-    let storage = match text[..pos].rfind('\n') {
-        Some(nl) => nl + 1,
-        None => 0,
-    };
-    storage_byte_to_emacs(text, storage)
-}
-
-/// Find the Emacs byte position of the end of the line containing `byte_pos`
-/// (position of the '\n', or text length if no trailing newline).
-fn line_end_byte(text: &str, byte_pos: usize) -> usize {
-    let pos = emacs_byte_to_storage(text, byte_pos);
-    let storage = match text[pos..].find('\n') {
-        Some(offset) => pos + offset,
-        None => text.len(),
-    };
-    storage_byte_to_emacs(text, storage)
+/// Return the full buffer text as raw Emacs bytes.
+fn buffer_bytes(buf: &crate::buffer::Buffer) -> Vec<u8> {
+    let mut out = Vec::new();
+    buf.copy_emacs_bytes_to(0, buf.total_bytes(), &mut out);
+    out
 }
 
 /// Count newlines in the Emacs-byte range [start, end).
-fn count_newlines(text: &str, start: usize, end: usize) -> usize {
-    let s = emacs_byte_to_storage(text, start);
-    let e = emacs_byte_to_storage(text, end.max(start));
-    text[s..e].chars().filter(|&c| c == '\n').count()
-}
-
-/// Move from `byte_pos` by `n` lines.  Positive = forward, negative = backward.
-/// Returns the byte position at the beginning of the destination line and the
-/// number of lines actually moved (may be fewer than requested at buffer edges).
-fn move_by_lines(text: &str, byte_pos: usize, n: i64) -> (usize, i64) {
-    move_by_lines_narrowed(
-        text,
-        byte_pos,
-        n,
-        0,
-        crate::emacs_core::string_escape::storage_byte_len(text),
-    )
+fn count_newlines(text: &[u8], start: usize, end: usize) -> usize {
+    let s = start.min(text.len());
+    let e = end.max(start).min(text.len());
+    text[s..e].iter().filter(|&&b| b == b'\n').count()
 }
 
 /// Like `move_by_lines` but confined to the narrowed region `[begv, zv)`.
 fn move_by_lines_narrowed(
-    text: &str,
+    text: &[u8],
     byte_pos: usize,
     n: i64,
     begv: usize,
     zv: usize,
 ) -> (usize, i64) {
-    let logical_len = crate::emacs_core::string_escape::storage_byte_len(text);
-    let zv = zv.min(logical_len);
+    let zv = zv.min(text.len());
     let mut pos = byte_pos.clamp(begv, zv);
     let mut moved: i64 = 0;
     if n >= 0 {
@@ -172,11 +127,9 @@ fn move_by_lines_narrowed(
             return (line_beginning_byte_narrowed(text, pos, begv), 0);
         }
         for _ in 0..n {
-            let pos_storage = emacs_byte_to_storage(text, pos);
-            let zv_storage = emacs_byte_to_storage(text, zv);
-            match text[pos_storage..zv_storage].find('\n') {
+            match text[pos..zv].iter().position(|&b| b == b'\n') {
                 Some(offset) => {
-                    pos = storage_byte_to_emacs(text, pos_storage + offset + 1);
+                    pos += offset + 1;
                     moved += 1;
                 }
                 None => {
@@ -200,31 +153,23 @@ fn move_by_lines_narrowed(
 }
 
 /// Find the beginning of the line containing `byte_pos`, but not before `begv`.
-fn line_beginning_byte_narrowed(text: &str, byte_pos: usize, begv: usize) -> usize {
-    let logical_len = crate::emacs_core::string_escape::storage_byte_len(text);
-    let pos = byte_pos.min(logical_len);
+fn line_beginning_byte_narrowed(text: &[u8], byte_pos: usize, begv: usize) -> usize {
+    let pos = byte_pos.min(text.len());
     let start = begv.min(pos);
-    let pos_storage = emacs_byte_to_storage(text, pos);
-    let start_storage = emacs_byte_to_storage(text, start);
-    let storage = match text[start_storage..pos_storage].rfind('\n') {
-        Some(offset) => start_storage + offset + 1,
-        None => start_storage,
-    };
-    storage_byte_to_emacs(text, storage)
+    match text[start..pos].iter().rposition(|&b| b == b'\n') {
+        Some(offset) => start + offset + 1,
+        None => start,
+    }
 }
 
 /// Find the end of the line containing `byte_pos`, but not past `zv`.
-fn line_end_byte_narrowed(text: &str, byte_pos: usize, zv: usize) -> usize {
-    let logical_len = crate::emacs_core::string_escape::storage_byte_len(text);
-    let pos = byte_pos.min(logical_len);
-    let end = zv.min(logical_len);
-    let pos_storage = emacs_byte_to_storage(text, pos);
-    let end_storage = emacs_byte_to_storage(text, end);
-    let storage = match text[pos_storage..end_storage].find('\n') {
-        Some(offset) => pos_storage + offset,
-        None => end_storage,
-    };
-    storage_byte_to_emacs(text, storage)
+fn line_end_byte_narrowed(text: &[u8], byte_pos: usize, zv: usize) -> usize {
+    let pos = byte_pos.min(text.len());
+    let end = zv.min(text.len());
+    match text[pos..end].iter().position(|&b| b == b'\n') {
+        Some(offset) => pos + offset,
+        None => end,
+    }
 }
 
 // ===========================================================================
@@ -476,7 +421,7 @@ pub(crate) fn builtin_line_beginning_position(
         expect_int(&args[0])?
     };
     let buf = current_buffer_in_manager(&ctx.buffers)?;
-    let text = buffer_text(buf);
+    let text = buffer_bytes(buf);
     let begv = buf.begv_byte;
     let zv = buf.zv_byte;
     let mut pos = buf.pt_byte;
@@ -501,7 +446,7 @@ pub(crate) fn builtin_line_end_position(
         expect_int(&args[0])?
     };
     let buf = current_buffer_in_manager(&ctx.buffers)?;
-    let text = buffer_text(buf);
+    let text = buffer_bytes(buf);
     let begv = buf.begv_byte;
     let zv = buf.zv_byte;
     let mut pos = buf.pt_byte;
@@ -532,7 +477,7 @@ pub(crate) fn builtin_line_number_at_pos(
     };
     let _absolute = args.get(1).is_some_and(|v| v.is_truthy());
     // Count newlines from start of buffer to byte_pos.
-    let text = buffer_text(buf);
+    let text = buffer_bytes(buf);
     let start = if _absolute { 0 } else { buf.begv_byte };
     let line_num = count_newlines(&text, start, byte_pos) + 1;
     Ok(Value::fixnum(line_num as i64))
@@ -552,7 +497,7 @@ pub(crate) fn builtin_count_lines(eval: &mut super::eval::Context, args: Vec<Val
     } else {
         (byte_end, byte_beg)
     };
-    let text = buffer_text(buf);
+    let text = buffer_bytes(buf);
     let mut n = count_newlines(&text, s, e);
     // GNU Emacs: "can be one more if START is not equal to END and the
     // greater of them is not at the start of a line."
@@ -576,7 +521,7 @@ pub(crate) fn builtin_forward_line(
     let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (text, begv, zv, pt) = {
         let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
-        (buffer_text(buf), buf.begv_byte, buf.zv_byte, buf.pt_byte)
+        (buffer_bytes(buf), buf.begv_byte, buf.zv_byte, buf.pt_byte)
     };
     let old_byte = pt;
     let (new_pos, moved) = move_by_lines_narrowed(&text, pt, n, begv, zv);
@@ -611,7 +556,7 @@ pub(crate) fn builtin_beginning_of_line(
     let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (text, begv, zv, pt) = {
         let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
-        (buffer_text(buf), buf.begv_byte, buf.zv_byte, buf.pt_byte)
+        (buffer_bytes(buf), buf.begv_byte, buf.zv_byte, buf.pt_byte)
     };
     let old_byte = pt;
     let mut pos = pt;
@@ -637,7 +582,7 @@ pub(crate) fn builtin_end_of_line(eval: &mut super::eval::Context, args: Vec<Val
     let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (text, begv, zv, pt) = {
         let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
-        (buffer_text(buf), buf.begv_byte, buf.zv_byte, buf.pt_byte)
+        (buffer_bytes(buf), buf.begv_byte, buf.zv_byte, buf.pt_byte)
     };
     let old_byte = pt;
     let mut pos = pt;
@@ -798,7 +743,6 @@ pub(crate) fn builtin_skip_chars_forward(
         } else {
             buf.zv_byte
         };
-        let text = buffer_text(buf);
         let start_pos = buf.pt_byte;
         let mut pos = buf.pt_byte;
         let limit = lim_byte.min(buf.zv_byte);
