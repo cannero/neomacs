@@ -6,8 +6,62 @@
 
 use super::{Buffer, BufferId, BufferManager};
 use crate::buffer::undo;
+use crate::heap_types::LispString;
+
+#[inline]
+fn emacs_char_count(bytes: &[u8], multibyte: bool) -> usize {
+    if multibyte {
+        crate::emacs_core::emacs_char::chars_in_multibyte(bytes)
+    } else {
+        bytes.len()
+    }
+}
+
+#[inline]
+fn lisp_string_from_buffer_bytes(bytes: Vec<u8>, multibyte: bool) -> LispString {
+    if multibyte {
+        LispString::from_emacs_bytes(bytes)
+    } else {
+        LispString::from_unibyte(bytes)
+    }
+}
 
 impl Buffer {
+    fn insert_bytes_internal(&mut self, bytes: &[u8], char_len: usize, before_markers: bool) {
+        let insert_pos = self.pt_byte;
+        let insert_char_pos = self.pt;
+        if bytes.is_empty() {
+            return;
+        }
+        let byte_len = bytes.len();
+
+        if !self.undo_state.in_progress() {
+            self.undo_prepare_change(insert_pos, self.pt_byte);
+            let mut ul = self.get_undo_list();
+            if !undo::undo_list_is_disabled(&ul) {
+                undo::undo_list_record_insert(&mut ul, insert_pos, byte_len, self.pt_byte);
+                self.set_undo_list(ul);
+            }
+        }
+
+        self.text.insert_emacs_bytes(insert_pos, bytes);
+        self.apply_byte_insert_side_effects(
+            insert_pos,
+            insert_char_pos,
+            byte_len,
+            char_len,
+            true,
+            false,
+            true,
+            true,
+            true,
+            before_markers,
+        );
+        if before_markers {
+            self.text.advance_markers_at(insert_pos, byte_len, char_len);
+        }
+    }
+
     fn apply_byte_insert_side_effects(
         &mut self,
         insert_pos: usize,
@@ -186,41 +240,15 @@ impl Buffer {
     ///
     /// Markers at the insertion site move according to their `InsertionType`.
     fn insert_internal(&mut self, text: &str, before_markers: bool) {
-        let insert_pos = self.pt_byte;
-        let insert_char_pos = self.pt;
         if text.is_empty() {
             return;
         }
-        let byte_len = crate::emacs_core::string_escape::storage_byte_len(text);
-        let char_len = crate::emacs_core::string_escape::storage_char_len(text);
-        let insert_storage_pos = self.text.emacs_byte_to_storage_byte(insert_pos);
-
-        // Record undo before modifying.
-        if !self.undo_state.in_progress() {
-            self.undo_prepare_change(insert_pos, self.pt_byte);
-            let mut ul = self.get_undo_list();
-            if !undo::undo_list_is_disabled(&ul) {
-                undo::undo_list_record_insert(&mut ul, insert_pos, byte_len, self.pt_byte);
-                self.set_undo_list(ul);
-            }
-        }
-
-        self.text.insert_str(insert_storage_pos, text);
-        self.apply_byte_insert_side_effects(
-            insert_pos,
-            insert_char_pos,
-            byte_len,
-            char_len,
-            true,
-            false,
-            true,
-            true,
-            true,
-            before_markers,
+        let bytes = crate::emacs_core::string_escape::storage_string_to_buffer_bytes(
+            text,
+            self.get_multibyte(),
         );
-        if before_markers {
-            self.text.advance_markers_at(insert_pos, byte_len, char_len);
-        }
+        let char_len = emacs_char_count(&bytes, self.get_multibyte());
+        self.insert_bytes_internal(&bytes, char_len, before_markers);
     }
 
     pub fn insert(&mut self, text: &str) {
@@ -229,6 +257,24 @@ impl Buffer {
 
     pub fn insert_before_markers(&mut self, text: &str) {
         self.insert_internal(text, true);
+    }
+
+    pub fn insert_lisp_string(&mut self, text: &LispString) {
+        debug_assert_eq!(
+            text.is_multibyte(),
+            self.get_multibyte(),
+            "insert_lisp_string: string multibyte flag must match target buffer",
+        );
+        self.insert_bytes_internal(text.as_bytes(), text.schars(), false);
+    }
+
+    pub fn insert_lisp_string_before_markers(&mut self, text: &LispString) {
+        debug_assert_eq!(
+            text.is_multibyte(),
+            self.get_multibyte(),
+            "insert_lisp_string_before_markers: string multibyte flag must match target buffer",
+        );
+        self.insert_bytes_internal(text.as_bytes(), text.schars(), true);
     }
 
     /// Delete the byte range `[start, end)`.
@@ -240,20 +286,21 @@ impl Buffer {
         }
         let start_char = self.text.emacs_byte_to_char(start);
         let end_char = self.text.emacs_byte_to_char(end);
-        let start_storage = self.text.emacs_byte_to_storage_byte(start);
-        let end_storage = self.text.emacs_byte_to_storage_byte(end);
         // Record undo: save the deleted text for restoration.
-        let deleted_text = self.text.text_range(start_storage, end_storage);
+        let mut deleted_bytes = Vec::new();
+        self.text
+            .copy_emacs_bytes_to(start, end, &mut deleted_bytes);
+        let deleted_text = lisp_string_from_buffer_bytes(deleted_bytes, self.get_multibyte());
         if !self.undo_state.in_progress() {
             self.undo_prepare_change(start, self.pt_byte);
             let mut ul = self.get_undo_list();
             if !undo::undo_list_is_disabled(&ul) {
-                undo::undo_list_record_delete(&mut ul, start, &deleted_text, self.pt_byte);
+                undo::undo_list_record_delete(&mut ul, start, deleted_text, self.pt_byte);
                 self.set_undo_list(ul);
             }
         }
 
-        self.text.delete_range(start_storage, end_storage);
+        self.text.delete_range(start, end);
         self.apply_byte_delete_side_effects(
             start, end, start_char, end_char, true, false, true, true,
         );
@@ -276,10 +323,7 @@ impl Buffer {
             return false;
         }
         let changed_chars = self.text.emacs_byte_to_char(end) - self.text.emacs_byte_to_char(start);
-        let start_storage = self.text.emacs_byte_to_storage_byte(start);
-        let end_storage = self.text.emacs_byte_to_storage_byte(end);
-
-        let original = self.text.text_range(start_storage, end_storage);
+        let original = self.text.text_range(start, end);
         let Some(replacement) =
             crate::emacs_core::string_escape::replace_storage_char_code_same_len(
                 &original, from_code, to_storage,
@@ -287,28 +331,34 @@ impl Buffer {
         else {
             return false;
         };
+        let replacement_bytes = crate::emacs_core::string_escape::storage_string_to_buffer_bytes(
+            &replacement,
+            self.get_multibyte(),
+        );
 
         if !noundo && !self.undo_state.in_progress() {
             self.undo_prepare_change(start, self.pt_byte);
             let mut ul = self.get_undo_list();
             if !undo::undo_list_is_disabled(&ul) {
-                undo::undo_list_record_delete(&mut ul, start, &original, self.pt_byte);
+                let deleted_bytes =
+                    crate::emacs_core::string_escape::storage_string_to_buffer_bytes(
+                        &original,
+                        self.get_multibyte(),
+                    );
+                let deleted = lisp_string_from_buffer_bytes(deleted_bytes, self.get_multibyte());
+                undo::undo_list_record_delete(&mut ul, start, deleted, self.pt_byte);
                 undo::undo_list_record_insert(
                     &mut ul,
                     start,
-                    crate::emacs_core::string_escape::storage_byte_len(&replacement),
+                    replacement_bytes.len(),
                     self.pt_byte,
                 );
                 self.set_undo_list(ul);
             }
         }
 
-        self.text.replace_char_code_same_len_range(
-            start_storage,
-            end_storage,
-            from_code,
-            to_storage,
-        );
+        self.text
+            .replace_same_len_emacs_bytes(start, end, &replacement_bytes);
         self.apply_same_len_edit_side_effects(changed_chars, noundo);
         true
     }
@@ -415,6 +465,46 @@ impl BufferManager {
         Some(())
     }
 
+    pub fn insert_lisp_string_into_buffer(
+        &mut self,
+        id: BufferId,
+        text: &LispString,
+    ) -> Option<()> {
+        if text.is_empty() {
+            return Some(());
+        }
+        let byte_len = text.sbytes();
+        let char_len = text.schars();
+
+        let root_id = self.shared_text_root_id(id)?;
+        let shared_ids = self.buffers_sharing_root_ids(root_id);
+        let source = self.buffers.get(&id)?;
+        let insert_pos = source.pt_byte;
+        let insert_char_pos = source.pt;
+
+        self.buffers.get_mut(&id)?.insert_lisp_string(text);
+
+        for sibling_id in shared_ids {
+            if sibling_id == id {
+                continue;
+            }
+            let update_state_fields =
+                self.current == Some(sibling_id) || !self.buffer_has_state_markers(sibling_id);
+            let sibling = self.buffers.get_mut(&sibling_id)?;
+            Self::adjust_shared_insert_metadata(
+                sibling,
+                insert_pos,
+                insert_char_pos,
+                byte_len,
+                char_len,
+                update_state_fields,
+                false,
+            );
+            self.refresh_shared_buffer_state_cache(sibling_id, update_state_fields)?;
+        }
+        Some(())
+    }
+
     pub fn insert_into_buffer_before_markers(&mut self, id: BufferId, text: &str) -> Option<()> {
         if text.is_empty() {
             return Some(());
@@ -428,6 +518,47 @@ impl BufferManager {
         let insert_char_pos = source.pt;
 
         self.buffers.get_mut(&id)?.insert_before_markers(text);
+
+        for sibling_id in shared_ids {
+            if sibling_id == id {
+                continue;
+            }
+            let update_state_fields =
+                self.current == Some(sibling_id) || !self.buffer_has_state_markers(sibling_id);
+            let sibling = self.buffers.get_mut(&sibling_id)?;
+            Self::adjust_shared_insert_metadata(
+                sibling,
+                insert_pos,
+                insert_char_pos,
+                byte_len,
+                char_len,
+                update_state_fields,
+                true,
+            );
+            self.refresh_shared_buffer_state_cache(sibling_id, update_state_fields)?;
+        }
+        Some(())
+    }
+
+    pub fn insert_lisp_string_into_buffer_before_markers(
+        &mut self,
+        id: BufferId,
+        text: &LispString,
+    ) -> Option<()> {
+        if text.is_empty() {
+            return Some(());
+        }
+        let byte_len = text.sbytes();
+        let char_len = text.schars();
+        let root_id = self.shared_text_root_id(id)?;
+        let shared_ids = self.buffers_sharing_root_ids(root_id);
+        let source = self.buffers.get(&id)?;
+        let insert_pos = source.pt_byte;
+        let insert_char_pos = source.pt;
+
+        self.buffers
+            .get_mut(&id)?
+            .insert_lisp_string_before_markers(text);
 
         for sibling_id in shared_ids {
             if sibling_id == id {

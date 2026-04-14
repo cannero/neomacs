@@ -2348,7 +2348,7 @@ fn load_syntax_table(st: &DumpSyntaxTable) -> SyntaxTable {
 // load_undo_record removed — undo state is loaded from buffer-local properties.
 
 fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
-    let text = BufferText::from_dump(db.text.text.clone());
+    let text = BufferText::from_dump(db.text.text.clone(), db.multibyte);
     let total_chars = text.char_count();
     let begv_char = db.begv_char.unwrap_or_else(|| text.byte_to_char(db.begv));
     let zv_char = db.zv_char.unwrap_or_else(|| {

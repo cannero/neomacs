@@ -689,7 +689,7 @@ pub(crate) fn builtin_delete_and_extract_region(
                 vec![Value::make_buffer(current_id)],
             ));
         }
-        Value::string(buf.buffer_substring(start_byte, end_byte))
+        buf.buffer_substring_value(start_byte, end_byte)
     };
 
     let old_len = current_buffer_byte_span_char_len(ctx, start_byte, end_byte);

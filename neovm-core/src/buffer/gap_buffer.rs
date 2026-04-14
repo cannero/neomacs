@@ -1,14 +1,14 @@
-//! A NeoVM storage-aware gap buffer for efficient text editing.
+//! A raw Emacs-byte gap buffer for efficient text editing.
 //!
 //! The gap buffer stores text in a contiguous `Vec<u8>` with a movable "gap"
 //! (unused region) that makes insertions and deletions near the gap O(1)
 //! amortized. The gap is relocated to the edit site before each mutation so
 //! that sequential edits in the same neighborhood avoid large copies.
 //!
-//! All public positions are **byte** positions into the logical text (i.e. the
+//! All public positions are byte positions into the logical text (i.e. the
 //! text with the gap removed) unless a parameter is explicitly named
-//! `char_pos`. Byte/character conversions follow NeoVM's internal storage
-//! format, including sentinel sequences for non-Unicode Emacs characters.
+//! `char_pos`. The underlying bytes are Emacs internal bytes, not sentinel-
+//! encoded Rust strings.
 
 use std::fmt;
 
@@ -19,7 +19,7 @@ const DEFAULT_GAP_SIZE: usize = 64;
 /// this many bytes, or the requested size, whichever is larger.
 const MIN_GAP_GROW: usize = 64;
 
-/// A gap buffer holding NeoVM internal string storage.
+/// A gap buffer holding raw Emacs bytes.
 ///
 /// Internally the backing store looks like:
 ///
@@ -34,6 +34,8 @@ const MIN_GAP_GROW: usize = 64;
 pub struct GapBuffer {
     /// Raw backing store.
     buf: Vec<u8>,
+    /// Whether the logical text should be interpreted as a multibyte buffer.
+    multibyte: bool,
     /// Byte index where the gap begins (first unused byte).
     gap_start: usize,
     /// Byte index one past the last gap byte (first byte of text after gap).
@@ -55,8 +57,13 @@ pub struct GapBuffer {
 impl GapBuffer {
     /// Create an empty gap buffer with a default-sized gap.
     pub fn new() -> Self {
+        Self::new_with_multibyte(true)
+    }
+
+    pub fn new_with_multibyte(multibyte: bool) -> Self {
         Self {
             buf: vec![0u8; DEFAULT_GAP_SIZE],
+            multibyte,
             gap_start: 0,
             gap_end: DEFAULT_GAP_SIZE,
             gap_start_chars: 0,
@@ -66,18 +73,17 @@ impl GapBuffer {
         }
     }
 
-    /// Create a gap buffer pre-loaded with the contents of `s`.
-    pub fn from_str(s: &str) -> Self {
-        let text = s.as_bytes();
+    /// Create a gap buffer pre-loaded with raw Emacs bytes.
+    pub fn from_emacs_bytes(text: &[u8], multibyte: bool) -> Self {
         let gap = DEFAULT_GAP_SIZE;
-        let char_count = crate::emacs_core::string_escape::storage_char_len(s);
-        let byte_count = crate::emacs_core::string_escape::storage_byte_len(s);
+        let char_count = emacs_char_count_bytes(text, multibyte);
+        let byte_count = text.len();
         let mut buf = Vec::with_capacity(text.len() + gap);
         buf.extend_from_slice(text);
         buf.resize(text.len() + gap, 0);
-        // Place gap at the end so that appending is cheap.
         Self {
             buf,
+            multibyte,
             gap_start: text.len(),
             gap_end: text.len() + gap,
             gap_start_chars: char_count,
@@ -85,6 +91,16 @@ impl GapBuffer {
             gap_start_bytes: byte_count,
             total_bytes: byte_count,
         }
+    }
+
+    /// Create a gap buffer pre-loaded with the contents of `s`.
+    pub fn from_str(s: &str) -> Self {
+        let multibyte = !s.chars().any(|ch| {
+            let code = ch as u32;
+            (0xE300..=0xE3FF).contains(&code)
+        });
+        let bytes = crate::emacs_core::string_escape::storage_string_to_buffer_bytes(s, multibyte);
+        Self::from_emacs_bytes(&bytes, multibyte)
     }
 
     // -----------------------------------------------------------------------
@@ -101,6 +117,23 @@ impl GapBuffer {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    pub fn is_multibyte(&self) -> bool {
+        self.multibyte
+    }
+
+    pub fn set_multibyte(&mut self, multibyte: bool) {
+        if self.multibyte == multibyte {
+            return;
+        }
+        self.multibyte = multibyte;
+        let mut logical = Vec::with_capacity(self.len());
+        self.copy_bytes_to(0, self.len(), &mut logical);
+        self.gap_start_chars = emacs_char_count_bytes(&logical[..self.gap_start], self.multibyte);
+        self.total_chars = emacs_char_count_bytes(&logical, self.multibyte);
+        self.gap_start_bytes = self.gap_start;
+        self.total_bytes = logical.len();
     }
 
     /// Number of logical Emacs characters in the buffer storage.
@@ -163,18 +196,7 @@ impl GapBuffer {
 
     /// Return the logical Emacs byte at `pos`, or `None` if out of range.
     pub fn emacs_byte_at(&self, pos: usize) -> Option<u8> {
-        if pos >= self.total_bytes {
-            return None;
-        }
-
-        if pos < self.gap_start_bytes {
-            let text = storage_slice_to_str(&self.buf[..self.gap_start], "emacs_byte_at pre-gap");
-            return crate::emacs_core::string_escape::storage_logical_byte_at(text, pos);
-        }
-
-        let rel_pos = pos - self.gap_start_bytes;
-        let text = storage_slice_to_str(&self.buf[self.gap_end..], "emacs_byte_at post-gap");
-        crate::emacs_core::string_escape::storage_logical_byte_at(text, rel_pos)
+        (pos < self.total_bytes).then(|| self.byte_at(pos))
     }
 
     /// Return the `char` whose first byte starts at logical byte position `pos`,
@@ -184,146 +206,49 @@ impl GapBuffer {
     ///
     /// Panics if `pos` does not lie on a UTF-8 character boundary.
     pub fn char_at(&self, pos: usize) -> Option<char> {
-        if pos >= self.len() {
-            return None;
-        }
-        // Decode the character spanning up to 4 bytes starting at `pos`.
-        let first = self.byte_at(pos);
-        let char_len = utf8_char_len(first);
-        assert!(
-            pos + char_len <= self.len(),
-            "char_at: incomplete UTF-8 sequence at byte position {pos}"
-        );
-        let mut tmp = [0u8; 4];
-        for i in 0..char_len {
-            tmp[i] = self.byte_at(pos + i);
-        }
-        let s = std::str::from_utf8(&tmp[..char_len]).expect("char_at: invalid UTF-8 sequence");
-        s.chars().next()
+        self.char_code_at(pos).and_then(char::from_u32)
     }
 
-    /// Return the Emacs character code whose first storage byte begins at
-    /// logical byte position `pos`, or `None` if `pos >= self.len()`.
+    /// Return the Emacs character code whose first byte begins at logical
+    /// byte position `pos`, or `None` if `pos >= self.len()`.
     pub fn char_code_at(&self, pos: usize) -> Option<u32> {
         if pos >= self.len() {
             return None;
         }
         assert!(
             self.is_char_boundary(pos),
-            "char_code_at: byte position {pos} is not a storage character boundary"
+            "char_code_at: byte position {pos} is not a character boundary"
         );
-        if pos < self.gap_start {
-            let text = storage_slice_to_str(&self.buf[..self.gap_start], "char_code_at pre-gap");
-            let char_idx = crate::emacs_core::string_escape::storage_byte_to_char(text, pos);
-            return crate::emacs_core::string_escape::decode_storage_char_codes(text)
-                .get(char_idx)
-                .copied();
+        if !self.multibyte {
+            return Some(self.byte_at(pos) as u32);
         }
 
-        let rel_pos = pos - self.gap_start;
-        let text = storage_slice_to_str(&self.buf[self.gap_end..], "char_code_at post-gap");
-        let char_idx = crate::emacs_core::string_escape::storage_byte_to_char(text, rel_pos);
-        crate::emacs_core::string_escape::decode_storage_char_codes(text)
-            .get(char_idx)
-            .copied()
+        let mut tmp = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+        let available = (self.len() - pos).min(tmp.len());
+        for (i, slot) in tmp[..available].iter_mut().enumerate() {
+            *slot = self.byte_at(pos + i);
+        }
+        Some(crate::emacs_core::emacs_char::string_char(&tmp[..available]).0)
     }
 
     /// Convert a character position to a logical Emacs byte offset.
     pub fn char_to_emacs_byte(&self, char_pos: usize) -> usize {
-        if char_pos == 0 {
-            return 0;
-        }
-
-        if char_pos <= self.gap_start_chars {
-            let text =
-                storage_slice_to_str(&self.buf[..self.gap_start], "char_to_emacs_byte pre-gap");
-            return crate::emacs_core::string_escape::storage_char_to_logical_byte(text, char_pos);
-        }
-
-        if char_pos <= self.total_chars {
-            let text =
-                storage_slice_to_str(&self.buf[self.gap_end..], "char_to_emacs_byte post-gap");
-            return self.gap_start_bytes
-                + crate::emacs_core::string_escape::storage_char_to_logical_byte(
-                    text,
-                    char_pos - self.gap_start_chars,
-                );
-        }
-
-        tracing::debug!(
-            "char_to_emacs_byte: char_pos ({char_pos}) exceeds char_count ({}), clamping",
-            self.total_chars
-        );
-        self.total_bytes
+        self.char_to_byte(char_pos)
     }
 
     /// Convert a logical Emacs byte offset to a character position.
     pub fn emacs_byte_to_char(&self, byte_pos: usize) -> usize {
-        assert!(
-            byte_pos <= self.total_bytes,
-            "emacs_byte_to_char: byte_pos ({byte_pos}) > len ({})",
-            self.total_bytes
-        );
-        if byte_pos <= self.gap_start_bytes {
-            let text =
-                storage_slice_to_str(&self.buf[..self.gap_start], "emacs_byte_to_char pre-gap");
-            return crate::emacs_core::string_escape::storage_logical_byte_to_char(text, byte_pos);
-        }
-
-        let rel_pos = byte_pos - self.gap_start_bytes;
-        let text = storage_slice_to_str(&self.buf[self.gap_end..], "emacs_byte_to_char post-gap");
-        self.gap_start_chars
-            + crate::emacs_core::string_escape::storage_logical_byte_to_char(text, rel_pos)
+        self.byte_to_char(byte_pos)
     }
 
     /// Convert a storage-byte boundary to the corresponding logical Emacs byte offset.
     pub fn storage_byte_to_emacs_byte(&self, byte_pos: usize) -> usize {
-        assert!(
-            byte_pos <= self.len(),
-            "storage_byte_to_emacs_byte: byte_pos ({byte_pos}) > len ({})",
-            self.len()
-        );
-        if byte_pos <= self.gap_start {
-            let text = storage_slice_to_str(
-                &self.buf[..self.gap_start],
-                "storage_byte_to_emacs_byte pre-gap",
-            );
-            return crate::emacs_core::string_escape::storage_byte_to_logical_byte(text, byte_pos);
-        }
-
-        let rel_pos = byte_pos - self.gap_start;
-        let text = storage_slice_to_str(
-            &self.buf[self.gap_end..],
-            "storage_byte_to_emacs_byte post-gap",
-        );
-        self.gap_start_bytes
-            + crate::emacs_core::string_escape::storage_byte_to_logical_byte(text, rel_pos)
+        byte_pos.min(self.len())
     }
 
     /// Convert a logical Emacs byte boundary to the corresponding storage-byte offset.
     pub fn emacs_byte_to_storage_byte(&self, byte_pos: usize) -> usize {
-        assert!(
-            byte_pos <= self.total_bytes,
-            "emacs_byte_to_storage_byte: byte_pos ({byte_pos}) > len ({})",
-            self.total_bytes
-        );
-        if byte_pos <= self.gap_start_bytes {
-            let text = storage_slice_to_str(
-                &self.buf[..self.gap_start],
-                "emacs_byte_to_storage_byte pre-gap",
-            );
-            return crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
-                text, byte_pos,
-            );
-        }
-
-        let rel_pos = byte_pos - self.gap_start_bytes;
-        let text = storage_slice_to_str(
-            &self.buf[self.gap_end..],
-            "emacs_byte_to_storage_byte post-gap",
-        );
-        self.gap_start
-            + crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(text, rel_pos)
+        byte_pos.min(self.total_bytes)
     }
 
     // -----------------------------------------------------------------------
@@ -345,30 +270,9 @@ impl GapBuffer {
         if start == end {
             return String::new();
         }
-
         let mut out = Vec::with_capacity(end - start);
-
-        // The logical text is split into two physical segments:
-        //   segment A: buf[0 .. gap_start]       (logical positions 0 .. gap_start)
-        //   segment B: buf[gap_end .. buf.len()]  (logical positions gap_start .. len)
-        //
-        // We need to copy the intersection of [start, end) with each segment.
-
-        // Intersection with segment A (logical 0..gap_start).
-        if start < self.gap_start {
-            let seg_end = end.min(self.gap_start);
-            out.extend_from_slice(&self.buf[start..seg_end]);
-        }
-
-        // Intersection with segment B (logical gap_start..len).
-        if end > self.gap_start {
-            let seg_start = start.max(self.gap_start);
-            let phys_start = seg_start + self.gap_size();
-            let phys_end = end + self.gap_size();
-            out.extend_from_slice(&self.buf[phys_start..phys_end]);
-        }
-
-        String::from_utf8(out).expect("text_range: extracted bytes are not valid UTF-8")
+        self.copy_bytes_to(start, end, &mut out);
+        crate::emacs_core::string_escape::emacs_bytes_to_storage_string(&out, self.multibyte)
     }
 
     /// Copy bytes in the logical range `[start, end)` into `out`.
@@ -429,25 +333,7 @@ impl GapBuffer {
         }
         out.reserve(end - start);
 
-        if start < self.gap_start_bytes {
-            let seg_end = end.min(self.gap_start_bytes);
-            let text =
-                storage_slice_to_str(&self.buf[..self.gap_start], "copy_emacs_bytes_to pre-gap");
-            crate::emacs_core::string_escape::append_storage_logical_byte_range_as_emacs_bytes(
-                text, start, seg_end, out,
-            );
-        }
-
-        if end > self.gap_start_bytes {
-            let seg_start = start.max(self.gap_start_bytes);
-            let rel_start = seg_start - self.gap_start_bytes;
-            let rel_end = end - self.gap_start_bytes;
-            let text =
-                storage_slice_to_str(&self.buf[self.gap_end..], "copy_emacs_bytes_to post-gap");
-            crate::emacs_core::string_escape::append_storage_logical_byte_range_as_emacs_bytes(
-                text, rel_start, rel_end, out,
-            );
-        }
+        self.copy_bytes_to(start, end, out);
     }
 
     /// Return the full buffer contents as a `String`.
@@ -459,6 +345,34 @@ impl GapBuffer {
     // Mutation
     // -----------------------------------------------------------------------
 
+    /// Insert raw Emacs bytes at logical byte position `pos`.
+    pub fn insert_emacs_bytes(&mut self, pos: usize, bytes: &[u8]) {
+        assert!(
+            pos <= self.len(),
+            "insert_emacs_bytes: position {pos} out of range (len {})",
+            self.len()
+        );
+        if bytes.is_empty() {
+            return;
+        }
+        debug_assert!(
+            pos == self.len() || self.is_char_boundary(pos),
+            "insert_emacs_bytes: position {pos} is not on an Emacs character boundary"
+        );
+
+        let inserted_chars = emacs_char_count_bytes(bytes, self.multibyte);
+        let inserted_bytes = bytes.len();
+        self.move_gap_to(pos);
+        self.ensure_gap(inserted_bytes);
+
+        self.buf[self.gap_start..self.gap_start + inserted_bytes].copy_from_slice(bytes);
+        self.gap_start += inserted_bytes;
+        self.gap_start_chars += inserted_chars;
+        self.total_chars += inserted_chars;
+        self.gap_start_bytes += inserted_bytes;
+        self.total_bytes += inserted_bytes;
+    }
+
     /// Insert `s` at logical byte position `pos`.
     ///
     /// After the call the gap sits immediately after the newly inserted text,
@@ -468,33 +382,12 @@ impl GapBuffer {
     ///
     /// Panics if `pos > self.len()` or `pos` is not on a UTF-8 boundary.
     pub fn insert_str(&mut self, pos: usize, s: &str) {
-        assert!(
-            pos <= self.len(),
-            "insert_str: position {pos} out of range (len {})",
-            self.len()
-        );
         if s.is_empty() {
             return;
         }
-        // Validate that `pos` falls on a char boundary (unless at the very end).
-        debug_assert!(
-            pos == self.len() || self.is_char_boundary(pos),
-            "insert_str: position {pos} is not on a UTF-8 character boundary"
-        );
-
-        let bytes = s.as_bytes();
-        let inserted_chars = crate::emacs_core::string_escape::storage_char_len(s);
-        let inserted_bytes = crate::emacs_core::string_escape::storage_byte_len(s);
-        self.move_gap_to(pos);
-        self.ensure_gap(bytes.len());
-
-        // Copy the new text into the gap.
-        self.buf[self.gap_start..self.gap_start + bytes.len()].copy_from_slice(bytes);
-        self.gap_start += bytes.len();
-        self.gap_start_chars += inserted_chars;
-        self.total_chars += inserted_chars;
-        self.gap_start_bytes += inserted_bytes;
-        self.total_bytes += inserted_bytes;
+        let bytes =
+            crate::emacs_core::string_escape::storage_string_to_buffer_bytes(s, self.multibyte);
+        self.insert_emacs_bytes(pos, &bytes);
     }
 
     /// Delete the logical byte range `[start, end)`.
@@ -515,24 +408,21 @@ impl GapBuffer {
         }
         debug_assert!(
             self.is_char_boundary(start),
-            "delete_range: start ({start}) is not on a UTF-8 character boundary"
+            "delete_range: start ({start}) is not on an Emacs character boundary"
         );
         debug_assert!(
             end == self.len() || self.is_char_boundary(end),
-            "delete_range: end ({end}) is not on a UTF-8 character boundary"
+            "delete_range: end ({end}) is not on an Emacs character boundary"
         );
 
         // Move the gap so that it starts at `start`, then extend it to swallow
         // the bytes up to `end`.
         self.move_gap_to(start);
-        let deleted_chars = storage_char_len_bytes(
+        let deleted_chars = emacs_char_count_bytes(
             &self.buf[self.gap_end..self.gap_end + (end - start)],
-            "delete_range",
+            self.multibyte,
         );
-        let deleted_bytes = storage_byte_len_bytes(
-            &self.buf[self.gap_end..self.gap_end + (end - start)],
-            "delete_range",
-        );
+        let deleted_bytes = end - start;
         // After move_gap_to(start), gap_start == start and the bytes that were
         // logically at [start, end) now sit at buf[gap_end .. gap_end + (end - start)].
         self.gap_end += end - start;
@@ -540,11 +430,8 @@ impl GapBuffer {
         self.total_bytes -= deleted_bytes;
     }
 
-    /// Overwrite the logical byte range `[start, end)` with `replacement`.
-    ///
-    /// `replacement` must have the exact same byte length as the replaced
-    /// region, and both boundaries must lie on UTF-8 character boundaries.
-    pub fn replace_same_len_range(&mut self, start: usize, end: usize, replacement: &str) {
+    /// Overwrite the logical byte range `[start, end)` with raw Emacs bytes.
+    pub fn replace_same_len_emacs_bytes(&mut self, start: usize, end: usize, replacement: &[u8]) {
         assert!(
             start <= end,
             "replace_same_len_range: start ({start}) > end ({end})"
@@ -557,7 +444,7 @@ impl GapBuffer {
         assert_eq!(
             replacement.len(),
             end - start,
-            "replace_same_len_range: replacement byte length ({}) must match replaced length ({})",
+            "replace_same_len_range: replacement Emacs-byte length ({}) must match replaced length ({})",
             replacement.len(),
             end - start
         );
@@ -566,19 +453,19 @@ impl GapBuffer {
         }
         debug_assert!(
             self.is_char_boundary(start),
-            "replace_same_len_range: start ({start}) is not on a UTF-8 character boundary"
+            "replace_same_len_range: start ({start}) is not on an Emacs character boundary"
         );
         debug_assert!(
             end == self.len() || self.is_char_boundary(end),
-            "replace_same_len_range: end ({end}) is not on a UTF-8 character boundary"
+            "replace_same_len_range: end ({end}) is not on an Emacs character boundary"
         );
 
         self.move_gap_to(end);
-        let old_chars = storage_char_len_bytes(&self.buf[start..end], "replace_same_len_range old");
-        let new_chars = crate::emacs_core::string_escape::storage_char_len(replacement);
-        let old_bytes = storage_byte_len_bytes(&self.buf[start..end], "replace_same_len_range old");
-        let new_bytes = crate::emacs_core::string_escape::storage_byte_len(replacement);
-        self.buf[start..end].copy_from_slice(replacement.as_bytes());
+        let old_chars = emacs_char_count_bytes(&self.buf[start..end], self.multibyte);
+        let new_chars = emacs_char_count_bytes(replacement, self.multibyte);
+        let old_bytes = end - start;
+        let new_bytes = replacement.len();
+        self.buf[start..end].copy_from_slice(replacement);
         if old_chars != new_chars {
             let delta = new_chars as isize - old_chars as isize;
             self.gap_start_chars = self.gap_start_chars.saturating_add_signed(delta);
@@ -589,6 +476,18 @@ impl GapBuffer {
             self.gap_start_bytes = self.gap_start_bytes.saturating_add_signed(delta);
             self.total_bytes = self.total_bytes.saturating_add_signed(delta);
         }
+    }
+
+    /// Overwrite the logical byte range `[start, end)` with `replacement`.
+    ///
+    /// `replacement` must have the exact same Emacs-byte length as the replaced
+    /// region, and both boundaries must lie on Emacs character boundaries.
+    pub fn replace_same_len_range(&mut self, start: usize, end: usize, replacement: &str) {
+        let replacement_bytes = crate::emacs_core::string_escape::storage_string_to_buffer_bytes(
+            replacement,
+            self.multibyte,
+        );
+        self.replace_same_len_emacs_bytes(start, end, &replacement_bytes);
     }
 
     // -----------------------------------------------------------------------
@@ -619,9 +518,8 @@ impl GapBuffer {
             // Moving gap left: shift buf[pos..gap_start] to the right by `gap`.
             let count = self.gap_start - pos;
             let moved_chars =
-                storage_char_len_bytes(&self.buf[pos..self.gap_start], "move_gap_to left");
-            let moved_bytes =
-                storage_byte_len_bytes(&self.buf[pos..self.gap_start], "move_gap_to left");
+                emacs_char_count_bytes(&self.buf[pos..self.gap_start], self.multibyte);
+            let moved_bytes = count;
             // Use copy_within which handles overlapping regions.
             self.buf.copy_within(pos..pos + count, pos + gap);
             self.gap_start = pos;
@@ -634,14 +532,9 @@ impl GapBuffer {
             let count = pos - self.gap_start;
             let src_start = self.gap_end;
             let dst_start = self.gap_start;
-            let moved_chars = storage_char_len_bytes(
-                &self.buf[src_start..src_start + count],
-                "move_gap_to right",
-            );
-            let moved_bytes = storage_byte_len_bytes(
-                &self.buf[src_start..src_start + count],
-                "move_gap_to right",
-            );
+            let moved_chars =
+                emacs_char_count_bytes(&self.buf[src_start..src_start + count], self.multibyte);
+            let moved_bytes = count;
             self.buf
                 .copy_within(src_start..src_start + count, dst_start);
             self.gap_start = pos;
@@ -682,7 +575,7 @@ impl GapBuffer {
     ///
     /// # Panics
     ///
-    /// Panics if `byte_pos > self.len()` or is not on a storage character
+    /// Panics if `byte_pos > self.len()` or is not on an Emacs character
     /// boundary.
     pub fn byte_to_char(&self, byte_pos: usize) -> usize {
         assert!(
@@ -691,23 +584,22 @@ impl GapBuffer {
             self.len()
         );
         if byte_pos <= self.gap_start {
-            let text = storage_slice_to_str(&self.buf[..self.gap_start], "byte_to_char pre-gap");
-            let char_idx = crate::emacs_core::string_escape::storage_byte_to_char(text, byte_pos);
-            assert!(
-                byte_pos == crate::emacs_core::string_escape::storage_char_to_byte(text, char_idx,),
-                "byte_to_char: byte_pos ({byte_pos}) is not a storage character boundary"
+            return emacs_byte_to_char_in_slice(
+                &self.buf[..self.gap_start],
+                byte_pos,
+                self.multibyte,
+                "byte_to_char pre-gap",
             );
-            return char_idx;
         }
 
         let rel_pos = byte_pos - self.gap_start;
-        let text = storage_slice_to_str(&self.buf[self.gap_end..], "byte_to_char post-gap");
-        let char_idx = crate::emacs_core::string_escape::storage_byte_to_char(text, rel_pos);
-        assert!(
-            rel_pos == crate::emacs_core::string_escape::storage_char_to_byte(text, char_idx,),
-            "byte_to_char: byte_pos ({byte_pos}) is not a storage character boundary"
-        );
-        self.gap_start_chars + char_idx
+        self.gap_start_chars
+            + emacs_byte_to_char_in_slice(
+                &self.buf[self.gap_end..],
+                rel_pos,
+                self.multibyte,
+                "byte_to_char post-gap",
+            )
     }
 
     /// Convert a char position to a logical byte position.
@@ -723,16 +615,19 @@ impl GapBuffer {
         }
 
         if char_pos <= self.gap_start_chars {
-            let text = storage_slice_to_str(&self.buf[..self.gap_start], "char_to_byte pre-gap");
-            return crate::emacs_core::string_escape::storage_char_to_byte(text, char_pos);
+            return emacs_char_to_byte_in_slice(
+                &self.buf[..self.gap_start],
+                char_pos,
+                self.multibyte,
+            );
         }
 
         if char_pos <= self.total_chars {
-            let text = storage_slice_to_str(&self.buf[self.gap_end..], "char_to_byte post-gap");
             return self.gap_start
-                + crate::emacs_core::string_escape::storage_char_to_byte(
-                    text,
+                + emacs_char_to_byte_in_slice(
+                    &self.buf[self.gap_end..],
                     char_pos - self.gap_start_chars,
+                    self.multibyte,
                 );
         }
 
@@ -749,23 +644,18 @@ impl GapBuffer {
     // Internal helpers
     // -----------------------------------------------------------------------
 
-    /// Check whether `pos` falls on a logical storage-character boundary in the
+    /// Check whether `pos` falls on a logical Emacs-character boundary in the
     /// text.
     fn is_char_boundary(&self, pos: usize) -> bool {
         if pos == 0 || pos >= self.len() {
             return true;
         }
         if pos < self.gap_start {
-            let text =
-                storage_slice_to_str(&self.buf[..self.gap_start], "is_char_boundary pre-gap");
-            let char_idx = crate::emacs_core::string_escape::storage_byte_to_char(text, pos);
-            return crate::emacs_core::string_escape::storage_char_to_byte(text, char_idx) == pos;
+            return is_emacs_char_boundary(&self.buf[..self.gap_start], pos, self.multibyte);
         }
 
         let rel_pos = pos - self.gap_start;
-        let text = storage_slice_to_str(&self.buf[self.gap_end..], "is_char_boundary post-gap");
-        let char_idx = crate::emacs_core::string_escape::storage_byte_to_char(text, rel_pos);
-        crate::emacs_core::string_escape::storage_char_to_byte(text, char_idx) == rel_pos
+        is_emacs_char_boundary(&self.buf[self.gap_end..], rel_pos, self.multibyte)
     }
 
     // pdump accessors
@@ -777,12 +667,13 @@ impl GapBuffer {
         out
     }
     /// Reconstruct from text bytes (for pdump load).
-    pub(crate) fn from_dump(text: Vec<u8>) -> Self {
+    pub(crate) fn from_dump(text: Vec<u8>, multibyte: bool) -> Self {
         let len = text.len();
-        let char_count = storage_char_len_bytes(&text, "from_dump");
-        let byte_count = storage_byte_len_bytes(&text, "from_dump");
+        let char_count = emacs_char_count_bytes(&text, multibyte);
+        let byte_count = text.len();
         Self {
             buf: text,
+            multibyte,
             gap_start: len,
             gap_end: len,
             gap_start_chars: char_count,
@@ -829,41 +720,55 @@ impl fmt::Debug for GapBuffer {
 // Free helper functions
 // ---------------------------------------------------------------------------
 
-/// Return the byte length of a UTF-8 character given its first byte.
-///
-/// Panics on an invalid leading byte (continuation byte or 0xFF/0xFE).
 #[inline]
-fn utf8_char_len(first_byte: u8) -> usize {
-    match first_byte {
-        0x00..=0x7F => 1,
-        0xC0..=0xDF => 2,
-        0xE0..=0xEF => 3,
-        0xF0..=0xF7 => 4,
-        _ => panic!("utf8_char_len: invalid UTF-8 leading byte 0x{first_byte:02X}"),
+fn emacs_char_count_bytes(bytes: &[u8], multibyte: bool) -> usize {
+    if multibyte {
+        crate::emacs_core::emacs_char::chars_in_multibyte(bytes)
+    } else {
+        bytes.len()
     }
 }
 
-/// Returns `true` if `b` is a valid start byte (not a continuation byte).
 #[inline]
-fn is_utf8_start_byte(b: u8) -> bool {
-    // Continuation bytes are 0x80..=0xBF (bit pattern 10xxxxxx).
-    (b & 0xC0) != 0x80
+fn emacs_char_to_byte_in_slice(bytes: &[u8], char_pos: usize, multibyte: bool) -> usize {
+    if multibyte {
+        crate::emacs_core::emacs_char::char_to_byte_pos(bytes, char_pos)
+    } else {
+        char_pos.min(bytes.len())
+    }
 }
 
 #[inline]
-fn storage_slice_to_str<'a>(bytes: &'a [u8], context: &str) -> &'a str {
-    std::str::from_utf8(bytes)
-        .unwrap_or_else(|_| panic!("{context}: storage bytes are not valid UTF-8"))
+fn emacs_byte_to_char_in_slice(
+    bytes: &[u8],
+    byte_pos: usize,
+    multibyte: bool,
+    context: &str,
+) -> usize {
+    if !multibyte {
+        return byte_pos.min(bytes.len());
+    }
+    assert!(
+        is_emacs_char_boundary(bytes, byte_pos, multibyte),
+        "{context}: byte_pos ({byte_pos}) is not an Emacs character boundary",
+    );
+    crate::emacs_core::emacs_char::byte_to_char_pos(bytes, byte_pos)
 }
 
 #[inline]
-fn storage_char_len_bytes(bytes: &[u8], context: &str) -> usize {
-    crate::emacs_core::string_escape::storage_char_len(storage_slice_to_str(bytes, context))
-}
-
-#[inline]
-fn storage_byte_len_bytes(bytes: &[u8], context: &str) -> usize {
-    crate::emacs_core::string_escape::storage_byte_len(storage_slice_to_str(bytes, context))
+fn is_emacs_char_boundary(bytes: &[u8], byte_pos: usize, multibyte: bool) -> bool {
+    if byte_pos > bytes.len() {
+        return false;
+    }
+    if !multibyte {
+        return true;
+    }
+    let mut pos = 0usize;
+    while pos < byte_pos {
+        let (_, len) = crate::emacs_core::emacs_char::string_char(&bytes[pos..]);
+        pos += len;
+    }
+    pos == byte_pos
 }
 
 // ===========================================================================
@@ -1341,13 +1246,13 @@ mod tests {
         let buf = GapBuffer::from_str(&storage);
         assert_eq!(buf.char_count(), 3);
         assert_eq!(buf.char_to_byte(0), 0);
-        assert_eq!(buf.char_to_byte(1), 3);
-        assert_eq!(buf.char_to_byte(2), 4);
-        assert_eq!(buf.char_to_byte(3), 7);
+        assert_eq!(buf.char_to_byte(1), 1);
+        assert_eq!(buf.char_to_byte(2), 2);
+        assert_eq!(buf.char_to_byte(3), 3);
         assert_eq!(buf.byte_to_char(0), 0);
-        assert_eq!(buf.byte_to_char(3), 1);
-        assert_eq!(buf.byte_to_char(4), 2);
-        assert_eq!(buf.byte_to_char(7), 3);
+        assert_eq!(buf.byte_to_char(1), 1);
+        assert_eq!(buf.byte_to_char(2), 2);
+        assert_eq!(buf.byte_to_char(3), 3);
     }
 
     #[test]
@@ -1356,16 +1261,16 @@ mod tests {
         let storage =
             crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(&[0x80, b'A', 0xFF]);
         let mut buf = GapBuffer::from_str(&storage);
-        buf.move_gap_to(4);
+        buf.move_gap_to(2);
         assert_eq!(buf.char_count(), 3);
         assert_eq!(buf.char_to_byte(0), 0);
-        assert_eq!(buf.char_to_byte(1), 3);
-        assert_eq!(buf.char_to_byte(2), 4);
-        assert_eq!(buf.char_to_byte(3), 7);
+        assert_eq!(buf.char_to_byte(1), 1);
+        assert_eq!(buf.char_to_byte(2), 2);
+        assert_eq!(buf.char_to_byte(3), 3);
         assert_eq!(buf.byte_to_char(0), 0);
-        assert_eq!(buf.byte_to_char(3), 1);
-        assert_eq!(buf.byte_to_char(4), 2);
-        assert_eq!(buf.byte_to_char(7), 3);
+        assert_eq!(buf.byte_to_char(1), 1);
+        assert_eq!(buf.byte_to_char(2), 2);
+        assert_eq!(buf.byte_to_char(3), 3);
     }
 
     // -----------------------------------------------------------------------

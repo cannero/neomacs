@@ -1072,7 +1072,7 @@ pub(crate) fn builtin_match_string(
         None => return Ok(Value::NIL),
     };
     if end <= buf.total_bytes() {
-        Ok(Value::string(buf.buffer_substring(start, end)))
+        Ok(buf.buffer_substring_value(start, end))
     } else {
         Ok(Value::NIL)
     }
@@ -1568,26 +1568,16 @@ pub(crate) fn builtin_replace_match_with_state_and_flags(
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let (oldstart, oldend, replacement_len) = {
-        let md = md_snapshot
-            .as_ref()
-            .ok_or_else(|| missing_subexp_signal(raw_subexp))?;
-        let (oldstart, oldend) = match md.groups.get(subexp) {
-            Some(Some(pair)) => *pair,
-            Some(None) | None => return Err(missing_subexp_signal(raw_subexp)),
-        };
-
         let buf = buffers
             .get(current_id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        let source = buf.buffer_substring(0, buf.total_bytes());
-        let replacement = super::regex::replace_match_string_with_syntax(
-            &source,
+        let (oldstart, oldend, replacement) = super::regex::compute_buffer_replacement_with_syntax(
+            buf,
             &newtext,
             fixedcase,
             literal,
             subexp,
             &md_snapshot,
-            Some(&buf.syntax_table),
             case_symbols_as_words,
         )
         .map_err(|msg| {
@@ -1597,8 +1587,7 @@ pub(crate) fn builtin_replace_match_with_state_and_flags(
                 signal("error", vec![Value::string(msg)])
             }
         })?;
-        let replacement_len = crate::emacs_core::string_escape::storage_byte_len(&replacement)
-            - (buf.total_bytes() - (oldend - oldstart));
+        let replacement_len = replacement.sbytes();
         (oldstart, oldend, replacement_len)
     };
 

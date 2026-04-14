@@ -327,6 +327,48 @@ pub(crate) fn bytes_to_unibyte_storage_string(bytes: &[u8]) -> String {
     out
 }
 
+pub(crate) fn emacs_bytes_to_storage_string(bytes: &[u8], multibyte: bool) -> String {
+    if !multibyte {
+        return bytes_to_unibyte_storage_string(bytes);
+    }
+
+    let mut out = String::new();
+    let mut pos = 0usize;
+    while pos < bytes.len() {
+        let (code, len) = crate::emacs_core::emacs_char::string_char(&bytes[pos..]);
+        out.push_str(
+            &encode_char_code_for_string_storage(code, true)
+                .expect("valid Emacs byte sequence must encode into storage string"),
+        );
+        pos += len;
+    }
+    out
+}
+
+pub(crate) fn storage_string_to_buffer_bytes(s: &str, multibyte: bool) -> Vec<u8> {
+    let codes = decode_storage_char_codes(s);
+    if !multibyte {
+        return codes
+            .into_iter()
+            .map(|code| {
+                assert!(
+                    code <= 0xFF,
+                    "unibyte storage contained non-byte character code {code:#X}"
+                );
+                code as u8
+            })
+            .collect();
+    }
+
+    let mut bytes = Vec::new();
+    for code in codes {
+        let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+        let len = crate::emacs_core::emacs_char::char_string(code, &mut buf);
+        bytes.extend_from_slice(&buf[..len]);
+    }
+    bytes
+}
+
 pub(crate) fn encode_char_code_for_string_storage(code: u32, multibyte: bool) -> Option<String> {
     if !multibyte {
         return (code <= 0xff).then(|| bytes_to_unibyte_storage_string(&[code as u8]));

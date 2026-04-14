@@ -17,6 +17,7 @@
 //! - `nil` — undo boundary
 
 use crate::emacs_core::value::{Value, ValueKind};
+use crate::heap_types::LispString;
 
 /// Returns `true` when `buffer-undo-list` is `t` (undo disabled).
 pub fn undo_list_is_disabled(undo_list: &Value) -> bool {
@@ -77,7 +78,7 @@ pub fn undo_list_record_insert(undo_list: &mut Value, beg: usize, len: usize, pt
 ///
 /// The stored position is 1-indexed and negative when `pt` was at the
 /// END of the deleted region (i.e. `pt == beg + text.len()`).
-pub fn undo_list_record_delete(undo_list: &mut Value, beg: usize, text: &str, pt: usize) {
+pub fn undo_list_record_delete(undo_list: &mut Value, beg: usize, text: LispString, pt: usize) {
     if undo_list_is_disabled(undo_list) || text.is_empty() {
         return;
     }
@@ -88,9 +89,13 @@ pub fn undo_list_record_delete(undo_list: &mut Value, beg: usize, text: &str, pt
     }
 
     let pos1 = (beg + 1) as i64;
-    let stored_pos = if pt == beg + text.len() { -pos1 } else { pos1 };
+    let stored_pos = if pt == beg + text.sbytes() {
+        -pos1
+    } else {
+        pos1
+    };
 
-    let entry = Value::cons(Value::string(text), Value::fixnum(stored_pos));
+    let entry = Value::cons(Value::heap_string(text), Value::fixnum(stored_pos));
     *undo_list = Value::cons(entry, *undo_list);
 }
 
@@ -218,16 +223,16 @@ fn undo_entry_size(entry: &Value) -> usize {
     match entry.kind() {
         ValueKind::Nil => 0,
         ValueKind::Fixnum(_) => 8,
-        ValueKind::String => entry.as_str().map(|s| s.len()).unwrap_or(8),
+        ValueKind::String => entry.as_lisp_string().map(|s| s.sbytes()).unwrap_or(8),
         _ if entry.is_cons() => {
             let car = entry.cons_car();
             let cdr = entry.cons_cdr();
             let car_size = match car.kind() {
-                ValueKind::String => car.as_str().map(|s| s.len()).unwrap_or(8),
+                ValueKind::String => car.as_lisp_string().map(|s| s.sbytes()).unwrap_or(8),
                 _ => 8,
             };
             let cdr_size = match cdr.kind() {
-                ValueKind::String => cdr.as_str().map(|s| s.len()).unwrap_or(8),
+                ValueKind::String => cdr.as_lisp_string().map(|s| s.sbytes()).unwrap_or(8),
                 _ => 8,
             };
             16 + car_size + cdr_size
@@ -311,7 +316,12 @@ mod tests {
     fn delete_records_text() {
         crate::test_utils::init_test_tracing();
         let mut list = Value::NIL;
-        undo_list_record_delete(&mut list, 3, "hello", 3);
+        undo_list_record_delete(
+            &mut list,
+            3,
+            crate::heap_types::LispString::from_unibyte(b"hello".to_vec()),
+            3,
+        );
         undo_list_boundary(&mut list);
 
         let group = undo_list_pop_group(&mut list);

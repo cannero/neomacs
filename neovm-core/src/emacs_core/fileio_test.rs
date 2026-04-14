@@ -2805,6 +2805,50 @@ fn test_write_region_string_start_numeric_append_and_visit_string_semantics() {
 }
 
 #[test]
+fn test_write_region_preserves_unibyte_raw_bytes() {
+    crate::test_utils::init_test_tracing();
+    use super::super::eval::Context;
+
+    let dir = std::env::temp_dir().join("neovm_eval_write_region_raw_bytes");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+
+    let out_path = dir.join("buffer.bin");
+    let out_str = out_path.to_string_lossy().to_string();
+    let out2_path = dir.join("string.bin");
+    let out2_str = out2_path.to_string_lossy().to_string();
+
+    let mut eval = Context::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.set_multibyte_value(false);
+        buf.insert_lisp_string(&crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    }
+
+    builtin_write_region(
+        &mut eval,
+        vec![Value::NIL, Value::NIL, Value::string(&out_str)],
+    )
+    .expect("write-region should preserve raw buffer bytes");
+    assert_eq!(fs::read(&out_path).unwrap(), vec![0xFF]);
+
+    builtin_write_region(
+        &mut eval,
+        vec![
+            Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+                0xFE, 0xFF,
+            ])),
+            Value::NIL,
+            Value::string(&out2_str),
+        ],
+    )
+    .expect("write-region string payload should preserve raw bytes");
+    assert_eq!(fs::read(&out2_path).unwrap(), vec![0xFE, 0xFF]);
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn test_find_file_noselect() {
     crate::test_utils::init_test_tracing();
     use super::super::eval::Context;

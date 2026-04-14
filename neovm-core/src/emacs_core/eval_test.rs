@@ -6996,6 +6996,22 @@ fn buffer_delete_and_extract_region_accepts_live_markers_after_insertions() {
 }
 
 #[test]
+fn buffer_delete_and_extract_region_preserves_unibyte_raw_bytes() {
+    crate::test_utils::init_test_tracing();
+    let results = bootstrap_eval_all(
+        "(with-temp-buffer
+           (set-buffer-multibyte nil)
+           (insert-byte 255 1)
+           (let ((s (delete-and-extract-region 1 2)))
+             (list (multibyte-string-p s)
+                   (string-bytes s)
+                   (aref s 0)
+                   (buffer-size))))",
+    );
+    assert_eq!(results[0], "OK (nil 1 255 0)");
+}
+
+#[test]
 fn buffer_erase() {
     crate::test_utils::init_test_tracing();
     let results = eval_all(
@@ -7058,6 +7074,23 @@ fn buffer_mutation_read_only_noop_cases_match_gnu() {
              (list (point-min) (point-max) (buffer-string))))",
     );
     assert_eq!(results[0], r#"OK (nil "" (1 1 ""))"#);
+}
+
+#[test]
+fn match_string_preserves_unibyte_raw_bytes_for_buffer_searches() {
+    crate::test_utils::init_test_tracing();
+    let results = bootstrap_eval_all(
+        "(with-temp-buffer
+           (set-buffer-multibyte nil)
+           (insert-byte 255 1)
+           (goto-char 1)
+           (re-search-forward \".\")
+           (let ((s (match-string 0)))
+             (list (multibyte-string-p s)
+                   (string-bytes s)
+                   (aref s 0))))",
+    );
+    assert_eq!(results[0], "OK (nil 1 255)");
 }
 
 #[test]

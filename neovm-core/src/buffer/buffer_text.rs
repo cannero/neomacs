@@ -102,6 +102,16 @@ impl BufferText {
         self.storage.borrow().gap.len()
     }
 
+    pub fn is_multibyte(&self) -> bool {
+        self.storage.borrow().gap.is_multibyte()
+    }
+
+    pub fn set_multibyte(&self, multibyte: bool) {
+        let mut storage = self.storage.borrow_mut();
+        storage.gap.set_multibyte(multibyte);
+        storage.layout = Self::layout_from_gap(&storage.gap);
+    }
+
     pub fn is_empty(&self) -> bool {
         self.storage.borrow().gap.is_empty()
     }
@@ -178,6 +188,15 @@ impl BufferText {
         storage.layout = Self::layout_from_gap(&storage.gap);
     }
 
+    pub fn insert_emacs_bytes(&mut self, pos: usize, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        let mut storage = self.storage.borrow_mut();
+        storage.gap.insert_emacs_bytes(pos, bytes);
+        storage.layout = Self::layout_from_gap(&storage.gap);
+    }
+
     pub fn delete_range(&mut self, start: usize, end: usize) {
         if start >= end {
             return;
@@ -193,6 +212,17 @@ impl BufferText {
         }
         let mut storage = self.storage.borrow_mut();
         storage.gap.replace_same_len_range(start, end, replacement);
+        storage.layout = Self::layout_from_gap(&storage.gap);
+    }
+
+    pub fn replace_same_len_emacs_bytes(&mut self, start: usize, end: usize, replacement: &[u8]) {
+        if start >= end {
+            return;
+        }
+        let mut storage = self.storage.borrow_mut();
+        storage
+            .gap
+            .replace_same_len_emacs_bytes(start, end, replacement);
         storage.layout = Self::layout_from_gap(&storage.gap);
     }
 
@@ -240,8 +270,8 @@ impl BufferText {
         self.storage.borrow().gap.dump_text()
     }
 
-    pub(crate) fn from_dump(text: Vec<u8>) -> Self {
-        let gap = GapBuffer::from_dump(text);
+    pub(crate) fn from_dump(text: Vec<u8>, multibyte: bool) -> Self {
+        let gap = GapBuffer::from_dump(text, multibyte);
         Self {
             storage: Rc::new(RefCell::new(BufferTextStorage {
                 layout: Self::layout_from_gap(&gap),
@@ -333,11 +363,28 @@ impl BufferText {
     pub fn replace_storage(
         &self,
         text: &str,
+        multibyte: bool,
+        text_props: TextPropertyTable,
+        markers: Vec<MarkerEntry>,
+    ) {
+        let bytes =
+            crate::emacs_core::string_escape::storage_string_to_buffer_bytes(text, multibyte);
+        let string = if multibyte {
+            crate::heap_types::LispString::from_emacs_bytes(bytes)
+        } else {
+            crate::heap_types::LispString::from_unibyte(bytes)
+        };
+        self.replace_lisp_string(&string, text_props, markers);
+    }
+
+    pub fn replace_lisp_string(
+        &self,
+        text: &crate::heap_types::LispString,
         text_props: TextPropertyTable,
         markers: Vec<MarkerEntry>,
     ) {
         let mut storage = self.storage.borrow_mut();
-        storage.gap = GapBuffer::from_str(text);
+        storage.gap = GapBuffer::from_emacs_bytes(text.as_bytes(), text.is_multibyte());
         storage.layout = Self::layout_from_gap(&storage.gap);
         storage.text_props = text_props;
         storage.markers = markers;

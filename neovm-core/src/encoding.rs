@@ -293,6 +293,29 @@ fn encode_eol_text(s: &str, coding_system: &str) -> String {
     s.to_string()
 }
 
+fn encode_eol_bytes(bytes: &[u8], coding_system: &str) -> Vec<u8> {
+    if coding_system.ends_with("-dos") {
+        let mut out =
+            Vec::with_capacity(bytes.len() + bytes.iter().filter(|&&byte| byte == b'\n').count());
+        for &byte in bytes {
+            if byte == b'\n' {
+                out.push(b'\r');
+            }
+            out.push(byte);
+        }
+        return out;
+    }
+
+    if coding_system.ends_with("-mac") {
+        return bytes
+            .iter()
+            .map(|&byte| if byte == b'\n' { b'\r' } else { byte })
+            .collect();
+    }
+
+    bytes.to_vec()
+}
+
 fn decode_eol_text(bytes: &[u8], coding_system: &str) -> Vec<u8> {
     if coding_system.ends_with("-dos") {
         let mut out = Vec::with_capacity(bytes.len());
@@ -494,6 +517,51 @@ fn encode_utf8_emacs_text(s: &str) -> Vec<u8> {
         }
     }
     out
+}
+
+pub fn encode_lisp_string(s: &crate::heap_types::LispString, coding_system: &str) -> Vec<u8> {
+    let family = coding_system_family(coding_system);
+    if matches!(family, "utf-8" | "utf-8-emacs") || is_byte_preserving_coding_system(coding_system)
+    {
+        return encode_eol_bytes(s.as_bytes(), coding_system);
+    }
+
+    let mut out = Vec::with_capacity(s.sbytes());
+    let mut push_encoded = |code: u32| match family {
+        "latin-1" | "iso-8859-1" | "iso-latin-1" => {
+            if code <= 0xFF {
+                out.push(code as u8);
+            } else if crate::emacs_core::emacs_char::char_byte8_p(code) {
+                out.push(crate::emacs_core::emacs_char::char_to_byte8(code));
+            } else {
+                out.push(b'?');
+            }
+        }
+        "ascii" | "us-ascii" => {
+            if code <= 0x7F {
+                out.push(code as u8);
+            } else {
+                out.push(b'?');
+            }
+        }
+        _ => {}
+    };
+
+    if s.is_multibyte() {
+        let bytes = s.as_bytes();
+        let mut pos = 0usize;
+        while pos < bytes.len() {
+            let (code, len) = crate::emacs_core::emacs_char::string_char(&bytes[pos..]);
+            push_encoded(code);
+            pos += len;
+        }
+    } else {
+        for &byte in s.as_bytes() {
+            push_encoded(byte as u32);
+        }
+    }
+
+    encode_eol_bytes(&out, coding_system)
 }
 
 // ---------------------------------------------------------------------------
@@ -776,7 +844,12 @@ pub(crate) fn builtin_encode_coding_string(args: Vec<Value>) -> EvalResult {
             ],
         ));
     }
-    let s = expect_string(&args[0])?;
+    let string = args[0].as_lisp_string().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[0]],
+        )
+    })?;
     let coding = match args[1].kind() {
         ValueKind::Nil => return Ok(args[0]),
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
@@ -790,24 +863,7 @@ pub(crate) fn builtin_encode_coding_string(args: Vec<Value>) -> EvalResult {
     if !known_coding_system(&coding) {
         return Err(signal("coding-system-error", vec![args[1]]));
     }
-    if matches!(coding_system_family(&coding), "utf-8" | "utf-8-emacs") {
-        let bytes = encode_string(&s, &coding);
-        return Ok(Value::heap_string(
-            crate::heap_types::LispString::from_unibyte(bytes),
-        ));
-    }
-    if is_byte_preserving_coding_system(&coding) {
-        let encoded = if coding.starts_with("raw-text") {
-            encode_eol_text(&s, &coding)
-        } else {
-            s.clone()
-        };
-        let bytes = storage_string_to_bytes(&encoded);
-        return Ok(Value::heap_string(
-            crate::heap_types::LispString::from_unibyte(bytes),
-        ));
-    }
-    let bytes = encode_string(&s, &coding);
+    let bytes = encode_lisp_string(string, &coding);
     Ok(Value::heap_string(
         crate::heap_types::LispString::from_unibyte(bytes),
     ))

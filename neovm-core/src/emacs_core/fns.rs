@@ -318,33 +318,24 @@ fn normalize_current_buffer_region_bounds(
     normalize_current_buffer_region_bounds_in_manager(&eval.buffers, start_arg, end_arg)
 }
 
-pub(crate) fn read_buffer_region_in_manager(
+pub(crate) fn read_buffer_region_bytes_in_manager(
     buffers: &BufferManager,
     buffer_id: crate::buffer::BufferId,
     start_byte: usize,
     end_byte: usize,
-) -> Result<String, Flow> {
+) -> Result<Vec<u8>, Flow> {
     let buf = buffers
         .get(buffer_id)
         .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
-    Ok(buf.buffer_substring(start_byte, end_byte))
+    Ok(buf.buffer_substring_bytes(start_byte, end_byte))
 }
 
-fn read_buffer_region(
-    eval: &super::eval::Context,
-    buffer_id: crate::buffer::BufferId,
-    start_byte: usize,
-    end_byte: usize,
-) -> Result<String, Flow> {
-    read_buffer_region_in_manager(&eval.buffers, buffer_id, start_byte, end_byte)
-}
-
-pub(crate) fn replace_buffer_region_in_manager(
+pub(crate) fn replace_buffer_region_lisp_string_in_manager(
     buffers: &mut BufferManager,
     buffer_id: crate::buffer::BufferId,
     start_byte: usize,
     end_byte: usize,
-    replacement: &str,
+    replacement: &crate::heap_types::LispString,
 ) -> Result<(), Flow> {
     buffers
         .goto_buffer_byte(buffer_id, start_byte)
@@ -356,22 +347,22 @@ pub(crate) fn replace_buffer_region_in_manager(
         .goto_buffer_byte(buffer_id, start_byte)
         .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
     buffers
-        .insert_into_buffer(buffer_id, replacement)
+        .insert_lisp_string_into_buffer(buffer_id, replacement)
         .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
     Ok(())
 }
 
-fn replace_buffer_region(
+fn replace_buffer_region_lisp_string(
     eval: &mut super::eval::Context,
     buffer_id: crate::buffer::BufferId,
     start_byte: usize,
     end_byte: usize,
-    replacement: &str,
+    replacement: &crate::heap_types::LispString,
 ) -> Result<(), Flow> {
     let old_len = super::editfns::current_buffer_byte_span_char_len(eval, start_byte, end_byte);
-    let new_len = replacement.len();
+    let new_len = replacement.sbytes();
     super::editfns::signal_before_change(eval, start_byte, end_byte)?;
-    replace_buffer_region_in_manager(
+    replace_buffer_region_lisp_string_in_manager(
         &mut eval.buffers,
         buffer_id,
         start_byte,
@@ -390,11 +381,20 @@ pub(crate) fn builtin_base64_encode_region(
     expect_range_args("base64-encode-region", &args, 2, 3)?;
     let (buffer_id, start_byte, end_byte) =
         normalize_current_buffer_region_bounds_in_manager(&mut eval.buffers, &args[0], &args[1])?;
-    let source = read_buffer_region_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte)?;
+    let source =
+        read_buffer_region_bytes_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte)?;
     let no_line_break = args.get(2).is_some_and(|v| v.is_truthy());
-    let encoded = base64_encode(source.as_bytes(), B64_STD, true, !no_line_break);
-    replace_buffer_region(eval, buffer_id, start_byte, end_byte, &encoded)?;
-    Ok(Value::fixnum(encoded.len() as i64))
+    let encoded = base64_encode(&source, B64_STD, true, !no_line_break);
+    let encoded_len = encoded.len();
+    let target_multibyte = eval
+        .buffers
+        .get(buffer_id)
+        .map(|buf| buf.get_multibyte())
+        .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
+    let replacement =
+        super::builtins::lisp_string_from_buffer_bytes(encoded.into_bytes(), target_multibyte);
+    replace_buffer_region_lisp_string(eval, buffer_id, start_byte, end_byte, &replacement)?;
+    Ok(Value::fixnum(encoded_len as i64))
 }
 
 /// (base64url-encode-region START END &optional NO-PAD)
@@ -405,11 +405,20 @@ pub(crate) fn builtin_base64url_encode_region(
     expect_range_args("base64url-encode-region", &args, 2, 3)?;
     let (buffer_id, start_byte, end_byte) =
         normalize_current_buffer_region_bounds_in_manager(&mut eval.buffers, &args[0], &args[1])?;
-    let source = read_buffer_region_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte)?;
+    let source =
+        read_buffer_region_bytes_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte)?;
     let no_pad = args.get(2).is_some_and(|v| v.is_truthy());
-    let encoded = base64_encode(source.as_bytes(), B64_URL, !no_pad, false);
-    replace_buffer_region(eval, buffer_id, start_byte, end_byte, &encoded)?;
-    Ok(Value::fixnum(encoded.len() as i64))
+    let encoded = base64_encode(&source, B64_URL, !no_pad, false);
+    let encoded_len = encoded.len();
+    let target_multibyte = eval
+        .buffers
+        .get(buffer_id)
+        .map(|buf| buf.get_multibyte())
+        .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
+    let replacement =
+        super::builtins::lisp_string_from_buffer_bytes(encoded.into_bytes(), target_multibyte);
+    replace_buffer_region_lisp_string(eval, buffer_id, start_byte, end_byte, &replacement)?;
+    Ok(Value::fixnum(encoded_len as i64))
 }
 
 /// (base64-decode-region START END &optional BASE64URL NOERROR)
@@ -420,7 +429,8 @@ pub(crate) fn builtin_base64_decode_region(
     expect_range_args("base64-decode-region", &args, 2, 4)?;
     let (buffer_id, start_byte, end_byte) =
         normalize_current_buffer_region_bounds_in_manager(&mut eval.buffers, &args[0], &args[1])?;
-    let source = read_buffer_region_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte)?;
+    let source =
+        read_buffer_region_bytes_in_manager(&mut eval.buffers, buffer_id, start_byte, end_byte)?;
     let use_url = args.get(2).is_some_and(|v| v.is_truthy());
     let noerror = args.get(3).is_some_and(|v| v.is_truthy());
     let table = if use_url {
@@ -428,15 +438,24 @@ pub(crate) fn builtin_base64_decode_region(
     } else {
         build_decode_table(B64_STD)
     };
+    let source = String::from_utf8_lossy(&source).into_owned();
+    let target_multibyte = eval
+        .buffers
+        .get(buffer_id)
+        .map(|buf| buf.get_multibyte())
+        .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
 
     match base64_decode(&source, &table) {
         Ok(bytes) => {
-            let decoded = String::from_utf8_lossy(&bytes).into_owned();
-            replace_buffer_region(eval, buffer_id, start_byte, end_byte, &decoded)?;
+            let replacement =
+                super::builtins::lisp_string_from_buffer_bytes(bytes.clone(), target_multibyte);
+            replace_buffer_region_lisp_string(eval, buffer_id, start_byte, end_byte, &replacement)?;
             Ok(Value::fixnum(bytes.len() as i64))
         }
         Err(()) if noerror => {
-            replace_buffer_region(eval, buffer_id, start_byte, end_byte, "")?;
+            let replacement =
+                super::builtins::lisp_string_from_buffer_bytes(Vec::new(), target_multibyte);
+            replace_buffer_region_lisp_string(eval, buffer_id, start_byte, end_byte, &replacement)?;
             Ok(Value::fixnum(0))
         }
         Err(()) => Err(signal("error", vec![Value::string("Invalid base64 data")])),
@@ -644,12 +663,11 @@ fn hash_slice_for_buffer_in_manager(
     buffer_id: crate::buffer::BufferId,
     start_raw: Option<&Value>,
     end_raw: Option<&Value>,
-) -> Result<String, Flow> {
+) -> Result<Vec<u8>, Flow> {
     let buf = buffers
         .get(buffer_id)
         .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
 
-    let text = buf.buffer_string();
     let point_min = buf.point_min_char() as i64 + 1;
     let point_max = buf.point_max_char() as i64 + 1;
 
@@ -667,18 +685,9 @@ fn hash_slice_for_buffer_in_manager(
     } else {
         (end, start)
     };
-    let lo_idx = (lo - point_min) as usize;
-    let hi_idx = (hi - point_min) as usize;
-    // Buffer text is UTF-8; convert character indices to byte offsets
-    let text_bytes = text.as_bytes();
-    let byte_lo = crate::emacs_core::emacs_char::char_to_byte_pos(text_bytes, lo_idx);
-    let byte_hi = crate::emacs_core::emacs_char::char_to_byte_pos(text_bytes, hi_idx);
-    if byte_hi > text_bytes.len() {
-        return Err(signal("args-out-of-range", vec![start_arg, end_arg]));
-    }
-    std::str::from_utf8(&text_bytes[byte_lo..byte_hi])
-        .map(|s| s.to_owned())
-        .map_err(|_| signal("args-out-of-range", vec![start_arg, end_arg]))
+    let byte_lo = buf.lisp_pos_to_accessible_byte(lo);
+    let byte_hi = buf.lisp_pos_to_accessible_byte(hi);
+    Ok(buf.buffer_substring_bytes(byte_lo, byte_hi))
 }
 
 fn md5_hex_for_buffer_in_manager(
@@ -688,7 +697,7 @@ fn md5_hex_for_buffer_in_manager(
     end_raw: Option<&Value>,
 ) -> Result<String, Flow> {
     let slice = hash_slice_for_buffer_in_manager(buffers, buffer_id, start_raw, end_raw)?;
-    Ok(md5_hash(slice.as_bytes()))
+    Ok(md5_hash(&slice))
 }
 
 fn secure_hash_algorithm_name(val: &Value) -> Result<String, Flow> {
@@ -742,7 +751,7 @@ fn hash_slice_for_string(
     object: &Value,
     start_raw: Option<&Value>,
     end_raw: Option<&Value>,
-) -> Result<String, Flow> {
+) -> Result<Vec<u8>, Flow> {
     let string = object
         .as_lisp_string()
         .expect("hash_slice_for_string only accepts string object");
@@ -776,40 +785,35 @@ fn hash_slice_for_string(
             vec![*object, start_arg, end_arg],
         ));
     }
-    let slice_bytes = &bytes[byte_from..byte_to];
-    // Return the slice as a String for downstream hashing.
-    // If it's valid UTF-8, use it directly; otherwise lossy-convert.
-    Ok(std::str::from_utf8(slice_bytes)
-        .map(|s| s.to_owned())
-        .unwrap_or_else(|_| crate::emacs_core::emacs_char::to_utf8_lossy(slice_bytes)))
+    Ok(bytes[byte_from..byte_to].to_vec())
 }
 
-fn secure_hash_digest_bytes(algo_name: &str, input: &str) -> Result<Vec<u8>, Flow> {
+fn secure_hash_digest_bytes(algo_name: &str, input: &[u8]) -> Result<Vec<u8>, Flow> {
     let digest = match algo_name {
-        "md5" => md5_digest(input.as_bytes()).to_vec(),
+        "md5" => md5_digest(input).to_vec(),
         "sha1" => {
             let mut h = Sha1::new();
-            h.update(input.as_bytes());
+            h.update(input);
             h.finalize().to_vec()
         }
         "sha224" => {
             let mut h = Sha224::new();
-            h.update(input.as_bytes());
+            h.update(input);
             h.finalize().to_vec()
         }
         "sha256" => {
             let mut h = Sha256::new();
-            h.update(input.as_bytes());
+            h.update(input);
             h.finalize().to_vec()
         }
         "sha384" => {
             let mut h = Sha384::new();
-            h.update(input.as_bytes());
+            h.update(input);
             h.finalize().to_vec()
         }
         "sha512" => {
             let mut h = Sha512::new();
-            h.update(input.as_bytes());
+            h.update(input);
             h.finalize().to_vec()
         }
         _ => {
@@ -893,11 +897,11 @@ pub(crate) fn builtin_buffer_hash(eval: &mut super::eval::Context, args: Vec<Val
     let text = eval
         .buffers
         .get(buffer_id)
-        .map(|buf| buf.buffer_string())
+        .map(|buf| buf.buffer_substring_bytes(buf.point_min(), buf.point_max()))
         .unwrap_or_default();
 
     let mut hasher = Sha1::new();
-    hasher.update(text.as_bytes());
+    hasher.update(&text);
     Ok(Value::string(bytes_to_hex(&hasher.finalize())))
 }
 

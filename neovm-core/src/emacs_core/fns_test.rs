@@ -222,6 +222,40 @@ fn base64_region_eval_swapped_bounds_and_url_encoding() {
 }
 
 #[test]
+fn base64_region_preserves_unibyte_raw_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.set_multibyte_value(false);
+        buf.delete_region(buf.point_min(), buf.point_max());
+        buf.insert_lisp_string(&crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+        buf.goto_byte(0);
+    }
+
+    let encoded = builtin_base64_encode_region(&mut eval, vec![Value::fixnum(1), Value::fixnum(2)])
+        .expect("encode raw-byte region should succeed");
+    assert_eq!(encoded, Value::fixnum(4));
+    let encoded_text = eval
+        .buffers
+        .current_buffer()
+        .expect("current buffer")
+        .buffer_string();
+    assert_eq!(encoded_text, "/w==");
+
+    let decoded = builtin_base64_decode_region(&mut eval, vec![Value::fixnum(1), Value::fixnum(5)])
+        .expect("decode raw-byte region should succeed");
+    assert_eq!(decoded, Value::fixnum(1));
+    let decoded_text = eval
+        .buffers
+        .current_buffer()
+        .expect("current buffer")
+        .buffer_substring_lisp_string(0, 1);
+    assert_eq!(decoded_text.as_bytes(), &[0xFF]);
+    assert!(!decoded_text.is_multibyte());
+}
+
+#[test]
 fn base64_decode_region_noerror_semantics() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
@@ -556,6 +590,54 @@ fn md5_eval_deleted_buffer_errors() {
         }
         other => panic!("expected error signal, got {other:?}"),
     }
+}
+
+#[test]
+fn md5_and_secure_hash_preserve_unibyte_raw_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.set_multibyte_value(false);
+        buf.delete_region(buf.point_min(), buf.point_max());
+        buf.insert_lisp_string(&crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    }
+    let id = eval.buffers.current_buffer().expect("current buffer").id;
+
+    let string_md5 = builtin_md5(&mut eval, vec![raw]).unwrap();
+    assert_eq!(
+        string_md5.as_str(),
+        Some("00594fd4f42ba43fc1ca0427a0576295")
+    );
+
+    let buffer_md5 = builtin_md5(&mut eval, vec![Value::make_buffer(id)]).unwrap();
+    assert_eq!(
+        buffer_md5.as_str(),
+        Some("00594fd4f42ba43fc1ca0427a0576295")
+    );
+
+    let string_sha1 = builtin_secure_hash(&mut eval, vec![Value::symbol("sha1"), raw]).unwrap();
+    assert_eq!(
+        string_sha1.as_str(),
+        Some("85e53271e14006f0265921d02d4d736cdc580b0b")
+    );
+
+    let buffer_sha1 = builtin_secure_hash(
+        &mut eval,
+        vec![Value::symbol("sha1"), Value::make_buffer(id)],
+    )
+    .unwrap();
+    assert_eq!(
+        buffer_sha1.as_str(),
+        Some("85e53271e14006f0265921d02d4d736cdc580b0b")
+    );
+
+    let buffer_hash = builtin_buffer_hash(&mut eval, vec![Value::make_buffer(id)]).unwrap();
+    assert_eq!(
+        buffer_hash.as_str(),
+        Some("85e53271e14006f0265921d02d4d736cdc580b0b")
+    );
 }
 
 // ---- secure-hash ----

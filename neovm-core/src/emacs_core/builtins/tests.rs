@@ -2498,6 +2498,106 @@ fn replace_buffer_contents_and_set_buffer_multibyte_runtime_semantics() {
 }
 
 #[test]
+fn replace_buffer_contents_preserves_unibyte_raw_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    let source_id = eval.buffers.create_buffer("*rbc-raw-source*");
+    {
+        let source = eval
+            .buffers
+            .get_mut(source_id)
+            .expect("source buffer should exist");
+        source.set_multibyte_value(false);
+    }
+    eval.buffers
+        .insert_lisp_string_into_buffer(
+            source_id,
+            &crate::heap_types::LispString::from_unibyte(vec![0xFF]),
+        )
+        .expect("raw source insert should succeed");
+
+    let dest_id = eval.buffers.create_buffer("*rbc-raw-dest*");
+    {
+        let dest = eval
+            .buffers
+            .get_mut(dest_id)
+            .expect("destination buffer should exist");
+        dest.set_multibyte_value(false);
+    }
+    eval.buffers.set_current(dest_id);
+
+    assert_eq!(
+        builtin_replace_buffer_contents(&mut eval, vec![Value::make_buffer(source_id)]).unwrap(),
+        Value::T
+    );
+
+    let dest = eval
+        .buffers
+        .get(dest_id)
+        .expect("destination buffer should exist");
+    let text = dest.buffer_substring_lisp_string(dest.point_min(), dest.point_max());
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[0xFF]);
+}
+
+#[test]
+fn buffer_swap_text_preserves_unibyte_raw_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    let first_id = eval.buffers.create_buffer("*swap-raw-a*");
+    let second_id = eval.buffers.create_buffer("*swap-raw-b*");
+
+    {
+        let first = eval
+            .buffers
+            .get_mut(first_id)
+            .expect("first buffer should exist");
+        first.set_multibyte_value(false);
+    }
+    {
+        let second = eval
+            .buffers
+            .get_mut(second_id)
+            .expect("second buffer should exist");
+        second.set_multibyte_value(false);
+    }
+
+    eval.buffers
+        .insert_lisp_string_into_buffer(
+            first_id,
+            &crate::heap_types::LispString::from_unibyte(vec![0xFE]),
+        )
+        .expect("first raw insert should succeed");
+    eval.buffers
+        .insert_lisp_string_into_buffer(
+            second_id,
+            &crate::heap_types::LispString::from_unibyte(vec![0xFF]),
+        )
+        .expect("second raw insert should succeed");
+
+    eval.buffers.set_current(first_id);
+    assert_eq!(
+        builtin_buffer_swap_text(&mut eval, vec![Value::make_buffer(second_id)]).unwrap(),
+        Value::NIL
+    );
+
+    let first = eval
+        .buffers
+        .get(first_id)
+        .expect("first buffer should exist");
+    let second = eval
+        .buffers
+        .get(second_id)
+        .expect("second buffer should exist");
+    let first_text = first.buffer_substring_lisp_string(first.point_min(), first.point_max());
+    let second_text = second.buffer_substring_lisp_string(second.point_min(), second.point_max());
+    assert_eq!(first_text.as_bytes(), &[0xFF]);
+    assert_eq!(second_text.as_bytes(), &[0xFE]);
+    assert!(!first_text.is_multibyte());
+    assert!(!second_text.is_multibyte());
+}
+
+#[test]
 fn compare_buffer_substrings_nil_bounds_use_accessible_region() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();

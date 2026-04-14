@@ -1005,3 +1005,114 @@ fn builtin_isearch_backward_rejects_too_many_args() {
             if sig.symbol_name() == "wrong-number-of-arguments"
     ));
 }
+
+#[test]
+fn replace_string_and_regexp_preserve_unibyte_raw_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.set_multibyte_value(false);
+        buf.insert_lisp_string(&crate::heap_types::LispString::from_unibyte(vec![
+            0xFF, 0xFF,
+        ]));
+        buf.goto_byte(0);
+    }
+
+    let raw_ff = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let raw_fe = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFE]));
+    builtin_replace_string(&mut eval, vec![raw_ff, raw_fe]).unwrap();
+
+    let current_id = {
+        let buf = eval.buffers.current_buffer().expect("current buffer");
+        let text = buf.buffer_substring_lisp_string(buf.point_min(), buf.point_max());
+        assert_eq!(text.as_bytes(), &[0xFE, 0xFE]);
+        buf.id
+    };
+    let _ = eval.buffers.replace_buffer_contents_lisp_string(
+        current_id,
+        &crate::heap_types::LispString::from_unibyte(vec![0xFF]),
+    );
+    let _ = eval.buffers.goto_buffer_byte(current_id, 0);
+
+    builtin_replace_regexp(
+        &mut eval,
+        vec![
+            Value::string("."),
+            Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFE])),
+        ],
+    )
+    .unwrap();
+
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    let text = buf.buffer_substring_lisp_string(buf.point_min(), buf.point_max());
+    assert_eq!(text.as_bytes(), &[0xFE]);
+}
+
+#[test]
+fn keep_and_flush_lines_preserve_unibyte_raw_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let current_id = eval.buffers.current_buffer().expect("current buffer").id;
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.set_multibyte_value(false);
+        buf.insert_lisp_string(&crate::heap_types::LispString::from_unibyte(vec![
+            0xFF, b'\n', b'a', b'\n', 0xFF, b'\n',
+        ]));
+        buf.goto_byte(0);
+    }
+
+    let raw_ff = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    builtin_keep_lines(&mut eval, vec![raw_ff]).unwrap();
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    let kept = buf.buffer_substring_lisp_string(buf.point_min(), buf.point_max());
+    assert_eq!(kept.as_bytes(), &[0xFF, b'\n', 0xFF, b'\n']);
+
+    let _ = eval.buffers.replace_buffer_contents_lisp_string(
+        current_id,
+        &crate::heap_types::LispString::from_unibyte(vec![0xFF, b'\n', b'a', b'\n']),
+    );
+    let _ = eval.buffers.goto_buffer_byte(current_id, 0);
+
+    builtin_flush_lines(
+        &mut eval,
+        vec![Value::heap_string(
+            crate::heap_types::LispString::from_unibyte(vec![0xFF]),
+        )],
+    )
+    .unwrap();
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    let flushed = buf.buffer_substring_lisp_string(buf.point_min(), buf.point_max());
+    assert_eq!(flushed.as_bytes(), b"a\n");
+}
+
+#[test]
+fn count_matches_and_how_many_preserve_unibyte_raw_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.set_multibyte_value(false);
+        buf.insert_lisp_string(&crate::heap_types::LispString::from_unibyte(vec![
+            0xFF, b'a', 0xFF,
+        ]));
+        buf.goto_byte(0);
+    }
+
+    let raw_ff = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let count = builtin_count_matches(&mut eval, vec![raw_ff]).unwrap();
+    assert_eq!(count, Value::fixnum(2));
+
+    let how_many = builtin_how_many(
+        &mut eval,
+        vec![Value::heap_string(
+            crate::heap_types::LispString::from_unibyte(vec![0xFF]),
+        )],
+    )
+    .unwrap();
+    assert_eq!(how_many, Value::fixnum(2));
+
+    let empty_count = builtin_count_matches(&mut eval, vec![Value::string("")]).unwrap();
+    assert_eq!(empty_count, Value::fixnum(3));
+}

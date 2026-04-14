@@ -2641,9 +2641,14 @@ fn write_region_content_in_state(
     current_id: crate::buffer::BufferId,
     start: &Value,
     end: Option<&Value>,
-) -> Result<String, Flow> {
+) -> Result<crate::heap_types::LispString, Flow> {
     if start.is_string() {
-        return expect_string_strict(start);
+        return start.as_lisp_string().cloned().ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![Value::symbol("stringp"), *start],
+            )
+        });
     }
 
     let buf = buffers
@@ -2651,7 +2656,7 @@ fn write_region_content_in_state(
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
     if start.is_nil() {
-        return Ok(buf.buffer_string());
+        return Ok(buf.buffer_substring_lisp_string(buf.point_min(), buf.point_max()));
     }
 
     let end = end.unwrap_or(&Value::NIL);
@@ -2676,7 +2681,7 @@ fn write_region_content_in_state(
     };
     let byte_start = buf.text.char_to_byte(char_start.min(buf.text.char_count()));
     let byte_end = buf.text.char_to_byte(char_end.min(buf.text.char_count()));
-    Ok(buf.buffer_substring(byte_start, byte_end))
+    Ok(buf.buffer_substring_lisp_string(byte_start, byte_end))
 }
 
 fn decode_insert_file_contents(
@@ -3187,7 +3192,7 @@ pub(crate) fn builtin_write_region(
     // --- Encode using the appropriate coding system ---
     // Priority: coding-system-for-write > buffer-file-coding-system > utf-8
     let coding_system = resolve_write_coding_system(&eval.obarray, &eval.buffers, current_id);
-    let encoded_bytes = crate::encoding::encode_string(&content, &coding_system);
+    let encoded_bytes = crate::encoding::encode_lisp_string(&content, &coding_system);
 
     // --- Write encoded bytes and handle fsync ---
     let file = write_bytes_to_file_with_mode(&encoded_bytes, &resolved, append_mode)

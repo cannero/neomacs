@@ -13,8 +13,9 @@
 //!
 //! - **#5** (translate table byte-only) — full Unicode case-canon
 //!   table refactor; covered by a doc comment in `regex_compile`.
-//! - **#13** (replace-match multibyte/unibyte) — collapses for
-//!   neomacs because all strings are UTF-8; documented inline.
+//! - **#13** (replace-match multibyte/unibyte) — still routed
+//!   through a storage-string compatibility seam instead of a
+//!   direct GNU-style byte conversion loop; documented inline.
 //! - **#15** (cache key narrow) — extra cache axes (syntax table
 //!   identity, multibyte flag) are placeholders for features
 //!   neomacs does not have yet; documented inline.
@@ -76,18 +77,14 @@ fn storage_rel_to_emacs_byte(text: &str, base_emacs_byte: usize, storage_pos: us
         + crate::emacs_core::string_escape::storage_byte_to_logical_byte(text, storage_pos)
 }
 
-fn buffer_match_data_from_registers(
-    regs: &MatchRegisters,
-    text: &str,
-    base_emacs_byte: usize,
-) -> MatchData {
+fn buffer_match_data_from_registers(regs: &MatchRegisters, base_emacs_byte: usize) -> MatchData {
     let num_groups = regs.num_regs();
     let mut groups = Vec::with_capacity(num_groups);
     for i in 0..num_groups {
         if regs.start[i] >= 0 && regs.end[i] >= 0 {
             groups.push(Some((
-                storage_rel_to_emacs_byte(text, base_emacs_byte, regs.start[i] as usize),
-                storage_rel_to_emacs_byte(text, base_emacs_byte, regs.end[i] as usize),
+                base_emacs_byte + regs.start[i] as usize,
+                base_emacs_byte + regs.end[i] as usize,
             )));
         } else {
             groups.push(None);
@@ -1162,6 +1159,120 @@ fn literal_rfind(text: &str, literal: &str, case_fold: bool) -> Option<(usize, u
     )
 }
 
+fn bytes_equal_ascii_case_fold(left: &[u8], right: &[u8]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right.iter())
+            .all(|(l, r)| l.eq_ignore_ascii_case(r))
+}
+
+fn literal_find_emacs_bytes(
+    text: &[u8],
+    literal: &[u8],
+    multibyte: bool,
+    case_fold: bool,
+) -> Option<(usize, usize)> {
+    crate::emacs_core::perf_trace::time_op(
+        crate::emacs_core::perf_trace::HotpathOp::RegexLiteralFind,
+        || {
+            if literal.is_empty() {
+                return Some((0, 0));
+            }
+            if !case_fold {
+                return text
+                    .windows(literal.len())
+                    .position(|window| window == literal)
+                    .map(|start| (start, start + literal.len()));
+            }
+            if text.is_ascii() && literal.is_ascii() {
+                return text
+                    .windows(literal.len())
+                    .position(|window| bytes_equal_ascii_case_fold(window, literal))
+                    .map(|start| (start, start + literal.len()));
+            }
+            if let (Some(text_utf8), Some(literal_utf8)) = (
+                crate::emacs_core::emacs_char::try_as_utf8(text),
+                crate::emacs_core::emacs_char::try_as_utf8(literal),
+            ) {
+                return literal_find(text_utf8, literal_utf8, true);
+            }
+
+            let text_storage =
+                crate::emacs_core::string_escape::emacs_bytes_to_storage_string(text, multibyte);
+            let literal_storage =
+                crate::emacs_core::string_escape::emacs_bytes_to_storage_string(literal, multibyte);
+            literal_find(&text_storage, &literal_storage, true).map(|(start, end)| {
+                (
+                    crate::emacs_core::string_escape::storage_byte_to_logical_byte(
+                        &text_storage,
+                        start,
+                    ),
+                    crate::emacs_core::string_escape::storage_byte_to_logical_byte(
+                        &text_storage,
+                        end,
+                    ),
+                )
+            })
+        },
+    )
+}
+
+fn literal_rfind_emacs_bytes(
+    text: &[u8],
+    literal: &[u8],
+    multibyte: bool,
+    case_fold: bool,
+) -> Option<(usize, usize)> {
+    crate::emacs_core::perf_trace::time_op(
+        crate::emacs_core::perf_trace::HotpathOp::RegexLiteralFind,
+        || {
+            if literal.is_empty() {
+                return Some((text.len(), text.len()));
+            }
+            if !case_fold {
+                return text
+                    .windows(literal.len())
+                    .enumerate()
+                    .rev()
+                    .find(|(_, window)| *window == literal)
+                    .map(|(start, _)| (start, start + literal.len()));
+            }
+            if text.is_ascii() && literal.is_ascii() {
+                return text
+                    .windows(literal.len())
+                    .enumerate()
+                    .rev()
+                    .find(|(_, window)| bytes_equal_ascii_case_fold(window, literal))
+                    .map(|(start, _)| (start, start + literal.len()));
+            }
+            if let (Some(text_utf8), Some(literal_utf8)) = (
+                crate::emacs_core::emacs_char::try_as_utf8(text),
+                crate::emacs_core::emacs_char::try_as_utf8(literal),
+            ) {
+                return literal_rfind(text_utf8, literal_utf8, true);
+            }
+
+            let text_storage =
+                crate::emacs_core::string_escape::emacs_bytes_to_storage_string(text, multibyte);
+            let literal_storage =
+                crate::emacs_core::string_escape::emacs_bytes_to_storage_string(literal, multibyte);
+            literal_rfind(&text_storage, &literal_storage, true).map(|(start, end)| {
+                (
+                    crate::emacs_core::string_escape::storage_byte_to_logical_byte(
+                        &text_storage,
+                        start,
+                    ),
+                    crate::emacs_core::string_escape::storage_byte_to_logical_byte(
+                        &text_storage,
+                        end,
+                    ),
+                )
+            })
+        },
+    )
+}
+
 fn next_search_char_boundary(text: &str, pos: usize) -> Option<usize> {
     if pos >= text.len() {
         return None;
@@ -1199,13 +1310,17 @@ pub fn search_forward(
         return Err(format!("Search failed: \"{}\"", pattern));
     }
 
-    let text = buf.buffer_substring(start, limit);
-
-    let found = literal_find(&text, pattern, case_fold);
+    let mut text = Vec::new();
+    buf.copy_emacs_bytes_to(start, limit, &mut text);
+    let literal = crate::emacs_core::string_escape::storage_string_to_buffer_bytes(
+        pattern,
+        buf.get_multibyte(),
+    );
+    let found = literal_find_emacs_bytes(&text, &literal, buf.get_multibyte(), case_fold);
 
     if let Some((rel_start, rel_end)) = found {
-        let match_start = storage_rel_to_emacs_byte(&text, start, rel_start);
-        let match_end = storage_rel_to_emacs_byte(&text, start, rel_end);
+        let match_start = start + rel_start;
+        let match_end = start + rel_end;
         buf.goto_byte(match_end);
         *match_data = Some(MatchData {
             groups: vec![Some((match_start, match_end))],
@@ -1244,13 +1359,17 @@ pub fn search_backward(
         return Err(format!("Search failed: \"{}\"", pattern));
     }
 
-    let text = buf.buffer_substring(limit, end);
-
-    let found = literal_rfind(&text, pattern, case_fold);
+    let mut text = Vec::new();
+    buf.copy_emacs_bytes_to(limit, end, &mut text);
+    let literal = crate::emacs_core::string_escape::storage_string_to_buffer_bytes(
+        pattern,
+        buf.get_multibyte(),
+    );
+    let found = literal_rfind_emacs_bytes(&text, &literal, buf.get_multibyte(), case_fold);
 
     if let Some((rel_start, rel_end)) = found {
-        let match_start = storage_rel_to_emacs_byte(&text, limit, rel_start);
-        let match_end = storage_rel_to_emacs_byte(&text, limit, rel_end);
+        let match_start = limit + rel_start;
+        let match_end = limit + rel_end;
         buf.goto_byte(match_start);
         *match_data = Some(MatchData {
             groups: vec![Some((match_start, match_end))],
@@ -1302,48 +1421,41 @@ pub fn re_search_forward_with_posix(
     }
 
     let region_start = buf.begv_byte;
-    let text = buf.buffer_substring(region_start, buf.zv_byte);
-    let start_rel = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
-        &text,
-        start - region_start,
-    );
-    let limit_rel = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
-        &text,
-        limit - region_start,
-    );
+    let mut text = Vec::new();
+    buf.copy_emacs_bytes_to(region_start, buf.zv_byte, &mut text);
+    let start_rel = start - region_start;
+    let limit_rel = limit - region_start;
 
     let md_opt = match compile_search_pattern_with_posix(pattern, case_fold, posix)? {
         CompiledSearchPattern::Literal(literal) => {
-            literal_find(&text[start_rel..limit_rel], &literal, case_fold).map(
-                |(rel_start, rel_end)| MatchData {
-                    groups: vec![Some((
-                        storage_rel_to_emacs_byte(&text, start, start_rel + rel_start),
-                        storage_rel_to_emacs_byte(&text, start, start_rel + rel_end),
-                    ))],
-                    searched_string: None,
-                    searched_buffer: Some(buf.id),
-                },
+            let literal_bytes = crate::emacs_core::string_escape::storage_string_to_buffer_bytes(
+                &literal,
+                buf.get_multibyte(),
+            );
+            literal_find_emacs_bytes(
+                &text[start_rel..limit_rel],
+                &literal_bytes,
+                buf.get_multibyte(),
+                case_fold,
             )
+            .map(|(rel_start, rel_end)| MatchData {
+                groups: vec![Some((start + rel_start, start + rel_end))],
+                searched_string: None,
+                searched_buffer: Some(buf.id),
+            })
         }
         CompiledSearchPattern::Emacs(cp) => {
             let syn = BufferSyntaxLookup {
                 syntax_table: &buf.syntax_table,
             };
-            let text_bytes = text.as_bytes();
             let range = (limit_rel - start_rel) as isize;
-            regex_emacs::re_search(
-                &cp,
-                &text_bytes[..limit_rel],
-                start_rel,
-                range,
-                &syn,
-                start_rel,
+            regex_emacs::re_search(&cp, &text[..limit_rel], start_rel, range, &syn, start_rel).map(
+                |(_pos, regs)| {
+                    let mut md = buffer_match_data_from_registers(&regs, region_start);
+                    md.searched_buffer = Some(buf.id);
+                    md
+                },
             )
-            .map(|(_pos, regs)| {
-                let mut md = buffer_match_data_from_registers(&regs, &text, region_start);
-                md.searched_buffer = Some(buf.id);
-                md
-            })
         }
     };
 
@@ -1396,39 +1508,41 @@ pub fn re_search_backward_with_posix(
     }
 
     let region_start = buf.begv_byte;
-    let text = buf.buffer_substring(region_start, buf.zv_byte);
-    let start_rel = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
-        &text,
-        end - region_start,
-    );
-    let limit_rel = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
-        &text,
-        limit - region_start,
-    );
+    let mut text = Vec::new();
+    buf.copy_emacs_bytes_to(region_start, buf.zv_byte, &mut text);
+    let start_rel = end - region_start;
+    let limit_rel = limit - region_start;
 
     let md_opt = match compile_search_pattern_with_posix(pattern, case_fold, posix)? {
         CompiledSearchPattern::Literal(literal) => {
-            literal_rfind(&text[limit_rel..start_rel], &literal, case_fold).map(
-                |(rel_start, rel_end)| MatchData {
-                    groups: vec![Some((
-                        storage_rel_to_emacs_byte(&text, region_start, limit_rel + rel_start),
-                        storage_rel_to_emacs_byte(&text, region_start, limit_rel + rel_end),
-                    ))],
-                    searched_string: None,
-                    searched_buffer: Some(buf.id),
-                },
+            let literal_bytes = crate::emacs_core::string_escape::storage_string_to_buffer_bytes(
+                &literal,
+                buf.get_multibyte(),
+            );
+            literal_rfind_emacs_bytes(
+                &text[limit_rel..start_rel],
+                &literal_bytes,
+                buf.get_multibyte(),
+                case_fold,
             )
+            .map(|(rel_start, rel_end)| MatchData {
+                groups: vec![Some((
+                    region_start + limit_rel + rel_start,
+                    region_start + limit_rel + rel_end,
+                ))],
+                searched_string: None,
+                searched_buffer: Some(buf.id),
+            })
         }
         CompiledSearchPattern::Emacs(cp) => {
             let syn = BufferSyntaxLookup {
                 syntax_table: &buf.syntax_table,
             };
-            let text_bytes = text.as_bytes();
             // Backward search: negative range means search backward
             let range = -((start_rel - limit_rel) as isize);
-            regex_emacs::re_search(&cp, text_bytes, start_rel, range, &syn, start_rel).map(
+            regex_emacs::re_search(&cp, &text, start_rel, range, &syn, start_rel).map(
                 |(_pos, regs)| {
-                    let mut md = buffer_match_data_from_registers(&regs, &text, region_start);
+                    let mut md = buffer_match_data_from_registers(&regs, region_start);
                     md.searched_buffer = Some(buf.id);
                     md
                 },
@@ -1576,24 +1690,24 @@ pub fn looking_at_with_posix(
     }
 
     let region_start = buf.begv_byte;
-    let text = buf.buffer_substring(region_start, buf.zv_byte);
-    let start_rel = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
-        &text,
-        start - region_start,
-    );
+    let mut text = Vec::new();
+    buf.copy_emacs_bytes_to(region_start, buf.zv_byte, &mut text);
+    let start_rel = start - region_start;
 
     match compile_search_pattern_with_posix(pattern, case_fold, posix)? {
         CompiledSearchPattern::Literal(literal) => {
+            let literal_bytes = crate::emacs_core::string_escape::storage_string_to_buffer_bytes(
+                &literal,
+                buf.get_multibyte(),
+            );
             let tail = &text[start_rel..];
-            let matched = literal_find(tail, &literal, case_fold)
-                .is_some_and(|(match_start, _)| match_start == 0);
+            let matched =
+                literal_find_emacs_bytes(tail, &literal_bytes, buf.get_multibyte(), case_fold)
+                    .is_some_and(|(match_start, _)| match_start == 0);
             if !matched {
                 return Ok(false);
             }
-            let full_match = (
-                start,
-                storage_rel_to_emacs_byte(&text, start, start_rel + literal.len()),
-            );
+            let full_match = (start, start + literal_bytes.len());
             *match_data = Some(MatchData {
                 groups: vec![Some(full_match)],
                 searched_string: None,
@@ -1605,16 +1719,10 @@ pub fn looking_at_with_posix(
             let syn = BufferSyntaxLookup {
                 syntax_table: &buf.syntax_table,
             };
-            let text_bytes = text.as_bytes();
-            if let Some((_end, regs)) = regex_emacs::re_match(
-                &cp,
-                text_bytes,
-                start_rel,
-                text_bytes.len(),
-                &syn,
-                start_rel,
-            ) {
-                let mut md = buffer_match_data_from_registers(&regs, &text, region_start);
+            if let Some((_end, regs)) =
+                regex_emacs::re_match(&cp, &text, start_rel, text.len(), &syn, start_rel)
+            {
+                let mut md = buffer_match_data_from_registers(&regs, region_start);
                 md.searched_buffer = Some(buf.id);
                 *match_data = Some(md);
                 Ok(true)
@@ -1939,8 +2047,46 @@ pub fn replace_match_buffer_with_syntax(
     match_data: &Option<MatchData>,
     case_symbols_as_words: bool,
 ) -> Result<(), String> {
-    let source = buf.buffer_substring(0, buf.total_bytes());
-    let (match_start, match_end, replacement) = compute_replacement_with_syntax(
+    let (match_start, match_end, replacement) = compute_buffer_replacement_with_syntax(
+        buf,
+        newtext,
+        fixedcase,
+        literal,
+        subexp,
+        match_data,
+        case_symbols_as_words,
+    )?;
+
+    buf.goto_byte(match_start);
+    buf.delete_region(match_start, match_end);
+    buf.insert_lisp_string(&replacement);
+    Ok(())
+}
+
+pub(crate) fn compute_buffer_replacement_with_syntax(
+    buf: &Buffer,
+    newtext: &str,
+    fixedcase: bool,
+    literal: bool,
+    subexp: usize,
+    match_data: &Option<MatchData>,
+    case_symbols_as_words: bool,
+) -> Result<(usize, usize, crate::heap_types::LispString), String> {
+    let md = match match_data {
+        Some(md) => md,
+        None => return Err(REPLACE_MATCH_SUBEXP_MISSING.to_string()),
+    };
+
+    let (match_start, match_end) = match md.groups.get(subexp) {
+        Some(Some(pair)) => *pair,
+        _ => return Err(REPLACE_MATCH_SUBEXP_MISSING.to_string()),
+    };
+
+    let source = crate::emacs_core::string_escape::emacs_bytes_to_storage_string(
+        &buf.buffer_substring_bytes(0, buf.total_bytes()),
+        buf.get_multibyte(),
+    );
+    let (_, _, replacement) = compute_replacement_with_syntax(
         newtext,
         fixedcase,
         literal,
@@ -1950,11 +2096,17 @@ pub fn replace_match_buffer_with_syntax(
         Some(&buf.syntax_table),
         case_symbols_as_words,
     )?;
+    let replacement_bytes = crate::emacs_core::string_escape::storage_string_to_buffer_bytes(
+        &replacement,
+        buf.get_multibyte(),
+    );
+    let replacement = if buf.get_multibyte() {
+        crate::heap_types::LispString::from_emacs_bytes(replacement_bytes)
+    } else {
+        crate::heap_types::LispString::from_unibyte(replacement_bytes)
+    };
 
-    buf.goto_byte(match_start);
-    buf.delete_region(match_start, match_end);
-    buf.insert(&replacement);
-    Ok(())
+    Ok((match_start, match_end, replacement))
 }
 
 /// Replace the last match in SOURCE and return the resulting string.
@@ -2039,25 +2191,16 @@ fn compute_replacement(
 ///
 /// # Multibyte / unibyte handling (audit #13)
 ///
-/// GNU `src/search.c:2622-2720` runs an explicit re-encoding loop
-/// over `newtext`, branching on `str_multibyte` (the replacement
-/// string's representation) and `buf_multibyte` (the target
-/// buffer's `enable-multibyte-characters` flag). When the two
-/// disagree it converts each character with `make_char_multibyte`
-/// or `CHAR_TO_BYTE8` so that, for example, a unibyte byte 0xFE
-/// inserted into a multibyte buffer becomes the corresponding
-/// 8-bit raw character.
+/// GNU `src/search.c:2622-2720` runs an explicit byte conversion
+/// loop over the replacement, branching on both the replacement
+/// string's representation and the target buffer's
+/// `enable-multibyte-characters` flag.
 ///
-/// neomacs has no separate unibyte representation: every string
-/// and every buffer is held as UTF-8 internally, which is the
-/// equivalent of `enable-multibyte-characters` being permanently
-/// non-nil. The branches in GNU's loop all collapse to the
-/// "str_multibyte && buf_multibyte" case (read a multibyte char,
-/// emit it unchanged), which is exactly what straight UTF-8
-/// substring concatenation already does. We therefore do NOT
-/// reproduce GNU's loop here. The audit explicitly flagged this as
-/// finding #13 and the divergence is documented intentional until
-/// neomacs grows a unibyte buffer representation.
+/// neomacs still computes replacement text against a storage-string
+/// view here, then converts the resulting text back into target
+/// buffer bytes at the buffer boundary. That now preserves raw-byte
+/// and unibyte buffer edits correctly, but it is still a
+/// compatibility seam rather than a direct GNU-style byte loop.
 fn compute_replacement_with_syntax(
     newtext: &str,
     fixedcase: bool,

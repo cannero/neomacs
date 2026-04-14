@@ -1459,7 +1459,8 @@ fn search_backward_case_fold_true_unicode_literal() {
     let result = search_backward(&mut buf, "ä", None, false, true, &mut md);
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), Some('Ä'.len_utf8()));
-    assert_eq!(buf.pt, 'Ä'.len_utf8());
+    assert_eq!(buf.pt_byte, 'Ä'.len_utf8());
+    assert_eq!(buf.pt, 1);
 }
 
 // -----------------------------------------------------------------------
@@ -1706,6 +1707,27 @@ fn replace_match_with_backref() {
     assert!(result.is_ok());
     let content = buf.text.text_range(0, buf.text.len());
     assert_eq!(content, "hello there world");
+}
+
+#[test]
+fn replace_match_buffer_preserves_unibyte_raw_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut buf = Buffer::new(BufferId(1), "raw".to_string());
+    buf.set_multibyte_value(false);
+    buf.insert_lisp_string(&crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    buf.goto_byte(0);
+
+    let mut md = None;
+    let result = re_search_forward(&mut buf, ".", None, false, false, &mut md);
+    assert_eq!(result, Ok(Some(1)));
+
+    let result = replace_match_buffer(&mut buf, "\\&", false, false, 0, &md);
+    assert!(result.is_ok());
+
+    let content = buf.buffer_substring_lisp_string(0, buf.total_bytes());
+    assert!(!content.is_multibyte());
+    assert_eq!(content.as_bytes(), &[0xFF]);
+    assert_eq!(buf.total_bytes(), 1);
 }
 
 #[test]

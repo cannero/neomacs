@@ -1594,6 +1594,7 @@ impl Buffer {
     /// Write `enable-multibyte-characters`. `true` stores
     /// `Value::T`, `false` stores `Value::NIL`.
     pub fn set_multibyte_value(&mut self, v: bool) {
+        self.text.set_multibyte(v);
         self.slots[BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS] = if v { Value::T } else { Value::NIL };
     }
 
@@ -1753,11 +1754,40 @@ impl Buffer {
         self.text.copy_emacs_bytes_to(s, e, out);
     }
 
+    /// Return a raw Emacs-byte copy of the range `[start, end)`.
+    pub fn buffer_substring_bytes(&self, start: usize, end: usize) -> Vec<u8> {
+        let mut out = Vec::new();
+        self.copy_emacs_bytes_to(start, end, &mut out);
+        out
+    }
+
+    /// Return the range `[start, end)` as a Lisp string preserving the
+    /// buffer's multibyte/unibyte semantics.
+    pub fn buffer_substring_lisp_string(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> crate::heap_types::LispString {
+        let bytes = self.buffer_substring_bytes(start, end);
+        if self.get_multibyte() {
+            crate::heap_types::LispString::from_emacs_bytes(bytes)
+        } else {
+            crate::heap_types::LispString::from_unibyte(bytes)
+        }
+    }
+
+    /// Return the range `[start, end)` as a Lisp value string.
+    pub fn buffer_substring_value(&self, start: usize, end: usize) -> Value {
+        Value::heap_string(self.buffer_substring_lisp_string(start, end))
+    }
+
     /// Return a `String` copy of the Emacs-byte range `[start, end)`.
     pub fn buffer_substring(&self, start: usize, end: usize) -> String {
-        let start_storage = self.emacs_byte_to_storage_byte(start);
-        let end_storage = self.emacs_byte_to_storage_byte(end.max(start));
-        self.text.text_range(start_storage, end_storage)
+        let bytes = self.buffer_substring_bytes(start, end);
+        crate::emacs_core::string_escape::emacs_bytes_to_storage_string(
+            &bytes,
+            self.get_multibyte(),
+        )
     }
 
     /// Return the entire accessible portion of the buffer as a `String`.
@@ -3150,6 +3180,32 @@ impl BufferManager {
         Some(())
     }
 
+    pub fn replace_buffer_contents_lisp_string(
+        &mut self,
+        id: BufferId,
+        text: &crate::heap_types::LispString,
+    ) -> Option<()> {
+        debug_assert_eq!(
+            self.buffers.get(&id)?.get_multibyte(),
+            text.is_multibyte(),
+            "replace_buffer_contents_lisp_string expects text already converted to target buffer representation",
+        );
+        let len = self.buffers.get(&id)?.total_bytes();
+        if len > 0 {
+            self.delete_buffer_region(id, 0, len)?;
+        }
+        {
+            let buf = self.buffers.get_mut(&id)?;
+            buf.widen();
+            buf.goto_byte(0);
+        }
+        if !text.is_empty() {
+            self.insert_lisp_string_into_buffer(id, text)?;
+            self.goto_buffer_byte(id, 0)?;
+        }
+        Some(())
+    }
+
     pub fn clear_buffer_local_properties(
         &mut self,
         id: BufferId,
@@ -4037,7 +4093,10 @@ mod tests {
         let mut dumped = mgr.dump_buffers().clone();
         let independent_indirect = dumped.get(&indirect_id).expect("indirect buffer").clone();
         let indirect = dumped.get_mut(&indirect_id).expect("indirect buffer");
-        indirect.text = BufferText::from_dump(independent_indirect.text.dump_text());
+        indirect.text = BufferText::from_dump(
+            independent_indirect.text.dump_text(),
+            independent_indirect.get_multibyte(),
+        );
         indirect
             .text
             .text_props_replace(independent_indirect.text.text_props_snapshot());
