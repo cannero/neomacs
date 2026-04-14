@@ -237,6 +237,27 @@ pub(crate) struct PendingSafeFuncall {
 
 pub(crate) type LispArgVec = SmallVec<[Value; 8]>;
 
+#[derive(Clone, Copy, Debug)]
+struct BorrowedRootSlice {
+    ptr: *const Value,
+    len: usize,
+}
+
+impl BorrowedRootSlice {
+    #[inline]
+    fn from_slice(values: &[Value]) -> Self {
+        Self {
+            ptr: values.as_ptr(),
+            len: values.len(),
+        }
+    }
+
+    #[inline]
+    fn as_slice(&self) -> &[Value] {
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct GnuTimerTimestamp {
     pub(crate) high_seconds: i64,
@@ -1306,6 +1327,9 @@ pub struct Context {
     /// Temporary GC roots — Values that must survive collection but aren't
     /// in any other rooted structure (e.g. intermediate results in eval_str_each).
     temp_roots: Vec<Value>,
+    /// Borrowed GC roots whose backing storage is guaranteed by a scoped
+    /// helper to stay alive until the matching truncate.
+    borrowed_gc_roots: Vec<BorrowedRootSlice>,
     /// VM GC roots — Values that must remain GC-visible while the bytecode VM
     /// crosses into evaluator code that may trigger collection.
     pub(crate) vm_gc_roots: Vec<Value>,
@@ -2077,6 +2101,7 @@ impl Context {
         ev.gc_count = 0;
         ev.gc_stress = false;
         ev.temp_roots.clear();
+        ev.borrowed_gc_roots.clear();
         ev.condition_stack.clear();
         ev.next_resume_id = 1;
         ev.saved_lexenvs.clear();
@@ -3951,6 +3976,7 @@ impl Context {
             gc_stress: false,
             gc_runtime_settings_cache: GcRuntimeSettingsCache::default(),
             temp_roots: Vec::new(),
+            borrowed_gc_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
@@ -4086,6 +4112,7 @@ impl Context {
             gc_stress: false,
             gc_runtime_settings_cache: GcRuntimeSettingsCache::default(),
             temp_roots: Vec::new(),
+            borrowed_gc_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
@@ -4144,6 +4171,9 @@ impl Context {
 
         // Direct Context fields
         roots.extend(self.temp_roots.iter().cloned());
+        for roots_slice in &self.borrowed_gc_roots {
+            roots.extend_from_slice(roots_slice.as_slice());
+        }
         roots.extend(self.vm_gc_roots.iter().cloned());
         roots.extend(self.treesit.roots());
         // Scan bytecode stack buffer — all live stack values across all frames
@@ -5838,6 +5868,32 @@ impl Context {
         Ok(())
     }
 
+    #[inline]
+    fn with_borrowed_gc_root_descriptors<T>(
+        &mut self,
+        roots: &[BorrowedRootSlice],
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let saved_len = self.borrowed_gc_roots.len();
+        self.borrowed_gc_roots.extend_from_slice(roots);
+        let result = f(self);
+        self.borrowed_gc_roots.truncate(saved_len);
+        result
+    }
+
+    #[inline]
+    fn with_borrowed_gc_root_descriptors_result<T>(
+        &mut self,
+        roots: &[BorrowedRootSlice],
+        f: impl FnOnce(&mut Self) -> Result<T, Flow>,
+    ) -> Result<T, Flow> {
+        let saved_len = self.borrowed_gc_roots.len();
+        self.borrowed_gc_roots.extend_from_slice(roots);
+        let result = f(self);
+        self.borrowed_gc_roots.truncate(saved_len);
+        result
+    }
+
     /// Save the current length of temp_roots for later restoration.
     pub(crate) fn save_temp_roots(&self) -> usize {
         self.temp_roots.len()
@@ -6090,6 +6146,7 @@ impl Context {
             Value::NIL
         };
         self.temp_roots.clear();
+        self.borrowed_gc_roots.clear();
         self.condition_stack.clear();
         self.depth = 0;
     }
@@ -6102,6 +6159,7 @@ impl Context {
             && clean_lexenv
             && self.saved_lexenvs.is_empty()
             && self.temp_roots.is_empty()
+            && self.borrowed_gc_roots.is_empty()
             && self.condition_stack.is_empty()
             && self.depth == 0
     }
@@ -8843,6 +8901,18 @@ impl Context {
         });
     }
 
+    /// Internal fast path for active calls where `args` is guaranteed to stay
+    /// alive and immutable until the matching `pop_runtime_backtrace_frame`.
+    #[inline]
+    pub(crate) fn push_runtime_backtrace_frame_borrowed(&mut self, function: Value, args: &[Value]) {
+        self.runtime_backtrace.push(RuntimeBacktraceFrame {
+            function,
+            args: RuntimeBacktraceArgs::borrowed(args),
+            evaluated: true,
+            debug_on_exit: false,
+        });
+    }
+
     pub(crate) fn pop_runtime_backtrace_frame(&mut self) {
         self.runtime_backtrace.pop();
     }
@@ -8859,17 +8929,31 @@ impl Context {
         result
     }
 
+    #[inline]
+    pub(crate) fn with_runtime_backtrace_frame_borrowed(
+        &mut self,
+        function: Value,
+        args: Vec<Value>,
+        f: impl FnOnce(&mut Self, Vec<Value>) -> EvalResult,
+    ) -> EvalResult {
+        self.push_runtime_backtrace_frame_borrowed(function, &args);
+        let result = f(self, args);
+        self.pop_runtime_backtrace_frame();
+        result
+    }
+
     fn apply_internal(
         &mut self,
         function: Value,
         args: Vec<Value>,
         record_backtrace: bool,
     ) -> EvalResult {
-        self.with_gc_scope_result(|ctx| {
-            ctx.root(function);
-            for &arg in &args {
-                ctx.root(arg);
-            }
+        let function_roots = [function];
+        let borrowed_roots = [
+            BorrowedRootSlice::from_slice(&function_roots),
+            BorrowedRootSlice::from_slice(args.as_slice()),
+        ];
+        self.with_borrowed_gc_root_descriptors_result(&borrowed_roots, |ctx| {
             ctx.maybe_gc_and_quit()?;
             // GNU does not probe stack space for every funcall. Keep growth
             // checks at the function-application boundary, but only on coarse
@@ -8909,26 +8993,31 @@ impl Context {
         func: Value,
         args: Vec<Value>,
     ) -> EvalResult {
-        self.with_gc_scope_result(|ctx| {
-            ctx.root(frame_function);
-            ctx.root(func);
-            for &arg in &args {
-                ctx.root(arg);
-            }
-            ctx.maybe_gc_and_quit()?;
-            ctx.maybe_grow_eval_stack(|ctx| {
-                ctx.with_runtime_backtrace_frame(frame_function, args, |eval, args| {
-                    eval.funcall_general_untraced(func, args)
+        let frame_function_roots = [frame_function];
+        let func_roots = [func];
+        let borrowed_roots = [
+            BorrowedRootSlice::from_slice(&frame_function_roots),
+            BorrowedRootSlice::from_slice(&func_roots),
+            BorrowedRootSlice::from_slice(args.as_slice()),
+        ];
+        self.with_borrowed_gc_root_descriptors_result(
+            &borrowed_roots,
+            |ctx| {
+                ctx.maybe_gc_and_quit()?;
+                ctx.maybe_grow_eval_stack(|ctx| {
+                    ctx.with_runtime_backtrace_frame_borrowed(frame_function, args, |eval, args| {
+                        eval.funcall_general_untraced(func, args)
+                    })
                 })
-            })
-        })
+            },
+        )
     }
 
     /// Unified function dispatch — matches GNU Emacs's funcall_general.
     /// Called by both the tree-walking interpreter (via apply) and the
     /// bytecode VM (via Vm::call_function).
     pub(crate) fn funcall_general(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
-        self.with_runtime_backtrace_frame(function, args, |eval, args| {
+        self.with_runtime_backtrace_frame_borrowed(function, args, |eval, args| {
             eval.funcall_general_untraced(function, args)
         })
     }
@@ -9188,8 +9277,9 @@ impl Context {
                     // callable, not an obarray indirection cycle.
                     ValueKind::Veclike(VecLikeType::Subr) if func.as_subr_id() == Some(sym_id) => {
                         let name = resolve_sym(sym_id);
-                        match super::subr_info::subr_dispatch_kind_from_value(&func)
-                            .unwrap_or_else(|| super::subr_info::compat_subr_dispatch_kind(name))
+                        match super::subr_info::subr_dispatch_kind_from_value(&func).unwrap_or_else(
+                            || super::subr_info::compat_subr_dispatch_kind(name),
+                        )
                         {
                             SubrDispatchKind::Builtin => NamedCallTarget::Builtin,
                             SubrDispatchKind::ContextCallable => NamedCallTarget::ContextCallable,
@@ -9251,7 +9341,7 @@ impl Context {
         invalid_fn: Value,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
-        self.with_runtime_backtrace_frame(Value::from_sym_id(sym_id), args, |eval, args| {
+        self.with_runtime_backtrace_frame_borrowed(Value::from_sym_id(sym_id), args, |eval, args| {
             eval.apply_named_callable_by_id_core(
                 sym_id,
                 args,
@@ -9270,7 +9360,7 @@ impl Context {
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         let frame_function = Value::symbol(name);
-        self.with_runtime_backtrace_frame(frame_function, args, |eval, args| {
+        self.with_runtime_backtrace_frame_borrowed(frame_function, args, |eval, args| {
             eval.apply_named_callable_core(name, args, invalid_fn, rewrite_builtin_wrong_arity)
         })
     }

@@ -3662,7 +3662,7 @@ impl<'a> Vm<'a> {
     }
 
     fn call_function(&mut self, func_val: Value, args: Vec<Value>) -> EvalResult {
-        self.ctx.push_runtime_backtrace_frame(func_val, &args);
+        self.ctx.push_runtime_backtrace_frame_borrowed(func_val, &args);
         let result = match func_val.kind() {
             // Fast path: stay in VM for bytecoded calls.
             // Matches GNU Emacs's CLOSUREP → goto setup_frame in bytecode.c.
