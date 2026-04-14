@@ -72,8 +72,50 @@ capture_case() {
     fi
 
     DISPLAY="$DISPLAY_ENV" xdotool windowactivate --sync "$win_id" >/dev/null 2>&1 || true
-    sleep 0.8
-    DISPLAY="$DISPLAY_ENV" import -window "$win_id" "$png" 2>/dev/null
+    if command -v compare >/dev/null 2>&1; then
+        local prev_png curr_png attempts stable status ae image_geom expected_geom
+        prev_png=$(mktemp "${OUT_DIR}/.${scenario}-${label}.prev.XXXXXX.png")
+        curr_png=$(mktemp "${OUT_DIR}/.${scenario}-${label}.curr.XXXXXX.png")
+        stable=0
+
+        for attempts in $(seq 1 20); do
+            sleep 0.2
+            DISPLAY="$DISPLAY_ENV" import -window "$win_id" "$curr_png" 2>/dev/null || true
+            if [ ! -s "$curr_png" ]; then
+                continue
+            fi
+            eval "$(DISPLAY="$DISPLAY_ENV" xdotool getwindowgeometry --shell "$win_id")"
+            expected_geom="${WIDTH}x${HEIGHT}"
+            image_geom=$(identify -format '%wx%h' "$curr_png" 2>/dev/null || true)
+            if [ "$image_geom" != "$expected_geom" ]; then
+                stable=0
+                continue
+            fi
+
+            if [ -s "$prev_png" ]; then
+                set +e
+                ae=$(compare -metric AE "$prev_png" "$curr_png" null: 2>&1 >/dev/null)
+                status=$?
+                set -e
+                if [ "$status" -lt 2 ] && [ "${ae}" = "0" ] && [ "$attempts" -ge 4 ]; then
+                    stable=$((stable + 1))
+                    if [ "$stable" -ge 2 ]; then
+                        break
+                    fi
+                else
+                    stable=0
+                fi
+            fi
+
+            cp -f "$curr_png" "$prev_png"
+        done
+
+        mv -f "$curr_png" "$png"
+        rm -f "$prev_png"
+    else
+        sleep 1.5
+        DISPLAY="$DISPLAY_ENV" import -window "$win_id" "$png" 2>/dev/null
+    fi
 
     kill "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
