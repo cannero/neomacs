@@ -1,4 +1,5 @@
 use super::*;
+use crate::heap_types::LispString;
 
 // -----------------------------------------------------------------------
 // AbbrevManager unit tests (legacy -- kept for pdump compatibility)
@@ -416,6 +417,23 @@ fn test_abbrev_tables_do_not_share_symbol_cells() {
     let b = builtin_abbrev_expansion(&mut eval, vec![Value::string("dup"), table_b]).unwrap();
     assert_eq!(a.as_str(), Some("first table"));
     assert_eq!(b.as_str(), Some("second table"));
+}
+
+#[test]
+fn test_define_abbrev_preserves_raw_unibyte_expansion() {
+    crate::test_utils::init_test_tracing();
+    use super::super::eval::Context;
+
+    let mut eval = Context::new();
+    let table = builtin_make_abbrev_table(&mut eval, vec![]).unwrap();
+    let raw = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+
+    builtin_define_abbrev(&mut eval, vec![table, Value::string("raw"), raw]).unwrap();
+
+    let result = builtin_abbrev_expansion(&mut eval, vec![Value::string("raw"), table]).unwrap();
+    let text = result.as_lisp_string().expect("abbrev expansion string");
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[0xFF]);
 }
 
 #[test]
