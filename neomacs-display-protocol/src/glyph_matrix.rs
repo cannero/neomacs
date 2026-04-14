@@ -14,6 +14,7 @@ use super::frame_glyphs::{
     WindowTransitionHint,
 };
 use super::types::{Color, Rect};
+use super::ui_types::{MenuBarItem, ToolBarItem};
 use std::collections::HashMap;
 
 /// What kind of content this glyph represents.
@@ -493,6 +494,10 @@ pub struct FrameDisplayState {
     /// The TTY rasterizer paints these into row 0; the GUI runtime has
     /// its own menu-bar machinery and ignores this field.
     pub menu_bar: Option<TtyMenuBarState>,
+    /// GUI menu-bar overlay state for the primary frame snapshot.
+    pub gui_menu_bar: Option<GuiMenuBarState>,
+    /// GUI tool-bar overlay state for the primary frame snapshot.
+    pub gui_tool_bar: Option<GuiToolBarState>,
     /// Frame-level tab bar metadata for render-thread hit-testing.
     pub tab_bar: Option<FrameTabBarState>,
 }
@@ -542,6 +547,24 @@ pub struct TtyMenuBarState {
     pub bold: bool,
 }
 
+/// GUI menu-bar overlay state carried in a frame snapshot.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GuiMenuBarState {
+    pub items: Vec<MenuBarItem>,
+    pub height: f32,
+    pub fg: (f32, f32, f32),
+    pub bg: (f32, f32, f32),
+}
+
+/// GUI tool-bar overlay state carried in a frame snapshot.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GuiToolBarState {
+    pub items: Vec<ToolBarItem>,
+    pub height: f32,
+    pub fg: (f32, f32, f32),
+    pub bg: (f32, f32, f32),
+}
+
 impl FrameDisplayState {
     pub fn new(frame_cols: usize, frame_rows: usize, char_width: f32, char_height: f32) -> Self {
         Self {
@@ -579,6 +602,8 @@ impl FrameDisplayState {
             stipple_patterns: HashMap::new(),
             effect_hints: Vec::new(),
             menu_bar: None,
+            gui_menu_bar: None,
+            gui_tool_bar: None,
             tab_bar: None,
         }
     }

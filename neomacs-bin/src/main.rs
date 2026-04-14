@@ -28,6 +28,7 @@ use neomacs_display_runtime::thread_comm::{
 };
 use neomacs_layout_engine::font_metrics::FontMetricsService;
 use neomacs_layout_engine::fontconfig::face_height_to_pixels;
+use neomacs_layout_engine::gui_chrome::{collect_gui_menu_bar_items, collect_gui_tool_bar_items};
 
 use neovm_core::buffer::BufferId;
 use neovm_core::emacs_core::Value;
@@ -1260,6 +1261,82 @@ fn sync_live_gui_frame_titles(eval: &mut Context) {
     }
 }
 
+fn seed_gnu_default_gui_chrome_modes(eval: &mut Context) {
+    eval.set_variable("menu-bar-mode", Value::T);
+    eval.set_variable("tool-bar-mode", Value::T);
+}
+
+fn ensure_gnu_tool_bar_setup(eval: &mut Context) {
+    let needs_setup = match eval.eval_str(
+        "(and (fboundp 'tool-bar-setup) tool-bar-mode (= 1 (length (default-value 'tool-bar-map))))",
+    ) {
+        Ok(value) => value.is_truthy(),
+        Err(err) => {
+            tracing::warn!("failed probing tool-bar setup state: {err}");
+            false
+        }
+    };
+    if !needs_setup {
+        return;
+    }
+    if let Err(err) = eval.eval_str("(tool-bar-setup)") {
+        tracing::warn!("failed running GNU tool-bar setup: {err}");
+    }
+}
+
+fn sync_selected_gui_chrome_state(eval: &mut Context) {
+    let menu_enabled = !eval
+        .obarray()
+        .symbol_value("menu-bar-mode")
+        .copied()
+        .unwrap_or(Value::NIL)
+        .is_nil();
+    let tool_enabled = !eval
+        .obarray()
+        .symbol_value("tool-bar-mode")
+        .copied()
+        .unwrap_or(Value::NIL)
+        .is_nil();
+    if tool_enabled {
+        ensure_gnu_tool_bar_setup(eval);
+    }
+
+    let menu_items = if menu_enabled {
+        collect_gui_menu_bar_items(eval)
+    } else {
+        Vec::new()
+    };
+    let tool_items = if tool_enabled {
+        collect_gui_tool_bar_items(eval)
+    } else {
+        Vec::new()
+    };
+
+    let mut geometry_hints = None;
+    if let Some(frame) = eval.frame_manager_mut().selected_frame_mut() {
+        if frame.effective_window_system().is_none() {
+            return;
+        }
+        frame.parameters.insert(
+            "menu-bar-lines".to_string(),
+            Value::fixnum(if menu_items.is_empty() { 0 } else { 1 }),
+        );
+        frame.parameters.insert(
+            "tool-bar-lines".to_string(),
+            Value::fixnum(if tool_items.is_empty() { 0 } else { 1 }),
+        );
+        frame.sync_menu_bar_height_from_parameters();
+        frame.sync_tool_bar_height_from_parameters();
+        geometry_hints = Some((frame.id, frame.gui_geometry_hints()));
+    }
+
+    if let Some((frame_id, hints)) = geometry_hints
+        && let Some(host) = eval.display_host.as_mut()
+    {
+        let _ = host.set_gui_frame_geometry_hints(frame_id, hints);
+    }
+}
+
 fn font_size_px_for_face(face: &neovm_core::face::Face) -> f32 {
     let default_font_size = face_height_to_pixels(100);
     match &face.height {
@@ -1604,6 +1681,7 @@ pub fn run(mode: RuntimeMode) {
             let frame_tx = emacs_comms.frame_tx;
             evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
                 eval.setup_thread_locals();
+                sync_selected_gui_chrome_state(eval);
                 run_layout(eval);
                 sync_live_gui_frame_titles(eval);
                 // Take the complete FrameDisplayState produced by the layout
@@ -2104,6 +2182,10 @@ fn bootstrap_buffers(
             *window_start = 0;
             *point = 0;
         }
+    }
+    if display.frontend == FrontendKind::Gui {
+        seed_gnu_default_gui_chrome_modes(eval);
+        sync_selected_gui_chrome_state(eval);
     }
 
     if display.window_system_symbol().is_some() {

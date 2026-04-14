@@ -11,6 +11,8 @@ impl RenderApp {
         while let Ok(display_state) = self.comms.frame_rx.try_recv() {
             let frame_id = display_state.frame_id;
             let parent_id = display_state.parent_id;
+            let gui_menu_bar = display_state.gui_menu_bar.clone();
+            let gui_tool_bar = display_state.gui_tool_bar.clone();
 
             // Materialize FrameDisplayState → FrameGlyphBuffer for the
             // existing rendering code.  The layout engine populates
@@ -32,6 +34,28 @@ impl RenderApp {
                 self.child_frames.update_frame(frame);
             } else {
                 self.current_frame = Some(frame);
+                if let Some(menu_bar) = gui_menu_bar {
+                    self.menu_bar_items = menu_bar.items;
+                    self.menu_bar_height = menu_bar.height;
+                    self.menu_bar_fg = menu_bar.fg;
+                    self.menu_bar_bg = menu_bar.bg;
+                } else {
+                    self.menu_bar_items.clear();
+                    self.menu_bar_height = 0.0;
+                    self.menu_bar_hovered = None;
+                    self.menu_bar_active = None;
+                }
+                if let Some(tool_bar) = gui_tool_bar {
+                    self.toolbar_items = tool_bar.items;
+                    self.toolbar_height = tool_bar.height;
+                    self.toolbar_fg = tool_bar.fg;
+                    self.toolbar_bg = tool_bar.bg;
+                } else {
+                    self.toolbar_items.clear();
+                    self.toolbar_height = 0.0;
+                    self.toolbar_hovered = None;
+                    self.toolbar_pressed = None;
+                }
                 if let Some(tab_bar) = self
                     .current_frame
                     .as_ref()

@@ -6,6 +6,7 @@ use super::{
     configure_gnu_startup_state, current_layout_frame_id, face_height_to_pixels,
     parse_startup_options, raw_loadup_command_line, raw_loadup_startup_surface, render_help_text,
     render_version_text, run_gnu_startup, startup_dimensions, sync_live_gui_frame_titles,
+    sync_selected_gui_chrome_state,
 };
 use neomacs_display_runtime::thread_comm::RenderCommand;
 use neovm_core::emacs_core::Context;
@@ -1477,6 +1478,44 @@ fn gnu_startup_keeps_single_row_minibuffer() {
         .eval_str("(window-total-height (minibuffer-window))")
         .expect("minibuffer height probe should evaluate");
     assert_eq!(result, Value::fixnum(1));
+}
+
+#[test]
+fn bootstrap_gui_frame_seeds_live_menu_and_tool_bar_rows() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+        .expect("cached bootstrap evaluator");
+    let _bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());
+    let frame = eval
+        .frame_manager()
+        .selected_frame()
+        .expect("selected frame after bootstrap");
+
+    assert_eq!(frame.frame_parameter_int("menu-bar-lines"), Some(1));
+    assert_eq!(frame.frame_parameter_int("tool-bar-lines"), Some(1));
+    assert_eq!(frame.menu_bar_height, frame.char_height.round() as u32);
+    assert_eq!(frame.tool_bar_height, frame.char_height.round() as u32);
+}
+
+#[test]
+fn sync_selected_gui_chrome_state_tracks_gnu_window_system_defaults() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+        .expect("cached bootstrap evaluator");
+    let _bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());
+    let frame_id = eval
+        .frame_manager()
+        .selected_frame()
+        .expect("selected frame after bootstrap")
+        .id;
+    configure_gnu_startup_state(&mut eval, frame_id, &gui_startup());
+
+    sync_selected_gui_chrome_state(&mut eval);
+
+    let frame = eval
+        .frame_manager()
+        .selected_frame()
+        .expect("selected frame after chrome sync");
+    assert_eq!(frame.frame_parameter_int("menu-bar-lines"), Some(1));
+    assert_eq!(frame.frame_parameter_int("tool-bar-lines"), Some(1));
 }
 
 #[test]

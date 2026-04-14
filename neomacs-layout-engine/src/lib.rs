@@ -17,6 +17,7 @@ pub mod font_loader;
 pub mod font_match;
 pub mod font_metrics;
 pub mod fontconfig;
+pub mod gui_chrome;
 pub mod hit_test;
 pub mod matrix_builder;
 pub mod neovm_bridge;

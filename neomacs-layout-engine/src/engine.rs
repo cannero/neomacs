@@ -6,6 +6,7 @@
 
 use super::display_status_line::*;
 use super::font_metrics::{FontMetrics, FontMetricsService};
+use super::gui_chrome::{collect_gui_menu_bar_items, collect_gui_tool_bar_items};
 use super::hit_test::*;
 use super::types::*;
 use super::unicode::*;
@@ -2052,6 +2053,43 @@ impl LayoutEngine {
                     bg: menu_face.bg,
                     bold: menu_face.font_weight >= 600,
                 });
+        }
+        if frame_display_state.parent_id == 0 {
+            let menu_face_resolver = crate::neovm_bridge::FaceResolver::new(
+                evaluator.face_table(),
+                0x00FFFFFF,
+                0x00000000,
+                frame_params.font_pixel_size,
+            );
+            let pixel_to_tuple = |pixel: u32| -> (f32, f32, f32) {
+                (
+                    ((pixel >> 16) & 0xFF) as f32 / 255.0,
+                    ((pixel >> 8) & 0xFF) as f32 / 255.0,
+                    (pixel & 0xFF) as f32 / 255.0,
+                )
+            };
+
+            if frame_params.menu_bar_height > 0.0 {
+                let menu_face = menu_face_resolver.resolve_named_face("menu");
+                frame_display_state.gui_menu_bar =
+                    Some(neomacs_display_protocol::glyph_matrix::GuiMenuBarState {
+                        items: collect_gui_menu_bar_items(evaluator),
+                        height: frame_params.menu_bar_height,
+                        fg: pixel_to_tuple(menu_face.fg),
+                        bg: pixel_to_tuple(menu_face.bg),
+                    });
+            }
+
+            if frame_params.tool_bar_height > 0.0 {
+                let tool_bar_face = menu_face_resolver.resolve_named_face("tool-bar");
+                frame_display_state.gui_tool_bar =
+                    Some(neomacs_display_protocol::glyph_matrix::GuiToolBarState {
+                        items: collect_gui_tool_bar_items(evaluator),
+                        height: frame_params.tool_bar_height,
+                        fg: pixel_to_tuple(tool_bar_face.fg),
+                        bg: pixel_to_tuple(tool_bar_face.bg),
+                    });
+            }
         }
 
         self.last_frame_display_state = Some(frame_display_state);

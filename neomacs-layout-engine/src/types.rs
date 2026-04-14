@@ -255,6 +255,8 @@ pub struct FrameParams {
     /// layout engine reserves this many pixels at the top of the frame
     /// for the menu bar row, mirroring `display_menu_bar()` in xdisp.c.
     pub menu_bar_height: f32,
+    /// Frame-level tool-bar height in pixels.
+    pub tool_bar_height: f32,
     /// Frame-level tab-bar height in pixels.
     pub tab_bar_height: f32,
     /// Default character cell dimensions
@@ -829,6 +831,7 @@ mod tests {
             width: 1920.0,
             height: 1080.0,
             menu_bar_height: 0.0,
+            tool_bar_height: 0.0,
             tab_bar_height: 0.0,
             char_width: 8.0,
             char_height: 16.0,
@@ -857,6 +860,7 @@ mod tests {
             width: 800.0,
             height: 600.0,
             menu_bar_height: 0.0,
+            tool_bar_height: 0.0,
             tab_bar_height: 0.0,
             char_width: 7.0,
             char_height: 14.0,
@@ -879,6 +883,7 @@ mod tests {
             width: 1024.0,
             height: 768.0,
             menu_bar_height: 0.0,
+            tool_bar_height: 0.0,
             tab_bar_height: 0.0,
             char_width: 9.0,
             char_height: 18.0,
@@ -904,6 +909,7 @@ mod tests {
             width: 800.0,
             height: 600.0,
             menu_bar_height: 0.0,
+            tool_bar_height: 0.0,
             tab_bar_height: 0.0,
             char_width: 8.0,
             char_height: 16.0,
