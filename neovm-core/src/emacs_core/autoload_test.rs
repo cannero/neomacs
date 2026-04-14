@@ -1,5 +1,6 @@
 use super::*;
 use crate::emacs_core::{Context, format_eval_result};
+use crate::heap_types::LispString;
 use crate::test_utils::{load_minimal_gnu_backquote_runtime, runtime_startup_eval_all};
 use std::fs;
 use std::path::PathBuf;
@@ -141,16 +142,19 @@ fn autoload_manager_register_and_lookup() {
 
     mgr.register(AutoloadEntry {
         name: "foo".into(),
-        file: "foo-lib".into(),
-        docstring: Some("Do foo things.".into()),
+        file: LispString::from_utf8("foo-lib"),
+        docstring: Some(LispString::from_utf8("Do foo things.")),
         interactive: false,
         autoload_type: AutoloadType::Function,
     });
 
     assert!(mgr.is_autoloaded("foo"));
     let entry = mgr.get_entry("foo").unwrap();
-    assert_eq!(entry.file, "foo-lib");
-    assert_eq!(entry.docstring.as_deref(), Some("Do foo things."));
+    assert_eq!(entry.file.as_str(), Some("foo-lib"));
+    assert_eq!(
+        entry.docstring.as_ref().and_then(LispString::as_str),
+        Some("Do foo things.")
+    );
     assert!(!entry.interactive);
     assert_eq!(entry.autoload_type, AutoloadType::Function);
 }
@@ -161,7 +165,7 @@ fn autoload_manager_remove() {
     let mut mgr = AutoloadManager::new();
     mgr.register(AutoloadEntry {
         name: "bar".into(),
-        file: "bar-lib".into(),
+        file: LispString::from_utf8("bar-lib"),
         docstring: None,
         interactive: true,
         autoload_type: AutoloadType::Macro,
@@ -177,14 +181,14 @@ fn autoload_manager_multiple_entries() {
     let mut mgr = AutoloadManager::new();
     mgr.register(AutoloadEntry {
         name: "a".into(),
-        file: "file-a".into(),
+        file: LispString::from_utf8("file-a"),
         docstring: None,
         interactive: false,
         autoload_type: AutoloadType::Function,
     });
     mgr.register(AutoloadEntry {
         name: "b".into(),
-        file: "file-b".into(),
+        file: LispString::from_utf8("file-b"),
         docstring: None,
         interactive: false,
         autoload_type: AutoloadType::Keymap,
@@ -498,7 +502,7 @@ fn autoload_entry_interactive_flag() {
     let mut mgr = AutoloadManager::new();
     mgr.register(AutoloadEntry {
         name: "cmd".into(),
-        file: "cmd-file".into(),
+        file: LispString::from_utf8("cmd-file"),
         docstring: None,
         interactive: true,
         autoload_type: AutoloadType::Function,
@@ -513,7 +517,7 @@ fn autoload_entry_keymap_type() {
     let mut mgr = AutoloadManager::new();
     mgr.register(AutoloadEntry {
         name: "my-map".into(),
-        file: "map-file".into(),
+        file: LispString::from_utf8("map-file"),
         docstring: None,
         interactive: false,
         autoload_type: AutoloadType::Keymap,
@@ -528,20 +532,20 @@ fn autoload_overwrites_previous() {
     let mut mgr = AutoloadManager::new();
     mgr.register(AutoloadEntry {
         name: "f".into(),
-        file: "old-file".into(),
+        file: LispString::from_utf8("old-file"),
         docstring: None,
         interactive: false,
         autoload_type: AutoloadType::Function,
     });
     mgr.register(AutoloadEntry {
         name: "f".into(),
-        file: "new-file".into(),
+        file: LispString::from_utf8("new-file"),
         docstring: None,
         interactive: true,
         autoload_type: AutoloadType::Macro,
     });
     let entry = mgr.get_entry("f").unwrap();
-    assert_eq!(entry.file, "new-file");
+    assert_eq!(entry.file.as_str(), Some("new-file"));
     assert!(entry.interactive);
     assert_eq!(entry.autoload_type, AutoloadType::Macro);
 }
@@ -575,10 +579,38 @@ fn autoload_registers_in_autoload_manager() {
     assert_eq!(results[0], "OK test-auto-fn");
     assert!(ev.autoloads.is_autoloaded("test-auto-fn"));
     let entry = ev.autoloads.get_entry("test-auto-fn").unwrap();
-    assert_eq!(entry.file, "test-auto-file");
-    assert_eq!(entry.docstring.as_deref(), Some("Test doc"));
+    assert_eq!(entry.file.as_str(), Some("test-auto-file"));
+    assert_eq!(
+        entry.docstring.as_ref().and_then(LispString::as_str),
+        Some("Test doc")
+    );
     assert!(entry.interactive);
     assert_eq!(entry.autoload_type, AutoloadType::Macro);
+}
+
+#[test]
+fn symbol_file_preserves_raw_unibyte_autoload_file() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let raw_file = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+
+    builtin_autoload(
+        &mut ev,
+        vec![
+            Value::symbol("raw-autoload"),
+            raw_file,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+        ],
+    )
+    .expect("register raw autoload");
+
+    let result =
+        builtin_symbol_file(&mut ev, vec![Value::symbol("raw-autoload")]).expect("symbol-file");
+    let text = result.as_lisp_string().expect("raw symbol-file string");
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[0xFF]);
 }
 
 // -----------------------------------------------------------------------

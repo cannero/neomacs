@@ -610,6 +610,13 @@ pub struct DumpBufferManager {
 // Sub-manager types
 // ---------------------------------------------------------------------------
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DumpLispString {
+    pub data: Vec<u8>,
+    pub size: usize,
+    pub size_byte: i64,
+}
+
 // Autoload
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum DumpAutoloadType {
@@ -621,8 +628,8 @@ pub enum DumpAutoloadType {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpAutoloadEntry {
     pub name: String,
-    pub file: String,
-    pub docstring: Option<String>,
+    pub file: DumpLispString,
+    pub docstring: Option<DumpLispString>,
     pub interactive: bool,
     pub autoload_type: DumpAutoloadType,
 }

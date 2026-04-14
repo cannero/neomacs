@@ -479,8 +479,11 @@ pub fn find_file_in_load_path_with_flags(
 pub fn get_load_path(obarray: &super::symbol::Obarray) -> Vec<String> {
     let default_directory = obarray
         .symbol_value("default-directory")
-        .and_then(|v| v.as_str())
-        .unwrap_or(".");
+        .and_then(|v| {
+            v.is_string()
+                .then(|| super::builtins::lisp_string_to_runtime_string(*v))
+        })
+        .unwrap_or_else(|| ".".to_string());
 
     let val = obarray
         .symbol_value("load-path")
@@ -490,8 +493,9 @@ pub fn get_load_path(obarray: &super::symbol::Obarray) -> Vec<String> {
         .unwrap_or_default()
         .into_iter()
         .filter_map(|v| match v {
-            v if v.is_nil() => Some(default_directory.to_string()),
-            _ => v.as_str().map(|s| s.to_string()),
+            v if v.is_nil() => Some(default_directory.clone()),
+            _ if v.is_string() => Some(super::builtins::lisp_string_to_runtime_string(v)),
+            _ => None,
         })
         .collect()
 }
@@ -509,7 +513,7 @@ pub(crate) fn plan_load_in_state(
     must_suffix: Option<Value>,
 ) -> Result<LoadPlan, Flow> {
     let file = match file.kind() {
-        ValueKind::String => file.as_str().unwrap().to_owned(),
+        ValueKind::String => super::builtins::lisp_string_to_runtime_string(file),
         other => {
             return Err(signal(
                 "wrong-type-argument",

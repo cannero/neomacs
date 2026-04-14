@@ -1,4 +1,5 @@
 use super::*;
+use crate::heap_types::LispString;
 
 // -----------------------------------------------------------------------
 // BookmarkManager unit tests
@@ -337,6 +338,22 @@ fn test_builtin_bookmark_delete() {
     let result = builtin_bookmark_delete(&mut eval, vec![Value::fixnum(1), Value::T]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
+}
+
+#[test]
+fn test_builtin_bookmark_delete_accepts_raw_unibyte_name() {
+    crate::test_utils::init_test_tracing();
+    use super::super::eval::Context;
+
+    let mut eval = Context::new();
+    set_current_buffer_file(&mut eval, "/tmp/raw-bookmark.el");
+    let raw_name = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+
+    builtin_bookmark_set(&mut eval, vec![raw_name]).expect("set raw bookmark");
+    assert_eq!(eval.bookmarks.all_names().len(), 1);
+
+    builtin_bookmark_delete(&mut eval, vec![raw_name]).expect("delete raw bookmark");
+    assert!(eval.bookmarks.all_names().is_empty());
 }
 
 #[test]

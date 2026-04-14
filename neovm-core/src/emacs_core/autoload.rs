@@ -16,6 +16,7 @@ use super::symbol::Obarray;
 use super::value::*;
 use crate::emacs_core::value::ValueKind;
 use crate::gc_trace::GcTrace;
+use crate::heap_types::LispString;
 
 // ---------------------------------------------------------------------------
 // Autoload types
@@ -61,9 +62,9 @@ pub struct AutoloadEntry {
     /// The function name that is autoloaded.
     pub name: String,
     /// The file to load when the function is first called.
-    pub file: String,
+    pub file: LispString,
     /// Optional documentation string.
-    pub docstring: Option<String>,
+    pub docstring: Option<LispString>,
     /// Whether the function is interactive (a command).
     pub interactive: bool,
     /// The type of definition (function, macro, keymap).
@@ -276,7 +277,7 @@ pub(crate) fn plan_autoload_do_load_in_state(
     // items[0] = 'autoload, items[1] = file, ...
     let file = if items.len() > 1 {
         match items[1].kind() {
-            ValueKind::String => items[1].as_str().unwrap().to_owned(),
+            ValueKind::String => super::builtins::lisp_string_to_runtime_string(items[1]),
             _ => return Ok(AutoloadDoLoadPlan::Return(*fundef)),
         }
     } else {
@@ -459,8 +460,8 @@ pub(crate) fn register_autoload_in_state(
     }
 
     let file_val = args[1];
-    let file = match file_val.kind() {
-        ValueKind::String => file_val.as_str().unwrap().to_owned(),
+    let file = match file_val.as_lisp_string() {
+        Some(file) => file.clone(),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -470,10 +471,7 @@ pub(crate) fn register_autoload_in_state(
     };
 
     let docstring_val = args.get(2).cloned().unwrap_or(Value::NIL);
-    let docstring = match docstring_val.kind() {
-        ValueKind::String => Some(docstring_val.as_str().unwrap_or("").to_owned()),
-        _ => None,
-    };
+    let docstring = docstring_val.as_lisp_string().cloned();
 
     let interactive_val = args.get(3).cloned().unwrap_or(Value::NIL);
     let interactive = !interactive_val.is_nil();
@@ -483,7 +481,7 @@ pub(crate) fn register_autoload_in_state(
 
     let autoload_form = Value::list(vec![
         Value::symbol("autoload"),
-        Value::string(file.clone()),
+        file_val,
         docstring_val,
         interactive_val,
         type_val,
@@ -492,7 +490,7 @@ pub(crate) fn register_autoload_in_state(
     obarray.set_symbol_function(&name, autoload_form);
     autoloads.register(AutoloadEntry {
         name: name.clone(),
-        file,
+        file: file.clone(),
         docstring,
         interactive,
         autoload_type,
@@ -542,7 +540,7 @@ pub(crate) fn builtin_symbol_file(eval: &mut super::eval::Context, args: Vec<Val
     }
 
     if let Some(entry) = eval.autoloads.get_entry(symbol_name) {
-        return Ok(Value::string(entry.file.clone()));
+        return Ok(Value::heap_string(entry.file.clone()));
     }
 
     if let Some(fndef) = eval.obarray.symbol_function(symbol_name).cloned() {
@@ -550,7 +548,7 @@ pub(crate) fn builtin_symbol_file(eval: &mut super::eval::Context, args: Vec<Val
             if let Some(items) = list_to_vec(&fndef) {
                 if let Some(v) = items.get(1) {
                     if v.is_string() {
-                        return Ok(Value::string(v.as_str().unwrap().to_owned()));
+                        return Ok(*v);
                     }
                 }
             }

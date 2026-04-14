@@ -37,7 +37,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 
 fn expect_string_arg(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
         _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -138,7 +138,7 @@ fn make_lock_file_name(
     let file = Value::string(filename);
     match eval.apply(Value::symbol("make-lock-file-name"), vec![file]) {
         Ok(v) if v.is_nil() => Ok(None),
-        Ok(v) if v.is_string() => Ok(Some(v.as_str().unwrap().to_owned())),
+        Ok(v) if v.is_string() => Ok(Some(super::builtins::lisp_string_to_runtime_string(v))),
         Ok(other) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), other],
@@ -278,7 +278,9 @@ fn current_buffer_file_lock_target(
     let file_name = buffer.buffer_local_value("buffer-file-name")?;
     let file_truename = buffer.buffer_local_value("buffer-file-truename")?;
     match (file_name.kind(), file_truename.kind()) {
-        (ValueKind::String, ValueKind::String) => Some(file_truename.as_str().unwrap().to_owned()),
+        (ValueKind::String, ValueKind::String) => Some(
+            super::builtins::lisp_string_to_runtime_string(file_truename),
+        ),
         _ => None,
     }
 }
@@ -356,7 +358,7 @@ pub(crate) fn builtin_lock_buffer(eval: &mut super::eval::Context, args: Vec<Val
         current
             .buffer_local_value("buffer-file-truename")
             .and_then(|value| match value.kind() {
-                ValueKind::String => Some(value.as_str().unwrap().to_owned()),
+                ValueKind::String => Some(super::builtins::lisp_string_to_runtime_string(value)),
                 _ => None,
             })
             .map(|filename| resolve_filename_for_eval(eval, &filename))
@@ -384,7 +386,7 @@ pub(crate) fn builtin_unlock_buffer(
         && let Some(truename) = current.buffer_local_value("buffer-file-truename")
         && truename.is_string()
     {
-        let filename = truename.as_str().unwrap().to_owned();
+        let filename = super::builtins::lisp_string_to_runtime_string(truename);
         let filename = resolve_filename_for_eval(eval, &filename);
         let _ = unlock_file_resolved(eval, &filename)?;
     }

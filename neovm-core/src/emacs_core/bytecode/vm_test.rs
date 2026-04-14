@@ -8602,7 +8602,7 @@ fn vm_compiled_autoload_registration_updates_shared_autoload_manager() {
         .autoloads
         .get_entry("vm-bytecode-auto")
         .expect("autoload registration should propagate back out of VM bridge");
-    assert_eq!(entry.file, "vm-bytecode-auto-file");
+    assert_eq!(entry.file.as_str(), Some("vm-bytecode-auto-file"));
 }
 
 #[test]
