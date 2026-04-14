@@ -28,6 +28,18 @@ fn eval_with_unibyte_bytes(bytes: &[u8]) -> Context {
     ev
 }
 
+fn gnu_simple_line_eval_with_unibyte_bytes(bytes: &[u8]) -> Context {
+    let mut ev = gnu_simple_line_eval();
+    let storage = crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(bytes);
+    {
+        let buf = ev.buffers.current_buffer_mut().unwrap();
+        buf.set_multibyte_value(false);
+        buf.insert(&storage);
+        buf.goto_char(0);
+    }
+    ev
+}
+
 fn bootstrap_eval_with_text(text: &str) -> Context {
     let mut ev = runtime_startup_context();
     {
@@ -91,6 +103,7 @@ fn gnu_simple_line_eval() -> Context {
     eval_first_form_after_marker(&mut ev, &subr_source, "(defun zerop (number)");
     eval_first_form_after_marker(&mut ev, &subr_source, "(defun buffer-narrowed-p ()");
     for marker in [
+        "(defun count-lines (start end &optional ignore-invisible-lines)",
         "(defun beginning-of-buffer (&optional arg)",
         "(defun end-of-buffer (&optional arg)",
         "(defun goto-line (line &optional buffer relative interactive)",
@@ -307,7 +320,11 @@ fn test_line_number_at_pos_default() {
 #[test]
 fn test_line_counting_on_unibyte_raw_bytes() {
     crate::test_utils::init_test_tracing();
-    let mut ev = eval_with_unibyte_bytes(&[0xFF, b'\n', 0x80, b'A']);
+    let mut ev = gnu_simple_line_eval_with_unibyte_bytes(&[0xFF, b'\n', 0x80, b'A']);
+    assert_eq!(
+        eval_str(&mut ev, "(subrp (symbol-function 'count-lines))"),
+        Value::NIL
+    );
     assert_eq!(eval_int(&mut ev, "(line-number-at-pos 4)"), 2);
     assert_eq!(eval_int(&mut ev, "(count-lines 1 5)"), 2);
     assert_eq!(eval_int(&mut ev, "(forward-line 1)"), 0);

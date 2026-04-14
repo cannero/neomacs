@@ -2132,12 +2132,6 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         Some(2),
     );
     ctx.defsubr(
-        "count-lines",
-        super::navigation::builtin_count_lines,
-        2,
-        Some(3),
-    );
-    ctx.defsubr(
         "forward-line",
         super::navigation::builtin_forward_line,
         0,

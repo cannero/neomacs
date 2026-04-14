@@ -1464,7 +1464,6 @@ fn subr_arity_line_position_primitives_match_oracle() {
     assert_subr_arity("pos-bol", 0, Some(1));
     assert_subr_arity("pos-eol", 0, Some(1));
     assert_subr_arity("line-number-at-pos", 0, Some(2));
-    assert_subr_arity("count-lines", 2, Some(3));
     assert_subr_arity("line-number-display-width", 0, Some(1));
     assert_subr_arity("line-pixel-height", 0, Some(0));
 }
