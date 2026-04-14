@@ -4280,6 +4280,16 @@ pub(crate) fn builtin_pop_to_buffer(
 const MIN_FRAME_COLS: i64 = 10;
 const MIN_FRAME_TEXT_LINES: i64 = 5;
 const FRAME_TEXT_LINES_PARAM: &str = "neovm--frame-text-lines";
+const LIVE_GUI_RESIZE_ACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+
+fn sync_live_gui_resize_for_geometry_queries(
+    eval: &mut super::eval::Context,
+    fid: FrameId,
+) -> Result<(), Flow> {
+    flush_pending_live_gui_resize(eval, fid)?;
+    eval.wait_for_pending_resize_events(LIVE_GUI_RESIZE_ACK_TIMEOUT);
+    Ok(())
+}
 
 fn frame_total_cols(frame: &crate::window::Frame) -> i64 {
     frame
@@ -4394,6 +4404,28 @@ fn set_frame_text_size(frame: &mut crate::window::Frame, cols: i64, text_lines: 
     );
 }
 
+fn live_gui_resize_pixels_from_logical_size(
+    frames: &FrameManager,
+    fid: FrameId,
+    desired_cols: i64,
+    desired_total_lines: i64,
+) -> Result<(u32, u32), Flow> {
+    let frame = frames
+        .get(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    let char_width = frame.char_width.max(1.0).round();
+    let char_height = frame.char_height.max(1.0).round();
+    let non_text_height = frame_non_text_height_pixels(frame);
+    let total_height_px = ((desired_total_lines.max(1) as f32) * char_height)
+        .round()
+        .max(1.0) as u32;
+    let text_width_px = ((desired_cols.max(1) as f32) * char_width).round().max(1.0) as u32;
+    let text_height_px = total_height_px
+        .saturating_sub(non_text_height)
+        .max(char_height.round().max(1.0) as u32);
+    Ok((text_width_px, text_height_px))
+}
+
 fn resize_live_gui_frame(
     frames: &mut FrameManager,
     display_host: &mut Option<Box<dyn super::eval::DisplayHost>>,
@@ -4430,6 +4462,7 @@ fn resize_live_gui_frame(
         let frame = frames
             .get_mut(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+        frame.clear_pending_gui_resize();
         tracing::debug!(
             "resize_live_gui_frame: fid={:?} pretend={} total={}x{} cols={} text_lines={}",
             fid,
@@ -4517,8 +4550,13 @@ fn request_live_gui_frame_resize(
         let frame = frames
             .get_mut(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+        frame.clear_pending_gui_resize();
         set_frame_text_size(frame, cols, text_lines);
         return Ok(());
+    }
+
+    if let Some(frame) = frames.get_mut(fid) {
+        frame.clear_pending_gui_resize();
     }
 
     if let Some(host) = display_host.as_mut() {
@@ -4541,6 +4579,44 @@ fn request_live_gui_frame_resize(
         Value::fixnum(text_lines),
     );
     Ok(())
+}
+
+fn flush_pending_live_gui_resize(
+    eval: &mut super::eval::Context,
+    fid: FrameId,
+) -> Result<(), Flow> {
+    let pending = eval
+        .frames
+        .get_mut(fid)
+        .and_then(|frame| frame.take_pending_gui_resize());
+    let Some(pending) = pending else {
+        return Ok(());
+    };
+
+    let (text_width_px, text_height_px) = live_gui_resize_pixels_from_logical_size(
+        &eval.frames,
+        fid,
+        pending.width_cols,
+        pending.total_lines,
+    )?;
+
+    tracing::debug!(
+        "flush_pending_live_gui_resize: fid={:?} cols={} total_lines={} text={}x{}",
+        fid,
+        pending.width_cols,
+        pending.total_lines,
+        text_width_px,
+        text_height_px
+    );
+
+    request_live_gui_frame_resize(
+        &mut eval.frames,
+        &mut eval.display_host,
+        fid,
+        text_width_px,
+        text_height_px,
+        false,
+    )
 }
 
 // ===========================================================================
@@ -5045,11 +5121,12 @@ pub(crate) fn builtin_frame_native_height(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    eval.sync_pending_resize_events();
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("frame-native-height", &args, 1)?;
-    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
-    let frame = frames
+    let fid =
+        resolve_frame_id_in_state(&mut eval.frames, &mut eval.buffers, args.first(), "framep")?;
+    sync_live_gui_resize_for_geometry_queries(eval, fid)?;
+    let frame = eval
+        .frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     Ok(Value::fixnum(if frame_uses_window_system_pixels(frame) {
@@ -5063,11 +5140,12 @@ pub(crate) fn builtin_frame_native_width(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    eval.sync_pending_resize_events();
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("frame-native-width", &args, 1)?;
-    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
-    let frame = frames
+    let fid =
+        resolve_frame_id_in_state(&mut eval.frames, &mut eval.buffers, args.first(), "framep")?;
+    sync_live_gui_resize_for_geometry_queries(eval, fid)?;
+    let frame = eval
+        .frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     let uses_window_system_pixels = frame_uses_window_system_pixels(frame);
@@ -5078,7 +5156,7 @@ pub(crate) fn builtin_frame_native_width(
         tracing::debug!(
             "frame-native-width: fid={:?} selected={:?} size={}x{} uses_pixels={} effective_ws={:?} param_ws={:?}",
             fid,
-            frames.selected_frame().map(|selected| selected.id),
+            eval.frames.selected_frame().map(|selected| selected.id),
             frame.width,
             frame.height,
             uses_window_system_pixels,
@@ -5097,10 +5175,12 @@ pub(crate) fn builtin_frame_text_cols(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("frame-text-cols", &args, 1)?;
-    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
-    let frame = frames
+    let fid =
+        resolve_frame_id_in_state(&mut eval.frames, &mut eval.buffers, args.first(), "framep")?;
+    sync_live_gui_resize_for_geometry_queries(eval, fid)?;
+    let frame = eval
+        .frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     Ok(Value::fixnum(frame_total_cols(frame)))
@@ -5110,10 +5190,12 @@ pub(crate) fn builtin_frame_text_lines(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("frame-text-lines", &args, 1)?;
-    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
-    let frame = frames
+    let fid =
+        resolve_frame_id_in_state(&mut eval.frames, &mut eval.buffers, args.first(), "framep")?;
+    sync_live_gui_resize_for_geometry_queries(eval, fid)?;
+    let frame = eval
+        .frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     Ok(Value::fixnum(if frame_uses_window_system_pixels(frame) {
@@ -5132,14 +5214,16 @@ pub(crate) fn builtin_frame_text_width(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("frame-text-width", &args, 1)?;
-    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
-    let frame = frames
+    let fid =
+        resolve_frame_id_in_state(&mut eval.frames, &mut eval.buffers, args.first(), "framep")?;
+    sync_live_gui_resize_for_geometry_queries(eval, fid)?;
+    let frame = eval
+        .frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     Ok(Value::fixnum(if frame_uses_window_system_pixels(frame) {
-        frame_text_width_pixels_in_state(frames, fid) as i64
+        frame_text_width_pixels_in_state(&eval.frames, fid) as i64
     } else {
         frame_text_cols(frame)
     }))
@@ -5151,10 +5235,12 @@ pub(crate) fn builtin_frame_text_height(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("frame-text-height", &args, 1)?;
-    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
-    let frame = frames
+    let fid =
+        resolve_frame_id_in_state(&mut eval.frames, &mut eval.buffers, args.first(), "framep")?;
+    sync_live_gui_resize_for_geometry_queries(eval, fid)?;
+    let frame = eval
+        .frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     Ok(Value::fixnum(if frame_uses_window_system_pixels(frame) {
@@ -5168,10 +5254,12 @@ pub(crate) fn builtin_frame_total_cols(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("frame-total-cols", &args, 1)?;
-    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
-    let frame = frames
+    let fid =
+        resolve_frame_id_in_state(&mut eval.frames, &mut eval.buffers, args.first(), "framep")?;
+    sync_live_gui_resize_for_geometry_queries(eval, fid)?;
+    let frame = eval
+        .frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     Ok(Value::fixnum(frame_total_cols(frame)))
@@ -5181,10 +5269,12 @@ pub(crate) fn builtin_frame_total_lines(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("frame-total-lines", &args, 1)?;
-    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
-    let frame = frames
+    let fid =
+        resolve_frame_id_in_state(&mut eval.frames, &mut eval.buffers, args.first(), "framep")?;
+    sync_live_gui_resize_for_geometry_queries(eval, fid)?;
+    let frame = eval
+        .frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     Ok(Value::fixnum(frame_total_lines(frame)))
@@ -6167,7 +6257,7 @@ pub(crate) fn builtin_modify_frame_parameters(
             .get(fid)
             .is_some_and(frame_uses_window_system_pixels);
         if uses_window_system_pixels {
-            let (current_cols, current_total_lines, char_width, char_height, non_text_height) = {
+            let (current_cols, current_total_lines, should_defer_resize) = {
                 let frame = eval
                     .frames
                     .get(fid)
@@ -6175,28 +6265,33 @@ pub(crate) fn builtin_modify_frame_parameters(
                 (
                     frame_total_cols(frame),
                     frame_total_lines(frame),
-                    frame.char_width.max(1.0).round(),
-                    frame.char_height.max(1.0).round(),
-                    frame_non_text_height_pixels(frame),
+                    frame.should_defer_gui_parameter_resize(),
                 )
             };
             let desired_cols = requested_width_cols.unwrap_or(current_cols).max(1);
             let desired_total_lines = requested_total_lines.unwrap_or(current_total_lines).max(1);
-            let total_height_px = ((desired_total_lines as f32) * char_height)
-                .round()
-                .max(1.0) as u32;
-            let text_width_px = ((desired_cols as f32) * char_width).round().max(1.0) as u32;
-            let text_height_px = total_height_px
-                .saturating_sub(non_text_height)
-                .max(char_height.round().max(1.0) as u32);
-            resize_live_gui_frame(
-                &mut eval.frames,
-                &mut eval.display_host,
-                fid,
-                text_width_px,
-                text_height_px,
-                false,
-            )?;
+            if should_defer_resize {
+                let frame = eval
+                    .frames
+                    .get_mut(fid)
+                    .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+                frame.queue_pending_gui_resize(desired_cols, desired_total_lines);
+            } else {
+                let (text_width_px, text_height_px) = live_gui_resize_pixels_from_logical_size(
+                    &eval.frames,
+                    fid,
+                    desired_cols,
+                    desired_total_lines,
+                )?;
+                resize_live_gui_frame(
+                    &mut eval.frames,
+                    &mut eval.display_host,
+                    fid,
+                    text_width_px,
+                    text_height_px,
+                    false,
+                )?;
+            }
         }
     }
 

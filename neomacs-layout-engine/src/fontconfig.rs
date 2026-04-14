@@ -11,6 +11,10 @@
 //! - candidate discovery uses Fontconfig's `FcFontList`
 //! - style selection is scored in Rust instead of delegated to Fontconfig
 
+#[cfg(unix)]
+use fontconfig_sys::constants::{
+    FC_RGBA, FC_RGBA_BGR, FC_RGBA_NONE, FC_RGBA_RGB, FC_RGBA_VBGR, FC_RGBA_VRGB,
+};
 use neovm_core::emacs_core::font::alternative_font_families;
 use neovm_core::emacs_core::fontset::{
     FontSpecEntry, StoredFontSpec, fontset_generation, matching_entries_for_char,
@@ -33,6 +37,7 @@ use {fontconfig::Pattern, fontconfig_sys};
 /// Cached fontconfig resolution results.
 static FC_CACHE: OnceLock<HashMap<String, String>> = OnceLock::new();
 static FC_SPACING_CACHE: OnceLock<Mutex<HashMap<String, Option<i32>>>> = OnceLock::new();
+static FC_RGBA_CACHE: OnceLock<FontconfigSubpixelOrder> = OnceLock::new();
 static FC_CHAR_MATCH_CACHE: OnceLock<Mutex<HashMap<CharMatchCacheKey, Option<FontMatch>>>> =
     OnceLock::new();
 #[cfg(unix)]
@@ -48,6 +53,22 @@ pub struct FontMatch {
     pub postscript_name: Option<String>,
     pub weight: Option<u16>,
     pub slant: FontSlant,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FontconfigSubpixelOrder {
+    Unknown,
+    None,
+    Rgb,
+    Bgr,
+    VRgb,
+    VBgr,
+}
+
+impl FontconfigSubpixelOrder {
+    pub fn allows_horizontal_subpixel(self) -> bool {
+        matches!(self, Self::Rgb | Self::Bgr)
+    }
 }
 
 impl FontMatch {
@@ -1692,6 +1713,36 @@ fn family_spacing(family: &str) -> Option<i32> {
     spacing
 }
 
+pub fn default_subpixel_order() -> FontconfigSubpixelOrder {
+    *FC_RGBA_CACHE.get_or_init(query_default_subpixel_order)
+}
+
+#[cfg(unix)]
+fn query_default_subpixel_order() -> FontconfigSubpixelOrder {
+    let Some(fc) = fontconfig_handle() else {
+        return FontconfigSubpixelOrder::Unknown;
+    };
+
+    let mut pattern = Pattern::new(fc);
+    if !add_string_property(&mut pattern, fontconfig::FC_FAMILY, "Monospace") {
+        return FontconfigSubpixelOrder::Unknown;
+    }
+    let matched = pattern.font_match();
+    match matched.get_int(FC_RGBA) {
+        Some(FC_RGBA_NONE) => FontconfigSubpixelOrder::None,
+        Some(FC_RGBA_RGB) => FontconfigSubpixelOrder::Rgb,
+        Some(FC_RGBA_BGR) => FontconfigSubpixelOrder::Bgr,
+        Some(FC_RGBA_VRGB) => FontconfigSubpixelOrder::VRgb,
+        Some(FC_RGBA_VBGR) => FontconfigSubpixelOrder::VBgr,
+        _ => FontconfigSubpixelOrder::Unknown,
+    }
+}
+
+#[cfg(not(unix))]
+fn query_default_subpixel_order() -> FontconfigSubpixelOrder {
+    FontconfigSubpixelOrder::Unknown
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -2175,5 +2226,18 @@ mod tests {
     #[test]
     fn fontconfig_handle_initializes() {
         assert!(super::fontconfig_handle().is_some(), "fontconfig handle");
+    }
+
+    #[test]
+    fn default_subpixel_order_resolves_to_known_variant() {
+        assert!(matches!(
+            super::default_subpixel_order(),
+            super::FontconfigSubpixelOrder::Unknown
+                | super::FontconfigSubpixelOrder::None
+                | super::FontconfigSubpixelOrder::Rgb
+                | super::FontconfigSubpixelOrder::Bgr
+                | super::FontconfigSubpixelOrder::VRgb
+                | super::FontconfigSubpixelOrder::VBgr
+        ));
     }
 }

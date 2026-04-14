@@ -22,9 +22,14 @@ use neovm_core::face::FaceHeight;
 use neovm_core::window::FrameId;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 fn gui_display() -> BootstrapDisplayConfig {
     bootstrap_display_config(FrontendKind::Gui)
+}
+
+fn shared_primary_window_size(width: u32, height: u32) -> Arc<Mutex<PrimaryWindowSize>> {
+    Arc::new(Mutex::new(PrimaryWindowSize { width, height }))
 }
 
 #[test]
@@ -525,10 +530,7 @@ fn opening_gui_frame_adoption_does_not_push_stale_window_size() {
         primary_frame_id: None,
         last_window_titles: Mutex::new(std::collections::HashMap::new()),
         font_metrics: None,
-        primary_window_size: Arc::new(Mutex::new(PrimaryWindowSize {
-            width: 1600,
-            height: 1800,
-        })),
+        primary_window_size: shared_primary_window_size(1600, 1800),
         image_dimensions: Arc::new((
             Mutex::new(std::collections::HashMap::new()),
             std::sync::Condvar::new(),
@@ -569,10 +571,7 @@ fn bootstrap_gui_frame_adoption_routes_future_resizes_to_primary_window() {
         primary_frame_id: None,
         last_window_titles: Mutex::new(std::collections::HashMap::new()),
         font_metrics: None,
-        primary_window_size: Arc::new(Mutex::new(PrimaryWindowSize {
-            width: 843,
-            height: 489,
-        })),
+        primary_window_size: shared_primary_window_size(843, 489),
         image_dimensions: Arc::new((
             Mutex::new(std::collections::HashMap::new()),
             std::sync::Condvar::new(),
@@ -604,6 +603,55 @@ fn bootstrap_gui_frame_adoption_routes_future_resizes_to_primary_window() {
 }
 
 #[test]
+fn primary_window_resize_does_not_wait_for_host_acknowledgement() {
+    let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
+    let shared = shared_primary_window_size(843, 489);
+    let mut host = PrimaryWindowDisplayHost {
+        cmd_tx,
+        primary_window_adopted: true,
+        primary_frame_id: Some(FrameId(0x100000001)),
+        last_window_titles: Mutex::new(std::collections::HashMap::new()),
+        font_metrics: None,
+        primary_window_size: Arc::clone(&shared),
+        image_dimensions: Arc::new((
+            Mutex::new(std::collections::HashMap::new()),
+            std::sync::Condvar::new(),
+        )),
+        resolved_images: Mutex::new(std::collections::HashMap::new()),
+    };
+
+    let started = Instant::now();
+    neovm_core::emacs_core::DisplayHost::resize_gui_frame(
+        &mut host,
+        GuiFrameHostRequest {
+            frame_id: FrameId(0x100000001),
+            width: 1068,
+            height: 1386,
+            title: "Neomacs".to_string(),
+        },
+    )
+    .expect("primary resize should succeed");
+
+    assert!(
+        started.elapsed() < Duration::from_millis(10),
+        "primary resize should stay asynchronous; geometry queries do the waiting"
+    );
+
+    let commands: Vec<_> = cmd_rx.try_iter().collect();
+    assert!(
+        commands.iter().any(|cmd| matches!(
+            cmd,
+            RenderCommand::ResizeWindow {
+                emacs_frame_id: 0,
+                width: 1068,
+                height: 1386,
+            }
+        )),
+        "expected primary resize command, got {commands:?}"
+    );
+}
+
+#[test]
 fn redisplay_title_sync_formats_frame_title_format_for_primary_window() {
     let mut eval = Context::new();
     let _bootstrap = bootstrap_buffers(&mut eval, 843, 489, gui_display());
@@ -615,10 +663,7 @@ fn redisplay_title_sync_formats_frame_title_format_for_primary_window() {
         primary_frame_id: None,
         last_window_titles: Mutex::new(std::collections::HashMap::new()),
         font_metrics: None,
-        primary_window_size: Arc::new(Mutex::new(PrimaryWindowSize {
-            width: 843,
-            height: 489,
-        })),
+        primary_window_size: shared_primary_window_size(843, 489),
         image_dimensions: Arc::new((
             Mutex::new(std::collections::HashMap::new()),
             std::sync::Condvar::new(),

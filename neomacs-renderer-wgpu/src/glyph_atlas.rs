@@ -5,11 +5,14 @@
 use std::collections::{HashMap, HashSet};
 
 use cosmic_text::{
-    Attrs, Buffer, Family, FontSystem, Metrics, ShapeBuffer, Style, SubpixelBin, SwashCache, Weight,
+    Attrs, Buffer, CacheKeyFlags, Family, FontSystem, Metrics, Style, SubpixelBin, Weight,
 };
 
 use neomacs_display_protocol::face::Face;
 use neomacs_layout_engine::font_loader::FontFileCache;
+use neomacs_layout_engine::fontconfig::{FontconfigSubpixelOrder, default_subpixel_order};
+use swash::scale::{Render, ScaleContext, Source, StrikeWith};
+use swash::zeno::{Angle, Format, Transform, Vector};
 
 /// Key for glyph cache lookup
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -43,13 +46,33 @@ pub struct ComposedGlyphKey {
     pub y_bin: SubpixelBin,
 }
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+enum GlyphRenderMode {
+    Alpha,
+    Subpixel,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct CachedGlyphKey {
+    glyph: GlyphKey,
+    mode: GlyphRenderMode,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct CachedComposedGlyphKey {
+    glyph: ComposedGlyphKey,
+    mode: GlyphRenderMode,
+}
+
 /// Result of rasterizing a glyph or text sequence.
 pub struct RasterizeResult {
     /// Width in pixels
     pub width: u32,
     /// Height in pixels
     pub height: u32,
-    /// Pixel data (R8 alpha for mask glyphs, RGBA for color glyphs)
+    /// Pixel data.
+    /// Grayscale alpha masks use R8 when `is_subpixel` is false.
+    /// Subpixel masks and color glyphs use RGBA.
     pub pixel_data: Vec<u8>,
     /// Bearing X (offset from origin, physical pixels)
     pub bearing_x: f32,
@@ -57,6 +80,9 @@ pub struct RasterizeResult {
     pub bearing_y: f32,
     /// True if this is a color glyph (RGBA texture)
     pub is_color: bool,
+    /// True if this is a subpixel LCD mask that should be rendered through the
+    /// background-aware subpixel pipeline.
+    pub is_subpixel: bool,
     /// Horizontal advance width (physical pixels)
     pub advance_width: f32,
 }
@@ -81,25 +107,67 @@ pub struct CachedGlyph {
     /// Color glyphs should be rendered with the image pipeline (direct RGBA),
     /// not the glyph pipeline (alpha-mask tinted with foreground color).
     pub is_color: bool,
+    /// True if this is a subpixel LCD mask texture.
+    pub is_subpixel: bool,
     /// Horizontal advance width (physical pixels)
     pub advance_width: f32,
     /// Frame generation when this glyph was last accessed
     last_accessed: u64,
 }
 
+fn normalize_subpixel_mask(
+    mask: &[u8],
+    pixel_count: usize,
+    order: FontconfigSubpixelOrder,
+) -> Vec<u8> {
+    if mask.len() == pixel_count * 4 {
+        let mut rgba = mask.to_vec();
+        if matches!(
+            order,
+            FontconfigSubpixelOrder::Bgr | FontconfigSubpixelOrder::VBgr
+        ) {
+            for chunk in rgba.chunks_exact_mut(4) {
+                chunk.swap(0, 2);
+            }
+        }
+        return rgba;
+    }
+
+    if mask.len() == pixel_count * 3 {
+        let mut rgba = Vec::with_capacity(pixel_count * 4);
+        for chunk in mask.chunks_exact(3) {
+            let (r, g, b) = if matches!(
+                order,
+                FontconfigSubpixelOrder::Bgr | FontconfigSubpixelOrder::VBgr
+            ) {
+                (chunk[2], chunk[1], chunk[0])
+            } else {
+                (chunk[0], chunk[1], chunk[2])
+            };
+            let alpha = r.max(g).max(b);
+            rgba.extend_from_slice(&[r, g, b, alpha]);
+        }
+        return rgba;
+    }
+
+    tracing::warn!(
+        "glyph_atlas: unexpected subpixel mask size: {} bytes for {} pixels",
+        mask.len(),
+        pixel_count
+    );
+    mask.to_vec()
+}
+
 /// Wgpu-based glyph atlas for text rendering
 pub struct WgpuGlyphAtlas {
     /// Cached glyphs: (charcode, face_id) -> CachedGlyph
-    cache: HashMap<GlyphKey, CachedGlyph>,
+    cache: HashMap<CachedGlyphKey, CachedGlyph>,
     /// Cached composed glyphs (multi-codepoint grapheme clusters)
-    composed_cache: HashMap<ComposedGlyphKey, CachedGlyph>,
+    composed_cache: HashMap<CachedComposedGlyphKey, CachedGlyph>,
     /// Font system for text rendering
     font_system: FontSystem,
-    /// Swash cache for glyph rasterization
-    swash_cache: SwashCache,
-    /// Shape buffer for text shaping
-    #[allow(dead_code)]
-    shape_buffer: ShapeBuffer,
+    /// Swash scale context for direct glyph rasterization.
+    scale_context: ScaleContext,
     /// Bind group layout for glyph textures
     bind_group_layout: wgpu::BindGroupLayout,
     /// Sampler for glyph textures
@@ -122,6 +190,8 @@ pub struct WgpuGlyphAtlas {
     cached_font_ascent: Option<f32>,
     /// Cache for pre-loading font files and resolving fontdb family names
     font_file_cache: FontFileCache,
+    /// Host LCD/subpixel order from fontconfig.
+    subpixel_order: FontconfigSubpixelOrder,
 }
 
 impl WgpuGlyphAtlas {
@@ -167,8 +237,7 @@ impl WgpuGlyphAtlas {
             cache: HashMap::new(),
             composed_cache: HashMap::new(),
             font_system: FontSystem::new(),
-            swash_cache: SwashCache::new(),
-            shape_buffer: ShapeBuffer::default(),
+            scale_context: ScaleContext::new(),
             bind_group_layout,
             sampler,
             default_font_size: 13.0,
@@ -180,6 +249,7 @@ impl WgpuGlyphAtlas {
             cached_char_width: None,
             cached_font_ascent: None,
             font_file_cache: FontFileCache::new(),
+            subpixel_order: default_subpixel_order(),
         }
     }
 
@@ -205,11 +275,16 @@ impl WgpuGlyphAtlas {
         queue: &wgpu::Queue,
         key: &GlyphKey,
         face: Option<&Face>,
+        enable_subpixel: bool,
     ) -> Option<&CachedGlyph> {
+        let cache_key = CachedGlyphKey {
+            glyph: key.clone(),
+            mode: self.render_mode(enable_subpixel),
+        };
         // Check cache first — update access generation on hit
-        if let Some(cached) = self.cache.get_mut(key) {
+        if let Some(cached) = self.cache.get_mut(&cache_key) {
             cached.last_accessed = self.generation;
-            return self.cache.get(key);
+            return self.cache.get(&cache_key);
         }
 
         // Rasterize the glyph
@@ -222,7 +297,7 @@ impl WgpuGlyphAtlas {
             return None;
         }
 
-        let result = self.rasterize_glyph(c, face, key.x_bin, key.y_bin);
+        let result = self.rasterize_glyph(c, face, key.x_bin, key.y_bin, enable_subpixel);
         if result.is_none() {
             tracing::warn!(
                 "glyph_atlas: failed to rasterize '{}' (U+{:04X}) face_id={} has_face={}",
@@ -268,12 +343,14 @@ impl WgpuGlyphAtlas {
             bearing_x,
             bearing_y,
             is_color,
+            is_subpixel,
             advance_width,
         } = result;
 
-        // Color glyphs use Rgba8UnormSrgb (4 bytes/pixel), mask glyphs use R8Unorm (1 byte/pixel)
         let (format, bytes_per_pixel) = if is_color {
             (wgpu::TextureFormat::Rgba8UnormSrgb, 4u32)
+        } else if is_subpixel {
+            (wgpu::TextureFormat::Rgba8Unorm, 4u32)
         } else {
             (wgpu::TextureFormat::R8Unorm, 1u32)
         };
@@ -362,11 +439,12 @@ impl WgpuGlyphAtlas {
             bearing_x,
             bearing_y,
             is_color,
+            is_subpixel,
             advance_width,
             last_accessed: generation,
         };
-        self.cache.insert(key.clone(), cached_glyph);
-        self.cache.get(key)
+        self.cache.insert(cache_key.clone(), cached_glyph);
+        self.cache.get(&cache_key)
     }
 
     /// Get or create a cached glyph for a composed (multi-codepoint) grapheme cluster.
@@ -382,6 +460,7 @@ impl WgpuGlyphAtlas {
         face: Option<&Face>,
         x_bin: SubpixelBin,
         y_bin: SubpixelBin,
+        enable_subpixel: bool,
     ) -> Option<&CachedGlyph> {
         let key = ComposedGlyphKey {
             text: text.into(),
@@ -390,16 +469,19 @@ impl WgpuGlyphAtlas {
             x_bin,
             y_bin,
         };
+        let cache_key = CachedComposedGlyphKey {
+            glyph: key.clone(),
+            mode: self.render_mode(enable_subpixel),
+        };
 
         // Check cache first
-        if let Some(cached) = self.composed_cache.get_mut(&key) {
+        if let Some(cached) = self.composed_cache.get_mut(&cache_key) {
             cached.last_accessed = self.generation;
-            let key2 = key.clone();
-            return self.composed_cache.get(&key2);
+            return self.composed_cache.get(&cache_key);
         }
 
         // Rasterize the composed text
-        let result = self.rasterize_text(text, face, x_bin, y_bin);
+        let result = self.rasterize_text(text, face, x_bin, y_bin, enable_subpixel);
         if result.is_none() {
             tracing::warn!("glyph_atlas: failed to rasterize composed text '{}'", text);
             return None;
@@ -411,6 +493,7 @@ impl WgpuGlyphAtlas {
             bearing_x,
             bearing_y,
             is_color,
+            is_subpixel,
             advance_width,
         } = result?;
 
@@ -421,6 +504,8 @@ impl WgpuGlyphAtlas {
         // Create GPU texture (same logic as single-char path)
         let (format, bytes_per_pixel) = if is_color {
             (wgpu::TextureFormat::Rgba8UnormSrgb, 4u32)
+        } else if is_subpixel {
+            (wgpu::TextureFormat::Rgba8Unorm, 4u32)
         } else {
             (wgpu::TextureFormat::R8Unorm, 1u32)
         };
@@ -478,7 +563,7 @@ impl WgpuGlyphAtlas {
 
         let generation = self.generation;
         self.composed_cache.insert(
-            key.clone(),
+            cache_key.clone(),
             CachedGlyph {
                 texture,
                 view,
@@ -488,22 +573,31 @@ impl WgpuGlyphAtlas {
                 bearing_x,
                 bearing_y,
                 is_color,
+                is_subpixel,
                 advance_width,
                 last_accessed: generation,
             },
         );
-        self.composed_cache.get(&key)
+        self.composed_cache.get(&cache_key)
     }
 
     /// Get a cached composed glyph without creating it
-    pub fn get_composed(&self, key: &ComposedGlyphKey) -> Option<&CachedGlyph> {
-        self.composed_cache.get(key)
+    pub fn get_composed(
+        &self,
+        key: &ComposedGlyphKey,
+        enable_subpixel: bool,
+    ) -> Option<&CachedGlyph> {
+        self.composed_cache.get(&CachedComposedGlyphKey {
+            glyph: key.clone(),
+            mode: self.render_mode(enable_subpixel),
+        })
     }
 
     /// Rasterize text (single char or multi-codepoint sequence) and return pixel data.
     ///
     /// Returns a `RasterizeResult` containing pixel data and metrics:
-    /// - For mask glyphs: pixel_data is R8 alpha, is_color=false
+    /// - For grayscale masks: pixel_data is R8 alpha, is_color=false, is_subpixel=false
+    /// - For subpixel masks: pixel_data is RGBA coverage, is_subpixel=true
     /// - For color glyphs: pixel_data is RGBA, is_color=true
     ///
     /// Instrumented to debug font resolution mismatches (e.g. weight 700 vs 800)
@@ -525,6 +619,7 @@ impl WgpuGlyphAtlas {
         face: Option<&Face>,
         x_bin: SubpixelBin,
         y_bin: SubpixelBin,
+        enable_subpixel: bool,
     ) -> Option<RasterizeResult> {
         let req_family = face.map(|f| f.font_family.as_str()).unwrap_or("monospace");
         let req_weight = face.map(|f| f.font_weight).unwrap_or(400);
@@ -571,7 +666,7 @@ impl WgpuGlyphAtlas {
 
         // For multi-glyph sequences (e.g. emoji ZWJ), we need to composite
         // all sub-glyphs into a single texture. Collect them first.
-        let mut sub_glyphs: Vec<(f32, f32, u32, u32, Vec<u8>, bool, f32)> = Vec::new();
+        let mut sub_glyphs: Vec<(f32, f32, u32, u32, Vec<u8>, bool, bool, f32)> = Vec::new();
 
         for run in buffer.layout_runs() {
             for glyph in run.glyphs.iter() {
@@ -627,7 +722,7 @@ impl WgpuGlyphAtlas {
                     }
                 }
 
-                if let Some(image) = self.swash_cache.get_image(&mut self.font_system, cache_key) {
+                if let Some(image) = self.render_cache_key_image(cache_key, enable_subpixel) {
                     let width = image.placement.width as u32;
                     let height = image.placement.height as u32;
 
@@ -649,24 +744,43 @@ impl WgpuGlyphAtlas {
                         height
                     );
 
-                    let (pixel_data, is_color) = match image.content {
-                        cosmic_text::SwashContent::Mask => (image.data.clone(), false),
-                        cosmic_text::SwashContent::Color => (image.data.clone(), true),
+                    let (pixel_data, is_color, is_subpixel) = match image.content {
+                        cosmic_text::SwashContent::Mask => (image.data.clone(), false, false),
+                        cosmic_text::SwashContent::Color => (image.data.clone(), true, false),
                         cosmic_text::SwashContent::SubpixelMask => {
-                            let alpha: Vec<u8> = image
-                                .data
-                                .chunks(3)
-                                .map(|chunk| {
-                                    ((chunk[0] as u16 + chunk[1] as u16 + chunk[2] as u16) / 3)
-                                        as u8
-                                })
-                                .collect();
-                            (alpha, false)
+                            if self.render_mode(enable_subpixel) == GlyphRenderMode::Subpixel {
+                                (
+                                    normalize_subpixel_mask(
+                                        &image.data,
+                                        (width as usize) * (height as usize),
+                                        self.subpixel_order,
+                                    ),
+                                    false,
+                                    true,
+                                )
+                            } else {
+                                let alpha: Vec<u8> = image
+                                    .data
+                                    .chunks(3)
+                                    .map(|chunk| {
+                                        ((chunk[0] as u16 + chunk[1] as u16 + chunk[2] as u16) / 3)
+                                            as u8
+                                    })
+                                    .collect();
+                                (alpha, false, false)
+                            }
                         }
                     };
 
                     sub_glyphs.push((
-                        bearing_x, bearing_y, width, height, pixel_data, is_color, advance_w,
+                        bearing_x,
+                        bearing_y,
+                        width,
+                        height,
+                        pixel_data,
+                        is_color,
+                        is_subpixel,
+                        advance_w,
                     ));
                 }
             }
@@ -679,7 +793,9 @@ impl WgpuGlyphAtlas {
         // Single glyph: return directly (common case for single chars and
         // composed emoji that the font renders as a single glyph)
         if sub_glyphs.len() == 1 {
-            if let Some((bx, by, w, h, data, is_color, adv_w)) = sub_glyphs.into_iter().next() {
+            if let Some((bx, by, w, h, data, is_color, is_subpixel, adv_w)) =
+                sub_glyphs.into_iter().next()
+            {
                 return Some(RasterizeResult {
                     width: w,
                     height: h,
@@ -687,6 +803,7 @@ impl WgpuGlyphAtlas {
                     bearing_x: bx,
                     bearing_y: by,
                     is_color,
+                    is_subpixel,
                     advance_width: adv_w,
                 });
             } else {
@@ -701,15 +818,19 @@ impl WgpuGlyphAtlas {
         let mut min_y = f32::MAX;
         let mut max_y = f32::MIN;
         let mut any_color = false;
+        let mut any_subpixel = false;
         let mut total_advance: f32 = 0.0;
 
-        for (bx, by, w, h, _, is_color, adv_w) in &sub_glyphs {
+        for (bx, by, w, h, _, is_color, is_subpixel, adv_w) in &sub_glyphs {
             min_x = min_x.min(*bx);
             max_x = max_x.max(*bx + *w as f32);
             min_y = min_y.min(-*by); // bearing_y is distance from baseline (positive = up)
             max_y = max_y.max(-*by + *h as f32);
             if *is_color {
                 any_color = true;
+            }
+            if *is_subpixel {
+                any_subpixel = true;
             }
             total_advance += adv_w;
         }
@@ -725,7 +846,7 @@ impl WgpuGlyphAtlas {
         let bpp = 4u32; // always RGBA for composited result
         let mut composite = vec![0u8; (total_w * total_h * bpp) as usize];
 
-        for (bx, by, w, h, data, is_color, _) in &sub_glyphs {
+        for (bx, by, w, h, data, is_color, is_subpixel, _) in &sub_glyphs {
             let ox = (*bx - min_x).round() as i32;
             let oy = (-*by - min_y).round() as i32;
 
@@ -737,7 +858,7 @@ impl WgpuGlyphAtlas {
                         continue;
                     }
                     let dst_idx = ((dy as u32 * total_w + dx as u32) * bpp) as usize;
-                    if *is_color {
+                    if *is_color || *is_subpixel {
                         // RGBA source
                         let src_idx = ((py * *w + px) * 4) as usize;
                         if src_idx + 3 < data.len() {
@@ -792,7 +913,8 @@ impl WgpuGlyphAtlas {
             pixel_data: composite,
             bearing_x: min_x,
             bearing_y: -min_y,
-            is_color: any_color || sub_glyphs.len() > 1,
+            is_color: any_color || (sub_glyphs.len() > 1 && !any_subpixel),
+            is_subpixel: any_subpixel && !any_color,
             advance_width: total_advance,
         })
     }
@@ -804,8 +926,71 @@ impl WgpuGlyphAtlas {
         face: Option<&Face>,
         x_bin: SubpixelBin,
         y_bin: SubpixelBin,
+        enable_subpixel: bool,
     ) -> Option<RasterizeResult> {
-        self.rasterize_text(&c.to_string(), face, x_bin, y_bin)
+        self.rasterize_text(&c.to_string(), face, x_bin, y_bin, enable_subpixel)
+    }
+
+    fn render_cache_key_image(
+        &mut self,
+        cache_key: cosmic_text::CacheKey,
+        enable_subpixel: bool,
+    ) -> Option<cosmic_text::SwashImage> {
+        let render_mode = self.render_mode(enable_subpixel);
+        let font = self
+            .font_system
+            .get_font(cache_key.font_id, cache_key.font_weight)?;
+
+        let variable_width = font
+            .as_swash()
+            .variations()
+            .find_by_tag(swash::Tag::from_be_bytes(*b"wght"));
+
+        let mut scaler = self
+            .scale_context
+            .builder(font.as_swash())
+            .size(f32::from_bits(cache_key.font_size_bits))
+            .hint(!cache_key.flags.contains(CacheKeyFlags::DISABLE_HINTING));
+        if let Some(variation) = variable_width {
+            scaler = scaler.variations(std::iter::once(swash::Setting {
+                tag: swash::Tag::from_be_bytes(*b"wght"),
+                value: f32::from(cache_key.font_weight.0)
+                    .clamp(variation.min_value(), variation.max_value()),
+            }));
+        }
+        let mut scaler = scaler.build();
+
+        let offset = if cache_key.flags.contains(CacheKeyFlags::PIXEL_FONT) {
+            Vector::new(
+                cache_key.x_bin.as_float().round() + 1.0,
+                cache_key.y_bin.as_float().round(),
+            )
+        } else {
+            Vector::new(cache_key.x_bin.as_float(), cache_key.y_bin.as_float())
+        };
+
+        let format = if render_mode == GlyphRenderMode::Subpixel {
+            Format::Subpixel
+        } else {
+            Format::Alpha
+        };
+
+        Render::new(&[
+            Source::ColorOutline(0),
+            Source::ColorBitmap(StrikeWith::BestFit),
+            Source::Outline,
+        ])
+        .format(format)
+        .offset(offset)
+        .transform(if cache_key.flags.contains(CacheKeyFlags::FAKE_ITALIC) {
+            Some(Transform::skew(
+                Angle::from_degrees(14.0),
+                Angle::from_degrees(0.0),
+            ))
+        } else {
+            None
+        })
+        .render(&mut scaler, cache_key.glyph_id)
     }
 
     fn face_to_attrs_for_text(&mut self, text: &str, face: Option<&Face>) -> Attrs<'static> {
@@ -934,8 +1119,11 @@ impl WgpuGlyphAtlas {
     ///
     /// Returns a reference to the cached glyph if it exists.
     /// This is useful for immutable access after glyphs have been cached.
-    pub fn get(&self, key: &GlyphKey) -> Option<&CachedGlyph> {
-        self.cache.get(key)
+    pub fn get(&self, key: &GlyphKey, enable_subpixel: bool) -> Option<&CachedGlyph> {
+        self.cache.get(&CachedGlyphKey {
+            glyph: key.clone(),
+            mode: self.render_mode(enable_subpixel),
+        })
     }
 
     /// Clear the cache
@@ -1020,5 +1208,34 @@ impl WgpuGlyphAtlas {
             let cutoff = self.generation.saturating_sub(60);
             self.composed_cache.retain(|_, v| v.last_accessed >= cutoff);
         }
+    }
+
+    pub fn subpixel_enabled(&self) -> bool {
+        self.subpixel_order.allows_horizontal_subpixel()
+    }
+
+    fn render_mode(&self, enable_subpixel: bool) -> GlyphRenderMode {
+        if enable_subpixel && self.subpixel_enabled() {
+            GlyphRenderMode::Subpixel
+        } else {
+            GlyphRenderMode::Alpha
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FontconfigSubpixelOrder, normalize_subpixel_mask};
+
+    #[test]
+    fn normalize_subpixel_mask_preserves_rgb_order() {
+        let out = normalize_subpixel_mask(&[10, 20, 30], 1, FontconfigSubpixelOrder::Rgb);
+        assert_eq!(out, vec![10, 20, 30, 30]);
+    }
+
+    #[test]
+    fn normalize_subpixel_mask_swaps_bgr_order() {
+        let out = normalize_subpixel_mask(&[10, 20, 30], 1, FontconfigSubpixelOrder::Bgr);
+        assert_eq!(out, vec![30, 20, 10, 30]);
     }
 }

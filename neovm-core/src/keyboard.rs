@@ -14,6 +14,7 @@ use crate::emacs_core::keyboard::pure::KEY_CHAR_META;
 // decode_storage_char_codes import removed — now using emacs_char directly
 use crate::emacs_core::value::{Value, ValueKind, VecLikeType};
 use std::collections::{HashMap, VecDeque};
+use std::time::{Duration, Instant};
 
 // ---------------------------------------------------------------------------
 // Key events
@@ -1772,6 +1773,44 @@ fn sync_pending_resize_events_in_keyboard_runtime(
     applied_resize
 }
 
+fn wait_for_pending_resize_events_in_keyboard_runtime(
+    frames: &mut crate::window::FrameManager,
+    input_rx: &mut Option<crossbeam_channel::Receiver<InputEvent>>,
+    keyboard: &mut KeyboardRuntime,
+    timeout: Duration,
+) -> bool {
+    if sync_pending_resize_events_in_keyboard_runtime(frames, input_rx, keyboard) {
+        return true;
+    }
+
+    let Some(rx) = input_rx.clone() else {
+        return false;
+    };
+    let deadline = Instant::now() + timeout;
+    let pending_input_events = &mut keyboard.pending_input_events;
+
+    loop {
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            break;
+        };
+        match rx.recv_timeout(remaining) {
+            Ok(InputEvent::Resize {
+                width,
+                height,
+                emacs_frame_id,
+            }) => {
+                apply_resize_input_event_in_keyboard_runtime(frames, width, height, emacs_frame_id);
+                return true;
+            }
+            Ok(event) => pending_input_events.push_back(event),
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => break,
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+
+    false
+}
+
 fn input_event_triggers_throw_on_input(event: &InputEvent) -> bool {
     !matches!(
         event,
@@ -2555,6 +2594,20 @@ impl crate::emacs_core::eval::Context {
             &mut self.frames,
             &mut self.input_rx,
             &mut self.command_loop.keyboard,
+        );
+        sync_opening_gui_frame_size_from_host_in_keyboard_runtime(
+            &mut self.frames,
+            self.display_host.as_deref(),
+        );
+        applied_resize
+    }
+
+    pub(crate) fn wait_for_pending_resize_events(&mut self, timeout: Duration) -> bool {
+        let applied_resize = wait_for_pending_resize_events_in_keyboard_runtime(
+            &mut self.frames,
+            &mut self.input_rx,
+            &mut self.command_loop.keyboard,
+            timeout,
         );
         sync_opening_gui_frame_size_from_host_in_keyboard_runtime(
             &mut self.frames,

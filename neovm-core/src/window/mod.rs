@@ -1188,6 +1188,12 @@ pub struct FrameWindowHookRecord {
     pub was_selected_frame: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PendingGuiResize {
+    pub width_cols: i64,
+    pub total_lines: i64,
+}
+
 // ---------------------------------------------------------------------------
 // Frame
 // ---------------------------------------------------------------------------
@@ -1254,6 +1260,13 @@ pub struct Frame {
     pub char_width: f32,
     /// Default character height.
     pub char_height: f32,
+    /// One-shot guard used when a live default-font change updates the frame's
+    /// character metrics before GNU would commit the follow-up width/height
+    /// window-system resize.
+    pub defer_next_gui_parameter_resize: bool,
+    /// Logical GUI resize requested via frame parameters but not yet committed
+    /// to the live host window.
+    pub pending_gui_resize: Option<PendingGuiResize>,
     /// Authoritative last-redisplay geometry keyed by live leaf window.
     ///
     /// Window audit Medium 10 / Medium 11 in
@@ -1349,6 +1362,8 @@ impl Frame {
             font_pixel_size: 16.0,
             char_width: 8.0,
             char_height: 16.0,
+            defer_next_gui_parameter_resize: false,
+            pending_gui_resize: None,
             display_snapshots: HashMap::new(),
             window_hook_record: FrameWindowHookRecord::default(),
             window_state_change: false,
@@ -1431,6 +1446,32 @@ impl Frame {
                 table.insertion_order.clear();
             });
         }
+    }
+
+    pub fn defer_next_gui_parameter_resize(&mut self) {
+        self.defer_next_gui_parameter_resize = true;
+    }
+
+    pub fn should_defer_gui_parameter_resize(&self) -> bool {
+        self.defer_next_gui_parameter_resize || self.pending_gui_resize.is_some()
+    }
+
+    pub fn queue_pending_gui_resize(&mut self, width_cols: i64, total_lines: i64) {
+        self.defer_next_gui_parameter_resize = false;
+        self.pending_gui_resize = Some(PendingGuiResize {
+            width_cols,
+            total_lines,
+        });
+    }
+
+    pub fn take_pending_gui_resize(&mut self) -> Option<PendingGuiResize> {
+        self.defer_next_gui_parameter_resize = false;
+        self.pending_gui_resize.take()
+    }
+
+    pub fn clear_pending_gui_resize(&mut self) {
+        self.defer_next_gui_parameter_resize = false;
+        self.pending_gui_resize = None;
     }
 
     fn chrome_top_height(&self) -> f32 {
@@ -1703,6 +1744,7 @@ impl Frame {
 
     /// Resize the frame and window tree to new pixel dimensions.
     pub fn resize_pixelwise(&mut self, width: u32, height: u32) {
+        self.clear_pending_gui_resize();
         self.width = width;
         self.height = height;
         self.sync_window_area_bounds();

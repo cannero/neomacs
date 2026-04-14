@@ -1,6 +1,7 @@
-use crate::emacs_core::eval::GuiFrameHostSize;
+use crate::emacs_core::eval::{GuiFrameHostSize, ResolvedFrameFont};
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::emacs_core::{Context, DisplayHost, GuiFrameHostRequest, Value, format_eval_result};
+use crate::face::{FontSlant, FontWeight, FontWidth};
 use crate::test_utils::{runtime_startup_context, runtime_startup_eval_all};
 use std::cell::RefCell;
 use std::fs;
@@ -83,6 +84,7 @@ struct RecordingDisplayHost {
     realized: Rc<RefCell<Vec<GuiFrameHostRequest>>>,
     resized: Rc<RefCell<Vec<GuiFrameHostRequest>>>,
     primary_size: Option<GuiFrameHostSize>,
+    resolved_frame_font: Option<ResolvedFrameFont>,
 }
 
 impl RecordingDisplayHost {
@@ -93,6 +95,13 @@ impl RecordingDisplayHost {
     fn with_primary_size(width: u32, height: u32) -> Self {
         Self {
             primary_size: Some(GuiFrameHostSize { width, height }),
+            ..Self::default()
+        }
+    }
+
+    fn with_resolved_frame_font(resolved_frame_font: ResolvedFrameFont) -> Self {
+        Self {
+            resolved_frame_font: Some(resolved_frame_font),
             ..Self::default()
         }
     }
@@ -115,6 +124,14 @@ impl DisplayHost for RecordingDisplayHost {
 
     fn opening_gui_frame_pending(&self) -> bool {
         self.realized.borrow().is_empty()
+    }
+
+    fn resolve_frame_font(
+        &mut self,
+        _frame_id: crate::window::FrameId,
+        _face: crate::face::Face,
+    ) -> Result<Option<ResolvedFrameFont>, String> {
+        Ok(self.resolved_frame_font.clone())
     }
 }
 
@@ -3635,6 +3652,93 @@ fn modify_frame_parameters_width_height_resizes_live_gui_frame() {
 }
 
 #[test]
+fn modify_frame_parameters_after_live_font_change_defers_gui_resize_until_geometry_query() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let host = RecordingDisplayHost::with_resolved_frame_font(ResolvedFrameFont {
+        family: "Noto Sans Mono".to_string(),
+        foundry: None,
+        weight: FontWeight::NORMAL,
+        slant: FontSlant::Normal,
+        width: FontWidth::Normal,
+        postscript_name: Some("NotoSansMono-Regular".to_string()),
+        font_size_px: 22.0,
+        char_width: 13.0,
+        line_height: 31.0,
+    });
+    let resized = host.resized.clone();
+    ev.set_display_host(Box::new(host));
+    let buf = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buf);
+    let fid = ev.frames.create_frame("F1", 800, 600, buf);
+    {
+        let frame = ev.frames.get_mut(fid).expect("frame");
+        frame.set_window_system(Some(Value::symbol("neo")));
+        frame.char_width = 8.0;
+        frame.char_height = 16.0;
+    }
+
+    crate::emacs_core::font::builtin_internal_set_lisp_face_attribute(
+        &mut ev,
+        vec![
+            Value::symbol("default"),
+            Value::keyword("font"),
+            Value::string("Noto Sans Mono-16"),
+            Value::make_frame(fid.0),
+        ],
+    )
+    .expect("set live default face font");
+
+    let out = ev
+        .eval_str_each("(modify-frame-parameters (selected-frame) '((width . 80) (height . 25)))");
+    assert!(
+        out[0].is_ok(),
+        "modify-frame-parameters failed: {:?}",
+        out[0]
+    );
+
+    assert!(
+        resized.borrow().is_empty(),
+        "font-followup resize should stay deferred until geometry query"
+    );
+
+    let expected_width = {
+        let frame = ev.frames.get(fid).expect("frame should exist");
+        assert_eq!(frame.width, 800);
+        assert_eq!(frame.height, 600);
+        assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(80)));
+        assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(25)));
+        assert_eq!(frame.char_width, 13.0);
+        assert_eq!(frame.char_height, 31.0);
+        80 * 13 + frame.horizontal_non_text_width()
+    };
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+    tx.send(crate::keyboard::InputEvent::Resize {
+        width: expected_width as u32,
+        height: 775,
+        emacs_frame_id: fid.0,
+    })
+    .expect("queue resize ack");
+
+    let result = ev
+        .eval_str("(list (frame-native-width) (frame-native-height))")
+        .expect("geometry query should flush deferred resize");
+    let values = crate::emacs_core::value::list_to_vec(&result).expect("result list");
+    assert_eq!(
+        values,
+        vec![Value::fixnum(expected_width), Value::fixnum(775)]
+    );
+
+    let resize_requests = resized.borrow();
+    assert_eq!(resize_requests.len(), 1);
+    assert_eq!(resize_requests[0].frame_id, fid);
+    assert_eq!(resize_requests[0].width, expected_width as u32);
+    assert_eq!(resize_requests[0].height, 775);
+}
+
+#[test]
 fn modify_frame_parameters_resize_ignores_window_local_fringes_for_gui_frames() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
@@ -3785,6 +3889,116 @@ fn set_frame_size_builtins_resize_live_gui_frames_and_notify_host() {
         frame.parameters.get("neovm--frame-text-lines"),
         Some(&Value::fixnum(34))
     );
+}
+
+#[test]
+fn set_frame_size_syncs_resize_event_before_followup_frame_width_queries() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buf);
+    let fid = ev.frames.create_frame("F1", 1300, 1188, buf);
+    {
+        let frame = ev.frames.get_mut(fid).expect("frame should exist");
+        frame
+            .parameters
+            .insert("window-system".to_string(), Value::symbol("x"));
+        frame.char_width = 16.0;
+        frame.char_height = 33.0;
+        frame
+            .parameters
+            .insert("width".to_string(), Value::fixnum(79));
+        frame
+            .parameters
+            .insert("height".to_string(), Value::fixnum(36));
+        frame
+            .parameters
+            .insert("neovm--frame-text-lines".to_string(), Value::fixnum(35));
+    }
+
+    let host = RecordingDisplayHost::new();
+    let resized = host.resized.clone();
+    ev.set_display_host(Box::new(host));
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+    tx.send(crate::keyboard::InputEvent::Resize {
+        width: 2144,
+        height: 1386,
+        emacs_frame_id: fid.0,
+    })
+    .expect("queue resize ack");
+
+    let result = ev
+        .eval_str(
+            "(progn
+               (set-frame-size (selected-frame) 132 42)
+               (list (frame-total-cols) (frame-native-width)))",
+        )
+        .expect("set-frame-size and followup queries should succeed");
+    let values = crate::emacs_core::value::list_to_vec(&result).expect("result list");
+    assert_eq!(values, vec![Value::fixnum(132), Value::fixnum(2144)]);
+
+    let requests = resized.borrow();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].frame_id, fid);
+    assert_eq!(requests[0].width, 2144);
+    assert_eq!(requests[0].height, 1386);
+}
+
+#[test]
+fn set_frame_size_keeps_resize_pending_until_geometry_queries_force_sync() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buf);
+    let fid = ev.frames.create_frame("F1", 1300, 1188, buf);
+    {
+        let frame = ev.frames.get_mut(fid).expect("frame should exist");
+        frame
+            .parameters
+            .insert("window-system".to_string(), Value::symbol("x"));
+        frame.char_width = 16.0;
+        frame.char_height = 33.0;
+        frame
+            .parameters
+            .insert("width".to_string(), Value::fixnum(79));
+        frame
+            .parameters
+            .insert("height".to_string(), Value::fixnum(36));
+        frame
+            .parameters
+            .insert("neovm--frame-text-lines".to_string(), Value::fixnum(35));
+    }
+
+    let host = RecordingDisplayHost::new();
+    let resized = host.resized.clone();
+    ev.set_display_host(Box::new(host));
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+    tx.send(crate::keyboard::InputEvent::Resize {
+        width: 2144,
+        height: 1386,
+        emacs_frame_id: fid.0,
+    })
+    .expect("queue resize ack");
+
+    let result = ev
+        .eval_str(
+            "(progn
+               (set-frame-size (selected-frame) 132 42)
+               (list (frame-parameter nil 'width) (frame-parameter nil 'height)))",
+        )
+        .expect("set-frame-size without geometry query should succeed");
+    let values = crate::emacs_core::value::list_to_vec(&result).expect("result list");
+    assert_eq!(values, vec![Value::fixnum(79), Value::fixnum(36)]);
+
+    let requests = resized.borrow();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].frame_id, fid);
+    assert_eq!(requests[0].width, 2144);
+    assert_eq!(requests[0].height, 1386);
 }
 
 #[test]

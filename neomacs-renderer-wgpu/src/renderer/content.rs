@@ -9,7 +9,7 @@
 //! thumbs), Image, Video, WebKit.
 
 use super::super::glyph_atlas::{ComposedGlyphKey, GlyphKey, WgpuGlyphAtlas};
-use super::super::vertex::{GlyphVertex, RectVertex, RoundedRectVertex};
+use super::super::vertex::{GlyphVertex, RectVertex, RoundedRectVertex, SubpixelGlyphVertex};
 use super::WgpuRenderer;
 use cosmic_text::SubpixelBin;
 use neomacs_display_protocol::face::{BoxType, Face, FaceAttributes};
@@ -25,6 +25,70 @@ fn window_cursor_visual_matches_phys(
     phys_cursor: &PhysCursor,
 ) -> bool {
     cursor.window_id == phys_cursor.window_id && cursor.slot_id == phys_cursor.slot_id
+}
+
+fn subpixel_foreground_color(bg: Color, fg: Color, blend: f32) -> [f32; 4] {
+    let t = blend.clamp(0.0, 1.0);
+    [
+        bg.r + (fg.r - bg.r) * t,
+        bg.g + (fg.g - bg.g) * t,
+        bg.b + (fg.b - bg.b) * t,
+        1.0,
+    ]
+}
+
+fn subpixel_background_color(bg: Color) -> [f32; 4] {
+    [bg.r, bg.g, bg.b, bg.a]
+}
+
+fn build_subpixel_vertices(
+    glyph_x: f32,
+    glyph_y: f32,
+    glyph_w: f32,
+    glyph_h: f32,
+    tex_v_min: f32,
+    tex_v_max: f32,
+    fg_color: [f32; 4],
+    bg_color: [f32; 4],
+) -> [SubpixelGlyphVertex; 6] {
+    [
+        SubpixelGlyphVertex {
+            position: [glyph_x, glyph_y],
+            tex_coords: [0.0, tex_v_min],
+            fg_color,
+            bg_color,
+        },
+        SubpixelGlyphVertex {
+            position: [glyph_x + glyph_w, glyph_y],
+            tex_coords: [1.0, tex_v_min],
+            fg_color,
+            bg_color,
+        },
+        SubpixelGlyphVertex {
+            position: [glyph_x + glyph_w, glyph_y + glyph_h],
+            tex_coords: [1.0, tex_v_max],
+            fg_color,
+            bg_color,
+        },
+        SubpixelGlyphVertex {
+            position: [glyph_x, glyph_y],
+            tex_coords: [0.0, tex_v_min],
+            fg_color,
+            bg_color,
+        },
+        SubpixelGlyphVertex {
+            position: [glyph_x + glyph_w, glyph_y + glyph_h],
+            tex_coords: [1.0, tex_v_max],
+            fg_color,
+            bg_color,
+        },
+        SubpixelGlyphVertex {
+            position: [glyph_x, glyph_y + glyph_h],
+            tex_coords: [0.0, tex_v_max],
+            fg_color,
+            bg_color,
+        },
+    ]
 }
 
 impl WgpuRenderer {
@@ -366,9 +430,13 @@ impl WgpuRenderer {
 
         // --- Step 2: Collect text glyphs (with overstrike and composed) ---
         let mut mask_data: Vec<(GlyphKey, [GlyphVertex; 6])> = Vec::new();
+        let mut subpixel_data: Vec<(GlyphKey, [SubpixelGlyphVertex; 6])> = Vec::new();
         let mut color_data: Vec<(GlyphKey, [GlyphVertex; 6])> = Vec::new();
         let mut composed_mask_data: Vec<(ComposedGlyphKey, [GlyphVertex; 6])> = Vec::new();
+        let mut composed_subpixel_data: Vec<(ComposedGlyphKey, [SubpixelGlyphVertex; 6])> =
+            Vec::new();
         let mut composed_color_data: Vec<(ComposedGlyphKey, [GlyphVertex; 6])> = Vec::new();
+        let enable_subpixel = glyph_atlas.subpixel_enabled();
 
         for glyph in &frame.glyphs {
             if let FrameGlyph::Char {
@@ -380,6 +448,7 @@ impl WgpuRenderer {
                 width: _,
                 ascent: _,
                 fg,
+                bg,
                 face_id,
                 font_size,
                 overstrike,
@@ -408,6 +477,7 @@ impl WgpuRenderer {
                         face,
                         x_bin,
                         y_bin,
+                        enable_subpixel,
                     )
                 } else {
                     let key = GlyphKey {
@@ -417,7 +487,13 @@ impl WgpuRenderer {
                         x_bin,
                         y_bin,
                     };
-                    glyph_atlas.get_or_create(&self.device, &self.queue, &key, face)
+                    glyph_atlas.get_or_create(
+                        &self.device,
+                        &self.queue,
+                        &key,
+                        face,
+                        enable_subpixel,
+                    )
                 };
 
                 if let Some(cached) = cached_opt {
@@ -430,21 +506,18 @@ impl WgpuRenderer {
 
                     // Inverse-video cursor support: when the filled box cursor is
                     // visible, draw the covered character with cursor_fg.
-                    let effective_fg = if cursor_visible {
-                        if let Some(cursor) = frame.phys_cursor.as_ref() {
-                            if matches!(cursor.style, CursorStyle::FilledBox)
-                                && glyph.slot_id().is_some_and(|slot| slot == cursor.slot_id)
-                            {
-                                &cursor.cursor_fg
-                            } else {
-                                fg
-                            }
-                        } else {
-                            fg
-                        }
-                    } else {
-                        fg
-                    };
+                    let mut effective_fg = *fg;
+                    let mut effective_bg = (*bg)
+                        .or_else(|| face.map(|resolved| resolved.background))
+                        .unwrap_or(Color::rgb(1.0, 1.0, 1.0));
+                    if cursor_visible
+                        && let Some(cursor) = frame.phys_cursor.as_ref()
+                        && matches!(cursor.style, CursorStyle::FilledBox)
+                        && glyph.slot_id().is_some_and(|slot| slot == cursor.slot_id)
+                    {
+                        effective_fg = cursor.cursor_fg;
+                        effective_bg = cursor.color;
+                    }
 
                     let color = if cached.is_color {
                         [1.0, 1.0, 1.0, 1.0]
@@ -456,6 +529,8 @@ impl WgpuRenderer {
                             effective_fg.a,
                         ]
                     };
+                    let subpixel_fg = subpixel_foreground_color(effective_bg, effective_fg, 1.0);
+                    let subpixel_bg = subpixel_background_color(effective_bg);
 
                     let vertices = [
                         GlyphVertex {
@@ -529,6 +604,33 @@ impl WgpuRenderer {
                         None
                     };
 
+                    let subpixel_vertices = build_subpixel_vertices(
+                        glyph_x,
+                        glyph_y,
+                        glyph_w,
+                        glyph_h,
+                        0.0,
+                        1.0,
+                        subpixel_fg,
+                        subpixel_bg,
+                    );
+
+                    let overstrike_subpixel_vertices = if *overstrike {
+                        let ox = 1.0 / sf;
+                        Some(build_subpixel_vertices(
+                            glyph_x + ox,
+                            glyph_y,
+                            glyph_w,
+                            glyph_h,
+                            0.0,
+                            1.0,
+                            subpixel_fg,
+                            subpixel_bg,
+                        ))
+                    } else {
+                        None
+                    };
+
                     if let Some(text) = composed {
                         let ckey = ComposedGlyphKey {
                             text: text.clone(),
@@ -541,6 +643,11 @@ impl WgpuRenderer {
                             composed_color_data.push((ckey.clone(), vertices));
                             if let Some(ov) = overstrike_vertices {
                                 composed_color_data.push((ckey, ov));
+                            }
+                        } else if cached.is_subpixel {
+                            composed_subpixel_data.push((ckey.clone(), subpixel_vertices));
+                            if let Some(ov) = overstrike_subpixel_vertices {
+                                composed_subpixel_data.push((ckey, ov));
                             }
                         } else {
                             composed_mask_data.push((ckey.clone(), vertices));
@@ -560,6 +667,11 @@ impl WgpuRenderer {
                             color_data.push((key.clone(), vertices));
                             if let Some(ov) = overstrike_vertices {
                                 color_data.push((key, ov));
+                            }
+                        } else if cached.is_subpixel {
+                            subpixel_data.push((key.clone(), subpixel_vertices));
+                            if let Some(ov) = overstrike_subpixel_vertices {
+                                subpixel_data.push((key, ov));
                             }
                         } else {
                             mask_data.push((key.clone(), vertices));
@@ -898,6 +1010,11 @@ impl WgpuRenderer {
         } else {
             &self.glyph_pipeline
         };
+        let subpixel_pl = if use_stencil {
+            &self.stencil_subpixel_glyph_pipeline
+        } else {
+            &self.subpixel_glyph_pipeline
+        };
         let image_pl = if use_stencil {
             &self.stencil_image_pipeline
         } else {
@@ -1024,10 +1141,55 @@ impl WgpuRenderer {
                 let mut i = 0;
                 while i < mask_data.len() {
                     let (ref key, _) = mask_data[i];
-                    if let Some(cached) = glyph_atlas.get(key) {
+                    if let Some(cached) = glyph_atlas.get(key, enable_subpixel) {
                         let batch_start = i;
                         i += 1;
                         while i < mask_data.len() && mask_data[i].0 == *key {
+                            i += 1;
+                        }
+                        let vert_start = (batch_start * 6) as u32;
+                        let vert_end = (i * 6) as u32;
+                        pass.set_bind_group(1, &cached.bind_group, &[]);
+                        pass.draw(vert_start..vert_end, 0..1);
+                    } else {
+                        i += 1;
+                    }
+                }
+            }
+
+            // --- Draw subpixel LCD text glyphs ---
+            if !subpixel_data.is_empty() {
+                subpixel_data.sort_by(|(a, _), (b, _)| {
+                    a.face_id
+                        .cmp(&b.face_id)
+                        .then(a.font_size_bits.cmp(&b.font_size_bits))
+                        .then(a.charcode.cmp(&b.charcode))
+                });
+
+                let all_vertices: Vec<SubpixelGlyphVertex> = subpixel_data
+                    .iter()
+                    .flat_map(|(_, verts)| verts.iter().copied())
+                    .collect();
+
+                let buffer = self
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Content Subpixel Glyph Buffer"),
+                        contents: bytemuck::cast_slice(&all_vertices),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
+
+                pass.set_pipeline(subpixel_pl);
+                pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                pass.set_vertex_buffer(0, buffer.slice(..));
+
+                let mut i = 0;
+                while i < subpixel_data.len() {
+                    let (ref key, _) = subpixel_data[i];
+                    if let Some(cached) = glyph_atlas.get(key, enable_subpixel) {
+                        let batch_start = i;
+                        i += 1;
+                        while i < subpixel_data.len() && subpixel_data[i].0 == *key {
                             i += 1;
                         }
                         let vert_start = (batch_start * 6) as u32;
@@ -1069,7 +1231,7 @@ impl WgpuRenderer {
                 let mut i = 0;
                 while i < color_data.len() {
                     let (ref key, _) = color_data[i];
-                    if let Some(cached) = glyph_atlas.get(key) {
+                    if let Some(cached) = glyph_atlas.get(key, enable_subpixel) {
                         let batch_start = i;
                         i += 1;
                         while i < color_data.len() && color_data[i].0 == *key {
@@ -1091,11 +1253,32 @@ impl WgpuRenderer {
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
                 for (ckey, verts) in &composed_mask_data {
-                    if let Some(cached) = glyph_atlas.get_composed(ckey) {
+                    if let Some(cached) = glyph_atlas.get_composed(ckey, enable_subpixel) {
                         let vbuf =
                             self.device
                                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                                     label: Some("Content Composed Mask VB"),
+                                    contents: bytemuck::cast_slice(verts),
+                                    usage: wgpu::BufferUsages::VERTEX,
+                                });
+                        pass.set_vertex_buffer(0, vbuf.slice(..));
+                        pass.set_bind_group(1, &cached.bind_group, &[]);
+                        pass.draw(0..6, 0..1);
+                    }
+                }
+            }
+
+            // --- Draw composed subpixel glyphs ---
+            if !composed_subpixel_data.is_empty() {
+                pass.set_pipeline(subpixel_pl);
+                pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+
+                for (ckey, verts) in &composed_subpixel_data {
+                    if let Some(cached) = glyph_atlas.get_composed(ckey, enable_subpixel) {
+                        let vbuf =
+                            self.device
+                                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                    label: Some("Content Composed Subpixel VB"),
                                     contents: bytemuck::cast_slice(verts),
                                     usage: wgpu::BufferUsages::VERTEX,
                                 });
@@ -1112,7 +1295,7 @@ impl WgpuRenderer {
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
                 for (ckey, verts) in &composed_color_data {
-                    if let Some(cached) = glyph_atlas.get_composed(ckey) {
+                    if let Some(cached) = glyph_atlas.get_composed(ckey, enable_subpixel) {
                         let vbuf =
                             self.device
                                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {

@@ -13,6 +13,7 @@ wpe-webkit = []
 
 [dependencies]
 cosmic-text.workspace = true
+swash.workspace = true
 fontdb.workspace = true
 wgpu.workspace = true
 wgpu-hal.workspace = true

@@ -793,6 +793,13 @@ fn wait_for_image_dimensions(
     }
 }
 
+fn read_primary_window_size(shared: &SharedPrimaryWindowSize) -> PrimaryWindowSize {
+    match shared.lock() {
+        Ok(state) => *state,
+        Err(poisoned) => *poisoned.into_inner(),
+    }
+}
+
 fn prime_initial_monitor_snapshot(shared: &SharedMonitorInfo) {
     let (lock, cvar) = &**shared;
     let monitors = match lock.lock() {
@@ -946,10 +953,7 @@ impl DisplayHost for PrimaryWindowDisplayHost {
         if self.primary_window_adopted {
             return None;
         }
-        let state = match self.primary_window_size.lock() {
-            Ok(state) => *state,
-            Err(poisoned) => *poisoned.into_inner(),
-        };
+        let state = read_primary_window_size(&self.primary_window_size);
         Some(GuiFrameHostSize {
             width: state.width,
             height: state.height,
