@@ -300,6 +300,32 @@ impl GapBuffer {
             + crate::emacs_core::string_escape::storage_byte_to_logical_byte(text, rel_pos)
     }
 
+    /// Convert a logical Emacs byte boundary to the corresponding storage-byte offset.
+    pub fn emacs_byte_to_storage_byte(&self, byte_pos: usize) -> usize {
+        assert!(
+            byte_pos <= self.total_bytes,
+            "emacs_byte_to_storage_byte: byte_pos ({byte_pos}) > len ({})",
+            self.total_bytes
+        );
+        if byte_pos <= self.gap_start_bytes {
+            let text = storage_slice_to_str(
+                &self.buf[..self.gap_start],
+                "emacs_byte_to_storage_byte pre-gap",
+            );
+            return crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+                text, byte_pos,
+            );
+        }
+
+        let rel_pos = byte_pos - self.gap_start_bytes;
+        let text = storage_slice_to_str(
+            &self.buf[self.gap_end..],
+            "emacs_byte_to_storage_byte post-gap",
+        );
+        self.gap_start
+            + crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(text, rel_pos)
+    }
+
     // -----------------------------------------------------------------------
     // Range extraction
     // -----------------------------------------------------------------------

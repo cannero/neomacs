@@ -70,6 +70,35 @@ fn match_data_from_registers(regs: &MatchRegisters, offset: usize) -> MatchData 
     }
 }
 
+fn storage_rel_to_emacs_byte(text: &str, base_emacs_byte: usize, storage_pos: usize) -> usize {
+    base_emacs_byte
+        + crate::emacs_core::string_escape::storage_byte_to_logical_byte(text, storage_pos)
+}
+
+fn buffer_match_data_from_registers(
+    regs: &MatchRegisters,
+    text: &str,
+    base_emacs_byte: usize,
+) -> MatchData {
+    let num_groups = regs.num_regs();
+    let mut groups = Vec::with_capacity(num_groups);
+    for i in 0..num_groups {
+        if regs.start[i] >= 0 && regs.end[i] >= 0 {
+            groups.push(Some((
+                storage_rel_to_emacs_byte(text, base_emacs_byte, regs.start[i] as usize),
+                storage_rel_to_emacs_byte(text, base_emacs_byte, regs.end[i] as usize),
+            )));
+        } else {
+            groups.push(None);
+        }
+    }
+    MatchData {
+        groups,
+        searched_string: None,
+        searched_buffer: None,
+    }
+}
+
 #[derive(Clone)]
 enum CompiledSearchPattern {
     /// GNU-translated engine (primary path for all patterns).
@@ -1061,13 +1090,13 @@ pub fn search_forward(
         return Err(format!("Search failed: \"{}\"", pattern));
     }
 
-    let text = buf.text.text_range(start, limit);
+    let text = buf.buffer_substring(start, limit);
 
     let found = literal_find(&text, pattern, case_fold);
 
     if let Some((rel_start, rel_end)) = found {
-        let match_start = start + rel_start;
-        let match_end = start + rel_end;
+        let match_start = storage_rel_to_emacs_byte(&text, start, rel_start);
+        let match_end = storage_rel_to_emacs_byte(&text, start, rel_end);
         buf.goto_byte(match_end);
         *match_data = Some(MatchData {
             groups: vec![Some((match_start, match_end))],
@@ -1106,13 +1135,13 @@ pub fn search_backward(
         return Err(format!("Search failed: \"{}\"", pattern));
     }
 
-    let text = buf.text.text_range(limit, end);
+    let text = buf.buffer_substring(limit, end);
 
     let found = literal_rfind(&text, pattern, case_fold);
 
     if let Some((rel_start, rel_end)) = found {
-        let match_start = limit + rel_start;
-        let match_end = limit + rel_end;
+        let match_start = storage_rel_to_emacs_byte(&text, limit, rel_start);
+        let match_end = storage_rel_to_emacs_byte(&text, limit, rel_end);
         buf.goto_byte(match_start);
         *match_data = Some(MatchData {
             groups: vec![Some((match_start, match_end))],
@@ -1164,15 +1193,24 @@ pub fn re_search_forward_with_posix(
     }
 
     let region_start = buf.begv_byte;
-    let text = buf.text.text_range(region_start, buf.zv_byte);
-    let start_rel = start - region_start;
-    let limit_rel = limit - region_start;
+    let text = buf.buffer_substring(region_start, buf.zv_byte);
+    let start_rel = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+        &text,
+        start - region_start,
+    );
+    let limit_rel = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+        &text,
+        limit - region_start,
+    );
 
     let md_opt = match compile_search_pattern_with_posix(pattern, case_fold, posix)? {
         CompiledSearchPattern::Literal(literal) => {
             literal_find(&text[start_rel..limit_rel], &literal, case_fold).map(
                 |(rel_start, rel_end)| MatchData {
-                    groups: vec![Some((start + rel_start, start + rel_end))],
+                    groups: vec![Some((
+                        storage_rel_to_emacs_byte(&text, start, start_rel + rel_start),
+                        storage_rel_to_emacs_byte(&text, start, start_rel + rel_end),
+                    ))],
                     searched_string: None,
                     searched_buffer: Some(buf.id),
                 },
@@ -1193,7 +1231,7 @@ pub fn re_search_forward_with_posix(
                 start_rel,
             )
             .map(|(_pos, regs)| {
-                let mut md = match_data_from_registers(&regs, region_start);
+                let mut md = buffer_match_data_from_registers(&regs, &text, region_start);
                 md.searched_buffer = Some(buf.id);
                 md
             })
@@ -1249,15 +1287,24 @@ pub fn re_search_backward_with_posix(
     }
 
     let region_start = buf.begv_byte;
-    let text = buf.text.text_range(region_start, buf.zv_byte);
-    let start_rel = end - region_start;
-    let limit_rel = limit - region_start;
+    let text = buf.buffer_substring(region_start, buf.zv_byte);
+    let start_rel = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+        &text,
+        end - region_start,
+    );
+    let limit_rel = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+        &text,
+        limit - region_start,
+    );
 
     let md_opt = match compile_search_pattern_with_posix(pattern, case_fold, posix)? {
         CompiledSearchPattern::Literal(literal) => {
             literal_rfind(&text[limit_rel..start_rel], &literal, case_fold).map(
                 |(rel_start, rel_end)| MatchData {
-                    groups: vec![Some((limit + rel_start, limit + rel_end))],
+                    groups: vec![Some((
+                        storage_rel_to_emacs_byte(&text, region_start, limit_rel + rel_start),
+                        storage_rel_to_emacs_byte(&text, region_start, limit_rel + rel_end),
+                    ))],
                     searched_string: None,
                     searched_buffer: Some(buf.id),
                 },
@@ -1272,7 +1319,7 @@ pub fn re_search_backward_with_posix(
             let range = -((start_rel - limit_rel) as isize);
             regex_emacs::re_search(&cp, text_bytes, start_rel, range, &syn, start_rel).map(
                 |(_pos, regs)| {
-                    let mut md = match_data_from_registers(&regs, region_start);
+                    let mut md = buffer_match_data_from_registers(&regs, &text, region_start);
                     md.searched_buffer = Some(buf.id);
                     md
                 },
@@ -1320,8 +1367,11 @@ pub fn looking_at_with_posix(
     }
 
     let region_start = buf.begv_byte;
-    let text = buf.text.text_range(region_start, buf.zv_byte);
-    let start_rel = start - region_start;
+    let text = buf.buffer_substring(region_start, buf.zv_byte);
+    let start_rel = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+        &text,
+        start - region_start,
+    );
 
     match compile_search_pattern_with_posix(pattern, case_fold, posix)? {
         CompiledSearchPattern::Literal(literal) => {
@@ -1331,7 +1381,10 @@ pub fn looking_at_with_posix(
             if !matched {
                 return Ok(false);
             }
-            let full_match = (start, start + literal.len());
+            let full_match = (
+                start,
+                storage_rel_to_emacs_byte(&text, start, start_rel + literal.len()),
+            );
             *match_data = Some(MatchData {
                 groups: vec![Some(full_match)],
                 searched_string: None,
@@ -1352,7 +1405,7 @@ pub fn looking_at_with_posix(
                 &syn,
                 start_rel,
             ) {
-                let mut md = match_data_from_registers(&regs, region_start);
+                let mut md = buffer_match_data_from_registers(&regs, &text, region_start);
                 md.searched_buffer = Some(buf.id);
                 *match_data = Some(md);
                 Ok(true)
@@ -1627,7 +1680,7 @@ pub fn replace_match_buffer_with_syntax(
     match_data: &Option<MatchData>,
     case_symbols_as_words: bool,
 ) -> Result<(), String> {
-    let source = buf.text.text_range(0, buf.text.len());
+    let source = buf.buffer_substring(0, buf.total_bytes());
     let (match_start, match_end, replacement) = compute_replacement_with_syntax(
         newtext,
         fixedcase,
@@ -1769,10 +1822,21 @@ fn compute_replacement_with_syntax(
     // When match data comes from a string search (searched_string is set),
     // positions are CHARACTER positions.  Convert to byte offsets for slicing.
     let is_string_search = md.searched_string.is_some();
+    let uses_buffer_byte_positions = md.searched_buffer.is_some() && !is_string_search;
     let (byte_start, byte_end) = if is_string_search {
         (
             char_pos_to_byte(source, match_start),
             char_pos_to_byte(source, match_end),
+        )
+    } else if uses_buffer_byte_positions {
+        (
+            crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+                source,
+                match_start,
+            ),
+            crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+                source, match_end,
+            ),
         )
     } else {
         (match_start, match_end)
@@ -1844,10 +1908,26 @@ fn build_replacement(
     }
 
     /// Extract matched text from source using group positions.
-    fn extract_group(source: &str, s: usize, e: usize, char_positions: bool) -> Option<&str> {
+    fn extract_group(
+        source: &str,
+        s: usize,
+        e: usize,
+        char_positions: bool,
+        emacs_byte_positions: bool,
+    ) -> Option<&str> {
         if char_positions {
             let bs = char_pos_to_byte(source, s);
             let be = char_pos_to_byte(source, e);
+            if be <= source.len() && bs <= be {
+                Some(&source[bs..be])
+            } else {
+                None
+            }
+        } else if emacs_byte_positions {
+            let bs =
+                crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(source, s);
+            let be =
+                crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(source, e);
             if be <= source.len() && bs <= be {
                 Some(&source[bs..be])
             } else {
@@ -1861,6 +1941,7 @@ fn build_replacement(
     }
 
     let mut out = String::with_capacity(template.len());
+    let emacs_byte_positions = md.searched_buffer.is_some() && !char_positions;
     let bytes = template.as_bytes();
     let len = bytes.len();
     let mut i = 0;
@@ -1873,7 +1954,9 @@ fn build_replacement(
                 '&' => {
                     // Whole match
                     if let Some(Some((s, e))) = md.groups.first() {
-                        if let Some(text) = extract_group(source, *s, *e, char_positions) {
+                        if let Some(text) =
+                            extract_group(source, *s, *e, char_positions, emacs_byte_positions)
+                        {
                             out.push_str(text);
                         }
                     }
@@ -1884,7 +1967,9 @@ fn build_replacement(
                     // `\0` intentionally falls through to the error arm.
                     let group = (next as u8 - b'0') as usize;
                     if let Some(Some((s, e))) = md.groups.get(group) {
-                        if let Some(text) = extract_group(source, *s, *e, char_positions) {
+                        if let Some(text) =
+                            extract_group(source, *s, *e, char_positions, emacs_byte_positions)
+                        {
                             out.push_str(text);
                         }
                     }

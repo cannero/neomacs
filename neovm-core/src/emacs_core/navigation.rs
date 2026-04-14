@@ -94,7 +94,7 @@ fn char_pos_to_byte(buf: &crate::buffer::Buffer, pos: i64) -> usize {
 
 /// Convert a 0-based byte position to a 1-based Emacs char position.
 fn byte_to_char_pos(buf: &crate::buffer::Buffer, byte_pos: usize) -> i64 {
-    buf.text.byte_to_char(byte_pos) as i64 + 1
+    buf.text.emacs_byte_to_char(byte_pos) as i64 + 1
 }
 
 /// Return the full buffer text as a String.
@@ -102,30 +102,43 @@ fn buffer_text(buf: &crate::buffer::Buffer) -> String {
     buf.text.to_string()
 }
 
-/// Find the byte position of the beginning of the line containing `byte_pos`.
+fn emacs_byte_to_storage(text: &str, byte_pos: usize) -> usize {
+    crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+        text,
+        byte_pos.min(crate::emacs_core::string_escape::storage_byte_len(text)),
+    )
+}
+
+fn storage_byte_to_emacs(text: &str, byte_pos: usize) -> usize {
+    crate::emacs_core::string_escape::storage_byte_to_logical_byte(text, byte_pos.min(text.len()))
+}
+
+/// Find the Emacs byte position of the beginning of the line containing `byte_pos`.
 fn line_beginning_byte(text: &str, byte_pos: usize) -> usize {
     // Search backwards for '\n'.
-    let pos = byte_pos.min(text.len());
-    match text[..pos].rfind('\n') {
+    let pos = emacs_byte_to_storage(text, byte_pos);
+    let storage = match text[..pos].rfind('\n') {
         Some(nl) => nl + 1,
         None => 0,
-    }
+    };
+    storage_byte_to_emacs(text, storage)
 }
 
-/// Find the byte position of the end of the line containing `byte_pos`
+/// Find the Emacs byte position of the end of the line containing `byte_pos`
 /// (position of the '\n', or text length if no trailing newline).
 fn line_end_byte(text: &str, byte_pos: usize) -> usize {
-    let pos = byte_pos.min(text.len());
-    match text[pos..].find('\n') {
+    let pos = emacs_byte_to_storage(text, byte_pos);
+    let storage = match text[pos..].find('\n') {
         Some(offset) => pos + offset,
         None => text.len(),
-    }
+    };
+    storage_byte_to_emacs(text, storage)
 }
 
-/// Count newlines in the byte range [start, end).
+/// Count newlines in the Emacs-byte range [start, end).
 fn count_newlines(text: &str, start: usize, end: usize) -> usize {
-    let s = start.min(text.len());
-    let e = end.min(text.len());
+    let s = emacs_byte_to_storage(text, start);
+    let e = emacs_byte_to_storage(text, end.max(start));
     text[s..e].chars().filter(|&c| c == '\n').count()
 }
 
@@ -133,7 +146,13 @@ fn count_newlines(text: &str, start: usize, end: usize) -> usize {
 /// Returns the byte position at the beginning of the destination line and the
 /// number of lines actually moved (may be fewer than requested at buffer edges).
 fn move_by_lines(text: &str, byte_pos: usize, n: i64) -> (usize, i64) {
-    move_by_lines_narrowed(text, byte_pos, n, 0, text.len())
+    move_by_lines_narrowed(
+        text,
+        byte_pos,
+        n,
+        0,
+        crate::emacs_core::string_escape::storage_byte_len(text),
+    )
 }
 
 /// Like `move_by_lines` but confined to the narrowed region `[begv, zv)`.
@@ -144,7 +163,8 @@ fn move_by_lines_narrowed(
     begv: usize,
     zv: usize,
 ) -> (usize, i64) {
-    let zv = zv.min(text.len());
+    let logical_len = crate::emacs_core::string_escape::storage_byte_len(text);
+    let zv = zv.min(logical_len);
     let mut pos = byte_pos.clamp(begv, zv);
     let mut moved: i64 = 0;
     if n >= 0 {
@@ -152,9 +172,11 @@ fn move_by_lines_narrowed(
             return (line_beginning_byte_narrowed(text, pos, begv), 0);
         }
         for _ in 0..n {
-            match text[pos..zv].find('\n') {
+            let pos_storage = emacs_byte_to_storage(text, pos);
+            let zv_storage = emacs_byte_to_storage(text, zv);
+            match text[pos_storage..zv_storage].find('\n') {
                 Some(offset) => {
-                    pos += offset + 1;
+                    pos = storage_byte_to_emacs(text, pos_storage + offset + 1);
                     moved += 1;
                 }
                 None => {
@@ -179,22 +201,30 @@ fn move_by_lines_narrowed(
 
 /// Find the beginning of the line containing `byte_pos`, but not before `begv`.
 fn line_beginning_byte_narrowed(text: &str, byte_pos: usize, begv: usize) -> usize {
-    let pos = byte_pos.min(text.len());
+    let logical_len = crate::emacs_core::string_escape::storage_byte_len(text);
+    let pos = byte_pos.min(logical_len);
     let start = begv.min(pos);
-    match text[start..pos].rfind('\n') {
-        Some(offset) => start + offset + 1,
-        None => start,
-    }
+    let pos_storage = emacs_byte_to_storage(text, pos);
+    let start_storage = emacs_byte_to_storage(text, start);
+    let storage = match text[start_storage..pos_storage].rfind('\n') {
+        Some(offset) => start_storage + offset + 1,
+        None => start_storage,
+    };
+    storage_byte_to_emacs(text, storage)
 }
 
 /// Find the end of the line containing `byte_pos`, but not past `zv`.
 fn line_end_byte_narrowed(text: &str, byte_pos: usize, zv: usize) -> usize {
-    let pos = byte_pos.min(text.len());
-    let end = zv.min(text.len());
-    match text[pos..end].find('\n') {
-        Some(offset) => pos + offset,
-        None => end,
-    }
+    let logical_len = crate::emacs_core::string_escape::storage_byte_len(text);
+    let pos = byte_pos.min(logical_len);
+    let end = zv.min(logical_len);
+    let pos_storage = emacs_byte_to_storage(text, pos);
+    let end_storage = emacs_byte_to_storage(text, end);
+    let storage = match text[pos_storage..end_storage].find('\n') {
+        Some(offset) => pos_storage + offset,
+        None => end_storage,
+    };
+    storage_byte_to_emacs(text, storage)
 }
 
 // ===========================================================================
@@ -226,8 +256,8 @@ pub(crate) fn check_point_motion_hooks(
             Some(b) => b,
             None => return Ok(()),
         };
-        let ol = buf.text.byte_to_char(old_byte) as i64 + 1;
-        let nl = buf.text.byte_to_char(new_byte) as i64 + 1;
+        let ol = buf.text.emacs_byte_to_char(old_byte) as i64 + 1;
+        let nl = buf.text.emacs_byte_to_char(new_byte) as i64 + 1;
         let leave_before = point_motion_property(
             &eval.obarray,
             &eval.buffers,
@@ -412,10 +442,9 @@ pub(crate) fn builtin_bolp(ctx: &mut super::eval::Context, args: Vec<Value>) -> 
     if buf.pt_byte == buf.begv_byte {
         return Ok(Value::T);
     }
-    let text = buffer_text(buf);
-    let at_bol =
-        buf.pt_byte > 0 && buf.pt_byte <= text.len() && text.as_bytes()[buf.pt_byte - 1] == b'\n';
-    Ok(Value::bool_val(buf.pt_byte == 0 || at_bol))
+    Ok(Value::bool_val(
+        buf.pt_byte == 0 || buf.char_code_before(buf.pt_byte) == Some('\n' as u32),
+    ))
 }
 
 /// (eolp) -- at end of line?
@@ -425,8 +454,8 @@ pub(crate) fn builtin_eolp(ctx: &mut super::eval::Context, args: Vec<Value>) -> 
     if buf.pt_byte == buf.zv_byte {
         return Ok(Value::T);
     }
-    match buf.char_after(buf.pt_byte) {
-        Some('\n') => Ok(Value::T),
+    match buf.char_code_after(buf.pt_byte) {
+        Some(code) if code == '\n' as u32 => Ok(Value::T),
         _ => Ok(Value::NIL),
     }
 }
@@ -528,7 +557,7 @@ pub(crate) fn builtin_count_lines(eval: &mut super::eval::Context, args: Vec<Val
     // GNU Emacs: "can be one more if START is not equal to END and the
     // greater of them is not at the start of a line."
     // i.e., if the region is non-empty and the char before `e` is not '\n'.
-    if s != e && e > 0 && e <= text.len() && text.as_bytes()[e - 1] != b'\n' {
+    if s != e && e > 0 && buf.char_code_before(e) != Some('\n' as u32) {
         n += 1;
     }
     Ok(Value::fixnum(n as i64))
@@ -556,14 +585,14 @@ pub(crate) fn builtin_forward_line(
     let _ = eval.buffers.goto_buffer_byte(current_id, adjusted);
 
     let mut shortage = n - moved;
-    if shortage != 0
-        && n > 0
-        && begv < zv
-        && new_pos != pt
-        && new_pos > 0
-        && text.as_bytes()[new_pos - 1] != b'\n'
-    {
-        shortage -= 1;
+    if shortage != 0 && n > 0 && begv < zv && new_pos != pt && new_pos > 0 {
+        let at_line_start = eval
+            .buffers
+            .get(current_id)
+            .is_some_and(|buf| buf.char_code_before(new_pos) == Some('\n' as u32));
+        if !at_line_start {
+            shortage -= 1;
+        }
     }
     check_point_motion_hooks(eval, old_byte, adjusted)?;
     Ok(Value::fixnum(shortage))
@@ -666,7 +695,7 @@ pub(crate) fn builtin_forward_char(
             cur_char,
             begv_char,
             zv_char,
-            buf.text.char_to_byte(clamped_char),
+            buf.text.char_to_emacs_byte(clamped_char),
         )
     };
     let direction = if n >= 0 { 1 } else { -1 };
@@ -701,41 +730,40 @@ pub(crate) fn builtin_backward_char(
 
 /// Parse a skip-chars set matching GNU syntax.c skip_chars behavior.
 /// Handles `\` as escape character and `-` as range operator.
-fn parse_skip_chars_set(s: &str) -> (bool, Vec<char>) {
-    let mut chars: Vec<char> = Vec::new();
+fn parse_skip_chars_set(codes: &[u32]) -> (bool, Vec<u32>) {
+    let mut chars: Vec<u32> = Vec::new();
     let mut negate = false;
-    let raw: Vec<char> = s.chars().collect();
     let mut i = 0;
 
-    if i < raw.len() && raw[i] == '^' {
+    if i < codes.len() && codes[i] == '^' as u32 {
         negate = true;
         i += 1;
     }
 
-    while i < raw.len() {
+    while i < codes.len() {
         // Handle backslash escape (GNU syntax.c: `\-` = literal `-`)
-        let c = if raw[i] == '\\' && i + 1 < raw.len() {
+        let c = if codes[i] == '\\' as u32 && i + 1 < codes.len() {
             i += 1;
-            raw[i]
+            codes[i]
         } else {
-            raw[i]
+            codes[i]
         };
         i += 1;
 
         // Check for range: c followed by `-` and another char
-        if i + 1 < raw.len() && raw[i] == '-' {
+        if i + 1 < codes.len() && codes[i] == '-' as u32 {
             i += 1; // skip '-'
-            let end_c = if raw[i] == '\\' && i + 1 < raw.len() {
+            let end_c = if codes[i] == '\\' as u32 && i + 1 < codes.len() {
                 i += 1;
-                raw[i]
+                codes[i]
             } else {
-                raw[i]
+                codes[i]
             };
             i += 1;
             if c <= end_c {
-                for ch in c..=end_c {
-                    if !chars.contains(&ch) {
-                        chars.push(ch);
+                for code in c..=end_c {
+                    if !chars.contains(&code) {
+                        chars.push(code);
                     }
                 }
             }
@@ -752,16 +780,16 @@ pub(crate) fn builtin_skip_chars_forward(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("skip-chars-forward", &args, 1)?;
-    let set_str = match args[0].kind() {
-        ValueKind::String => args[0].as_str().unwrap().to_owned(),
-        other => {
+    let set_codes = match args[0].as_lisp_string() {
+        Some(string) => super::builtins::lisp_string_char_codes(string),
+        None => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("stringp"), args[0]],
             ));
         }
     };
-    let (negate, char_set) = parse_skip_chars_set(&set_str);
+    let (negate, char_set) = parse_skip_chars_set(&set_codes);
     let current_id = ctx.buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (start_pos, pos, limit, moved_chars) = {
         let buf = ctx.buffers.get(current_id).ok_or_else(no_buffer)?;
@@ -773,11 +801,11 @@ pub(crate) fn builtin_skip_chars_forward(
         let text = buffer_text(buf);
         let start_pos = buf.pt_byte;
         let mut pos = buf.pt_byte;
-        let limit = lim_byte.min(text.len());
+        let limit = lim_byte.min(buf.zv_byte);
 
         while pos < limit {
-            if let Some(ch) = buf.text.char_at(pos) {
-                let in_set = char_set.contains(&ch);
+            if let Some(code) = buf.char_code_after(pos) {
+                let in_set = char_set.contains(&code);
                 if negate {
                     if in_set {
                         break;
@@ -785,14 +813,16 @@ pub(crate) fn builtin_skip_chars_forward(
                 } else if !in_set {
                     break;
                 }
-                pos += ch.len_utf8();
+                pos += buf
+                    .char_after_emacs_len(pos)
+                    .expect("char width should exist at valid point");
             } else {
                 break;
             }
         }
 
         let moved_chars =
-            buf.text.byte_to_char(pos) as i64 - buf.text.byte_to_char(start_pos) as i64;
+            buf.text.emacs_byte_to_char(pos) as i64 - buf.text.emacs_byte_to_char(start_pos) as i64;
         (start_pos, pos, limit, moved_chars)
     };
 
@@ -807,16 +837,16 @@ pub(crate) fn builtin_skip_chars_backward(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("skip-chars-backward", &args, 1)?;
-    let set_str = match args[0].kind() {
-        ValueKind::String => args[0].as_str().unwrap().to_owned(),
-        other => {
+    let set_codes = match args[0].as_lisp_string() {
+        Some(string) => super::builtins::lisp_string_char_codes(string),
+        None => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("stringp"), args[0]],
             ));
         }
     };
-    let (negate, char_set) = parse_skip_chars_set(&set_str);
+    let (negate, char_set) = parse_skip_chars_set(&set_codes);
     let current_id = ctx.buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (pos, moved_chars) = {
         let buf = ctx.buffers.get(current_id).ok_or_else(no_buffer)?;
@@ -830,8 +860,8 @@ pub(crate) fn builtin_skip_chars_backward(
 
         while pos > limit {
             // Find the character before `pos`.
-            if let Some(ch) = buf.char_before(pos) {
-                let in_set = char_set.contains(&ch);
+            if let Some(code) = buf.char_code_before(pos) {
+                let in_set = char_set.contains(&code);
                 if negate {
                     if in_set {
                         break;
@@ -839,14 +869,16 @@ pub(crate) fn builtin_skip_chars_backward(
                 } else if !in_set {
                     break;
                 }
-                pos -= ch.len_utf8();
+                pos -= buf
+                    .char_before_emacs_len(pos)
+                    .expect("char width should exist before valid point");
             } else {
                 break;
             }
         }
 
         let moved_chars =
-            buf.text.byte_to_char(pos) as i64 - buf.text.byte_to_char(start_pos) as i64;
+            buf.text.emacs_byte_to_char(pos) as i64 - buf.text.emacs_byte_to_char(start_pos) as i64;
         (pos, moved_chars)
     };
     let _ = ctx.buffers.goto_buffer_byte(current_id, pos);

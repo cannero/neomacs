@@ -192,7 +192,7 @@ fn parse_search_options_in_manager(
     let steps = count.unsigned_abs() as usize;
 
     if let Some(limit) = bound_lisp {
-        let point_lisp = buf.text.byte_to_char(buf.pt_byte) as i64 + 1;
+        let point_lisp = buf.text.emacs_byte_to_char(buf.pt_byte) as i64 + 1;
         match direction {
             SearchDirection::Forward if limit < point_lisp => {
                 return Err(signal(
@@ -231,7 +231,7 @@ fn current_search_context_in_manager(
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let opts = parse_search_options_in_manager(buffers, buf, args, kind)?;
     let start_pt = buf.pt_byte;
-    let start_char = buf.text.byte_to_char(buf.pt_byte) as i64 + 1;
+    let start_char = buf.text.emacs_byte_to_char(buf.pt_byte) as i64 + 1;
     Ok((current_id, opts, start_pt, start_char))
 }
 
@@ -243,7 +243,7 @@ fn buffer_byte_to_char_result_in_manager(
     let buf = buffers
         .get(buffer_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    Ok(Value::fixnum(buf.text.byte_to_char(byte) as i64 + 1))
+    Ok(Value::fixnum(buf.text.emacs_byte_to_char(byte) as i64 + 1))
 }
 
 fn search_failure_position(buf: &crate::buffer::Buffer, opts: SearchOptions) -> usize {
@@ -998,7 +998,14 @@ pub(crate) fn builtin_match_string(
             let (byte_start, byte_end) = if md.searched_string.is_some() {
                 (char_pos_to_byte(text, start), char_pos_to_byte(text, end))
             } else {
-                (start, end)
+                (
+                    crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+                        text, start,
+                    ),
+                    crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+                        text, end,
+                    ),
+                )
             };
             if byte_end <= text.len() && byte_start <= byte_end {
                 if let Some(slice) = string.slice(byte_start, byte_end) {
@@ -1012,7 +1019,12 @@ pub(crate) fn builtin_match_string(
             let (byte_start, byte_end) = if md.searched_string.is_some() {
                 (char_pos_to_byte(s, start), char_pos_to_byte(s, end))
             } else {
-                (start, end)
+                (
+                    crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+                        s, start,
+                    ),
+                    crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(s, end),
+                )
             };
             if byte_end <= s.len() && byte_start <= byte_end {
                 return Ok(Value::string(&s[byte_start..byte_end]));
@@ -1052,8 +1064,8 @@ pub(crate) fn builtin_match_string(
         Some(b) => b,
         None => return Ok(Value::NIL),
     };
-    if end <= buf.text.len() {
-        Ok(Value::string(buf.text.text_range(start, end)))
+    if end <= buf.total_bytes() {
+        Ok(Value::string(buf.buffer_substring(start, end)))
     } else {
         Ok(Value::NIL)
     }
@@ -1090,8 +1102,8 @@ pub(crate) fn builtin_match_beginning_with_state(
                         .searched_buffer
                         .and_then(|buffer_id| buffers.and_then(|bufs| bufs.get(buffer_id)))
                     {
-                        if *start <= buf.text.len() {
-                            let pos = buf.text.byte_to_char(*start) as i64 + 1;
+                        if *start <= buf.total_bytes() {
+                            let pos = buf.text.emacs_byte_to_char(*start) as i64 + 1;
                             Ok(Value::fixnum(pos))
                         } else {
                             Ok(Value::fixnum(*start as i64))
@@ -1145,8 +1157,8 @@ pub(crate) fn builtin_match_end_with_state(
                         .searched_buffer
                         .and_then(|buffer_id| buffers.and_then(|bufs| bufs.get(buffer_id)))
                     {
-                        if *end <= buf.text.len() {
-                            let pos = buf.text.byte_to_char(*end) as i64 + 1;
+                        if *end <= buf.total_bytes() {
+                            let pos = buf.text.emacs_byte_to_char(*end) as i64 + 1;
                             Ok(Value::fixnum(pos))
                         } else {
                             Ok(Value::fixnum(*end as i64))
@@ -1210,10 +1222,10 @@ pub(crate) fn builtin_match_data_with_state(
                 let buffer_positions = searched_buffer_id.and_then(|buffer_id| {
                     buffers.as_deref().and_then(|bufs| {
                         bufs.get(buffer_id).and_then(|buffer| {
-                            if *start <= *end && *end <= buffer.text.len() {
+                            if *start <= *end && *end <= buffer.total_bytes() {
                                 Some((
-                                    buffer.text.byte_to_char(*start) as i64 + 1,
-                                    buffer.text.byte_to_char(*end) as i64 + 1,
+                                    buffer.text.emacs_byte_to_char(*start) as i64 + 1,
+                                    buffer.text.emacs_byte_to_char(*end) as i64 + 1,
                                 ))
                             } else {
                                 None
@@ -1560,7 +1572,7 @@ pub(crate) fn builtin_replace_match_with_state_and_flags(
         let buf = buffers
             .get(current_id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        let source = buf.text.text_range(0, buf.text.len());
+        let source = buf.buffer_substring(0, buf.total_bytes());
         let replacement = super::regex::replace_match_string_with_syntax(
             &source,
             &newtext,
@@ -1578,7 +1590,8 @@ pub(crate) fn builtin_replace_match_with_state_and_flags(
                 signal("error", vec![Value::string(msg)])
             }
         })?;
-        let replacement_len = replacement.len() - (source.len() - (oldend - oldstart));
+        let replacement_len = crate::emacs_core::string_escape::storage_byte_len(&replacement)
+            - (buf.total_bytes() - (oldend - oldstart));
         (oldstart, oldend, replacement_len)
     };
 

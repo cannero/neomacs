@@ -191,6 +191,13 @@ impl BufferText {
             .storage_byte_to_emacs_byte(byte_pos)
     }
 
+    pub fn emacs_byte_to_storage_byte(&self, byte_pos: usize) -> usize {
+        self.storage
+            .borrow()
+            .gap
+            .emacs_byte_to_storage_byte(byte_pos)
+    }
+
     pub fn shared_clone(&self) -> Self {
         Self {
             storage: Rc::clone(&self.storage),

@@ -1682,14 +1682,18 @@ fn expand_mode_line_percent_in_state(
     let read_only = buf.is_some_and(|b| {
         crate::emacs_core::editfns::buffer_read_only_active_in_state(obarray, dynamic, b)
     });
-    let narrowed = buf.is_some_and(|b| b.begv_byte > 0 || b.zv_byte < b.text.len());
+    let narrowed = buf.is_some_and(|b| b.begv_byte > 0 || b.zv_byte < b.total_bytes());
 
     let (line_num, col_num) = if let Some(b) = buf {
         let pt = b.pt_byte;
-        let text = b.text.to_string();
-        let before = &text[..pt.min(text.len())];
+        let text = b.buffer_substring(0, b.total_bytes());
+        let before = b.buffer_substring(0, pt.min(b.total_bytes()));
         let line = before.chars().filter(|&c| c == '\n').count() + 1;
-        let col = before.rfind('\n').map(|nl| pt - nl - 1).unwrap_or(pt);
+        let col = before
+            .rsplit('\n')
+            .next()
+            .map(|segment| segment.chars().count())
+            .unwrap_or(0);
         (line, col)
     } else {
         (1, 0)
@@ -2145,10 +2149,10 @@ pub(crate) fn builtin_window_text_pixel_size_ctx(
         .get(2)
         .and_then(|v| if v.is_nil() { None } else { v.as_int() })
         .map(|i| (i.max(1) - 1) as usize)
-        .unwrap_or(buf.text.len());
+        .unwrap_or(buf.total_bytes());
 
     // Count lines and max columns in the region
-    let text = buf.text.text_range(from_pos, to_pos.min(buf.text.len()));
+    let text = buf.buffer_substring(from_pos, to_pos.min(buf.total_bytes()));
     let mut max_cols = 0usize;
     let mut lines = 1usize;
     let mut cur_col = 0usize;

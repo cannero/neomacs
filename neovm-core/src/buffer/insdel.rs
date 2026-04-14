@@ -51,7 +51,7 @@ impl Buffer {
                 .adjust_markers_for_insert(insert_pos, byte_len, char_len);
         }
         debug_assert_eq!(
-            self.text.byte_to_char(insert_pos),
+            self.text.emacs_byte_to_char(insert_pos),
             insert_char_pos,
             "insert-side-effect char position drifted from the source edit site"
         );
@@ -191,11 +191,12 @@ impl Buffer {
     fn insert_internal(&mut self, text: &str, before_markers: bool) {
         let insert_pos = self.pt_byte;
         let insert_char_pos = self.pt;
-        let byte_len = text.len();
-        if byte_len == 0 {
+        if text.is_empty() {
             return;
         }
+        let byte_len = crate::emacs_core::string_escape::storage_byte_len(text);
         let char_len = crate::emacs_core::string_escape::storage_char_len(text);
+        let insert_storage_pos = self.text.emacs_byte_to_storage_byte(insert_pos);
 
         // Record undo before modifying.
         if !self.undo_state.in_progress() {
@@ -207,7 +208,7 @@ impl Buffer {
             }
         }
 
-        self.text.insert_str(insert_pos, text);
+        self.text.insert_str(insert_storage_pos, text);
         self.apply_byte_insert_side_effects(
             insert_pos,
             insert_char_pos,
@@ -240,10 +241,12 @@ impl Buffer {
         if start >= end {
             return;
         }
-        let start_char = self.text.byte_to_char(start);
-        let end_char = self.text.byte_to_char(end);
+        let start_char = self.text.emacs_byte_to_char(start);
+        let end_char = self.text.emacs_byte_to_char(end);
+        let start_storage = self.text.emacs_byte_to_storage_byte(start);
+        let end_storage = self.text.emacs_byte_to_storage_byte(end);
         // Record undo: save the deleted text for restoration.
-        let deleted_text = self.text.text_range(start, end);
+        let deleted_text = self.text.text_range(start_storage, end_storage);
         if !self.undo_state.in_progress() {
             self.undo_prepare_change(start, self.pt_byte);
             let mut ul = self.get_undo_list();
@@ -253,7 +256,7 @@ impl Buffer {
             }
         }
 
-        self.text.delete_range(start, end);
+        self.text.delete_range(start_storage, end_storage);
         self.apply_byte_delete_side_effects(
             start, end, start_char, end_char, true, false, true, true,
         );
@@ -275,9 +278,11 @@ impl Buffer {
         if start >= end {
             return false;
         }
-        let changed_chars = self.text.byte_to_char(end) - self.text.byte_to_char(start);
+        let changed_chars = self.text.emacs_byte_to_char(end) - self.text.emacs_byte_to_char(start);
+        let start_storage = self.text.emacs_byte_to_storage_byte(start);
+        let end_storage = self.text.emacs_byte_to_storage_byte(end);
 
-        let original = self.text.text_range(start, end);
+        let original = self.text.text_range(start_storage, end_storage);
         let Some(replacement) =
             crate::emacs_core::string_escape::replace_storage_char_code_same_len(
                 &original, from_code, to_storage,
@@ -291,13 +296,22 @@ impl Buffer {
             let mut ul = self.get_undo_list();
             if !undo::undo_list_is_disabled(&ul) {
                 undo::undo_list_record_delete(&mut ul, start, &original, self.pt_byte);
-                undo::undo_list_record_insert(&mut ul, start, replacement.len(), self.pt_byte);
+                undo::undo_list_record_insert(
+                    &mut ul,
+                    start,
+                    crate::emacs_core::string_escape::storage_byte_len(&replacement),
+                    self.pt_byte,
+                );
                 self.set_undo_list(ul);
             }
         }
 
-        self.text
-            .replace_char_code_same_len_range(start, end, from_code, to_storage);
+        self.text.replace_char_code_same_len_range(
+            start_storage,
+            end_storage,
+            from_code,
+            to_storage,
+        );
         self.apply_same_len_edit_side_effects(changed_chars, noundo);
         true
     }
@@ -369,10 +383,10 @@ impl BufferManager {
     }
 
     pub fn insert_into_buffer(&mut self, id: BufferId, text: &str) -> Option<()> {
-        let byte_len = text.len();
-        if byte_len == 0 {
+        if text.is_empty() {
             return Some(());
         }
+        let byte_len = crate::emacs_core::string_escape::storage_byte_len(text);
         let char_len = crate::emacs_core::string_escape::storage_char_len(text);
 
         let root_id = self.shared_text_root_id(id)?;
@@ -405,10 +419,10 @@ impl BufferManager {
     }
 
     pub fn insert_into_buffer_before_markers(&mut self, id: BufferId, text: &str) -> Option<()> {
-        let byte_len = text.len();
-        if byte_len == 0 {
+        if text.is_empty() {
             return Some(());
         }
+        let byte_len = crate::emacs_core::string_escape::storage_byte_len(text);
         let char_len = crate::emacs_core::string_escape::storage_char_len(text);
         let root_id = self.shared_text_root_id(id)?;
         let shared_ids = self.buffers_sharing_root_ids(root_id);
@@ -447,8 +461,8 @@ impl BufferManager {
         let root_id = self.shared_text_root_id(id)?;
         let shared_ids = self.buffers_sharing_root_ids(root_id);
         let source = self.buffers.get(&id)?;
-        let start_char = source.text.byte_to_char(start);
-        let end_char = source.text.byte_to_char(end);
+        let start_char = source.text.emacs_byte_to_char(start);
+        let end_char = source.text.emacs_byte_to_char(end);
         self.buffers.get_mut(&id)?.delete_region(start, end);
 
         for sibling_id in shared_ids {
@@ -488,7 +502,7 @@ impl BufferManager {
         let shared_ids = self.buffers_sharing_root_ids(root_id);
         let changed_chars = {
             let source = self.buffers.get(&id)?;
-            source.text.byte_to_char(end) - source.text.byte_to_char(start)
+            source.text.emacs_byte_to_char(end) - source.text.emacs_byte_to_char(start)
         };
         let changed = self
             .buffers

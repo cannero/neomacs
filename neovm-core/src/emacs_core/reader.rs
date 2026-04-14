@@ -502,15 +502,17 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
         ValueKind::Veclike(VecLikeType::Buffer) => {
             // Read from buffer at point
             let buf_id = args[0].as_buffer_id().unwrap();
-            let (text, pt) = {
+            let (text, pt, begv_byte) = {
                 let buf = &mut ctx
                     .buffers
                     .get(buf_id)
                     .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
-                (buf.buffer_string(), buf.pt_byte)
+                (buf.buffer_string(), buf.pt_byte, buf.begv_byte)
             };
-            // Buffer point is a 0-based byte offset.
-            let start = pt;
+            let start = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+                &text,
+                pt.saturating_sub(begv_byte),
+            );
             if start >= text.len() {
                 return Err(signal(
                     "end-of-file",
@@ -536,7 +538,10 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
                     )
                 })?;
             // Advance point past the read form
-            let new_pt = pt + end_offset;
+            let new_pt = pt
+                + crate::emacs_core::string_escape::storage_byte_to_logical_byte(
+                    substring, end_offset,
+                );
             let _ = &mut ctx.buffers.goto_buffer_byte(buf_id, new_pt);
             Ok(value)
         }
@@ -697,11 +702,12 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
             buf.text.delete_range(0, text_len);
         }
         buf.text.insert_str(0, &prompt);
-        prompt_byte_len = prompt.len();
+        let prompt_storage_len = prompt.len();
+        prompt_byte_len = crate::emacs_core::string_escape::storage_byte_len(&prompt);
         if let Some(ref initial) = initial_input {
-            buf.text.insert_str(prompt_byte_len, initial);
+            buf.text.insert_str(prompt_storage_len, initial);
         }
-        let total_len = buf.text.len();
+        let total_len = buf.total_bytes();
         buf.widen();
         buf.goto_byte(total_len); // cursor at end of initial input
     }
@@ -763,7 +769,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
 
     // Read the minibuffer contents (everything after the prompt)
     let result_string = if let Some(buf) = buffers.get(minibuf_id) {
-        let total_len = buf.text.len();
+        let total_len = buf.total_bytes();
         if total_len > prompt_byte_len {
             buf.buffer_substring(prompt_byte_len, total_len)
         } else {
@@ -1203,11 +1209,12 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
             buf.text.delete_range(0, text_len);
         }
         buf.text.insert_str(0, &prompt);
-        prompt_byte_len = prompt.len();
+        let prompt_storage_len = prompt.len();
+        prompt_byte_len = crate::emacs_core::string_escape::storage_byte_len(&prompt);
         if let Some(ref initial) = initial_input {
-            buf.text.insert_str(prompt_byte_len, initial);
+            buf.text.insert_str(prompt_storage_len, initial);
         }
-        let total_len = buf.text.len();
+        let total_len = buf.total_bytes();
         buf.widen();
         buf.goto_byte(total_len);
     }
@@ -1275,7 +1282,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     });
 
     let result_string = if let Some(buf) = shared.buffers.get(minibuf_id) {
-        let total_len = buf.text.len();
+        let total_len = buf.total_bytes();
         if total_len > prompt_byte_len {
             buf.buffer_substring(prompt_byte_len, total_len)
         } else {

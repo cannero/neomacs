@@ -1328,8 +1328,8 @@ pub(crate) fn checked_region_bytes(
         ));
     }
 
-    let start_byte = buf.text.char_to_byte((start - 1) as usize);
-    let end_byte = buf.text.char_to_byte((end - 1) as usize);
+    let start_byte = buf.lisp_pos_to_accessible_byte(start);
+    let end_byte = buf.lisp_pos_to_accessible_byte(end);
     Ok(if start_byte <= end_byte {
         (start_byte, end_byte)
     } else {
@@ -2760,7 +2760,11 @@ pub(crate) fn builtin_internal_default_process_filter(
     let mark_pos = eval.processes.get(id).and_then(|p| p.mark_byte_pos);
     let insert_pos = match mark_pos {
         Some(pos) => pos,
-        None => eval.buffers.get(buf_id).map(|b| b.text.len()).unwrap_or(0),
+        None => eval
+            .buffers
+            .get(buf_id)
+            .map(|b| b.total_bytes())
+            .unwrap_or(0),
     };
 
     // Save current point, move point to insert position, insert, then restore.
@@ -2774,7 +2778,7 @@ pub(crate) fn builtin_internal_default_process_filter(
     }
 
     // Insert text at point (which is now at the mark position).
-    let text_byte_len = text.len();
+    let text_byte_len = crate::emacs_core::string_escape::storage_byte_len(&text);
     eval.buffers.insert_into_buffer(buf_id, &text);
 
     // The new mark is at point after insertion (insert advances point).
@@ -5376,7 +5380,7 @@ pub(crate) fn builtin_process_send_region_impl(
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         let (region_beg, region_end) = checked_region_bytes(buf, start, end)?;
-        buf.text.text_range(region_beg, region_end)
+        buf.buffer_substring(region_beg, region_end)
     };
 
     if !processes.send_input(id, &region_text) {

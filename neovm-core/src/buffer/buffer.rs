@@ -1565,7 +1565,7 @@ impl Buffer {
 
     // -- Point queries -------------------------------------------------------
 
-    /// Current point as a byte position.
+    /// Current point as an Emacs byte position.
     pub fn point_byte(&self) -> usize {
         self.pt_byte
     }
@@ -1580,7 +1580,7 @@ impl Buffer {
         self.pt
     }
 
-    /// Beginning of the accessible portion (byte position).
+    /// Beginning of the accessible portion (Emacs byte position).
     pub fn point_min_byte(&self) -> usize {
         self.begv_byte
     }
@@ -1595,7 +1595,7 @@ impl Buffer {
         self.point_min_byte()
     }
 
-    /// End of the accessible portion (byte position).
+    /// End of the accessible portion (Emacs byte position).
     pub fn point_max_byte(&self) -> usize {
         self.zv_byte
     }
@@ -1610,10 +1610,16 @@ impl Buffer {
         self.text.char_count()
     }
 
-    /// Convert a 0-based character position to a byte position, clamping to
-    /// the buffer text length.
+    /// Total number of Emacs bytes in the buffer text.
+    pub fn total_bytes(&self) -> usize {
+        self.text.emacs_byte_len()
+    }
+
+    /// Convert a 0-based character position to an Emacs byte position,
+    /// clamping to the buffer text length.
     pub fn char_to_byte_clamped(&self, char_pos: usize) -> usize {
-        self.text.char_to_byte(char_pos.min(self.total_chars()))
+        self.text
+            .char_to_emacs_byte(char_pos.min(self.total_chars()))
     }
 
     /// Convert a 1-based Lisp character position to a byte position, clamping
@@ -1636,7 +1642,7 @@ impl Buffer {
             0
         };
         let clamped_char = char_pos.clamp(self.point_min_char(), self.point_max_char());
-        self.text.char_to_byte(clamped_char)
+        self.text.char_to_emacs_byte(clamped_char)
     }
 
     /// Convert a 1-based Lisp character position to a byte position, clamping
@@ -1651,17 +1657,17 @@ impl Buffer {
             0
         };
         let clamped_char = char_pos.min(self.total_chars());
-        self.text.char_to_byte(clamped_char)
+        self.text.char_to_emacs_byte(clamped_char)
     }
 
-    /// Legacy narrowing accessor retained while buffer internals are byte-only.
+    /// Legacy narrowing accessor retained for Lisp-facing callers.
     pub fn point_max(&self) -> usize {
         self.point_max_byte()
     }
 
     // -- Point movement ------------------------------------------------------
 
-    /// Set point in bytes, clamping to the accessible region `[begv, zv]`.
+    /// Set point in Emacs bytes, clamping to the accessible region `[begv, zv]`.
     pub fn goto_byte(&mut self, pos: usize) {
         self.pt_byte = pos.clamp(self.begv_byte, self.zv_byte);
         self.pt = if self.pt_byte == self.begv_byte {
@@ -1669,7 +1675,7 @@ impl Buffer {
         } else if self.pt_byte == self.zv_byte {
             self.zv
         } else {
-            self.text.byte_to_char(self.pt_byte)
+            self.text.emacs_byte_to_char(self.pt_byte)
         };
     }
 
@@ -1696,89 +1702,127 @@ impl Buffer {
 
     // -- Text queries --------------------------------------------------------
 
-    /// Return a `String` copy of the byte range `[start, end)`.
+    pub fn emacs_byte_to_storage_byte(&self, pos: usize) -> usize {
+        self.text
+            .emacs_byte_to_storage_byte(pos.min(self.total_bytes()))
+    }
+
+    pub fn storage_byte_to_emacs_byte(&self, pos: usize) -> usize {
+        self.text
+            .storage_byte_to_emacs_byte(pos.min(self.text.len()))
+    }
+
+    /// Return a `String` copy of the Emacs-byte range `[start, end)`.
     pub fn buffer_substring(&self, start: usize, end: usize) -> String {
-        self.text.text_range(start, end)
+        let start_storage = self.emacs_byte_to_storage_byte(start);
+        let end_storage = self.emacs_byte_to_storage_byte(end.max(start));
+        self.text.text_range(start_storage, end_storage)
     }
 
     /// Return the entire accessible portion of the buffer as a `String`.
     pub fn buffer_string(&self) -> String {
-        self.text.text_range(self.begv_byte, self.zv_byte)
+        self.buffer_substring(self.begv_byte, self.zv_byte)
     }
 
-    /// Byte-length of the accessible portion.
+    /// Emacs-byte length of the accessible portion.
     pub fn buffer_size(&self) -> usize {
         self.zv_byte - self.begv_byte
     }
 
-    /// Character at byte position `pos`, or `None` if out of range.
+    /// Character at Emacs byte position `pos`, or `None` if out of range.
     pub fn char_after(&self, pos: usize) -> Option<char> {
         self.char_code_after(pos).and_then(char::from_u32)
     }
 
-    /// Emacs character code at byte position `pos`, or `None` if out of range.
+    /// Emacs character code at Emacs byte position `pos`, or `None` if out of range.
     pub fn char_code_after(&self, pos: usize) -> Option<u32> {
-        if pos >= self.text.len() {
+        if pos >= self.total_bytes() {
             return None;
         }
-        self.text.char_code_at(pos)
+        let storage_pos = self.text.emacs_byte_to_storage_byte(pos);
+        self.text.char_code_at(storage_pos)
     }
 
-    /// Character immediately before byte position `pos`, or `None`.
+    /// Character immediately before Emacs byte position `pos`, or `None`.
     pub fn char_before(&self, pos: usize) -> Option<char> {
         self.char_code_before(pos).and_then(char::from_u32)
     }
 
-    /// Emacs character code immediately before byte position `pos`, or `None`.
+    /// Emacs character code immediately before Emacs byte position `pos`, or `None`.
     pub fn char_code_before(&self, pos: usize) -> Option<u32> {
-        if pos == 0 || pos > self.text.len() {
+        if pos == 0 || pos > self.total_bytes() {
             return None;
         }
-        let prior_char = self.text.byte_to_char(pos);
+        let prior_char = self.text.emacs_byte_to_char(pos);
         if prior_char == 0 {
             return None;
         }
-        let prior_byte = self.text.char_to_byte(prior_char - 1);
-        self.text.char_code_at(prior_byte)
+        let prior_byte = self.text.char_to_emacs_byte(prior_char - 1);
+        let storage_pos = self.text.emacs_byte_to_storage_byte(prior_byte);
+        self.text.char_code_at(storage_pos)
     }
 
-    /// Storage-byte width of the character starting at `pos`.
+    /// Storage-byte width of the character starting at Emacs byte position `pos`.
     pub fn char_after_storage_len(&self, pos: usize) -> Option<usize> {
-        if pos >= self.text.len() {
+        if pos >= self.total_bytes() {
             return None;
         }
-        let char_idx = self.text.byte_to_char(pos);
-        Some(self.text.char_to_byte(char_idx + 1) - pos)
+        let storage_pos = self.text.emacs_byte_to_storage_byte(pos);
+        let char_idx = self.text.emacs_byte_to_char(pos);
+        Some(self.text.char_to_byte(char_idx + 1) - storage_pos)
     }
 
-    /// Storage-byte width of the character ending at `pos`.
+    /// Storage-byte width of the character ending at Emacs byte position `pos`.
     pub fn char_before_storage_len(&self, pos: usize) -> Option<usize> {
-        if pos == 0 || pos > self.text.len() {
+        if pos == 0 || pos > self.total_bytes() {
             return None;
         }
-        let prior_char = self.text.byte_to_char(pos);
+        let prior_char = self.text.emacs_byte_to_char(pos);
         if prior_char == 0 {
             return None;
         }
         let prior_byte = self.text.char_to_byte(prior_char - 1);
+        let storage_pos = self.text.emacs_byte_to_storage_byte(pos);
+        Some(storage_pos - prior_byte)
+    }
+
+    /// Emacs-byte width of the character starting at `pos`.
+    pub fn char_after_emacs_len(&self, pos: usize) -> Option<usize> {
+        if pos >= self.total_bytes() {
+            return None;
+        }
+        let char_idx = self.text.emacs_byte_to_char(pos);
+        Some(self.text.char_to_emacs_byte(char_idx + 1) - pos)
+    }
+
+    /// Emacs-byte width of the character ending at `pos`.
+    pub fn char_before_emacs_len(&self, pos: usize) -> Option<usize> {
+        if pos == 0 || pos > self.total_bytes() {
+            return None;
+        }
+        let prior_char = self.text.emacs_byte_to_char(pos);
+        if prior_char == 0 {
+            return None;
+        }
+        let prior_byte = self.text.char_to_emacs_byte(prior_char - 1);
         Some(pos - prior_byte)
     }
 
     // -- Narrowing -----------------------------------------------------------
 
-    /// Restrict the accessible portion to the byte range `[start, end)`.
+    /// Restrict the accessible portion to the Emacs-byte range `[start, end)`.
     pub fn narrow_to_byte_region(&mut self, start: usize, end: usize) {
-        let total = self.text.len();
+        let total = self.total_bytes();
         let s = start.min(total);
         let e = end.clamp(s, total);
         let total_chars = self.text.char_count();
         self.begv_byte = s;
-        self.begv = self.text.byte_to_char(s);
+        self.begv = self.text.emacs_byte_to_char(s);
         self.zv_byte = e;
         self.zv = if e == total {
             total_chars
         } else {
-            self.text.byte_to_char(e)
+            self.text.emacs_byte_to_char(e)
         };
         // Clamp point into the new accessible region.
         self.goto_byte(self.pt_byte);
@@ -1791,17 +1835,17 @@ impl Buffer {
 
     /// Remove narrowing — make the entire buffer accessible again.
     pub fn widen(&mut self) {
-        self.narrow_to_byte_region(0, self.text.len());
+        self.narrow_to_byte_region(0, self.total_bytes());
     }
 
     pub fn register_marker(&mut self, marker_id: u64, pos: usize, insertion_type: InsertionType) {
-        let clamped = pos.min(self.text.len());
+        let clamped = pos.min(self.total_bytes());
         let char_pos = if clamped == self.begv_byte {
             self.begv
         } else if clamped == self.zv_byte {
             self.zv
         } else {
-            self.text.byte_to_char(clamped)
+            self.text.emacs_byte_to_char(clamped)
         };
         self.text
             .register_marker(self.id, marker_id, clamped, char_pos, insertion_type);
@@ -1838,7 +1882,7 @@ impl Buffer {
         } else if clamped == self.zv_byte {
             self.zv
         } else {
-            self.text.byte_to_char(clamped)
+            self.text.emacs_byte_to_char(clamped)
         };
         self.mark = Some(char_pos);
         self.mark_byte = Some(clamped);
@@ -2795,7 +2839,7 @@ impl BufferManager {
 
     fn full_buffer_bounds(&self, id: BufferId) -> Option<(usize, usize)> {
         let buf = self.buffers.get(&id)?;
-        Some((0, buf.text.len()))
+        Some((0, buf.total_bytes()))
     }
 
     fn labeled_restriction_at(&self, id: BufferId, outermost: bool) -> Option<&LabeledRestriction> {
@@ -3050,7 +3094,7 @@ impl BufferManager {
     }
 
     pub fn replace_buffer_contents(&mut self, id: BufferId, text: &str) -> Option<()> {
-        let len = self.buffers.get(&id)?.text.len();
+        let len = self.buffers.get(&id)?.total_bytes();
         if len > 0 {
             self.delete_buffer_region(id, 0, len)?;
         }
@@ -3313,7 +3357,7 @@ impl BufferManager {
         let buffer_id = self.current_buffer_id()?;
         let (begv, zv, len) = {
             let buffer = self.get(buffer_id)?;
-            (buffer.begv_byte, buffer.zv_byte, buffer.text.len())
+            (buffer.begv_byte, buffer.zv_byte, buffer.total_bytes())
         };
         let restriction = if begv == 0 && zv == len {
             SavedRestrictionKind::None
@@ -3391,7 +3435,9 @@ impl BufferManager {
                 if let (Some(begv), Some(zv), Some(len)) = (
                     beg,
                     end,
-                    self.buffers.get(&buffer_id).map(|buffer| buffer.text.len()),
+                    self.buffers
+                        .get(&buffer_id)
+                        .map(|buffer| buffer.total_bytes()),
                 ) {
                     let mut restored_begv = begv.min(len);
                     let mut restored_zv = zv.min(len);
@@ -3508,7 +3554,7 @@ impl BufferManager {
                     let clamped = self
                         .buffers
                         .get(&id)
-                        .map(|buffer| pos.min(buffer.text.len()))?;
+                        .map(|buffer| pos.min(buffer.total_bytes()))?;
                     self.goto_buffer_byte(id, clamped)?;
                 } else if entry.is_cons() {
                     let car = entry.cons_car();
@@ -3521,7 +3567,7 @@ impl BufferManager {
                             let clamped_end = self
                                 .buffers
                                 .get(&id)
-                                .map(|buffer| end.min(buffer.text.len()))?;
+                                .map(|buffer| end.min(buffer.total_bytes()))?;
                             self.delete_buffer_region(id, beg.min(clamped_end), clamped_end)?;
                         }
                         (ValueKind::String, ValueKind::Fixnum(pos1)) => {
@@ -3531,7 +3577,7 @@ impl BufferManager {
                             let clamped = self
                                 .buffers
                                 .get(&id)
-                                .map(|buffer| pos.min(buffer.text.len()))?;
+                                .map(|buffer| pos.min(buffer.total_bytes()))?;
                             self.goto_buffer_byte(id, clamped)?;
                             self.insert_into_buffer(id, &text)?;
                         }
