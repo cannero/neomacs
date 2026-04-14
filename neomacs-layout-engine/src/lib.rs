@@ -12,7 +12,6 @@ pub mod display_backend;
 pub mod display_iterator;
 pub mod display_pixel_calc;
 pub mod display_status_line;
-pub mod emacs_types;
 pub mod engine;
 pub mod font_loader;
 pub mod font_match;

@@ -26,7 +26,6 @@ Core-facing display semantics:
 Layout:
 
 - `neomacs-layout-engine/src/lib.rs`
-- `neomacs-layout-engine/src/emacs_types.rs`
 - `neomacs-layout-engine/src/neovm_bridge.rs`
 - `neomacs-layout-engine/src/engine.rs`
 - `neomacs-layout-engine/src/status_line.rs`
@@ -69,9 +68,6 @@ Bad:
 - Neomacs currently spreads redisplay semantics across too many crates.
 - `neomacs-layout-engine` declares itself as replacing `xdisp.c`, while
   `neovm-core` still owns `xdisp`, `dispnew`, and `xfaces` semantics.
-- `neomacs-layout-engine/src/emacs_types.rs` still carries direct GNU-C-struct
-  layout assumptions; `neovm_bridge.rs` is the more correct Rust-owned design
-  direction.
 - `neomacs-display-runtime/src/core/` duplicates semantic text helpers that do
   not belong in the display runtime long-term.
 
@@ -99,8 +95,6 @@ overlap-heavy design.
 ## Required work
 
 - Remove semantic duplication from `neomacs-display-runtime/src/core/`.
-- Replace legacy direct-struct access paths in the layout engine with
-  Rust-model snapshot/bridge paths.
 - Continue moving face, fringe, display-property, and redisplay invalidation
   semantics toward `neovm-core`.
 - Make layout-engine and runtime consume semantic snapshots instead of
@@ -112,5 +106,4 @@ overlap-heavy design.
 
 - One semantic display owner in `neovm-core`.
 - Layout/runtime/renderer boundaries stop overlapping semantically.
-- Layout no longer depends on legacy GNU-C-struct ownership assumptions.
 - GUI behavior is explainable in terms of core-owned redisplay state.

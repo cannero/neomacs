@@ -40,7 +40,6 @@ Font and frame/terminal primitives:
 Layout-side font behavior:
 
 - `neomacs-layout-engine/src/emacs_ffi.rs`
-- `neomacs-layout-engine/src/emacs_types.rs`
 - `neomacs-layout-engine/src/neovm_bridge.rs`
 - `neomacs-layout-engine/src/font_loader.rs`
 - `neomacs-layout-engine/src/font_match.rs`
@@ -69,9 +68,6 @@ Bad:
 - Frame/font/terminal source ownership is still more diffuse than GNU's model.
 - Font matching and display-facing font behavior are split between core and
   layout-engine code.
-- The layout engine still carries legacy GNU-C-struct access paths
-  (`emacs_types.rs`) even though the long-term Neomacs source of truth should
-  be Rust-side model data flowing through `neovm_bridge.rs`.
 
 ## Long-term ideal design
 
@@ -94,8 +90,6 @@ The ideal design is:
 - Audit frame parameters and terminal semantics at the same source level.
 - Tighten the boundary between core font semantics and layout-engine font
   application.
-- Remove remaining dependency on legacy `emacs_types.rs`-style source ownership
-  for real Neomacs runtime paths.
 
 ## Exit criteria
 

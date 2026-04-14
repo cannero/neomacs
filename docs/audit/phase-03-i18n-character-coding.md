@@ -38,7 +38,6 @@ Layout side:
 
 - `neomacs-layout-engine/src/bidi/`
 - `neomacs-layout-engine/src/bidi_layout.rs`
-- `neomacs-layout-engine/src/emacs_types.rs`
 - `neomacs-layout-engine/src/neovm_bridge.rs`
 - `neomacs-layout-engine/src/unicode.rs`
 - `neomacs-layout-engine/src/font_loader.rs`
@@ -68,8 +67,6 @@ Bad:
 - Part of the text-semantic pipeline lives in `neovm-core`, another part lives
   in `neomacs-layout-engine`, and a third slice is duplicated again in
   `neomacs-display-runtime/src/core/`.
-- `neomacs-layout-engine/src/emacs_types.rs` still encodes legacy GNU-C-struct
-  assumptions. That is the wrong long-term source boundary for a Rust-owned VM.
 - Char width, bidi, composition, and font fallback are especially likely to
   drift if the layout engine independently decides behavior that should be VM
   semantic state.
@@ -94,8 +91,6 @@ model.
 
 - Define a stricter boundary between `neovm-core` and `neomacs-layout-engine`.
 - Remove duplicated i18n-semantic helpers from `neomacs-display-runtime/src/core/`.
-- Replace remaining direct `emacs_types.rs`-style semantic dependency paths
-  with Rust-side bridge/snapshot paths.
 - Audit char width, string width, bidi direction, and composition results
   against GNU Emacs.
 - Keep font fallback and shaping decisions aligned with GNU face/font semantics,
