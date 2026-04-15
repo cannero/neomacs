@@ -9141,18 +9141,6 @@ impl Context {
         }
     }
 
-    pub(crate) fn with_runtime_backtrace_frame(
-        &mut self,
-        function: Value,
-        args: Vec<Value>,
-        f: impl FnOnce(&mut Self, Vec<Value>) -> EvalResult,
-    ) -> EvalResult {
-        self.push_runtime_backtrace_frame(function, &args);
-        let result = f(self, args);
-        self.pop_runtime_backtrace_frame();
-        result
-    }
-
     pub(crate) fn with_runtime_backtrace_frame_from_active_call(
         &mut self,
         function: Value,
@@ -9200,7 +9188,9 @@ impl Context {
         self.maybe_gc_and_quit()?;
         self.maybe_grow_eval_stack(|ctx| {
             if record_backtrace {
-                ctx.funcall_general(function, args)
+                ctx.with_runtime_backtrace_frame_from_active_call(function, |eval| {
+                    eval.funcall_general_untraced(function, args)
+                })
             } else {
                 ctx.funcall_general_untraced(function, args)
             }
@@ -9214,11 +9204,6 @@ impl Context {
 
     pub(crate) fn apply_untraced(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
         self.apply_internal(function, args, false)
-    }
-
-    #[inline]
-    fn apply_already_rooted_untraced(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
-        self.apply_internal_already_rooted(function, args, false)
     }
 
     /// Apply FUNC to ARGS, but record FRAME_FUNCTION (not FUNC) in the
