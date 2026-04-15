@@ -1476,7 +1476,8 @@ pub(crate) fn dump_charset_registry(encoder: &mut DumpEncoder) -> DumpCharsetReg
             .into_iter()
             .map(|info| DumpCharsetInfo {
                 id: info.id,
-                name: info.name,
+                name_sym: Some(dump_sym_id(info.name)),
+                name: None,
                 dimension: info.dimension,
                 code_space: info.code_space,
                 min_code: info.min_code,
@@ -1493,24 +1494,30 @@ pub(crate) fn dump_charset_registry(encoder: &mut DumpEncoder) -> DumpCharsetReg
                     CharsetMethodSnapshot::Map(map_name) => DumpCharsetMethod::Map(map_name),
                     CharsetMethodSnapshot::Subset(subset) => {
                         DumpCharsetMethod::Subset(DumpCharsetSubsetSpec {
-                            parent: subset.parent,
+                            parent_sym: Some(dump_sym_id(subset.parent)),
+                            parent: None,
                             parent_min_code: subset.parent_min_code,
                             parent_max_code: subset.parent_max_code,
                             offset: subset.offset,
                         })
                     }
-                    CharsetMethodSnapshot::Superset(members) => {
-                        DumpCharsetMethod::Superset(members)
-                    }
+                    CharsetMethodSnapshot::Superset(members) => DumpCharsetMethod::SupersetSyms(
+                        members
+                            .into_iter()
+                            .map(|(name, offset)| (dump_sym_id(name), offset))
+                            .collect(),
+                    ),
                 },
-                plist: info
+                plist_syms: info
                     .plist
                     .into_iter()
-                    .map(|(key, value)| (key, encoder.dump_value(&value)))
+                    .map(|(key, value)| (dump_sym_id(key), encoder.dump_value(&value)))
                     .collect(),
+                plist: Vec::new(),
             })
             .collect(),
-        priority: snapshot.priority,
+        priority_syms: snapshot.priority.into_iter().map(dump_sym_id).collect(),
+        priority: Vec::new(),
         next_id: snapshot.next_id,
     }
 }
@@ -3020,7 +3027,13 @@ pub(crate) fn load_charset_registry(decoder: &mut LoadDecoder, dcr: &DumpCharset
             .iter()
             .map(|info| CharsetInfoSnapshot {
                 id: info.id,
-                name: info.name.clone(),
+                name: info.name_sym.as_ref().map(load_sym_id).unwrap_or_else(|| {
+                    crate::emacs_core::intern::intern(
+                        info.name
+                            .as_deref()
+                            .expect("legacy charset dump entry missing name"),
+                    )
+                }),
                 dimension: info.dimension,
                 code_space: info.code_space,
                 min_code: info.min_code,
@@ -3039,24 +3052,62 @@ pub(crate) fn load_charset_registry(decoder: &mut LoadDecoder, dcr: &DumpCharset
                     }
                     DumpCharsetMethod::Subset(subset) => CharsetMethodSnapshot::Subset(
                         crate::emacs_core::charset::CharsetSubsetSpecSnapshot {
-                            parent: subset.parent.clone(),
+                            parent: subset.parent_sym.as_ref().map(load_sym_id).unwrap_or_else(
+                                || {
+                                    crate::emacs_core::intern::intern(
+                                        subset
+                                            .parent
+                                            .as_deref()
+                                            .expect("legacy charset subset missing parent"),
+                                    )
+                                },
+                            ),
                             parent_min_code: subset.parent_min_code,
                             parent_max_code: subset.parent_max_code,
                             offset: subset.offset,
                         },
                     ),
-                    DumpCharsetMethod::Superset(members) => {
-                        CharsetMethodSnapshot::Superset(members.clone())
-                    }
+                    DumpCharsetMethod::SupersetSyms(members) => CharsetMethodSnapshot::Superset(
+                        members
+                            .iter()
+                            .map(|(name, offset)| (load_sym_id(name), *offset))
+                            .collect(),
+                    ),
+                    DumpCharsetMethod::Superset(members) => CharsetMethodSnapshot::Superset(
+                        members
+                            .iter()
+                            .map(|(name, offset)| {
+                                (crate::emacs_core::intern::intern(name), *offset)
+                            })
+                            .collect(),
+                    ),
                 },
-                plist: info
-                    .plist
-                    .iter()
-                    .map(|(key, value)| (key.clone(), decoder.load_value(value)))
-                    .collect(),
+                plist: if info.plist_syms.is_empty() {
+                    info.plist
+                        .iter()
+                        .map(|(key, value)| {
+                            (
+                                crate::emacs_core::intern::intern(key),
+                                decoder.load_value(value),
+                            )
+                        })
+                        .collect()
+                } else {
+                    info.plist_syms
+                        .iter()
+                        .map(|(key, value)| (load_sym_id(key), decoder.load_value(value)))
+                        .collect()
+                },
             })
             .collect(),
-        priority: dcr.priority.clone(),
+        priority: if dcr.priority_syms.is_empty() {
+            dcr.priority
+                .iter()
+                .map(|name| crate::emacs_core::intern::intern(name))
+                .collect()
+        } else {
+            dcr.priority_syms.iter().map(load_sym_id).collect()
+        },
         next_id: dcr.next_id,
     };
     restore_charset_registry(snapshot);

@@ -111,15 +111,17 @@ fn test_restore_active_runtime_after_clone_reinstalls_live_charset_registry() {
     drop(cloned_again);
 
     let registry = crate::emacs_core::charset::snapshot_charset_registry();
+    let charset_name = crate::emacs_core::intern::intern("charset-pdump-clone-restore-test");
+    let doc_key = crate::emacs_core::intern::intern("doc");
     let entry = registry
         .charsets
         .iter()
-        .find(|info| info.name == "charset-pdump-clone-restore-test")
+        .find(|info| info.name == charset_name)
         .expect("restored charset entry");
     assert_eq!(
         entry.plist,
         vec![(
-            "doc".to_string(),
+            doc_key,
             value::Value::string("live charset registry should survive clone handoff"),
         )]
     );
@@ -211,8 +213,8 @@ fn test_pdump_bad_magic() {
 fn test_pdump_round_trip_bootstrap() {
     crate::test_utils::init_test_tracing();
     // Bootstrap, dump, load, and verify eval works on loaded state
-    let eval = crate::emacs_core::load::create_bootstrap_evaluator()
-        .expect("bootstrap should succeed");
+    let eval =
+        crate::emacs_core::load::create_bootstrap_evaluator().expect("bootstrap should succeed");
 
     let dir = tempfile::tempdir().unwrap();
     let dump_path = dir.path().join("bootstrap.pdump");
@@ -251,8 +253,8 @@ fn test_pdump_round_trip_bootstrap() {
     assert_eq!(result, Value::fixnum(3));
 
     // Verify string operations (tests heap String objects)
-    let forms = crate::emacs_core::value_reader::read_all("(concat \"hello\" \" \" \"world\")")
-        .unwrap();
+    let forms =
+        crate::emacs_core::value_reader::read_all("(concat \"hello\" \" \" \"world\")").unwrap();
     let result = loaded.eval_sub(forms[0]).expect("eval should succeed");
     assert_eq!(crate::emacs_core::print_value(&result), "\"hello world\"");
 
@@ -276,8 +278,8 @@ fn test_pdump_round_trip_bootstrap() {
 #[test]
 fn test_pdump_round_trip_preserves_runtime_derived_mode_syntax() {
     crate::test_utils::init_test_tracing();
-    let mut eval = crate::emacs_core::load::create_bootstrap_evaluator()
-        .expect("bootstrap should succeed");
+    let mut eval =
+        crate::emacs_core::load::create_bootstrap_evaluator().expect("bootstrap should succeed");
     crate::emacs_core::load::apply_runtime_startup_state(&mut eval)
         .expect("runtime startup should succeed");
 
@@ -325,8 +327,8 @@ fn test_pdump_round_trip_preserves_runtime_derived_mode_syntax() {
 #[test]
 fn test_pdump_round_trip_preserves_pre_runtime_standard_syntax_identity() {
     crate::test_utils::init_test_tracing();
-    let eval = crate::emacs_core::load::create_bootstrap_evaluator()
-        .expect("bootstrap should succeed");
+    let eval =
+        crate::emacs_core::load::create_bootstrap_evaluator().expect("bootstrap should succeed");
 
     let dir = tempfile::tempdir().unwrap();
     let dump_path = dir.path().join("bootstrap-pre-runtime-syntax.pdump");
@@ -361,9 +363,8 @@ fn test_pdump_round_trip_preserves_pre_runtime_standard_syntax_identity() {
 #[test]
 fn test_pdump_round_trip_preserves_default_fontset_han_order() {
     crate::test_utils::init_test_tracing();
-    let mut eval =
-        crate::emacs_core::load::create_bootstrap_evaluator_with_features(&["neomacs"])
-            .expect("bootstrap should succeed");
+    let mut eval = crate::emacs_core::load::create_bootstrap_evaluator_with_features(&["neomacs"])
+        .expect("bootstrap should succeed");
     let setup = crate::emacs_core::value_reader::read_all(
         r#"(new-fontset
             "fontset-default"
@@ -429,8 +430,8 @@ fn test_restore_snapshot_isolated_between_clones() {
     );
 
     let mut second = restore_snapshot(&snapshot).expect("second clone should succeed");
-    let probe = crate::emacs_core::value_reader::read_all("(boundp 'compat-pdump-clone-smoke)")
-        .unwrap();
+    let probe =
+        crate::emacs_core::value_reader::read_all("(boundp 'compat-pdump-clone-smoke)").unwrap();
     let second_result = second
         .eval_sub(probe[0])
         .expect("second clone evaluation should succeed");
@@ -697,10 +698,7 @@ fn summarize_timings(label: &str, samples: &[std::time::Duration]) {
     );
 }
 
-fn measure_timings<T>(
-    iterations: usize,
-    mut op: impl FnMut() -> T,
-) -> Vec<std::time::Duration> {
+fn measure_timings<T>(iterations: usize, mut op: impl FnMut() -> T) -> Vec<std::time::Duration> {
     let mut samples = Vec::with_capacity(iterations);
     for _ in 0..iterations {
         let start = std::time::Instant::now();

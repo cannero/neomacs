@@ -829,7 +829,10 @@ pub struct DumpCodingSystemManager {
 // Charset
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpCharsetSubsetSpec {
-    pub parent: String,
+    #[serde(default)]
+    pub parent_sym: Option<DumpSymId>,
+    #[serde(default)]
+    pub parent: Option<String>,
     pub parent_min_code: i64,
     pub parent_max_code: i64,
     pub offset: i64,
@@ -840,13 +843,17 @@ pub enum DumpCharsetMethod {
     Offset(i64),
     Map(String),
     Subset(DumpCharsetSubsetSpec),
+    SupersetSyms(Vec<(DumpSymId, i64)>),
     Superset(Vec<(String, i64)>),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpCharsetInfo {
     pub id: i64,
-    pub name: String,
+    #[serde(default)]
+    pub name_sym: Option<DumpSymId>,
+    #[serde(default)]
+    pub name: Option<String>,
     pub dimension: i64,
     pub code_space: [i64; 8],
     pub min_code: i64,
@@ -859,12 +866,18 @@ pub struct DumpCharsetInfo {
     pub invalid_code: Option<i64>,
     pub unify_map: DumpValue,
     pub method: DumpCharsetMethod,
+    #[serde(default)]
+    pub plist_syms: Vec<(DumpSymId, DumpValue)>,
+    #[serde(default)]
     pub plist: Vec<(String, DumpValue)>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpCharsetRegistry {
     pub charsets: Vec<DumpCharsetInfo>,
+    #[serde(default)]
+    pub priority_syms: Vec<DumpSymId>,
+    #[serde(default)]
     pub priority: Vec<String>,
     pub next_id: i64,
 }

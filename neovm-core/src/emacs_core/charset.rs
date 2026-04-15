@@ -110,7 +110,7 @@ pub(crate) enum CharsetMethodSnapshot {
     Offset(i64),
     Map(String),
     Subset(CharsetSubsetSpecSnapshot),
-    Superset(Vec<(String, i64)>),
+    Superset(Vec<(SymId, i64)>),
 }
 
 #[derive(Clone, Debug)]
@@ -129,7 +129,7 @@ pub(crate) struct CharsetSubsetSpec {
 
 #[derive(Clone, Debug)]
 pub(crate) struct CharsetSubsetSpecSnapshot {
-    pub parent: String,
+    pub parent: SymId,
     pub parent_min_code: i64,
     pub parent_max_code: i64,
     pub offset: i64,
@@ -138,7 +138,7 @@ pub(crate) struct CharsetSubsetSpecSnapshot {
 #[derive(Clone, Debug)]
 pub(crate) struct CharsetInfoSnapshot {
     pub id: i64,
-    pub name: String,
+    pub name: SymId,
     pub dimension: i64,
     pub code_space: [i64; 8],
     pub min_code: i64,
@@ -151,13 +151,13 @@ pub(crate) struct CharsetInfoSnapshot {
     pub invalid_code: Option<i64>,
     pub unify_map: Value,
     pub method: CharsetMethodSnapshot,
-    pub plist: Vec<(String, Value)>,
+    pub plist: Vec<(SymId, Value)>,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct CharsetRegistrySnapshot {
     pub charsets: Vec<CharsetInfoSnapshot>,
-    pub priority: Vec<String>,
+    pub priority: Vec<SymId>,
     pub next_id: i64,
 }
 
@@ -367,7 +367,7 @@ impl CharsetRegistry {
             .cloned()
             .map(|info| CharsetInfoSnapshot {
                 id: info.id,
-                name: resolve_sym(info.name).to_string(),
+                name: info.name,
                 dimension: info.dimension,
                 code_space: info.code_space,
                 min_code: info.min_code,
@@ -386,35 +386,24 @@ impl CharsetRegistry {
                     }
                     CharsetMethod::Subset(ref subset) => {
                         CharsetMethodSnapshot::Subset(CharsetSubsetSpecSnapshot {
-                            parent: resolve_sym(subset.parent).to_string(),
+                            parent: subset.parent,
                             parent_min_code: subset.parent_min_code,
                             parent_max_code: subset.parent_max_code,
                             offset: subset.offset,
                         })
                     }
-                    CharsetMethod::Superset(ref members) => CharsetMethodSnapshot::Superset(
-                        members
-                            .iter()
-                            .map(|(name, offset)| (resolve_sym(*name).to_string(), *offset))
-                            .collect(),
-                    ),
+                    CharsetMethod::Superset(ref members) => {
+                        CharsetMethodSnapshot::Superset(members.clone())
+                    }
                 },
-                plist: info
-                    .plist
-                    .iter()
-                    .map(|(key, value)| (resolve_sym(*key).to_string(), *value))
-                    .collect(),
+                plist: info.plist.clone(),
             })
             .collect::<Vec<_>>();
-        charsets.sort_by(|left, right| left.name.cmp(&right.name));
+        charsets.sort_by(|left, right| resolve_sym(left.name).cmp(resolve_sym(right.name)));
 
         CharsetRegistrySnapshot {
             charsets,
-            priority: self
-                .priority
-                .iter()
-                .map(|name| resolve_sym(*name).to_string())
-                .collect(),
+            priority: self.priority.clone(),
             next_id: self.next_id,
         }
     }
@@ -422,7 +411,7 @@ impl CharsetRegistry {
     fn restore(snapshot: CharsetRegistrySnapshot) -> Self {
         let mut charsets = HashMap::with_capacity(snapshot.charsets.len());
         for info in snapshot.charsets {
-            let name = intern(&info.name);
+            let name = info.name;
             charsets.insert(
                 name,
                 CharsetInfo {
@@ -444,35 +433,24 @@ impl CharsetRegistry {
                         CharsetMethodSnapshot::Map(map_name) => CharsetMethod::Map(map_name),
                         CharsetMethodSnapshot::Subset(subset) => {
                             CharsetMethod::Subset(CharsetSubsetSpec {
-                                parent: intern(&subset.parent),
+                                parent: subset.parent,
                                 parent_min_code: subset.parent_min_code,
                                 parent_max_code: subset.parent_max_code,
                                 offset: subset.offset,
                             })
                         }
-                        CharsetMethodSnapshot::Superset(members) => CharsetMethod::Superset(
-                            members
-                                .into_iter()
-                                .map(|(name, offset)| (intern(&name), offset))
-                                .collect(),
-                        ),
+                        CharsetMethodSnapshot::Superset(members) => {
+                            CharsetMethod::Superset(members)
+                        }
                     },
-                    plist: info
-                        .plist
-                        .into_iter()
-                        .map(|(key, value)| (intern(&key), value))
-                        .collect(),
+                    plist: info.plist,
                 },
             );
         }
 
         Self {
             charsets,
-            priority: snapshot
-                .priority
-                .into_iter()
-                .map(|name| intern(&name))
-                .collect(),
+            priority: snapshot.priority,
             next_id: snapshot.next_id,
         }
     }
