@@ -1218,6 +1218,8 @@ pub struct Frame {
     /// explicit Lisp-side parameter rather than an auto-generated `F<num>`
     /// fallback.
     pub explicit_name: bool,
+    /// GNU `struct frame.icon_name`: explicit icon name, or nil.
+    pub icon_name: Value,
     /// Terminal owner id for GNU `frame-terminal` / terminal lifecycle.
     pub terminal_id: u64,
     /// Root of the window tree.
@@ -1341,6 +1343,7 @@ impl Frame {
             id,
             name,
             explicit_name: false,
+            icon_name: Value::NIL,
             terminal_id,
             root_window,
             selected_window: selected,
@@ -1399,6 +1402,10 @@ impl Frame {
 
     pub fn explicit_name_value(&self) -> Value {
         Value::bool_val(self.explicit_name)
+    }
+
+    pub fn icon_name_value(&self) -> Value {
+        self.icon_name
     }
 
     pub fn name_runtime_string_owned(&self) -> String {
@@ -2917,6 +2924,7 @@ impl GcTrace for FrameManager {
         // Frame and window tree parameters
         for frame in self.frames.values() {
             roots.push(frame.name);
+            roots.push(frame.icon_name);
             roots.push(frame.title);
             roots.extend(frame.parameters.keys().copied());
             for v in frame.parameters.values() {
@@ -2981,23 +2989,26 @@ mod tests {
     }
 
     #[test]
-    fn frame_manager_gc_traces_name_and_title_values() {
+    fn frame_manager_gc_traces_name_icon_name_and_title_values() {
         crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         {
             let frame = mgr.get_mut(fid).expect("frame");
+            frame.icon_name = Value::string("Frame Icon");
             frame.title = Value::string("Frame Title");
         }
 
         let frame = mgr.get(fid).expect("frame");
         let name = frame.name_value();
+        let icon_name = frame.icon_name_value();
         let title = frame.title_value();
 
         let mut roots = Vec::new();
         mgr.trace_roots(&mut roots);
 
         assert!(roots.contains(&name));
+        assert!(roots.contains(&icon_name));
         assert!(roots.contains(&title));
     }
 

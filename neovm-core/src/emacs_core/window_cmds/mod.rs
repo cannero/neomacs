@@ -5682,6 +5682,14 @@ fn frame_title_parameter_value(value: &Value) -> Option<Value> {
     }
 }
 
+fn frame_icon_name_parameter_value(value: &Value) -> Option<Value> {
+    if value.is_nil() {
+        Some(Value::NIL)
+    } else {
+        stringish_value(value).map(Value::string)
+    }
+}
+
 fn parse_gui_frame_params(value: Option<&Value>) -> ParsedGuiFrameParams {
     let mut parsed = ParsedGuiFrameParams::default();
     let Some(value) = value else {
@@ -6106,6 +6114,7 @@ pub(crate) fn builtin_frame_parameter(
         "name" => return Ok(frame.name_value()),
         "title" => return Ok(frame.title_value()),
         "explicit-name" => return Ok(frame.explicit_name_value()),
+        "icon-name" => return Ok(frame.icon_name_value()),
         // In Emacs, frame parameter width/height are text columns/lines.
         // For the bootstrap batch frame, explicit parameter overrides preserve
         // the 80x25 report shape.
@@ -6141,6 +6150,10 @@ pub(crate) fn builtin_frame_parameters(
     let mut pairs: Vec<Value> = Vec::new();
     // Built-in parameters.
     pairs.push(Value::cons(Value::symbol("name"), frame.name_value()));
+    pairs.push(Value::cons(
+        Value::symbol("icon-name"),
+        frame.icon_name_value(),
+    ));
     pairs.push(Value::cons(Value::symbol("title"), frame.title_value()));
     pairs.push(Value::cons(
         Value::symbol("explicit-name"),
@@ -6204,6 +6217,13 @@ pub(crate) fn builtin_modify_frame_parameters(
                         if let Some(title) = frame_title_parameter_value(&pair_cdr) {
                             if let Some(frame) = eval.frames.get_mut(fid) {
                                 frame.title = title;
+                            }
+                        }
+                    }
+                    "icon-name" => {
+                        if let Some(icon_name) = frame_icon_name_parameter_value(&pair_cdr) {
+                            if let Some(frame) = eval.frames.get_mut(fid) {
+                                frame.icon_name = icon_name;
                             }
                         }
                     }

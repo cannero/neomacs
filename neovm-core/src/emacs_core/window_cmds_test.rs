@@ -3642,6 +3642,13 @@ fn frame_parameter_explicit_name_defaults_to_nil() {
 }
 
 #[test]
+fn frame_parameter_icon_name_defaults_to_nil() {
+    crate::test_utils::init_test_tracing();
+    let r = eval_one_with_frame("(frame-parameter (selected-frame) 'icon-name)");
+    assert_eq!(r, "OK nil");
+}
+
+#[test]
 fn frame_parameter_width() {
     crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(frame-parameter (selected-frame) 'width)");
@@ -3687,6 +3694,21 @@ fn modify_frame_parameters_name_nil_restores_generated_name() {
     assert_eq!(results[0], "OK nil");
     assert_eq!(results[1], "OK nil");
     assert_eq!(results[2], r#"OK "F1""#);
+    assert_eq!(results[3], "OK nil");
+}
+
+#[test]
+fn modify_frame_parameters_icon_name_tracks_frame_field() {
+    crate::test_utils::init_test_tracing();
+    let results = eval_with_frame(
+        "(modify-frame-parameters (selected-frame) '((icon-name . \"frame-icon\")))
+         (frame-parameter (selected-frame) 'icon-name)
+         (modify-frame-parameters (selected-frame) '((icon-name . nil)))
+         (frame-parameter (selected-frame) 'icon-name)",
+    );
+    assert_eq!(results[0], "OK nil");
+    assert_eq!(results[1], r#"OK "frame-icon""#);
+    assert_eq!(results[2], "OK nil");
     assert_eq!(results[3], "OK nil");
 }
 

@@ -3026,6 +3026,7 @@ impl<'a> Vm<'a> {
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         match param_name.as_str() {
             "name" => Ok(frame.name_value()),
+            "icon-name" => Ok(frame.icon_name_value()),
             "title" => Ok(frame.title_value()),
             "explicit-name" => Ok(frame.explicit_name_value()),
             "width" => Ok(frame
