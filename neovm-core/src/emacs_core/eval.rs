@@ -172,6 +172,9 @@ pub(crate) enum SpecBinding {
     /// the current `Vinternal_interpreter_environment` on the specpdl.
     /// `unbind_to` restores `self.lexenv` to this value.
     LexicalEnv { old_lexenv: Value },
+    /// Temporary GC root carried on the specpdl itself, mirroring GNU's
+    /// use of specpdl-owned runtime state for unwind/helper temporaries.
+    GcRoot { value: Value },
 }
 
 #[derive(Clone, Debug)]
@@ -1677,6 +1680,11 @@ pub(crate) struct VmRootScopeState {
     saved_vm_root_frame_len: Option<usize>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SpecpdlRootScopeState {
+    saved_len: usize,
+}
+
 fn bind_lexical_value_rooted_in_state(
     lexenv: &mut Value,
     eval_root_frames: &mut Vec<EvalRootFrame>,
@@ -2001,6 +2009,7 @@ fn finish_lambda_call_in_state(
                 Some(val) => obarray.set_symbol_value_id(sym_id, val),
                 None => obarray.makunbound_id(sym_id),
             },
+            SpecBinding::GcRoot { .. } => {}
             other => {
                 // LetLocal/LetDefault shouldn't appear here in the
                 // standalone path, but handle gracefully.
@@ -2067,7 +2076,7 @@ fn begin_macro_expansion_scope_in_state(
                 SpecBinding::Let { sym_id, .. }
                 | SpecBinding::LetLocal { sym_id, .. }
                 | SpecBinding::LetDefault { sym_id, .. } => sym_id,
-                SpecBinding::LexicalEnv { .. } => continue,
+                SpecBinding::LexicalEnv { .. } | SpecBinding::GcRoot { .. } => continue,
             };
             if *sym_id == t_symbol || *sym_id == nil_symbol {
                 continue;
@@ -2092,7 +2101,7 @@ fn begin_macro_expansion_scope_in_state(
                 SpecBinding::Let { sym_id, .. }
                 | SpecBinding::LetLocal { sym_id, .. }
                 | SpecBinding::LetDefault { sym_id, .. } => sym_id,
-                SpecBinding::LexicalEnv { .. } => continue,
+                SpecBinding::LexicalEnv { .. } | SpecBinding::GcRoot { .. } => continue,
             };
             if *sym_id == t_symbol || *sym_id == nil_symbol {
                 continue;
@@ -2120,7 +2129,7 @@ fn begin_macro_expansion_scope_in_state(
                 SpecBinding::Let { sym_id, .. }
                 | SpecBinding::LetLocal { sym_id, .. }
                 | SpecBinding::LetDefault { sym_id, .. } => sym_id,
-                SpecBinding::LexicalEnv { .. } => continue,
+                SpecBinding::LexicalEnv { .. } | SpecBinding::GcRoot { .. } => continue,
             };
             if *sym_id == t_symbol || *sym_id == nil_symbol {
                 continue;
@@ -2430,12 +2439,12 @@ impl Context {
                         continue;
                     }
 
-                    let eval_root_scope = self.save_eval_roots();
+                    let specpdl_root_scope = self.save_specpdl_roots();
                     for value in &sig.data {
-                        self.push_eval_root(*value);
+                        self.push_specpdl_root(*value);
                     }
                     if let Some(raw) = &sig.raw_data {
-                        self.push_eval_root(*raw);
+                        self.push_specpdl_root(*raw);
                     }
 
                     self.push_condition_frame(ConditionFrame::SkipConditions {
@@ -2447,18 +2456,18 @@ impl Context {
                     match handler_result {
                         Ok(_) => {
                             self.pop_condition_frame();
-                            self.restore_eval_roots(eval_root_scope);
+                            self.restore_specpdl_roots(specpdl_root_scope);
                             continue;
                         }
                         Err(Flow::Signal(next_sig)) => {
                             let dispatched = self.dispatch_signal_if_needed(next_sig);
                             self.pop_condition_frame();
-                            self.restore_eval_roots(eval_root_scope);
+                            self.restore_specpdl_roots(specpdl_root_scope);
                             return dispatched;
                         }
                         Err(flow @ Flow::Throw { .. }) => {
                             self.pop_condition_frame();
-                            self.restore_eval_roots(eval_root_scope);
+                            self.restore_specpdl_roots(specpdl_root_scope);
                             return Err(flow);
                         }
                     }
@@ -4410,6 +4419,7 @@ impl Context {
                     ..
                 } => visit(*val),
                 SpecBinding::LexicalEnv { old_lexenv } => visit(*old_lexenv),
+                SpecBinding::GcRoot { value } => visit(*value),
                 _ => {}
             }
         }
@@ -6457,9 +6467,9 @@ impl Context {
         // Root every parsed form: each `eval_sub` call may trigger GC, and
         // the un-iterated forms still sitting in the heap-allocated Vec are
         // otherwise invisible to the exact root walk.
-        let eval_root_scope = self.save_eval_roots();
+        let specpdl_root_scope = self.save_specpdl_roots();
         for form in &forms {
-            self.push_eval_root(*form);
+            self.push_specpdl_root(*form);
         }
         let mut result = Value::NIL;
         let mut error = None;
@@ -6472,7 +6482,7 @@ impl Context {
                 }
             }
         }
-        self.restore_eval_roots(eval_root_scope);
+        self.restore_specpdl_roots(specpdl_root_scope);
         match error {
             Some(e) => Err(e),
             None => Ok(result),
@@ -6756,19 +6766,19 @@ impl Context {
         // Root every parsed form upfront. The previous version only rooted
         // successful results; un-iterated parsed forms still sitting in the
         // heap-allocated Vec were otherwise invisible to exact GC.
-        let eval_root_scope = self.save_eval_roots();
+        let specpdl_root_scope = self.save_specpdl_roots();
         for form in &forms {
-            self.push_eval_root(*form);
+            self.push_specpdl_root(*form);
         }
         let mut results = Vec::with_capacity(forms.len());
         for form in &forms {
             let result = self.eval_sub(*form).map_err(map_flow);
             if let Ok(ref val) = result {
-                self.push_eval_root(*val);
+                self.push_specpdl_root(*val);
             }
             results.push(result);
         }
-        self.restore_eval_roots(eval_root_scope);
+        self.restore_specpdl_roots(specpdl_root_scope);
         results
     }
 
@@ -7863,10 +7873,10 @@ impl Context {
         let first_form = tail.cons_car();
         let rest = tail.cons_cdr();
         let first = self.eval_sub(first_form)?;
-        let eval_root_scope = self.save_eval_roots();
-        self.push_eval_root(first);
+        let specpdl_root_scope = self.save_specpdl_roots();
+        self.push_specpdl_root(first);
         let result = self.sf_progn_value(rest);
-        self.restore_eval_roots(eval_root_scope);
+        self.restore_specpdl_roots(specpdl_root_scope);
         result?;
         Ok(first)
     }
@@ -8055,24 +8065,24 @@ impl Context {
             return Err(self.listp_error(tail));
         }
         let primary = self.eval_sub(tail.cons_car());
-        let eval_root_scope = self.save_eval_roots();
+        let specpdl_root_scope = self.save_specpdl_roots();
         match &primary {
-            Ok(val) => self.push_eval_root(*val),
+            Ok(val) => self.push_specpdl_root(*val),
             Err(Flow::Signal(sig)) => {
                 for v in &sig.data {
-                    self.push_eval_root(*v);
+                    self.push_specpdl_root(*v);
                 }
                 if let Some(raw) = &sig.raw_data {
-                    self.push_eval_root(*raw);
+                    self.push_specpdl_root(*raw);
                 }
             }
             Err(Flow::Throw { tag, value }) => {
-                self.push_eval_root(*tag);
-                self.push_eval_root(*value);
+                self.push_specpdl_root(*tag);
+                self.push_specpdl_root(*value);
             }
         }
         let cleanup = self.sf_progn_value(tail.cons_cdr());
-        self.restore_eval_roots(eval_root_scope);
+        self.restore_specpdl_roots(specpdl_root_scope);
         match cleanup {
             Ok(_) => primary,
             Err(flow) => Err(flow),
@@ -8255,19 +8265,19 @@ impl Context {
 
     fn sf_save_restriction_value(&mut self, tail: Value) -> EvalResult {
         let saved = self.buffers.save_current_restriction_state();
-        let eval_root_scope = self.save_eval_roots();
+        let specpdl_root_scope = self.save_specpdl_roots();
         if let Some(saved) = &saved {
             let mut traced_roots = Vec::new();
             saved.trace_roots(&mut traced_roots);
             for root in traced_roots {
-                self.push_eval_root(root);
+                self.push_specpdl_root(root);
             }
         }
         let result = self.sf_progn_value(tail);
         if let Some(saved) = saved {
             self.buffers.restore_saved_restriction_state(saved);
         }
-        self.restore_eval_roots(eval_root_scope);
+        self.restore_specpdl_roots(specpdl_root_scope);
         result
     }
 
@@ -9027,6 +9037,25 @@ impl Context {
         self.eval_root_frames.push(EvalRootFrame::new());
     }
 
+    pub(crate) fn save_specpdl_roots(&self) -> SpecpdlRootScopeState {
+        SpecpdlRootScopeState {
+            saved_len: self.specpdl.len(),
+        }
+    }
+
+    pub(crate) fn push_specpdl_root(&mut self, value: Value) {
+        self.specpdl.push(SpecBinding::GcRoot { value });
+    }
+
+    pub(crate) fn restore_specpdl_roots(&mut self, scope: SpecpdlRootScopeState) {
+        while self.specpdl.len() > scope.saved_len {
+            match self.specpdl.pop().expect("specpdl root scope underflow") {
+                SpecBinding::GcRoot { .. } => {}
+                other => panic!("restore_specpdl_roots found non-root binding: {other:?}"),
+            }
+        }
+    }
+
     pub(crate) fn pop_eval_root_frame(&mut self) {
         self.eval_root_frames.pop();
     }
@@ -9285,8 +9314,8 @@ impl Context {
             _ => return Err(signal("invalid-function", vec![function])),
         };
 
-        let eval_root_scope = self.save_eval_roots();
-        self.push_eval_root(function);
+        let specpdl_root_scope = self.save_specpdl_roots();
+        self.push_specpdl_root(function);
 
         let docstring_value = if items.get(body_start).is_some_and(|v| v.is_string())
             && items.get(body_start + 1).is_some()
@@ -9340,11 +9369,11 @@ impl Context {
             docstring_value
         };
 
-        self.push_eval_root(params_value);
-        self.push_eval_root(body_value);
-        self.push_eval_root(env_value);
-        self.push_eval_root(closure_doc_value);
-        self.push_eval_root(iform_value);
+        self.push_specpdl_root(params_value);
+        self.push_specpdl_root(body_value);
+        self.push_specpdl_root(env_value);
+        self.push_specpdl_root(closure_doc_value);
+        self.push_specpdl_root(iform_value);
 
         let result = if head_name == "lambda" {
             self.make_interpreted_closure_with_value_runtime_hook(
@@ -9364,7 +9393,7 @@ impl Context {
                 Some(&iform_value),
             )
         };
-        self.restore_eval_roots(eval_root_scope);
+        self.restore_specpdl_roots(specpdl_root_scope);
         result
     }
 
@@ -10083,11 +10112,11 @@ impl Context {
         }
         let args_for_cache = args.clone();
         let expand_start = std::time::Instant::now();
-        let eval_root_scope = self.save_eval_roots();
-        self.push_eval_root(form);
-        self.push_eval_root(definition);
+        let specpdl_root_scope = self.save_specpdl_roots();
+        self.push_specpdl_root(form);
+        self.push_specpdl_root(definition);
         if let Some(environment) = environment {
-            self.push_eval_root(environment);
+            self.push_specpdl_root(environment);
         }
 
         let result = (|| {
@@ -10114,7 +10143,7 @@ impl Context {
             );
             Ok(expanded)
         })();
-        self.restore_eval_roots(eval_root_scope);
+        self.restore_specpdl_roots(specpdl_root_scope);
         if let Some(start) = perf_start {
             self.macro_perf_stats
                 .expand_macro
@@ -10445,7 +10474,9 @@ impl Context {
         self.specpdl.iter().rev().any(|entry| match entry {
             SpecBinding::LetDefault { sym_id: s, .. } => *s == sym_id,
             SpecBinding::LetLocal { sym_id: s, .. } => *s == sym_id,
-            SpecBinding::Let { .. } | SpecBinding::LexicalEnv { .. } => false,
+            SpecBinding::Let { .. }
+            | SpecBinding::LexicalEnv { .. }
+            | SpecBinding::GcRoot { .. } => false,
         })
     }
 
@@ -10591,6 +10622,7 @@ impl Context {
                     // specbind(Qinternal_interpreter_environment, ...).
                     self.lexenv = old_lexenv;
                 }
+                SpecBinding::GcRoot { .. } => {}
             }
         }
     }
@@ -10654,6 +10686,7 @@ pub(crate) fn unbind_to_in_state(
                 // VmUnwindEntry::LexicalBinding mechanism).
                 tracing::warn!("unbind_to_in_state: LexicalEnv without Context");
             }
+            SpecBinding::GcRoot { .. } => {}
         }
     }
 }
@@ -10668,7 +10701,9 @@ fn default_toplevel_binding(specpdl: &[SpecBinding], sym_id: SymId) -> Option<&S
             sym_id: binding_sym,
             ..
         } => *binding_sym == sym_id,
-        SpecBinding::LetLocal { .. } | SpecBinding::LexicalEnv { .. } => false,
+        SpecBinding::LetLocal { .. }
+        | SpecBinding::LexicalEnv { .. }
+        | SpecBinding::GcRoot { .. } => false,
     })
 }
 
@@ -10680,7 +10715,9 @@ pub(crate) fn default_toplevel_value_in_state(
     match default_toplevel_binding(specpdl, sym_id) {
         Some(SpecBinding::Let { old_value, .. })
         | Some(SpecBinding::LetDefault { old_value, .. }) => *old_value,
-        Some(SpecBinding::LetLocal { .. }) | Some(SpecBinding::LexicalEnv { .. }) => {
+        Some(SpecBinding::LetLocal { .. })
+        | Some(SpecBinding::LexicalEnv { .. })
+        | Some(SpecBinding::GcRoot { .. }) => {
             unreachable!("non-variable bindings are excluded above")
         }
         None => obarray.default_value_id(sym_id).copied(),
@@ -10708,7 +10745,8 @@ pub(crate) fn set_default_toplevel_value_in_state(
             SpecBinding::Let { .. }
             | SpecBinding::LetDefault { .. }
             | SpecBinding::LetLocal { .. }
-            | SpecBinding::LexicalEnv { .. } => {}
+            | SpecBinding::LexicalEnv { .. }
+            | SpecBinding::GcRoot { .. } => {}
         }
     }
     false

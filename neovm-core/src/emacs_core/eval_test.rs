@@ -1,6 +1,6 @@
 use super::*;
 use crate::emacs_core::error::Flow;
-use crate::emacs_core::eval::{ConditionFrame, ResumeTarget};
+use crate::emacs_core::eval::{ConditionFrame, ResumeTarget, SpecBinding};
 use crate::emacs_core::format_eval_result;
 use crate::heap_types::LispString;
 use crate::test_utils::{
@@ -8380,6 +8380,55 @@ fn gc_collect_exact_inside_extra_root_scope_retains_explicit_slice() {
     assert!(
         after < before,
         "exact collection with explicit roots should free unrelated garbage: before={before}, after={after}"
+    );
+}
+
+#[test]
+fn specpdl_roots_are_traced_across_exact_gc() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+
+    let payload = Value::vector(vec![Value::fixnum(29)]);
+    let scope = ev.save_specpdl_roots();
+    ev.push_specpdl_root(payload);
+
+    ev.gc_collect_exact();
+
+    let rooted = match ev.specpdl.last() {
+        Some(SpecBinding::GcRoot { value }) => *value,
+        other => panic!("expected specpdl gc root entry, got {other:?}"),
+    };
+    assert_eq!(
+        rooted.as_vector_data().unwrap().as_slice(),
+        &[Value::fixnum(29)]
+    );
+
+    ev.restore_specpdl_roots(scope);
+    assert!(ev.specpdl.is_empty());
+}
+
+#[test]
+fn eval_str_each_roots_parsed_forms_on_specpdl() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+
+    let results = ev.eval_str_each("(setq x (cons 11 22)) (garbage-collect) (car x)");
+    assert_eq!(format_eval_result(&results[2]), "OK 11");
+}
+
+#[test]
+fn prog1_primary_survives_cleanup_garbage_collect() {
+    assert_eq!(
+        eval_one("(car (prog1 (cons 31 32) (garbage-collect)))"),
+        "OK 31"
+    );
+}
+
+#[test]
+fn unwind_protect_primary_survives_cleanup_garbage_collect() {
+    assert_eq!(
+        eval_one("(car (unwind-protect (cons 41 42) (garbage-collect)))"),
+        "OK 41"
     );
 }
 
