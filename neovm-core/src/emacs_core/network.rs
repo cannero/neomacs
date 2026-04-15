@@ -15,8 +15,10 @@ use std::time::Duration;
 
 #[cfg(test)]
 use super::error::{Flow, signal};
+use super::value::Value;
 #[cfg(test)]
-use super::value::{Value, ValueKind};
+use super::value::ValueKind;
+use crate::heap_types::LispString;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,28 +43,28 @@ pub enum NetworkStatus {
 /// A TCP network stream.
 pub struct NetworkStream {
     pub id: u64,
-    pub name: String,
+    pub name: Value,
     pub host: String,
     pub port: u16,
     pub stream: Option<TcpStream>,
-    pub buffer_name: Option<String>,
-    pub filter: Option<String>,
-    pub sentinel: Option<String>,
+    pub buffer_name: Value,
+    pub filter: Value,
+    pub sentinel: Value,
     pub status: NetworkStatus,
     pub output_buffer: Vec<u8>,
-    pub coding_system: String,
+    pub coding_system: Value,
     pub conn_type: ConnectionType,
 }
 
 /// Handles async output from a subprocess or network stream.
 pub struct ProcessFilter {
-    pub name: String,
-    pub output_buffer: String,
+    pub function: Value,
+    pub output_buffer: LispString,
 }
 
 /// Handles state changes for a process or network stream.
 pub struct ProcessSentinel {
-    pub name: String,
+    pub function: Value,
 }
 
 // ---------------------------------------------------------------------------
@@ -125,16 +127,16 @@ impl NetworkManager {
 
         let conn = NetworkStream {
             id,
-            name: name.to_string(),
+            name: Value::string(name),
             host: host.to_string(),
             port,
             stream: Some(stream),
-            buffer_name: buffer.map(|s| s.to_string()),
-            filter: None,
-            sentinel: None,
+            buffer_name: buffer.map(Value::string).unwrap_or(Value::NIL),
+            filter: Value::NIL,
+            sentinel: Value::NIL,
             status: NetworkStatus::Open,
             output_buffer: Vec::new(),
-            coding_system: "utf-8".to_string(),
+            coding_system: Value::symbol("utf-8"),
             conn_type: ConnectionType::Plain,
         };
         self.connections.insert(id, conn);
@@ -254,10 +256,10 @@ impl NetworkManager {
     }
 
     /// List all connections: (id, name, host, port).
-    pub fn list_connections(&self) -> Vec<(u64, &str, &str, u16)> {
+    pub fn list_connections(&self) -> Vec<(u64, Value, &str, u16)> {
         self.connections
             .values()
-            .map(|c| (c.id, c.name.as_str(), c.host.as_str(), c.port))
+            .map(|c| (c.id, c.name, c.host.as_str(), c.port))
             .collect()
     }
 
@@ -277,38 +279,30 @@ impl NetworkManager {
     // -- Process filters and sentinels --------------------------------------
 
     /// Set the filter function for a process/connection id.
-    pub fn set_process_filter(&mut self, process_id: u64, filter_name: &str) {
+    pub fn set_process_filter(&mut self, process_id: u64, filter: Value) {
         self.process_filters.insert(
             process_id,
             ProcessFilter {
-                name: filter_name.to_string(),
-                output_buffer: String::new(),
+                function: filter,
+                output_buffer: LispString::from_utf8(""),
             },
         );
     }
 
     /// Set the sentinel function for a process/connection id.
-    pub fn set_process_sentinel(&mut self, process_id: u64, sentinel_name: &str) {
-        self.process_sentinels.insert(
-            process_id,
-            ProcessSentinel {
-                name: sentinel_name.to_string(),
-            },
-        );
+    pub fn set_process_sentinel(&mut self, process_id: u64, sentinel: Value) {
+        self.process_sentinels
+            .insert(process_id, ProcessSentinel { function: sentinel });
     }
 
     /// Get the filter function name for a process/connection.
-    pub fn get_process_filter(&self, process_id: u64) -> Option<&str> {
-        self.process_filters
-            .get(&process_id)
-            .map(|f| f.name.as_str())
+    pub fn get_process_filter(&self, process_id: u64) -> Option<Value> {
+        self.process_filters.get(&process_id).map(|f| f.function)
     }
 
     /// Get the sentinel function name for a process/connection.
-    pub fn get_process_sentinel(&self, process_id: u64) -> Option<&str> {
-        self.process_sentinels
-            .get(&process_id)
-            .map(|s| s.name.as_str())
+    pub fn get_process_sentinel(&self, process_id: u64) -> Option<Value> {
+        self.process_sentinels.get(&process_id).map(|s| s.function)
     }
 
     /// Remove the filter for a process/connection.

@@ -26,24 +26,27 @@ fn process_filter_set_and_get() {
     let mut nm = NetworkManager::new();
     assert!(nm.get_process_filter(1).is_none());
 
-    nm.set_process_filter(1, "my-filter-fn");
-    assert_eq!(nm.get_process_filter(1), Some("my-filter-fn"));
+    nm.set_process_filter(1, Value::symbol("my-filter-fn"));
+    assert_eq!(
+        nm.get_process_filter(1),
+        Some(Value::symbol("my-filter-fn"))
+    );
 }
 
 #[test]
 fn process_filter_overwrite() {
     crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
-    nm.set_process_filter(1, "first");
-    nm.set_process_filter(1, "second");
-    assert_eq!(nm.get_process_filter(1), Some("second"));
+    nm.set_process_filter(1, Value::symbol("first"));
+    nm.set_process_filter(1, Value::symbol("second"));
+    assert_eq!(nm.get_process_filter(1), Some(Value::symbol("second")));
 }
 
 #[test]
 fn process_filter_remove() {
     crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
-    nm.set_process_filter(1, "my-filter");
+    nm.set_process_filter(1, Value::symbol("my-filter"));
     nm.remove_process_filter(1);
     assert!(nm.get_process_filter(1).is_none());
 }
@@ -61,12 +64,12 @@ fn process_filter_remove_nonexistent() {
 fn process_filter_multiple_ids() {
     crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
-    nm.set_process_filter(1, "filter-a");
-    nm.set_process_filter(2, "filter-b");
-    nm.set_process_filter(3, "filter-c");
-    assert_eq!(nm.get_process_filter(1), Some("filter-a"));
-    assert_eq!(nm.get_process_filter(2), Some("filter-b"));
-    assert_eq!(nm.get_process_filter(3), Some("filter-c"));
+    nm.set_process_filter(1, Value::symbol("filter-a"));
+    nm.set_process_filter(2, Value::symbol("filter-b"));
+    nm.set_process_filter(3, Value::symbol("filter-c"));
+    assert_eq!(nm.get_process_filter(1), Some(Value::symbol("filter-a")));
+    assert_eq!(nm.get_process_filter(2), Some(Value::symbol("filter-b")));
+    assert_eq!(nm.get_process_filter(3), Some(Value::symbol("filter-c")));
 }
 
 // -- Process sentinel set/get/remove ------------------------------------
@@ -77,24 +80,27 @@ fn process_sentinel_set_and_get() {
     let mut nm = NetworkManager::new();
     assert!(nm.get_process_sentinel(1).is_none());
 
-    nm.set_process_sentinel(1, "my-sentinel-fn");
-    assert_eq!(nm.get_process_sentinel(1), Some("my-sentinel-fn"));
+    nm.set_process_sentinel(1, Value::symbol("my-sentinel-fn"));
+    assert_eq!(
+        nm.get_process_sentinel(1),
+        Some(Value::symbol("my-sentinel-fn"))
+    );
 }
 
 #[test]
 fn process_sentinel_overwrite() {
     crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
-    nm.set_process_sentinel(1, "first");
-    nm.set_process_sentinel(1, "second");
-    assert_eq!(nm.get_process_sentinel(1), Some("second"));
+    nm.set_process_sentinel(1, Value::symbol("first"));
+    nm.set_process_sentinel(1, Value::symbol("second"));
+    assert_eq!(nm.get_process_sentinel(1), Some(Value::symbol("second")));
 }
 
 #[test]
 fn process_sentinel_remove() {
     crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
-    nm.set_process_sentinel(1, "my-sentinel");
+    nm.set_process_sentinel(1, Value::symbol("my-sentinel"));
     nm.remove_process_sentinel(1);
     assert!(nm.get_process_sentinel(1).is_none());
 }
@@ -357,15 +363,21 @@ fn connection_type_eq() {
 fn filter_and_sentinel_independent() {
     crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
-    nm.set_process_filter(1, "my-filter");
-    nm.set_process_sentinel(1, "my-sentinel");
-    assert_eq!(nm.get_process_filter(1), Some("my-filter"));
-    assert_eq!(nm.get_process_sentinel(1), Some("my-sentinel"));
+    nm.set_process_filter(1, Value::symbol("my-filter"));
+    nm.set_process_sentinel(1, Value::symbol("my-sentinel"));
+    assert_eq!(nm.get_process_filter(1), Some(Value::symbol("my-filter")));
+    assert_eq!(
+        nm.get_process_sentinel(1),
+        Some(Value::symbol("my-sentinel"))
+    );
 
     nm.remove_process_filter(1);
     assert!(nm.get_process_filter(1).is_none());
     // Sentinel should be unaffected.
-    assert_eq!(nm.get_process_sentinel(1), Some("my-sentinel"));
+    assert_eq!(
+        nm.get_process_sentinel(1),
+        Some(Value::symbol("my-sentinel"))
+    );
 }
 
 // -- List connections (empty) -------------------------------------------
