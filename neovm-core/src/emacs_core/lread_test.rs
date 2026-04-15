@@ -988,6 +988,26 @@ fn locate_file_internal_treats_tilde_prefixed_names_as_absolute_like_gnu() {
 }
 
 #[test]
+fn locate_file_accepts_raw_unibyte_path_and_suffix_lists() {
+    crate::test_utils::init_test_tracing();
+    let mut ctx = test_eval_ctx();
+    let raw_path = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let raw_suffix = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFE]));
+
+    let result = builtin_locate_file(
+        &mut ctx,
+        vec![
+            Value::string("probe"),
+            Value::list(vec![raw_path]),
+            Value::list(vec![raw_suffix]),
+        ],
+    )
+    .unwrap();
+
+    assert!(result.is_nil());
+}
+
+#[test]
 fn locate_file_rejects_over_arity() {
     crate::test_utils::init_test_tracing();
     let mut ctx = test_eval_ctx();

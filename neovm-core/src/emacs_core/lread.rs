@@ -6,6 +6,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::{intern, resolve_sym};
 use super::value::*;
+use crate::heap_types::LispString;
 use std::path::Path;
 
 // ---------------------------------------------------------------------------
@@ -46,6 +47,27 @@ fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
 
 fn lread_string_text(value: &Value) -> Option<String> {
     value.as_runtime_string_owned()
+}
+
+fn lread_runtime_string(value: &LispString) -> String {
+    super::builtins::runtime_string_from_lisp_string(value)
+}
+
+fn runtime_path_to_lisp_string(text: &str) -> LispString {
+    super::builtins::runtime_string_to_lisp_string(text, !text.is_ascii())
+}
+
+fn expect_lisp_string(value: &Value) -> Result<LispString, Flow> {
+    match value.kind() {
+        ValueKind::String => Ok(value.as_lisp_string().expect("checked string").clone()),
+        ValueKind::Symbol(id) => Ok(LispString::from_utf8(resolve_sym(id))),
+        ValueKind::Nil => Ok(LispString::from_unibyte(b"nil".to_vec())),
+        ValueKind::T => Ok(LispString::from_unibyte(b"t".to_vec())),
+        other => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), *value],
+        )),
+    }
 }
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
@@ -767,12 +789,12 @@ pub(crate) fn builtin_get_load_suffixes(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_locate_file(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("locate-file", &args, 3)?;
     expect_max_args("locate-file", &args, 4)?;
-    let filename = expect_string(&args[0])?;
+    let filename = expect_lisp_string(&args[0])?;
     let path = parse_path_argument(&args[1])?;
     let suffixes = parse_suffixes_argument(&args[2])?;
     Ok(
         match locate_file_with_path_and_suffixes(eval, &filename, &path, &suffixes, args.get(3))? {
-            Some(found) => Value::string(found),
+            Some(found) => Value::heap_string(found),
             None => Value::NIL,
         },
     )
@@ -787,7 +809,7 @@ pub(crate) fn builtin_locate_file_internal(
 ) -> EvalResult {
     expect_min_args("locate-file-internal", &args, 2)?;
     expect_max_args("locate-file-internal", &args, 4)?;
-    let filename = expect_string(&args[0])?;
+    let filename = expect_lisp_string(&args[0])?;
     let path = parse_path_argument(&args[1])?;
     // GNU Emacs: SUFFIXES is optional (nil when omitted)
     let suffixes = if args.len() > 2 {
@@ -797,7 +819,7 @@ pub(crate) fn builtin_locate_file_internal(
     };
     Ok(
         match locate_file_with_path_and_suffixes(eval, &filename, &path, &suffixes, args.get(3))? {
-            Some(found) => Value::string(found),
+            Some(found) => Value::heap_string(found),
             None => Value::NIL,
         },
     )
@@ -855,12 +877,12 @@ fn expect_list(value: &Value) -> Result<Vec<Value>, Flow> {
         .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("listp"), *value]))
 }
 
-fn parse_path_argument(value: &Value) -> Result<Vec<String>, Flow> {
+fn parse_path_argument(value: &Value) -> Result<Vec<LispString>, Flow> {
     let mut path = Vec::new();
     for entry in expect_list(value)? {
         match entry.kind() {
-            ValueKind::Nil => path.push(".".to_string()),
-            ValueKind::String => path.push(lread_string_text(&entry).expect("checked string")),
+            ValueKind::Nil => path.push(LispString::from_unibyte(b".".to_vec())),
+            ValueKind::String => path.push(entry.as_lisp_string().expect("checked string").clone()),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -872,12 +894,14 @@ fn parse_path_argument(value: &Value) -> Result<Vec<String>, Flow> {
     Ok(path)
 }
 
-fn parse_suffixes_argument(value: &Value) -> Result<Vec<String>, Flow> {
+fn parse_suffixes_argument(value: &Value) -> Result<Vec<LispString>, Flow> {
     let mut suffixes = Vec::new();
     for entry in expect_list(value)? {
         match entry.kind() {
-            ValueKind::Nil => suffixes.push(String::new()),
-            ValueKind::String => suffixes.push(lread_string_text(&entry).expect("checked string")),
+            ValueKind::Nil => suffixes.push(LispString::from_unibyte(Vec::new())),
+            ValueKind::String => {
+                suffixes.push(entry.as_lisp_string().expect("checked string").clone())
+            }
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -891,39 +915,46 @@ fn parse_suffixes_argument(value: &Value) -> Result<Vec<String>, Flow> {
 
 fn locate_file_with_path_and_suffixes(
     eval: &mut super::eval::Context,
-    filename: &str,
-    path: &[String],
-    suffixes: &[String],
+    filename: &LispString,
+    path: &[LispString],
+    suffixes: &[LispString],
     predicate: Option<&Value>,
-) -> Result<Option<String>, Flow> {
-    let effective_suffixes: Vec<&str> = if suffixes.is_empty() {
-        vec![""]
+) -> Result<Option<LispString>, Flow> {
+    let filename_runtime = lread_runtime_string(filename);
+    let effective_suffixes: Vec<LispString> = if suffixes.is_empty() {
+        vec![LispString::from_unibyte(Vec::new())]
     } else {
-        suffixes.iter().map(|s| s.as_str()).collect()
+        suffixes.to_vec()
     };
 
-    let absolute = crate::emacs_core::fileio::file_name_absolute_p(filename);
+    let absolute = crate::emacs_core::fileio::file_name_absolute_p(&filename_runtime);
     if absolute || path.is_empty() {
-        let expanded = crate::emacs_core::fileio::expand_file_name(filename, None);
+        let expanded = crate::emacs_core::fileio::expand_file_name(&filename_runtime, None);
         for suffix in &effective_suffixes {
-            let candidate = format!("{expanded}{suffix}");
+            let suffix_runtime = lread_runtime_string(suffix);
+            let candidate = format!("{expanded}{suffix_runtime}");
+            let candidate_lisp = runtime_path_to_lisp_string(&candidate);
             if Path::new(&candidate).exists()
-                && predicate_matches_candidate(eval, predicate, &candidate)?
+                && predicate_matches_candidate(eval, predicate, &candidate_lisp)?
             {
-                return Ok(Some(candidate));
+                return Ok(Some(candidate_lisp));
             }
         }
         return Ok(None);
     }
 
     for dir in path {
-        let base = crate::emacs_core::fileio::expand_file_name(filename, Some(dir));
+        let dir_runtime = lread_runtime_string(dir);
+        let base =
+            crate::emacs_core::fileio::expand_file_name(&filename_runtime, Some(&dir_runtime));
         for suffix in &effective_suffixes {
-            let candidate = format!("{base}{suffix}");
+            let suffix_runtime = lread_runtime_string(suffix);
+            let candidate = format!("{base}{suffix_runtime}");
+            let candidate_lisp = runtime_path_to_lisp_string(&candidate);
             if Path::new(&candidate).exists()
-                && predicate_matches_candidate(eval, predicate, &candidate)?
+                && predicate_matches_candidate(eval, predicate, &candidate_lisp)?
             {
-                return Ok(Some(candidate));
+                return Ok(Some(candidate_lisp));
             }
         }
     }
@@ -934,7 +965,7 @@ fn locate_file_with_path_and_suffixes(
 fn predicate_matches_candidate(
     eval: &mut super::eval::Context,
     predicate: Option<&Value>,
-    candidate: &str,
+    candidate: &LispString,
 ) -> Result<bool, Flow> {
     let Some(predicate) = predicate else {
         return Ok(true);
@@ -948,7 +979,8 @@ fn predicate_matches_candidate(
         // unknown predicate object shapes default to accepting candidate.
         return Ok(true);
     };
-    let Some(result) = eval.dispatch_subr(symbol, vec![Value::string(candidate)]) else {
+    let Some(result) = eval.dispatch_subr(symbol, vec![Value::heap_string(candidate.clone())])
+    else {
         // Emacs locate-file tolerates non-callable predicate values in practice.
         // Keep search behavior instead of surfacing an execution error here.
         return Ok(true);
