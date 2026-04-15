@@ -159,7 +159,7 @@ fn process_manager_create_and_query() {
         pm.get(id).unwrap().command,
         Value::list(vec![Value::string("/bin/echo"), Value::string("hello")])
     );
-    assert_eq!(pm.process_status(id), Some(&ProcessStatus::Run));
+    assert_eq!(pm.process_status(id), Some(&Value::symbol("run")));
 }
 
 #[test]
@@ -168,7 +168,14 @@ fn process_manager_kill() {
     let mut pm = ProcessManager::new();
     let id = pm.create_process("p".into(), Value::NIL, "prog".into(), vec![]);
     assert!(pm.kill_process(id));
-    assert_eq!(pm.process_status(id), Some(&ProcessStatus::Signal(9)));
+    assert_eq!(
+        pm.process_status(id),
+        Some(&Value::list(vec![
+            Value::symbol("signal"),
+            Value::fixnum(9),
+            Value::NIL,
+        ]))
+    );
 }
 
 #[test]

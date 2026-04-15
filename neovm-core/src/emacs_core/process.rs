@@ -51,19 +51,6 @@ use crate::window::FrameManager;
 /// Unique identifier for a process.
 pub type ProcessId = u64;
 
-/// Status of a managed process.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ProcessStatus {
-    Run,
-    Stop,
-    Exit(i32),
-    Signal(i32),
-    /// Async network connection in progress (GNU: Qconnect).
-    Connect,
-    /// Network connection failed (GNU: Qfailed).
-    Failed,
-}
-
 /// Process family used by compatibility helpers.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProcessKind {
@@ -79,7 +66,7 @@ pub struct Process {
     pub name: LispString,
     pub command: Value,
     pub kind: ProcessKind,
-    pub status: ProcessStatus,
+    pub status: Value,
     pub buffer: Value,
     /// Queued input (sent via `process-send-string`).
     pub stdin_queue: String,
@@ -230,6 +217,43 @@ fn update_process_mark(buffers: &mut BufferManager, proc: &mut Process) -> EvalR
     super::marker::builtin_set_marker_in_buffers(buffers, vec![proc.mark, position, proc.buffer])
 }
 
+fn process_status_run_value() -> Value {
+    Value::symbol("run")
+}
+
+fn process_status_stop_value(signal_num: i64) -> Value {
+    Value::list(vec![Value::symbol("stop"), Value::fixnum(signal_num)])
+}
+
+fn process_status_exit_value(code: i32) -> Value {
+    Value::list(vec![Value::symbol("exit"), Value::fixnum(code as i64)])
+}
+
+fn process_status_signal_value(signal_num: i32) -> Value {
+    Value::list(vec![
+        Value::symbol("signal"),
+        Value::fixnum(signal_num as i64),
+        Value::NIL,
+    ])
+}
+
+fn process_status_symbol_value(status: Value) -> Value {
+    list_to_vec(&status)
+        .and_then(|items| items.first().copied())
+        .unwrap_or(status)
+}
+
+fn process_status_code_value(status: Value) -> i64 {
+    list_to_vec(&status)
+        .and_then(|items| items.get(1).copied())
+        .and_then(|value| value.as_fixnum())
+        .unwrap_or(0)
+}
+
+fn process_status_is_run(status: &Value) -> bool {
+    process_status_symbol_value(*status) == Value::symbol("run")
+}
+
 impl ProcessManager {
     pub fn new() -> Self {
         Self {
@@ -277,7 +301,7 @@ impl ProcessManager {
             name: process_name_lisp_string(&name),
             command: make_process_command_value(&kind, &command, &args),
             kind,
-            status: ProcessStatus::Run,
+            status: process_status_run_value(),
             buffer,
             stdin_queue: String::new(),
             stdout: String::new(),
@@ -427,7 +451,7 @@ impl ProcessManager {
                 proc.child_stdout = stdout;
                 proc.child_stderr = child.stderr.take();
                 proc.child = Some(child);
-                proc.status = ProcessStatus::Run;
+                proc.status = process_status_run_value();
                 // Pipe-mode processes don't have a real TTY.
                 proc.tty_name = Value::NIL;
                 proc.tty_stdin = false;
@@ -436,7 +460,7 @@ impl ProcessManager {
                 Ok(())
             }
             Err(e) => {
-                proc.status = ProcessStatus::Exit(1);
+                proc.status = process_status_exit_value(1);
                 Err(format!("Failed to start process: {}", e))
             }
         }
@@ -532,7 +556,7 @@ impl ProcessManager {
         proc.pty_child = Some(pty_child);
         proc.pty_reader = Some(pty_read);
         proc.pty_writer = Some(Box::new(pty_write));
-        proc.status = ProcessStatus::Run;
+        proc.status = process_status_run_value();
         proc.tty_name = tty_name;
         proc.tty_stdin = true;
         proc.tty_stdout = true;
@@ -553,12 +577,12 @@ impl ProcessManager {
             match pty_child.try_wait() {
                 Ok(Some(status)) => {
                     let code = if status.success() { 0 } else { 1 };
-                    proc.status = ProcessStatus::Exit(code);
+                    proc.status = process_status_exit_value(code);
                     return true;
                 }
                 Ok(None) => return false,
                 Err(_) => {
-                    proc.status = ProcessStatus::Exit(1);
+                    proc.status = process_status_exit_value(1);
                     return true;
                 }
             }
@@ -571,12 +595,12 @@ impl ProcessManager {
         };
         match child.try_wait() {
             Ok(Some(status)) => {
-                proc.status = ProcessStatus::Exit(status.code().unwrap_or(1));
+                proc.status = process_status_exit_value(status.code().unwrap_or(1));
                 true
             }
             Ok(None) => false, // Still running
             Err(_) => {
-                proc.status = ProcessStatus::Exit(1);
+                proc.status = process_status_exit_value(1);
                 true
             }
         }
@@ -672,7 +696,7 @@ impl ProcessManager {
                 proc.tls_stream.take();
                 proc.socket.take();
             }
-            proc.status = ProcessStatus::Signal(9);
+            proc.status = process_status_signal_value(9);
             true
         } else {
             false
@@ -693,7 +717,7 @@ impl ProcessManager {
                 proc.tls_stream.take();
                 proc.socket.take();
             }
-            proc.status = ProcessStatus::Signal(9);
+            proc.status = process_status_signal_value(9);
             self.deleted_processes.insert(id, proc);
             true
         } else {
@@ -702,12 +726,12 @@ impl ProcessManager {
     }
 
     /// Get process status.
-    pub fn process_status(&self, id: ProcessId) -> Option<&ProcessStatus> {
+    pub fn process_status(&self, id: ProcessId) -> Option<&Value> {
         self.processes.get(&id).map(|p| &p.status)
     }
 
     /// Get process status for both live and stale process handles.
-    pub fn process_status_any(&self, id: ProcessId) -> Option<&ProcessStatus> {
+    pub fn process_status_any(&self, id: ProcessId) -> Option<&Value> {
         self.processes
             .get(&id)
             .map(|p| &p.status)
@@ -750,7 +774,7 @@ impl ProcessManager {
         self.processes
             .iter()
             .filter(|(_, p)| {
-                if !matches!(p.status, ProcessStatus::Run) {
+                if !process_status_is_run(&p.status) {
                     return false;
                 }
                 if p.child.is_some() || p.pty_child.is_some() {
@@ -1142,7 +1166,7 @@ impl super::eval::Context {
                     }
 
                     if let Some(proc) = self.processes.get_mut(pid) {
-                        proc.status = ProcessStatus::Exit(0);
+                        proc.status = process_status_exit_value(0);
                     }
                     let sentinel = self
                         .processes
@@ -1181,17 +1205,25 @@ impl super::eval::Context {
                 let exit_msg = self
                     .processes
                     .get(pid)
-                    .map(|p| match &p.status {
-                        ProcessStatus::Exit(code) => {
-                            if *code == 0 {
-                                "finished\n".to_string()
-                            } else {
-                                format!("exited abnormally with code {}\n", code)
+                    .map(
+                        |p| match process_status_symbol_value(p.status).as_symbol_name() {
+                            Some("exit") => {
+                                let code = process_status_code_value(p.status);
+                                if code == 0 {
+                                    "finished\n".to_string()
+                                } else {
+                                    format!("exited abnormally with code {}\n", code)
+                                }
                             }
-                        }
-                        ProcessStatus::Signal(sig) => format!("killed by signal {}\n", sig),
-                        _ => "finished\n".to_string(),
-                    })
+                            Some("signal") => {
+                                format!(
+                                    "killed by signal {}\n",
+                                    process_status_code_value(p.status)
+                                )
+                            }
+                            _ => "finished\n".to_string(),
+                        },
+                    )
                     .unwrap_or_else(|| "finished\n".to_string());
                 self.run_process_sentinel_callback(pid, sentinel, &exit_msg);
             }
@@ -1483,14 +1515,15 @@ fn signal_process_not_active_in_manager(processes: &ProcessManager, id: ProcessI
     )
 }
 
-fn stale_process_not_running_reason(status: &ProcessStatus) -> &'static str {
-    match status {
-        ProcessStatus::Signal(_) => "killed",
-        ProcessStatus::Exit(_) => "finished",
-        ProcessStatus::Stop => "stopped",
-        ProcessStatus::Run => "inactive",
-        ProcessStatus::Connect => "connect",
-        ProcessStatus::Failed => "failed",
+fn stale_process_not_running_reason(status: &Value) -> &'static str {
+    match process_status_symbol_value(*status).as_symbol_name() {
+        Some("signal") => "killed",
+        Some("exit") => "finished",
+        Some("stop") => "stopped",
+        Some("run") => "inactive",
+        Some("connect") => "connect",
+        Some("failed") => "failed",
+        _ => "inactive",
     }
 }
 
@@ -1772,9 +1805,9 @@ fn resolve_optional_process_or_current_buffer_in_state(
     })
 }
 
-fn process_live_status_value(status: &ProcessStatus, kind: &ProcessKind) -> Value {
-    match status {
-        ProcessStatus::Run => match kind {
+fn process_live_status_value(status: &Value, kind: &ProcessKind) -> Value {
+    match process_status_symbol_value(*status).as_symbol_name() {
+        Some("run") => match kind {
             ProcessKind::Network => Value::list(vec![
                 Value::symbol("listen"),
                 Value::symbol("connect"),
@@ -1794,9 +1827,34 @@ fn process_live_status_value(status: &ProcessStatus, kind: &ProcessKind) -> Valu
                 Value::symbol("stop"),
             ]),
         },
-        ProcessStatus::Stop => Value::list(vec![Value::symbol("stop")]),
-        ProcessStatus::Connect => Value::list(vec![Value::symbol("connect")]),
-        ProcessStatus::Exit(_) | ProcessStatus::Signal(_) | ProcessStatus::Failed => Value::NIL,
+        Some("stop") => Value::list(vec![Value::symbol("stop")]),
+        Some("connect") => Value::list(vec![Value::symbol("connect")]),
+        _ => Value::NIL,
+    }
+}
+
+pub(crate) fn process_public_status_symbol(process: &Process) -> Value {
+    match process_status_symbol_value(process.status).as_symbol_name() {
+        Some("run") => match process.kind {
+            ProcessKind::Network => {
+                if process.network_server {
+                    Value::symbol("listen")
+                } else {
+                    Value::symbol("open")
+                }
+            }
+            ProcessKind::Pipe => Value::symbol("open"),
+            _ => Value::symbol("run"),
+        },
+        Some("stop") => Value::symbol("stop"),
+        Some("exit") => Value::symbol("exit"),
+        Some("signal") => match process.kind {
+            ProcessKind::Real => Value::symbol("signal"),
+            _ => Value::symbol("closed"),
+        },
+        Some("connect") => Value::symbol("connect"),
+        Some("failed") => Value::symbol("failed"),
+        _ => Value::NIL,
     }
 }
 
@@ -2750,7 +2808,7 @@ pub(crate) fn builtin_internal_default_interrupt_process_impl(
     let (id, ret) =
         resolve_optional_process_with_explicit_return_in_state(processes, buffers, args.first())?;
     if let Some(proc) = processes.get_mut(id) {
-        proc.status = ProcessStatus::Signal(2);
+        proc.status = process_status_signal_value(2);
     }
     Ok(ret)
 }
@@ -2783,7 +2841,7 @@ pub(crate) fn builtin_internal_default_signal_process_impl(
     match resolve_signal_process_target_in_state(processes, buffers, args.first())? {
         SignalProcessTarget::Process(id) => {
             if let Some(proc) = processes.get_mut(id) {
-                proc.status = ProcessStatus::Signal(signal_num);
+                proc.status = process_status_signal_value(signal_num);
             }
             Ok(Value::fixnum(0))
         }
@@ -3639,7 +3697,7 @@ pub(crate) fn builtin_make_network_process(
             drop(stream);
         }
         proc.network_server = false;
-        proc.status = ProcessStatus::Run;
+        proc.status = process_status_run_value();
         proc.thread = current_thread_handle(&eval.threads);
         if !filter_val.is_nil() {
             proc.filter = filter_val;
@@ -4209,7 +4267,7 @@ pub(crate) fn builtin_continue_process_impl(
                 libc::kill(child.id() as i32, libc::SIGCONT);
             }
         }
-        proc.status = ProcessStatus::Run;
+        proc.status = process_status_run_value();
     }
     Ok(ret)
 }
@@ -4246,7 +4304,7 @@ pub(crate) fn builtin_interrupt_process_impl(
                 libc::kill(child.id() as i32, libc::SIGINT);
             }
         }
-        proc.status = ProcessStatus::Signal(2);
+        proc.status = process_status_signal_value(2);
     }
     Ok(ret)
 }
@@ -4280,7 +4338,7 @@ pub(crate) fn builtin_kill_process_impl(
         if let Some(child) = proc.child.as_mut() {
             let _ = child.kill();
         }
-        proc.status = ProcessStatus::Signal(9);
+        proc.status = process_status_signal_value(9);
     }
     Ok(ret)
 }
@@ -4327,7 +4385,7 @@ pub(crate) fn builtin_signal_process_impl(
                         libc::kill(pid, signal_num);
                     }
                 }
-                proc.status = ProcessStatus::Signal(signal_num);
+                proc.status = process_status_signal_value(signal_num);
             }
             Ok(Value::fixnum(0))
         }
@@ -4378,7 +4436,7 @@ pub(crate) fn builtin_stop_process_impl(
                 libc::kill(child.id() as i32, libc::SIGTSTP);
             }
         }
-        proc.status = ProcessStatus::Stop;
+        proc.status = process_status_stop_value(0);
     }
     Ok(ret)
 }
@@ -4851,27 +4909,7 @@ pub(crate) fn builtin_process_status_impl(
     // Check if child process has exited since last check.
     processes.check_child_exit(id);
     match processes.get_any(id) {
-        Some(proc) => match proc.status {
-            ProcessStatus::Run => match proc.kind {
-                ProcessKind::Network => {
-                    if proc.network_server {
-                        Ok(Value::symbol("listen"))
-                    } else {
-                        Ok(Value::symbol("open"))
-                    }
-                }
-                ProcessKind::Pipe => Ok(Value::symbol("open")),
-                _ => Ok(Value::symbol("run")),
-            },
-            ProcessStatus::Stop => Ok(Value::symbol("stop")),
-            ProcessStatus::Exit(_) => Ok(Value::symbol("exit")),
-            ProcessStatus::Signal(_) => match proc.kind {
-                ProcessKind::Real => Ok(Value::symbol("signal")),
-                _ => Ok(Value::symbol("closed")),
-            },
-            ProcessStatus::Connect => Ok(Value::symbol("connect")),
-            ProcessStatus::Failed => Ok(Value::symbol("failed")),
-        },
+        Some(proc) => Ok(process_public_status_symbol(proc)),
         None => Ok(Value::NIL),
     }
 }
@@ -4893,11 +4931,11 @@ pub(crate) fn builtin_process_exit_status_impl(
     let proc = processes
         .get_any(id)
         .ok_or_else(|| signal_wrong_type_processp(args[0]))?;
-    match &proc.status {
-        ProcessStatus::Exit(code) => Ok(Value::fixnum(*code as i64)),
-        ProcessStatus::Signal(sig) => {
+    match process_status_symbol_value(proc.status).as_symbol_name() {
+        Some("exit") => Ok(Value::fixnum(process_status_code_value(proc.status))),
+        Some("signal") => {
             if proc.kind == ProcessKind::Real {
-                Ok(Value::fixnum(*sig as i64))
+                Ok(Value::fixnum(process_status_code_value(proc.status)))
             } else {
                 Ok(Value::fixnum(0))
             }
@@ -6213,6 +6251,7 @@ impl GcTrace for ProcessManager {
             roots.push(process.buffer);
             roots.push(process.mark);
             roots.push(process.command);
+            roots.push(process.status);
             roots.push(process.tty_name);
             roots.push(process.filter);
             roots.push(process.sentinel);

@@ -499,21 +499,9 @@ fn mode_line_process_status_in_state(
     let Some(process) = processes.get_any(process_id) else {
         return "no process";
     };
-    match process.status {
-        crate::emacs_core::process::ProcessStatus::Run => match process.kind {
-            crate::emacs_core::process::ProcessKind::Network => "listen",
-            crate::emacs_core::process::ProcessKind::Pipe => "open",
-            _ => "run",
-        },
-        crate::emacs_core::process::ProcessStatus::Stop => "stop",
-        crate::emacs_core::process::ProcessStatus::Exit(_) => "exit",
-        crate::emacs_core::process::ProcessStatus::Signal(_) => match process.kind {
-            crate::emacs_core::process::ProcessKind::Real => "signal",
-            _ => "closed",
-        },
-        crate::emacs_core::process::ProcessStatus::Connect => "connect",
-        crate::emacs_core::process::ProcessStatus::Failed => "failed",
-    }
+    crate::emacs_core::process::process_public_status_symbol(process)
+        .as_symbol_name()
+        .unwrap_or("no process")
 }
 
 fn mode_line_symbol_is_risky(obarray: &crate::emacs_core::symbol::Obarray, name: &str) -> bool {
