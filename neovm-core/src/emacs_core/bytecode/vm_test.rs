@@ -5247,7 +5247,7 @@ fn vm_buffer_identity_builtins_use_shared_runtime_state() {
     let result = vm_eval_with_init_str(&form, |eval| {
         let current = eval.buffers.current_buffer_id().expect("scratch buffer");
         eval.buffers
-            .set_buffer_file_name(current, Some(file.clone()))
+            .set_buffer_file_name(current, Value::string(file.clone()))
             .expect("current buffer should accept file name");
     });
     let _ = std::fs::remove_file(path);
@@ -5370,7 +5370,10 @@ fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
     assert_eq!(insert_parts[1], Value::fixnum(6));
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "abcdef");
-    assert_eq!(buf.file_name_owned().as_deref(), Some(alpha.as_str()));
+    assert_eq!(
+        buf.file_name_runtime_string_owned().as_deref(),
+        Some(alpha.as_str())
+    );
     assert!(!buf.is_modified());
 
     eval.eval_str(&format!(
@@ -5381,7 +5384,10 @@ fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
 
     assert_eq!(std::fs::read_to_string(&out).expect("read out"), "abXYe");
     let buf = eval.buffers.current_buffer().expect("current buffer");
-    assert_eq!(buf.file_name_owned().as_deref(), Some(visit.as_str()));
+    assert_eq!(
+        buf.file_name_runtime_string_owned().as_deref(),
+        Some(visit.as_str())
+    );
     assert!(!buf.is_modified());
 
     let _ = std::fs::remove_dir_all(&base);
@@ -5513,7 +5519,7 @@ fn vm_file_metadata_builtins_use_shared_runtime_state() {
                 .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
                 .expect("buffer local default-directory should set");
             eval.buffers
-                .set_buffer_file_name(current, Some(alpha_abs.clone()))
+                .set_buffer_file_name(current, Value::string(alpha_abs.clone()))
                 .expect("buffer file name should set");
         },
     );

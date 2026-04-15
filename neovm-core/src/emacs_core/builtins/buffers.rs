@@ -350,7 +350,7 @@ pub(crate) fn builtin_get_file_buffer(
         let Some(buf) = eval.buffers.get(id) else {
             continue;
         };
-        let Some(file_name) = buf.file_name_owned() else {
+        let Some(file_name) = buf.file_name_runtime_string_owned() else {
             continue;
         };
 

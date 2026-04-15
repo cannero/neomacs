@@ -2177,7 +2177,7 @@ fn test_visited_file_modtime_state_builtins_use_current_buffer_file_name() {
     }
 
     eval.buffers
-        .set_buffer_file_name(current, Some("/tmp/neovm-visited-file.txt".to_string()))
+        .set_buffer_file_name(current, Value::string("/tmp/neovm-visited-file.txt"))
         .expect("buffer file name should set");
     assert_eq!(
         builtin_set_visited_file_modtime(&mut eval, vec![Value::NIL])
@@ -2308,7 +2308,10 @@ fn test_insert_file_contents_visit_sets_file_name_and_clears_modified() {
 
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "visited text");
-    assert_eq!(buf.file_name_owned().as_deref(), Some(path_str.as_str()));
+    assert_eq!(
+        buf.file_name_runtime_string_owned().as_deref(),
+        Some(path_str.as_str())
+    );
     assert!(!buf.is_modified());
 
     let _ = fs::remove_dir_all(&dir);
@@ -2416,7 +2419,10 @@ fn insert_file_contents_visit_decodes_text_enriched_formats() {
     assert_eq!(format_eval_result(&eval.eval_str("enriched-mode")), "OK t");
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "hello\n");
-    assert_eq!(buf.file_name_owned().as_deref(), Some(path_str.as_str()));
+    assert_eq!(
+        buf.file_name_runtime_string_owned().as_deref(),
+        Some(path_str.as_str())
+    );
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -2718,7 +2724,10 @@ fn test_eval_fileio_relative_paths_respect_default_directory() {
     let buf_id = found.as_buffer_id().unwrap();
     let fbuf = eval_find.buffers.get(buf_id).unwrap();
     assert_eq!(fbuf.buffer_string(), "alpha\n");
-    assert_eq!(fbuf.file_name_owned().as_deref(), Some(alpha_str.as_str()));
+    assert_eq!(
+        fbuf.file_name_runtime_string_owned().as_deref(),
+        Some(alpha_str.as_str())
+    );
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -2800,7 +2809,10 @@ fn test_write_region_visit_sets_file_name_and_clears_modified() {
     .expect("write-region with visit should succeed");
 
     let buf = eval.buffers.current_buffer().expect("current buffer");
-    assert_eq!(buf.file_name_owned().as_deref(), Some(out_str.as_str()));
+    assert_eq!(
+        buf.file_name_runtime_string_owned().as_deref(),
+        Some(out_str.as_str())
+    );
     assert!(!buf.is_modified());
     assert_eq!(read_file_contents(&out_str).unwrap(), "neo");
 
@@ -2843,7 +2855,10 @@ fn test_write_region_string_start_numeric_append_and_visit_string_semantics() {
 
     assert_eq!(read_file_contents(&out_str).unwrap(), "abXYe");
     let buf = eval.buffers.current_buffer().expect("current buffer");
-    assert_eq!(buf.file_name_owned().as_deref(), Some(visit_str.as_str()));
+    assert_eq!(
+        buf.file_name_runtime_string_owned().as_deref(),
+        Some(visit_str.as_str())
+    );
     assert!(!buf.is_modified());
 
     let _ = fs::remove_dir_all(&dir);

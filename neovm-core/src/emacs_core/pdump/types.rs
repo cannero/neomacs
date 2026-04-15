@@ -541,7 +541,12 @@ pub struct DumpBuffer {
     pub last_window_start: Option<usize>,
     pub read_only: bool,
     pub multibyte: bool,
+    #[serde(default)]
+    pub file_name_lisp: Option<DumpLispString>,
+    #[serde(default)]
     pub file_name: Option<String>,
+    #[serde(default)]
+    pub auto_save_file_name_lisp: Option<DumpLispString>,
     #[serde(default)]
     pub auto_save_file_name: Option<String>,
     pub markers: Vec<DumpMarkerEntry>,

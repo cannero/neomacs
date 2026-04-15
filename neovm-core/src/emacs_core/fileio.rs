@@ -1944,7 +1944,7 @@ pub(crate) fn builtin_set_visited_file_modtime(eval: &mut Context, args: Vec<Val
     let file_name = eval
         .buffers
         .current_buffer()
-        .and_then(|buf| buf.file_name_owned());
+        .and_then(|buf| buf.file_name_value().as_runtime_string_owned());
     if file_name.is_none() {
         return Err(signal(
             "wrong-type-argument",
@@ -2902,7 +2902,7 @@ pub(crate) fn builtin_insert_file_contents(
     if visit {
         let _ = eval
             .buffers
-            .set_buffer_file_name(current_id, Some(resolved.clone()));
+            .set_buffer_file_name(current_id, Value::string(resolved.clone()));
         let _ = eval.buffers.set_buffer_modified_flag(current_id, false);
     }
 
@@ -3222,7 +3222,7 @@ pub(crate) fn builtin_write_region(
     if let Some(visit_path) = visit_path {
         let _ = eval
             .buffers
-            .set_buffer_file_name(current_id, Some(visit_path));
+            .set_buffer_file_name(current_id, Value::string(visit_path));
         let _ = eval.buffers.set_buffer_modified_flag(current_id, false);
     }
 
@@ -3247,7 +3247,7 @@ pub(crate) fn builtin_find_file_noselect(
     // Check if there's already a buffer visiting this file
     for buf_id in eval.buffers.buffer_list() {
         if let Some(buf) = eval.buffers.get(buf_id) {
-            if buf.file_name_owned().as_deref() == Some(abs_path.as_str()) {
+            if buf.file_name_runtime_string_owned().as_deref() == Some(abs_path.as_str()) {
                 return Ok(Value::make_buffer(buf_id));
             }
         }
@@ -3274,7 +3274,7 @@ pub(crate) fn builtin_find_file_noselect(
         let _ = eval.buffers.goto_buffer_byte(buf_id, 0);
         let _ = eval
             .buffers
-            .set_buffer_file_name(buf_id, Some(abs_path.clone()));
+            .set_buffer_file_name(buf_id, Value::string(abs_path.clone()));
         let _ = eval.buffers.set_buffer_modified_flag(buf_id, false);
 
         // Restore the previous current buffer
@@ -3283,7 +3283,9 @@ pub(crate) fn builtin_find_file_noselect(
         }
     } else {
         // File doesn't exist — create an empty buffer with the file name set
-        let _ = eval.buffers.set_buffer_file_name(buf_id, Some(abs_path));
+        let _ = eval
+            .buffers
+            .set_buffer_file_name(buf_id, Value::string(abs_path));
     }
 
     Ok(Value::make_buffer(buf_id))
@@ -3299,7 +3301,7 @@ pub(crate) fn builtin_find_file_noselect(
 /// For non-visited buffers: `#*buffername*#` in the auto-save-list-file-prefix
 /// directory (or temporary-file-directory as fallback).
 fn make_auto_save_file_name_for_buffer(obarray: &Obarray, buf: &crate::buffer::Buffer) -> String {
-    if let Some(file_name) = buf.file_name_owned() {
+    if let Some(file_name) = buf.file_name_runtime_string_owned() {
         // Visited file: #dir/filename# -> dir/#filename#
         let dir = file_name_directory(&file_name).unwrap_or_default();
         let base = file_name_nondirectory(&file_name);
@@ -3349,7 +3351,7 @@ pub(crate) fn builtin_make_auto_save_file_name(
     // Set buffer-auto-save-file-name as side effect
     if let Some(buf) = eval.buffers.get_mut(current_id) {
         buf.set_buffer_local("buffer-auto-save-file-name", Value::string(&auto_name));
-        buf.set_auto_save_file_name_value(Some(auto_name.clone()));
+        buf.set_auto_save_file_name_value(Value::string(auto_name.clone()));
     }
 
     Ok(Value::string(auto_name))
@@ -3426,8 +3428,8 @@ pub(crate) fn builtin_do_auto_save(
             }
 
             // Determine the auto-save target
-            let auto_name = buf.auto_save_file_name_owned();
-            let visit_name = buf.file_name_owned();
+            let auto_name = buf.auto_save_file_name_runtime_string_owned();
+            let visit_name = buf.file_name_runtime_string_owned();
 
             // Get buffer content (entire buffer, not just accessible region)
             let text = buf.text.text_range(0, buf.text.len());
@@ -3456,7 +3458,7 @@ pub(crate) fn builtin_do_auto_save(
             // Set the auto-save name on the buffer
             if let Some(buf) = eval.buffers.get_mut(buf_id) {
                 buf.set_buffer_local("buffer-auto-save-file-name", Value::string(&auto_name));
-                buf.set_auto_save_file_name_value(Some(auto_name.clone()));
+                buf.set_auto_save_file_name_value(Value::string(auto_name.clone()));
             }
             // Write content
             let _ = write_string_to_file(&content, &auto_name, false);

@@ -1076,7 +1076,7 @@ fn eval_get_file_buffer_matches_visited_paths() {
     eval.buffers
         .get_mut(id)
         .unwrap()
-        .set_file_name_value(Some(file.clone()));
+        .set_file_name_value(Value::string(file.clone()));
 
     let exact = builtin_get_file_buffer(&mut eval, vec![Value::string(&file)]).unwrap();
     assert_eq!(exact, Value::make_buffer(id));

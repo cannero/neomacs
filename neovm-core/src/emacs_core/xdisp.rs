@@ -1822,7 +1822,7 @@ fn expand_mode_line_percent_in_state(
     let buf_name = buf
         .map(|b| b.name_runtime_string_owned())
         .unwrap_or_else(|| "*scratch*".to_string());
-    let file_name_storage = buf.and_then(|b| b.file_name_owned());
+    let file_name_storage = buf.and_then(|b| b.file_name_value().as_runtime_string_owned());
     let file_name = file_name_storage.as_deref().unwrap_or("");
     let modified = buf.map(|b| b.is_modified()).unwrap_or(false);
     let read_only = buf.is_some_and(|b| {

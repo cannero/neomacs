@@ -145,13 +145,8 @@ fn from_dump_restores_indirect_buffer_shared_text_state() {
     let indirect_id = mgr
         .create_indirect_buffer(base_id, "*indirect-restored*", false)
         .expect("indirect buffer");
-    let _ = mgr.put_buffer_text_property(
-        base_id,
-        1,
-        4,
-        Value::symbol("face"),
-        Value::symbol("bold"),
-    );
+    let _ =
+        mgr.put_buffer_text_property(base_id, 1, 4, Value::symbol("face"), Value::symbol("bold"));
     let _ = mgr.insert_into_buffer(base_id, "z");
 
     let mut dumped = mgr.dump_buffers().clone();
@@ -730,7 +725,10 @@ fn buffer_file_name_variable_tracks_slot_backed_state() {
     assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::NIL));
 
     buf.set_buffer_local("buffer-file-name", Value::string("/tmp/demo.txt"));
-    assert_eq!(buf.file_name_owned().as_deref(), Some("/tmp/demo.txt"));
+    assert_eq!(
+        buf.file_name_runtime_string_owned().as_deref(),
+        Some("/tmp/demo.txt")
+    );
     assert_eq!(buf.file_name_value(), Value::string("/tmp/demo.txt"));
     assert_eq!(
         buf.buffer_local_value("buffer-file-name"),
@@ -756,7 +754,7 @@ fn buffer_auto_save_file_name_variable_tracks_slot_backed_state() {
         Value::string("/tmp/#demo.txt#"),
     );
     assert_eq!(
-        buf.auto_save_file_name_owned().as_deref(),
+        buf.auto_save_file_name_runtime_string_owned().as_deref(),
         Some("/tmp/#demo.txt#")
     );
     assert_eq!(

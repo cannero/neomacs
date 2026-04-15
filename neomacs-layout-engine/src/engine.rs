@@ -1783,7 +1783,7 @@ impl LayoutEngine {
                     evaluator
                         .buffer_manager()
                         .get(buf_id)
-                        .and_then(|b| b.file_name_owned())
+                        .and_then(|b| b.file_name_runtime_string_owned())
                         .unwrap_or_default()
                 };
                 let modified = {

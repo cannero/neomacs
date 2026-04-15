@@ -1097,8 +1097,10 @@ fn dump_buffer(encoder: &mut DumpEncoder, buf: &Buffer) -> DumpBuffer {
         last_window_start: Some(buf.last_window_start),
         read_only: buf.get_read_only(),
         multibyte: buf.get_multibyte(),
-        file_name: buf.file_name_owned(),
-        auto_save_file_name: buf.auto_save_file_name_owned(),
+        file_name_lisp: buf.file_name_lisp_string().map(dump_lisp_string),
+        file_name: None,
+        auto_save_file_name_lisp: buf.auto_save_file_name_lisp_string().map(dump_lisp_string),
+        auto_save_file_name: None,
         markers: if is_shared_text_owner {
             buf.text
                 .marker_entries_snapshot()
@@ -2617,11 +2619,17 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
                 s[idx] = decoder.load_value(dumped);
             }
             // Legacy header field overrides (older dump compat).
-            if let Some(ref fname) = db.file_name {
+            if let Some(ref fname) = db.file_name_lisp {
+                s[crate::buffer::buffer::BUFFER_SLOT_FILE_NAME] =
+                    crate::emacs_core::value::Value::heap_string(load_lisp_string(fname));
+            } else if let Some(ref fname) = db.file_name {
                 s[crate::buffer::buffer::BUFFER_SLOT_FILE_NAME] =
                     crate::emacs_core::value::Value::string(fname);
             }
-            if let Some(ref asname) = db.auto_save_file_name {
+            if let Some(ref asname) = db.auto_save_file_name_lisp {
+                s[crate::buffer::buffer::BUFFER_SLOT_AUTO_SAVE_FILE_NAME] =
+                    crate::emacs_core::value::Value::heap_string(load_lisp_string(asname));
+            } else if let Some(ref asname) = db.auto_save_file_name {
                 s[crate::buffer::buffer::BUFFER_SLOT_AUTO_SAVE_FILE_NAME] =
                     crate::emacs_core::value::Value::string(asname);
             }

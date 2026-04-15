@@ -309,10 +309,10 @@ fn eval_buffer_filename_in_state(
     match arg {
         None => Ok(buffers
             .get(buffer_id)
-            .and_then(|buffer| buffer.file_name_owned())),
+            .and_then(|buffer| buffer.file_name_value().as_runtime_string_owned())),
         Some(v) if v.is_nil() => Ok(buffers
             .get(buffer_id)
-            .and_then(|buffer| buffer.file_name_owned())),
+            .and_then(|buffer| buffer.file_name_value().as_runtime_string_owned())),
         Some(value) => Ok(Some(expect_string(value)?)),
     }
 }

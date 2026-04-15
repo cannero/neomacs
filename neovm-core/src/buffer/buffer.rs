@@ -1564,19 +1564,24 @@ impl Buffer {
         self.slots[BUFFER_SLOT_FILE_NAME]
     }
 
-    /// Clone `buffer-file-name` as an `Option<String>`. Convenience
-    /// for code that needs owned storage.
-    pub fn file_name_owned(&self) -> Option<String> {
+    /// Clone `buffer-file-name` as an owned runtime string.
+    /// This is a boundary helper for filesystem-facing code.
+    pub fn file_name_runtime_string_owned(&self) -> Option<String> {
         self.slots[BUFFER_SLOT_FILE_NAME].as_runtime_string_owned()
     }
 
+    pub fn file_name_lisp_string(&self) -> Option<&'static crate::heap_types::LispString> {
+        self.file_name_value().as_lisp_string()
+    }
+
     /// Write `buffer-file-name`. Mirrors GNU `bset_filename`
-    /// (`buffer.c`). `None` stores `nil` in the slot.
-    pub fn set_file_name_value(&mut self, v: Option<String>) {
-        self.slots[BUFFER_SLOT_FILE_NAME] = match v {
-            Some(s) => Value::string(&s),
-            None => Value::NIL,
-        };
+    /// (`buffer.c`). The slot stores either a Lisp string or `nil`.
+    pub fn set_file_name_value(&mut self, v: Value) {
+        assert!(
+            v.is_nil() || v.is_string(),
+            "buffer-file-name must be nil or a Lisp string"
+        );
+        self.slots[BUFFER_SLOT_FILE_NAME] = v;
     }
 
     /// Read `buffer-auto-save-file-name` as the underlying Lisp value,
@@ -1585,18 +1590,27 @@ impl Buffer {
         self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME]
     }
 
-    /// Clone `buffer-auto-save-file-name` as an `Option<String>`.
-    pub fn auto_save_file_name_owned(&self) -> Option<String> {
+    /// Clone `buffer-auto-save-file-name` as an owned runtime string.
+    /// This is a boundary helper for filesystem-facing code.
+    pub fn auto_save_file_name_runtime_string_owned(&self) -> Option<String> {
         self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME].as_runtime_string_owned()
     }
 
+    pub fn auto_save_file_name_lisp_string(
+        &self,
+    ) -> Option<&'static crate::heap_types::LispString> {
+        self.auto_save_file_name_value().as_lisp_string()
+    }
+
     /// Write `buffer-auto-save-file-name`. Mirrors GNU
-    /// `bset_auto_save_file_name`. `None` stores nil in the slot.
-    pub fn set_auto_save_file_name_value(&mut self, v: Option<String>) {
-        self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME] = match v {
-            Some(s) => Value::string(&s),
-            None => Value::NIL,
-        };
+    /// `bset_auto_save_file_name`. The slot stores either a Lisp string or
+    /// `nil`.
+    pub fn set_auto_save_file_name_value(&mut self, v: Value) {
+        assert!(
+            v.is_nil() || v.is_string(),
+            "buffer-auto-save-file-name must be nil or a Lisp string"
+        );
+        self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME] = v;
     }
 
     /// Read `buffer-read-only`, mirroring GNU
@@ -3371,7 +3385,7 @@ impl BufferManager {
         Some(())
     }
 
-    pub fn set_buffer_file_name(&mut self, id: BufferId, file_name: Option<String>) -> Option<()> {
+    pub fn set_buffer_file_name(&mut self, id: BufferId, file_name: Value) -> Option<()> {
         // Phase 10D: `buffer-file-name` and `buffer-file-truename`
         // both live in the slot table (BUFFER_SLOT_FILE_NAME /
         // BUFFER_SLOT_FILE_TRUENAME). Writing through
@@ -3380,13 +3394,10 @@ impl BufferManager {
         // path. The legacy `buf.locals.set_raw_binding` calls
         // were dual-write dead code from before Phase 8b
         // migrated these names to BUFFER_SLOT_INFO.
+        debug_assert!(file_name.is_nil() || file_name.is_string());
         let buf = self.buffers.get_mut(&id)?;
-        buf.set_file_name_value(file_name.clone());
-        let truename_value = match &file_name {
-            Some(name) => Value::string(name),
-            None => Value::NIL,
-        };
-        buf.slots[BUFFER_SLOT_FILE_TRUENAME] = truename_value;
+        buf.set_file_name_value(file_name);
+        buf.slots[BUFFER_SLOT_FILE_TRUENAME] = file_name;
         Some(())
     }
 
