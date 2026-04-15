@@ -131,6 +131,38 @@ impl<'a> Vm<'a> {
         })
     }
 
+    fn with_frame_arg_roots<T>(
+        &mut self,
+        func: &ByteCodeFunction,
+        specpdl: &[VmUnwindEntry],
+        args: Vec<Value>,
+        f: impl FnOnce(&mut Self, Vec<Value>) -> T,
+    ) -> T {
+        self.with_frame_roots(func, specpdl, &[], |vm| {
+            for value in args.iter().copied() {
+                vm.ctx.push_vm_frame_root(value);
+            }
+            f(vm, args)
+        })
+    }
+
+    fn with_frame_call_roots<T>(
+        &mut self,
+        func: &ByteCodeFunction,
+        specpdl: &[VmUnwindEntry],
+        function: Value,
+        args: Vec<Value>,
+        f: impl FnOnce(&mut Self, Vec<Value>) -> T,
+    ) -> T {
+        self.with_frame_roots(func, specpdl, &[], |vm| {
+            vm.ctx.push_vm_frame_root(function);
+            for value in args.iter().copied() {
+                vm.ctx.push_vm_frame_root(value);
+            }
+            f(vm, args)
+        })
+    }
+
     fn with_macro_expansion_scope<T>(
         &mut self,
         f: impl FnOnce(&mut Self) -> Result<T, Flow>,
@@ -598,12 +630,13 @@ impl<'a> Vm<'a> {
                     let func_val = stk!().pop().unwrap_or(Value::NIL);
                     let writeback_names = self.writeback_callable_names(&func_val);
                     let writeback_args = args.clone();
-                    let mut call_roots = Vec::with_capacity(args.len() + 1);
-                    call_roots.push(func_val);
-                    call_roots.extend(args.iter().copied());
-                    let result = vm_try!(self.with_frame_roots(func, specpdl, &call_roots, |vm| {
-                        vm.call_function(func_val, args)
-                    },));
+                    let result = vm_try!(self.with_frame_call_roots(
+                        func,
+                        specpdl,
+                        func_val,
+                        args,
+                        |vm, args| vm.call_function(func_val, args),
+                    ));
                     if let Some((called_name, alias_target)) = writeback_names.as_ref() {
                         self.maybe_writeback_mutating_first_arg(
                             called_name,
@@ -618,11 +651,13 @@ impl<'a> Vm<'a> {
                     let n = *n as usize;
                     if n == 0 {
                         let func_val = stk!().pop().unwrap_or(Value::NIL);
-                        let call_roots = [func_val];
-                        let result =
-                            vm_try!(self.with_frame_roots(func, specpdl, &call_roots, |vm| {
-                                vm.call_function(func_val, vec![])
-                            },));
+                        let result = vm_try!(self.with_frame_call_roots(
+                            func,
+                            specpdl,
+                            func_val,
+                            vec![],
+                            |vm, args| vm.call_function(func_val, args),
+                        ));
                         stk_push!(result);
                     } else {
                         let args_start = stk!().len().saturating_sub(n);
@@ -635,13 +670,13 @@ impl<'a> Vm<'a> {
                         }
                         let writeback_names = self.writeback_callable_names(&func_val);
                         let writeback_args = args.clone();
-                        let mut call_roots = Vec::with_capacity(args.len() + 1);
-                        call_roots.push(func_val);
-                        call_roots.extend(args.iter().copied());
-                        let result =
-                            vm_try!(self.with_frame_roots(func, specpdl, &call_roots, |vm| {
-                                vm.call_function(func_val, args)
-                            },));
+                        let result = vm_try!(self.with_frame_call_roots(
+                            func,
+                            specpdl,
+                            func_val,
+                            args,
+                            |vm, args| vm.call_function(func_val, args),
+                        ));
                         if let Some((called_name, alias_target)) = writeback_names.as_ref() {
                             self.maybe_writeback_mutating_first_arg(
                                 called_name,
@@ -1882,10 +1917,7 @@ impl<'a> Vm<'a> {
         }
 
         let func_val = Value::symbol(name);
-        let mut call_roots = Vec::with_capacity(args.len() + 1);
-        call_roots.push(func_val);
-        call_roots.extend(args.iter().copied());
-        self.with_frame_roots(func, specpdl, &call_roots, |vm| {
+        self.with_frame_call_roots(func, specpdl, func_val, args, |vm, args| {
             vm.call_function(func_val, args)
         })
         .map(Some)
@@ -3801,8 +3833,7 @@ impl<'a> Vm<'a> {
         name: &str,
         args: Vec<Value>,
     ) -> EvalResult {
-        let extra_roots = args.clone();
-        self.with_frame_roots(func, specpdl, &extra_roots, |vm| {
+        self.with_frame_arg_roots(func, specpdl, args, |vm, args| {
             vm.dispatch_vm_builtin_unrooted(name, args)
         })
     }
