@@ -10125,12 +10125,11 @@ impl Context {
         args: Vec<Value>,
     ) -> Result<Value, Flow> {
         let perf_start = self.macro_perf_enabled.then(std::time::Instant::now);
-        // `expand_macro_for_macroexpand` roots FORM / DEFINITION / ENV / ARGS
-        // in explicit eval root frames before reaching here, so rebuilding an
-        // extra root slice per macroexpander call is redundant. Keep quit/GC
-        // checks, but use the already-rooted call path.
-        let result = self
-            .with_macro_expansion_scope(|eval| eval.apply_already_rooted_untraced(callable, args));
+        // GNU macroexpansion runs the expander through the normal apply/call
+        // path with live call-frame state holding the argument list. Mirror
+        // that here so macroexpander args stay rooted in an active call frame
+        // instead of an explicit eval-root adapter vector.
+        let result = self.with_macro_expansion_scope(|eval| eval.apply(callable, args));
         if let Some(start) = perf_start {
             self.macro_perf_stats
                 .macro_apply
@@ -10162,9 +10161,6 @@ impl Context {
         self.push_eval_root(definition);
         if let Some(environment) = environment {
             self.push_eval_root(environment);
-        }
-        for arg in &args {
-            self.push_eval_root(*arg);
         }
 
         let result = (|| {
