@@ -285,8 +285,6 @@ impl<'heap> Mutator<'heap> {
         if !had_safepoint {
             self.local.publish_local_mut().clear();
         }
-        let _safepoint =
-            (!self.handle_scope_state.has_safepoint()).then(|| self.heap.read_safepoint());
         let Self { heap, local, .. } = self;
 
         let snapshot = heap.allocation_snapshot::<T>(local.cached_descriptor::<T>())?;
@@ -760,16 +758,14 @@ impl<'heap> Mutator<'heap> {
         }
     }
 
-    fn post_write_barrier_erased(
+    #[inline(always)]
+    fn post_write_barrier_erased_with_safepoint(
         &mut self,
         owner_erased: GcErased,
         slot: Option<usize>,
         old_erased: Option<GcErased>,
         new_erased: Option<GcErased>,
     ) {
-        self.handle_scope_state.ensure_safepoint();
-        let _safepoint =
-            (!self.handle_scope_state.has_safepoint()).then(|| self.heap.read_safepoint());
         assert!(
             !self.heap.prepared_full_reclaim_active(),
             "cannot mutate heap edges while prepared full reclaim is active; finish the active full collection first"
@@ -815,6 +811,19 @@ impl<'heap> Mutator<'heap> {
         );
     }
 
+    fn post_write_barrier_erased(
+        &mut self,
+        owner_erased: GcErased,
+        slot: Option<usize>,
+        old_erased: Option<GcErased>,
+        new_erased: Option<GcErased>,
+    ) {
+        self.handle_scope_state.ensure_safepoint();
+        let _safepoint =
+            (!self.handle_scope_state.has_safepoint()).then(|| self.heap.read_safepoint());
+        self.post_write_barrier_erased_with_safepoint(owner_erased, slot, old_erased, new_erased);
+    }
+
     /// Record a post-write barrier for one mutated GC edge.
     ///
     /// This is only exposed for callers that already mutated
@@ -848,11 +857,9 @@ impl<'heap> Mutator<'heap> {
         let owner_gc = owner.as_gc();
         let owner_ref = unsafe { owner_gc.as_non_null().as_ref() };
         self.handle_scope_state.ensure_safepoint();
-        let _safepoint =
-            (!self.handle_scope_state.has_safepoint()).then(|| self.heap.read_safepoint());
         let edge = project(owner_ref);
         let old_value = edge.replace(new_value);
-        self.post_write_barrier_erased(
+        self.post_write_barrier_erased_with_safepoint(
             owner_gc.erase(),
             Some(slot),
             old_value.map(Gc::erase),
