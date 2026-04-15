@@ -931,15 +931,17 @@ pub(crate) fn eager_expand_toplevel_forms(
     // Step 1: one-level expand — val = (internal-macroexpand-for-load val nil)
     // Note: real Emacs mutates `val` here; we shadow it.
     let step1_start = std::time::Instant::now();
-    let val = eval.with_gc_scope(|ctx| {
-        ctx.root(form_value);
-        ctx.root(macroexpand_fn);
-        // `internal-macroexpand-for-load` is an internal loader helper.
-        // Its failures are handled here and its frames are not part of the
-        // user-facing loaded form surface, so avoid paying full backtrace
-        // bookkeeping on every eager expansion call.
-        ctx.apply(macroexpand_fn, vec![form_value, Value::NIL]).ok()
-    });
+    let step1_roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(form_value);
+    eval.push_specpdl_root(macroexpand_fn);
+    // `internal-macroexpand-for-load` is an internal loader helper.
+    // Its failures are handled here and its frames are not part of the
+    // user-facing loaded form surface, so avoid paying full backtrace
+    // bookkeeping on every eager expansion call.
+    let val = eval
+        .apply(macroexpand_fn, vec![form_value, Value::NIL])
+        .ok();
+    eval.restore_specpdl_roots(step1_roots);
     eval.note_eager_macro_perf_step1(step1_start.elapsed());
     let val = match val {
         Some(v) => v,
@@ -948,10 +950,11 @@ pub(crate) fn eager_expand_toplevel_forms(
             // Fall back to evaluating the original form without expansion.
             // This matches .elc behavior where forms are already compiled.
             tracing::debug!("eager_expand step1 failed, falling back to plain eval");
-            return eval.with_gc_scope(|ctx| {
-                ctx.root(form_value);
-                sink(ctx, original_form, form_value, false)
-            });
+            let roots = eval.save_specpdl_roots();
+            eval.push_specpdl_root(form_value);
+            let result = sink(eval, original_form, form_value, false);
+            eval.restore_specpdl_roots(roots);
+            return result;
         }
     };
 
@@ -962,17 +965,20 @@ pub(crate) fn eager_expand_toplevel_forms(
         let car = val.cons_car();
         let cdr = val.cons_cdr();
         if car.is_symbol_named("progn") {
-            return eval.with_gc_scope(|ctx| {
-                ctx.root(val);
+            let roots = eval.save_specpdl_roots();
+            eval.push_specpdl_root(val);
+            let result = (|| -> Result<Value, EvalError> {
                 let mut result = Value::NIL;
                 let mut tail = cdr;
                 while tail.is_cons() {
                     let sub_form = tail.cons_car();
                     tail = tail.cons_cdr();
-                    result = eager_expand_toplevel_forms(ctx, sub_form, macroexpand_fn, sink)?;
+                    result = eager_expand_toplevel_forms(eval, sub_form, macroexpand_fn, sink)?;
                 }
                 Ok(result)
-            });
+            })();
+            eval.restore_specpdl_roots(roots);
+            return result;
         }
     }
 
@@ -981,43 +987,44 @@ pub(crate) fn eager_expand_toplevel_forms(
     // where Qmacroexpand = Qinternal_macroexpand_for_load (set at line 2184).
     // Calling internal-macroexpand-for-load(val, t) with full-p=t triggers
     // macroexpand--all-toplevel (deep/recursive expansion via macroexpand-all).
-    eval.with_gc_scope(|ctx| {
-        ctx.root(val);
-        ctx.root(macroexpand_fn);
-        ctx.root(original_form);
-        let t3 = std::time::Instant::now();
-        // Call internal-macroexpand-for-load(val, t) — full-p=t means deep expand
-        let expanded = match ctx.apply(macroexpand_fn, vec![val, Value::T]) {
-            Ok(v) => v,
-            Err(e) => {
-                // Full expansion failed; use the one-level-expanded form.
-                let form_str = super::print::print_value(&val);
-                let form_preview: String = form_str.chars().take(200).collect();
-                tracing::debug!("eager_expand step3 failed: {e:?} form={form_preview}");
-                val
-            }
-        };
-        let d3 = t3.elapsed();
-        ctx.note_eager_macro_perf_step3(d3);
-        if ctx.macro_perf_enabled() && d3.as_millis() > 200 {
-            let head = if val.is_cons() {
-                val.cons_car().as_symbol_name().unwrap_or("<non-symbol>")
-            } else {
-                "<atom>"
-            };
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(val);
+    eval.push_specpdl_root(macroexpand_fn);
+    eval.push_specpdl_root(original_form);
+    let t3 = std::time::Instant::now();
+    // Call internal-macroexpand-for-load(val, t) — full-p=t means deep expand
+    let expanded = match eval.apply(macroexpand_fn, vec![val, Value::T]) {
+        Ok(v) => v,
+        Err(e) => {
+            // Full expansion failed; use the one-level-expanded form.
             let form_str = super::print::print_value(&val);
             let form_preview: String = form_str.chars().take(200).collect();
-            tracing::warn!(
-                "eager_expand step3 (full-expand) took {d3:.2?} head={head} form={form_preview}"
-            );
+            tracing::debug!("eager_expand step3 failed: {e:?} form={form_preview}");
+            val
         }
-        let requires_eager_replay = ctx.macro_expansion_mutation_epoch() != mutation_epoch_before
-            || cached_form_requires_eager_replay(original_form)
-            || cached_form_requires_eager_replay(val)
-            || cached_form_requires_eager_replay(expanded);
-        ctx.root(expanded);
-        sink(ctx, original_form, expanded, requires_eager_replay)
-    })
+    };
+    let d3 = t3.elapsed();
+    eval.note_eager_macro_perf_step3(d3);
+    if eval.macro_perf_enabled() && d3.as_millis() > 200 {
+        let head = if val.is_cons() {
+            val.cons_car().as_symbol_name().unwrap_or("<non-symbol>")
+        } else {
+            "<atom>"
+        };
+        let form_str = super::print::print_value(&val);
+        let form_preview: String = form_str.chars().take(200).collect();
+        tracing::warn!(
+            "eager_expand step3 (full-expand) took {d3:.2?} head={head} form={form_preview}"
+        );
+    }
+    let requires_eager_replay = eval.macro_expansion_mutation_epoch() != mutation_epoch_before
+        || cached_form_requires_eager_replay(original_form)
+        || cached_form_requires_eager_replay(val)
+        || cached_form_requires_eager_replay(expanded);
+    eval.push_specpdl_root(expanded);
+    let result = sink(eval, original_form, expanded, requires_eager_replay);
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 #[tracing::instrument(level = "debug", skip(eval, form_value, macroexpand_fn))]
@@ -1031,17 +1038,17 @@ pub(crate) fn eager_expand_eval(
         form_value,
         macroexpand_fn,
         &mut |ctx, _original, expanded, _requires_eager_replay| {
-            ctx.with_gc_scope(|ctx| {
-                ctx.root(expanded);
-                let t4 = std::time::Instant::now();
-                let value = ctx.eval_value(&expanded).map_err(map_flow)?;
-                let d4 = t4.elapsed();
-                ctx.note_eager_macro_perf_step4(d4);
-                if ctx.macro_perf_enabled() && d4.as_millis() > 200 {
-                    tracing::warn!("eager_expand step4 (eval) took {d4:.2?}");
-                }
-                Ok(value)
-            })
+            let roots = ctx.save_specpdl_roots();
+            ctx.push_specpdl_root(expanded);
+            let t4 = std::time::Instant::now();
+            let value = ctx.eval_value(&expanded).map_err(map_flow);
+            let d4 = t4.elapsed();
+            ctx.note_eager_macro_perf_step4(d4);
+            if ctx.macro_perf_enabled() && d4.as_millis() > 200 {
+                tracing::warn!("eager_expand step4 (eval) took {d4:.2?}");
+            }
+            ctx.restore_specpdl_roots(roots);
+            value
         },
     )
 }
