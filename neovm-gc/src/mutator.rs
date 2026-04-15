@@ -114,6 +114,9 @@ pub struct MutatorLocal {
     /// Current nursery generation observed while this
     /// mutator holds the safepoint read guard.
     nursery_generation: u64,
+    /// Cached nursery TLAB refill size observed while this
+    /// mutator holds the safepoint read guard.
+    nursery_tlab_bytes: usize,
     /// Whether a prepared full reclaim was already active
     /// when this mutator acquired its current safepoint
     /// read guard.
@@ -131,6 +134,7 @@ impl Default for MutatorLocal {
             alloc_counter_local: crate::stats::AllocationCounterLocal::default(),
             collector_plans_refresh_epoch_seen: u64::MAX,
             nursery_generation: 0,
+            nursery_tlab_bytes: 0,
             prepared_full_reclaim_active: false,
         }
     }
@@ -173,6 +177,7 @@ impl MutatorLocal {
     fn refresh_safepoint_fast_path_state(&mut self, heap: &Heap) {
         let nursery_generation = heap.current_nursery_generation();
         self.set_nursery_generation(nursery_generation);
+        self.nursery_tlab_bytes = heap.nursery_tlab_bytes();
         self.prepared_full_reclaim_active = heap.prepared_full_reclaim_active();
         self.publish_local.clear();
     }
@@ -190,6 +195,10 @@ impl MutatorLocal {
 
     fn nursery_generation(&self) -> u64 {
         self.nursery_generation
+    }
+
+    fn nursery_tlab_bytes(&self) -> usize {
+        self.nursery_tlab_bytes
     }
 
     fn prepared_full_reclaim_active(&self) -> bool {
@@ -280,6 +289,7 @@ impl<'heap> Mutator<'heap> {
         let mut local = MutatorLocal::default();
         local.set_alloc_counter_local(heap.allocation_counter_local());
         local.set_nursery_generation(heap.current_nursery_generation());
+        local.nursery_tlab_bytes = heap.nursery_tlab_bytes();
         Self {
             heap,
             local,
@@ -346,7 +356,6 @@ impl<'heap> Mutator<'heap> {
         if local.prepared_full_reclaim_active() {
             return Err(AllocError::CollectionInProgress);
         }
-        let config = heap.allocation_config();
         let alloc_profile = match local.cached_alloc_profile::<T>() {
             Some(profile) => profile,
             None => {
@@ -399,12 +408,13 @@ impl<'heap> Mutator<'heap> {
                         None
                     },
                     None => {
+                        let tlab_bytes = local.nursery_tlab_bytes();
                         let mut core = heap.write_core();
                         let base = crate::runtime::try_bump_nursery_tlab_or_refill(
                             &mut local.tlab,
                             core.nursery_mut(),
                             layout,
-                            config.nursery.tlab_bytes,
+                            tlab_bytes,
                         )
                         .or_else(|| core.nursery_mut().try_alloc(layout));
                         match base {
@@ -452,7 +462,7 @@ impl<'heap> Mutator<'heap> {
                 Some(
                     match core
                         .old_gen_mut()
-                        .try_alloc_in_block_with_reserved(&config.old, layout)
+                        .try_alloc_in_block_with_reserved(heap.old_allocation_config(), layout)
                     {
                         Some((placement, base, reserved_bytes)) => {
                             old_reserved_bytes = reserved_bytes;

@@ -144,9 +144,7 @@ struct HeapState {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct AllocationSnapshot {
-    pub(crate) config: HeapConfig,
     pub(crate) desc: &'static TypeDesc,
-    pub(crate) nursery_generation: u64,
     pub(crate) space: SpaceKind,
 }
 
@@ -605,12 +603,7 @@ impl Heap {
         };
         let config = self.state.allocation_config;
         Ok(AllocationSnapshot {
-            config,
             desc,
-            nursery_generation: self
-                .state
-                .nursery_generation
-                .load(std::sync::atomic::Ordering::Relaxed),
             space: crate::collector_policy::select_allocation_space(&config, desc, payload_bytes),
         })
     }
@@ -788,8 +781,13 @@ impl Heap {
     }
 
     #[inline(always)]
-    pub(crate) fn allocation_config(&self) -> HeapConfig {
-        self.state.allocation_config
+    pub(crate) fn nursery_tlab_bytes(&self) -> usize {
+        self.state.allocation_config.nursery.tlab_bytes
+    }
+
+    #[inline(always)]
+    pub(crate) fn old_allocation_config(&self) -> &OldGenConfig {
+        &self.state.allocation_config.old
     }
 
     pub(crate) fn has_active_major_mark(&self) -> bool {
