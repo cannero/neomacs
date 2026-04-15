@@ -277,7 +277,7 @@ pub enum FaceAttrValue {
     Underline(Underline),
     Box(BoxBorder),
     Bool(bool),
-    Str(String),
+    Text(Value),
     Inherit(Vec<Value>),
     Unspecified,
 }
@@ -320,16 +320,16 @@ pub struct Face {
     pub box_border: Option<BoxBorder>,
     /// Inverse video.
     pub inverse_video: Option<bool>,
-    /// Stipple pattern name.
-    pub stipple: Option<String>,
+    /// Lisp stipple value, mirroring GNU face attribute ownership.
+    pub stipple: Option<Value>,
     /// Whether to extend face background to end of line.
     pub extend: Option<bool>,
     /// Inherit from these faces (processed in order).
     pub inherit: Vec<Value>,
     /// Whether bold is simulated via overstrike.
     pub overstrike: bool,
-    /// Face documentation.
-    pub doc: Option<String>,
+    /// Face documentation string or nil-equivalent absence.
+    pub doc: Option<Value>,
     /// Distant foreground color (used when fg matches bg).
     pub distant_foreground: Option<Color>,
     /// Font foundry name.
@@ -1267,12 +1267,12 @@ impl FaceTable {
             ":width" => set_option!(face.width, Width),
             ":height" => set_option!(face.height, Height),
             ":family" => match value {
-                FaceAttrValue::Str(s) => face.family = Some(Value::string(s)),
+                FaceAttrValue::Text(text) => face.family = Some(text),
                 FaceAttrValue::Unspecified => face.family = None,
                 _ => return false,
             },
             ":foundry" => match value {
-                FaceAttrValue::Str(s) => face.foundry = Some(Value::string(s)),
+                FaceAttrValue::Text(text) => face.foundry = Some(text),
                 FaceAttrValue::Unspecified => face.foundry = None,
                 _ => return false,
             },
@@ -1544,6 +1544,12 @@ impl GcTrace for FaceTable {
             }
             if let Some(foundry) = face.foundry {
                 roots.push(foundry);
+            }
+            if let Some(stipple) = face.stipple {
+                roots.push(stipple);
+            }
+            if let Some(doc) = face.doc {
+                roots.push(doc);
             }
             roots.extend(face.inherit.iter().copied());
         }
@@ -2045,6 +2051,29 @@ mod tests {
         assert!(list.contains(&"bold".to_string()));
         assert_eq!(list.len(), table.len());
         assert!(!table.is_empty());
+    }
+
+    #[test]
+    fn face_table_gc_traces_lisp_owned_face_text_fields() {
+        crate::test_utils::init_test_tracing();
+        let mut table = FaceTable::new();
+        let mut face = Face::new("gc-face");
+        face.family = Some(Value::string("Iosevka"));
+        face.foundry = Some(Value::string("OpenAI"));
+        face.stipple = Some(Value::string("gray3"));
+        face.doc = Some(Value::string("Face doc"));
+        face.inherit = vec![Value::symbol("default")];
+        table.define("gc-face", face);
+
+        let mut roots = Vec::new();
+        table.trace_roots(&mut roots);
+
+        assert!(roots.contains(&Value::symbol("gc-face")));
+        assert!(roots.contains(&Value::string("Iosevka")));
+        assert!(roots.contains(&Value::string("OpenAI")));
+        assert!(roots.contains(&Value::string("gray3")));
+        assert!(roots.contains(&Value::string("Face doc")));
+        assert!(roots.contains(&Value::symbol("default")));
     }
 
     #[test]

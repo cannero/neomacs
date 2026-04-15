@@ -2934,8 +2934,11 @@ fn lisp_value_to_face_attr(attr_name: &str, value: Value) -> Option<crate::face:
             _ => None,
         },
         ":family" | ":foundry" => {
-            let s = value.as_str()?;
-            Some(FaceAttrValue::Str(s.to_string()))
+            if value.is_string() {
+                Some(FaceAttrValue::Text(value))
+            } else {
+                None
+            }
         }
         ":underline" => {
             if value.is_nil() {

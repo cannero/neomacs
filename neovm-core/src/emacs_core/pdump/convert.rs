@@ -1615,7 +1615,7 @@ fn dump_face(f: &Face) -> DumpFace {
             style: dump_box_style(&b.style),
         }),
         inverse_video: f.inverse_video,
-        stipple: f.stipple.clone(),
+        stipple: f.stipple.and_then(|value| value.as_runtime_string_owned()),
         extend: f.extend,
         inherit: f
             .inherit
@@ -1623,7 +1623,7 @@ fn dump_face(f: &Face) -> DumpFace {
             .filter_map(|value| value.as_symbol_name().map(str::to_string))
             .collect(),
         overstrike: f.overstrike,
-        doc: f.doc.clone(),
+        doc: f.doc.and_then(|value| value.as_runtime_string_owned()),
     }
 }
 
@@ -3068,7 +3068,7 @@ fn load_face(df: &DumpFace) -> Face {
             },
         }),
         inverse_video: df.inverse_video,
-        stipple: df.stipple.clone(),
+        stipple: df.stipple.as_ref().map(Value::string),
         extend: df.extend,
         inherit: df
             .inherit
@@ -3076,7 +3076,7 @@ fn load_face(df: &DumpFace) -> Face {
             .map(|name| Value::symbol(name.as_str()))
             .collect(),
         overstrike: df.overstrike,
-        doc: df.doc.clone(),
+        doc: df.doc.as_ref().map(Value::string),
         overline_color: None,
         strike_through_color: None,
         distant_foreground: None,
