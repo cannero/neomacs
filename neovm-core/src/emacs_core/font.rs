@@ -22,6 +22,7 @@ use super::error::{EvalResult, Flow, signal};
 use super::intern::{intern, resolve_sym};
 use super::value::*;
 use crate::buffer::{Buffer, BufferManager};
+use crate::emacs_core::SymId;
 use crate::face::{
     BoxStyle, Color, Face as RuntimeFace, FaceHeight, FaceRemapping, FontSlant, FontWeight,
     FontWidth, UnderlineStyle,
@@ -1918,16 +1919,20 @@ const VALID_FACE_WIDTHS: &[&str] = &[
 
 #[derive(Default)]
 struct FaceAttrState {
-    selected_created: HashSet<String>,
-    selected_overrides: HashMap<String, HashMap<String, Value>>,
-    defaults_overrides: HashMap<String, HashMap<String, Value>>,
+    selected_created: HashSet<SymId>,
+    selected_overrides: HashMap<SymId, HashMap<String, Value>>,
+    defaults_overrides: HashMap<SymId, HashMap<String, Value>>,
 }
 
 thread_local! {
-    static CREATED_LISP_FACES: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
-    static CREATED_FACE_IDS: RefCell<HashMap<String, i64>> = RefCell::new(HashMap::new());
+    static CREATED_LISP_FACES: RefCell<HashSet<SymId>> = RefCell::new(HashSet::new());
+    static CREATED_FACE_IDS: RefCell<HashMap<SymId, i64>> = RefCell::new(HashMap::new());
     static NEXT_CREATED_FACE_ID: RefCell<i64> = RefCell::new(FIRST_DYNAMIC_FACE_ID);
     static FACE_ATTR_STATE: RefCell<FaceAttrState> = RefCell::new(FaceAttrState::default());
+}
+
+fn face_symbol_id(name: &str) -> SymId {
+    intern(name)
 }
 
 pub(crate) fn clear_font_cache_state() {
@@ -1951,7 +1956,7 @@ pub(crate) fn collect_font_gc_roots(roots: &mut Vec<Value>) {
 }
 
 fn is_created_lisp_face(name: &str) -> bool {
-    CREATED_LISP_FACES.with(|slot| slot.borrow().contains(name))
+    CREATED_LISP_FACES.with(|slot| slot.borrow().contains(&face_symbol_id(name)))
 }
 
 /// Restore the `CREATED_LISP_FACES` set from an evaluator's face table.
@@ -1962,14 +1967,14 @@ pub(crate) fn restore_created_faces_from_table(face_names: &[String]) {
         let mut set = slot.borrow_mut();
         for name in face_names {
             if !KNOWN_FACES.contains(&name.as_str()) {
-                set.insert(name.clone());
+                set.insert(face_symbol_id(name));
             }
         }
     });
 }
 
 fn mark_created_lisp_face(name: &str) {
-    let inserted = CREATED_LISP_FACES.with(|slot| slot.borrow_mut().insert(name.to_string()));
+    let inserted = CREATED_LISP_FACES.with(|slot| slot.borrow_mut().insert(face_symbol_id(name)));
     if inserted {
         ensure_dynamic_face_id(name);
     }
@@ -1979,21 +1984,22 @@ fn ensure_dynamic_face_id(name: &str) {
     if known_face_id(name).is_some() {
         return;
     }
+    let face = face_symbol_id(name);
     CREATED_FACE_IDS.with(|slot| {
         let mut ids = slot.borrow_mut();
-        if ids.contains_key(name) {
+        if ids.contains_key(&face) {
             return;
         }
         NEXT_CREATED_FACE_ID.with(|next_slot| {
             let mut next = next_slot.borrow_mut();
-            ids.insert(name.to_string(), *next);
+            ids.insert(face, *next);
             *next += 1;
         });
     });
 }
 
 fn dynamic_face_id(name: &str) -> Option<i64> {
-    CREATED_FACE_IDS.with(|slot| slot.borrow().get(name).copied())
+    CREATED_FACE_IDS.with(|slot| slot.borrow().get(&face_symbol_id(name)).copied())
 }
 
 pub(crate) fn face_id_for_name(name: &str) -> Option<i64> {
@@ -2009,9 +2015,10 @@ pub(crate) fn face_id_for_name(name: &str) -> Option<i64> {
 pub(crate) fn all_defined_face_names_sorted_by_id_desc() -> Vec<String> {
     let mut names: Vec<String> = KNOWN_FACES.iter().map(|name| (*name).to_string()).collect();
     CREATED_LISP_FACES.with(|slot| {
-        for name in slot.borrow().iter() {
+        for symbol in slot.borrow().iter() {
+            let name = resolve_sym(*symbol);
             if !names.iter().any(|known| known == name) {
-                names.push(name.clone());
+                names.push(name.to_string());
             }
         }
     });
@@ -2024,12 +2031,18 @@ pub(crate) fn all_defined_face_names_sorted_by_id_desc() -> Vec<String> {
 }
 
 fn is_selected_created_lisp_face(name: &str) -> bool {
-    FACE_ATTR_STATE.with(|slot| slot.borrow().selected_created.contains(name))
+    FACE_ATTR_STATE.with(|slot| {
+        slot.borrow()
+            .selected_created
+            .contains(&face_symbol_id(name))
+    })
 }
 
 fn mark_selected_created_lisp_face(name: &str) {
     FACE_ATTR_STATE.with(|slot| {
-        slot.borrow_mut().selected_created.insert(name.to_string());
+        slot.borrow_mut()
+            .selected_created
+            .insert(face_symbol_id(name));
     });
 }
 
@@ -2051,6 +2064,7 @@ fn face_exists_for_domain(name: &str, defaults_frame: bool) -> bool {
 }
 
 fn get_face_override(face_name: &str, attr: &str, defaults_frame: bool) -> Option<Value> {
+    let face = face_symbol_id(face_name);
     FACE_ATTR_STATE.with(|slot| {
         let state = slot.borrow();
         let map = if defaults_frame {
@@ -2058,13 +2072,12 @@ fn get_face_override(face_name: &str, attr: &str, defaults_frame: bool) -> Optio
         } else {
             &state.selected_overrides
         };
-        map.get(face_name)
-            .and_then(|attrs| attrs.get(attr))
-            .copied()
+        map.get(&face).and_then(|attrs| attrs.get(attr)).copied()
     })
 }
 
 fn set_face_override(face_name: &str, attr: &str, value: Value, defaults_frame: bool) {
+    let face = face_symbol_id(face_name);
     FACE_ATTR_STATE.with(|slot| {
         let mut state = slot.borrow_mut();
         let map = if defaults_frame {
@@ -2072,56 +2085,56 @@ fn set_face_override(face_name: &str, attr: &str, value: Value, defaults_frame: 
         } else {
             &mut state.selected_overrides
         };
-        map.entry(face_name.to_string())
-            .or_default()
-            .insert(attr.to_string(), value);
+        map.entry(face).or_default().insert(attr.to_string(), value);
     });
 }
 
 fn clear_face_overrides(face_name: &str, defaults_frame: bool) {
+    let face = face_symbol_id(face_name);
     FACE_ATTR_STATE.with(|slot| {
         let mut state = slot.borrow_mut();
         if defaults_frame {
-            state.defaults_overrides.remove(face_name);
+            state.defaults_overrides.remove(&face);
         } else {
-            state.selected_overrides.remove(face_name);
+            state.selected_overrides.remove(&face);
         }
     });
 }
 
 pub(crate) fn clear_created_lisp_face(name: &str) {
+    let face = face_symbol_id(name);
     CREATED_LISP_FACES.with(|slot| {
-        slot.borrow_mut().remove(name);
+        slot.borrow_mut().remove(&face);
     });
     FACE_ATTR_STATE.with(|slot| {
         let mut state = slot.borrow_mut();
-        state.selected_created.remove(name);
-        state.defaults_overrides.remove(name);
-        state.selected_overrides.remove(name);
+        state.selected_created.remove(&face);
+        state.defaults_overrides.remove(&face);
+        state.selected_overrides.remove(&face);
     });
 }
 
 fn copy_defaults_overrides(src: &str, dst: &str) {
+    let src_face = face_symbol_id(src);
+    let dst_face = face_symbol_id(dst);
     FACE_ATTR_STATE.with(|slot| {
         let mut state = slot.borrow_mut();
-        let copied = state.defaults_overrides.get(src).cloned();
+        let copied = state.defaults_overrides.get(&src_face).cloned();
         if let Some(attrs) = copied {
-            state.defaults_overrides.insert(dst.to_string(), attrs);
+            state.defaults_overrides.insert(dst_face, attrs);
         } else {
-            state.defaults_overrides.remove(dst);
+            state.defaults_overrides.remove(&dst_face);
         }
     });
 }
 
 fn merge_defaults_overrides_into_selected(face_name: &str) {
+    let face = face_symbol_id(face_name);
     FACE_ATTR_STATE.with(|slot| {
         let mut state = slot.borrow_mut();
-        let defaults = state.defaults_overrides.get(face_name).cloned();
+        let defaults = state.defaults_overrides.get(&face).cloned();
         if let Some(attrs) = defaults {
-            let selected = state
-                .selected_overrides
-                .entry(face_name.to_string())
-                .or_default();
+            let selected = state.selected_overrides.entry(face).or_default();
             for (attr, value) in attrs {
                 if value.is_symbol_named("unspecified") || value.is_symbol_named("relative") {
                     continue;
@@ -3437,7 +3450,7 @@ pub(crate) fn builtin_internal_merge_in_global_face(
 
     FACE_ATTR_STATE.with(|slot| {
         let state = slot.borrow();
-        if let Some(attrs) = state.defaults_overrides.get(&face_name) {
+        if let Some(attrs) = state.defaults_overrides.get(&face_symbol_id(&face_name)) {
             for (attr_name, value) in attrs {
                 if let Some(face_attr) = lisp_value_to_face_attr(attr_name, *value) {
                     eval.set_face_attribute(&face_name, attr_name, face_attr);

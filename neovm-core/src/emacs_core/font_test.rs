@@ -455,7 +455,10 @@ fn clear_font_cache_resets_face_caches() {
     .unwrap();
 
     CREATED_LISP_FACES.with(|slot| {
-        assert!(slot.borrow().contains(face_name));
+        assert!(
+            slot.borrow()
+                .contains(&crate::emacs_core::intern::intern(face_name,))
+        );
     });
     FACE_ATTR_STATE.with(|slot| {
         assert!(!slot.borrow().selected_overrides.is_empty());
@@ -474,6 +477,44 @@ fn clear_font_cache_resets_face_caches() {
         assert!(state.selected_overrides.is_empty());
         assert!(state.defaults_overrides.is_empty());
         assert!(state.selected_created.is_empty());
+    });
+}
+
+#[test]
+fn created_face_runtime_state_uses_symbol_identity() {
+    crate::test_utils::init_test_tracing();
+    clear_font_cache_state();
+    let face_name = "__neovm_symbol_runtime_face";
+    let face_symbol = crate::emacs_core::intern::intern(face_name);
+    let mut eval = Context::new();
+
+    builtin_internal_make_lisp_face(&mut eval, vec![Value::symbol(face_name)]).unwrap();
+    builtin_internal_set_lisp_face_attribute(
+        &mut eval,
+        vec![
+            Value::symbol(face_name),
+            Value::keyword(":foreground"),
+            Value::string("green"),
+        ],
+    )
+    .unwrap();
+
+    CREATED_LISP_FACES.with(|slot| {
+        assert!(slot.borrow().contains(&face_symbol));
+    });
+    CREATED_FACE_IDS.with(|slot| {
+        assert!(slot.borrow().contains_key(&face_symbol));
+    });
+    FACE_ATTR_STATE.with(|slot| {
+        let state = slot.borrow();
+        assert_eq!(
+            state
+                .selected_overrides
+                .get(&face_symbol)
+                .and_then(|attrs| attrs.get(":foreground"))
+                .copied(),
+            Some(Value::string("green"))
+        );
     });
 }
 
