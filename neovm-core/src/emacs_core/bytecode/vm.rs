@@ -106,14 +106,6 @@ impl<'a> Vm<'a> {
         self.ctx.push_vm_frame_root(value);
     }
 
-    fn save_dynamic_vm_roots(&self) -> usize {
-        self.ctx.save_vm_frame_roots()
-    }
-
-    fn restore_dynamic_vm_roots(&mut self, saved_len: usize) {
-        self.ctx.restore_vm_frame_roots(saved_len);
-    }
-
     fn with_frame_roots<T>(
         &mut self,
         func: &ByteCodeFunction,
@@ -2836,10 +2828,10 @@ impl<'a> Vm<'a> {
             let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
                 &sequence,
                 |item| {
-                    let saved_roots = vm.save_dynamic_vm_roots();
-                    vm.push_dynamic_vm_root(item);
-                    let value = vm.call_function(func, vec![item])?;
-                    vm.restore_dynamic_vm_roots(saved_roots);
+                    let value = vm.with_dynamic_vm_roots(|vm| {
+                        vm.push_dynamic_vm_root(item);
+                        vm.call_function(func, vec![item])
+                    })?;
                     vm.push_dynamic_vm_root(value);
                     results.push(value);
                     Ok(())
@@ -2863,10 +2855,10 @@ impl<'a> Vm<'a> {
             crate::emacs_core::builtins::higher_order::for_each_sequence_element(
                 &sequence,
                 |item| {
-                    let saved_roots = vm.save_dynamic_vm_roots();
-                    vm.push_dynamic_vm_root(item);
-                    let result = vm.call_function(func, vec![item]);
-                    vm.restore_dynamic_vm_roots(saved_roots);
+                    let result = vm.with_dynamic_vm_roots(|vm| {
+                        vm.push_dynamic_vm_root(item);
+                        vm.call_function(func, vec![item])
+                    });
                     result?;
                     Ok(())
                 },
@@ -2886,10 +2878,10 @@ impl<'a> Vm<'a> {
             let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
                 &sequence,
                 |item| {
-                    let saved_roots = vm.save_dynamic_vm_roots();
-                    vm.push_dynamic_vm_root(item);
-                    let value = vm.call_function(func, vec![item])?;
-                    vm.restore_dynamic_vm_roots(saved_roots);
+                    let value = vm.with_dynamic_vm_roots(|vm| {
+                        vm.push_dynamic_vm_root(item);
+                        vm.call_function(func, vec![item])
+                    })?;
                     vm.push_dynamic_vm_root(value);
                     mapped.push(value);
                     Ok(())
@@ -2916,10 +2908,10 @@ impl<'a> Vm<'a> {
             let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
                 &sequence,
                 |item| {
-                    let saved_roots = vm.save_dynamic_vm_roots();
-                    vm.push_dynamic_vm_root(item);
-                    let value = vm.call_function(func, vec![item])?;
-                    vm.restore_dynamic_vm_roots(saved_roots);
+                    let value = vm.with_dynamic_vm_roots(|vm| {
+                        vm.push_dynamic_vm_root(item);
+                        vm.call_function(func, vec![item])
+                    })?;
                     vm.push_dynamic_vm_root(value);
                     parts.push(value);
                     Ok(())
@@ -4094,15 +4086,14 @@ impl<'a> Vm<'a> {
                             let pair_cdr = cursor.cons_cdr();
                             if let ValueKind::Cons = pair_car.kind() {
                                 let entry_key = pair_car.cons_car();
-                                let saved_roots = vm.save_dynamic_vm_roots();
-                                vm.push_dynamic_vm_root(cursor);
-                                vm.push_dynamic_vm_root(pair_car);
-                                vm.push_dynamic_vm_root(pair_cdr);
-                                vm.push_dynamic_vm_root(entry_key);
-                                let matches = vm
-                                    .call_function(test_fn, vec![entry_key, key])
-                                    .map(|value| value.is_truthy());
-                                vm.restore_dynamic_vm_roots(saved_roots);
+                                let matches = vm.with_dynamic_vm_roots(|vm| {
+                                    vm.push_dynamic_vm_root(cursor);
+                                    vm.push_dynamic_vm_root(pair_car);
+                                    vm.push_dynamic_vm_root(pair_cdr);
+                                    vm.push_dynamic_vm_root(entry_key);
+                                    vm.call_function(test_fn, vec![entry_key, key])
+                                        .map(|value| value.is_truthy())
+                                });
                                 let matches = matches?;
                                 if matches {
                                     return Ok(pair_car);
@@ -4140,14 +4131,13 @@ impl<'a> Vm<'a> {
                             let pair_car = cursor.cons_car();
                             let pair_cdr = cursor.cons_cdr();
                             let entry_key = pair_car;
-                            let saved_roots = vm.save_dynamic_vm_roots();
-                            vm.push_dynamic_vm_root(cursor);
-                            vm.push_dynamic_vm_root(entry_key);
-                            vm.push_dynamic_vm_root(pair_cdr);
-                            let matches = vm
-                                .call_function(predicate, vec![entry_key, prop])
-                                .map(|value| value.is_truthy());
-                            vm.restore_dynamic_vm_roots(saved_roots);
+                            let matches = vm.with_dynamic_vm_roots(|vm| {
+                                vm.push_dynamic_vm_root(cursor);
+                                vm.push_dynamic_vm_root(entry_key);
+                                vm.push_dynamic_vm_root(pair_cdr);
+                                vm.call_function(predicate, vec![entry_key, prop])
+                                    .map(|value| value.is_truthy())
+                            });
                             let matches = matches?;
                             if matches {
                                 return Ok(cursor);
@@ -4792,13 +4782,12 @@ fn merge_result_with_cleanup(result: EvalResult, cleanup: Result<(), Flow>) -> E
 
 impl crate::emacs_core::builtins::higher_order::SortRuntime for Vm<'_> {
     fn call_sort_function(&mut self, function: Value, args: Vec<Value>) -> Result<Value, Flow> {
-        let saved_roots = self.save_dynamic_vm_roots();
-        for arg in args.iter().copied() {
-            self.push_dynamic_vm_root(arg);
-        }
-        let result = self.call_function(function, args);
-        self.restore_dynamic_vm_roots(saved_roots);
-        result
+        self.with_dynamic_vm_roots(|vm| {
+            for arg in args.iter().copied() {
+                vm.push_dynamic_vm_root(arg);
+            }
+            vm.call_function(function, args)
+        })
     }
 
     fn root_sort_value(&mut self, value: Value) {
