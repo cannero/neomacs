@@ -35,7 +35,7 @@ pub struct NurseryConfig {
     /// * Smaller slabs refill more often but waste less
     ///   from-space capacity to reserved-but-unused bytes.
     ///
-    /// The default of 16 KiB is sized as roughly 0.1% of
+    /// The default of 32 KiB is sized as roughly 0.2% of
     /// the default 16 MiB semispace, which lets most
     /// workloads amortize a refill across several thousand
     /// small allocations.
@@ -49,7 +49,7 @@ impl Default for NurseryConfig {
             max_regular_object_bytes: 64 * 1024,
             promotion_age: 2,
             parallel_minor_workers: 1,
-            tlab_bytes: 16 * 1024,
+            tlab_bytes: 32 * 1024,
         }
     }
 }
