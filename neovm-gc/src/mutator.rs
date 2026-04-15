@@ -48,6 +48,7 @@ struct CachedAllocProfile {
     layout: Layout,
     payload_offset: usize,
     space: SpaceKind,
+    header_template: crate::object::ObjectHeaderTemplate,
 }
 
 /// Per-mutator local state.
@@ -385,6 +386,13 @@ impl<'heap> Mutator<'heap> {
                     layout,
                     payload_offset,
                     space: snapshot.space,
+                    header_template: crate::object::ObjectHeaderTemplate::for_allocation::<T>(
+                        snapshot.desc,
+                        snapshot.space,
+                        layout.size(),
+                        payload_offset,
+                        0,
+                    ),
                 };
                 local.remember_alloc_profile(profile);
                 profile
@@ -409,9 +417,8 @@ impl<'heap> Mutator<'heap> {
                 {
                     Some(base) => unsafe {
                         let (header, layout_align_shift) =
-                            crate::object::ObjectRecord::allocate_in_arena_raw::<T>(
-                                desc,
-                                space,
+                            crate::object::ObjectRecord::allocate_in_arena_raw_with_template::<T>(
+                                alloc_profile.header_template,
                                 base,
                                 layout,
                                 payload_offset,
@@ -438,9 +445,8 @@ impl<'heap> Mutator<'heap> {
                         match base {
                             Some(base) => unsafe {
                                 let (header, layout_align_shift) =
-                                    crate::object::ObjectRecord::allocate_in_arena_raw::<T>(
-                                        desc,
-                                        space,
+                                    crate::object::ObjectRecord::allocate_in_arena_raw_with_template::<T>(
+                                        alloc_profile.header_template,
                                         base,
                                         layout,
                                         payload_offset,
@@ -456,9 +462,10 @@ impl<'heap> Mutator<'heap> {
                             },
                             None => {
                                 let (header, layout_align_shift) =
-                                    crate::object::ObjectRecord::allocate_owned_raw(
-                                        desc,
-                                        space,
+                                    crate::object::ObjectRecord::allocate_owned_raw_with_template(
+                                        alloc_profile.header_template,
+                                        layout,
+                                        payload_offset,
                                         value.take().expect("allocation value should be present"),
                                     )?;
                                 nursery_allocation = Some((

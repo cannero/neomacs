@@ -91,6 +91,56 @@ pub(crate) struct ObjectHeader {
     moved_out: AtomicBool,
 }
 
+const OBJECT_HEADER_TEMPLATE_SIZE: usize = core::mem::size_of::<ObjectHeader>();
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ObjectHeaderTemplate {
+    bytes: [u8; OBJECT_HEADER_TEMPLATE_SIZE],
+}
+
+impl ObjectHeaderTemplate {
+    pub(crate) fn for_allocation<T: Trace + 'static>(
+        desc: &'static TypeDesc,
+        space: SpaceKind,
+        total_size: usize,
+        payload_offset: usize,
+        age: u8,
+    ) -> Self {
+        let header = MaybeUninit::new(ObjectHeader {
+            desc,
+            total_size,
+            payload_size: core::mem::size_of::<T>(),
+            payload_offset,
+            space: AtomicU8::new(space as u8),
+            generation: AtomicU8::new(space.initial_generation() as u8),
+            age: AtomicU8::new(age),
+            mark_bits: AtomicU8::new(0),
+            forwarding: AtomicPtr::new(core::ptr::null_mut()),
+            moved_out: AtomicBool::new(false),
+        });
+        let mut bytes = [0_u8; OBJECT_HEADER_TEMPLATE_SIZE];
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                header.as_ptr().cast::<u8>(),
+                bytes.as_mut_ptr(),
+                OBJECT_HEADER_TEMPLATE_SIZE,
+            );
+        }
+        Self { bytes }
+    }
+
+    #[inline(always)]
+    unsafe fn write_to(self, header: NonNull<ObjectHeader>) {
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                self.bytes.as_ptr(),
+                header.as_ptr().cast::<u8>(),
+                OBJECT_HEADER_TEMPLATE_SIZE,
+            );
+        }
+    }
+}
+
 impl ObjectHeader {
     pub(crate) fn desc(&self) -> &'static TypeDesc {
         self.desc
@@ -303,6 +353,30 @@ impl ObjectRecord {
         ))
     }
 
+    pub(crate) fn allocate_owned_raw_with_template<T: Trace + 'static>(
+        header_template: ObjectHeaderTemplate,
+        layout: Layout,
+        payload_offset: usize,
+        value: T,
+    ) -> Result<(NonNull<ObjectHeader>, u8), AllocError> {
+        let raw = unsafe { alloc(layout) };
+        let base = NonNull::new(raw).ok_or(AllocError::OutOfMemory {
+            requested_bytes: layout.size(),
+        })?;
+        unsafe {
+            Self::write_header_from_template_and_payload(
+                base,
+                payload_offset,
+                header_template,
+                value,
+            )
+        };
+        Ok((
+            base.cast::<ObjectHeader>(),
+            Self::layout_align_to_shift(layout.align()),
+        ))
+    }
+
     /// Construct an `ObjectRecord` that points at a region already
     /// bump-allocated inside a `NurseryArena`. The caller has already
     /// reserved a `layout`-sized, `layout`-aligned region at `base`
@@ -357,6 +431,27 @@ impl ObjectRecord {
         )
     }
 
+    pub(crate) unsafe fn allocate_in_arena_raw_with_template<T: Trace + 'static>(
+        header_template: ObjectHeaderTemplate,
+        base: NonNull<u8>,
+        layout: Layout,
+        payload_offset: usize,
+        value: T,
+    ) -> (NonNull<ObjectHeader>, u8) {
+        unsafe {
+            Self::write_header_from_template_and_payload(
+                base,
+                payload_offset,
+                header_template,
+                value,
+            )
+        };
+        (
+            base.cast::<ObjectHeader>(),
+            Self::layout_align_to_shift(layout.align()),
+        )
+    }
+
     /// Low-level helper: write the ObjectHeader and the payload at `base`.
     ///
     /// # Safety
@@ -387,6 +482,20 @@ impl ObjectRecord {
                 forwarding: AtomicPtr::new(core::ptr::null_mut()),
                 moved_out: AtomicBool::new(false),
             });
+            let payload = base.as_ptr().add(payload_offset).cast::<T>();
+            payload.write(value);
+        }
+    }
+
+    unsafe fn write_header_from_template_and_payload<T: Trace + 'static>(
+        base: NonNull<u8>,
+        payload_offset: usize,
+        header_template: ObjectHeaderTemplate,
+        value: T,
+    ) {
+        let header = base.cast::<ObjectHeader>();
+        unsafe {
+            header_template.write_to(header);
             let payload = base.as_ptr().add(payload_offset).cast::<T>();
             payload.write(value);
         }
