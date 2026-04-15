@@ -5351,7 +5351,7 @@ fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
     assert_eq!(insert_parts[1], Value::fixnum(6));
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "abcdef");
-    assert_eq!(buf.get_file_name(), Some(alpha.as_str()));
+    assert_eq!(buf.file_name_owned().as_deref(), Some(alpha.as_str()));
     assert!(!buf.is_modified());
 
     eval.eval_str(&format!(
@@ -5362,7 +5362,7 @@ fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
 
     assert_eq!(std::fs::read_to_string(&out).expect("read out"), "abXYe");
     let buf = eval.buffers.current_buffer().expect("current buffer");
-    assert_eq!(buf.get_file_name(), Some(visit.as_str()));
+    assert_eq!(buf.file_name_owned().as_deref(), Some(visit.as_str()));
     assert!(!buf.is_modified());
 
     let _ = std::fs::remove_dir_all(&base);

@@ -1530,10 +1530,10 @@ impl Buffer {
     // -- (`auto_save_file_name` / `read_only` / `multibyte`) still
     // -- have struct fields during the staggered migration.
 
-    /// Read `buffer-file-name`, mirroring GNU `BVAR(buf, filename)`
-    /// (`buffer.h:319`). Returns `None` when the slot holds nil.
-    pub fn get_file_name(&self) -> Option<&str> {
-        self.slots[BUFFER_SLOT_FILE_NAME].as_str()
+    /// Read `buffer-file-name` as the underlying Lisp value, mirroring GNU
+    /// `BVAR(buf, filename)` (`buffer.h:319`).
+    pub fn file_name_value(&self) -> Value {
+        self.slots[BUFFER_SLOT_FILE_NAME]
     }
 
     /// Clone `buffer-file-name` as an `Option<String>`. Convenience
@@ -1551,11 +1551,10 @@ impl Buffer {
         };
     }
 
-    /// Read `buffer-auto-save-file-name`, mirroring GNU
-    /// `BVAR(buf, auto_save_file_name)` (`buffer.h:323`). Returns
-    /// `None` when the slot holds nil.
-    pub fn get_auto_save_file_name(&self) -> Option<&str> {
-        self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME].as_str()
+    /// Read `buffer-auto-save-file-name` as the underlying Lisp value,
+    /// mirroring GNU `BVAR(buf, auto_save_file_name)` (`buffer.h:323`).
+    pub fn auto_save_file_name_value(&self) -> Value {
+        self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME]
     }
 
     /// Clone `buffer-auto-save-file-name` as an `Option<String>`.
@@ -3990,7 +3989,7 @@ mod tests {
         assert!(!buf.is_modified());
         assert!(!buf.get_read_only());
         assert!(buf.get_multibyte());
-        assert!(buf.get_file_name().is_none());
+        assert!(buf.file_name_value().is_nil());
         assert!(buf.mark().is_none());
     }
 
@@ -4665,14 +4664,15 @@ mod tests {
         assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::NIL));
 
         buf.set_buffer_local("buffer-file-name", Value::string("/tmp/demo.txt"));
-        assert_eq!(buf.get_file_name(), Some("/tmp/demo.txt"));
+        assert_eq!(buf.file_name_owned().as_deref(), Some("/tmp/demo.txt"));
+        assert_eq!(buf.file_name_value(), Value::string("/tmp/demo.txt"));
         assert_eq!(
             buf.buffer_local_value("buffer-file-name"),
             Some(Value::string("/tmp/demo.txt"))
         );
 
         buf.set_buffer_local("buffer-file-name", Value::NIL);
-        assert_eq!(buf.get_file_name(), None);
+        assert!(buf.file_name_value().is_nil());
         assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::NIL));
     }
 
@@ -4689,14 +4689,21 @@ mod tests {
             "buffer-auto-save-file-name",
             Value::string("/tmp/#demo.txt#"),
         );
-        assert_eq!(buf.get_auto_save_file_name(), Some("/tmp/#demo.txt#"));
+        assert_eq!(
+            buf.auto_save_file_name_owned().as_deref(),
+            Some("/tmp/#demo.txt#")
+        );
+        assert_eq!(
+            buf.auto_save_file_name_value(),
+            Value::string("/tmp/#demo.txt#")
+        );
         assert_eq!(
             buf.buffer_local_value("buffer-auto-save-file-name"),
             Some(Value::string("/tmp/#demo.txt#"))
         );
 
         buf.set_buffer_local("buffer-auto-save-file-name", Value::NIL);
-        assert_eq!(buf.get_auto_save_file_name(), None);
+        assert!(buf.auto_save_file_name_value().is_nil());
         assert_eq!(
             buf.buffer_local_value("buffer-auto-save-file-name"),
             Some(Value::NIL)
