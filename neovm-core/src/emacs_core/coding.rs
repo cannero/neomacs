@@ -104,7 +104,7 @@ fn normalize_keyboard_coding_system(name: &str) -> String {
 fn coding_system_name(val: &Value) -> Result<String, Flow> {
     match val.kind() {
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
-        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*val)),
+        ValueKind::String => coding_runtime_string(val),
         ValueKind::Nil => Ok("nil".to_string()),
         _ => Err(signal(
             "wrong-type-argument",
@@ -123,6 +123,15 @@ fn coding_symbol_name(val: &Value) -> Result<String, Flow> {
             vec![Value::symbol("symbolp"), *val],
         )),
     }
+}
+
+fn coding_runtime_string(value: &Value) -> Result<String, Flow> {
+    value.as_runtime_string_owned().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), *value],
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -2115,7 +2124,7 @@ pub(crate) fn builtin_find_coding_systems_region_internal(
 
     if args[0].is_string() {
         let exclude = args.get(2).and_then(super::value::list_to_vec);
-        let text = super::builtins::lisp_string_to_runtime_string(args[0]);
+        let text = coding_runtime_string(&args[0])?;
         let multibyte = args[0].string_is_multibyte();
         return Ok(safe_coding_systems_for_text(
             &eval.coding_systems,

@@ -747,7 +747,7 @@ fn encode_char_input(value: &Value) -> Result<i64, Flow> {
 
 fn charset_value_text(value: &Value) -> Option<String> {
     match value.kind() {
-        ValueKind::String => Some(super::builtins::lisp_string_to_runtime_string(*value)),
+        ValueKind::String => value.as_runtime_string_owned(),
         ValueKind::Symbol(id) => Some(resolve_sym(id).to_string()),
         _ => None,
     }
@@ -1148,7 +1148,7 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
     // arg[16]: plist
     let unify_map = match args[15].kind() {
         ValueKind::Nil => None,
-        ValueKind::String => Some(super::builtins::lisp_string_to_runtime_string(args[15])),
+        ValueKind::String => args[15].as_runtime_string_owned(),
         ValueKind::Symbol(id) => Some(resolve_sym(id).to_string()),
         _ => None,
     };
@@ -1348,7 +1348,12 @@ pub(crate) fn builtin_find_charset_string(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("stringp"), args[0]],
         ));
     }
-    let text = super::builtins::lisp_string_to_runtime_string(args[0]);
+    let text = args[0].as_runtime_string_owned().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[0]],
+        )
+    })?;
 
     let charsets = classify_string_charsets(&text);
     if charsets.is_empty() {
