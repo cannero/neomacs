@@ -344,7 +344,6 @@ fn interactive_spec_no_args() {
     crate::test_utils::init_test_tracing();
     let spec = InteractiveSpec::no_args();
     assert!(spec.code.is_empty());
-    assert!(spec.prompt.is_none());
 }
 
 #[test]
@@ -359,7 +358,6 @@ fn interactive_spec_with_prompt() {
     crate::test_utils::init_test_tracing();
     let spec = InteractiveSpec::new("sEnter name: ");
     assert_eq!(spec.code, "sEnter name: ");
-    assert_eq!(spec.prompt.as_deref(), Some("Enter name: "));
 }
 
 // -------------------------------------------------------------------
@@ -403,16 +401,6 @@ fn registry_interactive_call_stack() {
 
     reg.pop_interactive_call();
     assert!(!reg.is_called_interactively());
-}
-
-#[test]
-fn registry_this_command_keys() {
-    crate::test_utils::init_test_tracing();
-    let mut reg = InteractiveRegistry::new();
-    assert!(reg.this_command_keys().is_empty());
-
-    reg.set_this_command_keys(vec!["C-x".to_string(), "C-f".to_string()]);
-    assert_eq!(reg.this_command_keys(), &["C-x", "C-f"]);
 }
 
 #[test]

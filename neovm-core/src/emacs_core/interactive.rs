@@ -43,28 +43,18 @@ pub struct InteractiveSpec {
     /// Code letter(s) describing argument types, e.g. "r" for region,
     /// "p" for prefix arg, "sPrompt: " for string prompt, etc.
     pub code: String,
-    /// Optional prompt string (extracted from the code).
-    pub prompt: Option<String>,
 }
 
 impl InteractiveSpec {
     /// Create a new interactive spec from a code string.
     pub fn new(code: impl Into<String>) -> Self {
-        let code = code.into();
-        // Extract prompt from code if it contains a prompt (e.g. "sEnter name: ")
-        let prompt = if code.len() > 1 && code.starts_with(|c: char| c.is_ascii_lowercase()) {
-            Some(code[1..].to_string())
-        } else {
-            None
-        };
-        Self { code, prompt }
+        Self { code: code.into() }
     }
 
     /// Create a spec with no arguments (plain interactive command).
     pub fn no_args() -> Self {
         Self {
             code: String::new(),
-            prompt: None,
         }
     }
 }
@@ -82,8 +72,6 @@ pub struct InteractiveRegistry {
     specs: HashMap<SymId, InteractiveSpec>,
     /// Stack tracking whether the current function was called interactively.
     interactive_call_stack: Vec<bool>,
-    /// The key sequence that invoked the current command (if any).
-    this_command_keys: Vec<String>,
 }
 
 impl InteractiveRegistry {
@@ -91,7 +79,6 @@ impl InteractiveRegistry {
         Self {
             specs: HashMap::new(),
             interactive_call_stack: Vec::new(),
-            this_command_keys: Vec::new(),
         }
     }
 
@@ -125,16 +112,6 @@ impl InteractiveRegistry {
         self.interactive_call_stack.last().copied().unwrap_or(false)
     }
 
-    /// Set the key sequence that invoked the current command.
-    pub fn set_this_command_keys(&mut self, keys: Vec<String>) {
-        self.this_command_keys = keys;
-    }
-
-    /// Get the key sequence that invoked the current command.
-    pub fn this_command_keys(&self) -> &[String] {
-        &self.this_command_keys
-    }
-
     // pdump accessors
     pub(crate) fn dump_specs(&self) -> &HashMap<SymId, InteractiveSpec> {
         &self.specs
@@ -143,7 +120,6 @@ impl InteractiveRegistry {
         Self {
             specs,
             interactive_call_stack: Vec::new(),
-            this_command_keys: Vec::new(),
         }
     }
 }

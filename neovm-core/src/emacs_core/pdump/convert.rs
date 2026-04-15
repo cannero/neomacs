@@ -1828,7 +1828,6 @@ pub(crate) fn dump_interactive_registry(ir: &InteractiveRegistry) -> DumpInterac
                     dump_sym_id(*k),
                     DumpInteractiveSpec {
                         code: s.code.clone(),
-                        prompt: s.prompt.clone(),
                     },
                 )
             })
@@ -3302,7 +3301,6 @@ pub(crate) fn load_interactive_registry(dir: &DumpInteractiveRegistry) -> Intera
                 load_sym_id(k),
                 InteractiveSpec {
                     code: s.code.clone(),
-                    prompt: s.prompt.clone(),
                 },
             )
         })
