@@ -31,11 +31,6 @@ fn load_path_lisp_string(path: &Path) -> LispString {
     super::builtins::runtime_string_to_lisp_string(path.to_string_lossy().as_ref(), true)
 }
 
-fn canonical_load_lisp_string(path: &Path) -> LispString {
-    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    load_path_lisp_string(&canonical)
-}
-
 fn load_path_buf(value: &LispString) -> PathBuf {
     PathBuf::from(load_runtime_string(value))
 }
@@ -1352,18 +1347,17 @@ pub(crate) fn load_file_with_found_flags(
         });
     }
 
-    // GNU Emacs only signals `Recursive load` once the same resolved file is
+    // GNU Emacs only signals `Recursive load` once the same found filename is
     // already present four times in `Vloads_in_progress`, i.e. on the fifth
     // attempt. Matching that behavior matters because Lisp depends on the
-    // error shape rather than on silent skipping.
-    let canonical = canonical_load_lisp_string(path);
+    // textual `found` identity, not on canonicalized host paths.
     let load_count = eval
         .loads_in_progress
         .iter()
-        .filter(|p| *p == &canonical)
+        .filter(|p| *p == found)
         .count();
     if load_count > 3 {
-        let canonical_value = Value::heap_string(canonical.clone());
+        let found_value = Value::heap_string(found.clone());
         let in_progress = Value::list(
             eval.loads_in_progress
                 .iter()
@@ -1375,12 +1369,12 @@ pub(crate) fn load_file_with_found_flags(
             symbol: intern("error"),
             data: vec![
                 Value::string("Recursive load"),
-                Value::cons(canonical_value, in_progress),
+                Value::cons(found_value, in_progress),
             ],
             raw_data: None,
         });
     }
-    eval.loads_in_progress.push(canonical);
+    eval.loads_in_progress.push(found.clone());
 
     // GNU Emacs lread.c: specbind(Qload_in_progress, Qt)
     // Set load-in-progress to t during file loading, restore afterward.

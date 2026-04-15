@@ -8832,6 +8832,45 @@ fn vm_compiled_load_signals_after_gnu_recursive_load_limit() {
 }
 
 #[test]
+fn vm_compiled_load_tracks_recursive_state_by_found_filename_text() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let inner = dir.path().join("inner");
+    std::fs::create_dir_all(&inner).expect("create inner dir");
+    let fixture = inner.join("vm-bytecode-found.el");
+    std::fs::write(&fixture, "(setq vm-bytecode-found-ran t)\n").expect("write load fixture");
+    let canonical = fixture.canonicalize().expect("canonical load fixture");
+    let canonical_lisp =
+        crate::heap_types::LispString::from_utf8(canonical.to_string_lossy().as_ref());
+    let alternate = dir
+        .path()
+        .join("inner")
+        .join("..")
+        .join("inner")
+        .join("vm-bytecode-found.el");
+
+    let mut eval = Context::new_vm_runtime_harness();
+    eval.loads_in_progress = vec![canonical_lisp.clone()];
+
+    let result = eval
+        .eval_str(&format!(
+            "(progn
+               (setq vm-bytecode-found-ran nil)
+               (load {:?} nil nil t)
+               vm-bytecode-found-ran)",
+            alternate.to_string_lossy()
+        ))
+        .expect("textually distinct found filename should not trip recursive load");
+
+    assert_eq!(result, Value::T);
+    assert_eq!(
+        eval.loads_in_progress,
+        vec![canonical_lisp],
+        "load should restore the caller's in-progress stack after using a distinct found filename",
+    );
+}
+
+#[test]
 fn vm_interactive_form_uses_shared_symbol_property_and_builtin_state() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
