@@ -696,3 +696,28 @@ fn unibyte_source_preserves_direct_latin1_string_bytes() {
     assert!(!text.is_multibyte());
     assert_eq!(text.as_bytes(), &[0xFF]);
 }
+
+#[test]
+fn lisp_read_source_tracks_logical_offsets_for_unibyte_input() {
+    crate::test_utils::init_test_tracing();
+    let input =
+        crate::heap_types::LispString::from_unibyte(vec![b'"', 0xFF, b'"', b' ', b'4', b'2']);
+    let source = LispReadSource::new(&input);
+
+    let (first, first_end) = source
+        .read_one(0)
+        .expect("first read should succeed")
+        .expect("first form should exist");
+    let first_text = first
+        .as_lisp_string()
+        .expect("first form should be a string");
+    assert_eq!(first_text.as_bytes(), &[0xFF]);
+    assert_eq!(first_end, 3);
+
+    let (second, second_end) = source
+        .read_one(first_end)
+        .expect("second read should succeed")
+        .expect("second form should exist");
+    assert_eq!(second.as_fixnum(), Some(42));
+    assert_eq!(second_end, 6);
+}

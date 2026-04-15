@@ -279,6 +279,19 @@ fn signal_invalid_read_syntax_in_buffer(
     )
 }
 
+fn signal_invalid_read_syntax_in_lisp_string(
+    buffer_text: &crate::heap_types::LispString,
+    absolute_error_pos: usize,
+    message: String,
+) -> Flow {
+    let storage = crate::emacs_core::builtins::runtime_string_from_lisp_string(buffer_text);
+    let storage_pos = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+        &storage,
+        absolute_error_pos.min(buffer_text.sbytes()),
+    );
+    signal_invalid_read_syntax_in_buffer(&storage, storage_pos, message)
+}
+
 fn stdin_end_of_file_error() -> Flow {
     signal(
         "end-of-file",
@@ -318,7 +331,7 @@ pub(crate) fn read_from_string_impl(
     }
 
     let full_string = expect_lisp_string(&args[0])?;
-    let full_storage = super::builtins::runtime_string_from_lisp_string(&full_string);
+    let read_source = super::value_reader::LispReadSource::new(&full_string);
 
     // GNU Emacs `Fread_from_string` (`src/lread.c:2514`) treats START and
     // END as character indices into STRING (validated via
@@ -381,16 +394,7 @@ pub(crate) fn read_from_string_impl(
         end_char
     };
 
-    let start_storage = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
-        &full_storage,
-        start_byte,
-    );
-    let end_storage = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
-        &full_storage,
-        end_byte,
-    );
-
-    let substring = &full_storage[start_storage..end_storage];
+    let substring = read_source.storage_slice_range(start_byte, end_byte);
     if starts_with_hash_skip_dispatch(substring) {
         return Err(signal(
             "end-of-file",
@@ -412,15 +416,11 @@ pub(crate) fn read_from_string_impl(
     };
     super::value_reader::set_reader_load_file_name(load_file_name_for_reader);
 
-    let read_result = super::value_reader::read_one_with_source_multibyte(
-        substring,
-        full_string.is_multibyte(),
-        0,
-    );
+    let read_result = read_source.read_one_range(start_byte, end_byte);
 
     super::value_reader::set_reader_load_file_name(saved_reader_load_file_name);
 
-    let (value, end_pos) = read_result
+    let (value, absolute_end_byte) = read_result
         .map_err(|e| {
             if e.message.contains("unterminated") || e.message.contains("end of input") {
                 signal(
@@ -441,11 +441,6 @@ pub(crate) fn read_from_string_impl(
             )
         })?;
 
-    // `read_one` returns a byte offset into `substring`. Convert it back
-    // into a character index in the original STRING so the returned
-    // FINAL-STRING-INDEX matches GNU's contract.
-    let absolute_end_byte = start_byte
-        + crate::emacs_core::string_escape::storage_byte_to_logical_byte(substring, end_pos);
     let absolute_end_char = if full_string.is_multibyte() {
         crate::emacs_core::emacs_char::byte_to_char_pos(full_string_bytes, absolute_end_byte)
     } else {
@@ -541,58 +536,42 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
         ValueKind::Veclike(VecLikeType::Buffer) => {
             // Read from buffer at point
             let buf_id = args[0].as_buffer_id().unwrap();
-            let (text, source_multibyte, pt, begv_byte) = {
+            let (text, pt, begv_byte) = {
                 let buf = &mut ctx
                     .buffers
                     .get(buf_id)
                     .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
                 let text = buf.buffer_substring_lisp_string(buf.point_min(), buf.point_max());
-                (
-                    crate::emacs_core::builtins::runtime_string_from_lisp_string(&text),
-                    text.is_multibyte(),
-                    buf.pt_byte,
-                    buf.begv_byte,
-                )
+                (text, buf.pt_byte, buf.begv_byte)
             };
-            let start = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
-                &text,
-                pt.saturating_sub(begv_byte),
-            );
-            if start >= text.len() {
+            let read_source = super::value_reader::LispReadSource::new(&text);
+            let start = pt.saturating_sub(begv_byte);
+            if start >= read_source.logical_len() {
                 return Err(signal(
                     "end-of-file",
                     vec![Value::string("End of file during parsing")],
                 ));
             }
-            let substring = &text[start..];
-            let (value, end_offset) =
-                super::value_reader::read_one_with_source_multibyte(substring, source_multibyte, 0)
-                    .map_err(|e| {
-                        if e.message.contains("unterminated") || e.message.contains("end of input")
-                        {
-                            signal(
-                                "end-of-file",
-                                vec![Value::string("End of file during parsing")],
-                            )
-                        } else {
-                            signal_invalid_read_syntax_in_buffer(
-                                &text,
-                                start + e.position,
-                                e.message,
-                            )
-                        }
-                    })?
-                    .ok_or_else(|| {
+            let (value, end_offset) = read_source
+                .read_one(start)
+                .map_err(|e| {
+                    if e.message.contains("unterminated") || e.message.contains("end of input") {
                         signal(
                             "end-of-file",
                             vec![Value::string("End of file during parsing")],
                         )
-                    })?;
-            // Advance point past the read form
-            let new_pt = pt
-                + crate::emacs_core::string_escape::storage_byte_to_logical_byte(
-                    substring, end_offset,
-                );
+                    } else {
+                        signal_invalid_read_syntax_in_lisp_string(&text, e.position, e.message)
+                    }
+                })?
+                .ok_or_else(|| {
+                    signal(
+                        "end-of-file",
+                        vec![Value::string("End of file during parsing")],
+                    )
+                })?;
+            // Advance point past the read form.
+            let new_pt = begv_byte + end_offset;
             let _ = &mut ctx.buffers.goto_buffer_byte(buf_id, new_pt);
             Ok(value)
         }

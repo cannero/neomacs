@@ -93,6 +93,80 @@ pub fn read_one_with_source_multibyte(
     Ok(Some((value, reader.pos)))
 }
 
+/// Reader source wrapper for Lisp strings.
+///
+/// This keeps the runtime-storage adapter inside the reader boundary so callers
+/// can work in logical Emacs-byte offsets instead of storage-string byte math.
+pub struct LispReadSource<'a> {
+    input: &'a crate::heap_types::LispString,
+    storage: String,
+}
+
+impl<'a> LispReadSource<'a> {
+    pub fn new(input: &'a crate::heap_types::LispString) -> Self {
+        Self {
+            input,
+            storage: crate::emacs_core::builtins::runtime_string_from_lisp_string(input),
+        }
+    }
+
+    pub fn is_multibyte(&self) -> bool {
+        self.input.is_multibyte()
+    }
+
+    pub fn logical_len(&self) -> usize {
+        self.input.sbytes()
+    }
+
+    pub fn storage_slice_range(&self, start: usize, end: usize) -> &str {
+        assert!(start <= end, "invalid LispReadSource range: {start}..{end}");
+        assert!(
+            end <= self.logical_len(),
+            "LispReadSource end {end} exceeds logical length {}",
+            self.logical_len()
+        );
+        let start_storage = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+            &self.storage,
+            start,
+        );
+        let end_storage = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+            &self.storage,
+            end,
+        );
+        &self.storage[start_storage..end_storage]
+    }
+
+    pub fn read_one(&self, start: usize) -> Result<Option<(Value, usize)>, ReadError> {
+        self.read_one_range(start, self.logical_len())
+    }
+
+    pub fn read_one_range(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Result<Option<(Value, usize)>, ReadError> {
+        let substring = self.storage_slice_range(start, end);
+        match read_one_with_source_multibyte(substring, self.is_multibyte(), 0) {
+            Ok(Some((value, end_pos))) => Ok(Some((
+                value,
+                start
+                    + crate::emacs_core::string_escape::storage_byte_to_logical_byte(
+                        substring, end_pos,
+                    ),
+            ))),
+            Ok(None) => Ok(None),
+            Err(err) => Err(ReadError {
+                message: err.message,
+                position: start
+                    + crate::emacs_core::string_escape::storage_byte_to_logical_byte(
+                        substring,
+                        err.position,
+                    ),
+            }),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Error type
 // ---------------------------------------------------------------------------

@@ -71,6 +71,17 @@ fn strip_reader_prefix(source: &str) -> (&str, bool) {
     }
 }
 
+fn strip_reader_prefix_lisp_string(source: &crate::heap_types::LispString) -> (usize, bool) {
+    let bytes = source.as_bytes();
+    if !bytes.starts_with(b"#!") {
+        return (0, false);
+    }
+    match bytes.iter().position(|&b| b == b'\n') {
+        Some(index) => (index + 1, false),
+        None => (0, true),
+    }
+}
+
 pub(crate) fn eval_forms_from_source(
     eval: &mut super::eval::Context,
     source: &str,
@@ -85,6 +96,14 @@ pub(crate) fn eval_forms_from_source(
     // read-eval, matching the approach used for file loading.
     let macroexpand_fn = super::load::get_eager_macroexpand_fn(eval);
     eval_forms_from_source_streaming(eval, source, source_multibyte, macroexpand_fn)
+}
+
+pub(crate) fn eval_forms_from_lisp_source(
+    eval: &mut super::eval::Context,
+    source: &crate::heap_types::LispString,
+) -> EvalResult {
+    let macroexpand_fn = super::load::get_eager_macroexpand_fn(eval);
+    eval_forms_from_lisp_source_streaming(eval, source, macroexpand_fn)
 }
 
 /// Streaming read-eval loop for source strings, using the Value reader.
@@ -155,6 +174,71 @@ fn eval_forms_from_source_streaming(
     Ok(Value::NIL)
 }
 
+fn eval_forms_from_lisp_source_streaming(
+    eval: &mut super::eval::Context,
+    source: &crate::heap_types::LispString,
+    macroexpand_fn: Option<Value>,
+) -> EvalResult {
+    let (start_pos, shebang_only_line) = strip_reader_prefix_lisp_string(source);
+    if shebang_only_line {
+        return Err(signal("end-of-file", vec![]));
+    }
+    if source.as_bytes().is_empty() {
+        return Ok(Value::NIL);
+    }
+
+    let read_source = super::value_reader::LispReadSource::new(source);
+    let mut pos = start_pos;
+    loop {
+        let read_result = read_source.read_one(pos).map_err(|e| {
+            signal(
+                "invalid-read-syntax",
+                vec![Value::string(format!("Read error: {}", e.message))],
+            )
+        })?;
+        let Some((form, next_pos)) = read_result else {
+            break;
+        };
+        pos = next_pos;
+
+        let saved_temp_roots = eval.save_temp_roots();
+        eval.push_temp_root(form);
+
+        let eval_result = if let Some(mexp_fn) = macroexpand_fn {
+            super::load::eager_expand_eval(eval, form, mexp_fn).map_err(|e| match e {
+                super::error::EvalError::Signal {
+                    symbol,
+                    data,
+                    raw_data,
+                } => super::error::Flow::Signal(super::error::SignalData {
+                    symbol,
+                    data,
+                    raw_data,
+                    suppress_signal_hook: false,
+                    selected_resume: None,
+                    search_complete: false,
+                }),
+                super::error::EvalError::UncaughtThrow { tag, value } => {
+                    super::error::Flow::Throw { tag, value }
+                }
+            })
+        } else {
+            eval.eval_sub(form)
+        };
+
+        eval.restore_temp_roots(saved_temp_roots);
+        eval_result?;
+
+        if let Some(mexp_fn) = macroexpand_fn {
+            eval.gc_safe_point_exact_with_extra_roots(&[mexp_fn]);
+        } else {
+            eval.gc_safe_point_exact();
+        }
+    }
+
+    Ok(Value::NIL)
+}
+
 fn map_eval_error_to_flow(err: super::error::EvalError) -> Flow {
     match err {
         super::error::EvalError::Signal {
@@ -176,17 +260,11 @@ fn map_eval_error_to_flow(err: super::error::EvalError) -> Flow {
 pub(crate) fn eval_buffer_source_text_in_state(
     buffers: &crate::buffer::BufferManager,
     arg: Option<&Value>,
-) -> Result<(String, bool), Flow> {
+) -> Result<crate::heap_types::LispString, Flow> {
     let buffer_id = resolve_eval_buffer_id_in_state(buffers, arg)?;
     buffers
         .get(buffer_id)
-        .map(|buffer| {
-            let text = buffer.buffer_substring_lisp_string(buffer.point_min(), buffer.point_max());
-            (
-                super::builtins::runtime_string_from_lisp_string(&text),
-                text.is_multibyte(),
-            )
-        })
+        .map(|buffer| buffer.buffer_substring_lisp_string(buffer.point_min(), buffer.point_max()))
         .ok_or_else(|| signal("error", vec![Value::string("No such buffer")]))
 }
 
@@ -266,11 +344,11 @@ fn record_eval_buffer_load_history(eval: &mut super::eval::Context, filename: &s
 pub(crate) fn eval_region_source_text_in_state(
     buffers: &crate::buffer::BufferManager,
     args: &[Value],
-) -> Result<(String, bool), Flow> {
+) -> Result<crate::heap_types::LispString, Flow> {
     expect_min_args("eval-region", args, 2)?;
     expect_max_args("eval-region", args, 4)?;
 
-    let (source, source_multibyte, start_char_pos, end_char_pos) = {
+    let (source, start_char_pos, end_char_pos) = {
         let buffer = buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
@@ -294,24 +372,25 @@ pub(crate) fn eval_region_source_text_in_state(
         }
 
         if raw_start >= raw_end {
-            return Ok((String::new(), buffer.get_multibyte()));
+            return Ok(crate::heap_types::LispString::new(
+                String::new(),
+                buffer.get_multibyte(),
+            ));
         }
 
         let start_byte = buffer.lisp_pos_to_accessible_byte(raw_start);
         let end_byte = buffer.lisp_pos_to_accessible_byte(raw_end);
         let text = buffer.buffer_substring_lisp_string(start_byte, end_byte);
-        (
-            super::builtins::runtime_string_from_lisp_string(&text),
-            text.is_multibyte(),
-            raw_start,
-            raw_end,
-        )
+        (text, raw_start, raw_end)
     };
 
     if start_char_pos >= end_char_pos {
-        return Ok((String::new(), false));
+        return Ok(crate::heap_types::LispString::new(
+            String::new(),
+            source.is_multibyte(),
+        ));
     }
-    Ok((source, source_multibyte))
+    Ok(source)
 }
 
 /// `(eval-buffer &optional BUFFER PRINTFLAG FILENAME UNIBYTE DO-ALLOW-PRINT)`
@@ -320,7 +399,7 @@ pub(crate) fn eval_region_source_text_in_state(
 pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_max_args("eval-buffer", &args, 5)?;
     let buffer_id = resolve_eval_buffer_id_in_state(&eval.buffers, args.first())?;
-    let (source, source_multibyte) = eval_buffer_source_text_in_state(&eval.buffers, args.first())?;
+    let source = eval_buffer_source_text_in_state(&eval.buffers, args.first())?;
     let filename = eval_buffer_filename_in_state(&eval.buffers, buffer_id, args.get(2))?;
 
     let specpdl_count = eval.specpdl.len();
@@ -362,7 +441,12 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
         {
             binding.is_truthy()
         } else {
-            match super::load::source_lexical_binding_for_load(ctx, &source, Some(buffer_value)) {
+            let source_runtime = super::builtins::runtime_string_from_lisp_string(&source);
+            match super::load::source_lexical_binding_for_load(
+                ctx,
+                &source_runtime,
+                Some(buffer_value),
+            ) {
                 Ok(enabled) => enabled,
                 Err(err) => return Err(map_eval_error_to_flow(err)),
             }
@@ -379,15 +463,21 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
             .is_truthy()
             && filename.is_some();
         let result = if loading_source_file {
+            let source_runtime = super::builtins::runtime_string_from_lisp_string(&source);
             let path = Path::new(
                 filename
                     .as_deref()
                     .expect("load-in-progress eval-buffer must have filename"),
             );
-            super::load::eval_decoded_source_file_in_context(ctx, path, &source, source_multibyte)
-                .map_err(map_eval_error_to_flow)
+            super::load::eval_decoded_source_file_in_context(
+                ctx,
+                path,
+                &source_runtime,
+                source.is_multibyte(),
+            )
+            .map_err(map_eval_error_to_flow)
         } else {
-            let result = eval_forms_from_source(ctx, &source, source_multibyte);
+            let result = eval_forms_from_lisp_source(ctx, &source);
             if result.is_ok()
                 && let Some(filename) = filename.as_deref()
             {
@@ -408,11 +498,11 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
 ///
 /// Evaluate forms in the [START, END) region of the current buffer.
 pub(crate) fn builtin_eval_region(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    let (source, source_multibyte) = eval_region_source_text_in_state(&eval.buffers, &args)?;
-    if source.is_empty() {
+    let source = eval_region_source_text_in_state(&eval.buffers, &args)?;
+    if source.as_bytes().is_empty() {
         return Ok(Value::NIL);
     }
-    eval_forms_from_source(eval, &source, source_multibyte)
+    eval_forms_from_lisp_source(eval, &source)
 }
 
 pub(crate) fn builtin_eval_buffer_in_vm_runtime(
@@ -420,15 +510,8 @@ pub(crate) fn builtin_eval_buffer_in_vm_runtime(
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
-    let (source, source_multibyte) =
-        eval_buffer_source_text_in_state(&shared.buffers, args.first())?;
-    eval_forms_from_source_in_vm_runtime_streaming(
-        shared,
-        vm_gc_roots,
-        args,
-        &source,
-        source_multibyte,
-    )
+    let source = eval_buffer_source_text_in_state(&shared.buffers, args.first())?;
+    eval_forms_from_source_in_vm_runtime_streaming(shared, vm_gc_roots, args, &source)
 }
 
 pub(crate) fn builtin_eval_region_in_vm_runtime(
@@ -436,17 +519,11 @@ pub(crate) fn builtin_eval_region_in_vm_runtime(
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
-    let (source, source_multibyte) = eval_region_source_text_in_state(&shared.buffers, args)?;
-    if source.is_empty() {
+    let source = eval_region_source_text_in_state(&shared.buffers, args)?;
+    if source.as_bytes().is_empty() {
         return Ok(Value::NIL);
     }
-    eval_forms_from_source_in_vm_runtime_streaming(
-        shared,
-        vm_gc_roots,
-        args,
-        &source,
-        source_multibyte,
-    )
+    eval_forms_from_source_in_vm_runtime_streaming(shared, vm_gc_roots, args, &source)
 }
 
 /// Streaming read-eval for VM runtime callers that need extra GC roots.
@@ -454,27 +531,25 @@ fn eval_forms_from_source_in_vm_runtime_streaming(
     shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     args: &[Value],
-    source: &str,
-    source_multibyte: bool,
+    source: &crate::heap_types::LispString,
 ) -> EvalResult {
-    let (source, shebang_only_line) = strip_reader_prefix(source);
+    let (start_pos, shebang_only_line) = strip_reader_prefix_lisp_string(source);
     if shebang_only_line {
         return Err(signal("end-of-file", vec![]));
     }
-    if source.is_empty() {
+    if source.as_bytes().is_empty() {
         return Ok(Value::NIL);
     }
 
-    let mut pos = 0;
+    let read_source = super::value_reader::LispReadSource::new(source);
+    let mut pos = start_pos;
     loop {
-        let read_result =
-            super::value_reader::read_one_with_source_multibyte(source, source_multibyte, pos)
-                .map_err(|e| {
-                    signal(
-                        "invalid-read-syntax",
-                        vec![Value::string(format!("Read error: {}", e.message))],
-                    )
-                })?;
+        let read_result = read_source.read_one(pos).map_err(|e| {
+            signal(
+                "invalid-read-syntax",
+                vec![Value::string(format!("Read error: {}", e.message))],
+            )
+        })?;
         let Some((form, next_pos)) = read_result else {
             break;
         };
