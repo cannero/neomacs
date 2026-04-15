@@ -2953,7 +2953,10 @@ pub(crate) fn resolve_call_interactively_target_and_args_with_vm_fallback(
         return Ok((function, call_args));
     }
 
-    shared.with_extra_gc_roots(extra_roots, move |eval| {
+    shared.with_gc_scope_result(|eval| {
+        for root in extra_roots {
+            eval.push_eval_root(*root);
+        }
         resolve_call_interactively_target_and_args_in_eval(eval, plan)
     })
 }

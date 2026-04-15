@@ -515,13 +515,13 @@ pub(crate) fn builtin_autoload_do_load_in_vm_runtime(
         AutoloadDoLoadPlan::Return(value) => Ok(value),
         AutoloadDoLoadPlan::Load { file, funname } => {
             let path = resolve_autoload_load_path(&shared.obarray, &file)?;
-            let mut rooted_extra_roots =
-                Vec::with_capacity(extra_roots.len() + usize::from(original_fundef.is_some()));
-            rooted_extra_roots.extend_from_slice(extra_roots);
-            if let Some(fundef) = original_fundef {
-                rooted_extra_roots.push(fundef);
-            }
-            shared.with_extra_gc_roots(&rooted_extra_roots, move |eval| {
+            shared.with_gc_scope_result(|eval| {
+                for root in extra_roots {
+                    eval.push_eval_root(*root);
+                }
+                if let Some(fundef) = original_fundef {
+                    eval.push_eval_root(fundef);
+                }
                 eval.load_file_internal(&path)
             })?;
             finish_autoload_do_load_in_state(&shared.obarray, funname, original_fundef.as_ref())
