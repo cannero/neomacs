@@ -562,9 +562,10 @@ pub(crate) fn builtin_load(eval: &mut super::eval::Context, args: Vec<Value>) ->
 
 pub(crate) fn builtin_load_file(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("load-file", &args, 1)?;
-    let file = expect_string(&args[0])?;
-    let path = std::path::Path::new(&file);
-    super::load::load_file(eval, path).map_err(eval_error_to_flow)
+    let file = crate::emacs_core::builtins::expect_lisp_string(&args[0])?.clone();
+    let path = super::fileio::lisp_file_name_to_path_buf(&file);
+    super::load::load_file_with_found_flags(eval, &path, &file, false, false)
+        .map_err(eval_error_to_flow)
 }
 
 pub(crate) fn builtin_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {

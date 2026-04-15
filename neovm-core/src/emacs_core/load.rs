@@ -32,7 +32,7 @@ fn load_path_lisp_string(path: &Path) -> LispString {
 }
 
 fn load_path_buf(value: &LispString) -> PathBuf {
-    PathBuf::from(load_runtime_string(value))
+    super::fileio::lisp_file_name_to_path_buf(value)
 }
 
 fn load_path_value(path: &Path) -> Value {

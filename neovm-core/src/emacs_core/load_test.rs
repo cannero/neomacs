@@ -10,6 +10,8 @@ use crate::emacs_core::value::{
 };
 use crate::test_utils::load_minimal_gnu_help_runtime;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -4216,6 +4218,37 @@ fn load_file_binds_load_true_file_name_and_current_load_list() {
         eval.obarray().symbol_value("current-load-list").cloned(),
         old_current_load_list,
         "current-load-list should be restored after top-level load",
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_load_file_accepts_raw_unibyte_filename_values() {
+    crate::test_utils::init_test_tracing();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("neovm-load-file-raw-{unique}"));
+    fs::create_dir_all(&dir).expect("create temp fixture dir");
+
+    let mut path_bytes = dir.as_os_str().as_bytes().to_vec();
+    path_bytes.extend_from_slice(b"/raw-");
+    path_bytes.push(0xFF);
+    path_bytes.extend_from_slice(b".el");
+    let raw_path = PathBuf::from(std::ffi::OsString::from_vec(path_bytes.clone()));
+    fs::write(&raw_path, "(setq vm-load-file-raw-ran t)\n").expect("write fixture");
+
+    let mut eval = super::super::eval::Context::new();
+    let value = Value::heap_string(crate::heap_types::LispString::from_unibyte(path_bytes));
+    let loaded = crate::emacs_core::builtins::builtin_load_file(&mut eval, vec![value])
+        .expect("load-file should accept raw unibyte filename values");
+    assert_eq!(loaded, Value::T);
+    assert_eq!(
+        eval.obarray().symbol_value("vm-load-file-raw-ran").copied(),
+        Some(Value::T)
     );
 
     let _ = fs::remove_dir_all(&dir);
