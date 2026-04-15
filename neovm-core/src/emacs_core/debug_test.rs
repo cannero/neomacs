@@ -5,6 +5,10 @@ use crate::emacs_core::value::{LambdaData, LambdaParams};
 /// Placeholder retained for old test setup naming — tagged heap is auto-created for tests.
 fn init_test_heap() {}
 
+fn debug_text(text: &str) -> crate::heap_types::LispString {
+    crate::heap_types::LispString::from_utf8(text)
+}
+
 // -- Backtrace tests --
 
 #[test]
@@ -25,7 +29,7 @@ fn backtrace_push_pop() {
     bt.push(BacktraceFrame {
         function: Value::symbol("bar"),
         args: vec![Value::fixnum(2), Value::fixnum(3)],
-        file: Some("test.el".to_string()),
+        file: Some(debug_text("test.el")),
         line: Some(42),
         is_special_form: false,
     });
@@ -72,7 +76,7 @@ fn backtrace_format_nonempty() {
     bt.push(BacktraceFrame {
         function: Value::symbol("my-add"),
         args: vec![Value::fixnum(1), Value::fixnum(2)],
-        file: Some("test.el".to_string()),
+        file: Some(debug_text("test.el")),
         line: Some(10),
         is_special_form: false,
     });
@@ -219,7 +223,7 @@ fn breakpoint_conditional() {
     let id = ds.add_conditional_breakpoint("my-fn", "(> x 5)");
     let bp = &ds.list_breakpoints()[0];
     assert_eq!(bp.id, id);
-    assert_eq!(bp.condition.as_deref(), Some("(> x 5)"));
+    assert_eq!(bp.condition.as_ref(), Some(&debug_text("(> x 5)")));
 }
 
 // -- DocStore tests --
@@ -486,7 +490,7 @@ fn debug_action_variants() {
         DebugAction::Next,
         DebugAction::Finish,
         DebugAction::Quit,
-        DebugAction::Eval("(+ 1 2)".to_string()),
+        DebugAction::Eval(debug_text("(+ 1 2)")),
     ];
     // Just verify they can be cloned and debug-printed
     for action in &actions {

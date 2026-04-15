@@ -34,7 +34,7 @@ pub struct BacktraceFrame {
     /// Arguments passed to the function.
     pub args: Vec<Value>,
     /// Source file (if known).
-    pub file: Option<String>,
+    pub file: Option<LispString>,
     /// Source line (if known).
     pub line: Option<usize>,
     /// Whether this is a special form (e.g. `if`, `let`).
@@ -110,8 +110,8 @@ impl Backtrace {
                 .collect::<Vec<_>>()
                 .join(" ");
             let loc = match (&frame.file, frame.line) {
-                (Some(f), Some(l)) => format!(" [{}:{}]", f, l),
-                (Some(f), None) => format!(" [{}]", f),
+                (Some(f), Some(l)) => format!(" [{}:{}]", debug_text(f), l),
+                (Some(f), None) => format!(" [{}]", debug_text(f)),
                 _ => String::new(),
             };
             let marker = if frame.is_special_form { "*" } else { "" };
@@ -161,7 +161,7 @@ pub enum DebugAction {
     /// Abort evaluation entirely.
     Quit,
     /// Evaluate an expression string in the current context.
-    Eval(String),
+    Eval(LispString),
 }
 
 // ---------------------------------------------------------------------------
@@ -178,7 +178,7 @@ pub struct Breakpoint {
     /// Whether the breakpoint is currently enabled.
     pub enabled: bool,
     /// Optional condition expression (source string).
-    pub condition: Option<String>,
+    pub condition: Option<LispString>,
     /// Number of times this breakpoint has been hit.
     pub hit_count: usize,
 }
@@ -207,6 +207,10 @@ impl Default for DebugState {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn debug_text(text: &LispString) -> String {
+    emacs_bytes_to_storage_string(text.as_bytes(), text.is_multibyte())
 }
 
 impl DebugState {
@@ -289,7 +293,7 @@ impl DebugState {
             id,
             function,
             enabled: true,
-            condition: Some(condition.to_string()),
+            condition: Some(runtime_string_to_lisp_string(condition, true)),
             hit_count: 0,
         });
         id
