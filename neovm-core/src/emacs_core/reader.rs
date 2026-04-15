@@ -412,7 +412,11 @@ pub(crate) fn read_from_string_impl(
     };
     super::value_reader::set_reader_load_file_name(load_file_name_for_reader);
 
-    let read_result = super::value_reader::read_one(substring, 0);
+    let read_result = super::value_reader::read_one_with_source_multibyte(
+        substring,
+        full_string.is_multibyte(),
+        0,
+    );
 
     super::value_reader::set_reader_load_file_name(saved_reader_load_file_name);
 
@@ -537,7 +541,7 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
         ValueKind::Veclike(VecLikeType::Buffer) => {
             // Read from buffer at point
             let buf_id = args[0].as_buffer_id().unwrap();
-            let (text, pt, begv_byte) = {
+            let (text, source_multibyte, pt, begv_byte) = {
                 let buf = &mut ctx
                     .buffers
                     .get(buf_id)
@@ -545,6 +549,7 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
                 let text = buf.buffer_substring_lisp_string(buf.point_min(), buf.point_max());
                 (
                     crate::emacs_core::builtins::runtime_string_from_lisp_string(&text),
+                    text.is_multibyte(),
                     buf.pt_byte,
                     buf.begv_byte,
                 )
@@ -560,23 +565,29 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
                 ));
             }
             let substring = &text[start..];
-            let (value, end_offset) = super::value_reader::read_one(substring, 0)
-                .map_err(|e| {
-                    if e.message.contains("unterminated") || e.message.contains("end of input") {
+            let (value, end_offset) =
+                super::value_reader::read_one_with_source_multibyte(substring, source_multibyte, 0)
+                    .map_err(|e| {
+                        if e.message.contains("unterminated") || e.message.contains("end of input")
+                        {
+                            signal(
+                                "end-of-file",
+                                vec![Value::string("End of file during parsing")],
+                            )
+                        } else {
+                            signal_invalid_read_syntax_in_buffer(
+                                &text,
+                                start + e.position,
+                                e.message,
+                            )
+                        }
+                    })?
+                    .ok_or_else(|| {
                         signal(
                             "end-of-file",
                             vec![Value::string("End of file during parsing")],
                         )
-                    } else {
-                        signal_invalid_read_syntax_in_buffer(&text, start + e.position, e.message)
-                    }
-                })?
-                .ok_or_else(|| {
-                    signal(
-                        "end-of-file",
-                        vec![Value::string("End of file during parsing")],
-                    )
-                })?;
+                    })?;
             // Advance point past the read form
             let new_pt = pt
                 + crate::emacs_core::string_escape::storage_byte_to_logical_byte(

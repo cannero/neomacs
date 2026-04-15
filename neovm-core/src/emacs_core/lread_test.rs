@@ -27,6 +27,33 @@ fn eval_buffer_evaluates_current_buffer_forms() {
 }
 
 #[test]
+fn eval_buffer_preserves_unibyte_string_literals() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    {
+        let buf = ev.buffers.current_buffer_mut().expect("current buffer");
+        buf.set_multibyte_value(false);
+        buf.insert_lisp_string(&crate::heap_types::LispString::from_unibyte(vec![
+            b'(', b's', b'e', b't', b'q', b' ', b'l', b'r', b'e', b'a', b'd', b'-', b'e', b'b',
+            b'-', b'r', b'a', b'w', b' ', b'"', 0xFF, b'"', b')',
+        ]));
+    }
+
+    let result = builtin_eval_buffer(&mut ev, vec![]).unwrap();
+    assert!(result.is_nil());
+    let value = ev
+        .obarray
+        .symbol_value("lread-eb-raw")
+        .copied()
+        .expect("setq should bind lread-eb-raw");
+    let text = value
+        .as_lisp_string()
+        .expect("setq target should be a string");
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[0xFF]);
+}
+
+#[test]
 fn eval_buffer_accepts_shebang_reader_prefix() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
@@ -154,6 +181,37 @@ fn eval_region_evaluates_forms_in_range() {
         ev.obarray.symbol_value("lread-er-b").cloned(),
         Some(Value::fixnum(3))
     );
+}
+
+#[test]
+fn eval_region_preserves_unibyte_string_literals() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    {
+        let buf = ev.buffers.current_buffer_mut().expect("current buffer");
+        buf.set_multibyte_value(false);
+        buf.insert_lisp_string(&crate::heap_types::LispString::from_unibyte(vec![
+            b'(', b's', b'e', b't', b'q', b' ', b'l', b'r', b'e', b'a', b'd', b'-', b'e', b'r',
+            b'-', b'r', b'a', b'w', b' ', b'"', 0xFF, b'"', b')',
+        ]));
+    }
+    let end = {
+        let buf = ev.buffers.current_buffer().expect("current buffer");
+        Value::fixnum(buf.text.char_count() as i64 + 1)
+    };
+
+    let result = builtin_eval_region(&mut ev, vec![Value::fixnum(1), end]).unwrap();
+    assert!(result.is_nil());
+    let value = ev
+        .obarray
+        .symbol_value("lread-er-raw")
+        .copied()
+        .expect("setq should bind lread-er-raw");
+    let text = value
+        .as_lisp_string()
+        .expect("setq target should be a string");
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[0xFF]);
 }
 
 #[test]

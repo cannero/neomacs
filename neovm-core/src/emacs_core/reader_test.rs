@@ -126,6 +126,48 @@ fn read_from_string_string_value() {
 }
 
 #[test]
+fn read_from_string_preserves_unibyte_string_literals() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let input = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        b'"', 0xFF, b'"',
+    ]));
+    let result = builtin_read_from_string(&mut ev, vec![input]).unwrap();
+    match result.kind() {
+        ValueKind::Cons => {
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            let text = pair_car
+                .as_lisp_string()
+                .expect("reader should return a string object");
+            assert!(!text.is_multibyte());
+            assert_eq!(text.as_bytes(), &[0xFF]);
+            assert_eq!(pair_cdr.as_fixnum(), Some(3));
+        }
+        _ => panic!("Expected cons"),
+    }
+}
+
+#[test]
+fn read_from_string_preserves_unibyte_char_literals() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let input = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        b'?', 0xFF,
+    ]));
+    let result = builtin_read_from_string(&mut ev, vec![input]).unwrap();
+    match result.kind() {
+        ValueKind::Cons => {
+            let pair_car = result.cons_car();
+            let pair_cdr = result.cons_cdr();
+            assert_eq!(pair_car.as_fixnum(), Some(255));
+            assert_eq!(pair_cdr.as_fixnum(), Some(2));
+        }
+        _ => panic!("Expected cons"),
+    }
+}
+
+#[test]
 fn read_from_string_list() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
@@ -3333,6 +3375,29 @@ fn read_from_buffer_advances_point_across_multiple_forms() {
         ev.obarray.symbol_value("reader-second").cloned(),
         Some(Value::fixnum(2))
     );
+}
+
+#[test]
+fn read_from_unibyte_buffer_preserves_unibyte_string_literals() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let buf_id = ev.buffers.create_buffer(" *reader-unibyte*");
+    {
+        let buf = ev.buffers.get_mut(buf_id).expect("buffer");
+        buf.set_multibyte_value(false);
+        buf.insert_lisp_string(&crate::heap_types::LispString::from_unibyte(vec![
+            b'"', 0xFF, b'"',
+        ]));
+        buf.goto_byte(0);
+    }
+
+    let value = builtin_read(&mut ev, vec![Value::make_buffer(buf_id)]).expect("read from buffer");
+    let text = value
+        .as_lisp_string()
+        .expect("reader should return a string object");
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[0xFF]);
+    assert_eq!(ev.buffers.get(buf_id).expect("buffer").point(), 3);
 }
 
 #[test]
