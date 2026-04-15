@@ -8564,7 +8564,7 @@ fn vm_root_frames_are_traced_across_exact_gc() {
 }
 
 #[test]
-fn extra_gc_roots_use_eval_root_frames_without_temp_root_mirroring() {
+fn extra_gc_roots_use_specpdl_when_no_runtime_frame_owns_them() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
 
@@ -8572,29 +8572,35 @@ fn extra_gc_roots_use_eval_root_frames_without_temp_root_mirroring() {
 
     let rooted = ev.with_gc_scope(|eval| {
         eval.push_eval_root(payload);
-        assert_eq!(eval.eval_root_frames.len(), 1);
+        assert!(matches!(
+            eval.specpdl.last(),
+            Some(SpecBinding::GcRoot { .. })
+        ));
         eval.gc_collect_exact();
-        eval.eval_root_frames
-            .last()
-            .expect("eval root frame should remain present")
-            .roots[0]
+        match eval.specpdl.last() {
+            Some(SpecBinding::GcRoot { value }) => *value,
+            other => panic!("expected specpdl gc root entry, got {other:?}"),
+        }
     });
 
     assert_eq!(
         rooted.as_vector_data().unwrap().as_slice(),
         &[Value::fixnum(43)]
     );
-    assert!(ev.eval_root_frames.is_empty());
+    assert!(ev.specpdl.is_empty());
 }
 
 #[test]
-fn gc_scope_uses_eval_root_frames_without_temp_root_mirroring() {
+fn gc_scope_uses_specpdl_when_no_runtime_frame_owns_roots() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
 
     let rooted = ev.with_gc_scope(|eval| {
         let payload = eval.root(Value::vector(vec![Value::fixnum(44)]));
-        assert_eq!(eval.eval_root_frames.len(), 1);
+        assert!(matches!(
+            eval.specpdl.last(),
+            Some(SpecBinding::GcRoot { .. })
+        ));
         eval.gc_collect_exact();
         payload
     });
@@ -8603,7 +8609,7 @@ fn gc_scope_uses_eval_root_frames_without_temp_root_mirroring() {
         rooted.as_vector_data().unwrap().as_slice(),
         &[Value::fixnum(44)]
     );
-    assert!(ev.eval_root_frames.is_empty());
+    assert!(ev.specpdl.is_empty());
 }
 
 #[test]

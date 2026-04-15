@@ -1669,9 +1669,9 @@ pub(crate) struct ActiveMacroExpansionScopeState {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct EvalRootScopeState {
-    pushed_eval_root_frame: bool,
     saved_active_call_extra_roots_len: Option<usize>,
     saved_eval_root_frame_len: Option<usize>,
+    saved_specpdl_len: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -8991,30 +8991,29 @@ impl Context {
     }
 
     pub(crate) fn save_eval_roots(&mut self) -> EvalRootScopeState {
-        let pushed_eval_root_frame =
-            self.active_call_roots.is_empty() && self.eval_root_frames.is_empty();
-        if pushed_eval_root_frame {
-            self.push_eval_root_frame();
-        }
         EvalRootScopeState {
-            pushed_eval_root_frame,
             saved_active_call_extra_roots_len: self
                 .active_call_roots
                 .last()
                 .map(|frame| frame.extra_roots.len()),
             saved_eval_root_frame_len: self.eval_root_frames.last().map(|frame| frame.roots.len()),
+            saved_specpdl_len: if self.active_call_roots.is_empty()
+                && self.eval_root_frames.is_empty()
+            {
+                Some(self.specpdl.len())
+            } else {
+                None
+            },
         }
     }
 
     pub(crate) fn push_eval_root(&mut self, value: Value) {
         if let Some(frame) = self.active_call_roots.last_mut() {
             frame.extra_roots.push(value);
+        } else if let Some(frame) = self.eval_root_frames.last_mut() {
+            frame.roots.push(value);
         } else {
-            self.eval_root_frames
-                .last_mut()
-                .expect("push_eval_root requires an active call frame or eval root frame")
-                .roots
-                .push(value);
+            self.push_specpdl_root(value);
         }
     }
 
@@ -9029,8 +9028,8 @@ impl Context {
         {
             frame.roots.truncate(saved_len);
         }
-        if scope.pushed_eval_root_frame {
-            self.pop_eval_root_frame();
+        if let Some(saved_len) = scope.saved_specpdl_len {
+            self.restore_specpdl_roots(SpecpdlRootScopeState { saved_len });
         }
     }
 
