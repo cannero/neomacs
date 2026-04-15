@@ -415,7 +415,10 @@ fn enter_exit_lifecycle() {
         let state = mgr
             .read_from_minibuffer(BufferId(1), "Enter: ", Some("init"), None)
             .unwrap();
-        assert_eq!(state.prompt, "Enter: ");
+        assert_eq!(
+            state.prompt,
+            crate::heap_types::LispString::from_utf8("Enter: ")
+        );
         assert_eq!(state.content, "init");
         assert!(state.active);
         assert_eq!(state.depth, 1);
@@ -440,7 +443,7 @@ fn exit_with_default() {
         let state = mgr
             .read_from_minibuffer(BufferId(1), "Enter: ", None, None)
             .unwrap();
-        state.default_value = Some("fallback".to_string());
+        state.default_value = Some(crate::heap_types::LispString::from_utf8("fallback"));
         // Content is empty, so default should be used.
     }
     let result = mgr.exit_minibuffer();
@@ -789,8 +792,11 @@ fn eval_minibuffer_runtime_state_tracks_active_prompt_and_contents() {
     let minibuf_id = eval.buffers.create_buffer(" *Minibuf-1*");
     {
         let buf = eval.buffers.get_mut(minibuf_id).expect("minibuffer buffer");
-        buf.text.insert_str(0, "Prompt: value");
-        buf.goto_byte(buf.text.len());
+        crate::emacs_core::minibuffer::install_minibuffer_buffer_text(
+            buf,
+            &crate::heap_types::LispString::from_utf8("Prompt: "),
+            Some(&crate::heap_types::LispString::from_utf8("value")),
+        );
     }
     eval.buffers.set_current(minibuf_id);
     eval.minibuffers
@@ -799,15 +805,19 @@ fn eval_minibuffer_runtime_state_tracks_active_prompt_and_contents() {
 
     assert_eq!(
         builtin_minibuffer_prompt_ctx(&mut eval, vec![]).unwrap(),
-        Value::string("Prompt: ")
+        Value::heap_string(crate::heap_types::LispString::from_utf8("Prompt: "))
     );
     assert_eq!(
-        builtin_minibuffer_contents_ctx(&mut eval, vec![]).unwrap(),
-        Value::string("value")
+        builtin_minibuffer_contents_ctx(&mut eval, vec![])
+            .unwrap()
+            .as_str(),
+        Some("value")
     );
     assert_eq!(
-        builtin_minibuffer_contents_no_properties_ctx(&mut eval, vec![]).unwrap(),
-        Value::string("value")
+        builtin_minibuffer_contents_no_properties_ctx(&mut eval, vec![])
+            .unwrap()
+            .as_str(),
+        Some("value")
     );
     assert_eq!(
         builtin_minibuffer_depth_ctx(&mut eval, vec![]).unwrap(),
@@ -825,6 +835,37 @@ fn eval_minibuffer_runtime_state_tracks_active_prompt_and_contents() {
         builtin_abort_minibuffers_ctx(&mut eval, vec![]),
         Err(Flow::Throw { tag, value }) if tag.is_symbol_named("exit") && value == Value::T
     ));
+}
+
+#[test]
+fn eval_minibuffer_runtime_state_preserves_raw_unibyte_prompt_and_contents() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let minibuf_id = eval.buffers.create_buffer(" *Minibuf-raw*");
+    let raw_prompt = crate::heap_types::LispString::from_unibyte(vec![0xFF, b':', b' ']);
+    {
+        let buf = eval.buffers.get_mut(minibuf_id).expect("minibuffer buffer");
+        crate::emacs_core::minibuffer::install_minibuffer_buffer_text(
+            buf,
+            &raw_prompt,
+            Some(&crate::heap_types::LispString::from_utf8("value")),
+        );
+    }
+    eval.buffers.set_current(minibuf_id);
+    eval.minibuffers
+        .read_from_minibuffer_lisp(
+            minibuf_id,
+            &raw_prompt,
+            Some(&crate::heap_types::LispString::from_utf8("value")),
+            None,
+        )
+        .expect("enter raw minibuffer");
+
+    let prompt = builtin_minibuffer_prompt_ctx(&mut eval, vec![]).unwrap();
+    assert_eq!(prompt.as_lisp_string().expect("prompt string"), &raw_prompt);
+
+    let contents = builtin_minibuffer_contents_ctx(&mut eval, vec![]).unwrap();
+    assert_eq!(contents.as_str(), Some("value"));
 }
 
 #[test]

@@ -50,6 +50,14 @@ fn reader_string_text(value: &Value) -> Option<String> {
     value.as_runtime_string_owned()
 }
 
+fn reader_initial_input_lisp_string(value: &Value) -> Option<crate::heap_types::LispString> {
+    match value.kind() {
+        ValueKind::String => value.as_lisp_string().cloned(),
+        ValueKind::Cons => value.cons_car().as_lisp_string().cloned(),
+        _ => None,
+    }
+}
+
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
         ValueKind::String => Ok(reader_string_text(value).expect("checked string")),
@@ -707,12 +715,10 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
         ));
     }
 
-    let prompt = expect_string(&args[0])?;
+    let prompt = expect_lisp_string(&args[0])?;
+    let prompt_runtime = super::builtins::runtime_string_from_lisp_string(&prompt);
     // Extract optional arguments
-    let initial_input = args.get(1).and_then(|v| match v.kind() {
-        ValueKind::String => reader_string_text(v),
-        _ => None,
-    });
+    let initial_input = args.get(1).and_then(reader_initial_input_lisp_string);
     let keymap_arg = args.get(2).copied().unwrap_or(Value::NIL);
     let read_arg = args.get(3).copied().unwrap_or(Value::NIL);
     let history_name = minibuffer_history_name(args.get(4));
@@ -732,19 +738,8 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     let prompt_byte_len;
     {
         let buf = buffers.get_mut(minibuf_id).unwrap();
-        let text_len = buf.text.len();
-        if text_len > 0 {
-            buf.text.delete_range(0, text_len);
-        }
-        buf.text.insert_str(0, &prompt);
-        let prompt_storage_len = prompt.len();
-        prompt_byte_len = crate::emacs_core::string_escape::storage_byte_len(&prompt);
-        if let Some(ref initial) = initial_input {
-            buf.text.insert_str(prompt_storage_len, initial);
-        }
-        let total_len = buf.total_bytes();
-        buf.widen();
-        buf.goto_byte(total_len); // cursor at end of initial input
+        prompt_byte_len =
+            super::minibuffer::install_minibuffer_buffer_text(buf, &prompt, initial_input.as_ref());
     }
 
     let active_window_state = activate_minibuffer_window_in_state(
@@ -761,7 +756,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     }
     tracing::debug!(
         "read-from-minibuffer: prompt={:?} minibuf_id={:?} current_buffer={:?} active_window={:?} selected_window={:?}",
-        prompt,
+        prompt_runtime,
         minibuf_id,
         buffers.current_buffer_id(),
         *active_minibuffer_window,
@@ -774,10 +769,10 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
         .unwrap_or(Value::NIL)
         .is_truthy();
     minibuffers.set_enable_recursive(enable_recursive);
-    let state = minibuffers.read_from_minibuffer(
+    let state = minibuffers.read_from_minibuffer_lisp(
         minibuf_id,
         &prompt,
-        initial_input.as_deref(),
+        initial_input.as_ref(),
         history_name,
     )?;
     state.command_loop_depth = recursive_depth;
@@ -794,7 +789,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     let _ = buffers.set_current_local_map(minibuf_keymap);
 
     // Set minibuffer-related variables
-    obarray.set_symbol_value("minibuffer-prompt", Value::string(prompt));
+    obarray.set_symbol_value("minibuffer-prompt", Value::heap_string(prompt.clone()));
     obarray.set_symbol_value("minibuffer-depth", Value::fixnum(minibuf_depth as i64));
 
     run_setup_hook()?;
@@ -1216,11 +1211,9 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
         ));
     }
 
-    let prompt = expect_string(&args[0])?;
-    let initial_input = args.get(1).and_then(|v| match v.kind() {
-        ValueKind::String => reader_string_text(v),
-        _ => None,
-    });
+    let prompt = expect_lisp_string(&args[0])?;
+    let prompt_runtime = super::builtins::runtime_string_from_lisp_string(&prompt);
+    let initial_input = args.get(1).and_then(reader_initial_input_lisp_string);
     let keymap_arg = args.get(2).copied().unwrap_or(Value::NIL);
     let read_arg = args.get(3).copied().unwrap_or(Value::NIL);
     let history_name = minibuffer_history_name(args.get(4));
@@ -1239,19 +1232,8 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     let prompt_byte_len;
     {
         let buf = shared.buffers.get_mut(minibuf_id).unwrap();
-        let text_len = buf.text.len();
-        if text_len > 0 {
-            buf.text.delete_range(0, text_len);
-        }
-        buf.text.insert_str(0, &prompt);
-        let prompt_storage_len = prompt.len();
-        prompt_byte_len = crate::emacs_core::string_escape::storage_byte_len(&prompt);
-        if let Some(ref initial) = initial_input {
-            buf.text.insert_str(prompt_storage_len, initial);
-        }
-        let total_len = buf.total_bytes();
-        buf.widen();
-        buf.goto_byte(total_len);
+        prompt_byte_len =
+            super::minibuffer::install_minibuffer_buffer_text(buf, &prompt, initial_input.as_ref());
     }
 
     let active_window_state = activate_minibuffer_window_in_state(
@@ -1266,7 +1248,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     }
     tracing::debug!(
         "read-from-minibuffer: prompt={:?} minibuf_id={:?} current_buffer={:?} active_window={:?} selected_window={:?}",
-        prompt,
+        prompt_runtime,
         minibuf_id,
         shared.buffers.current_buffer_id(),
         shared.active_minibuffer_window,
@@ -1284,10 +1266,10 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
         .is_truthy();
     shared.minibuffers.set_enable_recursive(enable_recursive);
     {
-        let state = shared.minibuffers.read_from_minibuffer(
+        let state = shared.minibuffers.read_from_minibuffer_lisp(
             minibuf_id,
             &prompt,
-            initial_input.as_deref(),
+            initial_input.as_ref(),
             history_name,
         )?;
         state.command_loop_depth = recursive_depth;
@@ -1305,7 +1287,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     let _ = shared.buffers.set_current_local_map(minibuf_keymap);
     shared
         .obarray
-        .set_symbol_value("minibuffer-prompt", Value::string(&prompt));
+        .set_symbol_value("minibuffer-prompt", Value::heap_string(prompt.clone()));
     shared
         .obarray
         .set_symbol_value("minibuffer-depth", Value::fixnum(minibuf_depth as i64));

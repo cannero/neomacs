@@ -199,10 +199,10 @@ pub struct CompletionResult {
 /// Tracks one active minibuffer interaction (possibly recursive).
 pub struct MinibufferState {
     pub buffer_id: BufferId,
-    pub prompt: String,
+    pub prompt: LispString,
     pub prompt_end: usize,
-    pub initial_input: String,
-    pub history: Vec<String>,
+    pub initial_input: LispString,
+    pub history: Vec<LispString>,
     pub history_position: Option<usize>,
     pub content: String,
     pub cursor_pos: usize,
@@ -217,7 +217,7 @@ pub struct MinibufferState {
     /// - symbol `confirm-after-completion` — like `confirm` but only after
     ///   the user has triggered a completion at least once
     pub require_match: Value,
-    pub default_value: Option<String>,
+    pub default_value: Option<LispString>,
     pub active: bool,
     /// Recursive minibuffer depth at which this state was entered.
     pub depth: usize,
@@ -226,17 +226,19 @@ pub struct MinibufferState {
 }
 
 impl MinibufferState {
-    fn new(buffer_id: BufferId, prompt: String, initial: String, depth: usize) -> Self {
-        let cursor_pos = initial.len();
-        let prompt_end = prompt.len();
+    fn new(buffer_id: BufferId, prompt: LispString, initial: LispString, depth: usize) -> Self {
+        let prompt_runtime = super::builtins::runtime_string_from_lisp_string(&prompt);
+        let initial_runtime = super::builtins::runtime_string_from_lisp_string(&initial);
+        let cursor_pos = initial_runtime.len();
+        let prompt_end = crate::emacs_core::string_escape::storage_byte_len(&prompt_runtime);
         Self {
             buffer_id,
             prompt,
             prompt_end,
-            initial_input: initial.clone(),
+            initial_input: initial,
             history: Vec::new(),
             history_position: None,
-            content: initial,
+            content: initial_runtime,
             cursor_pos,
             completion_table: None,
             require_match: Value::NIL,
@@ -246,6 +248,39 @@ impl MinibufferState {
             command_loop_depth: 0,
         }
     }
+}
+
+pub(crate) fn install_minibuffer_buffer_text(
+    buf: &mut crate::buffer::Buffer,
+    prompt: &LispString,
+    initial: Option<&LispString>,
+) -> usize {
+    let text_len = buf.text.len();
+    if text_len > 0 {
+        buf.text.delete_range(0, text_len);
+    }
+
+    let prompt_runtime = super::builtins::runtime_string_from_lisp_string(prompt);
+    buf.insert(&prompt_runtime);
+    let prompt_end = buf.total_bytes();
+    if prompt_end > 0 {
+        buf.text
+            .text_props_put_property(0, prompt_end, Value::symbol("field"), Value::T);
+        buf.text
+            .text_props_put_property(0, prompt_end, Value::symbol("front-sticky"), Value::T);
+        buf.text
+            .text_props_put_property(0, prompt_end, Value::symbol("rear-nonsticky"), Value::T);
+    }
+
+    if let Some(initial) = initial {
+        let initial_runtime = super::builtins::runtime_string_from_lisp_string(initial);
+        buf.insert(&initial_runtime);
+    }
+
+    let total_len = buf.total_bytes();
+    buf.widen();
+    buf.goto_byte(total_len);
+    prompt_end
 }
 
 // ---------------------------------------------------------------------------
@@ -324,11 +359,11 @@ impl MinibufferManager {
     ///
     /// Returns a fresh `MinibufferState` that has been pushed onto the stack.
     /// The caller can further configure it (completion table, require-match, default).
-    pub(crate) fn read_from_minibuffer(
+    pub(crate) fn read_from_minibuffer_lisp(
         &mut self,
         buffer_id: BufferId,
-        prompt: &str,
-        initial: Option<&str>,
+        prompt: &LispString,
+        initial: Option<&LispString>,
         history_name: Option<SymId>,
     ) -> Result<&mut MinibufferState, Flow> {
         let new_depth = self.state_stack.len() + 1;
@@ -350,27 +385,31 @@ impl MinibufferManager {
             ));
         }
 
-        let initial_str = initial.unwrap_or("").to_string();
-        let mut state = MinibufferState::new(buffer_id, prompt.to_string(), initial_str, new_depth);
+        let initial_string = initial
+            .cloned()
+            .unwrap_or_else(|| LispString::from_utf8(""));
+        let mut state = MinibufferState::new(buffer_id, prompt.clone(), initial_string, new_depth);
 
         // Pre-populate history from the named list.
         if let Some(name) = history_name {
-            state.history = self
-                .history
-                .get(name)
-                .iter()
-                .map(|entry| {
-                    crate::emacs_core::string_escape::emacs_bytes_to_storage_string(
-                        entry.as_bytes(),
-                        entry.is_multibyte(),
-                    )
-                })
-                .collect();
+            state.history = self.history.get(name).to_vec();
         }
 
         self.state_stack.push(state);
         // Safety: we just pushed, so unwrap is fine.
         Ok(self.state_stack.last_mut().unwrap())
+    }
+
+    pub(crate) fn read_from_minibuffer(
+        &mut self,
+        buffer_id: BufferId,
+        prompt: &str,
+        initial: Option<&str>,
+        history_name: Option<SymId>,
+    ) -> Result<&mut MinibufferState, Flow> {
+        let prompt = LispString::from_utf8(prompt);
+        let initial = initial.map(LispString::from_utf8);
+        self.read_from_minibuffer_lisp(buffer_id, &prompt, initial.as_ref(), history_name)
     }
 
     /// Attempt to complete the current minibuffer content.
@@ -424,7 +463,11 @@ impl MinibufferManager {
         if let Some(mut state) = self.state_stack.pop() {
             state.active = false;
             let result = if state.content.is_empty() {
-                state.default_value.unwrap_or_default()
+                state
+                    .default_value
+                    .as_ref()
+                    .map(super::builtins::runtime_string_from_lisp_string)
+                    .unwrap_or_default()
             } else {
                 state.content.clone()
             };
@@ -460,9 +503,10 @@ impl MinibufferManager {
         };
         state.history_position = Some(new_pos);
         let entry = history[new_pos].clone();
-        state.content = entry.clone();
-        state.cursor_pos = entry.len();
-        Some(entry)
+        let entry_runtime = super::builtins::runtime_string_from_lisp_string(&entry);
+        state.content = entry_runtime.clone();
+        state.cursor_pos = entry_runtime.len();
+        Some(entry_runtime)
     }
 
     /// Navigate to the next (newer) history entry.
@@ -473,17 +517,20 @@ impl MinibufferManager {
             Some(0) => {
                 // Back to the original input.
                 state.history_position = None;
-                state.content = state.initial_input.clone();
-                state.cursor_pos = state.initial_input.len();
-                Some(state.initial_input.clone())
+                let initial_runtime =
+                    super::builtins::runtime_string_from_lisp_string(&state.initial_input);
+                state.content = initial_runtime.clone();
+                state.cursor_pos = initial_runtime.len();
+                Some(initial_runtime)
             }
             Some(p) => {
                 let new_pos = p - 1;
                 state.history_position = Some(new_pos);
                 let entry = state.history[new_pos].clone();
-                state.content = entry.clone();
-                state.cursor_pos = entry.len();
-                Some(entry)
+                let entry_runtime = super::builtins::runtime_string_from_lisp_string(&entry);
+                state.content = entry_runtime.clone();
+                state.cursor_pos = entry_runtime.len();
+                Some(entry_runtime)
             }
         }
     }
@@ -999,7 +1046,7 @@ pub(crate) fn builtin_minibuffer_prompt_ctx(
     Ok(eval
         .minibuffers
         .current()
-        .map(|state| Value::string(&state.prompt))
+        .map(|state| Value::heap_string(state.prompt.clone()))
         .unwrap_or(Value::NIL))
 }
 
@@ -1021,9 +1068,8 @@ pub(crate) fn builtin_minibuffer_prompt_end_ctx(
         return Ok(Value::fixnum(point_min));
     }
 
-    let prompt_end_byte = state.prompt_end.min(buffer.text.len());
-    let prompt_end_char = buffer.text.byte_to_char(prompt_end_byte) as i64 + 1;
-    Ok(Value::fixnum(prompt_end_char.max(point_min)))
+    super::builtins::dispatch_builtin(eval, "field-end", vec![Value::fixnum(point_min)])
+        .expect("field-end builtin must exist")
 }
 
 /// `(minibuffer-contents)` — returns the current minibuffer contents.
@@ -1034,8 +1080,7 @@ pub(crate) fn builtin_minibuffer_contents_ctx(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("minibuffer-contents", &args, 0)?;
-    let text = minibuffer_contents_string(&eval.minibuffers, &eval.buffers);
-    Ok(Value::string(text))
+    Ok(Value::heap_string(minibuffer_contents_lisp_string(eval)?))
 }
 
 /// `(minibuffer-contents-no-properties)` — returns minibuffer contents
@@ -1048,8 +1093,7 @@ pub(crate) fn builtin_minibuffer_contents_no_properties_ctx(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("minibuffer-contents-no-properties", &args, 0)?;
-    let text = minibuffer_contents_string(&eval.minibuffers, &eval.buffers);
-    Ok(Value::string(text))
+    Ok(Value::heap_string(minibuffer_contents_lisp_string(eval)?))
 }
 
 /// `(minibuffer-depth)` — returns the current recursive minibuffer depth.
@@ -1242,19 +1286,22 @@ pub(crate) fn builtin_abort_minibuffers_ctx(
     })
 }
 
-fn minibuffer_contents_string(minibuffers: &MinibufferManager, buffers: &BufferManager) -> String {
-    let Some(buffer) = buffers.current_buffer() else {
-        return String::new();
+fn minibuffer_contents_lisp_string(eval: &mut super::eval::Context) -> Result<LispString, Flow> {
+    let Some((point_max, current_id)) = eval
+        .buffers
+        .current_buffer()
+        .map(|buffer| (buffer.point_max(), buffer.id))
+    else {
+        return Ok(LispString::from_utf8(""));
     };
-    if let Some(state) = minibuffers.current()
-        && state.buffer_id == buffer.id
-    {
-        let start = state.prompt_end.min(buffer.point_max());
-        let text = buffer.buffer_substring_lisp_string(start, buffer.point_max());
-        return super::builtins::runtime_string_from_lisp_string(&text);
-    }
-    let text = buffer.buffer_substring_lisp_string(buffer.point_min(), buffer.point_max());
-    super::builtins::runtime_string_from_lisp_string(&text)
+    let prompt_end = builtin_minibuffer_prompt_end_ctx(eval, vec![])?;
+    let prompt_end_pos = prompt_end.as_fixnum().unwrap_or(1);
+    let buffer = eval
+        .buffers
+        .get(current_id)
+        .expect("current buffer must remain available");
+    let start = buffer.lisp_pos_to_accessible_byte(prompt_end_pos);
+    Ok(buffer.buffer_substring_lisp_string(start, point_max))
 }
 
 fn resolve_minibuffer_buffer_arg(
