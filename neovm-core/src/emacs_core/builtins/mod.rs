@@ -241,6 +241,16 @@ pub(super) fn expect_character_code(value: &Value) -> Result<i64, Flow> {
     }
 }
 
+pub(crate) fn character_code_to_rust_char(code: i64) -> Option<char> {
+    let code = code as u32;
+    char::from_u32(code).or_else(|| {
+        crate::emacs_core::emacs_char::char_byte8_p(code).then(|| {
+            char::from_u32(crate::emacs_core::emacs_char::char_to_byte8(code) as u32)
+                .expect("raw byte values must be valid Unicode scalars")
+        })
+    })
+}
+
 fn maybe_trace_characterp_nil(value: &Value, source: &str) {
     if !value.is_nil() {
         return;

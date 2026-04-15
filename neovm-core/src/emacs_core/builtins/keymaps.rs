@@ -789,7 +789,10 @@ pub(super) fn builtin_text_char_description(args: Vec<Value>) -> EvalResult {
 
     let rendered = match code {
         0 => "^@".to_string(),
-        1..=26 => format!("^{}", char::from_u32((code as u32) + 64).unwrap_or('?')),
+        1..=26 => format!(
+            "^{}",
+            char::from_u32((code as u32) + 64).expect("control-letter rendering must be ASCII")
+        ),
         27 => "^[".to_string(),
         28 => "^\\\\".to_string(),
         29 => "^]".to_string(),

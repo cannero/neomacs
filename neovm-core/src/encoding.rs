@@ -797,7 +797,7 @@ pub(crate) fn builtin_char_width(args: Vec<Value>) -> EvalResult {
     if code > 0x10_FFFF {
         return Ok(Value::fixnum(1));
     }
-    let width = char::from_u32(code as u32).map(char_width).unwrap_or(1);
+    let width = char_width(char::from_u32(code as u32).expect("code <= 0x10FFFF must be valid"));
     Ok(Value::fixnum(width as i64))
 }
 

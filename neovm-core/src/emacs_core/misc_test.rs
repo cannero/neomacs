@@ -234,6 +234,29 @@ fn safe_length_non_list() {
 // ----- subst-char-in-string -----
 
 #[test]
+fn subst_char_in_string_preserves_nonunicode_character_codes() {
+    crate::test_utils::init_test_tracing();
+    let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+    let len = crate::emacs_core::emacs_char::char_string(0x3F_FFFF, &mut buf);
+    let value = Value::heap_string(crate::heap_types::LispString::from_emacs_bytes(
+        buf[..len].to_vec(),
+    ));
+    let result = builtin_subst_char_in_string(vec![
+        Value::fixnum(0x3F_FFFF),
+        Value::fixnum(0x3F_FFFE),
+        value,
+    ])
+    .unwrap();
+    let ls = result
+        .as_lisp_string()
+        .expect("subst-char-in-string result");
+    assert_eq!(
+        crate::emacs_core::builtins::lisp_string_char_codes(ls),
+        vec![0x3F_FFFE]
+    );
+}
+
+#[test]
 fn subst_char_basic() {
     crate::test_utils::init_test_tracing();
     let result = builtin_subst_char_in_string(vec![

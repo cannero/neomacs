@@ -635,20 +635,16 @@ pub(crate) fn builtin_seq_concatenate(args: Vec<Value>) -> EvalResult {
         "list" => Ok(Value::list(combined)),
         "vector" => Ok(Value::vector(combined)),
         "string" => {
-            let mut s = String::new();
+            let mut bytes = Vec::new();
+            let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
             for value in &combined {
-                let ch = match value.kind() {
-                    ValueKind::Fixnum(c) => char::from_u32(c as u32).unwrap_or('\0'),
-                    _ => {
-                        return Err(signal(
-                            "wrong-type-argument",
-                            vec![Value::symbol("characterp"), *value],
-                        ));
-                    }
-                };
-                s.push(ch);
+                let code = super::builtins::expect_character_code(value)? as u32;
+                let len = crate::emacs_core::emacs_char::char_string(code, &mut buf);
+                bytes.extend_from_slice(&buf[..len]);
             }
-            Ok(Value::string(s))
+            Ok(Value::heap_string(
+                crate::heap_types::LispString::from_emacs_bytes(bytes),
+            ))
         }
         _ => unreachable!(),
     }
@@ -1054,20 +1050,16 @@ pub(crate) fn builtin_cl_map(eval: &mut super::eval::Context, args: Vec<Value>) 
             let items = list_to_vec(&mapped).ok_or_else(|| {
                 signal("wrong-type-argument", vec![Value::symbol("listp"), mapped])
             })?;
-            let mut out = String::new();
+            let mut bytes = Vec::new();
+            let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
             for item in items {
-                let ch = match item.kind() {
-                    ValueKind::Fixnum(c) => char::from_u32(c as u32).unwrap_or('\0'),
-                    _ => {
-                        return Err(signal(
-                            "wrong-type-argument",
-                            vec![Value::symbol("characterp"), item],
-                        ));
-                    }
-                };
-                out.push(ch);
+                let code = super::builtins::expect_character_code(&item)? as u32;
+                let len = crate::emacs_core::emacs_char::char_string(code, &mut buf);
+                bytes.extend_from_slice(&buf[..len]);
             }
-            Ok(Value::string(out))
+            Ok(Value::heap_string(
+                crate::heap_types::LispString::from_emacs_bytes(bytes),
+            ))
         }
         _ => Err(signal(
             "error",

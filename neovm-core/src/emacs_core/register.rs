@@ -236,7 +236,12 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
 /// single-character string.
 fn expect_register(value: &Value) -> Result<char, Flow> {
     match value.kind() {
-        ValueKind::Fixnum(c) => Ok(char::from_u32(c as u32).unwrap_or('\0')),
+        ValueKind::Fixnum(c) => super::builtins::character_code_to_rust_char(c).ok_or_else(|| {
+            signal(
+                "error",
+                vec![Value::string("Invalid character code"), *value],
+            )
+        }),
         ValueKind::String => {
             let string = value.as_lisp_string().expect("string");
             if string.schars() != 1 {
@@ -250,8 +255,12 @@ fn expect_register(value: &Value) -> Result<char, Flow> {
             } else {
                 string.as_bytes()[0] as u32
             };
-            Ok(char::from_u32(code)
-                .unwrap_or_else(|| crate::emacs_core::emacs_char::char_to_byte8(code) as char))
+            super::builtins::character_code_to_rust_char(code as i64).ok_or_else(|| {
+                signal(
+                    "error",
+                    vec![Value::string("Invalid character code"), *value],
+                )
+            })
         }
         other => Err(signal(
             "wrong-type-argument",

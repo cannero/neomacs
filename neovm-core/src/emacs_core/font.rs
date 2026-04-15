@@ -18,9 +18,9 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{OnceLock, RwLock};
 
+use super::builtins::lisp_string_to_runtime_string;
 use super::error::{EvalResult, Flow, signal};
 use super::intern::{intern, resolve_sym};
-use super::textprop::string_elisp_pos_to_byte;
 use super::value::*;
 use crate::buffer::{Buffer, BufferManager};
 use crate::face::{
@@ -112,7 +112,7 @@ fn frame_id_from_designator(value: &Value) -> Option<FrameId> {
 
 fn font_value_text(value: &Value) -> Option<String> {
     match value.kind() {
-        ValueKind::String => Some(value.as_str().unwrap().to_owned()),
+        ValueKind::String => Some(lisp_string_to_runtime_string(*value)),
         ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
         _ => None,
     }
@@ -567,7 +567,7 @@ fn font_vector_get_flexible(vec_elems: &[Value], prop: &str) -> Option<Value> {
 
 fn font_spec_field_to_string(value: &Value) -> String {
     match value.kind() {
-        ValueKind::String => value.as_str().unwrap().to_owned(),
+        ValueKind::String => lisp_string_to_runtime_string(*value),
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         _ => "*".to_string(),
     }
@@ -607,7 +607,7 @@ fn normalize_registry_field(value: &Option<Value>) -> String {
         None => "*-*".to_string(),
         Some(v) => match v.kind() {
             ValueKind::String => {
-                let s = v.as_str().unwrap().to_owned();
+                let s = lisp_string_to_runtime_string(*v);
                 if !s.contains('-') {
                     format!("{}-*", s)
                 } else {
@@ -634,7 +634,7 @@ fn sanitize_style_field(value: &Value) -> String {
             .filter(|ch| *ch != '-' && *ch != '?' && *ch != ',' && *ch != '"')
             .collect(),
         ValueKind::String => {
-            let s = value.as_str().unwrap().to_owned();
+            let s = lisp_string_to_runtime_string(*value);
             s.chars()
                 .filter(|ch| *ch != '-' && *ch != '?' && *ch != ',' && *ch != '"')
                 .collect()
@@ -666,7 +666,7 @@ fn avg_width_field(value: Option<&Value>) -> String {
     match value {
         Some(v) => match v.kind() {
             ValueKind::Fixnum(n) => n.to_string(),
-            ValueKind::String => v.as_str().unwrap().to_owned(),
+            ValueKind::String => lisp_string_to_runtime_string(*v),
             ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
             _ => "*".to_string(),
         },
@@ -1522,7 +1522,7 @@ fn font_value_matches_frame_font_parameter(
     };
     match (frame_font.kind(), requested.kind()) {
         (ValueKind::String, ValueKind::String) => {
-            frame_font.as_str().unwrap() == requested.as_str().unwrap()
+            frame_font.as_lisp_string() == requested.as_lisp_string()
         }
         _ => false,
     }
@@ -1668,22 +1668,22 @@ pub(crate) fn builtin_font_at(eval: &mut super::eval::Context, args: Vec<Value>)
                     ));
                 }
             };
-            let string = string_value.as_str().unwrap().to_owned();
-            let char_len = string.chars().count() as i64;
+            let string = lisp_string_to_runtime_string(*string_value);
+            let codes = crate::emacs_core::string_escape::decode_storage_char_codes(&string);
+            let char_len = codes.len() as i64;
             if !(0 <= pos && pos < char_len) {
                 return Err(signal(
                     "args-out-of-range",
                     vec![Value::string(string), Value::fixnum(pos)],
                 ));
             }
-            let bytepos = string_elisp_pos_to_byte(&string, pos);
+            let bytepos =
+                crate::emacs_core::string_escape::storage_char_to_byte(&string, pos as usize);
             let face = resolved_face_at_string_byte(eval, *string_value, bytepos);
-            let character = string.chars().nth(pos as usize).ok_or_else(|| {
-                signal(
-                    "args-out-of-range",
-                    vec![Value::string(string), Value::fixnum(pos)],
-                )
-            })?;
+            let code = codes[pos as usize];
+            let Some(character) = char::from_u32(code) else {
+                return Ok(build_font_object(&face));
+            };
             if let Some(matched) = resolve_font_match(eval, frame_id, character, &face) {
                 return Ok(build_font_object_for_match(&face, &matched));
             }
@@ -2132,7 +2132,7 @@ fn require_symbol_face_name(face: &Value) -> Result<String, Flow> {
 
 fn known_face_name(face: &Value) -> Option<String> {
     let name = match face.kind() {
-        ValueKind::String => face.as_str().unwrap().to_owned(),
+        ValueKind::String => lisp_string_to_runtime_string(*face),
         _ => symbol_name_for_face_value(face)?,
     };
     if KNOWN_FACES.contains(&name.as_str()) || is_created_lisp_face(&name) {
@@ -2156,7 +2156,7 @@ fn resolve_copy_source_face_symbol(face: &Value) -> Result<String, Flow> {
 fn resolve_face_name_for_domain(face: &Value, defaults_frame: bool) -> Result<String, Flow> {
     match face.kind() {
         ValueKind::String => {
-            let name = face.as_str().unwrap().to_owned();
+            let name = lisp_string_to_runtime_string(*face);
             if face_exists_for_domain(&name, defaults_frame) {
                 Err(signal(
                     "wrong-type-argument",
@@ -2186,7 +2186,7 @@ fn resolve_face_name_for_domain(face: &Value, defaults_frame: bool) -> Result<St
 fn resolve_face_name_for_merge(face: &Value) -> Result<String, Flow> {
     match face.kind() {
         ValueKind::String => {
-            let name = face.as_str().unwrap().to_owned();
+            let name = lisp_string_to_runtime_string(*face);
             if face_exists_for_domain(&name, true) {
                 Ok(name)
             } else {
@@ -2393,7 +2393,7 @@ fn lisp_face_attribute_value(face: &str, attr: &str, defaults_frame: bool) -> Va
 fn resolve_known_face_name_for_compare(face: &Value, defaults_frame: bool) -> Result<String, Flow> {
     match face.kind() {
         ValueKind::String => {
-            let name = face.as_str().unwrap().to_owned();
+            let name = lisp_string_to_runtime_string(*face);
             if face_exists_for_domain(&name, defaults_frame) {
                 Ok(name)
             } else {
@@ -2464,7 +2464,11 @@ fn proper_list_to_vec_or_listp_error(value: &Value) -> Result<Vec<Value>, Flow> 
 fn check_non_empty_string(value: &Value, empty_message: &str) -> Result<(), Flow> {
     match value.kind() {
         ValueKind::String => {
-            if value.as_str().unwrap().is_empty() {
+            if value
+                .as_lisp_string()
+                .expect("ValueKind::String must carry LispString payload")
+                .is_empty()
+            {
                 Err(signal("error", vec![Value::string(empty_message), *value]))
             } else {
                 Ok(())
@@ -2506,7 +2510,11 @@ fn normalize_face_attr_for_set(
         ":family" | ":foundry" => {
             if !is_reset_like {
                 match normalized.kind() {
-                    ValueKind::String if !normalized.as_str().unwrap().is_empty() => {}
+                    ValueKind::String
+                        if !normalized
+                            .as_lisp_string()
+                            .expect("ValueKind::String must carry LispString payload")
+                            .is_empty() => {}
                     ValueKind::String => {
                         let msg = if attr == ":family" {
                             "Invalid face family"
@@ -3530,7 +3538,7 @@ pub(crate) fn builtin_face_list(args: Vec<Value>) -> EvalResult {
 
 fn expect_color_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(lisp_string_to_runtime_string(*value)),
         _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -3621,7 +3629,7 @@ pub(crate) fn builtin_xw_color_defined_p_ctx(
         return Ok(Value::NIL);
     }
     let color_name = match args[0].kind() {
-        ValueKind::String => args[0].as_str().unwrap().to_owned(),
+        ValueKind::String => lisp_string_to_runtime_string(args[0]),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3644,7 +3652,7 @@ pub(crate) fn builtin_color_values(args: Vec<Value>) -> EvalResult {
     expect_max_args("color-values", &args, 2)?;
     expect_optional_color_device_arg(&args, 1)?;
     let color_name = match args[0].kind() {
-        ValueKind::String => args[0].as_str().unwrap().to_owned(),
+        ValueKind::String => lisp_string_to_runtime_string(args[0]),
         _ => return Ok(Value::NIL),
     };
     let lower = color_name.trim().to_lowercase();
@@ -3674,7 +3682,7 @@ pub(crate) fn builtin_xw_color_values_ctx(
         return Ok(Value::NIL);
     }
     let color_name = match args[0].kind() {
-        ValueKind::String => args[0].as_str().unwrap().to_owned(),
+        ValueKind::String => lisp_string_to_runtime_string(args[0]),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3755,7 +3763,7 @@ fn parse_color_distance_input(value: &Value) -> Result<(i64, i64, i64), Flow> {
     if !value.is_string() {
         return Err(invalid_color_error(value));
     };
-    let color = value.as_str().unwrap().to_owned();
+    let color = lisp_string_to_runtime_string(*value);
     let Some(rgb) = parse_color_16bit_any(&color).map(approximate_tty_color) else {
         return Err(invalid_color_error(value));
     };
@@ -3974,7 +3982,7 @@ pub(crate) fn builtin_face_font(eval: &mut super::eval::Context, args: Vec<Value
     if frame.window_system.is_none() {
         return match args[0].kind() {
             ValueKind::String => {
-                let name = args[0].as_str().unwrap().to_owned();
+                let name = lisp_string_to_runtime_string(args[0]);
                 if KNOWN_FACES.contains(&name.as_str()) {
                     Ok(Value::NIL)
                 } else {
@@ -4017,14 +4025,9 @@ pub(crate) fn builtin_face_font(eval: &mut super::eval::Context, args: Vec<Value
             .resolve_with_remapping(&face_name, &remapping)
     };
     if let Some(character) = args.get(2).filter(|value| !value.is_nil()) {
-        let ch = match character.kind() {
-            ValueKind::Fixnum(ch) => char::from_u32(ch as u32).unwrap_or('\0'),
-            _ => {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("characterp"), *character],
-                ));
-            }
+        let code = super::builtins::expect_character_code(character)? as u32;
+        let Some(ch) = char::from_u32(code) else {
+            return Ok(font_name_value(&build_font_object(&face)).unwrap_or(Value::NIL));
         };
         if let Some(matched) = resolve_font_match(eval, frame_id, ch, &face) {
             return Ok(
@@ -4160,7 +4163,7 @@ pub(crate) fn builtin_internal_set_alternative_font_family_alist(args: Vec<Value
         for member in members {
             match member.kind() {
                 ValueKind::String => {
-                    let name = member.as_str().unwrap().to_owned();
+                    let name = lisp_string_to_runtime_string(member);
                     converted.push(Value::symbol(name.clone()));
                     names.push(name);
                 }
@@ -4206,7 +4209,7 @@ pub(crate) fn builtin_internal_set_alternative_font_registry_alist(args: Vec<Val
 pub(crate) fn builtin_x_load_color_file(args: Vec<Value>) -> EvalResult {
     expect_args("x-load-color-file", &args, 1)?;
     let filename = match args[0].kind() {
-        ValueKind::String => args[0].as_str().unwrap().to_owned(),
+        ValueKind::String => lisp_string_to_runtime_string(args[0]),
         _other => {
             return Err(signal(
                 "wrong-type-argument",

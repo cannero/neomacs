@@ -3,6 +3,7 @@ use super::chartable::{for_each_non_nil_char_table_run, is_char_table};
 use super::error::{Flow, signal};
 use super::intern::resolve_sym;
 use super::value::*;
+use crate::emacs_core::builtins::lisp_string_to_runtime_string;
 use crate::face::{FontSlant, FontWeight, FontWidth};
 use regex::Regex;
 use std::cell::RefCell;
@@ -629,7 +630,7 @@ pub(crate) fn resolve_fontset_name_arg(value: &Value) -> Result<String, Flow> {
     match value.kind() {
         ValueKind::Nil | ValueKind::T => Ok(DEFAULT_FONTSET_NAME.to_string()),
         ValueKind::String => {
-            let requested = normalize_fontset_name(value.as_str().unwrap());
+            let requested = normalize_fontset_name(&lisp_string_to_runtime_string(*value));
             Ok(query_fontset_registry(&requested, false).unwrap_or(requested))
         }
         ValueKind::Symbol(id) => {
@@ -786,7 +787,7 @@ fn parse_font_spec_entry(
             Ok(FontSpecEntry::Font(spec))
         }
         ValueKind::String => {
-            let mut spec = parse_font_name_string(value.as_str().unwrap());
+            let mut spec = parse_font_name_string(&lisp_string_to_runtime_string(*value));
             spec.repertory = resolve_font_repertory(&spec, font_encoding_alist);
             Ok(FontSpecEntry::Font(spec))
         }
@@ -1111,7 +1112,7 @@ fn list_to_vec(value: &Value) -> Vec<Value> {
 
 fn value_text(value: &Value) -> Option<String> {
     match value.kind() {
-        ValueKind::String => Some(value.as_str().unwrap().to_owned()),
+        ValueKind::String => Some(lisp_string_to_runtime_string(*value)),
         ValueKind::Symbol(id) => Some(resolve_sym(id).to_string()),
         _ => None,
     }
@@ -1369,5 +1370,20 @@ mod tests {
                 .iter()
                 .any(|(from, to)| *from <= 0x017D && 0x017D <= *to)
         );
+    }
+
+    #[test]
+    fn parse_font_spec_entry_preserves_raw_unibyte_string_names() {
+        crate::test_utils::init_test_tracing();
+        let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+        let expected = crate::emacs_core::builtins::lisp_string_to_runtime_string(raw);
+        let entry = parse_font_spec_entry(&raw, None).expect("parse raw font spec");
+        match entry {
+            FontSpecEntry::Font(spec) => {
+                assert_eq!(spec.family.as_deref(), Some(expected.as_str()));
+                assert_eq!(spec.registry, None);
+            }
+            FontSpecEntry::ExplicitNone => panic!("expected font entry"),
+        }
     }
 }

@@ -470,7 +470,7 @@ pub(crate) fn regex_compile_lisp(
     if case_fold {
         let mut table = Vec::with_capacity(256);
         for i in 0..256u32 {
-            let c = char::from_u32(i).unwrap_or('\0');
+            let c = char::from_u32(i).expect("0..=255 must be valid Unicode scalars");
             table.push(c.to_lowercase().next().unwrap_or(c));
         }
         buf.translate = Some(table);

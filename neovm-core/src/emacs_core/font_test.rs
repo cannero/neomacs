@@ -639,6 +639,40 @@ fn font_at_eval_returns_font_object_for_multibyte_string_face() {
 }
 
 #[test]
+fn font_at_eval_preserves_raw_unibyte_string_face() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::Context::new();
+    crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+
+    let face = Value::symbol("font-at-raw-string-face");
+    builtin_internal_make_lisp_face(&mut eval, vec![face]).unwrap();
+    builtin_internal_set_lisp_face_attribute(
+        &mut eval,
+        vec![face, Value::keyword("family"), Value::string("Serif")],
+    )
+    .unwrap();
+
+    let string = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let runtime = crate::emacs_core::builtins::lisp_string_to_runtime_string(string);
+    let mut table = crate::buffer::TextPropertyTable::new();
+    table.put_property(0, runtime.len(), "face", face);
+    crate::emacs_core::value::set_string_text_properties_table_for_value(string, table);
+
+    let font = builtin_font_at(&mut eval, vec![Value::fixnum(0), Value::NIL, string]).unwrap();
+    assert!(
+        builtin_fontp(vec![font, Value::symbol("font-object")])
+            .unwrap()
+            .is_truthy()
+    );
+    assert_eq!(
+        builtin_font_get(vec![font, Value::keyword("family")])
+            .unwrap()
+            .as_str(),
+        Some("Serif")
+    );
+}
+
+#[test]
 fn font_at_eval_reads_source_style_inline_face_keywords() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
@@ -2087,6 +2121,19 @@ fn internal_set_alternative_font_family_alist_converts_strings_to_symbols() {
     let inner = list_to_vec(&outer[0]).expect("inner list");
     assert_eq!(inner[0].as_symbol_name(), Some("Foo"));
     assert_eq!(inner[1].as_symbol_name(), Some("Bar"));
+}
+
+#[test]
+fn internal_set_alternative_font_family_alist_accepts_raw_unibyte_strings() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let expected = crate::emacs_core::builtins::lisp_string_to_runtime_string(raw);
+    let input = Value::list(vec![Value::list(vec![raw])]);
+    let result = builtin_internal_set_alternative_font_family_alist(vec![input]).unwrap();
+    let outer = list_to_vec(&result).expect("outer list");
+    let inner = list_to_vec(&outer[0]).expect("inner list");
+    assert_eq!(inner[0].as_symbol_name(), Some(expected.as_str()));
+    assert_eq!(alternative_font_families(&expected), vec![expected]);
 }
 
 #[test]

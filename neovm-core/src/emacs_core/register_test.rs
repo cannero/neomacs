@@ -158,6 +158,12 @@ fn test_expect_register() {
     // Int (ASCII code)
     assert_eq!(expect_register(&Value::fixnum(65)).unwrap(), 'A');
 
+    // Raw-byte Emacs character code maps back to its byte value.
+    assert_eq!(
+        expect_register(&Value::fixnum(0x3F_FFFF)).unwrap(),
+        '\u{00FF}'
+    );
+
     // Single-char string
     assert_eq!(expect_register(&Value::string("z")).unwrap(), 'z');
 

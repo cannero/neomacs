@@ -538,12 +538,7 @@ pub fn forward_word(buf: &Buffer, table: &SyntaxTable, count: i64) -> usize {
 }
 
 fn syntax_char_from_code(code: u32) -> char {
-    if crate::emacs_core::emacs_char::char_byte8_p(code) {
-        char::from_u32(crate::emacs_core::emacs_char::char_to_byte8(code) as u32)
-            .unwrap_or('\u{FFFD}')
-    } else {
-        char::from_u32(code).unwrap_or('\u{FFFD}')
-    }
+    super::builtins::character_code_to_rust_char(code as i64).unwrap_or('\u{FFFD}')
 }
 
 fn buffer_chars_in_range(buf: &Buffer, start: usize, end: usize) -> Vec<char> {
@@ -1840,7 +1835,14 @@ pub(crate) fn builtin_char_syntax_in_buffers(
         ));
     }
     let ch = match args[0].kind() {
-        ValueKind::Fixnum(c) => char::from_u32(c as u32).unwrap_or('\0'),
+        ValueKind::Fixnum(c) => {
+            super::builtins::character_code_to_rust_char(c).ok_or_else(|| {
+                signal(
+                    "error",
+                    vec![Value::string("Invalid character code"), args[0]],
+                )
+            })?
+        }
         _ => {
             return Err(signal(
                 "wrong-type-argument",

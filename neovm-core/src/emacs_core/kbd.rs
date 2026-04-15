@@ -115,7 +115,8 @@ pub(crate) fn key_events_from_designator(
                         // Unibyte sentinel: byte 128-255 = Meta + (byte - 128)
                         if byte >= 0x80 {
                             let base_byte = byte - 0x80;
-                            let base = char::from_u32(base_byte as u32).unwrap_or(ch);
+                            let base =
+                                char::from_u32(base_byte as u32).expect("ASCII byte must decode");
                             KeyEvent::Char {
                                 code: base,
                                 ctrl: false,
@@ -126,7 +127,7 @@ pub(crate) fn key_events_from_designator(
                                 alt: false,
                             }
                         } else {
-                            let base = char::from_u32(byte as u32).unwrap_or(ch);
+                            let base = char::from_u32(byte as u32).expect("byte must decode");
                             KeyEvent::Char {
                                 code: base,
                                 ctrl: false,
@@ -139,7 +140,7 @@ pub(crate) fn key_events_from_designator(
                         }
                     } else if (0x80..=0xFF).contains(&code_u32) {
                         // Direct unibyte: chars 128-255 = Meta + (char - 128)
-                        let base = char::from_u32(code_u32 - 0x80).unwrap_or(ch);
+                        let base = char::from_u32(code_u32 - 0x80).expect("ASCII byte must decode");
                         KeyEvent::Char {
                             code: base,
                             ctrl: false,
@@ -193,7 +194,7 @@ fn decode_encoded_key_events(encoded: &Value) -> Result<Vec<KeyEvent>, String> {
                     if let Some(byte) = raw_byte {
                         if byte >= 0x80 {
                             let base = (byte - 0x80) as u32;
-                            let base_char = char::from_u32(base).unwrap_or(ch);
+                            let base_char = char::from_u32(base).expect("ASCII byte must decode");
                             KeyEvent::Char {
                                 code: base_char,
                                 ctrl: false,
@@ -204,7 +205,7 @@ fn decode_encoded_key_events(encoded: &Value) -> Result<Vec<KeyEvent>, String> {
                                 alt: false,
                             }
                         } else {
-                            let base_char = char::from_u32(byte as u32).unwrap_or(ch);
+                            let base_char = char::from_u32(byte as u32).expect("byte must decode");
                             KeyEvent::Char {
                                 code: base_char,
                                 ctrl: false,
@@ -218,7 +219,7 @@ fn decode_encoded_key_events(encoded: &Value) -> Result<Vec<KeyEvent>, String> {
                     } else if (0x80..=0xFF).contains(&code_u32) {
                         // Direct unibyte: chars 128-255 encode Meta + (char - 128)
                         let base = code_u32 - 0x80;
-                        let base_char = char::from_u32(base).unwrap_or(ch);
+                        let base_char = char::from_u32(base).expect("ASCII byte must decode");
                         KeyEvent::Char {
                             code: base_char,
                             ctrl: false,

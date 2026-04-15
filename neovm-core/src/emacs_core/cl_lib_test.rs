@@ -63,6 +63,24 @@ fn seq_drop_raw_unibyte_string() {
 }
 
 #[test]
+fn seq_concatenate_string_preserves_raw_byte_character_codes() {
+    crate::test_utils::init_test_tracing();
+    let result = builtin_seq_concatenate(vec![
+        Value::symbol("string"),
+        Value::list(vec![Value::fixnum(0x3F_FFFF)]),
+    ])
+    .unwrap();
+    let string = result
+        .as_lisp_string()
+        .expect("seq-concatenate string result");
+    assert!(string.is_multibyte());
+    assert_eq!(
+        crate::emacs_core::builtins::lisp_string_char_codes(string),
+        vec![0x3F_FFFF]
+    );
+}
+
+#[test]
 fn cl_first_list() {
     crate::test_utils::init_test_tracing();
     let list = Value::list(vec![Value::symbol("a"), Value::symbol("b")]);

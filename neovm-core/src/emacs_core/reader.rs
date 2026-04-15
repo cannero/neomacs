@@ -1954,10 +1954,9 @@ pub(crate) fn builtin_y_or_n_p(eval: &mut super::eval::Context, args: Vec<Value>
         loop {
             let event = eval.read_char()?;
             if let Some(n) = event_to_int(&event) {
-                let ch = char::from_u32(n as u32).unwrap_or('\0');
-                match ch {
-                    'y' | 'Y' => return Ok(Value::T),
-                    'n' | 'N' => return Ok(Value::NIL),
+                match n as u32 {
+                    y if y == 'y' as u32 || y == 'Y' as u32 => return Ok(Value::T),
+                    n if n == 'n' as u32 || n == 'N' as u32 => return Ok(Value::NIL),
                     _ => continue, // Invalid response, try again
                 }
             }

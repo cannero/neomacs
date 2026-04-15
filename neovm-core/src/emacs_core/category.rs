@@ -85,7 +85,7 @@ fn is_category_letter(ch: char) -> bool {
 
 fn extract_char_opt(value: &Value, fn_name: &str) -> Result<Option<char>, Flow> {
     match value.kind() {
-        ValueKind::Fixnum(c) => Ok(Some(char::from_u32(c as u32).unwrap_or('\0'))),
+        ValueKind::Fixnum(c) => Ok(super::builtins::character_code_to_rust_char(c)),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *value],

@@ -69,16 +69,6 @@ fn expect_string(val: &Value) -> Result<String, Flow> {
     }
 }
 
-fn expect_char(val: &Value) -> Result<char, Flow> {
-    match val.kind() {
-        ValueKind::Fixnum(c) => Ok(char::from_u32(c as u32).unwrap_or('\0')),
-        _ => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("characterp"), *val],
-        )),
-    }
-}
-
 fn expect_character_code(val: &Value) -> Result<i64, Flow> {
     match val.kind() {
         ValueKind::Fixnum(c) => Ok(c as i64),
@@ -312,14 +302,21 @@ pub(crate) fn builtin_safe_length(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_subst_char_in_string(args: Vec<Value>) -> EvalResult {
     expect_min_args("subst-char-in-string", &args, 3)?;
     expect_max_args("subst-char-in-string", &args, 4)?;
-    let from_char = expect_char(&args[0])?;
-    let to_char = expect_char(&args[1])?;
+    let from_code = expect_character_code(&args[0])? as u32;
+    let to_code = expect_character_code(&args[1])? as u32;
     let s = expect_string(&args[2])?;
-    let result: String = s
-        .chars()
-        .map(|c| if c == from_char { to_char } else { c })
-        .collect();
-    Ok(Value::string(result))
+    let replacement =
+        crate::emacs_core::string_escape::encode_char_code_for_string_storage(to_code, true)
+            .expect("valid Emacs character code must encode into storage string");
+    let result = crate::emacs_core::string_escape::replace_storage_char_code_same_len(
+        &s,
+        from_code,
+        &replacement,
+    )
+    .unwrap_or(s);
+    Ok(Value::heap_string(
+        crate::emacs_core::builtins::runtime_string_to_lisp_string(&result, true),
+    ))
 }
 
 /// `(string-to-multibyte STRING)` -- convert unibyte storage bytes to multibyte chars.
