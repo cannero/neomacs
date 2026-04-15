@@ -319,20 +319,20 @@ pub(crate) struct ObjectPublishReservation {
     generation: u64,
     base_slot: usize,
     next_offset: usize,
-    _chunk: Arc<ObjectChunk>,
+    _chunk: Option<Arc<ObjectChunk>>,
     next_slot: *mut MaybeUninit<ObjectRecord>,
     published_len: *const AtomicUsize,
 }
 
 #[derive(Debug)]
 pub(crate) struct ObjectPublishLocal {
-    reservations: [Option<ObjectPublishReservation>; OBJECT_STORE_SHARDS],
+    reservations: [ObjectPublishReservation; OBJECT_STORE_SHARDS],
 }
 
 impl Default for ObjectPublishLocal {
     fn default() -> Self {
         Self {
-            reservations: std::array::from_fn(|_| None),
+            reservations: std::array::from_fn(|_| ObjectPublishReservation::default()),
         }
     }
 }
@@ -342,14 +342,27 @@ impl ObjectPublishLocal {
     unsafe fn reservation_mut_unchecked(
         &mut self,
         shard: usize,
-    ) -> &mut Option<ObjectPublishReservation> {
+    ) -> &mut ObjectPublishReservation {
         debug_assert!(shard < OBJECT_STORE_SHARDS);
         unsafe { self.reservations.get_unchecked_mut(shard) }
     }
 
     pub(crate) fn clear(&mut self) {
         for reservation in self.reservations.iter_mut() {
-            *reservation = None;
+            *reservation = ObjectPublishReservation::default();
+        }
+    }
+}
+
+impl Default for ObjectPublishReservation {
+    fn default() -> Self {
+        Self {
+            generation: u64::MAX,
+            base_slot: 0,
+            next_offset: OBJECT_STORE_CHUNK_CAPACITY,
+            _chunk: None,
+            next_slot: core::ptr::null_mut(),
+            published_len: core::ptr::null(),
         }
     }
 }
@@ -425,7 +438,7 @@ impl ObjectStore {
             next_offset: 0,
             next_slot: chunk.objects.as_ptr() as *mut MaybeUninit<ObjectRecord>,
             published_len: &chunk.published_len,
-            _chunk: chunk,
+            _chunk: Some(chunk),
         }
     }
 
@@ -528,17 +541,12 @@ impl ObjectStore {
         let shard_index = shard_index_for_key(object_key);
         let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
         let generation = self.generation();
-        let needs_reservation = reservation.as_ref().is_none_or(|reservation| {
-            reservation.generation != generation
-                || reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY
-        });
-        if needs_reservation {
-            *reservation = Some(self.reserve_publish_chunk(shard_index));
+        if reservation.generation != generation
+            || reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY
+        {
+            *reservation = self.reserve_publish_chunk(shard_index);
         }
 
-        let reservation = reservation
-            .as_mut()
-            .expect("publish reservation should exist after refill");
         Self::publish_reserved(reservation, shard_index, record)
     }
 
@@ -550,16 +558,10 @@ impl ObjectStore {
         let object_key = record.object_key();
         let shard_index = shard_index_for_key(object_key);
         let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
-        if reservation
-            .as_ref()
-            .is_none_or(|reservation| reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY)
-        {
-            *reservation = Some(self.reserve_publish_chunk(shard_index));
+        if reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY {
+            *reservation = self.reserve_publish_chunk(shard_index);
         }
 
-        let reservation = reservation
-            .as_mut()
-            .expect("publish reservation should exist after refill");
         Self::publish_reserved(reservation, shard_index, record)
     }
 
