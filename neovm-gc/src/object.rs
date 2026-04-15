@@ -694,7 +694,7 @@ impl Drop for ObjectRecord {
         unsafe {
             let header = self.header.as_ref();
             let payload = ObjectHeader::payload_ptr(self.header);
-            if !header.is_moved_out() {
+            if header.desc().needs_drop && !header.is_moved_out() {
                 (header.desc().drop_in_place)(payload.as_ptr());
             }
             // Arena-backed records must NOT touch the system allocator:
