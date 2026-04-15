@@ -548,7 +548,9 @@ pub(crate) use treesit::*;
 
 pub(super) fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(lisp_string_to_runtime_string(*value)),
+        ValueKind::String => Ok(value
+            .as_runtime_string_owned()
+            .expect("ValueKind::String must carry LispString payload")),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -569,7 +571,9 @@ pub(super) fn expect_lisp_string(
 
 pub(super) fn expect_string_comparison_operand(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(lisp_string_to_runtime_string(*value)),
+        ValueKind::String => Ok(value
+            .as_runtime_string_owned()
+            .expect("ValueKind::String must carry LispString payload")),
         _ => value.as_symbol_name().map(str::to_owned).ok_or_else(|| {
             signal(
                 "wrong-type-argument",
@@ -581,7 +585,9 @@ pub(super) fn expect_string_comparison_operand(value: &Value) -> Result<String, 
 
 pub(super) fn expect_strict_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(lisp_string_to_runtime_string(*value)),
+        ValueKind::String => Ok(value
+            .as_runtime_string_owned()
+            .expect("ValueKind::String must carry LispString payload")),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
