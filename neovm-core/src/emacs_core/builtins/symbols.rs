@@ -3262,7 +3262,7 @@ pub(crate) fn plan_interactive_form_in_state(
             let id = function.as_subr_id().unwrap();
             let name = resolve_sym(id);
             Ok(InteractiveFormPlan::Return(
-                crate::emacs_core::interactive::registry_interactive_form(interactive, name)
+                crate::emacs_core::interactive::registry_interactive_form(interactive, id)
                     .or_else(|| crate::emacs_core::interactive::builtin_subr_interactive_form(name))
                     .unwrap_or(Value::NIL),
             ))
@@ -3349,7 +3349,7 @@ pub(crate) fn builtin_interactive_form(
             let id = fun.as_subr_id().unwrap();
             let name = resolve_sym(id);
             let result =
-                crate::emacs_core::interactive::registry_interactive_form(&eval.interactive, name)
+                crate::emacs_core::interactive::registry_interactive_form(&eval.interactive, id)
                     .or_else(|| crate::emacs_core::interactive::builtin_subr_interactive_form(name))
                     .unwrap_or(Value::NIL);
             Ok(result)

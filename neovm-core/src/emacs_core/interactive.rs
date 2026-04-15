@@ -31,6 +31,7 @@ use super::keymap::{
 use super::mode::{MajorMode, MinorMode};
 use super::symbol::Obarray;
 use super::value::*;
+use crate::emacs_core::SymId;
 
 // ---------------------------------------------------------------------------
 // InteractiveSpec — describes how a command reads its arguments
@@ -74,11 +75,11 @@ impl InteractiveSpec {
 
 /// Registry for interactive command specifications.
 ///
-/// Tracks which named functions are interactive (i.e., can be called via
+/// Tracks which function symbols are interactive (i.e., can be called via
 /// `M-x` or key bindings) and their argument specs.
 pub struct InteractiveRegistry {
-    /// Map from function name to its interactive spec.
-    specs: HashMap<String, InteractiveSpec>,
+    /// Map from function symbol to its interactive spec.
+    specs: HashMap<SymId, InteractiveSpec>,
     /// Stack tracking whether the current function was called interactively.
     interactive_call_stack: Vec<bool>,
     /// The key sequence that invoked the current command (if any).
@@ -94,19 +95,19 @@ impl InteractiveRegistry {
         }
     }
 
-    /// Register a function as interactive with the given spec.
-    pub fn register_interactive(&mut self, name: &str, spec: InteractiveSpec) {
-        self.specs.insert(name.to_string(), spec);
+    /// Register a function symbol as interactive with the given spec.
+    pub fn register_interactive(&mut self, symbol: SymId, spec: InteractiveSpec) {
+        self.specs.insert(symbol, spec);
     }
 
-    /// Check if a function is registered as interactive.
-    pub fn is_interactive(&self, name: &str) -> bool {
-        self.specs.contains_key(name)
+    /// Check if a function symbol is registered as interactive.
+    pub fn is_interactive(&self, symbol: SymId) -> bool {
+        self.specs.contains_key(&symbol)
     }
 
-    /// Get the interactive spec for a function, if registered.
-    pub fn get_spec(&self, name: &str) -> Option<&InteractiveSpec> {
-        self.specs.get(name)
+    /// Get the interactive spec for a function symbol, if registered.
+    pub fn get_spec(&self, symbol: SymId) -> Option<&InteractiveSpec> {
+        self.specs.get(&symbol)
     }
 
     /// Push an interactive call frame.
@@ -135,10 +136,10 @@ impl InteractiveRegistry {
     }
 
     // pdump accessors
-    pub(crate) fn dump_specs(&self) -> &HashMap<String, InteractiveSpec> {
+    pub(crate) fn dump_specs(&self) -> &HashMap<SymId, InteractiveSpec> {
         &self.specs
     }
-    pub(crate) fn from_dump(specs: HashMap<String, InteractiveSpec>) -> Self {
+    pub(crate) fn from_dump(specs: HashMap<SymId, InteractiveSpec>) -> Self {
         Self {
             specs,
             interactive_call_stack: Vec::new(),
@@ -167,10 +168,10 @@ fn interactive_form_from_string_spec(code: &str) -> Value {
 
 pub(crate) fn registry_interactive_form(
     registry: &InteractiveRegistry,
-    name: &str,
+    symbol: SymId,
 ) -> Option<Value> {
     registry
-        .get_spec(name)
+        .get_spec(symbol)
         .map(|spec| interactive_form_from_string_spec(&spec.code))
 }
 
@@ -309,7 +310,7 @@ pub(crate) fn builtin_call_interactively(eval: &mut Context, args: Vec<Value>) -
         ));
     }
 
-    let Some((resolved_name, func)) = resolve_command_target(&eval, &func_val) else {
+    let Some((resolved_symbol, func)) = resolve_command_target(&eval, &func_val) else {
         return Err(signal("void-function", vec![func_val]));
     };
     let context =
@@ -317,7 +318,7 @@ pub(crate) fn builtin_call_interactively(eval: &mut Context, args: Vec<Value>) -
     finish_call_interactively_in_eval(
         eval,
         CallInteractivelyPlan {
-            resolved_name,
+            resolved_symbol,
             func,
             context,
         },
@@ -915,29 +916,26 @@ fn value_is_declare_form(value: &Value) -> bool {
     }
 }
 
-fn resolve_function_designator_symbol(eval: &Context, name: &str) -> Option<(String, Value)> {
-    resolve_function_designator_symbol_in_state(&eval.obarray, name)
-}
-
 fn resolve_function_designator_symbol_in_state(
     obarray: &Obarray,
-    name: &str,
-) -> Option<(String, Value)> {
-    crate::emacs_core::builtins::symbols::resolve_indirect_symbol_by_id_in_obarray(
-        obarray,
-        intern(name),
-    )
-    .map(|(resolved, value)| (resolve_sym(resolved).to_string(), value))
+    symbol: SymId,
+) -> Option<(SymId, Value)> {
+    crate::emacs_core::builtins::symbols::resolve_indirect_symbol_by_id_in_obarray(obarray, symbol)
+        .map(|(resolved, value)| (resolved, value))
+}
+
+fn builtin_command_symbol(symbol: SymId) -> bool {
+    builtin_command_name(resolve_sym(symbol))
 }
 
 fn command_object_p_in_state(
     interactive: &InteractiveRegistry,
-    resolved_name: Option<&str>,
+    resolved_symbol: Option<SymId>,
     value: &Value,
     for_call_interactively: bool,
 ) -> bool {
-    if let Some(name) = resolved_name {
-        if interactive.is_interactive(name) || builtin_command_name(name) {
+    if let Some(symbol) = resolved_symbol {
+        if interactive.is_interactive(symbol) || builtin_command_symbol(symbol) {
             return true;
         }
     }
@@ -973,8 +971,8 @@ fn command_object_p_in_state(
                     .flatten()
                     .is_some_and(|v| v.as_symbol_name().is_some())
                 {
-                    if let Some(name) = resolved_name {
-                        if interactive.is_interactive(name) {
+                    if let Some(symbol) = resolved_symbol {
+                        if interactive.is_interactive(symbol) {
                             return true;
                         }
                     }
@@ -990,8 +988,7 @@ fn command_object_p_in_state(
         ValueKind::Cons => quoted_lambda_has_interactive_form(value),
         ValueKind::Veclike(VecLikeType::Subr) => {
             let id = value.as_subr_id().unwrap();
-            let name = resolve_sym(id);
-            interactive.is_interactive(name) || builtin_command_name(name)
+            interactive.is_interactive(id) || builtin_command_symbol(id)
         }
         ValueKind::String | ValueKind::Veclike(VecLikeType::Vector) => !for_call_interactively,
         _ => false,
@@ -1004,31 +1001,29 @@ fn command_designator_p_in_state(
     designator: &Value,
     for_call_interactively: bool,
 ) -> bool {
-    if let Some(name) = designator.as_symbol_name() {
+    if let Some(symbol) = designator.as_symbol_id() {
+        let name = resolve_sym(symbol);
         if obarray.is_function_unbound(name) {
             return false;
         }
-        if let Some((resolved_name, resolved_value)) =
-            resolve_function_designator_symbol_in_state(obarray, name)
+        if let Some((resolved_symbol, resolved_value)) =
+            resolve_function_designator_symbol_in_state(obarray, symbol)
         {
             return command_object_p_in_state(
                 interactive,
-                Some(&resolved_name),
+                Some(resolved_symbol),
                 &resolved_value,
                 for_call_interactively,
             );
         }
-        return interactive.is_interactive(name) || builtin_command_name(name);
+        return interactive.is_interactive(symbol) || builtin_command_symbol(symbol);
     }
-    command_object_p_in_state(interactive, None, designator, for_call_interactively)
-}
-
-fn command_object_p(eval: &Context, resolved_name: Option<&str>, value: &Value) -> bool {
-    command_object_p_in_state(&eval.interactive, resolved_name, value, false)
-}
-
-fn command_designator_p(eval: &Context, designator: &Value) -> bool {
-    command_designator_p_in_state(&eval.obarray, &eval.interactive, designator, false)
+    command_object_p_in_state(
+        interactive,
+        designator.as_symbol_id(),
+        designator,
+        for_call_interactively,
+    )
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1718,8 +1713,11 @@ fn interactive_args_from_string_code_in_vm_runtime(
 fn default_command_execute_args_in_state(
     buffers: &crate::buffer::BufferManager,
     frames: &crate::window::FrameManager,
-    name: &str,
+    resolved_symbol: Option<SymId>,
 ) -> Result<Vec<Value>, Flow> {
+    let Some(name) = resolved_symbol.map(resolve_sym) else {
+        return Ok(Vec::new());
+    };
     match name {
         "self-insert-command"
         | "delete-char"
@@ -1775,8 +1773,11 @@ fn default_call_interactively_args_in_state(
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
     frames: &crate::window::FrameManager,
-    name: &str,
+    resolved_symbol: Option<SymId>,
 ) -> Result<Vec<Value>, Flow> {
+    let Some(name) = resolved_symbol.map(resolve_sym) else {
+        return Ok(Vec::new());
+    };
     match name {
         "self-insert-command"
         | "delete-char"
@@ -1808,7 +1809,7 @@ fn default_call_interactively_args_in_state(
         "upcase-region" | "downcase-region" | "capitalize-region" => {
             interactive_region_args_in_buffers(buffers, "error")
         }
-        _ => default_command_execute_args_in_state(buffers, frames, name),
+        _ => default_command_execute_args_in_state(buffers, frames, resolved_symbol),
     }
 }
 
@@ -2375,14 +2376,13 @@ fn interactive_args_from_string_code(
 
 fn resolve_interactive_invocation_args(
     eval: &mut Context,
-    resolved_name: &str,
+    resolved_symbol: Option<SymId>,
     func: &Value,
     kind: CommandInvocationKind,
     context: &mut InteractiveInvocationContext,
 ) -> Result<Vec<Value>, Flow> {
-    if let Some(code) = eval
-        .interactive
-        .get_spec(resolved_name)
+    if let Some(code) = resolved_symbol
+        .and_then(|symbol| eval.interactive.get_spec(symbol))
         .map(|spec| spec.code.clone())
     {
         if let Some(args) = interactive_args_from_string_code(eval, &code, kind, context)? {
@@ -2498,9 +2498,11 @@ fn resolve_interactive_invocation_args(
 
     match kind {
         CommandInvocationKind::CallInteractively => {
-            default_call_interactively_args(eval, resolved_name)
+            default_call_interactively_args(eval, resolved_symbol)
         }
-        CommandInvocationKind::CommandExecute => default_command_execute_args(eval, resolved_name),
+        CommandInvocationKind::CommandExecute => {
+            default_command_execute_args(eval, resolved_symbol)
+        }
     }
 }
 
@@ -2531,46 +2533,57 @@ fn normalize_command_callable(eval: &mut Context, value: Value) -> Result<Value,
     Ok(value)
 }
 
-fn default_command_execute_args(eval: &Context, name: &str) -> Result<Vec<Value>, Flow> {
-    default_command_execute_args_in_state(&eval.buffers, &eval.frames, name)
+fn default_command_execute_args(
+    eval: &Context,
+    resolved_symbol: Option<SymId>,
+) -> Result<Vec<Value>, Flow> {
+    default_command_execute_args_in_state(&eval.buffers, &eval.frames, resolved_symbol)
 }
 
-fn default_call_interactively_args(eval: &Context, name: &str) -> Result<Vec<Value>, Flow> {
-    default_call_interactively_args_in_state(&eval.obarray, &[], &eval.buffers, &eval.frames, name)
+fn default_call_interactively_args(
+    eval: &Context,
+    resolved_symbol: Option<SymId>,
+) -> Result<Vec<Value>, Flow> {
+    default_call_interactively_args_in_state(
+        &eval.obarray,
+        &[],
+        &eval.buffers,
+        &eval.frames,
+        resolved_symbol,
+    )
 }
 
-fn resolve_command_target(eval: &Context, designator: &Value) -> Option<(String, Value)> {
+fn resolve_command_target(eval: &Context, designator: &Value) -> Option<(Option<SymId>, Value)> {
     resolve_command_target_in_state(&eval.obarray, designator)
 }
 
 fn resolve_command_target_in_state(
     obarray: &Obarray,
     designator: &Value,
-) -> Option<(String, Value)> {
-    if let Some(name) = designator.as_symbol_name() {
-        if let Some((resolved_name, value)) =
-            resolve_function_designator_symbol_in_state(obarray, name)
+) -> Option<(Option<SymId>, Value)> {
+    if let Some(symbol) = designator.as_symbol_id() {
+        if let Some((resolved_symbol, value)) =
+            resolve_function_designator_symbol_in_state(obarray, symbol)
         {
-            return Some((resolved_name, value));
+            return Some((Some(resolved_symbol), value));
         }
+        let name = resolve_sym(symbol);
         if builtin_command_name(name) {
-            return Some((name.to_string(), Value::subr(intern(name))));
+            return Some((Some(symbol), Value::subr(symbol)));
         }
         return None;
     }
     match designator.kind() {
         ValueKind::Veclike(VecLikeType::Subr) => {
             let id = designator.as_subr_id().unwrap();
-            Some((resolve_sym(id).to_owned(), *designator))
+            Some((Some(id), *designator))
         }
-        ValueKind::T => Some(("t".to_string(), *designator)),
-        ValueKind::Symbol(id) => Some((resolve_sym(id).to_owned(), *designator)),
-        _ => Some(("<anonymous>".to_string(), *designator)),
+        _ => Some((designator.as_symbol_id(), *designator)),
     }
 }
 
 pub(crate) struct CallInteractivelyPlan {
-    resolved_name: String,
+    resolved_symbol: Option<SymId>,
     pub(crate) func: Value,
     context: InteractiveInvocationContext,
 }
@@ -2592,13 +2605,13 @@ pub(crate) fn plan_call_interactively_in_state(
             vec![Value::symbol("commandp"), func_val],
         ));
     }
-    let Some((resolved_name, func)) = resolve_command_target_in_state(obarray, &func_val) else {
+    let Some((resolved_symbol, func)) = resolve_command_target_in_state(obarray, &func_val) else {
         return Err(signal("void-function", vec![func_val]));
     };
     let context =
         InteractiveInvocationContext::from_keys_arg_in_state(read_command_keys, args.get(2));
     Ok(CallInteractivelyPlan {
-        resolved_name,
+        resolved_symbol,
         func,
         context,
     })
@@ -2622,7 +2635,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_eval(
     let func = normalize_command_callable(eval, plan.func)?;
     let call_args = resolve_interactive_invocation_args(
         eval,
-        &plan.resolved_name,
+        plan.resolved_symbol,
         &func,
         CommandInvocationKind::CallInteractively,
         &mut plan.context,
@@ -2641,8 +2654,9 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
     plan: &mut CallInteractivelyPlan,
 ) -> Result<Option<(Value, Vec<Value>)>, Flow> {
     let func = plan.func;
-    if let Some(code) = interactive
-        .get_spec(&plan.resolved_name)
+    if let Some(code) = plan
+        .resolved_symbol
+        .and_then(|symbol| interactive.get_spec(symbol))
         .map(|spec| spec.code.as_str())
     {
         if let Some(args) = interactive_args_from_string_code_in_state(
@@ -2747,7 +2761,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
             dynamic.as_slice(),
             buffers,
             frames,
-            &plan.resolved_name,
+            plan.resolved_symbol,
         )?,
     )))
 }
@@ -2758,9 +2772,9 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
     vm_gc_roots: &[Value],
 ) -> Result<Option<(Value, Vec<Value>)>, Flow> {
     let func = plan.func;
-    if let Some(code) = shared
-        .interactive
-        .get_spec(&plan.resolved_name)
+    if let Some(code) = plan
+        .resolved_symbol
+        .and_then(|symbol| shared.interactive.get_spec(symbol))
         .map(|spec| spec.code.clone())
     {
         if let Some(args) = interactive_args_from_string_code_in_vm_runtime(
@@ -2864,7 +2878,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
             &[],
             &shared.buffers,
             &shared.frames,
-            &plan.resolved_name,
+            plan.resolved_symbol,
         )?,
     )))
 }

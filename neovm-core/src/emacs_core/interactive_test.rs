@@ -370,17 +370,19 @@ fn interactive_spec_with_prompt() {
 fn registry_register_and_query() {
     crate::test_utils::init_test_tracing();
     let mut reg = InteractiveRegistry::new();
-    reg.register_interactive("forward-char", InteractiveSpec::new("p"));
-    assert!(reg.is_interactive("forward-char"));
-    assert!(!reg.is_interactive("nonexistent"));
+    let forward_char = crate::emacs_core::intern::intern("forward-char");
+    reg.register_interactive(forward_char, InteractiveSpec::new("p"));
+    assert!(reg.is_interactive(forward_char));
+    assert!(!reg.is_interactive(crate::emacs_core::intern::intern("nonexistent")));
 }
 
 #[test]
 fn registry_get_spec() {
     crate::test_utils::init_test_tracing();
     let mut reg = InteractiveRegistry::new();
-    reg.register_interactive("find-file", InteractiveSpec::new("FFind file: "));
-    let spec = reg.get_spec("find-file").unwrap();
+    let find_file = crate::emacs_core::intern::intern("find-file");
+    reg.register_interactive(find_file, InteractiveSpec::new("FFind file: "));
+    let spec = reg.get_spec(find_file).unwrap();
     assert_eq!(spec.code, "FFind file: ");
 }
 
@@ -1034,8 +1036,10 @@ fn commandp_resolves_aliases_and_symbol_designators() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     // Register forward-char as an interactive command for testing.
-    ev.interactive
-        .register_interactive("forward-char", InteractiveSpec::new("p"));
+    ev.interactive.register_interactive(
+        crate::emacs_core::intern::intern("forward-char"),
+        InteractiveSpec::new("p"),
+    );
     ev.obarray
         .set_symbol_function("t", Value::symbol("forward-char"));
     ev.obarray
@@ -3044,8 +3048,10 @@ fn command_execute_calls_function() {
         r#"(defvar exec-ran nil)
            (defun test-cmd () (setq exec-ran t))"#,
     );
-    ev.interactive
-        .register_interactive("test-cmd", InteractiveSpec::no_args());
+    ev.interactive.register_interactive(
+        crate::emacs_core::intern::intern("test-cmd"),
+        InteractiveSpec::no_args(),
+    );
 
     let result = ev
         .apply(

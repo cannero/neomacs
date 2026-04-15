@@ -1811,7 +1811,7 @@ pub(crate) fn dump_interactive_registry(ir: &InteractiveRegistry) -> DumpInterac
             .iter()
             .map(|(k, s)| {
                 (
-                    k.clone(),
+                    dump_sym_id(*k),
                     DumpInteractiveSpec {
                         code: s.code.clone(),
                         prompt: s.prompt.clone(),
@@ -3270,12 +3270,12 @@ pub(crate) fn load_abbrev_manager(dam: &DumpAbbrevManager) -> AbbrevManager {
 }
 
 pub(crate) fn load_interactive_registry(dir: &DumpInteractiveRegistry) -> InteractiveRegistry {
-    let specs: HashMap<String, InteractiveSpec> = dir
+    let specs: HashMap<SymId, InteractiveSpec> = dir
         .specs
         .iter()
         .map(|(k, s)| {
             (
-                k.clone(),
+                load_sym_id(k),
                 InteractiveSpec {
                     code: s.code.clone(),
                     prompt: s.prompt.clone(),

@@ -682,7 +682,7 @@ pub struct DumpInteractiveSpec {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpInteractiveRegistry {
-    pub specs: Vec<(String, DumpInteractiveSpec)>,
+    pub specs: Vec<(DumpSymId, DumpInteractiveSpec)>,
 }
 
 // Mode
