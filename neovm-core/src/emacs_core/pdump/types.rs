@@ -765,14 +765,14 @@ pub struct DumpModeCustomGroup {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpModeRegistry {
-    pub major_modes: Vec<(String, DumpMajorMode)>,
-    pub minor_modes: Vec<(String, DumpMinorMode)>,
+    pub major_modes: Vec<(DumpSymId, DumpMajorMode)>,
+    pub minor_modes: Vec<(DumpSymId, DumpMinorMode)>,
     pub buffer_major_modes: Vec<(u64, DumpValue)>,
     pub buffer_minor_modes: Vec<(u64, Vec<DumpValue>)>,
     pub global_minor_modes: Vec<DumpValue>,
     pub auto_mode_alist: Vec<(String, DumpValue)>,
-    pub custom_variables: Vec<(String, DumpModeCustomVariable)>,
-    pub custom_groups: Vec<(String, DumpModeCustomGroup)>,
+    pub custom_variables: Vec<(DumpSymId, DumpModeCustomVariable)>,
+    pub custom_groups: Vec<(DumpSymId, DumpModeCustomGroup)>,
     pub fundamental_mode: DumpValue,
 }
 

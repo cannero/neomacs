@@ -24,7 +24,10 @@ fn mode_display_opt(text: Option<&str>) -> Option<crate::heap_types::LispString>
 fn new_registry_has_fundamental_mode() {
     crate::test_utils::init_test_tracing();
     let reg = ModeRegistry::new();
-    assert!(reg.major_modes.contains_key("fundamental-mode"));
+    assert!(
+        reg.major_modes
+            .contains_key(&crate::emacs_core::intern::intern("fundamental-mode",))
+    );
 }
 
 #[test]

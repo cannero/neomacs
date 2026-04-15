@@ -10,7 +10,9 @@
 
 use std::collections::HashMap;
 
+use super::intern::intern;
 use super::value::Value;
+use crate::emacs_core::SymId;
 use crate::gc_trace::GcTrace;
 use crate::heap_types::LispString;
 
@@ -163,6 +165,10 @@ fn mode_symbol(name: &str) -> Value {
     Value::symbol(name)
 }
 
+fn mode_symbol_id(name: &str) -> SymId {
+    intern(name)
+}
+
 fn mode_symbol_name(value: Value) -> &'static str {
     value
         .as_symbol_name()
@@ -242,7 +248,7 @@ impl ModeLineFormat {
                 ModeLineElement::BufferName => out.push_str(buffer_name),
                 ModeLineElement::ModeName => {
                     let mode_name = registry.get_major_mode(buffer_id);
-                    if let Some(mode) = registry.major_modes.get(mode_name) {
+                    if let Some(mode) = registry.major_modes.get(&mode_symbol_id(mode_name)) {
                         out.push_str(&mode_display_text(&mode.pretty_name));
                     } else {
                         out.push_str(mode_name);
@@ -250,7 +256,7 @@ impl ModeLineFormat {
                 }
                 ModeLineElement::MinorModes => {
                     for minor_name in registry.active_minor_modes(buffer_id) {
-                        if let Some(mode) = registry.minor_modes.get(minor_name) {
+                        if let Some(mode) = registry.minor_modes.get(&mode_symbol_id(minor_name)) {
                             if let Some(ref lighter) = mode.lighter {
                                 out.push_str(&mode_display_text(lighter));
                             }
@@ -308,9 +314,9 @@ impl ModeLineFormat {
 /// Central registry for all mode-related state.
 pub struct ModeRegistry {
     /// All registered major modes (name -> definition).
-    major_modes: HashMap<String, MajorMode>,
+    major_modes: HashMap<SymId, MajorMode>,
     /// All registered minor modes (name -> definition).
-    minor_modes: HashMap<String, MinorMode>,
+    minor_modes: HashMap<SymId, MinorMode>,
     /// Per-buffer active major mode (buffer_id -> mode symbol).
     buffer_major_modes: HashMap<u64, Value>,
     /// Per-buffer active minor modes (buffer_id -> list of mode symbols).
@@ -320,9 +326,9 @@ pub struct ModeRegistry {
     /// Filename pattern -> mode symbol for automatic mode selection.
     auto_mode_alist: Vec<(String, Value)>,
     /// All registered custom variables.
-    custom_variables: HashMap<String, CustomVariable>,
+    custom_variables: HashMap<SymId, CustomVariable>,
     /// All registered custom groups.
-    custom_groups: HashMap<String, CustomGroup>,
+    custom_groups: HashMap<SymId, CustomGroup>,
     /// Symbol of the fundamental mode (always registered).
     fundamental_mode: Value,
 }
@@ -351,13 +357,13 @@ impl ModeRegistry {
 
     /// Register a major mode definition.
     pub fn register_major_mode(&mut self, name: &str, mode: MajorMode) {
-        self.major_modes.insert(name.to_string(), mode);
+        self.major_modes.insert(mode_symbol_id(name), mode);
     }
 
     /// Set the major mode for a buffer. Replaces any existing major mode.
     /// Returns an error if the mode is not registered.
     pub fn set_major_mode(&mut self, buffer_id: u64, mode_name: &str) -> Result<(), String> {
-        if !self.major_modes.contains_key(mode_name) {
+        if !self.major_modes.contains_key(&mode_symbol_id(mode_name)) {
             return Err(format!("Unknown major mode: {}", mode_name));
         }
         self.buffer_major_modes
@@ -387,7 +393,7 @@ impl ModeRegistry {
 
     /// Return the `MajorMode` definition for a mode name, if registered.
     pub fn get_major_mode_def(&self, mode_name: &str) -> Option<&MajorMode> {
-        self.major_modes.get(mode_name)
+        self.major_modes.get(&mode_symbol_id(mode_name))
     }
 
     /// Check whether `mode_name` is derived from `ancestor`.
@@ -399,7 +405,10 @@ impl ModeRegistry {
             if name_str == ancestor {
                 return true;
             }
-            current = self.major_modes.get(name_str).and_then(|m| m.parent);
+            current = self
+                .major_modes
+                .get(&mode_symbol_id(name_str))
+                .and_then(|m| m.parent);
         }
         false
     }
@@ -410,12 +419,12 @@ impl ModeRegistry {
 
     /// Register a minor mode definition.
     pub fn register_minor_mode(&mut self, name: &str, mode: MinorMode) {
-        self.minor_modes.insert(name.to_string(), mode);
+        self.minor_modes.insert(mode_symbol_id(name), mode);
     }
 
     /// Enable a minor mode in a specific buffer.
     pub fn enable_minor_mode(&mut self, buffer_id: u64, mode_name: &str) -> Result<(), String> {
-        if !self.minor_modes.contains_key(mode_name) {
+        if !self.minor_modes.contains_key(&mode_symbol_id(mode_name)) {
             return Err(format!("Unknown minor mode: {}", mode_name));
         }
         let mode_symbol = mode_symbol(mode_name);
@@ -437,7 +446,7 @@ impl ModeRegistry {
     /// Toggle a minor mode in a specific buffer. Returns `Ok(true)` if the
     /// mode is now active, `Ok(false)` if it was disabled.
     pub fn toggle_minor_mode(&mut self, buffer_id: u64, mode_name: &str) -> Result<bool, String> {
-        if !self.minor_modes.contains_key(mode_name) {
+        if !self.minor_modes.contains_key(&mode_symbol_id(mode_name)) {
             return Err(format!("Unknown minor mode: {}", mode_name));
         }
         if self.is_minor_mode_active(buffer_id, mode_name) {
@@ -487,7 +496,7 @@ impl ModeRegistry {
 
     /// Enable a minor mode globally.
     pub fn enable_global_minor_mode(&mut self, mode_name: &str) -> Result<(), String> {
-        if !self.minor_modes.contains_key(mode_name) {
+        if !self.minor_modes.contains_key(&mode_symbol_id(mode_name)) {
             return Err(format!("Unknown minor mode: {}", mode_name));
         }
         let mode_symbol = mode_symbol(mode_name);
@@ -523,29 +532,31 @@ impl ModeRegistry {
     /// Register a custom variable.
     pub fn register_custom_variable(&mut self, name: &str, var: CustomVariable) {
         if let Some(group_name) = var.group {
-            if let Some(group) = self.custom_groups.get_mut(mode_symbol_name(group_name)) {
+            if let Some(group_symbol) = group_name.as_symbol_id()
+                && let Some(group) = self.custom_groups.get_mut(&group_symbol)
+            {
                 let member = mode_symbol(name);
                 if !group.members.contains(&member) {
                     group.members.push(member);
                 }
             }
         }
-        self.custom_variables.insert(name.to_string(), var);
+        self.custom_variables.insert(mode_symbol_id(name), var);
     }
 
     /// Register a custom group.
     pub fn register_custom_group(&mut self, name: &str, group: CustomGroup) {
-        self.custom_groups.insert(name.to_string(), group);
+        self.custom_groups.insert(mode_symbol_id(name), group);
     }
 
     /// Look up a custom variable by name.
     pub fn get_custom_variable(&self, name: &str) -> Option<&CustomVariable> {
-        self.custom_variables.get(name)
+        self.custom_variables.get(&mode_symbol_id(name))
     }
 
     /// Look up a custom group by name.
     pub fn get_custom_group(&self, name: &str) -> Option<&CustomGroup> {
-        self.custom_groups.get(name)
+        self.custom_groups.get(&mode_symbol_id(name))
     }
 
     // -------------------------------------------------------------------
@@ -556,7 +567,10 @@ impl ModeRegistry {
     pub fn font_lock_keywords(&self, mode_name: &str) -> Option<&[FontLockKeyword]> {
         let mut current = Some(mode_symbol(mode_name));
         while let Some(name) = current {
-            if let Some(mode) = self.major_modes.get(mode_symbol_name(name)) {
+            if let Some(mode) = self
+                .major_modes
+                .get(&mode_symbol_id(mode_symbol_name(name)))
+            {
                 if let Some(ref fl) = mode.font_lock {
                     return Some(&fl.keywords);
                 }
@@ -580,14 +594,14 @@ impl ModeRegistry {
         let major = self.get_major_mode(buffer_id);
         let pretty = self
             .major_modes
-            .get(major)
+            .get(&mode_symbol_id(major))
             .map(|m| mode_display_text(&m.pretty_name))
             .unwrap_or_else(|| major.to_string());
 
         let mut parts = vec![pretty];
 
         for minor_name in self.active_minor_modes(buffer_id) {
-            if let Some(mode) = self.minor_modes.get(minor_name) {
+            if let Some(mode) = self.minor_modes.get(&mode_symbol_id(minor_name)) {
                 if let Some(ref lighter) = mode.lighter {
                     parts.push(mode_display_text(lighter));
                 }
@@ -625,14 +639,14 @@ impl ModeRegistry {
             body: None,
         };
         self.major_modes
-            .insert("fundamental-mode".to_string(), mode);
+            .insert(mode_symbol_id("fundamental-mode"), mode);
     }
 
     // pdump accessors
-    pub(crate) fn dump_major_modes(&self) -> &HashMap<String, MajorMode> {
+    pub(crate) fn dump_major_modes(&self) -> &HashMap<SymId, MajorMode> {
         &self.major_modes
     }
-    pub(crate) fn dump_minor_modes(&self) -> &HashMap<String, MinorMode> {
+    pub(crate) fn dump_minor_modes(&self) -> &HashMap<SymId, MinorMode> {
         &self.minor_modes
     }
     pub(crate) fn dump_buffer_major_modes(&self) -> &HashMap<u64, Value> {
@@ -647,24 +661,24 @@ impl ModeRegistry {
     pub(crate) fn dump_auto_mode_alist(&self) -> &[(String, Value)] {
         &self.auto_mode_alist
     }
-    pub(crate) fn dump_custom_variables(&self) -> &HashMap<String, CustomVariable> {
+    pub(crate) fn dump_custom_variables(&self) -> &HashMap<SymId, CustomVariable> {
         &self.custom_variables
     }
-    pub(crate) fn dump_custom_groups(&self) -> &HashMap<String, CustomGroup> {
+    pub(crate) fn dump_custom_groups(&self) -> &HashMap<SymId, CustomGroup> {
         &self.custom_groups
     }
     pub(crate) fn dump_fundamental_mode(&self) -> Value {
         self.fundamental_mode
     }
     pub(crate) fn from_dump(
-        major_modes: HashMap<String, MajorMode>,
-        minor_modes: HashMap<String, MinorMode>,
+        major_modes: HashMap<SymId, MajorMode>,
+        minor_modes: HashMap<SymId, MinorMode>,
         buffer_major_modes: HashMap<u64, Value>,
         buffer_minor_modes: HashMap<u64, Vec<Value>>,
         global_minor_modes: Vec<Value>,
         auto_mode_alist: Vec<(String, Value)>,
-        custom_variables: HashMap<String, CustomVariable>,
-        custom_groups: HashMap<String, CustomGroup>,
+        custom_variables: HashMap<SymId, CustomVariable>,
+        custom_groups: HashMap<SymId, CustomGroup>,
         fundamental_mode: Value,
     ) -> Self {
         Self {

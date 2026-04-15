@@ -1293,7 +1293,7 @@ pub(crate) fn dump_mode_registry(encoder: &mut DumpEncoder, mr: &ModeRegistry) -
             .iter()
             .map(|(k, m)| {
                 (
-                    k.clone(),
+                    dump_sym_id(*k),
                     DumpMajorMode {
                         pretty_name: dump_lisp_string(&m.pretty_name),
                         parent: encoder.dump_opt_value(&m.parent),
@@ -1312,7 +1312,7 @@ pub(crate) fn dump_mode_registry(encoder: &mut DumpEncoder, mr: &ModeRegistry) -
             .iter()
             .map(|(k, m)| {
                 (
-                    k.clone(),
+                    dump_sym_id(*k),
                     DumpMinorMode {
                         lighter: m.lighter.as_ref().map(dump_lisp_string),
                         keymap_name: encoder.dump_opt_value(&m.keymap_name),
@@ -1352,7 +1352,7 @@ pub(crate) fn dump_mode_registry(encoder: &mut DumpEncoder, mr: &ModeRegistry) -
             .iter()
             .map(|(k, cv)| {
                 (
-                    k.clone(),
+                    dump_sym_id(*k),
                     DumpModeCustomVariable {
                         default_value: encoder.dump_value(&cv.default_value),
                         doc: cv.doc.as_ref().map(dump_lisp_string),
@@ -1370,7 +1370,7 @@ pub(crate) fn dump_mode_registry(encoder: &mut DumpEncoder, mr: &ModeRegistry) -
             .iter()
             .map(|(k, g)| {
                 (
-                    k.clone(),
+                    dump_sym_id(*k),
                     DumpModeCustomGroup {
                         doc: g.doc.as_ref().map(dump_lisp_string),
                         parent: encoder.dump_opt_value(&g.parent),
@@ -2775,12 +2775,12 @@ pub(crate) fn load_mode_registry(
     decoder: &mut LoadDecoder,
     dmr: &DumpModeRegistry,
 ) -> ModeRegistry {
-    let major_modes: HashMap<String, MajorMode> = dmr
+    let major_modes: HashMap<SymId, MajorMode> = dmr
         .major_modes
         .iter()
         .map(|(k, m)| {
             (
-                k.clone(),
+                load_sym_id(k),
                 MajorMode {
                     pretty_name: load_lisp_string(&m.pretty_name),
                     parent: decoder.load_opt_value(&m.parent),
@@ -2808,12 +2808,12 @@ pub(crate) fn load_mode_registry(
             )
         })
         .collect();
-    let minor_modes: HashMap<String, MinorMode> = dmr
+    let minor_modes: HashMap<SymId, MinorMode> = dmr
         .minor_modes
         .iter()
         .map(|(k, m)| {
             (
-                k.clone(),
+                load_sym_id(k),
                 MinorMode {
                     lighter: m.lighter.as_ref().map(load_lisp_string),
                     keymap_name: decoder.load_opt_value(&m.keymap_name),
@@ -2823,12 +2823,12 @@ pub(crate) fn load_mode_registry(
             )
         })
         .collect();
-    let custom_variables: HashMap<String, ModeCustomVariable> = dmr
+    let custom_variables: HashMap<SymId, ModeCustomVariable> = dmr
         .custom_variables
         .iter()
         .map(|(k, cv)| {
             (
-                k.clone(),
+                load_sym_id(k),
                 ModeCustomVariable {
                     default_value: decoder.load_value(&cv.default_value),
                     doc: cv.doc.as_ref().map(load_lisp_string),
@@ -2841,12 +2841,12 @@ pub(crate) fn load_mode_registry(
             )
         })
         .collect();
-    let custom_groups: HashMap<String, ModeCustomGroup> = dmr
+    let custom_groups: HashMap<SymId, ModeCustomGroup> = dmr
         .custom_groups
         .iter()
         .map(|(k, g)| {
             (
-                k.clone(),
+                load_sym_id(k),
                 ModeCustomGroup {
                     doc: g.doc.as_ref().map(load_lisp_string),
                     parent: decoder.load_opt_value(&g.parent),
