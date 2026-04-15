@@ -481,7 +481,7 @@ impl<'a> Vm<'a> {
                 match $expr {
                     Ok(value) => value,
                     Err(flow) => {
-                        self.resume_nonlocal(func, frame_base, pc, handlers, specpdl, flow)?;
+                        self.resume_nonlocal(func, pc, handlers, specpdl, flow)?;
                         continue;
                     }
                 }
@@ -694,7 +694,6 @@ impl<'a> Vm<'a> {
                     ) {
                         self.resume_nonlocal(
                             func,
-                            frame_base,
                             pc,
                             handlers,
                             specpdl,
@@ -1848,7 +1847,6 @@ impl<'a> Vm<'a> {
                     let tag = stk!().pop().unwrap_or(Value::NIL);
                     self.resume_nonlocal(
                         func,
-                        frame_base,
                         pc,
                         handlers,
                         specpdl,
@@ -3714,7 +3712,6 @@ impl<'a> Vm<'a> {
     fn resume_nonlocal(
         &mut self,
         _func: &ByteCodeFunction,
-        _frame_base: usize,
         pc: &mut usize,
         handlers: &mut Vec<Handler>,
         specpdl: &mut Vec<VmUnwindEntry>,
@@ -3741,14 +3738,7 @@ impl<'a> Vm<'a> {
                             vm.unwind_specpdl_to(spec_depth, specpdl)
                         })
                     {
-                        return self.resume_nonlocal(
-                            _func,
-                            _frame_base,
-                            pc,
-                            handlers,
-                            specpdl,
-                            cleanup_flow,
-                        );
+                        return self.resume_nonlocal(_func, pc, handlers, specpdl, cleanup_flow);
                     }
                     self.ctx.bc_buf.truncate(stack_len);
                     self.ctx.bc_buf.push(value);
@@ -3776,14 +3766,7 @@ impl<'a> Vm<'a> {
                 }) {
                     Ok(sig) => sig,
                     Err(flow) => {
-                        return self.resume_nonlocal(
-                            _func,
-                            _frame_base,
-                            pc,
-                            handlers,
-                            specpdl,
-                            flow,
-                        );
+                        return self.resume_nonlocal(_func, pc, handlers, specpdl, flow);
                     }
                 };
                 if let Some(ResumeTarget::VmConditionCase {
@@ -3805,14 +3788,7 @@ impl<'a> Vm<'a> {
                             vm.unwind_specpdl_to(spec_depth, specpdl)
                         })
                     {
-                        return self.resume_nonlocal(
-                            _func,
-                            _frame_base,
-                            pc,
-                            handlers,
-                            specpdl,
-                            cleanup_flow,
-                        );
+                        return self.resume_nonlocal(_func, pc, handlers, specpdl, cleanup_flow);
                     }
                     self.ctx.bc_buf.truncate(stack_len);
                     self.ctx.bc_buf.push(make_signal_binding_value(&sig));
