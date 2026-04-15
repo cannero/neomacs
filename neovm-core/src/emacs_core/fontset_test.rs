@@ -273,3 +273,151 @@ fn registry_storage_uses_lisp_strings_for_names_and_aliases() {
         Value::heap_string(alias)
     )));
 }
+
+#[test]
+fn snapshot_fontset_registry_preserves_lisp_string_names() {
+    crate::test_utils::init_test_tracing();
+    reset_fontset_registry();
+
+    let custom_name = fontset_name_lisp_string("fontset-snapshot");
+    let custom_alias = fontset_name_lisp_string("fontset-snapshot-alias");
+    restore_fontset_registry(FontsetRegistrySnapshot {
+        ordered_names: vec![
+            fontset_name_lisp_string(DEFAULT_FONTSET_NAME),
+            custom_name.clone(),
+        ],
+        alias_to_name: vec![
+            (
+                fontset_name_lisp_string(DEFAULT_FONTSET_ALIAS),
+                fontset_name_lisp_string(DEFAULT_FONTSET_NAME),
+            ),
+            (custom_alias.clone(), custom_name.clone()),
+        ],
+        fontsets: vec![
+            (
+                fontset_name_lisp_string(DEFAULT_FONTSET_NAME),
+                FontsetDataSnapshot::default(),
+            ),
+            (custom_name.clone(), FontsetDataSnapshot::default()),
+        ],
+        generation: 7,
+    });
+
+    let snapshot = snapshot_fontset_registry();
+    assert_eq!(
+        snapshot.ordered_names,
+        vec![
+            fontset_name_lisp_string(DEFAULT_FONTSET_NAME),
+            custom_name.clone(),
+        ]
+    );
+    assert!(
+        snapshot
+            .alias_to_name
+            .contains(&(custom_alias.clone(), custom_name.clone()))
+    );
+    assert!(
+        snapshot
+            .fontsets
+            .iter()
+            .any(|(name, _)| name == &custom_name)
+    );
+}
+
+#[test]
+fn fontset_registry_pdump_uses_lisp_string_names_and_loads_legacy_strings() {
+    crate::test_utils::init_test_tracing();
+    reset_fontset_registry();
+
+    let fresh_name = fontset_name_lisp_string("fontset-pdump");
+    let fresh_alias = fontset_name_lisp_string("fontset-pdump-alias");
+    restore_fontset_registry(FontsetRegistrySnapshot {
+        ordered_names: vec![
+            fontset_name_lisp_string(DEFAULT_FONTSET_NAME),
+            fresh_name.clone(),
+        ],
+        alias_to_name: vec![
+            (
+                fontset_name_lisp_string(DEFAULT_FONTSET_ALIAS),
+                fontset_name_lisp_string(DEFAULT_FONTSET_NAME),
+            ),
+            (fresh_alias.clone(), fresh_name.clone()),
+        ],
+        fontsets: vec![
+            (
+                fontset_name_lisp_string(DEFAULT_FONTSET_NAME),
+                FontsetDataSnapshot::default(),
+            ),
+            (fresh_name.clone(), FontsetDataSnapshot::default()),
+        ],
+        generation: 9,
+    });
+
+    let dumped = crate::emacs_core::pdump::convert::dump_fontset_registry();
+    assert!(dumped.ordered_names.is_empty());
+    assert!(dumped.alias_to_name.is_empty());
+    assert!(dumped.fontsets.is_empty());
+    assert!(
+        dumped
+            .ordered_names_lisp
+            .iter()
+            .any(|name| { name.data == fresh_name.as_bytes() && name.size == fresh_name.schars() })
+    );
+    assert!(dumped.alias_to_name_lisp.iter().any(|(alias, name)| {
+        alias.data == fresh_alias.as_bytes() && name.data == fresh_name.as_bytes()
+    }));
+    assert!(dumped.fontsets_lisp.iter().any(|(name, _)| {
+        name.data == fresh_name.as_bytes() && name.size == fresh_name.schars()
+    }));
+
+    reset_fontset_registry();
+    let legacy_name = "fontset-legacy".to_string();
+    let legacy_alias = "fontset-legacy-alias".to_string();
+    let legacy_dump = crate::emacs_core::pdump::types::DumpFontsetRegistry {
+        ordered_names_lisp: Vec::new(),
+        alias_to_name_lisp: Vec::new(),
+        fontsets_lisp: Vec::new(),
+        ordered_names: vec![DEFAULT_FONTSET_NAME.to_string(), legacy_name.clone()],
+        alias_to_name: vec![
+            (
+                DEFAULT_FONTSET_ALIAS.to_string(),
+                DEFAULT_FONTSET_NAME.to_string(),
+            ),
+            (legacy_alias.clone(), legacy_name.clone()),
+        ],
+        fontsets: vec![
+            (
+                DEFAULT_FONTSET_NAME.to_string(),
+                crate::emacs_core::pdump::types::DumpFontsetData {
+                    ranges: Vec::new(),
+                    fallback: None,
+                },
+            ),
+            (
+                legacy_name.clone(),
+                crate::emacs_core::pdump::types::DumpFontsetData {
+                    ranges: Vec::new(),
+                    fallback: None,
+                },
+            ),
+        ],
+        generation: 11,
+    };
+    crate::emacs_core::pdump::convert::load_fontset_registry(&legacy_dump);
+
+    let restored = snapshot_fontset_registry();
+    let legacy_name_lisp = fontset_name_lisp_string(&legacy_name);
+    let legacy_alias_lisp = fontset_name_lisp_string(&legacy_alias);
+    assert!(restored.ordered_names.contains(&legacy_name_lisp));
+    assert!(
+        restored
+            .alias_to_name
+            .contains(&(legacy_alias_lisp, legacy_name_lisp.clone()))
+    );
+    assert!(
+        restored
+            .fontsets
+            .iter()
+            .any(|(name, _)| name == &legacy_name_lisp)
+    );
+}

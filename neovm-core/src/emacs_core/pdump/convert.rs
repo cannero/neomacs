@@ -1582,35 +1582,47 @@ fn dump_font_spec_entry(entry: FontSpecEntry) -> DumpFontSpecEntry {
 pub(crate) fn dump_fontset_registry() -> DumpFontsetRegistry {
     let snapshot = snapshot_fontset_registry();
     DumpFontsetRegistry {
-        ordered_names: snapshot.ordered_names,
-        alias_to_name: snapshot.alias_to_name,
-        fontsets: snapshot
+        ordered_names_lisp: snapshot
+            .ordered_names
+            .iter()
+            .map(dump_lisp_string)
+            .collect(),
+        alias_to_name_lisp: snapshot
+            .alias_to_name
+            .iter()
+            .map(|(alias, name)| (dump_lisp_string(alias), dump_lisp_string(name)))
+            .collect(),
+        fontsets_lisp: snapshot
             .fontsets
-            .into_iter()
+            .iter()
             .map(|(name, data)| {
                 (
-                    name,
+                    dump_lisp_string(name),
                     DumpFontsetData {
                         ranges: data
                             .ranges
-                            .into_iter()
+                            .iter()
                             .map(|range| DumpFontsetRangeEntry {
                                 from: range.from,
                                 to: range.to,
                                 entries: range
                                     .entries
-                                    .into_iter()
+                                    .iter()
+                                    .cloned()
                                     .map(dump_font_spec_entry)
                                     .collect(),
                             })
                             .collect(),
-                        fallback: data
-                            .fallback
-                            .map(|entries| entries.into_iter().map(dump_font_spec_entry).collect()),
+                        fallback: data.fallback.as_ref().map(|entries| {
+                            entries.iter().cloned().map(dump_font_spec_entry).collect()
+                        }),
                     },
                 )
             })
             .collect(),
+        ordered_names: Vec::new(),
+        alias_to_name: Vec::new(),
+        fontsets: Vec::new(),
         generation: snapshot.generation,
     }
 }
@@ -3383,32 +3395,85 @@ fn load_font_spec_entry(entry: &DumpFontSpecEntry) -> FontSpecEntry {
 
 pub(crate) fn load_fontset_registry(dfr: &DumpFontsetRegistry) {
     let snapshot = FontsetRegistrySnapshot {
-        ordered_names: dfr.ordered_names.clone(),
-        alias_to_name: dfr.alias_to_name.clone(),
-        fontsets: dfr
-            .fontsets
-            .iter()
-            .map(|(name, data)| {
-                (
-                    name.clone(),
-                    FontsetDataSnapshot {
-                        ranges: data
-                            .ranges
-                            .iter()
-                            .map(|range| FontsetRangeEntrySnapshot {
-                                from: range.from,
-                                to: range.to,
-                                entries: range.entries.iter().map(load_font_spec_entry).collect(),
-                            })
-                            .collect(),
-                        fallback: data
-                            .fallback
-                            .as_ref()
-                            .map(|entries| entries.iter().map(load_font_spec_entry).collect()),
-                    },
-                )
-            })
-            .collect(),
+        ordered_names: if dfr.ordered_names_lisp.is_empty() {
+            dfr.ordered_names
+                .iter()
+                .map(|name| LispString::from_utf8(name))
+                .collect()
+        } else {
+            dfr.ordered_names_lisp
+                .iter()
+                .map(load_lisp_string)
+                .collect()
+        },
+        alias_to_name: if dfr.alias_to_name_lisp.is_empty() {
+            dfr.alias_to_name
+                .iter()
+                .map(|(alias, name)| (LispString::from_utf8(alias), LispString::from_utf8(name)))
+                .collect()
+        } else {
+            dfr.alias_to_name_lisp
+                .iter()
+                .map(|(alias, name)| (load_lisp_string(alias), load_lisp_string(name)))
+                .collect()
+        },
+        fontsets: if dfr.fontsets_lisp.is_empty() {
+            dfr.fontsets
+                .iter()
+                .map(|(name, data)| {
+                    (
+                        LispString::from_utf8(name),
+                        FontsetDataSnapshot {
+                            ranges: data
+                                .ranges
+                                .iter()
+                                .map(|range| FontsetRangeEntrySnapshot {
+                                    from: range.from,
+                                    to: range.to,
+                                    entries: range
+                                        .entries
+                                        .iter()
+                                        .map(load_font_spec_entry)
+                                        .collect(),
+                                })
+                                .collect(),
+                            fallback: data
+                                .fallback
+                                .as_ref()
+                                .map(|entries| entries.iter().map(load_font_spec_entry).collect()),
+                        },
+                    )
+                })
+                .collect()
+        } else {
+            dfr.fontsets_lisp
+                .iter()
+                .map(|(name, data)| {
+                    (
+                        load_lisp_string(name),
+                        FontsetDataSnapshot {
+                            ranges: data
+                                .ranges
+                                .iter()
+                                .map(|range| FontsetRangeEntrySnapshot {
+                                    from: range.from,
+                                    to: range.to,
+                                    entries: range
+                                        .entries
+                                        .iter()
+                                        .map(load_font_spec_entry)
+                                        .collect(),
+                                })
+                                .collect(),
+                            fallback: data
+                                .fallback
+                                .as_ref()
+                                .map(|entries| entries.iter().map(load_font_spec_entry).collect()),
+                        },
+                    )
+                })
+                .collect()
+        },
         generation: dfr.generation,
     };
     restore_fontset_registry(snapshot);

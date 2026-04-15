@@ -109,9 +109,9 @@ pub(crate) struct FontsetDataSnapshot {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FontsetRegistrySnapshot {
-    pub ordered_names: Vec<String>,
-    pub alias_to_name: Vec<(String, String)>,
-    pub fontsets: Vec<(String, FontsetDataSnapshot)>,
+    pub ordered_names: Vec<LispString>,
+    pub alias_to_name: Vec<(LispString, LispString)>,
+    pub fontsets: Vec<(LispString, FontsetDataSnapshot)>,
     pub generation: u64,
 }
 
@@ -478,16 +478,21 @@ pub(crate) fn snapshot_fontset_registry() -> FontsetRegistrySnapshot {
             let mut alias_to_name: Vec<_> = slot
                 .alias_to_name
                 .iter()
-                .map(|(alias, name)| (fontset_name_runtime(alias), fontset_name_runtime(name)))
+                .map(|(alias, name)| (alias.clone(), name.clone()))
                 .collect();
-            alias_to_name.sort();
+            alias_to_name.sort_by(|(left_alias, left_name), (right_alias, right_name)| {
+                left_alias
+                    .as_bytes()
+                    .cmp(right_alias.as_bytes())
+                    .then_with(|| left_name.as_bytes().cmp(right_name.as_bytes()))
+            });
 
             let mut fontsets: Vec<_> = slot
                 .fontsets
                 .iter()
                 .map(|(name, data)| {
                     (
-                        fontset_name_runtime(name),
+                        name.clone(),
                         FontsetDataSnapshot {
                             ranges: data
                                 .ranges
@@ -503,27 +508,23 @@ pub(crate) fn snapshot_fontset_registry() -> FontsetRegistrySnapshot {
                     )
                 })
                 .collect();
-            fontsets.sort_by(|left, right| left.0.cmp(&right.0));
+            fontsets.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
 
             FontsetRegistrySnapshot {
-                ordered_names: slot
-                    .ordered_names
-                    .iter()
-                    .map(fontset_name_runtime)
-                    .collect(),
+                ordered_names: slot.ordered_names.clone(),
                 alias_to_name,
                 fontsets,
                 generation: slot.generation,
             }
         })
         .unwrap_or_else(|_| FontsetRegistrySnapshot {
-            ordered_names: vec![DEFAULT_FONTSET_NAME.to_string()],
+            ordered_names: vec![fontset_name_lisp_string(DEFAULT_FONTSET_NAME)],
             alias_to_name: vec![(
-                DEFAULT_FONTSET_ALIAS.to_string(),
-                DEFAULT_FONTSET_NAME.to_string(),
+                fontset_name_lisp_string(DEFAULT_FONTSET_ALIAS),
+                fontset_name_lisp_string(DEFAULT_FONTSET_NAME),
             )],
             fontsets: vec![(
-                DEFAULT_FONTSET_NAME.to_string(),
+                fontset_name_lisp_string(DEFAULT_FONTSET_NAME),
                 FontsetDataSnapshot::default(),
             )],
             generation: 1,
@@ -531,22 +532,13 @@ pub(crate) fn snapshot_fontset_registry() -> FontsetRegistrySnapshot {
 }
 
 pub(crate) fn restore_fontset_registry(snapshot: FontsetRegistrySnapshot) {
-    let alias_to_name = snapshot
-        .alias_to_name
-        .into_iter()
-        .map(|(alias, name)| {
-            (
-                fontset_name_lisp_string(&alias),
-                fontset_name_lisp_string(&name),
-            )
-        })
-        .collect();
+    let alias_to_name = snapshot.alias_to_name.into_iter().collect();
     let fontsets = snapshot
         .fontsets
         .into_iter()
         .map(|(name, data)| {
             (
-                fontset_name_lisp_string(&name),
+                name,
                 FontsetData {
                     ranges: data
                         .ranges
@@ -563,11 +555,7 @@ pub(crate) fn restore_fontset_registry(snapshot: FontsetRegistrySnapshot) {
         })
         .collect();
     let restored = FontsetRegistry {
-        ordered_names: snapshot
-            .ordered_names
-            .into_iter()
-            .map(|name| fontset_name_lisp_string(&name))
-            .collect(),
+        ordered_names: snapshot.ordered_names,
         alias_to_name,
         fontsets,
         generation: snapshot.generation.max(1),

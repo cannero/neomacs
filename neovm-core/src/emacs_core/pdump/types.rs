@@ -985,8 +985,17 @@ pub struct DumpFontsetData {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpFontsetRegistry {
+    #[serde(default)]
+    pub ordered_names_lisp: Vec<DumpLispString>,
+    #[serde(default)]
+    pub alias_to_name_lisp: Vec<(DumpLispString, DumpLispString)>,
+    #[serde(default)]
+    pub fontsets_lisp: Vec<(DumpLispString, DumpFontsetData)>,
+    #[serde(default)]
     pub ordered_names: Vec<String>,
+    #[serde(default)]
     pub alias_to_name: Vec<(String, String)>,
+    #[serde(default)]
     pub fontsets: Vec<(String, DumpFontsetData)>,
     pub generation: u64,
 }
