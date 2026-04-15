@@ -140,9 +140,8 @@ pub struct Process {
     pub tls_stream: Option<TlsStream>,
     /// Whether this is a server (listener) or client network process.
     pub network_server: bool,
-    /// Marker position in the process buffer (byte offset), matching GNU's `p->mark`.
-    /// `None` means "use end of buffer".
-    pub mark_byte_pos: Option<usize>,
+    /// End-of-output marker, matching GNU's `p->mark`.
+    pub mark: Value,
 }
 
 impl std::fmt::Debug for Process {
@@ -218,6 +217,17 @@ fn process_command_argv(command: Value) -> Option<(String, Vec<String>)> {
         .map(|value| expect_string_strict(value).ok())
         .collect::<Option<Vec<_>>>()?;
     Some((program, argv))
+}
+
+fn update_process_mark(buffers: &mut BufferManager, proc: &mut Process) -> EvalResult {
+    let Some(buffer_id) = proc.buffer.as_buffer_id() else {
+        return super::marker::builtin_set_marker_in_buffers(buffers, vec![proc.mark, Value::NIL]);
+    };
+    let Some(buffer) = buffers.get(buffer_id) else {
+        return super::marker::builtin_set_marker_in_buffers(buffers, vec![proc.mark, Value::NIL]);
+    };
+    let position = Value::fixnum(buffer.total_chars() as i64 + 1);
+    super::marker::builtin_set_marker_in_buffers(buffers, vec![proc.mark, position, proc.buffer])
 }
 
 impl ProcessManager {
@@ -297,10 +307,17 @@ impl ProcessManager {
             socket: None,
             tls_stream: None,
             network_server: false,
-            mark_byte_pos: None,
+            mark: super::marker::make_marker_value(None, None, false),
         };
         self.processes.insert(id, proc);
         id
+    }
+
+    pub fn sync_process_mark(&mut self, buffers: &mut BufferManager, id: ProcessId) -> EvalResult {
+        let proc = self
+            .get_mut(id)
+            .ok_or_else(|| signal("error", vec![Value::string("Process not found")]))?;
+        update_process_mark(buffers, proc)
     }
 
     /// Spawn an OS child process for a tracked process record.
@@ -2791,20 +2808,27 @@ pub(crate) fn builtin_internal_default_process_filter(
         return Ok(Value::NIL);
     }
 
-    // Look up the process buffer.
-    let buf_id = match eval.processes.get(id) {
-        Some(proc) => proc.buffer.as_buffer_id(),
+    // Look up the process buffer and mark.
+    let (buf_id, mark) = match eval.processes.get(id) {
+        Some(proc) => (proc.buffer.as_buffer_id(), proc.mark),
         None => return Ok(Value::NIL),
     };
     let Some(buf_id) = buf_id else {
         return Ok(Value::NIL);
     };
+    if eval.buffers.get(buf_id).is_none() {
+        return Ok(Value::NIL);
+    }
 
     // Get mark position or end of buffer (ZV in GNU terms).
-    let mark_pos = eval.processes.get(id).and_then(|p| p.mark_byte_pos);
-    let insert_pos = match mark_pos {
-        Some(pos) => pos,
-        None => eval
+    let insert_pos = match super::marker::marker_position_as_int_with_buffers(&eval.buffers, &mark)
+    {
+        Ok(pos) => eval
+            .buffers
+            .get(buf_id)
+            .map(|b| b.lisp_pos_to_full_buffer_byte(pos))
+            .unwrap_or(0),
+        Err(_) => eval
             .buffers
             .get(buf_id)
             .map(|b| b.total_bytes())
@@ -2847,9 +2871,17 @@ pub(crate) fn builtin_internal_default_process_filter(
         buf.goto_byte(adjusted_pt);
     }
 
-    // Advance process mark.
+    // Advance the stored process marker.
     if let Some(proc) = eval.processes.get_mut(id) {
-        proc.mark_byte_pos = Some(new_mark);
+        let new_mark_pos = eval
+            .buffers
+            .get(buf_id)
+            .map(|b| Value::fixnum(b.text.emacs_byte_to_char(new_mark) as i64 + 1))
+            .unwrap_or(Value::NIL);
+        let _ = super::marker::builtin_set_marker_in_buffers(
+            &mut eval.buffers,
+            vec![proc.mark, new_mark_pos, proc.buffer],
+        )?;
     }
 
     Ok(Value::NIL)
@@ -3540,6 +3572,7 @@ pub(crate) fn builtin_make_network_process(
             Vec::new(),
             ProcessKind::Network,
         );
+        eval.processes.sync_process_mark(&mut eval.buffers, id)?;
         if let Some(proc) = eval.processes.get_mut(id) {
             proc.network_server = true;
             proc.thread = current_thread_handle(&eval.threads);
@@ -3595,6 +3628,7 @@ pub(crate) fn builtin_make_network_process(
         Vec::new(),
         ProcessKind::Network,
     );
+    eval.processes.sync_process_mark(&mut eval.buffers, id)?;
     if let Some(proc) = eval.processes.get_mut(id) {
         #[cfg(unix)]
         {
@@ -3699,6 +3733,7 @@ pub(crate) fn builtin_make_pipe_process_impl(
         Vec::new(),
         ProcessKind::Pipe,
     );
+    processes.sync_process_mark(buffers, id)?;
     if let Some(proc) = processes.get_mut(id) {
         proc.thread = current_thread_handle(threads);
     }
@@ -3902,6 +3937,7 @@ pub(crate) fn builtin_start_process(
     let id = eval
         .processes
         .create_process(name, buffer, program, proc_args);
+    eval.processes.sync_process_mark(&mut eval.buffers, id)?;
 
     // Actually spawn the OS process.
     if let Err(e) = eval.processes.spawn_child(id, use_pty) {
@@ -3936,6 +3972,7 @@ pub(crate) fn builtin_start_process_shell_command(
         "sh".to_string(),
         vec!["-c".to_string(), command],
     );
+    eval.processes.sync_process_mark(&mut eval.buffers, id)?;
 
     // Actually spawn the OS process.
     if let Err(e) = eval.processes.spawn_child(id, use_pty) {
@@ -3966,6 +4003,7 @@ pub(crate) fn builtin_start_file_process(
     let id = eval
         .processes
         .create_process(name, buffer, program, proc_args);
+    eval.processes.sync_process_mark(&mut eval.buffers, id)?;
 
     // NeoVM has no Tramp/remote support, so behave like start-process.
     if let Err(e) = eval.processes.spawn_child(id, use_pty) {
@@ -3998,6 +4036,7 @@ pub(crate) fn builtin_start_file_process_shell_command(
         "sh".to_string(),
         vec!["-c".to_string(), command],
     );
+    eval.processes.sync_process_mark(&mut eval.buffers, id)?;
 
     // NeoVM has no Tramp/remote support, so behave like start-process-shell-command.
     if let Err(e) = eval.processes.spawn_child(id, use_pty) {
@@ -4615,6 +4654,7 @@ pub(crate) fn builtin_make_process_impl(
         (command[0].clone(), command[1..].to_vec())
     };
     let id = processes.create_process(name, buffer.unwrap_or(Value::NIL), program, argv);
+    processes.sync_process_mark(buffers, id)?;
 
     // Set filter and sentinel if provided.
     if !filter.is_nil() {
@@ -4992,12 +5032,12 @@ pub(crate) fn builtin_set_process_buffer(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_process_buffer_impl(&mut eval.processes, &eval.buffers, args)
+    builtin_set_process_buffer_impl(&mut eval.processes, &mut eval.buffers, args)
 }
 
 pub(crate) fn builtin_set_process_buffer_impl(
     processes: &mut ProcessManager,
-    buffers: &BufferManager,
+    buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("set-process-buffer", &args, 2)?;
@@ -5023,7 +5063,10 @@ pub(crate) fn builtin_set_process_buffer_impl(
             vec![Value::symbol("processp"), args[0]],
         )
     })?;
-    proc.buffer = args[1];
+    if proc.buffer != args[1] {
+        proc.buffer = args[1];
+        update_process_mark(buffers, proc)?;
+    }
     Ok(args[1])
 }
 
@@ -5309,7 +5352,7 @@ pub(crate) fn builtin_process_mark(
 
 pub(crate) fn builtin_process_mark_impl(
     processes: &ProcessManager,
-    buffers: &BufferManager,
+    _buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("process-mark", &args, 1)?;
@@ -5320,8 +5363,7 @@ pub(crate) fn builtin_process_mark_impl(
             vec![Value::symbol("processp"), args[0]],
         )
     })?;
-    let buffer_id = proc.buffer.as_buffer_id();
-    Ok(super::marker::make_marker_value(buffer_id, None, false))
+    Ok(proc.mark)
 }
 
 /// (process-type PROCESS) -> symbol
@@ -6169,6 +6211,7 @@ impl GcTrace for ProcessManager {
             .chain(self.deleted_processes.values())
         {
             roots.push(process.buffer);
+            roots.push(process.mark);
             roots.push(process.command);
             roots.push(process.tty_name);
             roots.push(process.filter);

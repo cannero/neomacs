@@ -235,11 +235,126 @@ fn process_buffer_storage_uses_buffer_objects() {
 
     builtin_set_process_buffer_impl(
         &mut pm,
-        &buffers,
+        &mut buffers,
         vec![Value::fixnum(id as i64), Value::NIL],
     )
     .expect("set-process-buffer should accept nil");
     assert!(pm.get(id).expect("process").buffer.is_nil());
+}
+
+#[test]
+fn process_mark_storage_uses_marker_objects() {
+    crate::test_utils::init_test_tracing();
+    let mut buffers = crate::buffer::BufferManager::new();
+    let first = buffers.create_buffer("*proc-output-1*");
+    let second = buffers.create_buffer("*proc-output-2*");
+    let _ = buffers.insert_into_buffer(first, "abc");
+    let _ = buffers.insert_into_buffer(second, "z");
+
+    let mut pm = ProcessManager::new();
+    let id = pm.create_process("my-proc".into(), Value::NIL, "prog".into(), vec![]);
+    let mark = builtin_process_mark_impl(&pm, &buffers, vec![Value::fixnum(id as i64)])
+        .expect("process-mark should succeed");
+    assert!(mark.is_marker());
+    assert!(
+        super::super::marker::builtin_marker_buffer_in_buffers(&buffers, vec![mark])
+            .expect("marker-buffer")
+            .is_nil()
+    );
+
+    builtin_set_process_buffer_impl(
+        &mut pm,
+        &mut buffers,
+        vec![Value::fixnum(id as i64), Value::make_buffer(first)],
+    )
+    .expect("attach first process buffer");
+    let mark = builtin_process_mark_impl(&pm, &buffers, vec![Value::fixnum(id as i64)])
+        .expect("process-mark should succeed");
+    assert_eq!(
+        super::super::marker::builtin_marker_buffer_in_buffers(&buffers, vec![mark])
+            .expect("marker-buffer"),
+        Value::make_buffer(first)
+    );
+    assert_eq!(
+        super::super::marker::marker_position_as_int_with_buffers(&buffers, &mark)
+            .expect("marker-position"),
+        4
+    );
+
+    builtin_set_process_buffer_impl(
+        &mut pm,
+        &mut buffers,
+        vec![Value::fixnum(id as i64), Value::make_buffer(second)],
+    )
+    .expect("attach second process buffer");
+    let mark = builtin_process_mark_impl(&pm, &buffers, vec![Value::fixnum(id as i64)])
+        .expect("process-mark should succeed");
+    assert_eq!(
+        super::super::marker::builtin_marker_buffer_in_buffers(&buffers, vec![mark])
+            .expect("marker-buffer"),
+        Value::make_buffer(second)
+    );
+    assert_eq!(
+        super::super::marker::marker_position_as_int_with_buffers(&buffers, &mark)
+            .expect("marker-position"),
+        2
+    );
+}
+
+#[test]
+fn internal_default_process_filter_moves_stored_process_mark() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let buffer_id = ev.buffers.create_buffer("*proc-filter-mark*");
+    let pid = ev.processes.create_process(
+        "proc-filter-mark".into(),
+        Value::make_buffer(buffer_id),
+        "prog".into(),
+        vec![],
+    );
+    ev.processes
+        .sync_process_mark(&mut ev.buffers, pid)
+        .expect("sync process mark");
+
+    builtin_internal_default_process_filter(
+        &mut ev,
+        vec![Value::fixnum(pid as i64), Value::string("ab")],
+    )
+    .expect("first insert");
+    let mark =
+        builtin_process_mark_impl(&ev.processes, &ev.buffers, vec![Value::fixnum(pid as i64)])
+            .expect("process-mark");
+    assert_eq!(
+        super::super::marker::marker_position_as_int_with_buffers(&ev.buffers, &mark)
+            .expect("marker-position"),
+        3
+    );
+    assert_eq!(
+        ev.buffers
+            .get(buffer_id)
+            .expect("buffer")
+            .buffer_substring_lisp_string(0, 2)
+            .as_bytes(),
+        b"ab"
+    );
+
+    builtin_internal_default_process_filter(
+        &mut ev,
+        vec![Value::fixnum(pid as i64), Value::string("cd")],
+    )
+    .expect("second insert");
+    let mark =
+        builtin_process_mark_impl(&ev.processes, &ev.buffers, vec![Value::fixnum(pid as i64)])
+            .expect("process-mark");
+    assert_eq!(
+        super::super::marker::marker_position_as_int_with_buffers(&ev.buffers, &mark)
+            .expect("marker-position"),
+        5
+    );
+    assert_eq!(
+        ev.buffers.get(buffer_id).expect("buffer").buffer_string(),
+        "abcd"
+    );
 }
 
 #[test]
