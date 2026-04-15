@@ -615,10 +615,62 @@ impl Heap {
         let total_size = record.header().total_size();
         let space = record.space();
         let gc = record.erased();
+        self.commit_allocated_record_shared_common(
+            record,
+            space,
+            total_size,
+            old_reserved_bytes,
+            publish_local,
+            alloc_counter_shard,
+            prepared_publish,
+            gc,
+        )
+    }
+
+    #[inline(always)]
+    fn commit_allocated_record_shared_common(
+        &self,
+        record: ObjectRecord,
+        space: SpaceKind,
+        total_size: usize,
+        old_reserved_bytes: usize,
+        publish_local: &mut ObjectPublishLocal,
+        alloc_counter_shard: usize,
+        prepared_publish: bool,
+        gc: GcErased,
+    ) -> Result<AllocationCommit, AllocError> {
+        self.publish_and_account_allocated_record(
+            record,
+            space,
+            total_size,
+            old_reserved_bytes,
+            publish_local,
+            alloc_counter_shard,
+            prepared_publish,
+        );
+        if !self.state.collector.has_active_major_mark() {
+            return Ok(AllocationCommit {
+                gc,
+                plans_dirty: true,
+            });
+        }
+        self.commit_allocated_record_shared_active_major(gc)
+    }
+
+    #[inline(always)]
+    fn publish_and_account_allocated_record(
+        &self,
+        record: ObjectRecord,
+        space: SpaceKind,
+        total_size: usize,
+        old_reserved_bytes: usize,
+        publish_local: &mut ObjectPublishLocal,
+        alloc_counter_shard: usize,
+        prepared_publish: bool,
+    ) {
         let old_placement = (space == SpaceKind::Old)
             .then(|| record.old_block_placement())
             .flatten();
-
         if prepared_publish {
             self.state
                 .objects
@@ -637,16 +689,19 @@ impl Heap {
             old_reserved_bytes,
             alloc_counter_shard,
         );
-        let recorded = if self.state.collector.has_active_major_mark() {
-            let read = self.state.objects.read();
-            self.state.collector.record_active_major_reachable_object(
-                read.raw(),
-                gc,
-                self.state.allocation_config.old.mutator_assist_slices,
-            )?
-        } else {
-            false
-        };
+    }
+
+    #[cold]
+    fn commit_allocated_record_shared_active_major(
+        &self,
+        gc: GcErased,
+    ) -> Result<AllocationCommit, AllocError> {
+        let read = self.state.objects.read();
+        let recorded = self.state.collector.record_active_major_reachable_object(
+            read.raw(),
+            gc,
+            self.state.allocation_config.old.mutator_assist_slices,
+        )?;
         Ok(AllocationCommit {
             gc,
             plans_dirty: !recorded,
