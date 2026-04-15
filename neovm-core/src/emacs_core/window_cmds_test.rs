@@ -3649,6 +3649,55 @@ fn frame_parameter_icon_name_defaults_to_nil() {
 }
 
 #[test]
+fn frame_focus_defaults_to_nil() {
+    crate::test_utils::init_test_tracing();
+    let r = eval_one_with_frame("(frame-focus)");
+    assert_eq!(r, "OK nil");
+}
+
+#[test]
+fn redirect_frame_focus_tracks_frame_state_and_selection_redirects() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    let primary = ev.frames.create_frame("F1", 800, 600, buf);
+    let secondary = ev.frames.create_frame("F2", 800, 600, buf);
+
+    assert_eq!(
+        super::builtin_frame_focus(&mut ev, vec![Value::make_frame(primary.0)]).unwrap(),
+        Value::NIL
+    );
+    assert_eq!(
+        super::builtin_redirect_frame_focus(
+            &mut ev,
+            vec![Value::make_frame(primary.0), Value::make_frame(primary.0)],
+        )
+        .unwrap(),
+        Value::NIL
+    );
+    assert_eq!(
+        super::builtin_frame_focus(&mut ev, vec![Value::make_frame(primary.0)]).unwrap(),
+        Value::make_frame(primary.0)
+    );
+
+    super::builtin_select_frame(&mut ev, vec![Value::make_frame(secondary.0)])
+        .expect("select secondary frame");
+    assert_eq!(
+        super::builtin_frame_focus(&mut ev, vec![Value::make_frame(primary.0)]).unwrap(),
+        Value::make_frame(secondary.0)
+    );
+
+    assert_eq!(
+        super::builtin_redirect_frame_focus(&mut ev, vec![Value::make_frame(primary.0)]).unwrap(),
+        Value::NIL
+    );
+    assert_eq!(
+        super::builtin_frame_focus(&mut ev, vec![Value::make_frame(primary.0)]).unwrap(),
+        Value::NIL
+    );
+}
+
+#[test]
 fn frame_parameter_width() {
     crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(frame-parameter (selected-frame) 'width)");

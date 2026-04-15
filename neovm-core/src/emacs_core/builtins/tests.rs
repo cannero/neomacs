@@ -4908,10 +4908,10 @@ fn pure_dispatch_reconsider_redirect_placeholders_match_compat_contracts() {
         .expect("builtin redirect-debugging-output should evaluate");
     assert!(redirect_dbg.is_nil());
 
-    let redirect_focus = dispatch_builtin_pure("redirect-frame-focus", vec![Value::NIL])
-        .expect("builtin redirect-frame-focus should resolve")
-        .expect("builtin redirect-frame-focus should evaluate");
-    assert!(redirect_focus.is_nil());
+    assert!(
+        dispatch_builtin_pure("redirect-frame-focus", vec![Value::NIL]).is_none(),
+        "redirect-frame-focus now depends on live frame state"
+    );
 
     let remove_pos = dispatch_builtin_pure("remove-pos-from-symbol", vec![Value::symbol("x")])
         .expect("builtin remove-pos-from-symbol should resolve")

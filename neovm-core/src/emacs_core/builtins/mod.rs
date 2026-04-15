@@ -4679,7 +4679,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "frame-focus",
-        |_ctx, args| builtin_frame_focus(args),
+        super::window_cmds::builtin_frame_focus,
         0,
         Some(1),
     );
@@ -5454,7 +5454,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "redirect-frame-focus",
-        |_ctx, args| builtin_redirect_frame_focus(args),
+        super::window_cmds::builtin_redirect_frame_focus,
         1,
         Some(2),
     );

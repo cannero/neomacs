@@ -1062,6 +1062,49 @@ pub(crate) fn builtin_frame_old_selected_window(
         .map(window_value)
         .unwrap_or(Value::NIL))
 }
+
+/// `(frame-focus &optional FRAME)` -> frame receiving FRAME's keystrokes, or nil.
+pub(crate) fn builtin_frame_focus(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
+    expect_max_args("frame-focus", &args, 1)?;
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
+    let frame = frames
+        .get(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    Ok(frame.focus_frame_value())
+}
+
+/// `(redirect-frame-focus FRAME FOCUS-FRAME)` -> nil.
+pub(crate) fn builtin_redirect_frame_focus(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("redirect-frame-focus", &args, 1)?;
+    expect_max_args("redirect-frame-focus", &args, 2)?;
+    let fid =
+        resolve_frame_id_in_state(&mut eval.frames, &mut eval.buffers, args.first(), "framep")?;
+    let focus_frame = if let Some(value) = args.get(1) {
+        if value.is_nil() {
+            Value::NIL
+        } else {
+            let focus_fid = resolve_frame_id_in_state(
+                &mut eval.frames,
+                &mut eval.buffers,
+                Some(value),
+                "frame-live-p",
+            )?;
+            Value::make_frame(focus_fid.0)
+        }
+    } else {
+        Value::NIL
+    };
+    let frame = eval
+        .frames
+        .get_mut(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    frame.focus_frame = focus_frame;
+    Ok(Value::NIL)
+}
 /// `(set-frame-selected-window FRAME WINDOW &optional NORECORD)` -> WINDOW.
 pub(crate) fn builtin_set_frame_selected_window(
     eval: &mut super::eval::Context,

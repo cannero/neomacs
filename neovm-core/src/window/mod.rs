@@ -1220,6 +1220,9 @@ pub struct Frame {
     pub explicit_name: bool,
     /// GNU `struct frame.icon_name`: explicit icon name, or nil.
     pub icon_name: Value,
+    /// GNU `struct frame.focus_frame`: frame receiving this frame's keystrokes,
+    /// or nil when focus is not redirected.
+    pub focus_frame: Value,
     /// Terminal owner id for GNU `frame-terminal` / terminal lifecycle.
     pub terminal_id: u64,
     /// Root of the window tree.
@@ -1344,6 +1347,7 @@ impl Frame {
             name,
             explicit_name: false,
             icon_name: Value::NIL,
+            focus_frame: Value::NIL,
             terminal_id,
             root_window,
             selected_window: selected,
@@ -1406,6 +1410,10 @@ impl Frame {
 
     pub fn icon_name_value(&self) -> Value {
         self.icon_name
+    }
+
+    pub fn focus_frame_value(&self) -> Value {
+        self.focus_frame
     }
 
     pub fn name_runtime_string_owned(&self) -> String {
@@ -2052,7 +2060,17 @@ impl FrameManager {
     /// Select a frame.
     pub fn select_frame(&mut self, id: FrameId) -> bool {
         if self.frames.contains_key(&id) {
+            let previous = self.selected;
             self.selected = Some(id);
+            if let Some(previous) = previous {
+                let previous_value = Value::make_frame(previous.0);
+                let redirected_value = Value::make_frame(id.0);
+                for frame in self.frames.values_mut() {
+                    if frame.focus_frame == previous_value {
+                        frame.focus_frame = redirected_value;
+                    }
+                }
+            }
             true
         } else {
             false
@@ -2925,6 +2943,7 @@ impl GcTrace for FrameManager {
         for frame in self.frames.values() {
             roots.push(frame.name);
             roots.push(frame.icon_name);
+            roots.push(frame.focus_frame);
             roots.push(frame.title);
             roots.extend(frame.parameters.keys().copied());
             for v in frame.parameters.values() {
@@ -2993,16 +3012,19 @@ mod tests {
         crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+        let focus_fid = mgr.create_frame("F2", 800, 600, BufferId(2));
         {
             let frame = mgr.get_mut(fid).expect("frame");
             frame.icon_name = Value::string("Frame Icon");
             frame.title = Value::string("Frame Title");
+            frame.focus_frame = Value::make_frame(focus_fid.0);
         }
 
         let frame = mgr.get(fid).expect("frame");
         let name = frame.name_value();
         let icon_name = frame.icon_name_value();
         let title = frame.title_value();
+        let focus_frame = frame.focus_frame_value();
 
         let mut roots = Vec::new();
         mgr.trace_roots(&mut roots);
@@ -3010,6 +3032,7 @@ mod tests {
         assert!(roots.contains(&name));
         assert!(roots.contains(&icon_name));
         assert!(roots.contains(&title));
+        assert!(roots.contains(&focus_frame));
     }
 
     #[test]
@@ -3259,6 +3282,25 @@ mod tests {
 
         mgr.delete_frame(f1);
         assert_eq!(mgr.frame_list().len(), 1);
+    }
+
+    #[test]
+    fn select_frame_retargets_focus_redirections_from_previous_selection() {
+        crate::test_utils::init_test_tracing();
+        let mut mgr = FrameManager::new();
+        let selected = mgr.create_frame("F1", 800, 600, BufferId(1));
+        let redirected_to_selected = mgr.create_frame("F2", 800, 600, BufferId(2));
+        let untouched = mgr.create_frame("F3", 800, 600, BufferId(3));
+
+        mgr.get_mut(redirected_to_selected).unwrap().focus_frame = Value::make_frame(selected.0);
+        mgr.get_mut(untouched).unwrap().focus_frame = Value::NIL;
+
+        assert!(mgr.select_frame(redirected_to_selected));
+        assert_eq!(
+            mgr.get(redirected_to_selected).unwrap().focus_frame_value(),
+            Value::make_frame(redirected_to_selected.0)
+        );
+        assert_eq!(mgr.get(untouched).unwrap().focus_frame_value(), Value::NIL);
     }
 
     #[test]
