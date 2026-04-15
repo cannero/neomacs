@@ -4630,8 +4630,8 @@ impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
     fn autoload_do_load_macro(&mut self, autoload: Value, head: Value) -> Result<(), Flow> {
         let args = vec![autoload, head, Value::symbol("macro")];
         let _ = self.with_vm_root_scope(|vm| {
-            for root in args.iter().copied() {
-                vm.push_dynamic_vm_root(root);
+            for value in args.iter().copied() {
+                vm.push_dynamic_vm_root(value);
             }
             crate::emacs_core::autoload::builtin_autoload_do_load_in_vm_runtime(&mut vm.ctx, &args)
         })?;
@@ -4653,16 +4653,14 @@ impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
         }
         let args_for_cache = args.clone();
         let expand_start = std::time::Instant::now();
-        let mut extra_roots = Vec::with_capacity(args.len() + 3);
-        extra_roots.push(form);
-        extra_roots.push(function);
-        if let Some(environment) = environment {
-            extra_roots.push(environment);
-        }
-        extra_roots.extend(args.iter().copied());
         self.with_dynamic_vm_roots(move |vm| {
-            for root in extra_roots.iter().copied() {
-                vm.push_dynamic_vm_root(root);
+            vm.push_dynamic_vm_root(form);
+            vm.push_dynamic_vm_root(function);
+            if let Some(environment) = environment {
+                vm.push_dynamic_vm_root(environment);
+            }
+            for value in args.iter().copied() {
+                vm.push_dynamic_vm_root(value);
             }
             let expanded = vm.with_macro_expansion_scope(|vm| vm.call_function(function, args))?;
             let expand_elapsed = expand_start.elapsed();
