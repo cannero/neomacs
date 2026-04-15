@@ -6271,21 +6271,12 @@ impl Context {
 
     pub(crate) fn eval_lambda_body_value(&mut self, body: Value) -> EvalResult {
         self.maybe_grow_eval_stack(|ctx| {
-            let eval_root_scope = ctx.save_eval_roots();
-            ctx.push_eval_root(body);
             let mut cursor = body;
             let mut last = Value::NIL;
             while cursor.is_cons() {
-                match ctx.eval_sub(cursor.cons_car()) {
-                    Ok(value) => last = value,
-                    Err(err) => {
-                        ctx.restore_eval_roots(eval_root_scope);
-                        return Err(err);
-                    }
-                }
+                last = ctx.eval_sub(cursor.cons_car())?;
                 cursor = cursor.cons_cdr();
             }
-            ctx.restore_eval_roots(eval_root_scope);
             Ok(last)
         })
     }
