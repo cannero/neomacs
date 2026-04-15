@@ -17,6 +17,10 @@ fn mode_display_opt(text: Option<&str>) -> Option<crate::heap_types::LispString>
     text.map(mode_display)
 }
 
+fn mode_pattern(text: &str) -> crate::heap_types::LispString {
+    crate::heap_types::LispString::from_utf8(text)
+}
+
 // -------------------------------------------------------------------
 // ModeRegistry basics
 // -------------------------------------------------------------------
@@ -336,7 +340,7 @@ fn auto_mode_alist_suffix_match() {
             body: None,
         },
     );
-    reg.add_auto_mode(".rs".to_string(), mode_symbol("rust-mode"));
+    reg.add_auto_mode(mode_pattern(".rs"), mode_symbol("rust-mode"));
 
     assert_eq!(reg.mode_for_file("main.rs"), Some("rust-mode"));
     assert_eq!(reg.mode_for_file("lib.rs"), Some("rust-mode"));
@@ -373,8 +377,8 @@ fn auto_mode_alist_first_match_wins() {
             body: None,
         },
     );
-    reg.add_auto_mode(".txt".to_string(), mode_symbol("mode-a"));
-    reg.add_auto_mode(".txt".to_string(), mode_symbol("mode-b"));
+    reg.add_auto_mode(mode_pattern(".txt"), mode_symbol("mode-a"));
+    reg.add_auto_mode(mode_pattern(".txt"), mode_symbol("mode-b"));
 
     assert_eq!(reg.mode_for_file("file.txt"), Some("mode-a"));
 }
@@ -457,7 +461,7 @@ fn font_lock_keywords_basic() {
             abbrev_table_name: None,
             font_lock: Some(FontLockDefaults {
                 keywords: vec![FontLockKeyword {
-                    pattern: r"\b(defun|defvar)\b".to_string(),
+                    pattern: mode_pattern(r"\b(defun|defvar)\b"),
                     face: intern("font-lock-keyword-face"),
                     group: 1,
                     override_: false,
@@ -492,7 +496,7 @@ fn font_lock_keywords_inherit_from_parent() {
             abbrev_table_name: None,
             font_lock: Some(FontLockDefaults {
                 keywords: vec![FontLockKeyword {
-                    pattern: r"TODO".to_string(),
+                    pattern: mode_pattern(r"TODO"),
                     face: intern("font-lock-warning-face"),
                     group: 0,
                     override_: true,
@@ -522,7 +526,7 @@ fn font_lock_keywords_inherit_from_parent() {
 
     let kws = reg.font_lock_keywords("rust-mode").unwrap();
     assert_eq!(kws.len(), 1);
-    assert_eq!(kws[0].pattern, "TODO");
+    assert_eq!(kws[0].pattern, mode_pattern("TODO"));
 }
 
 #[test]

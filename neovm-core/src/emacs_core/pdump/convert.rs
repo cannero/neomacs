@@ -1233,7 +1233,8 @@ pub(crate) fn dump_custom_manager(cm: &CustomManager) -> DumpCustomManager {
 
 fn dump_font_lock_keyword(kw: &FontLockKeyword) -> DumpFontLockKeyword {
     DumpFontLockKeyword {
-        pattern: kw.pattern.clone(),
+        pattern_lisp: Some(dump_lisp_string(&kw.pattern)),
+        pattern: None,
         face: crate::emacs_core::intern::resolve_sym(kw.face).to_string(),
         group: kw.group,
         override_: kw.override_,
@@ -1245,7 +1246,8 @@ fn dump_font_lock_defaults(fld: &FontLockDefaults) -> DumpFontLockDefaults {
     DumpFontLockDefaults {
         keywords: fld.keywords.iter().map(dump_font_lock_keyword).collect(),
         case_fold: fld.case_fold,
-        syntax_table: fld.syntax_table.clone(),
+        syntax_table_lisp: fld.syntax_table.as_ref().map(dump_lisp_string),
+        syntax_table: None,
     }
 }
 
@@ -1341,10 +1343,11 @@ pub(crate) fn dump_mode_registry(encoder: &mut DumpEncoder, mr: &ModeRegistry) -
             .iter()
             .map(|value| encoder.dump_value(value))
             .collect(),
-        auto_mode_alist: mr
+        auto_mode_alist: Vec::new(),
+        auto_mode_alist_lisp: mr
             .dump_auto_mode_alist()
             .iter()
-            .map(|(pattern, value)| (pattern.clone(), encoder.dump_value(value)))
+            .map(|(pattern, value)| (dump_lisp_string(pattern), encoder.dump_value(value)))
             .collect(),
         custom_variables: mr
             .dump_custom_variables()
@@ -2832,7 +2835,15 @@ pub(crate) fn load_mode_registry(
                             .keywords
                             .iter()
                             .map(|kw| FontLockKeyword {
-                                pattern: kw.pattern.clone(),
+                                pattern: kw
+                                    .pattern_lisp
+                                    .as_ref()
+                                    .map(load_lisp_string)
+                                    .unwrap_or_else(|| {
+                                        LispString::from_utf8(
+                                            kw.pattern.as_deref().unwrap_or_default(),
+                                        )
+                                    }),
                                 face: crate::emacs_core::intern::intern(&kw.face),
                                 group: kw.group,
                                 override_: kw.override_,
@@ -2840,7 +2851,11 @@ pub(crate) fn load_mode_registry(
                             })
                             .collect(),
                         case_fold: fl.case_fold,
-                        syntax_table: fl.syntax_table.clone(),
+                        syntax_table: fl
+                            .syntax_table_lisp
+                            .as_ref()
+                            .map(load_lisp_string)
+                            .or_else(|| fl.syntax_table.as_deref().map(LispString::from_utf8)),
                     }),
                     body: decoder.load_opt_value(&m.body),
                 },
@@ -2918,10 +2933,17 @@ pub(crate) fn load_mode_registry(
             .iter()
             .map(|value| decoder.load_value(value))
             .collect(),
-        dmr.auto_mode_alist
-            .iter()
-            .map(|(pattern, value)| (pattern.clone(), decoder.load_value(value)))
-            .collect(),
+        if !dmr.auto_mode_alist_lisp.is_empty() {
+            dmr.auto_mode_alist_lisp
+                .iter()
+                .map(|(pattern, value)| (load_lisp_string(pattern), decoder.load_value(value)))
+                .collect()
+        } else {
+            dmr.auto_mode_alist
+                .iter()
+                .map(|(pattern, value)| (LispString::from_utf8(pattern), decoder.load_value(value)))
+                .collect()
+        },
         custom_variables,
         custom_groups,
         decoder.load_value(&dmr.fundamental_mode),

@@ -23,7 +23,7 @@ use crate::heap_types::LispString;
 /// FontLock keyword pattern — describes one highlighting rule.
 pub struct FontLockKeyword {
     /// Regex pattern to match.
-    pub pattern: String,
+    pub pattern: LispString,
     /// Face symbol to apply (e.g. `font-lock-keyword-face`).
     pub face: SymId,
     /// Regex capture group (0 = whole match).
@@ -55,7 +55,7 @@ pub struct FontLockDefaults {
     /// Whether pattern matching is case-insensitive.
     pub case_fold: bool,
     /// Optional syntax table name.
-    pub syntax_table: Option<String>,
+    pub syntax_table: Option<LispString>,
 }
 
 // ---------------------------------------------------------------------------
@@ -324,7 +324,7 @@ pub struct ModeRegistry {
     /// Globally active minor modes.
     global_minor_modes: Vec<Value>,
     /// Filename pattern -> mode symbol for automatic mode selection.
-    auto_mode_alist: Vec<(String, Value)>,
+    auto_mode_alist: Vec<(LispString, Value)>,
     /// All registered custom variables.
     custom_variables: HashMap<SymId, CustomVariable>,
     /// All registered custom groups.
@@ -521,7 +521,7 @@ impl ModeRegistry {
     /// `auto-mode-alist` regex patterns like `"\\.rs\\'"` which match file
     /// endings).  Here we use simple suffix matching: if the filename ends
     /// with `pattern`, it matches.
-    pub fn add_auto_mode(&mut self, pattern: String, mode: Value) {
+    pub fn add_auto_mode(&mut self, pattern: LispString, mode: Value) {
         self.auto_mode_alist.push((pattern, mode));
     }
 
@@ -658,7 +658,7 @@ impl ModeRegistry {
     pub(crate) fn dump_global_minor_modes(&self) -> &[Value] {
         &self.global_minor_modes
     }
-    pub(crate) fn dump_auto_mode_alist(&self) -> &[(String, Value)] {
+    pub(crate) fn dump_auto_mode_alist(&self) -> &[(LispString, Value)] {
         &self.auto_mode_alist
     }
     pub(crate) fn dump_custom_variables(&self) -> &HashMap<SymId, CustomVariable> {
@@ -676,7 +676,7 @@ impl ModeRegistry {
         buffer_major_modes: HashMap<u64, Value>,
         buffer_minor_modes: HashMap<u64, Vec<Value>>,
         global_minor_modes: Vec<Value>,
-        auto_mode_alist: Vec<(String, Value)>,
+        auto_mode_alist: Vec<(LispString, Value)>,
         custom_variables: HashMap<SymId, CustomVariable>,
         custom_groups: HashMap<SymId, CustomGroup>,
         fundamental_mode: Value,
@@ -709,8 +709,8 @@ impl Default for ModeRegistry {
 ///
 /// If `pattern` starts with '.', we check if `filename` ends with `pattern`.
 /// Otherwise we check if `filename` ends with `pattern` OR equals `pattern`.
-fn filename_matches_pattern(filename: &str, pattern: &str) -> bool {
-    filename.ends_with(pattern)
+fn filename_matches_pattern(filename: &str, pattern: &LispString) -> bool {
+    filename.ends_with(&mode_display_text(pattern))
 }
 
 // ---------------------------------------------------------------------------

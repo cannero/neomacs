@@ -695,7 +695,10 @@ pub struct DumpInteractiveRegistry {
 // Mode
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpFontLockKeyword {
-    pub pattern: String,
+    #[serde(default)]
+    pub pattern_lisp: Option<DumpLispString>,
+    #[serde(default)]
+    pub pattern: Option<String>,
     pub face: String,
     pub group: usize,
     pub override_: bool,
@@ -706,6 +709,9 @@ pub struct DumpFontLockKeyword {
 pub struct DumpFontLockDefaults {
     pub keywords: Vec<DumpFontLockKeyword>,
     pub case_fold: bool,
+    #[serde(default)]
+    pub syntax_table_lisp: Option<DumpLispString>,
+    #[serde(default)]
     pub syntax_table: Option<String>,
 }
 
@@ -777,6 +783,9 @@ pub struct DumpModeRegistry {
     pub buffer_major_modes: Vec<(u64, DumpValue)>,
     pub buffer_minor_modes: Vec<(u64, Vec<DumpValue>)>,
     pub global_minor_modes: Vec<DumpValue>,
+    #[serde(default)]
+    pub auto_mode_alist_lisp: Vec<(DumpLispString, DumpValue)>,
+    #[serde(default)]
     pub auto_mode_alist: Vec<(String, DumpValue)>,
     pub custom_variables: Vec<(DumpSymId, DumpModeCustomVariable)>,
     pub custom_groups: Vec<(DumpSymId, DumpModeCustomGroup)>,
