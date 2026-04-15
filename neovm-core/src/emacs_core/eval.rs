@@ -2430,12 +2430,12 @@ impl Context {
                         continue;
                     }
 
-                    let scope = self.open_gc_scope();
+                    let eval_root_scope = self.save_eval_roots();
                     for value in &sig.data {
-                        self.push_temp_root(*value);
+                        self.push_eval_root(*value);
                     }
                     if let Some(raw) = &sig.raw_data {
-                        self.push_temp_root(*raw);
+                        self.push_eval_root(*raw);
                     }
 
                     self.push_condition_frame(ConditionFrame::SkipConditions {
@@ -2447,18 +2447,18 @@ impl Context {
                     match handler_result {
                         Ok(_) => {
                             self.pop_condition_frame();
-                            scope.close(self);
+                            self.restore_eval_roots(eval_root_scope);
                             continue;
                         }
                         Err(Flow::Signal(next_sig)) => {
                             let dispatched = self.dispatch_signal_if_needed(next_sig);
                             self.pop_condition_frame();
-                            scope.close(self);
+                            self.restore_eval_roots(eval_root_scope);
                             return dispatched;
                         }
                         Err(flow @ Flow::Throw { .. }) => {
                             self.pop_condition_frame();
-                            scope.close(self);
+                            self.restore_eval_roots(eval_root_scope);
                             return Err(flow);
                         }
                     }
@@ -8059,10 +8059,10 @@ impl Context {
         let first_form = tail.cons_car();
         let rest = tail.cons_cdr();
         let first = self.eval_sub(first_form)?;
-        let scope = self.open_gc_scope();
-        self.push_temp_root(first);
+        let eval_root_scope = self.save_eval_roots();
+        self.push_eval_root(first);
         let result = self.sf_progn_value(rest);
-        scope.close(self);
+        self.restore_eval_roots(eval_root_scope);
         result?;
         Ok(first)
     }
@@ -8254,24 +8254,24 @@ impl Context {
             return Err(self.listp_error(tail));
         }
         let primary = self.eval_sub(tail.cons_car());
-        let scope = self.open_gc_scope();
+        let eval_root_scope = self.save_eval_roots();
         match &primary {
-            Ok(val) => self.push_temp_root(*val),
+            Ok(val) => self.push_eval_root(*val),
             Err(Flow::Signal(sig)) => {
                 for v in &sig.data {
-                    self.push_temp_root(*v);
+                    self.push_eval_root(*v);
                 }
                 if let Some(raw) = &sig.raw_data {
-                    self.push_temp_root(*raw);
+                    self.push_eval_root(*raw);
                 }
             }
             Err(Flow::Throw { tag, value }) => {
-                self.push_temp_root(*tag);
-                self.push_temp_root(*value);
+                self.push_eval_root(*tag);
+                self.push_eval_root(*value);
             }
         }
         let cleanup = self.sf_progn_value(tail.cons_cdr());
-        scope.close(self);
+        self.restore_eval_roots(eval_root_scope);
         match cleanup {
             Ok(_) => primary,
             Err(flow) => Err(flow),
@@ -10212,13 +10212,14 @@ impl Context {
         let args_for_cache = args.clone();
         let expand_start = std::time::Instant::now();
         let result = self.with_gc_scope_result(|ctx| {
-            ctx.push_temp_root(form);
-            ctx.push_temp_root(definition);
+            let eval_root_scope = ctx.save_eval_roots();
+            ctx.push_eval_root(form);
+            ctx.push_eval_root(definition);
             if let Some(environment) = environment {
-                ctx.push_temp_root(environment);
+                ctx.push_eval_root(environment);
             }
             for arg in &args {
-                ctx.push_temp_root(*arg);
+                ctx.push_eval_root(*arg);
             }
 
             let expanded = if definition.is_macro() {
@@ -10242,6 +10243,7 @@ impl Context {
                 expand_elapsed,
                 environment,
             );
+            ctx.restore_eval_roots(eval_root_scope);
             Ok(expanded)
         });
         if let Some(start) = perf_start {
@@ -11113,15 +11115,13 @@ impl Context {
         extra_roots: &[Value],
         f: impl FnOnce(&mut Context) -> T,
     ) -> T {
-        self.with_gc_scope(|ctx| {
-            // VM roots already live in `Context.vm_gc_roots`, which the exact
-            // collector traces directly. Only caller-owned transient extras
-            // need to be mirrored into `temp_roots` here.
-            for root in extra_roots {
-                ctx.push_temp_root(*root);
-            }
-            f(ctx)
-        })
+        let eval_root_scope = self.save_eval_roots();
+        for root in extra_roots {
+            self.push_eval_root(*root);
+        }
+        let result = f(self);
+        self.restore_eval_roots(eval_root_scope);
+        result
     }
 
     pub(crate) fn begin_eval_with_lexical_arg(
