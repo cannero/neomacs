@@ -357,7 +357,7 @@ fn help_describe_function_lambda() {
         },
         body: vec![].into(),
         env: None,
-        docstring: Some("Add X and Y.".to_string()),
+        docstring: Some(crate::heap_types::LispString::from_utf8("Add X and Y.")),
         doc_form: None,
         interactive: None,
     });
@@ -375,7 +375,7 @@ fn help_describe_function_with_docstore() {
         params: LambdaParams::simple(vec![intern("x")]),
         body: vec![].into(),
         env: None,
-        docstring: Some("Inline doc.".to_string()),
+        docstring: Some(crate::heap_types::LispString::from_utf8("Inline doc.")),
         doc_form: None,
         interactive: None,
     });
@@ -603,7 +603,9 @@ fn help_formatter_with_optional_and_rest() {
         },
         body: vec![].into(),
         env: None,
-        docstring: Some("A function with complex params.".to_string()),
+        docstring: Some(crate::heap_types::LispString::from_utf8(
+            "A function with complex params.",
+        )),
         doc_form: None,
         interactive: None,
     });
@@ -620,7 +622,7 @@ fn help_formatter_macro() {
         params: LambdaParams::simple(vec![intern("body")]),
         body: vec![].into(),
         env: None,
-        docstring: Some("A test macro.".to_string()),
+        docstring: Some(crate::heap_types::LispString::from_utf8("A test macro.")),
         doc_form: None,
         interactive: None,
     });

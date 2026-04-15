@@ -4342,8 +4342,9 @@ pub(crate) fn make_byte_code_from_parts(
     let (doc, doc_form) = match docstring.copied() {
         Some(v) if v.is_string() => (
             Some(
-                v.as_runtime_string_owned()
-                    .expect("ValueKind::String must carry LispString payload"),
+                v.as_lisp_string()
+                    .expect("ValueKind::String must carry LispString payload")
+                    .clone(),
             ),
             None,
         ),
@@ -4404,8 +4405,9 @@ pub(crate) fn make_interpreted_closure_from_parts(
         ValueKind::String => (
             Some(
                 docstring_value
-                    .as_runtime_string_owned()
-                    .expect("ValueKind::String must carry LispString payload"),
+                    .as_lisp_string()
+                    .expect("ValueKind::String must carry LispString payload")
+                    .clone(),
             ),
             None,
         ),
@@ -4444,7 +4446,7 @@ pub(crate) fn make_interpreted_closure_from_parts(
         *env_value,
         Value::NIL,
         doc_form
-            .or_else(|| docstring.as_ref().map(|d| Value::string(d.clone())))
+            .or_else(|| docstring.as_ref().map(|d| Value::heap_string(d.clone())))
             .unwrap_or(Value::NIL),
         interactive_spec.unwrap_or(Value::NIL),
     ]))

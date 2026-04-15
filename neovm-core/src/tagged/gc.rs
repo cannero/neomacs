@@ -718,7 +718,7 @@ impl TaggedHeap {
                     .as_ref()
                     .map_or(0, Self::hash_map_storage_bytes),
             )
-            .saturating_add(data.docstring.as_ref().map_or(0, |doc| doc.capacity()))
+            .saturating_add(data.docstring.as_ref().map_or(0, |doc| doc.sbytes()))
     }
 
     fn record_object_bytes(obj: &RecordObj) -> usize {

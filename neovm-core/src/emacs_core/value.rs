@@ -370,7 +370,7 @@ pub struct LambdaData {
     /// For lexical closures: captured environment as a cons alist
     /// mirroring GNU Emacs's `Vinternal_interpreter_environment`.
     pub env: Option<Value>,
-    pub docstring: Option<String>,
+    pub docstring: Option<LispString>,
     /// Slot 4 in the closure vector: the `:documentation` form result.
     pub doc_form: Option<Value>,
     /// Slot 5 in GNU Emacs's closure vector: the interactive specification.
@@ -437,7 +437,11 @@ impl LambdaData {
         // Slot 4: docstring
         let doc = self
             .doc_form
-            .or_else(|| self.docstring.as_ref().map(|d| Value::string(d.clone())))
+            .or_else(|| {
+                self.docstring
+                    .as_ref()
+                    .map(|d| Value::heap_string(d.clone()))
+            })
             .unwrap_or(Value::NIL);
 
         // Slot 5: interactive spec
@@ -1200,8 +1204,14 @@ impl TaggedValue {
         })
     }
 
-    pub fn closure_docstring(self) -> Option<Option<&'static str>> {
-        self.closure_doc_value().map(|doc| doc.as_str())
+    pub fn closure_docstring(self) -> Option<Option<&'static LispString>> {
+        self.closure_doc_value().map(|doc| {
+            if doc.is_string() {
+                doc.as_lisp_string()
+            } else {
+                None
+            }
+        })
     }
 
     pub fn closure_interactive(self) -> Option<Option<Value>> {

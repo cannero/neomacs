@@ -44,7 +44,7 @@ pub(crate) fn lambda_to_cons_list(value: &Value) -> Option<Value> {
     elements.push(params_value);
 
     if let Some(doc) = value.closure_docstring().flatten() {
-        let doc_value = Value::string(doc);
+        let doc_value = Value::heap_string(doc.clone());
         crate::emacs_core::eval::push_scratch_gc_root(doc_value);
         elements.push(doc_value);
     }
@@ -168,7 +168,7 @@ pub(crate) fn bytecode_to_closure_vector(value: &Value) -> Vec<Value> {
 
     let slot4 = bc
         .doc_form
-        .or_else(|| bc.docstring.as_ref().map(|d| Value::string(d.clone())))
+        .or_else(|| bc.docstring.as_ref().map(|d| Value::heap_string(d.clone())))
         .unwrap_or(Value::NIL);
     let slot5 = bc.interactive.unwrap_or(Value::NIL);
 

@@ -504,7 +504,7 @@ fn pure_dispatch_typed_length_tracks_bytecode_doc_slot() {
     crate::test_utils::init_test_tracing();
     let mut bc =
         crate::emacs_core::bytecode::ByteCodeFunction::new(LambdaParams::simple(vec![intern("x")]));
-    bc.docstring = Some("doc".into());
+    bc.docstring = Some(crate::heap_types::LispString::from_utf8("doc"));
     let bc = Value::make_bytecode(bc);
 
     let len = dispatch_builtin_pure("length", vec![bc])
@@ -553,7 +553,7 @@ fn pure_dispatch_typed_length_tracks_interpreted_closure_slot_count() {
         params: LambdaParams::simple(vec![intern("x")]),
         body: vec![Value::symbol("x")],
         env: Some(Value::NIL),
-        docstring: Some("doc".into()),
+        docstring: Some(crate::heap_types::LispString::from_utf8("doc")),
         doc_form: None,
         interactive: None,
     });
@@ -6282,9 +6282,7 @@ fn make_byte_code_from_parts_preserves_raw_unibyte_docstring() {
         .expect("constructor should return a bytecode function");
     assert_eq!(
         bytecode.docstring,
-        Some(crate::emacs_core::builtins::lisp_string_to_runtime_string(
-            raw
-        ))
+        Some(raw.as_lisp_string().expect("raw docstring string").clone())
     );
     assert_eq!(bytecode.doc_form, None);
 }

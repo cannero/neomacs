@@ -4508,7 +4508,13 @@ fn lambda_captures_docstring_metadata() {
     let value = ev
         .eval_str("(lambda nil \"lambda-doc\" nil)")
         .expect("eval");
-    assert_eq!(value.closure_docstring().flatten(), Some("lambda-doc"));
+    assert_eq!(
+        value
+            .closure_docstring()
+            .flatten()
+            .and_then(|doc| doc.as_str()),
+        Some("lambda-doc")
+    );
 }
 
 #[test]
@@ -4518,7 +4524,13 @@ fn function_special_form_evaluates_dynamic_documentation_form() {
     let value = ev
         .eval_str("(function (lambda nil (:documentation (if t \"dyn-doc\" \"bad\")) nil))")
         .expect("eval");
-    assert_eq!(value.closure_docstring().flatten(), Some("dyn-doc"));
+    assert_eq!(
+        value
+            .closure_docstring()
+            .flatten()
+            .and_then(|doc| doc.as_str()),
+        Some("dyn-doc")
+    );
     let body = value
         .closure_body_value()
         .and_then(|body| crate::emacs_core::value::list_to_vec(&body))
@@ -4533,7 +4545,13 @@ fn function_special_form_value_path_evaluates_dynamic_documentation_form() {
     let value = ev
         .eval_str("(function (lambda nil (:documentation (if t \"dyn-doc\" \"bad\")) nil))")
         .expect("eval");
-    assert_eq!(value.closure_docstring().flatten(), Some("dyn-doc"));
+    assert_eq!(
+        value
+            .closure_docstring()
+            .flatten()
+            .and_then(|doc| doc.as_str()),
+        Some("dyn-doc")
+    );
     let body = value
         .closure_body_value()
         .and_then(|body| crate::emacs_core::value::list_to_vec(&body))
@@ -4591,7 +4609,13 @@ fn defmacro_captures_docstring_metadata() {
         .expect("macro function cell");
     // The value is (macro . lambda), extract the lambda for docstring.
     let lambda_val = macro_val.cons_cdr();
-    assert_eq!(lambda_val.closure_docstring().flatten(), Some("macro-doc"));
+    assert_eq!(
+        lambda_val
+            .closure_docstring()
+            .flatten()
+            .and_then(|doc| doc.as_str()),
+        Some("macro-doc")
+    );
 }
 
 #[test]

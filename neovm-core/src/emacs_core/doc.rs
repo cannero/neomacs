@@ -198,7 +198,7 @@ fn function_doc_or_error(func_val: Value) -> EvalResult {
             Ok(func_val
                 .closure_docstring()
                 .flatten()
-                .map_or(Value::NIL, Value::string))
+                .map_or(Value::NIL, |doc| Value::heap_string(doc.clone())))
         }
         ValueKind::Veclike(VecLikeType::Subr) => {
             // Look up the subr's GNU `DEFUN doc:' text in the central
@@ -226,7 +226,7 @@ fn function_doc_or_error(func_val: Value) -> EvalResult {
             Ok(bc
                 .docstring
                 .as_ref()
-                .map_or(Value::NIL, |doc| Value::string(doc.clone())))
+                .map_or(Value::NIL, |doc| Value::heap_string(doc.clone())))
         }
         other => Err(signal("invalid-function", vec![func_val])),
     }
@@ -257,8 +257,8 @@ fn quoted_lambda_documentation(function: &Value) -> Option<EvalResult> {
         ValueKind::Cons => {
             let body_car = tail.cons_car();
             let body_cdr = tail.cons_cdr();
-            if let Some(doc) = body_car.as_str() {
-                Some(Ok(Value::string(doc)))
+            if body_car.is_string() {
+                Some(Ok(body_car))
             } else {
                 Some(Ok(Value::NIL))
             }
@@ -295,8 +295,8 @@ fn documentation_plan_from_property_value(
     lisp_directory: Option<&str>,
     value: Value,
 ) -> Result<DocumentationPlan, Flow> {
-    if let Some(text) = value.as_str() {
-        return Ok(DocumentationPlan::Final(Value::string(text)));
+    if value.is_string() {
+        return Ok(DocumentationPlan::Final(value));
     }
 
     if let Some((file, position)) = compiled_doc_ref(&value) {

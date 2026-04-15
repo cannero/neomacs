@@ -517,7 +517,10 @@ impl HelpFormatter {
         // Docstring from LambdaData
         let inline_doc_owned = match value.kind() {
             ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
-                value.closure_docstring().flatten().map(str::to_owned)
+                value
+                    .closure_docstring()
+                    .flatten()
+                    .map(|doc| emacs_bytes_to_storage_string(doc.as_bytes(), doc.is_multibyte()))
             }
             _ => None,
         };

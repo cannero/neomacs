@@ -280,7 +280,7 @@ fn documentation_lambda_with_docstring() {
         params: LambdaParams::simple(vec![intern("x")]),
         body: vec![].into(),
         env: None,
-        docstring: Some("Add one to X.".to_string()),
+        docstring: Some(crate::heap_types::LispString::from_utf8("Add one to X.")),
         doc_form: None,
         interactive: None,
     });
@@ -326,7 +326,9 @@ fn documentation_substitutes_command_keys_unless_raw() {
         params: LambdaParams::simple(vec![]),
         body: vec![Value::symbol("t")],
         env: None,
-        docstring: Some("Press \\[save-buffer] to save.".to_string()),
+        docstring: Some(crate::heap_types::LispString::from_utf8(
+            "Press \\[save-buffer] to save.",
+        )),
         doc_form: None,
         interactive: None,
     });
@@ -341,6 +343,28 @@ fn documentation_substitutes_command_keys_unless_raw() {
     assert!(display.contains("save-buffer"));
     assert!(!display.contains("\\["));
     assert!(raw.contains("\\[save-buffer]"));
+}
+
+#[test]
+fn documentation_lambda_preserves_raw_unibyte_docstring() {
+    crate::test_utils::init_test_tracing();
+    let mut evaluator = super::super::eval::Context::new();
+
+    let raw_doc = crate::heap_types::LispString::from_unibyte(vec![0xFF, b'X']);
+    let lambda = Value::make_lambda(LambdaData {
+        params: LambdaParams::simple(vec![]),
+        body: vec![].into(),
+        env: None,
+        docstring: Some(raw_doc.clone()),
+        doc_form: None,
+        interactive: None,
+    });
+    evaluator.obarray.set_symbol_function("raw-doc-fn", lambda);
+
+    let result = builtin_documentation(&mut evaluator, vec![Value::symbol("raw-doc-fn"), Value::T])
+        .expect("documentation result");
+    let got = result.as_lisp_string().expect("raw docstring result");
+    assert_eq!(got, &raw_doc);
 }
 
 #[test]

@@ -664,7 +664,7 @@ pub(crate) fn dump_bytecode(
                 .map(|(byte_off, instr_idx)| (*byte_off as u32, *instr_idx as u32))
                 .collect()
         }),
-        docstring: bc.docstring.clone(),
+        docstring: bc.docstring.as_ref().map(dump_lisp_string),
         doc_form: encoder.dump_opt_value(&bc.doc_form),
         interactive: encoder.dump_opt_value(&bc.interactive),
     }
@@ -2104,7 +2104,7 @@ pub(crate) fn load_bytecode(
                 .collect()
         }),
         gnu_bytecode_bytes: None,
-        docstring: bc.docstring.clone(),
+        docstring: bc.docstring.as_ref().map(load_lisp_string),
         doc_form: decoder.load_opt_value(&bc.doc_form),
         interactive: decoder.load_opt_value(&bc.interactive),
     })

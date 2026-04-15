@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use super::opcode::Op;
 use crate::emacs_core::value::{LambdaParams, Value, ValueKind};
+use crate::heap_types::LispString;
 
 /// A compiled bytecode function.
 #[derive(Clone, Debug)]
@@ -32,7 +33,7 @@ pub struct ByteCodeFunction {
     /// produce empty bytecode functions.
     pub gnu_bytecode_bytes: Option<Vec<u8>>,
     /// Optional docstring.
-    pub docstring: Option<String>,
+    pub docstring: Option<LispString>,
     /// Optional documentation form (e.g., oclosure type symbol in slot 4).
     pub doc_form: Option<Value>,
     /// Interactive spec from GNU closure slot 5 (CLOSURE_INTERACTIVE).
