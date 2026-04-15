@@ -1118,15 +1118,11 @@ impl TaggedHeap {
 
     /// Run a full mark-sweep collection using only the explicit roots provided.
     pub fn collect_exact(&mut self, roots: impl Iterator<Item = TaggedValue>) {
-        self.collect_with_scan_mode(roots, RootScanMode::ExactOnly);
-    }
-
-    fn collect_with_scan_mode(&mut self, roots: impl Iterator<Item = TaggedValue>, mode: RootScanMode) {
         self.begin_collection();
         for root in roots {
             self.seed_root(root);
         }
-        self.complete_collection(mode);
+        self.complete_collection();
     }
 
     pub(crate) fn begin_collection(&mut self) {
@@ -1185,9 +1181,7 @@ impl TaggedHeap {
         }
     }
 
-    pub(crate) fn complete_collection(&mut self, mode: RootScanMode) {
-        let _ = mode;
-
+    pub(crate) fn complete_collection(&mut self) {
         // -- Mark phase: drain gray queue --
         self.mark_all();
 

@@ -5713,7 +5713,7 @@ impl Context {
     /// Perform a full mark-and-sweep garbage collection using only explicit roots.
     #[tracing::instrument(level = "debug", skip(self))]
     pub fn gc_collect_exact(&mut self) {
-        self.gc_collect_with_mode(crate::tagged::gc::RootScanMode::ExactOnly);
+        self.gc_collect_exact_with_extra_root_slices(&[]);
     }
 
     /// Perform a collection while retaining additional caller-owned roots.
@@ -5721,10 +5721,7 @@ impl Context {
         &mut self,
         extra_root_slices: &[&[Value]],
     ) {
-        self.gc_collect_with_mode_and_extra_root_slices(
-            crate::tagged::gc::RootScanMode::ExactOnly,
-            extra_root_slices,
-        );
+        self.gc_collect_with_extra_root_slices(extra_root_slices);
     }
 
     /// Convenience wrapper for a single additional root slice.
@@ -5732,16 +5729,7 @@ impl Context {
         self.gc_collect_exact_with_extra_root_slices(&[extra_roots]);
     }
 
-    fn gc_collect_with_mode(&mut self, mode: crate::tagged::gc::RootScanMode) {
-        let _ = mode;
-        self.gc_collect_with_mode_and_extra_root_slices(crate::tagged::gc::RootScanMode::ExactOnly, &[]);
-    }
-
-    fn gc_collect_with_mode_and_extra_root_slices(
-        &mut self,
-        mode: crate::tagged::gc::RootScanMode,
-        extra_root_slices: &[&[Value]],
-    ) {
+    fn gc_collect_with_extra_root_slices(&mut self, extra_root_slices: &[&[Value]]) {
         let start = std::time::Instant::now();
         *self.lexenv_assq_cache.borrow_mut() = LexenvAssqCache::default();
         *self.lexenv_special_cache.borrow_mut() = LexenvSpecialCache::default();
@@ -5754,7 +5742,7 @@ impl Context {
             self.trace_roots_with_extra_root_slices(extra_root_slices, &mut |root| {
                 (*heap_ptr).seed_root(root);
             });
-            (*heap_ptr).complete_collection(mode);
+            (*heap_ptr).complete_collection();
         }
         self.gc_pending = false;
         self.gc_count += 1;
@@ -5777,30 +5765,23 @@ impl Context {
         });
     }
 
-    /// Number of gray objects to process per incremental marking step.
-    const MARK_WORK_LIMIT: usize = 1024;
-
-    /// Incremental GC safe point.
-    ///
-    /// In gc_stress mode, always does a full collection for maximum bug
-    /// detection.  Otherwise, drives an incremental mark-sweep state machine:
-    ///
-    ///   Idle → (threshold?) → begin_marking → Marking
-    ///   Marking → mark_some(LIMIT) → (done?) → sweep → Idle
+    /// GC safe point used at evaluator boundaries.
     pub fn gc_safe_point(&mut self) {
         self.gc_safe_point_exact();
     }
 
-    /// Trigger a safe-point collection using the configured root scan mode
-    /// plus explicit caller roots.
+    /// Trigger a safe-point collection plus explicit caller roots.
     pub(crate) fn gc_safe_point_exact_with_extra_root_slices(
         &mut self,
         extra_root_slices: &[&[Value]],
     ) {
-        self.gc_safe_point_with_mode_and_extra_root_slices(
-            crate::tagged::gc::RootScanMode::ExactOnly,
-            extra_root_slices,
-        );
+        if self.gc_inhibit_depth > 0 {
+            return;
+        }
+        self.sync_gc_threshold_from_runtime_settings();
+        if self.gc_stress || self.gc_pending || self.tagged_heap.should_collect() {
+            self.gc_collect_with_extra_root_slices(extra_root_slices);
+        }
     }
 
     /// Convenience wrapper for a single extra-root slice at an exact safe point.
@@ -5811,25 +5792,6 @@ impl Context {
     /// Trigger a safe-point collection using only explicit evaluator roots.
     pub(crate) fn gc_safe_point_exact(&mut self) {
         self.gc_safe_point_exact_with_extra_root_slices(&[]);
-    }
-
-    fn gc_safe_point_with_mode_and_extra_root_slices(
-        &mut self,
-        mode: crate::tagged::gc::RootScanMode,
-        extra_root_slices: &[&[Value]],
-    ) {
-        if self.gc_inhibit_depth > 0 {
-            return;
-        }
-        // Safe points use the exact collector path only.
-        self.sync_gc_threshold_from_runtime_settings();
-        if self.gc_stress || self.gc_pending || self.tagged_heap.should_collect() {
-            let _ = mode;
-            self.gc_collect_with_mode_and_extra_root_slices(
-                crate::tagged::gc::RootScanMode::ExactOnly,
-                extra_root_slices,
-            );
-        }
     }
 
     /// GNU-style quit processing used from evaluator boundaries.
