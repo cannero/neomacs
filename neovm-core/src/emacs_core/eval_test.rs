@@ -8635,6 +8635,30 @@ fn lexical_binding_fallback_prefers_eval_root_frames_over_temp_roots() {
 }
 
 #[test]
+fn lexical_binding_fallback_uses_specpdl_when_no_frame_is_available() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.gc_stress = true;
+    let payload = Value::vector(vec![Value::fixnum(48)]);
+    let sym = intern("specpdl-lexical-fallback");
+
+    ev.bind_lexical_value_rooted(sym, payload);
+
+    assert_eq!(
+        ev.lexenv_lookup_cached_in(ev.lexenv, sym)
+            .expect("lexical binding should exist")
+            .as_vector_data()
+            .unwrap()
+            .as_slice(),
+        &[Value::fixnum(48)]
+    );
+    assert!(
+        ev.specpdl.is_empty(),
+        "temporary specpdl roots should be released once lexenv owns the binding"
+    );
+}
+
+#[test]
 fn gc_collect_frees_unreachable() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

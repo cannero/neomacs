@@ -1685,21 +1685,6 @@ pub(crate) struct SpecpdlRootScopeState {
     saved_len: usize,
 }
 
-fn bind_lexical_value_rooted_in_state(
-    lexenv: &mut Value,
-    eval_root_frames: &mut Vec<EvalRootFrame>,
-    sym: SymId,
-    value: Value,
-) {
-    let frame = eval_root_frames
-        .last_mut()
-        .expect("eval root frame should exist for rooted lexical binding");
-    let saved_roots = frame.roots.len();
-    frame.roots.push(value);
-    *lexenv = lexenv_prepend(*lexenv, sym, value);
-    frame.roots.truncate(saved_roots);
-}
-
 fn bind_lexical_value_rooted_in_call_frame(
     lexenv: &mut Value,
     frame: &mut ActiveCallFrame,
@@ -9849,20 +9834,16 @@ impl Context {
     fn bind_lexical_value_rooted(&mut self, sym: SymId, value: Value) {
         if let Some(frame) = self.active_call_roots.last_mut() {
             bind_lexical_value_rooted_in_call_frame(&mut self.lexenv, frame, sym, value);
+        } else if let Some(frame) = self.eval_root_frames.last_mut() {
+            let saved_roots = frame.roots.len();
+            frame.roots.push(value);
+            self.lexenv = lexenv_prepend(self.lexenv, sym, value);
+            frame.roots.truncate(saved_roots);
         } else {
-            let pushed_eval_root_frame = self.eval_root_frames.is_empty();
-            if pushed_eval_root_frame {
-                self.push_eval_root_frame();
-            }
-            bind_lexical_value_rooted_in_state(
-                &mut self.lexenv,
-                &mut self.eval_root_frames,
-                sym,
-                value,
-            );
-            if pushed_eval_root_frame {
-                self.pop_eval_root_frame();
-            }
+            let specpdl_root_scope = self.save_specpdl_roots();
+            self.push_specpdl_root(value);
+            self.lexenv = lexenv_prepend(self.lexenv, sym, value);
+            self.restore_specpdl_roots(specpdl_root_scope);
         }
     }
 
