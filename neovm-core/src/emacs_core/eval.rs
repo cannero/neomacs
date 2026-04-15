@@ -9276,9 +9276,12 @@ impl Context {
     /// Called by both the tree-walking interpreter (via apply) and the
     /// bytecode VM (via Vm::call_function).
     pub(crate) fn funcall_general(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
-        self.with_runtime_backtrace_frame(function, args, |eval, args| {
+        self.push_active_call_frame(function, Some(function), &args);
+        let result = self.with_runtime_backtrace_frame_from_active_call(function, |eval| {
             eval.funcall_general_untraced(function, args)
-        })
+        });
+        self.pop_active_call_frame();
+        result
     }
 
     pub(crate) fn funcall_general_untraced(
@@ -9648,14 +9651,18 @@ impl Context {
         invalid_fn: Value,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
-        self.with_runtime_backtrace_frame(Value::from_sym_id(sym_id), args, |eval, args| {
+        let frame_function = Value::from_sym_id(sym_id);
+        self.push_active_call_frame(frame_function, None, &args);
+        let result = self.with_runtime_backtrace_frame_from_active_call(frame_function, |eval| {
             eval.apply_named_callable_by_id_core(
                 sym_id,
                 args,
                 invalid_fn,
                 rewrite_builtin_wrong_arity,
             )
-        })
+        });
+        self.pop_active_call_frame();
+        result
     }
 
     #[inline]
@@ -9667,9 +9674,12 @@ impl Context {
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         let frame_function = Value::symbol(name);
-        self.with_runtime_backtrace_frame(frame_function, args, |eval, args| {
+        self.push_active_call_frame(frame_function, None, &args);
+        let result = self.with_runtime_backtrace_frame_from_active_call(frame_function, |eval| {
             eval.apply_named_callable_core(name, args, invalid_fn, rewrite_builtin_wrong_arity)
-        })
+        });
+        self.pop_active_call_frame();
+        result
     }
 
     fn apply_named_callable_by_id_core(

@@ -3626,7 +3626,10 @@ impl<'a> Vm<'a> {
     }
 
     fn call_function(&mut self, func_val: Value, args: Vec<Value>) -> EvalResult {
-        self.ctx.push_runtime_backtrace_frame(func_val, &args);
+        self.ctx
+            .push_active_call_frame(func_val, Some(func_val), &args);
+        self.ctx
+            .push_runtime_backtrace_frame_from_active_call(func_val);
         let result = match func_val.kind() {
             // Fast path: stay in VM for bytecoded calls.
             // Matches GNU Emacs's CLOSUREP → goto setup_frame in bytecode.c.
@@ -3639,6 +3642,7 @@ impl<'a> Vm<'a> {
             _ => self.ctx.funcall_general_untraced(func_val, args),
         };
         self.ctx.pop_runtime_backtrace_frame();
+        self.ctx.pop_active_call_frame();
         result
     }
 
