@@ -1769,6 +1769,7 @@ pub(crate) struct ActiveLambdaCallState {
 
 pub(crate) struct ActiveMacroExpansionScopeState {
     saved_temp_roots_len: usize,
+    saved_active_call_extra_roots_len: Option<usize>,
     old_lexical: bool,
     old_dynvars: Value,
 }
@@ -2068,11 +2069,14 @@ fn begin_macro_expansion_scope_in_state(
     buffers: &mut BufferManager,
     custom: &CustomManager,
     lexenv: Value,
+    active_call_roots: &mut Vec<ActiveCallFrame>,
     temp_roots: &mut Vec<Value>,
 ) -> ActiveMacroExpansionScopeState {
     let nil_symbol = nil_symbol();
     let t_symbol = t_symbol();
     let saved_temp_roots_len = temp_roots.len();
+    let saved_active_call_extra_roots_len =
+        active_call_roots.last().map(|frame| frame.extra_roots.len());
     let old_lexical = obarray
         .symbol_value_id(lexical_binding_symbol())
         .is_some_and(|value| value.is_truthy());
@@ -2080,28 +2084,58 @@ fn begin_macro_expansion_scope_in_state(
         .symbol_value_id(macroexp_dynvars_symbol())
         .cloned()
         .unwrap_or(Value::NIL);
-    temp_roots.push(old_dynvars);
 
-    let mut dynvars = old_dynvars;
-    for sym in lexenv_bare_symbols(lexenv) {
-        if sym == t_symbol || sym == nil_symbol {
-            continue;
+    let dynvars = if let Some(frame) = active_call_roots.last_mut() {
+        let dynvars_root_index = frame.extra_roots.len();
+        frame.extra_roots.push(old_dynvars);
+        let mut dynvars = frame.extra_roots[dynvars_root_index];
+        for sym in lexenv_bare_symbols(lexenv) {
+            if sym == t_symbol || sym == nil_symbol {
+                continue;
+            }
+            dynvars = Value::cons(Value::from_sym_id(sym), dynvars);
+            frame.extra_roots[dynvars_root_index] = dynvars;
         }
-        dynvars = Value::cons(Value::from_sym_id(sym), dynvars);
-    }
-    // Collect symbols from the specpdl (replaces dynamic frame iteration).
-    for entry in specpdl.iter().rev() {
-        let sym_id = match entry {
-            SpecBinding::Let { sym_id, .. }
-            | SpecBinding::LetLocal { sym_id, .. }
-            | SpecBinding::LetDefault { sym_id, .. } => sym_id,
-            SpecBinding::LexicalEnv { .. } => continue,
-        };
-        if *sym_id == t_symbol || *sym_id == nil_symbol {
-            continue;
+        for entry in specpdl.iter().rev() {
+            let sym_id = match entry {
+                SpecBinding::Let { sym_id, .. }
+                | SpecBinding::LetLocal { sym_id, .. }
+                | SpecBinding::LetDefault { sym_id, .. } => sym_id,
+                SpecBinding::LexicalEnv { .. } => continue,
+            };
+            if *sym_id == t_symbol || *sym_id == nil_symbol {
+                continue;
+            }
+            dynvars = Value::cons(Value::from_sym_id(*sym_id), dynvars);
+            frame.extra_roots[dynvars_root_index] = dynvars;
         }
-        dynvars = Value::cons(Value::from_sym_id(*sym_id), dynvars);
-    }
+        dynvars
+    } else {
+        let dynvars_root_index = temp_roots.len();
+        temp_roots.push(old_dynvars);
+        let mut dynvars = temp_roots[dynvars_root_index];
+        for sym in lexenv_bare_symbols(lexenv) {
+            if sym == t_symbol || sym == nil_symbol {
+                continue;
+            }
+            dynvars = Value::cons(Value::from_sym_id(sym), dynvars);
+            temp_roots[dynvars_root_index] = dynvars;
+        }
+        for entry in specpdl.iter().rev() {
+            let sym_id = match entry {
+                SpecBinding::Let { sym_id, .. }
+                | SpecBinding::LetLocal { sym_id, .. }
+                | SpecBinding::LetDefault { sym_id, .. } => sym_id,
+                SpecBinding::LexicalEnv { .. } => continue,
+            };
+            if *sym_id == t_symbol || *sym_id == nil_symbol {
+                continue;
+            }
+            dynvars = Value::cons(Value::from_sym_id(*sym_id), dynvars);
+            temp_roots[dynvars_root_index] = dynvars;
+        }
+        dynvars
+    };
 
     obarray.set_symbol_value_id(lexical_binding_symbol(), Value::bool_val(!lexenv.is_nil()));
     set_runtime_binding(
@@ -2115,6 +2149,7 @@ fn begin_macro_expansion_scope_in_state(
 
     ActiveMacroExpansionScopeState {
         saved_temp_roots_len,
+        saved_active_call_extra_roots_len,
         old_lexical,
         old_dynvars,
     }
@@ -2125,6 +2160,7 @@ fn finish_macro_expansion_scope_in_state(
     specpdl: &[SpecBinding],
     buffers: &mut BufferManager,
     custom: &CustomManager,
+    active_call_roots: &mut Vec<ActiveCallFrame>,
     temp_roots: &mut Vec<Value>,
     state: ActiveMacroExpansionScopeState,
 ) {
@@ -2137,6 +2173,11 @@ fn finish_macro_expansion_scope_in_state(
         state.old_dynvars,
     );
     obarray.set_symbol_value_id(lexical_binding_symbol(), Value::bool_val(state.old_lexical));
+    if let Some(saved_len) = state.saved_active_call_extra_roots_len
+        && let Some(frame) = active_call_roots.last_mut()
+    {
+        frame.extra_roots.truncate(saved_len);
+    }
     temp_roots.truncate(state.saved_temp_roots_len);
 }
 
@@ -9937,6 +9978,7 @@ impl Context {
             &mut self.buffers,
             &self.custom,
             self.lexenv,
+            &mut self.active_call_roots,
             &mut self.temp_roots,
         );
         if let Some(start) = scope_enter_start {
@@ -9951,6 +9993,7 @@ impl Context {
             &self.specpdl,
             &mut self.buffers,
             &self.custom,
+            &mut self.active_call_roots,
             &mut self.temp_roots,
             state,
         );
@@ -11110,6 +11153,7 @@ impl Context {
             &mut self.buffers,
             &self.custom,
             self.lexenv,
+            &mut self.active_call_roots,
             &mut self.temp_roots,
         )
     }
@@ -11120,6 +11164,7 @@ impl Context {
             &self.specpdl,
             &mut self.buffers,
             &self.custom,
+            &mut self.active_call_roots,
             &mut self.temp_roots,
             state,
         );
