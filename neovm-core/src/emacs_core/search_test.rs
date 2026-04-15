@@ -88,6 +88,19 @@ fn assert_str(val: Value, expected: &str) {
     }
 }
 
+fn assert_lisp_string_bytes(val: Value, expected: &[u8], multibyte: bool) {
+    match val.kind() {
+        ValueKind::String => {
+            let s = val
+                .as_lisp_string()
+                .expect("ValueKind::String must carry LispString payload");
+            assert_eq!(s.as_bytes(), expected);
+            assert_eq!(s.is_multibyte(), multibyte);
+        }
+        other => panic!("Expected string bytes {:?}, got {:?}", expected, val),
+    }
+}
+
 #[test]
 fn string_match_basic() {
     crate::test_utils::init_test_tracing();
@@ -455,6 +468,16 @@ fn regexp_quote_right_bracket_not_escaped() {
 }
 
 #[test]
+fn regexp_quote_preserves_raw_unibyte_bytes() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        b'a', 0xFF, b'[', b'.',
+    ]));
+    let result = builtin_regexp_quote(vec![raw]).unwrap();
+    assert_lisp_string_bytes(result, &[b'a', 0xFF, b'\\', b'[', b'\\', b'.'], false);
+}
+
+#[test]
 fn string_match_emacs_groups() {
     crate::test_utils::init_test_tracing();
     // Emacs regex with groups: \(foo\|bar\) matching "test bar"
@@ -463,4 +486,44 @@ fn string_match_emacs_groups() {
         Value::string("test bar"),
     ]);
     assert_int(result.unwrap(), 5);
+}
+
+#[test]
+fn replace_regexp_preserves_raw_unibyte_source() {
+    crate::test_utils::init_test_tracing();
+    let source = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        b'a', 0xFF, b'b',
+    ]));
+    let result =
+        call_replace_regexp_in_string(vec![Value::string("a"), Value::string("x"), source])
+            .unwrap();
+    assert_lisp_string_bytes(result, &[b'x', 0xFF, b'b'], false);
+}
+
+#[test]
+fn replace_regexp_preserves_raw_unibyte_replacement() {
+    crate::test_utils::init_test_tracing();
+    let replacement = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFE]));
+    let source = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        b'a', 0xFF, b'b',
+    ]));
+    let result =
+        call_replace_regexp_in_string(vec![Value::string("a"), replacement, source]).unwrap();
+    assert_lisp_string_bytes(result, &[0xFE, 0xFF, b'b'], false);
+}
+
+#[test]
+fn replace_regexp_function_can_return_raw_unibyte_string() {
+    crate::test_utils::init_test_tracing();
+    let source = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        b'a', 0xFF, b'b',
+    ]));
+    let replacement = Value::list(vec![
+        Value::symbol("lambda"),
+        Value::list(vec![Value::symbol("_")]),
+        Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFE])),
+    ]);
+    let result =
+        call_replace_regexp_in_string(vec![Value::string("a"), replacement, source]).unwrap();
+    assert_lisp_string_bytes(result, &[0xFE, 0xFF, b'b'], false);
 }
