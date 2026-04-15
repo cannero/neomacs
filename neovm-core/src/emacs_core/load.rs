@@ -1077,64 +1077,64 @@ where
     let old_current_load_list = eval.obarray().symbol_value("current-load-list").cloned();
     let old_reader_load_file = super::value_reader::get_reader_load_file_name_public();
 
-    eval.with_gc_scope(|ctx| {
-        ctx.root(old_lexenv);
-        if let Some(ref v) = old_load_file {
-            ctx.root(*v);
-        }
-        if let Some(ref v) = old_load_true_file {
-            ctx.root(*v);
-        }
-        if let Some(ref v) = old_current_load_list {
-            ctx.root(*v);
-        }
-        if let Some(v) = old_reader_load_file {
-            ctx.root(v);
-        }
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(old_lexenv);
+    if let Some(ref v) = old_load_file {
+        eval.push_specpdl_root(*v);
+    }
+    if let Some(ref v) = old_load_true_file {
+        eval.push_specpdl_root(*v);
+    }
+    if let Some(ref v) = old_current_load_list {
+        eval.push_specpdl_root(*v);
+    }
+    if let Some(v) = old_reader_load_file {
+        eval.push_specpdl_root(v);
+    }
 
-        if lexical_binding {
-            ctx.set_lexical_binding(true);
-            ctx.lexenv = Value::list(vec![Value::T]);
-        }
+    if lexical_binding {
+        eval.set_lexical_binding(true);
+        eval.lexenv = Value::list(vec![Value::T]);
+    }
 
-        let load_file_value = Value::heap_string(hist_file_name.clone());
-        ctx.root(load_file_value);
-        let load_true_file_value = Value::heap_string(found.clone());
-        ctx.root(load_true_file_value);
-        let current_load_list = Value::cons(load_file_value, Value::NIL);
-        ctx.root(current_load_list);
-        ctx.set_variable("load-file-name", load_file_value);
-        ctx.set_variable("load-true-file-name", load_true_file_value);
-        ctx.set_variable("current-load-list", current_load_list);
-        // Set the reader's #$ thread-local so value_reader produces the
-        // actual file path string (matching GNU lread.c Vload_file_name).
-        super::value_reader::set_reader_load_file_name(Some(load_file_value));
+    let load_file_value = Value::heap_string(hist_file_name.clone());
+    eval.push_specpdl_root(load_file_value);
+    let load_true_file_value = Value::heap_string(found.clone());
+    eval.push_specpdl_root(load_true_file_value);
+    let current_load_list = Value::cons(load_file_value, Value::NIL);
+    eval.push_specpdl_root(current_load_list);
+    eval.set_variable("load-file-name", load_file_value);
+    eval.set_variable("load-true-file-name", load_true_file_value);
+    eval.set_variable("current-load-list", current_load_list);
+    // Set the reader's #$ thread-local so value_reader produces the
+    // actual file path string (matching GNU lread.c Vload_file_name).
+    super::value_reader::set_reader_load_file_name(Some(load_file_value));
 
-        let result = body(ctx);
+    let result = body(eval);
 
-        // Restore reader load-file-name
-        super::value_reader::set_reader_load_file_name(old_reader_load_file);
+    // Restore reader load-file-name
+    super::value_reader::set_reader_load_file_name(old_reader_load_file);
 
-        ctx.set_lexical_binding(old_lexical);
-        ctx.lexenv = old_lexenv;
-        if let Some(old) = old_load_file {
-            ctx.set_variable("load-file-name", old);
-        } else {
-            ctx.set_variable("load-file-name", Value::NIL);
-        }
-        if let Some(old) = old_load_true_file {
-            ctx.set_variable("load-true-file-name", old);
-        } else {
-            ctx.set_variable("load-true-file-name", Value::NIL);
-        }
-        if let Some(old) = old_current_load_list {
-            ctx.set_variable("current-load-list", old);
-        } else {
-            ctx.set_variable("current-load-list", Value::NIL);
-        }
+    eval.set_lexical_binding(old_lexical);
+    eval.lexenv = old_lexenv;
+    if let Some(old) = old_load_file {
+        eval.set_variable("load-file-name", old);
+    } else {
+        eval.set_variable("load-file-name", Value::NIL);
+    }
+    if let Some(old) = old_load_true_file {
+        eval.set_variable("load-true-file-name", old);
+    } else {
+        eval.set_variable("load-true-file-name", Value::NIL);
+    }
+    if let Some(old) = old_current_load_list {
+        eval.set_variable("current-load-list", old);
+    } else {
+        eval.set_variable("current-load-list", Value::NIL);
+    }
+    eval.restore_specpdl_roots(roots);
 
-        result
-    })
+    result
 }
 
 /// GNU-style streaming read-eval loop using the Value-native reader.
