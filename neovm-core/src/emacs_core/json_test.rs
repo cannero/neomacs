@@ -91,11 +91,24 @@ fn serialize_string_with_escapes() {
 }
 
 #[test]
-fn serialize_raw_unibyte_string_does_not_panic() {
+fn serialize_raw_unibyte_string_rejects_non_json_bytes() {
     crate::test_utils::init_test_tracing();
     let raw = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
-    let result = builtin_json_serialize(vec![raw]);
-    assert!(result.is_ok());
+    match builtin_json_serialize(vec![raw]) {
+        Err(Flow::Signal(sig)) => {
+            assert_eq!(sig.symbol_name(), "wrong-type-argument");
+            assert_eq!(sig.data, vec![Value::symbol("json-value-p"), raw]);
+        }
+        other => panic!("expected wrong-type-argument json-value-p, got {:?}", other),
+    }
+}
+
+#[test]
+fn serialize_ascii_unibyte_string_still_works() {
+    crate::test_utils::init_test_tracing();
+    let ascii = Value::heap_string(LispString::from_unibyte(b"hello".to_vec()));
+    let result = builtin_json_serialize(vec![ascii]).unwrap();
+    assert_eq!(result.as_str(), Some("\"hello\""));
 }
 
 #[test]

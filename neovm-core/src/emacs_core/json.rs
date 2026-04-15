@@ -273,9 +273,29 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
             }
         }
 
-        ValueKind::String => Ok(json_encode_string(
-            &crate::emacs_core::builtins::lisp_string_to_runtime_string(*value),
-        )),
+        ValueKind::String => {
+            let string = value
+                .as_lisp_string()
+                .expect("ValueKind::String must carry LispString payload");
+            let rendered = if string.is_multibyte() {
+                string.as_str().ok_or_else(|| {
+                    signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("json-value-p"), *value],
+                    )
+                })?
+            } else {
+                if !string.as_bytes().iter().all(u8::is_ascii) {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("json-value-p"), *value],
+                    ));
+                }
+                std::str::from_utf8(string.as_bytes())
+                    .expect("ASCII unibyte strings must be valid UTF-8")
+            };
+            Ok(json_encode_string(rendered))
+        }
 
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = value.as_vector_data().unwrap().clone();
