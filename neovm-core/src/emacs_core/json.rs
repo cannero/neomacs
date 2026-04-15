@@ -451,17 +451,27 @@ fn json_utf8_decode_error(start: usize, end: usize) -> Flow {
     )
 }
 
+fn json_source_char_pos(input: &crate::heap_types::LispString, byte_pos: usize) -> usize {
+    if input.is_multibyte() {
+        crate::emacs_core::emacs_char::byte_to_char_pos(input.as_bytes(), byte_pos)
+    } else {
+        byte_pos
+    }
+}
+
 /// Parser state: a cursor over the input bytes.
 struct JsonParser<'a> {
     input: &'a [u8],
+    input_multibyte: bool,
     pos: usize,
     opts: ParseOpts,
 }
 
 impl<'a> JsonParser<'a> {
-    fn new(input: &'a [u8], opts: ParseOpts) -> Self {
+    fn new(input: &'a [u8], input_multibyte: bool, opts: ParseOpts) -> Self {
         Self {
             input,
+            input_multibyte,
             pos: 0,
             opts,
         }
@@ -475,6 +485,14 @@ impl<'a> JsonParser<'a> {
     /// Advance by one byte.
     fn advance(&mut self) {
         self.pos += 1;
+    }
+
+    fn source_char_pos(&self) -> usize {
+        if self.input_multibyte {
+            crate::emacs_core::emacs_char::byte_to_char_pos(self.input, self.pos)
+        } else {
+            self.pos
+        }
     }
 
     /// Skip whitespace.
@@ -590,8 +608,12 @@ impl<'a> JsonParser<'a> {
             match self.peek() {
                 None => {
                     return Err(signal(
-                        "json-parse-error",
-                        vec![Value::string("Unterminated string")],
+                        "json-end-of-file",
+                        vec![
+                            Value::fixnum(1),
+                            Value::NIL,
+                            Value::fixnum(self.source_char_pos() as i64),
+                        ],
                     ));
                 }
                 Some(b'"') => {
@@ -680,8 +702,12 @@ impl<'a> JsonParser<'a> {
                         }
                         None => {
                             return Err(signal(
-                                "json-parse-error",
-                                vec![Value::string("Unterminated escape in string")],
+                                "json-end-of-file",
+                                vec![
+                                    Value::fixnum(1),
+                                    Value::NIL,
+                                    Value::fixnum(self.source_char_pos() as i64),
+                                ],
                             ));
                         }
                     }
@@ -1086,13 +1112,13 @@ pub(crate) fn builtin_json_parse_string(args: Vec<Value>) -> EvalResult {
         }
     };
     let opts = parse_parse_kwargs(&args, 1)?;
-    let mut parser = JsonParser::new(input.as_bytes(), opts);
+    let mut parser = JsonParser::new(input.as_bytes(), input.is_multibyte(), opts);
     parser.skip_ws();
     if parser.pos >= parser.input.len() {
-        let p = parser.pos as i64;
+        let p = json_source_char_pos(&input, parser.pos) as i64;
         return Err(signal(
             "json-end-of-file",
-            vec![Value::fixnum(1), Value::fixnum(p), Value::fixnum(p)],
+            vec![Value::fixnum(1), Value::NIL, Value::fixnum(p)],
         ));
     }
     let result = parser.parse_value()?;
@@ -1100,12 +1126,10 @@ pub(crate) fn builtin_json_parse_string(args: Vec<Value>) -> EvalResult {
     // Ensure there is no trailing non-whitespace.
     parser.skip_ws();
     if parser.pos < parser.input.len() {
+        let p = json_source_char_pos(&input, parser.pos) as i64 + 1;
         return Err(signal(
             "json-trailing-content",
-            vec![Value::string(format!(
-                "Trailing content after JSON value at position {}",
-                parser.pos
-            ))],
+            vec![Value::fixnum(1), Value::NIL, Value::fixnum(p)],
         ));
     }
 
@@ -1131,13 +1155,13 @@ pub(crate) fn builtin_json_parse_buffer(
         (input, buf.point())
     };
 
-    let mut parser = JsonParser::new(input.as_bytes(), opts);
+    let mut parser = JsonParser::new(input.as_bytes(), input.is_multibyte(), opts);
     parser.skip_ws();
     if parser.pos >= parser.input.len() {
-        let p = parser.pos as i64;
+        let p = json_source_char_pos(&input, parser.pos) as i64;
         return Err(signal(
             "json-end-of-file",
-            vec![Value::fixnum(1), Value::fixnum(p), Value::fixnum(p)],
+            vec![Value::fixnum(1), Value::NIL, Value::fixnum(p)],
         ));
     }
 

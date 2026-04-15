@@ -287,6 +287,36 @@ fn json_parse_buffer_invalid_utf8_does_not_advance_point() {
 }
 
 #[test]
+fn json_parse_buffer_end_of_file_uses_gnu_signal_shape() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.delete_region(buf.point_min(), buf.point_max());
+        buf.insert(" ");
+        buf.goto_char(0);
+    }
+
+    match builtin_json_parse_buffer(&mut eval, vec![]) {
+        Err(Flow::Signal(sig)) => {
+            assert_eq!(sig.symbol_name(), "json-end-of-file");
+            assert_eq!(
+                sig.data,
+                vec![Value::fixnum(1), Value::NIL, Value::fixnum(1)]
+            );
+        }
+        other => panic!("expected json-end-of-file signal, got {:?}", other),
+    }
+    assert_eq!(
+        eval.buffers
+            .current_buffer()
+            .expect("current buffer")
+            .point(),
+        0
+    );
+}
+
+#[test]
 fn json_insert_writes_at_point_and_advances() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
@@ -596,11 +626,45 @@ fn parse_trailing_content_error() {
 }
 
 #[test]
+fn parse_trailing_content_reports_character_position_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    match builtin_json_parse_string(vec![Value::string("\"é\"x")]) {
+        Err(Flow::Signal(sig)) => {
+            assert_eq!(sig.symbol_name(), "json-trailing-content");
+            assert_eq!(
+                sig.data,
+                vec![Value::fixnum(1), Value::NIL, Value::fixnum(4)]
+            );
+        }
+        other => panic!("expected json-trailing-content, got {:?}", other),
+    }
+}
+
+#[test]
 fn parse_empty_string_error() {
     crate::test_utils::init_test_tracing();
     match builtin_json_parse_string(vec![Value::string("")]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "json-end-of-file");
+            assert_eq!(
+                sig.data,
+                vec![Value::fixnum(1), Value::NIL, Value::fixnum(0)]
+            );
+        }
+        other => panic!("expected json-end-of-file signal, got {:?}", other),
+    }
+}
+
+#[test]
+fn parse_end_of_file_reports_character_position_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    match builtin_json_parse_string(vec![Value::string("\"é")]) {
+        Err(Flow::Signal(sig)) => {
+            assert_eq!(sig.symbol_name(), "json-end-of-file");
+            assert_eq!(
+                sig.data,
+                vec![Value::fixnum(1), Value::NIL, Value::fixnum(2)]
+            );
         }
         other => panic!("expected json-end-of-file signal, got {:?}", other),
     }
