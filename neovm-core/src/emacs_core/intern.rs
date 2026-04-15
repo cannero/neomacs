@@ -452,6 +452,29 @@ pub fn is_canonical_id(id: SymId) -> bool {
 }
 
 #[inline]
+pub(crate) fn is_keyword_id(id: SymId) -> bool {
+    if let Some(is_keyword) = thread_local_keyword(id) {
+        return is_keyword;
+    }
+    let registry = global_symbol_registry().read();
+    let is_keyword = registry
+        .slot(id)
+        .map(|slot| {
+            slot.canonical
+                && registry
+                    .names
+                    .resolve_lisp_string(slot.name)
+                    .as_bytes()
+                    .first()
+                    .is_some_and(|byte| *byte == b':')
+        })
+        .unwrap_or(false);
+    drop(registry);
+    thread_local_record_keyword(id, is_keyword);
+    is_keyword
+}
+
+#[inline]
 pub fn resolve_sym_metadata(id: SymId) -> (&'static str, bool) {
     if let (Some(name), Some(is_canonical)) =
         (thread_local_resolve(id), thread_local_is_canonical(id))
@@ -532,6 +555,7 @@ thread_local! {
     static SYM_NAME_CACHE: RefCell<Vec<Option<&'static str>>> = const { RefCell::new(Vec::new()) };
     static SYM_NAME_ID_CACHE: RefCell<Vec<Option<NameId>>> = const { RefCell::new(Vec::new()) };
     static SYM_CANONICAL_CACHE: RefCell<Vec<Option<bool>>> = const { RefCell::new(Vec::new()) };
+    static SYM_KEYWORD_CACHE: RefCell<Vec<Option<bool>>> = const { RefCell::new(Vec::new()) };
 }
 
 #[inline]
@@ -591,6 +615,26 @@ fn thread_local_record_canonical(id: SymId, is_canonical: bool) {
             cache.resize(idx + 1, None);
         }
         cache[idx] = Some(is_canonical);
+    });
+}
+
+#[inline]
+fn thread_local_keyword(id: SymId) -> Option<bool> {
+    SYM_KEYWORD_CACHE.with(|cache| {
+        let cache = cache.borrow();
+        cache.get(id.0 as usize).and_then(|slot| *slot)
+    })
+}
+
+#[inline]
+fn thread_local_record_keyword(id: SymId, is_keyword: bool) {
+    SYM_KEYWORD_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let idx = id.0 as usize;
+        if cache.len() <= idx {
+            cache.resize(idx + 1, None);
+        }
+        cache[idx] = Some(is_keyword);
     });
 }
 

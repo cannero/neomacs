@@ -19,8 +19,8 @@ use super::doc::{STARTUP_VARIABLE_DOC_STRING_PROPERTIES, STARTUP_VARIABLE_DOC_ST
 use super::error::*;
 use super::interactive::InteractiveRegistry;
 use super::intern::{
-    NameId, SymId, intern, intern_uninterned, resolve_name, resolve_sym, resolve_sym_metadata,
-    symbol_name_id,
+    NameId, SymId, intern, intern_uninterned, is_canonical_id, is_keyword_id, resolve_name,
+    resolve_sym, resolve_sym_metadata, symbol_name_id,
 };
 use super::keymap::{
     list_keymap_define, list_keymap_set_parent, make_list_keymap, make_sparse_list_keymap,
@@ -56,8 +56,8 @@ const STACK_GROWTH_PROBE_INTERVAL: usize = 16;
 /// distinct functions called during batch-byte-compile so the cache
 /// never thrashes once warmed.
 const NAMED_CALL_CACHE_CAPACITY: usize = 4096;
-const LEXENV_ASSQ_CACHE_CAPACITY: usize = 8;
-const LEXENV_SPECIAL_CACHE_CAPACITY: usize = 8;
+const LEXENV_ASSQ_CACHE_CAPACITY: usize = 16;
+const LEXENV_SPECIAL_CACHE_CAPACITY: usize = 16;
 const GC_DEFAULT_THRESHOLD_BYTES: usize = 100_000 * std::mem::size_of::<usize>();
 const GC_THRESHOLD_FLOOR_BYTES: usize = GC_DEFAULT_THRESHOLD_BYTES / 10;
 const GC_HI_THRESHOLD_BYTES: usize = (i64::MAX as usize) / 2;
@@ -101,6 +101,12 @@ fn load_in_progress_symbol() -> SymId {
 fn macroexpand_all_environment_symbol() -> SymId {
     static SYM: OnceLock<SymId> = OnceLock::new();
     *SYM.get_or_init(|| intern("macroexpand-all-environment"))
+}
+
+#[inline]
+fn throw_symbol() -> SymId {
+    static SYM: OnceLock<SymId> = OnceLock::new();
+    *SYM.get_or_init(|| intern("throw"))
 }
 
 pub(crate) fn compiler_function_override_in_obarray(
@@ -533,36 +539,25 @@ struct LexenvAssqCacheEntry {
 #[derive(Clone, Debug, Default)]
 struct LexenvAssqCache {
     entries: [Option<LexenvAssqCacheEntry>; LEXENV_ASSQ_CACHE_CAPACITY],
-    len: u8,
-    next: u8,
 }
 
 impl LexenvAssqCache {
     #[inline]
+    fn slot(lexenv_bits: usize, sym_id: SymId) -> usize {
+        let mixed = lexenv_bits.rotate_left(7) ^ (sym_id.0 as usize).wrapping_mul(0x9E37_79B1);
+        mixed & (LEXENV_ASSQ_CACHE_CAPACITY - 1)
+    }
+
+    #[inline]
     fn find(&self, lexenv_bits: usize, sym_id: SymId) -> Option<Value> {
-        let len = usize::from(self.len);
-        let mut checked = 0usize;
-        while checked < len {
-            let index = (usize::from(self.next) + LEXENV_ASSQ_CACHE_CAPACITY - 1 - checked)
-                % LEXENV_ASSQ_CACHE_CAPACITY;
-            if let Some(entry) = self.entries[index] {
-                if entry.lexenv_bits == lexenv_bits && entry.symbol == sym_id {
-                    return Some(entry.cell);
-                }
-            }
-            checked += 1;
-        }
-        None
+        let entry = self.entries[Self::slot(lexenv_bits, sym_id)]?;
+        (entry.lexenv_bits == lexenv_bits && entry.symbol == sym_id).then_some(entry.cell)
     }
 
     #[inline]
     fn push(&mut self, entry: LexenvAssqCacheEntry) {
-        let index = usize::from(self.next);
+        let index = Self::slot(entry.lexenv_bits, entry.symbol);
         self.entries[index] = Some(entry);
-        self.next = ((index + 1) % LEXENV_ASSQ_CACHE_CAPACITY) as u8;
-        if usize::from(self.len) < LEXENV_ASSQ_CACHE_CAPACITY {
-            self.len += 1;
-        }
     }
 }
 
@@ -576,36 +571,25 @@ struct LexenvSpecialCacheEntry {
 #[derive(Clone, Debug, Default)]
 struct LexenvSpecialCache {
     entries: [Option<LexenvSpecialCacheEntry>; LEXENV_SPECIAL_CACHE_CAPACITY],
-    len: u8,
-    next: u8,
 }
 
 impl LexenvSpecialCache {
     #[inline]
+    fn slot(lexenv_bits: usize, sym_id: SymId) -> usize {
+        let mixed = lexenv_bits.rotate_left(7) ^ (sym_id.0 as usize).wrapping_mul(0x9E37_79B1);
+        mixed & (LEXENV_SPECIAL_CACHE_CAPACITY - 1)
+    }
+
+    #[inline]
     fn find(&self, lexenv_bits: usize, sym_id: SymId) -> Option<bool> {
-        let len = usize::from(self.len);
-        let mut checked = 0usize;
-        while checked < len {
-            let index = (usize::from(self.next) + LEXENV_SPECIAL_CACHE_CAPACITY - 1 - checked)
-                % LEXENV_SPECIAL_CACHE_CAPACITY;
-            if let Some(entry) = self.entries[index] {
-                if entry.lexenv_bits == lexenv_bits && entry.symbol == sym_id {
-                    return Some(entry.declared_special);
-                }
-            }
-            checked += 1;
-        }
-        None
+        let entry = self.entries[Self::slot(lexenv_bits, sym_id)]?;
+        (entry.lexenv_bits == lexenv_bits && entry.symbol == sym_id).then_some(entry.declared_special)
     }
 
     #[inline]
     fn push(&mut self, entry: LexenvSpecialCacheEntry) {
-        let index = usize::from(self.next);
+        let index = Self::slot(entry.lexenv_bits, entry.symbol);
         self.entries[index] = Some(entry);
-        self.next = ((index + 1) % LEXENV_SPECIAL_CACHE_CAPACITY) as u8;
-        if usize::from(self.len) < LEXENV_SPECIAL_CACHE_CAPACITY {
-            self.len += 1;
-        }
     }
 }
 
@@ -716,15 +700,14 @@ impl InterpretedClosureValueCacheEntry {
 }
 
 fn value_from_symbol_id(sym_id: SymId) -> Value {
-    let (name, is_canonical) = resolve_sym_metadata(sym_id);
-    if is_canonical {
+    if is_canonical_id(sym_id) {
         if sym_id == nil_symbol() {
             return Value::NIL;
         }
         if sym_id == t_symbol() {
             return Value::T;
         }
-        if name.starts_with(':') {
+        if is_keyword_id(sym_id) {
             return Value::from_kw_id(sym_id);
         }
     }
@@ -2039,7 +2022,7 @@ impl Context {
 
     #[inline]
     pub(crate) fn subr_slot(&self, sym_id: SymId) -> Option<&'static SubrObj> {
-        self.tagged_heap.subr_slot(symbol_name_id(sym_id))
+        self.tagged_heap.subr_slot_by_sym(sym_id)
     }
 
     #[inline]
@@ -2077,6 +2060,7 @@ impl Context {
     fn register_subr_slot(&mut self, sym_id: SymId, subr: Value) {
         self.tagged_heap
             .register_subr_value(symbol_name_id(sym_id), subr);
+        self.tagged_heap.register_subr_slot_for_sym(sym_id, subr);
     }
 
     pub fn new() -> Self {
@@ -6048,6 +6032,13 @@ impl Context {
         self.input_mode_interrupt = interrupt;
     }
 
+    #[inline]
+    fn sync_cached_runtime_binding_by_id(&mut self, sym_id: SymId, value: Value) {
+        if sym_id == self.noninteractive_symbol {
+            self.noninteractive = value.is_truthy();
+        }
+    }
+
     fn sync_keyboard_runtime_binding_by_id(&mut self, sym_id: SymId, value: Value) {
         if sym_id == intern("input-decode-map") {
             self.command_loop.keyboard.set_input_decode_map(value);
@@ -6757,9 +6748,6 @@ impl Context {
     /// Set a global variable.
     pub fn set_variable(&mut self, name: &str, value: Value) {
         let sym_id = intern(name);
-        if name == "noninteractive" {
-            self.noninteractive = value.is_truthy();
-        }
         self.note_macro_expansion_mutation();
         // GNU set_internal (data.c:1762) for SYMBOL_FORWARDED routes
         // the write through `store_symval_forwarding` which for the
@@ -6794,6 +6782,7 @@ impl Context {
             }
         }
         self.obarray.set_symbol_value(name, value);
+        self.sync_cached_runtime_binding_by_id(sym_id, value);
         self.mark_gc_runtime_settings_dirty_by_id(sym_id);
     }
 
@@ -6818,9 +6807,8 @@ impl Context {
     /// lookup (preserving uninterned symbol identity, like Emacs's EQ-based
     /// Fassq on Vinternal_interpreter_environment).
     pub(crate) fn eval_symbol_by_id(&self, sym_id: SymId) -> EvalResult {
-        let (symbol, symbol_is_canonical) = resolve_sym_metadata(sym_id);
         // Keywords evaluate to themselves
-        if symbol_is_canonical && symbol.starts_with(':') {
+        if is_keyword_id(sym_id) {
             return Ok(Value::from_kw_id(sym_id));
         }
 
@@ -6835,7 +6823,7 @@ impl Context {
         }
 
         let resolved = super::builtins::resolve_variable_alias_id(self, sym_id)?;
-        let (resolved_name, resolved_is_canonical) = resolve_sym_metadata(resolved);
+        let resolved_is_canonical = is_canonical_id(resolved);
 
         // Also check the lexenv for the resolved alias (rare but possible).
         if resolved != sym_id && self.lexical_binding() {
@@ -6851,7 +6839,7 @@ impl Context {
         // The fall-through to `find_symbol_value` below reads the
         // current cell; the canonical values are restored as a
         // fallback at the very end if no binding is found.
-        if resolved_is_canonical && resolved_name.starts_with(':') {
+        if is_keyword_id(resolved) {
             return Ok(Value::from_kw_id(resolved));
         }
 
@@ -6942,10 +6930,10 @@ impl Context {
         // aren't explicitly stored in the obarray and aren't
         // specbound, they resolve to their canonical values.
         // Mirrors the vm.rs `lookup_var` fallback path.
-        if symbol_is_canonical && sym_id == nil_symbol() {
+        if is_canonical_id(sym_id) && sym_id == nil_symbol() {
             return Ok(Value::NIL);
         }
-        if symbol_is_canonical && sym_id == t_symbol() {
+        if is_canonical_id(sym_id) && sym_id == t_symbol() {
             return Ok(Value::T);
         }
         if resolved_is_canonical && resolved == nil_symbol() {
@@ -8971,6 +8959,23 @@ impl Context {
         })
     }
 
+    #[inline]
+    fn apply_internal_already_rooted(
+        &mut self,
+        function: Value,
+        args: Vec<Value>,
+        record_backtrace: bool,
+    ) -> EvalResult {
+        self.maybe_gc_and_quit()?;
+        self.maybe_grow_eval_stack(|ctx| {
+            if record_backtrace {
+                ctx.funcall_general(function, args)
+            } else {
+                ctx.funcall_general_untraced(function, args)
+            }
+        })
+    }
+
     /// Apply a function value to evaluated arguments.
     pub(crate) fn apply(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
         self.apply_internal(function, args, true)
@@ -8978,6 +8983,11 @@ impl Context {
 
     pub(crate) fn apply_untraced(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
         self.apply_internal(function, args, false)
+    }
+
+    #[inline]
+    fn apply_already_rooted_untraced(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
+        self.apply_internal_already_rooted(function, args, false)
     }
 
     /// Apply FUNC to ARGS, but record FRAME_FUNCTION (not FUNC) in the
@@ -9225,7 +9235,6 @@ impl Context {
         args: Vec<Value>,
         _rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
-        let name = resolve_sym(sym_id);
         if self.subr_is_special_form_id(sym_id) {
             return Err(signal("invalid-function", vec![Value::subr(sym_id)]));
         }
@@ -9238,7 +9247,7 @@ impl Context {
         if let Some(result) = builtins::dispatch_builtin_by_id(self, sym_id, args) {
             result.map_err(|flow| self.validate_throw(flow))
         } else {
-            Err(signal("void-function", vec![Value::symbol(name)]))
+            Err(signal("void-function", vec![Value::from_sym_id(sym_id)]))
         }
     }
 
@@ -9270,10 +9279,9 @@ impl Context {
                     // the function cell. Treat this as a direct builtin/special-form
                     // callable, not an obarray indirection cycle.
                     ValueKind::Veclike(VecLikeType::Subr) if func.as_subr_id() == Some(sym_id) => {
-                        let name = resolve_sym(sym_id);
-                        match super::subr_info::subr_dispatch_kind_from_value(&func)
-                            .unwrap_or_else(|| super::subr_info::compat_subr_dispatch_kind(name))
-                        {
+                        match super::subr_info::subr_dispatch_kind_from_value(&func).unwrap_or_else(
+                            || super::subr_info::compat_subr_dispatch_kind(resolve_sym(sym_id)),
+                        ) {
                             SubrDispatchKind::Builtin => NamedCallTarget::Builtin,
                             SubrDispatchKind::ContextCallable => NamedCallTarget::ContextCallable,
                             SubrDispatchKind::SpecialForm => NamedCallTarget::SpecialForm,
@@ -9365,45 +9373,31 @@ impl Context {
         invalid_fn: Value,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
-        let name = resolve_sym(sym_id);
         match self.resolve_named_call_target_by_id(sym_id) {
             NamedCallTarget::Obarray(func) => {
                 if super::autoload::is_autoload_value(&func) {
-                    return self.apply_named_autoload_callable(
-                        name,
+                    return self.apply_named_autoload_callable_by_id(
+                        sym_id,
                         func,
                         args,
                         rewrite_builtin_wrong_arity,
                     );
                 }
                 let function_is_callable = self.function_value_is_callable(&func);
-                let alias_target = match func.kind() {
-                    ValueKind::Symbol(target) => Some(resolve_sym(target).to_owned()),
-                    ValueKind::Veclike(VecLikeType::Subr) => {
-                        let bound_name = func.as_subr_id().unwrap();
-                        if resolve_sym(bound_name) != name {
-                            Some(resolve_sym(bound_name).to_owned())
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                };
                 let result = match self.apply_untraced(func, args) {
                     Err(Flow::Signal(sig))
                         if sig.symbol_name() == "invalid-function" && !function_is_callable =>
                     {
-                        Err(signal("invalid-function", vec![Value::symbol(name)]))
+                        Err(signal("invalid-function", vec![Value::from_sym_id(sym_id)]))
                     }
                     other => other,
                 };
-                let _ = alias_target;
                 result
             }
             NamedCallTarget::ContextCallable => {
                 // GNU-faithful: Ffuncall emits `#<subr NAME>` in
                 // wrong-arity signals via XSETSUBR.
-                self.apply_evaluator_callable(name, args, Value::subr(sym_id))
+                self.apply_evaluator_callable_by_id(sym_id, args)
             }
             NamedCallTarget::Builtin => {
                 // GNU-faithful pre-check via check_funcall_subr_arity
@@ -9416,11 +9410,11 @@ impl Context {
                     result.map_err(|flow| self.validate_throw(flow))
                 } else {
                     self.store_named_call_cache(sym_id, NamedCallTarget::Void);
-                    Err(signal("void-function", vec![Value::symbol(name)]))
+                    Err(signal("void-function", vec![Value::from_sym_id(sym_id)]))
                 }
             }
             NamedCallTarget::SpecialForm => Err(signal("invalid-function", vec![invalid_fn])),
-            NamedCallTarget::Void => Err(signal("void-function", vec![Value::symbol(name)])),
+            NamedCallTarget::Void => Err(signal("void-function", vec![Value::from_sym_id(sym_id)])),
         }
     }
 
@@ -9442,18 +9436,6 @@ impl Context {
                     );
                 }
                 let function_is_callable = self.function_value_is_callable(&func);
-                let alias_target = match func.kind() {
-                    ValueKind::Symbol(target) => Some(resolve_sym(target).to_owned()),
-                    ValueKind::Veclike(VecLikeType::Subr) => {
-                        let bound_name = func.as_subr_id().unwrap();
-                        if resolve_sym(bound_name) != name {
-                            Some(resolve_sym(bound_name).to_owned())
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                };
                 let result = match self.apply(func, args) {
                     Err(Flow::Signal(sig))
                         if sig.symbol_name() == "invalid-function" && !function_is_callable =>
@@ -9462,7 +9444,6 @@ impl Context {
                     }
                     other => other,
                 };
-                let _ = alias_target;
                 result
             }
             NamedCallTarget::ContextCallable => {
@@ -9495,9 +9476,23 @@ impl Context {
         args: Vec<Value>,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
+        self.apply_named_autoload_callable_by_id(
+            intern(name),
+            autoload_form,
+            args,
+            rewrite_builtin_wrong_arity,
+        )
+    }
+
+    fn apply_named_autoload_callable_by_id(
+        &mut self,
+        sym_id: SymId,
+        autoload_form: Value,
+        args: Vec<Value>,
+        rewrite_builtin_wrong_arity: bool,
+    ) -> EvalResult {
         // Startup wrappers often expose autoload-shaped function cells for names
         // backed by builtins. Keep the autoload shape while preserving callability.
-        let sym_id = intern(name);
         if self.has_registered_subr(sym_id) {
             // GNU-faithful pre-check via check_funcall_subr_arity.
             if let Some(flow) = self.check_funcall_subr_arity(sym_id, args.len()) {
@@ -9510,14 +9505,14 @@ impl Context {
 
         let loaded = super::autoload::builtin_autoload_do_load(
             self,
-            vec![autoload_form, Value::symbol(name)],
+            vec![autoload_form, Value::from_sym_id(sym_id)],
         )?;
         let function_is_callable = self.function_value_is_callable(&loaded);
         match self.apply_untraced(loaded, args) {
             Err(Flow::Signal(sig))
                 if sig.symbol_name() == "invalid-function" && !function_is_callable =>
             {
-                Err(signal("invalid-function", vec![Value::symbol(name)]))
+                Err(signal("invalid-function", vec![Value::from_sym_id(sym_id)]))
             }
             other => other,
         }
@@ -9550,7 +9545,23 @@ impl Context {
     }
 
     fn apply_evaluator_callable_by_id(&mut self, sym_id: SymId, args: Vec<Value>) -> EvalResult {
-        self.apply_evaluator_callable(resolve_sym(sym_id), args, Value::subr(sym_id))
+        if sym_id == throw_symbol() {
+            if args.len() != 2 {
+                return Err(signal(
+                    "wrong-number-of-arguments",
+                    vec![Value::subr(sym_id), Value::fixnum(args.len() as i64)],
+                ));
+            }
+            let tag = args[0];
+            let value = args[1];
+            if self.has_active_catch(&tag) {
+                Err(Flow::Throw { tag, value })
+            } else {
+                Err(signal("no-catch", vec![tag, value]))
+            }
+        } else {
+            Err(signal("void-function", vec![Value::from_sym_id(sym_id)]))
+        }
     }
 
     fn apply_lambda(&mut self, func_value: Value, args: Vec<Value>) -> EvalResult {
@@ -9797,7 +9808,12 @@ impl Context {
         args: Vec<Value>,
     ) -> Result<Value, Flow> {
         let perf_start = self.macro_perf_enabled.then(std::time::Instant::now);
-        let result = self.with_macro_expansion_scope(|eval| eval.apply(callable, args));
+        // `expand_macro_for_macroexpand` roots FORM / DEFINITION / ENV / ARGS
+        // in `temp_roots` before reaching here, so rebuilding an extra root
+        // slice per macroexpander call is redundant. Keep quit/GC checks, but
+        // use the already-rooted call path.
+        let result = self
+            .with_macro_expansion_scope(|eval| eval.apply_already_rooted_untraced(callable, args));
         if let Some(start) = perf_start {
             self.macro_perf_stats
                 .macro_apply
@@ -10106,9 +10122,7 @@ impl Context {
                 if let Some(buf) = self.buffers.get_mut(buf_id) {
                     buf.local_var_alist = new_alist;
                 }
-                if resolved == self.noninteractive_symbol {
-                    self.noninteractive = value.is_truthy();
-                }
+                self.sync_cached_runtime_binding_by_id(resolved, value);
                 return;
             }
         }
@@ -10140,9 +10154,7 @@ impl Context {
                         let _ = self
                             .buffers
                             .set_buffer_local_property_by_sym_id(buf_id, resolved, value);
-                        if resolved == self.noninteractive_symbol {
-                            self.noninteractive = value.is_truthy();
-                        }
+                        self.sync_cached_runtime_binding_by_id(resolved, value);
                         return;
                     }
                 }
@@ -10156,9 +10168,7 @@ impl Context {
                 let _ = self.run_variable_watchers_by_id(resolved, &value, &Value::NIL, "let");
             }
             self.obarray.set_symbol_value_id(resolved, value);
-            if resolved == self.noninteractive_symbol {
-                self.noninteractive = value.is_truthy();
-            }
+            self.sync_cached_runtime_binding_by_id(resolved, value);
             return;
         }
 
@@ -10172,9 +10182,7 @@ impl Context {
             let _ = self.run_variable_watchers_by_id(resolved, &value, &Value::NIL, "let");
         }
         self.obarray.set_symbol_value_id(resolved, value);
-        if resolved == self.noninteractive_symbol {
-            self.noninteractive = value.is_truthy();
-        }
+        self.sync_cached_runtime_binding_by_id(resolved, value);
     }
 
     /// Check if a `let` is currently shadowing a buffer-local
@@ -10219,15 +10227,11 @@ impl Context {
                     match old_value {
                         Some(val) => {
                             self.obarray.set_symbol_value_id(sym_id, val);
-                            if sym_id == self.noninteractive_symbol {
-                                self.noninteractive = val.is_truthy();
-                            }
+                            self.sync_cached_runtime_binding_by_id(sym_id, val);
                         }
                         None => {
                             self.obarray.makunbound_id(sym_id);
-                            if sym_id == self.noninteractive_symbol {
-                                self.noninteractive = false;
-                            }
+                            self.sync_cached_runtime_binding_by_id(sym_id, Value::NIL);
                         }
                     }
                 }
@@ -10286,9 +10290,7 @@ impl Context {
                                 .buffers
                                 .set_buffer_local_property_by_sym_id(buffer_id, sym_id, old_value);
                         }
-                        if sym_id == self.noninteractive_symbol {
-                            self.noninteractive = old_value.is_truthy();
-                        }
+                        self.sync_cached_runtime_binding_by_id(sym_id, old_value);
                     }
                 }
                 SpecBinding::LetDefault { sym_id, old_value } => {
@@ -10334,15 +10336,11 @@ impl Context {
                     match old_value {
                         Some(val) => {
                             self.obarray.set_symbol_value_id(sym_id, val);
-                            if sym_id == self.noninteractive_symbol {
-                                self.noninteractive = val.is_truthy();
-                            }
+                            self.sync_cached_runtime_binding_by_id(sym_id, val);
                         }
                         None => {
                             self.obarray.makunbound_id(sym_id);
-                            if sym_id == self.noninteractive_symbol {
-                                self.noninteractive = false;
-                            }
+                            self.sync_cached_runtime_binding_by_id(sym_id, Value::NIL);
                         }
                     }
                 }
@@ -10867,18 +10865,17 @@ impl Context {
 
     pub(crate) fn lexenv_assq_cached_in(&self, lexenv: Value, sym_id: SymId) -> Option<Value> {
         let lexenv_bits = lexenv.bits();
-        if let Some(cell) = self.lexenv_assq_cache.borrow().find(lexenv_bits, sym_id) {
+        let mut cache = self.lexenv_assq_cache.borrow_mut();
+        if let Some(cell) = cache.find(lexenv_bits, sym_id) {
             return Some(cell);
         }
 
         let cell = lexenv_assq(lexenv, sym_id)?;
-        self.lexenv_assq_cache
-            .borrow_mut()
-            .push(LexenvAssqCacheEntry {
-                lexenv_bits,
-                symbol: sym_id,
-                cell,
-            });
+        cache.push(LexenvAssqCacheEntry {
+            lexenv_bits,
+            symbol: sym_id,
+            cell,
+        });
         Some(cell)
     }
 
@@ -10889,19 +10886,17 @@ impl Context {
 
     pub(crate) fn lexenv_declares_special_cached_in(&self, lexenv: Value, sym_id: SymId) -> bool {
         let lexenv_bits = lexenv.bits();
-        if let Some(declared_special) = self.lexenv_special_cache.borrow().find(lexenv_bits, sym_id)
-        {
+        let mut cache = self.lexenv_special_cache.borrow_mut();
+        if let Some(declared_special) = cache.find(lexenv_bits, sym_id) {
             return declared_special;
         }
 
         let declared_special = lexenv_declares_special(lexenv, sym_id);
-        self.lexenv_special_cache
-            .borrow_mut()
-            .push(LexenvSpecialCacheEntry {
-                lexenv_bits,
-                symbol: sym_id,
-                declared_special,
-            });
+        cache.push(LexenvSpecialCacheEntry {
+            lexenv_bits,
+            symbol: sym_id,
+            declared_special,
+        });
         declared_special
     }
 
@@ -10935,9 +10930,7 @@ impl Context {
             sym_id,
             value,
         );
-        if sym_id == self.noninteractive_symbol {
-            self.noninteractive = value.is_truthy();
-        }
+        self.sync_cached_runtime_binding_by_id(sym_id, value);
         self.sync_keyboard_runtime_binding_by_id(sym_id, value);
         self.mark_gc_runtime_settings_dirty_by_id(sym_id);
         locus
@@ -10960,9 +10953,7 @@ impl Context {
             sym_id,
             value,
         );
-        if sym_id == self.noninteractive_symbol {
-            self.noninteractive = value.is_truthy();
-        }
+        self.sync_cached_runtime_binding_by_id(sym_id, value);
         self.sync_keyboard_runtime_binding_by_id(sym_id, value);
         self.mark_gc_runtime_settings_dirty_by_id(sym_id);
         locus
@@ -10976,9 +10967,7 @@ impl Context {
             &[],
             sym_id,
         );
-        if sym_id == self.noninteractive_symbol {
-            self.noninteractive = false;
-        }
+        self.sync_cached_runtime_binding_by_id(sym_id, Value::NIL);
         self.sync_keyboard_runtime_binding_by_id(sym_id, Value::NIL);
         self.mark_gc_runtime_settings_dirty_by_id(sym_id);
     }
@@ -11018,7 +11007,7 @@ impl Context {
         &self,
         resolved: SymId,
     ) -> Option<Value> {
-        let (resolved_name, resolved_is_canonical) = resolve_sym_metadata(resolved);
+        let resolved_is_canonical = is_canonical_id(resolved);
 
         // Phase 10E: route LOCALIZED reads through the BLV
         // machinery so they observe writes from set_internal_localized.
@@ -11090,7 +11079,7 @@ impl Context {
         if resolved_is_canonical && resolved == t_symbol() {
             return Some(Value::T);
         }
-        if resolved_is_canonical && resolved_name.starts_with(':') {
+        if is_keyword_id(resolved) {
             return Some(Value::from_kw_id(resolved));
         }
 

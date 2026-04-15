@@ -692,28 +692,22 @@ impl GapBuffer {
         );
         if byte_pos <= self.gap_start {
             let text = storage_slice_to_str(&self.buf[..self.gap_start], "byte_to_char pre-gap");
+            let char_idx = crate::emacs_core::string_escape::storage_byte_to_char(text, byte_pos);
             assert!(
-                byte_pos
-                    == crate::emacs_core::string_escape::storage_char_to_byte(
-                        text,
-                        crate::emacs_core::string_escape::storage_byte_to_char(text, byte_pos),
-                    ),
+                byte_pos == crate::emacs_core::string_escape::storage_char_to_byte(text, char_idx,),
                 "byte_to_char: byte_pos ({byte_pos}) is not a storage character boundary"
             );
-            return crate::emacs_core::string_escape::storage_byte_to_char(text, byte_pos);
+            return char_idx;
         }
 
         let rel_pos = byte_pos - self.gap_start;
         let text = storage_slice_to_str(&self.buf[self.gap_end..], "byte_to_char post-gap");
+        let char_idx = crate::emacs_core::string_escape::storage_byte_to_char(text, rel_pos);
         assert!(
-            rel_pos
-                == crate::emacs_core::string_escape::storage_char_to_byte(
-                    text,
-                    crate::emacs_core::string_escape::storage_byte_to_char(text, rel_pos),
-                ),
+            rel_pos == crate::emacs_core::string_escape::storage_char_to_byte(text, char_idx,),
             "byte_to_char: byte_pos ({byte_pos}) is not a storage character boundary"
         );
-        self.gap_start_chars + crate::emacs_core::string_escape::storage_byte_to_char(text, rel_pos)
+        self.gap_start_chars + char_idx
     }
 
     /// Convert a char position to a logical byte position.

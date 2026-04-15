@@ -21,7 +21,7 @@ use super::overlay::OverlayList;
 use super::shared::SharedUndoState;
 use super::text_props::TextPropertyTable;
 use super::undo;
-use crate::emacs_core::intern::{SymId, intern, resolve_sym};
+use crate::emacs_core::intern::{SymId, intern};
 use crate::emacs_core::syntax::SyntaxTable;
 use crate::emacs_core::value::{RuntimeBindingValue, Value, ValueKind};
 use crate::gc_trace::GcTrace;
@@ -1097,8 +1097,31 @@ pub fn lookup_buffer_slot(name: &str) -> Option<&'static BufferSlotInfo> {
         .copied()
 }
 
+fn buffer_slot_sym_map() -> &'static [Option<&'static BufferSlotInfo>] {
+    static BUFFER_SLOT_SYM_MAP: OnceLock<Box<[Option<&'static BufferSlotInfo>]>> = OnceLock::new();
+    BUFFER_SLOT_SYM_MAP
+        .get_or_init(|| {
+            let mut entries: Vec<Option<&'static BufferSlotInfo>> = Vec::new();
+            for info in BUFFER_SLOT_INFO {
+                if !info.install_as_forwarder {
+                    continue;
+                }
+                let sym_id = intern(info.name);
+                let index = sym_id.0 as usize;
+                if entries.len() <= index {
+                    entries.resize(index + 1, None);
+                }
+                entries[index] = Some(info);
+            }
+            entries.into_boxed_slice()
+        })
+        .as_ref()
+}
+
 pub fn lookup_buffer_slot_by_sym_id(sym_id: SymId) -> Option<&'static BufferSlotInfo> {
-    lookup_buffer_slot(resolve_sym(sym_id))
+    buffer_slot_sym_map()
+        .get(sym_id.0 as usize)
+        .and_then(|slot| *slot)
 }
 
 fn buffer_undo_list_sym() -> SymId {

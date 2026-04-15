@@ -725,6 +725,7 @@ enum FrontendHandle {
     Gui(RenderThread),
     /// Single-thread TTY path: input reader only, rendering via TtyRif on eval thread.
     TtyRifInput(tty_frontend::TtyInputReader),
+    Batch,
 }
 
 impl FrontendHandle {
@@ -732,6 +733,7 @@ impl FrontendHandle {
         match self {
             Self::Gui(handle) => handle.join(),
             Self::TtyRifInput(handle) => handle.join(),
+            Self::Batch => {}
         }
     }
 }
@@ -769,6 +771,34 @@ impl TerminalHost for TtyTerminalHost {
             .send(RenderCommand::Shutdown)
             .map_err(|err| format!("failed to delete tty terminal frontend: {err}"))
     }
+}
+
+fn should_enable_live_tty_io(startup: &StartupOptions) -> bool {
+    startup.frontend == FrontendKind::Tty && !startup.noninteractive
+}
+
+fn maybe_install_tty_redisplay_callback(evaluator: &mut Context, startup: &StartupOptions) {
+    if !should_enable_live_tty_io(startup) {
+        return;
+    }
+
+    let (cols, rows) = query_terminal_size_cells().unwrap_or((80, 25));
+    let mut tty_rif =
+        neomacs_display_protocol::tty_rif::TtyRif::new(cols as usize, rows as usize);
+    // TTY frames use 1x1 character cell metrics (GNU Emacs
+    // frame.c:1184-1185). Drop the layout engine's cosmic-text
+    // FontMetricsService so char_advance,
+    // status_line_font_metrics, etc. fall back to the
+    // char-cell grid.
+    LAYOUT_ENGINE.with(|engine| {
+        engine.borrow_mut().disable_cosmic_metrics();
+    });
+    evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
+        eval.setup_thread_locals();
+        run_layout(eval);
+        // Extract FrameDisplayState from the layout engine's thread-local
+        run_tty_rif_redisplay(&mut tty_rif);
+    }));
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1566,8 +1596,13 @@ pub fn run(mode: RuntimeMode) {
             reset_terminal_runtime();
         }
         FrontendKind::Tty => {
-            reset_terminal_host();
-            configure_terminal_runtime(detect_tty_runtime());
+            if should_enable_live_tty_io(&startup) {
+                reset_terminal_host();
+                configure_terminal_runtime(detect_tty_runtime());
+            } else {
+                reset_terminal_host();
+                reset_terminal_runtime();
+            }
         }
     }
     // GNU Emacs does NOT disable GC during startup — GC runs normally.
@@ -1594,7 +1629,7 @@ pub fn run(mode: RuntimeMode) {
     let (emacs_comms, render_comms) = comms.split();
     let primary_window_size: SharedPrimaryWindowSize =
         Arc::new(Mutex::new(PrimaryWindowSize { width, height }));
-    if startup.frontend == FrontendKind::Tty {
+    if should_enable_live_tty_io(&startup) {
         set_terminal_host(Box::new(TtyTerminalHost {
             cmd_tx: emacs_comms.cmd_tx.clone(),
         }));
@@ -1643,7 +1678,7 @@ pub fn run(mode: RuntimeMode) {
                 // Batch mode: no terminal I/O, matching GNU which
                 // skips init_display() for --batch (emacs.c:1835).
                 tracing::info!("TTY batch mode — skipping terminal init");
-                FrontendHandle::TtyRifInput(tty_frontend::TtyInputReader::spawn(render_comms))
+                FrontendHandle::Batch
             } else {
                 // Single-thread TTY path: terminal init here, rendering via TtyRif
                 // on the evaluator thread, input reader on a background thread.
@@ -1723,25 +1758,7 @@ pub fn run(mode: RuntimeMode) {
             }));
         }
         FrontendKind::Tty => {
-            // Single-thread TTY redisplay: run layout, then rasterize via TtyRif
-            // directly on the evaluator thread (no channel, no render thread).
-            let (cols, rows) = query_terminal_size_cells().unwrap_or((80, 25));
-            let mut tty_rif =
-                neomacs_display_protocol::tty_rif::TtyRif::new(cols as usize, rows as usize);
-            // TTY frames use 1x1 character cell metrics (GNU Emacs
-            // frame.c:1184-1185). Drop the layout engine's cosmic-text
-            // FontMetricsService so char_advance,
-            // status_line_font_metrics, etc. fall back to the
-            // char-cell grid.
-            LAYOUT_ENGINE.with(|engine| {
-                engine.borrow_mut().disable_cosmic_metrics();
-            });
-            evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
-                eval.setup_thread_locals();
-                run_layout(eval);
-                // Extract FrameDisplayState from the layout engine's thread-local
-                run_tty_rif_redisplay(&mut tty_rif);
-            }));
+            maybe_install_tty_redisplay_callback(&mut evaluator, &startup);
         }
     }
 
@@ -1770,7 +1787,7 @@ pub fn run(mode: RuntimeMode) {
         .cmd_tx
         .try_send(neomacs_display_runtime::thread_comm::RenderCommand::Shutdown);
     frontend.join();
-    if startup.frontend == FrontendKind::Tty {
+    if should_enable_live_tty_io(&startup) {
         tty_shutdown_terminal();
     }
     tracing::info!("Neomacs exited cleanly");

@@ -4,9 +4,10 @@ use super::{
     adopt_existing_primary_gui_frame, bootstrap_buffers, bootstrap_default_font_name,
     bootstrap_display_config, bootstrap_frame_metrics, classify_early_cli_action,
     configure_gnu_startup_state, current_layout_frame_id, face_height_to_pixels,
-    parse_startup_options, raw_loadup_command_line, raw_loadup_startup_surface,
-    render_fingerprint_text, render_help_text, render_startup_image_error,
-    render_version_text, run_gnu_startup, startup_dimensions, sync_live_gui_frame_titles,
+    maybe_install_tty_redisplay_callback, parse_startup_options, raw_loadup_command_line,
+    raw_loadup_startup_surface, render_fingerprint_text, render_help_text,
+    render_startup_image_error, render_version_text, run_gnu_startup,
+    should_enable_live_tty_io, startup_dimensions, sync_live_gui_frame_titles,
     sync_selected_gui_chrome_state,
 };
 use neomacs_display_runtime::thread_comm::RenderCommand;
@@ -904,6 +905,42 @@ fn startup_option_parser_promotes_batch_to_noninteractive_and_strips_batch_flag(
             "--eval".to_string(),
             "(princ 1)".to_string()
         ]
+    );
+}
+
+#[test]
+fn batch_tty_mode_does_not_spawn_input_reader() {
+    let batch = tty_batch_startup_with_args(&["-Q"]);
+    assert!(!should_enable_live_tty_io(&batch));
+
+    let interactive = StartupOptions {
+        frontend: FrontendKind::Tty,
+        noninteractive: false,
+        ..batch
+    };
+    assert!(should_enable_live_tty_io(&interactive));
+}
+
+#[test]
+fn batch_tty_mode_leaves_redisplay_callback_unset() {
+    let batch = tty_batch_startup_with_args(&["-Q"]);
+    let mut eval = Context::new();
+    maybe_install_tty_redisplay_callback(&mut eval, &batch);
+    assert!(
+        eval.redisplay_fn.is_none(),
+        "batch tty should not install a live redisplay callback"
+    );
+
+    let interactive = StartupOptions {
+        frontend: FrontendKind::Tty,
+        noninteractive: false,
+        ..batch
+    };
+    let mut interactive_eval = Context::new();
+    maybe_install_tty_redisplay_callback(&mut interactive_eval, &interactive);
+    assert!(
+        interactive_eval.redisplay_fn.is_some(),
+        "interactive tty should install a redisplay callback"
     );
 }
 

@@ -346,13 +346,8 @@ impl TaggedValue {
     /// In GNU Emacs, keywords are symbols whose name starts with `:`.
     #[inline]
     pub fn is_keyword(self) -> bool {
-        self.as_symbol_id().is_some_and(|id| {
-            is_canonical_id(id)
-                && resolve_sym_lisp_string(id)
-                    .as_bytes()
-                    .first()
-                    .is_some_and(|byte| *byte == b':')
-        })
+        self.as_symbol_id()
+            .is_some_and(crate::emacs_core::intern::is_keyword_id)
     }
 
     /// Subrs are PVEC_SUBR veclike heap objects.

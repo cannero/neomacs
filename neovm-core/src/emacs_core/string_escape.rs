@@ -271,6 +271,9 @@ fn storage_has_special_units(s: &str) -> bool {
     if s.is_ascii() {
         return false;
     }
+    if !s.as_bytes().contains(&0xEE) {
+        return false;
+    }
     s.chars().any(|ch| {
         let code = ch as u32;
         (RAW_BYTE_SENTINEL_MIN..=RAW_BYTE_SENTINEL_MAX).contains(&code)
@@ -1004,7 +1007,25 @@ pub(crate) fn format_lisp_string_bytes_inner_emacs(
 /// This delegates to the new Emacs-byte-based formatter via a simple UTF-8 →
 /// Emacs encoding pass (for pure Unicode text this is a no-op).
 pub(crate) fn format_lisp_string_bytes_inner(s: &str, options: &PrintOptions) -> Vec<u8> {
-    // Old-style sentinel strings should no longer exist; treat as multibyte UTF-8.
+    if storage_has_special_units(s) {
+        use crate::emacs_core::emacs_char;
+
+        let units = scan_storage_units(s);
+        let is_multibyte = units.iter().any(|unit| unit.code > 0xFF);
+        let mut data = Vec::with_capacity(s.len());
+        for unit in units {
+            if !is_multibyte {
+                data.push(unit.code as u8);
+                continue;
+            }
+
+            let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+            let n = emacs_char::char_string(unit.code, &mut buf);
+            data.extend_from_slice(&buf[..n]);
+        }
+        return format_lisp_string_bytes_inner_emacs(&data, is_multibyte, options);
+    }
+
     format_lisp_string_bytes_inner_emacs(s.as_bytes(), true, options)
 }
 

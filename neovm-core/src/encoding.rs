@@ -155,6 +155,50 @@ const GNU_DEFAULT_WIDE_RANGES: &[(u32, u32)] = &[
     (0x30000, 0x3FFFF),
 ];
 
+const ZERO_WIDTH_RANGES: &[(u32, u32)] = &[
+    (0x0300, 0x036F),
+    (0x0483, 0x0489),
+    (0x0591, 0x05BD),
+    (0x0610, 0x061A),
+    (0x064B, 0x065F),
+    (0x0670, 0x0670),
+    (0x06D6, 0x06DC),
+    (0x0730, 0x074A),
+    (0x0900, 0x0903),
+    (0x093A, 0x094F),
+    (0x0E31, 0x0E3A),
+    (0x0E47, 0x0E4E),
+    (0x1160, 0x11FF),
+    (0x200B, 0x200F),
+    (0x202A, 0x202E),
+    (0x2060, 0x2064),
+    (0xFE00, 0xFE0F),
+    (0xFE20, 0xFE2F),
+    (0xFEFF, 0xFEFF),
+    (0x1D167, 0x1D169),
+    (0x1D173, 0x1D182),
+    (0xE0020, 0xE007F),
+    (0xE0100, 0xE01EF),
+];
+
+#[inline]
+fn codepoint_in_sorted_ranges(cp: u32, ranges: &[(u32, u32)]) -> bool {
+    let mut low = 0usize;
+    let mut high = ranges.len();
+    while low < high {
+        let mid = (low + high) / 2;
+        let (start, end) = ranges[mid];
+        if cp < start {
+            high = mid;
+        } else if cp > end {
+            low = mid + 1;
+        } else {
+            return true;
+        }
+    }
+    false
+}
+
 // ---------------------------------------------------------------------------
 // Character classification
 // ---------------------------------------------------------------------------
@@ -188,39 +232,12 @@ pub fn char_width(c: char) -> usize {
 
 /// Whether the character is zero-width (combining mark, etc.).
 fn is_zero_width(c: char) -> bool {
-    let cp = c as u32;
-    // Common combining mark ranges
-    (0x0300..=0x036f).contains(&cp) // Combining Diacriticals
-        || (0x0483..=0x0489).contains(&cp) // Cyrillic combining
-        || (0x0591..=0x05bd).contains(&cp) // Hebrew
-        || (0x0610..=0x061a).contains(&cp) // Arabic
-        || (0x064b..=0x065f).contains(&cp)
-        || (0x0670..=0x0670).contains(&cp)
-        || (0x06d6..=0x06dc).contains(&cp)
-        || (0x0730..=0x074a).contains(&cp) // Syriac
-        || (0x0900..=0x0903).contains(&cp) // Devanagari
-        || (0x093a..=0x094f).contains(&cp)
-        || (0x0e31..=0x0e3a).contains(&cp) // Thai
-        || (0x0e47..=0x0e4e).contains(&cp)
-        || (0x1160..=0x11ff).contains(&cp) // Hangul jungseong/jongseong
-        || (0x200b..=0x200f).contains(&cp) // Zero-width space, ZWNJ, ZWJ
-        || (0x202a..=0x202e).contains(&cp) // Bidi control
-        || (0x2060..=0x2064).contains(&cp) // Invisible operators
-        || (0xfe00..=0xfe0f).contains(&cp) // Variation selectors
-        || (0xfe20..=0xfe2f).contains(&cp) // Combining half marks
-        || (0xfeff..=0xfeff).contains(&cp) // BOM
-        || (0x1d167..=0x1d169).contains(&cp) // Musical combining
-        || (0x1d173..=0x1d182).contains(&cp)
-        || (0xe0020..=0xe007f).contains(&cp) // Tags
-        || (0xe0100..=0xe01ef).contains(&cp) // Variation selectors supplement
+    codepoint_in_sorted_ranges(c as u32, ZERO_WIDTH_RANGES)
 }
 
 /// Whether the character is full-width (East Asian wide).
 fn is_wide_char(c: char) -> bool {
-    let cp = c as u32;
-    GNU_DEFAULT_WIDE_RANGES
-        .iter()
-        .any(|&(start, end)| (start..=end).contains(&cp))
+    codepoint_in_sorted_ranges(c as u32, GNU_DEFAULT_WIDE_RANGES)
 }
 
 /// String display width (sum of char widths).

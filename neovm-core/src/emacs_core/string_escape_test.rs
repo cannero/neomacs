@@ -119,3 +119,13 @@ fn append_storage_logical_byte_range_as_emacs_bytes_handles_unibyte_sentinels() 
     append_storage_logical_byte_range_as_emacs_bytes(&encoded, 1, 3, &mut out);
     assert_eq!(out, vec![b'\n', 0x80]);
 }
+
+#[test]
+fn private_use_chars_outside_sentinel_ranges_are_not_rewritten() {
+    crate::test_utils::init_test_tracing();
+    let plain_private_use = char::from_u32(0xE400).expect("valid private-use scalar");
+    let s = plain_private_use.to_string();
+    assert_eq!(decode_storage_char_codes(&s), vec![0xE400]);
+    assert_eq!(storage_char_len(&s), 1);
+    assert_eq!(storage_byte_len(&s), s.len());
+}
