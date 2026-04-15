@@ -1297,7 +1297,10 @@ fn streaming_readevalloop(
         // post-form GC in readevalloop. Exact GC needs the same root here:
         // freshly installed closures/macros can still share structure with the
         // just-evaluated source form.
-        eval.with_extra_gc_roots(&[form], |eval| eval.gc_safe_point_exact());
+        eval.with_gc_scope(|eval| {
+            eval.push_eval_root(form);
+            eval.gc_safe_point_exact();
+        });
         form_idx += 1;
     }
 

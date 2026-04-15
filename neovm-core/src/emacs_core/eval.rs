@@ -1596,7 +1596,7 @@ pub(crate) fn finish_require_in_state(features: &[SymId], sym_id: SymId, name: &
 
 pub(crate) fn builtin_require_in_vm_runtime(
     shared: &mut Context,
-    vm_gc_roots: &[Value],
+    _vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
     match plan_require_in_state(
@@ -1610,9 +1610,12 @@ pub(crate) fn builtin_require_in_vm_runtime(
         RequirePlan::Return(value) => Ok(value),
         RequirePlan::Load { sym_id, name, path } => {
             shared.require_stack.push(sym_id);
-            let extra_roots = args.to_vec();
-            let result = shared
-                .with_extra_gc_roots(&extra_roots, move |eval| eval.load_file_internal(&path));
+            let result = shared.with_gc_scope_result(|eval| {
+                for root in args {
+                    eval.push_eval_root(*root);
+                }
+                eval.load_file_internal(&path)
+            });
             let _ = shared.require_stack.pop();
             result?;
             refresh_features_from_variable_in_state(&shared.obarray, &mut shared.features);
@@ -1625,7 +1628,7 @@ pub(crate) fn builtin_require_in_vm_runtime(
 /// `after-load-alist` callbacks are executed (matching GNU's Fprovide).
 pub(crate) fn builtin_provide_in_vm_runtime(
     shared: &mut Context,
-    vm_gc_roots: &[Value],
+    _vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
     if args.is_empty() || args.len() > 2 {
@@ -1636,8 +1639,10 @@ pub(crate) fn builtin_provide_in_vm_runtime(
     }
     let feature = args[0];
     let subfeatures = args.get(1).copied();
-    let extra_roots = args.to_vec();
-    shared.with_extra_gc_roots(&extra_roots, move |eval| {
+    shared.with_gc_scope_result(|eval| {
+        for root in args {
+            eval.push_eval_root(*root);
+        }
         eval.provide_value(feature, subfeatures)
     })
 }
@@ -1749,7 +1754,7 @@ pub(crate) fn finish_eval_with_lexical_arg_in_state(
 
 pub(crate) fn builtin_eval_in_vm_runtime(
     shared: &mut Context,
-    vm_gc_roots: &[Value],
+    _vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
     if !(1..=2).contains(&args.len()) {
@@ -1762,7 +1767,12 @@ pub(crate) fn builtin_eval_in_vm_runtime(
     let form = args[0];
     let lexical_arg = args.get(1).copied();
     let state = shared.begin_eval_with_lexical_arg(lexical_arg)?;
-    let result = shared.with_extra_gc_roots(args, move |eval| eval.eval_value(&form));
+    let result = shared.with_gc_scope_result(|eval| {
+        for root in args {
+            eval.push_eval_root(*root);
+        }
+        eval.eval_value(&form)
+    });
     shared.finish_eval_with_lexical_arg(state);
     result
 }
