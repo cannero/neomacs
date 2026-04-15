@@ -8560,6 +8560,28 @@ fn extra_gc_roots_use_eval_root_frames_without_temp_root_mirroring() {
 }
 
 #[test]
+fn gc_scope_uses_eval_root_frames_without_temp_root_mirroring() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let temp_roots_before = ev.temp_roots.len();
+
+    let rooted = ev.with_gc_scope(|eval| {
+        assert_eq!(eval.temp_roots.len(), temp_roots_before);
+        let payload = eval.root(Value::vector(vec![Value::fixnum(44)]));
+        assert_eq!(eval.eval_root_frames.len(), 1);
+        eval.gc_collect_exact();
+        payload
+    });
+
+    assert_eq!(
+        rooted.as_vector_data().unwrap().as_slice(),
+        &[Value::fixnum(44)]
+    );
+    assert!(ev.eval_root_frames.is_empty());
+    assert_eq!(ev.temp_roots.len(), temp_roots_before);
+}
+
+#[test]
 fn lexical_binding_fallback_prefers_eval_root_frames_over_temp_roots() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

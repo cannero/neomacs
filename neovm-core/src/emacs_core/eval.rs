@@ -6201,9 +6201,8 @@ impl Context {
     // HandleScope — RAII formalization of the temp_roots save/restore pattern
     // -----------------------------------------------------------------------
 
-    /// Execute `f` within a HandleScope. All Values rooted via
-    /// `push_temp_root` during `f` are automatically unrooted when
-    /// `f` returns (even on error/early-return).
+    /// Execute `f` within a GC scope. Values rooted via `root()` during `f`
+    /// are automatically unrooted when `f` returns (even on error/early-return).
     ///
     /// This is the RAII replacement for save/restore_temp_roots.
     /// Equivalent to:
@@ -6215,22 +6214,37 @@ impl Context {
     /// ```
     #[inline]
     pub(crate) fn with_gc_scope<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
-        let saved_len = self.temp_roots.len();
+        let needs_eval_root_frame =
+            self.active_call_roots.is_empty() && self.eval_root_frames.is_empty();
+        if needs_eval_root_frame {
+            self.push_eval_root_frame();
+        }
+        let scope = self.save_eval_roots();
         let result = f(self);
-        self.temp_roots.truncate(saved_len);
+        self.restore_eval_roots(scope);
+        if needs_eval_root_frame {
+            self.pop_eval_root_frame();
+        }
         result
     }
 
     /// Like `with_gc_scope` but for fallible operations.
-    /// Restores temp_roots even on error paths.
     #[inline]
     pub(crate) fn with_gc_scope_result<T>(
         &mut self,
         f: impl FnOnce(&mut Self) -> Result<T, Flow>,
     ) -> Result<T, Flow> {
-        let saved_len = self.temp_roots.len();
+        let needs_eval_root_frame =
+            self.active_call_roots.is_empty() && self.eval_root_frames.is_empty();
+        if needs_eval_root_frame {
+            self.push_eval_root_frame();
+        }
+        let scope = self.save_eval_roots();
         let result = f(self);
-        self.temp_roots.truncate(saved_len);
+        self.restore_eval_roots(scope);
+        if needs_eval_root_frame {
+            self.pop_eval_root_frame();
+        }
         result
     }
 
@@ -6238,7 +6252,7 @@ impl Context {
     /// Returns the Value unchanged (for chaining).
     #[inline]
     pub(crate) fn root(&mut self, val: Value) -> Value {
-        self.temp_roots.push(val);
+        self.push_eval_root(val);
         val
     }
 
