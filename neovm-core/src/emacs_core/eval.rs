@@ -1773,6 +1773,12 @@ pub(crate) struct ActiveMacroExpansionScopeState {
     old_dynvars: Value,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct EvalRootScopeState {
+    saved_temp_roots_len: usize,
+    saved_active_call_extra_roots_len: Option<usize>,
+}
+
 fn bind_lexical_value_rooted_in_state(
     lexenv: &mut Value,
     temp_roots: &mut Vec<Value>,
@@ -7588,7 +7594,7 @@ impl Context {
         let mut dynamic_sym_ids: Vec<(SymId, Value)> = Vec::new();
         let use_lexical = self.lexical_binding();
         let mut constant_binding_error: Option<String> = None;
-        let saved_roots = self.temp_roots.len();
+        let eval_root_scope = self.save_eval_roots();
         let mut bindings = varlist;
 
         while bindings.is_cons() {
@@ -7612,12 +7618,12 @@ impl Context {
                 continue;
             }
             if !binding.is_cons() {
-                self.temp_roots.truncate(saved_roots);
+                self.restore_eval_roots(eval_root_scope);
                 return Err(signal("wrong-type-argument", vec![]));
             }
             let head = binding.cons_car();
             let Some(id) = head.as_symbol_id() else {
-                self.temp_roots.truncate(saved_roots);
+                self.restore_eval_roots(eval_root_scope);
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("symbolp"), head],
@@ -7630,7 +7636,7 @@ impl Context {
                 let init_form = value_tail.cons_car();
                 value_tail = value_tail.cons_cdr();
                 if !value_tail.is_nil() {
-                    self.temp_roots.truncate(saved_roots);
+                    self.restore_eval_roots(eval_root_scope);
                     return Err(signal(
                         "error",
                         vec![
@@ -7642,15 +7648,15 @@ impl Context {
                 match self.eval_sub(init_form) {
                     Ok(value) => value,
                     Err(err) => {
-                        self.temp_roots.truncate(saved_roots);
+                        self.restore_eval_roots(eval_root_scope);
                         return Err(err);
                     }
                 }
             } else {
-                self.temp_roots.truncate(saved_roots);
+                self.restore_eval_roots(eval_root_scope);
                 return Err(self.listp_error(binding));
             };
-            self.temp_roots.push(value);
+            self.push_eval_root(value);
             if let Some(name) = symbol_sets_constant_error(id) {
                 if constant_binding_error.is_none() {
                     constant_binding_error = Some(name.to_owned());
@@ -7667,10 +7673,10 @@ impl Context {
             }
         }
         if !bindings.is_nil() {
-            self.temp_roots.truncate(saved_roots);
+            self.restore_eval_roots(eval_root_scope);
             return Err(self.listp_error(varlist));
         }
-        self.temp_roots.truncate(saved_roots);
+        self.restore_eval_roots(eval_root_scope);
         if let Some(name) = constant_binding_error {
             return Err(signal("setting-constant", vec![Value::symbol(name)]));
         }
@@ -8175,7 +8181,8 @@ impl Context {
             return Err(self.listp_error(tail));
         }
         let tag = self.eval_sub(tail.cons_car())?;
-        self.temp_roots.push(tag);
+        let eval_root_scope = self.save_eval_roots();
+        self.push_eval_root(tag);
         self.push_condition_frame(ConditionFrame::Catch {
             tag,
             resume: ResumeTarget::InterpreterCatch,
@@ -8189,7 +8196,7 @@ impl Context {
             Err(flow) => Err(flow),
         };
         self.pop_condition_frame();
-        self.temp_roots.pop();
+        self.restore_eval_roots(eval_root_scope);
         result
     }
 
@@ -8408,15 +8415,19 @@ impl Context {
 
     fn sf_save_restriction_value(&mut self, tail: Value) -> EvalResult {
         let saved = self.buffers.save_current_restriction_state();
-        let saved_roots_len = self.temp_roots.len();
+        let eval_root_scope = self.save_eval_roots();
         if let Some(saved) = &saved {
-            saved.trace_roots(&mut self.temp_roots);
+            let mut traced_roots = Vec::new();
+            saved.trace_roots(&mut traced_roots);
+            for root in traced_roots {
+                self.push_eval_root(root);
+            }
         }
         let result = self.sf_progn_value(tail);
         if let Some(saved) = saved {
             self.buffers.restore_saved_restriction_state(saved);
         }
-        self.temp_roots.truncate(saved_roots_len);
+        self.restore_eval_roots(eval_root_scope);
         result
     }
 
@@ -9140,6 +9151,26 @@ impl Context {
         } else {
             false
         }
+    }
+
+    pub(crate) fn save_eval_roots(&self) -> EvalRootScopeState {
+        EvalRootScopeState {
+            saved_temp_roots_len: self.temp_roots.len(),
+            saved_active_call_extra_roots_len: self.save_active_call_extra_roots(),
+        }
+    }
+
+    pub(crate) fn push_eval_root(&mut self, value: Value) {
+        if !self.push_active_call_extra_root(value) {
+            self.temp_roots.push(value);
+        }
+    }
+
+    pub(crate) fn restore_eval_roots(&mut self, scope: EvalRootScopeState) {
+        if let Some(saved_len) = scope.saved_active_call_extra_roots_len {
+            let _ = self.restore_active_call_extra_roots(saved_len);
+        }
+        self.temp_roots.truncate(scope.saved_temp_roots_len);
     }
 
     pub(crate) fn push_vm_root_frame(&mut self) {
