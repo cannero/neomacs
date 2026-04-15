@@ -3241,7 +3241,7 @@ pub(crate) fn builtin_find_file_noselect(
     // Check if there's already a buffer visiting this file
     for buf_id in eval.buffers.buffer_list() {
         if let Some(buf) = eval.buffers.get(buf_id) {
-            if buf.get_file_name() == Some(&abs_path) {
+            if buf.file_name_owned().as_deref() == Some(abs_path.as_str()) {
                 return Ok(Value::make_buffer(buf_id));
             }
         }
@@ -3293,10 +3293,10 @@ pub(crate) fn builtin_find_file_noselect(
 /// For non-visited buffers: `#*buffername*#` in the auto-save-list-file-prefix
 /// directory (or temporary-file-directory as fallback).
 fn make_auto_save_file_name_for_buffer(obarray: &Obarray, buf: &crate::buffer::Buffer) -> String {
-    if let Some(file_name) = buf.get_file_name() {
+    if let Some(file_name) = buf.file_name_owned() {
         // Visited file: #dir/filename# -> dir/#filename#
-        let dir = file_name_directory(file_name).unwrap_or_default();
-        let base = file_name_nondirectory(file_name);
+        let dir = file_name_directory(&file_name).unwrap_or_default();
+        let base = file_name_nondirectory(&file_name);
         format!("{dir}#{base}#")
     } else {
         // Non-visited buffer: #*buffername*# in prefix dir or temp dir

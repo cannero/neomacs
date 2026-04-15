@@ -338,12 +338,12 @@ pub(crate) fn builtin_get_file_buffer(
         let Some(buf) = eval.buffers.get(id) else {
             continue;
         };
-        let Some(file_name) = buf.get_file_name() else {
+        let Some(file_name) = buf.file_name_owned() else {
             continue;
         };
 
         let candidate =
-            super::fileio::resolve_filename_in_state(&eval.obarray, &[], &eval.buffers, file_name);
+            super::fileio::resolve_filename_in_state(&eval.obarray, &[], &eval.buffers, &file_name);
         if candidate == resolved {
             return Ok(Value::make_buffer(id));
         }
@@ -573,13 +573,10 @@ pub(crate) fn builtin_buffer_file_name(
     } else {
         expect_buffer_id(&args[0])?
     };
-    match buffers.get(id) {
-        Some(buf) => match buf.get_file_name() {
-            Some(f) => Ok(Value::string(f)),
-            None => Ok(Value::NIL),
-        },
-        None => Ok(Value::NIL),
-    }
+    Ok(buffers
+        .get(id)
+        .and_then(|buf| buf.buffer_local_value("buffer-file-name"))
+        .unwrap_or(Value::NIL))
 }
 
 pub(crate) fn builtin_buffer_base_buffer(
