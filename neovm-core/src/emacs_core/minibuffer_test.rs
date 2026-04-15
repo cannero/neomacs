@@ -3,6 +3,10 @@ use crate::buffer::BufferId;
 use crate::emacs_core::intern::intern;
 use crate::heap_types::LispString;
 
+fn ls(text: &str) -> LispString {
+    LispString::from_utf8(text)
+}
+
 // -- Completion matching --------------------------------------------------
 
 #[test]
@@ -119,102 +123,92 @@ fn finish_read_variable_with_minibuffer_normalizes_default_and_interns_result() 
 #[test]
 fn prefix_match_basic() {
     crate::test_utils::init_test_tracing();
-    let candidates = vec![
-        "apple".into(),
-        "application".into(),
-        "banana".into(),
-        "apply".into(),
-    ];
-    let result = prefix_match("app", &candidates);
+    let candidates = vec![ls("apple"), ls("application"), ls("banana"), ls("apply")];
+    let result = prefix_match(&ls("app"), &candidates);
     assert_eq!(result.len(), 3);
-    assert!(result.contains(&"apple".to_string()));
-    assert!(result.contains(&"application".to_string()));
-    assert!(result.contains(&"apply".to_string()));
+    assert!(result.contains(&ls("apple")));
+    assert!(result.contains(&ls("application")));
+    assert!(result.contains(&ls("apply")));
 }
 
 #[test]
 fn prefix_match_case_insensitive() {
     crate::test_utils::init_test_tracing();
-    let candidates = vec!["Apple".into(), "APPLY".into(), "banana".into()];
-    let result = prefix_match("app", &candidates);
+    let candidates = vec![ls("Apple"), ls("APPLY"), ls("banana")];
+    let result = prefix_match(&ls("app"), &candidates);
     assert_eq!(result.len(), 2);
 }
 
 #[test]
 fn prefix_match_empty_input() {
     crate::test_utils::init_test_tracing();
-    let candidates = vec!["a".into(), "b".into(), "c".into()];
-    let result = prefix_match("", &candidates);
+    let candidates = vec![ls("a"), ls("b"), ls("c")];
+    let result = prefix_match(&ls(""), &candidates);
     assert_eq!(result.len(), 3);
 }
 
 #[test]
 fn prefix_match_no_matches() {
     crate::test_utils::init_test_tracing();
-    let candidates = vec!["apple".into(), "banana".into()];
-    let result = prefix_match("zz", &candidates);
+    let candidates = vec![ls("apple"), ls("banana")];
+    let result = prefix_match(&ls("zz"), &candidates);
     assert!(result.is_empty());
 }
 
 #[test]
 fn substring_match_basic() {
     crate::test_utils::init_test_tracing();
-    let candidates = vec![
-        "foobar".into(),
-        "bazfoo".into(),
-        "hello".into(),
-        "food".into(),
-    ];
-    let result = substring_match("foo", &candidates);
+    let candidates = vec![ls("foobar"), ls("bazfoo"), ls("hello"), ls("food")];
+    let result = substring_match(&ls("foo"), &candidates);
     assert_eq!(result.len(), 3);
-    assert!(result.contains(&"foobar".to_string()));
-    assert!(result.contains(&"bazfoo".to_string()));
-    assert!(result.contains(&"food".to_string()));
+    assert!(result.contains(&ls("foobar")));
+    assert!(result.contains(&ls("bazfoo")));
+    assert!(result.contains(&ls("food")));
 }
 
 #[test]
 fn flex_match_basic() {
     crate::test_utils::init_test_tracing();
     let candidates = vec![
-        "find-file".into(),
-        "flycheck".into(),
-        "first-foo".into(),
-        "hello".into(),
+        ls("find-file"),
+        ls("flycheck"),
+        ls("first-foo"),
+        ls("hello"),
     ];
     // "ff" should match strings where 'f' appears twice in order.
-    let result = flex_match("ff", &candidates);
-    assert!(result.contains(&"find-file".to_string()));
-    assert!(result.contains(&"first-foo".to_string()));
-    assert!(!result.contains(&"hello".to_string()));
+    let result = flex_match(&ls("ff"), &candidates);
+    assert!(result.contains(&ls("find-file")));
+    assert!(result.contains(&ls("first-foo")));
+    assert!(!result.contains(&ls("hello")));
 }
 
 #[test]
 fn flex_match_all_chars_in_order() {
     crate::test_utils::init_test_tracing();
-    let candidates = vec!["abcdef".into(), "axbycz".into(), "zzz".into()];
-    let result = flex_match("abc", &candidates);
+    let candidates = vec![ls("abcdef"), ls("axbycz"), ls("zzz")];
+    let result = flex_match(&ls("abc"), &candidates);
     assert_eq!(result.len(), 2);
-    assert!(result.contains(&"abcdef".to_string()));
-    assert!(result.contains(&"axbycz".to_string()));
+    assert!(result.contains(&ls("abcdef")));
+    assert!(result.contains(&ls("axbycz")));
 }
 
 #[test]
 fn flex_match_case_insensitive() {
     crate::test_utils::init_test_tracing();
-    let candidates = vec!["FindFile".into()];
-    let result = flex_match("ff", &candidates);
+    let candidates = vec![ls("FindFile")];
+    let result = flex_match(&ls("ff"), &candidates);
     assert_eq!(result.len(), 1);
 }
 
 #[test]
 fn basic_match_case_sensitive() {
     crate::test_utils::init_test_tracing();
-    let candidates = vec!["Apple".into(), "apple".into(), "application".into()];
-    let result = basic_match("app", &candidates);
+    let candidates = vec![ls("Apple"), ls("apple"), ls("application")];
+    let result = basic_match(&ls("app"), &candidates);
     assert_eq!(result.len(), 2);
-    assert!(result.contains(&"apple".to_string()));
-    assert!(result.contains(&"application".to_string()));
-    assert!(!result.contains(&"Apple".to_string()));
+    assert!(result.contains(&ls("apple")));
+    assert!(result.contains(&ls("application")));
+    assert!(!result.contains(&ls("Apple")));
 }
 
 // -- Common prefix --------------------------------------------------------
@@ -228,33 +222,29 @@ fn common_prefix_empty() {
 #[test]
 fn common_prefix_single() {
     crate::test_utils::init_test_tracing();
-    let strings = vec!["hello".to_string()];
-    assert_eq!(compute_common_prefix(&strings), Some("hello".to_string()));
+    let strings = vec![ls("hello")];
+    assert_eq!(compute_common_prefix(&strings), Some(ls("hello")));
 }
 
 #[test]
 fn common_prefix_multiple() {
     crate::test_utils::init_test_tracing();
-    let strings = vec![
-        "application".to_string(),
-        "apple".to_string(),
-        "apply".to_string(),
-    ];
-    assert_eq!(compute_common_prefix(&strings), Some("appl".to_string()));
+    let strings = vec![ls("application"), ls("apple"), ls("apply")];
+    assert_eq!(compute_common_prefix(&strings), Some(ls("appl")));
 }
 
 #[test]
 fn common_prefix_no_overlap() {
     crate::test_utils::init_test_tracing();
-    let strings = vec!["abc".to_string(), "xyz".to_string()];
-    assert_eq!(compute_common_prefix(&strings), Some(String::new()));
+    let strings = vec![ls("abc"), ls("xyz")];
+    assert_eq!(compute_common_prefix(&strings), Some(ls("")));
 }
 
 #[test]
 fn common_prefix_identical() {
     crate::test_utils::init_test_tracing();
-    let strings = vec!["test".to_string(), "test".to_string()];
-    assert_eq!(compute_common_prefix(&strings), Some("test".to_string()));
+    let strings = vec![ls("test"), ls("test")];
+    assert_eq!(compute_common_prefix(&strings), Some(ls("test")));
 }
 
 // -- History navigation ---------------------------------------------------
@@ -273,19 +263,19 @@ fn history_navigation() {
 
     // Go back in history: should get "third" (most recent).
     let prev = mgr.history_previous();
-    assert_eq!(prev, Some("third".to_string()));
+    assert_eq!(prev, Some(ls("third")));
 
     // Go back again: "second".
     let prev = mgr.history_previous();
-    assert_eq!(prev, Some("second".to_string()));
+    assert_eq!(prev, Some(ls("second")));
 
     // Go forward: back to "third".
     let next = mgr.history_next();
-    assert_eq!(next, Some("third".to_string()));
+    assert_eq!(next, Some(ls("third")));
 
     // Go forward again: back to original input (empty string).
     let next = mgr.history_next();
-    assert_eq!(next, Some(String::new()));
+    assert_eq!(next, Some(ls("")));
 
     // Go forward past the start: None.
     let next = mgr.history_next();
@@ -434,7 +424,7 @@ fn enter_exit_lifecycle() {
     }
 
     let result = mgr.exit_minibuffer();
-    assert_eq!(result, Some("modified".to_string()));
+    assert_eq!(result, Some(ls("modified")));
     assert_eq!(mgr.depth(), 0);
 }
 
@@ -450,7 +440,7 @@ fn exit_with_default() {
         // Content is empty, so default should be used.
     }
     let result = mgr.exit_minibuffer();
-    assert_eq!(result, Some("fallback".to_string()));
+    assert_eq!(result, Some(ls("fallback")));
 }
 
 #[test]
@@ -483,16 +473,16 @@ fn try_complete_with_table() {
             .read_from_minibuffer(BufferId(1), "M-x ", Some("find"), None)
             .unwrap();
         state.completion_table = Some(CompletionTable::List(vec![
-            "find-file".into(),
-            "find-file-other-window".into(),
-            "find-tag".into(),
-            "forward-char".into(),
+            ls("find-file"),
+            ls("find-file-other-window"),
+            ls("find-tag"),
+            ls("forward-char"),
         ]));
     }
     let state = mgr.current().unwrap();
     let result = mgr.try_complete(state);
     assert_eq!(result.matches.len(), 3); // find-file, find-file-other-window, find-tag
-    assert_eq!(result.common_prefix, Some("find-".to_string()));
+    assert_eq!(result.common_prefix, Some(ls("find-")));
     mgr.exit_minibuffer();
 }
 
@@ -500,28 +490,28 @@ fn try_complete_with_table() {
 fn test_completion_exact_match() {
     crate::test_utils::init_test_tracing();
     let mgr = MinibufferManager::new();
-    let table = CompletionTable::List(vec!["apple".into(), "banana".into(), "cherry".into()]);
-    assert!(mgr.test_completion("apple", &table));
-    assert!(mgr.test_completion("banana", &table));
-    assert!(!mgr.test_completion("app", &table));
-    assert!(!mgr.test_completion("APPLE", &table));
+    let table = CompletionTable::List(vec![ls("apple"), ls("banana"), ls("cherry")]);
+    assert!(mgr.test_completion(&ls("apple"), &table));
+    assert!(mgr.test_completion(&ls("banana"), &table));
+    assert!(!mgr.test_completion(&ls("app"), &table));
+    assert!(!mgr.test_completion(&ls("APPLE"), &table));
 }
 
 #[test]
 fn try_completion_string_result() {
     crate::test_utils::init_test_tracing();
     let mgr = MinibufferManager::new();
-    let table = CompletionTable::List(vec!["application".into(), "apple".into(), "apply".into()]);
-    let result = mgr.try_completion_string("app", &table);
-    assert_eq!(result, Some("appl".to_string()));
+    let table = CompletionTable::List(vec![ls("application"), ls("apple"), ls("apply")]);
+    let result = mgr.try_completion_string(&ls("app"), &table);
+    assert_eq!(result, Some(ls("appl")));
 }
 
 #[test]
 fn all_completions_empty() {
     crate::test_utils::init_test_tracing();
     let mgr = MinibufferManager::new();
-    let table = CompletionTable::List(vec!["foo".into(), "bar".into()]);
-    let result = mgr.all_completions("zzz", &table);
+    let table = CompletionTable::List(vec![ls("foo"), ls("bar")]);
+    let result = mgr.all_completions(&ls("zzz"), &table);
     assert!(result.is_empty());
 }
 
@@ -532,12 +522,8 @@ fn completion_style_substring() {
     crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();
     mgr.set_completion_style(CompletionStyle::Substring);
-    let table = CompletionTable::List(vec![
-        "find-file".into(),
-        "describe-file".into(),
-        "file-name".into(),
-    ]);
-    let result = mgr.all_completions("file", &table);
+    let table = CompletionTable::List(vec![ls("find-file"), ls("describe-file"), ls("file-name")]);
+    let result = mgr.all_completions(&ls("file"), &table);
     assert_eq!(result.len(), 3); // All contain "file"
 }
 
@@ -546,17 +532,13 @@ fn completion_style_flex() {
     crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();
     mgr.set_completion_style(CompletionStyle::Flex);
-    let table = CompletionTable::List(vec![
-        "find-file".into(),
-        "forward-char".into(),
-        "flycheck".into(),
-    ]);
+    let table = CompletionTable::List(vec![ls("find-file"), ls("forward-char"), ls("flycheck")]);
     // "ff" should flex-match "find-file" and "flycheck" (f...f? no, flycheck has no second f)
     // Actually: "find-file" has f...f, "flycheck" has f but only one f total.
-    let result = mgr.all_completions("ff", &table);
-    assert!(result.contains(&"find-file".to_string()));
+    let result = mgr.all_completions(&ls("ff"), &table);
+    assert!(result.contains(&ls("find-file")));
     // "flycheck" has only one 'f', so "ff" won't match it.
-    assert!(!result.contains(&"flycheck".to_string()));
+    assert!(!result.contains(&ls("flycheck")));
 }
 
 #[test]
@@ -564,11 +546,11 @@ fn completion_style_basic_case_sensitive() {
     crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();
     mgr.set_completion_style(CompletionStyle::Basic);
-    let table = CompletionTable::List(vec!["Apple".into(), "apple".into(), "application".into()]);
-    let result = mgr.all_completions("app", &table);
+    let table = CompletionTable::List(vec![ls("Apple"), ls("apple"), ls("application")]);
+    let result = mgr.all_completions(&ls("app"), &table);
     assert_eq!(result.len(), 2);
-    assert!(result.contains(&"apple".to_string()));
-    assert!(result.contains(&"application".to_string()));
+    assert!(result.contains(&ls("apple")));
+    assert!(result.contains(&ls("application")));
 }
 
 // -- Alist completion table -----------------------------------------------
@@ -578,11 +560,11 @@ fn alist_completion() {
     crate::test_utils::init_test_tracing();
     let mgr = MinibufferManager::new();
     let table = CompletionTable::Alist(vec![
-        ("alpha".into(), Value::fixnum(1)),
-        ("beta".into(), Value::fixnum(2)),
-        ("alphabetical".into(), Value::fixnum(3)),
+        (ls("alpha"), Value::fixnum(1)),
+        (ls("beta"), Value::fixnum(2)),
+        (ls("alphabetical"), Value::fixnum(3)),
     ]);
-    let result = mgr.all_completions("alph", &table);
+    let result = mgr.all_completions(&ls("alph"), &table);
     assert_eq!(result.len(), 2);
 }
 

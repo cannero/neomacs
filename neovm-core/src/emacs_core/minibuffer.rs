@@ -120,17 +120,17 @@ fn normalize_buffer_reader_default(buffers: &BufferManager, default: Value) -> V
 /// What can be completed against.
 pub enum CompletionTable {
     /// Fixed list of completion candidates.
-    List(Vec<String>),
+    List(Vec<LispString>),
     /// Dynamic completion function: given the current input, returns matching candidates.
-    Function(Box<dyn Fn(&str) -> Vec<String>>),
+    Function(Box<dyn Fn(&LispString) -> Vec<LispString>>),
     /// File name completion rooted at a directory.
-    FileNames { directory: String },
+    FileNames { directory: LispString },
     /// Buffer name completion (candidates supplied externally).
     BufferNames,
     /// Symbol name completion (candidates supplied externally).
     SymbolNames,
     /// Association list: each entry is (key, value).
-    Alist(Vec<(String, Value)>),
+    Alist(Vec<(LispString, Value)>),
 }
 
 impl CompletionTable {
@@ -138,7 +138,7 @@ impl CompletionTable {
     ///
     /// For `Function` tables the `input` is passed through; for static tables it
     /// is ignored (filtering happens later in the matching functions).
-    fn candidates(&self, input: &str) -> Vec<String> {
+    fn candidates(&self, input: &LispString) -> Vec<LispString> {
         match self {
             CompletionTable::List(v) => v.clone(),
             CompletionTable::Function(f) => f(input),
@@ -151,11 +151,14 @@ impl CompletionTable {
 }
 
 /// Best-effort listing of file names in `dir`.  Returns an empty vec on I/O error.
-fn list_files_in_dir(dir: &str) -> Vec<String> {
+fn list_files_in_dir(dir: &LispString) -> Vec<LispString> {
+    let Some(dir) = dir.as_str() else {
+        return Vec::new();
+    };
     match std::fs::read_dir(dir) {
         Ok(entries) => entries
             .filter_map(|e| e.ok())
-            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .map(|e| LispString::from_utf8(&e.file_name().to_string_lossy()))
             .collect(),
         Err(_) => Vec::new(),
     }
@@ -185,9 +188,9 @@ pub enum CompletionStyle {
 /// Result of a completion attempt.
 pub struct CompletionResult {
     /// The candidates that matched.
-    pub matches: Vec<String>,
+    pub matches: Vec<LispString>,
     /// Longest common prefix of all matches (if any).
-    pub common_prefix: Option<String>,
+    pub common_prefix: Option<LispString>,
     /// Whether the match list is exhaustive (i.e. we know there are no more).
     pub exhaustive: bool,
 }
@@ -415,8 +418,7 @@ impl MinibufferManager {
     pub fn try_complete(&self, state: &MinibufferState) -> CompletionResult {
         match &state.completion_table {
             Some(table) => {
-                let input = super::builtins::runtime_string_from_lisp_string(&state.content);
-                let matches = self.all_completions(&input, table);
+                let matches = self.all_completions(&state.content, table);
                 let common = compute_common_prefix(&matches);
                 let exhaustive = !matches!(table, CompletionTable::Function(_));
                 CompletionResult {
@@ -434,7 +436,7 @@ impl MinibufferManager {
     }
 
     /// Return all completions of `prefix` against `table`.
-    pub fn all_completions(&self, prefix: &str, table: &CompletionTable) -> Vec<String> {
+    pub fn all_completions(&self, prefix: &LispString, table: &CompletionTable) -> Vec<LispString> {
         let candidates = table.candidates(prefix);
         match self.completion_style {
             CompletionStyle::Prefix => prefix_match(prefix, &candidates),
@@ -446,29 +448,32 @@ impl MinibufferManager {
 
     /// Try to complete `prefix` to the longest common prefix of all matches.
     /// Returns `None` if there are no matches.
-    pub fn try_completion_string(&self, prefix: &str, table: &CompletionTable) -> Option<String> {
+    pub fn try_completion_string(
+        &self,
+        prefix: &LispString,
+        table: &CompletionTable,
+    ) -> Option<LispString> {
         let matches = self.all_completions(prefix, table);
         compute_common_prefix(&matches)
     }
 
     /// Test whether `string` is an exact match in `table`.
-    pub fn test_completion(&self, string: &str, table: &CompletionTable) -> bool {
+    pub fn test_completion(&self, string: &LispString, table: &CompletionTable) -> bool {
         let candidates = table.candidates(string);
-        candidates.iter().any(|c| c == string)
+        candidates.iter().any(|candidate| candidate == string)
     }
 
     /// Exit the current minibuffer, returning its content (or the default if empty).
-    pub fn exit_minibuffer(&mut self) -> Option<String> {
+    pub fn exit_minibuffer(&mut self) -> Option<LispString> {
         if let Some(mut state) = self.state_stack.pop() {
             state.active = false;
             let result = if state.content.is_empty() {
                 state
                     .default_value
-                    .as_ref()
-                    .map(super::builtins::runtime_string_from_lisp_string)
-                    .unwrap_or_default()
+                    .clone()
+                    .unwrap_or_else(|| LispString::from_utf8(""))
             } else {
-                super::builtins::runtime_string_from_lisp_string(&state.content)
+                state.content.clone()
             };
             Some(result)
         } else {
@@ -484,7 +489,7 @@ impl MinibufferManager {
     }
 
     /// Navigate to the previous (older) history entry.
-    pub fn history_previous(&mut self) -> Option<String> {
+    pub fn history_previous(&mut self) -> Option<LispString> {
         let state = self.state_stack.last_mut()?;
         let history = &state.history;
         if history.is_empty() {
@@ -502,15 +507,13 @@ impl MinibufferManager {
         };
         state.history_position = Some(new_pos);
         let entry = history[new_pos].clone();
-        state.content = entry;
+        state.content = entry.clone();
         state.cursor_pos = state.content.byte_len();
-        Some(super::builtins::runtime_string_from_lisp_string(
-            &state.content,
-        ))
+        Some(entry)
     }
 
     /// Navigate to the next (newer) history entry.
-    pub fn history_next(&mut self) -> Option<String> {
+    pub fn history_next(&mut self) -> Option<LispString> {
         let state = self.state_stack.last_mut()?;
         match state.history_position {
             None => None,
@@ -519,18 +522,14 @@ impl MinibufferManager {
                 state.history_position = None;
                 state.content = state.initial_input.clone();
                 state.cursor_pos = state.content.byte_len();
-                Some(super::builtins::runtime_string_from_lisp_string(
-                    &state.content,
-                ))
+                Some(state.content.clone())
             }
             Some(p) => {
                 let new_pos = p - 1;
                 state.history_position = Some(new_pos);
                 state.content = state.history[new_pos].clone();
                 state.cursor_pos = state.content.byte_len();
-                Some(super::builtins::runtime_string_from_lisp_string(
-                    &state.content,
-                ))
+                Some(state.content.clone())
             }
         }
     }
@@ -540,11 +539,11 @@ impl MinibufferManager {
     /// `max_length` controls how many entries to keep.  Callers should read
     /// the `history-length` symbol from the obarray (default 100).
     pub fn add_to_history(&mut self, name: SymId, value: &str, max_length: usize) {
-        self.history.add(
-            name,
-            crate::emacs_core::builtins::runtime_string_to_lisp_string(value, true),
-            max_length,
-        );
+        self.add_to_history_lisp(name, LispString::from_utf8(value), max_length);
+    }
+
+    pub fn add_to_history_lisp(&mut self, name: SymId, value: LispString, max_length: usize) {
+        self.history.add(name, value, max_length);
     }
 
     /// Read the effective `history-length` from the obarray, defaulting to 100.
@@ -603,79 +602,131 @@ impl Default for MinibufferManager {
 // ---------------------------------------------------------------------------
 
 /// Case-insensitive prefix matching.
-fn prefix_match(input: &str, candidates: &[String]) -> Vec<String> {
-    let lower_input = input.to_lowercase();
+fn prefix_match(input: &LispString, candidates: &[LispString]) -> Vec<LispString> {
     candidates
         .iter()
-        .filter(|c| c.to_lowercase().starts_with(&lower_input))
+        .filter(|candidate| lisp_string_matches_prefix(input, candidate, true))
         .cloned()
         .collect()
 }
 
 /// Substring matching (case-insensitive).
-fn substring_match(input: &str, candidates: &[String]) -> Vec<String> {
-    let lower_input = input.to_lowercase();
+fn substring_match(input: &LispString, candidates: &[LispString]) -> Vec<LispString> {
     candidates
         .iter()
-        .filter(|c| c.to_lowercase().contains(&lower_input))
+        .filter(|candidate| lisp_string_matches_substring(input, candidate, true))
         .cloned()
         .collect()
 }
 
 /// Flex (fuzzy) matching: the input characters must appear in order within the candidate.
-fn flex_match(input: &str, candidates: &[String]) -> Vec<String> {
+fn flex_match(input: &LispString, candidates: &[LispString]) -> Vec<LispString> {
     candidates
         .iter()
-        .filter(|c| is_flex_match(input, c))
+        .filter(|candidate| is_flex_match(input, candidate))
         .cloned()
         .collect()
 }
 
 /// Check if all characters in `input` appear in order in `candidate` (case-insensitive).
-fn is_flex_match(input: &str, candidate: &str) -> bool {
-    let mut chars = candidate.chars().flat_map(|c| c.to_lowercase());
-    for ic in input.chars().flat_map(|c| c.to_lowercase()) {
-        loop {
-            match chars.next() {
-                Some(cc) if cc == ic => break,
-                Some(_) => continue,
-                None => return false,
-            }
+fn is_flex_match(input: &LispString, candidate: &LispString) -> bool {
+    let input_codes = completion_char_codes(input);
+    let candidate_codes = completion_char_codes(candidate);
+    let mut cursor = 0usize;
+    for code in input_codes {
+        let folded = completion_fold_char(code, true);
+        while cursor < candidate_codes.len()
+            && completion_fold_char(candidate_codes[cursor], true) != folded
+        {
+            cursor += 1;
         }
+        if cursor == candidate_codes.len() {
+            return false;
+        }
+        cursor += 1;
     }
     true
 }
 
 /// Exact (case-sensitive) prefix matching.
-fn basic_match(input: &str, candidates: &[String]) -> Vec<String> {
+fn basic_match(input: &LispString, candidates: &[LispString]) -> Vec<LispString> {
     candidates
         .iter()
-        .filter(|c| c.starts_with(input))
+        .filter(|candidate| lisp_string_matches_prefix(input, candidate, false))
         .cloned()
         .collect()
 }
 
+fn lisp_string_prefix_chars(string: &LispString, chars: usize) -> LispString {
+    let end_byte = if string.is_multibyte() {
+        crate::emacs_core::emacs_char::char_to_byte_pos(string.as_bytes(), chars)
+    } else {
+        chars.min(string.byte_len())
+    };
+    string
+        .slice(0, end_byte)
+        .unwrap_or_else(|| LispString::from_utf8(""))
+}
+
+fn lisp_string_matches_prefix(
+    input: &LispString,
+    candidate: &LispString,
+    ignore_case: bool,
+) -> bool {
+    let input_codes = completion_char_codes(input);
+    let candidate_codes = completion_char_codes(candidate);
+    if input_codes.len() > candidate_codes.len() {
+        return false;
+    }
+    input_codes
+        .iter()
+        .zip(candidate_codes.iter())
+        .all(|(left, right)| {
+            completion_fold_char(*left, ignore_case) == completion_fold_char(*right, ignore_case)
+        })
+}
+
+fn lisp_string_matches_substring(
+    input: &LispString,
+    candidate: &LispString,
+    ignore_case: bool,
+) -> bool {
+    let needle = completion_char_codes(input);
+    let haystack = completion_char_codes(candidate);
+    if needle.is_empty() {
+        return true;
+    }
+    if needle.len() > haystack.len() {
+        return false;
+    }
+    haystack.windows(needle.len()).any(|window| {
+        window.iter().zip(needle.iter()).all(|(left, right)| {
+            completion_fold_char(*left, ignore_case) == completion_fold_char(*right, ignore_case)
+        })
+    })
+}
+
 /// Compute the longest common prefix of a set of strings.
 /// Returns `None` if the set is empty.
-fn compute_common_prefix(strings: &[String]) -> Option<String> {
+fn compute_common_prefix(strings: &[LispString]) -> Option<LispString> {
     if strings.is_empty() {
         return None;
     }
     let first = &strings[0];
-    let mut prefix_len = first.len();
-    for s in &strings[1..] {
-        prefix_len = first
-            .chars()
-            .zip(s.chars())
-            .take(prefix_len)
-            .take_while(|(a, b)| a == b)
-            .count();
-        if prefix_len == 0 {
-            return Some(String::new());
+    let mut prefix = completion_char_codes(first);
+    for string in &strings[1..] {
+        let other = completion_char_codes(string);
+        let max = prefix.len().min(other.len());
+        let mut common = 0;
+        while common < max && prefix[common] == other[common] {
+            common += 1;
+        }
+        prefix.truncate(common);
+        if prefix.is_empty() {
+            return Some(LispString::from_utf8(""));
         }
     }
-    // `prefix_len` is in *chars*; collect the first `prefix_len` chars.
-    Some(first.chars().take(prefix_len).collect())
+    Some(lisp_string_prefix_chars(first, prefix.len()))
 }
 
 // ---------------------------------------------------------------------------
