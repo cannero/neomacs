@@ -81,6 +81,8 @@ pub struct Process {
     pub filter: Value,
     /// Process sentinel callback (or default marker symbol).
     pub sentinel: Value,
+    /// Server process log callback.
+    pub log: Value,
     /// Process plist state.
     pub plist: Value,
     /// Current decoding coding-system.
@@ -347,6 +349,7 @@ impl ProcessManager {
             query_on_exit_flag: true,
             filter: Value::symbol(DEFAULT_PROCESS_FILTER_SYMBOL),
             sentinel: Value::symbol(DEFAULT_PROCESS_SENTINEL_SYMBOL),
+            log: Value::NIL,
             plist: Value::NIL,
             coding_decode: Value::symbol("utf-8-unix"),
             coding_encode: Value::symbol("utf-8-unix"),
@@ -3597,6 +3600,7 @@ pub(crate) fn builtin_make_network_process(
     let mut _nowait = false;
     let mut filter_val = Value::NIL;
     let mut sentinel_val = Value::NIL;
+    let mut log_val = Value::NIL;
     let mut buffer_val = Value::NIL;
     let mut _coding_val = Value::NIL;
     let mut noquery = false;
@@ -3631,6 +3635,7 @@ pub(crate) fn builtin_make_network_process(
             ":nowait" => _nowait = value.is_truthy(),
             ":filter" => filter_val = value,
             ":sentinel" => sentinel_val = value,
+            ":log" => log_val = value,
             ":buffer" => buffer_val = value,
             ":coding" => _coding_val = value,
             ":noquery" => noquery = value.is_truthy(),
@@ -3700,6 +3705,11 @@ pub(crate) fn builtin_make_network_process(
                     Value::keyword(":sentinel"),
                     proc.sentinel,
                 )?;
+            }
+            if !log_val.is_nil() {
+                proc.log = log_val;
+                proc.childp =
+                    process_contact_plist_put(proc.childp, Value::keyword(":log"), proc.log)?;
             }
             if !buffer.is_nil() {
                 proc.childp =
@@ -6339,6 +6349,7 @@ impl GcTrace for ProcessManager {
             roots.push(process.tty_name);
             roots.push(process.filter);
             roots.push(process.sentinel);
+            roots.push(process.log);
             roots.push(process.plist);
             roots.push(process.coding_decode);
             roots.push(process.coding_encode);

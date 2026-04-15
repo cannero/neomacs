@@ -339,6 +339,41 @@ fn connection_process_mutators_keep_childp_plist_in_sync() {
 }
 
 #[test]
+fn make_network_process_server_stores_log_as_lisp_value() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let process = builtin_make_network_process(
+        &mut eval,
+        vec![
+            Value::keyword(":name"),
+            Value::string("neo-log-server"),
+            Value::keyword(":server"),
+            Value::T,
+            Value::keyword(":service"),
+            Value::fixnum(0),
+            Value::keyword(":log"),
+            Value::symbol("ignore"),
+        ],
+    )
+    .expect("make-network-process");
+    let id = match process.kind() {
+        ValueKind::Fixnum(id) => id as u64,
+        other => panic!("expected process id fixnum, got {other:?}"),
+    };
+
+    let stored = eval.processes.get(id).expect("server process");
+    assert_eq!(stored.log, Value::symbol("ignore"));
+
+    let contact =
+        builtin_process_contact_impl(&eval.processes, vec![Value::fixnum(id as i64), Value::T])
+            .expect("process-contact t");
+    assert_eq!(
+        builtins::builtin_plist_get(vec![contact, Value::keyword(":log")]).expect("plist-get :log"),
+        Value::symbol("ignore")
+    );
+}
+
+#[test]
 fn process_buffer_storage_uses_buffer_objects() {
     crate::test_utils::init_test_tracing();
     let mut buffers = crate::buffer::BufferManager::new();
@@ -1417,13 +1452,14 @@ fn process_contact_keyword_matrix_for_network_and_pipe() {
     crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(list
-            (let ((p (make-network-process :name "neo-contact-key-net" :server t :service 0)))
+            (let ((p (make-network-process :name "neo-contact-key-net" :server t :service 0 :log 'ignore)))
               (unwind-protect
                   (let ((port (process-contact p :service))
                         (local (process-contact p :local)))
                     (list
                      (stringp (process-contact p :name))
                      (eq (process-contact p :server) t)
+                     (eq (process-contact p :log) 'ignore)
                      (integerp port)
                      (and (vectorp local)
                           (= (length local) 5)
@@ -1445,7 +1481,7 @@ fn process_contact_keyword_matrix_for_network_and_pipe() {
                    (null (process-contact p :foo)))
                 (ignore-errors (delete-process p)))))"#,
     );
-    assert_eq!(result, "OK ((t t t t t t t) (t t t t t t t))");
+    assert_eq!(result, "OK ((t t t t t t t t) (t t t t t t t))");
 }
 
 #[test]
