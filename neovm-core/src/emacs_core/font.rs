@@ -808,16 +808,35 @@ fn xlfd_fields_from_font_vector(
 
 /// Set (or add) a property in a font-spec in place.
 fn font_spec_put(vec_elems: &mut Vec<Value>, prop: &Value, val: &Value) {
+    let normalized = normalize_font_prop_value(prop, val);
     let mut i = 1;
     while i + 1 < vec_elems.len() {
         if vec_elems[i] == *prop {
-            vec_elems[i + 1] = *val;
+            vec_elems[i + 1] = normalized;
             return;
         }
         i += 2;
     }
     vec_elems.push(*prop);
-    vec_elems.push(*val);
+    vec_elems.push(normalized);
+}
+
+fn normalize_font_prop_value(prop: &Value, val: &Value) -> Value {
+    let key = match prop.kind() {
+        ValueKind::Symbol(id) => resolve_sym(id).trim_start_matches(':'),
+        _ => return *val,
+    };
+
+    match key {
+        "family" | "foundry" | "registry" | "lang" | "adstyle" => match val.kind() {
+            ValueKind::String => font_string_text(val)
+                .map(|text| Value::from_sym_id(intern(&text)))
+                .unwrap_or(*val),
+            ValueKind::Symbol(_) | ValueKind::Nil => *val,
+            _ => *val,
+        },
+        _ => *val,
+    }
 }
 
 // ===========================================================================
@@ -898,7 +917,7 @@ pub(crate) fn builtin_font_spec(args: Vec<Value>) -> EvalResult {
         }
 
         elems.push(*key);
-        elems.push(*value);
+        elems.push(normalize_font_prop_value(key, value));
     }
 
     Ok(Value::vector(elems))
@@ -952,7 +971,7 @@ pub(crate) fn builtin_font_put(args: Vec<Value>) -> EvalResult {
             let mut elems = args[0].as_vector_data().cloned().unwrap_or_default();
             font_spec_put(&mut elems, &args[1], &args[2]);
             let _ = args[0].replace_vector_data(elems);
-            Ok(args[2])
+            Ok(normalize_font_prop_value(&args[1], &args[2]))
         }
         _ => unreachable!("font-spec check above guarantees vector"),
     }
@@ -1481,10 +1500,20 @@ fn build_font_object(face: &RuntimeFace) -> Value {
         elems.push(value);
     };
 
-    if let Some(foundry) = face.foundry.filter(|value| value.is_string()) {
+    if let Some(foundry) = face
+        .foundry
+        .as_ref()
+        .and_then(font_value_text)
+        .map(|text| Value::from_sym_id(intern(&text)))
+    {
         push_field("foundry", foundry);
     }
-    if let Some(family) = face.family.filter(|value| value.is_string()) {
+    if let Some(family) = face
+        .family
+        .as_ref()
+        .and_then(font_value_text)
+        .map(|text| Value::from_sym_id(intern(&text)))
+    {
         push_field("family", family);
     }
     if let Some(weight) = face.weight {
@@ -1521,9 +1550,9 @@ fn build_font_entity_for_spec_match(matched: &super::eval::ResolvedFontSpecMatch
         elems.push(value);
     };
 
-    push_field("family", Value::string(matched.family.clone()));
+    push_field("family", Value::from_sym_id(intern(&matched.family)));
     if let Some(registry) = &matched.registry {
-        push_field("registry", Value::string(registry.clone()));
+        push_field("registry", Value::from_sym_id(intern(registry)));
     }
     if let Some(weight) = matched.weight {
         push_field("weight", Value::symbol(font_weight_symbol(weight)));
@@ -1549,8 +1578,12 @@ fn build_font_object_for_match(
     matched: &super::eval::ResolvedFontMatch,
 ) -> Value {
     let mut selected = face.clone();
-    selected.family = Some(Value::string(matched.family.clone()));
-    selected.foundry = matched.foundry.clone().map(Value::string).or(face.foundry);
+    selected.family = Some(Value::from_sym_id(intern(&matched.family)));
+    selected.foundry = matched
+        .foundry
+        .as_ref()
+        .map(|foundry| Value::from_sym_id(intern(foundry)))
+        .or(face.foundry);
     selected.weight = Some(matched.weight);
     selected.slant = Some(matched.slant);
     selected.width = Some(matched.width);

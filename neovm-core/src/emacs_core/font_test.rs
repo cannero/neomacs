@@ -223,13 +223,13 @@ fn find_font_eval_requests_exact_registry_match_from_display_host() {
     assert_eq!(
         builtin_font_get(vec![font, Value::keyword("family")])
             .unwrap()
-            .as_str(),
+            .as_symbol_name(),
         Some("Noto Sans Mono CJK SC")
     );
     assert_eq!(
         builtin_font_get(vec![font, Value::keyword("registry")])
             .unwrap()
-            .as_str(),
+            .as_symbol_name(),
         Some("iso10646-1")
     );
     assert!(
@@ -294,7 +294,7 @@ fn font_get_and_put() {
 
     // Get existing property.
     let family = builtin_font_get(vec![spec, Value::keyword("family")]).unwrap();
-    assert_eq!(family.as_str(), Some("Monospace"));
+    assert_eq!(family.as_symbol_name(), Some("Monospace"));
 
     // Get missing property.
     let missing = builtin_font_get(vec![spec, Value::keyword("size")]).unwrap();
@@ -309,9 +309,9 @@ fn font_get_and_put() {
     // Overwrite existing property.
     let put_family =
         builtin_font_put(vec![spec, Value::keyword("family"), Value::string("Serif")]).unwrap();
-    assert_eq!(put_family.as_str(), Some("Serif"));
+    assert_eq!(put_family.as_symbol_name(), Some("Serif"));
     let family2 = builtin_font_get(vec![spec, Value::keyword("family")]).unwrap();
-    assert_eq!(family2.as_str(), Some("Serif"));
+    assert_eq!(family2.as_symbol_name(), Some("Serif"));
 }
 
 #[test]
@@ -636,7 +636,7 @@ fn font_at_eval_returns_font_object_for_multibyte_buffer_face() {
     assert_eq!(
         builtin_font_get(vec![font, Value::keyword("family")])
             .unwrap()
-            .as_str(),
+            .as_symbol_name(),
         Some("Serif")
     );
 }
@@ -674,7 +674,7 @@ fn font_at_eval_returns_font_object_for_multibyte_string_face() {
     assert_eq!(
         builtin_font_get(vec![font, Value::keyword("family")])
             .unwrap()
-            .as_str(),
+            .as_symbol_name(),
         Some("Serif")
     );
 }
@@ -708,7 +708,7 @@ fn font_at_eval_preserves_raw_unibyte_string_face() {
     assert_eq!(
         builtin_font_get(vec![font, Value::keyword("family")])
             .unwrap()
-            .as_str(),
+            .as_symbol_name(),
         Some("Serif")
     );
 }
@@ -747,7 +747,7 @@ fn font_at_eval_reads_source_style_inline_face_keywords() {
     assert_eq!(
         builtin_font_get(vec![font, Value::keyword("family")])
             .unwrap()
-            .as_str(),
+            .as_symbol_name(),
         Some("JetBrains Mono")
     );
     // After the specbind refactor, font-get :height returns the raw
@@ -849,7 +849,7 @@ fn font_at_eval_prefers_backend_selected_font_match_when_available() {
     assert_eq!(
         builtin_font_get(vec![font, Value::keyword("family")])
             .unwrap()
-            .as_str(),
+            .as_symbol_name(),
         Some("Noto Sans Mono CJK SC")
     );
 }
