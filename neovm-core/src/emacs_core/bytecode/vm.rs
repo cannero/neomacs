@@ -65,17 +65,15 @@ impl<'a> crate::emacs_core::hook_runtime::HookRuntime for Vm<'a> {
         self.call_function_with_roots(function, args)
     }
 
-    fn with_hook_roots<T>(
+    fn with_hook_root_scope<T>(
         &mut self,
-        roots: &[Value],
         f: impl FnOnce(&mut Self) -> Result<T, Flow>,
     ) -> Result<T, Flow> {
-        self.with_dynamic_vm_roots(|vm| {
-            for root in roots.iter().copied() {
-                vm.push_dynamic_vm_root(root);
-            }
-            f(vm)
-        })
+        self.with_dynamic_vm_roots(|vm| f(vm))
+    }
+
+    fn push_hook_root(&mut self, value: Value) {
+        self.push_dynamic_vm_root(value);
     }
 }
 

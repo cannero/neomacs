@@ -9,11 +9,11 @@ use crate::emacs_core::value::ValueKind;
 pub(crate) trait HookRuntime {
     fn hook_context(&self) -> &Context;
     fn call_hook_callable(&mut self, function: Value, args: &[Value]) -> EvalResult;
-    fn with_hook_roots<T>(
+    fn with_hook_root_scope<T>(
         &mut self,
-        roots: &[Value],
         f: impl FnOnce(&mut Self) -> Result<T, Flow>,
     ) -> Result<T, Flow>;
+    fn push_hook_root(&mut self, value: Value);
 }
 
 impl HookRuntime for Context {
@@ -25,17 +25,15 @@ impl HookRuntime for Context {
         self.apply(function, args.to_vec())
     }
 
-    fn with_hook_roots<T>(
+    fn with_hook_root_scope<T>(
         &mut self,
-        roots: &[Value],
         f: impl FnOnce(&mut Self) -> Result<T, Flow>,
     ) -> Result<T, Flow> {
-        self.with_gc_scope_result(|ctx| {
-            for root in roots {
-                ctx.root(*root);
-            }
-            f(ctx)
-        })
+        self.with_gc_scope_result(|ctx| f(ctx))
+    }
+
+    fn push_hook_root(&mut self, value: Value) {
+        self.root(value);
     }
 }
 
@@ -118,9 +116,13 @@ pub(crate) fn run_hook_value<R: HookRuntime>(
         hook_value,
         inherit_global,
     );
-    let mut roots = funcs.clone();
-    roots.extend_from_slice(hook_args);
-    runtime.with_hook_roots(&roots, |runtime| {
+    runtime.with_hook_root_scope(|runtime| {
+        for func in funcs.iter().copied() {
+            runtime.push_hook_root(func);
+        }
+        for arg in hook_args.iter().copied() {
+            runtime.push_hook_root(arg);
+        }
         for func in funcs {
             let _ = runtime.call_hook_callable(func, hook_args)?;
         }
@@ -178,9 +180,13 @@ pub(crate) fn run_hook_value_until_success<R: HookRuntime>(
         hook_value,
         inherit_global,
     );
-    let mut roots = funcs.clone();
-    roots.extend_from_slice(hook_args);
-    runtime.with_hook_roots(&roots, |runtime| {
+    runtime.with_hook_root_scope(|runtime| {
+        for func in funcs.iter().copied() {
+            runtime.push_hook_root(func);
+        }
+        for arg in hook_args.iter().copied() {
+            runtime.push_hook_root(arg);
+        }
         for func in funcs {
             let value = runtime.call_hook_callable(func, hook_args)?;
             if value.is_truthy() {
@@ -204,9 +210,13 @@ pub(crate) fn run_hook_value_until_failure<R: HookRuntime>(
         hook_value,
         inherit_global,
     );
-    let mut roots = funcs.clone();
-    roots.extend_from_slice(hook_args);
-    runtime.with_hook_roots(&roots, |runtime| {
+    runtime.with_hook_root_scope(|runtime| {
+        for func in funcs.iter().copied() {
+            runtime.push_hook_root(func);
+        }
+        for arg in hook_args.iter().copied() {
+            runtime.push_hook_root(arg);
+        }
         for func in funcs {
             let value = runtime.call_hook_callable(func, hook_args)?;
             if value.is_nil() {
@@ -231,10 +241,14 @@ pub(crate) fn run_hook_value_wrapped<R: HookRuntime>(
         hook_value,
         inherit_global,
     );
-    let mut roots = funcs.clone();
-    roots.push(wrapper);
-    roots.extend_from_slice(wrapped_args);
-    runtime.with_hook_roots(&roots, |runtime| {
+    runtime.with_hook_root_scope(|runtime| {
+        for func in funcs.iter().copied() {
+            runtime.push_hook_root(func);
+        }
+        runtime.push_hook_root(wrapper);
+        for arg in wrapped_args.iter().copied() {
+            runtime.push_hook_root(arg);
+        }
         for func in funcs {
             let mut call_args = Vec::with_capacity(wrapped_args.len() + 1);
             call_args.push(func);
