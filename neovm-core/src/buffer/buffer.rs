@@ -1452,10 +1452,11 @@ impl Buffer {
     // -- Construction --------------------------------------------------------
 
     /// Create a new, empty buffer.
-    pub fn new(id: BufferId, name: String) -> Self {
+    pub fn new(id: BufferId, name: Value) -> Self {
+        assert!(name.is_string(), "buffer name must be a Lisp string");
         Self {
             id,
-            name: Value::string(name),
+            name,
             base_buffer: None,
             text: BufferText::new(),
             pt: 0,
@@ -2658,7 +2659,7 @@ impl BufferManager {
     ) -> BufferId {
         let id = BufferId(self.next_id);
         self.next_id += 1;
-        let mut buf = Buffer::new(id, name.to_string());
+        let mut buf = Buffer::new(id, Value::string(name));
         // Phase 10D: seed every conditional slot from
         // `BufferManager::buffer_defaults` so a buffer created
         // *after* a `setq-default`/`set-default` observes the live
@@ -2722,10 +2723,10 @@ impl BufferManager {
         let mut indirect = if clone {
             let mut cloned = root.clone();
             cloned.id = id;
-            cloned.set_name_runtime_string(name);
+            cloned.set_name_value(Value::string(name));
             cloned
         } else {
-            let mut fresh = Buffer::new(id, name.to_string());
+            let mut fresh = Buffer::new(id, Value::string(name));
             if let Some(default_directory) = self
                 .current
                 .and_then(|current| self.buffers.get(&current))
@@ -3389,8 +3390,8 @@ impl BufferManager {
         Some(())
     }
 
-    pub fn set_buffer_name(&mut self, id: BufferId, name: String) -> Option<()> {
-        self.buffers.get_mut(&id)?.set_name_runtime_string(name);
+    pub fn set_buffer_name(&mut self, id: BufferId, name: Value) -> Option<()> {
+        self.buffers.get_mut(&id)?.set_name_value(name);
         Some(())
     }
 
@@ -3998,7 +3999,7 @@ mod tests {
     // Helper: create a buffer with some text and correct zv.
     // -----------------------------------------------------------------------
     fn buf_with_text(text: &str) -> Buffer {
-        let mut buf = Buffer::new(BufferId(1), "test".into());
+        let mut buf = Buffer::new(BufferId(1), Value::string("test"));
         buf.text = BufferText::from_str(text);
         buf.widen();
         buf
@@ -4011,7 +4012,7 @@ mod tests {
     #[test]
     fn new_buffer_is_empty() {
         crate::test_utils::init_test_tracing();
-        let buf = Buffer::new(BufferId(1), "*scratch*".into());
+        let buf = Buffer::new(BufferId(1), Value::string("*scratch*"));
         assert_eq!(buf.name_value(), Value::string("*scratch*"));
         assert_eq!(buf.point(), 0);
         assert_eq!(buf.point_min(), 0);
@@ -4362,7 +4363,7 @@ mod tests {
     #[test]
     fn insert_at_point_advances_point() {
         crate::test_utils::init_test_tracing();
-        let mut buf = Buffer::new(BufferId(1), "test".into());
+        let mut buf = Buffer::new(BufferId(1), Value::string("test"));
         // zv starts at 0 for an empty buffer; insert should extend it.
         buf.insert("hello");
         assert_eq!(buf.point(), 5);
@@ -4659,7 +4660,7 @@ mod tests {
     #[test]
     fn buffer_local_get_set() {
         crate::test_utils::init_test_tracing();
-        let mut buf = Buffer::new(BufferId(1), "test".into());
+        let mut buf = Buffer::new(BufferId(1), Value::string("test"));
         assert!(buf.get_buffer_local("tab-width").is_none());
 
         buf.set_buffer_local("tab-width", Value::fixnum(4));
@@ -4674,7 +4675,7 @@ mod tests {
     #[test]
     fn buffer_local_multiple_vars() {
         crate::test_utils::init_test_tracing();
-        let mut buf = Buffer::new(BufferId(1), "test".into());
+        let mut buf = Buffer::new(BufferId(1), Value::string("test"));
         buf.set_buffer_local("fill-column", Value::fixnum(80));
         buf.set_buffer_local("major-mode", Value::symbol("text-mode"));
 
@@ -4686,7 +4687,7 @@ mod tests {
     #[test]
     fn buffer_local_defaults_include_builtin_per_buffer_vars() {
         crate::test_utils::init_test_tracing();
-        let buf = Buffer::new(BufferId(1), "test".into());
+        let buf = Buffer::new(BufferId(1), Value::string("test"));
 
         assert_eq!(
             buf.buffer_local_value("major-mode"),
@@ -4719,7 +4720,7 @@ mod tests {
     #[test]
     fn buffer_file_name_variable_tracks_slot_backed_state() {
         crate::test_utils::init_test_tracing();
-        let mut buf = Buffer::new(BufferId(1), "test".into());
+        let mut buf = Buffer::new(BufferId(1), Value::string("test"));
         assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::NIL));
 
         buf.set_buffer_local("buffer-file-name", Value::string("/tmp/demo.txt"));
@@ -4738,7 +4739,7 @@ mod tests {
     #[test]
     fn buffer_auto_save_file_name_variable_tracks_slot_backed_state() {
         crate::test_utils::init_test_tracing();
-        let mut buf = Buffer::new(BufferId(1), "test".into());
+        let mut buf = Buffer::new(BufferId(1), Value::string("test"));
         assert_eq!(
             buf.buffer_local_value("buffer-auto-save-file-name"),
             Some(Value::NIL)
@@ -4776,7 +4777,7 @@ mod tests {
     #[test]
     fn modified_flag() {
         crate::test_utils::init_test_tracing();
-        let mut buf = Buffer::new(BufferId(1), "test".into());
+        let mut buf = Buffer::new(BufferId(1), Value::string("test"));
         assert!(!buf.is_modified());
         buf.insert("x");
         assert!(buf.is_modified());
@@ -4787,7 +4788,7 @@ mod tests {
     #[test]
     fn modified_state_tracks_autosaved_semantics() {
         crate::test_utils::init_test_tracing();
-        let mut buf = Buffer::new(BufferId(1), "test".into());
+        let mut buf = Buffer::new(BufferId(1), Value::string("test"));
         assert_eq!(buf.modified_state_value(), Value::NIL);
         assert!(!buf.recent_auto_save_p());
         assert_eq!(buf.modified_tick(), 1);
@@ -4818,7 +4819,7 @@ mod tests {
     #[test]
     fn modification_ticks_track_content_changes() {
         crate::test_utils::init_test_tracing();
-        let mut buf = Buffer::new(BufferId(1), "test".into());
+        let mut buf = Buffer::new(BufferId(1), Value::string("test"));
         assert_eq!(buf.modified_tick(), 1);
         assert_eq!(buf.chars_modified_tick(), 1);
 
@@ -4840,7 +4841,7 @@ mod tests {
     #[test]
     fn chars_modified_tick_rejoins_modiff_after_non_char_modification() {
         crate::test_utils::init_test_tracing();
-        let mut buf = Buffer::new(BufferId(1), "test".into());
+        let mut buf = Buffer::new(BufferId(1), Value::string("test"));
         assert_eq!(buf.restore_modified_state(Value::T), Value::T);
         assert_eq!(buf.modified_tick(), 2);
         assert_eq!(buf.chars_modified_tick(), 1);
@@ -5145,7 +5146,7 @@ mod tests {
     #[test]
     fn integration_edit_narrow_widen() {
         crate::test_utils::init_test_tracing();
-        let mut buf = Buffer::new(BufferId(1), "work".into());
+        let mut buf = Buffer::new(BufferId(1), Value::string("work"));
         buf.insert("abcdefghij");
         assert_eq!(buf.buffer_string(), "abcdefghij");
 

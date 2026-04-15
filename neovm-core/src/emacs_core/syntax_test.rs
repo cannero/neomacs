@@ -5,7 +5,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 /// Helper: create a buffer with given text, point at start, full accessible range.
 fn buf_with_text(text: &str) -> Buffer {
-    let mut buf = Buffer::new(BufferId(99), "test-syntax".into());
+    let mut buf = Buffer::new(BufferId(99), Value::string("test-syntax"));
     buf.text = BufferText::from_str(text);
     buf.widen();
     buf.goto_byte(0);

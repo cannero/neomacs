@@ -1,5 +1,6 @@
 use super::*;
 use crate::buffer::{Buffer, BufferId};
+use crate::emacs_core::value::Value;
 use crate::heap_types::LispString;
 
 fn extract_heap_match_string(md: &MatchData, group: usize) -> Option<String> {
@@ -1315,7 +1316,7 @@ fn string_match_emacs_alternation() {
 // -----------------------------------------------------------------------
 
 fn make_test_buffer(text: &str) -> Buffer {
-    let mut buf = Buffer::new(BufferId(1), "test".to_string());
+    let mut buf = Buffer::new(BufferId(1), Value::string("test"));
     buf.insert(text);
     // Reset point to beginning
     buf.goto_byte(0);
@@ -1712,7 +1713,7 @@ fn replace_match_with_backref() {
 #[test]
 fn replace_match_buffer_preserves_unibyte_raw_bytes() {
     crate::test_utils::init_test_tracing();
-    let mut buf = Buffer::new(BufferId(1), "raw".to_string());
+    let mut buf = Buffer::new(BufferId(1), Value::string("raw"));
     buf.set_multibyte_value(false);
     buf.insert_lisp_string(&crate::heap_types::LispString::from_unibyte(vec![0xFF]));
     buf.goto_byte(0);

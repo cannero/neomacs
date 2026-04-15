@@ -1698,7 +1698,7 @@ pub(crate) fn builtin_rename_buffer(
         }
     };
 
-    let _ = buffers.set_buffer_name(current_id, new_name.clone());
+    let _ = buffers.set_buffer_name(current_id, Value::string(new_name.clone()));
 
     Ok(Value::string(new_name))
 }
