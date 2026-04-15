@@ -583,7 +583,8 @@ impl LexenvSpecialCache {
     #[inline]
     fn find(&self, lexenv_bits: usize, sym_id: SymId) -> Option<bool> {
         let entry = self.entries[Self::slot(lexenv_bits, sym_id)]?;
-        (entry.lexenv_bits == lexenv_bits && entry.symbol == sym_id).then_some(entry.declared_special)
+        (entry.lexenv_bits == lexenv_bits && entry.symbol == sym_id)
+            .then_some(entry.declared_special)
     }
 
     #[inline]

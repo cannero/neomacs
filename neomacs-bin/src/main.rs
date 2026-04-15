@@ -783,8 +783,7 @@ fn maybe_install_tty_redisplay_callback(evaluator: &mut Context, startup: &Start
     }
 
     let (cols, rows) = query_terminal_size_cells().unwrap_or((80, 25));
-    let mut tty_rif =
-        neomacs_display_protocol::tty_rif::TtyRif::new(cols as usize, rows as usize);
+    let mut tty_rif = neomacs_display_protocol::tty_rif::TtyRif::new(cols as usize, rows as usize);
     // TTY frames use 1x1 character cell metrics (GNU Emacs
     // frame.c:1184-1185). Drop the layout engine's cosmic-text
     // FontMetricsService so char_advance,

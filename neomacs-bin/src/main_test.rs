@@ -6,9 +6,8 @@ use super::{
     configure_gnu_startup_state, current_layout_frame_id, face_height_to_pixels,
     maybe_install_tty_redisplay_callback, parse_startup_options, raw_loadup_command_line,
     raw_loadup_startup_surface, render_fingerprint_text, render_help_text,
-    render_startup_image_error, render_version_text, run_gnu_startup,
-    should_enable_live_tty_io, startup_dimensions, sync_live_gui_frame_titles,
-    sync_selected_gui_chrome_state,
+    render_startup_image_error, render_version_text, run_gnu_startup, should_enable_live_tty_io,
+    startup_dimensions, sync_live_gui_frame_titles, sync_selected_gui_chrome_state,
 };
 use neomacs_display_runtime::thread_comm::RenderCommand;
 use neovm_core::emacs_core::Context;
