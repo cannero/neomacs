@@ -1066,6 +1066,11 @@ fn runtime_path_entry(path: &str) -> crate::heap_types::LispString {
     crate::emacs_core::builtins::runtime_string_to_lisp_string(path, !path.is_ascii())
 }
 
+#[cfg(unix)]
+fn raw_path_entry(path: Vec<u8>) -> crate::heap_types::LispString {
+    crate::heap_types::LispString::from_unibyte(path)
+}
+
 fn bootstrap_fixture_path(
     load_path: &[crate::heap_types::LispString],
     name: &str,
@@ -3686,6 +3691,78 @@ fn plan_load_accepts_raw_unibyte_filename_values() {
     .expect("raw unibyte file values should be accepted");
 
     assert!(matches!(plan, LoadPlan::Return(value) if value.is_nil()));
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_load_accepts_raw_unibyte_absolute_filename_values() {
+    crate::test_utils::init_test_tracing();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("neovm-load-absolute-raw-{unique}"));
+    fs::create_dir_all(&dir).expect("create temp fixture dir");
+
+    let mut path_bytes = dir.as_os_str().as_bytes().to_vec();
+    path_bytes.extend_from_slice(b"/absolute-");
+    path_bytes.push(0xFF);
+    path_bytes.extend_from_slice(b".el");
+    let raw_path = PathBuf::from(std::ffi::OsString::from_vec(path_bytes.clone()));
+    fs::write(&raw_path, "(setq vm-load-absolute-raw-ran t)\n").expect("write fixture");
+
+    let mut eval = super::super::eval::Context::new();
+    let value = Value::heap_string(crate::heap_types::LispString::from_unibyte(path_bytes));
+    let loaded = crate::emacs_core::builtins::builtin_load(&mut eval, vec![value])
+        .expect("load should accept raw unibyte absolute filename values");
+    assert_eq!(loaded, Value::T);
+    assert_eq!(
+        eval.obarray()
+            .symbol_value("vm-load-absolute-raw-ran")
+            .copied(),
+        Some(Value::T)
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_load_resolves_raw_unibyte_load_path_entries() {
+    crate::test_utils::init_test_tracing();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("neovm-load-path-raw-{unique}"));
+    fs::create_dir_all(&root).expect("create temp root");
+
+    let mut dir_bytes = root.as_os_str().as_bytes().to_vec();
+    dir_bytes.extend_from_slice(b"/dir-");
+    dir_bytes.push(0xFF);
+    let raw_dir = PathBuf::from(std::ffi::OsString::from_vec(dir_bytes.clone()));
+    fs::create_dir_all(&raw_dir).expect("create raw dir");
+
+    let file = raw_dir.join("probe.el");
+    fs::write(&file, "(setq vm-load-raw-load-path-ran t)\n").expect("write fixture");
+
+    let mut eval = super::super::eval::Context::new();
+    eval.set_variable(
+        "load-path",
+        Value::list(vec![Value::heap_string(raw_path_entry(dir_bytes))]),
+    );
+
+    let loaded = crate::emacs_core::builtins::builtin_load(&mut eval, vec![Value::string("probe")])
+        .expect("load should resolve raw unibyte load-path entries");
+    assert_eq!(loaded, Value::T);
+    assert_eq!(
+        eval.obarray()
+            .symbol_value("vm-load-raw-load-path-ran")
+            .copied(),
+        Some(Value::T)
+    );
+
+    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]

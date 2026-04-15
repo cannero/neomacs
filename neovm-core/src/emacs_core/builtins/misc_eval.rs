@@ -545,9 +545,7 @@ pub(crate) fn builtin_load(eval: &mut super::eval::Context, args: Vec<Value>) ->
     )? {
         super::load::LoadPlan::Return(value) => Ok(value),
         super::load::LoadPlan::Load { found } => {
-            let path = std::path::PathBuf::from(
-                crate::emacs_core::builtins::runtime_string_from_lisp_string(&found),
-            );
+            let path = super::fileio::lisp_file_name_to_path_buf(&found);
             super::load::load_file_with_found_flags(
                 eval,
                 &path,

@@ -13,6 +13,8 @@ use std::ffi::OsStr;
 use std::fs;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
+#[cfg(unix)]
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
 thread_local! {
@@ -28,7 +30,7 @@ fn load_runtime_string(value: &LispString) -> String {
 }
 
 fn load_path_lisp_string(path: &Path) -> LispString {
-    super::builtins::runtime_string_to_lisp_string(path.to_string_lossy().as_ref(), true)
+    super::fileio::path_to_lisp_file_name(path)
 }
 
 fn load_path_buf(value: &LispString) -> PathBuf {
@@ -343,23 +345,36 @@ fn eval_generated_loaddefs_form(
     eval_runtime_form(eval, form)
 }
 
-fn has_load_suffix(name: &str) -> bool {
-    name.ends_with(".el") || name.ends_with(".elc")
+fn has_load_suffix(name: &LispString) -> bool {
+    let bytes = name.as_bytes();
+    bytes.ends_with(b".el") || bytes.ends_with(b".elc")
+}
+
+fn append_load_suffix(base: &Path, suffix: &[u8]) -> PathBuf {
+    #[cfg(unix)]
+    {
+        let mut bytes = base.as_os_str().as_bytes().to_vec();
+        bytes.extend_from_slice(suffix);
+        PathBuf::from(std::ffi::OsString::from_vec(bytes))
+    }
+
+    #[cfg(not(unix))]
+    {
+        let suffix = std::str::from_utf8(suffix).expect("ASCII suffix");
+        PathBuf::from(format!("{}{}", base.to_string_lossy(), suffix))
+    }
 }
 
 fn source_suffixed_path(base: &Path) -> PathBuf {
-    let base_str = base.to_string_lossy();
-    PathBuf::from(format!("{base_str}.el"))
+    append_load_suffix(base, b".el")
 }
 
 fn compiled_suffixed_path(base: &Path) -> PathBuf {
-    let base_str = base.to_string_lossy();
-    PathBuf::from(format!("{base_str}.elc"))
+    append_load_suffix(base, b".elc")
 }
 
 fn unsupported_compiled_suffixed_paths(base: &Path) -> [PathBuf; 1] {
-    let base_str = base.to_string_lossy();
-    [PathBuf::from(format!("{base_str}.elc.gz"))]
+    [append_load_suffix(base, b".elc.gz")]
 }
 
 /// GNU Emacs always prefers .elc over .el (load-suffixes defaults to
@@ -406,7 +421,7 @@ fn pick_suffixed(base: &Path, prefer_newer: bool) -> Option<PathBuf> {
 
 fn find_for_base(
     base: &Path,
-    original_name: &str,
+    original_name: &LispString,
     no_suffix: bool,
     must_suffix: bool,
     prefer_newer: bool,
@@ -434,6 +449,31 @@ fn find_for_base(
     }
 
     None
+}
+
+fn expand_tilde_path_buf(path: &LispString) -> PathBuf {
+    #[cfg(unix)]
+    {
+        let bytes = path.as_bytes();
+        if bytes == b"~" {
+            if let Some(home) = std::env::var_os("HOME") {
+                return PathBuf::from(home);
+            }
+        } else if bytes.starts_with(b"~/") {
+            if let Some(home) = std::env::var_os("HOME") {
+                let mut expanded = PathBuf::from(home);
+                expanded.push(std::ffi::OsString::from_vec(bytes[2..].to_vec()));
+                return expanded;
+            }
+        }
+
+        return load_path_buf(path);
+    }
+
+    #[cfg(not(unix))]
+    {
+        PathBuf::from(expand_tilde(&load_runtime_string(path)))
+    }
 }
 
 /// Search for a file in the load path.
@@ -469,11 +509,9 @@ fn find_lisp_file_in_load_path_with_flags(
     must_suffix: bool,
     prefer_newer: bool,
 ) -> Option<LispString> {
-    let name_runtime = load_runtime_string(name);
-    let expanded = expand_tilde(&name_runtime);
-    let path = Path::new(&expanded);
+    let path = expand_tilde_path_buf(name);
     if path.is_absolute() {
-        return find_for_base(path, &name_runtime, no_suffix, must_suffix, prefer_newer)
+        return find_for_base(&path, name, no_suffix, must_suffix, prefer_newer)
             .map(|found| load_path_lisp_string(&found));
     }
 
@@ -486,11 +524,10 @@ fn find_lisp_file_in_load_path_with_flags(
     if bootstrap_prefers_ldefs_boot()
         && !no_suffix
         && !must_suffix
-        && matches!(name_runtime.as_str(), "loaddefs" | "loaddefs.el")
+        && matches!(name.as_bytes(), b"loaddefs" | b"loaddefs.el")
     {
         for dir in load_path {
-            let dir_runtime = load_runtime_string(dir);
-            let bootstrap = Path::new(&dir_runtime).join("ldefs-boot.el");
+            let bootstrap = load_path_buf(dir).join("ldefs-boot.el");
             if bootstrap.is_file() {
                 return Some(load_path_lisp_string(&bootstrap));
             }
@@ -500,11 +537,8 @@ fn find_lisp_file_in_load_path_with_flags(
     // Emacs searches load-path directory-by-directory; suffix preference
     // is evaluated within each directory.
     for dir in load_path {
-        let dir_runtime = load_runtime_string(dir);
-        let full = Path::new(&dir_runtime).join(&name_runtime);
-        if let Some(found) =
-            find_for_base(&full, &name_runtime, no_suffix, must_suffix, prefer_newer)
-        {
+        let full = load_path_buf(dir).join(load_path_buf(name));
+        if let Some(found) = find_for_base(&full, name, no_suffix, must_suffix, prefer_newer) {
             return Some(load_path_lisp_string(&found));
         }
     }

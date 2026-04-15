@@ -9,7 +9,7 @@ use std::ffi::{CStr, CString};
 use std::fs;
 use std::io::{ErrorKind, Seek, SeekFrom, Write};
 #[cfg(unix)]
-use std::os::unix::ffi::OsStringExt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::sync::Once;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -89,6 +89,25 @@ pub(crate) fn lisp_file_name_to_path_buf(filename: &crate::heap_types::LispStrin
     #[cfg(not(unix))]
     {
         PathBuf::from(crate::emacs_core::builtins::runtime_string_from_lisp_string(filename))
+    }
+}
+
+/// Convert an OS path back to a Lisp file-name string at the filesystem boundary.
+///
+/// On Unix keep the raw bytes intact, matching GNU's byte-preserving file-name
+/// handling for resolved paths.
+pub(crate) fn path_to_lisp_file_name(path: &Path) -> crate::heap_types::LispString {
+    #[cfg(unix)]
+    {
+        crate::heap_types::LispString::from_unibyte(path.as_os_str().as_bytes().to_vec())
+    }
+
+    #[cfg(not(unix))]
+    {
+        crate::emacs_core::builtins::runtime_string_to_lisp_string(
+            path.to_string_lossy().as_ref(),
+            true,
+        )
     }
 }
 
