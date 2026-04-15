@@ -66,6 +66,12 @@ fn signal_wrong_type_string(value: Value) -> Flow {
     signal("wrong-type-argument", vec![Value::symbol("stringp"), value])
 }
 
+fn callproc_owned_runtime_string(value: Value) -> String {
+    value
+        .as_runtime_string_owned()
+        .expect("ValueKind::String must carry LispString payload")
+}
+
 fn is_file_keyword(value: &Value) -> bool {
     value.as_keyword_id().map_or(false, |k| {
         let n = resolve_sym(k);
@@ -116,9 +122,7 @@ fn parse_stderr_destination(value: &Value) -> Result<(StderrTarget, Option<Strin
         ValueKind::T => Ok((StderrTarget::ToStdoutTarget, None)),
         ValueKind::String => Ok((
             StderrTarget::File,
-            Some(crate::emacs_core::builtins::lisp_string_to_runtime_string(
-                *value,
-            )),
+            Some(callproc_owned_runtime_string(*value)),
         )),
         other => Err(signal_wrong_type_string(*value)),
     }
@@ -180,7 +184,7 @@ fn insert_process_output_in_state(
 ) -> Result<(), Flow> {
     match destination.kind() {
         ValueKind::String => {
-            let name_str = crate::emacs_core::builtins::lisp_string_to_runtime_string(*destination);
+            let name_str = callproc_owned_runtime_string(*destination);
             let id = buffers
                 .find_buffer_by_name(&name_str)
                 .unwrap_or_else(|| buffers.create_buffer(&name_str));
@@ -460,7 +464,7 @@ fn builtin_call_process_region_impl(buffers: &mut BufferManager, args: Vec<Value
                     vec![Value::symbol("integer-or-marker-p"), args[0]],
                 ));
             }
-            crate::emacs_core::builtins::lisp_string_to_runtime_string(args[0])
+            callproc_owned_runtime_string(args[0])
         }
         _ => {
             let start = super::process::expect_int_or_marker(&args[0])?;

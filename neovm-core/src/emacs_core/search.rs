@@ -76,7 +76,9 @@ fn expect_integer_or_marker(val: &Value) -> Result<i64, Flow> {
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
     match val.kind() {
-        ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
+        ValueKind::String => Ok(val
+            .as_runtime_string_owned()
+            .expect("ValueKind::String must carry LispString payload")),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *val],

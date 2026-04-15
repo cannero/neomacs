@@ -4395,7 +4395,14 @@ pub(crate) fn make_interpreted_closure_from_parts(
     }
 
     let (docstring, doc_form) = match docstring_value.kind() {
-        ValueKind::String => (Some(docstring_value.as_str().unwrap().to_owned()), None),
+        ValueKind::String => (
+            Some(
+                docstring_value
+                    .as_runtime_string_owned()
+                    .expect("ValueKind::String must carry LispString payload"),
+            ),
+            None,
+        ),
         ValueKind::Nil => (None, None),
         _other => (None, Some(docstring_value)),
     };

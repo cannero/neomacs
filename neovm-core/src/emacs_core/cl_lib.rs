@@ -811,7 +811,8 @@ pub(crate) fn builtin_cl_gensym(args: Vec<Value>) -> EvalResult {
             CL_GENSYM_COUNTER.fetch_add(1, Ordering::Relaxed),
         ),
         Some(v) if v.is_string() => (
-            v.as_str().unwrap().to_owned(),
+            v.as_runtime_string_owned()
+                .expect("ValueKind::String must carry LispString payload"),
             CL_GENSYM_COUNTER.fetch_add(1, Ordering::Relaxed),
         ),
         Some(v) if matches!(v.kind(), ValueKind::Fixnum(_)) => {

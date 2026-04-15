@@ -468,7 +468,7 @@ fn regexp_quote_right_bracket_not_escaped() {
 }
 
 #[test]
-fn regexp_quote_preserves_raw_unibyte_bytes() {
+fn regexp_quote_preserves_raw_unibyte_bytes_compact_case() {
     crate::test_utils::init_test_tracing();
     let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
         b'a', 0xFF, b'[', b'.',

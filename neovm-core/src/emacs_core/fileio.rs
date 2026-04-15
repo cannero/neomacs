@@ -887,9 +887,19 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     }
 }
 
+fn fileio_owned_runtime_string(value: Value) -> String {
+    value
+        .as_runtime_string_owned()
+        .expect("ValueKind::String must carry LispString payload")
+}
+
+fn fileio_owned_runtime_string_opt(value: &Value) -> Option<String> {
+    value.as_runtime_string_owned()
+}
+
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
+        ValueKind::String => Ok(fileio_owned_runtime_string(*value)),
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         ValueKind::Nil => Ok("nil".to_string()),
         ValueKind::T => Ok("t".to_string()),
@@ -902,7 +912,7 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
 
 fn expect_string_strict(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
+        ValueKind::String => Ok(fileio_owned_runtime_string(*value)),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -912,7 +922,7 @@ fn expect_string_strict(value: &Value) -> Result<String, Flow> {
 
 fn expect_temp_prefix(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
+        ValueKind::String => Ok(fileio_owned_runtime_string(*value)),
         ValueKind::Nil | ValueKind::Cons | ValueKind::Veclike(VecLikeType::Vector) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -1019,8 +1029,7 @@ fn validate_file_truename_counter(counter: &Value) -> Result<(), Flow> {
 
 fn temporary_file_directory_for_eval(eval: &Context) -> Option<String> {
     let val = eval.obarray.symbol_value("temporary-file-directory")?;
-    val.is_string()
-        .then(|| super::builtins::lisp_string_to_runtime_string(*val))
+    fileio_owned_runtime_string_opt(val)
 }
 
 fn make_temp_file_impl(
@@ -1146,7 +1155,7 @@ pub(crate) fn builtin_expand_file_name(eval: &mut Context, args: Vec<Value>) -> 
     let default_dir = if let Some(arg) = args.get(1) {
         match arg.kind() {
             ValueKind::Nil => default_directory_in_state(&eval.obarray, &[], &eval.buffers),
-            ValueKind::String => Some(super::builtins::lisp_string_to_runtime_string(*arg)),
+            ValueKind::String => Some(fileio_owned_runtime_string(*arg)),
             _ => Some("/".to_string()),
         }
     } else {
@@ -1220,7 +1229,7 @@ pub(crate) fn builtin_make_temp_file(eval: &mut Context, args: Vec<Value>) -> Ev
     let text = match args.get(3) {
         None => None,
         Some(v) if v.is_nil() => None,
-        Some(v) if v.is_string() => Some(super::builtins::lisp_string_to_runtime_string(*v)),
+        Some(v) if v.is_string() => Some(fileio_owned_runtime_string(*v)),
         Some(_) => None,
     };
     let temp_dir = temporary_file_directory_for_eval(eval)
@@ -1350,7 +1359,7 @@ pub(crate) fn builtin_file_name_concat(args: Vec<Value>) -> EvalResult {
         match value.kind() {
             ValueKind::Nil => {}
             ValueKind::String => {
-                let s = super::builtins::lisp_string_to_runtime_string(value);
+                let s = fileio_owned_runtime_string(value);
                 if !s.is_empty() {
                     parts.push(s);
                 }
@@ -1400,12 +1409,12 @@ pub(crate) fn default_directory_in_state(
     if let Some(buf) = buffers.current_buffer() {
         if let Some(val) = buf.get_buffer_local("default-directory") {
             if val.is_string() {
-                return Some(super::builtins::lisp_string_to_runtime_string(val));
+                return fileio_owned_runtime_string_opt(&val);
             }
         }
     }
     match obarray.symbol_value("default-directory") {
-        Some(val) if val.is_string() => Some(super::builtins::lisp_string_to_runtime_string(*val)),
+        Some(val) if val.is_string() => fileio_owned_runtime_string_opt(val),
         _ => None,
     }
 }
@@ -2734,10 +2743,7 @@ fn decode_insert_file_contents(
     ])?;
 
     match decoded.kind() {
-        ValueKind::String => Ok((
-            super::builtins::lisp_string_to_runtime_string(decoded),
-            coding.to_string(),
-        )),
+        ValueKind::String => Ok((fileio_owned_runtime_string(decoded), coding.to_string())),
         other => Err(signal(
             "error",
             vec![Value::string(format!(
@@ -2766,7 +2772,7 @@ pub(crate) fn builtin_insert_file_contents(
     let coding_system_for_read: Option<String> = match coding_val.kind() {
         ValueKind::Nil => None,
         ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
-        ValueKind::String => Some(super::builtins::lisp_string_to_runtime_string(coding_val)),
+        ValueKind::String => Some(fileio_owned_runtime_string(coding_val)),
         _ => None,
     };
     let source_load_context = eval
@@ -3002,11 +3008,11 @@ fn lookup_backup_directory(obarray: &Obarray, filename: &str) -> Option<String> 
             let car = entry.cons_car();
             let cdr = entry.cons_cdr();
             let pattern = match car.kind() {
-                ValueKind::String => super::builtins::lisp_string_to_runtime_string(car),
+                ValueKind::String => fileio_owned_runtime_string(car),
                 _ => continue,
             };
             let dir = match cdr.kind() {
-                ValueKind::String => super::builtins::lisp_string_to_runtime_string(cdr),
+                ValueKind::String => fileio_owned_runtime_string(cdr),
                 _ => continue,
             };
             // Simple substring match (GNU uses regex, but for now substring is
@@ -3114,7 +3120,7 @@ fn coding_system_value_to_name(val: &Value) -> Option<String> {
             if name == "nil" { None } else { Some(name) }
         }
         ValueKind::String => {
-            let name = super::builtins::lisp_string_to_runtime_string(*val);
+            let name = fileio_owned_runtime_string(*val);
             if name.is_empty() || name == "nil" {
                 None
             } else {

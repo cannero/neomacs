@@ -116,6 +116,10 @@ fn parser_deleted_error(value: Value) -> Flow {
     signal("treesit-parser-deleted", vec![value])
 }
 
+fn treesit_buffer_source(buffer: &crate::buffer::Buffer) -> String {
+    buffer.text.text_range(buffer.begv_byte, buffer.zv_byte)
+}
+
 fn node_outdated_error(value: Value) -> Flow {
     signal("treesit-node-outdated", vec![value])
 }
@@ -468,7 +472,7 @@ fn ensure_parser_parsed(eval: &mut super::eval::Context, parser_id: u64) -> Resu
                 vec![Value::string("Parser buffer has been killed")],
             )
         })?;
-        buffer.buffer_string()
+        treesit_buffer_source(buffer)
     };
 
     let mut reparsed = false;
@@ -549,7 +553,7 @@ fn ensure_parser_parsed_with_changes(
                 vec![Value::string("Parser buffer has been killed")],
             )
         })?;
-        buffer.buffer_string()
+        treesit_buffer_source(buffer)
     };
 
     let (changed_ranges, reparsed) = {
@@ -2027,7 +2031,7 @@ pub(crate) fn builtin_treesit_parser_set_included_ranges(
                 vec![Value::string("Parser buffer has been killed")],
             )
         })?;
-        buffer.buffer_string()
+        treesit_buffer_source(buffer)
     };
     let buffer = {
         let parser = eval
@@ -2583,7 +2587,7 @@ pub(crate) fn builtin_treesit_linecol_at(
         .buffers
         .get(buffer_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let source = buffer.buffer_string();
+    let source = treesit_buffer_source(buffer);
     let byte_offset = lisp_pos_to_relative_byte(buffer, pos)?;
     let hint = eval
         .treesit
@@ -2639,7 +2643,7 @@ pub(crate) fn builtin_treesit_linecol_cache(
         .buffers
         .get(buffer_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let source = buffer.buffer_string();
+    let source = treesit_buffer_source(buffer);
     let pos = byte_offset_to_lisp_pos(buffer, &source, cache.bytepos);
     Ok(Value::list(vec![
         Value::keyword(":line"),

@@ -6838,10 +6838,11 @@ fn looking_at_handles_raw_unibyte_pattern_without_panicking() {
 fn compare_value_lt_handles_raw_unibyte_strings_without_panicking() {
     crate::test_utils::init_test_tracing();
 
+    let eval = crate::emacs_core::eval::Context::new();
     let left = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFE]));
     let right = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
 
-    let ordering = crate::emacs_core::builtins::symbols::compare_value_lt(&left, &right)
+    let ordering = crate::emacs_core::builtins::symbols::compare_value_lt(&eval, &left, &right)
         .expect("raw unibyte string comparison should succeed");
     assert_eq!(ordering, std::cmp::Ordering::Less);
 }

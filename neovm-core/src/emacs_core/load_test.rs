@@ -229,8 +229,12 @@ fn dump_emacs_portable_requires_batch_mode() {
 fn dump_emacs_portable_rejects_other_live_lisp_threads() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
-    eval.threads
-        .create_thread(Value::NIL, Some("worker".to_string()));
+    eval.threads.create_thread(
+        Value::NIL,
+        Some(crate::heap_types::LispString::from_unibyte(
+            b"worker".to_vec(),
+        )),
+    );
 
     let err = crate::emacs_core::builtins::builtin_dump_emacs_portable(
         &mut eval,

@@ -67,7 +67,9 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
     match val.kind() {
-        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*val)),
+        ValueKind::String => Ok(val
+            .as_runtime_string_owned()
+            .expect("ValueKind::String must carry LispString payload")),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *val],
@@ -870,7 +872,9 @@ fn symbol_reader_minibuffer_args(args: &[Value]) -> [Value; 6] {
 
 fn intern_symbol_reader_result(result: Value) -> Value {
     if result.is_string() {
-        let name = super::builtins::lisp_string_to_runtime_string(result);
+        let name = result
+            .as_runtime_string_owned()
+            .expect("ValueKind::String must carry LispString payload");
         return Value::symbol(&name);
     }
     result
