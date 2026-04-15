@@ -341,7 +341,7 @@ impl SortRuntime for super::eval::Context {
     }
 
     fn root_sort_value(&mut self, value: Value) {
-        self.push_temp_root(value);
+        self.push_eval_root(value);
     }
 
     fn compare_sort_keys(

@@ -162,32 +162,30 @@ fn eval_forms_from_source_streaming(
         };
         pos = next_pos;
 
-        let saved_temp_roots = eval.save_temp_roots();
-        eval.push_temp_root(form);
-
-        let eval_result = if let Some(mexp_fn) = macroexpand_fn {
-            super::load::eager_expand_eval(eval, form, mexp_fn).map_err(|e| match e {
-                super::error::EvalError::Signal {
-                    symbol,
-                    data,
-                    raw_data,
-                } => super::error::Flow::Signal(super::error::SignalData {
-                    symbol,
-                    data,
-                    raw_data,
-                    suppress_signal_hook: false,
-                    selected_resume: None,
-                    search_complete: false,
-                }),
-                super::error::EvalError::UncaughtThrow { tag, value } => {
-                    super::error::Flow::Throw { tag, value }
-                }
-            })
-        } else {
-            eval.eval_sub(form)
-        };
-
-        eval.restore_temp_roots(saved_temp_roots);
+        let eval_result = eval.with_gc_scope(|eval| {
+            eval.push_eval_root(form);
+            if let Some(mexp_fn) = macroexpand_fn {
+                super::load::eager_expand_eval(eval, form, mexp_fn).map_err(|e| match e {
+                    super::error::EvalError::Signal {
+                        symbol,
+                        data,
+                        raw_data,
+                    } => super::error::Flow::Signal(super::error::SignalData {
+                        symbol,
+                        data,
+                        raw_data,
+                        suppress_signal_hook: false,
+                        selected_resume: None,
+                        search_complete: false,
+                    }),
+                    super::error::EvalError::UncaughtThrow { tag, value } => {
+                        super::error::Flow::Throw { tag, value }
+                    }
+                })
+            } else {
+                eval.eval_sub(form)
+            }
+        });
         eval_result?;
 
         if let Some(mexp_fn) = macroexpand_fn {
@@ -227,32 +225,30 @@ fn eval_forms_from_lisp_source_streaming(
         };
         pos = next_pos;
 
-        let saved_temp_roots = eval.save_temp_roots();
-        eval.push_temp_root(form);
-
-        let eval_result = if let Some(mexp_fn) = macroexpand_fn {
-            super::load::eager_expand_eval(eval, form, mexp_fn).map_err(|e| match e {
-                super::error::EvalError::Signal {
-                    symbol,
-                    data,
-                    raw_data,
-                } => super::error::Flow::Signal(super::error::SignalData {
-                    symbol,
-                    data,
-                    raw_data,
-                    suppress_signal_hook: false,
-                    selected_resume: None,
-                    search_complete: false,
-                }),
-                super::error::EvalError::UncaughtThrow { tag, value } => {
-                    super::error::Flow::Throw { tag, value }
-                }
-            })
-        } else {
-            eval.eval_sub(form)
-        };
-
-        eval.restore_temp_roots(saved_temp_roots);
+        let eval_result = eval.with_gc_scope(|eval| {
+            eval.push_eval_root(form);
+            if let Some(mexp_fn) = macroexpand_fn {
+                super::load::eager_expand_eval(eval, form, mexp_fn).map_err(|e| match e {
+                    super::error::EvalError::Signal {
+                        symbol,
+                        data,
+                        raw_data,
+                    } => super::error::Flow::Signal(super::error::SignalData {
+                        symbol,
+                        data,
+                        raw_data,
+                        suppress_signal_hook: false,
+                        selected_resume: None,
+                        search_complete: false,
+                    }),
+                    super::error::EvalError::UncaughtThrow { tag, value } => {
+                        super::error::Flow::Throw { tag, value }
+                    }
+                })
+            } else {
+                eval.eval_sub(form)
+            }
+        });
         eval_result?;
 
         if let Some(mexp_fn) = macroexpand_fn {
@@ -581,8 +577,10 @@ fn eval_forms_from_source_in_vm_runtime_streaming(
         pos = next_pos;
 
         shared.with_extra_gc_roots(args, move |eval| {
-            eval.push_temp_root(form);
-            eval.eval_sub(form)
+            eval.with_gc_scope_result(|eval| {
+                eval.push_eval_root(form);
+                eval.eval_sub(form)
+            })
         })?;
         shared.gc_safe_point_exact_with_extra_root_slices(&[vm_gc_roots, args]);
     }

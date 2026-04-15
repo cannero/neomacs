@@ -1219,18 +1219,16 @@ fn streaming_readevalloop(
 
         // Root the form value so it survives any GC triggered during
         // macro-expansion or evaluation.
-        let saved_temp_roots = eval.save_temp_roots();
-        eval.push_temp_root(form);
-
-        let eval_result = if let Some(mexp) = macroexpand_fn {
-            // GNU-style eager expand: one level, recurse for progn,
-            // full expand + eval.
-            streaming_readevalloop_eager_expand_eval(eval, form, mexp)
-        } else {
-            eval.eval_sub(form).map_err(map_flow)
-        };
-
-        eval.restore_temp_roots(saved_temp_roots);
+        let eval_result = eval.with_gc_scope(|eval| {
+            eval.push_eval_root(form);
+            if let Some(mexp) = macroexpand_fn {
+                // GNU-style eager expand: one level, recurse for progn,
+                // full expand + eval.
+                streaming_readevalloop_eager_expand_eval(eval, form, mexp)
+            } else {
+                eval.eval_sub(form).map_err(map_flow)
+            }
+        });
 
         // Report errors with human-readable detail.
         if let Err(ref e) = eval_result {
@@ -1335,13 +1333,10 @@ fn streaming_readevalloop_eager_expand_eval(
     eval.note_eager_macro_perf_step1(step1_start.elapsed());
 
     // Root the expanded form so it survives GC during progn iteration.
-    let saved_temp_roots = eval.save_temp_roots();
-    eval.push_temp_root(expanded);
-
-    let result = streaming_readevalloop_eager_expand_eval_inner(eval, expanded, macroexpand);
-
-    eval.restore_temp_roots(saved_temp_roots);
-    result
+    eval.with_gc_scope(|eval| {
+        eval.push_eval_root(expanded);
+        streaming_readevalloop_eager_expand_eval_inner(eval, expanded, macroexpand)
+    })
 }
 
 /// Inner helper for eager expansion: handles progn unwinding and full expansion.
@@ -1359,10 +1354,10 @@ fn streaming_readevalloop_eager_expand_eval_inner(
             cursor = cursor.cons_cdr();
             // Root cursor across recursive expansion+eval (it's a cons tail
             // that could be collected if we don't protect it).
-            let saved = eval.save_temp_roots();
-            eval.push_temp_root(cursor);
-            last_val = streaming_readevalloop_eager_expand_eval(eval, subform, macroexpand)?;
-            eval.restore_temp_roots(saved);
+            last_val = eval.with_gc_scope(|eval| {
+                eval.push_eval_root(cursor);
+                streaming_readevalloop_eager_expand_eval(eval, subform, macroexpand)
+            })?;
         }
         return Ok(last_val);
     }
@@ -1379,13 +1374,13 @@ fn streaming_readevalloop_eager_expand_eval_inner(
     };
     eval.note_eager_macro_perf_step3(step3_start.elapsed());
 
-    let saved = eval.save_temp_roots();
-    eval.push_temp_root(fully_expanded);
-    let step4_start = std::time::Instant::now();
-    let result = eval.eval_sub(fully_expanded).map_err(map_flow);
-    eval.note_eager_macro_perf_step4(step4_start.elapsed());
-    eval.restore_temp_roots(saved);
-    result
+    eval.with_gc_scope(|eval| {
+        eval.push_eval_root(fully_expanded);
+        let step4_start = std::time::Instant::now();
+        let result = eval.eval_sub(fully_expanded).map_err(map_flow);
+        eval.note_eager_macro_perf_step4(step4_start.elapsed());
+        result
+    })
 }
 
 /// Load and evaluate a file. Returns the last result.
@@ -2579,61 +2574,60 @@ pub(crate) fn apply_ldefs_boot_autoloads_for_names(
     // calls below can trigger GC and would reclaim the cons cells
     // out from under us. Root every form for the duration of the
     // dispatch loop.
-    let saved_temp_roots = eval.save_temp_roots();
-    for form in &forms {
-        eval.push_temp_root(*form);
-    }
-
     let wanted = names
         .iter()
         .map(|name| (*name).to_string())
         .collect::<std::collections::BTreeSet<_>>();
-    let mut property_forms: Vec<Value> = Vec::new();
-
-    let result: Result<(), EvalError> = (|| {
+    eval.with_gc_scope(|eval| {
         for form in &forms {
-            let Some(items) = list_to_vec(form) else {
-                continue;
-            };
-            let Some(head) = items.first() else {
-                continue;
-            };
-            if head.is_symbol_named("autoload")
-                && let Some(name) = items.get(1).and_then(|v| value_quoted_symbol_name(*v))
-                && wanted.contains(&name)
-            {
+            eval.push_eval_root(*form);
+        }
+
+        let mut property_forms: Vec<Value> = Vec::new();
+        let result: Result<(), EvalError> = (|| {
+            for form in &forms {
+                let Some(items) = list_to_vec(form) else {
+                    continue;
+                };
+                let Some(head) = items.first() else {
+                    continue;
+                };
+                if head.is_symbol_named("autoload")
+                    && let Some(name) = items.get(1).and_then(|v| value_quoted_symbol_name(*v))
+                    && wanted.contains(&name)
+                {
+                    eval_generated_loaddefs_form(eval, *form)?;
+                }
+            }
+
+            for form in &forms {
+                let Some(items) = list_to_vec(form) else {
+                    continue;
+                };
+                let Some(head) = items.first() else {
+                    continue;
+                };
+                let Some(head_name) = head.as_symbol_name() else {
+                    continue;
+                };
+                if head_name != "function-put" && head_name != "put" {
+                    continue;
+                }
+                let Some(name) = items.get(1).and_then(|v| value_quoted_symbol_name(*v)) else {
+                    continue;
+                };
+                if wanted.contains(&name) {
+                    property_forms.push(*form);
+                }
+            }
+
+            for form in &property_forms {
                 eval_generated_loaddefs_form(eval, *form)?;
             }
-        }
-
-        for form in &forms {
-            let Some(items) = list_to_vec(form) else {
-                continue;
-            };
-            let Some(head) = items.first() else {
-                continue;
-            };
-            let Some(head_name) = head.as_symbol_name() else {
-                continue;
-            };
-            if head_name != "function-put" && head_name != "put" {
-                continue;
-            }
-            let Some(name) = items.get(1).and_then(|v| value_quoted_symbol_name(*v)) else {
-                continue;
-            };
-            if wanted.contains(&name) {
-                property_forms.push(*form);
-            }
-        }
-
-        for form in &property_forms {
-            eval_generated_loaddefs_form(eval, *form)?;
-        }
-        Ok(())
-    })();
-    eval.restore_temp_roots(saved_temp_roots);
-    result?;
+            Ok(())
+        })();
+        result
+    })?;
 
     Ok(())
 }
@@ -2752,43 +2746,43 @@ fn normalize_bootstrap_runtime_surface(
     // etc.) would reclaim the cons cells and leave the Values
     // dangling. Push them all into temp_roots for the duration of
     // the call.
-    let saved_temp_roots = eval.save_temp_roots();
-    for args in runtime_loaded_state
-        .autoload_args
-        .iter()
-        .chain(runtime_loaddefs_state.autoload_args.iter())
-    {
-        for v in args {
-            eval.push_temp_root(*v);
-        }
-    }
-    for form in runtime_loaded_state
-        .property_forms
-        .iter()
-        .chain(runtime_loaddefs_state.property_forms.iter())
-    {
-        eval.push_temp_root(*form);
-    }
-
-    let result: Result<(), EvalError> = (|| {
+    eval.with_gc_scope(|eval| {
         for args in runtime_loaded_state
             .autoload_args
             .iter()
             .chain(runtime_loaddefs_state.autoload_args.iter())
         {
-            super::autoload::builtin_autoload(eval, args.clone()).map_err(map_flow)?;
+            for v in args {
+                eval.push_eval_root(*v);
+            }
         }
         for form in runtime_loaded_state
             .property_forms
             .iter()
             .chain(runtime_loaddefs_state.property_forms.iter())
         {
-            eval_runtime_form(eval, *form)?;
+            eval.push_eval_root(*form);
         }
-        Ok(())
-    })();
-    eval.restore_temp_roots(saved_temp_roots);
-    result?;
+
+        let result: Result<(), EvalError> = (|| {
+            for args in runtime_loaded_state
+                .autoload_args
+                .iter()
+                .chain(runtime_loaddefs_state.autoload_args.iter())
+            {
+                super::autoload::builtin_autoload(eval, args.clone()).map_err(map_flow)?;
+            }
+            for form in runtime_loaded_state
+                .property_forms
+                .iter()
+                .chain(runtime_loaddefs_state.property_forms.iter())
+            {
+                eval_runtime_form(eval, *form)?;
+            }
+            Ok(())
+        })();
+        result
+    })?;
 
     Ok(())
 }
