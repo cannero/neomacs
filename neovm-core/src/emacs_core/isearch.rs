@@ -30,9 +30,13 @@ fn expect_min_max_args(name: &str, args: &[Value], min: usize, max: usize) -> Re
     }
 }
 
+fn isearch_string_text(value: &Value) -> Option<String> {
+    value.as_runtime_string_owned()
+}
+
 fn expect_string(val: &Value) -> Result<String, Flow> {
     match val.kind() {
-        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*val)),
+        ValueKind::String => Ok(isearch_string_text(val).expect("checked string")),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *val],
@@ -52,7 +56,7 @@ fn expect_integer_or_marker(val: &Value) -> Result<i64, Flow> {
 
 fn expect_sequence_string(val: &Value) -> Result<String, Flow> {
     match val.kind() {
-        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*val)),
+        ValueKind::String => Ok(isearch_string_text(val).expect("checked string")),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), *val],
@@ -228,7 +232,7 @@ fn replace_lax_whitespace_enabled(eval: &super::eval::Context) -> bool {
 
 fn resolve_search_whitespace_regexp(eval: &super::eval::Context) -> Option<String> {
     let raw = match dynamic_or_global_symbol_value(eval, "search-whitespace-regexp") {
-        Some(v) if v.is_string() => super::builtins::lisp_string_to_runtime_string(v),
+        Some(v) if v.is_string() => isearch_string_text(&v).expect("checked string"),
         Some(v) if v.is_nil() => "[ \t\n\r]+".to_string(),
         None => "[ \t\n\r]+".to_string(),
         Some(_) => return None,
