@@ -3958,7 +3958,7 @@ impl<'a> Vm<'a> {
 
     fn with_default_directory_binding<T>(
         &mut self,
-        directory: &str,
+        directory: &crate::heap_types::LispString,
         f: impl FnOnce(&mut Self) -> Result<T, Flow>,
     ) -> Result<T, Flow> {
         let specpdl_count = self.ctx.specpdl.len();
@@ -3966,7 +3966,7 @@ impl<'a> Vm<'a> {
             &mut self.ctx.obarray,
             &mut self.ctx.specpdl,
             intern("default-directory"),
-            Value::string(directory),
+            Value::heap_string(directory.clone()),
         );
         let result = f(self);
         crate::emacs_core::eval::unbind_to_in_state(
@@ -4261,7 +4261,7 @@ impl<'a> Vm<'a> {
                 plan.completions,
                 plan.ignore_case,
                 |predicate_arg| {
-                    self.with_default_directory_binding(bound_directory.as_str(), |vm| {
+                    self.with_default_directory_binding(&bound_directory, |vm| {
                         vm.call_function_with_roots(predicate, &[predicate_arg])
                     })
                 },

@@ -10,6 +10,7 @@ use super::error::{EvalResult, Flow, signal};
 use super::eval::Context;
 use super::intern::{intern, resolve_sym};
 use super::value::*;
+use crate::heap_types::LispString;
 use std::collections::{HashMap, VecDeque};
 #[cfg(unix)]
 use std::ffi::{CStr, CString};
@@ -31,16 +32,29 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
     }
 }
 
-fn expect_string(_name: &str, value: &Value) -> Result<String, Flow> {
+fn expect_lisp_string(_name: &str, value: &Value) -> Result<LispString, Flow> {
     match value.kind() {
         ValueKind::String => Ok(value
-            .as_runtime_string_owned()
-            .expect("ValueKind::String must carry LispString payload")),
+            .as_lisp_string()
+            .expect("ValueKind::String must carry LispString payload")
+            .clone()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
         )),
     }
+}
+
+fn dired_runtime_string(value: &LispString) -> String {
+    super::builtins::runtime_string_from_lisp_string(value)
+}
+
+fn runtime_file_name_to_lisp_string(text: &str) -> LispString {
+    super::builtins::runtime_string_to_lisp_string(text, !text.is_ascii())
+}
+
+fn runtime_file_name_value(text: &str) -> Value {
+    Value::heap_string(runtime_file_name_to_lisp_string(text))
 }
 
 /// Ensure a directory path ends with '/'.
@@ -460,11 +474,12 @@ pub(crate) fn builtin_directory_files_and_attributes(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("directory-files-and-attributes", &args, 1, 6)?;
+    let dir = expect_lisp_string("directory-files-and-attributes", &args[0])?;
     let dir = super::fileio::resolve_filename_in_state(
         &eval.obarray,
         &[],
         &eval.buffers,
-        &expect_string("directory-files-and-attributes", &args[0])?,
+        &dired_runtime_string(&dir),
     );
     directory_files_and_attributes_with_dir(&args, dir)
 }
@@ -472,7 +487,7 @@ pub(crate) fn builtin_directory_files_and_attributes(
 fn directory_files_and_attributes_with_dir(args: &[Value], dir: String) -> EvalResult {
     let full_name = args.get(1).is_some_and(|v| v.is_truthy());
     let match_regexp = match args.get(2) {
-        Some(v) if v.is_truthy() => Some(expect_string("directory-files-and-attributes", v)?),
+        Some(v) if v.is_truthy() => Some(expect_lisp_string("directory-files-and-attributes", v)?),
         _ => None,
     };
     let nosort = args.get(3).is_some_and(|v| v.is_truthy());
@@ -491,10 +506,11 @@ fn directory_files_and_attributes_with_dir(args: &[Value], dir: String) -> EvalR
     let mut items: VecDeque<(String, String)> = VecDeque::new();
     let mut remaining = count.unwrap_or(usize::MAX);
     for name in names {
-        if let Some(pattern) = match_regexp.as_deref() {
+        if let Some(pattern) = match_regexp.as_ref() {
+            let pattern_runtime = dired_runtime_string(pattern);
             let mut throwaway = None;
             let matched = super::regex::string_match_full_with_case_fold(
-                pattern,
+                &pattern_runtime,
                 &name,
                 0,
                 false,
@@ -505,7 +521,7 @@ fn directory_files_and_attributes_with_dir(args: &[Value], dir: String) -> EvalR
                     "invalid-regexp",
                     vec![Value::string(format!(
                         "Invalid regexp \"{}\": {}",
-                        pattern, msg
+                        pattern_runtime, msg
                     ))],
                 )
             })?;
@@ -537,7 +553,7 @@ fn directory_files_and_attributes_with_dir(args: &[Value], dir: String) -> EvalR
         .into_iter()
         .map(|(display_name, full_path)| {
             let attrs = build_file_attributes(&full_path, id_format_string).unwrap_or(Value::NIL);
-            Value::cons(Value::string(display_name), attrs)
+            Value::cons(runtime_file_name_value(&display_name), attrs)
         })
         .collect();
 
@@ -568,22 +584,27 @@ pub(crate) fn builtin_file_name_all_completions(
 ) -> EvalResult {
     expect_range_args("file-name-all-completions", &args, 2, 2)?;
 
-    let file = expect_string("file-name-all-completions", &args[0])?;
+    let file = expect_lisp_string("file-name-all-completions", &args[0])?;
+    let file_runtime = dired_runtime_string(&file);
+    let directory = expect_lisp_string("file-name-all-completions", &args[1])?;
     let directory = super::fileio::resolve_filename_in_state(
         &eval.obarray,
         &[],
         &eval.buffers,
-        &expect_string("file-name-all-completions", &args[1])?,
+        &dired_runtime_string(&directory),
     );
-    if file.contains('/') {
+    if file_runtime.contains('/') {
         return Ok(Value::NIL);
     }
     let ignore_case = get_completion_ignore_case(&eval.obarray);
     // GNU Emacs: file-name-all-completions does NOT filter by
     // completion-ignored-extensions (the "all_flag" path).
-    let completions = collect_file_name_completions(&file, &directory, ignore_case)?;
+    let completions = collect_file_name_completions(&file_runtime, &directory, ignore_case)?;
     Ok(Value::list(
-        completions.into_iter().map(Value::string).collect(),
+        completions
+            .into_iter()
+            .map(|completion| runtime_file_name_value(&completion))
+            .collect(),
     ))
 }
 
@@ -617,7 +638,7 @@ fn collect_file_name_completions(
 }
 
 /// Extract the list of ignored extensions from the `completion-ignored-extensions` variable.
-fn get_ignored_extensions(obarray: &super::symbol::Obarray) -> Vec<String> {
+fn get_ignored_extensions(obarray: &super::symbol::Obarray) -> Vec<LispString> {
     let Some(val) = obarray.symbol_value("completion-ignored-extensions") else {
         return Vec::new();
     };
@@ -627,7 +648,7 @@ fn get_ignored_extensions(obarray: &super::symbol::Obarray) -> Vec<String> {
     };
     items
         .into_iter()
-        .filter_map(|v| v.as_runtime_string_owned())
+        .filter_map(|v| v.as_lisp_string().cloned())
         .collect()
 }
 
@@ -652,7 +673,7 @@ fn get_completion_ignore_case(obarray: &super::symbol::Obarray) -> bool {
 fn filter_by_ignored_extensions(
     file: &str,
     completions: Vec<String>,
-    ignored_extensions: &[String],
+    ignored_extensions: &[LispString],
     ignore_case: bool,
 ) -> Vec<String> {
     if completions.is_empty() {
@@ -681,12 +702,13 @@ fn filter_by_ignored_extensions(
             // Only check ignored-extensions when the name is longer than FILE
             // (i.e., not an exact match).
             for ext in ignored_extensions {
+                let ext_runtime = dired_runtime_string(ext);
                 if is_dir {
                     // For directories, only match extensions that end in '/'.
-                    if !ext.ends_with('/') {
+                    if !ext_runtime.ends_with('/') {
                         continue;
                     }
-                    let ext_base = &ext[..ext.len() - 1]; // strip trailing '/'
+                    let ext_base = &ext_runtime[..ext_runtime.len() - 1]; // strip trailing '/'
                     if ext_base.is_empty() {
                         continue;
                     }
@@ -701,13 +723,13 @@ fn filter_by_ignored_extensions(
                     }
                 } else {
                     // For files, match extensions (which should not end in '/').
-                    if ext.ends_with('/') {
+                    if ext_runtime.ends_with('/') {
                         continue;
                     }
                     let matches = if ignore_case {
-                        base.to_lowercase().ends_with(&ext.to_lowercase())
+                        base.to_lowercase().ends_with(&ext_runtime.to_lowercase())
                     } else {
-                        base.ends_with(ext.as_str())
+                        base.ends_with(ext_runtime.as_str())
                     };
                     if matches {
                         can_exclude = true;
@@ -737,9 +759,9 @@ fn filter_by_ignored_extensions(
 }
 
 pub(crate) struct FileNameCompletionPlan {
-    pub(crate) file: String,
-    pub(crate) directory: String,
-    pub(crate) completions: Vec<String>,
+    pub(crate) file: LispString,
+    pub(crate) directory: LispString,
+    pub(crate) completions: Vec<LispString>,
     pub(crate) ignore_case: bool,
 }
 
@@ -751,22 +773,29 @@ pub(crate) fn prepare_file_name_completion_in_state(
 ) -> Result<FileNameCompletionPlan, Flow> {
     expect_range_args("file-name-completion", args, 2, 3)?;
 
-    let file = expect_string("file-name-completion", &args[0])?;
+    let file = expect_lisp_string("file-name-completion", &args[0])?;
+    let file_runtime = dired_runtime_string(&file);
+    let directory_arg = expect_lisp_string("file-name-completion", &args[1])?;
     let directory = super::fileio::resolve_filename_in_state(
         obarray,
         dynamic,
         buffers,
-        &expect_string("file-name-completion", &args[1])?,
+        &dired_runtime_string(&directory_arg),
     );
+    let directory = runtime_file_name_to_lisp_string(&directory);
     let ignore_case = get_completion_ignore_case(obarray);
     let ignored_extensions = get_ignored_extensions(obarray);
-    let completions = if file.contains('/') {
+    let completions = if file_runtime.contains('/') {
         Vec::new()
     } else {
-        let raw = collect_file_name_completions(&file, &directory, ignore_case)?;
+        let directory_runtime = dired_runtime_string(&directory);
+        let raw = collect_file_name_completions(&file_runtime, &directory_runtime, ignore_case)?;
         // Apply completion-ignored-extensions filtering for file-name-completion
         // (but not for file-name-all-completions, per GNU Emacs).
-        filter_by_ignored_extensions(&file, raw, &ignored_extensions, ignore_case)
+        filter_by_ignored_extensions(&file_runtime, raw, &ignored_extensions, ignore_case)
+            .into_iter()
+            .map(|completion| runtime_file_name_to_lisp_string(&completion))
+            .collect()
     };
 
     Ok(FileNameCompletionPlan {
@@ -780,9 +809,9 @@ pub(crate) fn prepare_file_name_completion_in_state(
 pub(crate) fn finish_file_name_completion_with_eval_predicate(
     eval: &mut Context,
     predicate: Option<&Value>,
-    directory: String,
-    file: String,
-    completions: Vec<String>,
+    directory: LispString,
+    file: LispString,
+    completions: Vec<LispString>,
     ignore_case: bool,
 ) -> EvalResult {
     let Some(predicate) = predicate.copied() else {
@@ -809,7 +838,7 @@ pub(crate) fn finish_file_name_completion_with_eval_predicate(
         completions,
         ignore_case,
         |predicate_arg| {
-            with_default_directory_binding(eval, bound_directory.as_str(), |eval| {
+            with_default_directory_binding(eval, &bound_directory, |eval| {
                 eval.apply(predicate, vec![predicate_arg])
             })
         },
@@ -828,15 +857,15 @@ pub(crate) fn predicate_uses_absolute_file_argument(
 
 pub(crate) fn finish_file_name_completion_with_callable_predicate(
     use_absolute_path: bool,
-    directory: String,
-    file: String,
-    completions: Vec<String>,
+    directory: LispString,
+    file: LispString,
+    completions: Vec<LispString>,
     ignore_case: bool,
     mut predicate_call: impl FnMut(Value) -> Result<Value, Flow>,
 ) -> EvalResult {
     let completions = filter_completions_by_callable_predicate(
         use_absolute_path,
-        directory.as_str(),
+        &directory,
         completions,
         |predicate_arg| predicate_call(predicate_arg),
     )?;
@@ -847,14 +876,18 @@ pub(crate) fn finish_file_name_completion_with_callable_predicate(
     ))
 }
 
-fn resolve_file_name_completion(file: &str, completions: Vec<String>, ignore_case: bool) -> Value {
+fn resolve_file_name_completion(
+    file: &LispString,
+    completions: Vec<LispString>,
+    ignore_case: bool,
+) -> Value {
     if completions.is_empty() {
         return Value::NIL;
     }
 
     let filtered = filter_completion_candidates(file, completions);
     if filtered.is_empty() {
-        return Value::string(file);
+        return Value::heap_string(file.clone());
     }
 
     // If there is exactly one completion and it matches FILE exactly, return t.
@@ -862,33 +895,36 @@ fn resolve_file_name_completion(file: &str, completions: Vec<String>, ignore_cas
     // string when FILE lacks the trailing slash (e.g. ".." -> "../").
     if filtered.len() == 1 {
         let comp = &filtered[0];
+        let file_runtime = dired_runtime_string(file);
+        let comp_runtime = dired_runtime_string(comp);
         let eq = if ignore_case {
-            comp.eq_ignore_ascii_case(file)
+            comp_runtime.eq_ignore_ascii_case(&file_runtime)
         } else {
-            comp == file
+            comp_runtime == file_runtime
         };
         if eq {
             return Value::T;
         }
-        return Value::string(comp.clone());
+        return Value::heap_string(comp.clone());
     }
 
     // Find the longest common prefix among completions.
     // When completion-ignore-case is set, use case-insensitive comparison
     // but preserve the case of the first match (which GNU Emacs refines to
     // prefer the match whose case matches the input).
-    let mut prefix = filtered[0].clone();
+    let mut prefix = dired_runtime_string(&filtered[0]);
     for comp in &filtered[1..] {
+        let comp_runtime = dired_runtime_string(comp);
         let common_len = if ignore_case {
             prefix
                 .chars()
-                .zip(comp.chars())
+                .zip(comp_runtime.chars())
                 .take_while(|(a, b)| a.to_lowercase().eq(b.to_lowercase()))
                 .count()
         } else {
             prefix
                 .chars()
-                .zip(comp.chars())
+                .zip(comp_runtime.chars())
                 .take_while(|(a, b)| a == b)
                 .count()
         };
@@ -903,23 +939,29 @@ fn resolve_file_name_completion(file: &str, completions: Vec<String>, ignore_cas
 
     // If the prefix equals the input exactly and there are multiple matches,
     // return the prefix (Emacs returns what was typed if ambiguous but valid prefix).
-    Value::string(prefix)
+    Value::heap_string(runtime_file_name_to_lisp_string(&prefix))
 }
 
-fn filter_completion_candidates(file: &str, completions: Vec<String>) -> Vec<String> {
+fn filter_completion_candidates(
+    file: &LispString,
+    completions: Vec<LispString>,
+) -> Vec<LispString> {
+    let file_runtime = dired_runtime_string(file);
     completions
         .into_iter()
-        .filter(|c| c != "./")
-        .filter(|c| file.starts_with("..") || c != "../")
+        .filter(|completion| dired_runtime_string(completion) != "./")
+        .filter(|completion| {
+            file_runtime.starts_with("..") || dired_runtime_string(completion) != "../"
+        })
         .collect()
 }
 
 fn filter_completions_by_symbol_predicate(
     eval: &mut Context,
     predicate: Option<&Value>,
-    directory: &str,
-    completions: Vec<String>,
-) -> Result<Vec<String>, Flow> {
+    directory: &LispString,
+    completions: Vec<LispString>,
+) -> Result<Vec<LispString>, Flow> {
     let Some(predicate) = predicate else {
         return Ok(completions);
     };
@@ -943,27 +985,31 @@ fn filter_completions_by_symbol_predicate(
 fn symbol_predicate_matches_candidate(
     eval: &mut Context,
     symbol: &str,
-    directory: &str,
-    candidate: &str,
+    directory: &LispString,
+    candidate: &LispString,
 ) -> Result<bool, Flow> {
-    if let Some(result) = eval.dispatch_subr(symbol, vec![Value::string(candidate)]) {
+    if let Some(result) = eval.dispatch_subr(symbol, vec![Value::heap_string(candidate.clone())]) {
         let result = result?;
         if result.is_truthy() || !is_builtin_path_predicate(symbol) {
             return Ok(result.is_truthy());
         }
 
-        let absolute = std::path::Path::new(directory).join(candidate);
+        let directory_runtime = dired_runtime_string(directory);
+        let candidate_runtime = dired_runtime_string(candidate);
+        let absolute = std::path::Path::new(&directory_runtime).join(&candidate_runtime);
         let absolute = absolute.to_string_lossy().into_owned();
-        if let Some(result) = eval.dispatch_subr(symbol, vec![Value::string(absolute)]) {
+        if let Some(result) = eval.dispatch_subr(symbol, vec![runtime_file_name_value(&absolute)]) {
             return Ok(result?.is_truthy());
         }
         return Ok(false);
     }
 
     // Fallback: try absolute path to make path predicates useful.
-    let absolute = std::path::Path::new(directory).join(candidate);
+    let directory_runtime = dired_runtime_string(directory);
+    let candidate_runtime = dired_runtime_string(candidate);
+    let absolute = std::path::Path::new(&directory_runtime).join(&candidate_runtime);
     let absolute = absolute.to_string_lossy().into_owned();
-    if let Some(result) = eval.dispatch_subr(symbol, vec![Value::string(absolute)]) {
+    if let Some(result) = eval.dispatch_subr(symbol, vec![runtime_file_name_value(&absolute)]) {
         return Ok(result?.is_truthy());
     }
 
@@ -973,10 +1019,10 @@ fn symbol_predicate_matches_candidate(
 
 fn filter_completions_by_callable_predicate(
     use_absolute_path: bool,
-    directory: &str,
-    completions: Vec<String>,
+    directory: &LispString,
+    completions: Vec<LispString>,
     mut predicate_call: impl FnMut(Value) -> Result<Value, Flow>,
-) -> Result<Vec<String>, Flow> {
+) -> Result<Vec<LispString>, Flow> {
     let mut filtered = Vec::new();
     for candidate in completions {
         let predicate_arg =
@@ -991,11 +1037,14 @@ fn filter_completions_by_callable_predicate(
 
 fn with_default_directory_binding<T>(
     eval: &mut Context,
-    directory: &str,
+    directory: &LispString,
     f: impl FnOnce(&mut Context) -> Result<T, Flow>,
 ) -> Result<T, Flow> {
     let count = eval.specpdl.len();
-    eval.specbind(intern("default-directory"), Value::string(directory));
+    eval.specbind(
+        intern("default-directory"),
+        Value::heap_string(directory.clone()),
+    );
     let result = f(eval);
     eval.unbind_to(count);
     result
@@ -1003,15 +1052,17 @@ fn with_default_directory_binding<T>(
 
 fn predicate_argument_for_callable_predicate(
     use_absolute_path: bool,
-    directory: &str,
-    candidate: &str,
+    directory: &LispString,
+    candidate: &LispString,
 ) -> Value {
     if use_absolute_path {
-        let absolute = std::path::Path::new(directory).join(candidate);
-        return Value::string(absolute.to_string_lossy().into_owned());
+        let directory_runtime = dired_runtime_string(directory);
+        let candidate_runtime = dired_runtime_string(candidate);
+        let absolute = std::path::Path::new(&directory_runtime).join(&candidate_runtime);
+        return runtime_file_name_value(absolute.to_string_lossy().as_ref());
     }
 
-    Value::string(candidate)
+    Value::heap_string(candidate.clone())
 }
 
 fn is_builtin_path_predicate(name: &str) -> bool {
@@ -1046,8 +1097,8 @@ pub(crate) fn builtin_file_attributes(eval: &mut Context, args: Vec<Value>) -> E
     // GNU Emacs (dired.c:1003-1006): If the filename is not a string
     // (e.g., nil from buffer-file-name on a non-file buffer), return nil
     // instead of signaling an error.
-    let filename_str = match args[0].as_str() {
-        Some(s) => s.to_string(),
+    let filename = match args[0].as_lisp_string() {
+        Some(string) => dired_runtime_string(string),
         None if args[0].is_nil() => return Ok(Value::NIL),
         None => {
             return Err(signal(
@@ -1057,7 +1108,7 @@ pub(crate) fn builtin_file_attributes(eval: &mut Context, args: Vec<Value>) -> E
         }
     };
     let filename =
-        super::fileio::resolve_filename_in_state(&eval.obarray, &[], &eval.buffers, &filename_str);
+        super::fileio::resolve_filename_in_state(&eval.obarray, &[], &eval.buffers, &filename);
     // GNU Emacs: return string names unless ID-FORMAT is nil or 'integer.
     let id_format_string = args
         .get(1)
@@ -1088,11 +1139,12 @@ fn extract_car_string(_name: &str, val: &Value) -> Result<String, Flow> {
     match val.kind() {
         ValueKind::Cons => {
             let pair_car = val.cons_car();
-            let pair_cdr = val.cons_cdr();
             match pair_car.kind() {
-                ValueKind::String => Ok(pair_car
-                    .as_runtime_string_owned()
-                    .expect("ValueKind::String must carry LispString payload")),
+                ValueKind::String => Ok(dired_runtime_string(
+                    pair_car
+                        .as_lisp_string()
+                        .expect("ValueKind::String must carry LispString payload"),
+                )),
                 other => Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("stringp"), *val],

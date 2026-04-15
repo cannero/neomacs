@@ -572,6 +572,15 @@ fn test_file_attributes_nonexistent() {
 }
 
 #[test]
+fn test_file_attributes_accepts_raw_unibyte_filename_value() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let result = builtin_file_attributes(&mut eval, vec![raw]).unwrap();
+    assert!(result.is_nil());
+}
+
+#[test]
 fn test_file_attributes_time_tuple_shape_and_gid_changep() {
     crate::test_utils::init_test_tracing();
     let (dir, _) = make_test_dir("fa_time");
