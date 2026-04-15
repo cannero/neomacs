@@ -923,29 +923,12 @@ pub(crate) fn eager_expand_toplevel_forms(
     macroexpand_fn: Value,
     sink: &mut impl FnMut(&mut super::eval::Context, Value, Value, bool) -> Result<Value, EvalError>,
 ) -> Result<Value, EvalError> {
-    eager_expand_toplevel_forms_with_extra_roots(
-        eval,
-        form_value,
-        macroexpand_fn,
-        &mut |_ctx| {},
-        sink,
-    )
-}
-
-pub(crate) fn eager_expand_toplevel_forms_with_extra_roots(
-    eval: &mut super::eval::Context,
-    form_value: Value,
-    macroexpand_fn: Value,
-    extra_roots: &mut impl FnMut(&mut super::eval::Context),
-    sink: &mut impl FnMut(&mut super::eval::Context, Value, Value, bool) -> Result<Value, EvalError>,
-) -> Result<Value, EvalError> {
     let original_form = form_value;
     let mutation_epoch_before = eval.macro_expansion_mutation_epoch();
     // Step 1: one-level expand — val = (internal-macroexpand-for-load val nil)
     // Note: real Emacs mutates `val` here; we shadow it.
     let step1_start = std::time::Instant::now();
     let val = eval.with_gc_scope(|ctx| {
-        extra_roots(ctx);
         ctx.root(form_value);
         ctx.root(macroexpand_fn);
         // `internal-macroexpand-for-load` is an internal loader helper.
@@ -963,7 +946,6 @@ pub(crate) fn eager_expand_toplevel_forms_with_extra_roots(
             // This matches .elc behavior where forms are already compiled.
             tracing::debug!("eager_expand step1 failed, falling back to plain eval");
             return eval.with_gc_scope(|ctx| {
-                extra_roots(ctx);
                 ctx.root(form_value);
                 sink(ctx, original_form, form_value, false)
             });
@@ -978,20 +960,13 @@ pub(crate) fn eager_expand_toplevel_forms_with_extra_roots(
         let cdr = val.cons_cdr();
         if car.is_symbol_named("progn") {
             return eval.with_gc_scope(|ctx| {
-                extra_roots(ctx);
                 ctx.root(val);
                 let mut result = Value::NIL;
                 let mut tail = cdr;
                 while tail.is_cons() {
                     let sub_form = tail.cons_car();
                     tail = tail.cons_cdr();
-                    result = eager_expand_toplevel_forms_with_extra_roots(
-                        ctx,
-                        sub_form,
-                        macroexpand_fn,
-                        extra_roots,
-                        sink,
-                    )?;
+                    result = eager_expand_toplevel_forms(ctx, sub_form, macroexpand_fn, sink)?;
                 }
                 Ok(result)
             });
@@ -1004,7 +979,6 @@ pub(crate) fn eager_expand_toplevel_forms_with_extra_roots(
     // Calling internal-macroexpand-for-load(val, t) with full-p=t triggers
     // macroexpand--all-toplevel (deep/recursive expansion via macroexpand-all).
     eval.with_gc_scope(|ctx| {
-        extra_roots(ctx);
         ctx.root(val);
         ctx.root(macroexpand_fn);
         ctx.root(original_form);
