@@ -233,12 +233,15 @@ fn docstore_set_get_function() {
     store.set_function_doc("car", "Return the car of LIST.");
     assert_eq!(
         store.get_function_doc("car"),
-        Some("Return the car of LIST.")
+        Some("Return the car of LIST.".to_string())
     );
 
     // Overwrite
     store.set_function_doc("car", "Updated doc.");
-    assert_eq!(store.get_function_doc("car"), Some("Updated doc."));
+    assert_eq!(
+        store.get_function_doc("car"),
+        Some("Updated doc.".to_string())
+    );
 }
 
 #[test]
@@ -250,7 +253,7 @@ fn docstore_set_get_variable() {
     store.set_variable_doc("load-path", "List of directories to search.");
     assert_eq!(
         store.get_variable_doc("load-path"),
-        Some("List of directories to search.")
+        Some("List of directories to search.".to_string())
     );
 }
 
@@ -320,10 +323,10 @@ fn docstore_all_documented() {
     store.set_variable_doc("a", "a doc");
 
     let fns = store.all_documented_functions();
-    assert_eq!(fns, vec!["car", "cdr"]);
+    assert_eq!(fns, vec!["car".to_string(), "cdr".to_string()]);
 
     let vars = store.all_documented_variables();
-    assert_eq!(vars, vec!["a", "x"]);
+    assert_eq!(vars, vec!["a".to_string(), "x".to_string()]);
 }
 
 #[test]

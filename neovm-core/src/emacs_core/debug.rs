@@ -10,8 +10,12 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::heap_types::LispString;
+
+use super::builtins::runtime_string_to_lisp_string;
 use super::intern::{SymId, intern, lookup_interned, resolve_sym};
 use super::print::print_value;
+use super::string_escape::emacs_bytes_to_storage_string;
 use super::value::{Value, ValueKind, VecLikeType};
 
 // ---------------------------------------------------------------------------
@@ -335,8 +339,8 @@ impl DebugState {
 
 /// Storage for documentation strings (function and variable docs).
 pub struct DocStore {
-    function_docs: HashMap<String, String>,
-    variable_docs: HashMap<String, String>,
+    function_docs: HashMap<SymId, LispString>,
+    variable_docs: HashMap<SymId, LispString>,
 }
 
 impl Default for DocStore {
@@ -356,22 +360,44 @@ impl DocStore {
 
     /// Set the documentation string for a function.
     pub fn set_function_doc(&mut self, name: &str, doc: &str) {
-        self.function_docs.insert(name.to_string(), doc.to_string());
+        self.set_function_doc_symbol(intern(name), runtime_string_to_lisp_string(doc, true));
+    }
+
+    pub fn set_function_doc_symbol(&mut self, name: SymId, doc: LispString) {
+        self.function_docs.insert(name, doc);
     }
 
     /// Set the documentation string for a variable.
     pub fn set_variable_doc(&mut self, name: &str, doc: &str) {
-        self.variable_docs.insert(name.to_string(), doc.to_string());
+        self.set_variable_doc_symbol(intern(name), runtime_string_to_lisp_string(doc, true));
+    }
+
+    pub fn set_variable_doc_symbol(&mut self, name: SymId, doc: LispString) {
+        self.variable_docs.insert(name, doc);
     }
 
     /// Get the documentation string for a function.
-    pub fn get_function_doc(&self, name: &str) -> Option<&str> {
-        self.function_docs.get(name).map(|s| s.as_str())
+    pub fn get_function_doc(&self, name: &str) -> Option<String> {
+        let symbol = lookup_interned(name)?;
+        self.get_function_doc_symbol(symbol)
+    }
+
+    pub fn get_function_doc_symbol(&self, name: SymId) -> Option<String> {
+        self.function_docs
+            .get(&name)
+            .map(|s| emacs_bytes_to_storage_string(s.as_bytes(), s.is_multibyte()))
     }
 
     /// Get the documentation string for a variable.
-    pub fn get_variable_doc(&self, name: &str) -> Option<&str> {
-        self.variable_docs.get(name).map(|s| s.as_str())
+    pub fn get_variable_doc(&self, name: &str) -> Option<String> {
+        let symbol = lookup_interned(name)?;
+        self.get_variable_doc_symbol(symbol)
+    }
+
+    pub fn get_variable_doc_symbol(&self, name: SymId) -> Option<String> {
+        self.variable_docs
+            .get(&name)
+            .map(|s| emacs_bytes_to_storage_string(s.as_bytes(), s.is_multibyte()))
     }
 
     /// Search for symbols whose names contain `pattern` (case-insensitive substring).
@@ -380,15 +406,17 @@ impl DocStore {
         let pattern_lower = pattern.to_lowercase();
         let mut seen: HashMap<String, (bool, bool)> = HashMap::new();
 
-        for name in self.function_docs.keys() {
+        for &name in self.function_docs.keys() {
+            let name = resolve_sym(name);
             if name.to_lowercase().contains(&pattern_lower) {
-                let entry = seen.entry(name.clone()).or_insert((false, false));
+                let entry = seen.entry(name.to_string()).or_insert((false, false));
                 entry.0 = true;
             }
         }
-        for name in self.variable_docs.keys() {
+        for &name in self.variable_docs.keys() {
+            let name = resolve_sym(name);
             if name.to_lowercase().contains(&pattern_lower) {
-                let entry = seen.entry(name.clone()).or_insert((false, false));
+                let entry = seen.entry(name.to_string()).or_insert((false, false));
                 entry.1 = true;
             }
         }
@@ -402,27 +430,35 @@ impl DocStore {
     }
 
     /// Return all function names that have documentation, sorted.
-    pub fn all_documented_functions(&self) -> Vec<&str> {
-        let mut names: Vec<&str> = self.function_docs.keys().map(|s| s.as_str()).collect();
+    pub fn all_documented_functions(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .function_docs
+            .keys()
+            .map(|name| resolve_sym(*name).to_string())
+            .collect();
         names.sort();
         names
     }
 
     /// Return all variable names that have documentation, sorted.
-    pub fn all_documented_variables(&self) -> Vec<&str> {
-        let mut names: Vec<&str> = self.variable_docs.keys().map(|s| s.as_str()).collect();
+    pub fn all_documented_variables(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .variable_docs
+            .keys()
+            .map(|name| resolve_sym(*name).to_string())
+            .collect();
         names.sort();
         names
     }
 
     /// Remove documentation for a function.
     pub fn remove_function_doc(&mut self, name: &str) -> bool {
-        self.function_docs.remove(name).is_some()
+        lookup_interned(name).is_some_and(|symbol| self.function_docs.remove(&symbol).is_some())
     }
 
     /// Remove documentation for a variable.
     pub fn remove_variable_doc(&mut self, name: &str) -> bool {
-        self.variable_docs.remove(name).is_some()
+        lookup_interned(name).is_some_and(|symbol| self.variable_docs.remove(&symbol).is_some())
     }
 }
 
