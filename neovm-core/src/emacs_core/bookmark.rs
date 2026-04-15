@@ -56,7 +56,7 @@ pub struct Bookmark {
 pub struct BookmarkManager {
     bookmarks: HashMap<String, Bookmark>,
     /// Most recently used bookmark names (most recent first).
-    recent: Vec<String>,
+    recent: Vec<LispString>,
     /// True if bookmarks have been modified since last save.
     modified: bool,
 }
@@ -79,20 +79,21 @@ impl BookmarkManager {
 
     /// Set (create or update) a bookmark.  Pushes the name to the front
     /// of the recently-used list.
-    pub fn set(&mut self, name: &str, bookmark: Bookmark) {
-        self.bookmarks.insert(name.to_string(), bookmark);
+    pub fn set(&mut self, name: LispString, mut bookmark: Bookmark) {
+        bookmark.name = name.clone();
+        self.bookmarks.insert(bookmark_lookup_key(&name), bookmark);
         self.touch_recent(name);
         self.modified = true;
     }
 
     /// Get a bookmark by name.
-    pub fn get(&self, name: &str) -> Option<&Bookmark> {
-        self.bookmarks.get(name)
+    pub fn get(&self, name: &LispString) -> Option<&Bookmark> {
+        self.bookmarks.get(&bookmark_lookup_key(name))
     }
 
     /// Delete a bookmark. Returns true if it existed.
-    pub fn delete(&mut self, name: &str) -> bool {
-        let removed = self.bookmarks.remove(name).is_some();
+    pub fn delete(&mut self, name: &LispString) -> bool {
+        let removed = self.bookmarks.remove(&bookmark_lookup_key(name)).is_some();
         if removed {
             self.recent.retain(|n| n != name);
             self.modified = true;
@@ -102,20 +103,22 @@ impl BookmarkManager {
 
     /// Rename a bookmark.  Returns true on success, false if the old name
     /// does not exist or the new name is already taken.
-    pub fn rename(&mut self, old: &str, new_name: &str) -> bool {
-        if !self.bookmarks.contains_key(old) {
+    pub fn rename(&mut self, old: &LispString, new_name: LispString) -> bool {
+        let old_key = bookmark_lookup_key(old);
+        let new_key = bookmark_lookup_key(&new_name);
+        if !self.bookmarks.contains_key(&old_key) {
             return false;
         }
-        if old != new_name && self.bookmarks.contains_key(new_name) {
+        if old_key != new_key && self.bookmarks.contains_key(&new_key) {
             return false;
         }
-        if let Some(mut bm) = self.bookmarks.remove(old) {
-            bm.name = runtime_string_to_bookmark_string(new_name);
-            self.bookmarks.insert(new_name.to_string(), bm);
+        if let Some(mut bm) = self.bookmarks.remove(&old_key) {
+            bm.name = new_name.clone();
+            self.bookmarks.insert(new_key, bm);
             // Update recent list
             for entry in &mut self.recent {
                 if entry == old {
-                    *entry = new_name.to_string();
+                    *entry = new_name.clone();
                 }
             }
             self.modified = true;
@@ -126,14 +129,15 @@ impl BookmarkManager {
     }
 
     /// Return a sorted list of all bookmark names.
-    pub fn all_names(&self) -> Vec<&str> {
-        let mut names: Vec<&str> = self.bookmarks.keys().map(|s| s.as_str()).collect();
-        names.sort();
+    pub fn all_names(&self) -> Vec<LispString> {
+        let mut names: Vec<LispString> =
+            self.bookmarks.values().map(|bm| bm.name.clone()).collect();
+        names.sort_by_key(bookmark_string_to_runtime);
         names
     }
 
     /// Return the most recently used bookmark names (most recent first).
-    pub fn recent_names(&self) -> &[String] {
+    pub fn recent_names(&self) -> &[LispString] {
         &self.recent
     }
 
@@ -157,10 +161,9 @@ impl BookmarkManager {
     /// Empty optional fields are represented as the empty string.
     pub fn save_to_string(&self) -> String {
         let mut out = String::new();
-        let mut names: Vec<&String> = self.bookmarks.keys().collect();
-        names.sort();
-        for (i, name) in names.iter().enumerate() {
-            let bm = &self.bookmarks[*name];
+        let mut bookmarks: Vec<&Bookmark> = self.bookmarks.values().collect();
+        bookmarks.sort_by_key(|bm| bookmark_string_to_runtime(&bm.name));
+        for (i, bm) in bookmarks.iter().enumerate() {
             if i > 0 {
                 out.push('\x0C'); // form feed separator
             }
@@ -201,7 +204,7 @@ impl BookmarkManager {
             if lines.len() < 7 {
                 continue; // malformed block, skip
             }
-            let name = lines[0].to_string();
+            let name = runtime_string_to_bookmark_string(lines[0]);
             if name.is_empty() {
                 continue;
             }
@@ -217,7 +220,7 @@ impl BookmarkManager {
             let handler =
                 (!lines[6].is_empty()).then(|| runtime_string_to_bookmark_string(lines[6]));
             let bm = Bookmark {
-                name: runtime_string_to_bookmark_string(&name),
+                name: name.clone(),
                 filename,
                 position,
                 front_context,
@@ -225,25 +228,25 @@ impl BookmarkManager {
                 annotation,
                 handler,
             };
-            self.bookmarks.insert(name, bm);
+            self.bookmarks.insert(bookmark_lookup_key(&name), bm);
         }
     }
 
     /// Move `name` to the front of the recently-used list, removing
     /// duplicates.
-    fn touch_recent(&mut self, name: &str) {
-        self.recent.retain(|n| n != name);
-        self.recent.insert(0, name.to_string());
+    fn touch_recent(&mut self, name: LispString) {
+        self.recent.retain(|n| n != &name);
+        self.recent.insert(0, name);
     }
 
     // pdump accessors
     pub(crate) fn dump_bookmarks(&self) -> &HashMap<String, Bookmark> {
         &self.bookmarks
     }
-    pub(crate) fn dump_recent(&self) -> &[String] {
+    pub(crate) fn dump_recent(&self) -> &[LispString] {
         &self.recent
     }
-    pub(crate) fn from_dump(bookmarks: HashMap<String, Bookmark>, recent: Vec<String>) -> Self {
+    pub(crate) fn from_dump(bookmarks: HashMap<String, Bookmark>, recent: Vec<LispString>) -> Self {
         Self {
             bookmarks,
             recent,
@@ -254,6 +257,10 @@ impl BookmarkManager {
 
 fn runtime_string_to_bookmark_string(text: &str) -> LispString {
     super::builtins::runtime_string_to_lisp_string(text, true)
+}
+
+fn bookmark_lookup_key(text: &LispString) -> String {
+    bookmark_string_to_runtime(text)
 }
 
 fn bookmark_string_to_runtime(text: &LispString) -> String {
@@ -291,15 +298,13 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     }
 }
 
-fn expect_string(value: &Value) -> Result<String, Flow> {
+fn expect_lisp_string(value: &Value) -> Result<LispString, Flow> {
     match value.kind() {
         ValueKind::String => Ok(value
-            .as_runtime_string_owned()
-            .expect("ValueKind::String must carry LispString payload")),
-        ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
-        ValueKind::Nil => Ok("nil".to_string()),
-        ValueKind::T => Ok("t".to_string()),
-        other => Err(signal(
+            .as_lisp_string()
+            .expect("ValueKind::String must carry LispString payload")
+            .clone()),
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
         )),
@@ -340,7 +345,7 @@ pub(crate) fn builtin_bookmark_set(
             ],
         ));
     }
-    let name = expect_string(&args[0])?;
+    let name = expect_lisp_string(&args[0])?;
     let _no_overwrite = args.get(1);
 
     let (position, filename) = match eval.buffers.current_buffer() {
@@ -359,7 +364,7 @@ pub(crate) fn builtin_bookmark_set(
     };
 
     let bm = Bookmark {
-        name: runtime_string_to_bookmark_string(&name),
+        name: name.clone(),
         filename: filename.as_deref().map(runtime_string_to_bookmark_string),
         position,
         front_context: None,
@@ -367,7 +372,7 @@ pub(crate) fn builtin_bookmark_set(
         annotation: None,
         handler: None,
     };
-    eval.bookmarks.set(&name, bm);
+    eval.bookmarks.set(name, bm);
     Ok(Value::NIL)
 }
 
@@ -397,8 +402,9 @@ pub(crate) fn builtin_bookmark_jump(
             ));
         }
         ValueKind::String => args[0]
-            .as_runtime_string_owned()
-            .expect("ValueKind::String must carry LispString payload"),
+            .as_lisp_string()
+            .expect("ValueKind::String must carry LispString payload")
+            .clone(),
         _ => return Ok(Value::NIL),
     };
 
@@ -422,7 +428,10 @@ pub(crate) fn builtin_bookmark_jump(
         }
         None => Err(signal(
             "error",
-            vec![Value::string(format!("Invalid bookmark {name}"))],
+            vec![Value::string(format!(
+                "Invalid bookmark {}",
+                bookmark_string_to_runtime(&name)
+            ))],
         )),
     }
 }
@@ -446,8 +455,9 @@ pub(crate) fn builtin_bookmark_delete(
     // Only string names are actionable for deletion.
     if args[0].is_string() {
         let name = args[0]
-            .as_runtime_string_owned()
-            .expect("ValueKind::String must carry LispString payload");
+            .as_lisp_string()
+            .expect("ValueKind::String must carry LispString payload")
+            .clone();
         let _ = eval.bookmarks.delete(&name);
     }
     Ok(Value::NIL)
@@ -480,45 +490,59 @@ pub(crate) fn builtin_bookmark_rename(
     let new_name = &args[1];
 
     if old.is_string() {
-        let old_name_str = old
-            .as_runtime_string_owned()
-            .expect("ValueKind::String must carry LispString payload");
-        if eval.bookmarks.get(&old_name_str).is_none() {
+        let old_name = old
+            .as_lisp_string()
+            .expect("ValueKind::String must carry LispString payload")
+            .clone();
+        if eval.bookmarks.get(&old_name).is_none() {
             return Err(signal(
                 "error",
-                vec![Value::string(format!("Invalid bookmark {old_name_str}"))],
+                vec![Value::string(format!(
+                    "Invalid bookmark {}",
+                    bookmark_string_to_runtime(&old_name)
+                ))],
             ));
         }
 
         let target = match new_name.kind() {
             ValueKind::String => new_name
-                .as_runtime_string_owned()
-                .expect("ValueKind::String must carry LispString payload"),
+                .as_lisp_string()
+                .expect("ValueKind::String must carry LispString payload")
+                .clone(),
             _ => {
                 return Err(signal(
                     "error",
-                    vec![Value::string(format!("Invalid bookmark {old_name_str}"))],
+                    vec![Value::string(format!(
+                        "Invalid bookmark {}",
+                        bookmark_string_to_runtime(&old_name)
+                    ))],
                 ));
             }
         };
 
-        if eval.bookmarks.rename(&old_name_str, &target) {
+        if eval.bookmarks.rename(&old_name, target) {
             return Ok(Value::NIL);
         }
         return Err(signal(
             "error",
-            vec![Value::string(format!("Invalid bookmark {old_name_str}"))],
+            vec![Value::string(format!(
+                "Invalid bookmark {}",
+                bookmark_string_to_runtime(&old_name)
+            ))],
         ));
     }
 
     if old.is_cons() {
         if new_name.is_string() {
-            let name_str = new_name
-                .as_runtime_string_owned()
+            let name = new_name
+                .as_lisp_string()
                 .expect("ValueKind::String must carry LispString payload");
             return Err(signal(
                 "error",
-                vec![Value::string(format!("Invalid bookmark {name_str}"))],
+                vec![Value::string(format!(
+                    "Invalid bookmark {}",
+                    bookmark_string_to_runtime(name)
+                ))],
             ));
         }
         return Ok(Value::NIL);
@@ -541,7 +565,7 @@ pub(crate) fn builtin_bookmark_all_names(
         .bookmarks
         .all_names()
         .into_iter()
-        .map(|name| Value::string(name.to_string()))
+        .map(Value::heap_string)
         .collect();
     Ok(Value::list(names))
 }
@@ -571,7 +595,7 @@ pub(crate) fn builtin_bookmark_get_filename(
         return Ok(Value::NIL);
     }
 
-    let name = expect_string(&args[0])?;
+    let name = expect_lisp_string(&args[0])?;
     let filename = eval
         .bookmarks
         .get(&name)
@@ -606,7 +630,7 @@ pub(crate) fn builtin_bookmark_get_position(
         return Ok(Value::NIL);
     }
 
-    let name = expect_string(&args[0])?;
+    let name = expect_lisp_string(&args[0])?;
     let position = eval
         .bookmarks
         .get(&name)
@@ -640,7 +664,7 @@ pub(crate) fn builtin_bookmark_get_annotation(
         return Ok(Value::NIL);
     }
 
-    let name = expect_string(&args[0])?;
+    let name = expect_lisp_string(&args[0])?;
     let annotation = eval
         .bookmarks
         .get(&name)
@@ -659,18 +683,18 @@ pub(crate) fn builtin_bookmark_set_annotation(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("bookmark-set-annotation", &args, 2)?;
-    let name = expect_string(&args[0])?;
+    let name = expect_lisp_string(&args[0])?;
     let annotation = if args[1].is_nil() {
         None
     } else {
-        Some(expect_string(&args[1])?)
+        Some(expect_lisp_string(&args[1])?)
     };
 
     if let Some(mut bm) = eval.bookmarks.get(&name).cloned() {
-        bm.annotation = annotation.as_deref().map(runtime_string_to_bookmark_string);
-        eval.bookmarks.set(&name, bm);
+        bm.annotation = annotation.clone();
+        eval.bookmarks.set(name, bm);
         if let Some(value) = annotation {
-            Ok(Value::string(value))
+            Ok(Value::heap_string(value))
         } else {
             Ok(Value::NIL)
         }

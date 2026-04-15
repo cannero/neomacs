@@ -1029,7 +1029,7 @@ pub struct DumpRegisterManager {
 // Bookmark
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpBookmark {
-    pub name: String,
+    pub name: DumpLispString,
     pub filename: Option<String>,
     pub position: usize,
     pub front_context: Option<String>,
@@ -1041,7 +1041,7 @@ pub struct DumpBookmark {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpBookmarkManager {
     pub bookmarks: Vec<(String, DumpBookmark)>,
-    pub recent: Vec<String>,
+    pub recent: Vec<DumpLispString>,
 }
 
 // Variable watchers

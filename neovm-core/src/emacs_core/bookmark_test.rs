@@ -28,17 +28,17 @@ fn set_get_delete() {
         handler: None,
     };
 
-    mgr.set("test", bm);
-    assert!(mgr.get("test").is_some());
-    assert_eq!(mgr.get("test").unwrap().position, 42);
+    mgr.set(bm_str("test"), bm);
+    assert!(mgr.get(&bm_str("test")).is_some());
+    assert_eq!(mgr.get(&bm_str("test")).unwrap().position, 42);
     assert_eq!(
-        bm_runtime(mgr.get("test").unwrap().filename.as_ref()).as_deref(),
+        bm_runtime(mgr.get(&bm_str("test")).unwrap().filename.as_ref()).as_deref(),
         Some("/tmp/test.txt"),
     );
 
-    assert!(mgr.delete("test"));
-    assert!(mgr.get("test").is_none());
-    assert!(!mgr.delete("test")); // already gone
+    assert!(mgr.delete(&bm_str("test")));
+    assert!(mgr.get(&bm_str("test")).is_none());
+    assert!(!mgr.delete(&bm_str("test"))); // already gone
 }
 
 #[test]
@@ -55,20 +55,19 @@ fn rename() {
         annotation: None,
         handler: None,
     };
-    mgr.set("old", bm);
+    mgr.set(bm_str("old"), bm);
 
-    assert!(mgr.rename("old", "new"));
-    assert!(mgr.get("old").is_none());
-    assert!(mgr.get("new").is_some());
-    assert_eq!(mgr.get("new").unwrap().name, bm_str("new"));
-    assert_eq!(mgr.get("new").unwrap().position, 10);
+    assert!(mgr.rename(&bm_str("old"), bm_str("new")));
+    assert!(mgr.get(&bm_str("old")).is_none());
+    assert!(mgr.get(&bm_str("new")).is_some());
+    assert_eq!(mgr.get(&bm_str("new")).unwrap().position, 10);
 }
 
 #[test]
 fn rename_nonexistent() {
     crate::test_utils::init_test_tracing();
     let mut mgr = BookmarkManager::new();
-    assert!(!mgr.rename("nope", "whatever"));
+    assert!(!mgr.rename(&bm_str("nope"), bm_str("whatever")));
 }
 
 #[test]
@@ -93,14 +92,14 @@ fn rename_collision() {
         annotation: None,
         handler: None,
     };
-    mgr.set("a", bm1);
-    mgr.set("b", bm2);
+    mgr.set(bm_str("a"), bm1);
+    mgr.set(bm_str("b"), bm2);
 
     // Cannot rename a -> b when b already exists
-    assert!(!mgr.rename("a", "b"));
+    assert!(!mgr.rename(&bm_str("a"), bm_str("b")));
 
     // Renaming to self is fine
-    assert!(mgr.rename("a", "a"));
+    assert!(mgr.rename(&bm_str("a"), bm_str("a")));
 }
 
 #[test]
@@ -118,11 +117,14 @@ fn all_names_sorted() {
             annotation: None,
             handler: None,
         };
-        mgr.set(name, bm);
+        mgr.set(bm_str(name), bm);
     }
 
     let names = mgr.all_names();
-    assert_eq!(names, vec!["alpha", "middle", "zebra"]);
+    assert_eq!(
+        names,
+        vec![bm_str("alpha"), bm_str("middle"), bm_str("zebra")]
+    );
 }
 
 #[test]
@@ -140,13 +142,13 @@ fn most_recent_tracking() {
             annotation: None,
             handler: None,
         };
-        mgr.set(name, bm);
+        mgr.set(bm_str(name), bm);
     }
 
     // Most recent should be "third"
-    assert_eq!(mgr.recent_names()[0], "third");
-    assert_eq!(mgr.recent_names()[1], "second");
-    assert_eq!(mgr.recent_names()[2], "first");
+    assert_eq!(mgr.recent_names()[0], bm_str("third"));
+    assert_eq!(mgr.recent_names()[1], bm_str("second"));
+    assert_eq!(mgr.recent_names()[2], bm_str("first"));
 
     // Re-set "first" -> moves to front
     let bm = Bookmark {
@@ -158,8 +160,8 @@ fn most_recent_tracking() {
         annotation: None,
         handler: None,
     };
-    mgr.set("first", bm);
-    assert_eq!(mgr.recent_names()[0], "first");
+    mgr.set(bm_str("first"), bm);
+    assert_eq!(mgr.recent_names()[0], bm_str("first"));
 }
 
 #[test]
@@ -185,8 +187,8 @@ fn serialize_deserialize() {
         annotation: None,
         handler: Some(bm_str("my-handler")),
     };
-    mgr.set("alpha", bm1);
-    mgr.set("beta", bm2);
+    mgr.set(bm_str("alpha"), bm1);
+    mgr.set(bm_str("beta"), bm2);
 
     let data = mgr.save_to_string();
     assert!(!data.is_empty());
@@ -196,9 +198,9 @@ fn serialize_deserialize() {
     mgr2.load_from_string(&data);
 
     let names = mgr2.all_names();
-    assert_eq!(names, vec!["alpha", "beta"]);
+    assert_eq!(names, vec![bm_str("alpha"), bm_str("beta")]);
 
-    let a = mgr2.get("alpha").unwrap();
+    let a = mgr2.get(&bm_str("alpha")).unwrap();
     assert_eq!(a.position, 100);
     assert_eq!(
         bm_runtime(a.filename.as_ref()).as_deref(),
@@ -215,7 +217,7 @@ fn serialize_deserialize() {
     );
     assert!(a.handler.is_none());
 
-    let b = mgr2.get("beta").unwrap();
+    let b = mgr2.get(&bm_str("beta")).unwrap();
     assert_eq!(b.position, 1);
     assert!(b.filename.is_none());
     assert_eq!(
@@ -237,7 +239,7 @@ fn load_empty_string() {
         annotation: None,
         handler: None,
     };
-    mgr.set("test", bm);
+    mgr.set(bm_str("test"), bm);
 
     mgr.load_from_string("");
     assert!(mgr.all_names().is_empty());
@@ -258,13 +260,13 @@ fn modified_flag() {
         annotation: None,
         handler: None,
     };
-    mgr.set("test", bm);
+    mgr.set(bm_str("test"), bm);
     assert!(mgr.is_modified());
 
     mgr.mark_saved();
     assert!(!mgr.is_modified());
 
-    mgr.delete("test");
+    mgr.delete(&bm_str("test"));
     assert!(mgr.is_modified());
 }
 
@@ -342,7 +344,7 @@ fn test_builtin_bookmark_delete() {
     let result = builtin_bookmark_delete(&mut eval, vec![Value::string("del-me")]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
-    assert!(eval.bookmarks.get("del-me").is_none());
+    assert!(eval.bookmarks.get(&bm_str("del-me")).is_none());
 
     // Delete again -> nil (not found).
     let result = builtin_bookmark_delete(&mut eval, vec![Value::string("del-me")]);
@@ -394,8 +396,8 @@ fn test_builtin_bookmark_rename() {
     assert!(result.is_ok());
 
     // Old name gone, new name exists.
-    assert!(eval.bookmarks.get("old-name").is_none());
-    assert!(eval.bookmarks.get("new-name").is_some());
+    assert!(eval.bookmarks.get(&bm_str("old-name")).is_none());
+    assert!(eval.bookmarks.get(&bm_str("new-name")).is_some());
 }
 
 #[test]
@@ -441,8 +443,8 @@ fn test_builtin_bookmark_rename_permissive_designators() {
         vec![Value::string("old-name"), Value::string("new-name")],
     );
     assert!(rename_ok.is_ok());
-    assert!(eval.bookmarks.get("old-name").is_none());
-    assert!(eval.bookmarks.get("new-name").is_some());
+    assert!(eval.bookmarks.get(&bm_str("old-name")).is_none());
+    assert!(eval.bookmarks.get(&bm_str("new-name")).is_some());
 }
 
 #[test]
@@ -576,13 +578,13 @@ fn test_builtin_bookmark_save_load() {
     );
 
     // Verify restored bookmark payloads.
-    let bm1 = eval.bookmarks.get("bm1").expect("bm1 restored");
+    let bm1 = eval.bookmarks.get(&bm_str("bm1")).expect("bm1 restored");
     assert_eq!(
         bm_runtime(bm1.filename.as_ref()).as_deref(),
         Some("/file1.el")
     );
 
-    let bm2 = eval.bookmarks.get("bm2").expect("bm2 restored");
+    let bm2 = eval.bookmarks.get(&bm_str("bm2")).expect("bm2 restored");
     assert_eq!(
         bm_runtime(bm2.filename.as_ref()).as_deref(),
         Some("/file2.el")

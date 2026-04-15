@@ -1711,7 +1711,7 @@ pub(crate) fn dump_bookmark_manager(bm: &BookmarkManager) -> DumpBookmarkManager
                 (
                     k.clone(),
                     DumpBookmark {
-                        name: crate::emacs_core::builtins::runtime_string_from_lisp_string(&b.name),
+                        name: dump_lisp_string(&b.name),
                         filename: b
                             .filename
                             .as_ref()
@@ -1737,7 +1737,7 @@ pub(crate) fn dump_bookmark_manager(bm: &BookmarkManager) -> DumpBookmarkManager
                 )
             })
             .collect(),
-        recent: bm.dump_recent().to_vec(),
+        recent: bm.dump_recent().iter().map(dump_lisp_string).collect(),
     }
 }
 
@@ -3165,7 +3165,7 @@ pub(crate) fn load_bookmark_manager(dbm: &DumpBookmarkManager) -> BookmarkManage
             (
                 k.clone(),
                 Bookmark {
-                    name: crate::emacs_core::builtins::runtime_string_to_lisp_string(&b.name, true),
+                    name: load_lisp_string(&b.name),
                     filename: b.filename.as_deref().map(|s| {
                         crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
                     }),
@@ -3186,7 +3186,7 @@ pub(crate) fn load_bookmark_manager(dbm: &DumpBookmarkManager) -> BookmarkManage
             )
         })
         .collect();
-    BookmarkManager::from_dump(bookmarks, dbm.recent.clone())
+    BookmarkManager::from_dump(bookmarks, dbm.recent.iter().map(load_lisp_string).collect())
 }
 
 pub(crate) fn load_abbrev_manager(dam: &DumpAbbrevManager) -> AbbrevManager {
