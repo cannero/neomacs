@@ -12,6 +12,7 @@
 
 use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::sync::OnceLock;
 
@@ -41,6 +42,14 @@ impl Default for StringInterner {
 }
 
 impl StringInterner {
+    fn normalize_symbol_name_lisp_string<'a>(s: &'a LispString) -> Cow<'a, LispString> {
+        if s.is_ascii() && s.is_multibyte() {
+            Cow::Owned(LispString::from_unibyte(s.as_bytes().to_vec()))
+        } else {
+            Cow::Borrowed(s)
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             strings: Vec::new(),
@@ -64,11 +73,12 @@ impl StringInterner {
 
     /// Intern a symbol-name atom from an exact Lisp string representation.
     pub fn intern_lisp_string(&mut self, s: &LispString) -> NameId {
-        if let Some(&idx) = self.map.get(s) {
+        let normalized = Self::normalize_symbol_name_lisp_string(s);
+        if let Some(&idx) = self.map.get(normalized.as_ref()) {
             return idx;
         }
         let idx = NameId(self.strings.len() as u32);
-        let leaked = Box::leak(Box::new(s.clone())) as &'static LispString;
+        let leaked = Box::leak(Box::new(normalized.into_owned())) as &'static LispString;
         self.strings.push(leaked);
         self.map.insert(leaked, idx);
         idx
@@ -82,7 +92,8 @@ impl StringInterner {
 
     /// Look up a symbol-name atom without interning it.
     pub fn lookup_lisp_string(&self, s: &LispString) -> Option<NameId> {
-        self.map.get(s).copied()
+        let normalized = Self::normalize_symbol_name_lisp_string(s);
+        self.map.get(normalized.as_ref()).copied()
     }
 
     /// Resolve a name id back to its string. Panics if id is invalid.
@@ -430,20 +441,42 @@ pub fn lookup_interned_lisp_string(s: &LispString) -> Option<SymId> {
 
 #[inline]
 pub fn is_canonical_id(id: SymId) -> bool {
+    if let Some(is_canonical) = thread_local_is_canonical(id) {
+        return is_canonical;
+    }
     let registry = global_symbol_registry().read();
-    registry.is_canonical_id(id)
+    let is_canonical = registry.is_canonical_id(id);
+    drop(registry);
+    thread_local_record_canonical(id, is_canonical);
+    is_canonical
 }
 
 #[inline]
 pub fn resolve_sym_metadata(id: SymId) -> (&'static str, bool) {
+    if let (Some(name), Some(is_canonical)) =
+        (thread_local_resolve(id), thread_local_is_canonical(id))
+    {
+        return (name, is_canonical);
+    }
     let registry = global_symbol_registry().read();
-    (registry.resolve(id), registry.is_canonical_id(id))
+    let name = registry.resolve(id);
+    let is_canonical = registry.is_canonical_id(id);
+    drop(registry);
+    thread_local_record(id, name);
+    thread_local_record_canonical(id, is_canonical);
+    (name, is_canonical)
 }
 
 #[inline]
 pub(crate) fn symbol_name_id(id: SymId) -> NameId {
+    if let Some(name_id) = thread_local_name_id(id) {
+        return name_id;
+    }
     let registry = global_symbol_registry().read();
-    registry.name_id(id)
+    let name_id = registry.name_id(id);
+    drop(registry);
+    thread_local_record_name_id(id, name_id);
+    name_id
 }
 
 #[inline]
@@ -497,6 +530,8 @@ pub fn resolve_sym_lisp_string(id: SymId) -> &'static LispString {
 
 thread_local! {
     static SYM_NAME_CACHE: RefCell<Vec<Option<&'static str>>> = const { RefCell::new(Vec::new()) };
+    static SYM_NAME_ID_CACHE: RefCell<Vec<Option<NameId>>> = const { RefCell::new(Vec::new()) };
+    static SYM_CANONICAL_CACHE: RefCell<Vec<Option<bool>>> = const { RefCell::new(Vec::new()) };
 }
 
 #[inline]
@@ -516,6 +551,46 @@ fn thread_local_record(id: SymId, name: &'static str) {
             cache.resize(idx + 1, None);
         }
         cache[idx] = Some(name);
+    });
+}
+
+#[inline]
+fn thread_local_name_id(id: SymId) -> Option<NameId> {
+    SYM_NAME_ID_CACHE.with(|cache| {
+        let cache = cache.borrow();
+        cache.get(id.0 as usize).and_then(|slot| *slot)
+    })
+}
+
+#[inline]
+fn thread_local_record_name_id(id: SymId, name_id: NameId) {
+    SYM_NAME_ID_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let idx = id.0 as usize;
+        if cache.len() <= idx {
+            cache.resize(idx + 1, None);
+        }
+        cache[idx] = Some(name_id);
+    });
+}
+
+#[inline]
+fn thread_local_is_canonical(id: SymId) -> Option<bool> {
+    SYM_CANONICAL_CACHE.with(|cache| {
+        let cache = cache.borrow();
+        cache.get(id.0 as usize).and_then(|slot| *slot)
+    })
+}
+
+#[inline]
+fn thread_local_record_canonical(id: SymId, is_canonical: bool) {
+    SYM_CANONICAL_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let idx = id.0 as usize;
+        if cache.len() <= idx {
+            cache.resize(idx + 1, None);
+        }
+        cache[idx] = Some(is_canonical);
     });
 }
 

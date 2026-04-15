@@ -1447,16 +1447,16 @@ fn parse_emacs_special_float(token: &str) -> Option<f64> {
 /// `string_to_multibyte`.
 /// Build a LispString from reader-produced bytes (Emacs internal encoding).
 ///
-/// The reader produces bytes in Emacs encoding directly. For pure ASCII
-/// strings, we create multibyte (which is the same as UTF-8). If there
-/// are non-ASCII bytes, we create a multibyte LispString using
-/// `from_emacs_bytes` which correctly counts characters.
+/// GNU reads ordinary source string literals as unibyte when the contents are
+/// pure ASCII, even though the same bytes could be represented as multibyte
+/// UTF-8. Keep that canonicalization here so `(intern "foo")` and
+/// `(intern (string-to-multibyte "foo"))` name the same symbol.
+///
+/// Non-ASCII reader bytes stay multibyte and go through `from_emacs_bytes`
+/// so Emacs internal encoding still counts characters correctly.
 fn maybe_recombine_latin1_emacs(data: Vec<u8>) -> crate::heap_types::LispString {
-    use crate::emacs_core::emacs_char;
     if data.is_empty() || data.iter().all(|&b| b < 0x80) {
-        // Pure ASCII — multibyte and unibyte are identical.
-        // Use from_emacs_bytes to get correct schars.
-        return crate::heap_types::LispString::from_emacs_bytes(data);
+        return crate::heap_types::LispString::from_unibyte(data);
     }
     // The bytes are in Emacs internal encoding (may contain C0/C1 overlong
     // for raw bytes, or standard multi-byte UTF-8 for Unicode).

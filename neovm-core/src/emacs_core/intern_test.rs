@@ -30,6 +30,18 @@ fn runtime_intern() {
 }
 
 #[test]
+fn runtime_symbol_name_id_stable_across_growth() {
+    crate::test_utils::init_test_tracing();
+    let early = intern("early-runtime-name");
+    let early_name = symbol_name_id(early);
+    for i in 0..500 {
+        intern(&format!("growth-runtime-{i}"));
+    }
+    assert_eq!(symbol_name_id(early), early_name);
+    assert_eq!(resolve_name(early_name), "early-runtime-name");
+}
+
+#[test]
 fn name_interner_empty_string() {
     crate::test_utils::init_test_tracing();
     let mut interner = StringInterner::new();
@@ -60,6 +72,22 @@ fn name_interner_idempotent() {
     for _ in 0..100 {
         assert_eq!(interner.intern("repeated"), first);
     }
+}
+
+#[test]
+fn name_interner_canonicalizes_ascii_multibyte_names_to_unibyte_atoms() {
+    crate::test_utils::init_test_tracing();
+    let mut interner = StringInterner::new();
+    let multibyte = crate::heap_types::LispString::from_utf8("batch-byte-compile");
+    let unibyte = crate::heap_types::LispString::from_unibyte(b"batch-byte-compile".to_vec());
+
+    let from_multibyte = interner.intern_lisp_string(&multibyte);
+    let from_unibyte = interner.intern_lisp_string(&unibyte);
+
+    assert_eq!(from_multibyte, from_unibyte);
+    let resolved = interner.resolve_lisp_string(from_multibyte);
+    assert_eq!(resolved.as_bytes(), b"batch-byte-compile");
+    assert!(!resolved.is_multibyte());
 }
 
 #[test]
@@ -98,6 +126,22 @@ fn canonical_id_distinguishes_interned_from_uninterned_duplicates() {
     assert!(registry.is_canonical_id(canonical));
     assert!(!registry.is_canonical_id(uninterned));
     assert_eq!(registry.lookup("dup"), Some(canonical));
+}
+
+#[test]
+fn runtime_registry_canonicalizes_ascii_multibyte_and_unibyte_names() {
+    crate::test_utils::init_test_tracing();
+    let mut registry = SymbolRegistry::new();
+    let multibyte = crate::heap_types::LispString::from_utf8("foo");
+    let unibyte = crate::heap_types::LispString::from_unibyte(b"foo".to_vec());
+
+    let from_multibyte = registry.intern_lisp_string(&multibyte);
+    let from_unibyte = registry.intern_lisp_string(&unibyte);
+
+    assert_eq!(from_multibyte, from_unibyte);
+    let resolved = registry.resolve_lisp_string(from_multibyte);
+    assert_eq!(resolved.as_bytes(), b"foo");
+    assert!(!resolved.is_multibyte());
 }
 
 #[test]

@@ -183,6 +183,24 @@ fn string_simple() {
 }
 
 #[test]
+fn ascii_string_literal_is_read_as_unibyte() {
+    crate::test_utils::init_test_tracing();
+    let v = read1(r#""hello""#);
+    let ls = v.as_lisp_string().expect("string literal");
+    assert_eq!(ls.as_bytes(), b"hello");
+    assert!(!ls.is_multibyte());
+}
+
+#[test]
+fn empty_string_literal_is_read_as_unibyte() {
+    crate::test_utils::init_test_tracing();
+    let v = read1(r#""""#);
+    let ls = v.as_lisp_string().expect("string literal");
+    assert!(ls.as_bytes().is_empty());
+    assert!(!ls.is_multibyte());
+}
+
+#[test]
 fn string_escapes() {
     crate::test_utils::init_test_tracing();
     let v = read1(r#""a\nb\t""#);

@@ -4,7 +4,8 @@ use crate::emacs_core::eval::{ConditionFrame, ResumeTarget};
 use crate::emacs_core::format_eval_result;
 use crate::heap_types::LispString;
 use crate::test_utils::{
-    load_minimal_gnu_backquote_runtime, runtime_startup_context, runtime_startup_eval_all,
+    eval_with_ldefs_boot_autoloads, load_minimal_gnu_backquote_runtime, runtime_startup_context,
+    runtime_startup_eval_all,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -253,6 +254,71 @@ fn source_cons_macro_form_expands_via_value_expansion_path() {
 
     assert_eq!(format_eval_result(&first), "OK 3");
     assert_eq!(format_eval_result(&second), "OK 3");
+}
+
+#[test]
+fn recursive_edit_without_input_receiver_still_runs_noninteractive_top_level() {
+    crate::test_utils::init_test_tracing();
+
+    let mut ev = Context::new();
+    ev.set_variable("noninteractive", Value::T);
+    let top_level = crate::emacs_core::value_reader::read_all(
+        "(progn (setq neomacs--batch-no-input-probe 42) nil)",
+    )
+    .expect("parse top-level form")
+    .into_iter()
+    .next()
+    .expect("top-level form");
+    ev.set_variable("top-level", top_level);
+
+    let result = ev.recursive_edit();
+    assert!(result.is_ok(), "batch recursive edit should exit cleanly");
+    assert_eq!(
+        ev.shutdown_request(),
+        Some(crate::emacs_core::eval::ShutdownRequest {
+            exit_code: 0,
+            restart: false,
+        })
+    );
+    assert_eq!(
+        ev.obarray().symbol_value("neomacs--batch-no-input-probe"),
+        Some(&Value::fixnum(42))
+    );
+}
+
+#[test]
+fn clear_top_level_eval_state_discards_stale_named_call_cache_entries() {
+    crate::test_utils::init_test_tracing();
+
+    let mut ev = Context::new();
+    ev.eval_str(r#"(autoload 'neomacs--stale-call-target "dummy-file" nil t)"#)
+        .expect("autoload registration should succeed");
+    let sym = intern("neomacs--stale-call-target");
+    let epoch = ev.obarray.function_epoch();
+
+    ev.named_call_cache.insert(
+        sym,
+        NamedCallCacheEntry {
+            function_epoch: epoch,
+            target: NamedCallTarget::Void,
+        },
+    );
+    assert!(matches!(
+        ev.resolve_named_call_target_by_id(sym),
+        NamedCallTarget::Void
+    ));
+
+    ev.clear_top_level_eval_state();
+
+    match ev.resolve_named_call_target_by_id(sym) {
+        NamedCallTarget::Obarray(function) => {
+            assert!(
+                crate::emacs_core::autoload::is_autoload_value(&function),
+                "expected autoload function cell, got {function}"
+            );
+        }
+        other => panic!("expected autoload-backed named call target, got {other:?}"),
+    }
 }
 
 #[test]
@@ -3967,6 +4033,34 @@ fn intern_keyword_matches_reader_keyword_for_eq_and_memq() {
         ),
         "OK (t t t t)"
     );
+}
+
+#[test]
+fn intern_canonicalizes_ascii_multibyte_names_to_existing_symbol() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        eval_one(
+            r#"(let ((m (string-to-multibyte "foo")))
+                 (list (multibyte-string-p m)
+                       (eq (intern m) 'foo)
+                       (multibyte-string-p (symbol-name (intern m)))))"#
+        ),
+        "OK (t t nil)"
+    );
+}
+
+#[test]
+fn intern_reuses_ldefs_autoload_symbol_for_ascii_multibyte_name() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = eval_with_ldefs_boot_autoloads(&["batch-byte-compile"]);
+    let result = ev.eval_str(
+        r#"(let ((m (string-to-multibyte "batch-byte-compile")))
+             (let ((sym (intern m)))
+               (list (eq sym 'batch-byte-compile)
+                     (fboundp sym)
+                     (multibyte-string-p (symbol-name sym)))))"#,
+    );
+    assert_eq!(format_eval_result(&result), "OK (t t nil)");
 }
 
 #[test]
@@ -8215,7 +8309,10 @@ fn runtime_backtrace_frame_owns_args_across_exact_gc() {
         .last()
         .expect("runtime backtrace frame should remain present")
         .args()[0];
-    assert_eq!(rooted.as_vector_data().unwrap().as_slice(), &[Value::fixnum(7)]);
+    assert_eq!(
+        rooted.as_vector_data().unwrap().as_slice(),
+        &[Value::fixnum(7)]
+    );
 
     ev.pop_runtime_backtrace_frame();
 }
