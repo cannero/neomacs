@@ -198,6 +198,50 @@ fn eval_column_and_indentation_subset() {
 }
 
 #[test]
+fn current_column_and_indentation_handle_unibyte_raw_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let buffer_id = ev.buffers.current_buffer_id().expect("current buffer");
+    ev.buffers
+        .set_buffer_multibyte_flag(buffer_id, false)
+        .expect("set-buffer-multibyte should accept current buffer");
+    ev.buffers.insert_lisp_string_into_buffer(
+        buffer_id,
+        &crate::heap_types::LispString::from_unibyte(vec![b' ', b'\t', 0xFF, b'a']),
+    );
+
+    let current_column = builtin_current_column(&mut ev, vec![]).expect("current-column");
+    assert_eq!(current_column, Value::fixnum(13));
+
+    let current_indentation =
+        builtin_current_indentation(&mut ev, vec![]).expect("current-indentation");
+    assert_eq!(current_indentation, Value::fixnum(8));
+}
+
+#[test]
+fn move_to_column_handles_unibyte_raw_byte_display_width() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let buffer_id = ev.buffers.current_buffer_id().expect("current buffer");
+    ev.buffers
+        .set_buffer_multibyte_flag(buffer_id, false)
+        .expect("set-buffer-multibyte should accept current buffer");
+    ev.buffers.insert_lisp_string_into_buffer(
+        buffer_id,
+        &crate::heap_types::LispString::from_unibyte(vec![b' ', b'\t', 0xFF, b'a']),
+    );
+    ev.buffers.goto_buffer_byte(buffer_id, 0);
+
+    let reached = builtin_move_to_column(&mut ev, vec![Value::fixnum(9)]).expect("move-to-column");
+    assert_eq!(reached, Value::fixnum(12));
+
+    let buffer = ev.buffers.get(buffer_id).expect("buffer");
+    assert_eq!(buffer.point_byte(), 3);
+    let current_column = builtin_current_column(&mut ev, vec![]).expect("current-column");
+    assert_eq!(current_column, Value::fixnum(12));
+}
+
+#[test]
 fn eval_move_to_column_wholenump_validation() {
     crate::test_utils::init_test_tracing();
     let mut ev = super::super::eval::Context::new();

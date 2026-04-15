@@ -13,6 +13,7 @@ use super::symbol::Obarray;
 use super::value::*;
 use crate::buffer::{Buffer, BufferManager};
 use crate::emacs_core::value::ValueKind;
+use crate::heap_types::LispString;
 
 // ---------------------------------------------------------------------------
 // Argument helpers (local to this module)
@@ -137,17 +138,26 @@ fn buffer_read_only_active(eval: &super::eval::Context, buf: &Buffer) -> bool {
     buffer_read_only_active_in_state(&eval.obarray, &[], buf)
 }
 
-fn line_bounds(text: &str, begv: usize, zv: usize, point: usize) -> (usize, usize) {
-    let bytes = text.as_bytes();
+#[derive(Clone, Copy)]
+struct DecodedUnit {
+    start: usize,
+    end: usize,
+    code: u32,
+    width: usize,
+}
+
+fn line_bounds(buf: &Buffer, point: usize) -> (usize, usize) {
+    let begv = buf.begv_byte;
+    let zv = buf.zv_byte;
     let pt = point.clamp(begv, zv);
 
     let mut bol = pt;
-    while bol > begv && bytes[bol - 1] != b'\n' {
+    while bol > begv && buf.text.emacs_byte_at(bol - 1) != Some(b'\n') {
         bol -= 1;
     }
 
     let mut eol = pt;
-    while eol < zv && bytes[eol] != b'\n' {
+    while eol < zv && buf.text.emacs_byte_at(eol) != Some(b'\n') {
         eol += 1;
     }
 
@@ -163,10 +173,69 @@ fn next_column(column: usize, ch: char, tab_width: usize) -> usize {
     }
 }
 
+fn next_column_for_code(column: usize, code: u32, width: usize, tab_width: usize) -> usize {
+    if code == b'\t' as u32 {
+        let tab = tab_width.max(1);
+        column + (tab - (column % tab))
+    } else {
+        column + width
+    }
+}
+
+fn decode_lisp_string_units(text: &LispString) -> Vec<DecodedUnit> {
+    let mut out = Vec::new();
+    let bytes = text.as_bytes();
+    if text.is_multibyte() {
+        let mut pos = 0usize;
+        while pos < bytes.len() {
+            let start = pos;
+            let (code, len) = crate::emacs_core::emacs_char::string_char(&bytes[pos..]);
+            pos += len;
+            let width = if crate::emacs_core::emacs_char::char_byte8_p(code) {
+                4
+            } else if let Some(ch) = char::from_u32(code) {
+                crate::encoding::char_width(ch)
+            } else {
+                1
+            };
+            out.push(DecodedUnit {
+                start,
+                end: pos,
+                code,
+                width,
+            });
+        }
+        return out;
+    }
+
+    for (idx, &byte) in bytes.iter().enumerate() {
+        let width = if byte < 0x80 {
+            crate::encoding::char_width(byte as char)
+        } else {
+            4
+        };
+        out.push(DecodedUnit {
+            start: idx,
+            end: idx + 1,
+            code: byte as u32,
+            width,
+        });
+    }
+    out
+}
+
 fn column_for_prefix(prefix: &str, tab_width: usize) -> usize {
     let mut column = 0usize;
     for ch in prefix.chars() {
         column = next_column(column, ch, tab_width);
+    }
+    column
+}
+
+fn column_for_lisp_string(prefix: &LispString, tab_width: usize) -> usize {
+    let mut column = 0usize;
+    for unit in decode_lisp_string_units(prefix) {
+        column = next_column_for_code(column, unit.code, unit.width, tab_width);
     }
     column
 }
@@ -268,15 +337,15 @@ pub(crate) fn builtin_current_indentation(
     };
 
     let tabw = tab_width_in_state(&ctx.obarray, &[], Some(buf));
-    let text = buf.text.to_string();
-    let (bol, eol) = line_bounds(&text, buf.begv_byte, buf.zv_byte, buf.pt_byte);
-    let line = &text[bol..eol];
+    let (bol, eol) = line_bounds(buf, buf.pt_byte);
+    let line = buf.buffer_substring_lisp_string(bol, eol);
 
     let mut column = 0usize;
-    for ch in line.chars() {
-        match ch {
-            ' ' | '\t' => column = next_column(column, ch, tabw),
-            _ => break,
+    for unit in decode_lisp_string_units(&line) {
+        if unit.code == b' ' as u32 || unit.code == b'\t' as u32 {
+            column = next_column_for_code(column, unit.code, unit.width, tabw);
+        } else {
+            break;
         }
     }
 
@@ -296,12 +365,11 @@ pub(crate) fn builtin_current_column(
     };
 
     let tabw = tab_width_in_state(&ctx.obarray, &[], Some(buf));
-    let text = buf.text.to_string();
     let pt = buf.pt_byte.clamp(buf.begv_byte, buf.zv_byte);
-    let (bol, _) = line_bounds(&text, buf.begv_byte, buf.zv_byte, pt);
-    let prefix = &text[bol..pt];
+    let (bol, _) = line_bounds(buf, pt);
+    let prefix = buf.buffer_substring_lisp_string(bol, pt);
 
-    Ok(Value::fixnum(column_for_prefix(prefix, tabw) as i64))
+    Ok(Value::fixnum(column_for_lisp_string(&prefix, tabw) as i64))
 }
 
 /// (move-to-column COLUMN &optional FORCE) -> COLUMN-REACHED
@@ -323,10 +391,9 @@ pub(crate) fn builtin_move_to_column(
     };
     let tabw = tab_width_in_state(&ctx.obarray, &[], Some(buf));
     let read_only = buffer_read_only_active_in_state(&ctx.obarray, &[], buf);
-    let text = buf.text.to_string();
     let pt = buf.pt_byte.clamp(buf.begv_byte, buf.zv_byte);
-    let (bol, eol) = line_bounds(&text, buf.begv_byte, buf.zv_byte, pt);
-    let line = &text[bol..eol];
+    let (bol, eol) = line_bounds(buf, pt);
+    let line = buf.buffer_substring_lisp_string(bol, eol);
     let buffer_name = buf.name.clone();
 
     if target == 0 {
@@ -340,12 +407,12 @@ pub(crate) fn builtin_move_to_column(
     let mut found = false;
     let mut tab_split: Option<(usize, usize)> = None;
 
-    for (rel, ch) in line.char_indices() {
-        let char_start = bol + rel;
-        let char_end = char_start + ch.len_utf8();
-        let next = next_column(column, ch, tabw);
+    for unit in decode_lisp_string_units(&line) {
+        let char_start = bol + unit.start;
+        let char_end = bol + unit.end;
+        let next = next_column_for_code(column, unit.code, unit.width, tabw);
         if next >= target {
-            if force && ch == '\t' && next > target {
+            if force && unit.code == b'\t' as u32 && next > target {
                 tab_split = Some((char_start, column));
             } else {
                 dest_byte = char_end;
@@ -361,7 +428,7 @@ pub(crate) fn builtin_move_to_column(
 
     if !found {
         dest_byte = eol;
-        reached = column_for_prefix(line, tabw);
+        reached = column_for_lisp_string(&line, tabw);
     }
 
     if let Some((tab_byte, col_before_tab)) = tab_split {
@@ -426,18 +493,11 @@ pub(crate) fn builtin_indent_to(
 
     let pt = buf.point();
     let pmin = buf.point_min();
-    let text_before = {
-        let string = buf.buffer_substring_lisp_string(pmin, pt);
-        crate::emacs_core::builtins::runtime_string_from_lisp_string(&string)
-    };
-    let line_start = text_before.rfind('\n').map(|pos| pos + 1).unwrap_or(0);
-    let line_prefix = &text_before[line_start..];
+    let (bol, _) = line_bounds(buf, pt);
+    let line_prefix = buf.buffer_substring_lisp_string(bol, pt);
     let tab_width = tab_width_in_state(&ctx.obarray, &[], Some(buf));
 
-    let mut fromcol = 0usize;
-    for ch in line_prefix.chars() {
-        fromcol = next_column(fromcol, ch, tab_width);
-    }
+    let fromcol = column_for_lisp_string(&line_prefix, tab_width);
 
     let mincol = column.max(fromcol + minimum);
     if fromcol >= mincol {
