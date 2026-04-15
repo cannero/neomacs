@@ -692,7 +692,7 @@ pub(crate) fn builtin_load_in_vm_runtime(
             let noerror = args.get(1).is_some_and(|v| v.is_truthy());
             let nomessage = args.get(2).is_some_and(|v| v.is_truthy());
             let path = load_path_buf(&found);
-            shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, move |eval| {
+            shared.with_extra_gc_roots(&extra_roots, move |eval| {
                 load_file_with_requested_and_found_flags(
                     eval, &path, &requested, &found, noerror, nomessage,
                 )

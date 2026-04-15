@@ -580,7 +580,7 @@ fn eval_forms_from_source_in_vm_runtime_streaming(
         };
         pos = next_pos;
 
-        shared.with_extra_gc_roots(vm_gc_roots, args, move |eval| {
+        shared.with_extra_gc_roots(args, move |eval| {
             eval.push_temp_root(form);
             eval.eval_sub(form)
         })?;

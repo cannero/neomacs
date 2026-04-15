@@ -521,7 +521,7 @@ pub(crate) fn builtin_autoload_do_load_in_vm_runtime(
             if let Some(fundef) = original_fundef {
                 rooted_extra_roots.push(fundef);
             }
-            shared.with_extra_gc_roots(vm_gc_roots, &rooted_extra_roots, move |eval| {
+            shared.with_extra_gc_roots(&rooted_extra_roots, move |eval| {
                 eval.load_file_internal(&path)
             })?;
             finish_autoload_do_load_in_state(&shared.obarray, funname, original_fundef.as_ref())

@@ -160,9 +160,7 @@ pub(crate) fn builtin_documentation_in_vm_runtime(
         execute_documentation_plan(plan, |value| {
             let mut extra_roots = args_roots.clone();
             extra_roots.push(value);
-            shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, move |eval| {
-                eval.eval_value(&value)
-            })
+            shared.with_extra_gc_roots(&extra_roots, move |eval| eval.eval_value(&value))
         })?,
         raw,
         |value| {
@@ -178,9 +176,7 @@ pub(crate) fn builtin_documentation_in_vm_runtime(
             let mut extra_roots = args_roots.clone();
             extra_roots.push(value);
             extra_roots.push(call);
-            shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, move |eval| {
-                eval.eval_value(&call)
-            })
+            shared.with_extra_gc_roots(&extra_roots, move |eval| eval.eval_value(&call))
         },
     )
 }
@@ -8012,9 +8008,7 @@ pub(crate) fn builtin_documentation_property_in_vm_runtime(
         execute_documentation_plan(plan, |value| {
             let mut extra_roots = args_roots.clone();
             extra_roots.push(value);
-            shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, move |eval| {
-                eval.eval_value(&value)
-            })
+            shared.with_extra_gc_roots(&extra_roots, move |eval| eval.eval_value(&value))
         })?,
         raw,
         |value| {
@@ -8030,9 +8024,7 @@ pub(crate) fn builtin_documentation_property_in_vm_runtime(
             let mut extra_roots = args_roots.clone();
             extra_roots.push(value);
             extra_roots.push(call);
-            shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, move |eval| {
-                eval.eval_value(&call)
-            })
+            shared.with_extra_gc_roots(&extra_roots, move |eval| eval.eval_value(&call))
         },
     )
 }
