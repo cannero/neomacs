@@ -1282,7 +1282,7 @@ pub struct Context {
     /// Minibuffer runtime state — active minibuffer stack, prompt metadata, and history.
     pub(crate) minibuffers: MinibufferManager,
     /// Current echo-area message text, mirroring GNU `current-message`.
-    pub(crate) current_message: Option<String>,
+    pub(crate) current_message: Option<crate::heap_types::LispString>,
     /// Window that was selected when the active minibuffer session began.
     pub(crate) minibuffer_selected_window: Option<crate::window::WindowId>,
     /// Currently active minibuffer window, if any.
@@ -6346,12 +6346,40 @@ impl Context {
         &mut self.frames
     }
 
-    pub fn current_message_text(&self) -> Option<&str> {
-        self.current_message.as_deref()
+    pub fn current_message_text(&self) -> Option<String> {
+        self.current_message
+            .as_ref()
+            .map(|message| crate::emacs_core::builtins::runtime_string_from_lisp_string(message))
     }
 
-    pub fn set_current_message(&mut self, message: Option<String>) {
+    pub fn current_message_value(&self) -> Option<Value> {
+        self.current_message
+            .as_ref()
+            .map(|message| Value::heap_string(message.clone()))
+    }
+
+    pub fn set_current_message(&mut self, message: Option<crate::heap_types::LispString>) {
         self.current_message = message;
+    }
+
+    pub(crate) fn append_current_message_runtime_text(&mut self, text: &str) {
+        let multibyte = self
+            .current_message
+            .as_ref()
+            .map(crate::heap_types::LispString::is_multibyte)
+            .unwrap_or(true);
+        let piece = crate::emacs_core::builtins::runtime_string_to_lisp_string(text, multibyte);
+        self.append_current_message_lisp_string(&piece);
+    }
+
+    pub(crate) fn append_current_message_lisp_string(
+        &mut self,
+        text: &crate::heap_types::LispString,
+    ) {
+        match self.current_message.as_mut() {
+            Some(message) => *message = message.concat(text),
+            None => self.current_message = Some(text.clone()),
+        }
     }
 
     pub fn clear_current_message(&mut self) {
@@ -6364,7 +6392,7 @@ impl Context {
         self.current_message = None;
     }
 
-    pub(crate) fn current_message_slot(&mut self) -> &mut Option<String> {
+    pub(crate) fn current_message_slot(&mut self) -> &mut Option<crate::heap_types::LispString> {
         &mut self.current_message
     }
 

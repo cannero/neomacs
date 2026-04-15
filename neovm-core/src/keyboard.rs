@@ -3630,9 +3630,7 @@ impl crate::emacs_core::eval::Context {
         if self.function_value_is_callable(&show_help_function) {
             let _ = self.funcall_general(show_help_function, vec![help])?;
         } else if let Some(message) = help.as_lisp_string() {
-            self.set_current_message(Some(
-                crate::emacs_core::builtins::runtime_string_from_lisp_string(message),
-            ));
+            self.set_current_message(Some(message.clone()));
             self.redisplay();
         } else {
             self.clear_current_message();

@@ -1777,7 +1777,7 @@ fn display_update_for_mouse_movement_shows_help_echo_via_read_char() {
         .read_char_with_timeout(Some(Duration::ZERO))
         .expect("read-char should consume help-echo");
     assert!(result.is_none());
-    assert_eq!(ev.current_message_text(), Some("tip"));
+    assert_eq!(ev.current_message_text(), Some("tip".to_string()));
 }
 
 #[test]
@@ -1795,7 +1795,7 @@ fn display_update_for_mouse_movement_clears_help_echo_when_leaving_region() {
     .expect("display update should succeed");
     ev.read_char_with_timeout(Some(Duration::ZERO))
         .expect("read-char should consume help-echo");
-    assert_eq!(ev.current_message_text(), Some("tip"));
+    assert_eq!(ev.current_message_text(), Some("tip".to_string()));
 
     crate::emacs_core::builtins::builtin_display_update_for_mouse_movement(
         &mut ev,
@@ -1837,7 +1837,10 @@ fn display_update_for_mouse_movement_respects_help_echo_inhibit_substitution() {
         .read_char_with_timeout(Some(Duration::ZERO))
         .expect("read-char should consume help-echo");
     assert!(result.is_none());
-    assert_eq!(ev.current_message_text(), Some("\\[save-buffer]"));
+    assert_eq!(
+        ev.current_message_text(),
+        Some("\\[save-buffer]".to_string())
+    );
 }
 
 #[test]
@@ -1864,7 +1867,7 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_before_echo_message() {
         .read_char_with_timeout(Some(Duration::ZERO))
         .expect("read-char should consume help-echo");
     assert!(result.is_none());
-    assert_eq!(ev.current_message_text(), Some("fixed:tip"));
+    assert_eq!(ev.current_message_text(), Some("fixed:tip".to_string()));
 }
 
 #[test]
@@ -1889,7 +1892,7 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_without_input_receiver() {
         .read_char_with_timeout(Some(Duration::ZERO))
         .expect("read-char should consume help-echo");
     assert!(result.is_none());
-    assert_eq!(ev.current_message_text(), Some("fixed:tip"));
+    assert_eq!(ev.current_message_text(), Some("fixed:tip".to_string()));
 }
 
 #[test]
@@ -1912,7 +1915,7 @@ fn display_update_for_mouse_movement_preserves_raw_unibyte_help_echo() {
         .expect("read-char should consume help-echo");
     assert!(result.is_none());
     let expected = crate::emacs_core::builtins::lisp_string_to_runtime_string(raw);
-    assert_eq!(ev.current_message_text(), Some(expected.as_str()));
+    assert_eq!(ev.current_message_text(), Some(expected));
 }
 
 #[test]

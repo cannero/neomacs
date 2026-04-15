@@ -9602,6 +9602,25 @@ fn format_message_preserves_raw_unibyte_payload_without_quoting() {
 }
 
 #[test]
+fn current_message_preserves_raw_unibyte_payload() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+
+    let displayed =
+        builtin_message(&mut eval, vec![raw]).expect("message should preserve raw unibyte echo");
+    let displayed = displayed.as_lisp_string().expect("message result string");
+    assert!(!displayed.is_multibyte());
+    assert_eq!(displayed.as_bytes(), &[0xFF]);
+
+    let current = builtin_current_message(&mut eval, vec![])
+        .expect("current-message should preserve raw unibyte echo");
+    let current = current.as_lisp_string().expect("current-message string");
+    assert!(!current.is_multibyte());
+    assert_eq!(current.as_bytes(), &[0xFF]);
+}
+
+#[test]
 fn format_message_promotes_unibyte_ascii_to_multibyte_when_quoting() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
@@ -9631,7 +9650,7 @@ fn message_eval_stores_echo_text_without_immediate_redisplay() {
 
     builtin_message(&mut eval, vec![Value::string("hello echo")])
         .expect("message eval should store echo text");
-    assert_eq!(eval.current_message_text(), Some("hello echo"));
+    assert_eq!(eval.current_message_text(), Some("hello echo".to_string()));
     builtin_message(&mut eval, vec![Value::NIL]).expect("message eval should clear");
     assert_eq!(eval.current_message_text(), None);
 

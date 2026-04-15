@@ -988,7 +988,7 @@ pub(crate) fn resolve_print_target_in_state(
 
 fn write_print_output_to_target(
     buffers: &mut crate::buffer::BufferManager,
-    echo_area: &mut Option<String>,
+    echo_area: &mut Option<crate::heap_types::LispString>,
     target: Value,
     text: &str,
 ) -> Result<(), Flow> {
@@ -997,9 +997,14 @@ fn write_print_output_to_target(
         // area via printchar_stdout_last → echo_char.  Accumulate
         // characters into current_message so the echo area displays them.
         ValueKind::T | ValueKind::Nil => {
+            let multibyte = echo_area
+                .as_ref()
+                .map(crate::heap_types::LispString::is_multibyte)
+                .unwrap_or(true);
+            let piece = super::runtime_string_to_lisp_string(text, multibyte);
             match echo_area {
-                Some(msg) => msg.push_str(text),
-                None => *echo_area = Some(text.to_string()),
+                Some(msg) => *msg = msg.concat(&piece),
+                None => *echo_area = Some(piece),
             }
             Ok(())
         }
@@ -1135,10 +1140,7 @@ fn write_print_output_from_ctx(
 fn write_terpri_output(eval: &mut super::eval::Context, target: Value) -> Result<(), Flow> {
     match target.kind() {
         ValueKind::T | ValueKind::Nil => {
-            match eval.current_message {
-                Some(ref mut msg) => msg.push('\n'),
-                None => eval.current_message = Some("\n".to_string()),
-            }
+            eval.append_current_message_runtime_text("\n");
             Ok(())
         }
         ValueKind::Veclike(VecLikeType::Buffer) => {

@@ -2776,7 +2776,16 @@ fn read_key_sequence_prefixes_mode_line_mouse_click_for_lookup() {
 fn clear_current_message_runs_echo_area_clear_hook_once_when_message_present() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    ev.set_current_message(Some("hello".to_string()));
+    ev.eval_str(
+        r#"
+        (setq echo-clear-count 0)
+        (setq echo-area-clear-hook
+              (list (lambda ()
+                      (setq echo-clear-count (1+ echo-clear-count)))))
+        "#,
+    )
+    .expect("install echo-area-clear-hook");
+    ev.set_current_message(Some(crate::heap_types::LispString::from_utf8("hello")));
     ev.clear_current_message();
     assert_eq!(ev.current_message_text(), None);
 

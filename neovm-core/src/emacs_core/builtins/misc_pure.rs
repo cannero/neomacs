@@ -27,7 +27,7 @@ pub(crate) fn builtin_ignore(_args: Vec<Value>) -> EvalResult {
 
 /// Log a message to the *Messages* buffer, matching GNU Emacs message_dolog
 /// in xdisp.c.  Creates the buffer if it doesn't exist.
-fn message_dolog(ctx: &mut super::eval::Context, msg: &str) {
+fn message_dolog(ctx: &mut super::eval::Context, msg: &crate::heap_types::LispString) {
     // GNU: check message-log-max; if nil, don't log
     let log_max = ctx.visible_variable_value_or_nil("message-log-max");
     if log_max.is_nil() {
@@ -49,7 +49,13 @@ fn message_dolog(ctx: &mut super::eval::Context, msg: &str) {
     if let Some(buf) = ctx.buffers.get_mut(buf_id) {
         let end = buf.point_max();
         buf.goto_char(end);
-        buf.insert(&format!("{msg}\n"));
+        if buf.get_multibyte() == msg.is_multibyte() {
+            buf.insert_lisp_string(msg);
+        } else {
+            let text = super::runtime_string_from_lisp_string(msg);
+            buf.insert(&text);
+        }
+        buf.insert("\n");
     }
     if let Some(old) = old_buf {
         ctx.buffers.switch_current(old);
@@ -78,16 +84,14 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
     // even for a single string argument.  This converts %% -> % and
     // applies text-quoting (curly quotes).
     let formatted = super::strings::builtin_format_message(ctx, args.clone())?;
-    let msg = match formatted.kind() {
-        ValueKind::String => formatted
-            .as_runtime_string_owned()
-            .expect("ValueKind::String must carry LispString payload"),
-        _ => String::new(),
+    let msg = match formatted.as_lisp_string() {
+        Some(string) => string.clone(),
+        None => crate::heap_types::LispString::from_emacs_bytes(Vec::new()),
     };
     ctx.set_current_message(Some(msg.clone()));
     // GNU Emacs message_dolog: log to *Messages* buffer
     message_dolog(ctx, &msg);
-    tracing::info!(msg = %msg);
+    tracing::info!(msg = %super::runtime_string_from_lisp_string(&msg));
     // GNU Emacs editfns.c Fmessage → message3 → message3_nolog:
     // Sets the echo area text but does NOT call redisplay().  The message
     // becomes visible during the next natural redisplay cycle in read_char().
@@ -140,10 +144,7 @@ pub(crate) fn builtin_current_message(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("current-message", &args, 0)?;
-    Ok(match ctx.current_message_text() {
-        Some(message) => Value::string(message),
-        None => Value::NIL,
-    })
+    Ok(ctx.current_message_value().unwrap_or(Value::NIL))
 }
 
 pub(crate) fn builtin_daemonp(args: Vec<Value>) -> EvalResult {
