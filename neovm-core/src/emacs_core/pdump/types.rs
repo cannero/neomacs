@@ -726,12 +726,12 @@ pub struct DumpMinorMode {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpModeCustomVariable {
     pub default_value: DumpValue,
-    pub doc: Option<String>,
+    pub doc: Option<DumpLispString>,
     pub custom_type: DumpModeCustomType,
     pub group: Option<DumpValue>,
     pub set_function: Option<DumpValue>,
     pub get_function: Option<DumpValue>,
-    pub tag: Option<String>,
+    pub tag: Option<DumpLispString>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -758,7 +758,7 @@ pub enum DumpModeCustomType {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpModeCustomGroup {
-    pub doc: Option<String>,
+    pub doc: Option<DumpLispString>,
     pub parent: Option<DumpValue>,
     pub members: Vec<DumpValue>,
 }

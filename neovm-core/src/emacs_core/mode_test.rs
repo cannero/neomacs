@@ -540,7 +540,7 @@ fn register_custom_variable() {
         "indent-tabs-mode",
         CustomVariable {
             default_value: Value::T,
-            doc: Some("Use tabs for indentation.".to_string()),
+            doc: Some(mode_display("Use tabs for indentation.")),
             type_: CustomType::Boolean,
             group: None,
             set_function: None,
@@ -560,7 +560,7 @@ fn custom_variable_in_group() {
     reg.register_custom_group(
         "editing",
         CustomGroup {
-            doc: Some("Editing options.".to_string()),
+            doc: Some(mode_display("Editing options.")),
             parent: None,
             members: vec![],
         },

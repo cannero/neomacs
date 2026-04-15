@@ -1355,12 +1355,12 @@ pub(crate) fn dump_mode_registry(encoder: &mut DumpEncoder, mr: &ModeRegistry) -
                     k.clone(),
                     DumpModeCustomVariable {
                         default_value: encoder.dump_value(&cv.default_value),
-                        doc: cv.doc.clone(),
+                        doc: cv.doc.as_ref().map(dump_lisp_string),
                         custom_type: dump_mode_custom_type(encoder, &cv.type_),
                         group: encoder.dump_opt_value(&cv.group),
                         set_function: encoder.dump_opt_value(&cv.set_function),
                         get_function: encoder.dump_opt_value(&cv.get_function),
-                        tag: cv.tag.clone(),
+                        tag: cv.tag.as_ref().map(dump_lisp_string),
                     },
                 )
             })
@@ -1372,7 +1372,7 @@ pub(crate) fn dump_mode_registry(encoder: &mut DumpEncoder, mr: &ModeRegistry) -
                 (
                     k.clone(),
                     DumpModeCustomGroup {
-                        doc: g.doc.clone(),
+                        doc: g.doc.as_ref().map(dump_lisp_string),
                         parent: encoder.dump_opt_value(&g.parent),
                         members: g
                             .members
@@ -2822,12 +2822,12 @@ pub(crate) fn load_mode_registry(
                 k.clone(),
                 ModeCustomVariable {
                     default_value: decoder.load_value(&cv.default_value),
-                    doc: cv.doc.clone(),
+                    doc: cv.doc.as_ref().map(load_lisp_string),
                     type_: load_mode_custom_type(decoder, &cv.custom_type),
                     group: decoder.load_opt_value(&cv.group),
                     set_function: decoder.load_opt_value(&cv.set_function),
                     get_function: decoder.load_opt_value(&cv.get_function),
-                    tag: cv.tag.clone(),
+                    tag: cv.tag.as_ref().map(load_lisp_string),
                 },
             )
         })
@@ -2839,7 +2839,7 @@ pub(crate) fn load_mode_registry(
             (
                 k.clone(),
                 ModeCustomGroup {
-                    doc: g.doc.clone(),
+                    doc: g.doc.as_ref().map(load_lisp_string),
                     parent: decoder.load_opt_value(&g.parent),
                     members: g
                         .members

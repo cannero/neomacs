@@ -105,7 +105,7 @@ pub struct CustomVariable {
     /// Default value.
     pub default_value: Value,
     /// Docstring.
-    pub doc: Option<String>,
+    pub doc: Option<LispString>,
     /// Type specification.
     pub type_: CustomType,
     /// Customization group symbol this variable belongs to.
@@ -115,7 +115,7 @@ pub struct CustomVariable {
     /// Getter function symbol (`:get`).
     pub get_function: Option<Value>,
     /// Tag for display purposes.
-    pub tag: Option<String>,
+    pub tag: Option<LispString>,
 }
 
 /// Type descriptor for a `defcustom` variable.
@@ -143,7 +143,7 @@ pub enum CustomType {
 /// A customization group registered via `defgroup`.
 pub struct CustomGroup {
     /// Docstring.
-    pub doc: Option<String>,
+    pub doc: Option<LispString>,
     /// Parent group symbol.
     pub parent: Option<Value>,
     /// Member variable or sub-group symbols.
