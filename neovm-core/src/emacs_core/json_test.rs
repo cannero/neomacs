@@ -112,6 +112,24 @@ fn serialize_ascii_unibyte_string_still_works() {
 }
 
 #[test]
+fn serialize_multibyte_raw_byte_char_rejects_non_json_value() {
+    crate::test_utils::init_test_tracing();
+    let mut bytes = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+    let len = crate::emacs_core::emacs_char::char_string(
+        crate::emacs_core::emacs_char::byte8_to_char(0xFF),
+        &mut bytes,
+    );
+    let raw = Value::heap_string(LispString::from_emacs_bytes(bytes[..len].to_vec()));
+    match builtin_json_serialize(vec![raw]) {
+        Err(Flow::Signal(sig)) => {
+            assert_eq!(sig.symbol_name(), "wrong-type-argument");
+            assert_eq!(sig.data, vec![Value::symbol("json-value-p"), raw]);
+        }
+        other => panic!("expected wrong-type-argument json-value-p, got {:?}", other),
+    }
+}
+
+#[test]
 fn serialize_empty_vector() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::vector(vec![])]);
