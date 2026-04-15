@@ -1620,7 +1620,7 @@ pub(crate) fn dump_face_table(ft: &FaceTable) -> DumpFaceTable {
 
 pub(crate) fn dump_rectangle(r: &RectangleState) -> DumpRectangleState {
     DumpRectangleState {
-        killed: r.killed.clone(),
+        killed: r.killed.iter().map(dump_lisp_string).collect(),
     }
 }
 
@@ -3065,7 +3065,7 @@ pub(crate) fn load_face_table(dft: &DumpFaceTable) -> FaceTable {
 
 pub(crate) fn load_rectangle(dr: &DumpRectangleState) -> RectangleState {
     RectangleState {
-        killed: dr.killed.clone(),
+        killed: dr.killed.iter().map(load_lisp_string).collect(),
     }
 }
 

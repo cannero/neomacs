@@ -15,6 +15,7 @@ use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
 use super::value::*;
 use crate::emacs_core::value::ValueKind;
+use crate::heap_types::LispString;
 
 // ---------------------------------------------------------------------------
 // Argument helpers (local copies — same pattern as other modules)
@@ -63,10 +64,12 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
     }
 }
 #[cfg(test)]
-
-fn expect_string(value: &Value) -> Result<String, Flow> {
+fn expect_string(value: &Value) -> Result<LispString, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
+        ValueKind::String => Ok(value
+            .as_lisp_string()
+            .expect("ValueKind::String must carry LispString payload")
+            .clone()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -84,17 +87,21 @@ fn dynamic_or_global_symbol_value(eval: &super::eval::Context, name: &str) -> Op
     eval.eval_symbol_by_id(id).ok()
 }
 
-fn rectangle_strings_to_value(rectangle: &[String]) -> Value {
-    Value::list(rectangle.iter().map(|s| Value::string(s.clone())).collect())
+fn rectangle_strings_to_value(rectangle: &[LispString]) -> Value {
+    Value::list(rectangle.iter().cloned().map(Value::heap_string).collect())
 }
 
-fn rectangle_strings_from_value(value: &Value) -> Result<Vec<String>, Flow> {
+fn rectangle_strings_from_value(value: &Value) -> Result<Vec<LispString>, Flow> {
     let items = list_to_vec(value)
         .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("listp"), *value]))?;
     let mut out = Vec::with_capacity(items.len());
     for item in items {
         match item.kind() {
-            ValueKind::String => out.push(super::builtins::lisp_string_to_runtime_string(item)),
+            ValueKind::String => out.push(
+                item.as_lisp_string()
+                    .expect("ValueKind::String must carry LispString payload")
+                    .clone(),
+            ),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -114,7 +121,7 @@ fn rectangle_strings_from_value(value: &Value) -> Result<Vec<String>, Flow> {
 #[derive(Clone, Debug)]
 pub(crate) struct RectangleState {
     /// The last killed rectangle: one string per line.
-    pub killed: Vec<String>,
+    pub killed: Vec<LispString>,
 }
 
 impl RectangleState {
@@ -129,14 +136,71 @@ impl Default for RectangleState {
     }
 }
 
-fn line_col_for_char_index(text: &str, target: usize) -> (usize, usize) {
+fn empty_lisp_string(multibyte: bool) -> LispString {
+    super::builtins::lisp_string_from_buffer_bytes(Vec::new(), multibyte)
+}
+
+fn space_lisp_string(width: usize, multibyte: bool) -> LispString {
+    super::builtins::lisp_string_from_buffer_bytes(vec![b' '; width], multibyte)
+}
+
+fn slice_lisp_string_chars(string: &LispString, start: usize, end: usize) -> LispString {
+    let start = start.min(string.schars());
+    let end = end.min(string.schars());
+    if start >= end {
+        return empty_lisp_string(string.is_multibyte());
+    }
+
+    if !string.is_multibyte() {
+        return LispString::from_unibyte(string.as_bytes()[start..end].to_vec());
+    }
+
+    let start_byte = crate::emacs_core::emacs_char::char_to_byte_pos(string.as_bytes(), start);
+    let end_byte = crate::emacs_core::emacs_char::char_to_byte_pos(string.as_bytes(), end);
+    LispString::from_emacs_bytes(string.as_bytes()[start_byte..end_byte].to_vec())
+}
+
+fn split_lisp_string_lines(text: &LispString) -> Vec<LispString> {
+    let mut lines = Vec::new();
+    let mut start = 0usize;
+    for (idx, &byte) in text.as_bytes().iter().enumerate() {
+        if byte == b'\n' {
+            lines.push(
+                text.slice(start, idx)
+                    .expect("newline split must stay within string bounds"),
+            );
+            start = idx + 1;
+        }
+    }
+    lines.push(
+        text.slice(start, text.sbytes())
+            .expect("line tail split must stay within string bounds"),
+    );
+    lines
+}
+
+fn join_lisp_string_lines(lines: &[LispString], multibyte: bool) -> LispString {
+    let mut out = Vec::new();
+    for (idx, line) in lines.iter().enumerate() {
+        if idx > 0 {
+            out.push(b'\n');
+        }
+        out.extend_from_slice(line.as_bytes());
+    }
+    super::builtins::lisp_string_from_buffer_bytes(out, multibyte)
+}
+
+fn line_col_for_char_index(text: &LispString, target: usize) -> (usize, usize) {
     let mut line = 0usize;
     let mut col = 0usize;
-    for (idx, ch) in text.chars().enumerate() {
+    for (idx, ch) in super::builtins::lisp_string_char_codes(text)
+        .into_iter()
+        .enumerate()
+    {
         if idx == target {
             return (line, col);
         }
-        if ch == '\n' {
+        if ch == b'\n' as u32 {
             line += 1;
             col = 0;
         } else {
@@ -146,20 +210,21 @@ fn line_col_for_char_index(text: &str, target: usize) -> (usize, usize) {
     (line, col)
 }
 
-fn extract_line_columns(line: &str, start_col: usize, end_col: usize) -> String {
+fn extract_line_columns(line: &LispString, start_col: usize, end_col: usize) -> LispString {
     if start_col >= end_col {
-        return String::new();
+        return empty_lisp_string(line.is_multibyte());
     }
-    let chars: Vec<char> = line.chars().collect();
-    let len = chars.len();
+    let len = line.schars();
 
     if start_col >= len {
-        return " ".repeat(end_col - start_col);
+        return space_lisp_string(end_col - start_col, line.is_multibyte());
     }
 
-    let mut out: String = chars[start_col..len.min(end_col)].iter().collect();
+    let mut out = slice_lisp_string_chars(line, start_col, len.min(end_col));
     if end_col > len {
-        out.push_str(&" ".repeat(end_col - len));
+        out.data_mut()
+            .extend(std::iter::repeat_n(b' ', end_col - len));
+        out.recompute_size();
     }
     out
 }
@@ -172,76 +237,84 @@ fn rectangle_lines_for_extract(start_line: usize, end_line: usize) -> Vec<usize>
     }
 }
 
-fn char_index_to_byte(s: &str, char_idx: usize) -> usize {
-    if char_idx == 0 {
-        return 0;
-    }
-    s.char_indices()
-        .nth(char_idx)
-        .map(|(byte, _)| byte)
-        .unwrap_or(s.len())
-}
-
-fn line_col_to_char_index(text: &str, line: usize, col: usize) -> usize {
-    let lines: Vec<&str> = text.split('\n').collect();
+fn line_col_to_char_index(text: &LispString, line: usize, col: usize) -> usize {
+    let lines = split_lisp_string_lines(text);
     let mut pos = 0usize;
     for idx in 0..line {
-        pos += lines.get(idx).copied().unwrap_or("").chars().count();
+        pos += lines.get(idx).map(LispString::schars).unwrap_or(0);
         pos += 1; // newline separator
     }
-    let line_len = lines.get(line).copied().unwrap_or("").chars().count();
+    let line_len = lines.get(line).map(LispString::schars).unwrap_or(0);
     pos + col.min(line_len)
 }
 
 fn extract_rectangle_from_text(
-    text: &str,
+    text: &LispString,
     start_line: usize,
     end_line: usize,
     left_col: usize,
     right_col: usize,
-) -> Vec<String> {
-    let lines: Vec<&str> = text.split('\n').collect();
+) -> Vec<LispString> {
+    let lines = split_lisp_string_lines(text);
     let mut out = Vec::new();
     for line_index in rectangle_lines_for_extract(start_line, end_line) {
-        let line = lines.get(line_index).copied().unwrap_or("");
-        out.push(extract_line_columns(line, left_col, right_col));
+        if let Some(line) = lines.get(line_index) {
+            out.push(extract_line_columns(line, left_col, right_col));
+        } else {
+            out.push(space_lisp_string(
+                right_col.saturating_sub(left_col),
+                text.is_multibyte(),
+            ));
+        }
     }
     out
 }
 
 fn delete_extract_rectangle_from_text(
-    text: &str,
+    text: &LispString,
     start_line: usize,
     end_line: usize,
     left_col: usize,
     right_col: usize,
-) -> (Vec<String>, String) {
-    let mut lines: Vec<String> = text.split('\n').map(ToString::to_string).collect();
+) -> (Vec<LispString>, LispString) {
+    let mut lines = split_lisp_string_lines(text);
     let mut extracted = Vec::new();
     let width = right_col.saturating_sub(left_col);
 
     for line_index in rectangle_lines_for_extract(start_line, end_line) {
         let Some(line) = lines.get_mut(line_index) else {
-            extracted.push(" ".repeat(width));
+            extracted.push(space_lisp_string(width, text.is_multibyte()));
             continue;
         };
 
-        let line_len = line.chars().count();
+        let line_len = line.schars();
         if line_len < left_col {
-            extracted.push(" ".repeat(width));
+            extracted.push(space_lisp_string(width, line.is_multibyte()));
             continue;
         }
 
         extracted.push(extract_line_columns(line, left_col, right_col));
         let del_end_char = line_len.min(right_col);
-        let del_start_byte = char_index_to_byte(line, left_col);
-        let del_end_byte = char_index_to_byte(line, del_end_char);
+        let del_start_byte = if line.is_multibyte() {
+            crate::emacs_core::emacs_char::char_to_byte_pos(line.as_bytes(), left_col)
+        } else {
+            left_col
+        };
+        let del_end_byte = if line.is_multibyte() {
+            crate::emacs_core::emacs_char::char_to_byte_pos(line.as_bytes(), del_end_char)
+        } else {
+            del_end_char
+        };
         if del_start_byte < del_end_byte {
-            line.replace_range(del_start_byte..del_end_byte, "");
+            line.data_mut().drain(del_start_byte..del_end_byte);
+            line.recompute_size();
         }
     }
 
-    (extracted, lines.join("\n"))
+    (
+        extracted,
+        join_lisp_string_lines(&lines, text.is_multibyte()),
+    )
 }
 
 fn clamped_rect_inputs(
@@ -249,7 +322,7 @@ fn clamped_rect_inputs(
     start: i64,
     end: i64,
 ) -> Option<(
-    String,
+    LispString,
     usize,
     usize,
     usize,
@@ -266,10 +339,7 @@ fn clamped_rect_inputs(
     let clamped_end = end.clamp(point_min_char, point_max_char);
     let pmin = buf.point_min();
     let pmax = buf.point_max();
-    let text = {
-        let string = buf.buffer_substring_lisp_string(pmin, pmax);
-        super::builtins::runtime_string_from_lisp_string(&string)
-    };
+    let text = buf.buffer_substring_lisp_string(pmin, pmax);
 
     let rel_start = (clamped_start - point_min_char).max(0) as usize;
     let rel_end = (clamped_end - point_min_char).max(0) as usize;
@@ -314,14 +384,12 @@ pub(crate) fn builtin_extract_rectangle_line(args: Vec<Value>) -> EvalResult {
         if lo > hi {
             std::mem::swap(&mut lo, &mut hi);
         }
-        let chars: Vec<char> = line.chars().collect();
-        lo = lo.min(chars.len());
-        hi = hi.min(chars.len());
+        lo = lo.min(line.schars());
+        hi = hi.min(line.schars());
         if lo >= hi {
-            return Ok(Value::string(""));
+            return Ok(Value::heap_string(empty_lisp_string(line.is_multibyte())));
         }
-        let slice: String = chars[lo..hi].iter().collect();
-        return Ok(Value::string(slice));
+        return Ok(Value::heap_string(slice_lisp_string_chars(&line, lo, hi)));
     }
     Ok(Value::string(""))
 }
@@ -361,15 +429,15 @@ fn delete_extract_rectangle_eval(
         if let Some(current_id) = eval.buffers.current_buffer_id() {
             let _ = eval.buffers.delete_buffer_region(current_id, pmin, pmax);
             let _ = eval.buffers.goto_buffer_byte(current_id, pmin);
-            let _ = eval.buffers.insert_into_buffer(current_id, &rewritten);
+            let _ = eval
+                .buffers
+                .insert_lisp_string_into_buffer(current_id, &rewritten);
         }
-        let new_end = pmin + rewritten.len();
+        let new_end = pmin + rewritten.sbytes();
         super::editfns::signal_after_change(eval, pmin, new_end, old_len)?;
     }
 
-    Ok(Value::list(
-        extracted.into_iter().map(Value::string).collect(),
-    ))
+    Ok(rectangle_strings_to_value(&extracted))
 }
 
 // ---------------------------------------------------------------------------

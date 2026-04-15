@@ -81,6 +81,24 @@ fn extract_rectangle_line_swapped_columns() {
 }
 
 #[test]
+fn extract_rectangle_line_preserves_raw_unibyte_bytes() {
+    crate::test_utils::init_test_tracing();
+    let result = builtin_extract_rectangle_line(vec![
+        Value::fixnum(0),
+        Value::fixnum(2),
+        Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+            0xFF, b'A', b'B',
+        ])),
+    ])
+    .unwrap();
+    let string = result
+        .as_lisp_string()
+        .expect("extract-rectangle-line should return a LispString");
+    assert!(!string.is_multibyte());
+    assert_eq!(string.as_bytes(), &[0xFF, b'A']);
+}
+
+#[test]
 fn extract_rectangle_line_negative_column_errors() {
     crate::test_utils::init_test_tracing();
     assert!(
@@ -102,6 +120,20 @@ fn extract_rectangle_line_validates_args() {
         builtin_extract_rectangle_line(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)])
             .is_err()
     );
+}
+
+#[test]
+fn delete_extract_rectangle_from_text_preserves_raw_unibyte_bytes() {
+    crate::test_utils::init_test_tracing();
+    let source = crate::heap_types::LispString::from_unibyte(vec![0xFF, b'A', b'\n', 0xFE, b'B']);
+    let (extracted, rewritten) = delete_extract_rectangle_from_text(&source, 0, 1, 0, 1);
+
+    assert_eq!(extracted.len(), 2);
+    assert_eq!(extracted[0].as_bytes(), &[0xFF]);
+    assert_eq!(extracted[1].as_bytes(), &[0xFE]);
+    assert!(!extracted[0].is_multibyte());
+    assert!(!rewritten.is_multibyte());
+    assert_eq!(rewritten.as_bytes(), &[b'A', b'\n', b'B']);
 }
 
 #[test]

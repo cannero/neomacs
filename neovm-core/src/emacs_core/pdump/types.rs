@@ -998,7 +998,7 @@ pub struct DumpFaceTable {
 // Rectangle
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpRectangleState {
-    pub killed: Vec<String>,
+    pub killed: Vec<DumpLispString>,
 }
 
 // Kmacro
