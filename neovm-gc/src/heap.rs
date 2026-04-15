@@ -96,10 +96,10 @@ pub(crate) struct HeapCore {
     /// `HeapCore` write lock. [`Self::storage_stats`]
     /// overlays the atomics onto the snapshot so observers
     /// always see the latest allocation counts.
-    alloc_counters: crate::stats::AtomicAllocationCounters,
+    alloc_counters: std::sync::Arc<crate::stats::AtomicAllocationCounters>,
     descriptors: HashMap<TypeId, &'static TypeDesc>,
     // --- record storage (drops first, before nursery) ---
-    objects: ObjectStore,
+    objects: std::sync::Arc<ObjectStore>,
     runtime_state: RuntimeStateHandle,
     // --- collector bookkeeping ---
     old_gen: OldGenState,
@@ -130,6 +130,8 @@ unsafe impl Send for HeapCore {}
 
 #[derive(Debug)]
 struct HeapState {
+    objects: std::sync::Arc<ObjectStore>,
+    alloc_counters: std::sync::Arc<crate::stats::AtomicAllocationCounters>,
     safepoint: std::sync::RwLock<()>,
     core: std::sync::RwLock<HeapCore>,
     allocation_config: HeapConfig,
@@ -176,11 +178,15 @@ impl Heap {
     pub fn new(config: HeapConfig) -> Self {
         let core = HeapCore::new(config);
         let collector = core.collector_handle();
+        let objects = core.object_store_handle();
+        let alloc_counters = core.alloc_counters_handle();
         let nursery_generation = core.nursery().generation();
         Self {
             state: std::sync::Arc::new(HeapState {
                 safepoint: std::sync::RwLock::new(()),
                 core: std::sync::RwLock::new(core),
+                objects,
+                alloc_counters,
                 allocation_config: config,
                 collector,
                 nursery_generation: std::sync::atomic::AtomicU64::new(nursery_generation),
@@ -591,6 +597,44 @@ impl Heap {
         })
     }
 
+    pub(crate) fn commit_allocated_record_shared(
+        &self,
+        record: ObjectRecord,
+        old_reserved_bytes: usize,
+        publish_local: &mut ObjectPublishLocal,
+    ) -> Result<AllocationCommit, AllocError> {
+        let total_size = record.header().total_size();
+        let space = record.space();
+        let gc = record.erased();
+        let old_placement = (space == SpaceKind::Old)
+            .then(|| record.old_block_placement())
+            .flatten();
+
+        self.state.objects.publish_shared(record, publish_local);
+        if let Some(placement) = old_placement {
+            self.read_core()
+                .old_gen()
+                .record_block_object_accounting_for_placement_shared(placement);
+        }
+        self.state
+            .alloc_counters
+            .record_allocation(space, total_size, old_reserved_bytes);
+        let recorded = if self.state.collector.has_active_major_mark() {
+            let read = self.state.objects.read();
+            self.state.collector.record_active_major_reachable_object(
+                read.raw(),
+                gc,
+                self.state.allocation_config.old.mutator_assist_slices,
+            )?
+        } else {
+            false
+        };
+        Ok(AllocationCommit {
+            gc,
+            plans_dirty: !recorded,
+        })
+    }
+
     pub(crate) fn store_nursery_generation(&self, generation: u64) {
         self.state
             .nursery_generation
@@ -983,7 +1027,7 @@ impl HeapCore {
             },
             config,
             descriptors: HashMap::default(),
-            objects: ObjectStore::default(),
+            objects: std::sync::Arc::new(ObjectStore::default()),
             old_gen: OldGenState::default(),
             runtime_state: RuntimeStateHandle::default(),
             collector: CollectorStateHandle::default(),
@@ -991,7 +1035,7 @@ impl HeapCore {
             pacer,
             compaction_stats: crate::stats::CompactionStats::default(),
             barrier_stats: crate::stats::AtomicBarrierStats::new(),
-            alloc_counters: crate::stats::AtomicAllocationCounters::default(),
+            alloc_counters: std::sync::Arc::new(crate::stats::AtomicAllocationCounters::default()),
             nursery,
         };
         // Seed the atomic counters from the initial stats so
@@ -1017,6 +1061,16 @@ impl HeapCore {
 
     pub(crate) fn collector_handle(&self) -> CollectorStateHandle {
         self.collector.clone()
+    }
+
+    pub(crate) fn object_store_handle(&self) -> std::sync::Arc<ObjectStore> {
+        std::sync::Arc::clone(&self.objects)
+    }
+
+    pub(crate) fn alloc_counters_handle(
+        &self,
+    ) -> std::sync::Arc<crate::stats::AtomicAllocationCounters> {
+        std::sync::Arc::clone(&self.alloc_counters)
     }
 
     /// Borrow the collector-state handle without cloning the
@@ -1048,6 +1102,15 @@ impl HeapCore {
 
     pub(crate) fn objects(&self) -> ObjectStoreReadGuard<'_> {
         self.objects.read()
+    }
+
+    /// Collector and rebuild callers hold the safepoint
+    /// write lock before taking `&mut HeapCore`, so they have
+    /// exclusive logical access to the shared object store
+    /// even though it is Arc-backed for the mutator publish
+    /// fast path.
+    unsafe fn objects_mut_unchecked(&mut self) -> &mut ObjectStore {
+        unsafe { &mut *(std::sync::Arc::as_ptr(&self.objects) as *mut ObjectStore) }
     }
 
     pub(crate) fn old_gen(&self) -> &OldGenState {
@@ -1442,11 +1505,11 @@ impl HeapCore {
         // before any stop-the-world collector path computes
         // `before_bytes` / `nursery_bytes_before`.
         self.refresh_storage_stats_snapshot();
-        self.objects.take_flat()
+        unsafe { self.objects_mut_unchecked() }.take_flat()
     }
 
     pub(crate) fn restore_flat_store(&mut self, flat: FlatObjectStore) {
-        self.objects.restore_from_flat(flat);
+        unsafe { self.objects_mut_unchecked() }.restore_from_flat(flat);
     }
 
     pub(crate) fn with_flat_store_for_collection<R>(

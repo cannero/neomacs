@@ -347,7 +347,7 @@ impl<'heap> Mutator<'heap> {
             )?,
         };
 
-        let commit = heap.read_core().commit_allocated_record_shared(
+        let commit = heap.commit_allocated_record_shared(
             record,
             old_reserved_bytes,
             local.publish_local_mut(),
@@ -434,6 +434,7 @@ impl<'heap> Mutator<'heap> {
     ///
     /// Returns the number of records physically evacuated.
     pub fn compact_old_gen_physical(&mut self, density_threshold: f64) -> usize {
+        self.handle_scope_state.release_safepoint();
         let _safepoint = self.heap.write_safepoint();
         let mut guard = self.heap.write_core();
         guard.compact_old_gen_physical(self.local.roots_mut(), density_threshold)
@@ -448,6 +449,7 @@ impl<'heap> Mutator<'heap> {
         density_threshold: f64,
         max_passes: usize,
     ) -> usize {
+        self.handle_scope_state.release_safepoint();
         let _safepoint = self.heap.write_safepoint();
         let mut guard = self.heap.write_core();
         guard.compact_old_gen_aggressive(self.local.roots_mut(), density_threshold, max_passes)
@@ -458,6 +460,7 @@ impl<'heap> Mutator<'heap> {
     /// borrow so scoped roots created from the same mutator
     /// stay valid across the call.
     pub fn compact_old_gen_blocks(&mut self, block_indices: &[usize]) -> usize {
+        self.handle_scope_state.release_safepoint();
         let _safepoint = self.heap.write_safepoint();
         let mut guard = self.heap.write_core();
         guard.compact_old_gen_blocks(self.local.roots_mut(), block_indices)
@@ -519,6 +522,7 @@ impl<'heap> Mutator<'heap> {
     /// Opportunistic compaction trigger. Mirrors
     /// [`Heap::compact_old_gen_if_fragmented`].
     pub fn compact_old_gen_if_fragmented(&mut self, fragmentation_threshold: f64) -> (f64, usize) {
+        self.handle_scope_state.release_safepoint();
         let _safepoint = self.heap.write_safepoint();
         let mut guard = self.heap.write_core();
         guard.compact_old_gen_if_fragmented(self.local.roots_mut(), fragmentation_threshold)
