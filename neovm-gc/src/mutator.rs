@@ -280,9 +280,8 @@ impl<'heap> Mutator<'heap> {
         scope: &mut HandleScope<'scope, 'handle_heap>,
         value: T,
     ) -> Result<Root<'scope, T>, AllocError> {
-        let had_safepoint = self.handle_scope_state.has_safepoint();
-        self.handle_scope_state.ensure_safepoint();
-        if !had_safepoint {
+        if !self.handle_scope_state.has_safepoint() {
+            self.handle_scope_state.ensure_safepoint();
             self.local.publish_local_mut().clear();
         }
         let Self { heap, local, .. } = self;
