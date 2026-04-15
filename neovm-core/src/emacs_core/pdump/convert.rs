@@ -1341,7 +1341,6 @@ pub(crate) fn dump_mode_registry(encoder: &mut DumpEncoder, mr: &ModeRegistry) -
                 (
                     k.clone(),
                     DumpModeCustomVariable {
-                        name: cv.name.clone(),
                         default_value: encoder.dump_value(&cv.default_value),
                         doc: cv.doc.clone(),
                         custom_type: dump_mode_custom_type(encoder, &cv.type_),
@@ -1360,7 +1359,6 @@ pub(crate) fn dump_mode_registry(encoder: &mut DumpEncoder, mr: &ModeRegistry) -
                 (
                     k.clone(),
                     DumpModeCustomGroup {
-                        name: g.name.clone(),
                         doc: g.doc.clone(),
                         parent: g.parent.clone(),
                         members: g.members.clone(),
@@ -2797,7 +2795,6 @@ pub(crate) fn load_mode_registry(
             (
                 k.clone(),
                 ModeCustomVariable {
-                    name: cv.name.clone(),
                     default_value: decoder.load_value(&cv.default_value),
                     doc: cv.doc.clone(),
                     type_: load_mode_custom_type(decoder, &cv.custom_type),
@@ -2816,7 +2813,6 @@ pub(crate) fn load_mode_registry(
             (
                 k.clone(),
                 ModeCustomGroup {
-                    name: g.name.clone(),
                     doc: g.doc.clone(),
                     parent: g.parent.clone(),
                     members: g.members.clone(),

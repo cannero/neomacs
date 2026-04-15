@@ -724,7 +724,6 @@ pub struct DumpMinorMode {
 // mode.rs has its own CustomVariable/CustomGroup — we mirror those separately
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpModeCustomVariable {
-    pub name: String,
     pub default_value: DumpValue,
     pub doc: Option<String>,
     pub custom_type: DumpModeCustomType,
@@ -758,7 +757,6 @@ pub enum DumpModeCustomType {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpModeCustomGroup {
-    pub name: String,
     pub doc: Option<String>,
     pub parent: Option<String>,
     pub members: Vec<String>,

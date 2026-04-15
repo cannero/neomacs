@@ -520,19 +520,20 @@ fn font_lock_keywords_none() {
 fn register_custom_variable() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_custom_variable(CustomVariable {
-        name: "indent-tabs-mode".to_string(),
-        default_value: Value::T,
-        doc: Some("Use tabs for indentation.".to_string()),
-        type_: CustomType::Boolean,
-        group: None,
-        set_function: None,
-        get_function: None,
-        tag: None,
-    });
+    reg.register_custom_variable(
+        "indent-tabs-mode",
+        CustomVariable {
+            default_value: Value::T,
+            doc: Some("Use tabs for indentation.".to_string()),
+            type_: CustomType::Boolean,
+            group: None,
+            set_function: None,
+            get_function: None,
+            tag: None,
+        },
+    );
 
     let var = reg.get_custom_variable("indent-tabs-mode").unwrap();
-    assert_eq!(var.name, "indent-tabs-mode");
     assert!(var.default_value.is_truthy());
 }
 
@@ -540,23 +541,27 @@ fn register_custom_variable() {
 fn custom_variable_in_group() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_custom_group(CustomGroup {
-        name: "editing".to_string(),
-        doc: Some("Editing options.".to_string()),
-        parent: None,
-        members: vec![],
-    });
+    reg.register_custom_group(
+        "editing",
+        CustomGroup {
+            doc: Some("Editing options.".to_string()),
+            parent: None,
+            members: vec![],
+        },
+    );
 
-    reg.register_custom_variable(CustomVariable {
-        name: "fill-column".to_string(),
-        default_value: Value::fixnum(70),
-        doc: None,
-        type_: CustomType::Integer,
-        group: Some("editing".to_string()),
-        set_function: None,
-        get_function: None,
-        tag: None,
-    });
+    reg.register_custom_variable(
+        "fill-column",
+        CustomVariable {
+            default_value: Value::fixnum(70),
+            doc: None,
+            type_: CustomType::Integer,
+            group: Some("editing".to_string()),
+            set_function: None,
+            get_function: None,
+            tag: None,
+        },
+    );
 
     let group = reg.get_custom_group("editing").unwrap();
     assert!(group.members.contains(&"fill-column".to_string()));
@@ -736,19 +741,21 @@ fn mode_line_format_default_has_elements() {
 fn custom_type_choice() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_custom_variable(CustomVariable {
-        name: "my-choice".to_string(),
-        default_value: Value::symbol("fast"),
-        doc: None,
-        type_: CustomType::Choice(vec![
-            ("fast".to_string(), Value::symbol("fast")),
-            ("slow".to_string(), Value::symbol("slow")),
-        ]),
-        group: None,
-        set_function: None,
-        get_function: None,
-        tag: None,
-    });
+    reg.register_custom_variable(
+        "my-choice",
+        CustomVariable {
+            default_value: Value::symbol("fast"),
+            doc: None,
+            type_: CustomType::Choice(vec![
+                ("fast".to_string(), Value::symbol("fast")),
+                ("slow".to_string(), Value::symbol("slow")),
+            ]),
+            group: None,
+            set_function: None,
+            get_function: None,
+            tag: None,
+        },
+    );
 
     let var = reg.get_custom_variable("my-choice").unwrap();
     assert!(matches!(var.type_, CustomType::Choice(_)));
@@ -758,16 +765,18 @@ fn custom_type_choice() {
 fn custom_type_nested_list() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_custom_variable(CustomVariable {
-        name: "my-list".to_string(),
-        default_value: Value::NIL,
-        doc: None,
-        type_: CustomType::List(Box::new(CustomType::String)),
-        group: None,
-        set_function: None,
-        get_function: None,
-        tag: None,
-    });
+    reg.register_custom_variable(
+        "my-list",
+        CustomVariable {
+            default_value: Value::NIL,
+            doc: None,
+            type_: CustomType::List(Box::new(CustomType::String)),
+            group: None,
+            set_function: None,
+            get_function: None,
+            tag: None,
+        },
+    );
 
     let var = reg.get_custom_variable("my-list").unwrap();
     assert!(matches!(var.type_, CustomType::List(_)));

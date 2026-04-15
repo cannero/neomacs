@@ -101,8 +101,6 @@ pub struct MinorMode {
 
 /// A customizable variable registered via `defcustom`.
 pub struct CustomVariable {
-    /// Variable name.
-    pub name: String,
     /// Default value.
     pub default_value: Value,
     /// Docstring.
@@ -143,8 +141,6 @@ pub enum CustomType {
 
 /// A customization group registered via `defgroup`.
 pub struct CustomGroup {
-    /// Group name.
-    pub name: String,
     /// Docstring.
     pub doc: Option<String>,
     /// Parent group.
@@ -499,20 +495,20 @@ impl ModeRegistry {
     // -------------------------------------------------------------------
 
     /// Register a custom variable.
-    pub fn register_custom_variable(&mut self, var: CustomVariable) {
+    pub fn register_custom_variable(&mut self, name: &str, var: CustomVariable) {
         if let Some(ref group_name) = var.group {
             if let Some(group) = self.custom_groups.get_mut(group_name) {
-                if !group.members.contains(&var.name) {
-                    group.members.push(var.name.clone());
+                if !group.members.contains(&name.to_string()) {
+                    group.members.push(name.to_string());
                 }
             }
         }
-        self.custom_variables.insert(var.name.clone(), var);
+        self.custom_variables.insert(name.to_string(), var);
     }
 
     /// Register a custom group.
-    pub fn register_custom_group(&mut self, group: CustomGroup) {
-        self.custom_groups.insert(group.name.clone(), group);
+    pub fn register_custom_group(&mut self, name: &str, group: CustomGroup) {
+        self.custom_groups.insert(name.to_string(), group);
     }
 
     /// Look up a custom variable by name.
