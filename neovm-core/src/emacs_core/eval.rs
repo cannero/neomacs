@@ -6728,28 +6728,37 @@ impl Context {
 
         // Regular function call: evaluate args, then apply
         // (GNU eval.c:2625-2715)
+        let frame_function = sym_id
+            .map(Value::from_sym_id)
+            .unwrap_or(func);
+        let frame_callable = sym_id.map(|_| func);
+        self.push_active_call_frame(frame_function, frame_callable, &[]);
         let mut args = Vec::new();
-        let mut cursor = original_args;
-        while cursor.is_cons() {
-            let arg_form = cursor.cons_car();
-            let arg_val = self.eval_sub(arg_form)?;
-            self.push_temp_root(arg_val);
-            args.push(arg_val);
-            cursor = cursor.cons_cdr();
-        }
+        let result = (|| {
+            let mut cursor = original_args;
+            while cursor.is_cons() {
+                let arg_form = cursor.cons_car();
+                let arg_val = self.eval_sub(arg_form)?;
+                self.push_active_call_arg(arg_val);
+                args.push(arg_val);
+                cursor = cursor.cons_cdr();
+            }
 
-        // When the form dispatched via a symbol, record the SYMBOL
-        // (not the resolved subr/lambda) as the backtrace-frame
-        // function. Mirrors GNU `eval_sub` which calls
-        // `record_in_backtrace (original_fun, args, nargs)` with the
-        // original symbol (`eval.c:2645-2654`). Without this,
-        // `backtrace-frame` returns `#<subr funcall-interactively>`
-        // where GNU returns the bare symbol `funcall-interactively`.
-        if let Some(sym_id) = sym_id {
-            self.apply_with_frame_function(Value::from_sym_id(sym_id), func, args)
-        } else {
-            self.apply(func, args)
-        }
+            // When the form dispatched via a symbol, record the SYMBOL
+            // (not the resolved subr/lambda) as the backtrace-frame
+            // function. Mirrors GNU `eval_sub` which calls
+            // `record_in_backtrace (original_fun, args, nargs)` with the
+            // original symbol (`eval.c:2645-2654`). Without this,
+            // `backtrace-frame` returns `#<subr funcall-interactively>`
+            // where GNU returns the bare symbol `funcall-interactively`.
+            if sym_id.is_some() {
+                self.apply_with_frame_function_already_rooted(frame_function, func, args)
+            } else {
+                self.apply_internal_already_rooted(func, args, true)
+            }
+        })();
+        self.pop_active_call_frame();
+        result
     }
 
     /// Legacy eval_value: delegates to eval_sub.
@@ -8982,6 +8991,12 @@ impl Context {
         self.active_call_roots.pop();
     }
 
+    pub(crate) fn push_active_call_arg(&mut self, arg: Value) {
+        if let Some(frame) = self.active_call_roots.last_mut() {
+            frame.args.push(arg);
+        }
+    }
+
     pub(crate) fn with_runtime_backtrace_frame(
         &mut self,
         function: Value,
@@ -9074,6 +9089,21 @@ impl Context {
         });
         self.pop_active_call_frame();
         result
+    }
+
+    #[inline]
+    fn apply_with_frame_function_already_rooted(
+        &mut self,
+        frame_function: Value,
+        func: Value,
+        args: Vec<Value>,
+    ) -> EvalResult {
+        self.maybe_gc_and_quit()?;
+        self.maybe_grow_eval_stack(|ctx| {
+            ctx.with_runtime_backtrace_frame(frame_function, args, |eval, args| {
+                eval.funcall_general_untraced(func, args)
+            })
+        })
     }
 
     /// Unified function dispatch — matches GNU Emacs's funcall_general.
