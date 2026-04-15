@@ -1,7 +1,6 @@
 use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicPtr, Ordering};
 
 use crate::descriptor::{GcErased, Relocator};
 use crate::heap::Heap;
@@ -214,7 +213,7 @@ impl RootStack {
     }
 
     pub(crate) fn relocate_all(&mut self, relocator: &mut dyn Relocator) {
-        for slot in &self.slots {
+        for slot in &mut self.slots {
             if let Some(object) = slot.get() {
                 let relocated = relocator.relocate_erased(object);
                 slot.set(Some(relocated));
@@ -225,32 +224,20 @@ impl RootStack {
 
 #[derive(Debug)]
 struct RootSlot {
-    object: AtomicPtr<ObjectHeader>,
+    object: Option<GcErased>,
 }
 
 impl RootSlot {
     fn new(object: Option<GcErased>) -> Self {
-        Self {
-            object: AtomicPtr::new(match object {
-                Some(object) => object.as_raw(),
-                None => core::ptr::null_mut(),
-            }),
-        }
+        Self { object }
     }
 
     pub(crate) fn get(&self) -> Option<GcErased> {
-        let raw = self.object.load(Ordering::Relaxed);
-        unsafe { GcErased::from_raw(raw) }
+        self.object
     }
 
-    pub(crate) fn set(&self, object: Option<GcErased>) {
-        self.object.store(
-            match object {
-                Some(object) => object.as_raw(),
-                None => core::ptr::null_mut(),
-            },
-            Ordering::Relaxed,
-        );
+    pub(crate) fn set(&mut self, object: Option<GcErased>) {
+        self.object = object;
     }
 }
 
