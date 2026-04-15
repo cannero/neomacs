@@ -1539,7 +1539,7 @@ impl Buffer {
     /// Clone `buffer-file-name` as an `Option<String>`. Convenience
     /// for code that needs owned storage.
     pub fn file_name_owned(&self) -> Option<String> {
-        self.slots[BUFFER_SLOT_FILE_NAME].as_str_owned()
+        self.slots[BUFFER_SLOT_FILE_NAME].as_runtime_string_owned()
     }
 
     /// Write `buffer-file-name`. Mirrors GNU `bset_filename`
@@ -1560,7 +1560,7 @@ impl Buffer {
 
     /// Clone `buffer-auto-save-file-name` as an `Option<String>`.
     pub fn auto_save_file_name_owned(&self) -> Option<String> {
-        self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME].as_str_owned()
+        self.slots[BUFFER_SLOT_AUTO_SAVE_FILE_NAME].as_runtime_string_owned()
     }
 
     /// Write `buffer-auto-save-file-name`. Mirrors GNU

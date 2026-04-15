@@ -65,6 +65,34 @@ fn temporary_file_directory_for_eval_accepts_raw_unibyte_string() {
     );
 }
 
+#[test]
+fn make_auto_save_file_name_accepts_raw_unibyte_prefix_directory() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(
+        b"/tmp/neomacs-\xFF/".to_vec(),
+    ));
+    eval.obarray
+        .set_symbol_value("auto-save-list-file-prefix", raw);
+
+    let buffer_name = eval
+        .buffers
+        .current_buffer()
+        .expect("current buffer")
+        .name
+        .clone();
+    let safe_name = buffer_name.replace('/', "!");
+    let expected_dir = crate::emacs_core::builtins::lisp_string_to_runtime_string(raw);
+    let expected = format!("{expected_dir}#*{safe_name}*#");
+
+    let value = builtin_make_auto_save_file_name(&mut eval, vec![])
+        .expect("make-auto-save-file-name should succeed");
+    assert_eq!(
+        value.as_runtime_string_owned().as_deref(),
+        Some(expected.as_str())
+    );
+}
+
 // -----------------------------------------------------------------------
 // Path operations
 // -----------------------------------------------------------------------

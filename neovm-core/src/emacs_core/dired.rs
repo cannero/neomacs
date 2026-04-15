@@ -625,7 +625,10 @@ fn get_ignored_extensions(obarray: &super::symbol::Obarray) -> Vec<String> {
     let Some(items) = list_to_vec(&val) else {
         return Vec::new();
     };
-    items.into_iter().filter_map(|v| v.as_str_owned()).collect()
+    items
+        .into_iter()
+        .filter_map(|v| v.as_runtime_string_owned())
+        .collect()
 }
 
 /// Check whether `completion-ignore-case` is truthy.

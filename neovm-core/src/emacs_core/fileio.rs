@@ -3302,7 +3302,7 @@ fn make_auto_save_file_name_for_buffer(obarray: &Obarray, buf: &crate::buffer::B
         // Non-visited buffer: #*buffername*# in prefix dir or temp dir
         let dir = obarray
             .symbol_value("auto-save-list-file-prefix")
-            .and_then(|v| v.as_str_owned())
+            .and_then(|v| v.as_runtime_string_owned())
             .and_then(|s| {
                 if s.is_empty() {
                     None
@@ -3313,7 +3313,7 @@ fn make_auto_save_file_name_for_buffer(obarray: &Obarray, buf: &crate::buffer::B
             .or_else(|| {
                 obarray
                     .symbol_value("temporary-file-directory")
-                    .and_then(|v| v.as_str_owned())
+                    .and_then(|v| v.as_runtime_string_owned())
             })
             .unwrap_or_else(|| "/tmp/".to_string());
         let safe_name = buf.name.replace('/', "!");
