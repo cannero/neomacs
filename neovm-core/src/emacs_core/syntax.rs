@@ -371,6 +371,15 @@ pub fn string_to_syntax(s: &str) -> Result<SyntaxEntry, String> {
     })
 }
 
+fn syntax_runtime_string(value: &Value) -> Result<String, Flow> {
+    value.as_runtime_string_owned().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), *value],
+        )
+    })
+}
+
 /// Convert a `SyntaxEntry` into the Emacs cons-cell representation
 /// returned by `string-to-syntax`: `(CODE . MATCHING-CHAR-OR-NIL)`.
 ///
@@ -1167,15 +1176,7 @@ pub(crate) fn builtin_string_to_syntax(args: Vec<Value>) -> EvalResult {
             ],
         ));
     }
-    let s = match args[0].kind() {
-        ValueKind::String => crate::emacs_core::builtins::lisp_string_to_runtime_string(args[0]),
-        other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("stringp"), args[0]],
-            ));
-        }
-    };
+    let s = syntax_runtime_string(&args[0])?;
     let entry = string_to_syntax(&s).map_err(|msg| signal("error", vec![Value::string(&msg)]))?;
     if matches!(entry.class, SyntaxClass::InheritStd) {
         return Ok(Value::NIL);
@@ -1769,15 +1770,7 @@ pub(crate) fn modify_syntax_entry_in_buffers(
             ],
         ));
     }
-    let descriptor = match args[1].kind() {
-        ValueKind::String => crate::emacs_core::builtins::lisp_string_to_runtime_string(args[1]),
-        _ => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("stringp"), args[1]],
-            ));
-        }
-    };
+    let descriptor = syntax_runtime_string(&args[1])?;
     let entry =
         string_to_syntax(&descriptor).map_err(|msg| signal("error", vec![Value::string(&msg)]))?;
     let target_table = if let Some(table) = args.get(2) {
@@ -3617,15 +3610,7 @@ pub(crate) fn builtin_skip_syntax_forward_in_buffers(
             vec![Value::symbol("skip-syntax-forward"), Value::fixnum(0)],
         ));
     }
-    let syntax_chars = match args[0].kind() {
-        ValueKind::String => crate::emacs_core::builtins::lisp_string_to_runtime_string(args[0]),
-        other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("stringp"), args[0]],
-            ));
-        }
-    };
+    let syntax_chars = syntax_runtime_string(&args[0])?;
     let limit = if args.len() > 1 && !args[1].is_nil() {
         match args[1].kind() {
             ValueKind::Fixnum(n) => Some(n),
@@ -3691,15 +3676,7 @@ pub(crate) fn builtin_skip_syntax_backward_in_buffers(
             vec![Value::symbol("skip-syntax-backward"), Value::fixnum(0)],
         ));
     }
-    let syntax_chars = match args[0].kind() {
-        ValueKind::String => crate::emacs_core::builtins::lisp_string_to_runtime_string(args[0]),
-        other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("stringp"), args[0]],
-            ));
-        }
-    };
+    let syntax_chars = syntax_runtime_string(&args[0])?;
     let limit = if args.len() > 1 && !args[1].is_nil() {
         match args[1].kind() {
             ValueKind::Fixnum(n) => Some(n),

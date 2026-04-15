@@ -528,7 +528,9 @@ pub(crate) fn collect_insert_text(_name: &str, args: &[Value]) -> Result<String,
     for arg in args {
         match arg.kind() {
             ValueKind::String => {
-                let s = super::builtins::lisp_string_to_runtime_string(*arg);
+                let s = arg.as_runtime_string_owned().ok_or_else(|| {
+                    signal("wrong-type-argument", vec![Value::symbol("stringp"), *arg])
+                })?;
                 text.push_str(&s);
             }
             ValueKind::Fixnum(_) => {

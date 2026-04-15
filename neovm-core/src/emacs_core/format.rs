@@ -24,13 +24,8 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
 }
 
 fn require_string(_name: &str, val: &Value) -> Result<String, Flow> {
-    match val.kind() {
-        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*val)),
-        other => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("stringp"), *val],
-        )),
-    }
+    val.as_runtime_string_owned()
+        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("stringp"), *val]))
 }
 
 // ---------------------------------------------------------------------------

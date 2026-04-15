@@ -658,9 +658,7 @@ fn format_error_arg(eval: &super::eval::Context, value: &Value, quote_strings: b
 }
 
 fn runtime_string_value(value: &Value) -> Option<String> {
-    value
-        .is_string()
-        .then(|| super::builtins::lisp_string_to_runtime_string(*value))
+    value.as_runtime_string_owned()
 }
 
 fn runtime_string_result(text: impl Into<String>) -> Value {
