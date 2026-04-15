@@ -27,6 +27,13 @@ fn load_runtime_string(value: &LispString) -> String {
     super::builtins::runtime_string_from_lisp_string(value)
 }
 
+fn load_path_value(path: &Path) -> Value {
+    Value::heap_string(super::builtins::runtime_string_to_lisp_string(
+        path.to_string_lossy().as_ref(),
+        true,
+    ))
+}
+
 struct BootstrapLdefsBootPreferenceGuard {
     previous: bool,
 }
@@ -1008,7 +1015,8 @@ where
             ctx.lexenv = Value::list(vec![Value::T]);
         }
 
-        let load_file_value = Value::string(path.to_string_lossy().to_string());
+        let load_file_value = load_path_value(path);
+        ctx.root(load_file_value);
         ctx.set_variable("load-file-name", load_file_value);
         // Set the reader's #$ thread-local so value_reader produces the
         // actual file path string (matching GNU lread.c Vload_file_name).
@@ -1356,7 +1364,7 @@ fn load_file_body(
             eval.visible_variable_value_or_nil("load-source-file-function")
         && !load_source_file_function.is_nil()
     {
-        let full_name = Value::string(path.to_string_lossy().to_string());
+        let full_name = load_path_value(path);
         let hist_file_name = full_name;
         return eval
             .apply(
@@ -1407,11 +1415,7 @@ fn load_file_body(
     let lexical_binding = if is_elc {
         elc_has_lexical_binding(&raw_bytes)
     } else {
-        source_lexical_binding_for_load(
-            eval,
-            &content,
-            Some(Value::string(path.to_string_lossy().to_string())),
-        )?
+        source_lexical_binding_for_load(eval, &content, Some(load_path_value(path)))?
     };
 
     // --- Shared context setup via with_load_context ---
