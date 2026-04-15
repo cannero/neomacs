@@ -2512,10 +2512,10 @@ impl<'a> Vm<'a> {
     }
 
     fn call_function_with_roots(&mut self, function: Value, args: &[Value]) -> EvalResult {
-        let mut roots = Vec::with_capacity(args.len() + 1);
-        roots.push(function);
-        roots.extend(args.iter().copied());
-        self.with_extra_roots(&roots, |vm| vm.call_function(function, args.to_vec()))
+        self.ctx.push_active_call_frame(function, None, args);
+        let result = self.call_function(function, args.to_vec());
+        self.ctx.pop_active_call_frame();
+        result
     }
 
     fn builtin_run_hooks_shared(&mut self, args: &[Value]) -> EvalResult {

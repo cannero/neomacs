@@ -227,6 +227,23 @@ impl RuntimeBacktraceFrame {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct ActiveCallFrame {
+    pub(crate) frame_function: Value,
+    pub(crate) callable: Option<Value>,
+    pub(crate) args: LispArgVec,
+}
+
+impl ActiveCallFrame {
+    fn new(frame_function: Value, callable: Option<Value>, args: &[Value]) -> Self {
+        Self {
+            frame_function,
+            callable,
+            args: args.iter().copied().collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct PendingSafeFuncall {
     pub(crate) function: Value,
     pub(crate) args: LispArgVec,
@@ -1371,6 +1388,9 @@ pub struct Context {
     /// Each entry records where the frame's stack region starts in bc_buf
     /// and the function object (so GC can trace its constants).
     pub(crate) bc_frames: Vec<BcFrame>,
+    /// Active evaluator call frames used as exact GC roots at apply boundaries.
+    /// Unlike `runtime_backtrace`, these exist even for untraced internal calls.
+    active_call_roots: Vec<ActiveCallFrame>,
     /// GNU-shaped Lisp call stack used by `backtrace-frame--internal`,
     /// `mapbacktrace`, and advice-sensitive `called-interactively-p`.
     pub(crate) runtime_backtrace: Vec<RuntimeBacktraceFrame>,
@@ -4007,6 +4027,7 @@ impl Context {
             vm_gc_roots: Vec::new(),
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
+            active_call_roots: Vec::new(),
             runtime_backtrace: Vec::new(),
             condition_stack: Vec::new(),
             next_resume_id: 1,
@@ -4142,6 +4163,7 @@ impl Context {
             vm_gc_roots: Vec::new(),
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
+            active_call_roots: Vec::new(),
             runtime_backtrace: Vec::new(),
             condition_stack: Vec::new(),
             next_resume_id: 1,
@@ -4275,6 +4297,13 @@ impl Context {
             if let NamedCallTarget::Obarray(val) = &entry.target {
                 roots.push(*val);
             }
+        }
+        for frame in &self.active_call_roots {
+            roots.push(frame.frame_function);
+            if let Some(callable) = frame.callable {
+                roots.push(callable);
+            }
+            roots.extend(frame.args.iter().copied());
         }
         for frame in &self.runtime_backtrace {
             roots.push(frame.function);
@@ -5896,14 +5925,6 @@ impl Context {
         self.poll_pending_input_for_throw_on_input();
         self.maybe_quit()?;
         self.gc_safe_point_exact();
-        Ok(())
-    }
-
-    #[inline]
-    fn maybe_gc_and_quit_with_extra_roots(&mut self, extra_roots: &[Value]) -> Result<(), Flow> {
-        self.poll_pending_input_for_throw_on_input();
-        self.maybe_quit()?;
-        self.gc_safe_point_exact_with_extra_roots(extra_roots);
         Ok(())
     }
 
@@ -8951,6 +8972,20 @@ impl Context {
         self.runtime_backtrace.pop();
     }
 
+    pub(crate) fn push_active_call_frame(
+        &mut self,
+        frame_function: Value,
+        callable: Option<Value>,
+        args: &[Value],
+    ) {
+        self.active_call_roots
+            .push(ActiveCallFrame::new(frame_function, callable, args));
+    }
+
+    pub(crate) fn pop_active_call_frame(&mut self) {
+        self.active_call_roots.pop();
+    }
+
     pub(crate) fn with_runtime_backtrace_frame(
         &mut self,
         function: Value,
@@ -8969,21 +9004,22 @@ impl Context {
         args: Vec<Value>,
         record_backtrace: bool,
     ) -> EvalResult {
-        let mut gc_roots = LispArgVec::with_capacity(args.len() + 1);
-        gc_roots.push(function);
-        gc_roots.extend(args.iter().copied());
-        self.maybe_gc_and_quit_with_extra_roots(gc_roots.as_slice())?;
-        // GNU does not probe stack space for every funcall. Keep growth
-        // checks at the function-application boundary, but only on coarse
-        // depth intervals so normal startup is not dominated by TLS lookups
-        // in stacker::maybe_grow.
-        self.maybe_grow_eval_stack(|ctx| {
-            if record_backtrace {
-                ctx.funcall_general(function, args)
-            } else {
-                ctx.funcall_general_untraced(function, args)
-            }
-        })
+        self.push_active_call_frame(function, None, &args);
+        let result = self.maybe_gc_and_quit().and_then(|_| {
+            // GNU does not probe stack space for every funcall. Keep growth
+            // checks at the function-application boundary, but only on coarse
+            // depth intervals so normal startup is not dominated by TLS lookups
+            // in stacker::maybe_grow.
+            self.maybe_grow_eval_stack(|ctx| {
+                if record_backtrace {
+                    ctx.funcall_general(function, args)
+                } else {
+                    ctx.funcall_general_untraced(function, args)
+                }
+            })
+        });
+        self.pop_active_call_frame();
+        result
     }
 
     #[inline]
@@ -9032,16 +9068,16 @@ impl Context {
         func: Value,
         args: Vec<Value>,
     ) -> EvalResult {
-        let mut gc_roots = LispArgVec::with_capacity(args.len() + 2);
-        gc_roots.push(frame_function);
-        gc_roots.push(func);
-        gc_roots.extend(args.iter().copied());
-        self.maybe_gc_and_quit_with_extra_roots(gc_roots.as_slice())?;
-        self.maybe_grow_eval_stack(|ctx| {
-            ctx.with_runtime_backtrace_frame(frame_function, args, |eval, args| {
-                eval.funcall_general_untraced(func, args)
+        self.push_active_call_frame(frame_function, Some(func), &args);
+        let result = self.maybe_gc_and_quit().and_then(|_| {
+            self.maybe_grow_eval_stack(|ctx| {
+                ctx.with_runtime_backtrace_frame(frame_function, args, |eval, args| {
+                    eval.funcall_general_untraced(func, args)
+                })
             })
-        })
+        });
+        self.pop_active_call_frame();
+        result
     }
 
     /// Unified function dispatch — matches GNU Emacs's funcall_general.
