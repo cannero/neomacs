@@ -7825,7 +7825,7 @@ fn startup_variable_doc_stub(sym: &str) -> Option<&'static str> {
 
 fn startup_variable_doc_string_symbol(sym: &str, prop: &str, value: &Value) -> bool {
     prop == "variable-documentation"
-        && value.as_str().is_some()
+        && value.is_string()
         && STARTUP_VARIABLE_DOC_STRING_PROPERTIES
             .iter()
             .any(|(name, _)| *name == sym)

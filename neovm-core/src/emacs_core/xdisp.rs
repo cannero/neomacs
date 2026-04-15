@@ -761,7 +761,7 @@ fn coding_system_eol_indicator(
     };
     obarray
         .symbol_value(var_name)
-        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .and_then(mode_line_runtime_string)
         .unwrap_or_else(|| ":".to_string())
 }
 
@@ -778,6 +778,12 @@ fn is_remote_directory(dir: &str) -> bool {
     } else {
         false
     }
+}
+
+fn mode_line_runtime_string(value: &Value) -> Option<String> {
+    value
+        .is_string()
+        .then(|| crate::emacs_core::builtins::lisp_string_to_runtime_string(*value))
 }
 
 /// Compute GNU `percent99` — percentage capped at 99, rounded up.
@@ -1950,7 +1956,7 @@ fn expand_mode_line_percent_in_state(
                 // GNU: major mode name from buffer-local `mode-name`.
                 let mode_name =
                     mode_line_symbol_value_in_state(obarray, dynamic, buffers, "mode-name")
-                        .and_then(|v| v.as_str().map(|s| s.to_string()))
+                        .and_then(|v| mode_line_runtime_string(&v))
                         .unwrap_or_default();
                 append_spec(&mode_name);
                 index += 1;
@@ -2087,7 +2093,8 @@ fn expand_mode_line_percent_in_state(
                 // GNU xdisp.c:29477 — "@" if default-directory is remote, "-" otherwise.
                 let remote =
                     mode_line_symbol_value_in_state(obarray, dynamic, buffers, "default-directory")
-                        .and_then(|v| v.as_str().map(is_remote_directory))
+                        .and_then(|v| mode_line_runtime_string(&v))
+                        .map(|dir| is_remote_directory(&dir))
                         .unwrap_or(false);
                 append_spec(if remote { "@" } else { "-" });
                 index += 1;

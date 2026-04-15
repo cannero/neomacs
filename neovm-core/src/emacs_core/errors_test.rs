@@ -670,6 +670,23 @@ fn builtin_error_message_string_file_missing_string_payload() {
 }
 
 #[test]
+fn builtin_error_message_string_preserves_raw_unibyte_leading_payload() {
+    crate::test_utils::init_test_tracing();
+    let mut evaluator = super::super::eval::Context::new();
+    init_standard_errors(&mut evaluator.obarray);
+
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let err_data = Value::list(vec![Value::symbol("file-error"), raw, Value::string("foo")]);
+    let result = builtin_error_message_string(&mut evaluator, vec![err_data])
+        .expect("error-message-string should succeed");
+    let text = result
+        .as_lisp_string()
+        .expect("error-message-string should return a LispString");
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[0xFF, b':', b' ', b'f', b'o', b'o']);
+}
+
+#[test]
 fn builtin_error_message_string_peculiar_error_paths() {
     crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();

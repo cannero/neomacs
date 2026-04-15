@@ -161,7 +161,7 @@ pub(crate) fn builtin_documentation_stringp(args: Vec<Value>) -> EvalResult {
         ValueKind::Cons => {
             let pair_car = args[0].cons_car();
             let pair_cdr = args[0].cons_cdr();
-            pair_car.as_str().is_some() && pair_cdr.as_int().is_some()
+            pair_car.is_string() && pair_cdr.as_int().is_some()
         }
         _ => false,
     };

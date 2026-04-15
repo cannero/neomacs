@@ -784,6 +784,28 @@ fn test_format_mode_line_major_mode_name_spec_matches_gnu() {
 }
 
 #[test]
+fn test_format_mode_line_major_mode_name_preserves_raw_unibyte_value() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    let buffer_id = eval.buffers.create_buffer("raw-mode-test");
+    eval.buffers.set_current(buffer_id);
+    let raw_mode = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b'-', b'M',
+    ]));
+    eval.buffers
+        .set_buffer_local_property(buffer_id, "mode-name", raw_mode)
+        .expect("set raw mode-name");
+
+    let rendered =
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%m")]).expect("mode spec");
+    let text = rendered
+        .as_lisp_string()
+        .expect("format-mode-line should return a LispString");
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[0xFF, b'-', b'M']);
+}
+
+#[test]
 fn test_format_mode_line_remote_at_spec_matches_gnu() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
@@ -806,6 +828,27 @@ fn test_format_mode_line_remote_at_spec_matches_gnu() {
             Value::string("/ssh:host:/home/user"),
         )
         .expect("set remote default-directory");
+    let remote =
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%@")]).expect("remote @");
+    assert_eq!(remote, Value::string("@"));
+}
+
+#[test]
+fn test_format_mode_line_remote_at_spec_accepts_raw_unibyte_default_directory() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    let buffer_id = eval.buffers.create_buffer("remote-raw-test");
+    eval.buffers.set_current(buffer_id);
+    let mut remote_dir = b"/ssh:host:/home/user".to_vec();
+    remote_dir.push(0xFF);
+    eval.buffers
+        .set_buffer_local_property(
+            buffer_id,
+            "default-directory",
+            Value::heap_string(crate::heap_types::LispString::from_unibyte(remote_dir)),
+        )
+        .expect("set raw remote default-directory");
+
     let remote =
         builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%@")]).expect("remote @");
     assert_eq!(remote, Value::string("@"));

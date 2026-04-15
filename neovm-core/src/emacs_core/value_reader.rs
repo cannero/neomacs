@@ -990,7 +990,13 @@ impl<'a> Reader<'a> {
                             crate::emacs_core::error::Flow::Signal(sig) => sig
                                 .data
                                 .first()
-                                .and_then(|v| v.as_str().map(str::to_owned))
+                                .and_then(|v| {
+                                    v.is_string().then(|| {
+                                        crate::emacs_core::builtins::lisp_string_to_runtime_string(
+                                            *v,
+                                        )
+                                    })
+                                })
                                 .unwrap_or_else(|| format!("{:?}", sig.data)),
                             other => format!("{:?}", other),
                         };

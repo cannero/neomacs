@@ -520,7 +520,7 @@ pub(crate) fn builtin_error_message_string(
             };
             (sym, rest)
         }
-        ValueKind::Nil => return Ok(Value::string("peculiar error")),
+        ValueKind::Nil => return Ok(runtime_string_result("peculiar error")),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -533,20 +533,20 @@ pub(crate) fn builtin_error_message_string(
     let base_message = eval
         .obarray
         .get_property(&sym_name, "error-message")
-        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .and_then(runtime_string_value)
         .unwrap_or_else(|| sym_name.clone());
     let is_known_error = signal_matches_hierarchical(&eval.obarray, &sym_name, "error");
 
     // Unknown condition symbols are formatted as peculiar errors.
     if !is_known_error {
         if data.is_empty() {
-            return Ok(Value::string("peculiar error"));
+            return Ok(runtime_string_result("peculiar error"));
         }
         let data_strs: Vec<String> = data
             .iter()
             .map(|v| format_error_arg(eval, v, true))
             .collect();
-        return Ok(Value::string(format!(
+        return Ok(runtime_string_result(format!(
             "peculiar error: {}",
             data_strs.join(", ")
         )));
@@ -554,26 +554,26 @@ pub(crate) fn builtin_error_message_string(
 
     if data.is_empty() {
         if sym_name == "error" {
-            return Ok(Value::string("peculiar error"));
+            return Ok(runtime_string_result("peculiar error"));
         }
         if sym_name == "user-error" {
-            return Ok(Value::string(""));
+            return Ok(runtime_string_result(""));
         }
-        return Ok(Value::string(base_message));
+        return Ok(runtime_string_result(base_message));
     }
 
     // `user-error` always renders payload data directly.
     if sym_name == "user-error" {
-        if let Some(first_str) = data.first().and_then(|v| v.as_str().map(|s| s.to_string())) {
+        if let Some(first_str) = data.first().and_then(runtime_string_value) {
             let rest = &data[1..];
             if rest.is_empty() {
-                return Ok(Value::string(first_str));
+                return Ok(runtime_string_result(first_str));
             }
             let rest_strs: Vec<String> = rest
                 .iter()
                 .map(|v| format_error_arg(eval, v, false))
                 .collect();
-            return Ok(Value::string(format!(
+            return Ok(runtime_string_result(format!(
                 "{first_str}, {}",
                 rest_strs.join(", ")
             )));
@@ -582,7 +582,7 @@ pub(crate) fn builtin_error_message_string(
             .iter()
             .map(|v| format_error_arg(eval, v, false))
             .collect();
-        return Ok(Value::string(data_strs.join(", ")));
+        return Ok(runtime_string_result(data_strs.join(", ")));
     }
 
     let is_file_error_family = signal_matches_hierarchical(&eval.obarray, &sym_name, "file-error");
@@ -595,7 +595,7 @@ pub(crate) fn builtin_error_message_string(
             .iter()
             .map(|v| format_error_arg(eval, v, true))
             .collect();
-        return Ok(Value::string(format!(
+        return Ok(runtime_string_result(format!(
             "peculiar error: {}",
             data_strs.join(", ")
         )));
@@ -604,17 +604,17 @@ pub(crate) fn builtin_error_message_string(
     // `error` and file-error-family conditions use a leading string for
     // user-facing detail.
     if sym_name == "error" || is_file_error_family {
-        if let Some(first_str) = data.first().and_then(|v| v.as_str().map(|s| s.to_string())) {
+        if let Some(first_str) = data.first().and_then(runtime_string_value) {
             let rest = &data[1..];
             if rest.is_empty() {
-                return Ok(Value::string(first_str));
+                return Ok(runtime_string_result(first_str));
             }
             let quote_strings = sym_name == "error";
             let rest_strs: Vec<String> = rest
                 .iter()
                 .map(|v| format_error_arg(eval, v, quote_strings))
                 .collect();
-            return Ok(Value::string(format!(
+            return Ok(runtime_string_result(format!(
                 "{first_str}: {}",
                 rest_strs.join(", ")
             )));
@@ -628,12 +628,12 @@ pub(crate) fn builtin_error_message_string(
                 .iter()
                 .map(|v| format_error_arg(eval, v, true))
                 .collect();
-            return Ok(Value::string(format!(
+            return Ok(runtime_string_result(format!(
                 "peculiar error: {}",
                 detail.join(", ")
             )));
         }
-        return Ok(Value::string("peculiar error"));
+        return Ok(runtime_string_result("peculiar error"));
     }
 
     let quote_strings = sym_name != "end-of-file";
@@ -641,7 +641,7 @@ pub(crate) fn builtin_error_message_string(
         .iter()
         .map(|v| format_error_arg(eval, v, quote_strings))
         .collect();
-    Ok(Value::string(format!(
+    Ok(runtime_string_result(format!(
         "{}: {}",
         base_message,
         data_strs.join(", ")
@@ -650,11 +650,27 @@ pub(crate) fn builtin_error_message_string(
 
 fn format_error_arg(eval: &super::eval::Context, value: &Value, quote_strings: bool) -> String {
     if !quote_strings {
-        if let Some(s) = value.as_str() {
-            return s.to_string();
+        if let Some(s) = runtime_string_value(value) {
+            return s;
         }
     }
     super::error::print_value_with_eval(eval, value)
+}
+
+fn runtime_string_value(value: &Value) -> Option<String> {
+    value
+        .is_string()
+        .then(|| super::builtins::lisp_string_to_runtime_string(*value))
+}
+
+fn runtime_string_result(text: impl Into<String>) -> Value {
+    let text = text.into();
+    let multibyte = crate::emacs_core::string_escape::decode_storage_char_codes(&text)
+        .into_iter()
+        .any(|code| code > 0xFF);
+    Value::heap_string(super::builtins::runtime_string_to_lisp_string(
+        &text, multibyte,
+    ))
 }
 
 // ---------------------------------------------------------------------------
