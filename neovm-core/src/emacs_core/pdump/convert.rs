@@ -1224,11 +1224,13 @@ pub(crate) fn dump_autoload_manager(
 
 pub(crate) fn dump_custom_manager(cm: &CustomManager) -> DumpCustomManager {
     DumpCustomManager {
-        auto_buffer_local: cm
+        auto_buffer_local_syms: cm
             .auto_buffer_local
             .iter()
-            .map(|sym_id| crate::emacs_core::intern::resolve_sym(*sym_id).to_string())
+            .copied()
+            .map(dump_sym_id)
             .collect(),
+        auto_buffer_local: Vec::new(),
     }
 }
 
@@ -2787,11 +2789,14 @@ pub(crate) fn load_autoload_manager(
 
 pub(crate) fn load_custom_manager(dcm: &DumpCustomManager) -> CustomManager {
     CustomManager {
-        auto_buffer_local: dcm
-            .auto_buffer_local
-            .iter()
-            .map(|name| crate::emacs_core::intern::intern(name))
-            .collect(),
+        auto_buffer_local: if !dcm.auto_buffer_local_syms.is_empty() {
+            dcm.auto_buffer_local_syms.iter().map(load_sym_id).collect()
+        } else {
+            dcm.auto_buffer_local
+                .iter()
+                .map(|name| crate::emacs_core::intern::intern(name))
+                .collect()
+        },
     }
 }
 

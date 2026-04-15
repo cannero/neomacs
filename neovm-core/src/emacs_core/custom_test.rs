@@ -51,6 +51,25 @@ fn custom_manager_buffer_local() {
     assert!(cm.is_auto_buffer_local("tab-width"));
 }
 
+#[test]
+fn custom_manager_pdump_uses_symbol_identity() {
+    crate::test_utils::init_test_tracing();
+    let mut cm = CustomManager::new();
+    cm.make_variable_buffer_local("tab-width");
+    cm.make_variable_buffer_local("fill-column");
+
+    let dump = crate::emacs_core::pdump::convert::dump_custom_manager(&cm);
+    assert!(dump.auto_buffer_local.is_empty());
+    assert_eq!(dump.auto_buffer_local_syms.len(), 2);
+    let legacy_dump = crate::emacs_core::pdump::types::DumpCustomManager {
+        auto_buffer_local_syms: Vec::new(),
+        auto_buffer_local: vec!["tab-width".to_string(), "fill-column".to_string()],
+    };
+    let restored = crate::emacs_core::pdump::convert::load_custom_manager(&legacy_dump);
+    assert!(restored.is_auto_buffer_local_symbol(intern("tab-width")));
+    assert!(restored.is_auto_buffer_local_symbol(intern("fill-column")));
+}
+
 // -- GNU custom.el runtime tests ----------------------------------------
 
 #[test]

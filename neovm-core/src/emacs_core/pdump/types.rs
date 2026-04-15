@@ -656,6 +656,9 @@ pub struct DumpAutoloadManager {
 // Custom
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpCustomManager {
+    #[serde(default)]
+    pub auto_buffer_local_syms: Vec<DumpSymId>,
+    #[serde(default)]
     pub auto_buffer_local: Vec<String>,
 }
 
