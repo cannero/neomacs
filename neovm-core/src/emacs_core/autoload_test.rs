@@ -301,6 +301,76 @@ fn after_load_keys_canonicalize_ascii_storage_variants() {
 }
 
 #[test]
+fn autoload_manager_pdump_uses_symbol_and_lisp_identity() {
+    crate::test_utils::init_test_tracing();
+    let mut mgr = AutoloadManager::new();
+    let autoload_name = intern("autoload-pdump-symbol");
+    let obsolete_name = intern("autoload-obsolete-symbol");
+
+    mgr.register_symbol(
+        autoload_name,
+        AutoloadEntry {
+            file: LispString::from_utf8("autoload-pdump-file"),
+            docstring: Some(LispString::from_utf8("autoload doc")),
+            interactive: true,
+            autoload_type: AutoloadType::Macro,
+        },
+    );
+    mgr.make_obsolete_symbol(
+        obsolete_name,
+        LispString::from_utf8("replacement-symbol"),
+        LispString::from_utf8("31.1"),
+    );
+
+    assert!(mgr.dump_entries().contains_key(&autoload_name));
+    assert_eq!(
+        mgr.dump_obsolete_functions()
+            .get(&obsolete_name)
+            .map(|(new_name, when)| (new_name.as_str(), when.as_str())),
+        Some((Some("replacement-symbol"), Some("31.1")))
+    );
+
+    let legacy_dump = crate::emacs_core::pdump::types::DumpAutoloadManager {
+        entries_syms: Vec::new(),
+        entries: vec![(
+            "legacy-autoload".to_string(),
+            crate::emacs_core::pdump::types::DumpAutoloadEntry {
+                file: crate::emacs_core::pdump::types::DumpLispString {
+                    data: b"legacy-file".to_vec(),
+                    size: "legacy-file".chars().count(),
+                    size_byte: "legacy-file".len() as i64,
+                },
+                docstring: Some(crate::emacs_core::pdump::types::DumpLispString {
+                    data: b"legacy-doc".to_vec(),
+                    size: "legacy-doc".chars().count(),
+                    size_byte: "legacy-doc".len() as i64,
+                }),
+                interactive: false,
+                autoload_type: crate::emacs_core::pdump::types::DumpAutoloadType::Function,
+            },
+        )],
+        after_load_lisp: Vec::new(),
+        after_load: Vec::new(),
+        loaded_files: Vec::new(),
+        obsolete_functions_syms: Vec::new(),
+        obsolete_functions: vec![(
+            "legacy-obsolete".to_string(),
+            ("legacy-new".to_string(), "30.1".to_string()),
+        )],
+        obsolete_variables_syms: Vec::new(),
+        obsolete_variables: Vec::new(),
+    };
+    let empty_heap = crate::emacs_core::pdump::types::DumpTaggedHeap {
+        objects: Vec::new(),
+    };
+    let mut decoder = crate::emacs_core::pdump::convert::LoadDecoder::new(&empty_heap);
+    let restored =
+        crate::emacs_core::pdump::convert::load_autoload_manager(&mut decoder, &legacy_dump);
+    assert!(restored.is_autoloaded_symbol(intern("legacy-autoload")));
+    assert!(restored.is_function_obsolete_symbol(intern("legacy-obsolete")));
+}
+
+#[test]
 fn loaded_files_tracking() {
     crate::test_utils::init_test_tracing();
     let mut mgr = AutoloadManager::new();

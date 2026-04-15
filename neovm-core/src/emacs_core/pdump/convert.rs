@@ -1182,12 +1182,12 @@ pub(crate) fn dump_autoload_manager(
     am: &AutoloadManager,
 ) -> DumpAutoloadManager {
     DumpAutoloadManager {
-        entries: am
+        entries_syms: am
             .dump_entries()
             .iter()
             .map(|(k, v)| {
                 (
-                    k.clone(),
+                    dump_sym_id(*k),
                     DumpAutoloadEntry {
                         file: dump_lisp_string(&v.file),
                         docstring: v.docstring.as_ref().map(dump_lisp_string),
@@ -1201,6 +1201,7 @@ pub(crate) fn dump_autoload_manager(
                 )
             })
             .collect(),
+        entries: Vec::new(),
         after_load_lisp: am
             .dump_after_load()
             .iter()
@@ -1217,8 +1218,28 @@ pub(crate) fn dump_autoload_manager(
             .iter()
             .map(dump_lisp_string)
             .collect(),
-        obsolete_functions: am.dump_obsolete_functions(),
-        obsolete_variables: am.dump_obsolete_variables(),
+        obsolete_functions_syms: am
+            .dump_obsolete_functions()
+            .iter()
+            .map(|(name, (new_name, when))| {
+                (
+                    dump_sym_id(*name),
+                    (dump_lisp_string(new_name), dump_lisp_string(when)),
+                )
+            })
+            .collect(),
+        obsolete_functions: Vec::new(),
+        obsolete_variables_syms: am
+            .dump_obsolete_variables()
+            .iter()
+            .map(|(name, (new_name, when))| {
+                (
+                    dump_sym_id(*name),
+                    (dump_lisp_string(new_name), dump_lisp_string(when)),
+                )
+            })
+            .collect(),
+        obsolete_variables: Vec::new(),
     }
 }
 
@@ -2730,25 +2751,45 @@ pub(crate) fn load_autoload_manager(
     decoder: &mut LoadDecoder,
     dam: &DumpAutoloadManager,
 ) -> AutoloadManager {
-    let entries: HashMap<String, AutoloadEntry> = dam
-        .entries
-        .iter()
-        .map(|(k, e)| {
-            (
-                k.clone(),
-                AutoloadEntry {
-                    file: load_lisp_string(&e.file),
-                    docstring: e.docstring.as_ref().map(load_lisp_string),
-                    interactive: e.interactive,
-                    autoload_type: match e.autoload_type {
-                        DumpAutoloadType::Function => AutoloadType::Function,
-                        DumpAutoloadType::Macro => AutoloadType::Macro,
-                        DumpAutoloadType::Keymap => AutoloadType::Keymap,
+    let entries: HashMap<SymId, AutoloadEntry> = if dam.entries_syms.is_empty() {
+        dam.entries
+            .iter()
+            .map(|(k, e)| {
+                (
+                    crate::emacs_core::intern::intern(k),
+                    AutoloadEntry {
+                        file: load_lisp_string(&e.file),
+                        docstring: e.docstring.as_ref().map(load_lisp_string),
+                        interactive: e.interactive,
+                        autoload_type: match e.autoload_type {
+                            DumpAutoloadType::Function => AutoloadType::Function,
+                            DumpAutoloadType::Macro => AutoloadType::Macro,
+                            DumpAutoloadType::Keymap => AutoloadType::Keymap,
+                        },
                     },
-                },
-            )
-        })
-        .collect();
+                )
+            })
+            .collect()
+    } else {
+        dam.entries_syms
+            .iter()
+            .map(|(k, e)| {
+                (
+                    load_sym_id(k),
+                    AutoloadEntry {
+                        file: load_lisp_string(&e.file),
+                        docstring: e.docstring.as_ref().map(load_lisp_string),
+                        interactive: e.interactive,
+                        autoload_type: match e.autoload_type {
+                            DumpAutoloadType::Function => AutoloadType::Function,
+                            DumpAutoloadType::Macro => AutoloadType::Macro,
+                            DumpAutoloadType::Keymap => AutoloadType::Keymap,
+                        },
+                    },
+                )
+            })
+            .collect()
+    };
     let after_load: HashMap<crate::emacs_core::autoload::AfterLoadKey, Vec<Value>> =
         if !dam.after_load_lisp.is_empty() {
             dam.after_load_lisp
@@ -2777,14 +2818,58 @@ pub(crate) fn load_autoload_manager(
         entries,
         after_load,
         dam.loaded_files.iter().map(load_lisp_string).collect(),
-        dam.obsolete_functions
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect(),
-        dam.obsolete_variables
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect(),
+        if dam.obsolete_functions_syms.is_empty() {
+            dam.obsolete_functions
+                .iter()
+                .map(|(k, (new_name, when))| {
+                    (
+                        crate::emacs_core::intern::intern(k),
+                        (
+                            crate::emacs_core::builtins::runtime_string_to_lisp_string(
+                                new_name, true,
+                            ),
+                            crate::emacs_core::builtins::runtime_string_to_lisp_string(when, true),
+                        ),
+                    )
+                })
+                .collect()
+        } else {
+            dam.obsolete_functions_syms
+                .iter()
+                .map(|(k, (new_name, when))| {
+                    (
+                        load_sym_id(k),
+                        (load_lisp_string(new_name), load_lisp_string(when)),
+                    )
+                })
+                .collect()
+        },
+        if dam.obsolete_variables_syms.is_empty() {
+            dam.obsolete_variables
+                .iter()
+                .map(|(k, (new_name, when))| {
+                    (
+                        crate::emacs_core::intern::intern(k),
+                        (
+                            crate::emacs_core::builtins::runtime_string_to_lisp_string(
+                                new_name, true,
+                            ),
+                            crate::emacs_core::builtins::runtime_string_to_lisp_string(when, true),
+                        ),
+                    )
+                })
+                .collect()
+        } else {
+            dam.obsolete_variables_syms
+                .iter()
+                .map(|(k, (new_name, when))| {
+                    (
+                        load_sym_id(k),
+                        (load_lisp_string(new_name), load_lisp_string(when)),
+                    )
+                })
+                .collect()
+        },
     )
 }
 

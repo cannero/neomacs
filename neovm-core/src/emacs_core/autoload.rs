@@ -287,11 +287,8 @@ impl AutoloadManager {
     }
 
     // pdump accessors
-    pub(crate) fn dump_entries(&self) -> Vec<(String, AutoloadEntry)> {
-        self.entries
-            .iter()
-            .map(|(name, entry)| (resolve_sym(*name).to_string(), entry.clone()))
-            .collect()
+    pub(crate) fn dump_entries(&self) -> &HashMap<SymId, AutoloadEntry> {
+        &self.entries
     }
     pub(crate) fn dump_after_load(&self) -> &HashMap<AfterLoadKey, Vec<Value>> {
         &self.after_load
@@ -299,72 +296,25 @@ impl AutoloadManager {
     pub(crate) fn dump_loaded_files(&self) -> &[LispString] {
         &self.loaded_files
     }
-    pub(crate) fn dump_obsolete_functions(&self) -> Vec<(String, (String, String))> {
-        self.obsolete_functions
-            .iter()
-            .map(|(name, (new_name, when))| {
-                (
-                    resolve_sym(*name).to_string(),
-                    (
-                        autoload_string_to_runtime_string(new_name),
-                        autoload_string_to_runtime_string(when),
-                    ),
-                )
-            })
-            .collect()
+    pub(crate) fn dump_obsolete_functions(&self) -> &HashMap<SymId, ObsoleteInfo> {
+        &self.obsolete_functions
     }
-    pub(crate) fn dump_obsolete_variables(&self) -> Vec<(String, (String, String))> {
-        self.obsolete_variables
-            .iter()
-            .map(|(name, (new_name, when))| {
-                (
-                    resolve_sym(*name).to_string(),
-                    (
-                        autoload_string_to_runtime_string(new_name),
-                        autoload_string_to_runtime_string(when),
-                    ),
-                )
-            })
-            .collect()
+    pub(crate) fn dump_obsolete_variables(&self) -> &HashMap<SymId, ObsoleteInfo> {
+        &self.obsolete_variables
     }
     pub(crate) fn from_dump(
-        entries: HashMap<String, AutoloadEntry>,
+        entries: HashMap<SymId, AutoloadEntry>,
         after_load: HashMap<AfterLoadKey, Vec<Value>>,
         loaded_files: Vec<LispString>,
-        obsolete_functions: HashMap<String, (String, String)>,
-        obsolete_variables: HashMap<String, (String, String)>,
+        obsolete_functions: HashMap<SymId, ObsoleteInfo>,
+        obsolete_variables: HashMap<SymId, ObsoleteInfo>,
     ) -> Self {
         Self {
-            entries: entries
-                .into_iter()
-                .map(|(name, entry)| (intern(&name), entry))
-                .collect(),
+            entries,
             after_load,
             loaded_files,
-            obsolete_functions: obsolete_functions
-                .into_iter()
-                .map(|(name, (new_name, when))| {
-                    (
-                        intern(&name),
-                        (
-                            runtime_string_to_autoload_string(&new_name),
-                            runtime_string_to_autoload_string(&when),
-                        ),
-                    )
-                })
-                .collect(),
-            obsolete_variables: obsolete_variables
-                .into_iter()
-                .map(|(name, (new_name, when))| {
-                    (
-                        intern(&name),
-                        (
-                            runtime_string_to_autoload_string(&new_name),
-                            runtime_string_to_autoload_string(&when),
-                        ),
-                    )
-                })
-                .collect(),
+            obsolete_functions,
+            obsolete_variables,
         }
     }
 }

@@ -643,13 +643,19 @@ pub struct DumpAutoloadEntry {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpAutoloadManager {
+    #[serde(default)]
+    pub entries_syms: Vec<(DumpSymId, DumpAutoloadEntry)>,
     pub entries: Vec<(String, DumpAutoloadEntry)>,
     #[serde(default)]
     pub after_load_lisp: Vec<(DumpLispString, Vec<DumpValue>)>,
     #[serde(default)]
     pub after_load: Vec<(String, Vec<DumpValue>)>,
     pub loaded_files: Vec<DumpLispString>,
+    #[serde(default)]
+    pub obsolete_functions_syms: Vec<(DumpSymId, (DumpLispString, DumpLispString))>,
     pub obsolete_functions: Vec<(String, (String, String))>,
+    #[serde(default)]
+    pub obsolete_variables_syms: Vec<(DumpSymId, (DumpLispString, DumpLispString))>,
     pub obsolete_variables: Vec<(String, (String, String))>,
 }
 
