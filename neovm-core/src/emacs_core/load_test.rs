@@ -3809,6 +3809,36 @@ fn builtin_load_substitutes_environment_variables_before_search() {
 }
 
 #[test]
+fn builtin_load_dispatches_file_name_handlers_before_search() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    assert_eq!(
+        eval_rendered(
+            &mut eval,
+            r#"
+        (setq vm-load-handler-log nil)
+        (setq file-name-handler-alist
+              (cons (cons "\\`/fake:"
+                          (lambda (op &rest args)
+                            (setq vm-load-handler-log (cons (cons op args) vm-load-handler-log))
+                            'load-sentinel))
+                    nil))
+        (load "/fake:foo" nil t nil nil)
+        "#,
+        ),
+        "OK load-sentinel"
+    );
+    assert_eq!(
+        eval_rendered(&mut eval, "(car (car vm-load-handler-log))"),
+        "OK load"
+    );
+    assert_eq!(
+        eval_rendered(&mut eval, "(car (cdr (car vm-load-handler-log)))"),
+        "OK \"/fake:foo\""
+    );
+}
+
+#[test]
 fn find_file_with_suffix_flags() {
     crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()

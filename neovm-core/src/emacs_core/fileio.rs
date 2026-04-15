@@ -2354,9 +2354,23 @@ pub(crate) fn builtin_make_directory_internal(eval: &mut Context, args: Vec<Valu
 /// surface for the [`find_file_name_handler`] dispatch helper.
 pub(crate) fn builtin_find_file_name_handler(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     expect_args("find-file-name-handler", &args, 2)?;
-    let filename = expect_string_strict(&args[0])?;
+    let filename = match args[0].kind() {
+        ValueKind::String => args[0]
+            .as_lisp_string()
+            .expect("ValueKind::String must carry LispString payload"),
+        _ => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("stringp"), args[0]],
+            ));
+        }
+    };
     let operation = args[1];
-    Ok(find_file_name_handler(&eval.obarray, &filename, operation))
+    Ok(find_file_name_handler_lisp(
+        &eval.obarray,
+        filename,
+        operation,
+    ))
 }
 
 /// Walk `file-name-handler-alist` looking for a handler matching FILENAME
@@ -2375,11 +2389,21 @@ pub(crate) fn builtin_find_file_name_handler(eval: &mut Context, args: Vec<Value
 /// handlers declare a restricted operation set without writing
 /// trampolines for everything else.
 pub(crate) fn find_file_name_handler(obarray: &Obarray, filename: &str, operation: Value) -> Value {
+    let filename = super::builtins::runtime_string_to_lisp_string(filename, !filename.is_ascii());
+    find_file_name_handler_lisp(obarray, &filename, operation)
+}
+
+pub(crate) fn find_file_name_handler_lisp(
+    obarray: &Obarray,
+    filename: &crate::heap_types::LispString,
+    operation: Value,
+) -> Value {
     // Read the alist. If unbound or non-list, no handlers apply.
     let alist = match obarray.symbol_value("file-name-handler-alist") {
         Some(v) if v.is_cons() => *v,
         _ => return Value::NIL,
     };
+    let filename_runtime = super::builtins::runtime_string_from_lisp_string(filename);
 
     // Compute the inhibit list lazily — only consulted when operation
     // matches inhibit-file-name-operation.
@@ -2434,11 +2458,11 @@ pub(crate) fn find_file_name_handler(obarray: &Obarray, filename: &str, operatio
 
         // Match the regexp against the filename.
         let mut match_data: Option<crate::emacs_core::regex::MatchData> = None;
-        let match_pos = match super::regex::string_match_full(regexp, filename, 0, &mut match_data)
-        {
-            Ok(Some(pos)) => pos as i64,
-            _ => continue,
-        };
+        let match_pos =
+            match super::regex::string_match_full(regexp, &filename_runtime, 0, &mut match_data) {
+                Ok(Some(pos)) => pos as i64,
+                _ => continue,
+            };
 
         if match_pos > best_pos {
             // Skip if this handler is inhibited for the current operation.
@@ -2485,11 +2509,11 @@ pub(crate) fn dispatch_file_handler(
     let Some(first) = args.first() else {
         return Ok(None);
     };
-    let Some(filename) = first.as_str() else {
+    let Some(filename) = first.as_lisp_string() else {
         return Ok(None);
     };
     let operation_sym = Value::symbol(operation_name);
-    let handler = find_file_name_handler(&eval.obarray, filename, operation_sym);
+    let handler = find_file_name_handler_lisp(&eval.obarray, filename, operation_sym);
     if handler.is_nil() {
         return Ok(None);
     }
@@ -2514,8 +2538,8 @@ pub(crate) fn dispatch_file_handler_two_arg(
     }
     let operation_sym = Value::symbol(operation_name);
     // Source file first.
-    if let Some(src) = args[0].as_str() {
-        let handler = find_file_name_handler(&eval.obarray, src, operation_sym);
+    if let Some(src) = args[0].as_lisp_string() {
+        let handler = find_file_name_handler_lisp(&eval.obarray, src, operation_sym);
         if !handler.is_nil() {
             let mut call_args = Vec::with_capacity(args.len() + 1);
             call_args.push(operation_sym);
@@ -2524,8 +2548,8 @@ pub(crate) fn dispatch_file_handler_two_arg(
         }
     }
     // Destination file second.
-    if let Some(dst) = args[1].as_str() {
-        let handler = find_file_name_handler(&eval.obarray, dst, operation_sym);
+    if let Some(dst) = args[1].as_lisp_string() {
+        let handler = find_file_name_handler_lisp(&eval.obarray, dst, operation_sym);
         if !handler.is_nil() {
             let mut call_args = Vec::with_capacity(args.len() + 1);
             call_args.push(operation_sym);

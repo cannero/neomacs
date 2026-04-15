@@ -536,6 +536,9 @@ pub(super) fn builtin_garbage_collect(
 
 pub(crate) fn builtin_load(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("load", &args, 1)?;
+    if let Some(result) = super::fileio::dispatch_file_handler(eval, "load", &args)? {
+        return Ok(result);
+    }
     match super::load::plan_load_in_state(
         &eval.obarray,
         args[0],
