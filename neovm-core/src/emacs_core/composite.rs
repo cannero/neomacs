@@ -75,6 +75,11 @@ fn integer_value(arg: &Value) -> i64 {
     }
 }
 
+fn expect_string_value(arg: &Value) -> Result<&crate::heap_types::LispString, Flow> {
+    arg.as_lisp_string()
+        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("stringp"), *arg]))
+}
+
 // ---------------------------------------------------------------------------
 // Pure builtins
 // ---------------------------------------------------------------------------
@@ -128,7 +133,7 @@ pub(crate) fn builtin_compose_string_internal(args: Vec<Value>) -> EvalResult {
     expect_integerp(&args[2])?;
     let start = integer_value(&args[1]);
     let end = integer_value(&args[2]);
-    let len = args[0].as_str().expect("validated string").chars().count() as i64;
+    let len = expect_string_value(&args[0])?.schars() as i64;
     if start < 0 || end < 0 || start > end || end > len {
         return Err(signal(
             "args-out-of-range",
@@ -158,8 +163,8 @@ pub(crate) fn builtin_find_composition_internal(args: Vec<Value>) -> EvalResult 
         ));
     }
     let pos = integer_value(&args[0]);
-    if let Some(text) = args[2].as_str() {
-        let len = text.chars().count() as i64;
+    if let Some(text) = args[2].as_lisp_string() {
+        let len = text.schars() as i64;
         if pos < 0 || pos > len {
             return Err(signal(
                 "args-out-of-range",
@@ -199,14 +204,14 @@ pub(crate) fn builtin_composition_get_gstring(args: Vec<Value>) -> EvalResult {
         ValueKind::Fixnum(n) => n,
         _ => unreachable!("validated by expect_integerp"),
     };
-    let text = args[3].as_str().expect("validated string");
-    let chars: Vec<char> = text.chars().collect();
-    let len = chars.len() as i64;
+    let text = expect_string_value(&args[3])?;
+    let codes = crate::emacs_core::builtins::lisp_string_char_codes(text);
+    let len = codes.len() as i64;
 
     if from > to || from > len || to > len {
         return Err(signal(
             "args-out-of-range",
-            vec![Value::string(text), Value::fixnum(from), Value::fixnum(to)],
+            vec![args[3], Value::fixnum(from), Value::fixnum(to)],
         ));
     }
     if from < 0 || from == to {
@@ -218,20 +223,20 @@ pub(crate) fn builtin_composition_get_gstring(args: Vec<Value>) -> EvalResult {
 
     let from_usize = from as usize;
     let to_usize = to as usize;
-    if from_usize >= chars.len() || to_usize > chars.len() || from_usize >= to_usize {
+    if from_usize >= codes.len() || to_usize > codes.len() || from_usize >= to_usize {
         return Err(signal(
             "args-out-of-range",
-            vec![Value::string(text), Value::fixnum(from), Value::fixnum(to)],
+            vec![args[3], Value::fixnum(from), Value::fixnum(to)],
         ));
     }
 
-    let segment = &chars[from_usize..to_usize];
+    let segment = &codes[from_usize..to_usize];
     let mut encoded = vec![Value::symbol("utf-8-unix")];
-    encoded.extend(segment.iter().map(|c| Value::fixnum(*c as i64)));
+    encoded.extend(segment.iter().map(|code| Value::fixnum(*code as i64)));
 
     let mut gstring = vec![Value::vector(encoded), Value::NIL];
-    for ch in segment {
-        let code = *ch as i64;
+    for code in segment {
+        let code = *code as i64;
         gstring.push(Value::vector(vec![
             Value::fixnum(0),
             Value::fixnum(0),

@@ -168,6 +168,20 @@ fn compose_string_internal_range_checks() {
 }
 
 #[test]
+fn compose_string_internal_accepts_raw_unibyte_ranges() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let result = builtin_compose_string_internal(vec![raw, Value::fixnum(0), Value::fixnum(1)]);
+    assert!(result.is_ok());
+    let value = result.unwrap();
+    let string = value
+        .as_lisp_string()
+        .expect("compose-string-internal string");
+    assert!(!string.is_multibyte());
+    assert_eq!(string.as_bytes(), &[0xFF]);
+}
+
+#[test]
 fn find_composition_internal_returns_nil() {
     crate::test_utils::init_test_tracing();
     let result = builtin_find_composition_internal(vec![
@@ -251,6 +265,19 @@ fn composition_get_gstring_returns_vector_shape() {
     let gs = result.as_vector_data().unwrap().clone();
     assert!(!gs.is_empty());
     assert!(gs[0].is_vector());
+}
+
+#[test]
+fn composition_get_gstring_preserves_raw_unibyte_character_codes() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let result =
+        builtin_composition_get_gstring(vec![Value::fixnum(0), Value::fixnum(1), Value::NIL, raw])
+            .unwrap();
+    let gs = result.as_vector_data().expect("gstring vector").clone();
+    let glyph = gs[2].as_vector_data().expect("glyph entry").clone();
+    assert_eq!(glyph[2], Value::fixnum(0xFF));
+    assert_eq!(glyph[3], Value::fixnum(0xFF));
 }
 
 #[test]
