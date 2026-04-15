@@ -334,6 +334,21 @@ fn test_format_mode_line_in_state_with_eval_keeps_shared_buffer_context_around_e
 }
 
 #[test]
+fn test_format_mode_line_preserves_raw_unibyte_literal_segments() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+
+    let rendered = builtin_format_mode_line_ctx(&mut eval, vec![Value::list(vec![raw])])
+        .expect("format-mode-line raw literal");
+    let text = rendered
+        .as_lisp_string()
+        .expect("format-mode-line should return a LispString");
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[0xFF]);
+}
+
+#[test]
 fn test_format_mode_line_symbol_conditional_uses_only_selected_branch() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();

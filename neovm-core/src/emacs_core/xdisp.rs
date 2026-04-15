@@ -817,14 +817,20 @@ impl ModeLineRendered {
     }
 
     fn append_string_value_preserving_props(&mut self, value: &Value) {
-        let Some(text) = value.as_str() else {
-            return;
-        };
-        let byte_offset = self.text.len();
-        self.text.push_str(text);
-        if value.is_string() {
-            if let Some(props) = get_string_text_properties_table_for_value(*value) {
-                self.text_props.append_shifted(&props, byte_offset);
+        match value.as_lisp_string() {
+            Some(string) => {
+                let text = crate::emacs_core::builtins::runtime_string_from_lisp_string(string);
+                let byte_offset = self.text.len();
+                self.text.push_str(&text);
+                if let Some(props) = get_string_text_properties_table_for_value(*value) {
+                    self.text_props.append_shifted(&props, byte_offset);
+                }
+            }
+            None => {
+                let Some(text) = value.as_str() else {
+                    return;
+                };
+                self.text.push_str(text);
             }
         }
     }
@@ -838,23 +844,44 @@ impl ModeLineRendered {
         if start_char >= end_char {
             return;
         }
-        let Some(text) = value.as_str() else {
-            return;
-        };
-        let byte_start = char_to_byte_pos(text, start_char);
-        let byte_end = char_to_byte_pos(text, end_char);
-        let byte_offset = self.text.len();
-        self.text.push_str(
-            &text
-                .chars()
-                .skip(start_char)
-                .take(end_char - start_char)
-                .collect::<String>(),
-        );
-        if value.is_string() {
-            if let Some(props) = get_string_text_properties_table_for_value(*value) {
-                self.text_props
-                    .append_shifted(&props.slice(byte_start, byte_end), byte_offset);
+        match value.as_lisp_string() {
+            Some(string) => {
+                let text = crate::emacs_core::builtins::runtime_string_from_lisp_string(string);
+                let byte_start = char_to_byte_pos(&text, start_char);
+                let byte_end = char_to_byte_pos(&text, end_char);
+                let byte_offset = self.text.len();
+                self.text.push_str(
+                    &text
+                        .chars()
+                        .skip(start_char)
+                        .take(end_char - start_char)
+                        .collect::<String>(),
+                );
+                if let Some(props) = get_string_text_properties_table_for_value(*value) {
+                    self.text_props
+                        .append_shifted(&props.slice(byte_start, byte_end), byte_offset);
+                }
+            }
+            None => {
+                let Some(text) = value.as_str() else {
+                    return;
+                };
+                let byte_start = char_to_byte_pos(text, start_char);
+                let byte_end = char_to_byte_pos(text, end_char);
+                let byte_offset = self.text.len();
+                self.text.push_str(
+                    &text
+                        .chars()
+                        .skip(start_char)
+                        .take(end_char - start_char)
+                        .collect::<String>(),
+                );
+                if value.is_string() {
+                    if let Some(props) = get_string_text_properties_table_for_value(*value) {
+                        self.text_props
+                            .append_shifted(&props.slice(byte_start, byte_end), byte_offset);
+                    }
+                }
             }
         }
     }
@@ -950,13 +977,20 @@ impl ModeLineRendered {
     }
 
     fn into_value(mut self, face_spec: ModeLineFaceSpec) -> Value {
+        let multibyte = crate::emacs_core::string_escape::decode_storage_char_codes(&self.text)
+            .into_iter()
+            .any(|code| code > 0xFF);
         if face_spec.no_props {
-            return Value::string(self.text);
+            return Value::heap_string(crate::emacs_core::builtins::runtime_string_to_lisp_string(
+                &self.text, multibyte,
+            ));
         }
         if let Some(face) = face_spec.face {
             self.apply_default_face(face);
         }
-        let value = Value::string(self.text);
+        let value = Value::heap_string(crate::emacs_core::builtins::runtime_string_to_lisp_string(
+            &self.text, multibyte,
+        ));
         if value.is_string() {
             set_string_text_properties_table_for_value(value, self.text_props);
         }
@@ -1004,7 +1038,11 @@ fn append_mode_line_string_in_state(
     value: &Value,
     literal: bool,
 ) {
-    let Some(text) = value.as_str() else {
+    let text = if let Some(string) = value.as_lisp_string() {
+        crate::emacs_core::builtins::runtime_string_from_lisp_string(string)
+    } else if let Some(text) = value.as_str() {
+        text.to_owned()
+    } else {
         return;
     };
     if literal || !text.contains('%') {
@@ -1077,7 +1115,7 @@ fn format_mode_line_recursive(
                     mode_line_symbol_value_in_state(&eval.obarray, &[], &eval.buffers, name)
                     && !val.is_nil()
                 {
-                    if val.as_str().is_some() {
+                    if val.is_string() {
                         append_mode_line_string_in_state(
                             &eval.obarray,
                             &[],
@@ -1205,7 +1243,7 @@ fn format_mode_line_recursive_in_state(
                 if let Some(val) = mode_line_symbol_value_in_state(obarray, dynamic, buffers, name)
                     && !val.is_nil()
                 {
-                    if val.as_str().is_some() {
+                    if val.is_string() {
                         append_mode_line_string_in_state(
                             obarray, dynamic, buffers, processes, 0, pctx, result, &val, true,
                         );
@@ -1370,7 +1408,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                 if let Some(val) = mode_line_symbol_value_in_state(obarray, dynamic, buffers, name)
                     && !val.is_nil()
                 {
-                    if val.as_str().is_some() {
+                    if val.is_string() {
                         append_mode_line_string_in_state(
                             obarray, dynamic, buffers, processes, 0, pctx, result, &val, true,
                         );
@@ -1565,7 +1603,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                 if let Some(val) = value
                     && !val.is_nil()
                 {
-                    if val.as_str().is_some() {
+                    if val.is_string() {
                         append_mode_line_string_in_state(
                             &shared.obarray,
                             &[],
@@ -1730,9 +1768,14 @@ fn expand_mode_line_percent_in_state(
     value: &Value,
     result: &mut ModeLineRendered,
 ) {
-    let Some(fmt_str) = value.as_str() else {
+    let fmt_storage = if let Some(string) = value.as_lisp_string() {
+        crate::emacs_core::builtins::runtime_string_from_lisp_string(string)
+    } else if let Some(text) = value.as_str() {
+        text.to_owned()
+    } else {
         return;
     };
+    let fmt_str = fmt_storage.as_str();
     let buf = buffers.current_buffer();
     let buf_name = buf.map(|b| b.name.as_str()).unwrap_or("*scratch*");
     let file_name = buf.and_then(|b| b.get_file_name()).unwrap_or("");
