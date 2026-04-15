@@ -239,7 +239,7 @@ impl RootSlot {
     }
 
     pub(crate) fn get(&self) -> Option<GcErased> {
-        let raw = self.object.load(Ordering::Acquire);
+        let raw = self.object.load(Ordering::Relaxed);
         unsafe { GcErased::from_raw(raw) }
     }
 
@@ -249,7 +249,7 @@ impl RootSlot {
                 Some(object) => object.as_raw(),
                 None => core::ptr::null_mut(),
             },
-            Ordering::Release,
+            Ordering::Relaxed,
         );
     }
 }
