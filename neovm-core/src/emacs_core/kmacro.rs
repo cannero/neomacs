@@ -365,7 +365,9 @@ fn name_last_kbd_macro_impl(
 
     let name = match args[0].kind() {
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-        ValueKind::String => super::builtins::lisp_string_to_runtime_string(args[0]),
+        ValueKind::String => args[0]
+            .as_runtime_string_owned()
+            .expect("ValueKind::String must carry LispString payload"),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -474,7 +476,9 @@ pub(crate) fn builtin_kmacro_set_format(
     expect_args("kmacro-set-format", &args, 1)?;
     let format = match args[0].kind() {
         ValueKind::String => {
-            let s = super::builtins::lisp_string_to_runtime_string(args[0]);
+            let s = args[0]
+                .as_runtime_string_owned()
+                .expect("ValueKind::String must carry LispString payload");
             if s.is_empty() { "%d".to_string() } else { s }
         }
         other => {

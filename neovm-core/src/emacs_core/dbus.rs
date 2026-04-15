@@ -98,7 +98,9 @@ pub(crate) fn builtin_dbus_message_internal(args: Vec<Value>) -> EvalResult {
     match args[1].kind() {
         ValueKind::Symbol(_) => Ok(Value::NIL),
         ValueKind::String => {
-            let dest = crate::emacs_core::builtins::lisp_string_to_runtime_string(args[1]);
+            let dest = args[1]
+                .as_runtime_string_owned()
+                .expect("ValueKind::String must carry LispString payload");
             if !dest.contains(':') {
                 Err(signal(
                     "dbus-error",

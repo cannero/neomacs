@@ -56,7 +56,9 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
     match val.kind() {
-        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*val)),
+        ValueKind::String => Ok(val
+            .as_runtime_string_owned()
+            .expect("ValueKind::String must carry LispString payload")),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *val],
@@ -109,7 +111,9 @@ fn list_car_or_signal(value: &Value) -> Result<Value, Flow> {
 
 fn assoc_string_key_name(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
+        ValueKind::String => Ok(value
+            .as_runtime_string_owned()
+            .expect("ValueKind::String must carry LispString payload")),
         _ => symbol_like_name(value)
             .map(ToOwned::to_owned)
             .ok_or_else(|| {
@@ -123,7 +127,11 @@ fn assoc_string_key_name(value: &Value) -> Result<String, Flow> {
 
 fn assoc_string_entry_name(value: &Value) -> Option<String> {
     match value.kind() {
-        ValueKind::String => Some(super::builtins::lisp_string_to_runtime_string(*value)),
+        ValueKind::String => Some(
+            value
+                .as_runtime_string_owned()
+                .expect("ValueKind::String must carry LispString payload"),
+        ),
         _ => symbol_like_name(value).map(ToOwned::to_owned),
     }
 }
@@ -622,7 +630,9 @@ pub(crate) fn builtin_user_full_name(args: Vec<Value>) -> EvalResult {
                     .unwrap_or(Value::NIL)
             }
             ValueKind::String => {
-                let login = super::builtins::lisp_string_to_runtime_string(*target);
+                let login = target
+                    .as_runtime_string_owned()
+                    .expect("ValueKind::String must carry LispString payload");
                 lookup_full_name_by_login(&login)
                     .map(Value::string)
                     .unwrap_or(Value::NIL)
