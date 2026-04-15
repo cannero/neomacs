@@ -32,12 +32,12 @@ pub enum RegisterContent {
     Number(i64),
     /// A saved point location as a live marker, matching GNU register.el.
     Marker(Value),
-    /// A rectangle (list of strings, one per line).
-    Rectangle(Vec<String>),
+    /// A rectangle (list of Lisp strings, one per line), matching GNU.
+    Rectangle(Vec<LispString>),
     /// A saved window/frame configuration (opaque Lisp value).
     FrameConfig(Value),
     /// A file name (for `set-register` with file references).
-    File(String),
+    File(LispString),
     /// A keyboard macro (sequence of key events).
     KbdMacro(Vec<Value>),
 }
@@ -307,7 +307,14 @@ pub(crate) fn builtin_insert_register(
     match eval.registers.get(reg) {
         Some(RegisterContent::Text(s)) => Ok(Value::heap_string(s.clone())),
         Some(RegisterContent::Number(n)) => Ok(Value::string(n.to_string())),
-        Some(RegisterContent::Rectangle(lines)) => Ok(Value::string(lines.join("\n"))),
+        Some(RegisterContent::Rectangle(lines)) => {
+            let rendered = lines
+                .iter()
+                .map(super::builtins::runtime_string_from_lisp_string)
+                .collect::<Vec<_>>()
+                .join("\n");
+            Ok(Value::string(rendered))
+        }
         Some(_) => Err(signal(
             "error",
             vec![Value::string(format!(
@@ -448,7 +455,8 @@ pub(crate) fn builtin_view_register(
         ))),
         Some(RegisterContent::File(f)) => Ok(Value::string(format!(
             "Register {} contains file: {}",
-            reg, f
+            reg,
+            super::builtins::runtime_string_from_lisp_string(f)
         ))),
         Some(RegisterContent::KbdMacro(keys)) => Ok(Value::string(format!(
             "Register {} contains a keyboard macro ({} keys)",
@@ -474,10 +482,10 @@ pub(crate) fn builtin_get_register(
         Some(RegisterContent::Number(n)) => Ok(Value::fixnum(*n)),
         Some(RegisterContent::Marker(marker)) => Ok(*marker),
         Some(RegisterContent::Rectangle(lines)) => {
-            let vals: Vec<Value> = lines.iter().map(|l| Value::string(l.clone())).collect();
+            let vals: Vec<Value> = lines.iter().cloned().map(Value::heap_string).collect();
             Ok(Value::list(vals))
         }
-        Some(RegisterContent::File(f)) => Ok(Value::string(f.clone())),
+        Some(RegisterContent::File(f)) => Ok(Value::heap_string(f.clone())),
         Some(RegisterContent::FrameConfig(v)) => Ok(*v),
         Some(RegisterContent::KbdMacro(keys)) => Ok(Value::list(keys.clone())),
         None => Ok(Value::NIL),
@@ -496,7 +504,13 @@ pub(crate) fn builtin_register_to_string(
     let reg = expect_register(&args[0])?;
     match eval.registers.get(reg) {
         Some(RegisterContent::Text(s)) => Ok(Value::heap_string(s.clone())),
-        Some(RegisterContent::Rectangle(lines)) => Ok(Value::string(lines.join("\n"))),
+        Some(RegisterContent::Rectangle(lines)) => Ok(Value::string(
+            lines
+                .iter()
+                .map(super::builtins::runtime_string_from_lisp_string)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )),
         _ => Ok(Value::NIL),
     }
 }

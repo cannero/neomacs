@@ -1015,9 +1015,9 @@ pub enum DumpRegisterContent {
     },
     Number(i64),
     Marker(DumpValue),
-    Rectangle(Vec<String>),
+    Rectangle(Vec<DumpLispString>),
     FrameConfig(DumpValue),
-    File(String),
+    File(DumpLispString),
     KbdMacro(Vec<DumpValue>),
 }
 

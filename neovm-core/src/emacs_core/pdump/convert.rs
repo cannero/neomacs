@@ -1685,13 +1685,13 @@ pub(crate) fn dump_register_manager(
                         RegisterContent::Marker(v) => {
                             DumpRegisterContent::Marker(encoder.dump_value(v))
                         }
-                        RegisterContent::Rectangle(lines) => {
-                            DumpRegisterContent::Rectangle(lines.clone())
-                        }
+                        RegisterContent::Rectangle(lines) => DumpRegisterContent::Rectangle(
+                            lines.iter().map(dump_lisp_string).collect(),
+                        ),
                         RegisterContent::FrameConfig(v) => {
                             DumpRegisterContent::FrameConfig(encoder.dump_value(v))
                         }
-                        RegisterContent::File(s) => DumpRegisterContent::File(s.clone()),
+                        RegisterContent::File(s) => DumpRegisterContent::File(dump_lisp_string(s)),
                         RegisterContent::KbdMacro(keys) => DumpRegisterContent::KbdMacro(
                             keys.iter().map(|value| encoder.dump_value(value)).collect(),
                         ),
@@ -3141,12 +3141,12 @@ pub(crate) fn load_register_manager(
                         RegisterContent::Marker(decoder.load_value(v))
                     }
                     DumpRegisterContent::Rectangle(lines) => {
-                        RegisterContent::Rectangle(lines.clone())
+                        RegisterContent::Rectangle(lines.iter().map(load_lisp_string).collect())
                     }
                     DumpRegisterContent::FrameConfig(v) => {
                         RegisterContent::FrameConfig(decoder.load_value(v))
                     }
-                    DumpRegisterContent::File(s) => RegisterContent::File(s.clone()),
+                    DumpRegisterContent::File(s) => RegisterContent::File(load_lisp_string(s)),
                     DumpRegisterContent::KbdMacro(keys) => RegisterContent::KbdMacro(
                         keys.iter().map(|value| decoder.load_value(value)).collect(),
                     ),

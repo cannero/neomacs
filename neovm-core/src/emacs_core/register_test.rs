@@ -108,7 +108,10 @@ fn list_registers_sorted() {
         RegisterContent::Text(LispString::from_unibyte(b"z-text".to_vec())),
     );
     mgr.set('a', RegisterContent::Number(1));
-    mgr.set('m', RegisterContent::File("/tmp/foo".to_string()));
+    mgr.set(
+        'm',
+        RegisterContent::File(LispString::from_unibyte(b"/tmp/foo".to_vec())),
+    );
 
     let list = mgr.list();
     assert_eq!(list.len(), 3);
@@ -126,9 +129,9 @@ fn rectangle_and_kbd_macro() {
     let mut mgr = RegisterManager::new();
 
     let rect = vec![
-        "line1".to_string(),
-        "line2".to_string(),
-        "line3".to_string(),
+        LispString::from_unibyte(b"line1".to_vec()),
+        LispString::from_unibyte(b"line2".to_vec()),
+        LispString::from_unibyte(b"line3".to_vec()),
     ];
     mgr.set('r', RegisterContent::Rectangle(rect));
     match mgr.get('r') {
@@ -338,6 +341,40 @@ fn test_builtin_register_to_string() {
     builtin_set_register(&mut eval, vec![Value::char('r'), Value::string("abc")]).unwrap();
     let text = builtin_register_to_string(&mut eval, vec![Value::char('r')]).unwrap();
     assert_eq!(text.as_str(), Some("abc"));
+}
+
+#[test]
+fn rectangle_and_file_registers_preserve_raw_unibyte_strings() {
+    crate::test_utils::init_test_tracing();
+    use super::super::eval::Context;
+
+    let mut eval = Context::new();
+    eval.registers.set(
+        'r',
+        RegisterContent::Rectangle(vec![
+            LispString::from_unibyte(vec![0xFF]),
+            LispString::from_unibyte(b"ok".to_vec()),
+        ]),
+    );
+    eval.registers.set(
+        'f',
+        RegisterContent::File(LispString::from_unibyte(vec![0xFF])),
+    );
+
+    let rect = builtin_get_register(&mut eval, vec![Value::char('r')]).expect("rectangle");
+    let lines = crate::emacs_core::value::list_to_vec(&rect).expect("rectangle list");
+    assert_eq!(
+        lines[0]
+            .as_lisp_string()
+            .expect("raw rectangle line")
+            .as_bytes(),
+        &[0xFF]
+    );
+
+    let file = builtin_get_register(&mut eval, vec![Value::char('f')]).expect("file");
+    let file = file.as_lisp_string().expect("file string");
+    assert_eq!(file.as_bytes(), &[0xFF]);
+    assert!(!file.is_multibyte());
 }
 
 #[test]
