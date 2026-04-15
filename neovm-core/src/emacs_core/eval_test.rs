@@ -8498,11 +8498,9 @@ fn extra_gc_roots_use_eval_root_frames_without_temp_root_mirroring() {
     let mut ev = Context::new();
 
     let payload = Value::vector(vec![Value::fixnum(43)]);
-    let temp_roots_before = ev.temp_roots.len();
 
     let rooted = ev.with_gc_scope(|eval| {
         eval.push_eval_root(payload);
-        assert_eq!(eval.temp_roots.len(), temp_roots_before);
         assert_eq!(eval.eval_root_frames.len(), 1);
         eval.gc_collect_exact();
         eval.eval_root_frames
@@ -8516,17 +8514,14 @@ fn extra_gc_roots_use_eval_root_frames_without_temp_root_mirroring() {
         &[Value::fixnum(43)]
     );
     assert!(ev.eval_root_frames.is_empty());
-    assert_eq!(ev.temp_roots.len(), temp_roots_before);
 }
 
 #[test]
 fn gc_scope_uses_eval_root_frames_without_temp_root_mirroring() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let temp_roots_before = ev.temp_roots.len();
 
     let rooted = ev.with_gc_scope(|eval| {
-        assert_eq!(eval.temp_roots.len(), temp_roots_before);
         let payload = eval.root(Value::vector(vec![Value::fixnum(44)]));
         assert_eq!(eval.eval_root_frames.len(), 1);
         eval.gc_collect_exact();
@@ -8538,21 +8533,18 @@ fn gc_scope_uses_eval_root_frames_without_temp_root_mirroring() {
         &[Value::fixnum(44)]
     );
     assert!(ev.eval_root_frames.is_empty());
-    assert_eq!(ev.temp_roots.len(), temp_roots_before);
 }
 
 #[test]
 fn lexical_binding_fallback_prefers_eval_root_frames_over_temp_roots() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let temp_roots_before = ev.temp_roots.len();
     let payload = Value::vector(vec![Value::fixnum(47)]);
     let sym = intern("eval-root-frame-lexical");
 
     ev.push_eval_root_frame();
     ev.bind_lexical_value_rooted(sym, payload);
 
-    assert_eq!(ev.temp_roots.len(), temp_roots_before);
     assert_eq!(
         ev.lexenv_lookup_cached_in(ev.lexenv, sym)
             .expect("lexical binding should exist")

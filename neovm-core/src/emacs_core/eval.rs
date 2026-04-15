@@ -1404,9 +1404,6 @@ pub struct Context {
     /// refresh the cache on the mutation sites, and let safe points combine
     /// the cached values with current heap usage.
     gc_runtime_settings_cache: GcRuntimeSettingsCache,
-    /// Temporary GC roots — Values that must survive collection but aren't
-    /// in any other rooted structure (e.g. intermediate results in eval_str_each).
-    temp_roots: Vec<Value>,
     /// Active VM-local root frames. Mirrors GNU's model more closely than a
     /// single save/truncate side vector by keeping VM dynamic roots in explicit
     /// nested frames.
@@ -2352,7 +2349,6 @@ impl Context {
         ev.gc_pending = false;
         ev.gc_count = 0;
         ev.gc_stress = false;
-        ev.temp_roots.clear();
         ev.condition_stack.clear();
         ev.next_resume_id = 1;
         ev.saved_lexenvs.clear();
@@ -4226,7 +4222,6 @@ impl Context {
             gc_inhibit_depth: 0,
             gc_stress: false,
             gc_runtime_settings_cache: GcRuntimeSettingsCache::default(),
-            temp_roots: Vec::new(),
             vm_root_frames: Vec::new(),
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
@@ -4363,7 +4358,6 @@ impl Context {
             gc_inhibit_depth: 0,
             gc_stress: false,
             gc_runtime_settings_cache: GcRuntimeSettingsCache::default(),
-            temp_roots: Vec::new(),
             vm_root_frames: Vec::new(),
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
@@ -4420,9 +4414,6 @@ impl Context {
     /// Enumerate every live `Value` reference in the evaluator and all
     /// sub-managers without materializing a single temporary root vector.
     fn trace_roots(&self, visit: &mut dyn FnMut(Value)) {
-        for root in self.temp_roots.iter().copied() {
-            visit(root);
-        }
         for frame in &self.vm_root_frames {
             for root in frame.roots.iter().copied() {
                 visit(root);
@@ -6228,7 +6219,6 @@ impl Context {
         } else {
             Value::NIL
         };
-        self.temp_roots.clear();
         self.condition_stack.clear();
         self.depth = 0;
         // Named-call resolution is a runtime memoization layer, not part of
@@ -6245,7 +6235,6 @@ impl Context {
         self.specpdl.is_empty()
             && clean_lexenv
             && self.saved_lexenvs.is_empty()
-            && self.temp_roots.is_empty()
             && self.active_call_roots.is_empty()
             && self.vm_root_frames.is_empty()
             && self.condition_stack.is_empty()
@@ -9092,11 +9081,11 @@ impl Context {
 
     pub(crate) fn push_eval_root(&mut self, value: Value) {
         if !self.push_active_call_extra_root(value) {
-            if let Some(frame) = self.eval_root_frames.last_mut() {
-                frame.roots.push(value);
-                return;
-            }
-            self.temp_roots.push(value);
+            self.eval_root_frames
+                .last_mut()
+                .expect("push_eval_root requires an active call frame or eval root frame")
+                .roots
+                .push(value);
         }
     }
 
@@ -10116,9 +10105,9 @@ impl Context {
     ) -> Result<Value, Flow> {
         let perf_start = self.macro_perf_enabled.then(std::time::Instant::now);
         // `expand_macro_for_macroexpand` roots FORM / DEFINITION / ENV / ARGS
-        // in `temp_roots` before reaching here, so rebuilding an extra root
-        // slice per macroexpander call is redundant. Keep quit/GC checks, but
-        // use the already-rooted call path.
+        // in explicit eval root frames before reaching here, so rebuilding an
+        // extra root slice per macroexpander call is redundant. Keep quit/GC
+        // checks, but use the already-rooted call path.
         let result = self
             .with_macro_expansion_scope(|eval| eval.apply_already_rooted_untraced(callable, args));
         if let Some(start) = perf_start {
