@@ -1510,16 +1510,6 @@ impl FaceTable {
     }
 
     // pdump accessors
-    pub(crate) fn dump_faces(&self) -> HashMap<String, Face> {
-        self.faces
-            .iter()
-            .filter_map(|(name, face)| {
-                name.as_symbol_name()
-                    .map(|name| (name.to_string(), face.clone()))
-            })
-            .collect()
-    }
-
     pub(crate) fn dump_faces_by_sym_id(&self) -> Vec<(SymId, Face)> {
         self.faces
             .iter()

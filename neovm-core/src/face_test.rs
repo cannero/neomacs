@@ -71,6 +71,15 @@ fn face_table_standard_faces() {
 }
 
 #[test]
+fn face_table_pdump_uses_symbol_identity() {
+    crate::test_utils::init_test_tracing();
+    let table = FaceTable::new();
+    let dump = crate::emacs_core::pdump::convert::dump_face_table(&table);
+    assert!(dump.faces.is_empty());
+    assert!(!dump.face_ids.is_empty());
+}
+
+#[test]
 fn default_face_does_not_seed_font_family_or_height() {
     crate::test_utils::init_test_tracing();
     let table = FaceTable::new();

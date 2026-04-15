@@ -1705,11 +1705,7 @@ pub(crate) fn dump_face_table(ft: &FaceTable) -> DumpFaceTable {
             .into_iter()
             .map(|(id, f)| (dump_sym_id(id), dump_face(&f)))
             .collect(),
-        faces: ft
-            .dump_faces()
-            .iter()
-            .map(|(k, f)| (k.clone(), dump_face(f)))
-            .collect(),
+        faces: Vec::new(),
     }
 }
 
