@@ -8371,7 +8371,10 @@ fn gc_collect_exact_inside_extra_root_scope_retains_explicit_slice() {
     let _unreachable = Value::cons(Value::fixnum(1), Value::fixnum(2));
     let before = ev.tagged_heap.allocated_count();
 
-    ev.with_extra_gc_roots(&[rooted], |eval| eval.gc_collect_exact());
+    ev.with_gc_scope(|eval| {
+        eval.push_eval_root(rooted);
+        eval.gc_collect_exact();
+    });
 
     let after = ev.tagged_heap.allocated_count();
     assert_eq!(rooted.cons_car(), Value::fixnum(11));
@@ -8448,7 +8451,8 @@ fn active_call_frame_extra_roots_are_traced_across_exact_gc() {
         Some(Value::symbol("identity")),
         &[],
     );
-    ev.with_extra_gc_roots(&[payload], |eval| {
+    ev.with_gc_scope(|eval| {
+        eval.push_eval_root(payload);
         eval.gc_collect_exact();
 
         let rooted = eval
@@ -8496,7 +8500,8 @@ fn extra_gc_roots_use_eval_root_frames_without_temp_root_mirroring() {
     let payload = Value::vector(vec![Value::fixnum(43)]);
     let temp_roots_before = ev.temp_roots.len();
 
-    let rooted = ev.with_extra_gc_roots(&[payload], |eval| {
+    let rooted = ev.with_gc_scope(|eval| {
+        eval.push_eval_root(payload);
         assert_eq!(eval.temp_roots.len(), temp_roots_before);
         assert_eq!(eval.eval_root_frames.len(), 1);
         eval.gc_collect_exact();
@@ -8697,7 +8702,10 @@ fn gc_safe_point_exact_inside_extra_root_scope_retains_explicit_slice() {
     let before = ev.tagged_heap.allocated_count();
 
     while ev.gc_count == 0 {
-        ev.with_extra_gc_roots(&[rooted], |eval| eval.gc_safe_point_exact());
+        ev.with_gc_scope(|eval| {
+            eval.push_eval_root(rooted);
+            eval.gc_safe_point_exact();
+        });
     }
 
     let after = ev.tagged_heap.allocated_count();

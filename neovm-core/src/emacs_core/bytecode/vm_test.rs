@@ -513,15 +513,7 @@ fn vm_parent_evaluator_bridge_is_limited_to_semantic_boundaries() {
                 if !line.contains("with_extra_gc_roots(") {
                     continue;
                 }
-                let allowed = rel == PathBuf::from("src/emacs_core/eval.rs")
-                    || rel == PathBuf::from("src/emacs_core/doc.rs")
-                    || rel == PathBuf::from("src/emacs_core/interactive.rs")
-                    || rel == PathBuf::from("src/emacs_core/reader.rs")
-                    || rel == PathBuf::from("src/emacs_core/autoload.rs")
-                    || rel == PathBuf::from("src/emacs_core/lread.rs")
-                    || rel == PathBuf::from("src/emacs_core/load.rs")
-                    || rel == PathBuf::from("src/emacs_core/xdisp.rs")
-                    || rel == PathBuf::from("src/emacs_core/bytecode/vm_test.rs");
+                let allowed = rel == PathBuf::from("src/emacs_core/bytecode/vm_test.rs");
                 if !allowed {
                     unexpected.push(format!("{}:{}", rel.display(), lineno + 1));
                 }

@@ -11133,30 +11133,6 @@ impl Context {
     // Methods previously on VmSharedState, now on Context directly
     // -----------------------------------------------------------------------
 
-    /// Run a closure with extra eval roots pushed onto the active root scope.
-    /// Used when helper runtimes cross into evaluator code that may trigger
-    /// garbage collection.
-    pub(crate) fn with_extra_gc_roots<T>(
-        &mut self,
-        extra_roots: &[Value],
-        f: impl FnOnce(&mut Context) -> T,
-    ) -> T {
-        let needs_eval_root_frame = self.active_call_roots.is_empty();
-        if needs_eval_root_frame {
-            self.push_eval_root_frame();
-        }
-        let eval_root_scope = self.save_eval_roots();
-        for root in extra_roots {
-            self.push_eval_root(*root);
-        }
-        let result = f(self);
-        self.restore_eval_roots(eval_root_scope);
-        if needs_eval_root_frame {
-            self.pop_eval_root_frame();
-        }
-        result
-    }
-
     pub(crate) fn begin_eval_with_lexical_arg(
         &mut self,
         lexical_arg: Option<Value>,
