@@ -1,5 +1,6 @@
 use super::{ObjectRecord, PendingFinalizer, SpaceKind};
 use crate::descriptor::{Relocator, Trace, Tracer, TypeFlags, fixed_type_desc};
+use std::alloc::{alloc, dealloc};
 use std::mem::size_of;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -74,6 +75,31 @@ fn evacuating_object_marks_source_moved_out_and_ages_copy() {
 }
 
 #[test]
+fn old_space_arena_evacuation_stays_arena_owned() {
+    let desc = Box::leak(Box::new(fixed_type_desc::<MarkLeaf>()));
+    let record =
+        ObjectRecord::allocate(desc, SpaceKind::Nursery, MarkLeaf).expect("allocate test record");
+    let (layout, _) =
+        super::allocation_layout_for::<MarkLeaf>().expect("derive test allocation layout");
+    let base = unsafe { alloc(layout) };
+    let base = std::ptr::NonNull::new(base).expect("allocate arena-style test slot");
+
+    let evacuated = unsafe {
+        record
+            .evacuate_to_arena_slot(SpaceKind::Old, base)
+            .expect("evacuate into old arena slot")
+    };
+
+    assert_eq!(evacuated.header().space(), SpaceKind::Old);
+    assert!(evacuated.is_arena_owned());
+
+    std::mem::forget(evacuated);
+    unsafe {
+        dealloc(base.as_ptr(), layout);
+    }
+}
+
+#[test]
 fn pending_finalizer_run_invokes_descriptor_finalize() {
     FINALIZE_COUNT.store(0, Ordering::SeqCst);
     let desc = Box::leak(Box::new(fixed_type_desc::<FinalizableLeaf>()));
@@ -102,10 +128,11 @@ fn pending_finalizer_block_placement_passes_through_wrapped_record() {
     let desc = Box::leak(Box::new(fixed_type_desc::<MarkLeaf>()));
     let mut record =
         ObjectRecord::allocate(desc, SpaceKind::Old, MarkLeaf).expect("allocate test record");
+    let total_size = record.total_size();
     record.set_old_block_placement(super::OldBlockPlacement {
         block_index: 7,
         offset_bytes: 16,
-        total_size: 32,
+        total_size,
     });
 
     let mut pending = PendingFinalizer::new(record);
@@ -121,7 +148,7 @@ fn pending_finalizer_block_placement_passes_through_wrapped_record() {
     let placement = pending.block_placement().expect("placement still set");
     assert_eq!(placement.block_index, 2);
     assert_eq!(placement.offset_bytes, 16);
-    assert_eq!(placement.total_size, 32);
+    assert_eq!(placement.total_size, total_size);
 }
 
 #[test]

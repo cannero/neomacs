@@ -467,8 +467,7 @@ impl AtomicAllocationCounters {
             }
             SpaceKind::Immortal => {
                 local.immortal_live_bytes = local.immortal_live_bytes.saturating_add(bytes);
-                local.immortal_reserved_bytes =
-                    local.immortal_reserved_bytes.saturating_add(bytes);
+                local.immortal_reserved_bytes = local.immortal_reserved_bytes.saturating_add(bytes);
                 local
                     .slot
                     .as_deref()
@@ -567,7 +566,9 @@ impl AtomicAllocationCounters {
             slot0
                 .nursery_live_bytes
                 .store(stats.nursery.live_bytes, Ordering::Relaxed);
-            slot0.old_live_bytes.store(stats.old.live_bytes, Ordering::Relaxed);
+            slot0
+                .old_live_bytes
+                .store(stats.old.live_bytes, Ordering::Relaxed);
             slot0
                 .pinned_live_bytes
                 .store(stats.pinned.live_bytes, Ordering::Relaxed);

@@ -4,7 +4,7 @@ use crate::collector_exec::collect_global_sources;
 use crate::collector_state::{CollectorSharedSnapshot, CollectorStateHandle};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
 use crate::mutator::Mutator;
-use crate::object::{ObjectRecord, SpaceKind};
+use crate::object::{ObjectHeader, ObjectMemoryKind, ObjectRecord, SpaceKind};
 use crate::object_store::{FlatObjectStore, ObjectPublishLocal, ObjectStore, ObjectStoreReadGuard};
 use crate::pacer::{Pacer, PacerConfig, PacerStats};
 use crate::pause_stats::{PauseHistogram, PauseStatsHandle};
@@ -487,10 +487,7 @@ impl Heap {
         self.state.alloc_counters.register_local()
     }
 
-    pub(crate) fn release_allocation_counter_local(
-        &self,
-        local: &mut AllocationCounterLocal,
-    ) {
+    pub(crate) fn release_allocation_counter_local(&self, local: &mut AllocationCounterLocal) {
         self.state.alloc_counters.release_local(local);
     }
 
@@ -646,6 +643,37 @@ impl Heap {
         self.state
             .objects
             .publish_shared_prepared(record, publish_local);
+        self.state
+            .alloc_counters
+            .record_nursery_allocation(total_size, alloc_counter_local);
+        if !self.state.collector.has_active_major_mark() {
+            return Ok(AllocationCommit {
+                gc,
+                plans_dirty: true,
+            });
+        }
+        self.commit_allocated_record_shared_active_major(gc)
+    }
+
+    #[inline(always)]
+    pub(crate) fn commit_allocated_header_shared_prepared_nursery(
+        &self,
+        header: core::ptr::NonNull<ObjectHeader>,
+        layout_align_shift: u8,
+        memory_kind: ObjectMemoryKind,
+        total_size: usize,
+        publish_local: &mut ObjectPublishLocal,
+        alloc_counter_local: &mut AllocationCounterLocal,
+    ) -> Result<AllocationCommit, AllocError> {
+        let gc = unsafe { GcErased::from_header(header) };
+        self.state
+            .objects
+            .publish_shared_prepared_without_old_block(
+                header,
+                layout_align_shift,
+                memory_kind,
+                publish_local,
+            );
         self.state
             .alloc_counters
             .record_nursery_allocation(total_size, alloc_counter_local);
@@ -1724,8 +1752,12 @@ impl HeapCore {
             self.old_gen
                 .record_block_object_accounting_for_placement_shared(placement);
         }
-        self.alloc_counters
-            .record_allocation(space, total_size, old_reserved_bytes, alloc_counter_local);
+        self.alloc_counters.record_allocation(
+            space,
+            total_size,
+            old_reserved_bytes,
+            alloc_counter_local,
+        );
         let recorded = if self.collector.has_active_major_mark() {
             let read = self.objects.read();
             self.collector.record_active_major_reachable_object(

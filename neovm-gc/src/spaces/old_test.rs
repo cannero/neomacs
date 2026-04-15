@@ -70,11 +70,13 @@ fn compute_per_block_live_bytes_sums_total_size_by_block_index() {
         ..OldGenConfig::default()
     };
     // Seed block 0 with two objects and block 1 with one.
-    let layout = core::alloc::Layout::from_size_align(64, 8).unwrap();
     let mut objects = Vec::new();
     for _ in 0..2 {
         let mut record = ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf)
             .expect("alloc obj in block 0");
+        let layout =
+            core::alloc::Layout::from_size_align(record.total_size(), record.layout_align())
+                .unwrap();
         let (placement, _) = old_gen
             .try_alloc_in_block(&config, layout)
             .expect("alloc in block 0");
@@ -84,6 +86,8 @@ fn compute_per_block_live_bytes_sums_total_size_by_block_index() {
     // Force a second block.
     let mut record3 = ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf)
         .expect("alloc obj in block 1");
+    let layout =
+        core::alloc::Layout::from_size_align(record3.total_size(), record3.layout_align()).unwrap();
     let (fresh_placement, _) = old_gen
         .alloc_in_fresh_block(&config, layout)
         .expect("alloc in fresh block 1");
@@ -985,11 +989,12 @@ fn compact_sparse_old_blocks_packs_survivors_into_shared_target() {
         ..OldGenConfig::default()
     };
 
-    let layout = core::alloc::Layout::from_size_align(64, 8).unwrap();
     let mut objects: Vec<ObjectRecord> = Vec::new();
     // Source block 0: one survivor.
     let mut rec_a =
         ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf).expect("alloc rec a");
+    let layout =
+        core::alloc::Layout::from_size_align(rec_a.total_size(), rec_a.layout_align()).unwrap();
     let (pa, _) = old_gen
         .try_alloc_in_block(&config, layout)
         .expect("alloc into block 0");
@@ -998,6 +1003,8 @@ fn compact_sparse_old_blocks_packs_survivors_into_shared_target() {
     // Source block 1: one survivor.
     let mut rec_b =
         ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf).expect("alloc rec b");
+    let layout =
+        core::alloc::Layout::from_size_align(rec_b.total_size(), rec_b.layout_align()).unwrap();
     let (pb, _) = old_gen
         .alloc_in_fresh_block(&config, layout)
         .expect("alloc into block 1");
@@ -1055,12 +1062,14 @@ fn compact_sparse_old_blocks_moves_survivors_into_fresh_targets() {
         ..OldGenConfig::default()
     };
 
-    let layout = core::alloc::Layout::from_size_align(64, 8).unwrap();
     // Seed block 0 with enough allocations to keep it dense.
     let mut objects: Vec<ObjectRecord> = Vec::new();
     for _ in 0..10 {
         let mut record = ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf)
             .expect("alloc dense record");
+        let layout =
+            core::alloc::Layout::from_size_align(record.total_size(), record.layout_align())
+                .unwrap();
         let (placement, _) = old_gen
             .try_alloc_in_block(&config, layout)
             .expect("alloc in block 0");
@@ -1070,6 +1079,11 @@ fn compact_sparse_old_blocks_moves_survivors_into_fresh_targets() {
     // Seed block 1 with a single object (sparse).
     let mut sparse_record = ObjectRecord::allocate(old_leaf_desc(), SpaceKind::Old, OldLeaf)
         .expect("alloc sparse record");
+    let layout = core::alloc::Layout::from_size_align(
+        sparse_record.total_size(),
+        sparse_record.layout_align(),
+    )
+    .unwrap();
     let (sparse_placement, _) = old_gen
         .alloc_in_fresh_block(&config, layout)
         .expect("alloc sparse");

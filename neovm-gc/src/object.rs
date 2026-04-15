@@ -1,4 +1,5 @@
 use core::alloc::Layout;
+use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU8, Ordering};
 use std::alloc::{alloc, dealloc};
@@ -283,6 +284,25 @@ impl ObjectRecord {
         })
     }
 
+    pub(crate) fn allocate_owned_raw<T: Trace + 'static>(
+        desc: &'static TypeDesc,
+        space: SpaceKind,
+        value: T,
+    ) -> Result<(NonNull<ObjectHeader>, u8), AllocError> {
+        let (layout, payload_offset) = allocation_layout_for::<T>()?;
+        let raw = unsafe { alloc(layout) };
+        let base = NonNull::new(raw).ok_or(AllocError::OutOfMemory {
+            requested_bytes: layout.size(),
+        })?;
+        unsafe {
+            Self::write_header_and_payload::<T>(base, layout, payload_offset, desc, space, 0, value)
+        };
+        Ok((
+            base.cast::<ObjectHeader>(),
+            Self::layout_align_to_shift(layout.align()),
+        ))
+    }
+
     /// Construct an `ObjectRecord` that points at a region already
     /// bump-allocated inside a `NurseryArena`. The caller has already
     /// reserved a `layout`-sized, `layout`-aligned region at `base`
@@ -320,6 +340,23 @@ impl ObjectRecord {
         }
     }
 
+    pub(crate) unsafe fn allocate_in_arena_raw<T: Trace + 'static>(
+        desc: &'static TypeDesc,
+        space: SpaceKind,
+        base: NonNull<u8>,
+        layout: Layout,
+        payload_offset: usize,
+        value: T,
+    ) -> (NonNull<ObjectHeader>, u8) {
+        unsafe {
+            Self::write_header_and_payload::<T>(base, layout, payload_offset, desc, space, 0, value)
+        };
+        (
+            base.cast::<ObjectHeader>(),
+            Self::layout_align_to_shift(layout.align()),
+        )
+    }
+
     /// Low-level helper: write the ObjectHeader and the payload at `base`.
     ///
     /// # Safety
@@ -353,6 +390,37 @@ impl ObjectRecord {
             let payload = base.as_ptr().add(payload_offset).cast::<T>();
             payload.write(value);
         }
+    }
+
+    pub(crate) unsafe fn write_published_record(
+        slot: *mut MaybeUninit<Self>,
+        header: NonNull<ObjectHeader>,
+        old_block_placement: Option<OldBlockPlacement>,
+        layout_align_shift: u8,
+        memory_kind: ObjectMemoryKind,
+    ) {
+        let (old_block_index, old_block_offset_bytes, old_block_total_size) =
+            match old_block_placement {
+                Some(placement) => (
+                    u32::try_from(placement.block_index)
+                        .expect("old block index should fit compact ObjectRecord storage"),
+                    u32::try_from(placement.offset_bytes)
+                        .expect("old block offset should fit compact ObjectRecord storage"),
+                    u32::try_from(placement.total_size)
+                        .expect("old block size should fit compact ObjectRecord storage"),
+                ),
+                None => (NO_OLD_BLOCK_INDEX, 0, 0),
+            };
+        unsafe {
+            slot.write(MaybeUninit::new(Self {
+                header,
+                old_block_index,
+                old_block_offset_bytes,
+                old_block_total_size,
+                layout_align_shift,
+                memory_kind,
+            }))
+        };
     }
 
     pub(crate) fn erased(&self) -> GcErased {

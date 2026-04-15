@@ -9,7 +9,7 @@ use crate::descriptor::{ObjectKey, TypeFlags};
 use crate::index_state::{
     HeapIndexState, ObjectIndex, ObjectKeyBuildHasher, ObjectLocator, RememberedSetState,
 };
-use crate::object::ObjectRecord;
+use crate::object::{ObjectHeader, ObjectMemoryKind, ObjectRecord};
 
 pub(crate) const OBJECT_STORE_SHARDS: usize = 32;
 const OBJECT_STORE_CHUNK_CAPACITY: usize = 512;
@@ -339,10 +339,7 @@ impl Default for ObjectPublishLocal {
 
 impl ObjectPublishLocal {
     #[inline(always)]
-    unsafe fn reservation_mut_unchecked(
-        &mut self,
-        shard: usize,
-    ) -> &mut ObjectPublishReservation {
+    unsafe fn reservation_mut_unchecked(&mut self, shard: usize) -> &mut ObjectPublishReservation {
         debug_assert!(shard < OBJECT_STORE_SHARDS);
         unsafe { self.reservations.get_unchecked_mut(shard) }
     }
@@ -429,7 +426,9 @@ impl ObjectStore {
         let generation = self.generation();
         let chunk = Arc::new(ObjectChunk::new());
         debug_assert_eq!(self.shards.len(), OBJECT_STORE_SHARDS);
-        let mut chunks = unsafe { self.shards.get_unchecked(shard_index) }.chunks.write();
+        let mut chunks = unsafe { self.shards.get_unchecked(shard_index) }
+            .chunks
+            .write();
         let chunk_index = chunks.len();
         chunks.push(Arc::clone(&chunk));
         ObjectPublishReservation {
@@ -450,6 +449,32 @@ impl ObjectStore {
     ) -> ObjectLocator {
         let chunk_offset = reservation.next_offset;
         unsafe { reservation.next_slot.write(MaybeUninit::new(record)) };
+        unsafe {
+            (*reservation.published_len).store(chunk_offset.saturating_add(1), Ordering::Release)
+        };
+        reservation.next_slot = unsafe { reservation.next_slot.add(1) };
+        reservation.next_offset = chunk_offset.saturating_add(1);
+        ObjectLocator::new(shard_index, reservation.base_slot + chunk_offset)
+    }
+
+    #[inline(always)]
+    fn publish_reserved_without_old_block(
+        reservation: &mut ObjectPublishReservation,
+        shard_index: usize,
+        header: core::ptr::NonNull<ObjectHeader>,
+        layout_align_shift: u8,
+        memory_kind: ObjectMemoryKind,
+    ) -> ObjectLocator {
+        let chunk_offset = reservation.next_offset;
+        unsafe {
+            ObjectRecord::write_published_record(
+                reservation.next_slot,
+                header,
+                None,
+                layout_align_shift,
+                memory_kind,
+            )
+        };
         unsafe {
             (*reservation.published_len).store(chunk_offset.saturating_add(1), Ordering::Release)
         };
@@ -563,6 +588,29 @@ impl ObjectStore {
         }
 
         Self::publish_reserved(reservation, shard_index, record)
+    }
+
+    pub(crate) fn publish_shared_prepared_without_old_block(
+        &self,
+        header: core::ptr::NonNull<ObjectHeader>,
+        layout_align_shift: u8,
+        memory_kind: ObjectMemoryKind,
+        publish_local: &mut ObjectPublishLocal,
+    ) -> ObjectLocator {
+        let object_key = ObjectKey::from_header(header);
+        let shard_index = shard_index_for_key(object_key);
+        let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
+        if reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY {
+            *reservation = self.reserve_publish_chunk(shard_index);
+        }
+
+        Self::publish_reserved_without_old_block(
+            reservation,
+            shard_index,
+            header,
+            layout_align_shift,
+            memory_kind,
+        )
     }
 
     pub(crate) fn take_flat(&mut self) -> FlatObjectStore {
