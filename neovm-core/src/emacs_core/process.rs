@@ -109,7 +109,7 @@ pub struct Process {
     /// Last process-window-size rows value.
     pub window_rows: Option<i64>,
     /// Terminal name reported by `process-tty-name`, when this process uses a tty.
-    pub tty_name: Option<String>,
+    pub tty_name: Value,
     /// Whether stdin is tty-backed for this process.
     pub tty_stdin: bool,
     /// Whether stdout is tty-backed for this process.
@@ -235,11 +235,11 @@ impl ProcessManager {
         self.next_id += 1;
         let (tty_name, tty_stdin, tty_stdout, tty_stderr) = match kind {
             ProcessKind::Real => {
-                let tty_name = Some(default_process_tty_name());
+                let tty_name = Value::string(default_process_tty_name());
                 (tty_name, true, true, true)
             }
             ProcessKind::Network | ProcessKind::Pipe | ProcessKind::Serial => {
-                (None, false, false, false)
+                (Value::NIL, false, false, false)
             }
         };
         let proc = Process {
@@ -387,7 +387,7 @@ impl ProcessManager {
                 proc.child = Some(child);
                 proc.status = ProcessStatus::Run;
                 // Pipe-mode processes don't have a real TTY.
-                proc.tty_name = None;
+                proc.tty_name = Value::NIL;
                 proc.tty_stdin = false;
                 proc.tty_stdout = false;
                 proc.tty_stderr = false;
@@ -451,7 +451,8 @@ impl ProcessManager {
         let tty_name = pty_pair
             .master
             .tty_name()
-            .map(|p| p.to_string_lossy().into_owned());
+            .map(|p| Value::string(p.to_string_lossy().into_owned()))
+            .unwrap_or(Value::NIL);
 
         let pty_read = pty_pair
             .master
@@ -5237,7 +5238,7 @@ pub(crate) fn builtin_process_tty_name_impl(
         )
     })?;
     let stream = args.get(1).cloned().unwrap_or(Value::NIL);
-    let tty_value = || proc.tty_name.as_ref().map_or(Value::NIL, Value::string);
+    let tty_value = || proc.tty_name;
 
     match stream.kind() {
         ValueKind::Nil => Ok(tty_value()),
@@ -6145,6 +6146,7 @@ impl GcTrace for ProcessManager {
             .chain(self.deleted_processes.values())
         {
             roots.push(process.buffer);
+            roots.push(process.tty_name);
             roots.push(process.filter);
             roots.push(process.sentinel);
             roots.push(process.plist);

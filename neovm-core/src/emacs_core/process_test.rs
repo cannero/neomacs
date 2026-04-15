@@ -240,6 +240,29 @@ fn process_buffer_storage_uses_buffer_objects() {
 }
 
 #[test]
+fn builtin_process_tty_name_uses_value_slot() {
+    crate::test_utils::init_test_tracing();
+    let mut pm = ProcessManager::new();
+    let real_id = pm.create_process("tty-proc".into(), Value::NIL, "prog".into(), vec![]);
+    let pipe_id = pm.create_process_with_kind(
+        "pipe-proc".into(),
+        Value::NIL,
+        String::new(),
+        vec![],
+        ProcessKind::Pipe,
+    );
+
+    let tty_value =
+        builtin_process_tty_name_impl(&pm, vec![Value::fixnum(real_id as i64)]).expect("tty");
+    assert!(tty_value.is_string());
+    assert!(!tty_value.is_nil());
+
+    let pipe_value =
+        builtin_process_tty_name_impl(&pm, vec![Value::fixnum(pipe_id as i64)]).expect("tty");
+    assert!(pipe_value.is_nil());
+}
+
+#[test]
 fn process_manager_list() {
     crate::test_utils::init_test_tracing();
     let mut pm = ProcessManager::new();
