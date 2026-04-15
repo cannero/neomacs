@@ -54,7 +54,7 @@ fn object_header_is_send_and_sync() {
 
 #[test]
 fn object_record_stays_compact() {
-    assert_eq!(size_of::<ObjectRecord>(), 32);
+    assert_eq!(size_of::<ObjectRecord>(), 24);
 }
 
 #[test]
