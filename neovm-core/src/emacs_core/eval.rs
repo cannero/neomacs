@@ -1803,21 +1803,16 @@ pub(crate) struct EvalRootScopeState {
 fn bind_lexical_value_rooted_in_state(
     lexenv: &mut Value,
     eval_root_frames: &mut Vec<EvalRootFrame>,
-    temp_roots: &mut Vec<Value>,
     sym: SymId,
     value: Value,
 ) {
-    if let Some(frame) = eval_root_frames.last_mut() {
-        let saved_roots = frame.roots.len();
-        frame.roots.push(value);
-        *lexenv = lexenv_prepend(*lexenv, sym, value);
-        frame.roots.truncate(saved_roots);
-        return;
-    }
-    let saved_roots = temp_roots.len();
-    temp_roots.push(value);
+    let frame = eval_root_frames
+        .last_mut()
+        .expect("eval root frame should exist for rooted lexical binding");
+    let saved_roots = frame.roots.len();
+    frame.roots.push(value);
     *lexenv = lexenv_prepend(*lexenv, sym, value);
-    temp_roots.truncate(saved_roots);
+    frame.roots.truncate(saved_roots);
 }
 
 fn bind_lexical_value_rooted_in_call_frame(
@@ -9974,13 +9969,19 @@ impl Context {
         if let Some(frame) = self.active_call_roots.last_mut() {
             bind_lexical_value_rooted_in_call_frame(&mut self.lexenv, frame, sym, value);
         } else {
+            let pushed_eval_root_frame = self.eval_root_frames.is_empty();
+            if pushed_eval_root_frame {
+                self.push_eval_root_frame();
+            }
             bind_lexical_value_rooted_in_state(
                 &mut self.lexenv,
                 &mut self.eval_root_frames,
-                &mut self.temp_roots,
                 sym,
                 value,
             );
+            if pushed_eval_root_frame {
+                self.pop_eval_root_frame();
+            }
         }
     }
 
