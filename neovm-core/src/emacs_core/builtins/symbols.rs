@@ -4171,9 +4171,9 @@ pub(crate) fn builtin_handler_bind_1(
         ));
     }
 
-    let scope = eval.open_gc_scope();
+    let scope = eval.save_eval_roots();
     for value in &args {
-        eval.push_temp_root(*value);
+        eval.push_eval_root(*value);
     }
 
     let bodyfun = args[0];
@@ -4193,7 +4193,7 @@ pub(crate) fn builtin_handler_bind_1(
 
     let body_result = eval.apply(bodyfun, vec![]);
     eval.truncate_condition_stack(condition_stack_base);
-    scope.close(eval);
+    eval.restore_eval_roots(scope);
     body_result
 }
 

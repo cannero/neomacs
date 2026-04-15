@@ -6197,10 +6197,6 @@ impl Context {
         self.temp_roots.truncate(saved_len);
     }
 
-    // -----------------------------------------------------------------------
-    // HandleScope — RAII formalization of the temp_roots save/restore pattern
-    // -----------------------------------------------------------------------
-
     /// Execute `f` within a GC scope. Values rooted via `root()` during `f`
     /// are automatically unrooted when `f` returns (even on error/early-return).
     ///
@@ -6254,44 +6250,6 @@ impl Context {
     pub(crate) fn root(&mut self, val: Value) -> Value {
         self.push_eval_root(val);
         val
-    }
-
-    /// Open a HandleScope that can be passed between functions.
-    /// The scope MUST be closed via `scope.close(ctx)` when done.
-    /// Prefer `with_gc_scope` for self-contained blocks.
-    #[inline]
-    pub(crate) fn open_gc_scope(&self) -> HandleScope {
-        HandleScope {
-            saved_len: self.temp_roots.len(),
-        }
-    }
-}
-
-/// A transferable GC rooting scope.
-///
-/// Represents a region of `temp_roots` that will be truncated when
-/// the scope is closed. Use `Context::open_gc_scope()` to create.
-///
-/// For self-contained blocks, prefer `Context::with_gc_scope()` which
-/// handles cleanup automatically. Use `HandleScope` when the scope
-/// must be returned to a caller (e.g., eval_args returns a scope
-/// that the caller closes after using the args).
-#[must_use = "HandleScope must be closed via .close(ctx) to restore temp_roots"]
-pub(crate) struct HandleScope {
-    saved_len: usize,
-}
-
-impl HandleScope {
-    /// Close the scope, restoring temp_roots to the saved length.
-    #[inline]
-    pub fn close(self, ctx: &mut Context) {
-        ctx.temp_roots.truncate(self.saved_len);
-    }
-
-    /// Get the saved length (for interop with raw save/restore).
-    #[inline]
-    pub fn saved_len(&self) -> usize {
-        self.saved_len
     }
 }
 
