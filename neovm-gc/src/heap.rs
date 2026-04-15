@@ -18,7 +18,7 @@ use crate::spaces::{
     LargeObjectSpaceConfig, NurseryConfig, NurseryState, OldGenConfig, OldGenPlanSelection,
     OldGenState, PinnedSpaceConfig,
 };
-use crate::stats::{CollectionStats, HeapStats, OldRegionStats};
+use crate::stats::{AllocationCounterLocal, CollectionStats, HeapStats, OldRegionStats};
 use core::any::TypeId;
 use std::collections::HashMap;
 
@@ -483,8 +483,15 @@ impl Heap {
         Mutator::new(self)
     }
 
-    pub(crate) fn allocation_counter_shard(&self) -> usize {
-        self.state.alloc_counters.assign_shard()
+    pub(crate) fn allocation_counter_local(&self) -> AllocationCounterLocal {
+        self.state.alloc_counters.register_local()
+    }
+
+    pub(crate) fn release_allocation_counter_local(
+        &self,
+        local: &mut AllocationCounterLocal,
+    ) {
+        self.state.alloc_counters.release_local(local);
     }
 
     /// Create a collector-side runtime guard bound to this
@@ -609,7 +616,7 @@ impl Heap {
         record: ObjectRecord,
         old_reserved_bytes: usize,
         publish_local: &mut ObjectPublishLocal,
-        alloc_counter_shard: usize,
+        alloc_counter_local: &mut AllocationCounterLocal,
         prepared_publish: bool,
     ) -> Result<AllocationCommit, AllocError> {
         let total_size = record.header().total_size();
@@ -621,7 +628,7 @@ impl Heap {
             total_size,
             old_reserved_bytes,
             publish_local,
-            alloc_counter_shard,
+            alloc_counter_local,
             prepared_publish,
             gc,
         )
@@ -635,7 +642,7 @@ impl Heap {
         total_size: usize,
         old_reserved_bytes: usize,
         publish_local: &mut ObjectPublishLocal,
-        alloc_counter_shard: usize,
+        alloc_counter_local: &mut AllocationCounterLocal,
         prepared_publish: bool,
         gc: GcErased,
     ) -> Result<AllocationCommit, AllocError> {
@@ -645,7 +652,7 @@ impl Heap {
             total_size,
             old_reserved_bytes,
             publish_local,
-            alloc_counter_shard,
+            alloc_counter_local,
             prepared_publish,
         );
         if !self.state.collector.has_active_major_mark() {
@@ -665,7 +672,7 @@ impl Heap {
         total_size: usize,
         old_reserved_bytes: usize,
         publish_local: &mut ObjectPublishLocal,
-        alloc_counter_shard: usize,
+        alloc_counter_local: &mut AllocationCounterLocal,
         prepared_publish: bool,
     ) {
         let old_placement = (space == SpaceKind::Old)
@@ -687,7 +694,7 @@ impl Heap {
             space,
             total_size,
             old_reserved_bytes,
-            alloc_counter_shard,
+            alloc_counter_local,
         );
     }
 
@@ -782,6 +789,9 @@ impl Heap {
         &'a self,
         local: &'a mut crate::mutator::MutatorLocal,
     ) -> HeapCollectorRuntimeWithLocal<'a> {
+        if !local.has_alloc_counter_local() {
+            local.set_alloc_counter_local(self.state.alloc_counters.register_local());
+        }
         let safepoint = self.write_safepoint();
         let refresh_plans = self.take_collector_plans_dirty();
         let guard = {
@@ -830,11 +840,13 @@ impl<'a> HeapCollectorRuntime<'a> {
         guard: std::sync::RwLockWriteGuard<'a, HeapCore>,
         nursery_generation: &'a std::sync::atomic::AtomicU64,
     ) -> Self {
+        let mut local = crate::mutator::MutatorLocal::default();
+        local.set_alloc_counter_local(guard.alloc_counters.register_local());
         Self {
             _safepoint: safepoint,
             guard,
             nursery_generation,
-            local: crate::mutator::MutatorLocal::default(),
+            local,
         }
     }
 
@@ -992,6 +1004,9 @@ impl<'a> HeapCollectorRuntime<'a> {
 
 impl Drop for HeapCollectorRuntime<'_> {
     fn drop(&mut self) {
+        self.guard
+            .alloc_counters
+            .release_local(self.local.alloc_counter_local_mut());
         self.nursery_generation.store(
             self.guard.nursery().generation(),
             std::sync::atomic::Ordering::Relaxed,
@@ -1667,7 +1682,7 @@ impl HeapCore {
         record: ObjectRecord,
         old_reserved_bytes: usize,
         publish_local: &mut ObjectPublishLocal,
-        alloc_counter_shard: usize,
+        alloc_counter_local: &mut AllocationCounterLocal,
         prepared_publish: bool,
     ) -> Result<AllocationCommit, AllocError> {
         let total_size = record.header().total_size();
@@ -1686,7 +1701,7 @@ impl HeapCore {
                 .record_block_object_accounting_for_placement_shared(placement);
         }
         self.alloc_counters
-            .record_allocation(space, total_size, old_reserved_bytes, alloc_counter_shard);
+            .record_allocation(space, total_size, old_reserved_bytes, alloc_counter_local);
         let recorded = if self.collector.has_active_major_mark() {
             let read = self.objects.read();
             self.collector.record_active_major_reachable_object(

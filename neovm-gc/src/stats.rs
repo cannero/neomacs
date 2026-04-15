@@ -1,4 +1,9 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+
+use parking_lot::Mutex;
 
 use crate::object::SpaceKind;
 use crate::spaces::OldRegionCollectionStats;
@@ -295,77 +300,171 @@ struct AllocationCounterShard {
     old_live_bytes: AtomicUsize,
     pinned_live_bytes: AtomicUsize,
     large_live_bytes: AtomicUsize,
+    large_reserved_bytes: AtomicUsize,
     immortal_live_bytes: AtomicUsize,
+    immortal_reserved_bytes: AtomicUsize,
 }
 
-const ALLOCATION_COUNTER_SHARDS: usize = 32;
+#[derive(Debug, Default)]
+pub(crate) struct AllocationCounterLocal {
+    slot_index: usize,
+    slot: Option<Arc<AllocationCounterShard>>,
+    generation: usize,
+    nursery_live_bytes: usize,
+    old_live_bytes: usize,
+    pinned_live_bytes: usize,
+    large_live_bytes: usize,
+    large_reserved_bytes: usize,
+    immortal_live_bytes: usize,
+    immortal_reserved_bytes: usize,
+}
+
+impl AllocationCounterLocal {
+    #[cfg(test)]
+    pub(crate) fn is_registered(&self) -> bool {
+        self.slot.is_some()
+    }
+
+    fn refresh_from_slot(&mut self, generation: usize) {
+        let Some(slot) = self.slot.as_ref() else {
+            return;
+        };
+        self.generation = generation;
+        self.nursery_live_bytes = slot.nursery_live_bytes.load(Ordering::Relaxed);
+        self.old_live_bytes = slot.old_live_bytes.load(Ordering::Relaxed);
+        self.pinned_live_bytes = slot.pinned_live_bytes.load(Ordering::Relaxed);
+        self.large_live_bytes = slot.large_live_bytes.load(Ordering::Relaxed);
+        self.large_reserved_bytes = slot.large_reserved_bytes.load(Ordering::Relaxed);
+        self.immortal_live_bytes = slot.immortal_live_bytes.load(Ordering::Relaxed);
+        self.immortal_reserved_bytes = slot.immortal_reserved_bytes.load(Ordering::Relaxed);
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct AtomicAllocationCounters {
-    shards: Box<[AllocationCounterShard]>,
+    slots: Mutex<Vec<Arc<AllocationCounterShard>>>,
+    free_slots: Mutex<Vec<usize>>,
     old_reserved_bytes: AtomicUsize,
-    large_reserved_bytes: AtomicUsize,
-    immortal_reserved_bytes: AtomicUsize,
-    next_shard: AtomicUsize,
+    generation: AtomicUsize,
 }
 
 impl Default for AtomicAllocationCounters {
     fn default() -> Self {
-        let mut shards = Vec::with_capacity(ALLOCATION_COUNTER_SHARDS);
-        for _ in 0..ALLOCATION_COUNTER_SHARDS {
-            shards.push(AllocationCounterShard::default());
-        }
         Self {
-            shards: shards.into_boxed_slice(),
+            slots: Mutex::new(Vec::new()),
+            free_slots: Mutex::new(Vec::new()),
             old_reserved_bytes: AtomicUsize::new(0),
-            large_reserved_bytes: AtomicUsize::new(0),
-            immortal_reserved_bytes: AtomicUsize::new(0),
-            next_shard: AtomicUsize::new(0),
+            generation: AtomicUsize::new(0),
         }
     }
 }
 
 impl AtomicAllocationCounters {
     #[inline]
-    pub(crate) fn assign_shard(&self) -> usize {
-        self.next_shard.fetch_add(1, Ordering::Relaxed) & (ALLOCATION_COUNTER_SHARDS - 1)
+    fn generation(&self) -> usize {
+        self.generation.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn register_local(&self) -> AllocationCounterLocal {
+        if let Some(slot_index) = self.free_slots.lock().pop() {
+            let slot = {
+                let slots = self.slots.lock();
+                Arc::clone(
+                    slots
+                        .get(slot_index)
+                        .expect("released allocation counter slot should exist"),
+                )
+            };
+            let mut local = AllocationCounterLocal {
+                slot_index,
+                slot: Some(slot),
+                ..AllocationCounterLocal::default()
+            };
+            local.refresh_from_slot(self.generation());
+            return local;
+        }
+
+        let slot = Arc::new(AllocationCounterShard::default());
+        let slot_index = {
+            let mut slots = self.slots.lock();
+            let slot_index = slots.len();
+            slots.push(Arc::clone(&slot));
+            slot_index
+        };
+        let mut local = AllocationCounterLocal {
+            slot_index,
+            slot: Some(slot),
+            ..AllocationCounterLocal::default()
+        };
+        local.refresh_from_slot(self.generation());
+        local
+    }
+
+    pub(crate) fn release_local(&self, local: &mut AllocationCounterLocal) {
+        if local.slot.take().is_some() {
+            self.free_slots.lock().push(local.slot_index);
+            local.generation = 0;
+        }
     }
 
     /// Record one allocation. Mirrors the logic of
-    /// [`HeapStats::record_allocation`] but uses atomic
-    /// fetch_add / store so the caller only needs `&self`.
+    /// [`HeapStats::record_allocation`] but keeps a cached
+    /// running total per mutator-owned slot and publishes the
+    /// new total with relaxed stores instead of locked RMWs.
     pub(crate) fn record_allocation(
         &self,
         space: SpaceKind,
         bytes: usize,
         old_reserved_bytes: usize,
-        shard_index: usize,
+        local: &mut AllocationCounterLocal,
     ) {
-        debug_assert!(shard_index < self.shards.len());
-        let shard = &self.shards[shard_index];
+        let generation = self.generation();
+        if local.generation != generation {
+            local.refresh_from_slot(generation);
+        }
+        let shard = local
+            .slot
+            .as_ref()
+            .expect("allocation counter local should be registered");
         match space {
             SpaceKind::Nursery => {
-                shard.nursery_live_bytes.fetch_add(bytes, Ordering::Relaxed);
+                local.nursery_live_bytes = local.nursery_live_bytes.saturating_add(bytes);
+                shard
+                    .nursery_live_bytes
+                    .store(local.nursery_live_bytes, Ordering::Relaxed);
             }
             SpaceKind::Old => {
-                shard.old_live_bytes.fetch_add(bytes, Ordering::Relaxed);
+                local.old_live_bytes = local.old_live_bytes.saturating_add(bytes);
+                shard.old_live_bytes.store(local.old_live_bytes, Ordering::Relaxed);
                 self.old_reserved_bytes
                     .store(old_reserved_bytes, Ordering::Relaxed);
             }
             SpaceKind::Pinned => {
-                shard.pinned_live_bytes.fetch_add(bytes, Ordering::Relaxed);
+                local.pinned_live_bytes = local.pinned_live_bytes.saturating_add(bytes);
+                shard
+                    .pinned_live_bytes
+                    .store(local.pinned_live_bytes, Ordering::Relaxed);
             }
             SpaceKind::Large => {
-                shard.large_live_bytes.fetch_add(bytes, Ordering::Relaxed);
-                self.large_reserved_bytes
-                    .fetch_add(bytes, Ordering::Relaxed);
+                local.large_live_bytes = local.large_live_bytes.saturating_add(bytes);
+                local.large_reserved_bytes = local.large_reserved_bytes.saturating_add(bytes);
+                shard
+                    .large_live_bytes
+                    .store(local.large_live_bytes, Ordering::Relaxed);
+                shard
+                    .large_reserved_bytes
+                    .store(local.large_reserved_bytes, Ordering::Relaxed);
             }
             SpaceKind::Immortal => {
+                local.immortal_live_bytes = local.immortal_live_bytes.saturating_add(bytes);
+                local.immortal_reserved_bytes =
+                    local.immortal_reserved_bytes.saturating_add(bytes);
                 shard
                     .immortal_live_bytes
-                    .fetch_add(bytes, Ordering::Relaxed);
-                self.immortal_reserved_bytes
-                    .fetch_add(bytes, Ordering::Relaxed);
+                    .store(local.immortal_live_bytes, Ordering::Relaxed);
+                shard
+                    .immortal_reserved_bytes
+                    .store(local.immortal_reserved_bytes, Ordering::Relaxed);
             }
         }
     }
@@ -376,34 +475,36 @@ impl AtomicAllocationCounters {
     /// observers see the latest allocation counters without
     /// needing exclusive access.
     pub(crate) fn apply_to(&self, stats: &mut HeapStats) {
-        stats.nursery.live_bytes = self
-            .shards
+        let slots = self.slots.lock();
+        stats.nursery.live_bytes = slots
             .iter()
-            .map(|shard| shard.nursery_live_bytes.load(Ordering::Relaxed))
+            .map(|slot| slot.nursery_live_bytes.load(Ordering::Relaxed))
             .sum();
-        stats.old.live_bytes = self
-            .shards
+        stats.old.live_bytes = slots
             .iter()
-            .map(|shard| shard.old_live_bytes.load(Ordering::Relaxed))
+            .map(|slot| slot.old_live_bytes.load(Ordering::Relaxed))
             .sum();
         stats.old.reserved_bytes = self.old_reserved_bytes.load(Ordering::Relaxed);
-        stats.pinned.live_bytes = self
-            .shards
+        stats.pinned.live_bytes = slots
             .iter()
-            .map(|shard| shard.pinned_live_bytes.load(Ordering::Relaxed))
+            .map(|slot| slot.pinned_live_bytes.load(Ordering::Relaxed))
             .sum();
-        stats.large.live_bytes = self
-            .shards
+        stats.large.live_bytes = slots
             .iter()
-            .map(|shard| shard.large_live_bytes.load(Ordering::Relaxed))
+            .map(|slot| slot.large_live_bytes.load(Ordering::Relaxed))
             .sum();
-        stats.large.reserved_bytes = self.large_reserved_bytes.load(Ordering::Relaxed);
-        stats.immortal.live_bytes = self
-            .shards
+        stats.large.reserved_bytes = slots
             .iter()
-            .map(|shard| shard.immortal_live_bytes.load(Ordering::Relaxed))
+            .map(|slot| slot.large_reserved_bytes.load(Ordering::Relaxed))
             .sum();
-        stats.immortal.reserved_bytes = self.immortal_reserved_bytes.load(Ordering::Relaxed);
+        stats.immortal.live_bytes = slots
+            .iter()
+            .map(|slot| slot.immortal_live_bytes.load(Ordering::Relaxed))
+            .sum();
+        stats.immortal.reserved_bytes = slots
+            .iter()
+            .map(|slot| slot.immortal_reserved_bytes.load(Ordering::Relaxed))
+            .sum();
     }
 
     /// Synchronize the atomics from a `HeapStats` snapshot.
@@ -412,35 +513,40 @@ impl AtomicAllocationCounters {
     /// hot-path atomic view stays in sync with the
     /// post-cycle ground truth.
     pub(crate) fn sync_from(&self, stats: &HeapStats) {
-        for shard in self.shards.iter() {
-            shard.nursery_live_bytes.store(0, Ordering::Relaxed);
-            shard.old_live_bytes.store(0, Ordering::Relaxed);
-            shard.pinned_live_bytes.store(0, Ordering::Relaxed);
-            shard.large_live_bytes.store(0, Ordering::Relaxed);
-            shard.immortal_live_bytes.store(0, Ordering::Relaxed);
+        let slots = self.slots.lock();
+        for slot in slots.iter() {
+            slot.nursery_live_bytes.store(0, Ordering::Relaxed);
+            slot.old_live_bytes.store(0, Ordering::Relaxed);
+            slot.pinned_live_bytes.store(0, Ordering::Relaxed);
+            slot.large_live_bytes.store(0, Ordering::Relaxed);
+            slot.large_reserved_bytes.store(0, Ordering::Relaxed);
+            slot.immortal_live_bytes.store(0, Ordering::Relaxed);
+            slot.immortal_reserved_bytes.store(0, Ordering::Relaxed);
         }
-        let shard0 = &self.shards[0];
-        shard0
-            .nursery_live_bytes
-            .store(stats.nursery.live_bytes, Ordering::Relaxed);
-        shard0
-            .old_live_bytes
-            .store(stats.old.live_bytes, Ordering::Relaxed);
+        if let Some(slot0) = slots.first() {
+            slot0
+                .nursery_live_bytes
+                .store(stats.nursery.live_bytes, Ordering::Relaxed);
+            slot0.old_live_bytes.store(stats.old.live_bytes, Ordering::Relaxed);
+            slot0
+                .pinned_live_bytes
+                .store(stats.pinned.live_bytes, Ordering::Relaxed);
+            slot0
+                .large_live_bytes
+                .store(stats.large.live_bytes, Ordering::Relaxed);
+            slot0
+                .large_reserved_bytes
+                .store(stats.large.reserved_bytes, Ordering::Relaxed);
+            slot0
+                .immortal_live_bytes
+                .store(stats.immortal.live_bytes, Ordering::Relaxed);
+            slot0
+                .immortal_reserved_bytes
+                .store(stats.immortal.reserved_bytes, Ordering::Relaxed);
+        }
         self.old_reserved_bytes
             .store(stats.old.reserved_bytes, Ordering::Relaxed);
-        shard0
-            .pinned_live_bytes
-            .store(stats.pinned.live_bytes, Ordering::Relaxed);
-        shard0
-            .large_live_bytes
-            .store(stats.large.live_bytes, Ordering::Relaxed);
-        self.large_reserved_bytes
-            .store(stats.large.reserved_bytes, Ordering::Relaxed);
-        shard0
-            .immortal_live_bytes
-            .store(stats.immortal.live_bytes, Ordering::Relaxed);
-        self.immortal_reserved_bytes
-            .store(stats.immortal.reserved_bytes, Ordering::Relaxed);
+        self.generation.fetch_add(1, Ordering::AcqRel);
     }
 }
 
