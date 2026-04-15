@@ -6854,7 +6854,6 @@ fn vm_compiled_autoload_do_load_survives_exact_gc() {
     .expect("write autoload-do-load exact fixture");
 
     let mut eval = Context::new_vm_runtime_harness();
-    eval.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
     eval.gc_stress = true;
     eval.obarray.set_symbol_value(
         "load-path",

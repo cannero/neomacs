@@ -28,19 +28,6 @@ use std::alloc::{self, Layout};
 use std::cell::Cell;
 use std::mem::size_of;
 
-/// Compatibility enum for historical GC root scan policies.
-///
-/// The runtime now uses exact root tracing internally; this enum remains only
-/// to keep transitional call sites and tests building while the old API surface
-/// is retired.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RootScanMode {
-    /// Exact root tracing only.
-    ExactOnly,
-    /// Compatibility shim; conservative stack scanning is no longer used.
-    ConservativeStack,
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WriteTrackingMode {
     Disabled,
@@ -464,14 +451,6 @@ impl TaggedHeap {
 
     pub fn set_stack_bottom(&mut self, bottom: *const u8) {
         let _ = bottom;
-    }
-
-    pub fn set_root_scan_mode(&mut self, mode: RootScanMode) {
-        let _ = mode;
-    }
-
-    pub fn root_scan_mode(&self) -> RootScanMode {
-        RootScanMode::ExactOnly
     }
 
     pub fn set_write_tracking_mode(&mut self, mode: WriteTrackingMode) {

@@ -6573,7 +6573,6 @@ fn run_hook_with_args_runtime_value_shapes() {
 fn run_hook_with_args_roots_callbacks_and_args_across_exact_gc() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
     ev.tagged_heap.set_gc_threshold(1);
     let result = format_eval_result(&ev.eval_str(
         r#"
@@ -8328,14 +8327,6 @@ fn gc_collect_retains_reachable() {
 fn gc_collect_exact_retains_reachable() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    // Default scan mode is now ConservativeStack (commit 0b71f3e12);
-    // pin to ExactOnly here so this test exercises the explicit-only
-    // path it was written for.
-    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
-    assert_eq!(
-        ev.gc_root_scan_mode(),
-        crate::tagged::gc::RootScanMode::ExactOnly
-    );
 
     ev.eval_str_each("(setq x (cons 11 22))");
     ev.gc_collect_exact();
@@ -8345,14 +8336,9 @@ fn gc_collect_exact_retains_reachable() {
 }
 
 #[test]
-fn gc_collect_exact_ignores_context_root_scan_mode() {
+fn gc_collect_exact_frees_stack_only_values() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ConservativeStack);
-    assert_eq!(
-        ev.gc_root_scan_mode(),
-        crate::tagged::gc::RootScanMode::ExactOnly
-    );
     let marker = 0u8;
     ev.tagged_heap.set_stack_bottom(&marker as *const u8);
 
@@ -8399,7 +8385,6 @@ fn gc_collect_exact_with_extra_roots_retains_explicit_slice() {
 fn runtime_backtrace_frame_owns_args_across_exact_gc() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
 
     let payload = Value::vector(vec![Value::fixnum(7)]);
     {
@@ -8426,7 +8411,6 @@ fn runtime_backtrace_frame_owns_args_across_exact_gc() {
 fn active_call_frame_owns_args_across_exact_gc() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
 
     let payload = Value::vector(vec![Value::fixnum(13)]);
     {
@@ -8457,7 +8441,6 @@ fn active_call_frame_owns_args_across_exact_gc() {
 fn active_call_frame_extra_roots_are_traced_across_exact_gc() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
 
     ev.push_active_call_frame(
         Value::symbol("active-call-root"),
@@ -8490,7 +8473,6 @@ fn active_call_frame_extra_roots_are_traced_across_exact_gc() {
 fn vm_root_frames_are_traced_across_exact_gc() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
 
     let payload = Value::vector(vec![Value::fixnum(37)]);
     ev.push_vm_root_frame();
@@ -8515,7 +8497,6 @@ fn vm_root_frames_are_traced_across_exact_gc() {
 fn extra_gc_roots_use_eval_root_frames_without_temp_root_mirroring() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
 
     let payload = Value::vector(vec![Value::fixnum(43)]);
     let temp_roots_before = ev.temp_roots.len();
@@ -8676,14 +8657,9 @@ fn gc_runtime_setting_mutation_reloads_threshold_immediately() {
 }
 
 #[test]
-fn gc_collect_obeys_context_root_scan_mode() {
+fn gc_collect_uses_exact_root_tracing() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
-    assert_eq!(
-        ev.gc_root_scan_mode(),
-        crate::tagged::gc::RootScanMode::ExactOnly
-    );
 
     ev.eval_str_each("(setq mode-root (cons 7 8))");
     ev.gc_collect();
@@ -8693,10 +8669,9 @@ fn gc_collect_obeys_context_root_scan_mode() {
 }
 
 #[test]
-fn gc_safe_point_obeys_context_root_scan_mode() {
+fn gc_safe_point_uses_exact_root_tracing() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
     ev.tagged_heap.set_gc_threshold(5);
 
     ev.eval_str_each(
@@ -8739,14 +8714,9 @@ fn gc_safe_point_exact_with_extra_roots_retains_explicit_slice() {
 }
 
 #[test]
-fn gc_safe_point_exact_ignores_context_root_scan_mode() {
+fn gc_safe_point_exact_frees_stack_only_values() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ConservativeStack);
-    assert_eq!(
-        ev.gc_root_scan_mode(),
-        crate::tagged::gc::RootScanMode::ExactOnly
-    );
     ev.tagged_heap.set_gc_threshold(1);
     let marker = 0u8;
     ev.tagged_heap.set_stack_bottom(&marker as *const u8);
@@ -8995,7 +8965,6 @@ fn gc_stress_closure_call_restores_outer_lexenv_after_exact_gc() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
-    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
     ev.gc_stress = true;
     ev.tagged_heap.set_gc_threshold(1);
     let result = format_eval_result(&ev.eval_str(

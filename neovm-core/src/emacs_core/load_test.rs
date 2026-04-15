@@ -2918,7 +2918,6 @@ fn bootstrap_runtime_autoload_do_load_survives_exact_gc() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
-    eval.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
     eval.gc_stress = true;
     let rendered = eval_rendered(
         &mut eval,
@@ -4136,7 +4135,6 @@ fn load_file_exact_gc_roots_load_history_and_after_load_filename() {
     fs::write(&file, "(setq vm-load-history-probe t)\n").expect("write fixture");
 
     let mut eval = super::super::eval::Context::new();
-    eval.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
     eval.tagged_heap.set_gc_threshold(1);
 
     eval.eval_str(
@@ -4350,7 +4348,6 @@ fn nested_load_exact_gc_preserves_reader_load_file_name() {
     .expect("write child fixture");
 
     let mut eval = super::super::eval::Context::new();
-    eval.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
     eval.gc_stress = true;
 
     let loaded = load_file(&mut eval, &parent).expect("load nested fixture under exact gc");

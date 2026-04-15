@@ -4726,29 +4726,6 @@ impl Context {
         );
     }
 
-    /// Return the active GC root scan mode.
-    ///
-    /// The runtime now uses exact tracing only; this remains as a compatibility
-    /// shim while callers are migrated off the old scan-mode API.
-    pub fn gc_root_scan_mode(&self) -> crate::tagged::gc::RootScanMode {
-        self.tagged_heap.root_scan_mode()
-    }
-
-    /// Compatibility shim for the retired scan-mode toggle.
-    pub fn set_gc_root_scan_mode(&mut self, mode: crate::tagged::gc::RootScanMode) {
-        self.tagged_heap.set_root_scan_mode(mode);
-    }
-
-    /// Compatibility shim for temporarily overriding GC root scan mode.
-    pub(crate) fn with_gc_root_scan_mode<T>(
-        &mut self,
-        mode: crate::tagged::gc::RootScanMode,
-        f: impl FnOnce(&mut Self) -> T,
-    ) -> T {
-        let _ = mode;
-        f(self)
-    }
-
     /// Set the GC threshold. Use usize::MAX to effectively disable GC.
     pub fn set_gc_threshold(&mut self, threshold: usize) {
         self.tagged_heap.set_gc_threshold(threshold);
