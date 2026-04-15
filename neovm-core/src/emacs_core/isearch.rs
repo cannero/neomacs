@@ -14,6 +14,7 @@ use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
 use super::value::{Value, ValueKind};
 use crate::buffer::Buffer;
+use crate::heap_types::LispString;
 
 // ---------------------------------------------------------------------------
 // Argument helpers (local copies, matching builtins.rs convention)
@@ -32,6 +33,70 @@ fn expect_min_max_args(name: &str, args: &[Value], min: usize, max: usize) -> Re
 
 fn isearch_string_text(value: &Value) -> Option<String> {
     value.as_runtime_string_owned()
+}
+
+fn runtime_string_from_lisp_string(value: &LispString) -> String {
+    crate::emacs_core::string_escape::emacs_bytes_to_storage_string(
+        value.as_bytes(),
+        value.is_multibyte(),
+    )
+}
+
+fn empty_lisp_string(multibyte: bool) -> LispString {
+    if multibyte {
+        LispString::from_utf8("")
+    } else {
+        LispString::from_unibyte(Vec::new())
+    }
+}
+
+fn promote_unibyte_lisp_string(value: &LispString) -> LispString {
+    let storage =
+        crate::emacs_core::string_escape::emacs_bytes_to_storage_string(value.as_bytes(), false);
+    storage_string_to_lisp_string(&storage, true)
+}
+
+fn append_char_to_lisp_string(value: &mut LispString, ch: char) {
+    if !value.is_multibyte() && (ch as u32) <= 0xFF {
+        value.data_mut().push(ch as u8);
+        value.recompute_size();
+        return;
+    }
+
+    if !value.is_multibyte() {
+        *value = promote_unibyte_lisp_string(value);
+    }
+
+    let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+    let len = crate::emacs_core::emacs_char::char_string(ch as u32, &mut buf);
+    value.data_mut().extend_from_slice(&buf[..len]);
+    value.recompute_size();
+}
+
+fn pop_char_from_lisp_string(value: &mut LispString) {
+    if value.is_empty() {
+        return;
+    }
+
+    if value.is_multibyte() {
+        let new_len = crate::emacs_core::emacs_char::char_to_byte_pos(
+            value.as_bytes(),
+            value.schars().saturating_sub(1),
+        );
+        value.data_mut().truncate(new_len);
+        value.recompute_size();
+    } else {
+        value.data_mut().pop();
+        value.recompute_size();
+    }
+}
+
+fn append_runtime_fragment_to_lisp_string(value: &mut LispString, fragment: &str) {
+    if fragment.is_empty() {
+        return;
+    }
+    let fragment = storage_string_to_lisp_string(fragment, value.is_multibyte());
+    *value = value.concat(&fragment);
 }
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
@@ -336,7 +401,7 @@ pub struct IsearchState {
     /// Current search direction.
     pub direction: SearchDirection,
     /// The string being searched for (built up character by character).
-    pub search_string: String,
+    pub search_string: LispString,
     /// Whether this is a regexp search.
     pub regexp: bool,
     /// Case folding: `None` = auto-detect, `Some(true)` = fold, `Some(false)` = exact.
@@ -365,8 +430,8 @@ pub struct IsearchState {
 
 /// Ring of previous search strings, kept separately for literal and regexp.
 pub struct SearchHistory {
-    strings: VecDeque<String>,
-    regexp_strings: VecDeque<String>,
+    strings: VecDeque<LispString>,
+    regexp_strings: VecDeque<LispString>,
     max_length: usize,
 }
 
@@ -382,7 +447,7 @@ impl SearchHistory {
 
     /// Push a search string onto the appropriate ring.
     /// Duplicates are moved to the front rather than stored twice.
-    pub fn push(&mut self, string: String, regexp: bool) {
+    pub fn push(&mut self, string: LispString, regexp: bool) {
         let ring = if regexp {
             &mut self.regexp_strings
         } else {
@@ -399,13 +464,13 @@ impl SearchHistory {
     }
 
     /// Get the search string at `index` (0 = most recent).
-    pub fn get(&self, index: usize, regexp: bool) -> Option<&str> {
+    pub fn get(&self, index: usize, regexp: bool) -> Option<&LispString> {
         let ring = if regexp {
             &self.regexp_strings
         } else {
             &self.strings
         };
-        ring.get(index).map(|s| s.as_str())
+        ring.get(index)
     }
 
     /// Number of entries in the chosen ring.
@@ -418,7 +483,7 @@ impl SearchHistory {
     }
 
     /// Borrow the underlying deque.
-    pub fn strings(&self, regexp: bool) -> &VecDeque<String> {
+    pub fn strings(&self, regexp: bool) -> &VecDeque<LispString> {
         if regexp {
             &self.regexp_strings
         } else {
@@ -441,7 +506,7 @@ impl Default for SearchHistory {
 pub struct IsearchManager {
     state: Option<IsearchState>,
     history: SearchHistory,
-    last_search_string: Option<String>,
+    last_search_string: Option<LispString>,
     last_search_regexp: bool,
 }
 
@@ -462,7 +527,7 @@ impl IsearchManager {
         self.state = Some(IsearchState {
             active: true,
             direction,
-            search_string: String::new(),
+            search_string: empty_lisp_string(true),
             regexp,
             case_fold: None, // auto
             wrapped: false,
@@ -502,7 +567,7 @@ impl IsearchManager {
     /// Append a character to the search string.
     pub fn add_char(&mut self, ch: char) {
         if let Some(state) = self.state.as_mut() {
-            state.search_string.push(ch);
+            append_char_to_lisp_string(&mut state.search_string, ch);
             state.history_index = None;
         }
     }
@@ -510,13 +575,13 @@ impl IsearchManager {
     /// Remove the last character from the search string.
     pub fn delete_char(&mut self) {
         if let Some(state) = self.state.as_mut() {
-            state.search_string.pop();
+            pop_char_from_lisp_string(&mut state.search_string);
             state.history_index = None;
         }
     }
 
     /// Replace the search string wholesale.
-    pub fn set_string(&mut self, s: String) {
+    pub fn set_string(&mut self, s: LispString) {
         if let Some(state) = self.state.as_mut() {
             state.search_string = s;
             state.history_index = None;
@@ -567,7 +632,8 @@ impl IsearchManager {
             return None;
         }
 
-        let case_fold = resolve_case_fold(state.case_fold, &state.search_string);
+        let search_string = runtime_string_from_lisp_string(&state.search_string);
+        let case_fold = resolve_case_fold(state.case_fold, &search_string);
 
         // Determine the starting position for the next search step.
         let from = match state.direction {
@@ -577,14 +643,9 @@ impl IsearchManager {
 
         let forward = state.direction == SearchDirection::Forward;
 
-        if let Some((start, end)) = find_match(
-            text,
-            &state.search_string,
-            from,
-            forward,
-            state.regexp,
-            case_fold,
-        ) {
+        if let Some((start, end)) =
+            find_match(text, &search_string, from, forward, state.regexp, case_fold)
+        {
             state.success = true;
             state.match_start = Some(start);
             state.match_end = Some(end);
@@ -597,7 +658,7 @@ impl IsearchManager {
             let wrap_from = if forward { 0 } else { text.len() };
             if let Some((start, end)) = find_match(
                 text,
-                &state.search_string,
+                &search_string,
                 wrap_from,
                 forward,
                 state.regexp,
@@ -629,13 +690,14 @@ impl IsearchManager {
             return None;
         }
 
-        let case_fold = resolve_case_fold(state.case_fold, &state.search_string);
+        let search_string = runtime_string_from_lisp_string(&state.search_string);
+        let case_fold = resolve_case_fold(state.case_fold, &search_string);
         let forward = state.direction == SearchDirection::Forward;
 
         // Search from origin first.
         if let Some((start, end)) = find_match(
             text,
-            &state.search_string,
+            &search_string,
             state.origin,
             forward,
             state.regexp,
@@ -652,7 +714,7 @@ impl IsearchManager {
         let wrap_from = if forward { 0 } else { text.len() };
         if let Some((start, end)) = find_match(
             text,
-            &state.search_string,
+            &search_string,
             wrap_from,
             forward,
             state.regexp,
@@ -686,7 +748,8 @@ impl IsearchManager {
             return;
         }
 
-        let case_fold = resolve_case_fold(state.case_fold, &state.search_string);
+        let search_string = runtime_string_from_lisp_string(&state.search_string);
+        let case_fold = resolve_case_fold(state.case_fold, &search_string);
         let start = visible_start.min(text.len());
         let end = visible_end.min(text.len());
 
@@ -698,7 +761,7 @@ impl IsearchManager {
 
         if state.regexp {
             if let Ok(iterated) = super::regex::iterate_string_matches_with_case_fold(
-                &state.search_string,
+                &search_string,
                 region,
                 0,
                 case_fold,
@@ -723,9 +786,9 @@ impl IsearchManager {
                 region.to_string()
             };
             let needle = if case_fold {
-                state.search_string.to_lowercase()
+                search_string.to_lowercase()
             } else {
-                state.search_string.clone()
+                search_string
             };
             let mut search_from = 0;
             while let Some(pos) = haystack[search_from..].find(&needle) {
@@ -760,7 +823,7 @@ impl IsearchManager {
             }
         };
         if let Some(s) = self.history.get(new_index, state.regexp) {
-            state.search_string = s.to_string();
+            state.search_string = s.clone();
             state.history_index = Some(new_index);
         }
     }
@@ -774,13 +837,13 @@ impl IsearchManager {
         match state.history_index {
             None => {}
             Some(0) => {
-                state.search_string.clear();
+                state.search_string = empty_lisp_string(state.search_string.is_multibyte());
                 state.history_index = None;
             }
             Some(i) => {
                 let new_index = i - 1;
                 if let Some(s) = self.history.get(new_index, state.regexp) {
-                    state.search_string = s.to_string();
+                    state.search_string = s.clone();
                     state.history_index = Some(new_index);
                 }
             }
@@ -819,7 +882,7 @@ impl IsearchManager {
             }
         }
 
-        state.search_string.push_str(&rest[..end]);
+        append_runtime_fragment_to_lisp_string(&mut state.search_string, &rest[..end]);
         state.history_index = None;
     }
 
@@ -861,7 +924,11 @@ impl IsearchManager {
         parts.push(dir);
 
         let prompt = parts.join(" ");
-        format!("{}: {}", prompt, state.search_string)
+        format!(
+            "{}: {}",
+            prompt,
+            runtime_string_from_lisp_string(&state.search_string)
+        )
     }
 }
 
@@ -906,9 +973,9 @@ pub struct QueryReplaceUndo {
     /// Byte position where the replacement was made.
     pub position: usize,
     /// Original matched text.
-    pub original: String,
+    pub original: LispString,
     /// Replacement text that was inserted.
-    pub replacement: String,
+    pub replacement: LispString,
 }
 
 // ---------------------------------------------------------------------------
@@ -918,9 +985,9 @@ pub struct QueryReplaceUndo {
 /// Full state for one active query-replace session.
 pub struct QueryReplaceState {
     /// Pattern to search for.
-    pub from_string: String,
+    pub from_string: LispString,
     /// Replacement string.
-    pub to_string: String,
+    pub to_string: LispString,
     /// Whether `from_string` is a regular expression.
     pub regexp: bool,
     /// Whether to match only whole delimited words.
@@ -951,7 +1018,7 @@ pub struct QueryReplaceState {
 #[derive(Clone, Debug)]
 pub enum QueryReplaceAction {
     /// Replace the region `[start, end)` with the given string.
-    Replace(usize, usize, String),
+    Replace(usize, usize, LispString),
     /// Skip the current match.
     Skip,
     /// The session is finished.
@@ -988,7 +1055,7 @@ impl QueryReplaceManager {
     }
 
     /// Begin a new query-replace session (whole buffer).
-    pub fn begin(&mut self, from: String, to: String, regexp: bool) {
+    pub fn begin(&mut self, from: LispString, to: LispString, regexp: bool) {
         self.state = Some(QueryReplaceState {
             from_string: from,
             to_string: to,
@@ -1008,8 +1075,8 @@ impl QueryReplaceManager {
     /// Begin a query-replace session restricted to a region.
     pub fn begin_in_region(
         &mut self,
-        from: String,
-        to: String,
+        from: LispString,
+        to: LispString,
         regexp: bool,
         start: usize,
         end: usize,
@@ -1037,15 +1104,9 @@ impl QueryReplaceManager {
             return None;
         }
 
-        let case_fold = resolve_case_fold(state.case_fold, &state.from_string);
-        let result = find_match(
-            text,
-            &state.from_string,
-            start,
-            true,
-            state.regexp,
-            case_fold,
-        );
+        let from_string = runtime_string_from_lisp_string(&state.from_string);
+        let case_fold = resolve_case_fold(state.case_fold, &from_string);
+        let result = find_match(text, &from_string, start, true, state.regexp, case_fold);
 
         if let Some((ms, me)) = result {
             if me <= limit {
@@ -1073,7 +1134,7 @@ impl QueryReplaceManager {
         match response {
             QueryReplaceResponse::Yes => {
                 if let Some((start, end)) = state.current_match {
-                    let matched_text = String::new(); // caller fills this in
+                    let matched_text = empty_lisp_string(state.from_string.is_multibyte()); // caller fills this in
                     let replacement = state.to_string.clone();
                     let replacement = if state.preserve_case {
                         // We cannot access the matched text here; the caller
@@ -1109,7 +1170,7 @@ impl QueryReplaceManager {
                     state.replaced_count += 1;
                     state.undo_stack.push(QueryReplaceUndo {
                         position: start,
-                        original: String::new(),
+                        original: empty_lisp_string(state.from_string.is_multibyte()),
                         replacement: replacement.clone(),
                     });
                     state.current_match = None;
@@ -1132,12 +1193,16 @@ impl QueryReplaceManager {
                     state.replaced_count += 1;
                     state.undo_stack.push(QueryReplaceUndo {
                         position: start,
-                        original: String::new(),
-                        replacement: String::new(),
+                        original: empty_lisp_string(state.from_string.is_multibyte()),
+                        replacement: empty_lisp_string(state.to_string.is_multibyte()),
                     });
                     state.current_match = None;
                     // Replace with empty string = delete
-                    QueryReplaceAction::Replace(start, end, String::new())
+                    QueryReplaceAction::Replace(
+                        start,
+                        end,
+                        empty_lisp_string(state.to_string.is_multibyte()),
+                    )
                 } else {
                     QueryReplaceAction::Skip
                 }
@@ -1168,14 +1233,18 @@ impl QueryReplaceManager {
     /// Handles `preserve_case` logic.  For regexp replacements the caller
     /// should additionally process `\&` and `\N` references (see
     /// `regex::build_replacement`).
-    pub fn compute_replacement(&self, matched: &str) -> String {
+    pub fn compute_replacement(&self, matched: &str) -> LispString {
         let state = match self.state.as_ref() {
             Some(s) => s,
-            None => return String::new(),
+            None => return empty_lisp_string(true),
         };
 
+        let replacement = runtime_string_from_lisp_string(&state.to_string);
         if state.preserve_case {
-            preserve_case(&state.to_string, matched)
+            storage_string_to_lisp_string(
+                &preserve_case(&replacement, matched),
+                state.to_string.is_multibyte(),
+            )
         } else {
             state.to_string.clone()
         }
@@ -1232,7 +1301,9 @@ impl QueryReplaceManager {
         };
         format!(
             "{} {} with {}: (y/n/!/q/?)",
-            kind, state.from_string, state.to_string
+            kind,
+            runtime_string_from_lisp_string(&state.from_string),
+            runtime_string_from_lisp_string(&state.to_string)
         )
     }
 }

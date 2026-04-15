@@ -1,4 +1,24 @@
 use super::*;
+use crate::heap_types::LispString;
+
+fn utf8_ls(text: &str) -> LispString {
+    LispString::from_utf8(text)
+}
+
+fn runtime_text(value: &LispString) -> String {
+    crate::emacs_core::string_escape::emacs_bytes_to_storage_string(
+        value.as_bytes(),
+        value.is_multibyte(),
+    )
+}
+
+fn runtime_opt_text(value: Option<&LispString>) -> Option<String> {
+    value.map(runtime_text)
+}
+
+fn assert_lisp_string_eq(value: &LispString, expected: &str) {
+    assert_eq!(runtime_text(value), expected);
+}
 
 // -----------------------------------------------------------------------
 // SearchHistory
@@ -8,35 +28,41 @@ use super::*;
 fn history_push_and_get() {
     crate::test_utils::init_test_tracing();
     let mut h = SearchHistory::new();
-    h.push("hello".to_string(), false);
-    h.push("world".to_string(), false);
-    assert_eq!(h.get(0, false), Some("world"));
-    assert_eq!(h.get(1, false), Some("hello"));
-    assert_eq!(h.get(2, false), None);
+    h.push(utf8_ls("hello"), false);
+    h.push(utf8_ls("world"), false);
+    assert_eq!(runtime_opt_text(h.get(0, false)), Some("world".to_string()));
+    assert_eq!(runtime_opt_text(h.get(1, false)), Some("hello".to_string()));
+    assert_eq!(runtime_opt_text(h.get(2, false)), None);
 }
 
 #[test]
 fn history_push_deduplicates() {
     crate::test_utils::init_test_tracing();
     let mut h = SearchHistory::new();
-    h.push("aaa".to_string(), false);
-    h.push("bbb".to_string(), false);
-    h.push("aaa".to_string(), false);
+    h.push(utf8_ls("aaa"), false);
+    h.push(utf8_ls("bbb"), false);
+    h.push(utf8_ls("aaa"), false);
     assert_eq!(h.len(false), 2);
-    assert_eq!(h.get(0, false), Some("aaa"));
-    assert_eq!(h.get(1, false), Some("bbb"));
+    assert_eq!(runtime_opt_text(h.get(0, false)), Some("aaa".to_string()));
+    assert_eq!(runtime_opt_text(h.get(1, false)), Some("bbb".to_string()));
 }
 
 #[test]
 fn history_separate_rings() {
     crate::test_utils::init_test_tracing();
     let mut h = SearchHistory::new();
-    h.push("literal".to_string(), false);
-    h.push("re.*gex".to_string(), true);
+    h.push(utf8_ls("literal"), false);
+    h.push(utf8_ls("re.*gex"), true);
     assert_eq!(h.len(false), 1);
     assert_eq!(h.len(true), 1);
-    assert_eq!(h.get(0, false), Some("literal"));
-    assert_eq!(h.get(0, true), Some("re.*gex"));
+    assert_eq!(
+        runtime_opt_text(h.get(0, false)),
+        Some("literal".to_string())
+    );
+    assert_eq!(
+        runtime_opt_text(h.get(0, true)),
+        Some("re.*gex".to_string())
+    );
 }
 
 #[test]
@@ -44,23 +70,36 @@ fn history_max_length() {
     crate::test_utils::init_test_tracing();
     let mut h = SearchHistory::new();
     for i in 0..150 {
-        h.push(format!("item{}", i), false);
+        h.push(utf8_ls(&format!("item{}", i)), false);
     }
     assert_eq!(h.len(false), 100);
     // Most recent is item149
-    assert_eq!(h.get(0, false), Some("item149"));
+    assert_eq!(
+        runtime_opt_text(h.get(0, false)),
+        Some("item149".to_string())
+    );
 }
 
 #[test]
 fn history_strings_accessor() {
     crate::test_utils::init_test_tracing();
     let mut h = SearchHistory::new();
-    h.push("a".to_string(), false);
-    h.push("b".to_string(), false);
+    h.push(utf8_ls("a"), false);
+    h.push(utf8_ls("b"), false);
     let ring = h.strings(false);
     assert_eq!(ring.len(), 2);
-    assert_eq!(ring[0], "b");
-    assert_eq!(ring[1], "a");
+    assert_lisp_string_eq(&ring[0], "b");
+    assert_lisp_string_eq(&ring[1], "a");
+}
+
+#[test]
+fn history_preserves_raw_unibyte_entries() {
+    crate::test_utils::init_test_tracing();
+    let mut h = SearchHistory::new();
+    h.push(LispString::from_unibyte(vec![0xFF]), false);
+    let stored = h.get(0, false).expect("stored entry");
+    assert!(!stored.is_multibyte());
+    assert_eq!(stored.as_bytes(), &[0xFF]);
 }
 
 // -----------------------------------------------------------------------
@@ -106,7 +145,10 @@ fn isearch_end_saves_to_history() {
     mgr.add_char('o');
     mgr.add_char('o');
     mgr.end_search(true);
-    assert_eq!(mgr.history.get(0, false), Some("foo"));
+    assert_eq!(
+        runtime_opt_text(mgr.history.get(0, false)),
+        Some("foo".to_string())
+    );
 }
 
 #[test]
@@ -130,9 +172,9 @@ fn isearch_add_delete_char() {
     mgr.add_char('a');
     mgr.add_char('b');
     mgr.add_char('c');
-    assert_eq!(mgr.state().unwrap().search_string, "abc");
+    assert_lisp_string_eq(&mgr.state().unwrap().search_string, "abc");
     mgr.delete_char();
-    assert_eq!(mgr.state().unwrap().search_string, "ab");
+    assert_lisp_string_eq(&mgr.state().unwrap().search_string, "ab");
 }
 
 #[test]
@@ -140,8 +182,19 @@ fn isearch_set_string() {
     crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     mgr.begin_search(SearchDirection::Forward, false, 0);
-    mgr.set_string("hello world".to_string());
-    assert_eq!(mgr.state().unwrap().search_string, "hello world");
+    mgr.set_string(utf8_ls("hello world"));
+    assert_lisp_string_eq(&mgr.state().unwrap().search_string, "hello world");
+}
+
+#[test]
+fn isearch_set_string_preserves_raw_unibyte_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut mgr = IsearchManager::new();
+    mgr.begin_search(SearchDirection::Forward, false, 0);
+    mgr.set_string(LispString::from_unibyte(vec![0xFF]));
+    let stored = &mgr.state().unwrap().search_string;
+    assert!(!stored.is_multibyte());
+    assert_eq!(stored.as_bytes(), &[0xFF]);
 }
 
 #[test]
@@ -196,7 +249,7 @@ fn isearch_forward_search_update_finds_match() {
     let mut mgr = IsearchManager::new();
     let text = "hello world hello";
     mgr.begin_search(SearchDirection::Forward, false, 0);
-    mgr.set_string("world".to_string());
+    mgr.set_string(utf8_ls("world"));
     let result = mgr.search_update(text);
     assert_eq!(result, Some((6, 11)));
     assert!(mgr.state().unwrap().success);
@@ -208,7 +261,7 @@ fn isearch_forward_search_update_no_match() {
     let mut mgr = IsearchManager::new();
     let text = "hello world";
     mgr.begin_search(SearchDirection::Forward, false, 0);
-    mgr.set_string("zzz".to_string());
+    mgr.set_string(utf8_ls("zzz"));
     let result = mgr.search_update(text);
     assert!(result.is_none());
     assert!(!mgr.state().unwrap().success);
@@ -220,7 +273,7 @@ fn isearch_forward_search_next_advances() {
     let mut mgr = IsearchManager::new();
     let text = "aaa bbb aaa bbb";
     mgr.begin_search(SearchDirection::Forward, false, 0);
-    mgr.set_string("aaa".to_string());
+    mgr.set_string(utf8_ls("aaa"));
 
     // First search_update finds first occurrence
     let r1 = mgr.search_update(text);
@@ -241,7 +294,7 @@ fn isearch_backward_search_update() {
     let mut mgr = IsearchManager::new();
     let text = "aaa bbb aaa";
     mgr.begin_search(SearchDirection::Backward, false, text.len());
-    mgr.set_string("aaa".to_string());
+    mgr.set_string(utf8_ls("aaa"));
     let result = mgr.search_update(text);
     // Backward from origin=11, should find last "aaa" at 8
     assert_eq!(result, Some((8, 11)));
@@ -253,7 +306,7 @@ fn isearch_backward_search_next() {
     let mut mgr = IsearchManager::new();
     let text = "aaa bbb aaa";
     mgr.begin_search(SearchDirection::Backward, false, text.len());
-    mgr.set_string("aaa".to_string());
+    mgr.set_string(utf8_ls("aaa"));
 
     let r1 = mgr.search_update(text);
     assert_eq!(r1, Some((8, 11)));
@@ -274,7 +327,7 @@ fn isearch_forward_wraps() {
     let text = "aaa bbb ccc";
     // Start near the end so "aaa" is behind us
     mgr.begin_search(SearchDirection::Forward, false, 8);
-    mgr.set_string("aaa".to_string());
+    mgr.set_string(utf8_ls("aaa"));
 
     // search_update: forward from origin=8, no "aaa" after 8, wraps to find at 0
     let result = mgr.search_update(text);
@@ -289,7 +342,7 @@ fn isearch_backward_wraps() {
     let text = "aaa bbb ccc";
     // Start at the beginning so "ccc" is ahead of us
     mgr.begin_search(SearchDirection::Backward, false, 0);
-    mgr.set_string("ccc".to_string());
+    mgr.set_string(utf8_ls("ccc"));
 
     let result = mgr.search_update(text);
     assert_eq!(result, Some((8, 11)));
@@ -331,7 +384,7 @@ fn isearch_case_fold_auto() {
     let text = "Hello World hello world";
     mgr.begin_search(SearchDirection::Forward, false, 0);
     // Lowercase search string — should auto-fold
-    mgr.set_string("hello".to_string());
+    mgr.set_string(utf8_ls("hello"));
     let result = mgr.search_update(text);
     // Should find "Hello" at 0 (case-folded)
     assert_eq!(result, Some((0, 5)));
@@ -344,7 +397,7 @@ fn isearch_case_fold_auto_uppercase_exact() {
     let text = "hello world Hello World";
     mgr.begin_search(SearchDirection::Forward, false, 0);
     // Uppercase letter in search — should NOT fold
-    mgr.set_string("Hello".to_string());
+    mgr.set_string(utf8_ls("Hello"));
     let result = mgr.search_update(text);
     assert_eq!(result, Some((12, 17)));
 }
@@ -359,7 +412,7 @@ fn isearch_regexp_forward() {
     let mut mgr = IsearchManager::new();
     let text = "foo 123 bar 456";
     mgr.begin_search(SearchDirection::Forward, true, 0);
-    mgr.set_string("[0-9]+".to_string());
+    mgr.set_string(utf8_ls("[0-9]+"));
     let result = mgr.search_update(text);
     assert_eq!(result, Some((4, 7)));
 }
@@ -370,7 +423,7 @@ fn isearch_regexp_backward() {
     let mut mgr = IsearchManager::new();
     let text = "foo 123 bar 456";
     mgr.begin_search(SearchDirection::Backward, true, text.len());
-    mgr.set_string("[0-9]+".to_string());
+    mgr.set_string(utf8_ls("[0-9]+"));
     let result = mgr.search_update(text);
     assert_eq!(result, Some((12, 15)));
 }
@@ -385,7 +438,7 @@ fn compute_lazy_matches_literal() {
     let mut mgr = IsearchManager::new();
     let text = "aa bb aa cc aa";
     mgr.begin_search(SearchDirection::Forward, false, 0);
-    mgr.set_string("aa".to_string());
+    mgr.set_string(utf8_ls("aa"));
     mgr.compute_lazy_matches(text, 0, text.len());
     let matches = &mgr.state().unwrap().lazy_matches;
     assert_eq!(matches.len(), 3);
@@ -400,7 +453,7 @@ fn compute_lazy_matches_regexp() {
     let mut mgr = IsearchManager::new();
     let text = "abc 123 def 456 ghi";
     mgr.begin_search(SearchDirection::Forward, true, 0);
-    mgr.set_string("[0-9]+".to_string());
+    mgr.set_string(utf8_ls("[0-9]+"));
     mgr.compute_lazy_matches(text, 0, text.len());
     let matches = &mgr.state().unwrap().lazy_matches;
     assert_eq!(matches.len(), 2);
@@ -414,7 +467,7 @@ fn compute_lazy_matches_visible_region() {
     let mut mgr = IsearchManager::new();
     let text = "aaa bbb aaa ccc aaa";
     mgr.begin_search(SearchDirection::Forward, false, 0);
-    mgr.set_string("aaa".to_string());
+    mgr.set_string(utf8_ls("aaa"));
     // Only look in the middle region [4..15]
     mgr.compute_lazy_matches(text, 4, 15);
     let matches = &mgr.state().unwrap().lazy_matches;
@@ -428,7 +481,7 @@ fn compute_lazy_matches_empty_string() {
     let mut mgr = IsearchManager::new();
     let text = "hello world";
     mgr.begin_search(SearchDirection::Forward, false, 0);
-    mgr.set_string(String::new());
+    mgr.set_string(utf8_ls(""));
     mgr.compute_lazy_matches(text, 0, text.len());
     assert!(mgr.state().unwrap().lazy_matches.is_empty());
 }
@@ -444,21 +497,21 @@ fn isearch_history_navigation() {
 
     // Populate history
     mgr.begin_search(SearchDirection::Forward, false, 0);
-    mgr.set_string("first".to_string());
+    mgr.set_string(utf8_ls("first"));
     mgr.end_search(true);
 
     mgr.begin_search(SearchDirection::Forward, false, 0);
-    mgr.set_string("second".to_string());
+    mgr.set_string(utf8_ls("second"));
     mgr.end_search(true);
 
     // Start a new search and navigate history
     mgr.begin_search(SearchDirection::Forward, false, 0);
     mgr.history_previous();
-    assert_eq!(mgr.state().unwrap().search_string, "second");
+    assert_lisp_string_eq(&mgr.state().unwrap().search_string, "second");
     mgr.history_previous();
-    assert_eq!(mgr.state().unwrap().search_string, "first");
+    assert_lisp_string_eq(&mgr.state().unwrap().search_string, "first");
     mgr.history_next();
-    assert_eq!(mgr.state().unwrap().search_string, "second");
+    assert_lisp_string_eq(&mgr.state().unwrap().search_string, "second");
     mgr.history_next();
     assert!(mgr.state().unwrap().search_string.is_empty());
 }
@@ -474,7 +527,7 @@ fn isearch_yank_word() {
     let text = "hello world";
     mgr.begin_search(SearchDirection::Forward, false, 0);
     mgr.yank_word_or_char(text, 0);
-    assert_eq!(mgr.state().unwrap().search_string, "hello");
+    assert_lisp_string_eq(&mgr.state().unwrap().search_string, "hello");
 }
 
 #[test]
@@ -485,7 +538,7 @@ fn isearch_yank_nonword_char() {
     mgr.begin_search(SearchDirection::Forward, false, 0);
     mgr.yank_word_or_char(text, 0);
     // Space is not alphanumeric, so only one char yanked
-    assert_eq!(mgr.state().unwrap().search_string, " ");
+    assert_lisp_string_eq(&mgr.state().unwrap().search_string, " ");
 }
 
 #[test]
@@ -508,7 +561,7 @@ fn isearch_prompt_basic() {
     crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     mgr.begin_search(SearchDirection::Forward, false, 0);
-    mgr.set_string("test".to_string());
+    mgr.set_string(utf8_ls("test"));
     let prompt = mgr.prompt();
     assert!(prompt.contains("I-search"));
     assert!(prompt.contains("test"));
@@ -520,7 +573,7 @@ fn isearch_prompt_regexp_backward_failing() {
     crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     mgr.begin_search(SearchDirection::Backward, true, 0);
-    mgr.set_string("pat".to_string());
+    mgr.set_string(utf8_ls("pat"));
     // Force a failing search
     let _ = mgr.search_update("no match here");
     let prompt = mgr.prompt();
@@ -538,11 +591,11 @@ fn query_replace_begin_end() {
     crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     assert!(!mgr.is_active());
-    mgr.begin("foo".to_string(), "bar".to_string(), false);
+    mgr.begin(utf8_ls("foo"), utf8_ls("bar"), false);
     assert!(mgr.is_active());
     let state = mgr.state().unwrap();
-    assert_eq!(state.from_string, "foo");
-    assert_eq!(state.to_string, "bar");
+    assert_lisp_string_eq(&state.from_string, "foo");
+    assert_lisp_string_eq(&state.to_string, "bar");
     assert!(!state.regexp);
     assert!(state.region_start.is_none());
 
@@ -556,10 +609,26 @@ fn query_replace_begin_end() {
 fn query_replace_begin_in_region() {
     crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
-    mgr.begin_in_region("x".to_string(), "y".to_string(), false, 10, 50);
+    mgr.begin_in_region(utf8_ls("x"), utf8_ls("y"), false, 10, 50);
     let state = mgr.state().unwrap();
     assert_eq!(state.region_start, Some(10));
     assert_eq!(state.region_end, Some(50));
+}
+
+#[test]
+fn query_replace_begin_preserves_raw_unibyte_strings() {
+    crate::test_utils::init_test_tracing();
+    let mut mgr = QueryReplaceManager::new();
+    mgr.begin(
+        LispString::from_unibyte(vec![0xFF]),
+        LispString::from_unibyte(vec![0xFE]),
+        false,
+    );
+    let state = mgr.state().unwrap();
+    assert!(!state.from_string.is_multibyte());
+    assert_eq!(state.from_string.as_bytes(), &[0xFF]);
+    assert!(!state.to_string.is_multibyte());
+    assert_eq!(state.to_string.as_bytes(), &[0xFE]);
 }
 
 // -----------------------------------------------------------------------
@@ -571,7 +640,7 @@ fn query_replace_find_next_basic() {
     crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     let text = "foo bar foo baz foo";
-    mgr.begin("foo".to_string(), "qux".to_string(), false);
+    mgr.begin(utf8_ls("foo"), utf8_ls("qux"), false);
 
     let r1 = mgr.find_next(text, 0);
     assert_eq!(r1, Some((0, 3)));
@@ -591,7 +660,7 @@ fn query_replace_find_next_in_region() {
     crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     let text = "foo bar foo baz foo";
-    mgr.begin_in_region("foo".to_string(), "qux".to_string(), false, 4, 15);
+    mgr.begin_in_region(utf8_ls("foo"), utf8_ls("qux"), false, 4, 15);
 
     let r1 = mgr.find_next(text, 0);
     assert_eq!(r1, Some((8, 11)));
@@ -606,7 +675,7 @@ fn query_replace_find_next_regexp() {
     crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     let text = "abc 123 def 456";
-    mgr.begin("[0-9]+".to_string(), "NUM".to_string(), true);
+    mgr.begin(utf8_ls("[0-9]+"), utf8_ls("NUM"), true);
 
     let r1 = mgr.find_next(text, 0);
     assert_eq!(r1, Some((4, 7)));
@@ -624,7 +693,7 @@ fn query_replace_respond_yes() {
     crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     let text = "foo bar";
-    mgr.begin("foo".to_string(), "baz".to_string(), false);
+    mgr.begin(utf8_ls("foo"), utf8_ls("baz"), false);
     let _ = mgr.find_next(text, 0);
 
     let action = mgr.respond(QueryReplaceResponse::Yes);
@@ -632,7 +701,7 @@ fn query_replace_respond_yes() {
         QueryReplaceAction::Replace(start, end, repl) => {
             assert_eq!(start, 0);
             assert_eq!(end, 3);
-            assert_eq!(repl, "baz");
+            assert_lisp_string_eq(&repl, "baz");
         }
         _ => panic!("expected Replace action"),
     }
@@ -644,7 +713,7 @@ fn query_replace_respond_no() {
     crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     let text = "foo bar";
-    mgr.begin("foo".to_string(), "baz".to_string(), false);
+    mgr.begin(utf8_ls("foo"), utf8_ls("baz"), false);
     let _ = mgr.find_next(text, 0);
 
     let action = mgr.respond(QueryReplaceResponse::No);
@@ -657,7 +726,7 @@ fn query_replace_respond_quit() {
     crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     let text = "foo bar foo";
-    mgr.begin("foo".to_string(), "baz".to_string(), false);
+    mgr.begin(utf8_ls("foo"), utf8_ls("baz"), false);
     let _ = mgr.find_next(text, 0);
     mgr.respond(QueryReplaceResponse::Yes);
 
@@ -678,7 +747,7 @@ fn query_replace_respond_delete() {
     crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     let text = "foo bar";
-    mgr.begin("foo".to_string(), "baz".to_string(), false);
+    mgr.begin(utf8_ls("foo"), utf8_ls("baz"), false);
     let _ = mgr.find_next(text, 0);
 
     let action = mgr.respond(QueryReplaceResponse::Delete);
@@ -696,7 +765,7 @@ fn query_replace_respond_delete() {
 fn query_replace_respond_help() {
     crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
-    mgr.begin("foo".to_string(), "bar".to_string(), false);
+    mgr.begin(utf8_ls("foo"), utf8_ls("bar"), false);
 
     let action = mgr.respond(QueryReplaceResponse::Help);
     match action {
@@ -712,7 +781,7 @@ fn query_replace_respond_help() {
 fn query_replace_respond_edit() {
     crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
-    mgr.begin("foo".to_string(), "bar".to_string(), false);
+    mgr.begin(utf8_ls("foo"), utf8_ls("bar"), false);
     let action = mgr.respond(QueryReplaceResponse::Edit);
     assert!(matches!(action, QueryReplaceAction::NeedInput));
 }
@@ -726,7 +795,7 @@ fn query_replace_undo() {
     crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     let text = "foo bar foo";
-    mgr.begin("foo".to_string(), "baz".to_string(), false);
+    mgr.begin(utf8_ls("foo"), utf8_ls("baz"), false);
 
     let _ = mgr.find_next(text, 0);
     mgr.respond(QueryReplaceResponse::Yes);
@@ -736,7 +805,7 @@ fn query_replace_undo() {
     assert!(undo.is_some());
     let undo = undo.unwrap();
     assert_eq!(undo.position, 0);
-    assert_eq!(undo.replacement, "baz");
+    assert_lisp_string_eq(&undo.replacement, "baz");
     assert_eq!(mgr.state().unwrap().replaced_count, 0);
 }
 
@@ -744,7 +813,7 @@ fn query_replace_undo() {
 fn query_replace_undo_empty_stack() {
     crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
-    mgr.begin("foo".to_string(), "bar".to_string(), false);
+    mgr.begin(utf8_ls("foo"), utf8_ls("bar"), false);
     assert!(mgr.undo_last().is_none());
 }
 
@@ -756,24 +825,24 @@ fn query_replace_undo_empty_stack() {
 fn query_replace_compute_replacement_lower() {
     crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
-    mgr.begin("foo".to_string(), "bar".to_string(), false);
-    assert_eq!(mgr.compute_replacement("foo"), "bar");
+    mgr.begin(utf8_ls("foo"), utf8_ls("bar"), false);
+    assert_lisp_string_eq(&mgr.compute_replacement("foo"), "bar");
 }
 
 #[test]
 fn query_replace_compute_replacement_upper() {
     crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
-    mgr.begin("foo".to_string(), "bar".to_string(), false);
-    assert_eq!(mgr.compute_replacement("FOO"), "BAR");
+    mgr.begin(utf8_ls("foo"), utf8_ls("bar"), false);
+    assert_lisp_string_eq(&mgr.compute_replacement("FOO"), "BAR");
 }
 
 #[test]
 fn query_replace_compute_replacement_capitalized() {
     crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
-    mgr.begin("foo".to_string(), "bar".to_string(), false);
-    assert_eq!(mgr.compute_replacement("Foo"), "Bar");
+    mgr.begin(utf8_ls("foo"), utf8_ls("bar"), false);
+    assert_lisp_string_eq(&mgr.compute_replacement("Foo"), "Bar");
 }
 
 // -----------------------------------------------------------------------
@@ -784,7 +853,7 @@ fn query_replace_compute_replacement_capitalized() {
 fn query_replace_prompt() {
     crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
-    mgr.begin("old".to_string(), "new".to_string(), false);
+    mgr.begin(utf8_ls("old"), utf8_ls("new"), false);
     let prompt = mgr.prompt();
     assert!(prompt.contains("Query replacing"));
     assert!(prompt.contains("old"));
@@ -796,7 +865,7 @@ fn query_replace_prompt() {
 fn query_replace_prompt_regexp() {
     crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
-    mgr.begin("[0-9]+".to_string(), "NUM".to_string(), true);
+    mgr.begin(utf8_ls("[0-9]+"), utf8_ls("NUM"), true);
     let prompt = mgr.prompt();
     assert!(prompt.contains("regexp"));
 }
