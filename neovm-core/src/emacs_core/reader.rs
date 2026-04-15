@@ -980,12 +980,11 @@ pub(crate) fn finish_read_string_with_minibuffer(
 
 pub(crate) fn finish_read_string_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
     builtin_read_string_in_runtime(shared, args)?;
     finish_read_string_with_minibuffer(args, |minibuffer_args| {
-        finish_read_from_minibuffer_in_vm_runtime(shared, vm_gc_roots, minibuffer_args)
+        finish_read_from_minibuffer_in_vm_runtime(shared, minibuffer_args)
     })
 }
 
@@ -1062,12 +1061,11 @@ pub(crate) fn finish_read_number_in_eval(
 
 pub(crate) fn finish_read_number_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
     builtin_read_number_in_runtime(shared, args)?;
     finish_read_number_with_minibuffer(args, |minibuffer_args| {
-        finish_read_from_minibuffer_in_vm_runtime(shared, vm_gc_roots, minibuffer_args)
+        finish_read_from_minibuffer_in_vm_runtime(shared, minibuffer_args)
     })
 }
 
@@ -1201,7 +1199,6 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
 
 pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
     builtin_read_from_minibuffer_in_runtime(shared, args)?;
@@ -1386,7 +1383,6 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
 
 pub(crate) fn finish_completing_read_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
     builtin_completing_read_in_runtime(shared, args)?;
@@ -1416,7 +1412,7 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
         intern("minibuffer-completion-confirm"),
         completion_confirm_from_require_match(require_match),
     );
-    let result = finish_read_from_minibuffer_in_vm_runtime(shared, vm_gc_roots, &minibuffer_args);
+    let result = finish_read_from_minibuffer_in_vm_runtime(shared, &minibuffer_args);
     let _ = crate::emacs_core::eval::set_runtime_binding(
         &mut shared.obarray,
         &mut shared.buffers,
@@ -2032,12 +2028,11 @@ pub(crate) fn finish_yes_or_no_p_with_minibuffer(
 
 pub(crate) fn finish_yes_or_no_p_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
     builtin_yes_or_no_p_in_runtime(shared, args)?;
     finish_yes_or_no_p_with_minibuffer(args, |minibuffer_args| {
-        finish_read_from_minibuffer_in_vm_runtime(shared, vm_gc_roots, minibuffer_args)
+        finish_read_from_minibuffer_in_vm_runtime(shared, minibuffer_args)
     })
 }
 

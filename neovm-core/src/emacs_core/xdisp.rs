@@ -370,7 +370,6 @@ pub(crate) fn finish_format_mode_line_in_state_with_eval(
 
 pub(crate) fn builtin_format_mode_line_in_vm_runtime(
     shared: &mut crate::emacs_core::eval::Context,
-    vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
     expect_args_range("format-mode-line", args, 1, 4)?;
@@ -398,7 +397,6 @@ pub(crate) fn builtin_format_mode_line_in_vm_runtime(
         let mut result = ModeLineRendered::default();
         format_mode_line_recursive_in_vm_runtime(
             shared,
-            vm_gc_roots,
             args,
             &pctx,
             &format_val,
@@ -1603,7 +1601,6 @@ fn format_mode_line_recursive_in_state_with_eval(
 
 fn format_mode_line_recursive_in_vm_runtime(
     shared: &mut crate::emacs_core::eval::Context,
-    vm_gc_roots: &[Value],
     args_roots: &[Value],
     pctx: &ModeLinePercentContext,
     format: &Value,
@@ -1662,7 +1659,6 @@ fn format_mode_line_recursive_in_vm_runtime(
                     } else {
                         format_mode_line_recursive_in_vm_runtime(
                             shared,
-                            vm_gc_roots,
                             args_roots,
                             pctx,
                             &val,
@@ -1694,7 +1690,6 @@ fn format_mode_line_recursive_in_vm_runtime(
                     })?;
                     format_mode_line_recursive_in_vm_runtime(
                         shared,
-                        vm_gc_roots,
                         args_roots,
                         pctx,
                         &val,
@@ -1715,7 +1710,6 @@ fn format_mode_line_recursive_in_vm_runtime(
                     let mut nested = ModeLineRendered::default();
                     format_mode_line_recursive_in_vm_runtime(
                         shared,
-                        vm_gc_roots,
                         args_roots,
                         pctx,
                         &elt,
@@ -1733,7 +1727,6 @@ fn format_mode_line_recursive_in_vm_runtime(
                 let mut nested = ModeLineRendered::default();
                 format_mode_line_recursive_in_vm_runtime(
                     shared,
-                    vm_gc_roots,
                     args_roots,
                     pctx,
                     &cdr,
@@ -1766,7 +1759,6 @@ fn format_mode_line_recursive_in_vm_runtime(
                     if let Some(branch) = branch {
                         format_mode_line_recursive_in_vm_runtime(
                             shared,
-                            vm_gc_roots,
                             args_roots,
                             pctx,
                             &branch,
@@ -1783,7 +1775,6 @@ fn format_mode_line_recursive_in_vm_runtime(
                 for elem in &elements {
                     format_mode_line_recursive_in_vm_runtime(
                         shared,
-                        vm_gc_roots,
                         args_roots,
                         pctx,
                         elem,

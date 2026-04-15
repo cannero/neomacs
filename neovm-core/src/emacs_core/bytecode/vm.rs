@@ -555,10 +555,9 @@ impl<'a> Vm<'a> {
                     let name_id = sym_id_at(constants, *idx);
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let extra = [val];
-                    vm_try!(
-                        self.with_frame_roots(func, specpdl, &extra, |vm| vm
-                            .assign_var_id(name_id, val),)
-                    );
+                    vm_try!(self.with_frame_roots(func, specpdl, &extra, |vm| {
+                        vm.assign_var_id(name_id, val)
+                    },));
                 }
                 Op::VarBind(idx) => {
                     // GNU bytecode.c Bvarbind: `specbind (vectorp[arg], POP);`
@@ -588,10 +587,9 @@ impl<'a> Vm<'a> {
                 Op::Unbind(n) => {
                     let mut unwind_roots = Vec::new();
                     Self::collect_specpdl_roots(specpdl, &mut |value| unwind_roots.push(value));
-                    vm_try!(
-                        self.with_frame_roots(func, &[], &unwind_roots, |vm| vm
-                            .unwind_specpdl_n(*n as usize, specpdl),)
-                    );
+                    vm_try!(self.with_frame_roots(func, &[], &unwind_roots, |vm| {
+                        vm.unwind_specpdl_n(*n as usize, specpdl)
+                    },));
                 }
 
                 // -- Function calls --
@@ -605,12 +603,9 @@ impl<'a> Vm<'a> {
                     let mut call_roots = Vec::with_capacity(args.len() + 1);
                     call_roots.push(func_val);
                     call_roots.extend(args.iter().copied());
-                    let result = vm_try!(self.with_frame_roots(
-                        func,
-                        specpdl,
-                        &call_roots,
-                        |vm| vm.call_function(func_val, args),
-                    ));
+                    let result = vm_try!(self.with_frame_roots(func, specpdl, &call_roots, |vm| {
+                        vm.call_function(func_val, args)
+                    },));
                     if let Some((called_name, alias_target)) = writeback_names.as_ref() {
                         self.maybe_writeback_mutating_first_arg(
                             called_name,
@@ -626,12 +621,10 @@ impl<'a> Vm<'a> {
                     if n == 0 {
                         let func_val = stk!().pop().unwrap_or(Value::NIL);
                         let call_roots = [func_val];
-                        let result = vm_try!(self.with_frame_roots(
-                            func,
-                            specpdl,
-                            &call_roots,
-                            |vm| vm.call_function(func_val, vec![]),
-                        ));
+                        let result =
+                            vm_try!(self.with_frame_roots(func, specpdl, &call_roots, |vm| {
+                                vm.call_function(func_val, vec![])
+                            },));
                         stk_push!(result);
                     } else {
                         let args_start = stk!().len().saturating_sub(n);
@@ -647,12 +640,10 @@ impl<'a> Vm<'a> {
                         let mut call_roots = Vec::with_capacity(args.len() + 1);
                         call_roots.push(func_val);
                         call_roots.extend(args.iter().copied());
-                        let result = vm_try!(self.with_frame_roots(
-                            func,
-                            specpdl,
-                            &call_roots,
-                            |vm| vm.call_function(func_val, args),
-                        ));
+                        let result =
+                            vm_try!(self.with_frame_roots(func, specpdl, &call_roots, |vm| {
+                                vm.call_function(func_val, args)
+                            },));
                         if let Some((called_name, alias_target)) = writeback_names.as_ref() {
                             self.maybe_writeback_mutating_first_arg(
                                 called_name,
@@ -4010,10 +4001,7 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_documentation_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::doc::builtin_documentation_in_vm_runtime(
-            &mut self.ctx,
-            args.to_vec(),
-        )
+        crate::emacs_core::doc::builtin_documentation_in_vm_runtime(&mut self.ctx, args.to_vec())
     }
 
     fn builtin_documentation_property_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -4024,15 +4012,11 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_format_mode_line_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::xdisp::builtin_format_mode_line_in_vm_runtime(&mut self.ctx, &[], args)
+        crate::emacs_core::xdisp::builtin_format_mode_line_in_vm_runtime(&mut self.ctx, args)
     }
 
     fn builtin_read_from_minibuffer_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::reader::finish_read_from_minibuffer_in_vm_runtime(
-            &mut self.ctx,
-            &[],
-            args,
-        )
+        crate::emacs_core::reader::finish_read_from_minibuffer_in_vm_runtime(&mut self.ctx, args)
     }
 
     fn builtin_call_interactively_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -4054,7 +4038,6 @@ impl<'a> Vm<'a> {
                 crate::emacs_core::interactive::resolve_call_interactively_target_and_args_with_vm_fallback(
                     &mut vm.ctx,
                     &mut plan,
-                    &[],
                 )?;
             let mut funcall_args = Vec::with_capacity(call_args.len() + 1);
             funcall_args.push(function);
@@ -4221,11 +4204,11 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_read_string_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::reader::finish_read_string_in_vm_runtime(&mut self.ctx, &[], args)
+        crate::emacs_core::reader::finish_read_string_in_vm_runtime(&mut self.ctx, args)
     }
 
     fn builtin_completing_read_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::reader::finish_completing_read_in_vm_runtime(&mut self.ctx, &[], args)
+        crate::emacs_core::reader::finish_completing_read_in_vm_runtime(&mut self.ctx, args)
     }
 
     fn builtin_read_buffer_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -4316,11 +4299,11 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_read_command_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::minibuffer::finish_read_command_in_vm_runtime(&mut self.ctx, &[], args)
+        crate::emacs_core::minibuffer::finish_read_command_in_vm_runtime(&mut self.ctx, args)
     }
 
     fn builtin_read_variable_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::minibuffer::finish_read_variable_in_vm_runtime(&mut self.ctx, &[], args)
+        crate::emacs_core::minibuffer::finish_read_variable_in_vm_runtime(&mut self.ctx, args)
     }
 
     fn builtin_test_completion_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -4703,7 +4686,7 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_yes_or_no_p_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::reader::finish_yes_or_no_p_in_vm_runtime(&mut self.ctx, &[], args)
+        crate::emacs_core::reader::finish_yes_or_no_p_in_vm_runtime(&mut self.ctx, args)
     }
 }
 
@@ -4721,10 +4704,7 @@ impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
             for root in args.iter().copied() {
                 vm.push_dynamic_vm_root(root);
             }
-            crate::emacs_core::autoload::builtin_autoload_do_load_in_vm_runtime(
-                &mut vm.ctx,
-                &args,
-            )
+            crate::emacs_core::autoload::builtin_autoload_do_load_in_vm_runtime(&mut vm.ctx, &args)
         })?;
         Ok(())
     }

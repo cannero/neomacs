@@ -531,29 +531,26 @@ pub(crate) fn builtin_eval_region(eval: &mut super::eval::Context, args: Vec<Val
 
 pub(crate) fn builtin_eval_buffer_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
     let source = eval_buffer_source_text_in_state(&shared.buffers, args.first())?;
-    eval_forms_from_source_in_vm_runtime_streaming(shared, vm_gc_roots, args, &source)
+    eval_forms_from_source_in_vm_runtime_streaming(shared, args, &source)
 }
 
 pub(crate) fn builtin_eval_region_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
     let source = eval_region_source_text_in_state(&shared.buffers, args)?;
     if source.as_bytes().is_empty() {
         return Ok(Value::NIL);
     }
-    eval_forms_from_source_in_vm_runtime_streaming(shared, vm_gc_roots, args, &source)
+    eval_forms_from_source_in_vm_runtime_streaming(shared, args, &source)
 }
 
-/// Streaming read-eval for VM runtime callers that need extra GC roots.
+/// Streaming read-eval for VM runtime callers rooted at the VM call boundary.
 fn eval_forms_from_source_in_vm_runtime_streaming(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
     args: &[Value],
     source: &crate::heap_types::LispString,
 ) -> EvalResult {
@@ -566,9 +563,6 @@ fn eval_forms_from_source_in_vm_runtime_streaming(
     }
 
     shared.with_gc_scope_result(|eval| {
-        for root in vm_gc_roots {
-            eval.push_eval_root(*root);
-        }
         for root in args {
             eval.push_eval_root(*root);
         }

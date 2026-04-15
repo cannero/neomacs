@@ -669,7 +669,6 @@ pub(crate) fn plan_load_in_state(
 
 pub(crate) fn builtin_load_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
     args: &[Value],
 ) -> Result<Value, Flow> {
     if args.is_empty() {

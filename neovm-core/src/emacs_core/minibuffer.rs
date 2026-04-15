@@ -827,16 +827,11 @@ pub(crate) fn finish_read_file_name_in_eval(
 
 pub(crate) fn finish_read_file_name_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
     builtin_read_file_name_in_runtime(shared, args)?;
     finish_read_file_name_with_minibuffer(args, |minibuffer_args| {
-        super::reader::finish_read_from_minibuffer_in_vm_runtime(
-            shared,
-            vm_gc_roots,
-            minibuffer_args,
-        )
+        super::reader::finish_read_from_minibuffer_in_vm_runtime(shared, minibuffer_args)
     })
 }
 
@@ -863,16 +858,11 @@ pub(crate) fn finish_read_directory_name_in_eval(
 
 pub(crate) fn finish_read_directory_name_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
     builtin_read_directory_name_in_runtime(shared, args)?;
     finish_read_file_name_with_minibuffer(args, |minibuffer_args| {
-        super::reader::finish_read_from_minibuffer_in_vm_runtime(
-            shared,
-            vm_gc_roots,
-            minibuffer_args,
-        )
+        super::reader::finish_read_from_minibuffer_in_vm_runtime(shared, minibuffer_args)
     })
 }
 
@@ -1009,16 +999,11 @@ pub(crate) fn finish_read_command_with_minibuffer(
 
 pub(crate) fn finish_read_command_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
     builtin_read_command_in_runtime(shared, args)?;
     finish_read_command_with_minibuffer(args, |minibuffer_args| {
-        super::reader::finish_read_from_minibuffer_in_vm_runtime(
-            shared,
-            vm_gc_roots,
-            minibuffer_args,
-        )
+        super::reader::finish_read_from_minibuffer_in_vm_runtime(shared, minibuffer_args)
     })
 }
 
@@ -1066,16 +1051,11 @@ pub(crate) fn finish_read_variable_with_minibuffer(
 
 pub(crate) fn finish_read_variable_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
     builtin_read_variable_in_runtime(shared, args)?;
     finish_read_variable_with_minibuffer(args, |minibuffer_args| {
-        super::reader::finish_read_from_minibuffer_in_vm_runtime(
-            shared,
-            vm_gc_roots,
-            minibuffer_args,
-        )
+        super::reader::finish_read_from_minibuffer_in_vm_runtime(shared, minibuffer_args)
     })
 }
 

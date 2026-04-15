@@ -1423,7 +1423,6 @@ fn interactive_args_from_string_code_in_vm_runtime(
     code: &crate::heap_types::LispString,
     kind: CommandInvocationKind,
     context: &mut InteractiveInvocationContext,
-    vm_gc_roots: &[Value],
 ) -> Result<Option<Vec<Value>>, Flow> {
     let parsed = parse_interactive_code_entries(code);
     interactive_apply_prefix_flags(shared, &parsed.prefix_flags, context)?;
@@ -1442,7 +1441,6 @@ fn interactive_args_from_string_code_in_vm_runtime(
                     |minibuffer_args| {
                         super::reader::finish_read_from_minibuffer_in_vm_runtime(
                             shared,
-                            vm_gc_roots,
                             minibuffer_args,
                         )
                     },
@@ -1456,7 +1454,6 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 };
                 args.push(super::reader::finish_completing_read_in_vm_runtime(
                     shared,
-                    vm_gc_roots,
                     &completing_args,
                 )?);
             }
@@ -1468,7 +1465,6 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 };
                 args.push(super::reader::finish_completing_read_in_vm_runtime(
                     shared,
-                    vm_gc_roots,
                     &completing_args,
                 )?);
             }
@@ -1488,7 +1484,6 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 let letter_args = [Value::heap_string(prompt.clone())];
                 args.push(super::minibuffer::finish_read_directory_name_in_vm_runtime(
                     shared,
-                    vm_gc_roots,
                     &letter_args,
                 )?);
             }
@@ -1517,7 +1512,6 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 ];
                 args.push(super::minibuffer::finish_read_file_name_in_vm_runtime(
                     shared,
-                    vm_gc_roots,
                     &letter_args,
                 )?);
             }
@@ -1525,7 +1519,6 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 let letter_args = [Value::heap_string(prompt.clone())];
                 args.push(super::minibuffer::finish_read_file_name_in_vm_runtime(
                     shared,
-                    vm_gc_roots,
                     &letter_args,
                 )?);
             }
@@ -1576,7 +1569,6 @@ fn interactive_args_from_string_code_in_vm_runtime(
                     |minibuffer_args| {
                         super::reader::finish_read_from_minibuffer_in_vm_runtime(
                             shared,
-                            vm_gc_roots,
                             minibuffer_args,
                         )
                     },
@@ -1589,7 +1581,6 @@ fn interactive_args_from_string_code_in_vm_runtime(
                     let letter_args = [Value::heap_string(prompt.clone())];
                     args.push(super::reader::finish_read_number_in_vm_runtime(
                         shared,
-                        vm_gc_roots,
                         &letter_args,
                     )?);
                 } else {
@@ -1625,7 +1616,6 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 let letter_args = [Value::heap_string(prompt.clone())];
                 args.push(super::reader::finish_read_number_in_vm_runtime(
                     shared,
-                    vm_gc_roots,
                     &letter_args,
                 )?);
             }
@@ -1637,7 +1627,6 @@ fn interactive_args_from_string_code_in_vm_runtime(
                     |minibuffer_args| {
                         super::reader::finish_read_from_minibuffer_in_vm_runtime(
                             shared,
-                            vm_gc_roots,
                             minibuffer_args,
                         )
                     },
@@ -1651,7 +1640,6 @@ fn interactive_args_from_string_code_in_vm_runtime(
                     |minibuffer_args| {
                         super::reader::finish_read_from_minibuffer_in_vm_runtime(
                             shared,
-                            vm_gc_roots,
                             minibuffer_args,
                         )
                     },
@@ -1663,11 +1651,11 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 }
             }
             'x' => args.push(interactive_read_expression_arg_in_vm_runtime(
-                shared,
-                vm_gc_roots,
-                prompt,
+                shared, prompt,
             )?),
-            'X' => args.push(interactive_eval_expression_arg_in_vm_runtime(shared, prompt)?),
+            'X' => args.push(interactive_eval_expression_arg_in_vm_runtime(
+                shared, prompt,
+            )?),
             'U' => args.push(interactive_u_arg(context)),
             'v' => {
                 let letter_args = [Value::heap_string(prompt.clone())];
@@ -1677,7 +1665,6 @@ fn interactive_args_from_string_code_in_vm_runtime(
                     |minibuffer_args| {
                         super::reader::finish_read_from_minibuffer_in_vm_runtime(
                             shared,
-                            vm_gc_roots,
                             minibuffer_args,
                         )
                     },
@@ -1815,12 +1802,10 @@ fn interactive_read_expression_arg(
 
 fn interactive_read_expression_arg_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
     prompt: crate::heap_types::LispString,
 ) -> Result<Value, Flow> {
     let input = super::reader::finish_read_from_minibuffer_in_vm_runtime(
         shared,
-        vm_gc_roots,
         &[Value::heap_string(prompt)],
     )?;
     super::reader::builtin_read(shared, vec![input])
@@ -1844,9 +1829,7 @@ fn interactive_read_coding_system_optional_arg(
     }
 }
 
-fn interactive_use_region_p_in_vm_runtime(
-    shared: &mut super::eval::Context,
-) -> Result<bool, Flow> {
+fn interactive_use_region_p_in_vm_runtime(shared: &mut super::eval::Context) -> Result<bool, Flow> {
     shared
         .apply(Value::symbol("use-region-p"), vec![])
         .map(|value| value.is_truthy())
@@ -2810,7 +2793,6 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
 pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
     shared: &mut super::eval::Context,
     plan: &mut CallInteractivelyPlan,
-    vm_gc_roots: &[Value],
 ) -> Result<Option<(Value, Vec<Value>)>, Flow> {
     let func = plan.func;
     if let Some(spec_value) = plan
@@ -2829,12 +2811,11 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
                     &code,
                     CommandInvocationKind::CallInteractively,
                     &mut plan.context,
-                    vm_gc_roots,
                 )
                 .map(|maybe_args| maybe_args.map(|args| (func, args)))
             }
             ParsedInteractiveSpec::Form(form) => {
-                eval_interactive_form_value_in_vm_runtime(shared, vm_gc_roots, form)
+                eval_interactive_form_value_in_vm_runtime(shared, form)
                     .map(|args| Some((func, args)))
             }
         };
@@ -2852,7 +2833,6 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
                     &code,
                     CommandInvocationKind::CallInteractively,
                     &mut plan.context,
-                    vm_gc_roots,
                 )
                 .map(|maybe_args| maybe_args.map(|args| (func, args)))
             }
@@ -2876,7 +2856,6 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
                     &code,
                     CommandInvocationKind::CallInteractively,
                     &mut plan.context,
-                    vm_gc_roots,
                 )
                 .map(|maybe_args| maybe_args.map(|args| (func, args)))
             }
@@ -2912,7 +2891,6 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
                 code,
                 CommandInvocationKind::CallInteractively,
                 &mut plan.context,
-                vm_gc_roots,
             )? {
                 return Ok(Some((func, args)));
             }
@@ -2937,15 +2915,15 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
 pub(crate) fn resolve_call_interactively_target_and_args_with_vm_fallback(
     shared: &mut super::eval::Context,
     plan: &mut CallInteractivelyPlan,
-    vm_gc_roots: &[Value],
 ) -> Result<(Value, Vec<Value>), Flow> {
     if let Some((function, call_args)) =
-        resolve_call_interactively_target_and_args_in_vm_runtime(shared, plan, vm_gc_roots)?
+        resolve_call_interactively_target_and_args_in_vm_runtime(shared, plan)?
     {
         return Ok((function, call_args));
     }
 
-    shared.with_gc_scope_result(|eval| resolve_call_interactively_target_and_args_in_eval(eval, plan))
+    shared
+        .with_gc_scope_result(|eval| resolve_call_interactively_target_and_args_in_eval(eval, plan))
 }
 
 /// `(self-insert-command N &optional C)` -- insert character C (or the last
