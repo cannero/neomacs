@@ -758,7 +758,10 @@ fn font_at_eval_passes_inline_face_weight_and_family_to_display_host() {
         .clone()
         .expect("display host should capture font-at request");
     assert_eq!(request.character, 'a');
-    assert_eq!(request.face.family.as_deref(), Some("Noto Sans Mono"));
+    assert_eq!(
+        request.face.family_runtime_string_owned().as_deref(),
+        Some("Noto Sans Mono")
+    );
     assert_eq!(request.face.weight, Some(FontWeight::SEMI_BOLD));
     // After the specbind refactor, float heights are treated as relative
     // instead of being converted to absolute decipoints.
@@ -944,7 +947,10 @@ fn internal_copy_lisp_face_eval_updates_face_table() {
     .unwrap();
     assert_eq!(copied.as_symbol_name(), Some("copied-face"));
     assert_eq!(
-        eval.face_table().resolve("copied-face").family.as_deref(),
+        eval.face_table()
+            .resolve("copied-face")
+            .family_runtime_string_owned()
+            .as_deref(),
         Some("Serif")
     );
 }

@@ -1045,7 +1045,8 @@ impl DisplayHost for PrimaryWindowDisplayHost {
         &mut self,
         request: FontResolveRequest,
     ) -> Result<Option<ResolvedFontMatch>, String> {
-        let requested_family = request.face.family.as_deref().unwrap_or("Monospace");
+        let requested_family_storage = request.face.family_runtime_string_owned();
+        let requested_family = requested_family_storage.as_deref().unwrap_or("Monospace");
         let requested_weight = request.face.weight.unwrap_or(FontWeight::NORMAL).0;
         let requested_italic = request
             .face
@@ -1089,7 +1090,8 @@ impl DisplayHost for PrimaryWindowDisplayHost {
         _frame_id: FrameId,
         face: neovm_core::face::Face,
     ) -> Result<Option<ResolvedFrameFont>, String> {
-        let requested_family = face.family.as_deref().unwrap_or("Monospace");
+        let requested_family_storage = face.family_runtime_string_owned();
+        let requested_family = requested_family_storage.as_deref().unwrap_or("Monospace");
         let requested_weight = face.weight.unwrap_or(FontWeight::NORMAL).0;
         let requested_italic = face.slant.map(|slant| slant.is_italic()).unwrap_or(false);
         let font_size = font_size_px_for_face(&face);

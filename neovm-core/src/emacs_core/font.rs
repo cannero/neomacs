@@ -141,11 +141,11 @@ fn face_from_named_font_string(name: &str) -> Option<RuntimeFace> {
             && let Ok(points) = size.parse::<i32>()
             && points > 0
         {
-            face.family = Some(family.trim().to_string());
+            face.family = Some(Value::string(family.trim().to_string()));
             face.height = Some(FaceHeight::Absolute(points * 10));
             return Some(face);
         }
-        face.family = Some(trimmed.to_string());
+        face.family = Some(Value::string(trimmed.to_string()));
         return Some(face);
     }
 
@@ -162,10 +162,10 @@ fn face_from_named_font_string(name: &str) -> Option<RuntimeFace> {
     let pixel = fields[7];
 
     if foundry != "*" && !foundry.is_empty() {
-        face.foundry = Some(foundry.to_string());
+        face.foundry = Some(Value::string(foundry.to_string()));
     }
     if family != "*" && !family.is_empty() {
-        face.family = Some(family.to_string());
+        face.family = Some(Value::string(family.to_string()));
     }
     if let Some(parsed_weight) = FontWeight::from_symbol(weight) {
         face.weight = Some(parsed_weight);
@@ -203,10 +203,12 @@ fn face_from_font_value(value: &Value) -> Option<RuntimeFace> {
     let elems = value.as_vector_data().unwrap().clone();
     let mut face = RuntimeFace::new("default");
 
-    face.family =
-        font_vector_get_flexible(&elems, "family").and_then(|value| font_value_text(&value));
-    face.foundry =
-        font_vector_get_flexible(&elems, "foundry").and_then(|value| font_value_text(&value));
+    face.family = font_vector_get_flexible(&elems, "family")
+        .and_then(|value| font_value_text(&value))
+        .map(Value::string);
+    face.foundry = font_vector_get_flexible(&elems, "foundry")
+        .and_then(|value| font_value_text(&value))
+        .map(Value::string);
     face.weight = font_vector_get_flexible(&elems, "weight").and_then(font_weight_from_value);
     face.slant = font_vector_get_flexible(&elems, "slant").and_then(font_slant_from_value);
     face.width = font_vector_get_flexible(&elems, "width").and_then(|value| match value.kind() {
@@ -229,11 +231,12 @@ fn build_frame_font_object_from_resolution(
     resolved: &super::eval::ResolvedFrameFont,
 ) -> Value {
     let mut selected = requested_face.clone();
-    selected.family = Some(resolved.family.clone());
+    selected.family = Some(Value::string(resolved.family.clone()));
     selected.foundry = resolved
         .foundry
         .clone()
-        .or_else(|| requested_face.foundry.clone());
+        .map(Value::string)
+        .or(requested_face.foundry);
     selected.weight = Some(resolved.weight);
     selected.slant = Some(resolved.slant);
     selected.width = Some(resolved.width);
@@ -1419,11 +1422,11 @@ fn build_font_object(face: &RuntimeFace) -> Value {
         elems.push(value);
     };
 
-    if let Some(foundry) = &face.foundry {
-        push_field("foundry", Value::string(foundry.clone()));
+    if let Some(foundry) = face.foundry.filter(|value| value.is_string()) {
+        push_field("foundry", foundry);
     }
-    if let Some(family) = &face.family {
-        push_field("family", Value::string(family.clone()));
+    if let Some(family) = face.family.filter(|value| value.is_string()) {
+        push_field("family", family);
     }
     if let Some(weight) = face.weight {
         push_field("weight", Value::symbol(font_weight_symbol(weight)));
@@ -1487,8 +1490,8 @@ fn build_font_object_for_match(
     matched: &super::eval::ResolvedFontMatch,
 ) -> Value {
     let mut selected = face.clone();
-    selected.family = Some(matched.family.clone());
-    selected.foundry = matched.foundry.clone().or_else(|| face.foundry.clone());
+    selected.family = Some(Value::string(matched.family.clone()));
+    selected.foundry = matched.foundry.clone().map(Value::string).or(face.foundry);
     selected.weight = Some(matched.weight);
     selected.slant = Some(matched.slant);
     selected.width = Some(matched.width);
@@ -3166,13 +3169,11 @@ pub(crate) fn runtime_face_attribute_value(face: &RuntimeFace, attr_name: &str) 
     match attr_name {
         ":family" => face
             .family
-            .as_ref()
-            .map(|value| Value::string(value.clone()))
+            .filter(|value| value.is_string())
             .unwrap_or_else(|| Value::symbol("unspecified")),
         ":foundry" => face
             .foundry
-            .as_ref()
-            .map(|value| Value::string(value.clone()))
+            .filter(|value| value.is_string())
             .unwrap_or_else(|| Value::symbol("unspecified")),
         ":height" => match face.height {
             Some(FaceHeight::Absolute(n)) => Value::fixnum(n as i64),

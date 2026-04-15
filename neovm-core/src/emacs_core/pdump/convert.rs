@@ -1597,7 +1597,8 @@ fn dump_face(f: &Face) -> DumpFace {
     DumpFace {
         foreground: f.foreground.map(|c| dump_color(&c)),
         background: f.background.map(|c| dump_color(&c)),
-        family: f.family.clone(),
+        family: f.family_runtime_string_owned(),
+        foundry: f.foundry_runtime_string_owned(),
         height: f.height.as_ref().map(dump_face_height),
         weight: f.weight.map(|w| w.0),
         slant: f.slant.as_ref().map(dump_font_slant),
@@ -3037,7 +3038,7 @@ fn load_face(df: &DumpFace) -> Face {
     Face {
         foreground: df.foreground.map(|c| load_color(&c)),
         background: df.background.map(|c| load_color(&c)),
-        family: df.family.clone(),
+        family: df.family.as_ref().map(Value::string),
         height: df.height.as_ref().map(|h| match h {
             DumpFaceHeight::Absolute(n) => FaceHeight::Absolute(*n),
             DumpFaceHeight::Relative(f) => FaceHeight::Relative(*f),
@@ -3079,7 +3080,7 @@ fn load_face(df: &DumpFace) -> Face {
         overline_color: None,
         strike_through_color: None,
         distant_foreground: None,
-        foundry: None,
+        foundry: df.foundry.as_ref().map(Value::string),
         width: None,
     }
 }

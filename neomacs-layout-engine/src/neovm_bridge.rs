@@ -1396,7 +1396,9 @@ impl FaceResolver {
             .as_ref()
             .map(color_to_pixel)
             .unwrap_or(default_bg);
-        df.font_family = neo_default.family.clone().unwrap_or_default();
+        df.font_family = neo_default
+            .family_runtime_string_owned()
+            .unwrap_or_default();
         df.font_weight = neo_default
             .weight
             .map(|w| w.0)
@@ -1463,8 +1465,8 @@ impl FaceResolver {
             std::mem::swap(&mut rf.fg, &mut rf.bg);
         }
 
-        if let Some(family) = &face.family {
-            rf.font_family = family.clone();
+        if let Some(family) = face.family_runtime_string_owned() {
+            rf.font_family = family;
         }
         if let Some(weight) = face.weight {
             rf.font_weight = weight.0;
@@ -1897,8 +1899,8 @@ impl FaceResolver {
         }
 
         // Font family
-        if let Some(family) = &face.family {
-            rf.font_family = family.clone();
+        if let Some(family) = face.family_runtime_string_owned() {
+            rf.font_family = family;
         }
         // Font weight
         if let Some(w) = &face.weight {

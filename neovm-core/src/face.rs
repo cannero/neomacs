@@ -298,7 +298,7 @@ pub struct Face {
     /// Background color.
     pub background: Option<Color>,
     /// Font family name.
-    pub family: Option<String>,
+    pub family: Option<Value>,
     /// Font height in 1/10 pt (e.g. 120 = 12pt).
     /// Can also be a float relative to the default face (e.g. 1.5).
     pub height: Option<FaceHeight>,
@@ -333,7 +333,7 @@ pub struct Face {
     /// Distant foreground color (used when fg matches bg).
     pub distant_foreground: Option<Color>,
     /// Font foundry name.
-    pub foundry: Option<String>,
+    pub foundry: Option<Value>,
     /// Font width (condensed/expanded).
     pub width: Option<FontWidth>,
 }
@@ -383,6 +383,16 @@ fn normalized_face_name_value(value: &Value) -> Option<Value> {
 }
 
 impl Face {
+    pub fn family_runtime_string_owned(&self) -> Option<String> {
+        self.family
+            .and_then(|value| value.as_runtime_string_owned())
+    }
+
+    pub fn foundry_runtime_string_owned(&self) -> Option<String> {
+        self.foundry
+            .and_then(|value| value.as_runtime_string_owned())
+    }
+
     /// Compatibility constructor for existing call sites. The name is owned
     /// by `FaceTable`, not by `Face` itself.
     pub fn new(_name: &str) -> Self {
@@ -395,7 +405,7 @@ impl Face {
         Face {
             foreground: overlay.foreground.or(self.foreground),
             background: overlay.background.or(self.background),
-            family: overlay.family.clone().or_else(|| self.family.clone()),
+            family: overlay.family.or(self.family),
             height: merge_face_height(overlay.height.as_ref(), self.height.as_ref()),
             weight: overlay.weight.or(self.weight),
             slant: overlay.slant.or(self.slant),
@@ -419,7 +429,7 @@ impl Face {
             overline_color: overlay.overline_color.or(self.overline_color),
             strike_through_color: overlay.strike_through_color.or(self.strike_through_color),
             distant_foreground: overlay.distant_foreground.or(self.distant_foreground),
-            foundry: overlay.foundry.clone().or_else(|| self.foundry.clone()),
+            foundry: overlay.foundry.or(self.foundry),
             width: overlay.width.or(self.width),
         }
     }
@@ -524,8 +534,8 @@ impl Face {
                     _ => {}
                 },
                 "family" => {
-                    if let Some(s) = val.as_str() {
-                        face.family = Some(s.to_string());
+                    if val.is_string() {
+                        face.family = Some(*val);
                     }
                 }
                 "underline" => face.underline = parse_underline_value(val),
@@ -576,8 +586,8 @@ impl Face {
                     }
                 }
                 "foundry" => {
-                    if let Some(s) = val.as_str() {
-                        face.foundry = Some(s.to_string());
+                    if val.is_string() {
+                        face.foundry = Some(*val);
                     }
                 }
                 "width" => {
@@ -1257,12 +1267,12 @@ impl FaceTable {
             ":width" => set_option!(face.width, Width),
             ":height" => set_option!(face.height, Height),
             ":family" => match value {
-                FaceAttrValue::Str(s) => face.family = Some(s),
+                FaceAttrValue::Str(s) => face.family = Some(Value::string(s)),
                 FaceAttrValue::Unspecified => face.family = None,
                 _ => return false,
             },
             ":foundry" => match value {
-                FaceAttrValue::Str(s) => face.foundry = Some(s),
+                FaceAttrValue::Str(s) => face.foundry = Some(Value::string(s)),
                 FaceAttrValue::Unspecified => face.foundry = None,
                 _ => return false,
             },
@@ -1529,6 +1539,12 @@ impl GcTrace for FaceTable {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         roots.extend(self.faces.keys().copied());
         for face in self.faces.values() {
+            if let Some(family) = face.family {
+                roots.push(family);
+            }
+            if let Some(foundry) = face.foundry {
+                roots.push(foundry);
+            }
             roots.extend(face.inherit.iter().copied());
         }
     }
@@ -1686,7 +1702,10 @@ mod tests {
         ];
 
         let face = Face::from_plist("test", &plist);
-        assert_eq!(face.family.as_deref(), Some("JetBrains Mono"));
+        assert_eq!(
+            face.family_runtime_string_owned().as_deref(),
+            Some("JetBrains Mono")
+        );
         assert_eq!(face.foreground, Some(Color::rgb(255, 215, 0)));
         assert_eq!(face.width, Some(FontWidth::Expanded));
         assert_eq!(
