@@ -26,6 +26,48 @@ fn lisp_string_from_buffer_bytes(bytes: Vec<u8>, multibyte: bool) -> LispString 
     }
 }
 
+#[inline]
+fn encode_char_code_for_buffer_bytes(code: u32, multibyte: bool) -> Vec<u8> {
+    if multibyte {
+        let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+        let len = crate::emacs_core::emacs_char::char_string(code, &mut buf);
+        buf[..len].to_vec()
+    } else {
+        assert!(
+            code <= 0xFF,
+            "unibyte insertion produced non-byte character code {code:#X}"
+        );
+        vec![code as u8]
+    }
+}
+
+fn convert_lisp_string_for_buffer_mode(text: &LispString, target_multibyte: bool) -> LispString {
+    if text.is_multibyte() == target_multibyte {
+        return text.clone();
+    }
+
+    let mut codes = crate::emacs_core::builtins::lisp_string_char_codes(text);
+    if target_multibyte {
+        if !text.is_multibyte() {
+            for code in &mut codes {
+                if *code > 0x7F {
+                    *code = crate::emacs_core::emacs_char::byte8_to_char(*code as u8);
+                }
+            }
+        }
+    } else {
+        for code in &mut codes {
+            *code &= 0xFF;
+        }
+    }
+
+    let mut bytes = Vec::new();
+    for code in codes {
+        bytes.extend_from_slice(&encode_char_code_for_buffer_bytes(code, target_multibyte));
+    }
+    lisp_string_from_buffer_bytes(bytes, target_multibyte)
+}
+
 impl Buffer {
     fn insert_bytes_internal(&mut self, bytes: &[u8], char_len: usize, before_markers: bool) {
         let insert_pos = self.pt_byte;
@@ -260,20 +302,12 @@ impl Buffer {
     }
 
     pub fn insert_lisp_string(&mut self, text: &LispString) {
-        debug_assert_eq!(
-            text.is_multibyte(),
-            self.get_multibyte(),
-            "insert_lisp_string: string multibyte flag must match target buffer",
-        );
+        let text = convert_lisp_string_for_buffer_mode(text, self.get_multibyte());
         self.insert_bytes_internal(text.as_bytes(), text.schars(), false);
     }
 
     pub fn insert_lisp_string_before_markers(&mut self, text: &LispString) {
-        debug_assert_eq!(
-            text.is_multibyte(),
-            self.get_multibyte(),
-            "insert_lisp_string_before_markers: string multibyte flag must match target buffer",
-        );
+        let text = convert_lisp_string_for_buffer_mode(text, self.get_multibyte());
         self.insert_bytes_internal(text.as_bytes(), text.schars(), true);
     }
 

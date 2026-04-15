@@ -262,8 +262,7 @@ pub(crate) fn install_minibuffer_buffer_text(
         buf.text.delete_range(0, text_len);
     }
 
-    let prompt_runtime = super::builtins::runtime_string_from_lisp_string(prompt);
-    buf.insert(&prompt_runtime);
+    buf.insert_lisp_string(prompt);
     let prompt_end = buf.total_bytes();
     if prompt_end > 0 {
         buf.text
@@ -275,8 +274,7 @@ pub(crate) fn install_minibuffer_buffer_text(
     }
 
     if let Some(initial) = initial {
-        let initial_runtime = super::builtins::runtime_string_from_lisp_string(initial);
-        buf.insert(&initial_runtime);
+        buf.insert_lisp_string(initial);
     }
 
     let total_len = buf.total_bytes();

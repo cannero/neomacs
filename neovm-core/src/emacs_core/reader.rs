@@ -58,6 +58,26 @@ fn reader_initial_input_lisp_string(value: &Value) -> Option<crate::heap_types::
     }
 }
 
+fn empty_runtime_lisp_string(multibyte: bool) -> crate::heap_types::LispString {
+    crate::heap_types::LispString::new(String::new(), multibyte)
+}
+
+fn minibuffer_result_lisp_string(
+    buffers: &crate::buffer::BufferManager,
+    minibuf_id: crate::buffer::BufferId,
+    prompt_byte_len: usize,
+) -> crate::heap_types::LispString {
+    if let Some(buf) = buffers.get(minibuf_id) {
+        let total_len = buf.total_bytes();
+        if total_len > prompt_byte_len {
+            return buf.buffer_substring_lisp_string(prompt_byte_len, total_len);
+        }
+        return empty_runtime_lisp_string(buf.get_multibyte());
+    }
+
+    empty_runtime_lisp_string(true)
+}
+
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
         ValueKind::String => Ok(reader_string_text(value).expect("checked string")),
@@ -798,17 +818,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     let edit_result = run_recursive_edit();
 
     // Read the minibuffer contents (everything after the prompt)
-    let result_string = if let Some(buf) = buffers.get(minibuf_id) {
-        let total_len = buf.total_bytes();
-        if total_len > prompt_byte_len {
-            let text = buf.buffer_substring_lisp_string(prompt_byte_len, total_len);
-            crate::emacs_core::builtins::runtime_string_from_lisp_string(&text)
-        } else {
-            String::new()
-        }
-    } else {
-        String::new()
-    };
+    let result_text = minibuffer_result_lisp_string(buffers, minibuf_id, prompt_byte_len);
 
     let _ = buffers.switch_current(minibuf_id);
     let exit_hook_result = match run_exit_hook() {
@@ -861,11 +871,11 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
         Ok(_) | Err(Flow::Throw { .. }) => {
             // Normal exit (throw 'exit from exit-minibuffer)
             // If READ arg is non-nil, evaluate the result as a Lisp expression
-            if !read_arg.is_nil() && !result_string.is_empty() {
+            if !read_arg.is_nil() && !result_text.as_bytes().is_empty() {
                 // READ is non-nil: parse the result string as a Lisp expression
                 // (like calling (read STRING)) and return the parsed object.
                 let read_result =
-                    read_from_string_impl(obarray, vec![Value::string(&result_string)])?;
+                    read_from_string_impl(obarray, vec![Value::heap_string(result_text.clone())])?;
                 // read-from-string returns (OBJECT . END-POS), extract OBJECT
                 if read_result.is_cons() {
                     return Ok(read_result.cons_car());
@@ -874,11 +884,11 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
             }
 
             // If result is empty and DEFAULT is provided, use it
-            if result_string.is_empty() && !default_val.is_nil() {
+            if result_text.as_bytes().is_empty() && !default_val.is_nil() {
                 return Ok(default_val);
             }
 
-            Ok(Value::string(result_string))
+            Ok(Value::heap_string(result_text))
         }
         Err(flow) => Err(flow),
     }
@@ -1298,17 +1308,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
         eval.minibuffer_command_loop_inner()
     });
 
-    let result_string = if let Some(buf) = shared.buffers.get(minibuf_id) {
-        let total_len = buf.total_bytes();
-        if total_len > prompt_byte_len {
-            let text = buf.buffer_substring_lisp_string(prompt_byte_len, total_len);
-            crate::emacs_core::builtins::runtime_string_from_lisp_string(&text)
-        } else {
-            String::new()
-        }
-    } else {
-        String::new()
-    };
+    let result_text = minibuffer_result_lisp_string(&shared.buffers, minibuf_id, prompt_byte_len);
 
     let _ = shared.buffers.switch_current(minibuf_id);
     let exit_hook_result = match shared.run_hook_if_bound("minibuffer-exit-hook") {
@@ -1361,20 +1361,22 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
 
     match edit_result {
         Ok(_) | Err(Flow::Throw { .. }) => {
-            if !read_arg.is_nil() && !result_string.is_empty() {
-                let read_result =
-                    read_from_string_impl(&shared.obarray, vec![Value::string(&result_string)])?;
+            if !read_arg.is_nil() && !result_text.as_bytes().is_empty() {
+                let read_result = read_from_string_impl(
+                    &shared.obarray,
+                    vec![Value::heap_string(result_text.clone())],
+                )?;
                 if read_result.is_cons() {
                     return Ok(read_result.cons_car());
                 }
                 return Ok(read_result);
             }
 
-            if result_string.is_empty() && !default_val.is_nil() {
+            if result_text.as_bytes().is_empty() && !default_val.is_nil() {
                 return Ok(default_val);
             }
 
-            Ok(Value::string(result_string))
+            Ok(Value::heap_string(result_text))
         }
         Err(flow) => Err(flow),
     }

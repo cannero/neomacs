@@ -707,6 +707,45 @@ fn shared_read_from_minibuffer_runtime_swallows_exit_hook_signals() {
 }
 
 #[test]
+fn shared_read_from_minibuffer_runtime_converts_unibyte_initial_input_to_buffer_text() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let args = vec![
+        Value::string("Prompt: "),
+        Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF])),
+    ];
+
+    let result = finish_read_from_minibuffer_in_state_with_recursive_edit(
+        &mut ev.obarray,
+        &mut ev.buffers,
+        &mut ev.frames,
+        &mut ev.minibuffers,
+        &mut ev.minibuffer_selected_window,
+        &mut ev.active_minibuffer_window,
+        ev.command_loop.recursive_depth,
+        &args,
+        || Ok(Value::NIL),
+        || Ok(Value::NIL),
+        || {
+            Err(Flow::Throw {
+                tag: Value::symbol("exit"),
+                value: Value::NIL,
+            })
+        },
+    )
+    .expect("shared read-from-minibuffer should return initial input");
+
+    let result_text = result
+        .as_lisp_string()
+        .expect("minibuffer result should be a Lisp string");
+    assert!(result_text.is_multibyte());
+    assert_eq!(
+        crate::emacs_core::builtins::lisp_string_char_codes(result_text),
+        vec![crate::emacs_core::emacs_char::byte8_to_char(0xFF)],
+    );
+}
+
+#[test]
 fn activate_minibuffer_window_switches_displayed_buffer_and_restores_state() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
