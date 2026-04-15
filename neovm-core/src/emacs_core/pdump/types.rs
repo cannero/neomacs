@@ -676,7 +676,7 @@ pub struct DumpAbbrevManager {
 // Interactive
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpInteractiveSpec {
-    pub code: String,
+    pub spec: DumpValue,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

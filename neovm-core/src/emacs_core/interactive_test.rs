@@ -343,21 +343,24 @@ fn gnu_simple_quoted_insert_eval_all(src: &str) -> Vec<String> {
 fn interactive_spec_no_args() {
     crate::test_utils::init_test_tracing();
     let spec = InteractiveSpec::no_args();
-    assert!(spec.code.is_empty());
+    assert_eq!(spec.string_code_runtime_owned(), Some(String::new()));
 }
 
 #[test]
 fn interactive_spec_with_code() {
     crate::test_utils::init_test_tracing();
     let spec = InteractiveSpec::new("p");
-    assert_eq!(spec.code, "p");
+    assert_eq!(spec.string_code_runtime_owned(), Some("p".to_string()));
 }
 
 #[test]
 fn interactive_spec_with_prompt() {
     crate::test_utils::init_test_tracing();
     let spec = InteractiveSpec::new("sEnter name: ");
-    assert_eq!(spec.code, "sEnter name: ");
+    assert_eq!(
+        spec.string_code_runtime_owned(),
+        Some("sEnter name: ".to_string())
+    );
 }
 
 // -------------------------------------------------------------------
@@ -381,7 +384,42 @@ fn registry_get_spec() {
     let find_file = crate::emacs_core::intern::intern("find-file");
     reg.register_interactive(find_file, InteractiveSpec::new("FFind file: "));
     let spec = reg.get_spec(find_file).unwrap();
-    assert_eq!(spec.code, "FFind file: ");
+    assert_eq!(
+        spec.string_code_runtime_owned(),
+        Some("FFind file: ".to_string())
+    );
+}
+
+#[test]
+fn registry_interactive_form_preserves_lisp_form_specs() {
+    crate::test_utils::init_test_tracing();
+    let mut reg = InteractiveRegistry::new();
+    let sym = crate::emacs_core::intern::intern("registry-form-command");
+    let spec_form = Value::list(vec![Value::symbol("list"), Value::fixnum(7)]);
+    reg.register_interactive(sym, InteractiveSpec::from_value(spec_form));
+
+    let form = registry_interactive_form(&reg, sym).expect("interactive form");
+    let items = crate::emacs_core::value::list_to_vec(&form).expect("interactive form list");
+    assert_eq!(items[0], Value::symbol("interactive"));
+    assert_eq!(items[1], spec_form);
+}
+
+#[test]
+fn call_interactively_evaluates_registry_form_specs() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = eval_with_interactive_shims();
+    ev.eval_str(r#"(fset 'registry-form-command (lambda (x) x))"#)
+        .expect("install registry-form-command");
+
+    let sym = crate::emacs_core::intern::intern("registry-form-command");
+    ev.interactive.register_interactive(
+        sym,
+        InteractiveSpec::from_value(Value::list(vec![Value::symbol("list"), Value::fixnum(7)])),
+    );
+
+    let result = builtin_call_interactively(&mut ev, vec![Value::symbol("registry-form-command")])
+        .expect("call-interactively should evaluate registry form spec");
+    assert_eq!(result, Value::fixnum(7));
 }
 
 #[test]

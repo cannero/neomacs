@@ -1814,7 +1814,10 @@ pub(crate) fn dump_abbrev_manager(am: &AbbrevManager) -> DumpAbbrevManager {
     }
 }
 
-pub(crate) fn dump_interactive_registry(ir: &InteractiveRegistry) -> DumpInteractiveRegistry {
+pub(crate) fn dump_interactive_registry(
+    encoder: &mut DumpEncoder,
+    ir: &InteractiveRegistry,
+) -> DumpInteractiveRegistry {
     DumpInteractiveRegistry {
         specs: ir
             .dump_specs()
@@ -1823,7 +1826,7 @@ pub(crate) fn dump_interactive_registry(ir: &InteractiveRegistry) -> DumpInterac
                 (
                     dump_sym_id(*k),
                     DumpInteractiveSpec {
-                        code: s.code.clone(),
+                        spec: encoder.dump_value(&s.spec),
                     },
                 )
             })
@@ -1922,7 +1925,7 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
         fontset_registry: dump_fontset_registry(),
         face_table: dump_face_table(&eval.face_table),
         abbrevs: dump_abbrev_manager(&eval.abbrevs),
-        interactive: dump_interactive_registry(&eval.interactive),
+        interactive: dump_interactive_registry(&mut encoder, &eval.interactive),
         rectangle: dump_rectangle(&eval.rectangle),
         standard_syntax_table: encoder.dump_value(&eval.standard_syntax_table),
         standard_category_table: encoder.dump_value(&eval.standard_category_table),
@@ -3292,7 +3295,10 @@ pub(crate) fn load_abbrev_manager(dam: &DumpAbbrevManager) -> AbbrevManager {
     )
 }
 
-pub(crate) fn load_interactive_registry(dir: &DumpInteractiveRegistry) -> InteractiveRegistry {
+pub(crate) fn load_interactive_registry(
+    decoder: &mut LoadDecoder,
+    dir: &DumpInteractiveRegistry,
+) -> InteractiveRegistry {
     let specs: HashMap<SymId, InteractiveSpec> = dir
         .specs
         .iter()
@@ -3300,7 +3306,7 @@ pub(crate) fn load_interactive_registry(dir: &DumpInteractiveRegistry) -> Intera
             (
                 load_sym_id(k),
                 InteractiveSpec {
-                    code: s.code.clone(),
+                    spec: decoder.load_value(&s.spec),
                 },
             )
         })

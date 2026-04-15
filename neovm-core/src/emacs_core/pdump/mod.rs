@@ -331,7 +331,7 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
         load_coding_system_manager(&mut decoder, &state.coding_systems),
         load_face_table(&state.face_table),
         load_abbrev_manager(&state.abbrevs),
-        load_interactive_registry(&state.interactive),
+        load_interactive_registry(&mut decoder, &state.interactive),
         load_rectangle(&state.rectangle),
         decoder.load_value(&state.standard_syntax_table),
         decoder.load_value(&state.standard_category_table),

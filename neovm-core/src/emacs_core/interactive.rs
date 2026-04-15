@@ -40,21 +40,33 @@ use crate::emacs_core::SymId;
 /// Interactive argument specification for a command.
 #[derive(Clone, Debug)]
 pub struct InteractiveSpec {
-    /// Code letter(s) describing argument types, e.g. "r" for region,
-    /// "p" for prefix arg, "sPrompt: " for string prompt, etc.
-    pub code: String,
+    /// GNU-style SPEC payload from `(interactive SPEC)`.
+    pub spec: Value,
 }
 
 impl InteractiveSpec {
     /// Create a new interactive spec from a code string.
     pub fn new(code: impl Into<String>) -> Self {
-        Self { code: code.into() }
+        Self {
+            spec: Value::string(code.into()),
+        }
+    }
+
+    /// Create a spec directly from a Lisp value.
+    pub fn from_value(spec: Value) -> Self {
+        Self { spec }
     }
 
     /// Create a spec with no arguments (plain interactive command).
     pub fn no_args() -> Self {
-        Self {
-            code: String::new(),
+        Self { spec: Value::NIL }
+    }
+
+    pub fn string_code_runtime_owned(&self) -> Option<String> {
+        match self.spec.kind() {
+            ValueKind::Nil => Some(String::new()),
+            ValueKind::String => self.spec.as_runtime_string_owned(),
+            _ => None,
         }
     }
 }
@@ -148,7 +160,7 @@ pub(crate) fn registry_interactive_form(
 ) -> Option<Value> {
     registry
         .get_spec(symbol)
-        .map(|spec| interactive_form_from_string_spec(&spec.code))
+        .map(|spec| interactive_form_from_spec_value(spec.spec))
 }
 
 pub(crate) fn builtin_subr_interactive_form(name: &str) -> Option<Value> {
@@ -2357,11 +2369,24 @@ fn resolve_interactive_invocation_args(
     kind: CommandInvocationKind,
     context: &mut InteractiveInvocationContext,
 ) -> Result<Vec<Value>, Flow> {
-    if let Some(code) = resolved_symbol
+    if let Some(spec_value) = resolved_symbol
         .and_then(|symbol| eval.interactive.get_spec(symbol))
-        .map(|spec| spec.code.clone())
+        .map(|spec| spec.spec)
     {
-        if let Some(args) = interactive_args_from_string_code(eval, &code, kind, context)? {
+        let Some(spec) = parse_interactive_spec_from_value(&spec_value) else {
+            return Ok(Vec::new());
+        };
+        let maybe_args = match spec {
+            ParsedInteractiveSpec::NoArgs => Some(Vec::new()),
+            ParsedInteractiveSpec::StringCode(code) => {
+                interactive_args_from_string_code(eval, &code, kind, context)?
+            }
+            ParsedInteractiveSpec::Form(form) => {
+                let value = eval.eval_value(&form)?;
+                Some(interactive_form_value_to_args(value)?)
+            }
+        };
+        if let Some(args) = maybe_args {
             return Ok(args);
         }
     }
@@ -2630,24 +2655,29 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
     plan: &mut CallInteractivelyPlan,
 ) -> Result<Option<(Value, Vec<Value>)>, Flow> {
     let func = plan.func;
-    if let Some(code) = plan
+    if let Some(spec_value) = plan
         .resolved_symbol
         .and_then(|symbol| interactive.get_spec(symbol))
-        .map(|spec| spec.code.as_str())
+        .map(|spec| spec.spec)
     {
-        if let Some(args) = interactive_args_from_string_code_in_state(
-            obarray,
-            dynamic,
-            buffers,
-            custom,
-            specpdl,
-            code,
-            CommandInvocationKind::CallInteractively,
-            &mut plan.context,
-        )? {
-            return Ok(Some((func, args)));
-        }
-        return Ok(None);
+        let Some(spec) = parse_interactive_spec_from_value(&spec_value) else {
+            return Ok(Some((func, Vec::new())));
+        };
+        return match spec {
+            ParsedInteractiveSpec::NoArgs => Ok(Some((func, Vec::new()))),
+            ParsedInteractiveSpec::StringCode(code) => interactive_args_from_string_code_in_state(
+                obarray,
+                dynamic,
+                buffers,
+                custom,
+                specpdl,
+                &code,
+                CommandInvocationKind::CallInteractively,
+                &mut plan.context,
+            )
+            .map(|maybe_args| maybe_args.map(|args| (func, args))),
+            ParsedInteractiveSpec::Form(_) => Ok(None),
+        };
     }
 
     if let Some(iform_val) = func.closure_interactive().flatten() {
@@ -2748,21 +2778,31 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
     vm_gc_roots: &[Value],
 ) -> Result<Option<(Value, Vec<Value>)>, Flow> {
     let func = plan.func;
-    if let Some(code) = plan
+    if let Some(spec_value) = plan
         .resolved_symbol
         .and_then(|symbol| shared.interactive.get_spec(symbol))
-        .map(|spec| spec.code.clone())
+        .map(|spec| spec.spec)
     {
-        if let Some(args) = interactive_args_from_string_code_in_vm_runtime(
-            shared,
-            &code,
-            CommandInvocationKind::CallInteractively,
-            &mut plan.context,
-            vm_gc_roots,
-        )? {
-            return Ok(Some((func, args)));
-        }
-        return Ok(None);
+        let Some(spec) = parse_interactive_spec_from_value(&spec_value) else {
+            return Ok(Some((func, Vec::new())));
+        };
+        return match spec {
+            ParsedInteractiveSpec::NoArgs => Ok(Some((func, Vec::new()))),
+            ParsedInteractiveSpec::StringCode(code) => {
+                interactive_args_from_string_code_in_vm_runtime(
+                    shared,
+                    &code,
+                    CommandInvocationKind::CallInteractively,
+                    &mut plan.context,
+                    vm_gc_roots,
+                )
+                .map(|maybe_args| maybe_args.map(|args| (func, args)))
+            }
+            ParsedInteractiveSpec::Form(form) => {
+                eval_interactive_form_value_in_vm_runtime(shared, vm_gc_roots, form)
+                    .map(|args| Some((func, args)))
+            }
+        };
     }
 
     if let Some(iform_val) = func.closure_interactive().flatten() {
