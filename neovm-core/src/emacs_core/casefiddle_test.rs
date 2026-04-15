@@ -41,7 +41,7 @@ fn capitalize_raw_unibyte_string_preserves_bytes() {
     let result = builtin_capitalize(vec![raw]).unwrap();
     let result = result.as_lisp_string().expect("string");
     assert!(!result.is_multibyte());
-    assert_eq!(result.as_bytes(), &[b'A', 0xFF, b'B']);
+    assert_eq!(result.as_bytes(), &[b'A', 0xFF, b'b']);
 }
 
 // =======================================================================
@@ -79,7 +79,7 @@ fn upcase_initials_raw_unibyte_string_preserves_bytes() {
     let result = builtin_upcase_initials(vec![raw]).unwrap();
     let result = result.as_lisp_string().expect("string");
     assert!(!result.is_multibyte());
-    assert_eq!(result.as_bytes(), &[b'A', 0xFF, b'B']);
+    assert_eq!(result.as_bytes(), &[b'A', 0xFF, b'b']);
 }
 
 // =======================================================================
@@ -279,6 +279,50 @@ fn eval_upcase_region_noncontiguous_uses_live_mark() {
 
     let buffer = ev.buffers.get(buffer_id).expect("buffer");
     assert_eq!(buffer.buffer_string(), "aBC");
+}
+
+#[test]
+fn eval_upcase_region_preserves_raw_unibyte_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = super::super::eval::Context::new();
+    let buffer_id = ev.buffers.current_buffer_id().expect("current buffer");
+    ev.buffers
+        .set_buffer_multibyte_flag(buffer_id, false)
+        .expect("set-buffer-multibyte should accept current buffer");
+    ev.buffers.insert_lisp_string_into_buffer(
+        buffer_id,
+        &crate::heap_types::LispString::from_unibyte(vec![0xFF, b'a', b'b']),
+    );
+
+    super::builtin_upcase_region(&mut ev, vec![Value::fixnum(1), Value::fixnum(4)])
+        .expect("upcase-region");
+
+    let buffer = ev.buffers.get(buffer_id).expect("buffer");
+    let text = buffer.buffer_substring_lisp_string(buffer.point_min(), buffer.point_max());
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[0xFF, b'A', b'B']);
+}
+
+#[test]
+fn eval_capitalize_word_preserves_raw_unibyte_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = super::super::eval::Context::new();
+    let buffer_id = ev.buffers.current_buffer_id().expect("current buffer");
+    ev.buffers
+        .set_buffer_multibyte_flag(buffer_id, false)
+        .expect("set-buffer-multibyte should accept current buffer");
+    ev.buffers.insert_lisp_string_into_buffer(
+        buffer_id,
+        &crate::heap_types::LispString::from_unibyte(vec![0xFF, b'a', b'b']),
+    );
+    ev.buffers.goto_buffer_byte(buffer_id, 0);
+
+    super::builtin_capitalize_word(&mut ev, vec![Value::fixnum(1)]).expect("capitalize-word");
+
+    let buffer = ev.buffers.get(buffer_id).expect("buffer");
+    let text = buffer.buffer_substring_lisp_string(buffer.point_min(), buffer.point_max());
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[0xFF, b'a', b'b']);
 }
 
 #[test]

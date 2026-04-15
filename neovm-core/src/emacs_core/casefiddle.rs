@@ -8,6 +8,7 @@ use super::syntax::forward_word;
 use super::value::*;
 use crate::buffer::Buffer;
 use crate::emacs_core::value::ValueKind;
+use crate::heap_types::LispString;
 
 // ---------------------------------------------------------------------------
 // Argument helpers
@@ -222,6 +223,160 @@ fn titlecase_word_initial(c: char) -> String {
     }
 }
 
+fn push_multibyte_char_code(out: &mut Vec<u8>, code: u32) {
+    let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+    let len = crate::emacs_core::emacs_char::char_string(code, &mut buf);
+    out.extend_from_slice(&buf[..len]);
+}
+
+fn push_multibyte_chars(out: &mut Vec<u8>, chars: impl IntoIterator<Item = char>) {
+    for ch in chars {
+        push_multibyte_char_code(out, ch as u32);
+    }
+}
+
+fn ascii_word_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte >= 0x80
+}
+
+fn downcase_lisp_string_emacs_compat(text: &LispString) -> LispString {
+    if !text.is_multibyte() {
+        let bytes = text
+            .as_bytes()
+            .iter()
+            .map(|byte| byte.to_ascii_lowercase())
+            .collect();
+        return LispString::from_unibyte(bytes);
+    }
+
+    let mut out = Vec::with_capacity(text.sbytes());
+    for code in super::builtins::lisp_string_char_codes(text) {
+        let code_i64 = code as i64;
+        if code == 0x212A || preserve_downcase_case_string_payload(code_i64) {
+            push_multibyte_char_code(&mut out, code);
+            continue;
+        }
+        if let Some(ch) = code_to_char(code_i64) {
+            push_multibyte_chars(&mut out, ch.to_lowercase());
+        } else {
+            push_multibyte_char_code(&mut out, code);
+        }
+    }
+    LispString::from_emacs_bytes(out)
+}
+
+fn upcase_lisp_string_emacs_compat(text: &LispString) -> LispString {
+    if !text.is_multibyte() {
+        let bytes = text
+            .as_bytes()
+            .iter()
+            .map(|byte| byte.to_ascii_uppercase())
+            .collect();
+        return LispString::from_unibyte(bytes);
+    }
+
+    let mut out = Vec::with_capacity(text.sbytes());
+    for code in super::builtins::lisp_string_char_codes(text) {
+        let code_i64 = code as i64;
+        if code == 0x0131 || preserve_upcase_case_string_payload(code_i64) {
+            push_multibyte_char_code(&mut out, code);
+            continue;
+        }
+        if let Some(ch) = code_to_char(code_i64) {
+            push_multibyte_chars(&mut out, ch.to_uppercase());
+        } else {
+            push_multibyte_char_code(&mut out, code);
+        }
+    }
+    LispString::from_emacs_bytes(out)
+}
+
+fn capitalize_lisp_string(text: &LispString) -> LispString {
+    if !text.is_multibyte() {
+        let mut out = Vec::with_capacity(text.sbytes());
+        let mut new_word = true;
+        for &byte in text.as_bytes() {
+            if ascii_word_byte(byte) {
+                out.push(if new_word {
+                    byte.to_ascii_uppercase()
+                } else {
+                    byte.to_ascii_lowercase()
+                });
+                new_word = false;
+            } else {
+                out.push(byte);
+                new_word = true;
+            }
+        }
+        return LispString::from_unibyte(out);
+    }
+
+    let mut out = Vec::with_capacity(text.sbytes());
+    let mut new_word = true;
+    for code in super::builtins::lisp_string_char_codes(text) {
+        if let Some(ch) = code_to_char(code as i64) {
+            if ch.is_alphanumeric() {
+                if new_word {
+                    push_multibyte_chars(&mut out, titlecase_word_initial(ch).chars());
+                    new_word = false;
+                } else {
+                    push_multibyte_chars(&mut out, ch.to_lowercase());
+                }
+            } else {
+                push_multibyte_char_code(&mut out, code);
+                new_word = true;
+            }
+        } else {
+            push_multibyte_char_code(&mut out, code);
+            new_word = true;
+        }
+    }
+    LispString::from_emacs_bytes(out)
+}
+
+fn upcase_initials_lisp_string(text: &LispString) -> LispString {
+    if !text.is_multibyte() {
+        let mut out = Vec::with_capacity(text.sbytes());
+        let mut new_word = true;
+        for &byte in text.as_bytes() {
+            if ascii_word_byte(byte) {
+                out.push(if new_word {
+                    byte.to_ascii_uppercase()
+                } else {
+                    byte
+                });
+                new_word = false;
+            } else {
+                out.push(byte);
+                new_word = true;
+            }
+        }
+        return LispString::from_unibyte(out);
+    }
+
+    let mut out = Vec::with_capacity(text.sbytes());
+    let mut new_word = true;
+    for code in super::builtins::lisp_string_char_codes(text) {
+        if let Some(ch) = code_to_char(code as i64) {
+            if ch.is_alphanumeric() {
+                if new_word {
+                    push_multibyte_chars(&mut out, titlecase_word_initial(ch).chars());
+                    new_word = false;
+                } else {
+                    push_multibyte_char_code(&mut out, code);
+                }
+            } else {
+                push_multibyte_char_code(&mut out, code);
+                new_word = true;
+            }
+        } else {
+            push_multibyte_char_code(&mut out, code);
+            new_word = true;
+        }
+    }
+    LispString::from_emacs_bytes(out)
+}
+
 fn downcase_case_string_emacs_compat(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for ch in text.chars() {
@@ -329,7 +484,7 @@ fn replace_current_buffer_region_in_buffers(
     buffers: &mut crate::buffer::BufferManager,
     beg: usize,
     end: usize,
-    replacement: &str,
+    replacement: &LispString,
     restore_point: bool,
 ) -> EvalResult {
     let buf = buffers
@@ -338,7 +493,7 @@ fn replace_current_buffer_region_in_buffers(
     let saved_pt = buf.point();
     buf.delete_region(beg, end);
     buf.goto_char(beg);
-    buf.insert(replacement);
+    buf.insert_lisp_string(replacement);
     if restore_point {
         buf.goto_char(saved_pt.min(buf.point_max()));
     }
@@ -351,7 +506,7 @@ fn casify_region_in_state(
     buffers: &mut crate::buffer::BufferManager,
     args: Vec<Value>,
     name: &str,
-    transform: impl FnOnce(&str) -> String,
+    transform: impl FnOnce(&LispString) -> LispString,
 ) -> EvalResult {
     expect_min_max_args(name, &args, 2, 3)?;
     let beg_val = expect_int(&args[0])?;
@@ -369,11 +524,7 @@ fn casify_region_in_state(
         }
         let (beg, end) = resolve_case_region_in_buffers(buffers, beg_val, end_val, args.get(2))?;
         let text = buf.buffer_substring_lisp_string(beg, end);
-        (
-            beg,
-            end,
-            super::builtins::runtime_string_from_lisp_string(&text),
-        )
+        (beg, end, text)
     };
 
     let replacement = transform(&text);
@@ -390,7 +541,7 @@ fn casify_word_in_state(
     buffers: &mut crate::buffer::BufferManager,
     args: Vec<Value>,
     name: &str,
-    transform: impl FnOnce(&str) -> String,
+    transform: impl FnOnce(&LispString) -> LispString,
 ) -> EvalResult {
     expect_args(name, &args, 1)?;
     let n = expect_int(&args[0])?;
@@ -411,7 +562,7 @@ fn casify_word_in_state(
         (
             beg,
             end,
-            super::builtins::runtime_string_from_lisp_string(&text),
+            text,
             buf.name.clone(),
             super::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf),
         )
@@ -439,11 +590,7 @@ pub(crate) fn builtin_capitalize(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::String => {
             let string = args[0].as_lisp_string().expect("string");
-            let storage = super::builtins::runtime_string_from_lisp_string(string);
-            let capitalized = capitalize_string(&storage);
-            Ok(Value::heap_string(
-                super::builtins::runtime_string_to_lisp_string(&capitalized, string.is_multibyte()),
-            ))
+            Ok(Value::heap_string(capitalize_lisp_string(string)))
         }
         ValueKind::Fixnum(c) => {
             let code = c as i64;
@@ -488,11 +635,7 @@ pub(crate) fn builtin_upcase_initials(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::String => {
             let string = args[0].as_lisp_string().expect("string");
-            let storage = super::builtins::runtime_string_from_lisp_string(string);
-            let result = upcase_initials_string(&storage);
-            Ok(Value::heap_string(
-                super::builtins::runtime_string_to_lisp_string(&result, string.is_multibyte()),
-            ))
+            Ok(Value::heap_string(upcase_initials_lisp_string(string)))
         }
         ValueKind::Fixnum(c) => {
             let code = c as i64;
@@ -643,7 +786,7 @@ pub(crate) fn builtin_downcase_region(
         &mut ctx.buffers,
         args,
         "downcase-region",
-        downcase_case_string_emacs_compat,
+        downcase_lisp_string_emacs_compat,
     )
 }
 
@@ -657,7 +800,7 @@ pub(crate) fn builtin_upcase_region(
         &mut ctx.buffers,
         args,
         "upcase-region",
-        upcase_case_string_emacs_compat,
+        upcase_lisp_string_emacs_compat,
     )
 }
 
@@ -671,7 +814,7 @@ pub(crate) fn builtin_capitalize_region(
         &mut ctx.buffers,
         args,
         "capitalize-region",
-        capitalize_string,
+        capitalize_lisp_string,
     )
 }
 
@@ -685,7 +828,7 @@ pub(crate) fn builtin_upcase_initials_region(
         &mut ctx.buffers,
         args,
         "upcase-initials-region",
-        upcase_initials_string,
+        upcase_initials_lisp_string,
     )
 }
 
@@ -699,7 +842,7 @@ pub(crate) fn builtin_downcase_word(
         &mut ctx.buffers,
         args,
         "downcase-word",
-        downcase_case_string_emacs_compat,
+        downcase_lisp_string_emacs_compat,
     )
 }
 
@@ -710,7 +853,7 @@ pub(crate) fn builtin_upcase_word(ctx: &mut super::eval::Context, args: Vec<Valu
         &mut ctx.buffers,
         args,
         "upcase-word",
-        upcase_case_string_emacs_compat,
+        upcase_lisp_string_emacs_compat,
     )
 }
 
@@ -724,7 +867,7 @@ pub(crate) fn builtin_capitalize_word(
         &mut ctx.buffers,
         args,
         "capitalize-word",
-        capitalize_string,
+        capitalize_lisp_string,
     )
 }
 
