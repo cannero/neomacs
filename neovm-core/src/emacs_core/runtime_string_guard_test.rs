@@ -4,6 +4,7 @@ fn migrated_string_subsystems_do_not_call_generic_runtime_string_adapter_directl
     for (path, source) in [
         ("abbrev.rs", include_str!("abbrev.rs")),
         ("autoload.rs", include_str!("autoload.rs")),
+        ("builtins/buffers.rs", include_str!("builtins/buffers.rs")),
         (
             "builtins/misc_pure.rs",
             include_str!("builtins/misc_pure.rs"),
@@ -41,6 +42,7 @@ fn migrated_string_subsystems_do_not_call_generic_runtime_string_adapter_directl
         ("textprop.rs", include_str!("textprop.rs")),
         ("timefns.rs", include_str!("timefns.rs")),
         ("timer.rs", include_str!("timer.rs")),
+        ("undo.rs", include_str!("undo.rs")),
         ("value_reader.rs", include_str!("value_reader.rs")),
         ("window_cmds/mod.rs", include_str!("window_cmds/mod.rs")),
         ("xdisp.rs", include_str!("xdisp.rs")),

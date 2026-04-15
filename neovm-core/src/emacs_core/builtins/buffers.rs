@@ -30,6 +30,23 @@ pub(super) fn expect_buffer_id(value: &Value) -> Result<BufferId, Flow> {
     }
 }
 
+fn expect_buffer_name_string(value: &Value) -> Result<String, Flow> {
+    value.as_runtime_string_owned().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), *value],
+        )
+    })
+}
+
+fn find_buffer_by_name_arg(
+    buffers: &BufferManager,
+    value: &Value,
+) -> Result<Option<BufferId>, Flow> {
+    let name = expect_buffer_name_string(value)?;
+    Ok(buffers.find_buffer_by_name(&name))
+}
+
 fn point_char_pos(buf: &crate::buffer::Buffer, byte_pos: usize) -> i64 {
     buf.text.emacs_byte_to_char(byte_pos) as i64 + 1
 }
@@ -145,7 +162,7 @@ pub(crate) fn prepare_make_indirect_buffer_in_manager(
             id
         }
         ValueKind::String => {
-            let name = super::lisp_string_to_runtime_string(args[0]);
+            let name = expect_buffer_name_string(&args[0])?;
             buffers.find_buffer_by_name(&name).ok_or_else(|| {
                 signal(
                     "error",
@@ -217,14 +234,9 @@ pub(crate) fn builtin_get_buffer(eval: &mut super::eval::Context, args: Vec<Valu
     expect_args("get-buffer", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Buffer) => Ok(args[0]),
-        ValueKind::String => {
-            let s = super::lisp_string_to_runtime_string(args[0]);
-            if let Some(buf_id) = buffers.find_buffer_by_name(&s) {
-                Ok(Value::make_buffer(buf_id))
-            } else {
-                Ok(Value::NIL)
-            }
-        }
+        ValueKind::String => Ok(find_buffer_by_name_arg(buffers, &args[0])?
+            .map(Value::make_buffer)
+            .unwrap_or(Value::NIL)),
         _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), args[0]],
@@ -375,7 +387,7 @@ pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Val
                 bid
             }
             ValueKind::String => {
-                let name = super::lisp_string_to_runtime_string(*arg);
+                let name = expect_buffer_name_string(arg)?;
                 match eval.buffers.find_buffer_by_name(&name) {
                     Some(id) => id,
                     None => {
@@ -514,7 +526,7 @@ pub(crate) fn builtin_set_buffer(eval: &mut super::eval::Context, args: Vec<Valu
             bid
         }
         ValueKind::String => {
-            let s = super::lisp_string_to_runtime_string(args[0]);
+            let s = expect_buffer_name_string(&args[0])?;
             eval.buffers.find_buffer_by_name(&s).ok_or_else(|| {
                 signal("error", vec![Value::string(format!("No buffer named {s}"))])
             })?
@@ -704,7 +716,7 @@ fn resolve_buffer_designator_allow_nil_current(
             }
         }
         ValueKind::String => {
-            let name = super::lisp_string_to_runtime_string(*arg);
+            let name = expect_buffer_name_string(arg)?;
             eval.buffers
                 .find_buffer_by_name(&name)
                 .map(Some)
@@ -802,7 +814,7 @@ pub(crate) fn resolve_buffer_designator_allow_nil_current_in_manager(
             }
         }
         ValueKind::String => {
-            let name = super::lisp_string_to_runtime_string(*arg);
+            let name = expect_buffer_name_string(arg)?;
             buffers.find_buffer_by_name(&name).map(Some).ok_or_else(|| {
                 signal(
                     "error",
@@ -3273,7 +3285,7 @@ pub(crate) fn builtin_buffer_enable_undo(
                 bid
             }
             ValueKind::String => {
-                let name = super::lisp_string_to_runtime_string(args[0]);
+                let name = expect_buffer_name_string(&args[0])?;
                 eval.buffers.find_buffer_by_name(&name).ok_or_else(|| {
                     signal(
                         "error",
@@ -3327,7 +3339,7 @@ pub(crate) fn builtin_buffer_disable_undo(
                 bid
             }
             ValueKind::String => {
-                let name = super::lisp_string_to_runtime_string(args[0]);
+                let name = expect_buffer_name_string(&args[0])?;
                 match eval.buffers.find_buffer_by_name(&name) {
                     Some(id) => id,
                     None => {
@@ -3574,7 +3586,9 @@ fn other_buffer_designator(
             }
         }
         ValueKind::String => {
-            let name = super::lisp_string_to_runtime_string(*v);
+            let name = v
+                .as_runtime_string_owned()
+                .expect("ValueKind::String must carry LispString payload");
             buffers.find_buffer_by_name(&name)
         }
         _ => None,
