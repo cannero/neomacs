@@ -12,7 +12,7 @@ use crate::index_state::{
 use crate::object::ObjectRecord;
 
 pub(crate) const OBJECT_STORE_SHARDS: usize = 32;
-const OBJECT_STORE_CHUNK_CAPACITY: usize = 256;
+const OBJECT_STORE_CHUNK_CAPACITY: usize = 512;
 
 #[derive(Debug)]
 struct ObjectChunk {
