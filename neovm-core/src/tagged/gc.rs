@@ -509,15 +509,6 @@ impl TaggedHeap {
         self.subr_registry.get(id.0 as usize).copied().flatten()
     }
 
-    pub fn subr_slot(&self, id: crate::emacs_core::intern::NameId) -> Option<&'static SubrObj> {
-        let ptr = self
-            .subr_slot_registry
-            .get(id.0 as usize)
-            .copied()
-            .flatten()?;
-        Some(unsafe { &*ptr })
-    }
-
     pub fn subr_slot_mut(
         &mut self,
         id: crate::emacs_core::intern::NameId,

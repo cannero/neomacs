@@ -2112,8 +2112,9 @@ impl Context {
     }
 
     #[inline]
-    pub(crate) fn subr_slot(&self, sym_id: SymId) -> Option<&'static SubrObj> {
-        self.tagged_heap.subr_slot(symbol_name_id(sym_id))
+    pub(crate) fn subr_ref(&self, sym_id: SymId) -> Option<&'static SubrObj> {
+        self.subr_value(symbol_name_id(sym_id))
+            .and_then(Value::as_subr_ref)
     }
 
     #[inline]
@@ -2123,7 +2124,7 @@ impl Context {
 
     #[inline]
     pub(crate) fn subr_dispatch_kind(&self, sym_id: SymId) -> Option<SubrDispatchKind> {
-        self.subr_slot(sym_id).map(|subr| subr.dispatch_kind)
+        self.subr_ref(sym_id).map(|subr| subr.dispatch_kind)
     }
 
     #[inline]
@@ -2144,10 +2145,8 @@ impl Context {
 
     #[inline]
     fn has_registered_subr(&self, sym_id: SymId) -> bool {
-        self.subr_value(symbol_name_id(sym_id)).is_some_and(|subr| {
-            subr.as_subr_ref()
-                .is_some_and(|slot| slot.function.is_some())
-        })
+        self.subr_ref(sym_id)
+            .is_some_and(|subr| subr.function.is_some())
     }
 
     fn register_subr_slot(&mut self, sym_id: SymId, subr: Value) {
@@ -6582,9 +6581,8 @@ impl Context {
         // the dispatch falls through to the normal apply path,
         // which signals with `fun` itself -- also matching GNU
         // funcall_lambda and funcall_subr.
-        if let Some(subr_id) = func.as_subr_id()
-            && !self.subr_is_special_form_id(subr_id)
-            && let Some(subr_slot) = self.subr_slot(subr_id)
+        if let Some(subr) = func.as_subr_ref()
+            && subr.dispatch_kind != SubrDispatchKind::SpecialForm
         {
             let numargs = match list_length(&original_args) {
                 Some(n) => n,
@@ -6595,8 +6593,8 @@ impl Context {
                     ));
                 }
             };
-            let min = subr_slot.min_args as usize;
-            let max_ok = match subr_slot.max_args {
+            let min = subr.min_args as usize;
+            let max_ok = match subr.max_args {
                 Some(m) => numargs <= m as usize,
                 None => true, // &rest / MANY
             };

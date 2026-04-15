@@ -376,7 +376,7 @@ fn subr_arity_from_registry(ctx: &super::eval::Context, sym_id: SymId) -> Value 
     // The Elisp `special-form-p` checks `(eq (cdr (subr-arity x)) 'unevalled)`.
     if ctx.subr_dispatch_kind_or_compat(sym_id) == SubrDispatchKind::SpecialForm {
         let min = ctx
-            .subr_slot(sym_id)
+            .subr_ref(sym_id)
             .map(special_form_min_arity)
             .unwrap_or_else(|| {
                 lookup_compat_subr_arity(name)
@@ -386,7 +386,7 @@ fn subr_arity_from_registry(ctx: &super::eval::Context, sym_id: SymId) -> Value 
         return arity_unevalled(min);
     }
 
-    if let Some(subr) = ctx.subr_slot(sym_id) {
+    if let Some(subr) = ctx.subr_ref(sym_id) {
         // If registration has actual arity (not the default 0/None),
         // use it as the authoritative source.
         let min = subr.min_args;
