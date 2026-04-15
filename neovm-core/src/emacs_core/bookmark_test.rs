@@ -5,17 +5,25 @@ use crate::heap_types::LispString;
 // BookmarkManager unit tests
 // -----------------------------------------------------------------------
 
+fn bm_str(text: &str) -> LispString {
+    runtime_string_to_bookmark_string(text)
+}
+
+fn bm_runtime(text: Option<&LispString>) -> Option<String> {
+    text.map(bookmark_string_to_runtime)
+}
+
 #[test]
 fn set_get_delete() {
     crate::test_utils::init_test_tracing();
     let mut mgr = BookmarkManager::new();
 
     let bm = Bookmark {
-        name: "test".to_string(),
-        filename: Some("/tmp/test.txt".to_string()),
+        name: bm_str("test"),
+        filename: Some(bm_str("/tmp/test.txt")),
         position: 42,
-        front_context: Some("after".to_string()),
-        rear_context: Some("before".to_string()),
+        front_context: Some(bm_str("after")),
+        rear_context: Some(bm_str("before")),
         annotation: None,
         handler: None,
     };
@@ -24,8 +32,8 @@ fn set_get_delete() {
     assert!(mgr.get("test").is_some());
     assert_eq!(mgr.get("test").unwrap().position, 42);
     assert_eq!(
-        mgr.get("test").unwrap().filename.as_deref(),
-        Some("/tmp/test.txt")
+        bm_runtime(mgr.get("test").unwrap().filename.as_ref()).as_deref(),
+        Some("/tmp/test.txt"),
     );
 
     assert!(mgr.delete("test"));
@@ -39,7 +47,7 @@ fn rename() {
     let mut mgr = BookmarkManager::new();
 
     let bm = Bookmark {
-        name: "old".to_string(),
+        name: bm_str("old"),
         filename: None,
         position: 10,
         front_context: None,
@@ -52,7 +60,7 @@ fn rename() {
     assert!(mgr.rename("old", "new"));
     assert!(mgr.get("old").is_none());
     assert!(mgr.get("new").is_some());
-    assert_eq!(mgr.get("new").unwrap().name, "new");
+    assert_eq!(mgr.get("new").unwrap().name, bm_str("new"));
     assert_eq!(mgr.get("new").unwrap().position, 10);
 }
 
@@ -68,7 +76,7 @@ fn rename_collision() {
     crate::test_utils::init_test_tracing();
     let mut mgr = BookmarkManager::new();
     let bm1 = Bookmark {
-        name: "a".to_string(),
+        name: bm_str("a"),
         filename: None,
         position: 1,
         front_context: None,
@@ -77,7 +85,7 @@ fn rename_collision() {
         handler: None,
     };
     let bm2 = Bookmark {
-        name: "b".to_string(),
+        name: bm_str("b"),
         filename: None,
         position: 2,
         front_context: None,
@@ -102,7 +110,7 @@ fn all_names_sorted() {
 
     for name in &["zebra", "alpha", "middle"] {
         let bm = Bookmark {
-            name: name.to_string(),
+            name: bm_str(name),
             filename: None,
             position: 1,
             front_context: None,
@@ -124,7 +132,7 @@ fn most_recent_tracking() {
 
     for name in &["first", "second", "third"] {
         let bm = Bookmark {
-            name: name.to_string(),
+            name: bm_str(name),
             filename: None,
             position: 1,
             front_context: None,
@@ -142,7 +150,7 @@ fn most_recent_tracking() {
 
     // Re-set "first" -> moves to front
     let bm = Bookmark {
-        name: "first".to_string(),
+        name: bm_str("first"),
         filename: None,
         position: 99,
         front_context: None,
@@ -160,22 +168,22 @@ fn serialize_deserialize() {
     let mut mgr = BookmarkManager::new();
 
     let bm1 = Bookmark {
-        name: "alpha".to_string(),
-        filename: Some("/home/test/file.el".to_string()),
+        name: bm_str("alpha"),
+        filename: Some(bm_str("/home/test/file.el")),
         position: 100,
-        front_context: Some("(defun".to_string()),
-        rear_context: Some(";;".to_string()),
-        annotation: Some("Important function".to_string()),
+        front_context: Some(bm_str("(defun")),
+        rear_context: Some(bm_str(";;")),
+        annotation: Some(bm_str("Important function")),
         handler: None,
     };
     let bm2 = Bookmark {
-        name: "beta".to_string(),
+        name: bm_str("beta"),
         filename: None,
         position: 1,
         front_context: None,
         rear_context: None,
         annotation: None,
-        handler: Some("my-handler".to_string()),
+        handler: Some(bm_str("my-handler")),
     };
     mgr.set("alpha", bm1);
     mgr.set("beta", bm2);
@@ -192,16 +200,28 @@ fn serialize_deserialize() {
 
     let a = mgr2.get("alpha").unwrap();
     assert_eq!(a.position, 100);
-    assert_eq!(a.filename.as_deref(), Some("/home/test/file.el"));
-    assert_eq!(a.front_context.as_deref(), Some("(defun"));
-    assert_eq!(a.rear_context.as_deref(), Some(";;"));
-    assert_eq!(a.annotation.as_deref(), Some("Important function"));
+    assert_eq!(
+        bm_runtime(a.filename.as_ref()).as_deref(),
+        Some("/home/test/file.el")
+    );
+    assert_eq!(
+        bm_runtime(a.front_context.as_ref()).as_deref(),
+        Some("(defun")
+    );
+    assert_eq!(bm_runtime(a.rear_context.as_ref()).as_deref(), Some(";;"));
+    assert_eq!(
+        bm_runtime(a.annotation.as_ref()).as_deref(),
+        Some("Important function")
+    );
     assert!(a.handler.is_none());
 
     let b = mgr2.get("beta").unwrap();
     assert_eq!(b.position, 1);
     assert!(b.filename.is_none());
-    assert_eq!(b.handler.as_deref(), Some("my-handler"));
+    assert_eq!(
+        bm_runtime(b.handler.as_ref()).as_deref(),
+        Some("my-handler")
+    );
 }
 
 #[test]
@@ -209,7 +229,7 @@ fn load_empty_string() {
     crate::test_utils::init_test_tracing();
     let mut mgr = BookmarkManager::new();
     let bm = Bookmark {
-        name: "test".to_string(),
+        name: bm_str("test"),
         filename: None,
         position: 1,
         front_context: None,
@@ -230,7 +250,7 @@ fn modified_flag() {
     assert!(!mgr.is_modified());
 
     let bm = Bookmark {
-        name: "test".to_string(),
+        name: bm_str("test"),
         filename: None,
         position: 1,
         front_context: None,
@@ -557,10 +577,16 @@ fn test_builtin_bookmark_save_load() {
 
     // Verify restored bookmark payloads.
     let bm1 = eval.bookmarks.get("bm1").expect("bm1 restored");
-    assert_eq!(bm1.filename.as_deref(), Some("/file1.el"));
+    assert_eq!(
+        bm_runtime(bm1.filename.as_ref()).as_deref(),
+        Some("/file1.el")
+    );
 
     let bm2 = eval.bookmarks.get("bm2").expect("bm2 restored");
-    assert_eq!(bm2.filename.as_deref(), Some("/file2.el"));
+    assert_eq!(
+        bm_runtime(bm2.filename.as_ref()).as_deref(),
+        Some("/file2.el")
+    );
 
     // NO-MSG suppresses the loading message.
     let result = builtin_bookmark_load(

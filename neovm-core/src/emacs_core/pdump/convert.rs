@@ -1711,13 +1711,28 @@ pub(crate) fn dump_bookmark_manager(bm: &BookmarkManager) -> DumpBookmarkManager
                 (
                     k.clone(),
                     DumpBookmark {
-                        name: b.name.clone(),
-                        filename: b.filename.clone(),
+                        name: crate::emacs_core::builtins::runtime_string_from_lisp_string(&b.name),
+                        filename: b
+                            .filename
+                            .as_ref()
+                            .map(crate::emacs_core::builtins::runtime_string_from_lisp_string),
                         position: b.position,
-                        front_context: b.front_context.clone(),
-                        rear_context: b.rear_context.clone(),
-                        annotation: b.annotation.clone(),
-                        handler: b.handler.clone(),
+                        front_context: b
+                            .front_context
+                            .as_ref()
+                            .map(crate::emacs_core::builtins::runtime_string_from_lisp_string),
+                        rear_context: b
+                            .rear_context
+                            .as_ref()
+                            .map(crate::emacs_core::builtins::runtime_string_from_lisp_string),
+                        annotation: b
+                            .annotation
+                            .as_ref()
+                            .map(crate::emacs_core::builtins::runtime_string_from_lisp_string),
+                        handler: b
+                            .handler
+                            .as_ref()
+                            .map(crate::emacs_core::builtins::runtime_string_from_lisp_string),
                     },
                 )
             })
@@ -3147,13 +3162,23 @@ pub(crate) fn load_bookmark_manager(dbm: &DumpBookmarkManager) -> BookmarkManage
             (
                 k.clone(),
                 Bookmark {
-                    name: b.name.clone(),
-                    filename: b.filename.clone(),
+                    name: crate::emacs_core::builtins::runtime_string_to_lisp_string(&b.name, true),
+                    filename: b.filename.as_deref().map(|s| {
+                        crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
+                    }),
                     position: b.position,
-                    front_context: b.front_context.clone(),
-                    rear_context: b.rear_context.clone(),
-                    annotation: b.annotation.clone(),
-                    handler: b.handler.clone(),
+                    front_context: b.front_context.as_deref().map(|s| {
+                        crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
+                    }),
+                    rear_context: b.rear_context.as_deref().map(|s| {
+                        crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
+                    }),
+                    annotation: b.annotation.as_deref().map(|s| {
+                        crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
+                    }),
+                    handler: b.handler.as_deref().map(|s| {
+                        crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
+                    }),
                 },
             )
         })

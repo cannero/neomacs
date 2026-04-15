@@ -21,6 +21,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::value::{Value, ValueKind};
+use crate::heap_types::LispString;
 
 // ---------------------------------------------------------------------------
 // Bookmark types
@@ -30,20 +31,20 @@ use super::value::{Value, ValueKind};
 #[derive(Clone, Debug)]
 pub struct Bookmark {
     /// The bookmark name (human-readable label).
-    pub name: String,
+    pub name: LispString,
     /// The filename of the file the bookmark points to (if any).
-    pub filename: Option<String>,
+    pub filename: Option<LispString>,
     /// The character position in the buffer/file.
     pub position: usize,
     /// Text after the bookmark position, used for relocating if the file
     /// has changed.
-    pub front_context: Option<String>,
+    pub front_context: Option<LispString>,
     /// Text before the bookmark position, used for relocating.
-    pub rear_context: Option<String>,
+    pub rear_context: Option<LispString>,
     /// An optional annotation (user note).
-    pub annotation: Option<String>,
+    pub annotation: Option<LispString>,
     /// A handler function name for jump (nil means default handler).
-    pub handler: Option<String>,
+    pub handler: Option<LispString>,
 }
 
 // ---------------------------------------------------------------------------
@@ -109,7 +110,7 @@ impl BookmarkManager {
             return false;
         }
         if let Some(mut bm) = self.bookmarks.remove(old) {
-            bm.name = new_name.to_string();
+            bm.name = runtime_string_to_bookmark_string(new_name);
             self.bookmarks.insert(new_name.to_string(), bm);
             // Update recent list
             for entry in &mut self.recent {
@@ -163,19 +164,23 @@ impl BookmarkManager {
             if i > 0 {
                 out.push('\x0C'); // form feed separator
             }
-            out.push_str(&bm.name);
+            out.push_str(&bookmark_string_to_runtime(&bm.name));
             out.push('\n');
-            out.push_str(bm.filename.as_deref().unwrap_or(""));
+            out.push_str(&optional_bookmark_string_to_runtime(bm.filename.as_ref()));
             out.push('\n');
             out.push_str(&bm.position.to_string());
             out.push('\n');
-            out.push_str(bm.front_context.as_deref().unwrap_or(""));
+            out.push_str(&optional_bookmark_string_to_runtime(
+                bm.front_context.as_ref(),
+            ));
             out.push('\n');
-            out.push_str(bm.rear_context.as_deref().unwrap_or(""));
+            out.push_str(&optional_bookmark_string_to_runtime(
+                bm.rear_context.as_ref(),
+            ));
             out.push('\n');
-            out.push_str(bm.annotation.as_deref().unwrap_or(""));
+            out.push_str(&optional_bookmark_string_to_runtime(bm.annotation.as_ref()));
             out.push('\n');
-            out.push_str(bm.handler.as_deref().unwrap_or(""));
+            out.push_str(&optional_bookmark_string_to_runtime(bm.handler.as_ref()));
         }
         out
     }
@@ -200,34 +205,19 @@ impl BookmarkManager {
             if name.is_empty() {
                 continue;
             }
-            let filename = if lines[1].is_empty() {
-                None
-            } else {
-                Some(lines[1].to_string())
-            };
+            let filename =
+                (!lines[1].is_empty()).then(|| runtime_string_to_bookmark_string(lines[1]));
             let position = lines[2].parse::<usize>().unwrap_or(1);
-            let front_context = if lines[3].is_empty() {
-                None
-            } else {
-                Some(lines[3].to_string())
-            };
-            let rear_context = if lines[4].is_empty() {
-                None
-            } else {
-                Some(lines[4].to_string())
-            };
-            let annotation = if lines[5].is_empty() {
-                None
-            } else {
-                Some(lines[5].to_string())
-            };
-            let handler = if lines[6].is_empty() {
-                None
-            } else {
-                Some(lines[6].to_string())
-            };
+            let front_context =
+                (!lines[3].is_empty()).then(|| runtime_string_to_bookmark_string(lines[3]));
+            let rear_context =
+                (!lines[4].is_empty()).then(|| runtime_string_to_bookmark_string(lines[4]));
+            let annotation =
+                (!lines[5].is_empty()).then(|| runtime_string_to_bookmark_string(lines[5]));
+            let handler =
+                (!lines[6].is_empty()).then(|| runtime_string_to_bookmark_string(lines[6]));
             let bm = Bookmark {
-                name: name.clone(),
+                name: runtime_string_to_bookmark_string(&name),
                 filename,
                 position,
                 front_context,
@@ -260,6 +250,18 @@ impl BookmarkManager {
             modified: false,
         }
     }
+}
+
+fn runtime_string_to_bookmark_string(text: &str) -> LispString {
+    super::builtins::runtime_string_to_lisp_string(text, true)
+}
+
+fn bookmark_string_to_runtime(text: &LispString) -> String {
+    super::builtins::runtime_string_from_lisp_string(text)
+}
+
+fn optional_bookmark_string_to_runtime(text: Option<&LispString>) -> String {
+    text.map(bookmark_string_to_runtime).unwrap_or_default()
 }
 
 // ===========================================================================
@@ -357,8 +359,8 @@ pub(crate) fn builtin_bookmark_set(
     };
 
     let bm = Bookmark {
-        name: name.clone(),
-        filename,
+        name: runtime_string_to_bookmark_string(&name),
+        filename: filename.as_deref().map(runtime_string_to_bookmark_string),
         position,
         front_context: None,
         rear_context: None,
@@ -403,12 +405,12 @@ pub(crate) fn builtin_bookmark_jump(
     match eval.bookmarks.get(&name) {
         Some(bm) => {
             let filename_val = match &bm.filename {
-                Some(f) => Value::string(f.clone()),
+                Some(f) => Value::heap_string(f.clone()),
                 None => Value::NIL,
             };
             let position_val = Value::fixnum(bm.position as i64);
             let annotation_val = match &bm.annotation {
-                Some(a) => Value::string(a.clone()),
+                Some(a) => Value::heap_string(a.clone()),
                 None => Value::NIL,
             };
             let alist = Value::list(vec![
@@ -574,7 +576,7 @@ pub(crate) fn builtin_bookmark_get_filename(
         .bookmarks
         .get(&name)
         .and_then(|bm| bm.filename.as_ref())
-        .map(|s| Value::string(s.clone()))
+        .map(|s| Value::heap_string(s.clone()))
         .unwrap_or(Value::NIL);
     Ok(filename)
 }
@@ -643,7 +645,7 @@ pub(crate) fn builtin_bookmark_get_annotation(
         .bookmarks
         .get(&name)
         .and_then(|bm| bm.annotation.as_ref())
-        .map(|s| Value::string(s.clone()))
+        .map(|s| Value::heap_string(s.clone()))
         .unwrap_or(Value::NIL);
     Ok(annotation)
 }
@@ -665,7 +667,7 @@ pub(crate) fn builtin_bookmark_set_annotation(
     };
 
     if let Some(mut bm) = eval.bookmarks.get(&name).cloned() {
-        bm.annotation = annotation.clone();
+        bm.annotation = annotation.as_deref().map(runtime_string_to_bookmark_string);
         eval.bookmarks.set(&name, bm);
         if let Some(value) = annotation {
             Ok(Value::string(value))
