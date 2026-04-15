@@ -306,6 +306,7 @@ pub(crate) struct AtomicAllocationCounters {
     old_reserved_bytes: AtomicUsize,
     large_reserved_bytes: AtomicUsize,
     immortal_reserved_bytes: AtomicUsize,
+    next_shard: AtomicUsize,
 }
 
 impl Default for AtomicAllocationCounters {
@@ -319,21 +320,15 @@ impl Default for AtomicAllocationCounters {
             old_reserved_bytes: AtomicUsize::new(0),
             large_reserved_bytes: AtomicUsize::new(0),
             immortal_reserved_bytes: AtomicUsize::new(0),
+            next_shard: AtomicUsize::new(0),
         }
     }
 }
 
 impl AtomicAllocationCounters {
     #[inline]
-    fn shard_for_marker(local_marker: usize) -> usize {
-        let shard_count = ALLOCATION_COUNTER_SHARDS;
-        debug_assert!(shard_count > 0);
-        let seed = local_marker >> 6;
-        if shard_count.is_power_of_two() {
-            seed & (shard_count - 1)
-        } else {
-            seed % shard_count
-        }
+    pub(crate) fn assign_shard(&self) -> usize {
+        self.next_shard.fetch_add(1, Ordering::Relaxed) & (ALLOCATION_COUNTER_SHARDS - 1)
     }
 
     /// Record one allocation. Mirrors the logic of
@@ -344,9 +339,10 @@ impl AtomicAllocationCounters {
         space: SpaceKind,
         bytes: usize,
         old_reserved_bytes: usize,
-        local_marker: usize,
+        shard_index: usize,
     ) {
-        let shard = &self.shards[Self::shard_for_marker(local_marker)];
+        debug_assert!(shard_index < self.shards.len());
+        let shard = &self.shards[shard_index];
         match space {
             SpaceKind::Nursery => {
                 shard.nursery_live_bytes.fetch_add(bytes, Ordering::Relaxed);

@@ -93,6 +93,11 @@ pub struct MutatorLocal {
     /// index lock, not the object storage lock, once the
     /// chunk is reserved.
     publish_local: crate::object_store::ObjectPublishLocal,
+    /// Fixed shard in the heap-wide allocation counters for
+    /// this mutator. Assigning it once avoids hashing a
+    /// stack-derived marker on every allocation and spreads
+    /// concurrent mutators across the counter shards.
+    alloc_counter_shard: usize,
 }
 
 impl Default for MutatorLocal {
@@ -103,6 +108,7 @@ impl Default for MutatorLocal {
             roots: RootStack::default(),
             descriptor_cache: None,
             publish_local: crate::object_store::ObjectPublishLocal::default(),
+            alloc_counter_shard: 0,
         }
     }
 }
@@ -143,6 +149,14 @@ impl MutatorLocal {
 
     pub(crate) fn publish_local_mut(&mut self) -> &mut crate::object_store::ObjectPublishLocal {
         &mut self.publish_local
+    }
+
+    pub(crate) fn set_alloc_counter_shard(&mut self, shard: usize) {
+        self.alloc_counter_shard = shard;
+    }
+
+    pub(crate) fn alloc_counter_shard(&self) -> usize {
+        self.alloc_counter_shard
     }
 }
 
@@ -196,9 +210,11 @@ pub struct Mutator<'heap> {
 
 impl<'heap> Mutator<'heap> {
     pub(crate) fn new(heap: &'heap Heap) -> Self {
+        let mut local = MutatorLocal::default();
+        local.set_alloc_counter_shard(heap.allocation_counter_shard());
         Self {
             heap,
-            local: MutatorLocal::default(),
+            local,
             handle_scope_state: crate::root::HandleScopeState::new(heap),
         }
     }
@@ -355,10 +371,12 @@ impl<'heap> Mutator<'heap> {
             )?,
         };
 
+        let alloc_counter_shard = local.alloc_counter_shard();
         let commit = heap.commit_allocated_record_shared(
             record,
             old_reserved_bytes,
             local.publish_local_mut(),
+            alloc_counter_shard,
             true,
         )?;
         if commit.plans_dirty {

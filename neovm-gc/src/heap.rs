@@ -483,6 +483,10 @@ impl Heap {
         Mutator::new(self)
     }
 
+    pub(crate) fn allocation_counter_shard(&self) -> usize {
+        self.state.alloc_counters.assign_shard()
+    }
+
     /// Create a collector-side runtime guard bound to this
     /// heap. The returned guard holds the safepoint write
     /// lock plus the heap-core write lock for its entire
@@ -605,6 +609,7 @@ impl Heap {
         record: ObjectRecord,
         old_reserved_bytes: usize,
         publish_local: &mut ObjectPublishLocal,
+        alloc_counter_shard: usize,
         prepared_publish: bool,
     ) -> Result<AllocationCommit, AllocError> {
         let total_size = record.header().total_size();
@@ -626,12 +631,11 @@ impl Heap {
                 .old_gen()
                 .record_block_object_accounting_for_placement_shared(placement);
         }
-        let local_marker = publish_local as *mut ObjectPublishLocal as usize;
         self.state.alloc_counters.record_allocation(
             space,
             total_size,
             old_reserved_bytes,
-            local_marker,
+            alloc_counter_shard,
         );
         let recorded = if self.state.collector.has_active_major_mark() {
             let read = self.state.objects.read();
@@ -1608,6 +1612,7 @@ impl HeapCore {
         record: ObjectRecord,
         old_reserved_bytes: usize,
         publish_local: &mut ObjectPublishLocal,
+        alloc_counter_shard: usize,
         prepared_publish: bool,
     ) -> Result<AllocationCommit, AllocError> {
         let total_size = record.header().total_size();
@@ -1625,9 +1630,8 @@ impl HeapCore {
             self.old_gen
                 .record_block_object_accounting_for_placement_shared(placement);
         }
-        let local_marker = publish_local as *mut ObjectPublishLocal as usize;
         self.alloc_counters
-            .record_allocation(space, total_size, old_reserved_bytes, local_marker);
+            .record_allocation(space, total_size, old_reserved_bytes, alloc_counter_shard);
         let recorded = if self.collector.has_active_major_mark() {
             let read = self.objects.read();
             self.collector.record_active_major_reachable_object(

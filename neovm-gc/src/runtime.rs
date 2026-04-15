@@ -438,10 +438,13 @@ impl<'heap> CollectorRuntime<'heap> {
             }
             _ => crate::object::ObjectRecord::allocate(desc, space, value)?,
         };
+        let local = self.local.get_mut();
+        let alloc_counter_shard = local.alloc_counter_shard();
         let commit = self.heap.commit_allocated_record_shared(
             record,
             old_reserved_bytes,
-            self.local.get_mut().publish_local_mut(),
+            local.publish_local_mut(),
+            alloc_counter_shard,
             false,
         )?;
         if commit.plans_dirty {
