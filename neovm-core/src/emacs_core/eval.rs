@@ -1660,9 +1660,9 @@ pub(crate) struct ActiveLambdaCallState {
 }
 
 pub(crate) struct ActiveMacroExpansionScopeState {
-    pushed_eval_root_frame: bool,
     saved_active_call_extra_roots_len: Option<usize>,
     saved_eval_root_frame_len: Option<usize>,
+    saved_specpdl_len: Option<usize>,
     old_lexical: bool,
     old_dynvars: Value,
 }
@@ -2084,7 +2084,7 @@ fn finish_lambda_call_in_state(
 
 fn begin_macro_expansion_scope_in_state(
     obarray: &mut Obarray,
-    specpdl: &[SpecBinding],
+    specpdl: &mut Vec<SpecBinding>,
     buffers: &mut BufferManager,
     custom: &CustomManager,
     lexenv: Value,
@@ -2097,10 +2097,8 @@ fn begin_macro_expansion_scope_in_state(
         .last()
         .map(|frame| frame.extra_roots.len());
     let saved_eval_root_frame_len = eval_root_frames.last().map(|frame| frame.roots.len());
-    let pushed_eval_root_frame = active_call_roots.is_empty() && eval_root_frames.is_empty();
-    if pushed_eval_root_frame {
-        eval_root_frames.push(EvalRootFrame::new());
-    }
+    let saved_specpdl_len =
+        (active_call_roots.is_empty() && eval_root_frames.is_empty()).then_some(specpdl.len());
     let old_lexical = obarray
         .symbol_value_id(lexical_binding_symbol())
         .is_some_and(|value| value.is_truthy());
@@ -2160,31 +2158,38 @@ fn begin_macro_expansion_scope_in_state(
         }
         dynvars
     } else {
-        let frame = eval_root_frames
-            .last_mut()
-            .expect("eval root frame should exist for macro expansion scope");
-        let dynvars_root_index = frame.roots.len();
-        frame.roots.push(old_dynvars);
-        let mut dynvars = frame.roots[dynvars_root_index];
+        let dynvars_root_index = specpdl.len();
+        specpdl.push(SpecBinding::GcRoot { value: old_dynvars });
+        let mut dynvars = old_dynvars;
         for sym in lexenv_bare_symbols(lexenv) {
             if sym == t_symbol || sym == nil_symbol {
                 continue;
             }
             dynvars = Value::cons(Value::from_sym_id(sym), dynvars);
-            frame.roots[dynvars_root_index] = dynvars;
+            match specpdl.get_mut(dynvars_root_index) {
+                Some(SpecBinding::GcRoot { value }) => *value = dynvars,
+                other => panic!("expected macro-expansion dynvars gc root, got {other:?}"),
+            }
         }
-        for entry in specpdl.iter().rev() {
-            let sym_id = match entry {
+        let specpdl_dynvars: Vec<SymId> = specpdl
+            .iter()
+            .rev()
+            .filter_map(|entry| match entry {
                 SpecBinding::Let { sym_id, .. }
                 | SpecBinding::LetLocal { sym_id, .. }
-                | SpecBinding::LetDefault { sym_id, .. } => sym_id,
-                SpecBinding::LexicalEnv { .. } | SpecBinding::GcRoot { .. } => continue,
-            };
-            if *sym_id == t_symbol || *sym_id == nil_symbol {
+                | SpecBinding::LetDefault { sym_id, .. } => Some(*sym_id),
+                SpecBinding::LexicalEnv { .. } | SpecBinding::GcRoot { .. } => None,
+            })
+            .collect();
+        for sym_id in specpdl_dynvars {
+            if sym_id == t_symbol || sym_id == nil_symbol {
                 continue;
             }
-            dynvars = Value::cons(Value::from_sym_id(*sym_id), dynvars);
-            frame.roots[dynvars_root_index] = dynvars;
+            dynvars = Value::cons(Value::from_sym_id(sym_id), dynvars);
+            match specpdl.get_mut(dynvars_root_index) {
+                Some(SpecBinding::GcRoot { value }) => *value = dynvars,
+                other => panic!("expected macro-expansion dynvars gc root, got {other:?}"),
+            }
         }
         dynvars
     };
@@ -2200,9 +2205,9 @@ fn begin_macro_expansion_scope_in_state(
     );
 
     ActiveMacroExpansionScopeState {
-        pushed_eval_root_frame,
         saved_active_call_extra_roots_len,
         saved_eval_root_frame_len,
+        saved_specpdl_len,
         old_lexical,
         old_dynvars,
     }
@@ -2210,7 +2215,7 @@ fn begin_macro_expansion_scope_in_state(
 
 fn finish_macro_expansion_scope_in_state(
     obarray: &mut Obarray,
-    specpdl: &[SpecBinding],
+    specpdl: &mut Vec<SpecBinding>,
     buffers: &mut BufferManager,
     custom: &CustomManager,
     active_call_roots: &mut Vec<ActiveCallFrame>,
@@ -2236,8 +2241,8 @@ fn finish_macro_expansion_scope_in_state(
     {
         frame.roots.truncate(saved_len);
     }
-    if state.pushed_eval_root_frame {
-        let _ = eval_root_frames.pop();
+    if let Some(saved_len) = state.saved_specpdl_len {
+        specpdl.truncate(saved_len);
     }
 }
 
@@ -9940,7 +9945,7 @@ impl Context {
         let scope_enter_start = self.macro_perf_enabled.then(std::time::Instant::now);
         let state = begin_macro_expansion_scope_in_state(
             &mut self.obarray,
-            &self.specpdl,
+            &mut self.specpdl,
             &mut self.buffers,
             &self.custom,
             self.lexenv,
@@ -9956,7 +9961,7 @@ impl Context {
         let scope_exit_start = self.macro_perf_enabled.then(std::time::Instant::now);
         finish_macro_expansion_scope_in_state(
             &mut self.obarray,
-            &self.specpdl,
+            &mut self.specpdl,
             &mut self.buffers,
             &self.custom,
             &mut self.active_call_roots,
@@ -11102,7 +11107,7 @@ impl Context {
         self.macro_expansion_scope_depth += 1;
         begin_macro_expansion_scope_in_state(
             &mut self.obarray,
-            &self.specpdl,
+            &mut self.specpdl,
             &mut self.buffers,
             &self.custom,
             self.lexenv,
@@ -11114,7 +11119,7 @@ impl Context {
     pub(crate) fn finish_macro_expansion_scope(&mut self, state: ActiveMacroExpansionScopeState) {
         finish_macro_expansion_scope_in_state(
             &mut self.obarray,
-            &self.specpdl,
+            &mut self.specpdl,
             &mut self.buffers,
             &self.custom,
             &mut self.active_call_roots,

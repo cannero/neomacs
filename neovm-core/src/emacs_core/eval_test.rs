@@ -8704,6 +8704,50 @@ fn direct_closure_call_without_preexisting_frame_uses_active_call_roots() {
 }
 
 #[test]
+fn macro_expansion_scope_without_preexisting_frame_uses_specpdl_roots() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_lexical_binding(true);
+    ev.gc_stress = true;
+    ev.bind_lexical_value_rooted(intern("macro-scope-a"), Value::fixnum(1));
+    ev.bind_lexical_value_rooted(intern("macro-scope-b"), Value::fixnum(2));
+    let specpdl_count = ev.specpdl.len();
+    let dyn_sym = intern("macro-scope-dyn");
+    ev.specbind(dyn_sym, Value::fixnum(9));
+
+    assert!(ev.active_call_roots.is_empty());
+    assert!(ev.eval_root_frames.is_empty());
+
+    let state = ev.begin_macro_expansion_scope();
+
+    assert!(ev.active_call_roots.is_empty());
+    assert!(ev.eval_root_frames.is_empty());
+    assert!(matches!(
+        ev.specpdl.last(),
+        Some(SpecBinding::GcRoot { .. })
+    ));
+
+    let dynvars = ev
+        .obarray
+        .symbol_value_id(macroexp_dynvars_symbol())
+        .copied()
+        .expect("macroexp--dynvars should be bound inside macro expansion scope");
+    let printed = crate::emacs_core::print::print_value(&dynvars);
+    assert!(printed.contains("macro-scope-dyn"), "{printed}");
+
+    ev.finish_macro_expansion_scope(state);
+
+    assert!(ev.active_call_roots.is_empty());
+    assert!(ev.eval_root_frames.is_empty());
+    assert!(
+        ev.specpdl.len() == specpdl_count + 1,
+        "macro expansion scope should release only its temporary specpdl roots"
+    );
+    ev.unbind_to(specpdl_count);
+    assert!(ev.specpdl.is_empty());
+}
+
+#[test]
 fn gc_collect_frees_unreachable() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
