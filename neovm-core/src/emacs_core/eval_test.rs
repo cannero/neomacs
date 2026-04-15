@@ -8533,6 +8533,33 @@ fn vm_root_frames_are_traced_across_exact_gc() {
 }
 
 #[test]
+fn extra_gc_roots_use_eval_root_frames_without_temp_root_mirroring() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
+
+    let payload = Value::vector(vec![Value::fixnum(43)]);
+    let temp_roots_before = ev.temp_roots.len();
+
+    let rooted = ev.with_extra_gc_roots(&[payload], |eval| {
+        assert_eq!(eval.temp_roots.len(), temp_roots_before);
+        assert_eq!(eval.eval_root_frames.len(), 1);
+        eval.gc_collect_exact();
+        eval.eval_root_frames
+            .last()
+            .expect("eval root frame should remain present")
+            .roots[0]
+    });
+
+    assert_eq!(
+        rooted.as_vector_data().unwrap().as_slice(),
+        &[Value::fixnum(43)]
+    );
+    assert!(ev.eval_root_frames.is_empty());
+    assert_eq!(ev.temp_roots.len(), temp_roots_before);
+}
+
+#[test]
 fn gc_collect_frees_unreachable() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

@@ -258,6 +258,19 @@ impl VmRootFrame {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub(crate) struct EvalRootFrame {
+    pub(crate) roots: LispArgVec,
+}
+
+impl EvalRootFrame {
+    fn new() -> Self {
+        Self {
+            roots: LispArgVec::new(),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct PendingSafeFuncall {
     pub(crate) function: Value,
@@ -1415,6 +1428,9 @@ pub struct Context {
     /// Active evaluator call frames used as exact GC roots at apply boundaries.
     /// Unlike `runtime_backtrace`, these exist even for untraced internal calls.
     active_call_roots: Vec<ActiveCallFrame>,
+    /// Explicit non-call eval root frames used by helper scopes that need
+    /// exact roots without corresponding to a callable evaluator frame.
+    eval_root_frames: Vec<EvalRootFrame>,
     /// GNU-shaped Lisp call stack used by `backtrace-frame--internal`,
     /// `mapbacktrace`, and advice-sensitive `called-interactively-p`.
     pub(crate) runtime_backtrace: Vec<RuntimeBacktraceFrame>,
@@ -1776,6 +1792,7 @@ pub(crate) struct ActiveMacroExpansionScopeState {
 pub(crate) struct EvalRootScopeState {
     saved_temp_roots_len: usize,
     saved_active_call_extra_roots_len: Option<usize>,
+    saved_eval_root_frame_len: Option<usize>,
 }
 
 fn bind_lexical_value_rooted_in_state(
@@ -4183,6 +4200,7 @@ impl Context {
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
             active_call_roots: Vec::new(),
+            eval_root_frames: Vec::new(),
             runtime_backtrace: Vec::new(),
             condition_stack: Vec::new(),
             next_resume_id: 1,
@@ -4320,6 +4338,7 @@ impl Context {
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
             active_call_roots: Vec::new(),
+            eval_root_frames: Vec::new(),
             runtime_backtrace: Vec::new(),
             condition_stack: Vec::new(),
             next_resume_id: 1,
@@ -4467,6 +4486,11 @@ impl Context {
                 visit(arg);
             }
             for root in frame.extra_roots.iter().copied() {
+                visit(root);
+            }
+        }
+        for frame in &self.eval_root_frames {
+            for root in frame.roots.iter().copied() {
                 visit(root);
             }
         }
@@ -9156,11 +9180,16 @@ impl Context {
         EvalRootScopeState {
             saved_temp_roots_len: self.temp_roots.len(),
             saved_active_call_extra_roots_len: self.save_active_call_extra_roots(),
+            saved_eval_root_frame_len: self.eval_root_frames.last().map(|frame| frame.roots.len()),
         }
     }
 
     pub(crate) fn push_eval_root(&mut self, value: Value) {
         if !self.push_active_call_extra_root(value) {
+            if let Some(frame) = self.eval_root_frames.last_mut() {
+                frame.roots.push(value);
+                return;
+            }
             self.temp_roots.push(value);
         }
     }
@@ -9169,7 +9198,20 @@ impl Context {
         if let Some(saved_len) = scope.saved_active_call_extra_roots_len {
             let _ = self.restore_active_call_extra_roots(saved_len);
         }
+        if let Some(saved_len) = scope.saved_eval_root_frame_len
+            && let Some(frame) = self.eval_root_frames.last_mut()
+        {
+            frame.roots.truncate(saved_len);
+        }
         self.temp_roots.truncate(scope.saved_temp_roots_len);
+    }
+
+    pub(crate) fn push_eval_root_frame(&mut self) {
+        self.eval_root_frames.push(EvalRootFrame::new());
+    }
+
+    pub(crate) fn pop_eval_root_frame(&mut self) {
+        self.eval_root_frames.pop();
     }
 
     pub(crate) fn push_vm_root_frame(&mut self) {
@@ -11072,12 +11114,19 @@ impl Context {
         extra_roots: &[Value],
         f: impl FnOnce(&mut Context) -> T,
     ) -> T {
+        let needs_eval_root_frame = self.active_call_roots.is_empty();
+        if needs_eval_root_frame {
+            self.push_eval_root_frame();
+        }
         let eval_root_scope = self.save_eval_roots();
         for root in extra_roots {
             self.push_eval_root(*root);
         }
         let result = f(self);
         self.restore_eval_roots(eval_root_scope);
+        if needs_eval_root_frame {
+            self.pop_eval_root_frame();
+        }
         result
     }
 
