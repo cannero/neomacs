@@ -3027,6 +3027,7 @@ impl<'a> Vm<'a> {
         match param_name.as_str() {
             "name" => Ok(frame.name_value()),
             "title" => Ok(frame.title_value()),
+            "explicit-name" => Ok(frame.explicit_name_value()),
             "width" => Ok(frame
                 .parameter("width")
                 .unwrap_or(Value::fixnum(frame.columns() as i64))),

@@ -841,6 +841,24 @@ fn test_format_mode_line_frame_name_f_spec_defaults_to_emacs_without_frame() {
 }
 
 #[test]
+fn test_format_mode_line_frame_name_f_spec_uses_emacs_for_gui_frame_without_explicit_name() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    let buffer_id = eval.buffers.create_buffer("frame-name-default-test");
+    eval.buffers.set_current(buffer_id);
+
+    let frame_id = eval.frames.create_frame("F1", 80, 24, buffer_id);
+    {
+        let frame = eval.frames.get_mut(frame_id).expect("frame");
+        frame.set_window_system(Some(Value::symbol("x")));
+    }
+
+    let rendered =
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%F")]).expect("frame name");
+    assert_eq!(rendered, Value::string("Emacs"));
+}
+
+#[test]
 fn test_format_mode_line_remote_at_spec_matches_gnu() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();

@@ -1214,6 +1214,10 @@ pub struct Frame {
     /// GNU `struct frame.name`: a Lisp string used for resources and default
     /// title fallback.
     pub name: Value,
+    /// GNU `struct frame.explicit_name`: whether the frame name came from an
+    /// explicit Lisp-side parameter rather than an auto-generated `F<num>`
+    /// fallback.
+    pub explicit_name: bool,
     /// Terminal owner id for GNU `frame-terminal` / terminal lifecycle.
     pub terminal_id: u64,
     /// Root of the window tree.
@@ -1336,6 +1340,7 @@ impl Frame {
         Self {
             id,
             name,
+            explicit_name: false,
             terminal_id,
             root_window,
             selected_window: selected,
@@ -1392,6 +1397,10 @@ impl Frame {
         self.title
     }
 
+    pub fn explicit_name_value(&self) -> Value {
+        Value::bool_val(self.explicit_name)
+    }
+
     pub fn name_runtime_string_owned(&self) -> String {
         self.name.as_runtime_string_owned().unwrap_or_default()
     }
@@ -1410,8 +1419,32 @@ impl Frame {
             .unwrap_or_else(|| "Neomacs".to_string())
     }
 
+    pub fn generated_name_runtime_string(&self) -> String {
+        let ordinal = if self.id.0 >= FRAME_ID_BASE {
+            self.id.0 - FRAME_ID_BASE + 1
+        } else {
+            self.id.0
+        };
+        format!("F{ordinal}")
+    }
+
     pub fn set_name_runtime_string(&mut self, name: impl Into<String>) {
         self.name = Value::string(name.into());
+        self.explicit_name = true;
+    }
+
+    pub fn set_generated_name_runtime_string(&mut self, name: impl Into<String>) {
+        self.name = Value::string(name.into());
+        self.explicit_name = false;
+    }
+
+    pub fn set_name_parameter_value(&mut self, name: Value) {
+        if name.is_nil() {
+            self.set_generated_name_runtime_string(self.generated_name_runtime_string());
+        } else {
+            self.name = name;
+            self.explicit_name = true;
+        }
     }
 
     pub fn set_title_runtime_string(&mut self, title: impl Into<String>) {

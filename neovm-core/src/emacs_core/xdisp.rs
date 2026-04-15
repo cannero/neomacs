@@ -613,7 +613,7 @@ fn build_mode_line_percent_context(
         let title = frame.title_value();
         if title.is_string() {
             ctx.frame_name = Some(title);
-        } else {
+        } else if frame.explicit_name || frame.effective_window_system().is_none() {
             let name = frame.name_value();
             if name.is_string() {
                 ctx.frame_name = Some(name);

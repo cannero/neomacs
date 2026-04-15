@@ -5667,7 +5667,11 @@ fn stringish_value(value: &Value) -> Option<String> {
 }
 
 fn frame_name_parameter_value(value: &Value) -> Option<Value> {
-    stringish_value(value).map(Value::string)
+    if value.is_nil() {
+        Some(Value::NIL)
+    } else {
+        stringish_value(value).map(Value::string)
+    }
 }
 
 fn frame_title_parameter_value(value: &Value) -> Option<Value> {
@@ -6101,6 +6105,7 @@ pub(crate) fn builtin_frame_parameter(
     match param_name.as_str() {
         "name" => return Ok(frame.name_value()),
         "title" => return Ok(frame.title_value()),
+        "explicit-name" => return Ok(frame.explicit_name_value()),
         // In Emacs, frame parameter width/height are text columns/lines.
         // For the bootstrap batch frame, explicit parameter overrides preserve
         // the 80x25 report shape.
@@ -6137,6 +6142,10 @@ pub(crate) fn builtin_frame_parameters(
     // Built-in parameters.
     pairs.push(Value::cons(Value::symbol("name"), frame.name_value()));
     pairs.push(Value::cons(Value::symbol("title"), frame.title_value()));
+    pairs.push(Value::cons(
+        Value::symbol("explicit-name"),
+        frame.explicit_name_value(),
+    ));
     let width = frame
         .parameter("width")
         .unwrap_or(Value::fixnum(frame.columns() as i64));
@@ -6187,7 +6196,7 @@ pub(crate) fn builtin_modify_frame_parameters(
                     "name" => {
                         if let Some(name) = frame_name_parameter_value(&pair_cdr) {
                             if let Some(frame) = eval.frames.get_mut(fid) {
-                                frame.name = name;
+                                frame.set_name_parameter_value(name);
                             }
                         }
                     }
