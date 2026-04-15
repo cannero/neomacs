@@ -10,19 +10,18 @@ fn eval_all(src: &str) -> Vec<String> {
     // Root all parsed forms across the eval loop. Same GC hazard
     // as eval_test::eval_all: the Vec<Value> lives on the malloc
     // heap and is invisible to conservative stack scanning.
-    let saved_len = ev.save_temp_roots();
-    for form in &forms {
-        ev.push_temp_root(*form);
-    }
-    let results = forms
-        .iter()
-        .map(|form| {
-            let result = ev.eval_form(*form);
-            format_eval_result(&result)
-        })
-        .collect();
-    ev.restore_temp_roots(saved_len);
-    results
+    ev.with_gc_scope(|ev| {
+        for form in &forms {
+            ev.push_eval_root(*form);
+        }
+        forms
+            .iter()
+            .map(|form| {
+                let result = ev.eval_form(*form);
+                format_eval_result(&result)
+            })
+            .collect()
+    })
 }
 
 fn bootstrap_context() -> Context {

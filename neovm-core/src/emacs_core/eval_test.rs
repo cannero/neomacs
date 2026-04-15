@@ -25,19 +25,18 @@ fn eval_all(src: &str) -> Vec<String> {
     // any intervening GC reclaims the cons cells in the unrooted
     // `forms` Vec<Value> (malloc heap, invisible to conservative
     // stack scanning).
-    let saved_len = ev.save_temp_roots();
-    for form in &forms {
-        ev.push_temp_root(*form);
-    }
-    let results = forms
-        .iter()
-        .map(|form| {
-            let result = ev.eval_form(*form);
-            format_eval_result(&result)
-        })
-        .collect();
-    ev.restore_temp_roots(saved_len);
-    results
+    ev.with_gc_scope(|ev| {
+        for form in &forms {
+            ev.push_eval_root(*form);
+        }
+        forms
+            .iter()
+            .map(|form| {
+                let result = ev.eval_form(*form);
+                format_eval_result(&result)
+            })
+            .collect()
+    })
 }
 
 fn eval_one_with_frame(src: &str) -> String {
@@ -8865,18 +8864,18 @@ fn eval_stress(src: &str) -> Vec<String> {
     // lives on the malloc heap and is invisible to conservative
     // stack scanning; without rooting, the forced low-threshold
     // GC reclaims the cons cells while we are still iterating.
-    let saved_len = ev.save_temp_roots();
-    for form in &forms {
-        ev.push_temp_root(*form);
-    }
-    let mut results = Vec::new();
-    for form in &forms {
-        let r = ev.eval_form(*form);
-        results.push(format_eval_result(&r));
-        ev.gc_safe_point();
-    }
-    ev.restore_temp_roots(saved_len);
-    results
+    ev.with_gc_scope(|ev| {
+        for form in &forms {
+            ev.push_eval_root(*form);
+        }
+        let mut results = Vec::new();
+        for form in &forms {
+            let r = ev.eval_form(*form);
+            results.push(format_eval_result(&r));
+            ev.gc_safe_point();
+        }
+        results
+    })
 }
 
 #[test]

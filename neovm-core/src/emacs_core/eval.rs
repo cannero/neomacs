@@ -6145,32 +6145,8 @@ impl Context {
         Ok(())
     }
 
-    /// Save the current length of temp_roots for later restoration.
-    pub(crate) fn save_temp_roots(&self) -> usize {
-        self.temp_roots.len()
-    }
-
-    /// Add a value to temp_roots so it survives GC.
-    pub(crate) fn push_temp_root(&mut self, val: Value) {
-        self.temp_roots.push(val);
-    }
-
-    /// Restore temp_roots to a previously saved length.
-    pub(crate) fn restore_temp_roots(&mut self, saved_len: usize) {
-        self.temp_roots.truncate(saved_len);
-    }
-
     /// Execute `f` within a GC scope. Values rooted via `root()` during `f`
     /// are automatically unrooted when `f` returns (even on error/early-return).
-    ///
-    /// This is the RAII replacement for save/restore_temp_roots.
-    /// Equivalent to:
-    /// ```ignore
-    /// let saved = ctx.save_temp_roots();
-    /// let result = f(ctx);
-    /// ctx.restore_temp_roots(saved);
-    /// result
-    /// ```
     #[inline]
     pub(crate) fn with_gc_scope<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
         let needs_eval_root_frame =

@@ -93,22 +93,23 @@ pub fn load_minimal_gnu_help_runtime(eval: &mut Context) {
     // can be reclaimed when an `eval_sub` of an earlier form
     // triggers a collection. Mirrors the rooting pattern in
     // `Context::eval_str_each` (eval.rs:6170-6183).
-    let saved_temp_roots_len = eval.save_temp_roots();
-    for form in &help_forms {
-        eval.push_temp_root(*form);
-    }
-    let mut found_substitute_command_keys = false;
-    for form in &help_forms {
-        let is_target = is_named_defun_value(form, "substitute-command-keys");
-        eval.eval_sub(*form)
-            .map_err(map_flow)
-            .unwrap_or_else(|err| panic!("eval help.el prefix: {err:?}"));
-        if is_target {
-            found_substitute_command_keys = true;
-            break;
+    let found_substitute_command_keys = eval.with_gc_scope(|eval| {
+        for form in &help_forms {
+            eval.push_eval_root(*form);
         }
-    }
-    eval.restore_temp_roots(saved_temp_roots_len);
+        let mut found_substitute_command_keys = false;
+        for form in &help_forms {
+            let is_target = is_named_defun_value(form, "substitute-command-keys");
+            eval.eval_sub(*form)
+                .map_err(map_flow)
+                .unwrap_or_else(|err| panic!("eval help.el prefix: {err:?}"));
+            if is_target {
+                found_substitute_command_keys = true;
+                break;
+            }
+        }
+        found_substitute_command_keys
+    });
     assert!(
         found_substitute_command_keys,
         "help.el should define substitute-command-keys"
