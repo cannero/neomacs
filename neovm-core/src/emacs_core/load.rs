@@ -41,6 +41,42 @@ fn load_path_value(path: &Path) -> Value {
     Value::heap_string(load_path_lisp_string(path))
 }
 
+fn load_found_effective(found: &LispString) -> LispString {
+    // GNU's compute_found_effective only diverges from FOUND for native-elisp
+    // loads. NeoVM doesn't model that path yet, so keep the split in the API
+    // now and return FOUND unchanged.
+    found.clone()
+}
+
+fn load_hist_file_name(
+    eval: &super::eval::Context,
+    requested: &LispString,
+    found: &LispString,
+) -> LispString {
+    let found_effective = load_found_effective(found);
+    if !eval
+        .obarray()
+        .symbol_value("purify-flag")
+        .is_some_and(|value| value.is_truthy())
+    {
+        return found_effective;
+    }
+
+    let found_path = load_path_buf(&found_effective);
+    let Some(file_name) = found_path.file_name() else {
+        return found_effective;
+    };
+    let requested_path = load_path_buf(requested);
+    let directory = requested_path
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty());
+
+    match directory {
+        Some(dir) => load_path_lisp_string(&dir.join(file_name)),
+        None => super::fileio::path_to_lisp_file_name(Path::new(file_name)),
+    }
+}
+
 struct BootstrapLdefsBootPreferenceGuard {
     previous: bool,
 }
@@ -573,7 +609,10 @@ pub fn get_load_path(obarray: &super::symbol::Obarray) -> Vec<LispString> {
 
 pub(crate) enum LoadPlan {
     Return(Value),
-    Load { found: LispString },
+    Load {
+        requested: LispString,
+        found: LispString,
+    },
 }
 
 pub(crate) fn plan_load_in_state(
@@ -607,7 +646,10 @@ pub(crate) fn plan_load_in_state(
         must_suffix,
         prefer_newer,
     ) {
-        Some(found) => Ok(LoadPlan::Load { found }),
+        Some(found) => Ok(LoadPlan::Load {
+            requested: file,
+            found,
+        }),
         None => {
             if noerror {
                 Ok(LoadPlan::Return(Value::NIL))
@@ -644,29 +686,30 @@ pub(crate) fn builtin_load_in_vm_runtime(
         args.get(4).copied(),
     )? {
         LoadPlan::Return(value) => Ok(value),
-        LoadPlan::Load { found } => {
+        LoadPlan::Load { requested, found } => {
             let extra_roots = args.to_vec();
             let noerror = args.get(1).is_some_and(|v| v.is_truthy());
             let nomessage = args.get(2).is_some_and(|v| v.is_truthy());
             let path = load_path_buf(&found);
             shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, move |eval| {
-                load_file_with_found_flags(eval, &path, &found, noerror, nomessage).map_err(|e| {
-                    match e {
-                        EvalError::Signal {
-                            symbol,
-                            data,
-                            raw_data,
-                        } => Flow::Signal(crate::emacs_core::error::SignalData {
-                            symbol,
-                            data,
-                            raw_data,
-                            suppress_signal_hook: false,
-                            selected_resume: None,
-                            search_complete: false,
-                        }),
-                        EvalError::UncaughtThrow { tag, value } => {
-                            crate::emacs_core::error::signal("no-catch", vec![tag, value])
-                        }
+                load_file_with_requested_and_found_flags(
+                    eval, &path, &requested, &found, noerror, nomessage,
+                )
+                .map_err(|e| match e {
+                    EvalError::Signal {
+                        symbol,
+                        data,
+                        raw_data,
+                    } => Flow::Signal(crate::emacs_core::error::SignalData {
+                        symbol,
+                        data,
+                        raw_data,
+                        suppress_signal_hook: false,
+                        selected_resume: None,
+                        search_complete: false,
+                    }),
+                    EvalError::UncaughtThrow { tag, value } => {
+                        crate::emacs_core::error::signal("no-catch", vec![tag, value])
                     }
                 })
             })
@@ -1034,6 +1077,7 @@ pub(crate) fn eager_expand_eval(
 /// after context restoration.
 fn with_load_context<F>(
     eval: &mut super::eval::Context,
+    hist_file_name: &LispString,
     found: &LispString,
     lexical_binding: bool,
     body: F,
@@ -1068,9 +1112,10 @@ where
             ctx.lexenv = Value::list(vec![Value::T]);
         }
 
-        let load_file_value = Value::heap_string(found.clone());
+        let load_file_value = Value::heap_string(hist_file_name.clone());
         ctx.root(load_file_value);
-        let load_true_file_value = load_file_value;
+        let load_true_file_value = Value::heap_string(found.clone());
+        ctx.root(load_true_file_value);
         let current_load_list = Value::cons(load_file_value, Value::NIL);
         ctx.root(current_load_list);
         ctx.set_variable("load-file-name", load_file_value);
@@ -1359,13 +1404,24 @@ pub fn load_file_with_flags(
     // Expand tilde in case the path comes from Elisp with ~ prefix
     let expanded = expand_tilde(&path.to_string_lossy());
     let path = std::path::Path::new(&expanded);
-    let found = load_path_lisp_string(path);
-    load_file_with_found_flags(eval, path, &found, noerror, nomessage)
+    let requested = load_path_lisp_string(path);
+    load_file_with_requested_and_found_flags(eval, path, &requested, &requested, noerror, nomessage)
 }
 
 pub(crate) fn load_file_with_found_flags(
     eval: &mut super::eval::Context,
     path: &Path,
+    found: &LispString,
+    noerror: bool,
+    nomessage: bool,
+) -> Result<Value, EvalError> {
+    load_file_with_requested_and_found_flags(eval, path, found, found, noerror, nomessage)
+}
+
+pub(crate) fn load_file_with_requested_and_found_flags(
+    eval: &mut super::eval::Context,
+    path: &Path,
+    requested: &LispString,
     found: &LispString,
     noerror: bool,
     nomessage: bool,
@@ -1420,7 +1476,7 @@ pub(crate) fn load_file_with_found_flags(
     eval.set_variable("load-in-progress", Value::T);
 
     let result = stacker::maybe_grow(128 * 1024, 2 * 1024 * 1024, || {
-        load_file_body(eval, path, found, noerror, nomessage)
+        load_file_body(eval, path, requested, found, noerror, nomessage)
     });
 
     eval.set_variable("load-in-progress", old_load_in_progress);
@@ -1431,11 +1487,13 @@ pub(crate) fn load_file_with_found_flags(
 fn load_file_body(
     eval: &mut super::eval::Context,
     path: &Path,
+    requested: &LispString,
     found: &LispString,
     noerror: bool,
     nomessage: bool,
 ) -> Result<Value, EvalError> {
     let is_elc = path.extension().and_then(|e| e.to_str()) == Some("elc");
+    let hist_file_name = load_hist_file_name(eval, requested, found);
 
     if !is_elc
         && let load_source_file_function =
@@ -1443,13 +1501,12 @@ fn load_file_body(
         && !load_source_file_function.is_nil()
     {
         let full_name = Value::heap_string(found.clone());
-        let hist_file_name = full_name;
         return eval
             .apply(
                 load_source_file_function,
                 vec![
                     full_name,
-                    hist_file_name,
+                    Value::heap_string(hist_file_name.clone()),
                     Value::bool_val(noerror),
                     Value::bool_val(nomessage),
                 ],
@@ -1497,7 +1554,7 @@ fn load_file_body(
     };
 
     // --- Shared context setup via with_load_context ---
-    with_load_context(eval, found, lexical_binding, |eval| {
+    with_load_context(eval, &hist_file_name, found, lexical_binding, |eval| {
         // Both .el and .elc use the streaming Value reader.
         // .el files get eager macro expansion; .elc files are already compiled
         // so no expansion is needed (macroexpand_fn = None).  The reader
@@ -1511,7 +1568,7 @@ fn load_file_body(
         streaming_readevalloop(
             eval,
             path,
-            found,
+            &hist_file_name,
             &content,
             source_multibyte,
             macroexpand_fn,

@@ -3982,6 +3982,75 @@ fn load_file_records_load_history() {
 }
 
 #[test]
+fn builtin_load_uses_hist_file_name_when_purify_flag_is_set() {
+    crate::test_utils::init_test_tracing();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("neovm-load-purify-history-{unique}"));
+    fs::create_dir_all(&dir).expect("create temp fixture dir");
+    let file = dir.join("probe.el");
+    fs::write(
+        &file,
+        "(setq vm-purify-load-file-name-seen load-file-name)\n\
+         (setq vm-purify-load-true-file-name-seen load-true-file-name)\n\
+         (setq vm-purify-current-load-list-seen current-load-list)\n",
+    )
+    .expect("write fixture");
+
+    let mut eval = super::super::eval::Context::new();
+    eval.set_variable(
+        "load-path",
+        Value::list(vec![Value::string(dir.to_string_lossy().to_string())]),
+    );
+    eval.set_variable("purify-flag", Value::T);
+
+    let loaded = crate::emacs_core::builtins::builtin_load(&mut eval, vec![Value::string("probe")])
+        .expect("load under purify-flag");
+    assert_eq!(loaded, Value::T);
+
+    let true_name = file.to_string_lossy().to_string();
+    assert_eq!(
+        eval.obarray()
+            .symbol_value("vm-purify-load-file-name-seen")
+            .and_then(|value| value.as_str()),
+        Some("probe.el")
+    );
+    assert_eq!(
+        eval.obarray()
+            .symbol_value("vm-purify-load-true-file-name-seen")
+            .and_then(|value| value.as_str()),
+        Some(true_name.as_str())
+    );
+
+    let current_load_list = eval
+        .obarray()
+        .symbol_value("vm-purify-current-load-list-seen")
+        .cloned()
+        .expect("captured current-load-list");
+    let current_entries = list_to_vec(&current_load_list).expect("current-load-list is a list");
+    assert_eq!(
+        current_entries.first().and_then(|value| value.as_str()),
+        Some("probe.el")
+    );
+
+    let history = eval
+        .obarray()
+        .symbol_value("load-history")
+        .cloned()
+        .unwrap_or(Value::NIL);
+    let entries = list_to_vec(&history).expect("load-history is a list");
+    let first = list_to_vec(&entries[0]).expect("entry is a list");
+    assert_eq!(
+        first.first().and_then(|value| value.as_str()),
+        Some("probe.el")
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn load_file_exact_gc_roots_load_history_and_after_load_filename() {
     crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()

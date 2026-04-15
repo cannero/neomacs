@@ -544,11 +544,12 @@ pub(crate) fn builtin_load(eval: &mut super::eval::Context, args: Vec<Value>) ->
         args.get(4).copied(),
     )? {
         super::load::LoadPlan::Return(value) => Ok(value),
-        super::load::LoadPlan::Load { found } => {
+        super::load::LoadPlan::Load { requested, found } => {
             let path = super::fileio::lisp_file_name_to_path_buf(&found);
-            super::load::load_file_with_found_flags(
+            super::load::load_file_with_requested_and_found_flags(
                 eval,
                 &path,
+                &requested,
                 &found,
                 args.get(1).is_some_and(|v| v.is_truthy()),
                 args.get(2).is_some_and(|v| v.is_truthy()),
