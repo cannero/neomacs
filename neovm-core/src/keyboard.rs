@@ -3610,20 +3610,20 @@ impl crate::emacs_core::eval::Context {
             return Ok(false);
         }
 
-        if !help.is_nil() && help.as_str().is_none() {
+        if !help.is_nil() && !help.is_string() {
             help = if self.function_value_is_callable(&help) {
                 self.funcall_general(help, vec![window, object, pos])?
             } else {
                 self.eval_value(&help)?
             };
-            if !help.is_nil() && help.as_str().is_none() {
+            if !help.is_nil() && !help.is_string() {
                 return Ok(true);
             }
         }
 
         help = self.fixup_help_echo_message(help)?;
 
-        if help.as_str().is_some() {
+        if help.is_string() {
             help = self.substitute_help_echo_command_keys(help)?;
         }
 
@@ -3634,8 +3634,10 @@ impl crate::emacs_core::eval::Context {
             .unwrap_or(Value::NIL);
         if self.function_value_is_callable(&show_help_function) {
             let _ = self.funcall_general(show_help_function, vec![help])?;
-        } else if let Some(message) = help.as_str() {
-            self.set_current_message(Some(message.to_owned()));
+        } else if let Some(message) = help.as_lisp_string() {
+            self.set_current_message(Some(
+                crate::emacs_core::builtins::runtime_string_from_lisp_string(message),
+            ));
             self.redisplay();
         } else {
             self.clear_current_message();

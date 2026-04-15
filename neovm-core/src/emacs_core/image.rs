@@ -195,11 +195,11 @@ fn is_image_spec(value: &Value) -> bool {
                 }
                 "file" if !file_seen => {
                     file_seen = true;
-                    file_ok = val.as_str().is_some();
+                    file_ok = val.is_string();
                 }
                 "data" if !data_seen => {
                     data_seen = true;
-                    data_ok = val.as_str().is_some();
+                    data_ok = val.is_string();
                 }
                 _ => {}
             }

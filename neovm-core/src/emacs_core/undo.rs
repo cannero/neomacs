@@ -214,7 +214,7 @@ fn primitive_undo_inner(
                 }
                 // (TEXT . POS) string + int — undo a deletion by re-inserting.
                 (ValueKind::String, ValueKind::Fixnum(pos1)) => {
-                    let text = car.as_str_owned().unwrap_or_default();
+                    let text = super::builtins::lisp_string_to_runtime_string(car);
                     let pos = (pos1.abs() - 1).max(0) as usize;
                     if let Some(buf) = ctx.buffers.get(buf_id) {
                         let clamped = pos.min(buf.text.len());

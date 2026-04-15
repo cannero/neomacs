@@ -1893,6 +1893,29 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_without_input_receiver() {
 }
 
 #[test]
+fn display_update_for_mouse_movement_preserves_raw_unibyte_help_echo() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let frame = install_mouse_help_echo_snapshot_with_value(&mut ev, raw);
+    let (_tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+
+    crate::emacs_core::builtins::builtin_display_update_for_mouse_movement(
+        &mut ev,
+        vec![frame, Value::fixnum(12), Value::fixnum(4)],
+    )
+    .expect("display update should succeed");
+
+    let result = ev
+        .read_char_with_timeout(Some(Duration::ZERO))
+        .expect("read-char should consume help-echo");
+    assert!(result.is_none());
+    let expected = crate::emacs_core::builtins::lisp_string_to_runtime_string(raw);
+    assert_eq!(ev.current_message_text(), Some(expected.as_str()));
+}
+
+#[test]
 fn display_update_for_mouse_movement_runs_mouse_fixup_before_show_help_function() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

@@ -3689,7 +3689,8 @@ impl BufferManager {
                         }
                         (ValueKind::String, ValueKind::Fixnum(pos1)) => {
                             // Delete record: (TEXT . POS) — to undo, re-insert text
-                            let text = car.as_str_owned().unwrap_or_default();
+                            let text =
+                                crate::emacs_core::builtins::lisp_string_to_runtime_string(car);
                             let pos = (pos1.abs() - 1).max(0) as usize;
                             let clamped = self
                                 .buffers

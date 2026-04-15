@@ -123,6 +123,28 @@ fn create_image_data() {
 }
 
 #[test]
+fn create_image_file_accepts_raw_unibyte_name() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(
+        b"test-\xFF.png".to_vec(),
+    ));
+    let result = builtin_create_image(vec![raw, Value::symbol("png")]);
+    assert!(result.is_ok());
+    let spec = result.unwrap();
+    assert!(is_image_spec(&spec));
+}
+
+#[test]
+fn create_image_data_accepts_raw_unibyte_payload() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let result = builtin_create_image(vec![raw, Value::symbol("png"), Value::T]);
+    assert!(result.is_ok());
+    let spec = result.unwrap();
+    assert!(is_image_spec(&spec));
+}
+
+#[test]
 fn create_image_default_type() {
     crate::test_utils::init_test_tracing();
     let result = builtin_create_image(vec![Value::string("foo.png")]);

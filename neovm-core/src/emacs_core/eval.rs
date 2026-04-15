@@ -7662,7 +7662,7 @@ impl Context {
             if name == "default-directory" && value.is_string() && value.string_is_multibyte() {
                 tracing::debug!(
                     "SETQ default-directory to MULTIBYTE string: {:?}",
-                    value.as_str().unwrap_or("<?>"),
+                    super::builtins::lisp_string_to_runtime_string(value),
                 );
             }
             if resolved != name {

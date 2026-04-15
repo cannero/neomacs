@@ -588,11 +588,14 @@ fn parse_underline_value(value: &Value) -> Option<Underline> {
             position: None,
         }),
         ValueKind::Nil => None,
-        _ if value.as_str().is_some() => Some(Underline {
-            style: UnderlineStyle::Line,
-            color: value.as_str().and_then(Color::parse),
-            position: None,
-        }),
+        _ if value.is_string() => {
+            let text = crate::emacs_core::builtins::lisp_string_to_runtime_string(*value);
+            Some(Underline {
+                style: UnderlineStyle::Line,
+                color: Color::parse(&text),
+                position: None,
+            })
+        }
         ValueKind::Cons => {
             let items = crate::emacs_core::value::list_to_vec(value)?;
             let mut style = UnderlineStyle::Line;
@@ -607,7 +610,16 @@ fn parse_underline_value(value: &Value) -> Option<Underline> {
                 let item = &items[i + 1];
                 match key {
                     "color" => {
-                        color = item.as_str().and_then(Color::parse);
+                        color = item
+                            .is_string()
+                            .then(|| {
+                                let text =
+                                    crate::emacs_core::builtins::lisp_string_to_runtime_string(
+                                        *item,
+                                    );
+                                Color::parse(&text)
+                            })
+                            .flatten();
                     }
                     "style" => {
                         if let Some(name) = item.as_symbol_name() {
@@ -657,11 +669,14 @@ fn parse_box_value(value: &Value) -> Option<BoxBorder> {
             width: n as i32,
             style: BoxStyle::Flat,
         }),
-        _ if value.as_str().is_some() => Some(BoxBorder {
-            color: value.as_str().and_then(Color::parse),
-            width: 1,
-            style: BoxStyle::Flat,
-        }),
+        _ if value.is_string() => {
+            let text = crate::emacs_core::builtins::lisp_string_to_runtime_string(*value);
+            Some(BoxBorder {
+                color: Color::parse(&text),
+                width: 1,
+                style: BoxStyle::Flat,
+            })
+        }
         ValueKind::Cons => {
             let items = crate::emacs_core::value::list_to_vec(value)?;
             let mut color = None;
@@ -1925,6 +1940,20 @@ mod tests {
         assert_eq!(face.inverse_video, Some(true));
         assert_eq!(face.extend, Some(true));
         assert_eq!(face.inherit, vec!["bold".to_string()]);
+    }
+
+    #[test]
+    fn face_from_plist_accepts_raw_unibyte_underline_and_box_strings() {
+        crate::test_utils::init_test_tracing();
+        let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+        let plist = vec![Value::keyword("underline"), raw, Value::keyword("box"), raw];
+        let face = Face::from_plist("test", &plist);
+        assert!(face.underline.is_some());
+        assert_eq!(face.underline.as_ref().unwrap().style, UnderlineStyle::Line);
+        assert_eq!(face.underline.as_ref().unwrap().color, None);
+        assert!(face.box_border.is_some());
+        assert_eq!(face.box_border.as_ref().unwrap().width, 1);
+        assert_eq!(face.box_border.as_ref().unwrap().color, None);
     }
 
     // --- Resolve unknown face returns empty ---

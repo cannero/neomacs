@@ -146,6 +146,29 @@ fn test_primitive_undo_reverts_deletion() {
 }
 
 #[test]
+fn test_primitive_undo_reverts_raw_unibyte_deletion() {
+    crate::test_utils::init_test_tracing();
+    use super::super::eval::Context;
+    let mut eval = Context::new();
+    eval.buffers
+        .current_buffer_mut()
+        .expect("scratch buffer")
+        .set_multibyte_value(false);
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    let entry = Value::cons(raw, Value::fixnum(1));
+    let list = Value::cons(entry, Value::NIL);
+    let result = builtin_primitive_undo(&mut eval, vec![Value::fixnum(1), list]);
+    assert!(result.is_ok());
+    let contents = eval
+        .buffers
+        .current_buffer()
+        .expect("scratch buffer")
+        .buffer_substring_lisp_string(0, 1);
+    assert!(!contents.is_multibyte());
+    assert_eq!(contents.as_bytes(), &[0xFF]);
+}
+
+#[test]
 fn test_undo_no_args() {
     crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
