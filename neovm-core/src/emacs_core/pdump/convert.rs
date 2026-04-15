@@ -1238,7 +1238,8 @@ fn dump_font_lock_keyword(kw: &FontLockKeyword) -> DumpFontLockKeyword {
     DumpFontLockKeyword {
         pattern_lisp: Some(dump_lisp_string(&kw.pattern)),
         pattern: None,
-        face: crate::emacs_core::intern::resolve_sym(kw.face).to_string(),
+        face_sym: Some(dump_sym_id(kw.face)),
+        face: String::new(),
         group: kw.group,
         override_: kw.override_,
         laxmatch: kw.laxmatch,
@@ -2840,51 +2841,53 @@ pub(crate) fn load_mode_registry(
     decoder: &mut LoadDecoder,
     dmr: &DumpModeRegistry,
 ) -> ModeRegistry {
-    let major_modes: HashMap<SymId, MajorMode> = dmr
-        .major_modes
-        .iter()
-        .map(|(k, m)| {
-            (
-                load_sym_id(k),
-                MajorMode {
-                    pretty_name: load_lisp_string(&m.pretty_name),
-                    parent: decoder.load_opt_value(&m.parent),
-                    mode_hook: decoder.load_value(&m.mode_hook),
-                    keymap_name: decoder.load_opt_value(&m.keymap_name),
-                    syntax_table_name: decoder.load_opt_value(&m.syntax_table_name),
-                    abbrev_table_name: decoder.load_opt_value(&m.abbrev_table_name),
-                    font_lock: m.font_lock.as_ref().map(|fl| FontLockDefaults {
-                        keywords: fl
-                            .keywords
-                            .iter()
-                            .map(|kw| FontLockKeyword {
-                                pattern: kw
-                                    .pattern_lisp
-                                    .as_ref()
-                                    .map(load_lisp_string)
-                                    .unwrap_or_else(|| {
-                                        LispString::from_utf8(
-                                            kw.pattern.as_deref().unwrap_or_default(),
-                                        )
-                                    }),
-                                face: crate::emacs_core::intern::intern(&kw.face),
-                                group: kw.group,
-                                override_: kw.override_,
-                                laxmatch: kw.laxmatch,
-                            })
-                            .collect(),
-                        case_fold: fl.case_fold,
-                        syntax_table: fl
-                            .syntax_table_lisp
-                            .as_ref()
-                            .map(load_lisp_string)
-                            .or_else(|| fl.syntax_table.as_deref().map(LispString::from_utf8)),
-                    }),
-                    body: decoder.load_opt_value(&m.body),
-                },
-            )
-        })
-        .collect();
+    let major_modes: HashMap<SymId, MajorMode> =
+        dmr.major_modes
+            .iter()
+            .map(|(k, m)| {
+                (
+                    load_sym_id(k),
+                    MajorMode {
+                        pretty_name: load_lisp_string(&m.pretty_name),
+                        parent: decoder.load_opt_value(&m.parent),
+                        mode_hook: decoder.load_value(&m.mode_hook),
+                        keymap_name: decoder.load_opt_value(&m.keymap_name),
+                        syntax_table_name: decoder.load_opt_value(&m.syntax_table_name),
+                        abbrev_table_name: decoder.load_opt_value(&m.abbrev_table_name),
+                        font_lock: m.font_lock.as_ref().map(|fl| FontLockDefaults {
+                            keywords: fl
+                                .keywords
+                                .iter()
+                                .map(|kw| FontLockKeyword {
+                                    pattern: kw
+                                        .pattern_lisp
+                                        .as_ref()
+                                        .map(load_lisp_string)
+                                        .unwrap_or_else(|| {
+                                            LispString::from_utf8(
+                                                kw.pattern.as_deref().unwrap_or_default(),
+                                            )
+                                        }),
+                                    face: kw.face_sym.as_ref().map(load_sym_id).unwrap_or_else(
+                                        || crate::emacs_core::intern::intern(&kw.face),
+                                    ),
+                                    group: kw.group,
+                                    override_: kw.override_,
+                                    laxmatch: kw.laxmatch,
+                                })
+                                .collect(),
+                            case_fold: fl.case_fold,
+                            syntax_table: fl
+                                .syntax_table_lisp
+                                .as_ref()
+                                .map(load_lisp_string)
+                                .or_else(|| fl.syntax_table.as_deref().map(LispString::from_utf8)),
+                        }),
+                        body: decoder.load_opt_value(&m.body),
+                    },
+                )
+            })
+            .collect();
     let minor_modes: HashMap<SymId, MinorMode> = dmr
         .minor_modes
         .iter()

@@ -1233,7 +1233,7 @@ fn bootstrap_buffers_reuses_selected_startup_frame_when_one_already_exists() {
             .frame_manager_mut()
             .get_mut(old_frame)
             .expect("old frame should exist");
-        frame.set_title_runtime_string("old");
+        frame.set_title_value(Value::string("old"));
     }
 
     let _bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());

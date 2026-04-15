@@ -710,6 +710,8 @@ pub struct DumpFontLockKeyword {
     pub pattern_lisp: Option<DumpLispString>,
     #[serde(default)]
     pub pattern: Option<String>,
+    #[serde(default)]
+    pub face_sym: Option<DumpSymId>,
     pub face: String,
     pub group: usize,
     pub override_: bool,
