@@ -85,11 +85,5 @@ pub fn init() -> Result<(), DisplayError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_version() {
-        assert!(!VERSION.is_empty());
-    }
-}
+#[path = "lib_test.rs"]
+mod tests;

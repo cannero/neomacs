@@ -213,12 +213,5 @@ impl WebKitCache {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_cache_creation() {
-        let cache = WebKitCache::new();
-        assert!(cache.is_empty());
-    }
-}
+#[path = "cache_test.rs"]
+mod tests;

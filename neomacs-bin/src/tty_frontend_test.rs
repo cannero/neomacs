@@ -1,0 +1,64 @@
+use super::*;
+use std::collections::VecDeque;
+
+fn parse_key_bytes(bytes: &[u8]) -> Option<(u32, u32)> {
+    let mut queue: VecDeque<u8> = bytes.iter().copied().collect();
+    let first = queue.pop_front()?;
+    let mut next_byte = |_timeout_ms| Ok(queue.pop_front());
+    parse_tty_key_event(first, &mut next_byte).expect("parser should not error")
+}
+
+#[test]
+fn parses_ascii_keypress() {
+    assert_eq!(parse_key_bytes(b"x"), Some((b'x' as u32, 0)));
+}
+
+#[test]
+fn parses_ctrl_keypress() {
+    assert_eq!(
+        parse_key_bytes(&[0x18]),
+        Some((b'x' as u32, RENDER_CTRL_MASK))
+    );
+    assert_eq!(
+        parse_key_bytes(&[0x00]),
+        Some((b'@' as u32, RENDER_CTRL_MASK))
+    );
+    assert_eq!(parse_key_bytes(b"\t"), Some((XK_TAB, 0)));
+    assert_eq!(parse_key_bytes(b"\n"), Some((XK_RETURN, 0)));
+    assert_eq!(parse_key_bytes(&[0x08]), Some((XK_BACKSPACE, 0)));
+}
+
+#[test]
+fn parses_meta_keypress() {
+    assert_eq!(
+        parse_key_bytes(&[0x1B, b'x']),
+        Some((b'x' as u32, RENDER_META_MASK))
+    );
+}
+
+#[test]
+fn parses_utf8_keypress() {
+    assert_eq!(parse_key_bytes("中".as_bytes()), Some(('中' as u32, 0)));
+}
+
+#[test]
+fn parses_escape_and_arrow_sequences() {
+    assert_eq!(parse_key_bytes(&[0x1B]), Some((XK_ESCAPE, 0)));
+    assert_eq!(parse_key_bytes(&[0x1B, b'[', b'A']), Some((XK_UP, 0)));
+    assert_eq!(
+        parse_key_bytes(&[0x1B, b'[', b'1', b';', b'5', b'A']),
+        Some((XK_UP, RENDER_CTRL_MASK))
+    );
+}
+
+#[test]
+fn parses_tilde_sequences() {
+    assert_eq!(
+        parse_key_bytes(&[0x1B, b'[', b'3', b'~']),
+        Some((XK_DELETE, 0))
+    );
+    assert_eq!(
+        parse_key_bytes(&[0x1B, b'[', b'5', b'~']),
+        Some((XK_PAGE_UP, 0))
+    );
+}

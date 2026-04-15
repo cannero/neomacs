@@ -248,16 +248,5 @@ pub fn get_render_node_from_adapter_info(info: &wgpu::AdapterInfo) -> Option<Pat
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_find_drm_render_nodes() {
-        let nodes = find_drm_render_nodes();
-        // Should find at least one on a system with GPU
-        println!("Found {} render nodes", nodes.len());
-        for node in &nodes {
-            println!("  {:?}", node);
-        }
-    }
-}
+#[path = "drm_device_test.rs"]
+mod tests;
