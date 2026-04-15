@@ -1715,6 +1715,12 @@ pub(crate) struct EvalRootScopeState {
     saved_eval_root_frame_len: Option<usize>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct VmRootScopeState {
+    pushed_vm_root_frame: bool,
+    saved_vm_root_frame_len: Option<usize>,
+}
+
 fn bind_lexical_value_rooted_in_state(
     lexenv: &mut Value,
     eval_root_frames: &mut Vec<EvalRootFrame>,
@@ -9109,6 +9115,17 @@ impl Context {
             .push(value);
     }
 
+    pub(crate) fn save_vm_roots(&mut self) -> VmRootScopeState {
+        let pushed_vm_root_frame = self.vm_root_frames.is_empty();
+        if pushed_vm_root_frame {
+            self.push_vm_root_frame();
+        }
+        VmRootScopeState {
+            pushed_vm_root_frame,
+            saved_vm_root_frame_len: self.vm_root_frames.last().map(|frame| frame.roots.len()),
+        }
+    }
+
     pub(crate) fn save_vm_frame_roots(&self) -> usize {
         self.vm_root_frames
             .last()
@@ -9123,6 +9140,15 @@ impl Context {
             .expect("VM root frame missing")
             .roots
             .truncate(saved_len);
+    }
+
+    pub(crate) fn restore_vm_roots(&mut self, scope: VmRootScopeState) {
+        if let Some(saved_len) = scope.saved_vm_root_frame_len {
+            self.restore_vm_frame_roots(saved_len);
+        }
+        if scope.pushed_vm_root_frame {
+            self.pop_vm_root_frame();
+        }
     }
 
     pub(crate) fn with_runtime_backtrace_frame(

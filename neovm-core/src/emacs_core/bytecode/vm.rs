@@ -102,6 +102,13 @@ impl<'a> Vm<'a> {
         result
     }
 
+    fn with_vm_root_scope<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        let scope = self.ctx.save_vm_roots();
+        let result = f(self);
+        self.ctx.restore_vm_roots(scope);
+        result
+    }
+
     fn push_dynamic_vm_root(&mut self, value: Value) {
         self.ctx.push_vm_frame_root(value);
     }
@@ -2805,14 +2812,14 @@ impl<'a> Vm<'a> {
         builtins::expect_args("mapcar", args, 2)?;
         let func = args[0];
         let sequence = args[1];
-        self.with_dynamic_vm_roots(|vm| {
+        self.with_vm_root_scope(|vm| {
             vm.push_dynamic_vm_root(func);
             vm.push_dynamic_vm_root(sequence);
             let mut results = Vec::new();
             let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
                 &sequence,
                 |item| {
-                    let value = vm.with_dynamic_vm_roots(|vm| {
+                    let value = vm.with_vm_root_scope(|vm| {
                         vm.push_dynamic_vm_root(item);
                         vm.call_function(func, vec![item])
                     })?;
@@ -2833,13 +2840,13 @@ impl<'a> Vm<'a> {
         builtins::expect_args("mapc", args, 2)?;
         let func = args[0];
         let sequence = args[1];
-        self.with_dynamic_vm_roots(|vm| {
+        self.with_vm_root_scope(|vm| {
             vm.push_dynamic_vm_root(func);
             vm.push_dynamic_vm_root(sequence);
             crate::emacs_core::builtins::higher_order::for_each_sequence_element(
                 &sequence,
                 |item| {
-                    let result = vm.with_dynamic_vm_roots(|vm| {
+                    let result = vm.with_vm_root_scope(|vm| {
                         vm.push_dynamic_vm_root(item);
                         vm.call_function(func, vec![item])
                     });
@@ -2855,14 +2862,14 @@ impl<'a> Vm<'a> {
         builtins::expect_args("mapcan", args, 2)?;
         let func = args[0];
         let sequence = args[1];
-        self.with_dynamic_vm_roots(|vm| {
+        self.with_vm_root_scope(|vm| {
             vm.push_dynamic_vm_root(func);
             vm.push_dynamic_vm_root(sequence);
             let mut mapped = Vec::new();
             let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
                 &sequence,
                 |item| {
-                    let value = vm.with_dynamic_vm_roots(|vm| {
+                    let value = vm.with_vm_root_scope(|vm| {
                         vm.push_dynamic_vm_root(item);
                         vm.call_function(func, vec![item])
                     })?;
@@ -2884,7 +2891,7 @@ impl<'a> Vm<'a> {
         let func = args[0];
         let sequence = args[1];
         let separator = args.get(2).copied().unwrap_or_else(|| Value::string(""));
-        self.with_dynamic_vm_roots(|vm| {
+        self.with_vm_root_scope(|vm| {
             vm.push_dynamic_vm_root(func);
             vm.push_dynamic_vm_root(sequence);
             vm.push_dynamic_vm_root(separator);
@@ -2892,7 +2899,7 @@ impl<'a> Vm<'a> {
             let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
                 &sequence,
                 |item| {
-                    let value = vm.with_dynamic_vm_roots(|vm| {
+                    let value = vm.with_vm_root_scope(|vm| {
                         vm.push_dynamic_vm_root(item);
                         vm.call_function(func, vec![item])
                     })?;
@@ -2927,7 +2934,7 @@ impl<'a> Vm<'a> {
             in_place,
         } = crate::emacs_core::builtins::higher_order::parse_sort_options(args)?;
         let sequence = args[0];
-        self.with_dynamic_vm_roots(|vm| {
+        self.with_vm_root_scope(|vm| {
             vm.push_dynamic_vm_root(sequence);
             vm.push_dynamic_vm_root(key_fn);
             vm.push_dynamic_vm_root(lessp_fn);
@@ -4055,7 +4062,7 @@ impl<'a> Vm<'a> {
             let key = args[0];
             let list = args[1];
             let test_fn = args[2];
-            return self.with_dynamic_vm_roots(|vm| {
+            return self.with_vm_root_scope(|vm| {
                 vm.push_dynamic_vm_root(key);
                 vm.push_dynamic_vm_root(list);
                 vm.push_dynamic_vm_root(test_fn);
@@ -4068,7 +4075,7 @@ impl<'a> Vm<'a> {
                             let pair_cdr = cursor.cons_cdr();
                             if let ValueKind::Cons = pair_car.kind() {
                                 let entry_key = pair_car.cons_car();
-                                let matches = vm.with_dynamic_vm_roots(|vm| {
+                                let matches = vm.with_vm_root_scope(|vm| {
                                     vm.push_dynamic_vm_root(cursor);
                                     vm.push_dynamic_vm_root(pair_car);
                                     vm.push_dynamic_vm_root(pair_cdr);
@@ -4102,7 +4109,7 @@ impl<'a> Vm<'a> {
             let plist = args[0];
             let prop = args[1];
             let predicate = args[2];
-            return self.with_dynamic_vm_roots(|vm| {
+            return self.with_vm_root_scope(|vm| {
                 vm.push_dynamic_vm_root(plist);
                 vm.push_dynamic_vm_root(prop);
                 vm.push_dynamic_vm_root(predicate);
@@ -4113,7 +4120,7 @@ impl<'a> Vm<'a> {
                             let pair_car = cursor.cons_car();
                             let pair_cdr = cursor.cons_cdr();
                             let entry_key = pair_car;
-                            let matches = vm.with_dynamic_vm_roots(|vm| {
+                            let matches = vm.with_vm_root_scope(|vm| {
                                 vm.push_dynamic_vm_root(cursor);
                                 vm.push_dynamic_vm_root(entry_key);
                                 vm.push_dynamic_vm_root(pair_cdr);
@@ -4764,7 +4771,7 @@ fn merge_result_with_cleanup(result: EvalResult, cleanup: Result<(), Flow>) -> E
 
 impl crate::emacs_core::builtins::higher_order::SortRuntime for Vm<'_> {
     fn call_sort_function(&mut self, function: Value, args: Vec<Value>) -> Result<Value, Flow> {
-        self.with_dynamic_vm_roots(|vm| {
+        self.with_vm_root_scope(|vm| {
             for arg in args.iter().copied() {
                 vm.push_dynamic_vm_root(arg);
             }
