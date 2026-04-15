@@ -70,7 +70,12 @@ impl<'a> crate::emacs_core::hook_runtime::HookRuntime for Vm<'a> {
         roots: &[Value],
         f: impl FnOnce(&mut Self) -> Result<T, Flow>,
     ) -> Result<T, Flow> {
-        self.with_extra_roots(roots, f)
+        self.with_dynamic_vm_roots(|vm| {
+            for root in roots.iter().copied() {
+                vm.push_dynamic_vm_root(root);
+            }
+            f(vm)
+        })
     }
 }
 
@@ -3884,8 +3889,10 @@ impl<'a> Vm<'a> {
                 self.ctx.lexenv = old_lexenv;
             }
             VmUnwindEntry::Cleanup { cleanup } => {
-                let cleanup_root = [cleanup];
-                self.with_extra_roots(&cleanup_root, |vm| vm.call_function(cleanup, vec![]))?;
+                self.with_dynamic_vm_roots(|vm| {
+                    vm.push_dynamic_vm_root(cleanup);
+                    vm.call_function(cleanup, vec![])
+                })?;
             }
             VmUnwindEntry::CurrentBuffer { buffer_id } => {
                 self.ctx.restore_current_buffer_if_live(buffer_id);
@@ -4074,7 +4081,10 @@ impl<'a> Vm<'a> {
             let key = args[0];
             let list = args[1];
             let test_fn = args[2];
-            return self.with_extra_roots(&[key, list, test_fn], |vm| {
+            return self.with_dynamic_vm_roots(|vm| {
+                vm.push_dynamic_vm_root(key);
+                vm.push_dynamic_vm_root(list);
+                vm.push_dynamic_vm_root(test_fn);
                 let mut cursor = list;
                 loop {
                     match cursor.kind() {
@@ -4084,13 +4094,16 @@ impl<'a> Vm<'a> {
                             let pair_cdr = cursor.cons_cdr();
                             if let ValueKind::Cons = pair_car.kind() {
                                 let entry_key = pair_car.cons_car();
-                                let matches = vm.with_extra_roots(
-                                    &[cursor, pair_car, pair_cdr, entry_key],
-                                    |vm| {
-                                        vm.call_function(test_fn, vec![entry_key, key])
-                                            .map(|value| value.is_truthy())
-                                    },
-                                )?;
+                                let saved_roots = vm.save_dynamic_vm_roots();
+                                vm.push_dynamic_vm_root(cursor);
+                                vm.push_dynamic_vm_root(pair_car);
+                                vm.push_dynamic_vm_root(pair_cdr);
+                                vm.push_dynamic_vm_root(entry_key);
+                                let matches = vm
+                                    .call_function(test_fn, vec![entry_key, key])
+                                    .map(|value| value.is_truthy());
+                                vm.restore_dynamic_vm_roots(saved_roots);
+                                let matches = matches?;
                                 if matches {
                                     return Ok(pair_car);
                                 }
@@ -4116,7 +4129,10 @@ impl<'a> Vm<'a> {
             let plist = args[0];
             let prop = args[1];
             let predicate = args[2];
-            return self.with_extra_roots(&[plist, prop, predicate], |vm| {
+            return self.with_dynamic_vm_roots(|vm| {
+                vm.push_dynamic_vm_root(plist);
+                vm.push_dynamic_vm_root(prop);
+                vm.push_dynamic_vm_root(predicate);
                 let mut cursor = plist;
                 loop {
                     match cursor.kind() {
@@ -4124,11 +4140,15 @@ impl<'a> Vm<'a> {
                             let pair_car = cursor.cons_car();
                             let pair_cdr = cursor.cons_cdr();
                             let entry_key = pair_car;
-                            let matches =
-                                vm.with_extra_roots(&[cursor, entry_key, pair_cdr], |vm| {
-                                    vm.call_function(predicate, vec![entry_key, prop])
-                                        .map(|value| value.is_truthy())
-                                })?;
+                            let saved_roots = vm.save_dynamic_vm_roots();
+                            vm.push_dynamic_vm_root(cursor);
+                            vm.push_dynamic_vm_root(entry_key);
+                            vm.push_dynamic_vm_root(pair_cdr);
+                            let matches = vm
+                                .call_function(predicate, vec![entry_key, prop])
+                                .map(|value| value.is_truthy());
+                            vm.restore_dynamic_vm_roots(saved_roots);
+                            let matches = matches?;
                             if matches {
                                 return Ok(cursor);
                             }
@@ -4187,10 +4207,11 @@ impl<'a> Vm<'a> {
     fn builtin_mapatoms_shared(&mut self, args: &[Value]) -> EvalResult {
         let (func, symbols) =
             crate::emacs_core::hashtab::collect_mapatoms_symbols(&self.ctx.obarray, args.to_vec())?;
-        let mut roots = Vec::with_capacity(symbols.len() + 1);
-        roots.push(func);
-        roots.extend(symbols.iter().copied());
-        self.with_extra_roots(&roots, |vm| {
+        self.with_dynamic_vm_roots(|vm| {
+            vm.push_dynamic_vm_root(func);
+            for sym in symbols.iter().copied() {
+                vm.push_dynamic_vm_root(sym);
+            }
             for sym in symbols {
                 vm.call_function(func, vec![sym])?;
             }
@@ -4200,13 +4221,12 @@ impl<'a> Vm<'a> {
 
     fn builtin_maphash_shared(&mut self, args: &[Value]) -> EvalResult {
         let (func, entries) = crate::emacs_core::hashtab::collect_maphash_entries(args.to_vec())?;
-        let mut roots = Vec::with_capacity(entries.len() * 2 + 1);
-        roots.push(func);
-        for (key, value) in &entries {
-            roots.push(*key);
-            roots.push(*value);
-        }
-        self.with_extra_roots(&roots, |vm| {
+        self.with_dynamic_vm_roots(|vm| {
+            vm.push_dynamic_vm_root(func);
+            for (key, value) in &entries {
+                vm.push_dynamic_vm_root(*key);
+                vm.push_dynamic_vm_root(*value);
+            }
             for (key, value) in entries {
                 vm.call_function(func, vec![key, value])?;
             }
@@ -4743,7 +4763,10 @@ impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
             extra_roots.push(environment);
         }
         extra_roots.extend(args.iter().copied());
-        self.with_extra_roots(&extra_roots, move |vm| {
+        self.with_dynamic_vm_roots(move |vm| {
+            for root in extra_roots.iter().copied() {
+                vm.push_dynamic_vm_root(root);
+            }
             let expanded = vm.with_macro_expansion_scope(|vm| vm.call_function(function, args))?;
             let expand_elapsed = expand_start.elapsed();
             vm.ctx.store_runtime_macro_expansion(
@@ -4769,8 +4792,13 @@ fn merge_result_with_cleanup(result: EvalResult, cleanup: Result<(), Flow>) -> E
 
 impl crate::emacs_core::builtins::higher_order::SortRuntime for Vm<'_> {
     fn call_sort_function(&mut self, function: Value, args: Vec<Value>) -> Result<Value, Flow> {
-        let roots = args.clone();
-        self.with_extra_roots(&roots, |vm| vm.call_function(function, args))
+        let saved_roots = self.save_dynamic_vm_roots();
+        for arg in args.iter().copied() {
+            self.push_dynamic_vm_root(arg);
+        }
+        let result = self.call_function(function, args);
+        self.restore_dynamic_vm_roots(saved_roots);
+        result
     }
 
     fn root_sort_value(&mut self, value: Value) {
