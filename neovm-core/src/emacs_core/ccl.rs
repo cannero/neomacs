@@ -10,6 +10,7 @@
 
 use super::error::{EvalResult, Flow, signal};
 use super::value::*;
+use crate::emacs_core::SymId;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -44,8 +45,8 @@ fn is_valid_ccl_program(program: &Value) -> bool {
 
 #[derive(Default)]
 struct CclRegistry {
-    programs: HashMap<String, (i64, Value)>,
-    code_conversion_maps: HashMap<String, (i64, Value)>,
+    programs: HashMap<SymId, (i64, Value)>,
+    code_conversion_maps: HashMap<SymId, (i64, Value)>,
     next_program_id: i64,
     next_code_conversion_map_id: i64,
 }
@@ -60,30 +61,29 @@ impl CclRegistry {
         }
     }
 
-    fn register_program(&mut self, name: &str, program: Value) -> i64 {
-        if let Some((id, slot)) = self.programs.get_mut(name) {
+    fn register_program(&mut self, name: SymId, program: Value) -> i64 {
+        if let Some((id, slot)) = self.programs.get_mut(&name) {
             *slot = program;
             return *id;
         }
         let id = self.next_program_id;
         self.next_program_id = self.next_program_id.saturating_add(1);
-        self.programs.insert(name.to_string(), (id, program));
+        self.programs.insert(name, (id, program));
         id
     }
 
-    fn lookup_program(&self, name: &str) -> Option<Value> {
-        self.programs.get(name).map(|(_, program)| *program)
+    fn lookup_program(&self, name: SymId) -> Option<Value> {
+        self.programs.get(&name).map(|(_, program)| *program)
     }
 
-    fn register_code_conversion_map(&mut self, name: &str, value: Value) -> i64 {
-        if let Some((id, slot)) = self.code_conversion_maps.get_mut(name) {
+    fn register_code_conversion_map(&mut self, name: SymId, value: Value) -> i64 {
+        if let Some((id, slot)) = self.code_conversion_maps.get_mut(&name) {
             *slot = value;
             return *id;
         }
         let id = self.next_code_conversion_map_id;
         self.next_code_conversion_map_id = self.next_code_conversion_map_id.saturating_add(1);
-        self.code_conversion_maps
-            .insert(name.to_string(), (id, value));
+        self.code_conversion_maps.insert(name, (id, value));
         id
     }
 }
@@ -118,14 +118,14 @@ pub(crate) fn collect_ccl_gc_roots(roots: &mut Vec<Value>) {
     });
 }
 
-pub(crate) fn unregister_registered_ccl_program(name: &str) {
+pub(crate) fn unregister_registered_ccl_program(name: SymId) {
     with_ccl_registry_mut(|registry| {
-        let _ = registry.programs.remove(name);
+        let _ = registry.programs.remove(&name);
     });
 }
 
-pub(crate) fn is_registered_ccl_program(name: &str) -> bool {
-    with_ccl_registry(|registry| registry.programs.contains_key(name))
+pub(crate) fn is_registered_ccl_program(name: SymId) -> bool {
+    with_ccl_registry(|registry| registry.programs.contains_key(&name))
 }
 
 enum CclProgramDesignatorKind {
@@ -137,7 +137,7 @@ fn resolve_ccl_program_designator(value: &Value) -> Option<(Value, CclProgramDes
     if value.is_vector() {
         return Some((*value, CclProgramDesignatorKind::Inline));
     }
-    let name = value.as_symbol_name()?;
+    let name = value.as_symbol_id()?;
     with_ccl_registry(|registry| {
         registry
             .lookup_program(name)
@@ -323,7 +323,7 @@ pub(crate) fn builtin_register_ccl_program_impl(args: Vec<Value>) -> EvalResult 
     }
 
     let name = args[0]
-        .as_symbol_name()
+        .as_symbol_id()
         .expect("symbol already validated by is_symbol");
     let program_id = with_ccl_registry_mut(|registry| registry.register_program(name, program));
     Ok(Value::fixnum(program_id))
@@ -347,7 +347,7 @@ pub(crate) fn builtin_register_code_conversion_map_impl(args: Vec<Value>) -> Eva
     }
 
     let name = args[0]
-        .as_symbol_name()
+        .as_symbol_id()
         .expect("symbol already validated by is_symbol");
     let map_id =
         with_ccl_registry_mut(|registry| registry.register_code_conversion_map(name, args[1]));

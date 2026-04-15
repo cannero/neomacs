@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::intern::intern;
 use crate::emacs_core::value::ValueKind;
 
 #[test]
@@ -278,6 +279,19 @@ fn register_ccl_program_returns_success_code() {
 }
 
 #[test]
+fn register_ccl_program_keeps_symbol_identity_in_registry() {
+    crate::test_utils::init_test_tracing();
+    let symbol = intern("ccl-symbol-registry-live-key");
+    let program = Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]);
+    builtin_register_ccl_program_impl(vec![Value::from_sym_id(symbol), program])
+        .expect("registration should succeed");
+    with_ccl_registry(|registry| {
+        assert!(registry.programs.contains_key(&symbol));
+        assert_eq!(registry.lookup_program(symbol), Some(program));
+    });
+}
+
+#[test]
 fn register_code_conversion_map_requires_symbol_name() {
     crate::test_utils::init_test_tracing();
     let err = builtin_register_code_conversion_map_impl(vec![
@@ -327,6 +341,18 @@ fn register_code_conversion_map_returns_success_code() {
         ValueKind::Fixnum(id) => assert!(id >= 0),
         other => panic!("expected integer id, got {other:?}"),
     }
+}
+
+#[test]
+fn register_code_conversion_map_keeps_symbol_identity_in_registry() {
+    crate::test_utils::init_test_tracing();
+    let symbol = intern("ccl-map-symbol-registry-live-key");
+    let map = Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]);
+    builtin_register_code_conversion_map_impl(vec![Value::from_sym_id(symbol), map])
+        .expect("registration should succeed");
+    with_ccl_registry(|registry| {
+        assert!(registry.code_conversion_maps.contains_key(&symbol));
+    });
 }
 
 #[test]

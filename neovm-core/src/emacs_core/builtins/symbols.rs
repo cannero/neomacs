@@ -885,7 +885,7 @@ pub(super) fn builtin_register_ccl_program(
     let obarray = eval.obarray_mut();
     let was_registered = args
         .first()
-        .and_then(|v| v.as_symbol_name())
+        .and_then(|v| v.as_symbol_id())
         .is_some_and(super::ccl::is_registered_ccl_program);
     let program_id = super::ccl::builtin_register_ccl_program_impl(args.clone())?;
 
@@ -898,7 +898,7 @@ pub(super) fn builtin_register_ccl_program(
         vec![args[0], Value::symbol("ccl-program-idx"), program_id],
     );
     if let Err(err) = publish {
-        if let Some(name) = args[0].as_symbol_name() {
+        if let Some(name) = args[0].as_symbol_id() {
             super::ccl::unregister_registered_ccl_program(name);
         }
         return Err(err);
