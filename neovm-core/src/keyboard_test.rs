@@ -220,8 +220,10 @@ fn interactive_spec_parsing() {
     crate::test_utils::init_test_tracing();
     let codes = parse_interactive_spec("sSearch for: \nnCount: ");
     assert_eq!(codes.len(), 2);
-    assert!(matches!(&codes[0], InteractiveCode::StringArg(p) if p == "Search for: "));
-    assert!(matches!(&codes[1], InteractiveCode::NumberArg(p) if p == "Count: "));
+    assert!(
+        matches!(&codes[0], InteractiveCode::StringArg(p) if p.as_str() == Some("Search for: "))
+    );
+    assert!(matches!(&codes[1], InteractiveCode::NumberArg(p) if p.as_str() == Some("Count: ")));
 }
 
 #[test]
@@ -347,8 +349,8 @@ fn key_event_from_description_all_named_keys() {
         ("<f12>", Key::Named(NamedKey::F(12))),
     ];
     for (desc, expected_key) in cases {
-        let e = KeyEvent::from_description(desc)
-            .unwrap_or_else(|| panic!("failed to parse: {}", desc));
+        let e =
+            KeyEvent::from_description(desc).unwrap_or_else(|| panic!("failed to parse: {}", desc));
         assert_eq!(e.key, expected_key, "mismatch for {}", desc);
         assert!(e.modifiers.is_empty(), "unexpected modifiers for {}", desc);
     }
@@ -465,10 +467,12 @@ fn parse_interactive_spec_all_codes() {
     assert!(matches!(&codes[0], InteractiveCode::PrefixRaw));
 
     let codes = parse_interactive_spec("fFile: ");
-    assert!(matches!(&codes[0], InteractiveCode::FileName(p) if p == "File: "));
+    assert!(matches!(&codes[0], InteractiveCode::FileName(p) if p.as_str() == Some("File: ")));
 
     let codes = parse_interactive_spec("DDirectory: ");
-    assert!(matches!(&codes[0], InteractiveCode::DirectoryName(p) if p == "Directory: "));
+    assert!(
+        matches!(&codes[0], InteractiveCode::DirectoryName(p) if p.as_str() == Some("Directory: "))
+    );
 }
 
 #[test]

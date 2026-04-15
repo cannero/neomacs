@@ -14,6 +14,7 @@ use crate::emacs_core::intern::resolve_sym;
 use crate::emacs_core::keyboard::pure::KEY_CHAR_META;
 // decode_storage_char_codes import removed — now using emacs_char directly
 use crate::emacs_core::value::{Value, ValueKind, VecLikeType};
+use crate::heap_types::LispString;
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
@@ -4699,9 +4700,9 @@ pub enum InteractiveCode {
     /// No arguments.
     None,
     /// Buffer name (with completion).
-    BufferName(String),
+    BufferName(LispString),
     /// Character.
-    Character(String),
+    Character(LispString),
     /// Point (cursor position).
     Point,
     /// Mark.
@@ -4709,27 +4710,31 @@ pub enum InteractiveCode {
     /// Region (point and mark).
     Region,
     /// String from minibuffer.
-    StringArg(String),
+    StringArg(LispString),
     /// Number from minibuffer.
-    NumberArg(String),
+    NumberArg(LispString),
     /// File name (with completion).
-    FileName(String),
+    FileName(LispString),
     /// Directory name.
-    DirectoryName(String),
+    DirectoryName(LispString),
     /// Prefix argument (numeric).
     PrefixNumeric,
     /// Raw prefix argument.
     PrefixRaw,
     /// Function name (with completion).
-    FunctionName(String),
+    FunctionName(LispString),
     /// Variable name (with completion).
-    VariableName(String),
+    VariableName(LispString),
     /// Command name (with completion).
-    CommandName(String),
+    CommandName(LispString),
     /// Key sequence.
-    KeySequenceArg(String),
+    KeySequenceArg(LispString),
     /// Lisp expression.
-    Expression(String),
+    Expression(LispString),
+}
+
+fn interactive_prompt_lisp_string(prompt: &str) -> LispString {
+    crate::emacs_core::builtins::runtime_string_to_lisp_string(prompt, !prompt.is_ascii())
 }
 
 /// Parse an interactive specification string.
@@ -4748,29 +4753,30 @@ pub fn parse_interactive_spec(spec: &str) -> Vec<InteractiveCode> {
         }
         let code = part.chars().next().unwrap();
         let prompt = &part[1..];
+        let prompt = interactive_prompt_lisp_string(prompt);
 
         codes.push(match code {
-            'b' => InteractiveCode::BufferName(prompt.to_string()),
-            'B' => InteractiveCode::BufferName(prompt.to_string()),
-            'c' => InteractiveCode::Character(prompt.to_string()),
+            'b' => InteractiveCode::BufferName(prompt.clone()),
+            'B' => InteractiveCode::BufferName(prompt.clone()),
+            'c' => InteractiveCode::Character(prompt.clone()),
             'd' => InteractiveCode::Point,
             'm' => InteractiveCode::Mark,
             'r' => InteractiveCode::Region,
-            's' => InteractiveCode::StringArg(prompt.to_string()),
-            'S' => InteractiveCode::StringArg(prompt.to_string()),
-            'n' => InteractiveCode::NumberArg(prompt.to_string()),
-            'N' => InteractiveCode::NumberArg(prompt.to_string()),
-            'f' => InteractiveCode::FileName(prompt.to_string()),
-            'F' => InteractiveCode::FileName(prompt.to_string()),
-            'D' => InteractiveCode::DirectoryName(prompt.to_string()),
+            's' => InteractiveCode::StringArg(prompt.clone()),
+            'S' => InteractiveCode::StringArg(prompt.clone()),
+            'n' => InteractiveCode::NumberArg(prompt.clone()),
+            'N' => InteractiveCode::NumberArg(prompt.clone()),
+            'f' => InteractiveCode::FileName(prompt.clone()),
+            'F' => InteractiveCode::FileName(prompt.clone()),
+            'D' => InteractiveCode::DirectoryName(prompt.clone()),
             'p' => InteractiveCode::PrefixNumeric,
             'P' => InteractiveCode::PrefixRaw,
-            'a' => InteractiveCode::FunctionName(prompt.to_string()),
-            'C' => InteractiveCode::CommandName(prompt.to_string()),
-            'v' => InteractiveCode::VariableName(prompt.to_string()),
-            'k' => InteractiveCode::KeySequenceArg(prompt.to_string()),
-            'x' | 'X' => InteractiveCode::Expression(prompt.to_string()),
-            _ => InteractiveCode::StringArg(prompt.to_string()),
+            'a' => InteractiveCode::FunctionName(prompt.clone()),
+            'C' => InteractiveCode::CommandName(prompt.clone()),
+            'v' => InteractiveCode::VariableName(prompt.clone()),
+            'k' => InteractiveCode::KeySequenceArg(prompt.clone()),
+            'x' | 'X' => InteractiveCode::Expression(prompt.clone()),
+            _ => InteractiveCode::StringArg(prompt),
         });
     }
 
