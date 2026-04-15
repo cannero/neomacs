@@ -1076,7 +1076,8 @@ fn dump_buffer(encoder: &mut DumpEncoder, buf: &Buffer) -> DumpBuffer {
     let is_shared_text_owner = buf.base_buffer.is_none();
     DumpBuffer {
         id: DumpBufferId(buf.id.0),
-        name: buf.name_runtime_string_owned(),
+        name_lisp: buf.name_value().as_lisp_string().map(dump_lisp_string),
+        name: None,
         base_buffer: buf.base_buffer.map(|id| DumpBufferId(id.0)),
         text: DumpGapBuffer {
             text: buf.text.dump_text(),
@@ -2557,7 +2558,11 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
 
     Buffer {
         id: BufferId(db.id.0),
-        name: Value::string(db.name.clone()),
+        name: if let Some(ref name) = db.name_lisp {
+            Value::heap_string(load_lisp_string(name))
+        } else {
+            Value::string(db.name.clone().unwrap_or_default())
+        },
         base_buffer: db.base_buffer.map(|id| BufferId(id.0)),
         text,
         pt: pt_char,

@@ -515,7 +515,10 @@ pub struct DumpUndoList {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpBuffer {
     pub id: DumpBufferId,
-    pub name: String,
+    #[serde(default)]
+    pub name_lisp: Option<DumpLispString>,
+    #[serde(default)]
+    pub name: Option<String>,
     pub base_buffer: Option<DumpBufferId>,
     pub text: DumpGapBuffer,
     pub pt: usize,
