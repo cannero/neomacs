@@ -188,11 +188,13 @@ fn eval_forms_from_source_streaming(
         });
         eval_result?;
 
-        if let Some(mexp_fn) = macroexpand_fn {
-            eval.with_extra_gc_roots(&[form, mexp_fn], |eval| eval.gc_safe_point_exact());
-        } else {
-            eval.with_extra_gc_roots(&[form], |eval| eval.gc_safe_point_exact());
-        }
+        eval.with_gc_scope(|eval| {
+            eval.push_eval_root(form);
+            if let Some(mexp_fn) = macroexpand_fn {
+                eval.push_eval_root(mexp_fn);
+            }
+            eval.gc_safe_point_exact();
+        });
     }
 
     Ok(Value::NIL)
@@ -251,11 +253,12 @@ fn eval_forms_from_lisp_source_streaming(
         });
         eval_result?;
 
-        if let Some(mexp_fn) = macroexpand_fn {
-            eval.with_extra_gc_roots(&[mexp_fn], |eval| eval.gc_safe_point_exact());
-        } else {
+        eval.with_gc_scope(|eval| {
+            if let Some(mexp_fn) = macroexpand_fn {
+                eval.push_eval_root(mexp_fn);
+            }
             eval.gc_safe_point_exact();
-        }
+        });
     }
 
     Ok(Value::NIL)
@@ -576,14 +579,23 @@ fn eval_forms_from_source_in_vm_runtime_streaming(
         };
         pos = next_pos;
 
-        shared.with_extra_gc_roots(args, move |eval| {
+        shared.with_gc_scope_result(|eval| {
+            for root in args {
+                eval.push_eval_root(*root);
+            }
             eval.with_gc_scope_result(|eval| {
                 eval.push_eval_root(form);
                 eval.eval_sub(form)
             })
         })?;
-        shared.with_extra_gc_roots(vm_gc_roots, |eval| {
-            eval.with_extra_gc_roots(args, |eval| eval.gc_safe_point_exact())
+        shared.with_gc_scope(|eval| {
+            for root in vm_gc_roots {
+                eval.push_eval_root(*root);
+            }
+            for root in args {
+                eval.push_eval_root(*root);
+            }
+            eval.gc_safe_point_exact()
         });
     }
 
