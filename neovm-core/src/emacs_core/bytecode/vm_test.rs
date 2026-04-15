@@ -4257,7 +4257,11 @@ fn vm_simple_process_builtins_use_shared_runtime_state() {
             let _buffer_id = eval.buffers.create_buffer("*vm-proc*");
             let _pid = eval.processes.create_process(
                 "vm-proc".into(),
-                Some("*vm-proc*".into()),
+                Value::make_buffer(
+                    eval.buffers
+                        .find_buffer_by_name("*vm-proc*")
+                        .expect("process buffer"),
+                ),
                 "/bin/echo".into(),
                 vec!["hello".into()],
             );
@@ -4285,7 +4289,11 @@ fn vm_stale_process_builtins_use_shared_runtime_state() {
             let _buffer_id = eval.buffers.create_buffer("*vm-stale-proc*");
             let pid = eval.processes.create_process(
                 "vm-stale-proc".into(),
-                Some("*vm-stale-proc*".into()),
+                Value::make_buffer(
+                    eval.buffers
+                        .find_buffer_by_name("*vm-stale-proc*")
+                        .expect("process buffer"),
+                ),
                 "/bin/cat".into(),
                 vec![],
             );
@@ -4325,7 +4333,7 @@ fn vm_process_introspection_builtins_use_shared_runtime_state() {
         |eval| {
             let pid = eval.processes.create_process(
                 "vm-proc-introspect".into(),
-                None,
+                Value::NIL,
                 "/bin/cat".into(),
                 vec![],
             );
@@ -4355,7 +4363,7 @@ fn vm_stale_process_introspection_builtins_use_shared_runtime_state() {
         |eval| {
             let pid = eval.processes.create_process(
                 "vm-proc-stale-introspect".into(),
-                None,
+                Value::NIL,
                 "/bin/cat".into(),
                 vec![],
             );
@@ -4400,14 +4408,14 @@ fn vm_process_coding_and_tty_builtins_use_shared_runtime_state() {
         |eval| {
             let pid = eval.processes.create_process(
                 "vm-proc-coding".into(),
-                None,
+                Value::NIL,
                 "/bin/cat".into(),
                 vec![],
             );
             assert_eq!(pid, 1);
             let pipe_id = eval.processes.create_process_with_kind(
                 "vm-proc-pipe".into(),
-                None,
+                Value::NIL,
                 String::new(),
                 vec![],
                 crate::emacs_core::process::ProcessKind::Pipe,
@@ -4415,7 +4423,7 @@ fn vm_process_coding_and_tty_builtins_use_shared_runtime_state() {
             assert_eq!(pipe_id, 2);
             let network_id = eval.processes.create_process_with_kind(
                 "vm-proc-network".into(),
-                None,
+                Value::NIL,
                 String::new(),
                 vec![],
                 crate::emacs_core::process::ProcessKind::Network,
@@ -4446,7 +4454,7 @@ fn vm_stale_process_coding_and_tty_builtins_use_shared_runtime_state() {
         |eval| {
             let pid = eval.processes.create_process(
                 "vm-proc-stale-coding".into(),
-                None,
+                Value::NIL,
                 "/bin/cat".into(),
                 vec![],
             );
@@ -4478,14 +4486,14 @@ fn vm_process_status_builtins_use_shared_runtime_state() {
 
             let real = eval.processes.create_process(
                 "vm-status-real".into(),
-                None,
+                Value::NIL,
                 "/bin/cat".into(),
                 vec![],
             );
             assert_eq!(real, 1);
             let pipe = eval.processes.create_process_with_kind(
                 "vm-status-pipe".into(),
-                None,
+                Value::NIL,
                 String::new(),
                 vec![],
                 ProcessKind::Pipe,
@@ -4493,7 +4501,7 @@ fn vm_process_status_builtins_use_shared_runtime_state() {
             assert_eq!(pipe, 2);
             let network = eval.processes.create_process_with_kind(
                 "vm-status-network".into(),
-                None,
+                Value::NIL,
                 String::new(),
                 vec![],
                 ProcessKind::Network,
@@ -4503,14 +4511,14 @@ fn vm_process_status_builtins_use_shared_runtime_state() {
             eval.processes.get_mut(network).unwrap().network_server = true;
             let stopped = eval.processes.create_process(
                 "vm-status-stop".into(),
-                None,
+                Value::NIL,
                 "/bin/cat".into(),
                 vec![],
             );
             assert_eq!(stopped, 4);
             let signaled = eval.processes.create_process(
                 "vm-status-signal".into(),
-                None,
+                Value::NIL,
                 "/bin/cat".into(),
                 vec![],
             );
@@ -4538,7 +4546,7 @@ fn vm_stale_process_status_builtins_use_shared_runtime_state() {
 
             let pid = eval.processes.create_process(
                 "vm-status-stale".into(),
-                None,
+                Value::NIL,
                 "/bin/cat".into(),
                 vec![],
             );
@@ -4566,7 +4574,7 @@ fn vm_process_control_and_send_builtins_use_shared_runtime_state() {
 
     let current_id = eval.processes.create_process(
         "vm-proc-current".into(),
-        Some("*vm-proc-control*".into()),
+        Value::make_buffer(buffer_id),
         "/bin/cat".into(),
         vec![],
     );
@@ -4579,7 +4587,7 @@ fn vm_process_control_and_send_builtins_use_shared_runtime_state() {
     for expected in 2..=7 {
         let id = eval.processes.create_process(
             format!("vm-proc-{expected}"),
-            None,
+            Value::NIL,
             "/bin/cat".into(),
             vec![],
         );
@@ -4674,7 +4682,7 @@ fn vm_stale_process_control_and_send_builtins_use_shared_runtime_state() {
                 .insert("abc");
             let pid = eval.processes.create_process(
                 "vm-stale-proc-control".into(),
-                Some("*vm-stale-proc-control*".into()),
+                Value::make_buffer(buffer_id),
                 "/bin/cat".into(),
                 vec![],
             );
@@ -4706,7 +4714,7 @@ fn vm_delete_process_builtin_uses_shared_runtime_state() {
             eval.buffers.set_current(buffer_id);
             let pid = eval.processes.create_process(
                 "vm-delete-proc".into(),
-                Some("*vm-delete-proc*".into()),
+                Value::make_buffer(buffer_id),
                 "/bin/cat".into(),
                 vec![],
             );
@@ -4747,7 +4755,7 @@ fn vm_process_contact_builtins_use_shared_runtime_state() {
 
             let network_id = eval.processes.create_process_with_kind(
                 "vm-contact-network".into(),
-                None,
+                Value::NIL,
                 String::new(),
                 vec![],
                 ProcessKind::Network,
@@ -4755,7 +4763,7 @@ fn vm_process_contact_builtins_use_shared_runtime_state() {
             assert_eq!(network_id, 1);
             let pipe_id = eval.processes.create_process_with_kind(
                 "vm-contact-pipe".into(),
-                None,
+                Value::NIL,
                 String::new(),
                 vec![],
                 ProcessKind::Pipe,
@@ -4801,7 +4809,7 @@ fn vm_set_process_thread_builtin_uses_shared_runtime_state() {
         |eval| {
             let pid = eval.processes.create_process(
                 "vm-process-thread".into(),
-                None,
+                Value::NIL,
                 "/bin/cat".into(),
                 vec![],
             );
@@ -4871,19 +4879,22 @@ fn vm_network_and_serial_process_config_builtins_use_shared_runtime_state() {
             eval.buffers.set_current(buffer_id);
             let serial_id = eval.processes.create_process_with_kind(
                 "vm-serial".into(),
-                Some("*vm-serial-proc*".into()),
+                Value::make_buffer(buffer_id),
                 String::new(),
                 vec![],
                 ProcessKind::Serial,
             );
             assert_eq!(serial_id, 1);
-            let real_id =
-                eval.processes
-                    .create_process("vm-real".into(), None, "/bin/cat".into(), vec![]);
+            let real_id = eval.processes.create_process(
+                "vm-real".into(),
+                Value::NIL,
+                "/bin/cat".into(),
+                vec![],
+            );
             assert_eq!(real_id, 2);
             let network_id = eval.processes.create_process_with_kind(
                 "vm-network".into(),
-                None,
+                Value::NIL,
                 String::new(),
                 vec![],
                 ProcessKind::Network,
@@ -5075,7 +5086,7 @@ fn vm_accept_process_output_uses_shared_runtime_and_callbacks() {
         |eval| {
             let pid = eval.processes.create_process(
                 "vm-accept-process".into(),
-                None,
+                Value::NIL,
                 "echo".into(),
                 vec!["out".into()],
             );
@@ -5921,7 +5932,7 @@ fn vm_internal_default_process_builtins_use_shared_runtime_state() {
         |eval| {
             let pid = eval.processes.create_process(
                 "vm-default-callback-proc".into(),
-                None,
+                Value::NIL,
                 "/bin/cat".into(),
                 vec![],
             );
@@ -6273,9 +6284,10 @@ fn vm_format_mode_line_size_and_process_specs_match_gnu() {
                        (progn
                          (format-mode-line "%i|%I|%s"))))"#,
             |eval| {
+                let buffer_id = eval.buffers.create_buffer("vm-mode-line-metadata");
                 eval.processes.create_process(
                     "vm-mode-line-proc".into(),
-                    Some("vm-mode-line-metadata".into()),
+                    Value::make_buffer(buffer_id),
                     "cat".into(),
                     vec![],
                 );

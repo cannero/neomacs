@@ -732,9 +732,10 @@ fn test_format_mode_line_size_and_process_specs_match_gnu() {
         builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%i|%I|%s")]).expect("specs");
     assert_eq!(no_process, Value::string("1536|1.5k|no process"));
 
+    let buffer_id = eval.buffers.create_buffer("mode-line-metadata");
     eval.processes.create_process(
         "mode-line-proc".into(),
-        Some("mode-line-metadata".into()),
+        Value::make_buffer(buffer_id),
         "cat".into(),
         vec![],
     );

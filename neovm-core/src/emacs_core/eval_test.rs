@@ -911,9 +911,12 @@ fn read_char_prefers_ready_keypress_over_process_filter_callback() {
     )
     .expect("install process priority setup");
 
-    let pid =
-        ev.processes
-            .create_process("read-char-priority".into(), None, echo, vec!["out".into()]);
+    let pid = ev.processes.create_process(
+        "read-char-priority".into(),
+        Value::NIL,
+        echo,
+        vec!["out".into()],
+    );
     ev.processes
         .spawn_child(pid, false)
         .expect("spawn process priority child");

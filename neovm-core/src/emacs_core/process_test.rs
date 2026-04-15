@@ -145,7 +145,7 @@ fn process_manager_create_and_query() {
     let mut pm = ProcessManager::new();
     let id = pm.create_process(
         "test".into(),
-        Some("*test*".into()),
+        Value::NIL,
         "/bin/echo".into(),
         vec!["hello".into()],
     );
@@ -163,7 +163,7 @@ fn process_manager_create_and_query() {
 fn process_manager_kill() {
     crate::test_utils::init_test_tracing();
     let mut pm = ProcessManager::new();
-    let id = pm.create_process("p".into(), None, "prog".into(), vec![]);
+    let id = pm.create_process("p".into(), Value::NIL, "prog".into(), vec![]);
     assert!(pm.kill_process(id));
     assert_eq!(pm.process_status(id), Some(&ProcessStatus::Signal(9)));
 }
@@ -172,7 +172,7 @@ fn process_manager_kill() {
 fn process_manager_delete() {
     crate::test_utils::init_test_tracing();
     let mut pm = ProcessManager::new();
-    let id = pm.create_process("p".into(), None, "prog".into(), vec![]);
+    let id = pm.create_process("p".into(), Value::NIL, "prog".into(), vec![]);
     assert!(pm.delete_process(id));
     assert!(pm.get(id).is_none());
 }
@@ -181,7 +181,7 @@ fn process_manager_delete() {
 fn process_manager_send_input() {
     crate::test_utils::init_test_tracing();
     let mut pm = ProcessManager::new();
-    let id = pm.create_process("p".into(), None, "prog".into(), vec![]);
+    let id = pm.create_process("p".into(), Value::NIL, "prog".into(), vec![]);
     assert!(pm.send_input(id, "hello "));
     assert!(pm.send_input(id, "world"));
     assert_eq!(pm.get(id).unwrap().stdin_queue, "hello world");
@@ -191,7 +191,7 @@ fn process_manager_send_input() {
 fn process_manager_find_by_name() {
     crate::test_utils::init_test_tracing();
     let mut pm = ProcessManager::new();
-    let id = pm.create_process("my-proc".into(), None, "prog".into(), vec![]);
+    let id = pm.create_process("my-proc".into(), Value::NIL, "prog".into(), vec![]);
     assert_eq!(pm.find_by_name("my-proc"), Some(id));
     assert_eq!(pm.find_by_name("nonexistent"), None);
 }
@@ -200,7 +200,7 @@ fn process_manager_find_by_name() {
 fn builtin_process_name_uses_lisp_string_storage() {
     crate::test_utils::init_test_tracing();
     let mut pm = ProcessManager::new();
-    let id = pm.create_process("my-proc".into(), None, "prog".into(), vec![]);
+    let id = pm.create_process("my-proc".into(), Value::NIL, "prog".into(), vec![]);
 
     let value = builtin_process_name_impl(&pm, vec![Value::fixnum(id as i64)])
         .expect("process-name should succeed");
@@ -213,11 +213,38 @@ fn builtin_process_name_uses_lisp_string_storage() {
 }
 
 #[test]
+fn process_buffer_storage_uses_buffer_objects() {
+    crate::test_utils::init_test_tracing();
+    let mut buffers = crate::buffer::BufferManager::new();
+    let buffer_id = buffers.create_buffer("*proc-output*");
+    let mut pm = ProcessManager::new();
+    let id = pm.create_process(
+        "my-proc".into(),
+        Value::make_buffer(buffer_id),
+        "prog".into(),
+        vec![],
+    );
+
+    assert_eq!(pm.find_by_buffer_id(buffer_id), Some(id));
+    let value =
+        builtin_process_buffer_impl(&pm, vec![Value::fixnum(id as i64)]).expect("process-buffer");
+    assert_eq!(value, Value::make_buffer(buffer_id));
+
+    builtin_set_process_buffer_impl(
+        &mut pm,
+        &buffers,
+        vec![Value::fixnum(id as i64), Value::NIL],
+    )
+    .expect("set-process-buffer should accept nil");
+    assert!(pm.get(id).expect("process").buffer.is_nil());
+}
+
+#[test]
 fn process_manager_list() {
     crate::test_utils::init_test_tracing();
     let mut pm = ProcessManager::new();
-    let id1 = pm.create_process("a".into(), None, "p".into(), vec![]);
-    let id2 = pm.create_process("b".into(), None, "q".into(), vec![]);
+    let id1 = pm.create_process("a".into(), Value::NIL, "p".into(), vec![]);
+    let id2 = pm.create_process("b".into(), Value::NIL, "q".into(), vec![]);
     let ids = pm.list_processes();
     assert!(ids.contains(&id1));
     assert!(ids.contains(&id2));
@@ -1450,7 +1477,7 @@ fn accept_process_output_integer_just_this_one_suppresses_timers() {
 
     let pid = ev
         .processes
-        .create_process("apio-wait-target".into(), None, cat, Vec::new());
+        .create_process("apio-wait-target".into(), Value::NIL, cat, Vec::new());
     ev.processes
         .spawn_child(pid, false)
         .expect("spawn target child");
@@ -1543,9 +1570,9 @@ fn accept_process_output_runs_timer_before_filter_and_sentinel_like_gnu() {
     ev.timers
         .add_timer(0.0, 0.0, Value::symbol("apio-order-timer"), vec![], false);
 
-    let pid = ev
-        .processes
-        .create_process("apio-order".into(), None, echo, vec!["out".into()]);
+    let pid =
+        ev.processes
+            .create_process("apio-order".into(), Value::NIL, echo, vec!["out".into()]);
     ev.processes
         .spawn_child(pid, false)
         .expect("spawn ordering process");
@@ -1647,9 +1674,12 @@ fn accept_process_output_runs_gnu_timer_then_internal_timer_before_process_callb
         false,
     );
 
-    let pid = ev
-        .processes
-        .create_process("apio-full-order".into(), None, echo, vec!["out".into()]);
+    let pid = ev.processes.create_process(
+        "apio-full-order".into(),
+        Value::NIL,
+        echo,
+        vec!["out".into()],
+    );
     ev.processes
         .spawn_child(pid, false)
         .expect("spawn mixed ordering process");
@@ -1696,7 +1726,11 @@ fn accept_process_output_runs_default_process_filter() {
     let _ = ev.buffers.create_buffer("*apio-default-filter*");
     let pid = ev.processes.create_process(
         "apio-default-filter".into(),
-        Some("*apio-default-filter*".into()),
+        Value::make_buffer(
+            ev.buffers
+                .find_buffer_by_name("*apio-default-filter*")
+                .expect("process buffer should exist"),
+        ),
         echo,
         vec!["out".into()],
     );
@@ -1755,9 +1789,9 @@ fn accept_process_output_restores_current_buffer_and_match_data() {
         .expect("capture match-data before callback");
     let before_buffer = ev.buffers.current_buffer_id();
 
-    let pid = ev
-        .processes
-        .create_process("apio-restore".into(), None, echo, vec!["out".into()]);
+    let pid =
+        ev.processes
+            .create_process("apio-restore".into(), Value::NIL, echo, vec!["out".into()]);
     ev.processes
         .spawn_child(pid, false)
         .expect("spawn restore process");
@@ -1941,9 +1975,9 @@ fn sleep_for_uses_shared_wait_path_for_process_output_and_timers() {
     )
     .expect("install sleep-for callback setup");
 
-    let pid = ev
-        .processes
-        .create_process("sleep-shared".into(), None, echo, vec!["out".into()]);
+    let pid =
+        ev.processes
+            .create_process("sleep-shared".into(), Value::NIL, echo, vec!["out".into()]);
     ev.processes
         .spawn_child(pid, false)
         .expect("spawn sleep-for process");

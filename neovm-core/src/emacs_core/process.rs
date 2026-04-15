@@ -81,7 +81,7 @@ pub struct Process {
     pub args: Vec<String>,
     pub kind: ProcessKind,
     pub status: ProcessStatus,
-    pub buffer_name: Option<String>,
+    pub buffer: Value,
     /// Queued input (sent via `process-send-string`).
     pub stdin_queue: String,
     /// Captured stdout.
@@ -154,7 +154,7 @@ impl std::fmt::Debug for Process {
             .field("command", &self.command)
             .field("kind", &self.kind)
             .field("status", &self.status)
-            .field("buffer_name", &self.buffer_name)
+            .field("buffer", &self.buffer)
             .field("pty_master", &self.pty_master.as_ref().map(|_| ".."))
             .field("pty_child", &self.pty_child.is_some())
             .field("pty_reader", &self.pty_reader.as_ref().map(|_| ".."))
@@ -215,18 +215,18 @@ impl ProcessManager {
     pub fn create_process(
         &mut self,
         name: String,
-        buffer_name: Option<String>,
+        buffer: Value,
         command: String,
         args: Vec<String>,
     ) -> ProcessId {
-        self.create_process_with_kind(name, buffer_name, command, args, ProcessKind::Real)
+        self.create_process_with_kind(name, buffer, command, args, ProcessKind::Real)
     }
 
     /// Create a new process record with an explicit process kind.
     pub fn create_process_with_kind(
         &mut self,
         name: String,
-        buffer_name: Option<String>,
+        buffer: Value,
         command: String,
         args: Vec<String>,
         kind: ProcessKind,
@@ -249,7 +249,7 @@ impl ProcessManager {
             args,
             kind,
             status: ProcessStatus::Run,
-            buffer_name,
+            buffer,
             stdin_queue: String::new(),
             stdout: String::new(),
             stderr: String::new(),
@@ -733,11 +733,11 @@ impl ProcessManager {
             .map(|p| p.id)
     }
 
-    /// Find a process associated with BUFFER-NAME.
-    pub fn find_by_buffer_name(&self, buffer_name: &str) -> Option<ProcessId> {
+    /// Find a process associated with BUFFER-ID.
+    pub fn find_by_buffer_id(&self, buffer_id: crate::buffer::BufferId) -> Option<ProcessId> {
         self.processes
             .values()
-            .find(|p| p.buffer_name.as_deref() == Some(buffer_name))
+            .find(|p| p.buffer.as_buffer_id() == Some(buffer_id))
             .map(|p| p.id)
     }
 
@@ -1603,28 +1603,23 @@ fn resolve_process_for_status(
     }
 }
 
-fn resolve_buffer_name_for_process_lookup_in_state(
+fn resolve_buffer_for_process_lookup_in_state(
     frames: &FrameManager,
     buffers: &BufferManager,
     value: &Value,
-) -> Result<Option<String>, Flow> {
+) -> Result<Option<crate::buffer::BufferId>, Flow> {
     match value.kind() {
         ValueKind::Nil => Ok(frames
             .selected_frame()
             .and_then(|frame| frame.selected_window())
-            .and_then(|window| window.buffer_id())
-            .and_then(|id| buffers.get(id))
-            .map(|buf| buf.name_runtime_string_owned())),
+            .and_then(|window| window.buffer_id())),
         ValueKind::String => {
             let name_str = process_owned_runtime_string(*value);
-            Ok(buffers
-                .find_buffer_by_name(&name_str)
-                .and_then(|id| buffers.get(id))
-                .map(|buf| buf.name_runtime_string_owned()))
+            Ok(buffers.find_buffer_by_name(&name_str))
         }
         ValueKind::Veclike(VecLikeType::Buffer) => {
             let bid = value.as_buffer_id().unwrap();
-            Ok(buffers.get(bid).map(|buf| buf.name_runtime_string_owned()))
+            Ok(buffers.get(bid).map(|_| bid))
         }
         _ => Err(signal_wrong_type_string(*value)),
     }
@@ -1712,22 +1707,22 @@ fn resolve_optional_process_or_current_buffer_in_state(
         }
     }
 
-    let current_buffer_name = buffers
-        .current_buffer()
-        .map(|buffer| buffer.name_runtime_string_owned())
+    let current_buffer = buffers
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
-    processes
-        .find_by_buffer_name(&current_buffer_name)
-        .ok_or_else(|| {
-            signal(
-                "error",
-                vec![Value::string(format!(
-                    "Buffer {} has no process",
-                    current_buffer_name
-                ))],
-            )
-        })
+    processes.find_by_buffer_id(current_buffer).ok_or_else(|| {
+        signal(
+            "error",
+            vec![Value::string(format!(
+                "Buffer {} has no process",
+                buffers
+                    .get(current_buffer)
+                    .map(|buffer| buffer.name_runtime_string_owned())
+                    .unwrap_or_else(|| "<deleted buffer>".to_string())
+            ))],
+        )
+    })
 }
 
 fn process_live_status_value(status: &ProcessStatus, kind: &ProcessKind) -> Value {
@@ -2239,28 +2234,28 @@ fn parse_make_process_command(value: &Value) -> Result<Vec<String>, Flow> {
 fn parse_make_process_buffer(
     eval: &mut super::eval::Context,
     value: &Value,
-) -> Result<Option<String>, Flow> {
+) -> Result<Value, Flow> {
     parse_make_process_buffer_in_state(&mut eval.buffers, value)
 }
 
 fn parse_make_process_buffer_in_state(
     buffers: &mut BufferManager,
     value: &Value,
-) -> Result<Option<String>, Flow> {
+) -> Result<Value, Flow> {
     match value.kind() {
-        ValueKind::Nil => Ok(None),
+        ValueKind::Nil => Ok(Value::NIL),
         ValueKind::String => {
             let name_str = process_owned_runtime_string(*value);
-            if buffers.find_buffer_by_name(&name_str).is_none() {
-                let _ = buffers.create_buffer(&name_str);
-            }
-            Ok(Some(name_str))
+            let id = buffers
+                .find_buffer_by_name(&name_str)
+                .unwrap_or_else(|| buffers.create_buffer(&name_str));
+            Ok(Value::make_buffer(id))
         }
         ValueKind::Veclike(VecLikeType::Buffer) => {
             let bid = value.as_buffer_id().unwrap();
             buffers
                 .get(bid)
-                .map(|buf| Some(buf.name_runtime_string_owned()))
+                .map(|_| *value)
                 .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))
         }
         _ => Err(signal_wrong_type_string(*value)),
@@ -2766,15 +2761,12 @@ pub(crate) fn builtin_internal_default_process_filter(
         return Ok(Value::NIL);
     }
 
-    // Look up the process buffer name.
-    let buf_name = match eval.processes.get(id) {
-        Some(proc) => proc.buffer_name.clone(),
+    // Look up the process buffer.
+    let buf_id = match eval.processes.get(id) {
+        Some(proc) => proc.buffer.as_buffer_id(),
         None => return Ok(Value::NIL),
     };
-    let Some(buf_name) = buf_name else {
-        return Ok(Value::NIL);
-    };
-    let Some(buf_id) = eval.buffers.find_buffer_by_name(&buf_name) else {
+    let Some(buf_id) = buf_id else {
         return Ok(Value::NIL);
     };
 
@@ -3503,17 +3495,17 @@ pub(crate) fn builtin_make_network_process(
     }
 
     // Resolve :buffer to a buffer name (creating buffer if needed).
-    let buffer_name = if !buffer_val.is_nil() {
+    let buffer = if !buffer_val.is_nil() {
         parse_make_process_buffer(eval, &buffer_val)?
     } else {
-        None
+        Value::NIL
     };
 
     if server {
         // ---- Server mode: create record, no actual listener yet ----
         let id = eval.processes.create_process_with_kind(
             name,
-            buffer_name,
+            buffer,
             "network".to_string(),
             Vec::new(),
             ProcessKind::Network,
@@ -3568,7 +3560,7 @@ pub(crate) fn builtin_make_network_process(
 
     let id = eval.processes.create_process_with_kind(
         name,
-        buffer_name,
+        buffer,
         "network".to_string(),
         Vec::new(),
         ProcessKind::Network,
@@ -3631,7 +3623,7 @@ pub(crate) fn builtin_make_pipe_process_impl(
     }
 
     let mut name: Option<String> = None;
-    let mut buffer_name: Option<Option<String>> = None;
+    let mut buffer: Option<Value> = None;
 
     let mut i = 0usize;
     while i < args.len() {
@@ -3646,7 +3638,7 @@ pub(crate) fn builtin_make_pipe_process_impl(
                 name = Some(expect_process_name_string(&value)?);
             }
             ":buffer" => {
-                buffer_name = Some(parse_make_process_buffer_in_state(buffers, &value)?);
+                buffer = Some(parse_make_process_buffer_in_state(buffers, &value)?);
             }
             _ => {}
         }
@@ -3660,19 +3652,19 @@ pub(crate) fn builtin_make_pipe_process_impl(
         ));
     };
 
-    let resolved_buffer_name = match buffer_name {
+    let resolved_buffer = match buffer {
         Some(explicit) => explicit,
         None => {
-            if buffers.find_buffer_by_name(&name).is_none() {
-                let _ = buffers.create_buffer(&name);
-            }
-            Some(name.clone())
+            let id = buffers
+                .find_buffer_by_name(&name)
+                .unwrap_or_else(|| buffers.create_buffer(&name));
+            Value::make_buffer(id)
         }
     };
 
     let id = processes.create_process_with_kind(
         name,
-        resolved_buffer_name,
+        resolved_buffer,
         "pipe".to_string(),
         Vec::new(),
         ProcessKind::Pipe,
@@ -3739,7 +3731,7 @@ pub(crate) fn builtin_make_serial_process_impl(
 
     let id = processes.create_process_with_kind(
         name.unwrap_or_else(|| "serial".to_string()),
-        None,
+        Value::NIL,
         "serial".to_string(),
         Vec::new(),
         ProcessKind::Serial,
@@ -4535,7 +4527,7 @@ pub(crate) fn builtin_make_process_impl(
     }
 
     let mut name: Option<String> = None;
-    let mut buffer_name: Option<Option<String>> = None;
+    let mut buffer: Option<Value> = None;
     let mut command: Option<Vec<String>> = None;
     let mut filter = Value::NIL;
     let mut sentinel = Value::NIL;
@@ -4559,9 +4551,7 @@ pub(crate) fn builtin_make_process_impl(
                     ));
                 }
             },
-            Some(":buffer") => {
-                buffer_name = Some(parse_make_process_buffer_in_state(buffers, &value)?)
-            }
+            Some(":buffer") => buffer = Some(parse_make_process_buffer_in_state(buffers, &value)?),
             Some(":command") => command = Some(parse_make_process_command(&value)?),
             Some(":filter") => filter = value,
             Some(":sentinel") => sentinel = value,
@@ -4594,7 +4584,7 @@ pub(crate) fn builtin_make_process_impl(
     } else {
         (command[0].clone(), command[1..].to_vec())
     };
-    let id = processes.create_process(name, buffer_name.unwrap_or(None), program, argv);
+    let id = processes.create_process(name, buffer.unwrap_or(Value::NIL), program, argv);
 
     // Set filter and sentinel if provided.
     if !filter.is_nil() {
@@ -4884,30 +4874,22 @@ pub(crate) fn builtin_process_name_impl(
     }
 }
 
-/// (process-buffer PROCESS) -> string or nil
+/// (process-buffer PROCESS) -> buffer or nil
 pub(crate) fn builtin_process_buffer(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_process_buffer_impl(&eval.processes, &eval.buffers, args)
+    builtin_process_buffer_impl(&eval.processes, args)
 }
 
 pub(crate) fn builtin_process_buffer_impl(
     processes: &ProcessManager,
-    buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("process-buffer", &args, 1)?;
     let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
     match processes.get_any(id) {
-        Some(proc) => match &proc.buffer_name {
-            Some(name) => Ok(buffers
-                .find_buffer_by_name(name)
-                .or_else(|| buffers.find_dead_buffer_by_name(name))
-                .map(Value::make_buffer)
-                .unwrap_or(Value::NIL)),
-            None => Ok(Value::NIL),
-        },
+        Some(proc) => Ok(proc.buffer),
         None => Err(signal_wrong_type_processp(args[0])),
     }
 }
@@ -4990,7 +4972,7 @@ pub(crate) fn builtin_set_process_buffer_impl(
 ) -> EvalResult {
     expect_args("set-process-buffer", &args, 2)?;
     let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
-    let next_buffer_name = match args[1].kind() {
+    match args[1].kind() {
         ValueKind::Nil => None,
         ValueKind::Veclike(VecLikeType::Buffer) => {
             let bid = args[1].as_buffer_id().unwrap();
@@ -5011,7 +4993,7 @@ pub(crate) fn builtin_set_process_buffer_impl(
             vec![Value::symbol("processp"), args[0]],
         )
     })?;
-    proc.buffer_name = next_buffer_name;
+    proc.buffer = args[1];
     Ok(args[1])
 }
 
@@ -5192,14 +5174,13 @@ pub(crate) fn builtin_process_menu_delete_process(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("process-menu-delete-process", &args, 0)?;
-    let current_buffer_name = eval
+    let current_buffer_id = eval
         .buffers
-        .current_buffer()
-        .map(|buffer| buffer.name_runtime_string_owned())
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     if eval
         .processes
-        .find_by_buffer_name(&current_buffer_name)
+        .find_by_buffer_id(current_buffer_id)
         .is_some()
     {
         return Err(signal(
@@ -5309,10 +5290,7 @@ pub(crate) fn builtin_process_mark_impl(
             vec![Value::symbol("processp"), args[0]],
         )
     })?;
-    let buffer_id = proc
-        .buffer_name
-        .as_deref()
-        .and_then(|name| buffers.find_buffer_by_name(name));
+    let buffer_id = proc.buffer.as_buffer_id();
     Ok(super::marker::make_marker_value(buffer_id, None, false))
 }
 
@@ -5576,12 +5554,11 @@ pub(crate) fn builtin_get_buffer_process_impl(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("get-buffer-process", &args, 1)?;
-    let Some(buffer_name) =
-        resolve_buffer_name_for_process_lookup_in_state(frames, buffers, &args[0])?
+    let Some(buffer_id) = resolve_buffer_for_process_lookup_in_state(frames, buffers, &args[0])?
     else {
         return Ok(Value::NIL);
     };
-    match processes.find_by_buffer_name(&buffer_name) {
+    match processes.find_by_buffer_id(buffer_id) {
         Some(id) => Ok(Value::fixnum(id as i64)),
         None => Ok(Value::NIL),
     }
@@ -6167,6 +6144,7 @@ impl GcTrace for ProcessManager {
             .values()
             .chain(self.deleted_processes.values())
         {
+            roots.push(process.buffer);
             roots.push(process.filter);
             roots.push(process.sentinel);
             roots.push(process.plist);

@@ -490,13 +490,10 @@ fn mode_line_process_status_in_state(
     buffers: &crate::buffer::BufferManager,
     processes: &crate::emacs_core::process::ProcessManager,
 ) -> &'static str {
-    let Some(buffer_name) = buffers
-        .current_buffer()
-        .map(|buffer| buffer.name_runtime_string_owned())
-    else {
+    let Some(buffer_id) = buffers.current_buffer_id() else {
         return "no process";
     };
-    let Some(process_id) = processes.find_by_buffer_name(&buffer_name) else {
+    let Some(process_id) = processes.find_by_buffer_id(buffer_id) else {
         return "no process";
     };
     let Some(process) = processes.get_any(process_id) else {
