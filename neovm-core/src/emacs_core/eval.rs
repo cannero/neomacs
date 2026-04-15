@@ -217,19 +217,6 @@ impl VmRootFrame {
     }
 }
 
-#[derive(Clone, Debug, Default)]
-pub(crate) struct EvalRootFrame {
-    pub(crate) roots: LispArgVec,
-}
-
-impl EvalRootFrame {
-    fn new() -> Self {
-        Self {
-            roots: LispArgVec::new(),
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub(crate) struct PendingSafeFuncall {
     pub(crate) function: Value,
@@ -1377,9 +1364,6 @@ pub struct Context {
     /// Active evaluator call frames used as exact GC roots at apply boundaries.
     /// Unlike `runtime_backtrace`, these exist even for untraced internal calls.
     active_call_roots: Vec<ActiveCallFrame>,
-    /// Explicit non-call eval root frames used by helper scopes that need
-    /// exact roots without corresponding to a callable evaluator frame.
-    eval_root_frames: Vec<EvalRootFrame>,
     /// GNU-shaped Lisp call stack used by `backtrace-frame--internal`,
     /// `mapbacktrace`, and advice-sensitive `called-interactively-p`.
     pub(crate) runtime_backtrace: Vec<RuntimeBacktraceFrame>,
@@ -1652,16 +1636,13 @@ pub(crate) fn finish_eval_with_lexical_arg_in_state(
 }
 
 pub(crate) struct ActiveLambdaCallState {
-    pushed_eval_root_frame: bool,
     saved_active_call_extra_roots_len: Option<usize>,
-    saved_eval_root_frame_len: Option<usize>,
     has_lexenv: bool,
     specpdl_count: usize,
 }
 
 pub(crate) struct ActiveMacroExpansionScopeState {
     saved_active_call_extra_roots_len: Option<usize>,
-    saved_eval_root_frame_len: Option<usize>,
     saved_specpdl_len: Option<usize>,
     old_lexical: bool,
     old_dynvars: Value,
@@ -1670,7 +1651,6 @@ pub(crate) struct ActiveMacroExpansionScopeState {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct EvalRootScopeState {
     saved_active_call_extra_roots_len: Option<usize>,
-    saved_eval_root_frame_len: Option<usize>,
     saved_specpdl_len: Option<usize>,
 }
 
@@ -1714,37 +1694,6 @@ fn prepend_lexical_binding_in_call_frame_rooted_env(
     frame.extra_roots[env_root_index] = new_env;
     *lexenv = new_env;
     frame.extra_roots.truncate(saved_roots);
-}
-
-fn bind_lexical_value_rooted_in_eval_root_frame(
-    lexenv: &mut Value,
-    frame: &mut EvalRootFrame,
-    sym: SymId,
-    value: Value,
-) {
-    let saved_roots = frame.roots.len();
-    frame.roots.push(value);
-    let binding = Value::make_cons(lexenv_binding_symbol_value(sym), value);
-    frame.roots.push(binding);
-    *lexenv = Value::make_cons(binding, *lexenv);
-    frame.roots.truncate(saved_roots);
-}
-
-fn prepend_lexical_binding_in_eval_root_frame_env(
-    lexenv: &mut Value,
-    frame: &mut EvalRootFrame,
-    env_root_index: usize,
-    sym: SymId,
-    value: Value,
-) {
-    let saved_roots = frame.roots.len();
-    let current_env = frame.roots[env_root_index];
-    let binding = Value::make_cons(lexenv_binding_symbol_value(sym), value);
-    frame.roots.push(binding);
-    let new_env = Value::make_cons(binding, current_env);
-    frame.roots[env_root_index] = new_env;
-    *lexenv = new_env;
-    frame.roots.truncate(saved_roots);
 }
 
 fn bind_lexical_value_rooted_in_specpdl(
@@ -1812,7 +1761,6 @@ fn begin_lambda_call_in_state(
     specpdl: &mut Vec<SpecBinding>,
     lexenv: &mut Value,
     active_call_roots: &mut Vec<ActiveCallFrame>,
-    eval_root_frames: &mut Vec<EvalRootFrame>,
     params: &LambdaParams,
     env: Option<Value>,
     args: &[Value],
@@ -1843,8 +1791,6 @@ fn begin_lambda_call_in_state(
     let saved_active_call_extra_roots_len = active_call_roots
         .last()
         .map(|frame| frame.extra_roots.len());
-    let saved_eval_root_frame_len = eval_root_frames.last().map(|frame| frame.roots.len());
-    let pushed_eval_root_frame = false;
     let specpdl_count = specpdl.len();
 
     let has_lexenv = env.is_some();
@@ -1906,53 +1852,6 @@ fn begin_lambda_call_in_state(
                     rest_value,
                 );
                 frame.extra_roots.pop();
-            }
-        } else if let Some(frame) = eval_root_frames.last_mut() {
-            let env_root_index = frame.roots.len();
-            frame.roots.push(env);
-
-            let mut arg_idx = 0;
-            for param in &params.required {
-                prepend_lexical_binding_in_eval_root_frame_env(
-                    lexenv,
-                    frame,
-                    env_root_index,
-                    *param,
-                    args[arg_idx],
-                );
-                arg_idx += 1;
-            }
-            for param in &params.optional {
-                if arg_idx < args.len() {
-                    prepend_lexical_binding_in_eval_root_frame_env(
-                        lexenv,
-                        frame,
-                        env_root_index,
-                        *param,
-                        args[arg_idx],
-                    );
-                    arg_idx += 1;
-                } else {
-                    prepend_lexical_binding_in_eval_root_frame_env(
-                        lexenv,
-                        frame,
-                        env_root_index,
-                        *param,
-                        Value::NIL,
-                    );
-                }
-            }
-            if let Some(rest_name) = params.rest {
-                let rest_value = Value::list_from_slice(&args[arg_idx..]);
-                frame.roots.push(rest_value);
-                prepend_lexical_binding_in_eval_root_frame_env(
-                    lexenv,
-                    frame,
-                    env_root_index,
-                    rest_name,
-                    rest_value,
-                );
-                frame.roots.pop();
             }
         } else {
             let env_root_index = specpdl.len();
@@ -2027,9 +1926,7 @@ fn begin_lambda_call_in_state(
     // via lexical_binding() -> !self.lexenv.is_nil().
 
     Ok(ActiveLambdaCallState {
-        pushed_eval_root_frame,
         saved_active_call_extra_roots_len,
-        saved_eval_root_frame_len,
         has_lexenv,
         specpdl_count,
     })
@@ -2040,7 +1937,6 @@ fn finish_lambda_call_in_state(
     specpdl: &mut Vec<SpecBinding>,
     lexenv: &mut Value,
     active_call_roots: &mut Vec<ActiveCallFrame>,
-    eval_root_frames: &mut Vec<EvalRootFrame>,
     state: ActiveLambdaCallState,
 ) {
     // Unwind all specpdl entries back to the count saved at begin.
@@ -2072,14 +1968,6 @@ fn finish_lambda_call_in_state(
     {
         frame.extra_roots.truncate(saved_len);
     }
-    if let Some(saved_len) = state.saved_eval_root_frame_len
-        && let Some(frame) = eval_root_frames.last_mut()
-    {
-        frame.roots.truncate(saved_len);
-    }
-    if state.pushed_eval_root_frame {
-        let _ = eval_root_frames.pop();
-    }
 }
 
 fn begin_macro_expansion_scope_in_state(
@@ -2089,16 +1977,13 @@ fn begin_macro_expansion_scope_in_state(
     custom: &CustomManager,
     lexenv: Value,
     active_call_roots: &mut Vec<ActiveCallFrame>,
-    eval_root_frames: &mut Vec<EvalRootFrame>,
 ) -> ActiveMacroExpansionScopeState {
     let nil_symbol = nil_symbol();
     let t_symbol = t_symbol();
     let saved_active_call_extra_roots_len = active_call_roots
         .last()
         .map(|frame| frame.extra_roots.len());
-    let saved_eval_root_frame_len = eval_root_frames.last().map(|frame| frame.roots.len());
-    let saved_specpdl_len =
-        (active_call_roots.is_empty() && eval_root_frames.is_empty()).then_some(specpdl.len());
+    let saved_specpdl_len = active_call_roots.is_empty().then_some(specpdl.len());
     let old_lexical = obarray
         .symbol_value_id(lexical_binding_symbol())
         .is_some_and(|value| value.is_truthy());
@@ -2130,31 +2015,6 @@ fn begin_macro_expansion_scope_in_state(
             }
             dynvars = Value::cons(Value::from_sym_id(*sym_id), dynvars);
             frame.extra_roots[dynvars_root_index] = dynvars;
-        }
-        dynvars
-    } else if let Some(frame) = eval_root_frames.last_mut() {
-        let dynvars_root_index = frame.roots.len();
-        frame.roots.push(old_dynvars);
-        let mut dynvars = frame.roots[dynvars_root_index];
-        for sym in lexenv_bare_symbols(lexenv) {
-            if sym == t_symbol || sym == nil_symbol {
-                continue;
-            }
-            dynvars = Value::cons(Value::from_sym_id(sym), dynvars);
-            frame.roots[dynvars_root_index] = dynvars;
-        }
-        for entry in specpdl.iter().rev() {
-            let sym_id = match entry {
-                SpecBinding::Let { sym_id, .. }
-                | SpecBinding::LetLocal { sym_id, .. }
-                | SpecBinding::LetDefault { sym_id, .. } => sym_id,
-                SpecBinding::LexicalEnv { .. } | SpecBinding::GcRoot { .. } => continue,
-            };
-            if *sym_id == t_symbol || *sym_id == nil_symbol {
-                continue;
-            }
-            dynvars = Value::cons(Value::from_sym_id(*sym_id), dynvars);
-            frame.roots[dynvars_root_index] = dynvars;
         }
         dynvars
     } else {
@@ -2206,7 +2066,6 @@ fn begin_macro_expansion_scope_in_state(
 
     ActiveMacroExpansionScopeState {
         saved_active_call_extra_roots_len,
-        saved_eval_root_frame_len,
         saved_specpdl_len,
         old_lexical,
         old_dynvars,
@@ -2219,7 +2078,6 @@ fn finish_macro_expansion_scope_in_state(
     buffers: &mut BufferManager,
     custom: &CustomManager,
     active_call_roots: &mut Vec<ActiveCallFrame>,
-    eval_root_frames: &mut Vec<EvalRootFrame>,
     state: ActiveMacroExpansionScopeState,
 ) {
     set_runtime_binding(
@@ -2235,11 +2093,6 @@ fn finish_macro_expansion_scope_in_state(
         && let Some(frame) = active_call_roots.last_mut()
     {
         frame.extra_roots.truncate(saved_len);
-    }
-    if let Some(saved_len) = state.saved_eval_root_frame_len
-        && let Some(frame) = eval_root_frames.last_mut()
-    {
-        frame.roots.truncate(saved_len);
     }
     if let Some(saved_len) = state.saved_specpdl_len {
         specpdl.truncate(saved_len);
@@ -4244,7 +4097,6 @@ impl Context {
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
             active_call_roots: Vec::new(),
-            eval_root_frames: Vec::new(),
             runtime_backtrace: Vec::new(),
             condition_stack: Vec::new(),
             next_resume_id: 1,
@@ -4379,7 +4231,6 @@ impl Context {
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
             active_call_roots: Vec::new(),
-            eval_root_frames: Vec::new(),
             runtime_backtrace: Vec::new(),
             condition_stack: Vec::new(),
             next_resume_id: 1,
@@ -4514,11 +4365,6 @@ impl Context {
                 visit(arg);
             }
             for root in frame.extra_roots.iter().copied() {
-                visit(root);
-            }
-        }
-        for frame in &self.eval_root_frames {
-            for root in frame.roots.iter().copied() {
                 visit(root);
             }
         }
@@ -6323,7 +6169,6 @@ impl Context {
             &mut self.specpdl,
             &mut self.lexenv,
             &mut self.active_call_roots,
-            &mut self.eval_root_frames,
             params,
             env,
             args,
@@ -6336,7 +6181,6 @@ impl Context {
             &mut self.specpdl,
             &mut self.lexenv,
             &mut self.active_call_roots,
-            &mut self.eval_root_frames,
             state,
         );
     }
@@ -9055,10 +8899,7 @@ impl Context {
                 .active_call_roots
                 .last()
                 .map(|frame| frame.extra_roots.len()),
-            saved_eval_root_frame_len: self.eval_root_frames.last().map(|frame| frame.roots.len()),
-            saved_specpdl_len: if self.active_call_roots.is_empty()
-                && self.eval_root_frames.is_empty()
-            {
+            saved_specpdl_len: if self.active_call_roots.is_empty() {
                 Some(self.specpdl.len())
             } else {
                 None
@@ -9069,8 +8910,6 @@ impl Context {
     pub(crate) fn push_eval_root(&mut self, value: Value) {
         if let Some(frame) = self.active_call_roots.last_mut() {
             frame.extra_roots.push(value);
-        } else if let Some(frame) = self.eval_root_frames.last_mut() {
-            frame.roots.push(value);
         } else {
             self.push_specpdl_root(value);
         }
@@ -9082,18 +8921,9 @@ impl Context {
                 frame.extra_roots.truncate(saved_len);
             }
         }
-        if let Some(saved_len) = scope.saved_eval_root_frame_len
-            && let Some(frame) = self.eval_root_frames.last_mut()
-        {
-            frame.roots.truncate(saved_len);
-        }
         if let Some(saved_len) = scope.saved_specpdl_len {
             self.restore_specpdl_roots(SpecpdlRootScopeState { saved_len });
         }
-    }
-
-    pub(crate) fn push_eval_root_frame(&mut self) {
-        self.eval_root_frames.push(EvalRootFrame::new());
     }
 
     pub(crate) fn save_specpdl_roots(&self) -> SpecpdlRootScopeState {
@@ -9116,11 +8946,6 @@ impl Context {
                 .filter(|binding| !matches!(binding, SpecBinding::GcRoot { .. })),
         );
     }
-
-    pub(crate) fn pop_eval_root_frame(&mut self) {
-        self.eval_root_frames.pop();
-    }
-
     pub(crate) fn push_vm_root_frame(&mut self) {
         self.vm_root_frames.push(VmRootFrame::new());
     }
@@ -9926,8 +9751,6 @@ impl Context {
     fn bind_lexical_value_rooted(&mut self, sym: SymId, value: Value) {
         if let Some(frame) = self.active_call_roots.last_mut() {
             bind_lexical_value_rooted_in_call_frame(&mut self.lexenv, frame, sym, value);
-        } else if let Some(frame) = self.eval_root_frames.last_mut() {
-            bind_lexical_value_rooted_in_eval_root_frame(&mut self.lexenv, frame, sym, value);
         } else {
             bind_lexical_value_rooted_in_specpdl(&mut self.lexenv, &mut self.specpdl, sym, value);
         }
@@ -9950,7 +9773,6 @@ impl Context {
             &self.custom,
             self.lexenv,
             &mut self.active_call_roots,
-            &mut self.eval_root_frames,
         );
         if let Some(start) = scope_enter_start {
             self.macro_perf_stats
@@ -9965,7 +9787,6 @@ impl Context {
             &mut self.buffers,
             &self.custom,
             &mut self.active_call_roots,
-            &mut self.eval_root_frames,
             state,
         );
         if let Some(start) = scope_exit_start {
@@ -11112,7 +10933,6 @@ impl Context {
             &self.custom,
             self.lexenv,
             &mut self.active_call_roots,
-            &mut self.eval_root_frames,
         )
     }
 
@@ -11123,7 +10943,6 @@ impl Context {
             &mut self.buffers,
             &self.custom,
             &mut self.active_call_roots,
-            &mut self.eval_root_frames,
             state,
         );
         self.macro_expansion_scope_depth = self.macro_expansion_scope_depth.saturating_sub(1);

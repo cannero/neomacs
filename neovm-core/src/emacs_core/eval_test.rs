@@ -8613,13 +8613,13 @@ fn gc_scope_uses_specpdl_when_no_runtime_frame_owns_roots() {
 }
 
 #[test]
-fn lexical_binding_fallback_prefers_eval_root_frames_over_temp_roots() {
+fn lexical_binding_rooting_prefers_active_call_frames_over_specpdl() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let payload = Value::vector(vec![Value::fixnum(47)]);
-    let sym = intern("eval-root-frame-lexical");
+    let sym = intern("active-call-frame-lexical");
 
-    ev.push_eval_root_frame();
+    ev.push_active_call_frame(Value::symbol("test-active-call-frame"), None, &[]);
     ev.bind_lexical_value_rooted(sym, payload);
 
     assert_eq!(
@@ -8630,8 +8630,12 @@ fn lexical_binding_fallback_prefers_eval_root_frames_over_temp_roots() {
             .as_slice(),
         &[Value::fixnum(47)]
     );
+    assert!(
+        ev.specpdl.is_empty(),
+        "active call frames should own lexical roots without specpdl fallback"
+    );
 
-    ev.pop_eval_root_frame();
+    ev.pop_active_call_frame();
 }
 
 #[test]
@@ -8716,12 +8720,10 @@ fn macro_expansion_scope_without_preexisting_frame_uses_specpdl_roots() {
     ev.specbind(dyn_sym, Value::fixnum(9));
 
     assert!(ev.active_call_roots.is_empty());
-    assert!(ev.eval_root_frames.is_empty());
 
     let state = ev.begin_macro_expansion_scope();
 
     assert!(ev.active_call_roots.is_empty());
-    assert!(ev.eval_root_frames.is_empty());
     assert!(matches!(
         ev.specpdl.last(),
         Some(SpecBinding::GcRoot { .. })
@@ -8738,7 +8740,6 @@ fn macro_expansion_scope_without_preexisting_frame_uses_specpdl_roots() {
     ev.finish_macro_expansion_scope(state);
 
     assert!(ev.active_call_roots.is_empty());
-    assert!(ev.eval_root_frames.is_empty());
     assert!(
         ev.specpdl.len() == specpdl_count + 1,
         "macro expansion scope should release only its temporary specpdl roots"
