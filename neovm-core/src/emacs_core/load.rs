@@ -691,11 +691,14 @@ pub(crate) fn builtin_load_in_vm_runtime(
             let noerror = args.get(1).is_some_and(|v| v.is_truthy());
             let nomessage = args.get(2).is_some_and(|v| v.is_truthy());
             let path = load_path_buf(&found);
-            shared.with_extra_gc_roots(&extra_roots, move |eval| {
-                load_file_with_requested_and_found_flags(
-                    eval, &path, &requested, &found, noerror, nomessage,
-                )
-                .map_err(|e| match e {
+            let root_scope = shared.save_specpdl_roots();
+            for root in &extra_roots {
+                shared.push_specpdl_root(*root);
+            }
+            let result = load_file_with_requested_and_found_flags(
+                shared, &path, &requested, &found, noerror, nomessage,
+            )
+            .map_err(|e| match e {
                     EvalError::Signal {
                         symbol,
                         data,
@@ -711,8 +714,9 @@ pub(crate) fn builtin_load_in_vm_runtime(
                     EvalError::UncaughtThrow { tag, value } => {
                         crate::emacs_core::error::signal("no-catch", vec![tag, value])
                     }
-                })
-            })
+                });
+            shared.restore_specpdl_roots(root_scope);
+            result
         }
     }
 }
@@ -1192,16 +1196,16 @@ fn streaming_readevalloop(
 
         // Root the form value so it survives any GC triggered during
         // macro-expansion or evaluation.
-        let eval_result = eval.with_gc_scope(|eval| {
-            eval.push_eval_root(form);
-            if let Some(mexp) = macroexpand_fn {
-                // GNU-style eager expand: one level, recurse for progn,
-                // full expand + eval.
-                streaming_readevalloop_eager_expand_eval(eval, form, mexp)
-            } else {
-                eval.eval_sub(form).map_err(map_flow)
-            }
-        });
+        let eval_roots = eval.save_specpdl_roots();
+        eval.push_specpdl_root(form);
+        let eval_result = if let Some(mexp) = macroexpand_fn {
+            // GNU-style eager expand: one level, recurse for progn,
+            // full expand + eval.
+            streaming_readevalloop_eager_expand_eval(eval, form, mexp)
+        } else {
+            eval.eval_sub(form).map_err(map_flow)
+        };
+        eval.restore_specpdl_roots(eval_roots);
 
         // Report errors with human-readable detail.
         if let Err(ref e) = eval_result {
@@ -1270,10 +1274,10 @@ fn streaming_readevalloop(
         // post-form GC in readevalloop. Exact GC needs the same root here:
         // freshly installed closures/macros can still share structure with the
         // just-evaluated source form.
-        eval.with_gc_scope(|eval| {
-            eval.push_eval_root(form);
-            eval.gc_safe_point_exact();
-        });
+        let gc_roots = eval.save_specpdl_roots();
+        eval.push_specpdl_root(form);
+        eval.gc_safe_point_exact();
+        eval.restore_specpdl_roots(gc_roots);
         form_idx += 1;
     }
 
@@ -1309,10 +1313,11 @@ fn streaming_readevalloop_eager_expand_eval(
     eval.note_eager_macro_perf_step1(step1_start.elapsed());
 
     // Root the expanded form so it survives GC during progn iteration.
-    eval.with_gc_scope(|eval| {
-        eval.push_eval_root(expanded);
-        streaming_readevalloop_eager_expand_eval_inner(eval, expanded, macroexpand)
-    })
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(expanded);
+    let result = streaming_readevalloop_eager_expand_eval_inner(eval, expanded, macroexpand);
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 /// Inner helper for eager expansion: handles progn unwinding and full expansion.
@@ -1330,10 +1335,11 @@ fn streaming_readevalloop_eager_expand_eval_inner(
             cursor = cursor.cons_cdr();
             // Root cursor across recursive expansion+eval (it's a cons tail
             // that could be collected if we don't protect it).
-            last_val = eval.with_gc_scope(|eval| {
-                eval.push_eval_root(cursor);
-                streaming_readevalloop_eager_expand_eval(eval, subform, macroexpand)
-            })?;
+            let roots = eval.save_specpdl_roots();
+            eval.push_specpdl_root(cursor);
+            let result = streaming_readevalloop_eager_expand_eval(eval, subform, macroexpand);
+            eval.restore_specpdl_roots(roots);
+            last_val = result?;
         }
         return Ok(last_val);
     }
@@ -1350,13 +1356,13 @@ fn streaming_readevalloop_eager_expand_eval_inner(
     };
     eval.note_eager_macro_perf_step3(step3_start.elapsed());
 
-    eval.with_gc_scope(|eval| {
-        eval.push_eval_root(fully_expanded);
-        let step4_start = std::time::Instant::now();
-        let result = eval.eval_sub(fully_expanded).map_err(map_flow);
-        eval.note_eager_macro_perf_step4(step4_start.elapsed());
-        result
-    })
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(fully_expanded);
+    let step4_start = std::time::Instant::now();
+    let result = eval.eval_sub(fully_expanded).map_err(map_flow);
+    eval.note_eager_macro_perf_step4(step4_start.elapsed());
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 /// Load and evaluate a file. Returns the last result.
