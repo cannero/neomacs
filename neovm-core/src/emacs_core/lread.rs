@@ -162,39 +162,39 @@ fn eval_forms_from_source_streaming(
         };
         pos = next_pos;
 
-        let eval_result = eval.with_gc_scope(|eval| {
-            eval.push_eval_root(form);
-            if let Some(mexp_fn) = macroexpand_fn {
-                super::load::eager_expand_eval(eval, form, mexp_fn).map_err(|e| match e {
-                    super::error::EvalError::Signal {
-                        symbol,
-                        data,
-                        raw_data,
-                    } => super::error::Flow::Signal(super::error::SignalData {
-                        symbol,
-                        data,
-                        raw_data,
-                        suppress_signal_hook: false,
-                        selected_resume: None,
-                        search_complete: false,
-                    }),
-                    super::error::EvalError::UncaughtThrow { tag, value } => {
-                        super::error::Flow::Throw { tag, value }
-                    }
-                })
-            } else {
-                eval.eval_sub(form)
-            }
-        });
+        let eval_roots = eval.save_specpdl_roots();
+        eval.push_specpdl_root(form);
+        let eval_result = if let Some(mexp_fn) = macroexpand_fn {
+            super::load::eager_expand_eval(eval, form, mexp_fn).map_err(|e| match e {
+                super::error::EvalError::Signal {
+                    symbol,
+                    data,
+                    raw_data,
+                } => super::error::Flow::Signal(super::error::SignalData {
+                    symbol,
+                    data,
+                    raw_data,
+                    suppress_signal_hook: false,
+                    selected_resume: None,
+                    search_complete: false,
+                }),
+                super::error::EvalError::UncaughtThrow { tag, value } => {
+                    super::error::Flow::Throw { tag, value }
+                }
+            })
+        } else {
+            eval.eval_sub(form)
+        };
+        eval.restore_specpdl_roots(eval_roots);
         eval_result?;
 
-        eval.with_gc_scope(|eval| {
-            eval.push_eval_root(form);
-            if let Some(mexp_fn) = macroexpand_fn {
-                eval.push_eval_root(mexp_fn);
-            }
-            eval.gc_safe_point_exact();
-        });
+        let gc_roots = eval.save_specpdl_roots();
+        eval.push_specpdl_root(form);
+        if let Some(mexp_fn) = macroexpand_fn {
+            eval.push_specpdl_root(mexp_fn);
+        }
+        eval.gc_safe_point_exact();
+        eval.restore_specpdl_roots(gc_roots);
     }
 
     Ok(Value::NIL)
@@ -227,38 +227,38 @@ fn eval_forms_from_lisp_source_streaming(
         };
         pos = next_pos;
 
-        let eval_result = eval.with_gc_scope(|eval| {
-            eval.push_eval_root(form);
-            if let Some(mexp_fn) = macroexpand_fn {
-                super::load::eager_expand_eval(eval, form, mexp_fn).map_err(|e| match e {
-                    super::error::EvalError::Signal {
-                        symbol,
-                        data,
-                        raw_data,
-                    } => super::error::Flow::Signal(super::error::SignalData {
-                        symbol,
-                        data,
-                        raw_data,
-                        suppress_signal_hook: false,
-                        selected_resume: None,
-                        search_complete: false,
-                    }),
-                    super::error::EvalError::UncaughtThrow { tag, value } => {
-                        super::error::Flow::Throw { tag, value }
-                    }
-                })
-            } else {
-                eval.eval_sub(form)
-            }
-        });
+        let eval_roots = eval.save_specpdl_roots();
+        eval.push_specpdl_root(form);
+        let eval_result = if let Some(mexp_fn) = macroexpand_fn {
+            super::load::eager_expand_eval(eval, form, mexp_fn).map_err(|e| match e {
+                super::error::EvalError::Signal {
+                    symbol,
+                    data,
+                    raw_data,
+                } => super::error::Flow::Signal(super::error::SignalData {
+                    symbol,
+                    data,
+                    raw_data,
+                    suppress_signal_hook: false,
+                    selected_resume: None,
+                    search_complete: false,
+                }),
+                super::error::EvalError::UncaughtThrow { tag, value } => {
+                    super::error::Flow::Throw { tag, value }
+                }
+            })
+        } else {
+            eval.eval_sub(form)
+        };
+        eval.restore_specpdl_roots(eval_roots);
         eval_result?;
 
-        eval.with_gc_scope(|eval| {
-            if let Some(mexp_fn) = macroexpand_fn {
-                eval.push_eval_root(mexp_fn);
-            }
-            eval.gc_safe_point_exact();
-        });
+        let gc_roots = eval.save_specpdl_roots();
+        if let Some(mexp_fn) = macroexpand_fn {
+            eval.push_specpdl_root(mexp_fn);
+        }
+        eval.gc_safe_point_exact();
+        eval.restore_specpdl_roots(gc_roots);
     }
 
     Ok(Value::NIL)
@@ -562,11 +562,12 @@ fn eval_forms_from_source_in_vm_runtime_streaming(
         return Ok(Value::NIL);
     }
 
-    shared.with_gc_scope_result(|eval| {
-        for root in args {
-            eval.push_eval_root(*root);
-        }
+    let root_scope = shared.save_specpdl_roots();
+    for root in args {
+        shared.push_specpdl_root(*root);
+    }
 
+    let result = (|| -> EvalResult {
         let read_source = super::value_reader::LispReadSource::new(source);
         let mut pos = start_pos;
         loop {
@@ -581,15 +582,18 @@ fn eval_forms_from_source_in_vm_runtime_streaming(
             };
             pos = next_pos;
 
-            eval.with_gc_scope_result(|eval| {
-                eval.push_eval_root(form);
-                eval.eval_sub(form)
-            })?;
-            eval.with_gc_scope(|eval| eval.gc_safe_point_exact());
+            let eval_roots = shared.save_specpdl_roots();
+            shared.push_specpdl_root(form);
+            let eval_result = shared.eval_sub(form);
+            shared.restore_specpdl_roots(eval_roots);
+            eval_result?;
+            shared.gc_safe_point_exact();
         }
 
         Ok(Value::NIL)
-    })
+    })();
+    shared.restore_specpdl_roots(root_scope);
+    result
 }
 
 fn event_to_int(event: &Value) -> Option<i64> {
