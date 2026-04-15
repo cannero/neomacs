@@ -4481,7 +4481,9 @@ impl Context {
 
     fn sync_gc_threshold_from_runtime_settings(&mut self) {
         let threshold = self.effective_gc_threshold_bytes();
-        self.tagged_heap.set_gc_threshold_from_runtime(threshold);
+        if self.tagged_heap.gc_threshold() != threshold {
+            self.tagged_heap.set_gc_threshold_from_runtime(threshold);
+        }
     }
 
     fn update_gc_runtime_stats(&mut self, elapsed: std::time::Duration) {
@@ -5624,8 +5626,23 @@ impl Context {
         if self.gc_inhibit_depth > 0 {
             return;
         }
-        self.sync_gc_threshold_from_runtime_settings();
-        if self.gc_stress || self.gc_pending || self.tagged_heap.should_collect() {
+        if self.gc_stress || self.gc_pending {
+            self.gc_collect_from_current_roots();
+            return;
+        }
+
+        if self.tagged_heap.gc_threshold_is_overridden() {
+            if self.tagged_heap.should_collect() {
+                self.gc_collect_from_current_roots();
+            }
+            return;
+        }
+
+        let threshold = self.effective_gc_threshold_bytes();
+        if self.tagged_heap.bytes_since_gc() >= threshold {
+            if self.tagged_heap.gc_threshold() != threshold {
+                self.tagged_heap.set_gc_threshold_from_runtime(threshold);
+            }
             self.gc_collect_from_current_roots();
         }
     }
