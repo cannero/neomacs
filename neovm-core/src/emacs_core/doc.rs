@@ -150,7 +150,7 @@ fn documentation_plan(
 
 pub(crate) fn builtin_documentation_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
+    _vm_gc_roots: &[Value],
     args: Vec<Value>,
 ) -> EvalResult {
     let raw = args.get(1).is_some_and(|v| v.is_truthy());
@@ -158,9 +158,13 @@ pub(crate) fn builtin_documentation_in_vm_runtime(
     let plan = documentation_plan(&shared.obarray, args)?;
     finish_documentation_result(
         execute_documentation_plan(plan, |value| {
-            let mut extra_roots = args_roots.clone();
-            extra_roots.push(value);
-            shared.with_extra_gc_roots(&extra_roots, move |eval| eval.eval_value(&value))
+            shared.with_gc_scope_result(|eval| {
+                for root in &args_roots {
+                    eval.push_eval_root(*root);
+                }
+                eval.push_eval_root(value);
+                eval.eval_value(&value)
+            })
         })?,
         raw,
         |value| {
@@ -173,10 +177,14 @@ pub(crate) fn builtin_documentation_in_vm_runtime(
             }
 
             let call = Value::list(vec![Value::symbol("substitute-command-keys"), value]);
-            let mut extra_roots = args_roots.clone();
-            extra_roots.push(value);
-            extra_roots.push(call);
-            shared.with_extra_gc_roots(&extra_roots, move |eval| eval.eval_value(&call))
+            shared.with_gc_scope_result(|eval| {
+                for root in &args_roots {
+                    eval.push_eval_root(*root);
+                }
+                eval.push_eval_root(value);
+                eval.push_eval_root(call);
+                eval.eval_value(&call)
+            })
         },
     )
 }
@@ -7998,7 +8006,7 @@ fn documentation_property_plan(
 
 pub(crate) fn builtin_documentation_property_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
+    _vm_gc_roots: &[Value],
     args: Vec<Value>,
 ) -> EvalResult {
     let raw = args.get(2).is_some_and(|v| v.is_truthy());
@@ -8006,9 +8014,13 @@ pub(crate) fn builtin_documentation_property_in_vm_runtime(
     let plan = documentation_property_plan(&shared.obarray, args)?;
     finish_documentation_result(
         execute_documentation_plan(plan, |value| {
-            let mut extra_roots = args_roots.clone();
-            extra_roots.push(value);
-            shared.with_extra_gc_roots(&extra_roots, move |eval| eval.eval_value(&value))
+            shared.with_gc_scope_result(|eval| {
+                for root in &args_roots {
+                    eval.push_eval_root(*root);
+                }
+                eval.push_eval_root(value);
+                eval.eval_value(&value)
+            })
         })?,
         raw,
         |value| {
@@ -8021,10 +8033,14 @@ pub(crate) fn builtin_documentation_property_in_vm_runtime(
             }
 
             let call = Value::list(vec![Value::symbol("substitute-command-keys"), value]);
-            let mut extra_roots = args_roots.clone();
-            extra_roots.push(value);
-            extra_roots.push(call);
-            shared.with_extra_gc_roots(&extra_roots, move |eval| eval.eval_value(&call))
+            shared.with_gc_scope_result(|eval| {
+                for root in &args_roots {
+                    eval.push_eval_root(*root);
+                }
+                eval.push_eval_root(value);
+                eval.push_eval_root(call);
+                eval.eval_value(&call)
+            })
         },
     )
 }

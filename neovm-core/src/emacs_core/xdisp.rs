@@ -1685,9 +1685,11 @@ fn format_mode_line_recursive_in_vm_runtime(
                 }
                 if cdr.is_cons() {
                     let form_val = cdr.cons_car();
-                    let mut extra_roots = args_roots.to_vec();
-                    extra_roots.push(form_val);
-                    let val = shared.with_extra_gc_roots(&extra_roots, move |eval| {
+                    let val = shared.with_gc_scope_result(|eval| {
+                        for root in args_roots {
+                            eval.push_eval_root(*root);
+                        }
+                        eval.push_eval_root(form_val);
                         eval.eval_value(&form_val)
                     })?;
                     format_mode_line_recursive_in_vm_runtime(
