@@ -1,5 +1,5 @@
 use super::*;
-use crate::emacs_core::intern::resolve_sym;
+use crate::emacs_core::intern::{intern, resolve_sym};
 use crate::emacs_core::value::ValueKind;
 
 fn mgr() -> CodingSystemManager {
@@ -407,6 +407,9 @@ fn coding_system_put_custom_prop() {
     .unwrap();
     assert_eq!(result, Value::list(vec![Value::symbol("unicode")]));
 
+    let info = m.get("utf-8").expect("utf-8 coding system should exist");
+    assert!(info.properties.contains_key(&intern(":charset-list")));
+
     // Verify it was stored
     let get_result = builtin_coding_system_get(
         &m,
@@ -449,6 +452,52 @@ fn coding_system_put_unknown_system_errors() {
         ],
     );
     assert!(result.is_err());
+}
+
+#[test]
+fn define_coding_system_internal_keeps_symbol_metadata() {
+    crate::test_utils::init_test_tracing();
+    let mut m = mgr();
+    builtin_define_coding_system_internal(
+        &mut m,
+        vec![
+            Value::symbol("vm-charset-coding"),
+            Value::char('V'),
+            Value::symbol("charset"),
+            Value::list(vec![Value::symbol("ascii"), Value::symbol("unicode")]),
+            Value::T,
+            Value::NIL,
+            Value::NIL,
+            Value::symbol("post-read-fn"),
+            Value::symbol("pre-write-fn"),
+            Value::fixnum('?' as i64),
+            Value::NIL,
+            Value::list(vec![Value::keyword(":foo"), Value::fixnum(7)]),
+            Value::symbol("unix"),
+        ],
+    )
+    .unwrap();
+
+    let info = m
+        .get("vm-charset-coding")
+        .expect("defined coding system should exist");
+    assert_eq!(resolve_sym(info.coding_type), "charset");
+    assert_eq!(
+        info.charset_list
+            .iter()
+            .map(|id| resolve_sym(*id))
+            .collect::<Vec<_>>(),
+        vec!["ascii", "unicode"]
+    );
+    assert_eq!(
+        info.post_read_conversion.map(resolve_sym),
+        Some("post-read-fn")
+    );
+    assert_eq!(
+        info.pre_write_conversion.map(resolve_sym),
+        Some("pre-write-fn")
+    );
+    assert!(info.properties.contains_key(&intern(":foo")));
 }
 
 // ----- coding-system-base -----

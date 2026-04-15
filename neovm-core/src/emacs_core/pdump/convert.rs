@@ -1409,19 +1409,33 @@ pub(crate) fn dump_coding_system_manager(
                     crate::emacs_core::intern::resolve_sym(*k).to_string(),
                     DumpCodingSystemInfo {
                         name: crate::emacs_core::intern::resolve_sym(v.name).to_string(),
-                        coding_type: v.coding_type.clone(),
+                        coding_type: crate::emacs_core::intern::resolve_sym(v.coding_type)
+                            .to_string(),
                         mnemonic: v.mnemonic,
                         eol_type: dump_eol_type(&v.eol_type),
                         ascii_compatible_p: v.ascii_compatible_p,
-                        charset_list: v.charset_list.clone(),
-                        post_read_conversion: v.post_read_conversion.clone(),
-                        pre_write_conversion: v.pre_write_conversion.clone(),
+                        charset_list: v
+                            .charset_list
+                            .iter()
+                            .map(|id| crate::emacs_core::intern::resolve_sym(*id).to_string())
+                            .collect(),
+                        post_read_conversion: v
+                            .post_read_conversion
+                            .map(|id| crate::emacs_core::intern::resolve_sym(id).to_string()),
+                        pre_write_conversion: v
+                            .pre_write_conversion
+                            .map(|id| crate::emacs_core::intern::resolve_sym(id).to_string()),
                         default_char: v.default_char,
                         for_unibyte: v.for_unibyte,
                         properties: v
                             .properties
                             .iter()
-                            .map(|(k, v)| (k.clone(), encoder.dump_value(v)))
+                            .map(|(k, v)| {
+                                (
+                                    crate::emacs_core::intern::resolve_sym(*k).to_string(),
+                                    encoder.dump_value(v),
+                                )
+                            })
                             .collect(),
                         int_properties: v
                             .int_properties
@@ -2901,7 +2915,7 @@ pub(crate) fn load_coding_system_manager(
                 k.clone(),
                 CodingSystemInfo {
                     name: crate::emacs_core::intern::intern(&v.name),
-                    coding_type: v.coding_type.clone(),
+                    coding_type: crate::emacs_core::intern::intern(&v.coding_type),
                     mnemonic: v.mnemonic,
                     eol_type: match v.eol_type {
                         DumpEolType::Unix => EolType::Unix,
@@ -2910,15 +2924,25 @@ pub(crate) fn load_coding_system_manager(
                         DumpEolType::Undecided => EolType::Undecided,
                     },
                     ascii_compatible_p: v.ascii_compatible_p,
-                    charset_list: v.charset_list.clone(),
-                    post_read_conversion: v.post_read_conversion.clone(),
-                    pre_write_conversion: v.pre_write_conversion.clone(),
+                    charset_list: v
+                        .charset_list
+                        .iter()
+                        .map(|name| crate::emacs_core::intern::intern(name))
+                        .collect(),
+                    post_read_conversion: v
+                        .post_read_conversion
+                        .as_ref()
+                        .map(|name| crate::emacs_core::intern::intern(name)),
+                    pre_write_conversion: v
+                        .pre_write_conversion
+                        .as_ref()
+                        .map(|name| crate::emacs_core::intern::intern(name)),
                     default_char: v.default_char,
                     for_unibyte: v.for_unibyte,
                     properties: v
                         .properties
                         .iter()
-                        .map(|(k, v)| (k.clone(), decoder.load_value(v)))
+                        .map(|(k, v)| (crate::emacs_core::intern::intern(k), decoder.load_value(v)))
                         .collect(),
                     int_properties: v
                         .int_properties

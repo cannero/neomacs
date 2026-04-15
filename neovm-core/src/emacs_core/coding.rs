@@ -202,7 +202,7 @@ pub struct CodingSystemInfo {
     /// Canonical name of the coding system (e.g. "utf-8").
     pub name: SymId,
     /// Type category (e.g. "utf-8", "charset", "raw-text", "undecided").
-    pub coding_type: String,
+    pub coding_type: SymId,
     /// Mnemonic character shown in the mode line.
     pub mnemonic: char,
     /// End-of-line conversion type.
@@ -210,17 +210,17 @@ pub struct CodingSystemInfo {
     /// Whether this coding system is ASCII compatible.
     pub ascii_compatible_p: bool,
     /// Charset list (names of supported charsets).
-    pub charset_list: Vec<String>,
+    pub charset_list: Vec<SymId>,
     /// Post-read conversion function name.
-    pub post_read_conversion: Option<String>,
+    pub post_read_conversion: Option<SymId>,
     /// Pre-write conversion function name.
-    pub pre_write_conversion: Option<String>,
+    pub pre_write_conversion: Option<SymId>,
     /// Default character for encoding.
     pub default_char: Option<char>,
     /// Whether this is for unibyte buffers.
     pub for_unibyte: bool,
     /// Arbitrary property list for coding-system-get / coding-system-put.
-    pub properties: HashMap<String, Value>,
+    pub properties: HashMap<SymId, Value>,
     /// Integer property slots used by coding-system-get / coding-system-put.
     pub int_properties: HashMap<i64, Value>,
 }
@@ -229,7 +229,7 @@ impl CodingSystemInfo {
     fn new(name: &str, coding_type: &str, mnemonic: char, eol_type: EolType) -> Self {
         Self {
             name: intern(name),
-            coding_type: coding_type.to_string(),
+            coding_type: intern(coding_type),
             mnemonic,
             eol_type,
             ascii_compatible_p: false,
@@ -633,6 +633,42 @@ impl CodingSystemManager {
     }
 }
 
+fn property_lookup(info: &CodingSystemInfo, prop: SymId) -> Option<Value> {
+    if let Some(value) = info.properties.get(&prop) {
+        return Some(*value);
+    }
+    let prop_name = resolve_sym(prop);
+    if !prop_name.starts_with(':') {
+        let colon_key = intern(&format!(":{prop_name}"));
+        return info.properties.get(&colon_key).copied();
+    }
+    None
+}
+
+fn plist_push_key(plist: &mut Vec<Value>, key: SymId, value: Value) {
+    plist.push(Value::from_sym_id(key));
+    plist.push(value);
+}
+
+fn first_emacs_char_code(value: Value) -> Option<i64> {
+    match value.kind() {
+        ValueKind::Fixnum(c) => Some(c),
+        ValueKind::String => {
+            let string = value.as_lisp_string()?;
+            if string.is_empty() {
+                return Some(0);
+            }
+            let (ch, _) = if string.is_multibyte() {
+                super::emacs_char::string_char(string.as_bytes())
+            } else {
+                (string.as_bytes()[0] as u32, 1)
+            };
+            Some(ch as i64)
+        }
+        _ => None,
+    }
+}
+
 impl Default for CodingSystemManager {
     fn default() -> Self {
         Self::new()
@@ -733,15 +769,10 @@ pub(crate) fn builtin_coding_system_get(mgr: &CodingSystemManager, args: Vec<Val
         .get(&bucket)
         .ok_or_else(|| signal("coding-system-error", vec![args[0]]))?;
 
-    if let Some(prop_name) = args[1].as_symbol_name() {
-        if let Some(value) = info.properties.get(prop_name) {
-            return Ok(*value);
-        }
-        if !prop_name.starts_with(':') {
-            let colon_key = format!(":{prop_name}");
-            if let Some(value) = info.properties.get(&colon_key) {
-                return Ok(*value);
-            }
+    if let Some(prop_id) = args[1].as_symbol_id() {
+        let prop_name = resolve_sym(prop_id);
+        if let Some(value) = property_lookup(info, prop_id) {
+            return Ok(value);
         }
         return match prop_name {
             ":name" | "name" => Ok(Value::symbol(display_base_name(strip_eol_suffix(
@@ -749,13 +780,28 @@ pub(crate) fn builtin_coding_system_get(mgr: &CodingSystemManager, args: Vec<Val
             )))),
             ":coding-type" | "coding-type" => Ok(Value::symbol(
                 coding_type_for_base(strip_eol_suffix(&resolved_name))
-                    .unwrap_or(info.coding_type.as_str()),
+                    .unwrap_or(resolve_sym(info.coding_type)),
             )),
             ":type" | "type" => Ok(Value::NIL),
             ":mnemonic" | "mnemonic" => Ok(Value::fixnum(
                 default_mnemonic_for_base(strip_eol_suffix(&resolved_name))
                     .unwrap_or(info.mnemonic as i64),
             )),
+            ":charset-list" | "charset-list" => Ok(Value::list(
+                info.charset_list
+                    .iter()
+                    .copied()
+                    .map(Value::from_sym_id)
+                    .collect(),
+            )),
+            ":post-read-conversion" | "post-read-conversion" => Ok(info
+                .post_read_conversion
+                .map(Value::from_sym_id)
+                .unwrap_or(Value::NIL)),
+            ":pre-write-conversion" | "pre-write-conversion" => Ok(info
+                .pre_write_conversion
+                .map(Value::from_sym_id)
+                .unwrap_or(Value::NIL)),
             ":eol-type" | "eol-type" => Ok(Value::NIL),
             _ => Ok(Value::NIL),
         };
@@ -771,15 +817,6 @@ pub(crate) fn builtin_coding_system_get(mgr: &CodingSystemManager, args: Vec<Val
         "wrong-type-argument",
         vec![Value::symbol("symbolp"), args[1]],
     ))
-}
-
-fn plist_push(plist: &mut Vec<Value>, key: &str, value: Value) {
-    if key.starts_with(':') {
-        plist.push(Value::keyword(key));
-    } else {
-        plist.push(Value::symbol(key));
-    }
-    plist.push(value);
 }
 
 fn plist_contains_key(plist: &[Value], key: &str) -> bool {
@@ -882,40 +919,75 @@ pub(crate) fn builtin_coding_system_plist(
 
     let base = strip_eol_suffix(&resolved_name);
     let display_name = display_base_name(base);
-    let coding_type = coding_type_for_base(base).unwrap_or(info.coding_type.as_str());
+    let coding_type = coding_type_for_base(base).unwrap_or(resolve_sym(info.coding_type));
     let mnemonic = default_mnemonic_for_base(base).unwrap_or(info.mnemonic as i64);
 
     let mut plist = Vec::new();
-    plist_push(&mut plist, ":ascii-compatible-p", Value::T);
-    plist_push(
+    plist_push_key(&mut plist, intern(":ascii-compatible-p"), Value::T);
+    plist_push_key(
         &mut plist,
-        ":category",
+        intern(":category"),
         Value::symbol(coding_category_for_base(base)),
     );
-    plist_push(&mut plist, ":name", Value::symbol(display_name));
+    plist_push_key(&mut plist, intern(":name"), Value::symbol(display_name));
     if let Some(doc) = coding_docstring_for_base(base) {
-        plist_push(&mut plist, ":docstring", Value::string(doc));
+        plist_push_key(&mut plist, intern(":docstring"), Value::string(doc));
     }
-    plist_push(&mut plist, ":coding-type", Value::symbol(coding_type));
-    plist_push(&mut plist, ":mnemonic", Value::fixnum(mnemonic));
-    if let Some(charset_list) = coding_charset_list_for_base(base) {
-        plist_push(&mut plist, ":charset-list", Value::list(charset_list));
+    plist_push_key(
+        &mut plist,
+        intern(":coding-type"),
+        Value::symbol(coding_type),
+    );
+    plist_push_key(&mut plist, intern(":mnemonic"), Value::fixnum(mnemonic));
+    if let Some(charset_list) = coding_charset_list_for_base(base).or_else(|| {
+        (!info.charset_list.is_empty()).then(|| {
+            info.charset_list
+                .iter()
+                .copied()
+                .map(Value::from_sym_id)
+                .collect()
+        })
+    }) {
+        plist_push_key(
+            &mut plist,
+            intern(":charset-list"),
+            Value::list(charset_list),
+        );
     }
     if let Some(mime_charset) = coding_mime_charset_for_base(base) {
-        plist_push(&mut plist, ":mime-charset", Value::symbol(mime_charset));
+        plist_push_key(
+            &mut plist,
+            intern(":mime-charset"),
+            Value::symbol(mime_charset),
+        );
+    }
+    if let Some(post_read_conversion) = info.post_read_conversion {
+        plist_push_key(
+            &mut plist,
+            intern(":post-read-conversion"),
+            Value::from_sym_id(post_read_conversion),
+        );
+    }
+    if let Some(pre_write_conversion) = info.pre_write_conversion {
+        plist_push_key(
+            &mut plist,
+            intern(":pre-write-conversion"),
+            Value::from_sym_id(pre_write_conversion),
+        );
     }
     if matches!(base, "no-conversion" | "binary" | "raw-text") {
-        plist_push(&mut plist, ":default-char", Value::fixnum(0));
-        plist_push(&mut plist, ":for-unibyte", Value::T);
+        plist_push_key(&mut plist, intern(":default-char"), Value::fixnum(0));
+        plist_push_key(&mut plist, intern(":for-unibyte"), Value::T);
     }
 
     // Preserve caller-provided custom properties from coding-system-put.
-    let mut custom_keys: Vec<String> = info.properties.keys().cloned().collect();
-    custom_keys.sort();
+    let mut custom_keys: Vec<SymId> = info.properties.keys().copied().collect();
+    custom_keys.sort_by(|left, right| resolve_sym(*left).cmp(resolve_sym(*right)));
     for key in custom_keys {
-        if !plist_contains_key(&plist, &key) {
+        let key_name = resolve_sym(key);
+        if !plist_contains_key(&plist, key_name) {
             if let Some(value) = info.properties.get(&key) {
-                plist_push(&mut plist, &key, *value);
+                plist_push_key(&mut plist, key, *value);
             }
         }
     }
@@ -947,29 +1019,20 @@ pub(crate) fn builtin_coding_system_put(
         .get_mut(&bucket)
         .ok_or_else(|| signal("coding-system-error", vec![args[0]]))?;
 
-    if let Some(prop_name) = args[1].as_symbol_name() {
+    if let Some(prop_id) = args[1].as_symbol_id() {
+        let prop_name = resolve_sym(prop_id);
         if matches!(prop_name, ":mnemonic" | "mnemonic") {
-            let coerced = match val.kind() {
-                ValueKind::Fixnum(c) => Value::fixnum(c as i64),
-                ValueKind::String => Value::fixnum(
-                    val.as_str()
-                        .unwrap()
-                        .chars()
-                        .next()
-                        .map(|ch| ch as i64)
-                        .unwrap_or(0),
-                ),
-                _ => {
-                    return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("characterp"), val],
-                    ));
-                }
+            let Some(code) = first_emacs_char_code(val) else {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("characterp"), val],
+                ));
             };
-            info.properties.insert(prop_name.to_string(), coerced);
+            let coerced = Value::fixnum(code);
+            info.properties.insert(prop_id, coerced);
             return Ok(coerced);
         }
-        info.properties.insert(prop_name.to_string(), val);
+        info.properties.insert(prop_id, val);
         return Ok(val);
     }
 
@@ -1058,7 +1121,7 @@ pub(crate) fn builtin_coding_system_type(
     let info = mgr
         .get(&bucket)
         .ok_or_else(|| signal("coding-system-error", vec![args[0]]))?;
-    Ok(Value::symbol(info.coding_type.clone()))
+    Ok(Value::from_sym_id(info.coding_type))
 }
 
 /// `(coding-system-change-eol-conversion CODING-SYSTEM EOL-TYPE)` -- return
@@ -1344,19 +1407,16 @@ pub(crate) fn builtin_define_coding_system_internal(
 
     // arg[2]: coding-type (symbol)
     let coding_type = match args[2].kind() {
-        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-        _ => "undecided".to_string(),
+        ValueKind::Symbol(id) => id,
+        _ => intern("undecided"),
     };
 
     // arg[3]: charset-list (list of symbols, or special symbol like 'iso-2022)
     let charset_list = match args[3].kind() {
-        ValueKind::Symbol(id) => vec![resolve_sym(id).to_owned()],
+        ValueKind::Symbol(id) => vec![id],
         _ => {
             if let Some(items) = super::value::list_to_vec(&args[3]) {
-                items
-                    .iter()
-                    .filter_map(|v| v.as_symbol_name().map(|s| s.to_string()))
-                    .collect()
+                items.iter().filter_map(|v| v.as_symbol_id()).collect()
             } else {
                 Vec::new()
             }
@@ -1371,19 +1431,13 @@ pub(crate) fn builtin_define_coding_system_internal(
 
     // arg[7]: post-read-conversion
     let post_read_conversion = match args[7].kind() {
-        ValueKind::Symbol(id) => {
-            let s = resolve_sym(id);
-            if s == "nil" { None } else { Some(s.to_owned()) }
-        }
+        ValueKind::Symbol(id) if resolve_sym(id) != "nil" => Some(id),
         _ => None,
     };
 
     // arg[8]: pre-write-conversion
     let pre_write_conversion = match args[8].kind() {
-        ValueKind::Symbol(id) => {
-            let s = resolve_sym(id);
-            if s == "nil" { None } else { Some(s.to_owned()) }
-        }
+        ValueKind::Symbol(id) if resolve_sym(id) != "nil" => Some(id),
         _ => None,
     };
 
@@ -1401,8 +1455,8 @@ pub(crate) fn builtin_define_coding_system_internal(
     if let Some(items) = super::value::list_to_vec(&args[11]) {
         let mut i = 0;
         while i + 1 < items.len() {
-            if let Some(key) = items[i].as_symbol_name() {
-                properties.insert(key.to_string(), items[i + 1]);
+            if let Some(key) = items[i].as_symbol_id() {
+                properties.insert(key, items[i + 1]);
             }
             i += 2;
         }
@@ -1423,7 +1477,8 @@ pub(crate) fn builtin_define_coding_system_internal(
     };
 
     // Build the base coding system info.
-    let mut info = CodingSystemInfo::new(&name, &coding_type, mnemonic, eol_type.clone());
+    let mut info =
+        CodingSystemInfo::new(&name, resolve_sym(coding_type), mnemonic, eol_type.clone());
     info.ascii_compatible_p = ascii_compatible_p;
     info.charset_list = charset_list;
     info.post_read_conversion = post_read_conversion;
@@ -1445,7 +1500,8 @@ pub(crate) fn builtin_define_coding_system_internal(
         ] {
             let variant_name = format!("{name}{suffix}");
             if !mgr.is_known(&variant_name) {
-                let variant = CodingSystemInfo::new(&variant_name, &coding_type, mnemonic, et);
+                let variant =
+                    CodingSystemInfo::new(&variant_name, resolve_sym(coding_type), mnemonic, et);
                 mgr.register(variant);
             }
         }
