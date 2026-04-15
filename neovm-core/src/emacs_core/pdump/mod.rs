@@ -36,10 +36,11 @@ use crate::emacs_core::value;
 
 const MAGIC: &[u8; 8] = b"NEOPDUMP";
 const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook-pending";
-// Phase 18 bump (18): phase 16 introduced an explicit dump-local symbol table,
-// phase 17 fixed the on-disk `DumpSymbolData` layout, and phase 18 stores subr
-// names as dump-local name atoms instead of dump-local symbol slots.
-const FORMAT_VERSION: u32 = 19;
+// Phase 19 bump (19): phase 16 introduced an explicit dump-local symbol table,
+// phase 17 fixed the on-disk `DumpSymbolData` layout, phase 18 stores subr
+// names as dump-local name atoms instead of dump-local symbol slots, and
+// phase 19 stores `loads_in_progress` as Lisp strings instead of UTF-8 paths.
+const FORMAT_VERSION: u32 = 20;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
@@ -314,7 +315,7 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
     let loads_in_progress: Vec<_> = state
         .loads_in_progress
         .iter()
-        .map(std::path::PathBuf::from)
+        .map(load_lisp_string)
         .collect();
 
     let mut eval = Context::from_dump(

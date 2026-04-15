@@ -31,6 +31,11 @@ fn load_path_lisp_string(path: &Path) -> LispString {
     super::builtins::runtime_string_to_lisp_string(path.to_string_lossy().as_ref(), true)
 }
 
+fn canonical_load_lisp_string(path: &Path) -> LispString {
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    load_path_lisp_string(&canonical)
+}
+
 fn load_path_value(path: &Path) -> Value {
     Value::heap_string(load_path_lisp_string(path))
 }
@@ -1331,18 +1336,19 @@ pub fn load_file_with_flags(
     // already present four times in `Vloads_in_progress`, i.e. on the fifth
     // attempt. Matching that behavior matters because Lisp depends on the
     // error shape rather than on silent skipping.
-    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let canonical = canonical_load_lisp_string(path);
     let load_count = eval
         .loads_in_progress
         .iter()
-        .filter(|p| **p == canonical)
+        .filter(|p| *p == &canonical)
         .count();
     if load_count > 3 {
-        let canonical_value = load_path_value(&canonical);
+        let canonical_value = Value::heap_string(canonical.clone());
         let in_progress = Value::list(
             eval.loads_in_progress
                 .iter()
-                .map(|p| load_path_value(p))
+                .cloned()
+                .map(Value::heap_string)
                 .collect(),
         );
         return Err(EvalError::Signal {

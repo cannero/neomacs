@@ -72,16 +72,17 @@ fn test_clone_active_evaluator_preserves_in_progress_require_and_load_state() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     eval.require_stack.push(intern("cl-macs"));
-    eval.loads_in_progress.push(std::path::PathBuf::from(
-        "/tmp/neomacs-pdump-clone-in-progress.el",
-    ));
+    eval.loads_in_progress
+        .push(crate::heap_types::LispString::from_utf8(
+            "/tmp/neomacs-pdump-clone-in-progress.el",
+        ));
 
     let cloned = clone_active_evaluator(&mut eval).expect("clone should succeed");
 
     assert_eq!(cloned.require_stack, vec![intern("cl-macs")]);
     assert_eq!(
         cloned.loads_in_progress,
-        vec![std::path::PathBuf::from(
+        vec![crate::heap_types::LispString::from_utf8(
             "/tmp/neomacs-pdump-clone-in-progress.el"
         )]
     );
@@ -943,7 +944,7 @@ fn test_pdump_sequential_decode_round_trip() {
     let _lexenv = decode_field!("lexenv", types::DumpValue);
     let _features = decode_field!("features", Vec<types::DumpSymId>);
     let _require_stack = decode_field!("require_stack", Vec<types::DumpSymId>);
-    let _loads_in_progress = decode_field!("loads_in_progress", Vec<String>);
+    let _loads_in_progress = decode_field!("loads_in_progress", Vec<types::DumpLispString>);
     let _buffers = decode_field!("buffers", types::DumpBufferManager);
     let _autoloads = decode_field!("autoloads", types::DumpAutoloadManager);
     let _custom = decode_field!("custom", types::DumpCustomManager);

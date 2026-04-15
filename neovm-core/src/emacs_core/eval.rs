@@ -1236,7 +1236,7 @@ pub struct Context {
     /// Features currently being resolved through `require`.
     pub(crate) require_stack: Vec<SymId>,
     /// Files currently being loaded (mirrors `Vloads_in_progress` in lread.c).
-    pub(crate) loads_in_progress: Vec<std::path::PathBuf>,
+    pub(crate) loads_in_progress: Vec<crate::heap_types::LispString>,
     /// Buffer manager — owns all live buffers and tracks current buffer.
     pub buffers: BufferManager,
     /// Match data from the last successful search/match operation.
@@ -4048,7 +4048,7 @@ impl Context {
         lexenv: Value,
         features: Vec<SymId>,
         require_stack: Vec<SymId>,
-        loads_in_progress: Vec<std::path::PathBuf>,
+        loads_in_progress: Vec<crate::heap_types::LispString>,
         buffers: BufferManager,
         autoloads: AutoloadManager,
         custom: CustomManager,

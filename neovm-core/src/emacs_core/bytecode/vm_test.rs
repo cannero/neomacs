@@ -8764,9 +8764,10 @@ fn vm_compiled_load_allows_gnu_normal_recursive_load_depth() {
     let fixture = dir.path().join("vm-bytecode-load.el");
     std::fs::write(&fixture, "(setq vm-bytecode-load-ran t)\n").expect("write load fixture");
     let fixture = fixture.canonicalize().expect("canonical load fixture");
+    let fixture_lisp = crate::heap_types::LispString::from_utf8(fixture.to_string_lossy().as_ref());
 
     let mut eval = Context::new_vm_runtime_harness();
-    eval.loads_in_progress = vec![fixture.clone()];
+    eval.loads_in_progress = vec![fixture_lisp.clone()];
 
     let result = eval
         .eval_str(&format!(
@@ -8785,7 +8786,7 @@ fn vm_compiled_load_allows_gnu_normal_recursive_load_depth() {
     );
     assert_eq!(
         eval.loads_in_progress,
-        vec![fixture],
+        vec![fixture_lisp],
         "compiled load should restore the caller's loads_in_progress stack"
     );
 }
@@ -8797,13 +8798,14 @@ fn vm_compiled_load_signals_after_gnu_recursive_load_limit() {
     let fixture = dir.path().join("vm-bytecode-recursive-limit.el");
     std::fs::write(&fixture, "(setq vm-bytecode-load-ran t)\n").expect("write load fixture");
     let fixture = fixture.canonicalize().expect("canonical load fixture");
+    let fixture_lisp = crate::heap_types::LispString::from_utf8(fixture.to_string_lossy().as_ref());
 
     let mut eval = Context::new_vm_runtime_harness();
     eval.loads_in_progress = vec![
-        fixture.clone(),
-        fixture.clone(),
-        fixture.clone(),
-        fixture.clone(),
+        fixture_lisp.clone(),
+        fixture_lisp.clone(),
+        fixture_lisp.clone(),
+        fixture_lisp.clone(),
     ];
 
     let err = eval

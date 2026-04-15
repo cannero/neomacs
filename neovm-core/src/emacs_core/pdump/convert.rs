@@ -537,7 +537,7 @@ fn dump_lisp_string(string: &LispString) -> DumpLispString {
     }
 }
 
-fn load_lisp_string(dump: &DumpLispString) -> LispString {
+pub(super) fn load_lisp_string(dump: &DumpLispString) -> LispString {
     LispString::from_dump(dump.data.clone(), dump.size, dump.size_byte)
 }
 
@@ -1980,7 +1980,7 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
         loads_in_progress: eval
             .loads_in_progress
             .iter()
-            .map(|path| path.to_string_lossy().to_string())
+            .map(dump_lisp_string)
             .collect(),
         buffers: dump_buffer_manager(&mut encoder, &eval.buffers),
         autoloads: dump_autoload_manager(&mut encoder, &eval.autoloads),
