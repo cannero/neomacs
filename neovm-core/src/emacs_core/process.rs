@@ -77,8 +77,7 @@ pub enum ProcessKind {
 pub struct Process {
     pub id: ProcessId,
     pub name: LispString,
-    pub command: String,
-    pub args: Vec<String>,
+    pub command: Value,
     pub kind: ProcessKind,
     pub status: ProcessStatus,
     pub buffer: Value,
@@ -200,6 +199,27 @@ fn process_name_runtime(name: &LispString) -> String {
     super::builtins::runtime_string_from_lisp_string(name)
 }
 
+fn make_process_command_value(kind: &ProcessKind, program: &str, args: &[String]) -> Value {
+    if *kind != ProcessKind::Real || program.is_empty() {
+        return Value::NIL;
+    }
+    let mut items = Vec::with_capacity(args.len() + 1);
+    items.push(Value::string(program));
+    items.extend(args.iter().cloned().map(Value::string));
+    Value::list(items)
+}
+
+fn process_command_argv(command: Value) -> Option<(String, Vec<String>)> {
+    let items = list_to_vec(&command)?;
+    let (program, argv) = items.split_first()?;
+    let program = expect_string_strict(program).ok()?;
+    let argv = argv
+        .iter()
+        .map(|value| expect_string_strict(value).ok())
+        .collect::<Option<Vec<_>>>()?;
+    Some((program, argv))
+}
+
 impl ProcessManager {
     pub fn new() -> Self {
         Self {
@@ -245,8 +265,7 @@ impl ProcessManager {
         let proc = Process {
             id,
             name: process_name_lisp_string(&name),
-            command,
-            args,
+            command: make_process_command_value(&kind, &command, &args),
             kind,
             status: ProcessStatus::Run,
             buffer,
@@ -304,9 +323,11 @@ impl ProcessManager {
             return Ok(());
         }
 
-        let program = &proc.command;
-        if program == "nil" || program.is_empty() {
+        let Some((program, _argv)) = process_command_argv(proc.command) else {
             return Ok(()); // No program to run
+        };
+        if program == "nil" || program.is_empty() {
+            return Ok(());
         }
 
         // Collect env overrides into a temporary Vec so we don't borrow
@@ -338,8 +359,12 @@ impl ProcessManager {
             .get_mut(&id)
             .ok_or_else(|| "Process not found".to_string())?;
 
-        let mut cmd = Command::new(&proc.command);
-        cmd.args(&proc.args);
+        let Some((program, argv)) = process_command_argv(proc.command) else {
+            return Ok(());
+        };
+
+        let mut cmd = Command::new(&program);
+        cmd.args(&argv);
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
@@ -429,8 +454,12 @@ impl ProcessManager {
             .openpty(pty_size)
             .map_err(|e| format!("Failed to create PTY: {}", e))?;
 
-        let mut cmd = portable_pty::CommandBuilder::new(&proc.command);
-        cmd.args(&proc.args);
+        let Some((program, argv)) = process_command_argv(proc.command) else {
+            return Ok(());
+        };
+
+        let mut cmd = portable_pty::CommandBuilder::new(&program);
+        cmd.args(&argv);
         for (key, val) in env_overrides {
             match val {
                 Some(v) => {
@@ -5705,13 +5734,7 @@ pub(crate) fn builtin_process_command_impl(
             vec![Value::symbol("processp"), args[0]],
         )
     })?;
-    if proc.kind != ProcessKind::Real || proc.command.is_empty() {
-        return Ok(Value::NIL);
-    }
-    let mut items = Vec::with_capacity(proc.args.len() + 1);
-    items.push(Value::string(proc.command.clone()));
-    items.extend(proc.args.iter().cloned().map(Value::string));
-    Ok(Value::list(items))
+    Ok(proc.command)
 }
 
 /// (process-contact PROCESS &optional KEY NO-BLOCK) -> value
@@ -6146,6 +6169,7 @@ impl GcTrace for ProcessManager {
             .chain(self.deleted_processes.values())
         {
             roots.push(process.buffer);
+            roots.push(process.command);
             roots.push(process.tty_name);
             roots.push(process.filter);
             roots.push(process.sentinel);
