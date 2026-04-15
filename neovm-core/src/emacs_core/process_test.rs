@@ -191,9 +191,43 @@ fn process_manager_send_input() {
     crate::test_utils::init_test_tracing();
     let mut pm = ProcessManager::new();
     let id = pm.create_process("p".into(), Value::NIL, "prog".into(), vec![]);
-    assert!(pm.send_input(id, "hello "));
-    assert!(pm.send_input(id, "world"));
-    assert_eq!(pm.get(id).unwrap().stdin_queue, "hello world");
+    assert!(pm.send_input(id, &LispString::from_utf8("hello ")));
+    assert!(pm.send_input(id, &LispString::from_utf8("world")));
+    let expected = Value::list(vec![
+        Value::cons(
+            Value::heap_string(LispString::from_utf8("hello ")),
+            Value::cons(Value::fixnum(0), Value::fixnum(6)),
+        ),
+        Value::cons(
+            Value::heap_string(LispString::from_utf8("world")),
+            Value::cons(Value::fixnum(0), Value::fixnum(5)),
+        ),
+    ]);
+    assert!(crate::emacs_core::value::equal_value(
+        &pm.get(id).unwrap().write_queue,
+        &expected,
+        0,
+    ));
+}
+
+#[test]
+fn builtin_process_send_string_preserves_raw_unibyte_write_queue_entries() {
+    crate::test_utils::init_test_tracing();
+    let mut pm = ProcessManager::new();
+    let id = pm.create_process("p".into(), Value::NIL, "prog".into(), vec![]);
+    let raw = Value::heap_string(LispString::from_unibyte(vec![0xFF, b'A']));
+    builtin_process_send_string_impl(&mut pm, vec![Value::fixnum(id as i64), raw])
+        .expect("process-send-string");
+
+    let expected = Value::list(vec![Value::cons(
+        Value::heap_string(LispString::from_unibyte(vec![0xFF, b'A'])),
+        Value::cons(Value::fixnum(0), Value::fixnum(2)),
+    )]);
+    assert!(crate::emacs_core::value::equal_value(
+        &pm.get(id).unwrap().write_queue,
+        &expected,
+        0,
+    ));
 }
 
 #[test]

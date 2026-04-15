@@ -4616,11 +4616,25 @@ fn vm_process_control_and_send_builtins_use_shared_runtime_state() {
         "OK (t t t t t t t t t t t t t t t t t)"
     );
     assert_eq!(
-        eval.processes
-            .get(7)
-            .expect("send target process")
-            .stdin_queue,
-        "helloabc"
+        crate::emacs_core::value::equal_value(
+            &eval
+                .processes
+                .get(7)
+                .expect("send target process")
+                .write_queue,
+            &Value::list(vec![
+                Value::cons(
+                    Value::heap_string(crate::heap_types::LispString::from_utf8("hello")),
+                    Value::cons(Value::fixnum(0), Value::fixnum(5)),
+                ),
+                Value::cons(
+                    Value::heap_string(crate::heap_types::LispString::from_utf8("abc")),
+                    Value::cons(Value::fixnum(0), Value::fixnum(3)),
+                ),
+            ]),
+            0,
+        ),
+        true
     );
     assert_eq!(
         eval.processes.get_any(1).expect("current process").status,

@@ -41,6 +41,7 @@ use super::value::{
 };
 use crate::buffer::BufferManager;
 use crate::gc_trace::GcTrace;
+use crate::heap_types::LispString;
 use crate::window::FrameManager;
 
 // ---------------------------------------------------------------------------
@@ -69,8 +70,8 @@ pub struct Process {
     pub status: Value,
     pub buffer: Value,
     pub childp: Value,
-    /// Queued input (sent via `process-send-string`).
-    pub stdin_queue: String,
+    /// Queued input entries `(STRING . (OFFSET . LENGTH))`, matching GNU's `write_queue`.
+    pub write_queue: Value,
     /// Captured stdout.
     pub stdout: String,
     /// Captured stderr.
@@ -236,6 +237,21 @@ fn process_status_run_value() -> Value {
     Value::symbol("run")
 }
 
+fn write_queue_push(queue: Value, input_obj: Value, front: bool) -> Value {
+    let len = input_obj
+        .as_lisp_string()
+        .map(|string| string.sbytes() as i64)
+        .unwrap_or(0);
+    let entry = Value::cons(input_obj, Value::cons(Value::fixnum(0), Value::fixnum(len)));
+    let mut entries = list_to_vec(&queue).unwrap_or_default();
+    if front {
+        entries.insert(0, entry);
+    } else {
+        entries.push(entry);
+    }
+    Value::list(entries)
+}
+
 fn process_status_stop_value(signal_num: i64) -> Value {
     Value::list(vec![Value::symbol("stop"), Value::fixnum(signal_num)])
 }
@@ -345,7 +361,7 @@ impl ProcessManager {
             status: process_status_run_value(),
             buffer,
             childp,
-            stdin_queue: String::new(),
+            write_queue: Value::NIL,
             stdout: String::new(),
             stderr: String::new(),
             query_on_exit_flag: true,
@@ -856,19 +872,21 @@ impl ProcessManager {
     }
 
     /// Queue input for a process.
-    pub fn send_input(&mut self, id: ProcessId, input: &str) -> bool {
+    pub fn send_input(&mut self, id: ProcessId, input: &LispString) -> bool {
         if let Some(proc) = self.processes.get_mut(&id) {
-            proc.stdin_queue.push_str(input);
+            proc.write_queue =
+                write_queue_push(proc.write_queue, Value::heap_string(input.clone()), false);
+            let input_bytes = input.as_bytes();
             // Write to PTY master if this is a PTY process.
             if let Some(ref mut pty_writer) = proc.pty_writer {
                 use std::io::Write;
-                let _ = pty_writer.write_all(input.as_bytes());
+                let _ = pty_writer.write_all(input_bytes);
                 let _ = pty_writer.flush();
             } else if let Some(ref mut child) = proc.child {
                 // Write to actual child stdin if available (pipe mode).
                 if let Some(ref mut stdin) = child.stdin {
                     use std::io::Write;
-                    let _ = stdin.write_all(input.as_bytes());
+                    let _ = stdin.write_all(input_bytes);
                     let _ = stdin.flush();
                 }
             }
@@ -876,11 +894,11 @@ impl ProcessManager {
             #[cfg(unix)]
             if let Some(ref mut tls) = proc.tls_stream {
                 use std::io::Write;
-                let _ = tls.write_all(input.as_bytes());
+                let _ = tls.write_all(input_bytes);
                 let _ = tls.flush();
             } else if let Some(ref mut socket) = proc.socket {
                 use std::io::Write;
-                let _ = socket.write_all(input.as_bytes());
+                let _ = socket.write_all(input_bytes);
                 let _ = socket.flush();
             }
             true
@@ -5014,7 +5032,10 @@ pub(crate) fn builtin_process_send_string_impl(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("process-send-string", &args, 2)?;
-    let input = expect_string_strict(&args[1])?;
+    let input = args[1]
+        .as_lisp_string()
+        .cloned()
+        .ok_or_else(|| signal_wrong_type_string(args[1]))?;
     if let Some(n) = args[0].as_fixnum() {
         if n >= 0 && is_stale_process_id_designator_in_manager(processes, &args[0]) {
             return Err(signal_process_not_running_in_manager(
@@ -5638,8 +5659,7 @@ pub(crate) fn builtin_process_send_region_impl(
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         let (region_beg, region_end) = checked_region_bytes(buf, start, end)?;
-        let text = buf.buffer_substring_lisp_string(region_beg, region_end);
-        super::builtins::runtime_string_from_lisp_string(&text)
+        buf.buffer_substring_lisp_string(region_beg, region_end)
     };
 
     if !processes.send_input(id, &region_text) {
@@ -6392,6 +6412,7 @@ impl GcTrace for ProcessManager {
             roots.push(process.childp);
             roots.push(process.status);
             roots.push(process.tty_name);
+            roots.push(process.write_queue);
             roots.push(process.filter);
             roots.push(process.sentinel);
             roots.push(process.log);
