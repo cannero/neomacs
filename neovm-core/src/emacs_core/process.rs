@@ -2853,7 +2853,9 @@ pub(crate) fn builtin_gnutls_boot(eval: &mut super::eval::Context, args: Vec<Val
         while i + 1 < items.len() {
             if let Some(kw) = keyword_name(&items[i]) {
                 if kw == ":hostname" {
-                    hostname = items[i + 1].as_str().map(|s| s.to_string());
+                    hostname = items[i + 1]
+                        .is_string()
+                        .then(|| super::builtins::lisp_string_to_runtime_string(items[i + 1]));
                 }
             }
             i += 2;

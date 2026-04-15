@@ -1019,7 +1019,8 @@ fn validate_file_truename_counter(counter: &Value) -> Result<(), Flow> {
 
 fn temporary_file_directory_for_eval(eval: &Context) -> Option<String> {
     let val = eval.obarray.symbol_value("temporary-file-directory")?;
-    val.as_str().map(|s| s.to_owned())
+    val.is_string()
+        .then(|| super::builtins::lisp_string_to_runtime_string(*val))
 }
 
 fn make_temp_file_impl(

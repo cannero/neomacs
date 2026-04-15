@@ -70,6 +70,25 @@ fn bootstrap_eval_one(src: &str) -> String {
     bootstrap_eval_all(src).into_iter().next().expect("result")
 }
 
+#[test]
+fn skip_debugger_matches_raw_unibyte_ignored_error_regex() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    crate::emacs_core::errors::init_standard_errors(&mut ev.obarray);
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
+    ev.obarray
+        .set_symbol_value("debug-ignored-errors", Value::list(vec![raw]));
+    let sig = match crate::emacs_core::error::signal("error", vec![raw]) {
+        Flow::Signal(sig) => sig,
+        other => panic!("expected signal flow, got {other:?}"),
+    };
+    let conditions = ev.signal_conditions_value(&sig);
+    assert!(
+        ev.skip_debugger(&sig, &conditions)
+            .expect("skip_debugger should evaluate")
+    );
+}
+
 fn install_minimal_special_event_command_runtime(ev: &mut Context) {
     ev.eval_str(
         r#"

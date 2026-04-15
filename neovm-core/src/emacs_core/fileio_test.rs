@@ -47,6 +47,24 @@ fn assert_same_file_paths(path1: &str, path2: &str) {
     );
 }
 
+#[test]
+fn temporary_file_directory_for_eval_accepts_raw_unibyte_string() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(
+        b"/tmp/neomacs-\xFF".to_vec(),
+    ));
+    eval.obarray
+        .set_symbol_value("temporary-file-directory", raw);
+
+    assert_eq!(
+        temporary_file_directory_for_eval(&eval),
+        Some(crate::emacs_core::builtins::lisp_string_to_runtime_string(
+            raw
+        ))
+    );
+}
+
 // -----------------------------------------------------------------------
 // Path operations
 // -----------------------------------------------------------------------

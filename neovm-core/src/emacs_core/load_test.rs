@@ -63,6 +63,26 @@ fn copy_source_fixture(dir: &std::path::Path, rel: &str) -> PathBuf {
     copied
 }
 
+#[test]
+fn loaded_source_paths_accepts_raw_unibyte_load_history_entries() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let raw_path = Value::heap_string(crate::heap_types::LispString::from_unibyte(
+        b"/tmp/\xFF.el".to_vec(),
+    ));
+    eval.obarray.set_symbol_value(
+        "load-history",
+        Value::list(vec![Value::cons(raw_path, Value::NIL)]),
+    );
+
+    let paths = loaded_source_paths(&mut eval);
+    assert_eq!(paths.len(), 1);
+    assert_eq!(
+        paths[0].to_string_lossy(),
+        crate::emacs_core::builtins::lisp_string_to_runtime_string(raw_path)
+    );
+}
+
 fn definition_is_macroish(value: Value) -> bool {
     value.is_macro() || (value.is_cons() && value.cons_car().as_symbol_name() == Some("macro"))
 }

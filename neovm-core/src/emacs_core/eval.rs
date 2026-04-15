@@ -2424,7 +2424,7 @@ impl Context {
         let signal_conditions = list_to_vec(conditions).unwrap_or_else(|| vec![*conditions]);
 
         for entry in entries {
-            if entry.as_str().is_some() {
+            if entry.is_string() {
                 let message = if let Some(message) = error_message {
                     message
                 } else {
@@ -8317,7 +8317,11 @@ impl Context {
         let load_file_name = if trace_toplevel_bytecode {
             self.obarray()
                 .symbol_value("load-file-name")
-                .and_then(|value| value.as_str().map(str::to_owned))
+                .and_then(|value| {
+                    value
+                        .is_string()
+                        .then(|| super::builtins::lisp_string_to_runtime_string(*value))
+                })
                 .unwrap_or_else(|| "<unknown>".to_string())
         } else {
             String::new()
@@ -8500,9 +8504,10 @@ impl Context {
             ValueKind::Symbol(sid) => Some(resolve_sym(sid).to_string()),
             _ => None,
         };
-        let filename_str = filename
-            .as_ref()
-            .and_then(|v| v.as_str().map(|s| s.to_string()));
+        let filename_str = filename.as_ref().and_then(|v| {
+            v.is_string()
+                .then(|| super::builtins::lisp_string_to_runtime_string(*v))
+        });
         match plan_require_in_state(
             &self.obarray,
             &mut self.features,

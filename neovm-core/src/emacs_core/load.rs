@@ -2299,7 +2299,11 @@ fn loaded_source_paths(eval: &mut super::eval::Context) -> Vec<PathBuf> {
             if !entry.is_cons() {
                 continue;
             };
-            let Some(path) = entry.cons_car().as_str().map(ToOwned::to_owned) else {
+            let Some(path) = entry
+                .cons_car()
+                .is_string()
+                .then(|| super::builtins::lisp_string_to_runtime_string(entry.cons_car()))
+            else {
                 continue;
             };
             let path = PathBuf::from(path);
@@ -2770,7 +2774,11 @@ pub(crate) fn runtime_bootstrap_load_path() -> Vec<String> {
     let lisp_dir = runtime_project_root().join("lisp");
     bootstrap_load_path_entries(&lisp_dir)
         .into_iter()
-        .filter_map(|value| value.as_str().map(str::to_owned))
+        .filter_map(|value| {
+            value
+                .is_string()
+                .then(|| super::builtins::lisp_string_to_runtime_string(value))
+        })
         .collect()
 }
 
