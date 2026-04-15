@@ -201,12 +201,16 @@ pub(crate) enum ObjectMemoryKind {
     Arena,
 }
 
+const NO_OLD_BLOCK_INDEX: u32 = u32::MAX;
+
 /// Owned allocation record stored by the heap.
 #[derive(Debug)]
 pub(crate) struct ObjectRecord {
     header: NonNull<ObjectHeader>,
     layout_align: usize,
-    old_block: Option<OldBlockPlacement>,
+    old_block_index: u32,
+    old_block_offset_bytes: u32,
+    old_block_total_size: u32,
     memory_kind: ObjectMemoryKind,
 }
 
@@ -259,7 +263,9 @@ impl ObjectRecord {
         Ok(Self {
             header,
             layout_align: layout.align(),
-            old_block: None,
+            old_block_index: NO_OLD_BLOCK_INDEX,
+            old_block_offset_bytes: 0,
+            old_block_total_size: 0,
             memory_kind: ObjectMemoryKind::Owned,
         })
     }
@@ -294,7 +300,9 @@ impl ObjectRecord {
         Self {
             header,
             layout_align: layout.align(),
-            old_block: None,
+            old_block_index: NO_OLD_BLOCK_INDEX,
+            old_block_offset_bytes: 0,
+            old_block_total_size: 0,
             memory_kind: ObjectMemoryKind::Arena,
         }
     }
@@ -347,16 +355,27 @@ impl ObjectRecord {
     }
 
     pub(crate) fn old_block_placement(&self) -> Option<OldBlockPlacement> {
-        self.old_block
+        (self.old_block_index != NO_OLD_BLOCK_INDEX).then_some(OldBlockPlacement {
+            block_index: self.old_block_index as usize,
+            offset_bytes: self.old_block_offset_bytes as usize,
+            total_size: self.old_block_total_size as usize,
+        })
     }
 
     pub(crate) fn set_old_block_placement(&mut self, placement: OldBlockPlacement) {
-        self.old_block = Some(placement);
+        self.old_block_index = u32::try_from(placement.block_index)
+            .expect("old block index should fit compact ObjectRecord storage");
+        self.old_block_offset_bytes = u32::try_from(placement.offset_bytes)
+            .expect("old block offset should fit compact ObjectRecord storage");
+        self.old_block_total_size = u32::try_from(placement.total_size)
+            .expect("old block size should fit compact ObjectRecord storage");
     }
 
     #[allow(dead_code)]
     pub(crate) fn clear_old_block_placement(&mut self) {
-        self.old_block = None;
+        self.old_block_index = NO_OLD_BLOCK_INDEX;
+        self.old_block_offset_bytes = 0;
+        self.old_block_total_size = 0;
     }
 
     pub(crate) fn total_size(&self) -> usize {
@@ -455,7 +474,9 @@ impl ObjectRecord {
         Ok(Self {
             header,
             layout_align: layout.align(),
-            old_block: None,
+            old_block_index: NO_OLD_BLOCK_INDEX,
+            old_block_offset_bytes: 0,
+            old_block_total_size: 0,
             memory_kind: ObjectMemoryKind::Owned,
         })
     }
@@ -485,7 +506,9 @@ impl ObjectRecord {
         Ok(Self {
             header,
             layout_align: layout.align(),
-            old_block: None,
+            old_block_index: NO_OLD_BLOCK_INDEX,
+            old_block_offset_bytes: 0,
+            old_block_total_size: 0,
             memory_kind: ObjectMemoryKind::Arena,
         })
     }
@@ -529,7 +552,9 @@ impl ObjectRecord {
             Ok(()) => Ok(Some(Self {
                 header,
                 layout_align: layout.align(),
-                old_block: None,
+                old_block_index: NO_OLD_BLOCK_INDEX,
+                old_block_offset_bytes: 0,
+                old_block_total_size: 0,
                 memory_kind: ObjectMemoryKind::Arena,
             })),
             Err(_winner) => {

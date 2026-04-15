@@ -1,5 +1,6 @@
 use super::{ObjectRecord, PendingFinalizer, SpaceKind};
 use crate::descriptor::{Relocator, Trace, Tracer, TypeFlags, fixed_type_desc};
+use std::mem::size_of;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Debug)]
@@ -49,6 +50,11 @@ fn object_header_is_send_and_sync() {
     fn assert_send_sync<T: Send + Sync>() {}
 
     assert_send_sync::<super::ObjectHeader>();
+}
+
+#[test]
+fn object_record_stays_compact() {
+    assert_eq!(size_of::<ObjectRecord>(), 32);
 }
 
 #[test]
