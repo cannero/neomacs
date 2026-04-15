@@ -323,16 +323,14 @@ pub(crate) struct ObjectPublishReservation {
 
 #[derive(Debug)]
 pub(crate) struct ObjectPublishLocal {
-    reservations: Box<[Option<ObjectPublishReservation>]>,
+    reservations: [Option<ObjectPublishReservation>; OBJECT_STORE_SHARDS],
 }
 
 impl Default for ObjectPublishLocal {
     fn default() -> Self {
-        let reservations = std::iter::repeat_with(|| None)
-            .take(OBJECT_STORE_SHARDS)
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
-        Self { reservations }
+        Self {
+            reservations: std::array::from_fn(|_| None),
+        }
     }
 }
 
