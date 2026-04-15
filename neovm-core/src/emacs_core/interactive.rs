@@ -2938,7 +2938,6 @@ pub(crate) fn resolve_call_interactively_target_and_args_with_vm_fallback(
     shared: &mut super::eval::Context,
     plan: &mut CallInteractivelyPlan,
     vm_gc_roots: &[Value],
-    extra_roots: &[Value],
 ) -> Result<(Value, Vec<Value>), Flow> {
     if let Some((function, call_args)) =
         resolve_call_interactively_target_and_args_in_vm_runtime(shared, plan, vm_gc_roots)?
@@ -2946,12 +2945,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_with_vm_fallback(
         return Ok((function, call_args));
     }
 
-    shared.with_gc_scope_result(|eval| {
-        for root in extra_roots {
-            eval.push_eval_root(*root);
-        }
-        resolve_call_interactively_target_and_args_in_eval(eval, plan)
-    })
+    shared.with_gc_scope_result(|eval| resolve_call_interactively_target_and_args_in_eval(eval, plan))
 }
 
 /// `(self-insert-command N &optional C)` -- insert character C (or the last

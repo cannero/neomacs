@@ -506,9 +506,7 @@ pub(crate) fn builtin_autoload_do_load(
 
 pub(crate) fn builtin_autoload_do_load_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
     args: &[Value],
-    extra_roots: &[Value],
 ) -> EvalResult {
     let original_fundef = args.first().copied();
     match plan_autoload_do_load_in_state(&shared.obarray, args)? {
@@ -516,9 +514,6 @@ pub(crate) fn builtin_autoload_do_load_in_vm_runtime(
         AutoloadDoLoadPlan::Load { file, funname } => {
             let path = resolve_autoload_load_path(&shared.obarray, &file)?;
             shared.with_gc_scope_result(|eval| {
-                for root in extra_roots {
-                    eval.push_eval_root(*root);
-                }
                 if let Some(fundef) = original_fundef {
                     eval.push_eval_root(fundef);
                 }

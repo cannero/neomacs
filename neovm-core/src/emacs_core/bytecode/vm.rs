@@ -3624,16 +3624,19 @@ impl<'a> Vm<'a> {
                     if !funname.is_nil() {
                         load_args.push(funname);
                     }
-                    let mut extra_roots = Vec::with_capacity(args.len() + load_args.len() + 1);
-                    extra_roots.push(target);
-                    extra_roots.extend(args.iter().copied());
-                    extra_roots.extend(load_args.iter().copied());
-                    target = crate::emacs_core::autoload::builtin_autoload_do_load_in_vm_runtime(
-                        &mut self.ctx,
-                        &[],
-                        &load_args,
-                        &extra_roots,
-                    )?;
+                    target = self.with_vm_root_scope(|vm| {
+                        vm.push_dynamic_vm_root(target);
+                        for value in args.iter().copied() {
+                            vm.push_dynamic_vm_root(value);
+                        }
+                        for value in load_args.iter().copied() {
+                            vm.push_dynamic_vm_root(value);
+                        }
+                        crate::emacs_core::autoload::builtin_autoload_do_load_in_vm_runtime(
+                            &mut vm.ctx,
+                            &load_args,
+                        )
+                    })?;
                 }
             }
         }
@@ -4039,21 +4042,25 @@ impl<'a> Vm<'a> {
             self.ctx.read_command_keys(),
             args,
         )?;
-        let extra_roots = args.to_vec();
         if crate::emacs_core::interactive::callable_form_needs_instantiation(&plan.func) {
             plan.func = self.ctx.instantiate_callable_cons_form(plan.func)?;
         }
-        let (function, call_args) =
-            crate::emacs_core::interactive::resolve_call_interactively_target_and_args_with_vm_fallback(
-                &mut self.ctx,
-                &mut plan,
-                &[],
-                &extra_roots,
-            )?;
-        let mut funcall_args = Vec::with_capacity(call_args.len() + 1);
-        funcall_args.push(function);
-        funcall_args.extend(call_args);
-        self.call_function_with_roots(Value::symbol("funcall-interactively"), &funcall_args)
+        self.with_vm_root_scope(|vm| {
+            for value in args.iter().copied() {
+                vm.push_dynamic_vm_root(value);
+            }
+            vm.push_dynamic_vm_root(plan.func);
+            let (function, call_args) =
+                crate::emacs_core::interactive::resolve_call_interactively_target_and_args_with_vm_fallback(
+                    &mut vm.ctx,
+                    &mut plan,
+                    &[],
+                )?;
+            let mut funcall_args = Vec::with_capacity(call_args.len() + 1);
+            funcall_args.push(function);
+            funcall_args.extend(call_args);
+            vm.call_function_with_roots(Value::symbol("funcall-interactively"), &funcall_args)
+        })
     }
 
     fn builtin_assoc_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -4710,13 +4717,15 @@ impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
 
     fn autoload_do_load_macro(&mut self, autoload: Value, head: Value) -> Result<(), Flow> {
         let args = vec![autoload, head, Value::symbol("macro")];
-        let extra_roots = args.clone();
-        let _ = crate::emacs_core::autoload::builtin_autoload_do_load_in_vm_runtime(
-            &mut self.ctx,
-            &[],
-            &args,
-            &extra_roots,
-        )?;
+        let _ = self.with_vm_root_scope(|vm| {
+            for root in args.iter().copied() {
+                vm.push_dynamic_vm_root(root);
+            }
+            crate::emacs_core::autoload::builtin_autoload_do_load_in_vm_runtime(
+                &mut vm.ctx,
+                &args,
+            )
+        })?;
         Ok(())
     }
 
