@@ -128,15 +128,6 @@ impl<'a> Vm<'a> {
         })
     }
 
-    fn with_extra_roots<T>(&mut self, extra: &[Value], f: impl FnOnce(&mut Self) -> T) -> T {
-        self.with_dynamic_vm_roots(|vm| {
-            for value in extra.iter().copied() {
-                vm.ctx.push_vm_frame_root(value);
-            }
-            f(vm)
-        })
-    }
-
     fn with_macro_expansion_scope<T>(
         &mut self,
         f: impl FnOnce(&mut Self) -> Result<T, Flow>,

@@ -1594,59 +1594,6 @@ pub(crate) fn finish_require_in_state(features: &[SymId], sym_id: SymId, name: &
     }
 }
 
-pub(crate) fn builtin_require_in_vm_runtime(
-    shared: &mut Context,
-    _vm_gc_roots: &[Value],
-    args: &[Value],
-) -> EvalResult {
-    match plan_require_in_state(
-        &shared.obarray,
-        &mut shared.features,
-        &shared.require_stack,
-        args.first().copied().unwrap_or(Value::NIL),
-        args.get(1).copied(),
-        args.get(2).copied(),
-    )? {
-        RequirePlan::Return(value) => Ok(value),
-        RequirePlan::Load { sym_id, name, path } => {
-            shared.require_stack.push(sym_id);
-            let result = shared.with_gc_scope_result(|eval| {
-                for root in args {
-                    eval.push_eval_root(*root);
-                }
-                eval.load_file_internal(&path)
-            });
-            let _ = shared.require_stack.pop();
-            result?;
-            refresh_features_from_variable_in_state(&shared.obarray, &mut shared.features);
-            finish_require_in_state(&shared.features, sym_id, &name)
-        }
-    }
-}
-
-/// VM-side `provide` that delegates to the parent evaluator so that
-/// `after-load-alist` callbacks are executed (matching GNU's Fprovide).
-pub(crate) fn builtin_provide_in_vm_runtime(
-    shared: &mut Context,
-    _vm_gc_roots: &[Value],
-    args: &[Value],
-) -> EvalResult {
-    if args.is_empty() || args.len() > 2 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol("provide"), Value::fixnum(args.len() as i64)],
-        ));
-    }
-    let feature = args[0];
-    let subfeatures = args.get(1).copied();
-    shared.with_gc_scope_result(|eval| {
-        for root in args {
-            eval.push_eval_root(*root);
-        }
-        eval.provide_value(feature, subfeatures)
-    })
-}
-
 pub(crate) fn parse_eval_lexical_arg(arg: Option<Value>) -> Result<(bool, Option<Value>), Flow> {
     // GNU eval.c Feval (src/eval.c:2527):
     //   specbind(Qinternal_interpreter_environment,
@@ -1750,31 +1697,6 @@ pub(crate) fn finish_eval_with_lexical_arg_in_state(
             }
         }
     }
-}
-
-pub(crate) fn builtin_eval_in_vm_runtime(
-    shared: &mut Context,
-    _vm_gc_roots: &[Value],
-    args: &[Value],
-) -> EvalResult {
-    if !(1..=2).contains(&args.len()) {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol("eval"), Value::fixnum(args.len() as i64)],
-        ));
-    }
-
-    let form = args[0];
-    let lexical_arg = args.get(1).copied();
-    let state = shared.begin_eval_with_lexical_arg(lexical_arg)?;
-    let result = shared.with_gc_scope_result(|eval| {
-        for root in args {
-            eval.push_eval_root(*root);
-        }
-        eval.eval_value(&form)
-    });
-    shared.finish_eval_with_lexical_arg(state);
-    result
 }
 
 pub(crate) struct ActiveLambdaCallState {
