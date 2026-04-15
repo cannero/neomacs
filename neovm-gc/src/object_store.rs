@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 
 use parking_lot::{RwLock, RwLockReadGuard};
 
@@ -13,25 +13,26 @@ use crate::object::{ObjectHeader, ObjectMemoryKind, ObjectRecord};
 
 pub(crate) const OBJECT_STORE_SHARDS: usize = 4;
 const OBJECT_STORE_CHUNK_CAPACITY: usize = 1024;
+const OBJECT_STORE_CHUNK_CAPACITY_U16: u16 = OBJECT_STORE_CHUNK_CAPACITY as u16;
 const OBJECT_STORE_SHARD_MASK: usize = OBJECT_STORE_SHARDS - 1;
 
 #[derive(Debug)]
 struct ObjectChunk {
     objects: Box<[MaybeUninit<ObjectRecord>]>,
-    published_len: AtomicUsize,
+    published_len: AtomicU16,
 }
 
 impl ObjectChunk {
     fn new() -> Self {
         Self {
             objects: Box::new_uninit_slice(OBJECT_STORE_CHUNK_CAPACITY),
-            published_len: AtomicUsize::new(0),
+            published_len: AtomicU16::new(0),
         }
     }
 
     #[inline]
     fn published_len(&self) -> usize {
-        self.published_len.load(Ordering::Acquire)
+        usize::from(self.published_len.load(Ordering::Acquire))
     }
 
     #[inline]
@@ -41,14 +42,17 @@ impl ObjectChunk {
 
     unsafe fn write_reserved(&self, offset: usize, record: ObjectRecord) {
         debug_assert!(offset < OBJECT_STORE_CHUNK_CAPACITY);
-        debug_assert_eq!(offset, self.published_len.load(Ordering::Relaxed));
+        debug_assert_eq!(
+            offset,
+            usize::from(self.published_len.load(Ordering::Relaxed))
+        );
         let slot = unsafe { self.objects.as_ptr().add(offset) as *mut MaybeUninit<ObjectRecord> };
         unsafe { (*slot).write(record) };
     }
 
     fn publish_reserved(&self, offset: usize) {
         self.published_len
-            .store(offset.saturating_add(1), Ordering::Release);
+            .store((offset.saturating_add(1)) as u16, Ordering::Release);
     }
 
     fn read_raw(&self) -> ObjectChunkReadRaw {
@@ -64,7 +68,7 @@ impl ObjectChunk {
     }
 
     fn drain_published_into(&self, out: &mut Vec<ObjectRecord>) {
-        let published = self.published_len.swap(0, Ordering::AcqRel);
+        let published = usize::from(self.published_len.swap(0, Ordering::AcqRel));
         out.reserve(published);
         for slot in 0..published {
             out.push(unsafe { self.objects[slot].assume_init_read() });
@@ -74,7 +78,7 @@ impl ObjectChunk {
 
 impl Drop for ObjectChunk {
     fn drop(&mut self) {
-        let published = *self.published_len.get_mut();
+        let published = usize::from(*self.published_len.get_mut());
         for slot in 0..published {
             unsafe { self.objects[slot].assume_init_drop() };
         }
@@ -318,10 +322,10 @@ impl ObjectReadView for FlatReadView<'_> {
 pub(crate) struct ObjectPublishReservation {
     generation: u64,
     base_slot: usize,
-    next_offset: usize,
+    next_offset: u16,
     _chunk: Option<Arc<ObjectChunk>>,
     next_slot: *mut MaybeUninit<ObjectRecord>,
-    published_len: *const AtomicUsize,
+    published_len: *const AtomicU16,
 }
 
 #[derive(Debug)]
@@ -368,7 +372,7 @@ impl Default for ObjectPublishReservation {
         Self {
             generation: u64::MAX,
             base_slot: 0,
-            next_offset: OBJECT_STORE_CHUNK_CAPACITY,
+            next_offset: OBJECT_STORE_CHUNK_CAPACITY_U16,
             _chunk: None,
             next_slot: core::ptr::null_mut(),
             published_len: core::ptr::null(),
@@ -459,13 +463,12 @@ impl ObjectStore {
         shard_index: usize,
         record: ObjectRecord,
     ) -> ObjectLocator {
-        let chunk_offset = reservation.next_offset;
+        let chunk_offset = usize::from(reservation.next_offset);
+        let next_offset = reservation.next_offset.saturating_add(1);
         unsafe { reservation.next_slot.write(MaybeUninit::new(record)) };
-        unsafe {
-            (*reservation.published_len).store(chunk_offset.saturating_add(1), Ordering::Release)
-        };
+        unsafe { (*reservation.published_len).store(next_offset, Ordering::Release) };
         reservation.next_slot = unsafe { reservation.next_slot.add(1) };
-        reservation.next_offset = chunk_offset.saturating_add(1);
+        reservation.next_offset = next_offset;
         ObjectLocator::new(shard_index, reservation.base_slot + chunk_offset)
     }
 
@@ -477,7 +480,8 @@ impl ObjectStore {
         layout_align_shift: u8,
         memory_kind: ObjectMemoryKind,
     ) -> ObjectLocator {
-        let chunk_offset = reservation.next_offset;
+        let chunk_offset = usize::from(reservation.next_offset);
+        let next_offset = reservation.next_offset.saturating_add(1);
         unsafe {
             ObjectRecord::write_published_record(
                 reservation.next_slot,
@@ -487,11 +491,9 @@ impl ObjectStore {
                 memory_kind,
             )
         };
-        unsafe {
-            (*reservation.published_len).store(chunk_offset.saturating_add(1), Ordering::Release)
-        };
+        unsafe { (*reservation.published_len).store(next_offset, Ordering::Release) };
         reservation.next_slot = unsafe { reservation.next_slot.add(1) };
-        reservation.next_offset = chunk_offset.saturating_add(1);
+        reservation.next_offset = next_offset;
         ObjectLocator::new(shard_index, reservation.base_slot + chunk_offset)
     }
 
@@ -580,7 +582,7 @@ impl ObjectStore {
         let needs_reservation = {
             let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
             reservation.generation != generation
-                || reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY
+                || reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY_U16
         };
         if needs_reservation {
             publish_local.mark_touched(shard_index);
@@ -600,7 +602,7 @@ impl ObjectStore {
         let shard_index = shard_index_for_key(object_key);
         let needs_reservation = {
             let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
-            reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY
+            reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY_U16
         };
         if needs_reservation {
             publish_local.mark_touched(shard_index);
@@ -622,7 +624,7 @@ impl ObjectStore {
         let shard_index = shard_index_for_key(object_key);
         let needs_reservation = {
             let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
-            reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY
+            reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY_U16
         };
         if needs_reservation {
             publish_local.mark_touched(shard_index);
