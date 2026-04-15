@@ -20,9 +20,11 @@ pub(crate) fn builtin_get_pos_property_impl(
     let prop = super::textprop::expect_symbol_name(&args[1])?;
 
     if let Some(str_val) = args.get(2).filter(|v| v.is_string()) {
-        let s = super::lisp_string_to_runtime_string(*str_val);
         if let Some(table) = get_string_text_properties_table_for_value(*str_val) {
-            let byte_pos = super::textprop::string_elisp_pos_to_byte(&s, pos);
+            let s = str_val
+                .as_lisp_string()
+                .expect("string object must carry LispString payload");
+            let byte_pos = super::textprop::string_elisp_pos_to_byte(s, pos);
             return Ok(super::textprop::builtin_get_text_property_in_state(
                 obarray,
                 buffers,
@@ -133,14 +135,16 @@ pub(crate) fn builtin_previous_property_change_in_buffers(
 
     // --- String OBJECT ---
     if let Some(str_val) = args.get(1).filter(|v| v.is_string()) {
-        let s = super::lisp_string_to_runtime_string(*str_val);
+        let s = str_val
+            .as_lisp_string()
+            .expect("string object must carry LispString payload");
         let table = get_string_text_properties_table_for_value(*str_val).unwrap_or_default();
-        let byte_pos = textprop::string_elisp_pos_to_byte(&s, pos);
+        let byte_pos = textprop::string_elisp_pos_to_byte(s, pos);
         let (byte_limit, limit_val) = match args.get(2) {
             Some(v) if !v.is_nil() => {
                 let lim_int = expect_integer_or_marker(v)?;
                 (
-                    Some(textprop::string_elisp_pos_to_byte(&s, lim_int)),
+                    Some(textprop::string_elisp_pos_to_byte(s, lim_int)),
                     Some(lim_int),
                 )
             }
@@ -165,7 +169,7 @@ pub(crate) fn builtin_previous_property_change_in_buffers(
                     let check = if prev > 0 { prev - 1 } else { 0 };
                     let new_props = table.get_properties(check);
                     if new_props != current_props {
-                        return Ok(Value::fixnum(textprop::string_byte_to_elisp_pos(&s, prev)));
+                        return Ok(Value::fixnum(textprop::string_byte_to_elisp_pos(s, prev)));
                     }
                     if prev == 0 {
                         break;

@@ -435,6 +435,41 @@ fn string_text_properties_handle_raw_unibyte_storage() {
 }
 
 #[test]
+fn string_property_change_navigation_handles_raw_unibyte_storage() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let string = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b'A', 0x80, b'Z',
+    ]));
+
+    builtin_put_text_property(
+        &mut eval,
+        vec![
+            Value::fixnum(2),
+            Value::fixnum(4),
+            Value::symbol("face"),
+            Value::symbol("bold"),
+            string,
+        ],
+    )
+    .unwrap();
+
+    let next = builtin_next_single_property_change(
+        &mut eval,
+        vec![Value::fixnum(1), Value::symbol("face"), string],
+    )
+    .unwrap();
+    assert_eq!(next, Value::fixnum(2));
+
+    let prev = builtin_previous_single_property_change(
+        &mut eval,
+        vec![Value::fixnum(4), Value::symbol("face"), string],
+    )
+    .unwrap();
+    assert_eq!(prev, Value::fixnum(2));
+}
+
+#[test]
 fn get_display_property_queries_display_only() {
     crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("abcd");
