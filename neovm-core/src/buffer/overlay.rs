@@ -76,7 +76,7 @@ impl OverlayList {
         plist_get_eq(overlay.as_overlay_data().unwrap().plist, prop)
     }
 
-    pub fn overlay_get_named(&self, overlay: Value, prop_name: &str) -> Option<Value> {
+    pub fn overlay_get_named(&self, overlay: Value, prop_name: Value) -> Option<Value> {
         overlay_property_named(overlay, prop_name)
     }
 
@@ -148,16 +148,16 @@ impl OverlayList {
         overlays
     }
 
-    pub fn highest_priority_overlay_at(&self, pos: usize, property: &str) -> Option<Value> {
+    pub fn highest_priority_overlay_at(&self, pos: usize, property: Value) -> Option<Value> {
         self.best_overlay_for(property, |overlay| overlay_covers_pos(overlay, pos))
     }
 
     pub fn highest_priority_overlay_for_inserted_char(
         &self,
         pos: usize,
-        property: &str,
+        property: &Value,
     ) -> Option<Value> {
-        self.best_overlay_for(property, |overlay| {
+        self.best_overlay_for(*property, |overlay| {
             let Some(data) = overlay.as_overlay_data() else {
                 return false;
             };
@@ -332,7 +332,7 @@ impl OverlayList {
         list
     }
 
-    fn best_overlay_for<F>(&self, property: &str, predicate: F) -> Option<Value>
+    fn best_overlay_for<F>(&self, property: Value, predicate: F) -> Option<Value>
     where
         F: Fn(Value) -> bool,
     {
@@ -440,9 +440,9 @@ fn overlay_overlaps_region(
     data.start < end && data.end > start
 }
 
-fn overlay_property_named(overlay: Value, prop_name: &str) -> Option<Value> {
+fn overlay_property_named(overlay: Value, prop_name: Value) -> Option<Value> {
     let plist = overlay.as_overlay_data()?.plist;
-    plist_get_named(plist, prop_name)
+    plist_get_eq(plist, &prop_name)
 }
 
 fn compare_overlay_precedence(left: Value, right: Value) -> Ordering {

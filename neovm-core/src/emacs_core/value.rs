@@ -293,9 +293,7 @@ pub fn set_string_text_properties_for_value(value: Value, runs: Vec<StringTextPr
         if let Some(items) = list_to_vec(&run.plist) {
             for chunk in items.chunks(2) {
                 if chunk.len() == 2 {
-                    if let Some(name) = chunk[0].as_symbol_name() {
-                        table.put_property(run.start, run.end, name, chunk[1]);
-                    }
+                    table.put_property(run.start, run.end, chunk[0], chunk[1]);
                 }
             }
         }
@@ -315,7 +313,7 @@ pub fn get_string_text_properties_for_value(value: Value) -> Option<Vec<StringTe
         }
         let mut plist_items = Vec::new();
         for (key, val) in interval.ordered_properties() {
-            plist_items.push(Value::make_symbol(key.to_string()));
+            plist_items.push(key);
             plist_items.push(*val);
         }
         runs.push(StringTextPropertyRun {

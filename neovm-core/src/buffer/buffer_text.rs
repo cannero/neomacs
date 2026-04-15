@@ -394,7 +394,7 @@ impl BufferText {
         &self,
         start: usize,
         end: usize,
-        name: &str,
+        name: Value,
         value: Value,
     ) -> bool {
         self.storage
@@ -403,7 +403,7 @@ impl BufferText {
             .put_property(start, end, name, value)
     }
 
-    pub fn text_props_get_property(&self, pos: usize, name: &str) -> Option<Value> {
+    pub fn text_props_get_property(&self, pos: usize, name: Value) -> Option<Value> {
         self.storage
             .borrow()
             .text_props
@@ -411,15 +411,15 @@ impl BufferText {
             .copied()
     }
 
-    pub fn text_props_get_properties(&self, pos: usize) -> HashMap<String, Value> {
+    pub fn text_props_get_properties(&self, pos: usize) -> HashMap<Value, Value> {
         self.storage.borrow().text_props.get_properties(pos)
     }
 
-    pub fn text_props_get_properties_ordered(&self, pos: usize) -> Vec<(String, Value)> {
+    pub fn text_props_get_properties_ordered(&self, pos: usize) -> Vec<(Value, Value)> {
         self.storage.borrow().text_props.get_properties_ordered(pos)
     }
 
-    pub fn text_props_remove_property(&self, start: usize, end: usize, name: &str) -> bool {
+    pub fn text_props_remove_property(&self, start: usize, end: usize, name: Value) -> bool {
         self.storage
             .borrow_mut()
             .text_props

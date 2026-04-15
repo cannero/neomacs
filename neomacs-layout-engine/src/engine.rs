@@ -2327,7 +2327,7 @@ impl LayoutEngine {
                         .iter()
                         .filter_map(|ov| {
                             b.overlays
-                                .overlay_get_named(*ov, "after-string")
+                                .overlay_get_named(*ov, Value::symbol("after-string"))
                                 .and_then(|v| v.as_lisp_string())
                                 .map(|s| s.as_bytes().iter().filter(|&&byte| byte == b'\n').count())
                         })
@@ -2945,12 +2945,13 @@ impl LayoutEngine {
                     // In Emacs, invisible property `t` means hide completely (no ellipsis),
                     // while symbol values (e.g. `outline`, `hs`) typically indicate that
                     // ellipsis should be shown (via buffer-invisibility-spec).
-                    let show_ellipsis = match text_props.get_property(charpos, "invisible") {
-                        Some(v) if v.is_t() => false,
-                        Some(v) if v.is_nil() => false,
-                        None => false,
-                        Some(_) => true,
-                    };
+                    let show_ellipsis =
+                        match text_props.get_property(charpos, Value::symbol("invisible")) {
+                            Some(v) if v.is_t() => false,
+                            Some(v) if v.is_nil() => false,
+                            None => false,
+                            Some(_) => true,
+                        };
 
                     let skip_to = next_visible.min(params.buffer_size);
                     let point_in_hidden_region =
@@ -3023,7 +3024,7 @@ impl LayoutEngine {
                             for (string_bytes, overlay_id) in &after_strings {
                                 let ov_face = buffer
                                     .overlays
-                                    .overlay_get_named(*overlay_id, "face")
+                                    .overlay_get_named(*overlay_id, Value::symbol("face"))
                                     .and_then(|val| face_resolver.resolve_face_from_value(&val));
                                 render_overlay_string(
                                     evaluator,
@@ -4338,7 +4339,7 @@ impl LayoutEngine {
                     for (string_bytes, overlay_id) in &before_strings {
                         let ov_face = buffer
                             .overlays
-                            .overlay_get_named(*overlay_id, "face")
+                            .overlay_get_named(*overlay_id, Value::symbol("face"))
                             .and_then(|val| face_resolver.resolve_face_from_value(&val));
                         render_overlay_string(
                             evaluator,
@@ -4439,7 +4440,7 @@ impl LayoutEngine {
                     for (string_bytes, overlay_id) in &after_strings {
                         let ov_face = buffer
                             .overlays
-                            .overlay_get_named(*overlay_id, "face")
+                            .overlay_get_named(*overlay_id, Value::symbol("face"))
                             .and_then(|val| face_resolver.resolve_face_from_value(&val));
                         render_overlay_string(
                             evaluator,
@@ -4538,7 +4539,7 @@ impl LayoutEngine {
             for (string_bytes, overlay_id) in before_strings.iter().chain(after_strings.iter()) {
                 let ov_face = buffer
                     .overlays
-                    .overlay_get_named(*overlay_id, "face")
+                    .overlay_get_named(*overlay_id, Value::symbol("face"))
                     .and_then(|val| face_resolver.resolve_face_from_value(&val));
                 render_overlay_string(
                     evaluator,
@@ -5948,7 +5949,7 @@ mod tests {
                 Value::symbol("extra-bold"),
             ]);
             buf.text
-                .text_props_put_property(0, buf.text.len(), "face", plist);
+                .text_props_put_property(0, buf.text.len(), Value::symbol("face"), plist);
             buf.goto_byte(0);
         }
         let frame_id =
@@ -6150,7 +6151,7 @@ mod tests {
             buf.text.text_props_put_property(
                 hidden_byte_start,
                 hidden_byte_end,
-                "invisible",
+                Value::symbol("invisible"),
                 Value::T,
             );
         }
@@ -6270,7 +6271,7 @@ mod tests {
             buf.text.text_props_put_property(
                 repl_byte_start,
                 repl_byte_end,
-                "display",
+                Value::symbol("display"),
                 Value::string("R"),
             );
         }
@@ -6331,7 +6332,7 @@ mod tests {
             buf.text.text_props_put_property(
                 repl_byte_start,
                 repl_byte_end,
-                "display",
+                Value::symbol("display"),
                 Value::string("R"),
             );
         }
@@ -6385,7 +6386,7 @@ mod tests {
             buf.text.text_props_put_property(
                 1,
                 2,
-                "display",
+                Value::symbol("display"),
                 Value::list(vec![
                     Value::symbol("image"),
                     Value::keyword("type"),
@@ -6605,13 +6606,13 @@ mod tests {
             buf.text.text_props_put_property(
                 space_byte_start,
                 space_byte_end,
-                "display",
+                Value::symbol("display"),
                 display_space_width_spec(4),
             );
             buf.text.text_props_put_property(
                 space_byte_start,
                 space_byte_end,
-                "face",
+                Value::symbol("face"),
                 scaled_face_plist(),
             );
             buf.set_buffer_local("cursor-type", cursor_type);
@@ -6691,13 +6692,13 @@ mod tests {
             buf.text.text_props_put_property(
                 space_byte_start,
                 space_byte_end,
-                "display",
+                Value::symbol("display"),
                 display_space_width_spec(4),
             );
             buf.text.text_props_put_property(
                 space_byte_start,
                 space_byte_end,
-                "face",
+                Value::symbol("face"),
                 scaled_face_plist(),
             );
         }
@@ -6757,13 +6758,13 @@ mod tests {
             buf.text.text_props_put_property(
                 space_byte_start,
                 space_byte_end,
-                "display",
+                Value::symbol("display"),
                 display_space_width_spec(4),
             );
             buf.text.text_props_put_property(
                 space_byte_start,
                 space_byte_end,
-                "face",
+                Value::symbol("face"),
                 scaled_face_plist(),
             );
         }
@@ -6841,8 +6842,12 @@ mod tests {
                 Value::keyword("weight"),
                 Value::symbol("normal"),
             ]);
-            buf.text
-                .text_props_put_property(sample_byte_start, sample_byte_end, "face", plist);
+            buf.text.text_props_put_property(
+                sample_byte_start,
+                sample_byte_end,
+                Value::symbol("face"),
+                plist,
+            );
             buf.goto_byte(0);
         }
 
@@ -6970,8 +6975,12 @@ mod tests {
                 Value::keyword("weight"),
                 Value::symbol("normal"),
             ]);
-            buf.text
-                .text_props_put_property(sample_byte_start, sample_byte_end, "face", plist);
+            buf.text.text_props_put_property(
+                sample_byte_start,
+                sample_byte_end,
+                Value::symbol("face"),
+                plist,
+            );
             buf.goto_byte(0);
             buf.set_buffer_local("truncate-lines", Value::T);
         }
@@ -7128,7 +7137,7 @@ mod tests {
                     buf.text.text_props_put_property(
                         sample_byte_start,
                         sample_byte_end,
-                        "face",
+                        Value::symbol("face"),
                         plist,
                     );
                     targets.push(TargetRow {
@@ -7356,7 +7365,7 @@ mod tests {
                         buf.text.text_props_put_property(
                             sample_byte_start,
                             sample_byte_end,
-                            "face",
+                            Value::symbol("face"),
                             plist,
                         );
                         targets.push(TargetRow {

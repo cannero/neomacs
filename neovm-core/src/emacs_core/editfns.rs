@@ -350,7 +350,10 @@ fn collect_overlay_modification_hooks(
     let overlay_ids = buf.overlays.overlays_in(beg, search_end);
     let mut result = Vec::new();
     for ov_id in overlay_ids {
-        if let Some(hooks_val) = buf.overlays.overlay_get_named(ov_id, "modification-hooks") {
+        if let Some(hooks_val) = buf
+            .overlays
+            .overlay_get_named(ov_id, Value::symbol("modification-hooks"))
+        {
             for func in value_list_iter(hooks_val) {
                 result.push((func, ov_id));
             }
@@ -387,7 +390,7 @@ fn run_overlay_after_change_hooks(
             if ov_start == Some(beg) {
                 if let Some(hook_val) = buf
                     .overlays
-                    .overlay_get_named(*ov_id, "insert-in-front-hooks")
+                    .overlay_get_named(*ov_id, Value::symbol("insert-in-front-hooks"))
                 {
                     for func in value_list_iter(hook_val) {
                         hooks.push((func, *ov_id, "front"));
@@ -406,7 +409,7 @@ fn run_overlay_after_change_hooks(
             if ov_end == Some(beg) {
                 if let Some(hook_val) = buf
                     .overlays
-                    .overlay_get_named(*ov_id, "insert-behind-hooks")
+                    .overlay_get_named(*ov_id, Value::symbol("insert-behind-hooks"))
                 {
                     for func in value_list_iter(hook_val) {
                         hooks.push((func, *ov_id, "behind"));
@@ -418,7 +421,10 @@ fn run_overlay_after_change_hooks(
         // modification-hooks: overlays covering [beg, end)
         let mod_overlays = buf.overlays.overlays_in(beg, search_end);
         for ov_id in &mod_overlays {
-            if let Some(hook_val) = buf.overlays.overlay_get_named(*ov_id, "modification-hooks") {
+            if let Some(hook_val) = buf
+                .overlays
+                .overlay_get_named(*ov_id, Value::symbol("modification-hooks"))
+            {
                 for func in value_list_iter(hook_val) {
                     hooks.push((func, *ov_id, "mod"));
                 }

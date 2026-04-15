@@ -773,12 +773,12 @@ impl LayoutEngine {
         bytepos: usize,
     ) -> ResolvedFace {
         let mut face = base_face.clone();
-        if let Some(value) = props.get_property(bytepos, "face")
+        if let Some(value) = props.get_property(bytepos, Value::symbol("face"))
             && let Some(next) = face_resolver.resolve_face_value_over(&face, value)
         {
             face = next;
         }
-        if let Some(value) = props.get_property(bytepos, "font-lock-face")
+        if let Some(value) = props.get_property(bytepos, Value::symbol("font-lock-face"))
             && let Some(next) = face_resolver.resolve_face_value_over(&face, value)
         {
             face = next;
@@ -818,8 +818,10 @@ impl LayoutEngine {
 
         let mut boundaries = vec![0usize];
         for interval in props.intervals_snapshot() {
-            if interval.properties.contains_key("face")
-                || interval.properties.contains_key("font-lock-face")
+            if interval.properties.contains_key(&Value::symbol("face"))
+                || interval
+                    .properties
+                    .contains_key(&Value::symbol("font-lock-face"))
             {
                 boundaries.push(interval.start);
                 boundaries.push(interval.end);
@@ -918,7 +920,7 @@ impl LayoutEngine {
         };
 
         for interval in props.intervals_snapshot() {
-            let Some(disp_prop) = interval.properties.get("display") else {
+            let Some(disp_prop) = interval.properties.get(&Value::symbol("display")) else {
                 continue;
             };
             // Only handle (space …) specs here. Other display values

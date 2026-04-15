@@ -417,7 +417,7 @@ pub struct DumpMarkerEntry {
 pub struct DumpPropertyInterval {
     pub start: usize,
     pub end: usize,
-    pub properties: Vec<(String, DumpValue)>,
+    pub properties: Vec<(DumpValue, DumpValue)>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

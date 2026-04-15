@@ -584,7 +584,7 @@ fn font_at_eval_returns_font_object_for_multibyte_buffer_face() {
     let end = buffer.text.char_to_byte(2);
     buffer
         .text
-        .text_props_put_property(start, end, "face", face);
+        .text_props_put_property(start, end, Value::symbol("face"), face);
 
     let font = builtin_font_at(&mut eval, vec![Value::fixnum(2)]).unwrap();
     assert!(
@@ -621,7 +621,7 @@ fn font_at_eval_returns_font_object_for_multibyte_string_face() {
     let mut table = crate::buffer::TextPropertyTable::new();
     let start = "a".len();
     let end = start + "好".len();
-    table.put_property(start, end, "face", face);
+    table.put_property(start, end, Value::symbol("face"), face);
     crate::emacs_core::value::set_string_text_properties_table_for_value(string, table);
 
     let font = builtin_font_at(&mut eval, vec![Value::fixnum(1), Value::NIL, string]).unwrap();
@@ -655,7 +655,7 @@ fn font_at_eval_preserves_raw_unibyte_string_face() {
     let string = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF]));
     let runtime = crate::emacs_core::builtins::lisp_string_to_runtime_string(string);
     let mut table = crate::buffer::TextPropertyTable::new();
-    table.put_property(0, runtime.len(), "face", face);
+    table.put_property(0, runtime.len(), Value::symbol("face"), face);
     crate::emacs_core::value::set_string_text_properties_table_for_value(string, table);
 
     let font = builtin_font_at(&mut eval, vec![Value::fixnum(0), Value::NIL, string]).unwrap();
@@ -695,7 +695,7 @@ fn font_at_eval_reads_source_style_inline_face_keywords() {
     let end = buffer.text.char_to_byte(3);
     buffer
         .text
-        .text_props_put_property(start, end, "face", inline_face);
+        .text_props_put_property(start, end, Value::symbol("face"), inline_face);
 
     let font = builtin_font_at(&mut eval, vec![Value::fixnum(1)]).unwrap();
     assert!(
@@ -749,7 +749,7 @@ fn font_at_eval_passes_inline_face_weight_and_family_to_display_host() {
     let end = buffer.text.char_to_byte(2);
     buffer
         .text
-        .text_props_put_property(start, end, "face", inline_face);
+        .text_props_put_property(start, end, Value::symbol("face"), inline_face);
 
     let _ = builtin_font_at(&mut eval, vec![Value::fixnum(1)]).unwrap();
 
@@ -802,7 +802,7 @@ fn font_at_eval_prefers_backend_selected_font_match_when_available() {
     let end = buffer.text.char_to_byte(2);
     buffer
         .text
-        .text_props_put_property(start, end, "face", inline_face);
+        .text_props_put_property(start, end, Value::symbol("face"), inline_face);
 
     let font = builtin_font_at(&mut eval, vec![Value::fixnum(2)]).unwrap();
     assert_eq!(

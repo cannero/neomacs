@@ -3265,7 +3265,7 @@ impl BufferManager {
         id: BufferId,
         start: usize,
         end: usize,
-        name: &str,
+        name: Value,
         value: Value,
     ) -> Option<bool> {
         let buf = self.buffers.get_mut(&id)?;
@@ -3276,13 +3276,7 @@ impl BufferManager {
                 .text_props_get_property(start, name)
                 .unwrap_or(Value::NIL);
             let mut ul = buf.get_undo_list();
-            undo::undo_list_record_property_change(
-                &mut ul,
-                Value::symbol(name),
-                old_val,
-                start,
-                end,
-            );
+            undo::undo_list_record_property_change(&mut ul, name, old_val, start, end);
             buf.set_undo_list(ul);
         }
         Some(buf.text.text_props_put_property(start, end, name, value))
@@ -3306,7 +3300,7 @@ impl BufferManager {
         id: BufferId,
         start: usize,
         end: usize,
-        name: &str,
+        name: Value,
     ) -> Option<bool> {
         let buf = self.buffers.get_mut(&id)?;
         // Record old value for undo before removing.
@@ -3318,13 +3312,7 @@ impl BufferManager {
             // Only record if property actually exists.
             if !old_val.is_nil() {
                 let mut ul = buf.get_undo_list();
-                undo::undo_list_record_property_change(
-                    &mut ul,
-                    Value::symbol(name),
-                    old_val,
-                    start,
-                    end,
-                );
+                undo::undo_list_record_property_change(&mut ul, name, old_val, start, end);
                 buf.set_undo_list(ul);
             }
         }
@@ -4150,7 +4138,13 @@ mod tests {
         let indirect_id = mgr
             .create_indirect_buffer(base_id, "*indirect-restored*", false)
             .expect("indirect buffer");
-        let _ = mgr.put_buffer_text_property(base_id, 1, 4, "face", Value::symbol("bold"));
+        let _ = mgr.put_buffer_text_property(
+            base_id,
+            1,
+            4,
+            Value::symbol("face"),
+            Value::symbol("bold"),
+        );
         let _ = mgr.insert_into_buffer(base_id, "z");
 
         let mut dumped = mgr.dump_buffers().clone();
@@ -4179,7 +4173,9 @@ mod tests {
         assert!(base.text.shares_storage_with(&indirect.text));
         assert!(base.undo_state.shares_with(&indirect.undo_state));
         assert_eq!(
-            indirect.text.text_props_get_property(1, "face"),
+            indirect
+                .text
+                .text_props_get_property(1, Value::symbol("face")),
             Some(Value::symbol("bold"))
         );
     }

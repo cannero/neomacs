@@ -1046,7 +1046,7 @@ impl<'a, B: LayoutBufferView> RustTextPropAccess<'a, B> {
         let invis = self
             .buffer
             .layout_text()
-            .text_props_get_property(bytepos, "invisible");
+            .text_props_get_property(bytepos, Value::symbol("invisible"));
 
         let is_invisible = match invis {
             Some(v) if v.is_nil() => false,
@@ -1074,7 +1074,7 @@ impl<'a, B: LayoutBufferView> RustTextPropAccess<'a, B> {
         let display = self
             .buffer
             .layout_text()
-            .text_props_get_property(bytepos, "display");
+            .text_props_get_property(bytepos, Value::symbol("display"));
 
         let next_change = self
             .buffer
@@ -1094,7 +1094,7 @@ impl<'a, B: LayoutBufferView> RustTextPropAccess<'a, B> {
         match self
             .buffer
             .layout_text()
-            .text_props_get_property(bytepos, "line-spacing")
+            .text_props_get_property(bytepos, Value::symbol("line-spacing"))
         {
             Some(v) if v.is_fixnum() => v.as_fixnum().unwrap() as f32,
             Some(v) if v.is_float() => {
@@ -1138,7 +1138,7 @@ impl<'a, B: LayoutBufferView> RustTextPropAccess<'a, B> {
                     if let Some(val) = self
                         .buffer
                         .layout_overlays()
-                        .overlay_get_named(oid, "before-string")
+                        .overlay_get_named(oid, Value::symbol("before-string"))
                     {
                         if let Some(s) = value_as_string(&val) {
                             before.push((s.as_bytes().to_vec(), oid));
@@ -1153,7 +1153,7 @@ impl<'a, B: LayoutBufferView> RustTextPropAccess<'a, B> {
                     if let Some(val) = self
                         .buffer
                         .layout_overlays()
-                        .overlay_get_named(oid, "after-string")
+                        .overlay_get_named(oid, Value::symbol("after-string"))
                     {
                         if let Some(s) = value_as_string(&val) {
                             after.push((s.as_bytes().to_vec(), oid));
@@ -1182,7 +1182,7 @@ impl<'a, B: LayoutBufferView> RustTextPropAccess<'a, B> {
                             if let Some(val) = self
                                 .buffer
                                 .layout_overlays()
-                                .overlay_get_named(oid, "after-string")
+                                .overlay_get_named(oid, Value::symbol("after-string"))
                             {
                                 if let Some(s) = value_as_string(&val) {
                                     after.push((s.as_bytes().to_vec(), oid));
@@ -1211,7 +1211,7 @@ impl<'a, B: LayoutBufferView> RustTextPropAccess<'a, B> {
     }
 
     /// Get a specific text property at a position.
-    pub fn get_property(&self, charpos: i64, name: &str) -> Option<Value> {
+    pub fn get_property(&self, charpos: i64, name: Value) -> Option<Value> {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
         self.buffer
             .layout_text()
@@ -1223,7 +1223,7 @@ impl<'a, B: LayoutBufferView> RustTextPropAccess<'a, B> {
     /// Returns `Some(String)` if the property exists and is a string value,
     /// `None` otherwise.
     pub fn get_text_prop_string(&self, charpos: i64, prop_name: &str) -> Option<String> {
-        self.get_property(charpos, prop_name)
+        self.get_property(charpos, Value::symbol(prop_name))
             .and_then(|v| v.as_runtime_string_owned())
     }
 }
@@ -1745,7 +1745,7 @@ impl FaceResolver {
         // 1. "face" text property
         if let Some(val) = buffer
             .layout_text()
-            .text_props_get_property(bytepos, "face")
+            .text_props_get_property(bytepos, Value::symbol("face"))
         {
             if let Some(next) =
                 self.resolve_buffer_face_value_over(buffer, &resolved, &val, &mut remap_stack)
@@ -1761,7 +1761,7 @@ impl FaceResolver {
         // 2. "font-lock-face" text property
         if let Some(val) = buffer
             .layout_text()
-            .text_props_get_property(bytepos, "font-lock-face")
+            .text_props_get_property(bytepos, Value::symbol("font-lock-face"))
         {
             if let Some(next) =
                 self.resolve_buffer_face_value_over(buffer, &resolved, &val, &mut remap_stack)
@@ -1785,11 +1785,14 @@ impl FaceResolver {
                 // Get priority (default 0)
                 let priority = buffer
                     .layout_overlays()
-                    .overlay_get_named(oid, "priority")
+                    .overlay_get_named(oid, Value::symbol("priority"))
                     .and_then(|v| v.as_int())
                     .unwrap_or(0);
                 // Get face
-                if let Some(val) = buffer.layout_overlays().overlay_get_named(oid, "face") {
+                if let Some(val) = buffer
+                    .layout_overlays()
+                    .overlay_get_named(oid, Value::symbol("face"))
+                {
                     overlay_faces.push((priority, val));
                 }
             }

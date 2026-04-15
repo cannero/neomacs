@@ -1311,12 +1311,15 @@ fn resolved_face_at_buffer_byte(
 ) -> RuntimeFace {
     let mut layers = Vec::new();
 
-    if let Some(value) = buffer.text.text_props_get_property(bytepos, "face") {
+    if let Some(value) = buffer
+        .text
+        .text_props_get_property(bytepos, Value::symbol("face"))
+    {
         layers.extend(resolve_face_layers_from_value(&value));
     }
     if let Some(value) = buffer
         .text
-        .text_props_get_property(bytepos, "font-lock-face")
+        .text_props_get_property(bytepos, Value::symbol("font-lock-face"))
     {
         layers.extend(resolve_face_layers_from_value(&value));
     }
@@ -1325,10 +1328,13 @@ fn resolved_face_at_buffer_byte(
     for overlay_id in buffer.overlays.overlays_at(bytepos) {
         let priority = buffer
             .overlays
-            .overlay_get_named(overlay_id, "priority")
+            .overlay_get_named(overlay_id, Value::symbol("priority"))
             .and_then(|value| value.as_int())
             .unwrap_or(0);
-        if let Some(value) = buffer.overlays.overlay_get_named(overlay_id, "face") {
+        if let Some(value) = buffer
+            .overlays
+            .overlay_get_named(overlay_id, Value::symbol("face"))
+        {
             let resolved = resolve_face_layers_from_value(&value);
             if !resolved.is_empty() {
                 overlay_layers.push((priority, resolved));
@@ -1352,10 +1358,10 @@ fn resolved_face_at_string_byte(
 ) -> RuntimeFace {
     let mut layers = Vec::new();
     if let Some(table) = get_string_text_properties_table_for_value(str_value) {
-        if let Some(value) = table.get_property(bytepos, "face") {
+        if let Some(value) = table.get_property(bytepos, Value::symbol("face")) {
             layers.extend(resolve_face_layers_from_value(value));
         }
-        if let Some(value) = table.get_property(bytepos, "font-lock-face") {
+        if let Some(value) = table.get_property(bytepos, Value::symbol("font-lock-face")) {
             layers.extend(resolve_face_layers_from_value(value));
         }
     }

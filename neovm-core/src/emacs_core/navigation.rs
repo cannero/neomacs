@@ -277,12 +277,18 @@ fn point_motion_property(
         if point_byte >= buf.zv_byte {
             return Value::NIL;
         }
-        lookup_buffer_text_property(obarray, buffers, buf, point_byte, property)
+        lookup_buffer_text_property(obarray, buffers, buf, point_byte, Value::symbol(property))
     } else {
         if point_byte <= buf.begv_byte {
             return Value::NIL;
         }
-        lookup_buffer_text_property(obarray, buffers, buf, point_byte - 1, property)
+        lookup_buffer_text_property(
+            obarray,
+            buffers,
+            buf,
+            point_byte - 1,
+            Value::symbol(property),
+        )
     }
 }
 
@@ -307,8 +313,13 @@ pub(crate) fn adjust_for_intangible(
         Some(b) => b,
         None => return pos,
     };
-    let intangible =
-        lookup_buffer_text_property(&eval.obarray, &eval.buffers, buf, pos, "intangible");
+    let intangible = lookup_buffer_text_property(
+        &eval.obarray,
+        &eval.buffers,
+        buf,
+        pos,
+        Value::symbol("intangible"),
+    );
     if !intangible.is_truthy() {
         return pos;
     }
@@ -322,7 +333,7 @@ pub(crate) fn adjust_for_intangible(
                         &eval.buffers,
                         buf,
                         next,
-                        "intangible",
+                        Value::symbol("intangible"),
                     );
                     cursor = next;
                     if !prop.is_truthy() {
@@ -345,7 +356,7 @@ pub(crate) fn adjust_for_intangible(
                         &eval.buffers,
                         buf,
                         check,
-                        "intangible",
+                        Value::symbol("intangible"),
                     );
                     cursor = prev;
                     if !prop.is_truthy() {

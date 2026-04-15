@@ -23,7 +23,7 @@ pub(crate) fn builtin_get_pos_property_impl(
     expect_min_args("get-pos-property", &args, 2)?;
     expect_max_args("get-pos-property", &args, 3)?;
     let pos = super::buffers::expect_integer_or_marker_in_buffers(buffers, &args[0])?;
-    let prop = super::textprop::expect_symbol_name(&args[1])?;
+    let prop = super::textprop::expect_property_key(&args[1])?;
 
     if let Some(str_val) = args.get(2).filter(|v| v.is_string()) {
         if let Some(table) = get_string_text_properties_table_for_value(*str_val) {
@@ -34,7 +34,7 @@ pub(crate) fn builtin_get_pos_property_impl(
             return Ok(super::textprop::builtin_get_text_property_in_state(
                 obarray,
                 buffers,
-                vec![Value::fixnum(pos), Value::symbol(prop.clone()), *str_val],
+                vec![Value::fixnum(pos), prop, *str_val],
             )?);
         }
         return Ok(Value::NIL);
@@ -62,21 +62,21 @@ pub(crate) fn builtin_get_pos_property_impl(
     let byte_pos = buf.lisp_pos_to_byte(pos);
 
     if let Some((value, _overlay_id)) =
-        super::textprop::buffer_overlay_property_for_inserted_char_at_byte_pos(buf, byte_pos, &prop)
+        super::textprop::buffer_overlay_property_for_inserted_char_at_byte_pos(buf, byte_pos, prop)
     {
         return Ok(value);
     }
 
-    match text_property_stickiness_in_state(obarray, buffers, buf, pos, &prop) {
+    match text_property_stickiness_in_state(obarray, buffers, buf, pos, prop) {
         1 => Ok(text_property_value_at_char_pos(
-            obarray, buffers, buf, pos, &prop,
+            obarray, buffers, buf, pos, prop,
         )),
         -1 if pos > buf.point_min_char() as i64 + 1 => Ok(text_property_value_at_char_pos(
             obarray,
             buffers,
             buf,
             pos - 1,
-            &prop,
+            prop,
         )),
         _ => Ok(Value::NIL),
     }
@@ -624,7 +624,7 @@ fn text_property_stickiness_in_state(
     buffers: &crate::buffer::BufferManager,
     buf: &crate::buffer::Buffer,
     pos: i64,
-    prop: &str,
+    prop: Value,
 ) -> i8 {
     let ignore_previous_character = pos <= buf.point_min_char() as i64 + 1;
 
@@ -637,15 +637,20 @@ fn text_property_stickiness_in_state(
             .is_some_and(|value| value.is_truthy()));
 
     if rear_sticky && !ignore_previous_character {
-        let previous_props =
-            text_property_value_at_char_pos(obarray, buffers, buf, pos - 1, "rear-nonsticky");
+        let previous_props = text_property_value_at_char_pos(
+            obarray,
+            buffers,
+            buf,
+            pos - 1,
+            Value::symbol("rear-nonsticky"),
+        );
         if matches_rear_nonsticky(previous_props, prop) {
             rear_sticky = false;
         }
     }
 
     let front_sticky = matches_front_sticky(
-        text_property_value_at_char_pos(obarray, buffers, buf, pos, "front-sticky"),
+        text_property_value_at_char_pos(obarray, buffers, buf, pos, Value::symbol("front-sticky")),
         prop,
     );
 
@@ -674,7 +679,7 @@ pub(crate) fn inherited_text_properties_for_inserted_range_in_state(
     buf: &crate::buffer::Buffer,
     insert_start: usize,
     insert_len: usize,
-) -> Vec<(String, Value)> {
+) -> Vec<(Value, Value)> {
     let left_props = if insert_start > buf.point_min_byte() {
         buf.text
             .text_props_get_properties_ordered(insert_start.saturating_sub(1))
@@ -688,16 +693,22 @@ pub(crate) fn inherited_text_properties_for_inserted_range_in_state(
         Vec::new()
     };
 
-    let left_map: HashMap<String, Value> = left_props.iter().cloned().collect();
-    let right_map: HashMap<String, Value> = right_props.iter().cloned().collect();
-    let left_front = left_map.get("front-sticky").copied().unwrap_or(Value::NIL);
-    let left_rear = left_map
-        .get("rear-nonsticky")
+    let left_map: HashMap<Value, Value> = left_props.iter().cloned().collect();
+    let right_map: HashMap<Value, Value> = right_props.iter().cloned().collect();
+    let left_front = left_map
+        .get(&Value::symbol("front-sticky"))
         .copied()
         .unwrap_or(Value::NIL);
-    let right_front = right_map.get("front-sticky").copied().unwrap_or(Value::NIL);
+    let left_rear = left_map
+        .get(&Value::symbol("rear-nonsticky"))
+        .copied()
+        .unwrap_or(Value::NIL);
+    let right_front = right_map
+        .get(&Value::symbol("front-sticky"))
+        .copied()
+        .unwrap_or(Value::NIL);
     let right_rear = right_map
-        .get("rear-nonsticky")
+        .get(&Value::symbol("rear-nonsticky"))
         .copied()
         .unwrap_or(Value::NIL);
     let default_nonsticky =
@@ -709,22 +720,22 @@ pub(crate) fn inherited_text_properties_for_inserted_range_in_state(
     let mut seen = HashSet::new();
 
     for (name, right_value) in &right_props {
-        if name == "front-sticky" || name == "rear-nonsticky" {
+        if *name == Value::symbol("front-sticky") || *name == Value::symbol("rear-nonsticky") {
             continue;
         }
-        seen.insert(name.clone());
+        seen.insert(*name);
 
         let left_present = left_map.contains_key(name);
         let left_value = left_map.get(name).copied().unwrap_or(Value::NIL);
         let default_entry = default_nonsticky
             .as_ref()
-            .and_then(|value| assq_cdr(value, name));
+            .and_then(|value| assq_cdr(value, *name));
         let default_rear_nonsticky = default_entry.as_ref().is_some_and(|v| v.is_truthy());
         let default_front_sticky = default_entry.is_some_and(|v| v.is_nil());
 
         let mut use_left =
-            left_present && !(matches_rear_nonsticky(left_rear, name) || default_rear_nonsticky);
-        let mut use_right = matches_front_sticky(right_front, name) || default_front_sticky;
+            left_present && !(matches_rear_nonsticky(left_rear, *name) || default_rear_nonsticky);
+        let mut use_right = matches_front_sticky(right_front, *name) || default_front_sticky;
         if use_left && use_right {
             if left_value.is_nil() {
                 use_left = false;
@@ -734,46 +745,49 @@ pub(crate) fn inherited_text_properties_for_inserted_range_in_state(
         }
 
         if use_left {
-            merged_props.push((name.clone(), left_value));
-            if matches_front_sticky(left_front, name) {
-                front_sticky.push(name.clone());
+            merged_props.push((*name, left_value));
+            if matches_front_sticky(left_front, *name) {
+                front_sticky.push(*name);
             }
-            if matches_rear_nonsticky(left_rear, name) {
-                rear_nonsticky.push(name.clone());
+            if matches_rear_nonsticky(left_rear, *name) {
+                rear_nonsticky.push(*name);
             }
         } else if use_right {
-            merged_props.push((name.clone(), *right_value));
-            if matches_front_sticky(right_front, name) {
-                front_sticky.push(name.clone());
+            merged_props.push((*name, *right_value));
+            if matches_front_sticky(right_front, *name) {
+                front_sticky.push(*name);
             }
-            if matches_rear_nonsticky(right_rear, name) {
-                rear_nonsticky.push(name.clone());
+            if matches_rear_nonsticky(right_rear, *name) {
+                rear_nonsticky.push(*name);
             }
         }
     }
 
     for (name, left_value) in &left_props {
-        if name == "front-sticky" || name == "rear-nonsticky" || seen.contains(name) {
+        if *name == Value::symbol("front-sticky")
+            || *name == Value::symbol("rear-nonsticky")
+            || seen.contains(name)
+        {
             continue;
         }
 
         let default_entry = default_nonsticky
             .as_ref()
-            .and_then(|value| assq_cdr(value, name));
+            .and_then(|value| assq_cdr(value, *name));
         let default_rear_nonsticky = default_entry.as_ref().is_some_and(|v| v.is_truthy());
         let default_front_sticky = default_entry.is_some_and(|v| v.is_nil());
-        let left_nonsticky = matches_rear_nonsticky(left_rear, name);
-        let right_sticky = matches_front_sticky(right_front, name) || default_front_sticky;
+        let left_nonsticky = matches_rear_nonsticky(left_rear, *name);
+        let right_sticky = matches_front_sticky(right_front, *name) || default_front_sticky;
 
         if !(left_nonsticky || default_rear_nonsticky) {
-            merged_props.push((name.clone(), *left_value));
-            if matches_front_sticky(left_front, name) {
-                front_sticky.push(name.clone());
+            merged_props.push((*name, *left_value));
+            if matches_front_sticky(left_front, *name) {
+                front_sticky.push(*name);
             }
         } else if right_sticky {
-            front_sticky.push(name.clone());
-            if matches_rear_nonsticky(right_rear, name) {
-                rear_nonsticky.push(name.clone());
+            front_sticky.push(*name);
+            if matches_rear_nonsticky(right_rear, *name) {
+                rear_nonsticky.push(*name);
             }
         }
     }
@@ -781,30 +795,14 @@ pub(crate) fn inherited_text_properties_for_inserted_range_in_state(
     if !rear_nonsticky.is_empty() {
         merged_props.insert(
             0,
-            (
-                "rear-nonsticky".to_string(),
-                Value::list(
-                    rear_nonsticky
-                        .into_iter()
-                        .map(Value::symbol)
-                        .collect::<Vec<_>>(),
-                ),
-            ),
+            (Value::symbol("rear-nonsticky"), Value::list(rear_nonsticky)),
         );
     }
 
     if !front_sticky.is_empty() {
         merged_props.insert(
             0,
-            (
-                "front-sticky".to_string(),
-                Value::list(
-                    front_sticky
-                        .into_iter()
-                        .map(Value::symbol)
-                        .collect::<Vec<_>>(),
-                ),
-            ),
+            (Value::symbol("front-sticky"), Value::list(front_sticky)),
         );
     }
 
@@ -816,31 +814,31 @@ fn text_property_value_at_char_pos(
     buffers: &crate::buffer::BufferManager,
     buf: &crate::buffer::Buffer,
     pos: i64,
-    prop: &str,
+    prop: Value,
 ) -> Value {
     let byte_pos = buf.lisp_pos_to_byte(pos);
     super::textprop::lookup_buffer_text_property(obarray, buffers, buf, byte_pos, prop)
 }
 
-fn matches_front_sticky(value: Value, prop: &str) -> bool {
-    value == Value::T || value_list_contains_symbol(&value, prop)
+fn matches_front_sticky(value: Value, prop: Value) -> bool {
+    value == Value::T || value_list_contains(&value, prop)
 }
 
-fn matches_rear_nonsticky(value: Value, prop: &str) -> bool {
+fn matches_rear_nonsticky(value: Value, prop: Value) -> bool {
     if value.is_nil() {
         return false;
     }
     if value.is_cons() {
-        return value_list_contains_symbol(&value, prop);
+        return value_list_contains(&value, prop);
     }
     true
 }
 
-fn assq_cdr(list: &Value, prop: &str) -> Option<Value> {
+fn assq_cdr(list: &Value, prop: Value) -> Option<Value> {
     let mut cursor = *list;
     while cursor.is_cons() {
         let entry = cursor.cons_car();
-        if entry.is_cons() && entry.cons_car().as_symbol_name() == Some(prop) {
+        if entry.is_cons() && entry.cons_car() == prop {
             return Some(entry.cons_cdr());
         }
         cursor = cursor.cons_cdr();
@@ -848,11 +846,11 @@ fn assq_cdr(list: &Value, prop: &str) -> Option<Value> {
     None
 }
 
-fn value_list_contains_symbol(list: &Value, prop: &str) -> bool {
+fn value_list_contains(list: &Value, prop: Value) -> bool {
     let mut cursor = *list;
     while cursor.is_cons() {
         let item = cursor.cons_car();
-        if item.as_symbol_name() == Some(prop) {
+        if item == prop {
             return true;
         }
         cursor = cursor.cons_cdr();
@@ -928,7 +926,7 @@ pub(crate) fn builtin_barf_if_buffer_read_only_impl(
     let prop_byte = buf.lisp_pos_to_accessible_byte(pos);
     if buf
         .text
-        .text_props_get_property(prop_byte, "inhibit-read-only")
+        .text_props_get_property(prop_byte, Value::symbol("inhibit-read-only"))
         .is_some_and(|value| value.is_truthy())
     {
         return Ok(Value::NIL);
@@ -1679,14 +1677,7 @@ pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
         let chunks: Vec<&[Value]> = pairs.chunks(2).collect();
         for chunk in chunks.iter().rev() {
             if chunk.len() == 2 {
-                if let Some(name) = chunk[0].as_symbol_name() {
-                    table.put_property(0, byte_len, name, chunk[1]);
-                } else if let Some(name) = match chunk[0].kind() {
-                    ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
-                    _ => None,
-                } {
-                    table.put_property(0, byte_len, &name, chunk[1]);
-                }
+                table.put_property(0, byte_len, chunk[0], chunk[1]);
             }
         }
         set_string_text_properties_table_for_value(new_str, table);

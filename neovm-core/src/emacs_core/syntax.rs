@@ -1490,7 +1490,9 @@ fn effective_syntax_entry_for_char_at_byte(
     honor_properties: bool,
 ) -> SyntaxEntry {
     if honor_properties
-        && let Some(prop) = buf.text.text_props_get_property(byte_pos, "syntax-table")
+        && let Some(prop) = buf
+            .text
+            .text_props_get_property(byte_pos, Value::symbol("syntax-table"))
         && let Some(entry) = syntax_entry_from_syntax_property(prop, ch)
     {
         return entry;

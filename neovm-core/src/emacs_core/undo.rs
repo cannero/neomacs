@@ -256,16 +256,14 @@ fn primitive_undo_inner(
                                 {
                                     let byte_beg = (b - 1).max(0) as usize;
                                     let byte_end = (e - 1).max(0) as usize;
-                                    if let Some(prop_name) = prop.as_symbol_name() {
-                                        if val.is_nil() {
-                                            let _ = ctx.buffers.remove_buffer_text_property(
-                                                buf_id, byte_beg, byte_end, prop_name,
-                                            );
-                                        } else {
-                                            let _ = ctx.buffers.put_buffer_text_property(
-                                                buf_id, byte_beg, byte_end, prop_name, val,
-                                            );
-                                        }
+                                    if val.is_nil() {
+                                        let _ = ctx.buffers.remove_buffer_text_property(
+                                            buf_id, byte_beg, byte_end, prop,
+                                        );
+                                    } else {
+                                        let _ = ctx.buffers.put_buffer_text_property(
+                                            buf_id, byte_beg, byte_end, prop, val,
+                                        );
                                     }
                                 }
                             }

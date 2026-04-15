@@ -718,7 +718,7 @@ fn test_text_prop_check_invisible() {
         buf.zv = buf.text.char_count();
         // Mark "hidden" (positions 8..14) as invisible
         buf.text
-            .text_props_put_property(8, 14, "invisible", Value::T);
+            .text_props_put_property(8, 14, Value::symbol("invisible"), Value::T);
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -747,7 +747,7 @@ fn test_text_prop_check_display() {
         buf.zv = buf.text.char_count();
         // Set a display property on positions 2..4
         buf.text
-            .text_props_put_property(2, 4, "display", Value::fixnum(42));
+            .text_props_put_property(2, 4, Value::symbol("display"), Value::fixnum(42));
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -773,7 +773,7 @@ fn test_text_prop_line_spacing() {
         buf.zv = buf.text.char_count();
         // Set line-spacing on "line2" area
         buf.text
-            .text_props_put_property(6, 11, "line-spacing", Value::fixnum(4));
+            .text_props_put_property(6, 11, Value::symbol("line-spacing"), Value::fixnum(4));
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -794,7 +794,8 @@ fn test_text_prop_next_change() {
         buf.text.insert_str(0, "aabbcc");
         buf.zv_byte = buf.text.len();
         buf.zv = buf.text.char_count();
-        buf.text.text_props_put_property(2, 4, "face", Value::T);
+        buf.text
+            .text_props_put_property(2, 4, Value::symbol("face"), Value::T);
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -818,16 +819,16 @@ fn test_text_prop_get_property() {
         buf.zv_byte = buf.text.len();
         buf.zv = buf.text.char_count();
         buf.text
-            .text_props_put_property(0, 4, "face", Value::fixnum(5));
+            .text_props_put_property(0, 4, Value::symbol("face"), Value::fixnum(5));
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
     let access = RustTextPropAccess::new(buf);
 
-    let face = access.get_property(0, "face");
+    let face = access.get_property(0, Value::symbol("face"));
     assert_eq!(face.and_then(Value::as_fixnum), Some(5));
 
-    let none = access.get_property(0, "nonexistent");
+    let none = access.get_property(0, Value::symbol("nonexistent"));
     assert!(none.is_none());
 }
 
@@ -840,13 +841,13 @@ fn test_text_prop_access_multibyte_positions_use_byte_offsets() {
         buf.zv_byte = buf.text.len();
         buf.zv = buf.text.char_count();
         buf.text
-            .text_props_put_property(4, 5, "face", Value::fixnum(9));
+            .text_props_put_property(4, 5, Value::symbol("face"), Value::fixnum(9));
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
     let access = RustTextPropAccess::new(buf);
 
-    let face = access.get_property(2, "face");
+    let face = access.get_property(2, Value::symbol("face"));
     assert_eq!(face.and_then(Value::as_fixnum), Some(9));
 
     let next = access.next_property_change(1);
@@ -905,7 +906,7 @@ fn test_face_resolver_with_text_property() {
     buf.zv = buf.text.char_count();
     // Set "face" to the symbol "bold" on positions 0..5.
     buf.text
-        .text_props_put_property(0, 5, "face", Value::symbol("bold"));
+        .text_props_put_property(0, 5, Value::symbol("face"), Value::symbol("bold"));
 
     let mut next_check = buf.point_max_char();
     let resolved = resolver.face_at_pos(&buf, 0, &mut next_check);
@@ -936,7 +937,7 @@ fn test_face_resolver_with_font_lock_face() {
     buf.text.text_props_put_property(
         0,
         5,
-        "font-lock-face",
+        Value::symbol("font-lock-face"),
         Value::symbol("font-lock-keyword-face"),
     );
 
@@ -961,10 +962,10 @@ fn test_face_resolver_next_check() {
     buf.zv = buf.text.char_count();
     // Face property on [2, 4)
     buf.text
-        .text_props_put_property(2, 4, "face", Value::symbol("bold"));
+        .text_props_put_property(2, 4, Value::symbol("face"), Value::symbol("bold"));
     // Another property on [4, 6)
     buf.text
-        .text_props_put_property(4, 6, "face", Value::symbol("italic"));
+        .text_props_put_property(4, 6, Value::symbol("face"), Value::symbol("italic"));
 
     // At position 0, next_check should be 2 (first property boundary).
     let mut nc = buf.point_max_char();
@@ -1020,11 +1021,11 @@ fn test_face_resolver_overlay_priority() {
     // Define two custom faces with different foreground colors.
     let mut face_a = NeoFace::new("face-a");
     face_a.foreground = Some(NeoColor::rgb(255, 0, 0)); // red
-    table.define(face_a);
+    table.define("face-a", face_a);
 
     let mut face_b = NeoFace::new("face-b");
     face_b.foreground = Some(NeoColor::rgb(0, 0, 255)); // blue
-    table.define(face_b);
+    table.define("face-b", face_b);
 
     let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
 
@@ -1064,11 +1065,11 @@ fn test_face_resolver_face_ref_list_respects_gnu_precedence() {
 
     let mut face_a = NeoFace::new("face-a");
     face_a.foreground = Some(NeoColor::rgb(255, 0, 0));
-    table.define(face_a);
+    table.define("face-a", face_a);
 
     let mut face_b = NeoFace::new("face-b");
     face_b.foreground = Some(NeoColor::rgb(0, 0, 255));
-    table.define(face_b);
+    table.define("face-b", face_b);
 
     let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
 
@@ -1082,7 +1083,7 @@ fn test_face_resolver_face_ref_list_respects_gnu_precedence() {
     buf.text.text_props_put_property(
         0,
         1,
-        "face",
+        Value::symbol("face"),
         Value::list(vec![Value::symbol("face-a"), Value::symbol("face-b")]),
     );
 
@@ -1140,7 +1141,7 @@ fn test_face_resolver_buffer_local_named_face_remap_applies_to_face_prop() {
         ])]),
     );
     buf.text
-        .text_props_put_property(0, 4, "face", Value::symbol("bold"));
+        .text_props_put_property(0, 4, Value::symbol("face"), Value::symbol("bold"));
 
     let mut next_check = buf.point_max_char();
     let resolved = resolver.face_at_pos(&buf, 0, &mut next_check);
@@ -1157,7 +1158,7 @@ fn test_face_resolver_inverse_video() {
     inv_face.foreground = Some(NeoColor::rgb(255, 255, 255)); // white
     inv_face.background = Some(NeoColor::rgb(0, 0, 0)); // black
     inv_face.inverse_video = Some(true);
-    table.define(inv_face);
+    table.define("inverse-test", inv_face);
 
     let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
 
@@ -1167,7 +1168,7 @@ fn test_face_resolver_inverse_video() {
     buf.zv_byte = buf.text.len();
     buf.zv = buf.text.char_count();
     buf.text
-        .text_props_put_property(0, 8, "face", Value::symbol("inverse-test"));
+        .text_props_put_property(0, 8, Value::symbol("face"), Value::symbol("inverse-test"));
 
     let mut nc = buf.point_max_char();
     let resolved = resolver.face_at_pos(&buf, 0, &mut nc);
@@ -1189,7 +1190,7 @@ fn test_face_resolver_multibyte_text_property_uses_byte_offsets() {
     buf.zv_byte = buf.text.len();
     buf.zv = buf.text.char_count();
     buf.text
-        .text_props_put_property(4, 5, "face", Value::symbol("bold"));
+        .text_props_put_property(4, 5, Value::symbol("face"), Value::symbol("bold"));
 
     let mut next_check = buf.point_max_char();
     let resolved = resolver.face_at_pos(&buf, 2, &mut next_check);

@@ -517,11 +517,11 @@ fn test_format_mode_line_propertize_preserves_text_properties() {
     let props =
         get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");
     assert_eq!(
-        props.get_property(0, "face").copied(),
+        props.get_property(0, Value::symbol("face")).copied(),
         Some(Value::symbol("bold"))
     );
     assert_eq!(
-        props.get_property(0, "help-echo").copied(),
+        props.get_property(0, Value::symbol("help-echo")).copied(),
         Some(Value::string("h"))
     );
 }
@@ -559,20 +559,24 @@ fn test_format_mode_line_percent_specs_preserve_source_string_text_properties() 
     let props =
         get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");
     assert_eq!(
-        props.get_property(0, "face").copied(),
+        props.get_property(0, Value::symbol("face")).copied(),
         Some(Value::symbol("bold"))
     );
     assert_eq!(
-        props.get_property(0, "help-echo").copied(),
+        props.get_property(0, Value::symbol("help-echo")).copied(),
         Some(Value::string("h"))
     );
     let last_byte = "fmt-prop-buffer".len();
     assert_eq!(
-        props.get_property(last_byte, "face").copied(),
+        props
+            .get_property(last_byte, Value::symbol("face"))
+            .copied(),
         Some(Value::symbol("bold"))
     );
     assert_eq!(
-        props.get_property(last_byte, "help-echo").copied(),
+        props
+            .get_property(last_byte, Value::symbol("help-echo"))
+            .copied(),
         Some(Value::string("h"))
     );
 }
@@ -632,14 +636,14 @@ fn test_format_mode_line_face_argument_adds_default_face_and_merges_explicit_fac
     let props =
         get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");
     assert_eq!(
-        props.get_property(0, "face").copied(),
+        props.get_property(0, Value::symbol("face")).copied(),
         Some(Value::list(vec![
             Value::symbol("italic"),
             Value::symbol("bold")
         ]))
     );
     assert_eq!(
-        props.get_property(1, "face").copied(),
+        props.get_property(1, Value::symbol("face")).copied(),
         Some(Value::symbol("bold"))
     );
 }
@@ -695,10 +699,10 @@ fn test_format_mode_line_fixnum_padding_does_not_inherit_inner_properties() {
     let props =
         get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");
     assert_eq!(
-        props.get_property(0, "face").copied(),
+        props.get_property(0, Value::symbol("face")).copied(),
         Some(Value::symbol("bold"))
     );
-    assert_eq!(props.get_property(1, "face").copied(), None);
+    assert_eq!(props.get_property(1, Value::symbol("face")).copied(), None);
 }
 
 #[test]

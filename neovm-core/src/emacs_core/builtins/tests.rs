@@ -2091,7 +2091,7 @@ fn insert_copies_string_text_properties_into_buffer() {
     assert!(text.is_string(), "expected string value");
 
     let mut table = crate::buffer::text_props::TextPropertyTable::new();
-    table.put_property(0, 2, "face", Value::symbol("bold"));
+    table.put_property(0, 2, Value::symbol("face"), Value::symbol("bold"));
     crate::emacs_core::value::set_string_text_properties_table_for_value(text, table);
 
     assert_eq!(builtin_insert(&mut eval, vec![text]).unwrap(), Value::NIL);
@@ -2099,11 +2099,11 @@ fn insert_copies_string_text_properties_into_buffer() {
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "xy");
     assert_eq!(
-        buf.text.text_props_get_property(0, "face"),
+        buf.text.text_props_get_property(0, Value::symbol("face")),
         Some(Value::symbol("bold"))
     );
     assert_eq!(
-        buf.text.text_props_get_property(1, "face"),
+        buf.text.text_props_get_property(1, Value::symbol("face")),
         Some(Value::symbol("bold"))
     );
 }
@@ -2116,7 +2116,7 @@ fn insert_and_inherit_copies_previous_text_properties() {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("ab");
         buf.text
-            .text_props_put_property(1, 2, "face", Value::symbol("bold"));
+            .text_props_put_property(1, 2, Value::symbol("face"), Value::symbol("bold"));
     }
 
     assert_eq!(
@@ -2127,7 +2127,7 @@ fn insert_and_inherit_copies_previous_text_properties() {
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "abX");
     assert_eq!(
-        buf.text.text_props_get_property(2, "face"),
+        buf.text.text_props_get_property(2, Value::symbol("face")),
         Some(Value::symbol("bold"))
     );
 }
@@ -2140,7 +2140,7 @@ fn plain_insert_does_not_inherit_spanning_text_properties() {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("ab");
         buf.text
-            .text_props_put_property(0, 2, "foo", Value::symbol("bar"));
+            .text_props_put_property(0, 2, Value::symbol("foo"), Value::symbol("bar"));
         buf.goto_char(1);
     }
 
@@ -2152,12 +2152,15 @@ fn plain_insert_does_not_inherit_spanning_text_properties() {
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "aXb");
     assert_eq!(
-        buf.text.text_props_get_property(0, "foo"),
+        buf.text.text_props_get_property(0, Value::symbol("foo")),
         Some(Value::symbol("bar"))
     );
-    assert_eq!(buf.text.text_props_get_property(1, "foo"), None);
     assert_eq!(
-        buf.text.text_props_get_property(2, "foo"),
+        buf.text.text_props_get_property(1, Value::symbol("foo")),
+        None
+    );
+    assert_eq!(
+        buf.text.text_props_get_property(2, Value::symbol("foo")),
         Some(Value::symbol("bar"))
     );
 }
@@ -2170,7 +2173,7 @@ fn insert_char_nil_count_defaults_to_one_and_can_inherit_text_properties() {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("ab");
         buf.text
-            .text_props_put_property(1, 2, "face", Value::symbol("bold"));
+            .text_props_put_property(1, 2, Value::symbol("face"), Value::symbol("bold"));
     }
 
     assert_eq!(
@@ -2185,7 +2188,7 @@ fn insert_char_nil_count_defaults_to_one_and_can_inherit_text_properties() {
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "abX");
     assert_eq!(
-        buf.text.text_props_get_property(2, "face"),
+        buf.text.text_props_get_property(2, Value::symbol("face")),
         Some(Value::symbol("bold"))
     );
 }
@@ -2209,8 +2212,13 @@ fn insert_and_inherit_copies_string_properties_then_inherits_overlapping_names()
     let text = Value::string("X");
     assert!(text.is_string(), "expected string value");
     let mut table = crate::buffer::text_props::TextPropertyTable::new();
-    table.put_property(0, 1, "face", Value::symbol("italic"));
-    table.put_property(0, 1, "mouse-face", Value::symbol("highlight"));
+    table.put_property(0, 1, Value::symbol("face"), Value::symbol("italic"));
+    table.put_property(
+        0,
+        1,
+        Value::symbol("mouse-face"),
+        Value::symbol("highlight"),
+    );
     crate::emacs_core::value::set_string_text_properties_table_for_value(text, table);
 
     builtin_insert_and_inherit(&mut eval, vec![text]).unwrap();
@@ -2218,11 +2226,12 @@ fn insert_and_inherit_copies_string_properties_then_inherits_overlapping_names()
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "aX");
     assert_eq!(
-        buf.text.text_props_get_property(1, "face"),
+        buf.text.text_props_get_property(1, Value::symbol("face")),
         Some(Value::symbol("bold"))
     );
     assert_eq!(
-        buf.text.text_props_get_property(1, "mouse-face"),
+        buf.text
+            .text_props_get_property(1, Value::symbol("mouse-face")),
         Some(Value::symbol("highlight"))
     );
 }
@@ -3002,7 +3011,7 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
 
     if let Some(buf) = eval.buffers.current_buffer_mut() {
         buf.text
-            .text_props_put_property(1, 2, "inhibit-read-only", Value::T);
+            .text_props_put_property(1, 2, Value::symbol("inhibit-read-only"), Value::T);
     }
     assert_eq!(
         builtin_barf_if_buffer_read_only(&mut eval, vec![Value::fixnum(2)]).unwrap(),
@@ -6871,7 +6880,7 @@ fn copy_sequence_handles_raw_unibyte_strings_and_preserves_text_properties() {
         0xFF, b'A',
     ]));
     let mut table = crate::buffer::text_props::TextPropertyTable::new();
-    let _ = table.put_property(0, 2, "face", Value::symbol("bold"));
+    let _ = table.put_property(0, 2, Value::symbol("face"), Value::symbol("bold"));
     crate::emacs_core::value::set_string_text_properties_table_for_value(raw, table);
 
     let result =
@@ -6895,7 +6904,7 @@ fn copy_sequence_handles_raw_unibyte_strings_and_preserves_text_properties() {
     assert_eq!(intervals[0].start, 0);
     assert_eq!(intervals[0].end, 2);
     assert_eq!(
-        intervals[0].properties.get("face"),
+        intervals[0].properties.get(&Value::symbol("face")),
         Some(&Value::symbol("bold"))
     );
 }
@@ -9998,7 +10007,7 @@ fn insert_string_converts_props_from_multibyte_source_to_unibyte_buffer() {
 
     let text = Value::string("éz");
     let mut table = crate::buffer::text_props::TextPropertyTable::new();
-    let _ = table.put_property(0, 2, "face", Value::symbol("bold"));
+    let _ = table.put_property(0, 2, Value::symbol("face"), Value::symbol("bold"));
     crate::emacs_core::value::set_string_text_properties_table_for_value(text, table);
 
     builtin_insert(&mut eval, vec![text]).unwrap();
@@ -10015,7 +10024,7 @@ fn insert_string_converts_props_from_multibyte_source_to_unibyte_buffer() {
     assert_eq!(intervals[0].start, 0);
     assert_eq!(intervals[0].end, 1);
     assert_eq!(
-        intervals[0].properties.get("face"),
+        intervals[0].properties.get(&Value::symbol("face")),
         Some(&Value::symbol("bold"))
     );
 }
@@ -10113,7 +10122,7 @@ fn insert_unibyte_string_converts_props_into_multibyte_buffer() {
         0xE9, b'z',
     ]));
     let mut table = crate::buffer::text_props::TextPropertyTable::new();
-    let _ = table.put_property(0, 1, "face", Value::symbol("bold"));
+    let _ = table.put_property(0, 1, Value::symbol("face"), Value::symbol("bold"));
     crate::emacs_core::value::set_string_text_properties_table_for_value(text, table);
 
     builtin_insert(&mut eval, vec![text]).unwrap();
@@ -10133,7 +10142,7 @@ fn insert_unibyte_string_converts_props_into_multibyte_buffer() {
     assert_eq!(intervals[0].start, 0);
     assert_eq!(intervals[0].end, 2);
     assert_eq!(
-        intervals[0].properties.get("face"),
+        intervals[0].properties.get(&Value::symbol("face")),
         Some(&Value::symbol("bold"))
     );
 }

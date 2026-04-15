@@ -977,7 +977,7 @@ fn dump_property_interval(
         properties: pi
             .properties
             .iter()
-            .map(|(k, v)| (k.clone(), encoder.dump_value(v)))
+            .map(|(k, v)| (encoder.dump_value(k), encoder.dump_value(v)))
             .collect(),
     }
 }
@@ -1841,10 +1841,10 @@ fn dump_string_text_property_table(
         if iv.properties.is_empty() {
             continue;
         }
-        let properties: Vec<(String, DumpValue)> = iv
+        let properties: Vec<(DumpValue, DumpValue)> = iv
             .properties
             .iter()
-            .map(|(key, val)| (key.clone(), encoder.dump_value(val)))
+            .map(|(key, val)| (encoder.dump_value(key), encoder.dump_value(val)))
             .collect();
         intervals.push(DumpPropertyInterval {
             start: iv.start,
@@ -2333,12 +2333,19 @@ fn load_property_interval(
     decoder: &mut LoadDecoder,
     pi: &DumpPropertyInterval,
 ) -> PropertyInterval {
-    let properties: std::collections::HashMap<String, crate::emacs_core::value::Value> = pi
+    let properties: std::collections::HashMap<
+        crate::emacs_core::value::Value,
+        crate::emacs_core::value::Value,
+    > = pi
         .properties
         .iter()
-        .map(|(k, v)| (k.clone(), decoder.load_value(v)))
+        .map(|(k, v)| (decoder.load_value(k), decoder.load_value(v)))
         .collect();
-    let key_order: Vec<String> = pi.properties.iter().map(|(k, _)| k.clone()).collect();
+    let key_order: Vec<crate::emacs_core::value::Value> = pi
+        .properties
+        .iter()
+        .map(|(k, _)| decoder.load_value(k))
+        .collect();
     PropertyInterval {
         start: pi.start,
         end: pi.end,
@@ -3278,7 +3285,7 @@ pub(crate) fn load_text_property_table(
     for iv in intervals {
         for (name, dump_val) in &iv.properties {
             let val = decoder.load_value(dump_val);
-            table.put_property(iv.start, iv.end, name, val);
+            table.put_property(iv.start, iv.end, decoder.load_value(name), val);
         }
     }
     table

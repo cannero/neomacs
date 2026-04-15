@@ -947,20 +947,18 @@ impl ModeLineRendered {
             if chunk.len() != 2 {
                 continue;
             }
-            if let Some(name) = chunk[0].as_symbol_name() {
-                self.text_props
-                    .put_property(0, self.text.len(), name, chunk[1]);
-            }
+            self.text_props
+                .put_property(0, self.text.len(), chunk[0], chunk[1]);
         }
     }
 
-    fn overlay_property_map(&mut self, props: std::collections::HashMap<String, Value>) {
+    fn overlay_property_map(&mut self, props: std::collections::HashMap<Value, Value>) {
         if self.text.is_empty() || props.is_empty() {
             return;
         }
         for (name, value) in props {
             self.text_props
-                .put_property(0, self.text.len(), &name, value);
+                .put_property(0, self.text.len(), name, value);
         }
     }
 
@@ -978,18 +976,23 @@ impl ModeLineRendered {
             let interval_end = interval.end.min(end);
 
             if cursor < start {
-                self.text_props.put_property(cursor, start, "face", face);
+                self.text_props
+                    .put_property(cursor, start, Value::symbol("face"), face);
             }
 
             if start < interval_end {
                 let merged_face = interval
                     .properties
-                    .get("face")
+                    .get(&Value::symbol("face"))
                     .copied()
                     .map(|existing| Value::list(vec![existing, face]))
                     .unwrap_or(face);
-                self.text_props
-                    .put_property(start, interval_end, "face", merged_face);
+                self.text_props.put_property(
+                    start,
+                    interval_end,
+                    Value::symbol("face"),
+                    merged_face,
+                );
                 cursor = interval_end;
             }
 
@@ -999,7 +1002,8 @@ impl ModeLineRendered {
         }
 
         if cursor < end {
-            self.text_props.put_property(cursor, end, "face", face);
+            self.text_props
+                .put_property(cursor, end, Value::symbol("face"), face);
         }
     }
 
@@ -1057,7 +1061,7 @@ fn append_mode_line_rendered_segment(
 fn append_mode_line_percent_string_spec(
     result: &mut ModeLineRendered,
     spec: &str,
-    props_at_percent: &std::collections::HashMap<String, Value>,
+    props_at_percent: &std::collections::HashMap<Value, Value>,
     field_width: i64,
 ) {
     let mut segment = ModeLineRendered::plain(spec);
@@ -1068,7 +1072,7 @@ fn append_mode_line_percent_string_spec(
 fn append_mode_line_percent_lisp_text_spec(
     result: &mut ModeLineRendered,
     value: &Value,
-    props_at_percent: &std::collections::HashMap<String, Value>,
+    props_at_percent: &std::collections::HashMap<Value, Value>,
     field_width: i64,
 ) {
     let mut segment = ModeLineRendered::default();

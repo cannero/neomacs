@@ -2895,7 +2895,7 @@ fn apply_inherited_text_properties(
     // merged GNU plist in reverse to preserve the final plist shape.
     for (name, value) in props.iter().rev() {
         let _ =
-            buffers.put_buffer_text_property(current_id, old_pt, old_pt + text_len, name, *value);
+            buffers.put_buffer_text_property(current_id, old_pt, old_pt + text_len, *name, *value);
     }
 }
 
