@@ -7447,7 +7447,7 @@ impl Context {
         let mut dynamic_sym_ids: Vec<(SymId, Value)> = Vec::new();
         let use_lexical = self.lexical_binding();
         let mut constant_binding_error: Option<String> = None;
-        let eval_root_scope = self.save_eval_roots();
+        let specpdl_root_scope = self.save_specpdl_roots();
         let mut bindings = varlist;
 
         while bindings.is_cons() {
@@ -7471,12 +7471,12 @@ impl Context {
                 continue;
             }
             if !binding.is_cons() {
-                self.restore_eval_roots(eval_root_scope);
+                self.restore_specpdl_roots(specpdl_root_scope);
                 return Err(signal("wrong-type-argument", vec![]));
             }
             let head = binding.cons_car();
             let Some(id) = head.as_symbol_id() else {
-                self.restore_eval_roots(eval_root_scope);
+                self.restore_specpdl_roots(specpdl_root_scope);
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("symbolp"), head],
@@ -7489,7 +7489,7 @@ impl Context {
                 let init_form = value_tail.cons_car();
                 value_tail = value_tail.cons_cdr();
                 if !value_tail.is_nil() {
-                    self.restore_eval_roots(eval_root_scope);
+                    self.restore_specpdl_roots(specpdl_root_scope);
                     return Err(signal(
                         "error",
                         vec![
@@ -7501,15 +7501,15 @@ impl Context {
                 match self.eval_sub(init_form) {
                     Ok(value) => value,
                     Err(err) => {
-                        self.restore_eval_roots(eval_root_scope);
+                        self.restore_specpdl_roots(specpdl_root_scope);
                         return Err(err);
                     }
                 }
             } else {
-                self.restore_eval_roots(eval_root_scope);
+                self.restore_specpdl_roots(specpdl_root_scope);
                 return Err(self.listp_error(binding));
             };
-            self.push_eval_root(value);
+            self.push_specpdl_root(value);
             if let Some(name) = symbol_sets_constant_error(id) {
                 if constant_binding_error.is_none() {
                     constant_binding_error = Some(name.to_owned());
@@ -7526,11 +7526,11 @@ impl Context {
             }
         }
         if !bindings.is_nil() {
-            self.restore_eval_roots(eval_root_scope);
+            self.restore_specpdl_roots(specpdl_root_scope);
             return Err(self.listp_error(varlist));
         }
-        self.restore_eval_roots(eval_root_scope);
         if let Some(name) = constant_binding_error {
+            self.restore_specpdl_roots(specpdl_root_scope);
             return Err(signal("setting-constant", vec![Value::symbol(name)]));
         }
 
@@ -7549,6 +7549,7 @@ impl Context {
         for (sym_id, value) in &dynamic_sym_ids {
             self.specbind(*sym_id, *value);
         }
+        self.restore_specpdl_roots(specpdl_root_scope);
 
         let result = self.sf_progn_value(body);
         self.unbind_to(specpdl_count);
@@ -9048,12 +9049,14 @@ impl Context {
     }
 
     pub(crate) fn restore_specpdl_roots(&mut self, scope: SpecpdlRootScopeState) {
-        while self.specpdl.len() > scope.saved_len {
-            match self.specpdl.pop().expect("specpdl root scope underflow") {
-                SpecBinding::GcRoot { .. } => {}
-                other => panic!("restore_specpdl_roots found non-root binding: {other:?}"),
-            }
+        if self.specpdl.len() <= scope.saved_len {
+            return;
         }
+        let mut tail: Vec<SpecBinding> = self.specpdl.drain(scope.saved_len..).collect();
+        self.specpdl.extend(
+            tail.drain(..)
+                .filter(|binding| !matches!(binding, SpecBinding::GcRoot { .. })),
+        );
     }
 
     pub(crate) fn pop_eval_root_frame(&mut self) {

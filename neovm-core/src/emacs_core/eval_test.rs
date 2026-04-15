@@ -8433,6 +8433,21 @@ fn unwind_protect_primary_survives_cleanup_garbage_collect() {
 }
 
 #[test]
+fn let_init_values_survive_gc_stress_until_bindings_own_them() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_lexical_binding(true);
+    ev.gc_stress = true;
+
+    let result = ev.eval_str(
+        "(let ((x (cons 51 52))
+               (y (cons 61 62)))
+           (list (car x) (car y)))",
+    );
+    assert_eq!(format_eval_result(&result), "OK (51 61)");
+}
+
+#[test]
 fn runtime_backtrace_can_reference_active_call_args_across_exact_gc() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
