@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
 
 use parking_lot::{RwLock, RwLockReadGuard};
 
@@ -20,6 +20,7 @@ const OBJECT_STORE_SHARD_MASK: usize = OBJECT_STORE_SHARDS - 1;
 struct ObjectChunk {
     objects: Box<[MaybeUninit<ObjectRecord>]>,
     published_len: AtomicU16,
+    requires_record_drop: AtomicBool,
 }
 
 impl ObjectChunk {
@@ -27,6 +28,7 @@ impl ObjectChunk {
         Self {
             objects: Box::new_uninit_slice(OBJECT_STORE_CHUNK_CAPACITY),
             published_len: AtomicU16::new(0),
+            requires_record_drop: AtomicBool::new(false),
         }
     }
 
@@ -78,6 +80,9 @@ impl ObjectChunk {
 
 impl Drop for ObjectChunk {
     fn drop(&mut self) {
+        if !*self.requires_record_drop.get_mut() {
+            return;
+        }
         let published = usize::from(*self.published_len.get_mut());
         for slot in 0..published {
             unsafe { self.objects[slot].assume_init_drop() };
@@ -326,6 +331,7 @@ pub(crate) struct ObjectPublishReservation {
     _chunk: Option<Arc<ObjectChunk>>,
     next_slot: *mut MaybeUninit<ObjectRecord>,
     published_len: *const AtomicU16,
+    requires_record_drop: *const AtomicBool,
 }
 
 #[derive(Debug)]
@@ -376,6 +382,7 @@ impl Default for ObjectPublishReservation {
             _chunk: None,
             next_slot: core::ptr::null_mut(),
             published_len: core::ptr::null(),
+            requires_record_drop: core::ptr::null(),
         }
     }
 }
@@ -402,6 +409,9 @@ impl ObjectShard {
         let chunk_index = chunks.len().saturating_sub(1);
         let chunk = chunks[chunk_index].clone();
         let chunk_offset = chunk.published_len();
+        if record.needs_record_drop() {
+            chunk.requires_record_drop.store(true, Ordering::Relaxed);
+        }
         unsafe { chunk.write_reserved(chunk_offset, record) };
         chunk.publish_reserved(chunk_offset);
     }
@@ -453,6 +463,7 @@ impl ObjectStore {
             next_offset: 0,
             next_slot: chunk.objects.as_ptr() as *mut MaybeUninit<ObjectRecord>,
             published_len: &chunk.published_len,
+            requires_record_drop: &chunk.requires_record_drop,
             _chunk: Some(chunk),
         }
     }
@@ -465,6 +476,9 @@ impl ObjectStore {
     ) -> ObjectLocator {
         let chunk_offset = usize::from(reservation.next_offset);
         let next_offset = reservation.next_offset.saturating_add(1);
+        if record.needs_record_drop() {
+            unsafe { (*reservation.requires_record_drop).store(true, Ordering::Relaxed) };
+        }
         unsafe { reservation.next_slot.write(MaybeUninit::new(record)) };
         unsafe { (*reservation.published_len).store(next_offset, Ordering::Release) };
         reservation.next_slot = unsafe { reservation.next_slot.add(1) };
@@ -482,6 +496,9 @@ impl ObjectStore {
     ) -> ObjectLocator {
         let chunk_offset = usize::from(reservation.next_offset);
         let next_offset = reservation.next_offset.saturating_add(1);
+        if unsafe { ObjectRecord::published_record_needs_drop(header, memory_kind) } {
+            unsafe { (*reservation.requires_record_drop).store(true, Ordering::Relaxed) };
+        }
         unsafe {
             ObjectRecord::write_published_record(
                 reservation.next_slot,

@@ -536,6 +536,20 @@ impl ObjectRecord {
         matches!(self.memory_kind, ObjectMemoryKind::Arena)
     }
 
+    #[inline]
+    pub(crate) fn needs_record_drop(&self) -> bool {
+        self.header().desc().needs_drop || matches!(self.memory_kind, ObjectMemoryKind::Owned)
+    }
+
+    #[inline]
+    pub(crate) unsafe fn published_record_needs_drop(
+        header: NonNull<ObjectHeader>,
+        memory_kind: ObjectMemoryKind,
+    ) -> bool {
+        unsafe { header.as_ref() }.desc().needs_drop
+            || matches!(memory_kind, ObjectMemoryKind::Owned)
+    }
+
     /// Evacuate this record into a newly system-allocated backing
     /// store for `space`. The new record is always `ObjectMemoryKind::Owned`
     /// (promotion into old / pinned / large always goes through the
