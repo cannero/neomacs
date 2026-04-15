@@ -984,8 +984,9 @@ pub(crate) fn eager_expand_eval(
 
 /// Shared context save/restore for file loading.
 ///
-/// Saves and restores: lexical-binding, lexenv, load-file-name, temp roots.
-/// Sets lexical-binding from the file cookie and load-file-name to the path.
+/// Saves and restores: lexical-binding, lexenv, load-file-name,
+/// load-true-file-name, current-load-list, temp roots.
+/// Sets lexical-binding from the file cookie and load-bound filename metadata.
 /// The `body` closure runs with the new context and its result is returned
 /// after context restoration.
 fn with_load_context<F>(
@@ -1000,11 +1001,19 @@ where
     let old_lexical = eval.lexical_binding();
     let old_lexenv = eval.lexenv;
     let old_load_file = eval.obarray().symbol_value("load-file-name").cloned();
+    let old_load_true_file = eval.obarray().symbol_value("load-true-file-name").cloned();
+    let old_current_load_list = eval.obarray().symbol_value("current-load-list").cloned();
     let old_reader_load_file = super::value_reader::get_reader_load_file_name_public();
 
     eval.with_gc_scope(|ctx| {
         ctx.root(old_lexenv);
         if let Some(ref v) = old_load_file {
+            ctx.root(*v);
+        }
+        if let Some(ref v) = old_load_true_file {
+            ctx.root(*v);
+        }
+        if let Some(ref v) = old_current_load_list {
             ctx.root(*v);
         }
         if let Some(v) = old_reader_load_file {
@@ -1018,7 +1027,12 @@ where
 
         let load_file_value = load_path_value(path);
         ctx.root(load_file_value);
+        let load_true_file_value = load_file_value;
+        let current_load_list = Value::cons(load_file_value, Value::NIL);
+        ctx.root(current_load_list);
         ctx.set_variable("load-file-name", load_file_value);
+        ctx.set_variable("load-true-file-name", load_true_file_value);
+        ctx.set_variable("current-load-list", current_load_list);
         // Set the reader's #$ thread-local so value_reader produces the
         // actual file path string (matching GNU lread.c Vload_file_name).
         super::value_reader::set_reader_load_file_name(Some(load_file_value));
@@ -1034,6 +1048,16 @@ where
             ctx.set_variable("load-file-name", old);
         } else {
             ctx.set_variable("load-file-name", Value::NIL);
+        }
+        if let Some(old) = old_load_true_file {
+            ctx.set_variable("load-true-file-name", old);
+        } else {
+            ctx.set_variable("load-true-file-name", Value::NIL);
+        }
+        if let Some(old) = old_current_load_list {
+            ctx.set_variable("current-load-list", old);
+        } else {
+            ctx.set_variable("current-load-list", Value::NIL);
         }
 
         result

@@ -4164,6 +4164,64 @@ fn nested_load_exact_gc_preserves_reader_load_file_name() {
 }
 
 #[test]
+fn load_file_binds_load_true_file_name_and_current_load_list() {
+    crate::test_utils::init_test_tracing();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("neovm-load-true-file-name-{unique}"));
+    fs::create_dir_all(&dir).expect("create temp fixture dir");
+    let file = dir.join("probe.el");
+    fs::write(
+        &file,
+        "(setq vm-load-true-file-name-seen load-true-file-name)\n\
+         (setq vm-current-load-list-seen current-load-list)\n",
+    )
+    .expect("write fixture");
+
+    let mut eval = super::super::eval::Context::new();
+    let old_load_true_file = eval.obarray().symbol_value("load-true-file-name").cloned();
+    let old_current_load_list = eval.obarray().symbol_value("current-load-list").cloned();
+
+    let loaded = load_file(&mut eval, &file).expect("load fixture");
+    assert_eq!(loaded, Value::T);
+
+    let file_str = file.to_string_lossy().to_string();
+    assert_eq!(
+        eval.obarray()
+            .symbol_value("vm-load-true-file-name-seen")
+            .and_then(|v| v.as_str()),
+        Some(file_str.as_str())
+    );
+
+    let current_load_list = eval
+        .obarray()
+        .symbol_value("vm-current-load-list-seen")
+        .copied()
+        .expect("load should capture current-load-list");
+    let entries = list_to_vec(&current_load_list).expect("current-load-list should be a list");
+    let first = entries
+        .first()
+        .copied()
+        .expect("current-load-list should contain the filename");
+    assert_eq!(first.as_str(), Some(file_str.as_str()));
+
+    assert_eq!(
+        eval.obarray().symbol_value("load-true-file-name").cloned(),
+        old_load_true_file.or(Some(Value::NIL)),
+        "load-true-file-name should be restored after top-level load",
+    );
+    assert_eq!(
+        eval.obarray().symbol_value("current-load-list").cloned(),
+        old_current_load_list,
+        "current-load-list should be restored after top-level load",
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn load_file_accepts_shebang_and_honors_second_line_lexical_binding_cookie() {
     crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()
