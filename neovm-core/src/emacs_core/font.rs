@@ -18,7 +18,6 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{OnceLock, RwLock};
 
-use super::builtins::lisp_string_to_runtime_string;
 use super::error::{EvalResult, Flow, signal};
 use super::intern::{intern, resolve_sym};
 use super::value::*;
@@ -110,9 +109,13 @@ fn frame_id_from_designator(value: &Value) -> Option<FrameId> {
     }
 }
 
+fn font_string_text(value: &Value) -> Option<String> {
+    value.as_runtime_string_owned()
+}
+
 fn font_value_text(value: &Value) -> Option<String> {
     match value.kind() {
-        ValueKind::String => Some(lisp_string_to_runtime_string(*value)),
+        ValueKind::String => font_string_text(value),
         ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
         _ => None,
     }
@@ -567,7 +570,7 @@ fn font_vector_get_flexible(vec_elems: &[Value], prop: &str) -> Option<Value> {
 
 fn font_spec_field_to_string(value: &Value) -> String {
     match value.kind() {
-        ValueKind::String => lisp_string_to_runtime_string(*value),
+        ValueKind::String => font_string_text(value).expect("checked string"),
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         _ => "*".to_string(),
     }
@@ -607,7 +610,7 @@ fn normalize_registry_field(value: &Option<Value>) -> String {
         None => "*-*".to_string(),
         Some(v) => match v.kind() {
             ValueKind::String => {
-                let s = lisp_string_to_runtime_string(*v);
+                let s = font_string_text(v).expect("checked string");
                 if !s.contains('-') {
                     format!("{}-*", s)
                 } else {
@@ -634,7 +637,7 @@ fn sanitize_style_field(value: &Value) -> String {
             .filter(|ch| *ch != '-' && *ch != '?' && *ch != ',' && *ch != '"')
             .collect(),
         ValueKind::String => {
-            let s = lisp_string_to_runtime_string(*value);
+            let s = font_string_text(value).expect("checked string");
             s.chars()
                 .filter(|ch| *ch != '-' && *ch != '?' && *ch != ',' && *ch != '"')
                 .collect()
@@ -666,7 +669,7 @@ fn avg_width_field(value: Option<&Value>) -> String {
     match value {
         Some(v) => match v.kind() {
             ValueKind::Fixnum(n) => n.to_string(),
-            ValueKind::String => lisp_string_to_runtime_string(*v),
+            ValueKind::String => font_string_text(v).expect("checked string"),
             ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
             _ => "*".to_string(),
         },
@@ -2140,7 +2143,7 @@ fn require_symbol_face_name(face: &Value) -> Result<String, Flow> {
 
 fn known_face_name(face: &Value) -> Option<String> {
     let name = match face.kind() {
-        ValueKind::String => lisp_string_to_runtime_string(*face),
+        ValueKind::String => font_string_text(face).expect("checked string"),
         _ => symbol_name_for_face_value(face)?,
     };
     if KNOWN_FACES.contains(&name.as_str()) || is_created_lisp_face(&name) {
@@ -2164,7 +2167,7 @@ fn resolve_copy_source_face_symbol(face: &Value) -> Result<String, Flow> {
 fn resolve_face_name_for_domain(face: &Value, defaults_frame: bool) -> Result<String, Flow> {
     match face.kind() {
         ValueKind::String => {
-            let name = lisp_string_to_runtime_string(*face);
+            let name = font_string_text(face).expect("checked string");
             if face_exists_for_domain(&name, defaults_frame) {
                 Err(signal(
                     "wrong-type-argument",
@@ -2194,7 +2197,7 @@ fn resolve_face_name_for_domain(face: &Value, defaults_frame: bool) -> Result<St
 fn resolve_face_name_for_merge(face: &Value) -> Result<String, Flow> {
     match face.kind() {
         ValueKind::String => {
-            let name = lisp_string_to_runtime_string(*face);
+            let name = font_string_text(face).expect("checked string");
             if face_exists_for_domain(&name, true) {
                 Ok(name)
             } else {
@@ -2401,7 +2404,7 @@ fn lisp_face_attribute_value(face: &str, attr: &str, defaults_frame: bool) -> Va
 fn resolve_known_face_name_for_compare(face: &Value, defaults_frame: bool) -> Result<String, Flow> {
     match face.kind() {
         ValueKind::String => {
-            let name = lisp_string_to_runtime_string(*face);
+            let name = font_string_text(face).expect("checked string");
             if face_exists_for_domain(&name, defaults_frame) {
                 Ok(name)
             } else {
@@ -3546,7 +3549,7 @@ pub(crate) fn builtin_face_list(args: Vec<Value>) -> EvalResult {
 
 fn expect_color_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(lisp_string_to_runtime_string(*value)),
+        ValueKind::String => Ok(font_string_text(value).expect("checked string")),
         _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -3637,7 +3640,7 @@ pub(crate) fn builtin_xw_color_defined_p_ctx(
         return Ok(Value::NIL);
     }
     let color_name = match args[0].kind() {
-        ValueKind::String => lisp_string_to_runtime_string(args[0]),
+        ValueKind::String => font_string_text(&args[0]).expect("checked string"),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3660,7 +3663,7 @@ pub(crate) fn builtin_color_values(args: Vec<Value>) -> EvalResult {
     expect_max_args("color-values", &args, 2)?;
     expect_optional_color_device_arg(&args, 1)?;
     let color_name = match args[0].kind() {
-        ValueKind::String => lisp_string_to_runtime_string(args[0]),
+        ValueKind::String => font_string_text(&args[0]).expect("checked string"),
         _ => return Ok(Value::NIL),
     };
     let lower = color_name.trim().to_lowercase();
@@ -3690,7 +3693,7 @@ pub(crate) fn builtin_xw_color_values_ctx(
         return Ok(Value::NIL);
     }
     let color_name = match args[0].kind() {
-        ValueKind::String => lisp_string_to_runtime_string(args[0]),
+        ValueKind::String => font_string_text(&args[0]).expect("checked string"),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3771,7 +3774,7 @@ fn parse_color_distance_input(value: &Value) -> Result<(i64, i64, i64), Flow> {
     if !value.is_string() {
         return Err(invalid_color_error(value));
     };
-    let color = lisp_string_to_runtime_string(*value);
+    let color = font_string_text(value).expect("checked string");
     let Some(rgb) = parse_color_16bit_any(&color).map(approximate_tty_color) else {
         return Err(invalid_color_error(value));
     };
@@ -3990,7 +3993,7 @@ pub(crate) fn builtin_face_font(eval: &mut super::eval::Context, args: Vec<Value
     if frame.window_system.is_none() {
         return match args[0].kind() {
             ValueKind::String => {
-                let name = lisp_string_to_runtime_string(args[0]);
+                let name = font_string_text(&args[0]).expect("checked string");
                 if KNOWN_FACES.contains(&name.as_str()) {
                     Ok(Value::NIL)
                 } else {
@@ -4171,7 +4174,7 @@ pub(crate) fn builtin_internal_set_alternative_font_family_alist(args: Vec<Value
         for member in members {
             match member.kind() {
                 ValueKind::String => {
-                    let name = lisp_string_to_runtime_string(member);
+                    let name = font_string_text(&member).expect("checked string");
                     converted.push(Value::symbol(name.clone()));
                     names.push(name);
                 }
@@ -4217,7 +4220,7 @@ pub(crate) fn builtin_internal_set_alternative_font_registry_alist(args: Vec<Val
 pub(crate) fn builtin_x_load_color_file(args: Vec<Value>) -> EvalResult {
     expect_args("x-load-color-file", &args, 1)?;
     let filename = match args[0].kind() {
-        ValueKind::String => lisp_string_to_runtime_string(args[0]),
+        ValueKind::String => font_string_text(&args[0]).expect("checked string"),
         _other => {
             return Err(signal(
                 "wrong-type-argument",

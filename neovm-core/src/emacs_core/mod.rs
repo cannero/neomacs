@@ -86,6 +86,8 @@ pub mod rect;
 pub mod regex;
 pub mod regex_emacs;
 pub mod register;
+#[cfg(test)]
+mod runtime_string_guard_test;
 pub mod search;
 pub(crate) mod string_escape;
 pub mod subr_docs;
