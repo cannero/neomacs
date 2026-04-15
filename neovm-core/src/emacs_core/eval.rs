@@ -4493,11 +4493,7 @@ impl Context {
 
     /// Enumerate every live `Value` reference in the evaluator and all
     /// sub-managers without materializing a single temporary root vector.
-    fn trace_roots_with_extra_root_slices(
-        &self,
-        extra_root_slices: &[&[Value]],
-        visit: &mut dyn FnMut(Value),
-    ) {
+    fn trace_roots(&self, visit: &mut dyn FnMut(Value)) {
         for root in self.temp_roots.iter().copied() {
             visit(root);
         }
@@ -4640,11 +4636,6 @@ impl Context {
             && let Some(crate::emacs_core::regex::SearchedString::Heap(val)) = &md.searched_string
         {
             visit(*val);
-        }
-        for extra_roots in extra_root_slices {
-            for root in extra_roots.iter().copied() {
-                visit(root);
-            }
         }
     }
 
@@ -5833,23 +5824,15 @@ impl Context {
     /// Perform a full mark-and-sweep garbage collection using only explicit roots.
     #[tracing::instrument(level = "debug", skip(self))]
     pub fn gc_collect_exact(&mut self) {
-        self.gc_collect_exact_with_extra_root_slices(&[]);
-    }
-
-    /// Perform a collection while retaining additional caller-owned roots.
-    pub(crate) fn gc_collect_exact_with_extra_root_slices(
-        &mut self,
-        extra_root_slices: &[&[Value]],
-    ) {
-        self.gc_collect_with_extra_root_slices(extra_root_slices);
+        self.gc_collect_from_current_roots();
     }
 
     /// Convenience wrapper for a single additional root slice.
     pub(crate) fn gc_collect_exact_with_extra_roots(&mut self, extra_roots: &[Value]) {
-        self.gc_collect_exact_with_extra_root_slices(&[extra_roots]);
+        self.with_extra_gc_roots(extra_roots, |eval| eval.gc_collect_exact());
     }
 
-    fn gc_collect_with_extra_root_slices(&mut self, extra_root_slices: &[&[Value]]) {
+    fn gc_collect_from_current_roots(&mut self) {
         let start = std::time::Instant::now();
         *self.lexenv_assq_cache.borrow_mut() = LexenvAssqCache::default();
         *self.lexenv_special_cache.borrow_mut() = LexenvSpecialCache::default();
@@ -5859,7 +5842,7 @@ impl Context {
         // the raw heap pointer.
         unsafe {
             (*heap_ptr).begin_collection();
-            self.trace_roots_with_extra_root_slices(extra_root_slices, &mut |root| {
+            self.trace_roots(&mut |root| {
                 (*heap_ptr).seed_root(root);
             });
             (*heap_ptr).complete_collection();
@@ -5890,28 +5873,20 @@ impl Context {
         self.gc_safe_point_exact();
     }
 
-    /// Trigger a safe-point collection plus explicit caller roots.
-    pub(crate) fn gc_safe_point_exact_with_extra_root_slices(
-        &mut self,
-        extra_root_slices: &[&[Value]],
-    ) {
+    /// Convenience wrapper for a single extra-root slice at an exact safe point.
+    pub(crate) fn gc_safe_point_exact_with_extra_roots(&mut self, extra_roots: &[Value]) {
+        self.with_extra_gc_roots(extra_roots, |eval| eval.gc_safe_point_exact());
+    }
+
+    /// Trigger a safe-point collection using only explicit evaluator roots.
+    pub(crate) fn gc_safe_point_exact(&mut self) {
         if self.gc_inhibit_depth > 0 {
             return;
         }
         self.sync_gc_threshold_from_runtime_settings();
         if self.gc_stress || self.gc_pending || self.tagged_heap.should_collect() {
-            self.gc_collect_with_extra_root_slices(extra_root_slices);
+            self.gc_collect_from_current_roots();
         }
-    }
-
-    /// Convenience wrapper for a single extra-root slice at an exact safe point.
-    pub(crate) fn gc_safe_point_exact_with_extra_roots(&mut self, extra_roots: &[Value]) {
-        self.gc_safe_point_exact_with_extra_root_slices(&[extra_roots]);
-    }
-
-    /// Trigger a safe-point collection using only explicit evaluator roots.
-    pub(crate) fn gc_safe_point_exact(&mut self) {
-        self.gc_safe_point_exact_with_extra_root_slices(&[]);
     }
 
     /// GNU-style quit processing used from evaluator boundaries.

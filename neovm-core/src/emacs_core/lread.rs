@@ -582,7 +582,9 @@ fn eval_forms_from_source_in_vm_runtime_streaming(
                 eval.eval_sub(form)
             })
         })?;
-        shared.gc_safe_point_exact_with_extra_root_slices(&[vm_gc_roots, args]);
+        shared.with_extra_gc_roots(vm_gc_roots, |eval| {
+            eval.with_extra_gc_roots(args, |eval| eval.gc_safe_point_exact())
+        });
     }
 
     Ok(Value::NIL)
