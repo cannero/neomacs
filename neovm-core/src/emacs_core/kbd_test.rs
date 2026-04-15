@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::intern::intern;
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 fn expect_vector_ints(value: Value) -> Vec<i64> {
@@ -171,7 +172,7 @@ fn key_events_from_designator_decodes_symbol_events() {
     assert_eq!(
         events,
         vec![KeyEvent::Function {
-            name: "f1".to_string(),
+            name: intern("f1"),
             ctrl: true,
             meta: false,
             shift: false,

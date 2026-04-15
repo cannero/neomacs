@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::intern::{intern, resolve_sym};
 
 // -- Key description parsing tests --
 
@@ -98,7 +99,7 @@ fn parse_ret() {
     assert_eq!(
         keys[0],
         KeyEvent::Function {
-            name: "return".to_string(),
+            name: intern("return"),
             ctrl: false,
             meta: false,
             shift: false,
@@ -117,7 +118,7 @@ fn parse_tab() {
     assert_eq!(
         keys[0],
         KeyEvent::Function {
-            name: "tab".to_string(),
+            name: intern("tab"),
             ctrl: false,
             meta: false,
             shift: false,
@@ -193,7 +194,7 @@ fn parse_function_key() {
     assert_eq!(
         keys[0],
         KeyEvent::Function {
-            name: "f1".to_string(),
+            name: intern("f1"),
             ctrl: false,
             meta: false,
             shift: false,
@@ -212,7 +213,7 @@ fn parse_ctrl_function_key() {
     assert_eq!(
         keys[0],
         KeyEvent::Function {
-            name: "f12".to_string(),
+            name: intern("f12"),
             ctrl: true,
             meta: false,
             shift: false,
@@ -384,7 +385,7 @@ fn parse_arrow_keys() {
         let keys = parse_key_description(name).unwrap();
         assert_eq!(keys.len(), 1);
         match &keys[0] {
-            KeyEvent::Function { name: n, .. } => assert_eq!(n.as_str(), *name),
+            KeyEvent::Function { name: n, .. } => assert_eq!(resolve_sym(*n), *name),
             other => panic!("expected Function for {}, got {:?}", name, other),
         }
     }
@@ -398,7 +399,7 @@ fn parse_modifier_with_named_key() {
     assert_eq!(
         keys[0],
         KeyEvent::Function {
-            name: "return".to_string(),
+            name: intern("return"),
             ctrl: true,
             meta: false,
             shift: false,

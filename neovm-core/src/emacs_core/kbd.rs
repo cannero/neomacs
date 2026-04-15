@@ -7,7 +7,7 @@
 //! - string return when all events are plain chars, otherwise vector.
 
 use super::{
-    intern::resolve_sym,
+    intern::{intern, resolve_sym},
     keymap::KeyEvent,
     value::{Value, ValueKind, VecLikeType},
 };
@@ -409,7 +409,7 @@ fn decode_symbol_event(symbol: &str) -> Result<KeyEvent, String> {
         return Err("invalid empty key symbol".to_string());
     }
     Ok(KeyEvent::Function {
-        name: remainder.to_string(),
+        name: intern(remainder),
         ctrl: mods.ctrl,
         meta: mods.meta,
         shift: mods.shift,

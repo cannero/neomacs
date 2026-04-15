@@ -44,7 +44,7 @@ pub enum KeyEvent {
     },
     /// A named function/special key (e.g. "return", "backspace", "f1").
     Function {
-        name: String,
+        name: SymId,
         ctrl: bool,
         meta: bool,
         shift: bool,
@@ -102,7 +102,7 @@ impl From<crate::keyboard::KeyEvent> for KeyEvent {
                     NamedKey::Down => "down",
                     NamedKey::F(n) => {
                         return KeyEvent::Function {
-                            name: format!("f{}", n),
+                            name: intern(&format!("f{}", n)),
                             ctrl: ke.modifiers.ctrl,
                             meta: ke.modifiers.meta,
                             shift: ke.modifiers.shift,
@@ -113,7 +113,7 @@ impl From<crate::keyboard::KeyEvent> for KeyEvent {
                     }
                 };
                 KeyEvent::Function {
-                    name: name.to_string(),
+                    name: intern(name),
                     ctrl: ke.modifiers.ctrl,
                     meta: ke.modifiers.meta,
                     shift: ke.modifiers.shift,
@@ -202,7 +202,7 @@ pub fn parse_single_key(token: &str) -> Result<KeyEvent, String> {
     // Helper to build a Function event with current modifiers
     let mk_func = |name: &str| -> KeyEvent {
         KeyEvent::Function {
-            name: name.to_string(),
+            name: intern(name),
             ctrl,
             meta,
             shift,
@@ -250,7 +250,8 @@ pub fn parse_single_key(token: &str) -> Result<KeyEvent, String> {
             if let Some(stripped) = other.strip_prefix('f') {
                 if let Ok(n) = stripped.parse::<u32>() {
                     if (1..=20).contains(&n) {
-                        return Ok(mk_func(&format!("f{}", n)));
+                        let fkey = format!("f{}", n);
+                        return Ok(mk_func(&fkey));
                     }
                 }
             }
@@ -336,7 +337,7 @@ pub fn format_key_event(event: &KeyEvent) -> String {
         KeyEvent::Char { code, .. } => {
             parts.push(*code);
         }
-        KeyEvent::Function { name, .. } => match name.as_str() {
+        KeyEvent::Function { name, .. } => match resolve_sym(*name) {
             "return" => parts.push_str("RET"),
             "tab" => parts.push_str("TAB"),
             "escape" => parts.push_str("ESC"),
@@ -2223,7 +2224,7 @@ pub fn key_event_to_emacs_event(event: &KeyEvent) -> Value {
             hyper,
             alt,
         } => {
-            if let Some(base) = match name.as_str() {
+            if let Some(base) = match resolve_sym(*name) {
                 "return" => Some('\r' as i64),
                 "tab" => Some('\t' as i64),
                 _ => None,
@@ -2268,7 +2269,7 @@ pub fn key_event_to_emacs_event(event: &KeyEvent) -> Value {
             if *super_ {
                 prefix.push_str("s-");
             }
-            Value::symbol(format!("{}{}", prefix, name))
+            Value::symbol(format!("{}{}", prefix, resolve_sym(*name)))
         }
     }
 }
@@ -2386,7 +2387,7 @@ pub fn emacs_event_to_key_event(event: &Value) -> Option<KeyEvent> {
             }
             // Otherwise it's a function key
             Some(KeyEvent::Function {
-                name: rest.to_string(),
+                name: intern(rest),
                 ctrl,
                 meta,
                 shift,

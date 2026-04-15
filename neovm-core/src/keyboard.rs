@@ -11,6 +11,7 @@
 //! - Prefix argument handling
 
 use crate::emacs_core::keyboard::pure::KEY_CHAR_META;
+use crate::emacs_core::intern::resolve_sym;
 // decode_storage_char_codes import removed — now using emacs_char directly
 use crate::emacs_core::value::{Value, ValueKind, VecLikeType};
 use std::collections::{HashMap, VecDeque};
@@ -272,7 +273,7 @@ impl KeyEvent {
                 if alt {
                     return None;
                 }
-                let key = match name.as_str() {
+                let key = match resolve_sym(name) {
                     "return" => Key::Named(NamedKey::Return),
                     "tab" => Key::Named(NamedKey::Tab),
                     "escape" => Key::Named(NamedKey::Escape),
