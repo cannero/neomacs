@@ -1295,7 +1295,6 @@ pub(crate) fn dump_mode_registry(encoder: &mut DumpEncoder, mr: &ModeRegistry) -
                 (
                     k.clone(),
                     DumpMajorMode {
-                        name: m.name.clone(),
                         pretty_name: m.pretty_name.clone(),
                         parent: m.parent.clone(),
                         mode_hook: m.mode_hook.clone(),
@@ -1315,7 +1314,6 @@ pub(crate) fn dump_mode_registry(encoder: &mut DumpEncoder, mr: &ModeRegistry) -
                 (
                     k.clone(),
                     DumpMinorMode {
-                        name: m.name.clone(),
                         lighter: m.lighter.clone(),
                         keymap_name: m.keymap_name.clone(),
                         global: m.global,
@@ -2751,7 +2749,6 @@ pub(crate) fn load_mode_registry(
             (
                 k.clone(),
                 MajorMode {
-                    name: m.name.clone(),
                     pretty_name: m.pretty_name.clone(),
                     parent: m.parent.clone(),
                     mode_hook: m.mode_hook.clone(),
@@ -2785,7 +2782,6 @@ pub(crate) fn load_mode_registry(
             (
                 k.clone(),
                 MinorMode {
-                    name: m.name.clone(),
                     lighter: m.lighter.clone(),
                     keymap_name: m.keymap_name.clone(),
                     global: m.global,

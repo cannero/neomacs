@@ -61,8 +61,6 @@ pub struct FontLockDefaults {
 
 /// A major mode definition.
 pub struct MajorMode {
-    /// Symbol name, e.g. "emacs-lisp-mode".
-    pub name: String,
     /// Human-readable name, e.g. "Emacs-Lisp".
     pub pretty_name: String,
     /// Parent mode this mode derives from (if any).
@@ -87,8 +85,6 @@ pub struct MajorMode {
 
 /// A minor mode definition.
 pub struct MinorMode {
-    /// Symbol name, e.g. "auto-fill-mode".
-    pub name: String,
     /// Mode-line lighter string, e.g. " Fill".
     pub lighter: Option<String>,
     /// Name of the keymap associated with this minor mode.
@@ -340,8 +336,8 @@ impl ModeRegistry {
     // -------------------------------------------------------------------
 
     /// Register a major mode definition.
-    pub fn register_major_mode(&mut self, mode: MajorMode) {
-        self.major_modes.insert(mode.name.clone(), mode);
+    pub fn register_major_mode(&mut self, name: &str, mode: MajorMode) {
+        self.major_modes.insert(name.to_string(), mode);
     }
 
     /// Set the major mode for a buffer. Replaces any existing major mode.
@@ -397,8 +393,8 @@ impl ModeRegistry {
     // -------------------------------------------------------------------
 
     /// Register a minor mode definition.
-    pub fn register_minor_mode(&mut self, mode: MinorMode) {
-        self.minor_modes.insert(mode.name.clone(), mode);
+    pub fn register_minor_mode(&mut self, name: &str, mode: MinorMode) {
+        self.minor_modes.insert(name.to_string(), mode);
     }
 
     /// Enable a minor mode in a specific buffer.
@@ -596,7 +592,6 @@ impl ModeRegistry {
     /// Pre-register the fundamental mode.
     fn register_fundamental_mode(&mut self) {
         let mode = MajorMode {
-            name: "fundamental-mode".to_string(),
             pretty_name: "Fundamental".to_string(),
             parent: None,
             mode_hook: "fundamental-mode-hook".to_string(),
@@ -606,7 +601,8 @@ impl ModeRegistry {
             font_lock: None,
             body: None,
         };
-        self.major_modes.insert(mode.name.clone(), mode);
+        self.major_modes
+            .insert("fundamental-mode".to_string(), mode);
     }
 
     // pdump accessors

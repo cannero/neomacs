@@ -703,7 +703,6 @@ pub struct DumpFontLockDefaults {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpMajorMode {
-    pub name: String,
     pub pretty_name: String,
     pub parent: Option<String>,
     pub mode_hook: String,
@@ -716,7 +715,6 @@ pub struct DumpMajorMode {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpMinorMode {
-    pub name: String,
     pub lighter: Option<String>,
     pub keymap_name: Option<String>,
     pub global: bool,

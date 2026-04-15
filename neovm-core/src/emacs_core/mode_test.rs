@@ -26,17 +26,19 @@ fn default_major_mode_is_fundamental() {
 fn register_and_set_major_mode() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_major_mode(MajorMode {
-        name: "rust-mode".to_string(),
-        pretty_name: "Rust".to_string(),
-        parent: Some("prog-mode".to_string()),
-        mode_hook: "rust-mode-hook".to_string(),
-        keymap_name: Some("rust-mode-map".to_string()),
-        syntax_table_name: None,
-        abbrev_table_name: None,
-        font_lock: None,
-        body: None,
-    });
+    reg.register_major_mode(
+        "rust-mode",
+        MajorMode {
+            pretty_name: "Rust".to_string(),
+            parent: Some("prog-mode".to_string()),
+            mode_hook: "rust-mode-hook".to_string(),
+            keymap_name: Some("rust-mode-map".to_string()),
+            syntax_table_name: None,
+            abbrev_table_name: None,
+            font_lock: None,
+            body: None,
+        },
+    );
 
     assert!(reg.set_major_mode(1, "rust-mode").is_ok());
     assert_eq!(reg.get_major_mode(1), "rust-mode");
@@ -54,28 +56,32 @@ fn set_unknown_major_mode_fails() {
 fn set_major_mode_replaces_previous() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_major_mode(MajorMode {
-        name: "text-mode".to_string(),
-        pretty_name: "Text".to_string(),
-        parent: None,
-        mode_hook: "text-mode-hook".to_string(),
-        keymap_name: None,
-        syntax_table_name: None,
-        abbrev_table_name: None,
-        font_lock: None,
-        body: None,
-    });
-    reg.register_major_mode(MajorMode {
-        name: "org-mode".to_string(),
-        pretty_name: "Org".to_string(),
-        parent: Some("text-mode".to_string()),
-        mode_hook: "org-mode-hook".to_string(),
-        keymap_name: None,
-        syntax_table_name: None,
-        abbrev_table_name: None,
-        font_lock: None,
-        body: None,
-    });
+    reg.register_major_mode(
+        "text-mode",
+        MajorMode {
+            pretty_name: "Text".to_string(),
+            parent: None,
+            mode_hook: "text-mode-hook".to_string(),
+            keymap_name: None,
+            syntax_table_name: None,
+            abbrev_table_name: None,
+            font_lock: None,
+            body: None,
+        },
+    );
+    reg.register_major_mode(
+        "org-mode",
+        MajorMode {
+            pretty_name: "Org".to_string(),
+            parent: Some("text-mode".to_string()),
+            mode_hook: "org-mode-hook".to_string(),
+            keymap_name: None,
+            syntax_table_name: None,
+            abbrev_table_name: None,
+            font_lock: None,
+            body: None,
+        },
+    );
 
     reg.set_major_mode(1, "text-mode").unwrap();
     assert_eq!(reg.get_major_mode(1), "text-mode");
@@ -92,13 +98,15 @@ fn set_major_mode_replaces_previous() {
 fn register_and_enable_minor_mode() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_minor_mode(MinorMode {
-        name: "auto-fill-mode".to_string(),
-        lighter: Some(" Fill".to_string()),
-        keymap_name: None,
-        global: false,
-        body: None,
-    });
+    reg.register_minor_mode(
+        "auto-fill-mode",
+        MinorMode {
+            lighter: Some(" Fill".to_string()),
+            keymap_name: None,
+            global: false,
+            body: None,
+        },
+    );
 
     assert!(reg.enable_minor_mode(1, "auto-fill-mode").is_ok());
     assert!(reg.is_minor_mode_active(1, "auto-fill-mode"));
@@ -116,13 +124,15 @@ fn enable_unknown_minor_mode_fails() {
 fn disable_minor_mode() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_minor_mode(MinorMode {
-        name: "flycheck-mode".to_string(),
-        lighter: Some(" FlyC".to_string()),
-        keymap_name: None,
-        global: false,
-        body: None,
-    });
+    reg.register_minor_mode(
+        "flycheck-mode",
+        MinorMode {
+            lighter: Some(" FlyC".to_string()),
+            keymap_name: None,
+            global: false,
+            body: None,
+        },
+    );
 
     reg.enable_minor_mode(1, "flycheck-mode").unwrap();
     assert!(reg.is_minor_mode_active(1, "flycheck-mode"));
@@ -135,13 +145,15 @@ fn disable_minor_mode() {
 fn toggle_minor_mode() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_minor_mode(MinorMode {
-        name: "linum-mode".to_string(),
-        lighter: Some(" Ln".to_string()),
-        keymap_name: None,
-        global: false,
-        body: None,
-    });
+    reg.register_minor_mode(
+        "linum-mode",
+        MinorMode {
+            lighter: Some(" Ln".to_string()),
+            keymap_name: None,
+            global: false,
+            body: None,
+        },
+    );
 
     // Toggle on.
     let active = reg.toggle_minor_mode(1, "linum-mode").unwrap();
@@ -166,20 +178,24 @@ fn toggle_unknown_minor_mode_fails() {
 fn active_minor_modes_lists_all() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_minor_mode(MinorMode {
-        name: "mode-a".to_string(),
-        lighter: Some(" A".to_string()),
-        keymap_name: None,
-        global: false,
-        body: None,
-    });
-    reg.register_minor_mode(MinorMode {
-        name: "mode-b".to_string(),
-        lighter: Some(" B".to_string()),
-        keymap_name: None,
-        global: false,
-        body: None,
-    });
+    reg.register_minor_mode(
+        "mode-a",
+        MinorMode {
+            lighter: Some(" A".to_string()),
+            keymap_name: None,
+            global: false,
+            body: None,
+        },
+    );
+    reg.register_minor_mode(
+        "mode-b",
+        MinorMode {
+            lighter: Some(" B".to_string()),
+            keymap_name: None,
+            global: false,
+            body: None,
+        },
+    );
 
     reg.enable_minor_mode(1, "mode-a").unwrap();
     reg.enable_minor_mode(1, "mode-b").unwrap();
@@ -194,13 +210,15 @@ fn active_minor_modes_lists_all() {
 fn enable_minor_mode_idempotent() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_minor_mode(MinorMode {
-        name: "hl-line-mode".to_string(),
-        lighter: None,
-        keymap_name: None,
-        global: false,
-        body: None,
-    });
+    reg.register_minor_mode(
+        "hl-line-mode",
+        MinorMode {
+            lighter: None,
+            keymap_name: None,
+            global: false,
+            body: None,
+        },
+    );
 
     reg.enable_minor_mode(1, "hl-line-mode").unwrap();
     reg.enable_minor_mode(1, "hl-line-mode").unwrap();
@@ -217,13 +235,15 @@ fn enable_minor_mode_idempotent() {
 fn global_minor_mode_active_in_all_buffers() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_minor_mode(MinorMode {
-        name: "global-hl-line-mode".to_string(),
-        lighter: Some(" HL".to_string()),
-        keymap_name: None,
-        global: true,
-        body: None,
-    });
+    reg.register_minor_mode(
+        "global-hl-line-mode",
+        MinorMode {
+            lighter: Some(" HL".to_string()),
+            keymap_name: None,
+            global: true,
+            body: None,
+        },
+    );
 
     reg.enable_global_minor_mode("global-hl-line-mode").unwrap();
 
@@ -236,13 +256,15 @@ fn global_minor_mode_active_in_all_buffers() {
 fn disable_global_minor_mode() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_minor_mode(MinorMode {
-        name: "global-mode".to_string(),
-        lighter: None,
-        keymap_name: None,
-        global: true,
-        body: None,
-    });
+    reg.register_minor_mode(
+        "global-mode",
+        MinorMode {
+            lighter: None,
+            keymap_name: None,
+            global: true,
+            body: None,
+        },
+    );
 
     reg.enable_global_minor_mode("global-mode").unwrap();
     assert!(reg.is_minor_mode_active(1, "global-mode"));
@@ -255,13 +277,15 @@ fn disable_global_minor_mode() {
 fn global_and_buffer_local_no_duplicates() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_minor_mode(MinorMode {
-        name: "shared-mode".to_string(),
-        lighter: Some(" S".to_string()),
-        keymap_name: None,
-        global: false,
-        body: None,
-    });
+    reg.register_minor_mode(
+        "shared-mode",
+        MinorMode {
+            lighter: Some(" S".to_string()),
+            keymap_name: None,
+            global: false,
+            body: None,
+        },
+    );
 
     reg.enable_global_minor_mode("shared-mode").unwrap();
     reg.enable_minor_mode(1, "shared-mode").unwrap();
@@ -279,17 +303,19 @@ fn global_and_buffer_local_no_duplicates() {
 fn auto_mode_alist_suffix_match() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_major_mode(MajorMode {
-        name: "rust-mode".to_string(),
-        pretty_name: "Rust".to_string(),
-        parent: None,
-        mode_hook: "rust-mode-hook".to_string(),
-        keymap_name: None,
-        syntax_table_name: None,
-        abbrev_table_name: None,
-        font_lock: None,
-        body: None,
-    });
+    reg.register_major_mode(
+        "rust-mode",
+        MajorMode {
+            pretty_name: "Rust".to_string(),
+            parent: None,
+            mode_hook: "rust-mode-hook".to_string(),
+            keymap_name: None,
+            syntax_table_name: None,
+            abbrev_table_name: None,
+            font_lock: None,
+            body: None,
+        },
+    );
     reg.add_auto_mode(".rs".to_string(), "rust-mode".to_string());
 
     assert_eq!(reg.mode_for_file("main.rs"), Some("rust-mode"));
@@ -301,28 +327,32 @@ fn auto_mode_alist_suffix_match() {
 fn auto_mode_alist_first_match_wins() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_major_mode(MajorMode {
-        name: "mode-a".to_string(),
-        pretty_name: "A".to_string(),
-        parent: None,
-        mode_hook: "mode-a-hook".to_string(),
-        keymap_name: None,
-        syntax_table_name: None,
-        abbrev_table_name: None,
-        font_lock: None,
-        body: None,
-    });
-    reg.register_major_mode(MajorMode {
-        name: "mode-b".to_string(),
-        pretty_name: "B".to_string(),
-        parent: None,
-        mode_hook: "mode-b-hook".to_string(),
-        keymap_name: None,
-        syntax_table_name: None,
-        abbrev_table_name: None,
-        font_lock: None,
-        body: None,
-    });
+    reg.register_major_mode(
+        "mode-a",
+        MajorMode {
+            pretty_name: "A".to_string(),
+            parent: None,
+            mode_hook: "mode-a-hook".to_string(),
+            keymap_name: None,
+            syntax_table_name: None,
+            abbrev_table_name: None,
+            font_lock: None,
+            body: None,
+        },
+    );
+    reg.register_major_mode(
+        "mode-b",
+        MajorMode {
+            pretty_name: "B".to_string(),
+            parent: None,
+            mode_hook: "mode-b-hook".to_string(),
+            keymap_name: None,
+            syntax_table_name: None,
+            abbrev_table_name: None,
+            font_lock: None,
+            body: None,
+        },
+    );
     reg.add_auto_mode(".txt".to_string(), "mode-a".to_string());
     reg.add_auto_mode(".txt".to_string(), "mode-b".to_string());
 
@@ -345,13 +375,15 @@ fn mode_line_string_fundamental() {
 fn mode_line_string_with_minor_modes() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_minor_mode(MinorMode {
-        name: "auto-fill-mode".to_string(),
-        lighter: Some(" Fill".to_string()),
-        keymap_name: None,
-        global: false,
-        body: None,
-    });
+    reg.register_minor_mode(
+        "auto-fill-mode",
+        MinorMode {
+            lighter: Some(" Fill".to_string()),
+            keymap_name: None,
+            global: false,
+            body: None,
+        },
+    );
     reg.enable_minor_mode(1, "auto-fill-mode").unwrap();
 
     let s = reg.mode_line_string(1);
@@ -394,27 +426,29 @@ fn mode_line_format_modified_and_readonly() {
 fn font_lock_keywords_basic() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_major_mode(MajorMode {
-        name: "lisp-mode".to_string(),
-        pretty_name: "Lisp".to_string(),
-        parent: None,
-        mode_hook: "lisp-mode-hook".to_string(),
-        keymap_name: None,
-        syntax_table_name: None,
-        abbrev_table_name: None,
-        font_lock: Some(FontLockDefaults {
-            keywords: vec![FontLockKeyword {
-                pattern: r"\b(defun|defvar)\b".to_string(),
-                face: "font-lock-keyword-face".to_string(),
-                group: 1,
-                override_: false,
-                laxmatch: false,
-            }],
-            case_fold: false,
-            syntax_table: None,
-        }),
-        body: None,
-    });
+    reg.register_major_mode(
+        "lisp-mode",
+        MajorMode {
+            pretty_name: "Lisp".to_string(),
+            parent: None,
+            mode_hook: "lisp-mode-hook".to_string(),
+            keymap_name: None,
+            syntax_table_name: None,
+            abbrev_table_name: None,
+            font_lock: Some(FontLockDefaults {
+                keywords: vec![FontLockKeyword {
+                    pattern: r"\b(defun|defvar)\b".to_string(),
+                    face: "font-lock-keyword-face".to_string(),
+                    group: 1,
+                    override_: false,
+                    laxmatch: false,
+                }],
+                case_fold: false,
+                syntax_table: None,
+            }),
+            body: None,
+        },
+    );
 
     let kws = reg.font_lock_keywords("lisp-mode").unwrap();
     assert_eq!(kws.len(), 1);
@@ -427,40 +461,44 @@ fn font_lock_keywords_inherit_from_parent() {
     let mut reg = ModeRegistry::new();
 
     // Parent with font-lock.
-    reg.register_major_mode(MajorMode {
-        name: "prog-mode".to_string(),
-        pretty_name: "Prog".to_string(),
-        parent: None,
-        mode_hook: "prog-mode-hook".to_string(),
-        keymap_name: None,
-        syntax_table_name: None,
-        abbrev_table_name: None,
-        font_lock: Some(FontLockDefaults {
-            keywords: vec![FontLockKeyword {
-                pattern: r"TODO".to_string(),
-                face: "font-lock-warning-face".to_string(),
-                group: 0,
-                override_: true,
-                laxmatch: false,
-            }],
-            case_fold: false,
-            syntax_table: None,
-        }),
-        body: None,
-    });
+    reg.register_major_mode(
+        "prog-mode",
+        MajorMode {
+            pretty_name: "Prog".to_string(),
+            parent: None,
+            mode_hook: "prog-mode-hook".to_string(),
+            keymap_name: None,
+            syntax_table_name: None,
+            abbrev_table_name: None,
+            font_lock: Some(FontLockDefaults {
+                keywords: vec![FontLockKeyword {
+                    pattern: r"TODO".to_string(),
+                    face: "font-lock-warning-face".to_string(),
+                    group: 0,
+                    override_: true,
+                    laxmatch: false,
+                }],
+                case_fold: false,
+                syntax_table: None,
+            }),
+            body: None,
+        },
+    );
 
     // Child without font-lock — should inherit.
-    reg.register_major_mode(MajorMode {
-        name: "rust-mode".to_string(),
-        pretty_name: "Rust".to_string(),
-        parent: Some("prog-mode".to_string()),
-        mode_hook: "rust-mode-hook".to_string(),
-        keymap_name: None,
-        syntax_table_name: None,
-        abbrev_table_name: None,
-        font_lock: None,
-        body: None,
-    });
+    reg.register_major_mode(
+        "rust-mode",
+        MajorMode {
+            pretty_name: "Rust".to_string(),
+            parent: Some("prog-mode".to_string()),
+            mode_hook: "rust-mode-hook".to_string(),
+            keymap_name: None,
+            syntax_table_name: None,
+            abbrev_table_name: None,
+            font_lock: None,
+            body: None,
+        },
+    );
 
     let kws = reg.font_lock_keywords("rust-mode").unwrap();
     assert_eq!(kws.len(), 1);
@@ -532,17 +570,19 @@ fn custom_variable_in_group() {
 fn derived_mode_p_self() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_major_mode(MajorMode {
-        name: "text-mode".to_string(),
-        pretty_name: "Text".to_string(),
-        parent: None,
-        mode_hook: "text-mode-hook".to_string(),
-        keymap_name: None,
-        syntax_table_name: None,
-        abbrev_table_name: None,
-        font_lock: None,
-        body: None,
-    });
+    reg.register_major_mode(
+        "text-mode",
+        MajorMode {
+            pretty_name: "Text".to_string(),
+            parent: None,
+            mode_hook: "text-mode-hook".to_string(),
+            keymap_name: None,
+            syntax_table_name: None,
+            abbrev_table_name: None,
+            font_lock: None,
+            body: None,
+        },
+    );
 
     assert!(reg.derived_mode_p("text-mode", "text-mode"));
 }
@@ -551,39 +591,45 @@ fn derived_mode_p_self() {
 fn derived_mode_p_parent_chain() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_major_mode(MajorMode {
-        name: "text-mode".to_string(),
-        pretty_name: "Text".to_string(),
-        parent: None,
-        mode_hook: "text-mode-hook".to_string(),
-        keymap_name: None,
-        syntax_table_name: None,
-        abbrev_table_name: None,
-        font_lock: None,
-        body: None,
-    });
-    reg.register_major_mode(MajorMode {
-        name: "org-mode".to_string(),
-        pretty_name: "Org".to_string(),
-        parent: Some("text-mode".to_string()),
-        mode_hook: "org-mode-hook".to_string(),
-        keymap_name: None,
-        syntax_table_name: None,
-        abbrev_table_name: None,
-        font_lock: None,
-        body: None,
-    });
-    reg.register_major_mode(MajorMode {
-        name: "org-journal-mode".to_string(),
-        pretty_name: "Org-Journal".to_string(),
-        parent: Some("org-mode".to_string()),
-        mode_hook: "org-journal-mode-hook".to_string(),
-        keymap_name: None,
-        syntax_table_name: None,
-        abbrev_table_name: None,
-        font_lock: None,
-        body: None,
-    });
+    reg.register_major_mode(
+        "text-mode",
+        MajorMode {
+            pretty_name: "Text".to_string(),
+            parent: None,
+            mode_hook: "text-mode-hook".to_string(),
+            keymap_name: None,
+            syntax_table_name: None,
+            abbrev_table_name: None,
+            font_lock: None,
+            body: None,
+        },
+    );
+    reg.register_major_mode(
+        "org-mode",
+        MajorMode {
+            pretty_name: "Org".to_string(),
+            parent: Some("text-mode".to_string()),
+            mode_hook: "org-mode-hook".to_string(),
+            keymap_name: None,
+            syntax_table_name: None,
+            abbrev_table_name: None,
+            font_lock: None,
+            body: None,
+        },
+    );
+    reg.register_major_mode(
+        "org-journal-mode",
+        MajorMode {
+            pretty_name: "Org-Journal".to_string(),
+            parent: Some("org-mode".to_string()),
+            mode_hook: "org-journal-mode-hook".to_string(),
+            keymap_name: None,
+            syntax_table_name: None,
+            abbrev_table_name: None,
+            font_lock: None,
+            body: None,
+        },
+    );
 
     assert!(reg.derived_mode_p("org-journal-mode", "text-mode"));
     assert!(reg.derived_mode_p("org-journal-mode", "org-mode"));
@@ -595,28 +641,32 @@ fn derived_mode_p_parent_chain() {
 fn derived_mode_p_unrelated() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_major_mode(MajorMode {
-        name: "text-mode".to_string(),
-        pretty_name: "Text".to_string(),
-        parent: None,
-        mode_hook: "text-mode-hook".to_string(),
-        keymap_name: None,
-        syntax_table_name: None,
-        abbrev_table_name: None,
-        font_lock: None,
-        body: None,
-    });
-    reg.register_major_mode(MajorMode {
-        name: "prog-mode".to_string(),
-        pretty_name: "Prog".to_string(),
-        parent: None,
-        mode_hook: "prog-mode-hook".to_string(),
-        keymap_name: None,
-        syntax_table_name: None,
-        abbrev_table_name: None,
-        font_lock: None,
-        body: None,
-    });
+    reg.register_major_mode(
+        "text-mode",
+        MajorMode {
+            pretty_name: "Text".to_string(),
+            parent: None,
+            mode_hook: "text-mode-hook".to_string(),
+            keymap_name: None,
+            syntax_table_name: None,
+            abbrev_table_name: None,
+            font_lock: None,
+            body: None,
+        },
+    );
+    reg.register_major_mode(
+        "prog-mode",
+        MajorMode {
+            pretty_name: "Prog".to_string(),
+            parent: None,
+            mode_hook: "prog-mode-hook".to_string(),
+            keymap_name: None,
+            syntax_table_name: None,
+            abbrev_table_name: None,
+            font_lock: None,
+            body: None,
+        },
+    );
 
     assert!(!reg.derived_mode_p("text-mode", "prog-mode"));
     assert!(!reg.derived_mode_p("prog-mode", "text-mode"));
@@ -630,13 +680,15 @@ fn derived_mode_p_unrelated() {
 fn remove_buffer_cleans_up() {
     crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
-    reg.register_minor_mode(MinorMode {
-        name: "test-mode".to_string(),
-        lighter: None,
-        keymap_name: None,
-        global: false,
-        body: None,
-    });
+    reg.register_minor_mode(
+        "test-mode",
+        MinorMode {
+            lighter: None,
+            keymap_name: None,
+            global: false,
+            body: None,
+        },
+    );
 
     reg.set_major_mode(1, "fundamental-mode").unwrap();
     reg.enable_minor_mode(1, "test-mode").unwrap();
