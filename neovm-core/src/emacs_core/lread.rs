@@ -384,7 +384,7 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
                     .as_deref()
                     .expect("load-in-progress eval-buffer must have filename"),
             );
-            super::load::eval_decoded_source_file_in_context(ctx, path, &source, lexical_binding)
+            super::load::eval_decoded_source_file_in_context(ctx, path, &source, source_multibyte)
                 .map_err(map_eval_error_to_flow)
         } else {
             let result = eval_forms_from_source(ctx, &source, source_multibyte);

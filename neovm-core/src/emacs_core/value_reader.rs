@@ -622,10 +622,14 @@ impl<'a> Reader<'a> {
                         unibyte_buf = None;
                     } else if cp >= 0x80 && cp <= 0xFF {
                         // Latin-1 high byte from .elc loading (b as char).
-                        // Push raw byte directly — these form Emacs internal
-                        // encoding sequences (e.g. [E2, 80, 98] for U+2018).
+                        // In unibyte source this is a literal raw byte; in
+                        // multibyte source it is a real Latin-1 character.
                         buf.push(cp as u8);
-                        unibyte_buf = None;
+                        if let Some(bytes) = unibyte_buf.as_mut() {
+                            bytes.push(cp as u8);
+                        } else {
+                            unibyte_buf = None;
+                        }
                     } else {
                         // Normal Unicode — encode as UTF-8 (== Emacs encoding)
                         let mut tmp = [0u8; 4];

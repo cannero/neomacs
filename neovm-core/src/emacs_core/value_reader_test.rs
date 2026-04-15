@@ -681,3 +681,18 @@ fn hash_skip_doc_string_handles_high_bit_source_bytes() {
         forms[0].cons_car()
     );
 }
+
+#[test]
+fn unibyte_source_preserves_direct_latin1_string_bytes() {
+    crate::test_utils::init_test_tracing();
+    let input: String = [b'"', 0xFF, b'"'].into_iter().map(char::from).collect();
+    let result = read_one_with_source_multibyte(&input, false, 0)
+        .expect("read_one_with_source_multibyte should succeed")
+        .expect("reader should produce one form")
+        .0;
+    let text = result
+        .as_lisp_string()
+        .expect("reader should return a LispString");
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[0xFF]);
+}

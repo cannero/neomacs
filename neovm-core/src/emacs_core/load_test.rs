@@ -4253,6 +4253,45 @@ fn load_elc_is_supported() {
 }
 
 #[test]
+fn load_elc_preserves_unibyte_reader_literals() {
+    crate::test_utils::init_test_tracing();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("neovm-load-elc-unibyte-{unique}"));
+    fs::create_dir_all(&dir).expect("create temp fixture dir");
+    let compiled = dir.join("probe.elc");
+
+    let mut content = b"(setq vm-elc-raw \"".to_vec();
+    content.push(0xFF);
+    content.extend_from_slice(b"\")\n(setq vm-elc-char ?");
+    content.push(0xFF);
+    content.extend_from_slice(b")\n");
+    fs::write(&compiled, content).expect("write compiled fixture");
+
+    let mut eval = super::super::eval::Context::new();
+    load_file(&mut eval, &compiled).expect("load unibyte .elc fixture");
+
+    let raw = eval
+        .obarray()
+        .symbol_value("vm-elc-raw")
+        .copied()
+        .expect("load should set vm-elc-raw");
+    let text = raw
+        .as_lisp_string()
+        .expect("vm-elc-raw should be a LispString");
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[0xFF]);
+    assert_eq!(
+        eval.obarray().symbol_value("vm-elc-char").cloned(),
+        Some(Value::fixnum(255))
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn load_elc_gz_is_rejected() {
     crate::test_utils::init_test_tracing();
     // .elc.gz files are still unsupported.

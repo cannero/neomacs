@@ -1012,6 +1012,7 @@ fn streaming_readevalloop(
     eval: &mut super::eval::Context,
     path: &Path,
     content: &str,
+    source_multibyte: bool,
     macroexpand_fn: Option<Value>,
 ) -> Result<Value, EvalError> {
     let file_name = path
@@ -1024,29 +1025,31 @@ fn streaming_readevalloop(
     let mut form_idx = 0;
 
     loop {
-        let read_result = super::value_reader::read_one(content, pos).map_err(|e| {
-            // GNU `Fload` (`src/lread.c`) signals `end-of-file`
-            // when the reader hits EOF mid-form (e.g. a single-line
-            // shebang that exhausts the file with no trailing
-            // newline before any forms). Mirror that here.
-            if e.message.contains("end of input") || e.message.contains("unterminated") {
-                return EvalError::Signal {
-                    symbol: intern("end-of-file"),
-                    data: vec![],
-                    raw_data: None,
-                };
-            }
-            EvalError::Signal {
-                symbol: intern("error"),
-                data: vec![Value::string(format!(
-                    "Read error in {}: {} at position {}",
-                    path.display(),
-                    e.message,
-                    e.position
-                ))],
-                raw_data: None,
-            }
-        })?;
+        let read_result =
+            super::value_reader::read_one_with_source_multibyte(content, source_multibyte, pos)
+                .map_err(|e| {
+                    // GNU `Fload` (`src/lread.c`) signals `end-of-file`
+                    // when the reader hits EOF mid-form (e.g. a single-line
+                    // shebang that exhausts the file with no trailing
+                    // newline before any forms). Mirror that here.
+                    if e.message.contains("end of input") || e.message.contains("unterminated") {
+                        return EvalError::Signal {
+                            symbol: intern("end-of-file"),
+                            data: vec![],
+                            raw_data: None,
+                        };
+                    }
+                    EvalError::Signal {
+                        symbol: intern("error"),
+                        data: vec![Value::string(format!(
+                            "Read error in {}: {} at position {}",
+                            path.display(),
+                            e.message,
+                            e.position
+                        ))],
+                        raw_data: None,
+                    }
+                })?;
 
         let Some((form, next_pos)) = read_result else {
             break; // EOF
@@ -1352,8 +1355,8 @@ fn load_file_body(
 
     // For .elc: skip the ;ELC magic header and detect lexical-binding from raw bytes.
     // For .el: decode Emacs-extended UTF-8.
-    let content = if is_elc {
-        skip_elc_header(&raw_bytes)
+    let (content, source_multibyte) = if is_elc {
+        (skip_elc_header(&raw_bytes), false)
     } else {
         // GNU `Fload` (`src/lread.c`) lets the coding system swallow
         // a leading UTF-8 BOM (U+FEFF). NeoVM's reader does not, so
@@ -1361,10 +1364,13 @@ fn load_file_body(
         // otherwise the BOM is parsed as a one-character symbol and
         // signals `void-variable`.
         let decoded = decode_emacs_utf8(&raw_bytes);
-        match decoded.strip_prefix('\u{feff}') {
-            Some(rest) => rest.to_string(),
-            None => decoded,
-        }
+        (
+            match decoded.strip_prefix('\u{feff}') {
+                Some(rest) => rest.to_string(),
+                None => decoded,
+            },
+            true,
+        )
     };
 
     // Detect lexical-binding.
@@ -1390,7 +1396,7 @@ fn load_file_body(
             get_eager_macroexpand_fn(eval)
         };
 
-        streaming_readevalloop(eval, path, &content, macroexpand_fn)
+        streaming_readevalloop(eval, path, &content, source_multibyte, macroexpand_fn)
     })
 }
 
@@ -1398,11 +1404,11 @@ pub(crate) fn eval_decoded_source_file_in_context(
     eval: &mut super::eval::Context,
     path: &Path,
     content: &str,
-    _lexical_binding: bool,
+    source_multibyte: bool,
 ) -> Result<Value, EvalError> {
     // Use the streaming Value-reader path (no Expr intermediate).
     let macroexpand_fn = get_eager_macroexpand_fn(eval);
-    streaming_readevalloop(eval, path, content, macroexpand_fn)
+    streaming_readevalloop(eval, path, content, source_multibyte, macroexpand_fn)
 }
 
 /// Skip the `;ELC` magic header in a byte-compiled Elisp file.
@@ -2124,16 +2130,15 @@ fn collect_source_surface_from_paths(
             raw_data: None,
         })?;
         let source = decode_emacs_utf8(&bytes);
-        let forms = crate::emacs_core::value_reader::read_all(&source).map_err(|err| {
-            EvalError::Signal {
+        let forms = crate::emacs_core::value_reader::read_all_with_source_multibyte(&source, true)
+            .map_err(|err| EvalError::Signal {
                 symbol: intern("error"),
                 data: vec![Value::string(format!(
                     "{error_context}: failed parsing {}: {err}",
                     path.display()
                 ))],
                 raw_data: None,
-            }
-        })?;
+            })?;
 
         for form in forms {
             collect_source_surface(form, &mut state);
@@ -2233,16 +2238,15 @@ fn collect_loaddefs_surface_from_paths(
             raw_data: None,
         })?;
         let source = decode_emacs_utf8(&bytes);
-        let forms = crate::emacs_core::value_reader::read_all(&source).map_err(|err| {
-            EvalError::Signal {
+        let forms = crate::emacs_core::value_reader::read_all_with_source_multibyte(&source, true)
+            .map_err(|err| EvalError::Signal {
                 symbol: intern("error"),
                 data: vec![Value::string(format!(
                     "{error_context}: failed parsing {}: {err}",
                     path.display()
                 ))],
                 raw_data: None,
-            }
-        })?;
+            })?;
 
         for form in &forms {
             collect_loaddefs_autoload_args(*form, allowed_files, allowed_names, &mut state);
@@ -2366,8 +2370,8 @@ pub(crate) fn apply_ldefs_boot_autoloads_for_names(
         ))],
         raw_data: None,
     })?;
-    let forms =
-        crate::emacs_core::value_reader::read_all(&source).map_err(|err| EvalError::Signal {
+    let forms = crate::emacs_core::value_reader::read_all_with_source_multibyte(&source, true)
+        .map_err(|err| EvalError::Signal {
             symbol: intern("error"),
             data: vec![Value::string(format!(
                 "ldefs-boot autoload restore: failed parsing {}: {err}",
