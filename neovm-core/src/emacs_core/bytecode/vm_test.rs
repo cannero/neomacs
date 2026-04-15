@@ -4502,7 +4502,8 @@ fn vm_process_status_builtins_use_shared_runtime_state() {
             );
             assert_eq!(network, 3);
             // Mark as server so process-status returns 'listen (not 'open).
-            eval.processes.get_mut(network).unwrap().network_server = true;
+            eval.processes.get_mut(network).unwrap().childp =
+                Value::list(vec![Value::keyword(":server"), Value::T]);
             let stopped = eval.processes.create_process(
                 "vm-status-stop".into(),
                 Value::NIL,

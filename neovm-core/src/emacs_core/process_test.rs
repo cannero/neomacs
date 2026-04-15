@@ -1,5 +1,5 @@
 use super::*;
-use crate::emacs_core::{Context, format_eval_result};
+use crate::emacs_core::{Context, builtins, format_eval_result};
 use crate::heap_types::LispString;
 use crate::test_utils::{runtime_startup_eval_all, runtime_startup_eval_one};
 use std::cell::RefCell;
@@ -156,6 +156,8 @@ fn process_manager_create_and_query() {
         pm.get(id).unwrap().command,
         Value::list(vec![Value::string("/bin/echo"), Value::string("hello")])
     );
+    assert_eq!(pm.get(id).unwrap().proc_type, Value::symbol("real"));
+    assert_eq!(pm.get(id).unwrap().childp, Value::T);
     assert_eq!(pm.process_status(id), Some(&Value::symbol("run")));
 }
 
@@ -217,6 +219,123 @@ fn builtin_process_name_uses_lisp_value_storage() {
 
     assert_eq!(string.as_bytes(), b"my-proc");
     assert!(string.is_multibyte());
+}
+
+#[test]
+fn process_type_and_contact_use_stored_lisp_fields() {
+    crate::test_utils::init_test_tracing();
+    let mut pm = ProcessManager::new();
+    let network = pm.create_process_with_kind(
+        "net-proc".into(),
+        Value::NIL,
+        String::new(),
+        vec![],
+        ProcessKind::Network,
+    );
+    {
+        let proc = pm.get_mut(network).expect("network process");
+        proc.childp = Value::list(vec![
+            Value::keyword(":name"),
+            proc.name,
+            Value::keyword(":host"),
+            Value::string("localhost"),
+            Value::keyword(":service"),
+            Value::fixnum(7777),
+            Value::keyword(":server"),
+            Value::T,
+        ]);
+    }
+
+    assert_eq!(
+        builtin_process_type_impl(&pm, vec![Value::fixnum(network as i64)]).expect("process-type"),
+        Value::symbol("network")
+    );
+    assert_eq!(
+        builtin_process_contact_impl(&pm, vec![Value::fixnum(network as i64), Value::NIL])
+            .expect("process-contact nil"),
+        Value::list(vec![Value::string("localhost"), Value::fixnum(7777)])
+    );
+    let full = builtin_process_contact_impl(&pm, vec![Value::fixnum(network as i64), Value::T])
+        .expect("process-contact t");
+    assert_eq!(
+        builtins::builtin_plist_get(vec![full, Value::keyword(":name")]).expect("plist-get :name"),
+        pm.get(network).unwrap().name
+    );
+    assert_eq!(
+        builtins::builtin_plist_get(vec![full, Value::keyword(":server")])
+            .expect("plist-get :server"),
+        Value::T
+    );
+    assert_eq!(
+        process_public_status_symbol(pm.get(network).unwrap()),
+        Value::symbol("listen")
+    );
+}
+
+#[test]
+fn connection_process_mutators_keep_childp_plist_in_sync() {
+    crate::test_utils::init_test_tracing();
+    let mut buffers = crate::buffer::BufferManager::new();
+    let buffer_id = buffers.create_buffer("*proc-contact-childp*");
+    let mut pm = ProcessManager::new();
+    let id = pm.create_process_with_kind(
+        "net-proc".into(),
+        Value::make_buffer(buffer_id),
+        String::new(),
+        vec![],
+        ProcessKind::Network,
+    );
+    {
+        let proc = pm.get_mut(id).expect("network process");
+        proc.childp = Value::list(vec![
+            Value::keyword(":name"),
+            proc.name,
+            Value::keyword(":server"),
+            Value::T,
+            Value::keyword(":service"),
+            Value::fixnum(7777),
+            Value::keyword(":buffer"),
+            Value::make_buffer(buffer_id),
+            Value::keyword(":filter"),
+            Value::symbol("ignore"),
+            Value::keyword(":sentinel"),
+            Value::symbol("ignore"),
+        ]);
+    }
+
+    builtin_set_process_buffer_impl(
+        &mut pm,
+        &mut buffers,
+        vec![Value::fixnum(id as i64), Value::NIL],
+    )
+    .expect("set-process-buffer");
+    let filter =
+        builtin_set_process_filter_impl(&mut pm, vec![Value::fixnum(id as i64), Value::NIL])
+            .expect("set-process-filter");
+    let sentinel =
+        builtin_set_process_sentinel_impl(&mut pm, vec![Value::fixnum(id as i64), Value::NIL])
+            .expect("set-process-sentinel");
+
+    assert_eq!(filter, Value::symbol(DEFAULT_PROCESS_FILTER_SYMBOL));
+    assert_eq!(sentinel, Value::symbol(DEFAULT_PROCESS_SENTINEL_SYMBOL));
+
+    let contact = builtin_process_contact_impl(&pm, vec![Value::fixnum(id as i64), Value::T])
+        .expect("process-contact t");
+    assert_eq!(
+        builtins::builtin_plist_get(vec![contact, Value::keyword(":buffer")])
+            .expect("plist-get :buffer"),
+        Value::NIL
+    );
+    assert_eq!(
+        builtins::builtin_plist_get(vec![contact, Value::keyword(":filter")])
+            .expect("plist-get :filter"),
+        Value::symbol(DEFAULT_PROCESS_FILTER_SYMBOL)
+    );
+    assert_eq!(
+        builtins::builtin_plist_get(vec![contact, Value::keyword(":sentinel")])
+            .expect("plist-get :sentinel"),
+        Value::symbol(DEFAULT_PROCESS_SENTINEL_SYMBOL)
+    );
 }
 
 #[test]

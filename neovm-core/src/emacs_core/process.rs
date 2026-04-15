@@ -65,8 +65,10 @@ pub struct Process {
     pub name: Value,
     pub command: Value,
     pub kind: ProcessKind,
+    pub proc_type: Value,
     pub status: Value,
     pub buffer: Value,
+    pub childp: Value,
     /// Queued input (sent via `process-send-string`).
     pub stdin_queue: String,
     /// Captured stdout.
@@ -124,8 +126,6 @@ pub struct Process {
     /// When `Some`, reads/writes go through this instead of `socket`.
     #[cfg(unix)]
     pub tls_stream: Option<TlsStream>,
-    /// Whether this is a server (listener) or client network process.
-    pub network_server: bool,
     /// End-of-output marker, matching GNU's `p->mark`.
     pub mark: Value,
 }
@@ -137,8 +137,10 @@ impl std::fmt::Debug for Process {
             .field("name", &process_name_runtime(self.name))
             .field("command", &self.command)
             .field("kind", &self.kind)
+            .field("proc_type", &self.proc_type)
             .field("status", &self.status)
             .field("buffer", &self.buffer)
+            .field("childp", &self.childp)
             .field("pty_master", &self.pty_master.as_ref().map(|_| ".."))
             .field("pty_child", &self.pty_child.is_some())
             .field("pty_reader", &self.pty_reader.as_ref().map(|_| ".."))
@@ -183,6 +185,15 @@ fn process_name_value(name: &str) -> Value {
 fn process_name_runtime(name: Value) -> String {
     name.as_runtime_string_owned()
         .unwrap_or_else(|| "<invalid-process-name>".to_string())
+}
+
+fn process_type_value(kind: &ProcessKind) -> Value {
+    Value::symbol(match kind {
+        ProcessKind::Real => "real",
+        ProcessKind::Network => "network",
+        ProcessKind::Pipe => "pipe",
+        ProcessKind::Serial => "serial",
+    })
 }
 
 fn make_process_command_value(kind: &ProcessKind, program: &str, args: &[String]) -> Value {
@@ -254,6 +265,25 @@ fn process_status_is_run(status: &Value) -> bool {
     process_status_symbol_value(*status) == Value::symbol("run")
 }
 
+fn process_uses_contact_plist(proc: &Process) -> bool {
+    matches!(
+        proc.proc_type.as_symbol_name(),
+        Some("network") | Some("pipe") | Some("serial")
+    )
+}
+
+fn process_contact_plist_get(contact: Value, key: Value) -> Value {
+    super::builtins::builtin_plist_get(vec![contact, key]).unwrap_or(Value::NIL)
+}
+
+fn process_contact_plist_put(contact: Value, key: Value, value: Value) -> EvalResult {
+    super::builtins::builtin_plist_put(vec![contact, key, value])
+}
+
+fn process_contact_server_p(proc: &Process) -> bool {
+    process_contact_plist_get(proc.childp, Value::keyword(":server")).is_truthy()
+}
+
 impl ProcessManager {
     pub fn new() -> Self {
         Self {
@@ -296,13 +326,21 @@ impl ProcessManager {
                 (Value::NIL, false, false, false)
             }
         };
+        let proc_type = process_type_value(&kind);
+        let childp = if kind == ProcessKind::Real {
+            Value::T
+        } else {
+            Value::NIL
+        };
         let proc = Process {
             id,
             name: process_name_value(&name),
             command: make_process_command_value(&kind, &command, &args),
             kind,
+            proc_type,
             status: process_status_run_value(),
             buffer,
+            childp,
             stdin_queue: String::new(),
             stdout: String::new(),
             stderr: String::new(),
@@ -330,7 +368,6 @@ impl ProcessManager {
             #[cfg(unix)]
             socket: None,
             tls_stream: None,
-            network_server: false,
             mark: super::marker::make_marker_value(None, None, false),
         };
         self.processes.insert(id, proc);
@@ -1837,7 +1874,7 @@ pub(crate) fn process_public_status_symbol(process: &Process) -> Value {
     match process_status_symbol_value(process.status).as_symbol_name() {
         Some("run") => match process.kind {
             ProcessKind::Network => {
-                if process.network_server {
+                if process_contact_server_p(process) {
                     Value::symbol("listen")
                 } else {
                     Value::symbol("open")
@@ -3631,14 +3668,42 @@ pub(crate) fn builtin_make_network_process(
             ProcessKind::Network,
         );
         eval.processes.sync_process_mark(&mut eval.buffers, id)?;
+        let port = 40000_i64 + (id % 20000) as i64;
+        let local = Value::vector(vec![
+            Value::fixnum(127),
+            Value::fixnum(0),
+            Value::fixnum(0),
+            Value::fixnum(1),
+            Value::fixnum(port),
+        ]);
         if let Some(proc) = eval.processes.get_mut(id) {
-            proc.network_server = true;
+            proc.childp = Value::list(vec![
+                Value::keyword(":name"),
+                proc.name,
+                Value::keyword(":server"),
+                Value::T,
+                Value::keyword(":service"),
+                Value::fixnum(port),
+                Value::keyword(":local"),
+                local,
+            ]);
             proc.thread = current_thread_handle(&eval.threads);
             if !filter_val.is_nil() {
                 proc.filter = filter_val;
+                proc.childp =
+                    process_contact_plist_put(proc.childp, Value::keyword(":filter"), proc.filter)?;
             }
             if !sentinel_val.is_nil() {
                 proc.sentinel = sentinel_val;
+                proc.childp = process_contact_plist_put(
+                    proc.childp,
+                    Value::keyword(":sentinel"),
+                    proc.sentinel,
+                )?;
+            }
+            if !buffer.is_nil() {
+                proc.childp =
+                    process_contact_plist_put(proc.childp, Value::keyword(":buffer"), buffer)?;
             }
             if noquery {
                 proc.query_on_exit_flag = false;
@@ -3696,14 +3761,31 @@ pub(crate) fn builtin_make_network_process(
         {
             drop(stream);
         }
-        proc.network_server = false;
         proc.status = process_status_run_value();
+        proc.childp = Value::list(vec![
+            Value::keyword(":name"),
+            proc.name,
+            Value::keyword(":host"),
+            Value::heap_string(super::builtins::runtime_string_to_lisp_string(
+                &host_str, true,
+            )),
+            Value::keyword(":service"),
+            service,
+        ]);
         proc.thread = current_thread_handle(&eval.threads);
         if !filter_val.is_nil() {
             proc.filter = filter_val;
+            proc.childp =
+                process_contact_plist_put(proc.childp, Value::keyword(":filter"), proc.filter)?;
         }
         if !sentinel_val.is_nil() {
             proc.sentinel = sentinel_val;
+            proc.childp =
+                process_contact_plist_put(proc.childp, Value::keyword(":sentinel"), proc.sentinel)?;
+        }
+        if !buffer.is_nil() {
+            proc.childp =
+                process_contact_plist_put(proc.childp, Value::keyword(":buffer"), buffer)?;
         }
         if noquery {
             proc.query_on_exit_flag = false;
@@ -3793,6 +3875,9 @@ pub(crate) fn builtin_make_pipe_process_impl(
     );
     processes.sync_process_mark(buffers, id)?;
     if let Some(proc) = processes.get_mut(id) {
+        proc.childp = Value::list(vec![Value::keyword(":name"), proc.name]);
+        proc.childp =
+            process_contact_plist_put(proc.childp, Value::keyword(":buffer"), resolved_buffer)?;
         proc.thread = current_thread_handle(threads);
     }
     Ok(Value::fixnum(id as i64))
@@ -3859,6 +3944,20 @@ pub(crate) fn builtin_make_serial_process_impl(
         Vec::new(),
         ProcessKind::Serial,
     );
+    if let Some(proc) = processes.get_mut(id) {
+        let port_value = Value::heap_string(super::builtins::runtime_string_to_lisp_string(
+            &port.clone().unwrap(),
+            true,
+        ));
+        proc.childp = Value::list(vec![
+            Value::keyword(":name"),
+            proc.name,
+            Value::keyword(":port"),
+            port_value,
+            Value::keyword(":speed"),
+            speed.unwrap(),
+        ]);
+    }
     Ok(Value::fixnum(id as i64))
 }
 
@@ -5081,17 +5180,12 @@ pub(crate) fn builtin_set_process_buffer_impl(
     expect_args("set-process-buffer", &args, 2)?;
     let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
     match args[1].kind() {
-        ValueKind::Nil => None,
+        ValueKind::Nil => {}
         ValueKind::Veclike(VecLikeType::Buffer) => {
             let bid = args[1].as_buffer_id().unwrap();
-            Some(
-                buffers
-                    .get(bid)
-                    .ok_or_else(|| {
-                        signal("error", vec![Value::string("Selecting deleted buffer")])
-                    })?
-                    .name_runtime_string_owned(),
-            )
+            let _ = buffers
+                .get(bid)
+                .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
         }
         _ => return Err(signal_wrong_type_bufferp(args[1])),
     };
@@ -5104,6 +5198,9 @@ pub(crate) fn builtin_set_process_buffer_impl(
     if proc.buffer != args[1] {
         proc.buffer = args[1];
         update_process_mark(buffers, proc)?;
+    }
+    if process_uses_contact_plist(proc) {
+        proc.childp = process_contact_plist_put(proc.childp, Value::keyword(":buffer"), args[1])?;
     }
     Ok(args[1])
 }
@@ -5424,12 +5521,7 @@ pub(crate) fn builtin_process_type_impl(
             vec![Value::symbol("processp"), args[0]],
         )
     })?;
-    Ok(Value::symbol(match proc.kind {
-        ProcessKind::Real => "real",
-        ProcessKind::Network => "network",
-        ProcessKind::Pipe => "pipe",
-        ProcessKind::Serial => "serial",
-    }))
+    Ok(proc.proc_type)
 }
 
 /// (process-thread PROCESS) -> object-or-nil
@@ -5846,53 +5938,43 @@ pub(crate) fn builtin_process_contact_impl(
             vec![Value::symbol("processp"), args[0]],
         )
     })?;
-    let key = args.get(1).cloned().unwrap_or(Value::NIL);
-    match &proc.kind {
-        ProcessKind::Network => {
-            let port = 40000_i64 + (proc.id % 20000) as i64;
-            let local = Value::vector(vec![
-                Value::fixnum(127),
-                Value::fixnum(0),
-                Value::fixnum(0),
-                Value::fixnum(1),
-                Value::fixnum(port),
-            ]);
-            if key.is_nil() {
-                Ok(Value::list(vec![Value::NIL, Value::fixnum(port)]))
-            } else if key == Value::T {
+    let key = args.get(1).copied().unwrap_or(Value::NIL);
+    let contact = proc.childp;
+    match proc.proc_type.as_symbol_name() {
+        Some("network") => {
+            if key == Value::T {
+                Ok(contact)
+            } else if key.is_nil() {
                 Ok(Value::list(vec![
-                    Value::keyword(":name"),
-                    proc.name,
-                    Value::keyword(":server"),
-                    Value::T,
-                    Value::keyword(":service"),
-                    Value::fixnum(port),
-                    Value::keyword(":local"),
-                    local,
+                    process_contact_plist_get(contact, Value::keyword(":host")),
+                    process_contact_plist_get(contact, Value::keyword(":service")),
                 ]))
             } else {
-                match key.kind() {
-                    ValueKind::Symbol(k) if resolve_sym(k) == ":name" => Ok(proc.name),
-                    ValueKind::Symbol(k) if resolve_sym(k) == ":server" => Ok(Value::T),
-                    ValueKind::Symbol(k) if resolve_sym(k) == ":service" => Ok(Value::fixnum(port)),
-                    ValueKind::Symbol(k) if resolve_sym(k) == ":local" => Ok(local),
-                    _ => Ok(Value::NIL),
-                }
+                Ok(process_contact_plist_get(contact, key))
             }
         }
-        ProcessKind::Pipe => {
-            if key.is_nil() {
-                Ok(Value::T)
-            } else if key == Value::T {
-                Ok(Value::list(vec![Value::keyword(":name"), proc.name]))
+        Some("serial") => {
+            if key == Value::T {
+                Ok(contact)
+            } else if key.is_nil() {
+                Ok(Value::list(vec![
+                    process_contact_plist_get(contact, Value::keyword(":port")),
+                    process_contact_plist_get(contact, Value::keyword(":speed")),
+                ]))
             } else {
-                match key.kind() {
-                    ValueKind::Symbol(k) if resolve_sym(k) == ":name" => Ok(proc.name),
-                    _ => Ok(Value::NIL),
-                }
+                Ok(process_contact_plist_get(contact, key))
             }
         }
-        _ => Ok(Value::T),
+        Some("pipe") => {
+            if key == Value::T {
+                Ok(contact)
+            } else if key.is_nil() {
+                Ok(Value::T)
+            } else {
+                Ok(process_contact_plist_get(contact, key))
+            }
+        }
+        _ => Ok(contact),
     }
 }
 
@@ -5945,6 +6027,9 @@ pub(crate) fn builtin_set_process_filter_impl(
         )
     })?;
     proc.filter = stored;
+    if process_uses_contact_plist(proc) {
+        proc.childp = process_contact_plist_put(proc.childp, Value::keyword(":filter"), stored)?;
+    }
     Ok(stored)
 }
 
@@ -5997,6 +6082,9 @@ pub(crate) fn builtin_set_process_sentinel_impl(
         )
     })?;
     proc.sentinel = stored;
+    if process_uses_contact_plist(proc) {
+        proc.childp = process_contact_plist_put(proc.childp, Value::keyword(":sentinel"), stored)?;
+    }
     Ok(stored)
 }
 
@@ -6242,9 +6330,11 @@ impl GcTrace for ProcessManager {
             .chain(self.deleted_processes.values())
         {
             roots.push(process.name);
+            roots.push(process.proc_type);
             roots.push(process.buffer);
             roots.push(process.mark);
             roots.push(process.command);
+            roots.push(process.childp);
             roots.push(process.status);
             roots.push(process.tty_name);
             roots.push(process.filter);
