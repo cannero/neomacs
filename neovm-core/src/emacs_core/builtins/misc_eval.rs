@@ -302,10 +302,10 @@ pub(crate) fn builtin_next_single_char_property_change_in_buffers(
                 return Ok(Value::fixnum(expect_integer_or_marker(limit)?));
             }
         }
-        let s = super::lisp_string_to_runtime_string(*str_val);
-        return Ok(Value::fixnum(
-            crate::emacs_core::string_escape::storage_char_len(&s) as i64,
-        ));
+        let s = str_val
+            .as_lisp_string()
+            .expect("string object must carry LispString payload");
+        return Ok(Value::fixnum(s.schars() as i64));
     }
 
     let result = super::textprop::builtin_next_single_property_change_in_state(
