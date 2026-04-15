@@ -231,6 +231,7 @@ pub(crate) struct ActiveCallFrame {
     pub(crate) frame_function: Value,
     pub(crate) callable: Option<Value>,
     pub(crate) args: LispArgVec,
+    pub(crate) extra_roots: LispArgVec,
 }
 
 impl ActiveCallFrame {
@@ -239,6 +240,7 @@ impl ActiveCallFrame {
             frame_function,
             callable,
             args: args.iter().copied().collect(),
+            extra_roots: LispArgVec::new(),
         }
     }
 }
@@ -1760,6 +1762,7 @@ pub(crate) fn builtin_eval_in_vm_runtime(
 
 pub(crate) struct ActiveLambdaCallState {
     saved_temp_roots_len: usize,
+    saved_active_call_extra_roots_len: Option<usize>,
     has_lexenv: bool,
     specpdl_count: usize,
 }
@@ -1782,6 +1785,18 @@ fn bind_lexical_value_rooted_in_state(
     temp_roots.truncate(saved_roots);
 }
 
+fn bind_lexical_value_rooted_in_call_frame(
+    lexenv: &mut Value,
+    frame: &mut ActiveCallFrame,
+    sym: SymId,
+    value: Value,
+) {
+    let saved_roots = frame.extra_roots.len();
+    frame.extra_roots.push(value);
+    *lexenv = lexenv_prepend(*lexenv, sym, value);
+    frame.extra_roots.truncate(saved_roots);
+}
+
 fn prepend_lexical_binding_in_rooted_env(
     lexenv: &mut Value,
     temp_roots: &mut Vec<Value>,
@@ -1792,6 +1807,19 @@ fn prepend_lexical_binding_in_rooted_env(
     let current_env = temp_roots[env_root_index];
     let new_env = lexenv_prepend(current_env, sym, value);
     temp_roots[env_root_index] = new_env;
+    *lexenv = new_env;
+}
+
+fn prepend_lexical_binding_in_call_frame_rooted_env(
+    lexenv: &mut Value,
+    frame: &mut ActiveCallFrame,
+    env_root_index: usize,
+    sym: SymId,
+    value: Value,
+) {
+    let current_env = frame.extra_roots[env_root_index];
+    let new_env = lexenv_prepend(current_env, sym, value);
+    frame.extra_roots[env_root_index] = new_env;
     *lexenv = new_env;
 }
 
@@ -1812,6 +1840,7 @@ fn begin_lambda_call_in_state(
     specpdl: &mut Vec<SpecBinding>,
     lexenv: &mut Value,
     _saved_lexenvs: &mut Vec<Value>,
+    active_call_roots: &mut Vec<ActiveCallFrame>,
     temp_roots: &mut Vec<Value>,
     params: &LambdaParams,
     env: Option<Value>,
@@ -1841,8 +1870,9 @@ fn begin_lambda_call_in_state(
     }
 
     let saved_temp_roots_len = temp_roots.len();
+    let saved_active_call_extra_roots_len =
+        active_call_roots.last().map(|frame| frame.extra_roots.len());
     let specpdl_count = specpdl.len();
-    temp_roots.extend_from_slice(args);
 
     let has_lexenv = env.is_some();
     if let Some(env) = env {
@@ -1857,22 +1887,59 @@ fn begin_lambda_call_in_state(
         // Mirrors GNU funcall_lambda:
         //   specbind(Qinternal_interpreter_environment, lexenv);
         specpdl.push(SpecBinding::LexicalEnv { old_lexenv: old });
-        let env_root_index = temp_roots.len();
-        temp_roots.push(env);
+        if let Some(frame) = active_call_roots.last_mut() {
+            let env_root_index = frame.extra_roots.len();
+            frame.extra_roots.push(env);
 
-        let mut arg_idx = 0;
-        for param in &params.required {
-            prepend_lexical_binding_in_rooted_env(
-                lexenv,
-                temp_roots,
-                env_root_index,
-                *param,
-                args[arg_idx],
-            );
-            arg_idx += 1;
-        }
-        for param in &params.optional {
-            if arg_idx < args.len() {
+            let mut arg_idx = 0;
+            for param in &params.required {
+                prepend_lexical_binding_in_call_frame_rooted_env(
+                    lexenv,
+                    frame,
+                    env_root_index,
+                    *param,
+                    args[arg_idx],
+                );
+                arg_idx += 1;
+            }
+            for param in &params.optional {
+                if arg_idx < args.len() {
+                    prepend_lexical_binding_in_call_frame_rooted_env(
+                        lexenv,
+                        frame,
+                        env_root_index,
+                        *param,
+                        args[arg_idx],
+                    );
+                    arg_idx += 1;
+                } else {
+                    prepend_lexical_binding_in_call_frame_rooted_env(
+                        lexenv,
+                        frame,
+                        env_root_index,
+                        *param,
+                        Value::NIL,
+                    );
+                }
+            }
+            if let Some(rest_name) = params.rest {
+                let rest_value = Value::list_from_slice(&args[arg_idx..]);
+                frame.extra_roots.push(rest_value);
+                prepend_lexical_binding_in_call_frame_rooted_env(
+                    lexenv,
+                    frame,
+                    env_root_index,
+                    rest_name,
+                    rest_value,
+                );
+                frame.extra_roots.pop();
+            }
+        } else {
+            let env_root_index = temp_roots.len();
+            temp_roots.push(env);
+
+            let mut arg_idx = 0;
+            for param in &params.required {
                 prepend_lexical_binding_in_rooted_env(
                     lexenv,
                     temp_roots,
@@ -1881,27 +1948,39 @@ fn begin_lambda_call_in_state(
                     args[arg_idx],
                 );
                 arg_idx += 1;
-            } else {
+            }
+            for param in &params.optional {
+                if arg_idx < args.len() {
+                    prepend_lexical_binding_in_rooted_env(
+                        lexenv,
+                        temp_roots,
+                        env_root_index,
+                        *param,
+                        args[arg_idx],
+                    );
+                    arg_idx += 1;
+                } else {
+                    prepend_lexical_binding_in_rooted_env(
+                        lexenv,
+                        temp_roots,
+                        env_root_index,
+                        *param,
+                        Value::NIL,
+                    );
+                }
+            }
+            if let Some(rest_name) = params.rest {
+                let rest_value = Value::list_from_slice(&args[arg_idx..]);
+                temp_roots.push(rest_value);
                 prepend_lexical_binding_in_rooted_env(
                     lexenv,
                     temp_roots,
                     env_root_index,
-                    *param,
-                    Value::NIL,
+                    rest_name,
+                    rest_value,
                 );
+                temp_roots.pop();
             }
-        }
-        if let Some(rest_name) = params.rest {
-            let rest_value = Value::list_from_slice(&args[arg_idx..]);
-            temp_roots.push(rest_value);
-            prepend_lexical_binding_in_rooted_env(
-                lexenv,
-                temp_roots,
-                env_root_index,
-                rest_name,
-                rest_value,
-            );
-            temp_roots.pop();
         }
     } else {
         // Dynamic binding: use specbind to write directly to obarray.
@@ -1931,6 +2010,7 @@ fn begin_lambda_call_in_state(
 
     Ok(ActiveLambdaCallState {
         saved_temp_roots_len,
+        saved_active_call_extra_roots_len,
         has_lexenv,
         specpdl_count,
     })
@@ -1941,6 +2021,7 @@ fn finish_lambda_call_in_state(
     specpdl: &mut Vec<SpecBinding>,
     lexenv: &mut Value,
     _saved_lexenvs: &mut Vec<Value>,
+    active_call_roots: &mut Vec<ActiveCallFrame>,
     temp_roots: &mut Vec<Value>,
     state: ActiveLambdaCallState,
 ) {
@@ -1966,6 +2047,11 @@ fn finish_lambda_call_in_state(
                 break;
             }
         }
+    }
+    if let Some(saved_len) = state.saved_active_call_extra_roots_len
+        && let Some(frame) = active_call_roots.last_mut()
+    {
+        frame.extra_roots.truncate(saved_len);
     }
     temp_roots.truncate(state.saved_temp_roots_len);
 }
@@ -4333,6 +4419,9 @@ impl Context {
             for arg in frame.args.iter().copied() {
                 visit(arg);
             }
+            for root in frame.extra_roots.iter().copied() {
+                visit(root);
+            }
         }
         for frame in &self.runtime_backtrace {
             visit(frame.function);
@@ -6228,6 +6317,8 @@ impl Context {
             && clean_lexenv
             && self.saved_lexenvs.is_empty()
             && self.temp_roots.is_empty()
+            && self.active_call_roots.is_empty()
+            && self.vm_root_frames.is_empty()
             && self.condition_stack.is_empty()
             && self.depth == 0
     }
@@ -6316,6 +6407,7 @@ impl Context {
             &mut self.specpdl,
             &mut self.lexenv,
             &mut self.saved_lexenvs,
+            &mut self.active_call_roots,
             &mut self.temp_roots,
             params,
             env,
@@ -6329,6 +6421,7 @@ impl Context {
             &mut self.specpdl,
             &mut self.lexenv,
             &mut self.saved_lexenvs,
+            &mut self.active_call_roots,
             &mut self.temp_roots,
             state,
         );
@@ -6681,18 +6774,20 @@ impl Context {
         // Check for macro (GNU eval.c:2730-2755)
         if func.is_macro() {
             let arg_values = value_list_to_values(&original_args);
-            let expanded =
-                self.with_macro_expansion_scope(|eval| eval.apply_lambda(func, arg_values))?;
+            self.push_active_call_frame(original_fun, Some(func), &arg_values);
+            let expanded = self.with_macro_expansion_scope(|eval| eval.apply_lambda(func, arg_values));
+            self.pop_active_call_frame();
             // Evaluate expansion directly.
-            return self.eval_sub(expanded);
+            return self.eval_sub(expanded?);
         }
         if cons_head_symbol_id(&func) == Some(macro_symbol()) {
             // Cons-cell macro: (macro . fn) — GNU eval.c:2730
             let macro_fn = func.cons_cdr();
             let arg_values = value_list_to_values(&original_args);
-            let expanded =
-                self.with_macro_expansion_scope(|eval| eval.apply(macro_fn, arg_values))?;
-            return self.eval_sub(expanded);
+            self.push_active_call_frame(original_fun, Some(macro_fn), &arg_values);
+            let expanded = self.with_macro_expansion_scope(|eval| eval.apply(macro_fn, arg_values));
+            self.pop_active_call_frame();
+            return self.eval_sub(expanded?);
         }
 
         // GNU eval.c:2606-2614: for SUBRP `fun`, check arity
@@ -9025,6 +9120,28 @@ impl Context {
         }
     }
 
+    pub(crate) fn save_active_call_extra_roots(&self) -> Option<usize> {
+        self.active_call_roots.last().map(|frame| frame.extra_roots.len())
+    }
+
+    pub(crate) fn push_active_call_extra_root(&mut self, value: Value) -> bool {
+        if let Some(frame) = self.active_call_roots.last_mut() {
+            frame.extra_roots.push(value);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn restore_active_call_extra_roots(&mut self, saved_len: usize) -> bool {
+        if let Some(frame) = self.active_call_roots.last_mut() {
+            frame.extra_roots.truncate(saved_len);
+            true
+        } else {
+            false
+        }
+    }
+
     pub(crate) fn push_vm_root_frame(&mut self) {
         self.vm_root_frames.push(VmRootFrame::new());
     }
@@ -9755,24 +9872,22 @@ impl Context {
         };
         let env = func_value.closure_env().unwrap_or(None);
 
-        let scope = self.open_gc_scope();
-        self.push_temp_root(func_value);
         let call_state = match self.begin_lambda_call(params, env, &args) {
             Ok(state) => state,
-            Err(err) => {
-                scope.close(self);
-                return Err(err);
-            }
+            Err(err) => return Err(err),
         };
         let result = self.eval_lambda_body_value(body);
         self.finish_lambda_call(call_state);
-        scope.close(self);
         result
     }
 
     #[inline]
     fn bind_lexical_value_rooted(&mut self, sym: SymId, value: Value) {
-        bind_lexical_value_rooted_in_state(&mut self.lexenv, &mut self.temp_roots, sym, value);
+        if let Some(frame) = self.active_call_roots.last_mut() {
+            bind_lexical_value_rooted_in_call_frame(&mut self.lexenv, frame, sym, value);
+        } else {
+            bind_lexical_value_rooted_in_state(&mut self.lexenv, &mut self.temp_roots, sym, value);
+        }
     }
 
     // -----------------------------------------------------------------------
