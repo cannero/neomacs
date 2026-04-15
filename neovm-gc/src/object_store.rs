@@ -11,7 +11,7 @@ use crate::index_state::{
 };
 use crate::object::{ObjectHeader, ObjectMemoryKind, ObjectRecord};
 
-pub(crate) const OBJECT_STORE_SHARDS: usize = 8;
+pub(crate) const OBJECT_STORE_SHARDS: usize = 4;
 const OBJECT_STORE_CHUNK_CAPACITY: usize = 1024;
 const OBJECT_STORE_SHARD_MASK: usize = OBJECT_STORE_SHARDS - 1;
 
