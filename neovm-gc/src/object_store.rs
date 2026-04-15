@@ -318,7 +318,9 @@ pub(crate) struct ObjectPublishReservation {
     generation: u64,
     base_slot: usize,
     next_offset: usize,
-    chunk: Arc<ObjectChunk>,
+    _chunk: Arc<ObjectChunk>,
+    next_slot: *mut MaybeUninit<ObjectRecord>,
+    published_len: *const AtomicUsize,
 }
 
 #[derive(Debug)]
@@ -414,7 +416,9 @@ impl ObjectStore {
             generation,
             base_slot: chunk_index.saturating_mul(OBJECT_STORE_CHUNK_CAPACITY),
             next_offset: 0,
-            chunk,
+            next_slot: chunk.objects.as_ptr() as *mut MaybeUninit<ObjectRecord>,
+            published_len: &chunk.published_len,
+            _chunk: chunk,
         }
     }
 
@@ -425,8 +429,11 @@ impl ObjectStore {
         record: ObjectRecord,
     ) -> ObjectLocator {
         let chunk_offset = reservation.next_offset;
-        unsafe { reservation.chunk.write_reserved(chunk_offset, record) };
-        reservation.chunk.publish_reserved(chunk_offset);
+        unsafe { reservation.next_slot.write(MaybeUninit::new(record)) };
+        unsafe {
+            (*reservation.published_len).store(chunk_offset.saturating_add(1), Ordering::Release)
+        };
+        reservation.next_slot = unsafe { reservation.next_slot.add(1) };
         reservation.next_offset = chunk_offset.saturating_add(1);
         ObjectLocator::new(shard_index, reservation.base_slot + chunk_offset)
     }
