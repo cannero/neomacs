@@ -1407,13 +1407,6 @@ pub struct Context {
     /// Temporary GC roots — Values that must survive collection but aren't
     /// in any other rooted structure (e.g. intermediate results in eval_str_each).
     temp_roots: Vec<Value>,
-    /// VM GC roots — Values that must remain GC-visible while the bytecode VM
-    /// crosses into evaluator code that may trigger collection.
-    ///
-    /// This remains as a compatibility root surface for tests and a few
-    /// external bridge callers. Internal VM dynamic scopes now use
-    /// `vm_root_frames` instead.
-    pub(crate) vm_gc_roots: Vec<Value>,
     /// Active VM-local root frames. Mirrors GNU's model more closely than a
     /// single save/truncate side vector by keeping VM dynamic roots in explicit
     /// nested frames.
@@ -4308,7 +4301,6 @@ impl Context {
             gc_stress: false,
             gc_runtime_settings_cache: GcRuntimeSettingsCache::default(),
             temp_roots: Vec::new(),
-            vm_gc_roots: Vec::new(),
             vm_root_frames: Vec::new(),
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
@@ -4446,7 +4438,6 @@ impl Context {
             gc_stress: false,
             gc_runtime_settings_cache: GcRuntimeSettingsCache::default(),
             temp_roots: Vec::new(),
-            vm_gc_roots: Vec::new(),
             vm_root_frames: Vec::new(),
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
@@ -4508,9 +4499,6 @@ impl Context {
         visit: &mut dyn FnMut(Value),
     ) {
         for root in self.temp_roots.iter().copied() {
-            visit(root);
-        }
-        for root in self.vm_gc_roots.iter().copied() {
             visit(root);
         }
         for frame in &self.vm_root_frames {
@@ -9310,11 +9298,11 @@ impl Context {
     }
 
     pub(crate) fn push_vm_frame_root(&mut self, value: Value) {
-        if let Some(frame) = self.vm_root_frames.last_mut() {
-            frame.roots.push(value);
-        } else {
-            self.vm_gc_roots.push(value);
-        }
+        self.vm_root_frames
+            .last_mut()
+            .expect("VM root frame missing")
+            .roots
+            .push(value);
     }
 
     pub(crate) fn with_runtime_backtrace_frame(
