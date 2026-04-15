@@ -175,14 +175,14 @@ fn extract_menu_label(def: &Value) -> Option<String> {
     // (menu-item LABEL ...)
     if car.as_symbol_name() == Some("menu-item") && cdr.is_cons() {
         let label = cdr.cons_car();
-        if let Some(s) = label.as_str_owned() {
+        if let Some(s) = label.as_runtime_string_owned() {
             return Some(s);
         }
         return None;
     }
 
     // (STRING . CMD-OR-SUBMAP)
-    if let Some(s) = car.as_str_owned() {
+    if let Some(s) = car.as_runtime_string_owned() {
         return Some(s);
     }
 
@@ -203,4 +203,31 @@ fn key_symbol_name(key: &Value) -> String {
         return name.to_string();
     }
     format!("{:?}", key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use neovm_core::emacs_core::Context;
+    use neovm_core::heap_types::LispString;
+
+    #[test]
+    fn extract_menu_label_preserves_raw_unibyte_strings() {
+        let mut eval = Context::new();
+        eval.setup_thread_locals();
+        let raw = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+        let expected = raw
+            .as_runtime_string_owned()
+            .expect("runtime string for raw label");
+
+        let plain = Value::cons(raw, Value::symbol("ignore"));
+        assert_eq!(extract_menu_label(&plain), Some(expected.clone()));
+
+        let menu_item = Value::list(vec![
+            Value::symbol("menu-item"),
+            raw,
+            Value::symbol("ignore"),
+        ]);
+        assert_eq!(extract_menu_label(&menu_item), Some(expected));
+    }
 }

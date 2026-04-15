@@ -133,7 +133,7 @@ fn eval_status_line_format(
     target_cols: usize,
 ) -> Option<String> {
     eval_status_line_format_value(evaluator, format_symbol, window_id, buffer_id, target_cols)
-        .and_then(|val| val.as_str_owned())
+        .and_then(|val| val.as_runtime_string_owned())
         .filter(|s| !s.is_empty())
 }
 
@@ -178,7 +178,10 @@ fn eval_status_line_format_value(
         Value::make_buffer(BufferId(buffer_id)),
         target_cols,
     );
-    if rendered.as_str().is_some_and(|s| !s.is_empty()) {
+    if rendered
+        .as_runtime_string_owned()
+        .is_some_and(|s| !s.is_empty())
+    {
         Some(rendered)
     } else {
         None
@@ -188,7 +191,7 @@ fn eval_status_line_format_value(
 fn tab_bar_menu_item_caption(entry: Value) -> Option<String> {
     if let Some(items) = list_to_vec(&entry) {
         if items.get(1).and_then(|v| v.as_symbol_name()) == Some("menu-item") {
-            return items.get(2)?.as_str_owned();
+            return items.get(2)?.as_runtime_string_owned();
         }
     }
 
@@ -200,7 +203,7 @@ fn tab_bar_menu_item_caption(entry: Value) -> Option<String> {
     if items.first().and_then(|v| v.as_symbol_name()) != Some("menu-item") {
         return None;
     }
-    items.get(1)?.as_str_owned()
+    items.get(1)?.as_runtime_string_owned()
 }
 
 struct BuiltTabBar {
@@ -762,7 +765,9 @@ fn parse_display_image_layout(prop_val: &Value) -> Option<DisplayImageLayout> {
         let value = items[i + 1];
         match key {
             Some(":file") => {
-                source = value.as_str_owned().map(ImageResolveSource::File);
+                source = value
+                    .as_runtime_string_owned()
+                    .map(ImageResolveSource::File);
             }
             Some(":data") => {
                 source = value
@@ -8808,19 +8813,19 @@ mod tests {
                 Ok(value) => eval
                     .eval_form(Value::list(vec![Value::symbol("prin1-to-string"), value]))
                     .ok()
-                    .and_then(|rendered| rendered.as_str_owned())
+                    .and_then(|rendered| rendered.as_runtime_string_owned())
                     .unwrap_or_else(|| "<render-unavailable>".to_string()),
                 Err(err) => format!("<error: {err}>"),
             };
         let tabs_debug = eval
             .eval_str("(prin1-to-string (frame-parameter nil 'tabs))")
             .ok()
-            .and_then(|value| value.as_str_owned())
+            .and_then(|value| value.as_runtime_string_owned())
             .unwrap_or_else(|| "<unavailable>".to_string());
         let format_debug = eval
             .eval_str("(prin1-to-string tab-bar-format)")
             .ok()
-            .and_then(|value| value.as_str_owned())
+            .and_then(|value| value.as_runtime_string_owned())
             .unwrap_or_else(|| "<unavailable>".to_string());
         if let Some(prev) = prior_selected_frame {
             eval.eval_form(Value::list(vec![

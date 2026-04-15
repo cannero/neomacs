@@ -75,14 +75,14 @@ fn parse_tool_bar_item(key_name: &str, def: &Value, index: u32) -> Option<ToolBa
     let (mut label, plist) = extract_menu_item_label_and_plist(def)?;
     if label.is_empty() {
         label = plist_lookup(&plist, ":label")
-            .and_then(|value| value.as_str_owned())
+            .and_then(|value| value.as_runtime_string_owned())
             .unwrap_or_default();
     }
     let icon_name = plist_lookup(&plist, ":image")
         .and_then(|image| first_image_file_stem(&image))
         .unwrap_or_default();
     let help = plist_lookup(&plist, ":help")
-        .and_then(|value| value.as_str_owned())
+        .and_then(|value| value.as_runtime_string_owned())
         .unwrap_or_default();
     let enabled = plist_lookup(&plist, ":enable")
         .map(|value| !value.is_nil())
@@ -107,7 +107,7 @@ fn extract_menu_item_label_and_plist(def: &Value) -> Option<(String, Value)> {
     let cdr = def.cons_cdr();
 
     if car.as_symbol_name() == Some("menu-item") && cdr.is_cons() {
-        let label = cdr.cons_car().as_str_owned().unwrap_or_default();
+        let label = cdr.cons_car().as_runtime_string_owned().unwrap_or_default();
         let mut rest = cdr.cons_cdr();
         if !rest.is_cons() {
             return None;
@@ -116,7 +116,7 @@ fn extract_menu_item_label_and_plist(def: &Value) -> Option<(String, Value)> {
         return Some((label, rest));
     }
 
-    let label = car.as_str_owned()?;
+    let label = car.as_runtime_string_owned()?;
     Some((label, cdr))
 }
 
@@ -138,7 +138,7 @@ fn plist_lookup(plist: &Value, wanted: &str) -> Option<Value> {
 }
 
 fn first_image_file_stem(value: &Value) -> Option<String> {
-    if let Some(path) = value.as_str_owned()
+    if let Some(path) = value.as_runtime_string_owned()
         && let Some(stem) = icon_stem_from_path(&path)
     {
         return Some(stem);
@@ -188,7 +188,30 @@ fn key_symbol_name(key: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use neovm_core::emacs_core::Context;
     use neovm_core::emacs_core::load::create_bootstrap_evaluator_cached_with_features;
+    use neovm_core::heap_types::LispString;
+
+    #[test]
+    fn parse_tool_bar_item_preserves_raw_unibyte_label_and_help() {
+        let mut eval = Context::new();
+        eval.setup_thread_locals();
+        let raw = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+        let expected = raw
+            .as_runtime_string_owned()
+            .expect("runtime string for raw label");
+        let def = Value::list(vec![
+            Value::symbol("menu-item"),
+            raw,
+            Value::symbol("ignore"),
+            Value::symbol(":help"),
+            raw,
+        ]);
+
+        let item = parse_tool_bar_item("raw-item", &def, 0).expect("tool-bar item");
+        assert_eq!(item.label, expected);
+        assert_eq!(item.help, expected);
+    }
 
     #[test]
     fn collect_gui_menu_bar_items_bootstrap_has_help_menu() {

@@ -801,7 +801,7 @@ impl LayoutEngine {
         face_resolver: &FaceResolver,
         kind: StatusLineKind,
     ) -> Option<StatusLineSpec> {
-        let text = rendered.as_str_owned()?;
+        let text = rendered.as_runtime_string_owned()?;
         let base_face_id = *next_face_id;
         *next_face_id += 1;
         let face = self.realize_status_line_face(base_face_id, base_face, char_w, ascent, height);

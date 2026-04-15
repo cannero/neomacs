@@ -1095,6 +1095,17 @@ impl TaggedValue {
         self.as_str().map(|s| s.to_owned())
     }
 
+    /// Get an owned runtime-string view of a Lisp string, preserving raw
+    /// unibyte bytes and multibyte Emacs encoding instead of requiring UTF-8.
+    pub fn as_runtime_string_owned(self) -> Option<String> {
+        self.as_lisp_string().map(|string| {
+            crate::emacs_core::string_escape::emacs_bytes_to_storage_string(
+                string.as_bytes(),
+                string.is_multibyte(),
+            )
+        })
+    }
+
     /// Access the heap string via a closure.
     pub fn with_str<R>(self, f: impl FnOnce(&str) -> R) -> Option<R> {
         self.as_str().map(f)

@@ -319,7 +319,7 @@ pub(crate) fn buffer_local_string_owned<B: LayoutBufferView>(
     buffer: &B,
     name: &str,
 ) -> Option<String> {
-    buffer_local_value(buffer, name).and_then(|v| v.as_str_owned())
+    buffer_local_value(buffer, name).and_then(|v| v.as_runtime_string_owned())
 }
 
 fn chrome_face_pixel_height(face: &ResolvedFace, fallback_char_height: f32) -> f32 {
@@ -398,7 +398,7 @@ struct CursorSpec {
 
 fn parse_color_pixel(value: &Value) -> Option<u32> {
     value
-        .as_str_owned()
+        .as_runtime_string_owned()
         .or_else(|| value.as_symbol_name().map(str::to_string))
         .and_then(|spec| NeoColor::parse(&spec))
         .map(|color| color_to_pixel(&color))
@@ -1228,7 +1228,7 @@ impl<'a, B: LayoutBufferView> RustTextPropAccess<'a, B> {
     /// `None` otherwise.
     pub fn get_text_prop_string(&self, charpos: i64, prop_name: &str) -> Option<String> {
         self.get_property(charpos, prop_name)
-            .and_then(|v| v.as_str_owned())
+            .and_then(|v| v.as_runtime_string_owned())
     }
 }
 
@@ -1237,7 +1237,7 @@ impl<'a, B: LayoutBufferView> RustTextPropAccess<'a, B> {
 /// Tagged strings can be read directly from the Value. Other types return None.
 fn value_as_string(val: &Value) -> Option<String> {
     match val.kind() {
-        ValueKind::String => val.as_str_owned(),
+        ValueKind::String => val.as_runtime_string_owned(),
         ValueKind::Nil => None,
         _ => None,
     }
