@@ -1235,7 +1235,7 @@ pub(crate) fn dump_custom_manager(cm: &CustomManager) -> DumpCustomManager {
 fn dump_font_lock_keyword(kw: &FontLockKeyword) -> DumpFontLockKeyword {
     DumpFontLockKeyword {
         pattern: kw.pattern.clone(),
-        face: kw.face.clone(),
+        face: crate::emacs_core::intern::resolve_sym(kw.face).to_string(),
         group: kw.group,
         override_: kw.override_,
         laxmatch: kw.laxmatch,
@@ -2808,7 +2808,7 @@ pub(crate) fn load_mode_registry(
                             .iter()
                             .map(|kw| FontLockKeyword {
                                 pattern: kw.pattern.clone(),
-                                face: kw.face.clone(),
+                                face: crate::emacs_core::intern::intern(&kw.face),
                                 group: kw.group,
                                 override_: kw.override_,
                                 laxmatch: kw.laxmatch,

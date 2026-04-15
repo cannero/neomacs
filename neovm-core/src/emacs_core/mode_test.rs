@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::intern::{intern, resolve_sym};
 
 fn mode_symbol(name: &str) -> Value {
     Value::symbol(name)
@@ -457,7 +458,7 @@ fn font_lock_keywords_basic() {
             font_lock: Some(FontLockDefaults {
                 keywords: vec![FontLockKeyword {
                     pattern: r"\b(defun|defvar)\b".to_string(),
-                    face: "font-lock-keyword-face".to_string(),
+                    face: intern("font-lock-keyword-face"),
                     group: 1,
                     override_: false,
                     laxmatch: false,
@@ -471,7 +472,7 @@ fn font_lock_keywords_basic() {
 
     let kws = reg.font_lock_keywords("lisp-mode").unwrap();
     assert_eq!(kws.len(), 1);
-    assert_eq!(kws[0].face, "font-lock-keyword-face");
+    assert_eq!(resolve_sym(kws[0].face), "font-lock-keyword-face");
 }
 
 #[test]
@@ -492,7 +493,7 @@ fn font_lock_keywords_inherit_from_parent() {
             font_lock: Some(FontLockDefaults {
                 keywords: vec![FontLockKeyword {
                     pattern: r"TODO".to_string(),
-                    face: "font-lock-warning-face".to_string(),
+                    face: intern("font-lock-warning-face"),
                     group: 0,
                     override_: true,
                     laxmatch: false,

@@ -24,8 +24,8 @@ use crate::heap_types::LispString;
 pub struct FontLockKeyword {
     /// Regex pattern to match.
     pub pattern: String,
-    /// Face name to apply (e.g. "font-lock-keyword-face").
-    pub face: String,
+    /// Face symbol to apply (e.g. `font-lock-keyword-face`).
+    pub face: SymId,
     /// Regex capture group (0 = whole match).
     pub group: usize,
     /// Whether to override existing fontification.
