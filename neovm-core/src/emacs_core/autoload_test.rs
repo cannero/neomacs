@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::intern::intern;
 use crate::emacs_core::{Context, format_eval_result};
 use crate::heap_types::LispString;
 use crate::test_utils::{load_minimal_gnu_backquote_runtime, runtime_startup_eval_all};
@@ -159,6 +160,29 @@ fn autoload_manager_register_and_lookup() {
     );
     assert!(!entry.interactive);
     assert_eq!(entry.autoload_type, AutoloadType::Function);
+}
+
+#[test]
+fn autoload_manager_keeps_live_symbol_identity() {
+    crate::test_utils::init_test_tracing();
+    let mut mgr = AutoloadManager::new();
+    let name = intern("autoload-live-symbol");
+
+    mgr.register_symbol(
+        name,
+        AutoloadEntry {
+            file: LispString::from_utf8("autoload-live-symbol-file"),
+            docstring: None,
+            interactive: false,
+            autoload_type: AutoloadType::Function,
+        },
+    );
+
+    assert!(mgr.entries.contains_key(&name));
+    assert_eq!(
+        mgr.get_entry_symbol(name).map(|entry| entry.file.as_str()),
+        Some(Some("autoload-live-symbol-file"))
+    );
 }
 
 #[test]

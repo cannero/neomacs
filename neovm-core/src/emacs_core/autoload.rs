@@ -14,6 +14,7 @@ use super::error::{EvalResult, Flow, signal};
 use super::intern::{intern, resolve_sym};
 use super::symbol::Obarray;
 use super::value::*;
+use crate::emacs_core::SymId;
 use crate::emacs_core::value::ValueKind;
 use crate::gc_trace::GcTrace;
 use crate::heap_types::LispString;
@@ -76,7 +77,7 @@ pub struct AutoloadEntry {
 /// Central registry of autoloaded functions and eval-after-load callbacks.
 pub struct AutoloadManager {
     /// Map from function name to autoload entry.
-    entries: HashMap<String, AutoloadEntry>,
+    entries: HashMap<SymId, AutoloadEntry>,
     /// Map from file/feature name to list of forms to evaluate after loading.
     after_load: HashMap<String, Vec<Value>>,
     /// Set of files that have already been loaded (for after-load tracking).
@@ -106,17 +107,29 @@ impl AutoloadManager {
 
     /// Register an autoload entry.
     pub fn register(&mut self, name: &str, entry: AutoloadEntry) {
-        self.entries.insert(name.to_string(), entry);
+        self.register_symbol(intern(name), entry);
+    }
+
+    pub fn register_symbol(&mut self, name: SymId, entry: AutoloadEntry) {
+        self.entries.insert(name, entry);
     }
 
     /// Check whether a function name has an autoload entry.
     pub fn is_autoloaded(&self, name: &str) -> bool {
-        self.entries.contains_key(name)
+        self.is_autoloaded_symbol(intern(name))
+    }
+
+    pub fn is_autoloaded_symbol(&self, name: SymId) -> bool {
+        self.entries.contains_key(&name)
     }
 
     /// Get the autoload entry for a function name.
     pub fn get_entry(&self, name: &str) -> Option<&AutoloadEntry> {
-        self.entries.get(name)
+        self.get_entry_symbol(intern(name))
+    }
+
+    pub fn get_entry_symbol(&self, name: SymId) -> Option<&AutoloadEntry> {
+        self.entries.get(&name)
     }
 
     /// Snapshot current autoload entries for callers that need to rebuild
@@ -124,14 +137,18 @@ impl AutoloadManager {
     pub fn entries_snapshot(&self) -> Vec<(String, AutoloadEntry)> {
         self.entries
             .iter()
-            .map(|(name, entry)| (name.clone(), entry.clone()))
+            .map(|(name, entry)| (resolve_sym(*name).to_string(), entry.clone()))
             .collect()
     }
 
     /// Remove an autoload entry (used after the file has been loaded and the
     /// real definition is in place).
     pub fn remove(&mut self, name: &str) {
-        self.entries.remove(name);
+        self.remove_symbol(intern(name));
+    }
+
+    pub fn remove_symbol(&mut self, name: SymId) {
+        self.entries.remove(&name);
     }
 
     /// Register a form to evaluate after a given file/feature is loaded.
@@ -198,8 +215,11 @@ impl AutoloadManager {
     }
 
     // pdump accessors
-    pub(crate) fn dump_entries(&self) -> &HashMap<String, AutoloadEntry> {
-        &self.entries
+    pub(crate) fn dump_entries(&self) -> Vec<(String, AutoloadEntry)> {
+        self.entries
+            .iter()
+            .map(|(name, entry)| (resolve_sym(*name).to_string(), entry.clone()))
+            .collect()
     }
     pub(crate) fn dump_after_load(&self) -> &HashMap<String, Vec<Value>> {
         &self.after_load
@@ -221,7 +241,10 @@ impl AutoloadManager {
         obsolete_variables: HashMap<String, (String, String)>,
     ) -> Self {
         Self {
-            entries,
+            entries: entries
+                .into_iter()
+                .map(|(name, entry)| (intern(&name), entry))
+                .collect(),
             after_load,
             loaded_files,
             obsolete_functions,
@@ -450,7 +473,7 @@ pub(crate) fn register_autoload_in_state(
 
     let func_val = args[0];
     let name = match func_val.kind() {
-        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
+        ValueKind::Symbol(id) => id,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -462,7 +485,7 @@ pub(crate) fn register_autoload_in_state(
     // GNU Emacs eval.c:Fautoload — "If function is defined and not as an
     // autoload, don't override."  If the symbol already has a real (non-
     // autoload) function definition, return nil without touching it.
-    if let Some(current) = obarray.symbol_function(&name).cloned() {
+    if let Some(current) = obarray.symbol_function(resolve_sym(name)).cloned() {
         if !current.is_nil() && !is_autoload_value(&current) {
             return Ok(Value::NIL);
         }
@@ -496,9 +519,9 @@ pub(crate) fn register_autoload_in_state(
         type_val,
     ]);
 
-    obarray.set_symbol_function(&name, autoload_form);
-    autoloads.register(
-        &name,
+    obarray.set_symbol_function(resolve_sym(name), autoload_form);
+    autoloads.register_symbol(
+        name,
         AutoloadEntry {
             file: file.clone(),
             docstring,
@@ -507,7 +530,7 @@ pub(crate) fn register_autoload_in_state(
         },
     );
 
-    Ok(Value::symbol(&name))
+    Ok(Value::from_sym_id(name))
 }
 
 /// `(autoload FUNCTION FILE &optional DOCSTRING INTERACTIVE TYPE)`
@@ -536,7 +559,7 @@ pub(crate) fn builtin_symbol_file(eval: &mut super::eval::Context, args: Vec<Val
         ));
     }
 
-    let symbol_name = match args[0].as_symbol_name() {
+    let symbol_name = match args[0].as_symbol_id() {
         Some(name) => name,
         None => return Ok(Value::NIL),
     };
@@ -550,11 +573,15 @@ pub(crate) fn builtin_symbol_file(eval: &mut super::eval::Context, args: Vec<Val
         return Ok(Value::NIL);
     }
 
-    if let Some(entry) = eval.autoloads.get_entry(symbol_name) {
+    if let Some(entry) = eval.autoloads.get_entry_symbol(symbol_name) {
         return Ok(Value::heap_string(entry.file.clone()));
     }
 
-    if let Some(fndef) = eval.obarray.symbol_function(symbol_name).cloned() {
+    if let Some(fndef) = eval
+        .obarray
+        .symbol_function(resolve_sym(symbol_name))
+        .cloned()
+    {
         if is_autoload_value(&fndef) {
             if let Some(items) = list_to_vec(&fndef) {
                 if let Some(v) = items.get(1) {
