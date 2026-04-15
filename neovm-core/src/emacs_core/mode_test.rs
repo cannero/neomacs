@@ -336,7 +336,7 @@ fn auto_mode_alist_suffix_match() {
             body: None,
         },
     );
-    reg.add_auto_mode(".rs".to_string(), "rust-mode".to_string());
+    reg.add_auto_mode(".rs".to_string(), mode_symbol("rust-mode"));
 
     assert_eq!(reg.mode_for_file("main.rs"), Some("rust-mode"));
     assert_eq!(reg.mode_for_file("lib.rs"), Some("rust-mode"));
@@ -373,8 +373,8 @@ fn auto_mode_alist_first_match_wins() {
             body: None,
         },
     );
-    reg.add_auto_mode(".txt".to_string(), "mode-a".to_string());
-    reg.add_auto_mode(".txt".to_string(), "mode-b".to_string());
+    reg.add_auto_mode(".txt".to_string(), mode_symbol("mode-a"));
+    reg.add_auto_mode(".txt".to_string(), mode_symbol("mode-b"));
 
     assert_eq!(reg.mode_for_file("file.txt"), Some("mode-a"));
 }

@@ -521,8 +521,8 @@ impl ModeRegistry {
     /// `auto-mode-alist` regex patterns like `"\\.rs\\'"` which match file
     /// endings).  Here we use simple suffix matching: if the filename ends
     /// with `pattern`, it matches.
-    pub fn add_auto_mode(&mut self, pattern: String, mode: String) {
-        self.auto_mode_alist.push((pattern, mode_symbol(&mode)));
+    pub fn add_auto_mode(&mut self, pattern: String, mode: Value) {
+        self.auto_mode_alist.push((pattern, mode));
     }
 
     // -------------------------------------------------------------------

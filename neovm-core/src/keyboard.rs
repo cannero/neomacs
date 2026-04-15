@@ -10,8 +10,8 @@
 //! - Pre/post-command hooks
 //! - Prefix argument handling
 
-use crate::emacs_core::keyboard::pure::KEY_CHAR_META;
 use crate::emacs_core::intern::resolve_sym;
+use crate::emacs_core::keyboard::pure::KEY_CHAR_META;
 // decode_storage_char_codes import removed — now using emacs_char directly
 use crate::emacs_core::value::{Value, ValueKind, VecLikeType};
 use std::collections::{HashMap, VecDeque};
