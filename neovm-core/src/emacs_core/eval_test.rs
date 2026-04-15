@@ -8475,6 +8475,31 @@ fn vm_gc_roots_are_traced_without_temp_root_mirroring() {
 }
 
 #[test]
+fn vm_root_frames_are_traced_across_exact_gc() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
+
+    let payload = Value::vector(vec![Value::fixnum(37)]);
+    ev.push_vm_root_frame();
+    ev.push_vm_frame_root(payload);
+
+    ev.gc_collect_exact();
+
+    let rooted = ev
+        .vm_root_frames
+        .last()
+        .expect("vm root frame should remain present")
+        .roots[0];
+    assert_eq!(
+        rooted.as_vector_data().unwrap().as_slice(),
+        &[Value::fixnum(37)]
+    );
+
+    ev.pop_vm_root_frame();
+}
+
+#[test]
 fn gc_collect_frees_unreachable() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

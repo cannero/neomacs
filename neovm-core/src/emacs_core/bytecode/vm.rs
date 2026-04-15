@@ -91,14 +91,14 @@ impl<'a> Vm<'a> {
     }
 
     fn with_dynamic_vm_roots<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
-        let saved_len = self.ctx.vm_gc_roots.len();
+        self.ctx.push_vm_root_frame();
         let result = f(self);
-        self.ctx.vm_gc_roots.truncate(saved_len);
+        self.ctx.pop_vm_root_frame();
         result
     }
 
     fn push_dynamic_vm_root(&mut self, value: Value) {
-        self.ctx.vm_gc_roots.push(value);
+        self.ctx.push_vm_frame_root(value);
     }
 
     fn with_frame_roots<T>(
@@ -110,18 +110,24 @@ impl<'a> Vm<'a> {
         f: impl FnOnce(&mut Self) -> T,
     ) -> T {
         self.with_dynamic_vm_roots(|vm| {
-            vm.ctx.vm_gc_roots.extend(func.constants.iter().copied());
+            for value in func.constants.iter().copied() {
+                vm.ctx.push_vm_frame_root(value);
+            }
             // bc_buf is scanned by collect_roots — no need to snapshot stack
-            Self::collect_handler_roots(handlers, &mut vm.ctx.vm_gc_roots);
-            Self::collect_specpdl_roots(specpdl, &mut vm.ctx.vm_gc_roots);
-            vm.ctx.vm_gc_roots.extend(extra.iter().copied());
+            Self::collect_handler_roots(handlers, &mut |value| vm.ctx.push_vm_frame_root(value));
+            Self::collect_specpdl_roots(specpdl, &mut |value| vm.ctx.push_vm_frame_root(value));
+            for value in extra.iter().copied() {
+                vm.ctx.push_vm_frame_root(value);
+            }
             f(vm)
         })
     }
 
     fn with_extra_roots<T>(&mut self, extra: &[Value], f: impl FnOnce(&mut Self) -> T) -> T {
         self.with_dynamic_vm_roots(|vm| {
-            vm.ctx.vm_gc_roots.extend(extra.iter().copied());
+            for value in extra.iter().copied() {
+                vm.ctx.push_vm_frame_root(value);
+            }
             f(vm)
         })
     }
@@ -136,9 +142,9 @@ impl<'a> Vm<'a> {
         result
     }
 
-    fn collect_handler_roots(_handlers: &[Handler], _out: &mut Vec<Value>) {}
+    fn collect_handler_roots(_handlers: &[Handler], _visit: &mut dyn FnMut(Value)) {}
 
-    fn collect_specpdl_roots(specpdl: &[VmUnwindEntry], out: &mut Vec<Value>) {
+    fn collect_specpdl_roots(specpdl: &[VmUnwindEntry], visit: &mut dyn FnMut(Value)) {
         for entry in specpdl {
             match entry {
                 VmUnwindEntry::DynamicBinding { .. } => {}
@@ -147,12 +153,18 @@ impl<'a> Vm<'a> {
                     old_lexenv,
                     ..
                 } => {
-                    out.push(*restored_value);
-                    out.push(*old_lexenv);
+                    visit(*restored_value);
+                    visit(*old_lexenv);
                 }
-                VmUnwindEntry::Cleanup { cleanup } => out.push(*cleanup),
+                VmUnwindEntry::Cleanup { cleanup } => visit(*cleanup),
                 VmUnwindEntry::CurrentBuffer { .. } | VmUnwindEntry::Excursion { .. } => {}
-                VmUnwindEntry::Restriction(saved) => saved.trace_roots(out),
+                VmUnwindEntry::Restriction(saved) => {
+                    let mut roots = Vec::new();
+                    saved.trace_roots(&mut roots);
+                    for root in roots {
+                        visit(root);
+                    }
+                }
             }
         }
     }
@@ -206,15 +218,17 @@ impl<'a> Vm<'a> {
         }
 
         // Root the bytecode function's constants so they survive GC during
-        // nested calls.  Always push constants directly into vm_gc_roots
-        // so they remain reachable even if the ByteCodeObj tracing has a
-        // gap (e.g. cloned ByteCodeFunction whose constants diverge from
-        // the heap object, or NIL func_value from sf_byte_code_value).
+        // nested calls. Keep them in the active VM root frame so they remain
+        // reachable even if the ByteCodeObj tracing has a gap (e.g. cloned
+        // ByteCodeFunction whose constants diverge from the heap object, or
+        // NIL func_value from sf_byte_code_value).
         let result = self.with_dynamic_vm_roots(|vm| {
             if func_value.is_heap_object() {
                 vm.push_dynamic_vm_root(func_value);
             }
-            vm.ctx.vm_gc_roots.extend(func.constants.iter().copied());
+            for value in func.constants.iter().copied() {
+                vm.push_dynamic_vm_root(value);
+            }
             vm.run_frame(func, args, func_value)
         });
         self.ctx.depth -= 1;
@@ -413,7 +427,7 @@ impl<'a> Vm<'a> {
         }
         let cleanup_roots = Self::result_roots(&result);
         let mut cleanup_extra_roots = cleanup_roots.clone();
-        Self::collect_specpdl_roots(&specpdl, &mut cleanup_extra_roots);
+        Self::collect_specpdl_roots(&specpdl, &mut |value| cleanup_extra_roots.push(value));
         let cleanup = self.with_frame_roots(func, &handlers, &[], &cleanup_extra_roots, |vm| {
             vm.unwind_specpdl_all(&mut specpdl)
         });
@@ -574,7 +588,7 @@ impl<'a> Vm<'a> {
                 }
                 Op::Unbind(n) => {
                     let mut unwind_roots = Vec::new();
-                    Self::collect_specpdl_roots(specpdl, &mut unwind_roots);
+                    Self::collect_specpdl_roots(specpdl, &mut |value| unwind_roots.push(value));
                     vm_try!(
                         self.with_frame_roots(func, handlers, &[], &unwind_roots, |vm| vm
                             .unwind_specpdl_n(*n as usize, specpdl),)
@@ -3683,7 +3697,7 @@ impl<'a> Vm<'a> {
         self.ctx.truncate_condition_stack(condition_stack_base);
         let cleanup_roots = Self::result_roots(&result);
         let mut cleanup_extra_roots = cleanup_roots.clone();
-        Self::collect_specpdl_roots(&specpdl, &mut cleanup_extra_roots);
+        Self::collect_specpdl_roots(&specpdl, &mut |value| cleanup_extra_roots.push(value));
         let cleanup = self.with_frame_roots(func, &handlers, &[], &cleanup_extra_roots, |vm| {
             vm.unwind_specpdl_all(&mut specpdl)
         });
@@ -3716,7 +3730,7 @@ impl<'a> Vm<'a> {
                 ) {
                     let extra = [tag, value];
                     let mut unwind_roots = extra.to_vec();
-                    Self::collect_specpdl_roots(specpdl, &mut unwind_roots);
+                    Self::collect_specpdl_roots(specpdl, &mut |value| unwind_roots.push(value));
                     if let Err(cleanup_flow) =
                         self.with_frame_roots(_func, handlers, &[], &unwind_roots, |vm| {
                             vm.unwind_specpdl_to(spec_depth, specpdl)
@@ -3780,7 +3794,7 @@ impl<'a> Vm<'a> {
                     let mut signal_roots = Vec::new();
                     Self::collect_flow_roots(&Flow::Signal(sig.clone()), &mut signal_roots);
                     let mut unwind_roots = signal_roots.clone();
-                    Self::collect_specpdl_roots(specpdl, &mut unwind_roots);
+                    Self::collect_specpdl_roots(specpdl, &mut |value| unwind_roots.push(value));
                     if let Err(cleanup_flow) =
                         self.with_frame_roots(_func, handlers, &[], &unwind_roots, |vm| {
                             vm.unwind_specpdl_to(spec_depth, specpdl)

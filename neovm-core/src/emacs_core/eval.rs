@@ -243,6 +243,19 @@ impl ActiveCallFrame {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub(crate) struct VmRootFrame {
+    pub(crate) roots: LispArgVec,
+}
+
+impl VmRootFrame {
+    fn new() -> Self {
+        Self {
+            roots: LispArgVec::new(),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct PendingSafeFuncall {
     pub(crate) function: Value,
@@ -1380,7 +1393,15 @@ pub struct Context {
     temp_roots: Vec<Value>,
     /// VM GC roots — Values that must remain GC-visible while the bytecode VM
     /// crosses into evaluator code that may trigger collection.
+    ///
+    /// This remains as a compatibility root surface for tests and a few
+    /// external bridge callers. Internal VM dynamic scopes now use
+    /// `vm_root_frames` instead.
     pub(crate) vm_gc_roots: Vec<Value>,
+    /// Active VM-local root frames. Mirrors GNU's model more closely than a
+    /// single save/truncate side vector by keeping VM dynamic roots in explicit
+    /// nested frames.
+    vm_root_frames: Vec<VmRootFrame>,
     /// Contiguous bytecode stack buffer, matching GNU Emacs's bc_thread_state.
     /// All bytecode frames share this single buffer. GC scans it directly.
     pub(crate) bc_buf: Vec<Value>,
@@ -4025,6 +4046,7 @@ impl Context {
             gc_runtime_settings_cache: GcRuntimeSettingsCache::default(),
             temp_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
+            vm_root_frames: Vec::new(),
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
             active_call_roots: Vec::new(),
@@ -4161,6 +4183,7 @@ impl Context {
             gc_runtime_settings_cache: GcRuntimeSettingsCache::default(),
             temp_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
+            vm_root_frames: Vec::new(),
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
             active_call_roots: Vec::new(),
@@ -4224,6 +4247,11 @@ impl Context {
         }
         for root in self.vm_gc_roots.iter().copied() {
             visit(root);
+        }
+        for frame in &self.vm_root_frames {
+            for root in frame.roots.iter().copied() {
+                visit(root);
+            }
         }
         for root in self.treesit.roots() {
             visit(root);
@@ -8994,6 +9022,22 @@ impl Context {
     pub(crate) fn push_active_call_arg(&mut self, arg: Value) {
         if let Some(frame) = self.active_call_roots.last_mut() {
             frame.args.push(arg);
+        }
+    }
+
+    pub(crate) fn push_vm_root_frame(&mut self) {
+        self.vm_root_frames.push(VmRootFrame::new());
+    }
+
+    pub(crate) fn pop_vm_root_frame(&mut self) {
+        self.vm_root_frames.pop();
+    }
+
+    pub(crate) fn push_vm_frame_root(&mut self, value: Value) {
+        if let Some(frame) = self.vm_root_frames.last_mut() {
+            frame.roots.push(value);
+        } else {
+            self.vm_gc_roots.push(value);
         }
     }
 
