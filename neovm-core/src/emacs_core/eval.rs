@@ -1777,6 +1777,7 @@ pub(crate) fn builtin_eval_in_vm_runtime(
 pub(crate) struct ActiveLambdaCallState {
     saved_temp_roots_len: usize,
     saved_active_call_extra_roots_len: Option<usize>,
+    saved_eval_root_frame_len: Option<usize>,
     has_lexenv: bool,
     specpdl_count: usize,
 }
@@ -1784,6 +1785,7 @@ pub(crate) struct ActiveLambdaCallState {
 pub(crate) struct ActiveMacroExpansionScopeState {
     saved_temp_roots_len: usize,
     saved_active_call_extra_roots_len: Option<usize>,
+    saved_eval_root_frame_len: Option<usize>,
     old_lexical: bool,
     old_dynvars: Value,
 }
@@ -1797,10 +1799,18 @@ pub(crate) struct EvalRootScopeState {
 
 fn bind_lexical_value_rooted_in_state(
     lexenv: &mut Value,
+    eval_root_frames: &mut Vec<EvalRootFrame>,
     temp_roots: &mut Vec<Value>,
     sym: SymId,
     value: Value,
 ) {
+    if let Some(frame) = eval_root_frames.last_mut() {
+        let saved_roots = frame.roots.len();
+        frame.roots.push(value);
+        *lexenv = lexenv_prepend(*lexenv, sym, value);
+        frame.roots.truncate(saved_roots);
+        return;
+    }
     let saved_roots = temp_roots.len();
     temp_roots.push(value);
     *lexenv = lexenv_prepend(*lexenv, sym, value);
@@ -1845,6 +1855,19 @@ fn prepend_lexical_binding_in_call_frame_rooted_env(
     *lexenv = new_env;
 }
 
+fn prepend_lexical_binding_in_eval_root_frame_env(
+    lexenv: &mut Value,
+    frame: &mut EvalRootFrame,
+    env_root_index: usize,
+    sym: SymId,
+    value: Value,
+) {
+    let current_env = frame.roots[env_root_index];
+    let new_env = lexenv_prepend(current_env, sym, value);
+    frame.roots[env_root_index] = new_env;
+    *lexenv = new_env;
+}
+
 /// Build a `(MIN . MAX)` cons cell representing the arity of a lambda/closure,
 /// matching the format GNU Emacs uses in `wrong-number-of-arguments` errors.
 /// `MAX` is the symbol `many` when the function accepts `&rest`.
@@ -1863,6 +1886,7 @@ fn begin_lambda_call_in_state(
     lexenv: &mut Value,
     _saved_lexenvs: &mut Vec<Value>,
     active_call_roots: &mut Vec<ActiveCallFrame>,
+    eval_root_frames: &mut Vec<EvalRootFrame>,
     temp_roots: &mut Vec<Value>,
     params: &LambdaParams,
     env: Option<Value>,
@@ -1895,6 +1919,7 @@ fn begin_lambda_call_in_state(
     let saved_active_call_extra_roots_len = active_call_roots
         .last()
         .map(|frame| frame.extra_roots.len());
+    let saved_eval_root_frame_len = eval_root_frames.last().map(|frame| frame.roots.len());
     let specpdl_count = specpdl.len();
 
     let has_lexenv = env.is_some();
@@ -1956,6 +1981,53 @@ fn begin_lambda_call_in_state(
                     rest_value,
                 );
                 frame.extra_roots.pop();
+            }
+        } else if let Some(frame) = eval_root_frames.last_mut() {
+            let env_root_index = frame.roots.len();
+            frame.roots.push(env);
+
+            let mut arg_idx = 0;
+            for param in &params.required {
+                prepend_lexical_binding_in_eval_root_frame_env(
+                    lexenv,
+                    frame,
+                    env_root_index,
+                    *param,
+                    args[arg_idx],
+                );
+                arg_idx += 1;
+            }
+            for param in &params.optional {
+                if arg_idx < args.len() {
+                    prepend_lexical_binding_in_eval_root_frame_env(
+                        lexenv,
+                        frame,
+                        env_root_index,
+                        *param,
+                        args[arg_idx],
+                    );
+                    arg_idx += 1;
+                } else {
+                    prepend_lexical_binding_in_eval_root_frame_env(
+                        lexenv,
+                        frame,
+                        env_root_index,
+                        *param,
+                        Value::NIL,
+                    );
+                }
+            }
+            if let Some(rest_name) = params.rest {
+                let rest_value = Value::list_from_slice(&args[arg_idx..]);
+                frame.roots.push(rest_value);
+                prepend_lexical_binding_in_eval_root_frame_env(
+                    lexenv,
+                    frame,
+                    env_root_index,
+                    rest_name,
+                    rest_value,
+                );
+                frame.roots.pop();
             }
         } else {
             let env_root_index = temp_roots.len();
@@ -2034,6 +2106,7 @@ fn begin_lambda_call_in_state(
     Ok(ActiveLambdaCallState {
         saved_temp_roots_len,
         saved_active_call_extra_roots_len,
+        saved_eval_root_frame_len,
         has_lexenv,
         specpdl_count,
     })
@@ -2045,6 +2118,7 @@ fn finish_lambda_call_in_state(
     lexenv: &mut Value,
     _saved_lexenvs: &mut Vec<Value>,
     active_call_roots: &mut Vec<ActiveCallFrame>,
+    eval_root_frames: &mut Vec<EvalRootFrame>,
     temp_roots: &mut Vec<Value>,
     state: ActiveLambdaCallState,
 ) {
@@ -2076,6 +2150,11 @@ fn finish_lambda_call_in_state(
     {
         frame.extra_roots.truncate(saved_len);
     }
+    if let Some(saved_len) = state.saved_eval_root_frame_len
+        && let Some(frame) = eval_root_frames.last_mut()
+    {
+        frame.roots.truncate(saved_len);
+    }
     temp_roots.truncate(state.saved_temp_roots_len);
 }
 
@@ -2086,6 +2165,7 @@ fn begin_macro_expansion_scope_in_state(
     custom: &CustomManager,
     lexenv: Value,
     active_call_roots: &mut Vec<ActiveCallFrame>,
+    eval_root_frames: &mut Vec<EvalRootFrame>,
     temp_roots: &mut Vec<Value>,
 ) -> ActiveMacroExpansionScopeState {
     let nil_symbol = nil_symbol();
@@ -2094,6 +2174,7 @@ fn begin_macro_expansion_scope_in_state(
     let saved_active_call_extra_roots_len = active_call_roots
         .last()
         .map(|frame| frame.extra_roots.len());
+    let saved_eval_root_frame_len = eval_root_frames.last().map(|frame| frame.roots.len());
     let old_lexical = obarray
         .symbol_value_id(lexical_binding_symbol())
         .is_some_and(|value| value.is_truthy());
@@ -2125,6 +2206,31 @@ fn begin_macro_expansion_scope_in_state(
             }
             dynvars = Value::cons(Value::from_sym_id(*sym_id), dynvars);
             frame.extra_roots[dynvars_root_index] = dynvars;
+        }
+        dynvars
+    } else if let Some(frame) = eval_root_frames.last_mut() {
+        let dynvars_root_index = frame.roots.len();
+        frame.roots.push(old_dynvars);
+        let mut dynvars = frame.roots[dynvars_root_index];
+        for sym in lexenv_bare_symbols(lexenv) {
+            if sym == t_symbol || sym == nil_symbol {
+                continue;
+            }
+            dynvars = Value::cons(Value::from_sym_id(sym), dynvars);
+            frame.roots[dynvars_root_index] = dynvars;
+        }
+        for entry in specpdl.iter().rev() {
+            let sym_id = match entry {
+                SpecBinding::Let { sym_id, .. }
+                | SpecBinding::LetLocal { sym_id, .. }
+                | SpecBinding::LetDefault { sym_id, .. } => sym_id,
+                SpecBinding::LexicalEnv { .. } => continue,
+            };
+            if *sym_id == t_symbol || *sym_id == nil_symbol {
+                continue;
+            }
+            dynvars = Value::cons(Value::from_sym_id(*sym_id), dynvars);
+            frame.roots[dynvars_root_index] = dynvars;
         }
         dynvars
     } else {
@@ -2167,6 +2273,7 @@ fn begin_macro_expansion_scope_in_state(
     ActiveMacroExpansionScopeState {
         saved_temp_roots_len,
         saved_active_call_extra_roots_len,
+        saved_eval_root_frame_len,
         old_lexical,
         old_dynvars,
     }
@@ -2178,6 +2285,7 @@ fn finish_macro_expansion_scope_in_state(
     buffers: &mut BufferManager,
     custom: &CustomManager,
     active_call_roots: &mut Vec<ActiveCallFrame>,
+    eval_root_frames: &mut Vec<EvalRootFrame>,
     temp_roots: &mut Vec<Value>,
     state: ActiveMacroExpansionScopeState,
 ) {
@@ -2194,6 +2302,11 @@ fn finish_macro_expansion_scope_in_state(
         && let Some(frame) = active_call_roots.last_mut()
     {
         frame.extra_roots.truncate(saved_len);
+    }
+    if let Some(saved_len) = state.saved_eval_root_frame_len
+        && let Some(frame) = eval_root_frames.last_mut()
+    {
+        frame.roots.truncate(saved_len);
     }
     temp_roots.truncate(state.saved_temp_roots_len);
 }
@@ -6436,6 +6549,7 @@ impl Context {
             &mut self.lexenv,
             &mut self.saved_lexenvs,
             &mut self.active_call_roots,
+            &mut self.eval_root_frames,
             &mut self.temp_roots,
             params,
             env,
@@ -6450,6 +6564,7 @@ impl Context {
             &mut self.lexenv,
             &mut self.saved_lexenvs,
             &mut self.active_call_roots,
+            &mut self.eval_root_frames,
             &mut self.temp_roots,
             state,
         );
@@ -9958,7 +10073,13 @@ impl Context {
         if let Some(frame) = self.active_call_roots.last_mut() {
             bind_lexical_value_rooted_in_call_frame(&mut self.lexenv, frame, sym, value);
         } else {
-            bind_lexical_value_rooted_in_state(&mut self.lexenv, &mut self.temp_roots, sym, value);
+            bind_lexical_value_rooted_in_state(
+                &mut self.lexenv,
+                &mut self.eval_root_frames,
+                &mut self.temp_roots,
+                sym,
+                value,
+            );
         }
     }
 
@@ -9979,6 +10100,7 @@ impl Context {
             &self.custom,
             self.lexenv,
             &mut self.active_call_roots,
+            &mut self.eval_root_frames,
             &mut self.temp_roots,
         );
         if let Some(start) = scope_enter_start {
@@ -9994,6 +10116,7 @@ impl Context {
             &mut self.buffers,
             &self.custom,
             &mut self.active_call_roots,
+            &mut self.eval_root_frames,
             &mut self.temp_roots,
             state,
         );
@@ -11160,6 +11283,7 @@ impl Context {
             &self.custom,
             self.lexenv,
             &mut self.active_call_roots,
+            &mut self.eval_root_frames,
             &mut self.temp_roots,
         )
     }
@@ -11171,6 +11295,7 @@ impl Context {
             &mut self.buffers,
             &self.custom,
             &mut self.active_call_roots,
+            &mut self.eval_root_frames,
             &mut self.temp_roots,
             state,
         );
