@@ -419,7 +419,10 @@ fn enter_exit_lifecycle() {
             state.prompt,
             crate::heap_types::LispString::from_utf8("Enter: ")
         );
-        assert_eq!(state.content, "init");
+        assert_eq!(
+            super::super::builtins::runtime_string_from_lisp_string(&state.content),
+            "init"
+        );
         assert!(state.active);
         assert_eq!(state.depth, 1);
     }
@@ -427,7 +430,7 @@ fn enter_exit_lifecycle() {
     // Modify content
     {
         let state = mgr.current_mut().unwrap();
-        state.content = "modified".to_string();
+        state.content = super::super::builtins::runtime_string_to_lisp_string("modified", true);
     }
 
     let result = mgr.exit_minibuffer();

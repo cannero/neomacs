@@ -204,7 +204,7 @@ pub struct MinibufferState {
     pub initial_input: LispString,
     pub history: Vec<LispString>,
     pub history_position: Option<usize>,
-    pub content: String,
+    pub content: LispString,
     pub cursor_pos: usize,
     pub completion_table: Option<CompletionTable>,
     /// The `require-match` argument from `completing-read`.
@@ -228,17 +228,16 @@ pub struct MinibufferState {
 impl MinibufferState {
     fn new(buffer_id: BufferId, prompt: LispString, initial: LispString, depth: usize) -> Self {
         let prompt_runtime = super::builtins::runtime_string_from_lisp_string(&prompt);
-        let initial_runtime = super::builtins::runtime_string_from_lisp_string(&initial);
-        let cursor_pos = initial_runtime.len();
+        let cursor_pos = initial.byte_len();
         let prompt_end = crate::emacs_core::string_escape::storage_byte_len(&prompt_runtime);
         Self {
             buffer_id,
             prompt,
             prompt_end,
-            initial_input: initial,
+            initial_input: initial.clone(),
             history: Vec::new(),
             history_position: None,
-            content: initial_runtime,
+            content: initial,
             cursor_pos,
             completion_table: None,
             require_match: Value::NIL,
@@ -416,8 +415,8 @@ impl MinibufferManager {
     pub fn try_complete(&self, state: &MinibufferState) -> CompletionResult {
         match &state.completion_table {
             Some(table) => {
-                let input = &state.content;
-                let matches = self.all_completions(input, table);
+                let input = super::builtins::runtime_string_from_lisp_string(&state.content);
+                let matches = self.all_completions(&input, table);
                 let common = compute_common_prefix(&matches);
                 let exhaustive = !matches!(table, CompletionTable::Function(_));
                 CompletionResult {
@@ -469,7 +468,7 @@ impl MinibufferManager {
                     .map(super::builtins::runtime_string_from_lisp_string)
                     .unwrap_or_default()
             } else {
-                state.content.clone()
+                super::builtins::runtime_string_from_lisp_string(&state.content)
             };
             Some(result)
         } else {
@@ -503,10 +502,11 @@ impl MinibufferManager {
         };
         state.history_position = Some(new_pos);
         let entry = history[new_pos].clone();
-        let entry_runtime = super::builtins::runtime_string_from_lisp_string(&entry);
-        state.content = entry_runtime.clone();
-        state.cursor_pos = entry_runtime.len();
-        Some(entry_runtime)
+        state.content = entry;
+        state.cursor_pos = state.content.byte_len();
+        Some(super::builtins::runtime_string_from_lisp_string(
+            &state.content,
+        ))
     }
 
     /// Navigate to the next (newer) history entry.
@@ -517,20 +517,20 @@ impl MinibufferManager {
             Some(0) => {
                 // Back to the original input.
                 state.history_position = None;
-                let initial_runtime =
-                    super::builtins::runtime_string_from_lisp_string(&state.initial_input);
-                state.content = initial_runtime.clone();
-                state.cursor_pos = initial_runtime.len();
-                Some(initial_runtime)
+                state.content = state.initial_input.clone();
+                state.cursor_pos = state.content.byte_len();
+                Some(super::builtins::runtime_string_from_lisp_string(
+                    &state.content,
+                ))
             }
             Some(p) => {
                 let new_pos = p - 1;
                 state.history_position = Some(new_pos);
-                let entry = state.history[new_pos].clone();
-                let entry_runtime = super::builtins::runtime_string_from_lisp_string(&entry);
-                state.content = entry_runtime.clone();
-                state.cursor_pos = entry_runtime.len();
-                Some(entry_runtime)
+                state.content = state.history[new_pos].clone();
+                state.cursor_pos = state.content.byte_len();
+                Some(super::builtins::runtime_string_from_lisp_string(
+                    &state.content,
+                ))
             }
         }
     }
