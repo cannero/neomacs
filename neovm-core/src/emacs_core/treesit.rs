@@ -6,6 +6,7 @@ use tree_sitter::{InputEdit, Language, Parser, Point, Query, Tree};
 use super::intern::SymId;
 use super::value::Value;
 use crate::buffer::BufferId;
+use crate::heap_types::LispString;
 
 pub(crate) const TREESIT_PARSER_TAG: &str = "treesit-parser";
 pub(crate) const TREESIT_NODE_TAG: &str = "treesit-node";
@@ -50,7 +51,7 @@ pub(crate) struct ParserEntry {
     pub(crate) tag: Value,
     pub(crate) parser: Parser,
     pub(crate) tree: Option<Tree>,
-    pub(crate) last_source: Option<String>,
+    pub(crate) last_source: Option<LispString>,
     pub(crate) generation: u64,
     pub(crate) need_to_gc_buffer: bool,
     pub(crate) deleted: bool,
@@ -310,7 +311,7 @@ impl TreeSitterManager {
     pub(crate) fn begin_buffer_edit(
         &mut self,
         buffer_id: BufferId,
-        source: &str,
+        source: &LispString,
         start_byte: usize,
         old_end_byte: usize,
     ) {
@@ -319,8 +320,8 @@ impl TreeSitterManager {
             PendingBufferEdit {
                 start_byte,
                 old_end_byte,
-                start_position: point_for_byte(source, start_byte),
-                old_end_position: point_for_byte(source, old_end_byte),
+                start_position: point_for_byte(source.as_bytes(), start_byte),
+                old_end_position: point_for_byte(source.as_bytes(), old_end_byte),
             },
         );
     }
@@ -328,7 +329,7 @@ impl TreeSitterManager {
     pub(crate) fn finish_buffer_edit(
         &mut self,
         buffer_id: BufferId,
-        source: &str,
+        source: &LispString,
         new_end_byte: usize,
     ) {
         let Some(edit) = self.pending_edits.remove(&buffer_id) else {
@@ -340,7 +341,7 @@ impl TreeSitterManager {
             new_end_byte,
             start_position: edit.start_position,
             old_end_position: edit.old_end_position,
-            new_end_position: point_for_byte(source, new_end_byte),
+            new_end_position: point_for_byte(source.as_bytes(), new_end_byte),
         };
 
         let mut edited_parser_ids = Vec::new();
@@ -362,11 +363,11 @@ impl TreeSitterManager {
     }
 }
 
-fn point_for_byte(source: &str, byte_offset: usize) -> Point {
+fn point_for_byte(source: &[u8], byte_offset: usize) -> Point {
     let target = byte_offset.min(source.len());
     let mut row = 0usize;
     let mut last_newline = 0usize;
-    for (idx, byte) in source.as_bytes().iter().enumerate().take(target) {
+    for (idx, byte) in source.iter().enumerate().take(target) {
         if *byte == b'\n' {
             row += 1;
             last_newline = idx + 1;

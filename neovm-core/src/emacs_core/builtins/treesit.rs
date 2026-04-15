@@ -17,6 +17,7 @@ use crate::emacs_core::treesit::{
     PARSER_SLOT_LANGUAGE, PARSER_SLOT_NOTIFIERS, PARSER_SLOT_TAG, ParserTagFilter,
     QUERY_SLOT_LANGUAGE, QUERY_SLOT_SOURCE,
 };
+use crate::heap_types::LispString;
 
 fn default_dynamic_library_suffixes() -> &'static [&'static str] {
     #[cfg(target_os = "windows")]
@@ -117,8 +118,8 @@ fn parser_deleted_error(value: Value) -> Flow {
     signal("treesit-parser-deleted", vec![value])
 }
 
-fn treesit_buffer_source(buffer: &crate::buffer::Buffer) -> String {
-    buffer.text.text_range(buffer.begv_byte, buffer.zv_byte)
+fn treesit_buffer_source(buffer: &crate::buffer::Buffer) -> LispString {
+    buffer.buffer_substring_lisp_string(buffer.begv_byte, buffer.zv_byte)
 }
 
 fn node_outdated_error(value: Value) -> Flow {
@@ -453,7 +454,7 @@ fn lisp_pos_to_relative_byte(buf: &Buffer, pos: i64) -> Result<usize, Flow> {
     Ok(buf.lisp_pos_to_accessible_byte(pos) - buf.point_min_byte())
 }
 
-fn byte_offset_to_lisp_pos(buf: &Buffer, source: &str, byte_offset: usize) -> Value {
+fn byte_offset_to_lisp_pos(buf: &Buffer, source: &LispString, byte_offset: usize) -> Value {
     let char_offset = byte_to_char_pos(source.as_bytes(), byte_offset) as i64;
     Value::fixnum(buf.point_min_char() as i64 + char_offset + 1)
 }
@@ -486,12 +487,12 @@ fn ensure_parser_parsed(eval: &mut super::eval::Context, parser_id: u64) -> Resu
             .treesit
             .parser_mut(parser_id)
             .ok_or_else(|| signal("error", vec![Value::string("Missing tree-sitter parser")]))?;
-        let needs_parse =
-            parser.tree.is_none() || parser.last_source.as_deref() != Some(source.as_str());
+        let needs_parse = parser.tree.is_none() || parser.last_source.as_ref() != Some(&source);
         if needs_parse {
+            let source_runtime = runtime_string_from_lisp_string(&source);
             let tree = parser
                 .parser
-                .parse(source.as_str(), parser.tree.as_ref())
+                .parse(source_runtime.as_str(), parser.tree.as_ref())
                 .ok_or_else(|| treesit_parse_error(parser_value))?;
             parser.tree = Some(tree);
             parser.last_source = Some(source);
@@ -567,26 +568,26 @@ fn ensure_parser_parsed_with_changes(
             .treesit
             .parser_mut(parser_id)
             .ok_or_else(|| signal("error", vec![Value::string("Missing tree-sitter parser")]))?;
-        let needs_parse =
-            parser.tree.is_none() || parser.last_source.as_deref() != Some(source.as_str());
+        let needs_parse = parser.tree.is_none() || parser.last_source.as_ref() != Some(&source);
         if !needs_parse {
             return Ok(None);
         }
 
         let old_tree = parser.tree.clone();
+        let source_runtime = runtime_string_from_lisp_string(&source);
         let tree = parser
             .parser
-            .parse(source.as_str(), parser.tree.as_ref())
+            .parse(source_runtime.as_str(), parser.tree.as_ref())
             .ok_or_else(|| treesit_parse_error(parser_value))?;
         let ranges = if let Some(old_tree) = old_tree.as_ref() {
             old_tree
                 .changed_ranges(&tree)
                 .map(|range| (range.start_byte, range.end_byte))
                 .collect::<Vec<_>>()
-        } else if source.is_empty() {
+        } else if source.as_bytes().is_empty() {
             Vec::new()
         } else {
-            vec![(0, source.len())]
+            vec![(0, source.as_bytes().len())]
         };
         parser.tree = Some(tree);
         parser.last_source = Some(source);
@@ -678,7 +679,7 @@ fn expand_query_value(caller: &str, query: Value) -> Result<String, Flow> {
 }
 
 fn byte_offset_to_linecol(
-    source: &str,
+    source: &LispString,
     byte_offset: usize,
     hint: runtime::LineColCache,
 ) -> runtime::LineColCache {
@@ -708,7 +709,11 @@ fn byte_offset_to_linecol(
     }
 }
 
-fn byte_offset_to_point(source: &str, byte_offset: usize, hint: runtime::LineColCache) -> Point {
+fn byte_offset_to_point(
+    source: &LispString,
+    byte_offset: usize,
+    hint: runtime::LineColCache,
+) -> Point {
     let linecol = byte_offset_to_linecol(source, byte_offset, hint);
     Point {
         row: linecol.line.saturating_sub(1) as usize,
@@ -753,7 +758,7 @@ fn changed_ranges_to_lisp(
     })?;
     let source = parser
         .last_source
-        .as_deref()
+        .as_ref()
         .ok_or_else(|| treesit_parse_error(parser.value))?;
     Ok(Value::list(
         changed_ranges
@@ -1546,7 +1551,7 @@ pub(crate) fn builtin_treesit_node_end(
         .ok_or_else(|| node_buffer_killed_error(args[0]))?;
     let source = parser
         .last_source
-        .as_deref()
+        .as_ref()
         .ok_or_else(|| node_outdated_error(args[0]))?;
     let node = unsafe { tree_sitter::Node::from_raw(handle.raw) };
     Ok(byte_offset_to_lisp_pos(buf, source, node.end_byte()))
@@ -1744,7 +1749,7 @@ pub(crate) fn builtin_treesit_node_start(
         .ok_or_else(|| node_buffer_killed_error(args[0]))?;
     let source = parser
         .last_source
-        .as_deref()
+        .as_ref()
         .ok_or_else(|| node_outdated_error(args[0]))?;
     let node = unsafe { tree_sitter::Node::from_raw(handle.raw) };
     Ok(byte_offset_to_lisp_pos(buf, source, node.start_byte()))
@@ -2188,8 +2193,9 @@ pub(crate) fn builtin_treesit_query_capture(
             .ok_or_else(|| compiled_query_type_error("treesit-query-capture", compiled_query))?;
         let source = parser
             .last_source
-            .as_deref()
+            .as_ref()
             .ok_or_else(|| treesit_parse_error(input.parser_value))?;
+        let source_runtime = runtime_string_from_lisp_string(source);
         let capture_names = query
             .capture_names()
             .iter()
@@ -2201,7 +2207,7 @@ pub(crate) fn builtin_treesit_query_capture(
             cursor.set_byte_range(range);
         }
         if grouped {
-            let mut matches = cursor.matches(query, node, source.as_bytes());
+            let mut matches = cursor.matches(query, node, source_runtime.as_bytes());
             matches.advance();
             let mut out = Vec::new();
             while let Some(query_match) = matches.get() {
@@ -2216,7 +2222,7 @@ pub(crate) fn builtin_treesit_query_capture(
             }
             (capture_names, CaptureResult::Grouped(out))
         } else {
-            let mut matches = cursor.captures(query, node, source.as_bytes());
+            let mut matches = cursor.captures(query, node, source_runtime.as_bytes());
             matches.advance();
             let mut out = Vec::new();
             while let Some((query_match, capture_index)) = matches.get() {
