@@ -420,6 +420,17 @@ fn json_encode_string(s: &str) -> String {
 // JSON Parser (JSON string → Lisp value)
 // ===========================================================================
 
+fn json_utf8_decode_error(start: usize, end: usize) -> Flow {
+    signal(
+        "json-utf8-decode-error",
+        vec![
+            Value::fixnum(start as i64),
+            Value::NIL,
+            Value::fixnum(end as i64),
+        ],
+    )
+}
+
 /// Parser state: a cursor over the input bytes.
 struct JsonParser<'a> {
     input: &'a [u8],
@@ -428,9 +439,9 @@ struct JsonParser<'a> {
 }
 
 impl<'a> JsonParser<'a> {
-    fn new(input: &'a str, opts: ParseOpts) -> Self {
+    fn new(input: &'a [u8], opts: ParseOpts) -> Self {
         Self {
-            input: input.as_bytes(),
+            input,
             pos: 0,
             opts,
         }
@@ -656,31 +667,36 @@ impl<'a> JsonParser<'a> {
                     }
                 }
                 Some(b) => {
-                    // Regular byte — we need proper UTF-8 handling.
-                    // Since the input was a valid Rust &str, we can safely
-                    // decode the UTF-8 from the byte slice.
                     if b < 0x80 {
                         self.advance();
                         result.push(b as char);
                     } else {
-                        // Multi-byte UTF-8 character.  Find its length and
-                        // decode using std::str.
                         let start = self.pos;
-                        let remaining = &self.input[start..];
-                        if let Ok(s) = std::str::from_utf8(remaining) {
-                            if let Some(ch) = s.chars().next() {
-                                let len = ch.len_utf8();
-                                self.pos += len;
-                                result.push(ch);
-                            } else {
-                                self.advance();
-                                result.push(char::REPLACEMENT_CHARACTER);
+                        let seq_len = match b {
+                            0xC2..=0xDF => 2,
+                            0xE0..=0xEF => 3,
+                            0xF0..=0xF4 => 4,
+                            _ => {
+                                return Err(json_utf8_decode_error(
+                                    start,
+                                    (start + 2).min(self.input.len()),
+                                ));
                             }
-                        } else {
-                            // Try char by char with lossy decoding.
-                            self.advance();
-                            result.push(char::REPLACEMENT_CHARACTER);
-                        }
+                        };
+                        let end = (start + seq_len).min(self.input.len());
+                        let seq = self.input.get(start..end).ok_or_else(|| {
+                            json_utf8_decode_error(start, (start + seq_len).min(self.input.len()))
+                        })?;
+                        let decoded = std::str::from_utf8(seq)
+                            .ok()
+                            .and_then(|s| {
+                                let mut chars = s.chars();
+                                let ch = chars.next()?;
+                                chars.next().is_none().then_some(ch)
+                            })
+                            .ok_or_else(|| json_utf8_decode_error(start, end))?;
+                        self.pos = end;
+                        result.push(decoded);
                     }
                 }
             }
@@ -1039,7 +1055,9 @@ pub(crate) fn builtin_json_serialize(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_json_parse_string(args: Vec<Value>) -> EvalResult {
     expect_min_args("json-parse-string", &args, 1)?;
     let input = match args[0].kind() {
-        ValueKind::String => crate::emacs_core::builtins::lisp_string_to_runtime_string(args[0]),
+        ValueKind::String => args[0]
+            .as_lisp_string()
+            .expect("string object must carry LispString payload"),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1048,7 +1066,7 @@ pub(crate) fn builtin_json_parse_string(args: Vec<Value>) -> EvalResult {
         }
     };
     let opts = parse_parse_kwargs(&args, 1)?;
-    let mut parser = JsonParser::new(&input, opts);
+    let mut parser = JsonParser::new(input.as_bytes(), opts);
     parser.skip_ws();
     if parser.pos >= parser.input.len() {
         let p = parser.pos as i64;
@@ -1090,13 +1108,10 @@ pub(crate) fn builtin_json_parse_buffer(
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         let input = buf.buffer_substring_lisp_string(buf.point(), buf.point_max());
-        (
-            super::builtins::runtime_string_from_lisp_string(&input),
-            buf.point(),
-        )
+        (input, buf.point())
     };
 
-    let mut parser = JsonParser::new(&input, opts);
+    let mut parser = JsonParser::new(input.as_bytes(), opts);
     parser.skip_ws();
     if parser.pos >= parser.input.len() {
         let p = parser.pos as i64;

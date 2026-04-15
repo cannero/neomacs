@@ -207,6 +207,55 @@ fn json_parse_buffer_advances_point_after_value() {
 }
 
 #[test]
+fn json_parse_string_rejects_invalid_unibyte_utf8() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(LispString::from_unibyte(vec![b'"', 0xFF, b'"']));
+    match builtin_json_parse_string(vec![raw]) {
+        Err(Flow::Signal(sig)) => {
+            assert_eq!(sig.symbol_name(), "json-utf8-decode-error");
+            assert_eq!(
+                sig.data,
+                vec![Value::fixnum(1), Value::NIL, Value::fixnum(3)]
+            );
+        }
+        other => panic!("expected json-utf8-decode-error, got {:?}", other),
+    }
+}
+
+#[test]
+fn json_parse_buffer_invalid_utf8_does_not_advance_point() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.delete_region(buf.point_min(), buf.point_max());
+        buf.set_multibyte_value(false);
+        buf.insert_lisp_string(&LispString::from_unibyte(vec![
+            b'"', 0xFF, b'"', b' ', b'x',
+        ]));
+        buf.goto_char(0);
+    }
+
+    match builtin_json_parse_buffer(&mut eval, vec![]) {
+        Err(Flow::Signal(sig)) => {
+            assert_eq!(sig.symbol_name(), "json-utf8-decode-error");
+            assert_eq!(
+                sig.data,
+                vec![Value::fixnum(1), Value::NIL, Value::fixnum(3)]
+            );
+        }
+        other => panic!("expected json-utf8-decode-error, got {:?}", other),
+    }
+    assert_eq!(
+        eval.buffers
+            .current_buffer()
+            .expect("current buffer")
+            .point(),
+        0
+    );
+}
+
+#[test]
 fn json_insert_writes_at_point_and_advances() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
