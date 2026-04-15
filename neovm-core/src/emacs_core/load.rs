@@ -445,10 +445,22 @@ pub fn find_file_in_load_path_with_flags(
     must_suffix: bool,
     prefer_newer: bool,
 ) -> Option<PathBuf> {
-    let expanded = expand_tilde(name);
+    let name = LispString::from_utf8(name);
+    find_lisp_file_in_load_path_with_flags(&name, load_path, no_suffix, must_suffix, prefer_newer)
+}
+
+fn find_lisp_file_in_load_path_with_flags(
+    name: &LispString,
+    load_path: &[LispString],
+    no_suffix: bool,
+    must_suffix: bool,
+    prefer_newer: bool,
+) -> Option<PathBuf> {
+    let name_runtime = load_runtime_string(name);
+    let expanded = expand_tilde(&name_runtime);
     let path = Path::new(&expanded);
     if path.is_absolute() {
-        return find_for_base(path, name, no_suffix, must_suffix, prefer_newer);
+        return find_for_base(path, &name_runtime, no_suffix, must_suffix, prefer_newer);
     }
 
     // GNU keeps `ldefs-boot.el` as the curated bootstrap autoload surface and
@@ -460,7 +472,7 @@ pub fn find_file_in_load_path_with_flags(
     if bootstrap_prefers_ldefs_boot()
         && !no_suffix
         && !must_suffix
-        && matches!(name, "loaddefs" | "loaddefs.el")
+        && matches!(name_runtime.as_str(), "loaddefs" | "loaddefs.el")
     {
         for dir in load_path {
             let dir_runtime = load_runtime_string(dir);
@@ -475,8 +487,10 @@ pub fn find_file_in_load_path_with_flags(
     // is evaluated within each directory.
     for dir in load_path {
         let dir_runtime = load_runtime_string(dir);
-        let full = Path::new(&dir_runtime).join(name);
-        if let Some(found) = find_for_base(&full, name, no_suffix, must_suffix, prefer_newer) {
+        let full = Path::new(&dir_runtime).join(&name_runtime);
+        if let Some(found) =
+            find_for_base(&full, &name_runtime, no_suffix, must_suffix, prefer_newer)
+        {
             return Some(found);
         }
     }
@@ -522,7 +536,7 @@ pub(crate) fn plan_load_in_state(
     must_suffix: Option<Value>,
 ) -> Result<LoadPlan, Flow> {
     let file = match file.kind() {
-        ValueKind::String => load_string_text(&file).expect("checked string"),
+        ValueKind::String => file.as_lisp_string().expect("checked string").clone(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -530,7 +544,6 @@ pub(crate) fn plan_load_in_state(
             ));
         }
     };
-    let file = expand_tilde(&file);
     let noerror = noerror.is_some_and(|v| v.is_truthy());
     let nosuffix = nosuffix.is_some_and(|v| v.is_truthy());
     let must_suffix = must_suffix.is_some_and(|v| v.is_truthy());
@@ -539,8 +552,13 @@ pub(crate) fn plan_load_in_state(
         .is_some_and(|v| v.is_truthy());
 
     let load_path = get_load_path(obarray);
-    match find_file_in_load_path_with_flags(&file, &load_path, nosuffix, must_suffix, prefer_newer)
-    {
+    match find_lisp_file_in_load_path_with_flags(
+        &file,
+        &load_path,
+        nosuffix,
+        must_suffix,
+        prefer_newer,
+    ) {
         Some(path) => Ok(LoadPlan::Load { path }),
         None => {
             if noerror {
@@ -548,7 +566,10 @@ pub(crate) fn plan_load_in_state(
             } else {
                 Err(signal(
                     "file-missing",
-                    vec![Value::string(format!("Cannot open load file: {}", file))],
+                    vec![Value::string(format!(
+                        "Cannot open load file: {}",
+                        load_runtime_string(&file)
+                    ))],
                 ))
             }
         }

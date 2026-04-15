@@ -3668,6 +3668,25 @@ fn load_path_extraction() {
 }
 
 #[test]
+fn plan_load_accepts_raw_unibyte_filename_values() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = super::super::symbol::Obarray::new();
+    ob.set_symbol_value("default-directory", Value::string("/tmp"));
+    ob.set_symbol_value("load-path", Value::list(vec![Value::string("/tmp")]));
+
+    let plan = plan_load_in_state(
+        &ob,
+        Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF])),
+        Some(Value::T),
+        None,
+        None,
+    )
+    .expect("raw unibyte file values should be accepted");
+
+    assert!(matches!(plan, LoadPlan::Return(value) if value.is_nil()));
+}
+
+#[test]
 fn find_file_with_suffix_flags() {
     crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()
