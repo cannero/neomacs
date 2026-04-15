@@ -174,40 +174,12 @@ pub(crate) enum SpecBinding {
     LexicalEnv { old_lexenv: Value },
 }
 
-#[derive(Debug)]
-pub(crate) enum RuntimeBacktraceArgs {
-    Owned(LispArgVec),
-    ActiveCallFrame(usize),
-}
-
-impl RuntimeBacktraceArgs {
-    fn owned_from_slice(args: &[Value]) -> Self {
-        Self::Owned(args.iter().copied().collect())
-    }
-}
-
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct RuntimeBacktraceFrame {
     pub(crate) function: Value,
-    pub(crate) args: RuntimeBacktraceArgs,
+    pub(crate) active_call_frame: usize,
     pub(crate) evaluated: bool,
     pub(crate) debug_on_exit: bool,
-}
-
-impl Clone for RuntimeBacktraceFrame {
-    fn clone(&self) -> Self {
-        Self {
-            function: self.function,
-            args: match &self.args {
-                RuntimeBacktraceArgs::Owned(values) => RuntimeBacktraceArgs::Owned(values.clone()),
-                RuntimeBacktraceArgs::ActiveCallFrame(index) => {
-                    RuntimeBacktraceArgs::ActiveCallFrame(*index)
-                }
-            },
-            evaluated: self.evaluated,
-            debug_on_exit: self.debug_on_exit,
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -4488,11 +4460,6 @@ impl Context {
         }
         for frame in &self.runtime_backtrace {
             visit(frame.function);
-            if let RuntimeBacktraceArgs::Owned(args) = &frame.args {
-                for arg in args.iter().copied() {
-                    visit(arg);
-                }
-            }
         }
         for funcall in &self.pending_safe_funcalls {
             visit(funcall.function);
@@ -8057,8 +8024,6 @@ impl Context {
             return Err(self.listp_error(tail));
         }
         let tag = self.eval_sub(tail.cons_car())?;
-        let eval_root_scope = self.save_eval_roots();
-        self.push_eval_root(tag);
         self.push_condition_frame(ConditionFrame::Catch {
             tag,
             resume: ResumeTarget::InterpreterCatch,
@@ -8072,7 +8037,6 @@ impl Context {
             Err(flow) => Err(flow),
         };
         self.pop_condition_frame();
-        self.restore_eval_roots(eval_root_scope);
         result
     }
 
@@ -8967,18 +8931,6 @@ impl Context {
         self.eval_value(&tail.cons_car()).map(Some)
     }
 
-    pub(crate) fn push_runtime_backtrace_frame(&mut self, function: Value, args: &[Value]) {
-        self.runtime_backtrace.push(RuntimeBacktraceFrame {
-            function,
-            // GC root collection walks active backtrace frames. The frame
-            // therefore must not borrow an args slice whose backing Vec can
-            // be reallocated or dropped while the frame is still active.
-            args: RuntimeBacktraceArgs::owned_from_slice(args),
-            evaluated: true,
-            debug_on_exit: false,
-        });
-    }
-
     pub(crate) fn push_runtime_backtrace_frame_from_active_call(&mut self, function: Value) {
         let active_index = self
             .active_call_roots
@@ -8987,7 +8939,7 @@ impl Context {
             .expect("active call frame required for runtime backtrace reference");
         self.runtime_backtrace.push(RuntimeBacktraceFrame {
             function,
-            args: RuntimeBacktraceArgs::ActiveCallFrame(active_index),
+            active_call_frame: active_index,
             evaluated: true,
             debug_on_exit: false,
         });
@@ -9001,14 +8953,10 @@ impl Context {
         &'a self,
         frame: &'a RuntimeBacktraceFrame,
     ) -> &'a [Value] {
-        match &frame.args {
-            RuntimeBacktraceArgs::Owned(values) => values.as_slice(),
-            RuntimeBacktraceArgs::ActiveCallFrame(index) => self
-                .active_call_roots
-                .get(*index)
-                .map(|frame| frame.args.as_slice())
-                .expect("active call frame missing for runtime backtrace args"),
-        }
+        self.active_call_roots
+            .get(frame.active_call_frame)
+            .map(|frame| frame.args.as_slice())
+            .expect("active call frame missing for runtime backtrace args")
     }
 
     pub(crate) fn push_active_call_frame(

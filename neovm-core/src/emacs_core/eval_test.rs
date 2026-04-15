@@ -8384,32 +8384,6 @@ fn gc_collect_exact_inside_extra_root_scope_retains_explicit_slice() {
 }
 
 #[test]
-fn runtime_backtrace_frame_owns_args_across_exact_gc() {
-    crate::test_utils::init_test_tracing();
-    let mut ev = Context::new();
-
-    let payload = Value::vector(vec![Value::fixnum(7)]);
-    {
-        let args = vec![payload];
-        ev.push_runtime_backtrace_frame(Value::symbol("runtime-backtrace-root"), &args);
-    }
-
-    ev.gc_collect_exact();
-
-    let frame = ev
-        .runtime_backtrace
-        .last()
-        .expect("runtime backtrace frame should remain present");
-    let rooted = ev.runtime_backtrace_frame_args(frame)[0];
-    assert_eq!(
-        rooted.as_vector_data().unwrap().as_slice(),
-        &[Value::fixnum(7)]
-    );
-
-    ev.pop_runtime_backtrace_frame();
-}
-
-#[test]
 fn runtime_backtrace_can_reference_active_call_args_across_exact_gc() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
