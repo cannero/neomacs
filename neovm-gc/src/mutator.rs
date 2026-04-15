@@ -96,6 +96,10 @@ pub struct MutatorLocal {
     /// Mutator-owned allocation counter slot plus cached
     /// running totals mirrored into the shared heap stats.
     alloc_counter_local: crate::stats::AllocationCounterLocal,
+    /// Most recent collector-plan refresh epoch this
+    /// mutator has observed while dirtying the shared
+    /// cached-plan snapshot.
+    collector_plans_refresh_epoch_seen: u64,
 }
 
 impl Default for MutatorLocal {
@@ -107,6 +111,7 @@ impl Default for MutatorLocal {
             descriptor_cache: None,
             publish_local: crate::object_store::ObjectPublishLocal::default(),
             alloc_counter_local: crate::stats::AllocationCounterLocal::default(),
+            collector_plans_refresh_epoch_seen: u64::MAX,
         }
     }
 }
@@ -164,6 +169,10 @@ impl MutatorLocal {
 
     pub(crate) fn alloc_counter_local_mut(&mut self) -> &mut crate::stats::AllocationCounterLocal {
         &mut self.alloc_counter_local
+    }
+
+    pub(crate) fn collector_plans_refresh_epoch_seen_mut(&mut self) -> &mut u64 {
+        &mut self.collector_plans_refresh_epoch_seen
     }
 
     #[cfg(test)]
@@ -251,6 +260,7 @@ impl<'heap> Mutator<'heap> {
         let mut runtime = crate::runtime::CollectorRuntime::with_local(&mut guard, &mut self.local);
         let result = f(&mut runtime);
         drop(runtime);
+        self.heap.note_collector_plans_refreshed();
         self.heap
             .store_nursery_generation(guard.nursery().generation());
         result
@@ -430,7 +440,9 @@ impl<'heap> Mutator<'heap> {
             )?,
         };
         if commit.plans_dirty {
-            heap.mark_collector_plans_dirty();
+            heap.mark_collector_plans_dirty_if_needed(
+                local.collector_plans_refresh_epoch_seen_mut(),
+            );
         }
         let gc = unsafe { Gc::from_erased(commit.gc) };
         Ok(scope.root(gc))

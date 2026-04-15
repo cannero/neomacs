@@ -139,6 +139,7 @@ struct HeapState {
     collector: CollectorStateHandle,
     nursery_generation: std::sync::atomic::AtomicU64,
     collector_plans_dirty: std::sync::atomic::AtomicBool,
+    collector_plans_refresh_epoch: std::sync::atomic::AtomicU64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -194,6 +195,7 @@ impl Heap {
                 collector,
                 nursery_generation: std::sync::atomic::AtomicU64::new(nursery_generation),
                 collector_plans_dirty: std::sync::atomic::AtomicBool::new(false),
+                collector_plans_refresh_epoch: std::sync::atomic::AtomicU64::new(0),
             }),
         }
     }
@@ -506,7 +508,12 @@ impl Heap {
             }
             guard
         };
-        HeapCollectorRuntime::new(safepoint, guard, &self.state.nursery_generation)
+        HeapCollectorRuntime::new(
+            safepoint,
+            guard,
+            &self.state.nursery_generation,
+            &self.state.collector_plans_refresh_epoch,
+        )
     }
 
     /// Create a background collection service loop bound to this heap.
@@ -805,6 +812,29 @@ impl Heap {
             return;
         }
         self.read_core().refresh_recommended_plans();
+        self.note_collector_plans_refreshed();
+    }
+
+    #[inline]
+    pub(crate) fn note_collector_plans_refreshed(&self) {
+        self.state
+            .collector_plans_refresh_epoch
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    #[inline]
+    pub(crate) fn mark_collector_plans_dirty_if_needed(&self, last_refresh_epoch: &mut u64) {
+        let refresh_epoch = self
+            .state
+            .collector_plans_refresh_epoch
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if *last_refresh_epoch == refresh_epoch {
+            return;
+        }
+        *last_refresh_epoch = refresh_epoch;
+        self.state
+            .collector_plans_dirty
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 
     // -- Test-only forwarders ----------------------------------------------
@@ -857,6 +887,7 @@ impl Heap {
             _safepoint: safepoint,
             guard,
             nursery_generation: &self.state.nursery_generation,
+            collector_plans_refresh_epoch: &self.state.collector_plans_refresh_epoch,
             local,
         }
     }
@@ -883,6 +914,7 @@ pub struct HeapCollectorRuntime<'a> {
     _safepoint: std::sync::RwLockWriteGuard<'a, ()>,
     guard: std::sync::RwLockWriteGuard<'a, HeapCore>,
     nursery_generation: &'a std::sync::atomic::AtomicU64,
+    collector_plans_refresh_epoch: &'a std::sync::atomic::AtomicU64,
     local: crate::mutator::MutatorLocal,
 }
 
@@ -891,6 +923,7 @@ impl<'a> HeapCollectorRuntime<'a> {
         safepoint: std::sync::RwLockWriteGuard<'a, ()>,
         guard: std::sync::RwLockWriteGuard<'a, HeapCore>,
         nursery_generation: &'a std::sync::atomic::AtomicU64,
+        collector_plans_refresh_epoch: &'a std::sync::atomic::AtomicU64,
     ) -> Self {
         let mut local = crate::mutator::MutatorLocal::default();
         local.set_alloc_counter_local(guard.alloc_counters.register_local());
@@ -898,6 +931,7 @@ impl<'a> HeapCollectorRuntime<'a> {
             _safepoint: safepoint,
             guard,
             nursery_generation,
+            collector_plans_refresh_epoch,
             local,
         }
     }
@@ -1063,6 +1097,8 @@ impl Drop for HeapCollectorRuntime<'_> {
             self.guard.nursery().generation(),
             std::sync::atomic::Ordering::Relaxed,
         );
+        self.collector_plans_refresh_epoch
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -1108,6 +1144,7 @@ pub struct HeapCollectorRuntimeWithLocal<'a> {
     _safepoint: std::sync::RwLockWriteGuard<'a, ()>,
     guard: std::sync::RwLockWriteGuard<'a, HeapCore>,
     nursery_generation: &'a std::sync::atomic::AtomicU64,
+    collector_plans_refresh_epoch: &'a std::sync::atomic::AtomicU64,
     local: &'a mut crate::mutator::MutatorLocal,
 }
 
@@ -1142,6 +1179,8 @@ impl Drop for HeapCollectorRuntimeWithLocal<'_> {
             self.guard.nursery().generation(),
             std::sync::atomic::Ordering::Relaxed,
         );
+        self.collector_plans_refresh_epoch
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
