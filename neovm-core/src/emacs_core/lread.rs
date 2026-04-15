@@ -327,22 +327,20 @@ fn eval_buffer_filename_in_state(
     buffers: &crate::buffer::BufferManager,
     buffer_id: crate::buffer::BufferId,
     arg: Option<&Value>,
-) -> Result<Option<String>, Flow> {
+) -> Result<Option<LispString>, Flow> {
     match arg {
         None => Ok(buffers
             .get(buffer_id)
-            .and_then(|buffer| buffer.file_name_value().as_runtime_string_owned())),
+            .and_then(|buffer| buffer.file_name_value().as_lisp_string().cloned())),
         Some(v) if v.is_nil() => Ok(buffers
             .get(buffer_id)
-            .and_then(|buffer| buffer.file_name_value().as_runtime_string_owned())),
-        Some(value) => Ok(Some(expect_string(value)?)),
+            .and_then(|buffer| buffer.file_name_value().as_lisp_string().cloned())),
+        Some(value) => Ok(Some(expect_lisp_string(value)?)),
     }
 }
 
-fn record_eval_buffer_load_history(eval: &mut super::eval::Context, filename: &str) {
-    let path = Path::new(filename);
-    let path_str = path.to_string_lossy().to_string();
-    let entry = Value::cons(Value::string(path_str.clone()), Value::NIL);
+fn record_eval_buffer_load_history(eval: &mut super::eval::Context, filename: &LispString) {
+    let entry = Value::cons(Value::heap_string(filename.clone()), Value::NIL);
     let history = eval
         .obarray()
         .symbol_value("load-history")
@@ -356,8 +354,8 @@ fn record_eval_buffer_load_history(eval: &mut super::eval::Context, filename: &s
                 if existing.is_cons() {
                     existing
                         .cons_car()
-                        .as_str()
-                        .is_none_or(|loaded| loaded != path_str)
+                        .as_lisp_string()
+                        .is_none_or(|loaded| loaded != filename)
                 } else {
                     true
                 }
@@ -452,7 +450,7 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
         ctx.specbind(intern("standard-output"), standard_output);
 
         if let Some(filename) = filename.as_ref() {
-            let filename_value = Value::string(filename.clone());
+            let filename_value = Value::heap_string(filename.clone());
             ctx.root(filename_value);
             let current_load_list = Value::cons(filename_value, Value::NIL);
             ctx.root(current_load_list);
@@ -490,11 +488,12 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
             && filename.is_some();
         let result = if loading_source_file {
             let source_runtime = super::builtins::runtime_string_from_lisp_string(&source);
-            let path = Path::new(
+            let filename_runtime = super::builtins::runtime_string_from_lisp_string(
                 filename
-                    .as_deref()
+                    .as_ref()
                     .expect("load-in-progress eval-buffer must have filename"),
             );
+            let path = Path::new(&filename_runtime);
             super::load::eval_decoded_source_file_in_context(
                 ctx,
                 path,
@@ -505,7 +504,7 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
         } else {
             let result = eval_forms_from_lisp_source(ctx, &source);
             if result.is_ok()
-                && let Some(filename) = filename.as_deref()
+                && let Some(filename) = filename.as_ref()
             {
                 record_eval_buffer_load_history(ctx, filename);
             }
