@@ -27,11 +27,12 @@ fn load_runtime_string(value: &LispString) -> String {
     super::builtins::runtime_string_from_lisp_string(value)
 }
 
+fn load_path_lisp_string(path: &Path) -> LispString {
+    super::builtins::runtime_string_to_lisp_string(path.to_string_lossy().as_ref(), true)
+}
+
 fn load_path_value(path: &Path) -> Value {
-    Value::heap_string(super::builtins::runtime_string_to_lisp_string(
-        path.to_string_lossy().as_ref(),
-        true,
-    ))
+    Value::heap_string(load_path_lisp_string(path))
 }
 
 struct BootstrapLdefsBootPreferenceGuard {
@@ -1313,20 +1314,18 @@ pub fn load_file_with_flags(
         .filter(|p| **p == canonical)
         .count();
     if load_count > 3 {
+        let canonical_value = load_path_value(&canonical);
         let in_progress = Value::list(
             eval.loads_in_progress
                 .iter()
-                .map(|p| Value::string(p.to_string_lossy().to_string()))
+                .map(|p| load_path_value(p))
                 .collect(),
         );
         return Err(EvalError::Signal {
             symbol: intern("error"),
             data: vec![
                 Value::string("Recursive load"),
-                Value::cons(
-                    Value::string(canonical.to_string_lossy().to_string()),
-                    in_progress,
-                ),
+                Value::cons(canonical_value, in_progress),
             ],
             raw_data: None,
         });
@@ -1509,11 +1508,12 @@ fn elc_has_lexical_binding(raw_bytes: &[u8]) -> bool {
 
 fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
     let path_str = path.to_string_lossy().to_string();
+    let path_lisp = load_path_lisp_string(path);
     tracing::debug!("record_load_history: {}", path_str);
     eval.with_gc_scope(|eval| {
         // GNU protects the same post-load temporaries with GCPRO/specpdl roots
         // in lread.c. Exact GC needs explicit rooting here as well.
-        let path_value = eval.root(Value::string(path_str.clone()));
+        let path_value = eval.root(Value::heap_string(path_lisp.clone()));
         let entry = eval.root(Value::cons(path_value, Value::NIL));
         let history = eval
             .obarray()
@@ -1528,8 +1528,8 @@ fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
                     if existing.is_cons() {
                         existing
                             .cons_car()
-                            .as_str()
-                            .is_none_or(|loaded| loaded != path_str)
+                            .as_lisp_string()
+                            .is_none_or(|loaded| loaded != &path_lisp)
                     } else {
                         true
                     }
@@ -1547,7 +1547,7 @@ fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
             .symbol_function_id(dale_id)
             .is_some_and(|f| !f.is_nil());
         if is_fboundp {
-            let abs_path = eval.root(Value::string(path_str.clone()));
+            let abs_path = eval.root(Value::heap_string(path_lisp));
             if let Err(e) = eval.apply(Value::symbol(dale_id), vec![abs_path]) {
                 let err_msg = match &e {
                     super::error::Flow::Signal(sig) => {
