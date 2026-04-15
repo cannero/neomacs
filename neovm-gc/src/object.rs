@@ -412,14 +412,14 @@ impl ObjectRecord {
                 None => (NO_OLD_BLOCK_INDEX, 0, 0),
             };
         unsafe {
-            slot.write(MaybeUninit::new(Self {
+            (*slot).write(Self {
                 header,
                 old_block_index,
                 old_block_offset_bytes,
                 old_block_total_size,
                 layout_align_shift,
                 memory_kind,
-            }))
+            })
         };
     }
 

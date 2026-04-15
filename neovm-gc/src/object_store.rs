@@ -479,7 +479,7 @@ impl ObjectStore {
         if record.needs_record_drop() {
             unsafe { (*reservation.requires_record_drop).store(true, Ordering::Relaxed) };
         }
-        unsafe { reservation.next_slot.write(MaybeUninit::new(record)) };
+        unsafe { (*reservation.next_slot).write(record) };
         unsafe { (*reservation.published_len).store(next_offset, Ordering::Release) };
         reservation.next_slot = unsafe { reservation.next_slot.add(1) };
         reservation.next_offset = next_offset;
