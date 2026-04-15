@@ -291,7 +291,9 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
+        ValueKind::String => Ok(value
+            .as_runtime_string_owned()
+            .expect("ValueKind::String must carry LispString payload")),
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         ValueKind::Nil => Ok("nil".to_string()),
         ValueKind::T => Ok("t".to_string()),
@@ -392,7 +394,9 @@ pub(crate) fn builtin_bookmark_jump(
                 vec![Value::string("No bookmark specified")],
             ));
         }
-        ValueKind::String => super::builtins::lisp_string_to_runtime_string(args[0]),
+        ValueKind::String => args[0]
+            .as_runtime_string_owned()
+            .expect("ValueKind::String must carry LispString payload"),
         _ => return Ok(Value::NIL),
     };
 
@@ -439,7 +443,9 @@ pub(crate) fn builtin_bookmark_delete(
     // GNU Emacs accepts non-string NAME payloads and simply returns nil.
     // Only string names are actionable for deletion.
     if args[0].is_string() {
-        let name = super::builtins::lisp_string_to_runtime_string(args[0]);
+        let name = args[0]
+            .as_runtime_string_owned()
+            .expect("ValueKind::String must carry LispString payload");
         let _ = eval.bookmarks.delete(&name);
     }
     Ok(Value::NIL)
@@ -472,7 +478,9 @@ pub(crate) fn builtin_bookmark_rename(
     let new_name = &args[1];
 
     if old.is_string() {
-        let old_name_str = super::builtins::lisp_string_to_runtime_string(*old);
+        let old_name_str = old
+            .as_runtime_string_owned()
+            .expect("ValueKind::String must carry LispString payload");
         if eval.bookmarks.get(&old_name_str).is_none() {
             return Err(signal(
                 "error",
@@ -481,7 +489,9 @@ pub(crate) fn builtin_bookmark_rename(
         }
 
         let target = match new_name.kind() {
-            ValueKind::String => super::builtins::lisp_string_to_runtime_string(*new_name),
+            ValueKind::String => new_name
+                .as_runtime_string_owned()
+                .expect("ValueKind::String must carry LispString payload"),
             _ => {
                 return Err(signal(
                     "error",
@@ -501,7 +511,9 @@ pub(crate) fn builtin_bookmark_rename(
 
     if old.is_cons() {
         if new_name.is_string() {
-            let name_str = super::builtins::lisp_string_to_runtime_string(*new_name);
+            let name_str = new_name
+                .as_runtime_string_owned()
+                .expect("ValueKind::String must carry LispString payload");
             return Err(signal(
                 "error",
                 vec![Value::string(format!("Invalid bookmark {name_str}"))],
@@ -675,7 +687,9 @@ fn default_bookmark_file() -> String {
 fn active_bookmark_default_file(eval: &super::eval::Context) -> String {
     if let Some(v) = eval.obarray.symbol_value("bookmark-default-file") {
         if v.is_string() {
-            return super::builtins::lisp_string_to_runtime_string(*v);
+            return v
+                .as_runtime_string_owned()
+                .expect("ValueKind::String must carry LispString payload");
         }
     }
     default_bookmark_file()
@@ -688,9 +702,7 @@ fn bookmark_timestamp_file(eval: &super::eval::Context) -> Option<String> {
     };
     let pair_car = value.cons_car();
     let _pair_cdr = value.cons_cdr();
-    pair_car
-        .is_string()
-        .then(|| super::builtins::lisp_string_to_runtime_string(pair_car))
+    pair_car.as_runtime_string_owned()
 }
 
 fn bookmark_save_stamp(path: &str) -> Value {
@@ -758,7 +770,9 @@ pub(crate) fn builtin_bookmark_save(
     }
 
     let path = if file_arg.is_string() {
-        super::builtins::lisp_string_to_runtime_string(file_arg)
+        file_arg
+            .as_runtime_string_owned()
+            .expect("ValueKind::String must carry LispString payload")
     } else {
         if !parg.is_nil() {
             return Err(signal(
@@ -808,7 +822,9 @@ pub(crate) fn builtin_bookmark_load(
     }
 
     let file = match args[0].kind() {
-        ValueKind::String => super::builtins::lisp_string_to_runtime_string(args[0]),
+        ValueKind::String => args[0]
+            .as_runtime_string_owned()
+            .expect("ValueKind::String must carry LispString payload"),
         other => {
             return Err(signal(
                 "wrong-type-argument",
