@@ -352,8 +352,8 @@ pub(crate) fn is_autoload_value(val: &Value) -> bool {
 pub(crate) enum AutoloadDoLoadPlan {
     Return(Value),
     Load {
-        file: String,
-        funname: Option<String>,
+        file: LispString,
+        funname: Option<SymId>,
     },
 }
 
@@ -381,7 +381,8 @@ pub(crate) fn plan_autoload_do_load_in_state(
     let file = if items.len() > 1 {
         match items[1].kind() {
             ValueKind::String => items[1]
-                .as_runtime_string_owned()
+                .as_lisp_string()
+                .cloned()
                 .expect("ValueKind::String must carry LispString payload"),
             _ => return Ok(AutoloadDoLoadPlan::Return(*fundef)),
         }
@@ -390,7 +391,7 @@ pub(crate) fn plan_autoload_do_load_in_state(
     };
 
     let funname = if args.len() > 1 {
-        args[1].as_symbol_name().map(|s| s.to_string())
+        args[1].as_symbol_id()
     } else {
         None
     };
@@ -411,8 +412,8 @@ pub(crate) fn plan_autoload_do_load_in_state(
     // (i.e., a previous load of the same file already defined this function).
     // This prevents redundant re-loads that can cause side effects like
     // advice being installed multiple times.
-    if let Some(ref name) = funname {
-        if let Some(current) = obarray.symbol_function(name).cloned() {
+    if let Some(name) = funname {
+        if let Some(current) = obarray.symbol_function_id(name).cloned() {
             if !is_autoload_value(&current) {
                 // The function is already defined (not an autoload) — a previous
                 // load already resolved it. Return the current definition.
@@ -420,7 +421,7 @@ pub(crate) fn plan_autoload_do_load_in_state(
             }
         }
         if let Some(override_value) =
-            super::eval::compiler_function_override_in_obarray(obarray, intern(name))
+            super::eval::compiler_function_override_in_obarray(obarray, name)
         {
             return Ok(AutoloadDoLoadPlan::Return(override_value));
         }
@@ -429,15 +430,19 @@ pub(crate) fn plan_autoload_do_load_in_state(
     Ok(AutoloadDoLoadPlan::Load { file, funname })
 }
 
-pub(crate) fn resolve_autoload_load_path(obarray: &Obarray, file: &str) -> Result<PathBuf, Flow> {
+pub(crate) fn resolve_autoload_load_path(
+    obarray: &Obarray,
+    file: &LispString,
+) -> Result<PathBuf, Flow> {
     let load_path = super::load::get_load_path(obarray);
-    match super::load::find_file_in_load_path(file, &load_path) {
+    let file_runtime = autoload_string_to_runtime_string(file);
+    match super::load::find_file_in_load_path(&file_runtime, &load_path) {
         Some(path) => Ok(path),
         None => Err(signal(
             "file-missing",
             vec![Value::string(format!(
                 "Cannot open load file: no such file or directory, {}",
-                file
+                file_runtime
             ))],
         )),
     }
@@ -448,11 +453,11 @@ pub(crate) fn resolve_autoload_load_path(obarray: &Obarray, file: &str) -> Resul
 /// function cell is still the same autoload, signal an error.
 pub(crate) fn finish_autoload_do_load_in_state(
     obarray: &Obarray,
-    funname: Option<&str>,
+    funname: Option<SymId>,
     original_autoload: Option<&Value>,
 ) -> EvalResult {
     if let Some(name) = funname {
-        if let Some(func) = obarray.symbol_function(name).cloned() {
+        if let Some(func) = obarray.symbol_function_id(name).cloned() {
             // GNU Emacs: if function is still the same autoload form after
             // loading, signal "Autoloading file failed to define function".
             // GNU Emacs eval.c: if (!NILP (Fequal (fun, fundef)))
@@ -470,7 +475,7 @@ pub(crate) fn finish_autoload_do_load_in_state(
                         "error",
                         vec![Value::string(format!(
                             "Autoloading failed to define function {}",
-                            name
+                            resolve_sym(name)
                         ))],
                     ));
                 }
@@ -494,11 +499,7 @@ pub(crate) fn builtin_autoload_do_load(
             }
             let path = resolve_autoload_load_path(&ctx.obarray, &file)?;
             ctx.load_file_internal(&path)?;
-            finish_autoload_do_load_in_state(
-                &ctx.obarray,
-                funname.as_deref(),
-                original_fundef.as_ref(),
-            )
+            finish_autoload_do_load_in_state(&ctx.obarray, funname, original_fundef.as_ref())
         }),
     }
 }
@@ -523,11 +524,7 @@ pub(crate) fn builtin_autoload_do_load_in_vm_runtime(
             shared.with_extra_gc_roots(vm_gc_roots, &rooted_extra_roots, move |eval| {
                 eval.load_file_internal(&path)
             })?;
-            finish_autoload_do_load_in_state(
-                &shared.obarray,
-                funname.as_deref(),
-                original_fundef.as_ref(),
-            )
+            finish_autoload_do_load_in_state(&shared.obarray, funname, original_fundef.as_ref())
         }
     }
 }
