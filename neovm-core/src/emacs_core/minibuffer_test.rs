@@ -1,5 +1,6 @@
 use super::*;
 use crate::buffer::BufferId;
+use crate::emacs_core::intern::intern;
 use crate::heap_types::LispString;
 
 // -- Completion matching --------------------------------------------------
@@ -262,12 +263,12 @@ fn common_prefix_identical() {
 fn history_navigation() {
     crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();
-    mgr.add_to_history("test-history", "first", 100);
-    mgr.add_to_history("test-history", "second", 100);
-    mgr.add_to_history("test-history", "third", 100);
+    mgr.add_to_history(intern("test-history"), "first", 100);
+    mgr.add_to_history(intern("test-history"), "second", 100);
+    mgr.add_to_history(intern("test-history"), "third", 100);
 
     // Enter minibuffer with history.
-    mgr.read_from_minibuffer(BufferId(1), "prompt: ", None, Some("test-history"))
+    mgr.read_from_minibuffer(BufferId(1), "prompt: ", None, Some(intern("test-history")))
         .unwrap();
 
     // Go back in history: should get "third" (most recent).
@@ -298,15 +299,29 @@ fn history_navigation() {
 fn history_dedup() {
     crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();
-    mgr.add_to_history("h", "same", 100);
-    mgr.add_to_history("h", "same", 100);
-    mgr.add_to_history("h", "same", 100);
-    assert_eq!(mgr.history.get("h").len(), 1);
+    mgr.add_to_history(intern("h"), "same", 100);
+    mgr.add_to_history(intern("h"), "same", 100);
+    mgr.add_to_history(intern("h"), "same", 100);
+    assert_eq!(mgr.history.get(intern("h")).len(), 1);
 
-    mgr.add_to_history("h", "different", 100);
-    assert_eq!(mgr.history.get("h").len(), 2);
-    assert_eq!(mgr.history.get("h")[0], "different");
-    assert_eq!(mgr.history.get("h")[1], "same");
+    mgr.add_to_history(intern("h"), "different", 100);
+    assert_eq!(mgr.history.get(intern("h")).len(), 2);
+    assert_eq!(
+        crate::emacs_core::string_escape::emacs_bytes_to_storage_string(
+            mgr.history.get(intern("h"))[0].as_bytes(),
+            mgr.history.get(intern("h"))[0].is_multibyte(),
+        )
+        .as_str(),
+        "different"
+    );
+    assert_eq!(
+        crate::emacs_core::string_escape::emacs_bytes_to_storage_string(
+            mgr.history.get(intern("h"))[1].as_bytes(),
+            mgr.history.get(intern("h"))[1].is_multibyte(),
+        )
+        .as_str(),
+        "same"
+    );
 }
 
 // -- Recursive minibuffer depth -------------------------------------------

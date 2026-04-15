@@ -9,10 +9,11 @@
 use std::collections::HashMap;
 
 use crate::buffer::{BufferId, BufferManager};
+use crate::heap_types::LispString;
 
 use super::error::{EvalResult, Flow, signal};
 use super::hashtab::hash_key_to_visible_value;
-use super::intern::resolve_sym;
+use super::intern::{SymId, resolve_sym};
 use super::reader::KeyboardInputRuntime;
 use super::symbol::Obarray;
 use super::value::{Value, ValueKind, VecLikeType};
@@ -253,7 +254,7 @@ impl MinibufferState {
 
 /// Named history lists (e.g. "minibuffer-history", "file-name-history", ...).
 pub struct MinibufferHistory {
-    histories: HashMap<String, Vec<String>>,
+    histories: HashMap<SymId, Vec<LispString>>,
 }
 
 impl MinibufferHistory {
@@ -263,8 +264,8 @@ impl MinibufferHistory {
         }
     }
 
-    pub fn get(&self, name: &str) -> &[String] {
-        match self.histories.get(name) {
+    pub fn get(&self, name: SymId) -> &[LispString] {
+        match self.histories.get(&name) {
             Some(v) => v.as_slice(),
             None => &[],
         }
@@ -275,11 +276,11 @@ impl MinibufferHistory {
     /// `max_length` controls how many entries to keep.  Callers that have
     /// access to the obarray should read the `history-length` symbol and
     /// pass it here; the default in GNU Emacs is 100.
-    pub fn add(&mut self, name: &str, value: &str, max_length: usize) {
-        let list = self.histories.entry(name.to_string()).or_default();
+    pub fn add(&mut self, name: SymId, value: LispString, max_length: usize) {
+        let list = self.histories.entry(name).or_default();
         // Avoid consecutive duplicates at the front.
-        if list.first().map(|s| s.as_str()) != Some(value) {
-            list.insert(0, value.to_string());
+        if list.first() != Some(&value) {
+            list.insert(0, value);
         }
         if list.len() > max_length {
             list.truncate(max_length);
@@ -328,7 +329,7 @@ impl MinibufferManager {
         buffer_id: BufferId,
         prompt: &str,
         initial: Option<&str>,
-        history_name: Option<&str>,
+        history_name: Option<SymId>,
     ) -> Result<&mut MinibufferState, Flow> {
         let new_depth = self.state_stack.len() + 1;
         #[cfg(test)]
@@ -354,7 +355,17 @@ impl MinibufferManager {
 
         // Pre-populate history from the named list.
         if let Some(name) = history_name {
-            state.history = self.history.get(name).to_vec();
+            state.history = self
+                .history
+                .get(name)
+                .iter()
+                .map(|entry| {
+                    crate::emacs_core::string_escape::emacs_bytes_to_storage_string(
+                        entry.as_bytes(),
+                        entry.is_multibyte(),
+                    )
+                })
+                .collect();
         }
 
         self.state_stack.push(state);
@@ -481,8 +492,12 @@ impl MinibufferManager {
     ///
     /// `max_length` controls how many entries to keep.  Callers should read
     /// the `history-length` symbol from the obarray (default 100).
-    pub fn add_to_history(&mut self, name: &str, value: &str, max_length: usize) {
-        self.history.add(name, value, max_length);
+    pub fn add_to_history(&mut self, name: SymId, value: &str, max_length: usize) {
+        self.history.add(
+            name,
+            crate::emacs_core::builtins::runtime_string_to_lisp_string(value, true),
+            max_length,
+        );
     }
 
     /// Read the effective `history-length` from the obarray, defaulting to 100.

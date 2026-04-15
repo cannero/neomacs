@@ -778,7 +778,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
         minibuf_id,
         &prompt,
         initial_input.as_deref(),
-        history_name.as_deref(),
+        history_name,
     )?;
     state.command_loop_depth = recursive_depth;
 
@@ -889,15 +889,14 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     }
 }
 
-fn minibuffer_history_name(hist_arg: Option<&Value>) -> Option<String> {
+fn minibuffer_history_name(hist_arg: Option<&Value>) -> Option<crate::emacs_core::SymId> {
     match hist_arg.copied().unwrap_or(Value::NIL).kind() {
-        ValueKind::Symbol(id) => Some(resolve_sym(id).to_string()),
+        ValueKind::Symbol(id) => Some(id),
         ValueKind::Cons => hist_arg
             .copied()
             .unwrap_or(Value::NIL)
             .cons_car()
-            .as_symbol_name()
-            .map(str::to_string),
+            .as_symbol_id(),
         _ => None,
     }
 }
@@ -1289,7 +1288,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
             minibuf_id,
             &prompt,
             initial_input.as_deref(),
-            history_name.as_deref(),
+            history_name,
         )?;
         state.command_loop_depth = recursive_depth;
     }
