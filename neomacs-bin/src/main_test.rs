@@ -520,7 +520,10 @@ fn bootstrap_buffers_realize_default_face_from_frame_font_parameter() {
         .expect("bootstrap evaluator");
     let _bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());
     let default = eval.face_table().get("default").expect("default face");
-    assert_eq!(default.family.as_deref(), Some("Hack"));
+    assert_eq!(
+        default.family_runtime_string_owned().as_deref(),
+        Some("Hack")
+    );
     assert_eq!(default.weight.map(|weight| weight.0), Some(400));
     assert_eq!(default.height, Some(FaceHeight::Absolute(100)));
 }
@@ -1230,7 +1233,7 @@ fn bootstrap_buffers_reuses_selected_startup_frame_when_one_already_exists() {
             .frame_manager_mut()
             .get_mut(old_frame)
             .expect("old frame should exist");
-        frame.title = "old".to_string();
+        frame.set_title_runtime_string("old");
     }
 
     let _bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());
@@ -1247,7 +1250,10 @@ fn bootstrap_buffers_reuses_selected_startup_frame_when_one_already_exists() {
         selected.effective_window_system(),
         Some(Value::symbol("neo"))
     );
-    assert_eq!(selected.title, "Neomacs");
+    assert_eq!(
+        selected.title_runtime_string_owned().as_deref(),
+        Some("Neomacs")
+    );
     assert_eq!(selected.char_width, metrics.char_width);
     assert_eq!(selected.char_height, metrics.char_height);
     let minibuffer_height = selected
@@ -1305,7 +1311,7 @@ fn bootstrap_buffers_reuses_existing_named_buffers_in_cached_bootstrap() {
         .filter(|id| {
             eval.buffer_manager()
                 .get(*id)
-                .is_some_and(|buffer| buffer.name == "*scratch*")
+                .is_some_and(|buffer| buffer.name_runtime_string_owned() == "*scratch*")
         })
         .count();
     assert_eq!(scratch_count, 1);
@@ -1323,7 +1329,7 @@ fn gnu_startup_keeps_scratch_selected_under_q_startup() {
         .buffer_manager()
         .current_buffer()
         .expect("current buffer after startup");
-    assert_eq!(current.name, "*scratch*");
+    assert_eq!(current.name_runtime_string_owned(), "*scratch*");
 }
 
 #[test]
