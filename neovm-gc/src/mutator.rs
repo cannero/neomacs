@@ -231,7 +231,11 @@ impl<'heap> Mutator<'heap> {
     /// Create a new rooted handle scope backed by this
     /// mutator's per-local root stack.
     pub fn handle_scope<'scope>(&mut self) -> HandleScope<'scope, 'heap> {
+        let had_safepoint = self.handle_scope_state.has_safepoint();
         self.handle_scope_state.begin_scope();
+        if !had_safepoint {
+            self.local.publish_local_mut().clear();
+        }
         HandleScope::new_with_state(
             self.local.root_stack_ptr(),
             NonNull::from(&mut self.handle_scope_state),
@@ -248,7 +252,11 @@ impl<'heap> Mutator<'heap> {
         scope: &mut HandleScope<'scope, 'handle_heap>,
         value: T,
     ) -> Result<Root<'scope, T>, AllocError> {
+        let had_safepoint = self.handle_scope_state.has_safepoint();
         self.handle_scope_state.ensure_safepoint();
+        if !had_safepoint {
+            self.local.publish_local_mut().clear();
+        }
         let _safepoint =
             (!self.handle_scope_state.has_safepoint()).then(|| self.heap.read_safepoint());
         let Self { heap, local, .. } = self;
@@ -351,6 +359,7 @@ impl<'heap> Mutator<'heap> {
             record,
             old_reserved_bytes,
             local.publish_local_mut(),
+            true,
         )?;
         if commit.plans_dirty {
             heap.mark_collector_plans_dirty();

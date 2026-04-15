@@ -605,6 +605,7 @@ impl Heap {
         record: ObjectRecord,
         old_reserved_bytes: usize,
         publish_local: &mut ObjectPublishLocal,
+        prepared_publish: bool,
     ) -> Result<AllocationCommit, AllocError> {
         let total_size = record.header().total_size();
         let space = record.space();
@@ -613,7 +614,13 @@ impl Heap {
             .then(|| record.old_block_placement())
             .flatten();
 
-        self.state.objects.publish_shared(record, publish_local);
+        if prepared_publish {
+            self.state
+                .objects
+                .publish_shared_prepared(record, publish_local);
+        } else {
+            self.state.objects.publish_shared(record, publish_local);
+        }
         if let Some(placement) = old_placement {
             self.read_core()
                 .old_gen()
@@ -1597,6 +1604,7 @@ impl HeapCore {
         record: ObjectRecord,
         old_reserved_bytes: usize,
         publish_local: &mut ObjectPublishLocal,
+        prepared_publish: bool,
     ) -> Result<AllocationCommit, AllocError> {
         let total_size = record.header().total_size();
         let space = record.space();
@@ -1604,7 +1612,11 @@ impl HeapCore {
         let old_placement = (space == SpaceKind::Old)
             .then(|| record.old_block_placement())
             .flatten();
-        self.objects.publish_shared(record, publish_local);
+        if prepared_publish {
+            self.objects.publish_shared_prepared(record, publish_local);
+        } else {
+            self.objects.publish_shared(record, publish_local);
+        }
         if let Some(placement) = old_placement {
             self.old_gen
                 .record_block_object_accounting_for_placement_shared(placement);

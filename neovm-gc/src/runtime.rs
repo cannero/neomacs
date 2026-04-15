@@ -442,6 +442,7 @@ impl<'heap> CollectorRuntime<'heap> {
             record,
             old_reserved_bytes,
             self.local.get_mut().publish_local_mut(),
+            false,
         )?;
         if commit.plans_dirty {
             self.heap.refresh_recommended_plans();

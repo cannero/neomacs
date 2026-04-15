@@ -316,7 +316,7 @@ impl ObjectReadView for FlatReadView<'_> {
 #[derive(Debug)]
 pub(crate) struct ObjectPublishReservation {
     generation: u64,
-    chunk_index: usize,
+    base_slot: usize,
     next_offset: usize,
     chunk: Arc<ObjectChunk>,
 }
@@ -339,6 +339,12 @@ impl Default for ObjectPublishLocal {
 impl ObjectPublishLocal {
     fn reservation_mut(&mut self, shard: usize) -> &mut Option<ObjectPublishReservation> {
         &mut self.reservations[shard]
+    }
+
+    pub(crate) fn clear(&mut self) {
+        for reservation in self.reservations.iter_mut() {
+            *reservation = None;
+        }
     }
 }
 
@@ -408,10 +414,23 @@ impl ObjectStore {
         chunks.push(Arc::clone(&chunk));
         ObjectPublishReservation {
             generation,
-            chunk_index,
+            base_slot: chunk_index.saturating_mul(OBJECT_STORE_CHUNK_CAPACITY),
             next_offset: 0,
             chunk,
         }
+    }
+
+    #[inline]
+    fn publish_reserved(
+        reservation: &mut ObjectPublishReservation,
+        shard_index: usize,
+        record: ObjectRecord,
+    ) -> ObjectLocator {
+        let chunk_offset = reservation.next_offset;
+        unsafe { reservation.chunk.write_reserved(chunk_offset, record) };
+        reservation.chunk.publish_reserved(chunk_offset);
+        reservation.next_offset = chunk_offset.saturating_add(1);
+        ObjectLocator::new(shard_index, reservation.base_slot + chunk_offset)
     }
 
     pub(crate) fn read(&self) -> ObjectStoreReadGuard<'_> {
@@ -508,15 +527,28 @@ impl ObjectStore {
         let reservation = reservation
             .as_mut()
             .expect("publish reservation should exist after refill");
-        let chunk_offset = reservation.next_offset;
-        let slot = reservation
-            .chunk_index
-            .saturating_mul(OBJECT_STORE_CHUNK_CAPACITY)
-            .saturating_add(chunk_offset);
-        unsafe { reservation.chunk.write_reserved(chunk_offset, record) };
-        reservation.chunk.publish_reserved(chunk_offset);
-        reservation.next_offset = reservation.next_offset.saturating_add(1);
-        ObjectLocator::new(shard_index, slot)
+        Self::publish_reserved(reservation, shard_index, record)
+    }
+
+    pub(crate) fn publish_shared_prepared(
+        &self,
+        record: ObjectRecord,
+        publish_local: &mut ObjectPublishLocal,
+    ) -> ObjectLocator {
+        let object_key = record.object_key();
+        let shard_index = shard_index_for_key(object_key, self.shards.len());
+        let reservation = publish_local.reservation_mut(shard_index);
+        if reservation
+            .as_ref()
+            .is_none_or(|reservation| reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY)
+        {
+            *reservation = Some(self.reserve_publish_chunk(shard_index));
+        }
+
+        let reservation = reservation
+            .as_mut()
+            .expect("publish reservation should exist after refill");
+        Self::publish_reserved(reservation, shard_index, record)
     }
 
     pub(crate) fn take_flat(&mut self) -> FlatObjectStore {
