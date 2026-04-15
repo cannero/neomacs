@@ -511,7 +511,7 @@ fn created_face_runtime_state_uses_symbol_identity() {
             state
                 .selected_overrides
                 .get(&face_symbol)
-                .and_then(|attrs| attrs.get(":foreground"))
+                .and_then(|attrs| attrs.get(&crate::emacs_core::intern::intern(":foreground")))
                 .copied(),
             Some(Value::string("green"))
         );
