@@ -8608,7 +8608,7 @@ fn gc_threshold_adapts_after_collection() {
 }
 
 #[test]
-fn gc_safe_point_reloads_threshold_after_lisp_setq() {
+fn gc_runtime_setting_mutation_reloads_threshold_immediately() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
 
@@ -8617,11 +8617,9 @@ fn gc_safe_point_reloads_threshold_after_lisp_setq() {
            (setq gc-cons-percentage nil)
            (setq gc-cons-threshold 1234567))",
     );
-    ev.gc_safe_point();
     assert_eq!(ev.tagged_heap.gc_threshold(), 1_234_567);
 
     ev.eval_str_each("(setq gc-cons-threshold 2345678)");
-    ev.gc_safe_point();
     assert_eq!(ev.tagged_heap.gc_threshold(), 2_345_678);
 }
 

@@ -1386,9 +1386,10 @@ pub struct Context {
     pub(crate) gc_stress: bool,
     /// Cached Lisp-visible GC tuning variables used on every safe point.
     ///
-    /// The effective threshold still depends on live heap state and is
-    /// recomputed each time, but the backing Lisp variables are only reread
-    /// when their symbol cells actually change.
+    /// GNU updates its low-level GC tuning state when the watched variables
+    /// change, then keeps `maybe_gc` itself cheap.  Mirror that split here:
+    /// refresh the cache on the mutation sites, and let safe points combine
+    /// the cached values with current heap usage.
     gc_runtime_settings_cache: GcRuntimeSettingsCache,
     /// Temporary GC roots — Values that must survive collection but aren't
     /// in any other rooted structure (e.g. intermediate results in eval_str_each).
@@ -1486,7 +1487,6 @@ struct GcRuntimeSettingsCache {
     gc_cons_threshold_bytes: usize,
     gc_cons_percentage_scaled: Option<u64>,
     memory_full: bool,
-    dirty: bool,
 }
 
 impl Default for GcRuntimeSettingsCache {
@@ -1495,7 +1495,6 @@ impl Default for GcRuntimeSettingsCache {
             gc_cons_threshold_bytes: GC_DEFAULT_THRESHOLD_BYTES,
             gc_cons_percentage_scaled: Some(100_000),
             memory_full: false,
-            dirty: true,
         }
     }
 }
@@ -1877,8 +1876,9 @@ fn begin_lambda_call_in_state(
     }
 
     let saved_temp_roots_len = temp_roots.len();
-    let saved_active_call_extra_roots_len =
-        active_call_roots.last().map(|frame| frame.extra_roots.len());
+    let saved_active_call_extra_roots_len = active_call_roots
+        .last()
+        .map(|frame| frame.extra_roots.len());
     let specpdl_count = specpdl.len();
 
     let has_lexenv = env.is_some();
@@ -2075,8 +2075,9 @@ fn begin_macro_expansion_scope_in_state(
     let nil_symbol = nil_symbol();
     let t_symbol = t_symbol();
     let saved_temp_roots_len = temp_roots.len();
-    let saved_active_call_extra_roots_len =
-        active_call_roots.last().map(|frame| frame.extra_roots.len());
+    let saved_active_call_extra_roots_len = active_call_roots
+        .last()
+        .map(|frame| frame.extra_roots.len());
     let old_lexical = obarray
         .symbol_value_id(lexical_binding_symbol())
         .is_some_and(|value| value.is_truthy());
@@ -4534,9 +4535,10 @@ impl Context {
             || sym_id == memory_full_symbol()
     }
 
-    pub(crate) fn mark_gc_runtime_settings_dirty_by_id(&mut self, sym_id: SymId) {
+    pub(crate) fn refresh_gc_runtime_settings_after_change_by_id(&mut self, sym_id: SymId) {
         if Self::is_gc_runtime_setting_symbol(sym_id) {
-            self.gc_runtime_settings_cache.dirty = true;
+            self.refresh_gc_runtime_settings_cache();
+            self.sync_gc_threshold_from_runtime_settings();
         }
     }
 
@@ -4562,17 +4564,9 @@ impl Context {
             .copied()
             .unwrap_or(Value::NIL)
             .is_nil();
-        self.gc_runtime_settings_cache.dirty = false;
-    }
-
-    fn ensure_gc_runtime_settings_cache(&mut self) {
-        if self.gc_runtime_settings_cache.dirty {
-            self.refresh_gc_runtime_settings_cache();
-        }
     }
 
     fn effective_gc_threshold_bytes(&mut self) -> usize {
-        self.ensure_gc_runtime_settings_cache();
         if self.gc_runtime_settings_cache.memory_full {
             return self.tagged_heap.gc_threshold();
         }
@@ -4671,6 +4665,8 @@ impl Context {
 
     fn finish_runtime_activation(&mut self, sync_keyboard: bool) {
         self.setup_thread_locals();
+        self.refresh_gc_runtime_settings_cache();
+        self.sync_gc_threshold_from_runtime_settings();
         if sync_keyboard {
             self.sync_keyboard_runtime_from_obarray();
         }
@@ -6783,7 +6779,8 @@ impl Context {
         if func.is_macro() {
             let arg_values = value_list_to_values(&original_args);
             self.push_active_call_frame(original_fun, Some(func), &arg_values);
-            let expanded = self.with_macro_expansion_scope(|eval| eval.apply_lambda(func, arg_values));
+            let expanded =
+                self.with_macro_expansion_scope(|eval| eval.apply_lambda(func, arg_values));
             self.pop_active_call_frame();
             // Evaluate expansion directly.
             return self.eval_sub(expanded?);
@@ -6859,9 +6856,7 @@ impl Context {
 
         // Regular function call: evaluate args, then apply
         // (GNU eval.c:2625-2715)
-        let frame_function = sym_id
-            .map(Value::from_sym_id)
-            .unwrap_or(func);
+        let frame_function = sym_id.map(Value::from_sym_id).unwrap_or(func);
         let frame_callable = sym_id.map(|_| func);
         self.push_active_call_frame(frame_function, frame_callable, &[]);
         let mut args = Vec::new();
@@ -6961,14 +6956,14 @@ impl Context {
                     && offset < buf.slots.len()
                 {
                     buf.slots[offset] = value;
-                    self.mark_gc_runtime_settings_dirty_by_id(sym_id);
+                    self.refresh_gc_runtime_settings_after_change_by_id(sym_id);
                     return;
                 }
             }
         }
         self.obarray.set_symbol_value(name, value);
         self.sync_cached_runtime_binding_by_id(sym_id, value);
-        self.mark_gc_runtime_settings_dirty_by_id(sym_id);
+        self.refresh_gc_runtime_settings_after_change_by_id(sym_id);
     }
 
     #[inline]
@@ -9135,7 +9130,9 @@ impl Context {
     }
 
     pub(crate) fn save_active_call_extra_roots(&self) -> Option<usize> {
-        self.active_call_roots.last().map(|frame| frame.extra_roots.len())
+        self.active_call_roots
+            .last()
+            .map(|frame| frame.extra_roots.len())
     }
 
     pub(crate) fn push_active_call_extra_root(&mut self, value: Value) -> bool {
@@ -11244,7 +11241,7 @@ impl Context {
         );
         self.sync_cached_runtime_binding_by_id(sym_id, value);
         self.sync_keyboard_runtime_binding_by_id(sym_id, value);
-        self.mark_gc_runtime_settings_dirty_by_id(sym_id);
+        self.refresh_gc_runtime_settings_after_change_by_id(sym_id);
         locus
     }
 
@@ -11267,7 +11264,7 @@ impl Context {
         );
         self.sync_cached_runtime_binding_by_id(sym_id, value);
         self.sync_keyboard_runtime_binding_by_id(sym_id, value);
-        self.mark_gc_runtime_settings_dirty_by_id(sym_id);
+        self.refresh_gc_runtime_settings_after_change_by_id(sym_id);
         locus
     }
 
@@ -11281,7 +11278,7 @@ impl Context {
         );
         self.sync_cached_runtime_binding_by_id(sym_id, Value::NIL);
         self.sync_keyboard_runtime_binding_by_id(sym_id, Value::NIL);
-        self.mark_gc_runtime_settings_dirty_by_id(sym_id);
+        self.refresh_gc_runtime_settings_after_change_by_id(sym_id);
     }
 
     fn has_local_binding_by_id(&self, sym_id: SymId) -> bool {
