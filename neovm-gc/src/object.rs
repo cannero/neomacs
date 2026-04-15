@@ -204,9 +204,8 @@ pub(crate) enum ObjectMemoryKind {
 /// Owned allocation record stored by the heap.
 #[derive(Debug)]
 pub(crate) struct ObjectRecord {
-    base: NonNull<u8>,
-    layout: Layout,
     header: NonNull<ObjectHeader>,
+    layout_align: usize,
     old_block: Option<OldBlockPlacement>,
     memory_kind: ObjectMemoryKind,
 }
@@ -258,9 +257,8 @@ impl ObjectRecord {
         let header = base.cast::<ObjectHeader>();
 
         Ok(Self {
-            base,
-            layout,
             header,
+            layout_align: layout.align(),
             old_block: None,
             memory_kind: ObjectMemoryKind::Owned,
         })
@@ -294,9 +292,8 @@ impl ObjectRecord {
         };
         let header = base.cast::<ObjectHeader>();
         Self {
-            base,
-            layout,
             header,
+            layout_align: layout.align(),
             old_block: None,
             memory_kind: ObjectMemoryKind::Arena,
         }
@@ -370,7 +367,7 @@ impl ObjectRecord {
     /// (e.g. the nursery to-space arena) needs to reserve a region
     /// with matching layout constraints.
     pub(crate) fn layout_align(&self) -> usize {
-        self.layout.align()
+        self.layout_align
     }
 
     pub(crate) fn space(&self) -> SpaceKind {
@@ -446,7 +443,7 @@ impl ObjectRecord {
     /// use `evacuate_to_arena_slot`).
     pub(crate) fn evacuate_to_space(&self, space: SpaceKind) -> Result<Self, AllocError> {
         let total_size = self.total_size();
-        let layout = Layout::from_size_align(total_size, self.layout.align())
+        let layout = Layout::from_size_align(total_size, self.layout_align)
             .map_err(|_| AllocError::LayoutOverflow)?;
         let raw = unsafe { alloc(layout) };
         let base = NonNull::new(raw).ok_or(AllocError::OutOfMemory {
@@ -456,9 +453,8 @@ impl ObjectRecord {
         let header = base.cast::<ObjectHeader>();
         self.header().forward_to(header);
         Ok(Self {
-            base,
-            layout,
             header,
+            layout_align: layout.align(),
             old_block: None,
             memory_kind: ObjectMemoryKind::Owned,
         })
@@ -473,7 +469,7 @@ impl ObjectRecord {
     ///
     /// - `base` must point to at least `self.total_size()` bytes of
     ///   uninitialized storage inside a nursery arena buffer with
-    ///   alignment matching `self.layout.align()`.
+    ///   alignment matching `self.layout_align`.
     /// - The backing storage must outlive the returned record.
     pub(crate) unsafe fn evacuate_to_arena_slot(
         &self,
@@ -481,15 +477,14 @@ impl ObjectRecord {
         base: NonNull<u8>,
     ) -> Result<Self, AllocError> {
         let total_size = self.total_size();
-        let layout = Layout::from_size_align(total_size, self.layout.align())
+        let layout = Layout::from_size_align(total_size, self.layout_align)
             .map_err(|_| AllocError::LayoutOverflow)?;
         unsafe { self.populate_evacuated_header(base, layout, space) };
         let header = base.cast::<ObjectHeader>();
         self.header().forward_to(header);
         Ok(Self {
-            base,
-            layout,
             header,
+            layout_align: layout.align(),
             old_block: None,
             memory_kind: ObjectMemoryKind::Arena,
         })
@@ -523,7 +518,7 @@ impl ObjectRecord {
         base: NonNull<u8>,
     ) -> Result<Option<Self>, AllocError> {
         let total_size = self.total_size();
-        let layout = Layout::from_size_align(total_size, self.layout.align())
+        let layout = Layout::from_size_align(total_size, self.layout_align)
             .map_err(|_| AllocError::LayoutOverflow)?;
         // Speculatively write the candidate header + payload. If we
         // lose the CAS race below, the bytes become dead arena
@@ -532,9 +527,8 @@ impl ObjectRecord {
         let header = base.cast::<ObjectHeader>();
         match self.header().try_install_forwarding(header) {
             Ok(()) => Ok(Some(Self {
-                base,
-                layout,
                 header,
+                layout_align: layout.align(),
                 old_block: None,
                 memory_kind: ObjectMemoryKind::Arena,
             })),
@@ -601,7 +595,9 @@ impl Drop for ObjectRecord {
             // the arena owns the backing buffer and reclaims it in bulk
             // when it resets.
             if matches!(self.memory_kind, ObjectMemoryKind::Owned) {
-                dealloc(self.base.as_ptr(), self.layout);
+                let layout = Layout::from_size_align(header.total_size(), self.layout_align)
+                    .expect("object record layout should remain valid");
+                dealloc(self.header.cast::<u8>().as_ptr(), layout);
             }
         }
     }
