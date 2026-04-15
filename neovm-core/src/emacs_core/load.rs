@@ -5,6 +5,7 @@ use super::error::{EvalError, Flow, map_flow, signal};
 use super::intern::{intern, resolve_sym};
 use super::keymap::{is_list_keymap, list_keymap_lookup_one};
 use super::value::{HashKey, Value, ValueKind, list_to_vec};
+use crate::heap_types::LispString;
 use sha2::{Digest, Sha256};
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -20,6 +21,10 @@ thread_local! {
 
 fn load_string_text(value: &Value) -> Option<String> {
     value.as_runtime_string_owned()
+}
+
+fn load_runtime_string(value: &LispString) -> String {
+    super::builtins::runtime_string_from_lisp_string(value)
 }
 
 struct BootstrapLdefsBootPreferenceGuard {
@@ -421,7 +426,7 @@ fn find_for_base(
 
 /// Search for a file in the load path.
 #[tracing::instrument(level = "debug", ret)]
-pub fn find_file_in_load_path(name: &str, load_path: &[String]) -> Option<PathBuf> {
+pub fn find_file_in_load_path(name: &str, load_path: &[LispString]) -> Option<PathBuf> {
     find_file_in_load_path_with_flags(name, load_path, false, false, false)
 }
 
@@ -435,7 +440,7 @@ pub fn find_file_in_load_path(name: &str, load_path: &[String]) -> Option<PathBu
 ///   `.el`, then bare names when suffixless loading is allowed.
 pub fn find_file_in_load_path_with_flags(
     name: &str,
-    load_path: &[String],
+    load_path: &[LispString],
     no_suffix: bool,
     must_suffix: bool,
     prefer_newer: bool,
@@ -458,7 +463,8 @@ pub fn find_file_in_load_path_with_flags(
         && matches!(name, "loaddefs" | "loaddefs.el")
     {
         for dir in load_path {
-            let bootstrap = Path::new(dir).join("ldefs-boot.el");
+            let dir_runtime = load_runtime_string(dir);
+            let bootstrap = Path::new(&dir_runtime).join("ldefs-boot.el");
             if bootstrap.is_file() {
                 return Some(bootstrap);
             }
@@ -468,7 +474,8 @@ pub fn find_file_in_load_path_with_flags(
     // Emacs searches load-path directory-by-directory; suffix preference
     // is evaluated within each directory.
     for dir in load_path {
-        let full = Path::new(dir).join(name);
+        let dir_runtime = load_runtime_string(dir);
+        let full = Path::new(&dir_runtime).join(name);
         if let Some(found) = find_for_base(&full, name, no_suffix, must_suffix, prefer_newer) {
             return Some(found);
         }
@@ -477,15 +484,15 @@ pub fn find_file_in_load_path_with_flags(
     None
 }
 
-/// Extract `load-path` from the evaluator's obarray as a Vec<String>.
-pub fn get_load_path(obarray: &super::symbol::Obarray) -> Vec<String> {
+/// Extract `load-path` from the evaluator's obarray as Lisp strings.
+pub fn get_load_path(obarray: &super::symbol::Obarray) -> Vec<LispString> {
     let default_directory = obarray
         .symbol_value("default-directory")
         .and_then(|v| {
             v.is_string()
-                .then(|| load_string_text(v).expect("checked string"))
+                .then(|| v.as_lisp_string().expect("checked string").clone())
         })
-        .unwrap_or_else(|| ".".to_string());
+        .unwrap_or_else(|| LispString::from_unibyte(b".".to_vec()));
 
     let val = obarray
         .symbol_value("load-path")
@@ -496,7 +503,7 @@ pub fn get_load_path(obarray: &super::symbol::Obarray) -> Vec<String> {
         .into_iter()
         .filter_map(|v| match v {
             v if v.is_nil() => Some(default_directory.clone()),
-            _ if v.is_string() => load_string_text(&v),
+            _ if v.is_string() => v.as_lisp_string().cloned(),
             _ => None,
         })
         .collect()

@@ -1053,13 +1053,25 @@ fn init_test_tracing() {
     crate::test_utils::init_test_tracing();
 }
 
+fn load_path_runtime_strings(load_path: &[crate::heap_types::LispString]) -> Vec<String> {
+    load_path
+        .iter()
+        .map(crate::emacs_core::builtins::runtime_string_from_lisp_string)
+        .collect()
+}
+
+fn runtime_path_entry(path: &str) -> crate::heap_types::LispString {
+    crate::emacs_core::builtins::runtime_string_to_lisp_string(path, !path.is_ascii())
+}
+
 fn bootstrap_fixture_path(
-    load_path: &[String],
+    load_path: &[crate::heap_types::LispString],
     name: &str,
     prefer_compiled: bool,
 ) -> Option<PathBuf> {
     for dir in load_path {
-        let base = PathBuf::from(dir).join(name);
+        let base = PathBuf::from(crate::emacs_core::builtins::runtime_string_from_lisp_string(dir))
+            .join(name);
         if prefer_compiled {
             let elc = compiled_suffixed_path(&base);
             if elc.exists() {
@@ -3646,7 +3658,7 @@ fn load_path_extraction() {
     );
     let paths = get_load_path(&ob);
     assert_eq!(
-        paths,
+        load_path_runtime_strings(&paths),
         vec![
             "/usr/share/emacs/lisp",
             "/tmp/project",
@@ -3672,7 +3684,7 @@ fn find_file_with_suffix_flags() {
     fs::write(&el, "el").expect("write el fixture");
     fs::write(&elc, "elc").expect("write elc fixture");
 
-    let load_path = vec![dir.to_string_lossy().to_string()];
+    let load_path = vec![runtime_path_entry(dir.to_string_lossy().as_ref())];
 
     // GNU `load-suffixes` is `(".so" ".elc" ".el")` and `find_file_*`
     // tries them in that order, so .elc is preferred over .el. NeoVM
@@ -3718,7 +3730,7 @@ fn bootstrap_find_file_prefers_ldefs_boot_over_runtime_loaddefs() {
     fs::write(&loaddefs, "runtime loaddefs").expect("write runtime loaddefs fixture");
     fs::write(&ldefs_boot, "bootstrap ldefs-boot").expect("write bootstrap ldefs fixture");
 
-    let load_path = vec![dir.to_string_lossy().to_string()];
+    let load_path = vec![runtime_path_entry(dir.to_string_lossy().as_ref())];
     assert_eq!(
         find_file_in_load_path_with_flags("loaddefs", &load_path, false, false, false),
         Some(loaddefs.clone())
@@ -3786,8 +3798,8 @@ fn find_file_prefers_earlier_load_path_directory() {
     fs::write(&el, "el").expect("write el fixture");
 
     let load_path = vec![
-        d1.to_string_lossy().to_string(),
-        d2.to_string_lossy().to_string(),
+        runtime_path_entry(d1.to_string_lossy().as_ref()),
+        runtime_path_entry(d2.to_string_lossy().as_ref()),
     ];
     assert_eq!(
         find_file_in_load_path_with_flags("choice", &load_path, false, false, false),
@@ -3813,7 +3825,7 @@ fn find_file_prefers_newer_source_when_enabled() {
     std::thread::sleep(std::time::Duration::from_secs(1));
     fs::write(&el, "source").expect("write source fixture");
 
-    let load_path = vec![dir.to_string_lossy().to_string()];
+    let load_path = vec![runtime_path_entry(dir.to_string_lossy().as_ref())];
     // GNU's load order is (.so .elc .el), so .elc is preferred over
     // .el when both exist and prefer-newer is off.
     assert_eq!(
@@ -4378,7 +4390,7 @@ fn find_file_finds_elc_only_artifact_after_elc_loading_enabled() {
     let compiled = dir.join("module.elc");
     fs::write(&compiled, "compiled").expect("write compiled fixture");
 
-    let load_path = vec![dir.to_string_lossy().to_string()];
+    let load_path = vec![runtime_path_entry(dir.to_string_lossy().as_ref())];
     // With .elc loading enabled, an .elc-only artifact resolves
     // directly via the GNU `load-suffixes` order ((.so .elc .el)).
     let found = find_file_in_load_path_with_flags("module", &load_path, false, false, false);
@@ -7130,22 +7142,23 @@ fn macroexpand_all_pcase_terminates() {
     eval.set_variable("max-lisp-eval-depth", Value::fixnum(1600));
 
     let load_path = get_load_path(&eval.obarray());
-    let load_and_report =
-        |eval: &mut crate::emacs_core::eval::Context, name: &str, load_path: &[String]| {
-            let path = find_file_in_load_path(name, load_path).expect(name);
-            load_file(eval, &path).unwrap_or_else(|e| {
-                let msg = match &e {
-                    EvalError::Signal { symbol, data, .. } => {
-                        let sym = crate::emacs_core::intern::resolve_sym(*symbol);
-                        let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
-                        format!("({sym} {})", data_strs.join(" "))
-                    }
-                    other => format!("{other:?}"),
-                };
-                panic!("Failed to load {name}: {msg}");
-            });
-            tracing::info!("  loaded: {name}");
-        };
+    let load_and_report = |eval: &mut crate::emacs_core::eval::Context,
+                           name: &str,
+                           load_path: &[crate::heap_types::LispString]| {
+        let path = find_file_in_load_path(name, load_path).expect(name);
+        load_file(eval, &path).unwrap_or_else(|e| {
+            let msg = match &e {
+                EvalError::Signal { symbol, data, .. } => {
+                    let sym = crate::emacs_core::intern::resolve_sym(*symbol);
+                    let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
+                    format!("({sym} {})", data_strs.join(" "))
+                }
+                other => format!("{other:?}"),
+            };
+            panic!("Failed to load {name}: {msg}");
+        });
+        tracing::info!("  loaded: {name}");
+    };
     // Load minimum set: debug-early, byte-run, backquote, subr, macroexp, pcase
     for name in &[
         "emacs-lisp/debug-early",
@@ -7315,21 +7328,22 @@ fn eager_expand_toplevel_forms_keeps_recursive_progn_forms_alive_under_exact_gc(
     eval.set_variable("max-lisp-eval-depth", Value::fixnum(1600));
 
     let load_path = get_load_path(&eval.obarray());
-    let load_and_report =
-        |eval: &mut crate::emacs_core::eval::Context, name: &str, load_path: &[String]| {
-            let path = find_file_in_load_path(name, load_path).expect(name);
-            load_file(eval, &path).unwrap_or_else(|e| {
-                let msg = match &e {
-                    EvalError::Signal { symbol, data, .. } => {
-                        let sym = crate::emacs_core::intern::resolve_sym(*symbol);
-                        let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
-                        format!("({sym} {})", data_strs.join(" "))
-                    }
-                    other => format!("{other:?}"),
-                };
-                panic!("Failed to load {name}: {msg}");
-            });
-        };
+    let load_and_report = |eval: &mut crate::emacs_core::eval::Context,
+                           name: &str,
+                           load_path: &[crate::heap_types::LispString]| {
+        let path = find_file_in_load_path(name, load_path).expect(name);
+        load_file(eval, &path).unwrap_or_else(|e| {
+            let msg = match &e {
+                EvalError::Signal { symbol, data, .. } => {
+                    let sym = crate::emacs_core::intern::resolve_sym(*symbol);
+                    let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
+                    format!("({sym} {})", data_strs.join(" "))
+                }
+                other => format!("{other:?}"),
+            };
+            panic!("Failed to load {name}: {msg}");
+        });
+    };
 
     for name in &[
         "emacs-lisp/debug-early",
@@ -7461,22 +7475,23 @@ fn pcase_integer_literal_pattern() {
     eval.set_variable("max-lisp-eval-depth", Value::fixnum(1600));
 
     let load_path = get_load_path(&eval.obarray());
-    let load_and_report =
-        |eval: &mut crate::emacs_core::eval::Context, name: &str, load_path: &[String]| {
-            let path = find_file_in_load_path(name, load_path).expect(name);
-            load_file(eval, &path).unwrap_or_else(|e| {
-                let msg = match &e {
-                    EvalError::Signal { symbol, data, .. } => {
-                        let sym = crate::emacs_core::intern::resolve_sym(*symbol);
-                        let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
-                        format!("({sym} {})", data_strs.join(" "))
-                    }
-                    other => format!("{other:?}"),
-                };
-                panic!("Failed to load {name}: {msg}");
-            });
-            tracing::info!("  loaded: {name}");
-        };
+    let load_and_report = |eval: &mut crate::emacs_core::eval::Context,
+                           name: &str,
+                           load_path: &[crate::heap_types::LispString]| {
+        let path = find_file_in_load_path(name, load_path).expect(name);
+        load_file(eval, &path).unwrap_or_else(|e| {
+            let msg = match &e {
+                EvalError::Signal { symbol, data, .. } => {
+                    let sym = crate::emacs_core::intern::resolve_sym(*symbol);
+                    let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
+                    format!("({sym} {})", data_strs.join(" "))
+                }
+                other => format!("{other:?}"),
+            };
+            panic!("Failed to load {name}: {msg}");
+        });
+        tracing::info!("  loaded: {name}");
+    };
     for name in &[
         "emacs-lisp/debug-early",
         "emacs-lisp/byte-run",
