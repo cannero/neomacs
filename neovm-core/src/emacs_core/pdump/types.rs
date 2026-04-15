@@ -841,7 +841,7 @@ pub struct DumpCharsetInfo {
     pub ascii_compatible_p: bool,
     pub supplementary_p: bool,
     pub invalid_code: Option<i64>,
-    pub unify_map: Option<String>,
+    pub unify_map: DumpValue,
     pub method: DumpCharsetMethod,
     pub plist: Vec<(String, DumpValue)>,
 }

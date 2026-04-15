@@ -149,7 +149,7 @@ pub(crate) struct CharsetInfoSnapshot {
     pub ascii_compatible_p: bool,
     pub supplementary_p: bool,
     pub invalid_code: Option<i64>,
-    pub unify_map: Option<String>,
+    pub unify_map: Value,
     pub method: CharsetMethodSnapshot,
     pub plist: Vec<(String, Value)>,
 }
@@ -176,9 +176,9 @@ struct CharsetInfo {
     ascii_compatible_p: bool,
     supplementary_p: bool,
     invalid_code: Option<i64>,
-    unify_map: Option<String>,
+    unify_map: Value,
     method: CharsetMethod,
-    plist: Vec<(String, Value)>,
+    plist: Vec<(SymId, Value)>,
 }
 
 /// Registry of known charsets, keyed by name.
@@ -216,7 +216,7 @@ impl CharsetRegistry {
             ascii_compatible_p: false,
             supplementary_p: false,
             invalid_code: None,
-            unify_map: None,
+            unify_map: Value::NIL,
             method: CharsetMethod::Offset(0),
             plist: vec![],
         }
@@ -341,7 +341,7 @@ impl CharsetRegistry {
     }
 
     /// Return the plist for a charset, or None if not found.
-    pub fn plist(&self, name: SymId) -> Option<&[(String, Value)]> {
+    pub fn plist(&self, name: SymId) -> Option<&[(SymId, Value)]> {
         self.charsets.get(&name).map(|info| info.plist.as_slice())
     }
 
@@ -399,7 +399,11 @@ impl CharsetRegistry {
                             .collect(),
                     ),
                 },
-                plist: info.plist,
+                plist: info
+                    .plist
+                    .iter()
+                    .map(|(key, value)| (resolve_sym(*key).to_string(), *value))
+                    .collect(),
             })
             .collect::<Vec<_>>();
         charsets.sort_by(|left, right| left.name.cmp(&right.name));
@@ -453,7 +457,11 @@ impl CharsetRegistry {
                                 .collect(),
                         ),
                     },
-                    plist: info.plist,
+                    plist: info
+                        .plist
+                        .into_iter()
+                        .map(|(key, value)| (intern(&key), value))
+                        .collect(),
                 },
             );
         }
@@ -470,7 +478,7 @@ impl CharsetRegistry {
     }
 
     /// Replace the plist for a charset.
-    pub fn set_plist(&mut self, name: SymId, plist: Vec<(String, Value)>) {
+    pub fn set_plist(&mut self, name: SymId, plist: Vec<(SymId, Value)>) {
         if let Some(info) = self.charsets.get_mut(&name) {
             info.plist = plist;
         }
@@ -492,8 +500,8 @@ impl CharsetRegistry {
         if code_point < info.min_code || code_point > info.max_code {
             return None;
         }
-        if let Some(unify_map) = info.unify_map.as_deref()
-            && let Some(decoded) = load_charset_map(unify_map)
+        if let Some(unify_map) = charset_value_text(&info.unify_map)
+            && let Some(decoded) = load_charset_map(&unify_map)
                 .and_then(|map| map.code_to_char.get(&code_point).copied())
         {
             return Some(decoded);
@@ -525,9 +533,9 @@ impl CharsetRegistry {
     /// represented in the charset.
     pub fn encode_char(&self, name: SymId, ch: i64) -> Option<i64> {
         let info = self.charsets.get(&name)?;
-        if let Some(unify_map) = info.unify_map.as_deref()
+        if let Some(unify_map) = charset_value_text(&info.unify_map)
             && let Some(encoded) =
-                load_charset_map(unify_map).and_then(|map| map.char_to_code.get(&ch).copied())
+                load_charset_map(&unify_map).and_then(|map| map.char_to_code.get(&ch).copied())
         {
             return Some(encoded);
         }
@@ -591,6 +599,9 @@ pub(crate) fn collect_charset_gc_roots(roots: &mut Vec<Value>) {
     CHARSET_REGISTRY.with(|slot| {
         let reg = slot.borrow();
         for info in reg.charsets.values() {
+            if !info.unify_map.is_nil() {
+                roots.push(info.unify_map);
+            }
             for (_, value) in &info.plist {
                 roots.push(*value);
             }
@@ -607,10 +618,8 @@ pub(crate) fn restore_charset_registry(snapshot: CharsetRegistrySnapshot) {
 }
 
 /// Set the plist for a charset (used by `set-charset-plist` builtin).
-pub(crate) fn set_charset_plist_registry(name: &str, plist: Vec<(String, Value)>) {
-    if let Some(name) = lookup_interned(name) {
-        CHARSET_REGISTRY.with(|slot| slot.borrow_mut().set_plist(name, plist));
-    }
+pub(crate) fn set_charset_plist_registry(name: SymId, plist: Vec<(SymId, Value)>) {
+    CHARSET_REGISTRY.with(|slot| slot.borrow_mut().set_plist(name, plist));
 }
 
 pub(crate) fn charset_target_ranges(name: &str) -> Option<Vec<(u32, u32)>> {
@@ -949,7 +958,7 @@ pub(crate) fn builtin_charset_plist(args: Vec<Value>) -> EvalResult {
         if let Some(pairs) = reg.plist(name) {
             let mut elems = Vec::with_capacity(pairs.len() * 2);
             for (key, val) in pairs {
-                elems.push(Value::symbol(key.clone()));
+                elems.push(Value::from_sym_id(*key));
                 elems.push(*val);
             }
             Ok(Value::list(elems))
@@ -1022,15 +1031,15 @@ fn decode_code_arg(val: &Value) -> i64 {
 }
 
 /// Parse a plist Value into a Vec of (key, value) pairs.
-fn parse_plist(val: &Value) -> Vec<(String, Value)> {
+fn parse_plist(val: &Value) -> Vec<(SymId, Value)> {
     let mut result = Vec::new();
     let Some(items) = list_to_vec(val) else {
         return result;
     };
     let mut i = 0;
     while i + 1 < items.len() {
-        if let Some(key) = items[i].as_symbol_name() {
-            result.push((key.to_string(), items[i + 1]));
+        if let Some(key) = items[i].as_symbol_id() {
+            result.push((key, items[i + 1]));
         }
         i += 2;
     }
@@ -1192,12 +1201,7 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
 
     // arg[15]: unify-map
     // arg[16]: plist
-    let unify_map = match args[15].kind() {
-        ValueKind::Nil => None,
-        ValueKind::String => args[15].as_runtime_string_owned(),
-        ValueKind::Symbol(id) => Some(resolve_sym(id).to_string()),
-        _ => None,
-    };
+    let unify_map = args[15];
     let plist = parse_plist(&args[16]);
 
     CHARSET_REGISTRY.with(|slot| {

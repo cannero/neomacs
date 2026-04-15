@@ -2287,7 +2287,7 @@ pub(crate) fn builtin_set_buffer_auto_saved(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_set_charset_plist(args: Vec<Value>) -> EvalResult {
     expect_args("set-charset-plist", &args, 2)?;
     let name = match args[0].kind() {
-        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
+        ValueKind::Symbol(id) => id,
         _other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -2300,13 +2300,13 @@ pub(crate) fn builtin_set_charset_plist(args: Vec<Value>) -> EvalResult {
     if let Some(items) = list_to_vec(&args[1]) {
         let mut i = 0;
         while i + 1 < items.len() {
-            if let Some(key) = items[i].as_symbol_name() {
-                plist_pairs.push((key.to_string(), items[i + 1]));
+            if let Some(key) = items[i].as_symbol_id() {
+                plist_pairs.push((key, items[i + 1]));
             }
             i += 2;
         }
     }
-    super::charset::set_charset_plist_registry(&name, plist_pairs);
+    super::charset::set_charset_plist_registry(name, plist_pairs);
     Ok(args[1])
 }
 

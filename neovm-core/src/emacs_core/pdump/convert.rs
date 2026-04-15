@@ -1471,7 +1471,7 @@ pub(crate) fn dump_charset_registry(encoder: &mut DumpEncoder) -> DumpCharsetReg
                 ascii_compatible_p: info.ascii_compatible_p,
                 supplementary_p: info.supplementary_p,
                 invalid_code: info.invalid_code,
-                unify_map: info.unify_map,
+                unify_map: encoder.dump_value(&info.unify_map),
                 method: match info.method {
                     CharsetMethodSnapshot::Offset(offset) => DumpCharsetMethod::Offset(offset),
                     CharsetMethodSnapshot::Map(map_name) => DumpCharsetMethod::Map(map_name),
@@ -2959,7 +2959,7 @@ pub(crate) fn load_charset_registry(decoder: &mut LoadDecoder, dcr: &DumpCharset
                 ascii_compatible_p: info.ascii_compatible_p,
                 supplementary_p: info.supplementary_p,
                 invalid_code: info.invalid_code,
-                unify_map: info.unify_map.clone(),
+                unify_map: decoder.load_value(&info.unify_map),
                 method: match &info.method {
                     DumpCharsetMethod::Offset(offset) => CharsetMethodSnapshot::Offset(*offset),
                     DumpCharsetMethod::Map(map_name) => {

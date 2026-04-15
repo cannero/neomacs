@@ -346,6 +346,43 @@ fn define_charset_internal_registers_charset() {
 }
 
 #[test]
+fn define_charset_internal_keeps_symbol_plist_keys_and_roots_unify_map_value() {
+    crate::test_utils::init_test_tracing();
+    reset_charset_registry();
+
+    let unify_map = Value::string("8859-2");
+    let mut args = vec![Value::NIL; 17];
+    args[0] = Value::symbol("test-charset-live-metadata");
+    args[1] = Value::fixnum(1);
+    args[2] = Value::vector(vec![Value::fixnum(0), Value::fixnum(255)]);
+    args[15] = unify_map;
+    args[16] = Value::list(vec![
+        Value::keyword(":foo"),
+        Value::fixnum(42),
+        Value::symbol("bar"),
+        Value::T,
+    ]);
+
+    builtin_define_charset_internal(args).unwrap();
+
+    CHARSET_REGISTRY.with(|slot| {
+        let reg = slot.borrow();
+        let plist = reg
+            .plist(intern("test-charset-live-metadata"))
+            .expect("charset plist should exist");
+        assert_eq!(plist.len(), 2);
+        assert_eq!(resolve_sym(plist[0].0), ":foo");
+        assert_eq!(plist[0].1, Value::fixnum(42));
+        assert_eq!(resolve_sym(plist[1].0), "bar");
+        assert_eq!(plist[1].1, Value::T);
+    });
+
+    let mut roots = Vec::new();
+    collect_charset_gc_roots(&mut roots);
+    assert!(roots.contains(&unify_map));
+}
+
+#[test]
 fn define_charset_internal_short_code_space_signals_error() {
     crate::test_utils::init_test_tracing();
     let mut args = vec![Value::NIL; 17];
