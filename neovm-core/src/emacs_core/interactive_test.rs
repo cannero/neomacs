@@ -44,6 +44,18 @@ fn eval_one(src: &str) -> String {
     eval_all(src).into_iter().next().expect("at least one form")
 }
 
+#[test]
+fn parse_interactive_code_entries_preserves_raw_unibyte_prompt_bytes() {
+    let spec = crate::heap_types::LispString::from_unibyte(vec![b'a', 0xFF, b':', b' ']);
+    let parsed = parse_interactive_code_entries(&spec);
+
+    assert!(parsed.prefix_flags.is_empty());
+    assert_eq!(parsed.entries.len(), 1);
+    assert_eq!(parsed.entries[0].0, 'a');
+    assert_eq!(parsed.entries[0].1.as_bytes(), &[0xFF, b':', b' ']);
+    assert!(!parsed.entries[0].1.is_multibyte());
+}
+
 fn eval_all_with(ev: &mut Context, src: &str) -> Vec<String> {
     let forms = crate::emacs_core::value_reader::read_all(src).expect("parse");
     let saved_len = ev.save_temp_roots();
@@ -1330,9 +1342,10 @@ fn interactive_lambda_r_capital_spec_uses_use_region_p_semantics() {
 
     let mut context = InteractiveInvocationContext::default();
     let _ = ev.eval_str("(fset 'use-region-p (lambda () nil))");
+    let region_spec = crate::heap_types::LispString::from_utf8("R");
     let args = interactive_args_from_string_code(
         &mut ev,
-        "R",
+        &region_spec,
         CommandInvocationKind::CallInteractively,
         &mut context,
     )
@@ -1343,7 +1356,7 @@ fn interactive_lambda_r_capital_spec_uses_use_region_p_semantics() {
     let _ = ev.eval_str("(fset 'use-region-p (lambda () t))");
     let args = interactive_args_from_string_code(
         &mut ev,
-        "R",
+        &region_spec,
         CommandInvocationKind::CallInteractively,
         &mut context,
     )
