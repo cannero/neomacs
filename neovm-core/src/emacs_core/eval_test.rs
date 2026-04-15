@@ -8396,17 +8396,51 @@ fn runtime_backtrace_frame_owns_args_across_exact_gc() {
 
     ev.gc_collect_exact();
 
-    let rooted = ev
+    let frame = ev
         .runtime_backtrace
         .last()
-        .expect("runtime backtrace frame should remain present")
-        .args()[0];
+        .expect("runtime backtrace frame should remain present");
+    let rooted = ev.runtime_backtrace_frame_args(frame)[0];
     assert_eq!(
         rooted.as_vector_data().unwrap().as_slice(),
         &[Value::fixnum(7)]
     );
 
     ev.pop_runtime_backtrace_frame();
+}
+
+#[test]
+fn runtime_backtrace_can_reference_active_call_args_across_exact_gc() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+
+    let payload = Value::vector(vec![Value::fixnum(17)]);
+    {
+        let args = vec![payload];
+        ev.push_active_call_frame(
+            Value::symbol("runtime-backtrace-active-call"),
+            Some(Value::symbol("identity")),
+            &args,
+        );
+    }
+    ev.push_runtime_backtrace_frame_from_active_call(Value::symbol(
+        "runtime-backtrace-active-call",
+    ));
+
+    ev.gc_collect_exact();
+
+    let frame = ev
+        .runtime_backtrace
+        .last()
+        .expect("runtime backtrace frame should remain present");
+    let rooted = ev.runtime_backtrace_frame_args(frame)[0];
+    assert_eq!(
+        rooted.as_vector_data().unwrap().as_slice(),
+        &[Value::fixnum(17)]
+    );
+
+    ev.pop_runtime_backtrace_frame();
+    ev.pop_active_call_frame();
 }
 
 #[test]

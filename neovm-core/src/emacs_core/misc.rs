@@ -709,12 +709,13 @@ fn apply_backtrace_callback(
     function: Value,
     frame: &super::eval::RuntimeBacktraceFrame,
 ) -> EvalResult {
+    let frame_args = eval.runtime_backtrace_frame_args(frame);
     eval.apply(
         function,
         vec![
             Value::bool_val(frame.evaluated),
             frame.function,
-            Value::list(frame.args().iter().copied().collect()),
+            Value::list(frame_args.iter().copied().collect()),
             runtime_backtrace_frame_flags(frame),
         ],
     )

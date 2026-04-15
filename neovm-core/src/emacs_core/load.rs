@@ -1238,8 +1238,8 @@ fn streaming_readevalloop(
                 tracing::error!("  Lisp backtrace:");
                 for (j, frame) in eval.runtime_backtrace.iter().rev().enumerate() {
                     let func_name = super::print::print_value(&frame.function);
-                    let args_str = frame
-                        .args()
+                    let frame_args = eval.runtime_backtrace_frame_args(frame);
+                    let args_str = frame_args
                         .iter()
                         .take(4)
                         .map(|a| {
@@ -1252,7 +1252,7 @@ fn streaming_readevalloop(
                         })
                         .collect::<Vec<_>>()
                         .join(" ");
-                    let ellipsis = if frame.args_len() > 4 { " ..." } else { "" };
+                    let ellipsis = if frame_args.len() > 4 { " ..." } else { "" };
                     tracing::error!("    {j}: ({func_name} {args_str}{ellipsis})");
                     if j >= 20 {
                         tracing::error!(

@@ -177,23 +177,12 @@ pub(crate) enum SpecBinding {
 #[derive(Debug)]
 pub(crate) enum RuntimeBacktraceArgs {
     Owned(LispArgVec),
+    ActiveCallFrame(usize),
 }
 
 impl RuntimeBacktraceArgs {
     fn owned_from_slice(args: &[Value]) -> Self {
         Self::Owned(args.iter().copied().collect())
-    }
-
-    fn as_slice(&self) -> &[Value] {
-        match self {
-            Self::Owned(values) => values.as_slice(),
-        }
-    }
-
-    fn len(&self) -> usize {
-        match self {
-            Self::Owned(values) => values.len(),
-        }
     }
 }
 
@@ -209,20 +198,15 @@ impl Clone for RuntimeBacktraceFrame {
     fn clone(&self) -> Self {
         Self {
             function: self.function,
-            args: RuntimeBacktraceArgs::owned_from_slice(self.args.as_slice()),
+            args: match &self.args {
+                RuntimeBacktraceArgs::Owned(values) => RuntimeBacktraceArgs::Owned(values.clone()),
+                RuntimeBacktraceArgs::ActiveCallFrame(index) => {
+                    RuntimeBacktraceArgs::ActiveCallFrame(*index)
+                }
+            },
             evaluated: self.evaluated,
             debug_on_exit: self.debug_on_exit,
         }
-    }
-}
-
-impl RuntimeBacktraceFrame {
-    pub(crate) fn args(&self) -> &[Value] {
-        self.args.as_slice()
-    }
-
-    pub(crate) fn args_len(&self) -> usize {
-        self.args.len()
     }
 }
 
@@ -4504,8 +4488,10 @@ impl Context {
         }
         for frame in &self.runtime_backtrace {
             visit(frame.function);
-            for arg in frame.args().iter().copied() {
-                visit(arg);
+            if let RuntimeBacktraceArgs::Owned(args) = &frame.args {
+                for arg in args.iter().copied() {
+                    visit(arg);
+                }
             }
         }
         for funcall in &self.pending_safe_funcalls {
@@ -9008,8 +8994,36 @@ impl Context {
         });
     }
 
+    pub(crate) fn push_runtime_backtrace_frame_from_active_call(&mut self, function: Value) {
+        let active_index = self
+            .active_call_roots
+            .len()
+            .checked_sub(1)
+            .expect("active call frame required for runtime backtrace reference");
+        self.runtime_backtrace.push(RuntimeBacktraceFrame {
+            function,
+            args: RuntimeBacktraceArgs::ActiveCallFrame(active_index),
+            evaluated: true,
+            debug_on_exit: false,
+        });
+    }
+
     pub(crate) fn pop_runtime_backtrace_frame(&mut self) {
         self.runtime_backtrace.pop();
+    }
+
+    pub(crate) fn runtime_backtrace_frame_args<'a>(
+        &'a self,
+        frame: &'a RuntimeBacktraceFrame,
+    ) -> &'a [Value] {
+        match &frame.args {
+            RuntimeBacktraceArgs::Owned(values) => values.as_slice(),
+            RuntimeBacktraceArgs::ActiveCallFrame(index) => self
+                .active_call_roots
+                .get(*index)
+                .map(|frame| frame.args.as_slice())
+                .expect("active call frame missing for runtime backtrace args"),
+        }
     }
 
     pub(crate) fn push_active_call_frame(
@@ -9148,6 +9162,17 @@ impl Context {
         result
     }
 
+    pub(crate) fn with_runtime_backtrace_frame_from_active_call(
+        &mut self,
+        function: Value,
+        f: impl FnOnce(&mut Self) -> EvalResult,
+    ) -> EvalResult {
+        self.push_runtime_backtrace_frame_from_active_call(function);
+        let result = f(self);
+        self.pop_runtime_backtrace_frame();
+        result
+    }
+
     fn apply_internal(
         &mut self,
         function: Value,
@@ -9162,7 +9187,9 @@ impl Context {
             // in stacker::maybe_grow.
             self.maybe_grow_eval_stack(|ctx| {
                 if record_backtrace {
-                    ctx.funcall_general(function, args)
+                    ctx.with_runtime_backtrace_frame_from_active_call(function, |eval| {
+                        eval.funcall_general_untraced(function, args)
+                    })
                 } else {
                     ctx.funcall_general_untraced(function, args)
                 }
@@ -9221,7 +9248,7 @@ impl Context {
         self.push_active_call_frame(frame_function, Some(func), &args);
         let result = self.maybe_gc_and_quit().and_then(|_| {
             self.maybe_grow_eval_stack(|ctx| {
-                ctx.with_runtime_backtrace_frame(frame_function, args, |eval, args| {
+                ctx.with_runtime_backtrace_frame_from_active_call(frame_function, |eval| {
                     eval.funcall_general_untraced(func, args)
                 })
             })
@@ -9239,7 +9266,7 @@ impl Context {
     ) -> EvalResult {
         self.maybe_gc_and_quit()?;
         self.maybe_grow_eval_stack(|ctx| {
-            ctx.with_runtime_backtrace_frame(frame_function, args, |eval, args| {
+            ctx.with_runtime_backtrace_frame_from_active_call(frame_function, |eval| {
                 eval.funcall_general_untraced(func, args)
             })
         })
