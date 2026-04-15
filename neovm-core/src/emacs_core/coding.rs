@@ -562,36 +562,28 @@ impl CodingSystemManager {
     }
 
     /// Get all aliases that point to a given canonical name.
-    pub fn aliases_for(&self, canonical: &str) -> Vec<String> {
-        let Some(target) = self.resolve(canonical) else {
-            return Vec::new();
-        };
-
+    pub fn aliases_for(&self, canonical: SymId) -> Vec<SymId> {
         self.aliases
             .iter()
-            .filter(|(_, v)| **v == target)
-            .map(|(k, _)| resolve_sym(*k).to_string())
+            .filter(|(_, v)| **v == canonical)
+            .map(|(k, _)| *k)
             .collect()
     }
 
     /// List all registered coding system names (canonical only).
-    pub fn list_all(&self) -> Vec<String> {
-        let mut names: Vec<String> = self
-            .systems
-            .keys()
-            .map(|id| resolve_sym(*id).to_string())
-            .collect();
-        names.sort();
+    pub fn list_all(&self) -> Vec<SymId> {
+        let mut names: Vec<SymId> = self.systems.keys().copied().collect();
+        names.sort_by(|left, right| resolve_sym(*left).cmp(resolve_sym(*right)));
         names
     }
 
+    pub(crate) fn keyboard_coding_sym(&self) -> SymId {
+        self.keyboard_coding
+    }
+    pub(crate) fn terminal_coding_sym(&self) -> SymId {
+        self.terminal_coding
+    }
     // pdump accessors
-    pub(crate) fn keyboard_coding_name(&self) -> &str {
-        resolve_sym(self.keyboard_coding)
-    }
-    pub(crate) fn terminal_coding_name(&self) -> &str {
-        resolve_sym(self.terminal_coding)
-    }
     pub(crate) fn dump_keyboard_coding(&self) -> &str {
         resolve_sym(self.keyboard_coding)
     }
@@ -690,7 +682,8 @@ pub(crate) fn builtin_coding_system_list(
     let names = mgr.list_all();
     let filtered: Vec<Value> = names
         .into_iter()
-        .filter(|n| {
+        .filter(|id| {
+            let n = resolve_sym(*id);
             if base_only {
                 !n.ends_with("-unix") && !n.ends_with("-dos") && !n.ends_with("-mac")
             } else {
@@ -733,14 +726,18 @@ pub(crate) fn builtin_coding_system_aliases(
     let canonical = runtime_bucket_name(mgr, &resolved_name)
         .ok_or_else(|| signal("coding-system-error", vec![args[0]]))?;
     let display = display_base_name(strip_eol_suffix(&resolved_name)).to_string();
-    let mut aliases = mgr.aliases_for(&canonical);
+    let canonical_id = mgr
+        .resolve(&canonical)
+        .ok_or_else(|| signal("coding-system-error", vec![args[0]]))?;
+    let mut aliases = mgr.aliases_for(canonical_id);
     aliases.sort_by(|a, b| {
-        alias_sort_rank(&canonical, a)
-            .cmp(&alias_sort_rank(&canonical, b))
-            .then_with(|| a.cmp(b))
+        alias_sort_rank(&canonical, resolve_sym(*a))
+            .cmp(&alias_sort_rank(&canonical, resolve_sym(*b)))
+            .then_with(|| resolve_sym(*a).cmp(resolve_sym(*b)))
     });
     let mut names = vec![format!("{display}{suffix}")];
     for alias in aliases {
+        let alias = resolve_sym(alias);
         if alias != display {
             names.push(format!("{alias}{suffix}"));
         }

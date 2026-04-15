@@ -648,8 +648,8 @@ fn build_mode_line_percent_context(
     // --- Coding system mnemonic (GNU: decode_mode_spec_coding) ---
     let cs_name = context_buffer
         .and_then(|b| b.get_buffer_local("buffer-file-coding-system"))
-        .and_then(|v| v.as_symbol_name().map(|s| s.to_string()));
-    if let Some(ref name) = cs_name {
+        .and_then(|v| v.as_symbol_id());
+    if let Some(name) = cs_name {
         ctx.coding_mnemonic = coding_system_mnemonic_char(name);
         ctx.eol_indicator = coding_system_eol_indicator_value(obarray, name);
     }
@@ -661,18 +661,18 @@ fn build_mode_line_percent_context(
     if ctx.is_tty_frame {
         if let Some(coding_systems) = coding_systems {
             ctx.terminal_coding_mnemonic =
-                coding_system_mnemonic_char(coding_systems.terminal_coding_name());
+                coding_system_mnemonic_char(coding_systems.terminal_coding_sym());
             ctx.keyboard_coding_mnemonic =
-                coding_system_mnemonic_char(coding_systems.keyboard_coding_name());
+                coding_system_mnemonic_char(coding_systems.keyboard_coding_sym());
         } else {
             let term_cs = obarray
                 .symbol_value("terminal-coding-system")
-                .and_then(|v| v.as_symbol_name());
+                .and_then(|v| v.as_symbol_id());
             ctx.terminal_coding_mnemonic = term_cs.map(coding_system_mnemonic_char).unwrap_or('-');
 
             let kbd_cs = obarray
                 .symbol_value("keyboard-coding-system")
-                .and_then(|v| v.as_symbol_name());
+                .and_then(|v| v.as_symbol_id());
             ctx.keyboard_coding_mnemonic = kbd_cs.map(coding_system_mnemonic_char).unwrap_or('-');
         }
     }
@@ -719,7 +719,8 @@ fn resolve_mode_line_window<'a>(
 /// Derive coding system mnemonic character from coding system name.
 ///
 /// Matches GNU `decode_mode_spec_coding` heuristics for common systems.
-fn coding_system_mnemonic_char(cs_name: &str) -> char {
+fn coding_system_mnemonic_char(cs_name: crate::emacs_core::intern::SymId) -> char {
+    let cs_name = crate::emacs_core::intern::resolve_sym(cs_name);
     let base = cs_name
         .strip_suffix("-unix")
         .or_else(|| cs_name.strip_suffix("-dos"))
@@ -751,8 +752,9 @@ fn coding_system_mnemonic_char(cs_name: &str) -> char {
 /// `eol-mnemonic-*` variables from the obarray (matches GNU semantics).
 fn coding_system_eol_indicator_value(
     obarray: &crate::emacs_core::symbol::Obarray,
-    cs_name: &str,
+    cs_name: crate::emacs_core::intern::SymId,
 ) -> Option<Value> {
+    let cs_name = crate::emacs_core::intern::resolve_sym(cs_name);
     let var_name = if cs_name.ends_with("-dos") {
         "eol-mnemonic-dos"
     } else if cs_name.ends_with("-mac") {
