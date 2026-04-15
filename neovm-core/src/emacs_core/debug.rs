@@ -10,7 +10,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::intern::resolve_sym;
+use super::intern::{SymId, intern, lookup_interned, resolve_sym};
 use super::print::print_value;
 use super::value::{Value, ValueKind, VecLikeType};
 
@@ -169,7 +169,7 @@ pub struct Breakpoint {
     /// Unique identifier.
     pub id: usize,
     /// The function this breakpoint is set on.
-    pub function: String,
+    pub function: SymId,
     /// Whether the breakpoint is currently enabled.
     pub enabled: bool,
     /// Optional condition expression (source string).
@@ -187,7 +187,7 @@ pub struct DebugState {
     /// Whether the debugger is currently active (stopped at a breakpoint/error).
     pub active: bool,
     /// Set of function names that should trigger the debugger on entry.
-    pub debug_on_entry: HashSet<String>,
+    pub debug_on_entry: HashSet<SymId>,
     /// Whether we are in single-step mode.
     pub stepping: bool,
     /// The current backtrace (populated during evaluation).
@@ -222,10 +222,13 @@ impl DebugState {
 
     /// Check whether the debugger should be entered when `function` is called.
     pub fn should_debug_on_entry(&self, function: &str) -> bool {
-        if self.debug_on_entry.contains(function) {
+        lookup_interned(function).is_some_and(|symbol| self.should_debug_on_entry_symbol(symbol))
+    }
+
+    pub fn should_debug_on_entry_symbol(&self, function: SymId) -> bool {
+        if self.debug_on_entry.contains(&function) {
             return true;
         }
-        // Also check breakpoints
         self.breakpoints
             .iter()
             .any(|bp| bp.enabled && bp.function == function)
@@ -233,21 +236,35 @@ impl DebugState {
 
     /// Mark a function for debug-on-entry.
     pub fn add_debug_on_entry(&mut self, function: &str) {
-        self.debug_on_entry.insert(function.to_string());
+        self.add_debug_on_entry_symbol(intern(function));
+    }
+
+    pub fn add_debug_on_entry_symbol(&mut self, function: SymId) {
+        self.debug_on_entry.insert(function);
     }
 
     /// Remove a function from debug-on-entry.
     pub fn remove_debug_on_entry(&mut self, function: &str) {
-        self.debug_on_entry.remove(function);
+        if let Some(symbol) = lookup_interned(function) {
+            self.remove_debug_on_entry_symbol(symbol);
+        }
+    }
+
+    pub fn remove_debug_on_entry_symbol(&mut self, function: SymId) {
+        self.debug_on_entry.remove(&function);
     }
 
     /// Add a breakpoint on a function.  Returns the breakpoint id.
     pub fn add_breakpoint(&mut self, function: &str) -> usize {
+        self.add_breakpoint_symbol(intern(function))
+    }
+
+    pub fn add_breakpoint_symbol(&mut self, function: SymId) -> usize {
         let id = self.next_bp_id;
         self.next_bp_id += 1;
         self.breakpoints.push(Breakpoint {
             id,
-            function: function.to_string(),
+            function,
             enabled: true,
             condition: None,
             hit_count: 0,
@@ -257,11 +274,15 @@ impl DebugState {
 
     /// Add a breakpoint with a condition expression.  Returns the breakpoint id.
     pub fn add_conditional_breakpoint(&mut self, function: &str, condition: &str) -> usize {
+        self.add_conditional_breakpoint_symbol(intern(function), condition)
+    }
+
+    pub fn add_conditional_breakpoint_symbol(&mut self, function: SymId, condition: &str) -> usize {
         let id = self.next_bp_id;
         self.next_bp_id += 1;
         self.breakpoints.push(Breakpoint {
             id,
-            function: function.to_string(),
+            function,
             enabled: true,
             condition: Some(condition.to_string()),
             hit_count: 0,
@@ -289,6 +310,12 @@ impl DebugState {
 
     /// Record a breakpoint hit (increment hit_count).
     pub fn record_breakpoint_hit(&mut self, function: &str) {
+        if let Some(symbol) = lookup_interned(function) {
+            self.record_breakpoint_hit_symbol(symbol);
+        }
+    }
+
+    pub fn record_breakpoint_hit_symbol(&mut self, function: SymId) {
         for bp in &mut self.breakpoints {
             if bp.enabled && bp.function == function {
                 bp.hit_count += 1;

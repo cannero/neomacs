@@ -1,5 +1,5 @@
 use super::*;
-use crate::emacs_core::intern::intern;
+use crate::emacs_core::intern::{intern, resolve_sym};
 use crate::emacs_core::value::{LambdaData, LambdaParams};
 
 /// Placeholder retained for old test setup naming — tagged heap is auto-created for tests.
@@ -167,7 +167,7 @@ fn breakpoint_add_remove() {
 
     assert!(ds.remove_breakpoint(id1));
     assert_eq!(ds.list_breakpoints().len(), 1);
-    assert_eq!(ds.list_breakpoints()[0].function, "bar");
+    assert_eq!(resolve_sym(ds.list_breakpoints()[0].function), "bar");
 
     // Removing non-existent returns false
     assert!(!ds.remove_breakpoint(999));
