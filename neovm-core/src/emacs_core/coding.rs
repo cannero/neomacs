@@ -598,25 +598,25 @@ impl CodingSystemManager {
     pub(crate) fn dump_terminal_coding(&self) -> &str {
         resolve_sym(self.terminal_coding)
     }
+    pub(crate) fn dump_keyboard_coding_sym(&self) -> SymId {
+        self.keyboard_coding
+    }
+    pub(crate) fn dump_terminal_coding_sym(&self) -> SymId {
+        self.terminal_coding
+    }
     pub(crate) fn from_dump(
-        systems: HashMap<String, CodingSystemInfo>,
-        aliases: HashMap<String, String>,
-        priority: Vec<String>,
-        keyboard_coding: String,
-        terminal_coding: String,
+        systems: HashMap<SymId, CodingSystemInfo>,
+        aliases: HashMap<SymId, SymId>,
+        priority: Vec<SymId>,
+        keyboard_coding: SymId,
+        terminal_coding: SymId,
     ) -> Self {
         Self {
-            systems: systems
-                .into_iter()
-                .map(|(name, info)| (intern(&name), info))
-                .collect(),
-            aliases: aliases
-                .into_iter()
-                .map(|(alias, target)| (intern(&alias), intern(&target)))
-                .collect(),
-            priority: priority.into_iter().map(|name| intern(&name)).collect(),
-            keyboard_coding: intern(&keyboard_coding),
-            terminal_coding: intern(&terminal_coding),
+            systems,
+            aliases,
+            priority,
+            keyboard_coding,
+            terminal_coding,
         }
     }
 

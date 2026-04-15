@@ -1403,42 +1403,38 @@ pub(crate) fn dump_coding_system_manager(
     csm: &CodingSystemManager,
 ) -> DumpCodingSystemManager {
     DumpCodingSystemManager {
-        systems: csm
+        systems_syms: csm
             .systems
             .iter()
             .map(|(k, v)| {
                 (
-                    crate::emacs_core::intern::resolve_sym(*k).to_string(),
+                    dump_sym_id(*k),
                     DumpCodingSystemInfo {
-                        name: crate::emacs_core::intern::resolve_sym(v.name).to_string(),
-                        coding_type: crate::emacs_core::intern::resolve_sym(v.coding_type)
-                            .to_string(),
+                        name_sym: Some(dump_sym_id(v.name)),
+                        name: None,
+                        coding_type_sym: Some(dump_sym_id(v.coding_type)),
+                        coding_type: None,
                         mnemonic: v.mnemonic,
                         eol_type: dump_eol_type(&v.eol_type),
                         ascii_compatible_p: v.ascii_compatible_p,
-                        charset_list: v
+                        charset_list_syms: v
                             .charset_list
                             .iter()
-                            .map(|id| crate::emacs_core::intern::resolve_sym(*id).to_string())
+                            .map(|id| dump_sym_id(*id))
                             .collect(),
-                        post_read_conversion: v
-                            .post_read_conversion
-                            .map(|id| crate::emacs_core::intern::resolve_sym(id).to_string()),
-                        pre_write_conversion: v
-                            .pre_write_conversion
-                            .map(|id| crate::emacs_core::intern::resolve_sym(id).to_string()),
+                        charset_list: Vec::new(),
+                        post_read_conversion_sym: v.post_read_conversion.map(dump_sym_id),
+                        post_read_conversion: None,
+                        pre_write_conversion_sym: v.pre_write_conversion.map(dump_sym_id),
+                        pre_write_conversion: None,
                         default_char: v.default_char,
                         for_unibyte: v.for_unibyte,
-                        properties: v
+                        properties_syms: v
                             .properties
                             .iter()
-                            .map(|(k, v)| {
-                                (
-                                    crate::emacs_core::intern::resolve_sym(*k).to_string(),
-                                    encoder.dump_value(v),
-                                )
-                            })
+                            .map(|(k, v)| (dump_sym_id(*k), encoder.dump_value(v)))
                             .collect(),
+                        properties: Vec::new(),
                         int_properties: v
                             .int_properties
                             .iter()
@@ -1448,23 +1444,19 @@ pub(crate) fn dump_coding_system_manager(
                 )
             })
             .collect(),
-        aliases: csm
+        systems: Vec::new(),
+        aliases_syms: csm
             .aliases
             .iter()
-            .map(|(k, v)| {
-                (
-                    crate::emacs_core::intern::resolve_sym(*k).to_string(),
-                    crate::emacs_core::intern::resolve_sym(*v).to_string(),
-                )
-            })
+            .map(|(k, v)| (dump_sym_id(*k), dump_sym_id(*v)))
             .collect(),
-        priority: csm
-            .priority
-            .iter()
-            .map(|id| crate::emacs_core::intern::resolve_sym(*id).to_string())
-            .collect(),
-        keyboard_coding: csm.dump_keyboard_coding().to_owned(),
-        terminal_coding: csm.dump_terminal_coding().to_owned(),
+        aliases: Vec::new(),
+        priority_syms: csm.priority.iter().map(|id| dump_sym_id(*id)).collect(),
+        priority: Vec::new(),
+        keyboard_coding_sym: Some(dump_sym_id(csm.dump_keyboard_coding_sym())),
+        keyboard_coding: None,
+        terminal_coding_sym: Some(dump_sym_id(csm.dump_terminal_coding_sym())),
+        terminal_coding: None,
     }
 }
 
@@ -2962,61 +2954,188 @@ pub(crate) fn load_coding_system_manager(
     decoder: &mut LoadDecoder,
     dcsm: &DumpCodingSystemManager,
 ) -> CodingSystemManager {
-    let systems: HashMap<String, CodingSystemInfo> = dcsm
-        .systems
-        .iter()
-        .map(|(k, v)| {
-            (
-                k.clone(),
-                CodingSystemInfo {
-                    name: crate::emacs_core::intern::intern(&v.name),
-                    coding_type: crate::emacs_core::intern::intern(&v.coding_type),
-                    mnemonic: v.mnemonic,
-                    eol_type: match v.eol_type {
-                        DumpEolType::Unix => EolType::Unix,
-                        DumpEolType::Dos => EolType::Dos,
-                        DumpEolType::Mac => EolType::Mac,
-                        DumpEolType::Undecided => EolType::Undecided,
+    let systems: HashMap<SymId, CodingSystemInfo> = if dcsm.systems_syms.is_empty() {
+        dcsm.systems
+            .iter()
+            .map(|(k, v)| {
+                (
+                    crate::emacs_core::intern::intern(k),
+                    CodingSystemInfo {
+                        name: crate::emacs_core::intern::intern(
+                            v.name
+                                .as_deref()
+                                .expect("legacy coding dump entry missing name"),
+                        ),
+                        coding_type: crate::emacs_core::intern::intern(
+                            v.coding_type
+                                .as_deref()
+                                .expect("legacy coding dump entry missing coding type"),
+                        ),
+                        mnemonic: v.mnemonic,
+                        eol_type: match v.eol_type {
+                            DumpEolType::Unix => EolType::Unix,
+                            DumpEolType::Dos => EolType::Dos,
+                            DumpEolType::Mac => EolType::Mac,
+                            DumpEolType::Undecided => EolType::Undecided,
+                        },
+                        ascii_compatible_p: v.ascii_compatible_p,
+                        charset_list: v
+                            .charset_list
+                            .iter()
+                            .map(|name| crate::emacs_core::intern::intern(name))
+                            .collect(),
+                        post_read_conversion: v
+                            .post_read_conversion
+                            .as_ref()
+                            .map(|name| crate::emacs_core::intern::intern(name)),
+                        pre_write_conversion: v
+                            .pre_write_conversion
+                            .as_ref()
+                            .map(|name| crate::emacs_core::intern::intern(name)),
+                        default_char: v.default_char,
+                        for_unibyte: v.for_unibyte,
+                        properties: v
+                            .properties
+                            .iter()
+                            .map(|(k, v)| {
+                                (crate::emacs_core::intern::intern(k), decoder.load_value(v))
+                            })
+                            .collect(),
+                        int_properties: v
+                            .int_properties
+                            .iter()
+                            .map(|(k, v)| (*k, decoder.load_value(v)))
+                            .collect(),
                     },
-                    ascii_compatible_p: v.ascii_compatible_p,
-                    charset_list: v
-                        .charset_list
-                        .iter()
-                        .map(|name| crate::emacs_core::intern::intern(name))
-                        .collect(),
-                    post_read_conversion: v
-                        .post_read_conversion
-                        .as_ref()
-                        .map(|name| crate::emacs_core::intern::intern(name)),
-                    pre_write_conversion: v
-                        .pre_write_conversion
-                        .as_ref()
-                        .map(|name| crate::emacs_core::intern::intern(name)),
-                    default_char: v.default_char,
-                    for_unibyte: v.for_unibyte,
-                    properties: v
-                        .properties
-                        .iter()
-                        .map(|(k, v)| (crate::emacs_core::intern::intern(k), decoder.load_value(v)))
-                        .collect(),
-                    int_properties: v
-                        .int_properties
-                        .iter()
-                        .map(|(k, v)| (*k, decoder.load_value(v)))
-                        .collect(),
-                },
-            )
-        })
-        .collect();
+                )
+            })
+            .collect()
+    } else {
+        dcsm.systems_syms
+            .iter()
+            .map(|(k, v)| {
+                (
+                    load_sym_id(k),
+                    CodingSystemInfo {
+                        name: v.name_sym.as_ref().map(load_sym_id).unwrap_or_else(|| {
+                            crate::emacs_core::intern::intern(
+                                v.name.as_deref().expect("coding dump entry missing name"),
+                            )
+                        }),
+                        coding_type: v.coding_type_sym.as_ref().map(load_sym_id).unwrap_or_else(
+                            || {
+                                crate::emacs_core::intern::intern(
+                                    v.coding_type
+                                        .as_deref()
+                                        .expect("coding dump entry missing coding type"),
+                                )
+                            },
+                        ),
+                        mnemonic: v.mnemonic,
+                        eol_type: match v.eol_type {
+                            DumpEolType::Unix => EolType::Unix,
+                            DumpEolType::Dos => EolType::Dos,
+                            DumpEolType::Mac => EolType::Mac,
+                            DumpEolType::Undecided => EolType::Undecided,
+                        },
+                        ascii_compatible_p: v.ascii_compatible_p,
+                        charset_list: if v.charset_list_syms.is_empty() {
+                            v.charset_list
+                                .iter()
+                                .map(|name| crate::emacs_core::intern::intern(name))
+                                .collect()
+                        } else {
+                            v.charset_list_syms.iter().map(load_sym_id).collect()
+                        },
+                        post_read_conversion: v
+                            .post_read_conversion_sym
+                            .as_ref()
+                            .map(load_sym_id)
+                            .or_else(|| {
+                                v.post_read_conversion
+                                    .as_ref()
+                                    .map(|name| crate::emacs_core::intern::intern(name))
+                            }),
+                        pre_write_conversion: v
+                            .pre_write_conversion_sym
+                            .as_ref()
+                            .map(load_sym_id)
+                            .or_else(|| {
+                                v.pre_write_conversion
+                                    .as_ref()
+                                    .map(|name| crate::emacs_core::intern::intern(name))
+                            }),
+                        default_char: v.default_char,
+                        for_unibyte: v.for_unibyte,
+                        properties: if v.properties_syms.is_empty() {
+                            v.properties
+                                .iter()
+                                .map(|(k, v)| {
+                                    (crate::emacs_core::intern::intern(k), decoder.load_value(v))
+                                })
+                                .collect()
+                        } else {
+                            v.properties_syms
+                                .iter()
+                                .map(|(k, v)| (load_sym_id(k), decoder.load_value(v)))
+                                .collect()
+                        },
+                        int_properties: v
+                            .int_properties
+                            .iter()
+                            .map(|(k, v)| (*k, decoder.load_value(v)))
+                            .collect(),
+                    },
+                )
+            })
+            .collect()
+    };
     CodingSystemManager::from_dump(
         systems,
-        dcsm.aliases
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect(),
-        dcsm.priority.clone(),
-        dcsm.keyboard_coding.clone(),
-        dcsm.terminal_coding.clone(),
+        if dcsm.aliases_syms.is_empty() {
+            dcsm.aliases
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        crate::emacs_core::intern::intern(k),
+                        crate::emacs_core::intern::intern(v),
+                    )
+                })
+                .collect()
+        } else {
+            dcsm.aliases_syms
+                .iter()
+                .map(|(k, v)| (load_sym_id(k), load_sym_id(v)))
+                .collect()
+        },
+        if dcsm.priority_syms.is_empty() {
+            dcsm.priority
+                .iter()
+                .map(|name| crate::emacs_core::intern::intern(name))
+                .collect()
+        } else {
+            dcsm.priority_syms.iter().map(load_sym_id).collect()
+        },
+        dcsm.keyboard_coding_sym
+            .as_ref()
+            .map(load_sym_id)
+            .unwrap_or_else(|| {
+                crate::emacs_core::intern::intern(
+                    dcsm.keyboard_coding
+                        .as_deref()
+                        .expect("legacy coding dump missing keyboard coding"),
+                )
+            }),
+        dcsm.terminal_coding_sym
+            .as_ref()
+            .map(load_sym_id)
+            .unwrap_or_else(|| {
+                crate::emacs_core::intern::intern(
+                    dcsm.terminal_coding
+                        .as_deref()
+                        .expect("legacy coding dump missing terminal coding"),
+                )
+            }),
     )
 }
 

@@ -803,27 +803,60 @@ pub enum DumpEolType {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpCodingSystemInfo {
-    pub name: String,
-    pub coding_type: String,
+    #[serde(default)]
+    pub name_sym: Option<DumpSymId>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub coding_type_sym: Option<DumpSymId>,
+    #[serde(default)]
+    pub coding_type: Option<String>,
     pub mnemonic: char,
     pub eol_type: DumpEolType,
     pub ascii_compatible_p: bool,
+    #[serde(default)]
+    pub charset_list_syms: Vec<DumpSymId>,
+    #[serde(default)]
     pub charset_list: Vec<String>,
+    #[serde(default)]
+    pub post_read_conversion_sym: Option<DumpSymId>,
+    #[serde(default)]
     pub post_read_conversion: Option<String>,
+    #[serde(default)]
+    pub pre_write_conversion_sym: Option<DumpSymId>,
+    #[serde(default)]
     pub pre_write_conversion: Option<String>,
     pub default_char: Option<char>,
     pub for_unibyte: bool,
+    #[serde(default)]
+    pub properties_syms: Vec<(DumpSymId, DumpValue)>,
+    #[serde(default)]
     pub properties: Vec<(String, DumpValue)>,
     pub int_properties: Vec<(i64, DumpValue)>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpCodingSystemManager {
+    #[serde(default)]
+    pub systems_syms: Vec<(DumpSymId, DumpCodingSystemInfo)>,
+    #[serde(default)]
     pub systems: Vec<(String, DumpCodingSystemInfo)>,
+    #[serde(default)]
+    pub aliases_syms: Vec<(DumpSymId, DumpSymId)>,
+    #[serde(default)]
     pub aliases: Vec<(String, String)>,
+    #[serde(default)]
+    pub priority_syms: Vec<DumpSymId>,
+    #[serde(default)]
     pub priority: Vec<String>,
-    pub keyboard_coding: String,
-    pub terminal_coding: String,
+    #[serde(default)]
+    pub keyboard_coding_sym: Option<DumpSymId>,
+    #[serde(default)]
+    pub keyboard_coding: Option<String>,
+    #[serde(default)]
+    pub terminal_coding_sym: Option<DumpSymId>,
+    #[serde(default)]
+    pub terminal_coding: Option<String>,
 }
 
 // Charset
