@@ -589,7 +589,7 @@ fn parse_underline_value(value: &Value) -> Option<Underline> {
         }),
         ValueKind::Nil => None,
         _ if value.is_string() => {
-            let text = crate::emacs_core::builtins::lisp_string_to_runtime_string(*value);
+            let text = face_runtime_string(value)?;
             Some(Underline {
                 style: UnderlineStyle::Line,
                 color: Color::parse(&text),
@@ -610,16 +610,7 @@ fn parse_underline_value(value: &Value) -> Option<Underline> {
                 let item = &items[i + 1];
                 match key {
                     "color" => {
-                        color = item
-                            .is_string()
-                            .then(|| {
-                                let text =
-                                    crate::emacs_core::builtins::lisp_string_to_runtime_string(
-                                        *item,
-                                    );
-                                Color::parse(&text)
-                            })
-                            .flatten();
+                        color = parse_color_value(item);
                     }
                     "style" => {
                         if let Some(name) = item.as_symbol_name() {
@@ -670,7 +661,7 @@ fn parse_box_value(value: &Value) -> Option<BoxBorder> {
             style: BoxStyle::Flat,
         }),
         _ if value.is_string() => {
-            let text = crate::emacs_core::builtins::lisp_string_to_runtime_string(*value);
+            let text = face_runtime_string(value)?;
             Some(BoxBorder {
                 color: Color::parse(&text),
                 width: 1,
@@ -702,7 +693,7 @@ fn parse_box_value(value: &Value) -> Option<BoxBorder> {
                         _ => {}
                     },
                     "color" => {
-                        color = item.as_str().and_then(Color::parse);
+                        color = parse_color_value(item);
                     }
                     "style" => {
                         if let Some(name) = item.as_symbol_name() {
@@ -725,6 +716,14 @@ fn parse_box_value(value: &Value) -> Option<BoxBorder> {
         }
         _ => None,
     }
+}
+
+fn face_runtime_string(value: &Value) -> Option<String> {
+    value.as_runtime_string_owned()
+}
+
+fn parse_color_value(value: &Value) -> Option<Color> {
+    face_runtime_string(value).as_deref().and_then(Color::parse)
 }
 
 // ---------------------------------------------------------------------------

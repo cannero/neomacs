@@ -100,6 +100,33 @@ fn expect_number(value: &Value) -> Result<f64, Flow> {
     }
 }
 
+fn expect_buffer_name_string(value: &Value) -> Result<String, Flow> {
+    value.as_runtime_string_owned().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), *value],
+        )
+    })
+}
+
+fn find_buffer_by_name_arg(
+    buffers: &BufferManager,
+    value: &Value,
+) -> Result<Option<BufferId>, Flow> {
+    let name = expect_buffer_name_string(value)?;
+    Ok(buffers.find_buffer_by_name(&name))
+}
+
+fn find_or_create_buffer_by_name_arg(
+    buffers: &mut BufferManager,
+    value: &Value,
+) -> Result<BufferId, Flow> {
+    let name = expect_buffer_name_string(value)?;
+    Ok(buffers
+        .find_buffer_by_name(&name)
+        .unwrap_or_else(|| buffers.create_buffer(&name)))
+}
+
 #[derive(Clone, Debug)]
 enum IntegerOrMarkerArg {
     Int(i64),
@@ -3119,13 +3146,10 @@ pub(crate) fn builtin_get_buffer_window(
     }
     let val = args.first().unwrap();
     let target = match val.kind() {
-        ValueKind::String => {
-            let name_s = super::builtins::lisp_string_to_runtime_string(*val);
-            match eval.buffers.find_buffer_by_name(&name_s) {
-                Some(id) => id,
-                None => return Ok(Value::NIL),
-            }
-        }
+        ValueKind::String => match find_buffer_by_name_arg(&eval.buffers, val)? {
+            Some(id) => id,
+            None => return Ok(Value::NIL),
+        },
         ValueKind::Veclike(VecLikeType::Buffer) => {
             let bid = val.as_buffer_id().unwrap();
             if eval.buffers.get(bid).is_none() {
@@ -3806,18 +3830,15 @@ pub(crate) fn builtin_set_window_buffer(
                 }
                 bid
             }
-            ValueKind::String => {
-                let name_s = super::builtins::lisp_string_to_runtime_string(args[1]);
-                match buffers.find_buffer_by_name(&name_s) {
-                    Some(id) => id,
-                    None => {
-                        return Err(signal(
-                            "wrong-type-argument",
-                            vec![Value::symbol("bufferp"), Value::NIL],
-                        ));
-                    }
+            ValueKind::String => match find_buffer_by_name_arg(buffers, &args[1])? {
+                Some(id) => id,
+                None => {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("bufferp"), Value::NIL],
+                    ));
                 }
-            }
+            },
             _ => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -4023,13 +4044,7 @@ pub(crate) fn builtin_switch_to_buffer(
                 }
                 bid
             }
-            ValueKind::String => {
-                let name_s = super::builtins::lisp_string_to_runtime_string(args[0]);
-                match eval.buffers.find_buffer_by_name(&name_s) {
-                    Some(id) => id,
-                    None => eval.buffers.create_buffer(&name_s),
-                }
-            }
+            ValueKind::String => find_or_create_buffer_by_name_arg(&mut eval.buffers, &args[0])?,
             _ => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -4094,13 +4109,10 @@ pub(crate) fn builtin_display_buffer(
             }
             bid
         }
-        ValueKind::String => {
-            let name_s = super::builtins::lisp_string_to_runtime_string(args[0]);
-            match eval.buffers.find_buffer_by_name(&name_s) {
-                Some(id) => id,
-                None => return Err(signal("error", vec![Value::string("Invalid buffer")])),
-            }
-        }
+        ValueKind::String => match find_buffer_by_name_arg(&eval.buffers, &args[0])? {
+            Some(id) => id,
+            None => return Err(signal("error", vec![Value::string("Invalid buffer")])),
+        },
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -4242,13 +4254,7 @@ pub(crate) fn builtin_pop_to_buffer(
             }
             bid
         }
-        ValueKind::String => {
-            let name_s = super::builtins::lisp_string_to_runtime_string(args[0]);
-            match eval.buffers.find_buffer_by_name(&name_s) {
-                Some(id) => id,
-                None => eval.buffers.create_buffer(&name_s),
-            }
-        }
+        ValueKind::String => find_or_create_buffer_by_name_arg(&mut eval.buffers, &args[0])?,
         _ => {
             return Err(signal(
                 "wrong-type-argument",

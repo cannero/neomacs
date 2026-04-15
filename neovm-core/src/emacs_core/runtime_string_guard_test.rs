@@ -16,6 +16,8 @@ fn migrated_string_subsystems_do_not_call_generic_runtime_string_adapter_directl
         ("process.rs", include_str!("process.rs")),
         ("reader.rs", include_str!("reader.rs")),
         ("value_reader.rs", include_str!("value_reader.rs")),
+        ("window_cmds/mod.rs", include_str!("window_cmds/mod.rs")),
+        ("xdisp.rs", include_str!("xdisp.rs")),
     ] {
         assert!(
             !source.contains(forbidden),

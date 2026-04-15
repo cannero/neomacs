@@ -784,9 +784,7 @@ fn is_remote_directory(dir: &str) -> bool {
 }
 
 fn mode_line_runtime_string(value: &Value) -> Option<String> {
-    value
-        .is_string()
-        .then(|| crate::emacs_core::builtins::lisp_string_to_runtime_string(*value))
+    value.as_runtime_string_owned()
 }
 
 /// Compute GNU `percent99` — percentage capped at 99, rounded up.
