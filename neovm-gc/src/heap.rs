@@ -635,6 +635,30 @@ impl Heap {
     }
 
     #[inline(always)]
+    pub(crate) fn commit_allocated_record_shared_prepared_nursery(
+        &self,
+        record: ObjectRecord,
+        total_size: usize,
+        publish_local: &mut ObjectPublishLocal,
+        alloc_counter_local: &mut AllocationCounterLocal,
+    ) -> Result<AllocationCommit, AllocError> {
+        let gc = record.erased();
+        self.state
+            .objects
+            .publish_shared_prepared(record, publish_local);
+        self.state
+            .alloc_counters
+            .record_nursery_allocation(total_size, alloc_counter_local);
+        if !self.state.collector.has_active_major_mark() {
+            return Ok(AllocationCommit {
+                gc,
+                plans_dirty: true,
+            });
+        }
+        self.commit_allocated_record_shared_active_major(gc)
+    }
+
+    #[inline(always)]
     fn commit_allocated_record_shared_common(
         &self,
         record: ObjectRecord,

@@ -301,10 +301,12 @@ impl<'heap> Mutator<'heap> {
         local.remember_descriptor::<T>(desc);
         let mut value = Some(value);
         let mut old_reserved_bytes = 0usize;
+        let mut nursery_total_size = None;
 
         let record = match space {
             crate::object::SpaceKind::Nursery => {
                 let (layout, payload_offset) = crate::object::allocation_layout_for::<T>()?;
+                nursery_total_size = Some(layout.size());
                 match local
                     .tlab
                     .as_mut()
@@ -389,13 +391,21 @@ impl<'heap> Mutator<'heap> {
         };
 
         let (publish_local, alloc_counter_local) = local.publish_and_alloc_counter_local_mut();
-        let commit = heap.commit_allocated_record_shared(
-            record,
-            old_reserved_bytes,
-            publish_local,
-            alloc_counter_local,
-            true,
-        )?;
+        let commit = match nursery_total_size {
+            Some(total_size) => heap.commit_allocated_record_shared_prepared_nursery(
+                record,
+                total_size,
+                publish_local,
+                alloc_counter_local,
+            )?,
+            None => heap.commit_allocated_record_shared(
+                record,
+                old_reserved_bytes,
+                publish_local,
+                alloc_counter_local,
+                true,
+            )?,
+        };
         if commit.plans_dirty {
             heap.mark_collector_plans_dirty();
         }

@@ -418,40 +418,50 @@ impl AtomicAllocationCounters {
         old_reserved_bytes: usize,
         local: &mut AllocationCounterLocal,
     ) {
-        let generation = self.generation();
-        if local.generation != generation {
-            local.refresh_from_slot(generation);
-        }
-        let shard = local
-            .slot
-            .as_ref()
-            .expect("allocation counter local should be registered");
+        self.refresh_local(local);
         match space {
             SpaceKind::Nursery => {
                 local.nursery_live_bytes = local.nursery_live_bytes.saturating_add(bytes);
-                shard
+                local
+                    .slot
+                    .as_deref()
+                    .expect("allocation counter local should be registered")
                     .nursery_live_bytes
                     .store(local.nursery_live_bytes, Ordering::Relaxed);
             }
             SpaceKind::Old => {
                 local.old_live_bytes = local.old_live_bytes.saturating_add(bytes);
-                shard.old_live_bytes.store(local.old_live_bytes, Ordering::Relaxed);
+                local
+                    .slot
+                    .as_deref()
+                    .expect("allocation counter local should be registered")
+                    .old_live_bytes
+                    .store(local.old_live_bytes, Ordering::Relaxed);
                 self.old_reserved_bytes
                     .store(old_reserved_bytes, Ordering::Relaxed);
             }
             SpaceKind::Pinned => {
                 local.pinned_live_bytes = local.pinned_live_bytes.saturating_add(bytes);
-                shard
+                local
+                    .slot
+                    .as_deref()
+                    .expect("allocation counter local should be registered")
                     .pinned_live_bytes
                     .store(local.pinned_live_bytes, Ordering::Relaxed);
             }
             SpaceKind::Large => {
                 local.large_live_bytes = local.large_live_bytes.saturating_add(bytes);
                 local.large_reserved_bytes = local.large_reserved_bytes.saturating_add(bytes);
-                shard
+                local
+                    .slot
+                    .as_deref()
+                    .expect("allocation counter local should be registered")
                     .large_live_bytes
                     .store(local.large_live_bytes, Ordering::Relaxed);
-                shard
+                local
+                    .slot
+                    .as_deref()
+                    .expect("allocation counter local should be registered")
                     .large_reserved_bytes
                     .store(local.large_reserved_bytes, Ordering::Relaxed);
             }
@@ -459,13 +469,43 @@ impl AtomicAllocationCounters {
                 local.immortal_live_bytes = local.immortal_live_bytes.saturating_add(bytes);
                 local.immortal_reserved_bytes =
                     local.immortal_reserved_bytes.saturating_add(bytes);
-                shard
+                local
+                    .slot
+                    .as_deref()
+                    .expect("allocation counter local should be registered")
                     .immortal_live_bytes
                     .store(local.immortal_live_bytes, Ordering::Relaxed);
-                shard
+                local
+                    .slot
+                    .as_deref()
+                    .expect("allocation counter local should be registered")
                     .immortal_reserved_bytes
                     .store(local.immortal_reserved_bytes, Ordering::Relaxed);
             }
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn record_nursery_allocation(
+        &self,
+        bytes: usize,
+        local: &mut AllocationCounterLocal,
+    ) {
+        self.refresh_local(local);
+        local.nursery_live_bytes = local.nursery_live_bytes.saturating_add(bytes);
+        local
+            .slot
+            .as_deref()
+            .expect("allocation counter local should be registered")
+            .nursery_live_bytes
+            .store(local.nursery_live_bytes, Ordering::Relaxed);
+    }
+
+    #[inline(always)]
+    fn refresh_local(&self, local: &mut AllocationCounterLocal) {
+        let generation = self.generation();
+        if local.generation != generation {
+            local.refresh_from_slot(generation);
         }
     }
 
