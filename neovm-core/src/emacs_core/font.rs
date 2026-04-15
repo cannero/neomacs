@@ -3082,15 +3082,16 @@ fn lisp_value_to_face_attr(attr_name: &str, value: Value) -> Option<crate::face:
             }
             if let Some(name) = value.as_symbol_name() {
                 if name != "nil" {
-                    return Some(FaceAttrValue::Inherit(vec![name.to_string()]));
+                    return Some(FaceAttrValue::Inherit(vec![Value::symbol(name)]));
                 }
                 return Some(FaceAttrValue::Inherit(Vec::new()));
             }
             if let Some(items) = super::value::list_to_vec(&value) {
-                let names: Vec<String> = items
+                let names: Vec<Value> = items
                     .iter()
-                    .filter_map(|v| v.as_symbol_name().map(|s| s.to_string()))
-                    .filter(|s| s != "nil")
+                    .filter(|v| !v.is_symbol_named("nil"))
+                    .filter(|v| matches!(v.kind(), ValueKind::Symbol(_) | ValueKind::T))
+                    .copied()
                     .collect();
                 return Some(FaceAttrValue::Inherit(names));
             }
@@ -3273,14 +3274,9 @@ pub(crate) fn runtime_face_attribute_value(face: &RuntimeFace, attr_name: &str) 
             if face.inherit.is_empty() {
                 Value::NIL
             } else if face.inherit.len() == 1 {
-                Value::symbol(face.inherit[0].as_str())
+                face.inherit[0]
             } else {
-                Value::list(
-                    face.inherit
-                        .iter()
-                        .map(|name| Value::symbol(name.as_str()))
-                        .collect(),
-                )
+                Value::list(face.inherit.clone())
             }
         }
         ":extend" => face

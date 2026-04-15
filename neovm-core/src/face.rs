@@ -12,6 +12,7 @@
 
 use crate::emacs_core::intern::resolve_sym;
 use crate::emacs_core::value::{Value, ValueKind, next_float_id};
+use crate::gc_trace::GcTrace;
 use std::collections::{HashMap, HashSet};
 
 // X11 color table generated at compile time from etc/rgb.txt
@@ -277,7 +278,7 @@ pub enum FaceAttrValue {
     Box(BoxBorder),
     Bool(bool),
     Str(String),
-    Inherit(Vec<String>),
+    Inherit(Vec<Value>),
     Unspecified,
 }
 
@@ -324,7 +325,7 @@ pub struct Face {
     /// Whether to extend face background to end of line.
     pub extend: Option<bool>,
     /// Inherit from these faces (processed in order).
-    pub inherit: Vec<String>,
+    pub inherit: Vec<Value>,
     /// Whether bold is simulated via overstrike.
     pub overstrike: bool,
     /// Face documentation.
@@ -363,6 +364,10 @@ fn merge_face_height(
             None => Some(FaceHeight::Relative(*scale)),
         },
     }
+}
+
+fn face_symbol_value(name: &str) -> Value {
+    Value::symbol(name)
 }
 
 impl Face {
@@ -537,17 +542,16 @@ impl Face {
                 "inherit" => {
                     if let Some(s) = val.as_symbol_name() {
                         if s != "nil" {
-                            face.inherit = vec![s.to_string()];
+                            face.inherit = vec![face_symbol_value(s)];
                         }
                     } else if let Some(names) = crate::emacs_core::value::list_to_vec(val) {
                         face.inherit = names
                             .iter()
-                            .filter_map(|entry| {
-                                entry
-                                    .as_symbol_name()
-                                    .filter(|name| *name != "nil")
-                                    .map(|name| name.to_string())
+                            .filter(|entry| !entry.is_symbol_named("nil"))
+                            .filter(|entry| {
+                                matches!(entry.kind(), ValueKind::Symbol(_) | ValueKind::T)
                             })
+                            .copied()
                             .collect();
                     }
                 }
@@ -738,7 +742,7 @@ fn parse_color_value(value: &Value) -> Option<Color> {
 #[derive(Clone, Debug)]
 pub enum FaceRemapEntry {
     /// Remap to another named face.
-    RemapFace(String),
+    RemapFace(Value),
     /// Inline attribute plist parsed into a `Face`.
     RemapAttrs(Face),
 }
@@ -821,7 +825,7 @@ impl FaceRemapping {
             ValueKind::Symbol(_) | ValueKind::T => {
                 if let Some(name) = spec.as_symbol_name() {
                     if name != "nil" {
-                        return vec![FaceRemapEntry::RemapFace(name.to_string())];
+                        return vec![FaceRemapEntry::RemapFace(face_symbol_value(name))];
                     }
                 }
                 Vec::new()
@@ -849,7 +853,8 @@ impl FaceRemapping {
                         ValueKind::Symbol(_) | ValueKind::T => {
                             if let Some(name) = item.as_symbol_name() {
                                 if name != "nil" {
-                                    entries.push(FaceRemapEntry::RemapFace(name.to_string()));
+                                    entries
+                                        .push(FaceRemapEntry::RemapFace(face_symbol_value(name)));
                                 }
                             }
                         }
@@ -903,20 +908,20 @@ impl FaceTable {
         // bold
         let mut bold = Face::new("bold");
         bold.weight = Some(FontWeight::BOLD);
-        bold.inherit = vec!["default".into()];
+        bold.inherit = vec![face_symbol_value("default")];
         self.define("bold", bold);
 
         // italic
         let mut italic = Face::new("italic");
         italic.slant = Some(FontSlant::Italic);
-        italic.inherit = vec!["default".into()];
+        italic.inherit = vec![face_symbol_value("default")];
         self.define("italic", italic);
 
         // bold-italic
         let mut bold_italic = Face::new("bold-italic");
         bold_italic.weight = Some(FontWeight::BOLD);
         bold_italic.slant = Some(FontSlant::Italic);
-        bold_italic.inherit = vec!["default".into()];
+        bold_italic.inherit = vec![face_symbol_value("default")];
         self.define("bold-italic", bold_italic);
 
         // underline
@@ -926,17 +931,17 @@ impl FaceTable {
             color: None,
             position: None,
         });
-        underline.inherit = vec!["default".into()];
+        underline.inherit = vec![face_symbol_value("default")];
         self.define("underline", underline);
 
         // fixed-pitch
         let mut fixed_pitch = Face::new("fixed-pitch");
-        fixed_pitch.inherit = vec!["default".into()];
+        fixed_pitch.inherit = vec![face_symbol_value("default")];
         self.define("fixed-pitch", fixed_pitch);
 
         // variable-pitch
         let mut variable_pitch = Face::new("variable-pitch");
-        variable_pitch.inherit = vec!["default".into()];
+        variable_pitch.inherit = vec![face_symbol_value("default")];
         self.define("variable-pitch", variable_pitch);
 
         // mode-line
@@ -965,7 +970,7 @@ impl FaceTable {
             width: 2,
             style: BoxStyle::Raised,
         });
-        mode_line_highlight.inherit = vec!["highlight".into()];
+        mode_line_highlight.inherit = vec![face_symbol_value("highlight")];
         self.define("mode-line-highlight", mode_line_highlight);
 
         // mode-line-emphasis
@@ -980,22 +985,22 @@ impl FaceTable {
 
         // header-line
         let mut header = Face::new("header-line");
-        header.inherit = vec!["mode-line".into()];
+        header.inherit = vec![face_symbol_value("mode-line")];
         self.define("header-line", header);
 
         // header-line-highlight
         let mut header_line_highlight = Face::new("header-line-highlight");
-        header_line_highlight.inherit = vec!["mode-line-highlight".into()];
+        header_line_highlight.inherit = vec![face_symbol_value("mode-line-highlight")];
         self.define("header-line-highlight", header_line_highlight);
 
         // header-line-active
         let mut header_line_active = Face::new("header-line-active");
-        header_line_active.inherit = vec!["header-line".into()];
+        header_line_active.inherit = vec![face_symbol_value("header-line")];
         self.define("header-line-active", header_line_active);
 
         // header-line-inactive
         let mut header_line_inactive = Face::new("header-line-inactive");
-        header_line_inactive.inherit = vec!["header-line".into()];
+        header_line_inactive.inherit = vec![face_symbol_value("header-line")];
         self.define("header-line-inactive", header_line_inactive);
 
         // highlight
@@ -1027,7 +1032,7 @@ impl FaceTable {
 
         // vertical-border
         let mut vertical_border = Face::new("vertical-border");
-        vertical_border.inherit = vec!["mode-line-inactive".into()];
+        vertical_border.inherit = vec![face_symbol_value("mode-line-inactive")];
         self.define("vertical-border", vertical_border);
 
         // scroll-bar
@@ -1045,14 +1050,14 @@ impl FaceTable {
         // line-number
         let mut line_num = Face::new("line-number");
         line_num.foreground = Some(Color::rgb(160, 160, 160));
-        line_num.inherit = vec!["default".into()];
+        line_num.inherit = vec![face_symbol_value("default")];
         self.define("line-number", line_num);
 
         // line-number-current-line
         let mut line_num_cur = Face::new("line-number-current-line");
         line_num_cur.foreground = Some(Color::rgb(0, 0, 0));
         line_num_cur.weight = Some(FontWeight::BOLD);
-        line_num_cur.inherit = vec!["line-number".into()];
+        line_num_cur.inherit = vec![face_symbol_value("line-number")];
         self.define("line-number-current-line", line_num_cur);
 
         // shadow
@@ -1078,14 +1083,14 @@ impl FaceTable {
         let mut tab_bar = Face::new("tab-bar");
         tab_bar.foreground = Some(Color::rgb(0, 0, 0));
         tab_bar.background = Some(Color::rgb(217, 217, 217));
-        tab_bar.inherit = vec!["variable-pitch".into()];
+        tab_bar.inherit = vec![face_symbol_value("variable-pitch")];
         self.define("tab-bar", tab_bar);
 
         // tab-line
         let mut tab_line = Face::new("tab-line");
         tab_line.foreground = Some(Color::rgb(0, 0, 0));
         tab_line.background = Some(Color::rgb(217, 217, 217));
-        tab_line.inherit = vec!["variable-pitch".into()];
+        tab_line.inherit = vec![face_symbol_value("variable-pitch")];
         self.define("tab-line", tab_line);
 
         // error
@@ -1194,7 +1199,7 @@ impl FaceTable {
         if let Some(s) = slant {
             face.slant = Some(s);
         }
-        face.inherit = vec!["default".into()];
+        face.inherit = vec![face_symbol_value("default")];
         self.define(name, face);
     }
 
@@ -1315,9 +1320,11 @@ impl FaceTable {
 
         // Apply inheritance.
         for parent_name in &face.inherit {
-            let parent = self.resolve_depth(parent_name, depth + 1);
-            // Parent provides defaults — face overrides.
-            result = parent.merge(&result);
+            if let Some(parent_name) = parent_name.as_symbol_name() {
+                let parent = self.resolve_depth(parent_name, depth + 1);
+                // Parent provides defaults — face overrides.
+                result = parent.merge(&result);
+            }
         }
 
         result
@@ -1374,9 +1381,11 @@ impl FaceTable {
                 for entry in entries {
                     match entry {
                         FaceRemapEntry::RemapFace(target) => {
-                            let resolved =
-                                self.resolve_remapped(target, remapping, seen, depth + 1);
-                            result = result.merge(&resolved);
+                            if let Some(target_name) = target.as_symbol_name() {
+                                let resolved =
+                                    self.resolve_remapped(target_name, remapping, seen, depth + 1);
+                                result = result.merge(&resolved);
+                            }
                         }
                         FaceRemapEntry::RemapAttrs(attrs) => {
                             result = result.merge(attrs);
@@ -1429,9 +1438,15 @@ impl FaceTable {
                 for entry in entries {
                     match entry {
                         FaceRemapEntry::RemapFace(target) => {
-                            let resolved =
-                                self.resolve_remapped_raw(target, remapping, seen, depth + 1);
-                            result = result.merge(&resolved);
+                            if let Some(target_name) = target.as_symbol_name() {
+                                let resolved = self.resolve_remapped_raw(
+                                    target_name,
+                                    remapping,
+                                    seen,
+                                    depth + 1,
+                                );
+                                result = result.merge(&resolved);
+                            }
                         }
                         FaceRemapEntry::RemapAttrs(attrs) => {
                             result = result.merge(attrs);
@@ -1475,6 +1490,14 @@ impl FaceTable {
 impl Default for FaceTable {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl GcTrace for FaceTable {
+    fn trace_roots(&self, roots: &mut Vec<Value>) {
+        for face in self.faces.values() {
+            roots.extend(face.inherit.iter().copied());
+        }
     }
 }
 
@@ -1669,7 +1692,7 @@ mod tests {
         let mut table = FaceTable::new();
         let mut custom = Face::new("my-face");
         custom.foreground = Some(Color::rgb(100, 200, 50));
-        custom.inherit = vec!["bold".into()];
+        custom.inherit = vec![face_symbol_value("bold")];
         table.define("my-face", custom);
 
         let resolved = table.resolve("my-face");
@@ -1890,13 +1913,13 @@ mod tests {
         // parent: inherits grandparent, sets weight
         let mut parent = Face::new("parent");
         parent.weight = Some(FontWeight::BOLD);
-        parent.inherit = vec!["grandparent".into()];
+        parent.inherit = vec![face_symbol_value("grandparent")];
         table.define("parent", parent);
 
         // child: inherits parent, sets background
         let mut child = Face::new("child");
         child.background = Some(Color::rgb(200, 200, 200));
-        child.inherit = vec!["parent".into()];
+        child.inherit = vec![face_symbol_value("parent")];
         table.define("child", child);
 
         let resolved = table.resolve("child");
@@ -1932,7 +1955,7 @@ mod tests {
         assert_eq!(face.strike_through, Some(true));
         assert_eq!(face.inverse_video, Some(true));
         assert_eq!(face.extend, Some(true));
-        assert_eq!(face.inherit, vec!["bold".to_string()]);
+        assert_eq!(face.inherit, vec![face_symbol_value("bold")]);
     }
 
     #[test]

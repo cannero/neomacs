@@ -4308,6 +4308,7 @@ impl Context {
         self.custom.trace_roots(&mut roots);
         self.autoloads.trace_roots(&mut roots);
         self.buffers.trace_roots(&mut roots);
+        self.face_table.trace_roots(&mut roots);
         self.threads.trace_roots(&mut roots);
         self.kmacro.trace_roots(&mut roots);
         crate::gc_trace::GcTrace::trace_roots(&self.command_loop, &mut roots);
