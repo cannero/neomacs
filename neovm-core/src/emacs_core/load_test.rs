@@ -3093,7 +3093,7 @@ fn bootstrap_runtime_setup_default_fontset_preserves_gnu_han_order() {
         .iter()
         .take(23)
         .map(|entry| match entry {
-            FontSpecEntry::Font(spec) => spec.registry.clone(),
+            FontSpecEntry::Font(spec) => spec.registry.map(|sym| resolve_sym(sym).to_string()),
             FontSpecEntry::ExplicitNone => None,
         })
         .collect();

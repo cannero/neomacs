@@ -1,7 +1,7 @@
 use super::charset::{charset_contains_char, charset_exists, charset_target_ranges};
 use super::chartable::{for_each_non_nil_char_table_run, is_char_table};
 use super::error::{Flow, signal};
-use super::intern::{SymId, resolve_sym};
+use super::intern::{SymId, intern, resolve_sym};
 use super::value::*;
 use crate::face::{FontSlant, FontWeight, FontWidth};
 use crate::heap_types::LispString;
@@ -54,9 +54,9 @@ fn cached_regex(
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredFontSpec {
-    pub family: Option<String>,
-    pub registry: Option<String>,
-    pub lang: Option<String>,
+    pub family: Option<SymId>,
+    pub registry: Option<SymId>,
+    pub lang: Option<SymId>,
     pub weight: Option<FontWeight>,
     pub slant: Option<FontSlant>,
     pub width: Option<FontWidth>,
@@ -700,8 +700,14 @@ pub(crate) fn fontset_font(name: &Value, ch: char, all: bool) -> Result<Value, F
         match entry {
             FontSpecEntry::ExplicitNone => return Ok(Value::NIL),
             FontSpecEntry::Font(spec) => {
-                let family = spec.family.map(Value::string).unwrap_or(Value::NIL);
-                let registry = spec.registry.map(Value::string).unwrap_or(Value::NIL);
+                let family = spec
+                    .family
+                    .map(|sym| Value::string(resolve_sym(sym)))
+                    .unwrap_or(Value::NIL);
+                let registry = spec
+                    .registry
+                    .map(|sym| Value::string(resolve_sym(sym)))
+                    .unwrap_or(Value::NIL);
                 let pattern = Value::cons(family, registry);
                 if !all {
                     return Ok(pattern);
@@ -814,8 +820,9 @@ fn parse_font_spec_entry(
             let pair_car = value.cons_car();
             let pair_cdr = value.cons_cdr();
             let mut spec = StoredFontSpec {
-                family: value_text(&pair_car),
-                registry: value_text(&pair_cdr).map(|registry| registry.to_ascii_lowercase()),
+                family: value_text(&pair_car).map(|family| intern(&family)),
+                registry: value_text(&pair_cdr)
+                    .map(|registry| intern(&registry.to_ascii_lowercase())),
                 lang: None,
                 weight: None,
                 slant: None,
@@ -847,6 +854,7 @@ fn parse_font_spec_entry(
 fn parse_font_vector(items: &[Value]) -> StoredFontSpec {
     let family = font_vector_get_flexible(items, "family")
         .and_then(|value| value_text(&value))
+        .map(|family| intern(&family))
         .or_else(|| {
             font_vector_get_flexible(items, "name")
                 .and_then(|value| value_text(&value))
@@ -855,7 +863,7 @@ fn parse_font_vector(items: &[Value]) -> StoredFontSpec {
         });
     let registry = font_vector_get_flexible(items, "registry")
         .and_then(|value| value_text(&value))
-        .map(|registry| registry.to_ascii_lowercase())
+        .map(|registry| intern(&registry.to_ascii_lowercase()))
         .or_else(|| {
             font_vector_get_flexible(items, "name")
                 .and_then(|value| value_text(&value))
@@ -864,7 +872,7 @@ fn parse_font_vector(items: &[Value]) -> StoredFontSpec {
         });
     let lang = font_vector_get_flexible(items, "lang")
         .and_then(|value| value_text(&value))
-        .map(|lang| lang.to_ascii_lowercase());
+        .map(|lang| intern(&lang.to_ascii_lowercase()));
     let weight = font_vector_get_flexible(items, "weight")
         .and_then(|value| value_text(&value))
         .and_then(|weight| FontWeight::from_symbol(&weight));
@@ -902,8 +910,8 @@ fn parse_font_name_string(name: &str) -> StoredFontSpec {
                 None
             };
             return StoredFontSpec {
-                family: family.map(ToOwned::to_owned),
-                registry,
+                family: family.map(intern),
+                registry: registry.map(|registry| intern(&registry)),
                 lang: None,
                 weight: None,
                 slant: None,
@@ -914,7 +922,7 @@ fn parse_font_name_string(name: &str) -> StoredFontSpec {
     }
 
     StoredFontSpec {
-        family: (!trimmed.is_empty()).then_some(trimmed.to_string()),
+        family: (!trimmed.is_empty()).then(|| intern(trimmed)),
         registry: None,
         lang: None,
         weight: None,
@@ -928,8 +936,8 @@ fn resolve_font_repertory(
     spec: &StoredFontSpec,
     font_encoding_alist: Option<&Value>,
 ) -> Option<FontRepertory> {
-    let registry = spec.registry.as_deref()?;
-    let font_name = match spec.family.as_deref() {
+    let registry = resolve_sym(spec.registry?);
+    let font_name = match spec.family.map(resolve_sym) {
         Some(family) if !family.is_empty() => format!("{family}-{registry}"),
         _ => registry.to_string(),
     };

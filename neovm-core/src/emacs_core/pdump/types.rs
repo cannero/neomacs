@@ -961,8 +961,14 @@ pub enum DumpFontRepertory {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpStoredFontSpec {
+    #[serde(default)]
+    pub family_sym: Option<DumpSymId>,
     pub family: Option<String>,
+    #[serde(default)]
+    pub registry_sym: Option<DumpSymId>,
     pub registry: Option<String>,
+    #[serde(default)]
+    pub lang_sym: Option<DumpSymId>,
     pub lang: Option<String>,
     pub weight: Option<u16>,
     pub slant: Option<DumpFontSlant>,

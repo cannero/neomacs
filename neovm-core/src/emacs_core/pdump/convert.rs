@@ -1573,9 +1573,12 @@ fn dump_font_repertory(repertory: FontRepertory) -> DumpFontRepertory {
 
 fn dump_stored_font_spec(spec: StoredFontSpec) -> DumpStoredFontSpec {
     DumpStoredFontSpec {
-        family: spec.family,
-        registry: spec.registry,
-        lang: spec.lang,
+        family_sym: spec.family.map(dump_sym_id),
+        family: None,
+        registry_sym: spec.registry.map(dump_sym_id),
+        registry: None,
+        lang_sym: spec.lang.map(dump_sym_id),
+        lang: None,
         weight: spec.weight.map(|weight| weight.0),
         slant: spec.slant.map(|slant| dump_font_slant(&slant)),
         width: spec.width.map(|width| dump_font_width(&width)),
@@ -3420,9 +3423,21 @@ fn load_font_repertory(repertory: &DumpFontRepertory) -> FontRepertory {
 fn load_font_spec_entry(entry: &DumpFontSpecEntry) -> FontSpecEntry {
     match entry {
         DumpFontSpecEntry::Font(spec) => FontSpecEntry::Font(StoredFontSpec {
-            family: spec.family.clone(),
-            registry: spec.registry.clone(),
-            lang: spec.lang.clone(),
+            family: spec.family_sym.as_ref().map(load_sym_id).or_else(|| {
+                spec.family
+                    .as_deref()
+                    .map(crate::emacs_core::intern::intern)
+            }),
+            registry: spec.registry_sym.as_ref().map(load_sym_id).or_else(|| {
+                spec.registry
+                    .as_deref()
+                    .map(crate::emacs_core::intern::intern)
+            }),
+            lang: spec
+                .lang_sym
+                .as_ref()
+                .map(load_sym_id)
+                .or_else(|| spec.lang.as_deref().map(crate::emacs_core::intern::intern)),
             weight: spec.weight.map(FontWeight),
             slant: spec.slant.as_ref().map(load_font_slant),
             width: spec.width.as_ref().map(load_font_width),

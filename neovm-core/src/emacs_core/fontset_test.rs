@@ -5,7 +5,7 @@ use crate::emacs_core::intern::intern;
 fn registry_spec(name: &str) -> FontSpecEntry {
     FontSpecEntry::Font(StoredFontSpec {
         family: None,
-        registry: Some(name.to_string()),
+        registry: Some(intern(name)),
         lang: None,
         weight: None,
         slant: None,
@@ -93,7 +93,7 @@ fn repertory_charset_filters_non_matching_entries() {
         FontsetTarget::Range(0x80, 0x10FFFF),
         FontSpecEntry::Font(StoredFontSpec {
             family: None,
-            registry: Some("iso8859-1".to_string()),
+            registry: Some(intern("iso8859-1")),
             lang: None,
             weight: None,
             slant: None,
@@ -106,7 +106,7 @@ fn repertory_charset_filters_non_matching_entries() {
         FontsetTarget::Range(0x80, 0x10FFFF),
         FontSpecEntry::Font(StoredFontSpec {
             family: None,
-            registry: Some("iso10646-1".to_string()),
+            registry: Some(intern("iso10646-1")),
             lang: None,
             weight: None,
             slant: None,
@@ -120,7 +120,7 @@ fn repertory_charset_filters_non_matching_entries() {
         .matching_entries_for_char('好' as u32)
         .into_iter()
         .filter_map(|entry| match entry {
-            FontSpecEntry::Font(spec) => spec.registry,
+            FontSpecEntry::Font(spec) => spec.registry.map(|sym| resolve_sym(sym).to_string()),
             FontSpecEntry::ExplicitNone => None,
         })
         .collect();
@@ -158,7 +158,7 @@ fn repertory_subset_charset_filters_non_matching_entries() {
         FontsetTarget::Range(0x80, 0x10FFFF),
         FontSpecEntry::Font(StoredFontSpec {
             family: None,
-            registry: Some("iso8859-2".to_string()),
+            registry: Some(intern("iso8859-2")),
             lang: None,
             weight: None,
             slant: None,
@@ -171,7 +171,7 @@ fn repertory_subset_charset_filters_non_matching_entries() {
         FontsetTarget::Range(0x80, 0x10FFFF),
         FontSpecEntry::Font(StoredFontSpec {
             family: None,
-            registry: Some("iso10646-1".to_string()),
+            registry: Some(intern("iso10646-1")),
             lang: None,
             weight: None,
             slant: None,
@@ -185,7 +185,7 @@ fn repertory_subset_charset_filters_non_matching_entries() {
         .matching_entries_for_char('好' as u32)
         .into_iter()
         .filter_map(|entry| match entry {
-            FontSpecEntry::Font(spec) => spec.registry,
+            FontSpecEntry::Font(spec) => spec.registry.map(|sym| resolve_sym(sym).to_string()),
             FontSpecEntry::ExplicitNone => None,
         })
         .collect();
@@ -252,7 +252,7 @@ fn parse_font_spec_entry_preserves_raw_unibyte_string_names() {
     let entry = parse_font_spec_entry(&raw, None).expect("parse raw font spec");
     match entry {
         FontSpecEntry::Font(spec) => {
-            assert_eq!(spec.family.as_deref(), Some(expected.as_str()));
+            assert_eq!(spec.family.map(resolve_sym), Some(expected.as_str()));
             assert_eq!(spec.registry, None);
         }
         FontSpecEntry::ExplicitNone => panic!("expected font entry"),
@@ -441,6 +441,9 @@ fn fontset_registry_pdump_uses_symbol_identity_for_charset_repertories() {
     reset_fontset_registry();
 
     let repertory_sym = intern("unicode-bmp");
+    let family_sym = intern("fixed");
+    let registry_sym = intern("iso10646-1");
+    let lang_sym = intern("ja");
     restore_fontset_registry(FontsetRegistrySnapshot {
         ordered_names: vec![fontset_name_lisp_string(DEFAULT_FONTSET_NAME)],
         alias_to_name: vec![(
@@ -454,9 +457,9 @@ fn fontset_registry_pdump_uses_symbol_identity_for_charset_repertories() {
                     from: 0x80,
                     to: 0x10FFFF,
                     entries: vec![FontSpecEntry::Font(StoredFontSpec {
-                        family: None,
-                        registry: Some("iso10646-1".to_string()),
-                        lang: None,
+                        family: Some(family_sym),
+                        registry: Some(registry_sym),
+                        lang: Some(lang_sym),
                         weight: None,
                         slant: None,
                         width: None,
@@ -470,23 +473,36 @@ fn fontset_registry_pdump_uses_symbol_identity_for_charset_repertories() {
     });
 
     let dumped = crate::emacs_core::pdump::convert::dump_fontset_registry();
-    let repertory = dumped
+    let spec = dumped
         .fontsets_lisp
         .iter()
         .find(|(name, _)| name.data == DEFAULT_FONTSET_NAME.as_bytes())
         .and_then(|(_, data)| data.ranges.first())
         .and_then(|range| range.entries.first())
         .and_then(|entry| match entry {
-            crate::emacs_core::pdump::types::DumpFontSpecEntry::Font(spec) => {
-                spec.repertory.as_ref()
-            }
+            crate::emacs_core::pdump::types::DumpFontSpecEntry::Font(spec) => Some(spec),
             crate::emacs_core::pdump::types::DumpFontSpecEntry::ExplicitNone => None,
         })
-        .expect("dumped repertory");
+        .expect("dumped font spec");
 
     assert!(matches!(
-        repertory,
+        spec.repertory.as_ref().expect("dumped repertory"),
         crate::emacs_core::pdump::types::DumpFontRepertory::CharsetSym(sym)
             if sym.0 == repertory_sym.0
     ));
+    assert_eq!(
+        spec.family_sym,
+        Some(crate::emacs_core::pdump::types::DumpSymId(family_sym.0))
+    );
+    assert_eq!(
+        spec.registry_sym,
+        Some(crate::emacs_core::pdump::types::DumpSymId(registry_sym.0))
+    );
+    assert_eq!(
+        spec.lang_sym,
+        Some(crate::emacs_core::pdump::types::DumpSymId(lang_sym.0))
+    );
+    assert!(spec.family.is_none());
+    assert!(spec.registry.is_none());
+    assert!(spec.lang.is_none());
 }

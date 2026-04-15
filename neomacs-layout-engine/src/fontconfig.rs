@@ -20,6 +20,7 @@ use neovm_core::emacs_core::fontset::{
     FontSpecEntry, StoredFontSpec, fontset_generation, matching_entries_for_char,
     repertory_target_ranges,
 };
+use neovm_core::emacs_core::intern::{intern, resolve_sym};
 use neovm_core::face::{FontSlant, FontWidth};
 use std::collections::HashMap;
 #[cfg(unix)]
@@ -411,11 +412,11 @@ pub fn find_font_for_spec(
         .map(str::trim)
         .filter(|family| !family.is_empty())
         .map(resolve_family)
-        .map(str::to_string);
+        .map(intern);
     let spec = StoredFontSpec {
         family: resolved_family,
-        registry: registry.map(str::to_string),
-        lang: lang.map(str::to_string),
+        registry: registry.map(|registry| intern(&registry.to_ascii_lowercase())),
+        lang: lang.map(|lang| intern(&lang.to_ascii_lowercase())),
         weight: weight.map(neovm_core::face::FontWeight),
         slant,
         width: None,
@@ -425,13 +426,12 @@ pub fn find_font_for_spec(
     let query_charset_ranges = query_charset_ranges(&spec, representative);
     let registry_lang = spec
         .registry
-        .as_deref()
+        .map(resolve_sym)
         .and_then(registry_hint)
-        .and_then(|hint| hint.lang)
-        .map(str::to_string);
-    let query_langs = combined_query_langs(registry_lang.as_deref(), spec.lang.as_deref());
+        .and_then(|hint| hint.lang);
+    let query_langs = combined_query_langs(registry_lang, spec.lang.map(resolve_sym));
     let candidates = fc_list_candidates(
-        spec.family.as_deref(),
+        spec.family.map(resolve_sym),
         &query_charset_ranges,
         None,
         &query_langs,
@@ -570,11 +570,10 @@ fn match_font_from_spec(
     let query_charset_ranges = query_charset_ranges(spec, ch);
     let registry_lang = spec
         .registry
-        .as_deref()
+        .map(resolve_sym)
         .and_then(registry_hint)
-        .and_then(|hint| hint.lang)
-        .map(str::to_string);
-    let query_langs = combined_query_langs(registry_lang.as_deref(), spec.lang.as_deref());
+        .and_then(|hint| hint.lang);
+    let query_langs = combined_query_langs(registry_lang, spec.lang.map(resolve_sym));
     let requested_spacing = requested_spacing(spec);
 
     for family_option in family_search_order(requested_family, spec) {
@@ -605,7 +604,7 @@ fn match_font_from_spec(
 
 fn representative_char_for_spec(spec: &StoredFontSpec) -> char {
     spec.registry
-        .as_deref()
+        .map(resolve_sym)
         .and_then(|registry| registry_query_chars(Some(registry), 'a').into_iter().next())
         .and_then(char::from_u32)
         .unwrap_or('a')
@@ -631,7 +630,7 @@ fn candidate_matches_find_font_spec(candidate: &ListedFont, spec: &StoredFontSpe
 }
 
 fn query_charset_ranges(spec: &StoredFontSpec, ch: char) -> Vec<(u32, u32)> {
-    if let Some(registry) = spec.registry.as_deref() {
+    if let Some(registry) = spec.registry.map(resolve_sym) {
         if ftfont_registry_uses_unconstrained_charset(registry) {
             return Vec::new();
         }
@@ -730,7 +729,7 @@ fn best_candidate_for_pass(
 }
 
 fn family_search_order(requested_family: &str, spec: &StoredFontSpec) -> Vec<Option<String>> {
-    if let Some(spec_family) = spec.family.as_deref() {
+    if let Some(spec_family) = spec.family.map(resolve_sym) {
         return vec![Some(resolve_family(spec_family).to_string())];
     }
 
