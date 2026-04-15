@@ -1668,19 +1668,27 @@ pub(crate) fn builtin_font_at(eval: &mut super::eval::Context, args: Vec<Value>)
                     ));
                 }
             };
-            let string = lisp_string_to_runtime_string(*string_value);
-            let codes = crate::emacs_core::string_escape::decode_storage_char_codes(&string);
-            let char_len = codes.len() as i64;
+            let string = string_value
+                .as_lisp_string()
+                .expect("string object must carry LispString payload");
+            let char_len = string.schars() as i64;
             if !(0 <= pos && pos < char_len) {
                 return Err(signal(
                     "args-out-of-range",
-                    vec![Value::string(string), Value::fixnum(pos)],
+                    vec![*string_value, Value::fixnum(pos)],
                 ));
             }
-            let bytepos =
-                crate::emacs_core::string_escape::storage_char_to_byte(&string, pos as usize);
+            let bytepos = if string.is_multibyte() {
+                crate::emacs_core::emacs_char::char_to_byte_pos(string.as_bytes(), pos as usize)
+            } else {
+                pos as usize
+            };
             let face = resolved_face_at_string_byte(eval, *string_value, bytepos);
-            let code = codes[pos as usize];
+            let code = if string.is_multibyte() {
+                crate::emacs_core::emacs_char::string_char(&string.as_bytes()[bytepos..]).0
+            } else {
+                string.as_bytes()[bytepos] as u32
+            };
             let Some(character) = char::from_u32(code) else {
                 return Ok(build_font_object(&face));
             };
