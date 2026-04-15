@@ -2946,8 +2946,11 @@ impl<'a> Vm<'a> {
             in_place,
         } = crate::emacs_core::builtins::higher_order::parse_sort_options(args)?;
         let sequence = args[0];
-        self.with_extra_roots(&[sequence, key_fn, lessp_fn], |vm| {
-            vm.with_dynamic_vm_roots(|vm| match sequence.kind() {
+        self.with_dynamic_vm_roots(|vm| {
+            vm.push_dynamic_vm_root(sequence);
+            vm.push_dynamic_vm_root(key_fn);
+            vm.push_dynamic_vm_root(lessp_fn);
+            match sequence.kind() {
                 ValueKind::Nil => Ok(Value::NIL),
                 ValueKind::Cons => {
                     let mut cons_cells = Vec::new();
@@ -2957,7 +2960,9 @@ impl<'a> Vm<'a> {
                         match cursor.kind() {
                             ValueKind::Nil => break,
                             ValueKind::Cons => {
-                                values.push(cursor.cons_car());
+                                let value = cursor.cons_car();
+                                vm.push_dynamic_vm_root(value);
+                                values.push(value);
                                 cons_cells.push(cursor);
                                 cursor = cursor.cons_cdr();
                             }
@@ -2969,20 +2974,18 @@ impl<'a> Vm<'a> {
                             }
                         }
                     }
-                    vm.with_extra_roots(&values, |vm| {
-                        let mut sorted_values =
-                            crate::emacs_core::builtins::higher_order::stable_sort_values_with(
-                                vm, &values, key_fn, lessp_fn, reverse,
-                            )?;
-                        if in_place {
-                            for (cell, value) in cons_cells.iter().zip(sorted_values.into_iter()) {
-                                cell.set_car(value);
-                            }
-                            Ok(sequence)
-                        } else {
-                            Ok(Value::list(std::mem::take(&mut sorted_values)))
+                    let mut sorted_values =
+                        crate::emacs_core::builtins::higher_order::stable_sort_values_with(
+                            vm, &values, key_fn, lessp_fn, reverse,
+                        )?;
+                    if in_place {
+                        for (cell, value) in cons_cells.iter().zip(sorted_values.into_iter()) {
+                            cell.set_car(value);
                         }
-                    })
+                        Ok(sequence)
+                    } else {
+                        Ok(Value::list(std::mem::take(&mut sorted_values)))
+                    }
                 }
                 ValueKind::Veclike(VecLikeType::Vector)
                 | ValueKind::Veclike(VecLikeType::Record) => {
@@ -2993,31 +2996,32 @@ impl<'a> Vm<'a> {
                     } else {
                         sequence.as_vector_data().unwrap().clone()
                     };
-                    vm.with_extra_roots(&values, |vm| {
-                        let sorted_values =
-                            crate::emacs_core::builtins::higher_order::stable_sort_values_with(
-                                vm, &values, key_fn, lessp_fn, reverse,
-                            )?;
+                    for value in values.iter().copied() {
+                        vm.push_dynamic_vm_root(value);
+                    }
+                    let sorted_values =
+                        crate::emacs_core::builtins::higher_order::stable_sort_values_with(
+                            vm, &values, key_fn, lessp_fn, reverse,
+                        )?;
 
-                        if in_place {
-                            if is_record {
-                                let _ = sequence.replace_record_data(sorted_values);
-                            } else {
-                                let _ = sequence.replace_vector_data(sorted_values);
-                            }
-                            Ok(sequence)
-                        } else if is_record {
-                            Ok(Value::make_record(sorted_values))
+                    if in_place {
+                        if is_record {
+                            let _ = sequence.replace_record_data(sorted_values);
                         } else {
-                            Ok(Value::vector(sorted_values))
+                            let _ = sequence.replace_vector_data(sorted_values);
                         }
-                    })
+                        Ok(sequence)
+                    } else if is_record {
+                        Ok(Value::make_record(sorted_values))
+                    } else {
+                        Ok(Value::vector(sorted_values))
+                    }
                 }
                 _other => Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("list-or-vector-p"), sequence],
                 )),
-            })
+            }
         })
     }
 
