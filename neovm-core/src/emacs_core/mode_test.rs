@@ -572,7 +572,7 @@ fn custom_variable_in_group() {
             default_value: Value::fixnum(70),
             doc: None,
             type_: CustomType::Integer,
-            group: Some("editing".to_string()),
+            group: mode_symbol_opt(Some("editing")),
             set_function: None,
             get_function: None,
             tag: None,
@@ -580,7 +580,7 @@ fn custom_variable_in_group() {
     );
 
     let group = reg.get_custom_group("editing").unwrap();
-    assert!(group.members.contains(&"fill-column".to_string()));
+    assert!(group.members.contains(&mode_symbol("fill-column")));
 }
 
 // -------------------------------------------------------------------

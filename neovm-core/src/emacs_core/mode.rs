@@ -108,12 +108,12 @@ pub struct CustomVariable {
     pub doc: Option<String>,
     /// Type specification.
     pub type_: CustomType,
-    /// Customization group this variable belongs to.
-    pub group: Option<String>,
-    /// Name of the setter function (`:set`).
-    pub set_function: Option<String>,
-    /// Name of the getter function (`:get`).
-    pub get_function: Option<String>,
+    /// Customization group symbol this variable belongs to.
+    pub group: Option<Value>,
+    /// Setter function symbol (`:set`).
+    pub set_function: Option<Value>,
+    /// Getter function symbol (`:get`).
+    pub get_function: Option<Value>,
     /// Tag for display purposes.
     pub tag: Option<String>,
 }
@@ -144,10 +144,10 @@ pub enum CustomType {
 pub struct CustomGroup {
     /// Docstring.
     pub doc: Option<String>,
-    /// Parent group.
-    pub parent: Option<String>,
-    /// Member variable or sub-group names.
-    pub members: Vec<String>,
+    /// Parent group symbol.
+    pub parent: Option<Value>,
+    /// Member variable or sub-group symbols.
+    pub members: Vec<Value>,
 }
 
 // ---------------------------------------------------------------------------
@@ -522,10 +522,11 @@ impl ModeRegistry {
 
     /// Register a custom variable.
     pub fn register_custom_variable(&mut self, name: &str, var: CustomVariable) {
-        if let Some(ref group_name) = var.group {
-            if let Some(group) = self.custom_groups.get_mut(group_name) {
-                if !group.members.contains(&name.to_string()) {
-                    group.members.push(name.to_string());
+        if let Some(group_name) = var.group {
+            if let Some(group) = self.custom_groups.get_mut(mode_symbol_name(group_name)) {
+                let member = mode_symbol(name);
+                if !group.members.contains(&member) {
+                    group.members.push(member);
                 }
             }
         }
@@ -741,11 +742,26 @@ impl GcTrace for ModeRegistry {
         roots.push(self.fundamental_mode);
         for var in self.custom_variables.values() {
             roots.push(var.default_value);
+            if let Some(group) = var.group {
+                roots.push(group);
+            }
+            if let Some(set_function) = var.set_function {
+                roots.push(set_function);
+            }
+            if let Some(get_function) = var.get_function {
+                roots.push(get_function);
+            }
             if let CustomType::Choice(choices) = &var.type_ {
                 for (_, v) in choices {
                     roots.push(*v);
                 }
             }
+        }
+        for group in self.custom_groups.values() {
+            if let Some(parent) = group.parent {
+                roots.push(parent);
+            }
+            roots.extend(group.members.iter().copied());
         }
     }
 }

@@ -728,9 +728,9 @@ pub struct DumpModeCustomVariable {
     pub default_value: DumpValue,
     pub doc: Option<String>,
     pub custom_type: DumpModeCustomType,
-    pub group: Option<String>,
-    pub set_function: Option<String>,
-    pub get_function: Option<String>,
+    pub group: Option<DumpValue>,
+    pub set_function: Option<DumpValue>,
+    pub get_function: Option<DumpValue>,
     pub tag: Option<String>,
 }
 
@@ -759,8 +759,8 @@ pub enum DumpModeCustomType {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpModeCustomGroup {
     pub doc: Option<String>,
-    pub parent: Option<String>,
-    pub members: Vec<String>,
+    pub parent: Option<DumpValue>,
+    pub members: Vec<DumpValue>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
