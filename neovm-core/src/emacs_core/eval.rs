@@ -9223,6 +9223,22 @@ impl Context {
             .push(value);
     }
 
+    pub(crate) fn save_vm_frame_roots(&self) -> usize {
+        self.vm_root_frames
+            .last()
+            .expect("VM root frame missing")
+            .roots
+            .len()
+    }
+
+    pub(crate) fn restore_vm_frame_roots(&mut self, saved_len: usize) {
+        self.vm_root_frames
+            .last_mut()
+            .expect("VM root frame missing")
+            .roots
+            .truncate(saved_len);
+    }
+
     pub(crate) fn with_runtime_backtrace_frame(
         &mut self,
         function: Value,

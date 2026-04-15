@@ -101,6 +101,14 @@ impl<'a> Vm<'a> {
         self.ctx.push_vm_frame_root(value);
     }
 
+    fn save_dynamic_vm_roots(&self) -> usize {
+        self.ctx.save_vm_frame_roots()
+    }
+
+    fn restore_dynamic_vm_roots(&mut self, saved_len: usize) {
+        self.ctx.restore_vm_frame_roots(saved_len);
+    }
+
     fn with_frame_roots<T>(
         &mut self,
         func: &ByteCodeFunction,
@@ -2816,21 +2824,25 @@ impl<'a> Vm<'a> {
         builtins::expect_args("mapcar", args, 2)?;
         let func = args[0];
         let sequence = args[1];
-        self.with_extra_roots(&[func, sequence], |vm| {
+        self.with_dynamic_vm_roots(|vm| {
+            vm.push_dynamic_vm_root(func);
+            vm.push_dynamic_vm_root(sequence);
             let mut results = Vec::new();
             let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
                 &sequence,
                 |item| {
-                    let value = vm.with_extra_roots(&results, |vm| {
-                        vm.with_extra_roots(&[item], |vm| vm.call_function(func, vec![item]))
-                    })?;
+                    let saved_roots = vm.save_dynamic_vm_roots();
+                    vm.push_dynamic_vm_root(item);
+                    let value = vm.call_function(func, vec![item])?;
+                    vm.restore_dynamic_vm_roots(saved_roots);
+                    vm.push_dynamic_vm_root(value);
                     results.push(value);
                     Ok(())
                 },
             );
 
             match map_result {
-                Ok(()) => vm.with_extra_roots(&results, |_| Ok(Value::list(results.clone()))),
+                Ok(()) => Ok(Value::list(results)),
                 Err(flow) => Err(flow),
             }
         })
@@ -2840,11 +2852,17 @@ impl<'a> Vm<'a> {
         builtins::expect_args("mapc", args, 2)?;
         let func = args[0];
         let sequence = args[1];
-        self.with_extra_roots(&[func, sequence], |vm| {
+        self.with_dynamic_vm_roots(|vm| {
+            vm.push_dynamic_vm_root(func);
+            vm.push_dynamic_vm_root(sequence);
             crate::emacs_core::builtins::higher_order::for_each_sequence_element(
                 &sequence,
                 |item| {
-                    vm.with_extra_roots(&[item], |vm| vm.call_function(func, vec![item]))?;
+                    let saved_roots = vm.save_dynamic_vm_roots();
+                    vm.push_dynamic_vm_root(item);
+                    let result = vm.call_function(func, vec![item]);
+                    vm.restore_dynamic_vm_roots(saved_roots);
+                    result?;
                     Ok(())
                 },
             )?;
@@ -2856,23 +2874,25 @@ impl<'a> Vm<'a> {
         builtins::expect_args("mapcan", args, 2)?;
         let func = args[0];
         let sequence = args[1];
-        self.with_extra_roots(&[func, sequence], |vm| {
+        self.with_dynamic_vm_roots(|vm| {
+            vm.push_dynamic_vm_root(func);
+            vm.push_dynamic_vm_root(sequence);
             let mut mapped = Vec::new();
             let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
                 &sequence,
                 |item| {
-                    let value = vm.with_extra_roots(&mapped, |vm| {
-                        vm.with_extra_roots(&[item], |vm| vm.call_function(func, vec![item]))
-                    })?;
+                    let saved_roots = vm.save_dynamic_vm_roots();
+                    vm.push_dynamic_vm_root(item);
+                    let value = vm.call_function(func, vec![item])?;
+                    vm.restore_dynamic_vm_roots(saved_roots);
+                    vm.push_dynamic_vm_root(value);
                     mapped.push(value);
                     Ok(())
                 },
             );
 
             match map_result {
-                Ok(()) => vm.with_extra_roots(&mapped, |_| {
-                    crate::emacs_core::builtins::builtin_nconc(mapped.clone())
-                }),
+                Ok(()) => crate::emacs_core::builtins::builtin_nconc(mapped),
                 Err(flow) => Err(flow),
             }
         })
@@ -2883,14 +2903,19 @@ impl<'a> Vm<'a> {
         let func = args[0];
         let sequence = args[1];
         let separator = args.get(2).copied().unwrap_or_else(|| Value::string(""));
-        self.with_extra_roots(&[func, sequence, separator], |vm| {
+        self.with_dynamic_vm_roots(|vm| {
+            vm.push_dynamic_vm_root(func);
+            vm.push_dynamic_vm_root(sequence);
+            vm.push_dynamic_vm_root(separator);
             let mut parts = Vec::new();
             let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
                 &sequence,
                 |item| {
-                    let value = vm.with_extra_roots(&parts, |vm| {
-                        vm.with_extra_roots(&[item], |vm| vm.call_function(func, vec![item]))
-                    })?;
+                    let saved_roots = vm.save_dynamic_vm_roots();
+                    vm.push_dynamic_vm_root(item);
+                    let value = vm.call_function(func, vec![item])?;
+                    vm.restore_dynamic_vm_roots(saved_roots);
+                    vm.push_dynamic_vm_root(value);
                     parts.push(value);
                     Ok(())
                 },
@@ -2906,11 +2931,7 @@ impl<'a> Vm<'a> {
                         }
                         concat_args.push(part);
                     }
-                    vm.with_extra_roots(&parts, |vm| {
-                        vm.with_extra_roots(&concat_args, |_| {
-                            crate::emacs_core::builtins::builtin_concat(concat_args.clone())
-                        })
-                    })
+                    crate::emacs_core::builtins::builtin_concat(concat_args)
                 }
                 Err(flow) => Err(flow),
             }
