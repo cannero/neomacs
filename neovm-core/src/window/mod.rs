@@ -1443,27 +1443,30 @@ impl Frame {
         format!("F{ordinal}")
     }
 
-    pub fn set_name_runtime_string(&mut self, name: impl Into<String>) {
-        self.name = Value::string(name.into());
-        self.explicit_name = true;
+    pub fn generated_name_value(&self) -> Value {
+        Value::string(self.generated_name_runtime_string())
     }
 
-    pub fn set_generated_name_runtime_string(&mut self, name: impl Into<String>) {
-        self.name = Value::string(name.into());
+    pub fn set_name_value(&mut self, name: Value) {
+        self.explicit_name = true;
+        self.name = name;
+    }
+
+    pub fn set_generated_name_value(&mut self, name: Value) {
         self.explicit_name = false;
+        self.name = name;
     }
 
     pub fn set_name_parameter_value(&mut self, name: Value) {
         if name.is_nil() {
-            self.set_generated_name_runtime_string(self.generated_name_runtime_string());
+            self.set_generated_name_value(self.generated_name_value());
         } else {
-            self.name = name;
-            self.explicit_name = true;
+            self.set_name_value(name);
         }
     }
 
-    pub fn set_title_runtime_string(&mut self, title: impl Into<String>) {
-        self.title = Value::string(title.into());
+    pub fn set_title_value(&mut self, title: Value) {
+        self.title = title;
     }
 
     pub fn clear_title(&mut self) {
@@ -1998,12 +2001,39 @@ impl FrameManager {
         height: u32,
         buffer_id: BufferId,
     ) -> FrameId {
-        self.create_frame_on_terminal(name, 0, width, height, buffer_id)
+        self.create_frame_value(Value::string(name), width, height, buffer_id)
+    }
+
+    pub fn create_frame_value(
+        &mut self,
+        name: Value,
+        width: u32,
+        height: u32,
+        buffer_id: BufferId,
+    ) -> FrameId {
+        self.create_frame_value_on_terminal(name, 0, width, height, buffer_id)
     }
 
     pub fn create_frame_on_terminal(
         &mut self,
         name: &str,
+        terminal_id: u64,
+        width: u32,
+        height: u32,
+        buffer_id: BufferId,
+    ) -> FrameId {
+        self.create_frame_value_on_terminal(
+            Value::string(name),
+            terminal_id,
+            width,
+            height,
+            buffer_id,
+        )
+    }
+
+    pub fn create_frame_value_on_terminal(
+        &mut self,
+        name: Value,
         terminal_id: u64,
         width: u32,
         height: u32,
@@ -2016,14 +2046,7 @@ impl FrameManager {
         let bounds = Rect::new(0.0, 0.0, width as f32, height as f32);
         let root = Window::new_leaf(window_id, buffer_id, bounds);
 
-        let frame = Frame::new(
-            frame_id,
-            Value::string(name),
-            terminal_id,
-            width,
-            height,
-            root,
-        );
+        let frame = Frame::new(frame_id, name, terminal_id, width, height, root);
         let selected_wid = frame.selected_window;
         self.frames.insert(frame_id, frame);
         self.note_window_selected(selected_wid);

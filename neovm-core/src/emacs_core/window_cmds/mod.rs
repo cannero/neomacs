@@ -8,7 +8,7 @@
 //! paths for compatibility.
 
 use super::error::{EvalResult, Flow, signal};
-use super::intern::resolve_sym;
+use super::intern::{SymId, resolve_sym};
 use super::minibuffer::MinibufferManager;
 use super::value::{Value, ValueKind, VecLikeType, list_to_vec};
 use crate::buffer::{BufferId, BufferManager};
@@ -5641,7 +5641,7 @@ fn make_frame_plain(
     expect_max_args("make-frame", &args, 1)?;
     let mut width: u32 = 800;
     let mut height: u32 = 600;
-    let mut name = String::from("F");
+    let mut name = Value::string("F");
 
     // Parse optional alist parameters.
     if let Some(params) = args.first() {
@@ -5663,8 +5663,8 @@ fn make_frame_plain(
                                 }
                             }
                             "name" => {
-                                if let Some(s) = pair_cdr.as_str() {
-                                    name = s.to_string();
+                                if let Some(value) = frame_name_parameter_value(&pair_cdr) {
+                                    name = value;
                                 }
                             }
                             _ => {}
@@ -5680,25 +5680,25 @@ fn make_frame_plain(
         .current_buffer()
         .map(|b| b.id)
         .unwrap_or(BufferId(0));
-    let fid = frames.create_frame(&name, width, height, buf_id);
+    let fid = frames.create_frame_value(name, width, height, buf_id);
     tracing::debug!(
         "make_frame_plain: created plain frame {:?} size={}x{} name={}",
         fid,
         width,
         height,
-        name
+        name.as_runtime_string_owned().unwrap_or_default()
     );
     Ok(Value::make_frame(fid.0))
 }
 
 #[derive(Default)]
 struct ParsedGuiFrameParams {
-    name: Option<String>,
-    title: Option<String>,
+    name: Option<Value>,
+    title: Option<Value>,
     width_columns: Option<u32>,
     height_lines: Option<u32>,
     visibility: Option<bool>,
-    all: std::collections::HashMap<String, Value>,
+    all: std::collections::HashMap<SymId, Value>,
 }
 
 #[derive(Clone, Copy)]
@@ -5711,18 +5711,19 @@ struct GuiFrameMetrics {
     minibuffer_height: f32,
 }
 
-fn stringish_value(value: &Value) -> Option<String> {
-    value
-        .as_str()
-        .map(ToOwned::to_owned)
-        .or_else(|| value.as_symbol_name().map(ToOwned::to_owned))
+fn stringish_value(value: &Value) -> Option<Value> {
+    match value.kind() {
+        ValueKind::String => Some(*value),
+        ValueKind::Symbol(id) => Some(Value::string(resolve_sym(id))),
+        _ => None,
+    }
 }
 
 fn frame_name_parameter_value(value: &Value) -> Option<Value> {
     if value.is_nil() {
         Some(Value::NIL)
     } else {
-        stringish_value(value).map(Value::string)
+        stringish_value(value)
     }
 }
 
@@ -5730,7 +5731,7 @@ fn frame_title_parameter_value(value: &Value) -> Option<Value> {
     if value.is_nil() {
         Some(Value::NIL)
     } else {
-        stringish_value(value).map(Value::string)
+        stringish_value(value)
     }
 }
 
@@ -5738,7 +5739,7 @@ fn frame_icon_name_parameter_value(value: &Value) -> Option<Value> {
     if value.is_nil() {
         Some(Value::NIL)
     } else {
-        stringish_value(value).map(Value::string)
+        stringish_value(value)
     }
 }
 
@@ -5756,12 +5757,11 @@ fn parse_gui_frame_params(value: Option<&Value>) -> ParsedGuiFrameParams {
         };
         let pair_car = item.cons_car();
         let pair_cdr = item.cons_cdr();
-        let Some(key) = pair_car.as_symbol_name() else {
+        let Some(key) = pair_car.as_symbol_id() else {
             continue;
         };
-        let key_name = key.to_string();
-        parsed.all.insert(key_name.clone(), pair_cdr);
-        match key {
+        parsed.all.insert(key, pair_cdr);
+        match resolve_sym(key) {
             "name" => parsed.name = stringish_value(&pair_cdr),
             "title" => parsed.title = stringish_value(&pair_cdr),
             "width" => {
@@ -5899,25 +5899,27 @@ pub(crate) fn x_create_frame_impl(
         width_px,
         height_px
     );
-    let explicit_title = parsed.title.clone();
+    let explicit_title = parsed.title;
     let host_title = explicit_title
-        .clone()
-        .or_else(|| parsed.name.clone())
+        .and_then(|title| title.as_runtime_string_owned())
+        .or_else(|| parsed.name.and_then(|name| name.as_runtime_string_owned()))
         .unwrap_or_else(|| "Neomacs".to_string());
-    let name = parsed.name.clone().unwrap_or_else(|| host_title.clone());
+    let name = parsed
+        .name
+        .unwrap_or_else(|| Value::string(host_title.clone()));
     let current_buffer_id = buffers
         .current_buffer()
         .map(|buffer| buffer.id)
         .unwrap_or_else(|| buffers.create_buffer("*scratch*"));
     let minibuffer_buffer_id = buffers.find_buffer_by_name(" *Minibuf-0*");
-    let fid = frames.create_frame(&name, width_px, height_px, current_buffer_id);
+    let fid = frames.create_frame_value(name, width_px, height_px, current_buffer_id);
     {
         let frame = frames
             .get_mut(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-        frame.set_name_runtime_string(name.clone());
+        frame.set_name_value(name);
         if let Some(title) = explicit_title {
-            frame.set_title_runtime_string(title);
+            frame.set_title_value(title);
         } else {
             frame.clear_title();
         }
@@ -5933,7 +5935,7 @@ pub(crate) fn x_create_frame_impl(
         frame.set_parameter(Value::symbol("display-type"), Value::symbol("color"));
         frame.set_parameter(Value::symbol("background-mode"), Value::symbol("dark"));
         for (key, value) in parsed.all {
-            frame.set_parameter(Value::symbol(&key), value);
+            frame.set_parameter(Value::from_sym_id(key), value);
         }
         if let Window::Leaf { buffer_id, .. } = &mut frame.root_window {
             *buffer_id = current_buffer_id;
