@@ -2212,11 +2212,47 @@ fn internal_set_alternative_font_registry_alist_returns_nil_or_value() {
 }
 
 #[test]
-fn internal_set_alternative_font_registry_alist_preserves_values() {
+fn internal_set_alternative_font_registry_alist_downcases_values() {
     crate::test_utils::init_test_tracing();
-    let input = Value::list(vec![Value::list(vec![Value::fixnum(1), Value::fixnum(2)])]);
+    let input = Value::list(vec![Value::list(vec![
+        Value::string("ISO10646-1"),
+        Value::string("GB18030.2000-1"),
+    ])]);
     let result = builtin_internal_set_alternative_font_registry_alist(vec![input]).unwrap();
-    assert_eq!(result, input);
+    let outer = list_to_vec(&result).expect("outer list");
+    let inner = list_to_vec(&outer[0]).expect("inner list");
+    assert_eq!(
+        inner[0].as_runtime_string_owned().as_deref(),
+        Some("iso10646-1")
+    );
+    assert_eq!(
+        inner[1].as_runtime_string_owned().as_deref(),
+        Some("gb18030.2000-1")
+    );
+    assert_eq!(
+        alternative_font_registries("ISO10646-1"),
+        vec!["iso10646-1".to_string(), "gb18030.2000-1".to_string()]
+    );
+}
+
+#[test]
+fn internal_set_alternative_font_registry_alist_accepts_raw_unibyte_strings() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b'A',
+    ]));
+    let expected = crate::emacs_core::builtins::lisp_string_to_runtime_string(Value::heap_string(
+        crate::heap_types::LispString::from_unibyte(vec![0xFF, b'a']),
+    ));
+    let input = Value::list(vec![Value::list(vec![raw])]);
+    let result = builtin_internal_set_alternative_font_registry_alist(vec![input]).unwrap();
+    let outer = list_to_vec(&result).expect("outer list");
+    let inner = list_to_vec(&outer[0]).expect("inner list");
+    assert_eq!(
+        inner[0].as_runtime_string_owned().as_deref(),
+        Some(expected.as_str())
+    );
+    assert_eq!(alternative_font_registries(&expected), vec![expected]);
 }
 
 // -----------------------------------------------------------------------

@@ -27,15 +27,23 @@ use crate::face::{
     BoxStyle, Color, Face as RuntimeFace, FaceHeight, FaceRemapping, FontSlant, FontWeight,
     FontWidth, UnderlineStyle,
 };
+use crate::heap_types::LispString;
 use crate::window::{FRAME_ID_BASE, FrameId, FrameManager, WindowId};
 
-type AlternativeFontFamilyAlist = Vec<(String, Vec<String>)>;
+type AlternativeFontFamilyAlist = Vec<(SymId, Vec<SymId>)>;
+type AlternativeFontRegistryAlist = Vec<(LispString, Vec<LispString>)>;
 
 static ALTERNATIVE_FONT_FAMILY_ALIST: OnceLock<RwLock<AlternativeFontFamilyAlist>> =
+    OnceLock::new();
+static ALTERNATIVE_FONT_REGISTRY_ALIST: OnceLock<RwLock<AlternativeFontRegistryAlist>> =
     OnceLock::new();
 
 fn alternative_font_family_alist() -> &'static RwLock<AlternativeFontFamilyAlist> {
     ALTERNATIVE_FONT_FAMILY_ALIST.get_or_init(|| RwLock::new(Vec::new()))
+}
+
+fn alternative_font_registry_alist() -> &'static RwLock<AlternativeFontRegistryAlist> {
+    ALTERNATIVE_FONT_REGISTRY_ALIST.get_or_init(|| RwLock::new(Vec::new()))
 }
 
 pub fn alternative_font_families(family: &str) -> Vec<String> {
@@ -48,11 +56,59 @@ pub fn alternative_font_families(family: &str) -> Vec<String> {
         return vec![lookup.to_string()];
     };
 
-    let key = lookup.to_ascii_lowercase();
     alist
         .iter()
-        .find_map(|(name, families)| (name == &key).then_some(families.clone()))
+        .find_map(|(name, families)| {
+            resolve_sym(*name).eq_ignore_ascii_case(lookup).then(|| {
+                families
+                    .iter()
+                    .map(|sym| resolve_sym(*sym).to_string())
+                    .collect()
+            })
+        })
         .unwrap_or_else(|| vec![lookup.to_string()])
+}
+
+fn ascii_downcase_lisp_string(text: &LispString) -> LispString {
+    let mut data = text.as_bytes().to_vec();
+    for byte in &mut data {
+        *byte = byte.to_ascii_lowercase();
+    }
+    if text.is_multibyte() {
+        LispString::from_emacs_bytes(data)
+    } else {
+        LispString::from_unibyte(data)
+    }
+}
+
+pub fn alternative_font_registries(registry: &str) -> Vec<String> {
+    let lookup = registry.trim();
+    if lookup.is_empty() {
+        return Vec::new();
+    }
+
+    let Ok(alist) = alternative_font_registry_alist().read() else {
+        return vec![lookup.to_ascii_lowercase()];
+    };
+
+    alist
+        .iter()
+        .find_map(|(name, registries)| {
+            name.as_bytes()
+                .eq_ignore_ascii_case(lookup.as_bytes())
+                .then(|| {
+                    registries
+                        .iter()
+                        .map(|text| {
+                            crate::emacs_core::string_escape::emacs_bytes_to_storage_string(
+                                text.as_bytes(),
+                                text.is_multibyte(),
+                            )
+                        })
+                        .collect()
+                })
+        })
+        .unwrap_or_else(|| vec![lookup.to_ascii_lowercase()])
 }
 
 // ---------------------------------------------------------------------------
@@ -4206,8 +4262,9 @@ pub(crate) fn builtin_internal_set_alternative_font_family_alist(args: Vec<Value
             match member.kind() {
                 ValueKind::String => {
                     let name = font_string_text(&member).expect("checked string");
-                    converted.push(Value::symbol(name.clone()));
-                    names.push(name);
+                    let sym = intern(&name);
+                    converted.push(Value::from_sym_id(sym));
+                    names.push(sym);
                 }
                 _other => {
                     return Err(signal(
@@ -4217,26 +4274,53 @@ pub(crate) fn builtin_internal_set_alternative_font_family_alist(args: Vec<Value
                 }
             }
         }
-        if let Some(name) = names.first() {
-            alist.push((name.to_ascii_lowercase(), names));
+        if let Some(name) = names.first().copied() {
+            alist.push((name, names));
         }
         normalized.push(Value::list(converted));
     }
     if let Ok(mut state) = alternative_font_family_alist().write() {
         *state = alist;
     }
+    clear_font_cache_state();
     Ok(Value::list(normalized))
 }
 
-/// `(internal-set-alternative-font-registry-alist ALIST)` -- validate ALIST shape and
-/// return it unchanged.
+/// `(internal-set-alternative-font-registry-alist ALIST)` -- downcase string
+/// entries and return the normalized list.
 pub(crate) fn builtin_internal_set_alternative_font_registry_alist(args: Vec<Value>) -> EvalResult {
     expect_args("internal-set-alternative-font-registry-alist", &args, 1)?;
     let entries = proper_list_to_vec_or_listp_error(&args[0])?;
+    let mut normalized = Vec::with_capacity(entries.len());
+    let mut alist = Vec::with_capacity(entries.len());
     for entry in entries {
-        let _ = proper_list_to_vec_or_listp_error(&entry)?;
+        let members = proper_list_to_vec_or_listp_error(&entry)?;
+        let mut converted = Vec::with_capacity(members.len());
+        let mut names = Vec::with_capacity(members.len());
+        for member in members {
+            let text = match member.kind() {
+                ValueKind::String => member.as_lisp_string().expect("checked string").clone(),
+                _other => {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("stringp"), member],
+                    ));
+                }
+            };
+            let downcased = ascii_downcase_lisp_string(&text);
+            converted.push(Value::heap_string(downcased.clone()));
+            names.push(downcased);
+        }
+        if let Some(name) = names.first().cloned() {
+            alist.push((name, names));
+        }
+        normalized.push(Value::list(converted));
     }
-    Ok(args[0])
+    if let Ok(mut state) = alternative_font_registry_alist().write() {
+        *state = alist;
+    }
+    clear_font_cache_state();
+    Ok(Value::list(normalized))
 }
 
 // ---------------------------------------------------------------------------
