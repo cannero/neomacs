@@ -659,8 +659,9 @@ pub struct DumpAbbrev {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpAbbrevTable {
+    pub name: DumpLispString,
     pub abbrevs: Vec<(String, DumpAbbrev)>,
-    pub parent: Option<String>,
+    pub parent: Option<DumpLispString>,
     pub case_fixed: bool,
     pub enable_quoting: bool,
 }
@@ -668,7 +669,7 @@ pub struct DumpAbbrevTable {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpAbbrevManager {
     pub tables: Vec<(String, DumpAbbrevTable)>,
-    pub global_table_name: String,
+    pub global_table_name: DumpLispString,
     pub abbrev_mode: bool,
 }
 

@@ -89,7 +89,7 @@ fn table_inheritance() {
 
     // Create a child table with parent
     let child = mgr.create_table("lisp-mode-abbrev-table");
-    child.parent = Some("global-abbrev-table".to_string());
+    child.parent = Some(runtime_string_to_abbrev_string("global-abbrev-table"));
 
     // Define a local abbrev in child
     mgr.define_abbrev("lisp-mode-abbrev-table", "df", "defun");
@@ -195,12 +195,12 @@ fn all_table_names() {
 
     let names = mgr.all_table_names();
     // Should include global + the two we created, sorted
-    assert!(names.contains(&"a-table"));
-    assert!(names.contains(&"global-abbrev-table"));
-    assert!(names.contains(&"z-table"));
+    assert!(names.contains(&runtime_string_to_abbrev_string("a-table")));
+    assert!(names.contains(&runtime_string_to_abbrev_string("global-abbrev-table")));
+    assert!(names.contains(&runtime_string_to_abbrev_string("z-table")));
     // Verify sorting
     for i in 1..names.len() {
-        assert!(names[i - 1] <= names[i]);
+        assert!(abbrev_runtime(&names[i - 1]) <= abbrev_runtime(&names[i]));
     }
 }
 

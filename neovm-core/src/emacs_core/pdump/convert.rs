@@ -1750,6 +1750,7 @@ pub(crate) fn dump_abbrev_manager(am: &AbbrevManager) -> DumpAbbrevManager {
                 (
                     k.clone(),
                     DumpAbbrevTable {
+                        name: dump_lisp_string(&t.name),
                         abbrevs: t
                             .abbrevs
                             .iter()
@@ -1765,14 +1766,14 @@ pub(crate) fn dump_abbrev_manager(am: &AbbrevManager) -> DumpAbbrevManager {
                                 )
                             })
                             .collect(),
-                        parent: t.parent.clone(),
+                        parent: t.parent.as_ref().map(dump_lisp_string),
                         case_fixed: t.case_fixed,
                         enable_quoting: t.enable_quoting,
                     },
                 )
             })
             .collect(),
-        global_table_name: am.dump_global_table_name().to_owned(),
+        global_table_name: dump_lisp_string(am.dump_global_table_name()),
         abbrev_mode: am.dump_abbrev_mode(),
     }
 }
@@ -3197,6 +3198,7 @@ pub(crate) fn load_abbrev_manager(dam: &DumpAbbrevManager) -> AbbrevManager {
             (
                 k.clone(),
                 AbbrevTable {
+                    name: load_lisp_string(&t.name),
                     abbrevs: t
                         .abbrevs
                         .iter()
@@ -3212,14 +3214,18 @@ pub(crate) fn load_abbrev_manager(dam: &DumpAbbrevManager) -> AbbrevManager {
                             )
                         })
                         .collect(),
-                    parent: t.parent.clone(),
+                    parent: t.parent.as_ref().map(load_lisp_string),
                     case_fixed: t.case_fixed,
                     enable_quoting: t.enable_quoting,
                 },
             )
         })
         .collect();
-    AbbrevManager::from_dump(tables, dam.global_table_name.clone(), dam.abbrev_mode)
+    AbbrevManager::from_dump(
+        tables,
+        load_lisp_string(&dam.global_table_name),
+        dam.abbrev_mode,
+    )
 }
 
 pub(crate) fn load_interactive_registry(dir: &DumpInteractiveRegistry) -> InteractiveRegistry {
