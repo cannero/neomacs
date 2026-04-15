@@ -17,6 +17,7 @@ use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::value::*;
 use crate::gc_trace::GcTrace;
+use crate::heap_types::LispString;
 use std::collections::HashSet;
 
 // ---------------------------------------------------------------------------
@@ -94,7 +95,7 @@ pub struct KmacroManager {
     /// Keyboard macro counter (for `kmacro-insert-counter`).
     pub counter: i64,
     /// Format string for the counter (printf-style, default "%d").
-    pub counter_format: String,
+    pub counter_format: LispString,
 }
 
 impl Default for KmacroManager {
@@ -119,7 +120,7 @@ impl KmacroManager {
         Self {
             macro_ring: Vec::new(),
             counter: 0,
-            counter_format: "%d".to_string(),
+            counter_format: LispString::from_utf8("%d"),
         }
     }
 
@@ -127,7 +128,8 @@ impl KmacroManager {
     pub fn format_counter(&self) -> String {
         // Support basic %d / %o / %x / %X formats.
         // For anything more complex, fall back to decimal.
-        let fmt = &self.counter_format;
+        let fmt =
+            crate::emacs_core::builtins::runtime_string_from_lisp_string(&self.counter_format);
         if fmt.contains("%d") {
             fmt.replace("%d", &self.counter.to_string())
         } else if fmt.contains("%o") {
@@ -476,10 +478,14 @@ pub(crate) fn builtin_kmacro_set_format(
     expect_args("kmacro-set-format", &args, 1)?;
     let format = match args[0].kind() {
         ValueKind::String => {
-            let s = args[0]
-                .as_runtime_string_owned()
+            let string = args[0]
+                .as_lisp_string()
                 .expect("ValueKind::String must carry LispString payload");
-            if s.is_empty() { "%d".to_string() } else { s }
+            if string.is_empty() {
+                LispString::from_utf8("%d")
+            } else {
+                string.clone()
+            }
         }
         other => {
             return Err(signal(

@@ -1025,7 +1025,10 @@ pub struct DumpKmacroManager {
     pub last_macro: Option<Vec<DumpValue>>,
     pub macro_ring: Vec<Vec<DumpValue>>,
     pub counter: i64,
-    pub counter_format: String,
+    #[serde(default)]
+    pub counter_format_lisp: Option<DumpLispString>,
+    #[serde(default)]
+    pub counter_format: Option<String>,
 }
 
 // Register

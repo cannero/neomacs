@@ -1708,7 +1708,8 @@ pub(crate) fn dump_kmacro(encoder: &mut DumpEncoder, km: &KmacroManager) -> Dump
             .map(|m| m.iter().map(|value| encoder.dump_value(value)).collect())
             .collect(),
         counter: km.counter,
-        counter_format: km.counter_format.clone(),
+        counter_format_lisp: Some(dump_lisp_string(&km.counter_format)),
+        counter_format: None,
     }
 }
 
@@ -3240,7 +3241,16 @@ pub(crate) fn load_kmacro(decoder: &mut LoadDecoder, dkm: &DumpKmacroManager) ->
             .map(|m| m.iter().map(|value| decoder.load_value(value)).collect())
             .collect(),
         counter: dkm.counter,
-        counter_format: dkm.counter_format.clone(),
+        counter_format: dkm
+            .counter_format_lisp
+            .as_ref()
+            .map(load_lisp_string)
+            .or_else(|| {
+                dkm.counter_format.as_ref().map(|text| {
+                    crate::emacs_core::builtins::runtime_string_to_lisp_string(text, true)
+                })
+            })
+            .unwrap_or_else(|| crate::heap_types::LispString::from_utf8("%d")),
     }
 }
 

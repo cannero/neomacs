@@ -1,12 +1,17 @@
 use super::super::intern::intern;
 use super::*;
 use crate::emacs_core::autoload::is_autoload_value;
+use crate::emacs_core::builtins::runtime_string_to_lisp_string;
 use crate::emacs_core::eval::Context;
 use crate::emacs_core::format_eval_result;
 use crate::test_utils::{eval_with_ldefs_boot_autoloads, runtime_startup_eval_all};
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
     runtime_startup_eval_all(src)
+}
+
+fn kmacro_string(text: &str) -> crate::heap_types::LispString {
+    runtime_string_to_lisp_string(text, true)
 }
 
 // -----------------------------------------------------------------------
@@ -19,7 +24,7 @@ fn new_manager_defaults() {
     let mgr = KmacroManager::new();
     assert!(mgr.macro_ring.is_empty());
     assert_eq!(mgr.counter, 0);
-    assert_eq!(mgr.counter_format, "%d");
+    assert_eq!(mgr.counter_format, kmacro_string("%d"));
 }
 
 #[test]
@@ -94,7 +99,7 @@ fn format_counter_decimal() {
     crate::test_utils::init_test_tracing();
     let mgr = KmacroManager {
         counter: 42,
-        counter_format: "%d".to_string(),
+        counter_format: kmacro_string("%d"),
         ..KmacroManager::new()
     };
     assert_eq!(mgr.format_counter(), "42");
@@ -105,7 +110,7 @@ fn format_counter_hex() {
     crate::test_utils::init_test_tracing();
     let mgr = KmacroManager {
         counter: 255,
-        counter_format: "%x".to_string(),
+        counter_format: kmacro_string("%x"),
         ..KmacroManager::new()
     };
     assert_eq!(mgr.format_counter(), "ff");
@@ -116,7 +121,7 @@ fn format_counter_octal() {
     crate::test_utils::init_test_tracing();
     let mgr = KmacroManager {
         counter: 8,
-        counter_format: "%o".to_string(),
+        counter_format: kmacro_string("%o"),
         ..KmacroManager::new()
     };
     assert_eq!(mgr.format_counter(), "10");
@@ -127,7 +132,7 @@ fn format_counter_with_prefix() {
     crate::test_utils::init_test_tracing();
     let mgr = KmacroManager {
         counter: 7,
-        counter_format: "item-%d".to_string(),
+        counter_format: kmacro_string("item-%d"),
         ..KmacroManager::new()
     };
     assert_eq!(mgr.format_counter(), "item-7");
@@ -138,7 +143,7 @@ fn format_counter_unknown_format() {
     crate::test_utils::init_test_tracing();
     let mgr = KmacroManager {
         counter: 99,
-        counter_format: "???".to_string(),
+        counter_format: kmacro_string("???"),
         ..KmacroManager::new()
     };
     // Fallback to plain decimal
@@ -897,19 +902,26 @@ fn test_kmacro_set_format_builtin() {
     use super::super::eval::Context;
 
     let mut eval = Context::new();
-    assert_eq!(eval.kmacro.counter_format, "%d");
+    assert_eq!(eval.kmacro.counter_format, kmacro_string("%d"));
+    let nonempty = Value::string("item-%d");
 
     assert_eq!(
-        builtin_kmacro_set_format(&mut eval, vec![Value::string("item-%d")]).unwrap(),
+        builtin_kmacro_set_format(&mut eval, vec![nonempty]).unwrap(),
         Value::NIL
     );
-    assert_eq!(eval.kmacro.counter_format, "item-%d");
+    assert_eq!(
+        eval.kmacro.counter_format,
+        nonempty
+            .as_lisp_string()
+            .expect("Value::string must carry LispString payload")
+            .clone()
+    );
 
     assert_eq!(
         builtin_kmacro_set_format(&mut eval, vec![Value::string("")]).unwrap(),
         Value::NIL
     );
-    assert_eq!(eval.kmacro.counter_format, "%d");
+    assert_eq!(eval.kmacro.counter_format, kmacro_string("%d"));
 
     assert!(builtin_kmacro_set_format(&mut eval, vec![]).is_err());
     assert!(builtin_kmacro_set_format(&mut eval, vec![Value::NIL]).is_err());
