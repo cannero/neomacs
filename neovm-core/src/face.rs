@@ -370,6 +370,18 @@ fn face_symbol_value(name: &str) -> Value {
     Value::symbol(name)
 }
 
+fn normalized_face_name_value(value: &Value) -> Option<Value> {
+    if let Some(name) = value.as_symbol_name() {
+        Some(face_symbol_value(name))
+    } else if value.is_string() {
+        value
+            .as_runtime_string_owned()
+            .map(|name| face_symbol_value(&name))
+    } else {
+        None
+    }
+}
+
 impl Face {
     /// Compatibility constructor for existing call sites. The name is owned
     /// by `FaceTable`, not by `Face` itself.
@@ -754,7 +766,7 @@ pub enum FaceRemapEntry {
 /// original face definition.
 #[derive(Clone, Debug, Default)]
 pub struct FaceRemapping {
-    map: HashMap<String, Vec<FaceRemapEntry>>,
+    map: HashMap<Value, Vec<FaceRemapEntry>>,
 }
 
 impl FaceRemapping {
@@ -769,13 +781,15 @@ impl FaceRemapping {
     }
 
     /// Insert a remapping for the given face name.
-    pub fn insert(&mut self, face_name: String, entries: Vec<FaceRemapEntry>) {
+    pub fn insert(&mut self, face_name: Value, entries: Vec<FaceRemapEntry>) {
         self.map.insert(face_name, entries);
     }
 
     /// Look up the remapping entries for a face name.
     pub fn get(&self, face_name: &str) -> Option<&[FaceRemapEntry]> {
-        self.map.get(face_name).map(|v| v.as_slice())
+        self.map
+            .get(&face_symbol_value(face_name))
+            .map(|v| v.as_slice())
     }
 
     /// Parse `face-remapping-alist` from its Lisp value.
@@ -800,16 +814,16 @@ impl FaceRemapping {
             };
             let cell_car = entry.cons_car();
             let cell_cdr = entry.cons_cdr();
-            let Some(face_name) = cell_car.as_symbol_name() else {
+            let Some(face_name) = normalized_face_name_value(&cell_car) else {
                 continue;
             };
-            if face_name == "nil" {
+            if face_name.is_symbol_named("nil") {
                 continue;
             }
 
             let entries = Self::parse_remap_spec(&cell_cdr);
             if !entries.is_empty() {
-                remapping.insert(face_name.to_string(), entries);
+                remapping.insert(face_name, entries);
             }
         }
 
@@ -822,10 +836,10 @@ impl FaceRemapping {
 
         match spec.kind() {
             // Simple symbol remap: (FACE . other-face)
-            ValueKind::Symbol(_) | ValueKind::T => {
-                if let Some(name) = spec.as_symbol_name() {
-                    if name != "nil" {
-                        return vec![FaceRemapEntry::RemapFace(face_symbol_value(name))];
+            ValueKind::Symbol(_) | ValueKind::T | ValueKind::String => {
+                if let Some(name) = normalized_face_name_value(spec) {
+                    if !name.is_symbol_named("nil") {
+                        return vec![FaceRemapEntry::RemapFace(name)];
                     }
                 }
                 Vec::new()
@@ -850,11 +864,10 @@ impl FaceRemapping {
                 let mut entries = Vec::new();
                 for item in &items {
                     match item.kind() {
-                        ValueKind::Symbol(_) | ValueKind::T => {
-                            if let Some(name) = item.as_symbol_name() {
-                                if name != "nil" {
-                                    entries
-                                        .push(FaceRemapEntry::RemapFace(face_symbol_value(name)));
+                        ValueKind::Symbol(_) | ValueKind::T | ValueKind::String => {
+                            if let Some(name) = normalized_face_name_value(item) {
+                                if !name.is_symbol_named("nil") {
+                                    entries.push(FaceRemapEntry::RemapFace(name));
                                 }
                             }
                         }
@@ -883,7 +896,7 @@ impl FaceRemapping {
 /// Global face registry.
 #[derive(Clone)]
 pub struct FaceTable {
-    faces: HashMap<String, Face>,
+    faces: HashMap<Value, Face>,
 }
 
 impl FaceTable {
@@ -1205,13 +1218,14 @@ impl FaceTable {
 
     /// Define or update a face.
     pub fn define(&mut self, name: &str, face: Face) {
-        self.faces.insert(name.to_string(), face);
+        self.faces.insert(face_symbol_value(name), face);
     }
 
     /// Ensure a face exists (create empty if not present).
     pub fn ensure_face(&mut self, name: &str) {
-        if !self.faces.contains_key(name) {
-            self.faces.insert(name.to_string(), Face::new(name));
+        let key = face_symbol_value(name);
+        if !self.faces.contains_key(&key) {
+            self.faces.insert(key, Face::new(name));
         }
     }
 
@@ -1220,7 +1234,8 @@ impl FaceTable {
     /// Returns true if the face was actually modified.
     pub fn set_attribute(&mut self, name: &str, attr: &str, value: FaceAttrValue) -> bool {
         self.ensure_face(name);
-        let face = self.faces.get_mut(name).unwrap();
+        let key = face_symbol_value(name);
+        let face = self.faces.get_mut(&key).unwrap();
 
         // Helper: set an Option<T> field from the matching FaceAttrValue variant.
         macro_rules! set_option {
@@ -1298,7 +1313,7 @@ impl FaceTable {
 
     /// Look up a face by name.
     pub fn get(&self, name: &str) -> Option<&Face> {
-        self.faces.get(name)
+        self.faces.get(&face_symbol_value(name))
     }
 
     /// Resolve a face name, merging inherited faces.
@@ -1312,7 +1327,8 @@ impl FaceTable {
             return Face::new(name);
         }
 
-        let Some(face) = self.faces.get(name) else {
+        let key = face_symbol_value(name);
+        let Some(face) = self.faces.get(&key) else {
             return Face::new(name);
         };
 
@@ -1340,7 +1356,7 @@ impl FaceTable {
         for name in face_names {
             // Use the raw face definition (not resolved), so inherited
             // attributes from the parent don't override prior merges.
-            if let Some(face) = self.faces.get(*name) {
+            if let Some(face) = self.faces.get(&face_symbol_value(name)) {
                 result = result.merge(face);
             }
         }
@@ -1363,19 +1379,20 @@ impl FaceTable {
         &self,
         name: &str,
         remapping: &FaceRemapping,
-        seen: &mut HashSet<String>,
+        seen: &mut HashSet<Value>,
         depth: usize,
     ) -> Face {
         if depth > 20 {
             return Face::new(name);
         }
 
+        let key = face_symbol_value(name);
         // Check face-remapping-alist — but only if we haven't already
         // visited this face (cycle detection, matching GNU's
         // push_named_merge_point).
-        if !seen.contains(name) {
+        if !seen.contains(&key) {
             if let Some(entries) = remapping.get(name) {
-                seen.insert(name.to_string());
+                seen.insert(key);
                 let base = self.resolve("default");
                 let mut result = base;
                 for entry in entries {
@@ -1424,16 +1441,17 @@ impl FaceTable {
         &self,
         name: &str,
         remapping: &FaceRemapping,
-        seen: &mut HashSet<String>,
+        seen: &mut HashSet<Value>,
         depth: usize,
     ) -> Face {
         if depth > 20 {
             return Face::new(name);
         }
 
-        if !seen.contains(name) {
+        let key = face_symbol_value(name);
+        if !seen.contains(&key) {
             if let Some(entries) = remapping.get(name) {
-                seen.insert(name.to_string());
+                seen.insert(key);
                 let mut result = Face::new(name);
                 for entry in entries {
                     match entry {
@@ -1459,14 +1477,17 @@ impl FaceTable {
 
         // No remapping — use the raw face definition (not resolved).
         self.faces
-            .get(name)
+            .get(&face_symbol_value(name))
             .cloned()
             .unwrap_or_else(|| Face::new(name))
     }
 
     /// List all defined face names.
     pub fn face_list(&self) -> Vec<String> {
-        self.faces.keys().cloned().collect()
+        self.faces
+            .keys()
+            .filter_map(|value| value.as_symbol_name().map(str::to_string))
+            .collect()
     }
 
     /// Number of defined faces.
@@ -1479,11 +1500,22 @@ impl FaceTable {
     }
 
     // pdump accessors
-    pub(crate) fn dump_faces(&self) -> &HashMap<String, Face> {
-        &self.faces
+    pub(crate) fn dump_faces(&self) -> HashMap<String, Face> {
+        self.faces
+            .iter()
+            .filter_map(|(name, face)| {
+                name.as_symbol_name()
+                    .map(|name| (name.to_string(), face.clone()))
+            })
+            .collect()
     }
     pub(crate) fn from_dump(faces: HashMap<String, Face>) -> Self {
-        Self { faces }
+        Self {
+            faces: faces
+                .into_iter()
+                .map(|(name, face)| (face_symbol_value(&name), face))
+                .collect(),
+        }
     }
 }
 
@@ -1495,6 +1527,7 @@ impl Default for FaceTable {
 
 impl GcTrace for FaceTable {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
+        roots.extend(self.faces.keys().copied());
         for face in self.faces.values() {
             roots.extend(face.inherit.iter().copied());
         }
@@ -1993,5 +2026,21 @@ mod tests {
         assert!(list.contains(&"bold".to_string()));
         assert_eq!(list.len(), table.len());
         assert!(!table.is_empty());
+    }
+
+    #[test]
+    fn face_remapping_from_lisp_interns_string_names_to_symbols() {
+        crate::test_utils::init_test_tracing();
+        let remapping = FaceRemapping::from_lisp(&Value::list(vec![Value::cons(
+            Value::string("mode-line"),
+            Value::string("bold"),
+        )]));
+
+        let entries = remapping.get("mode-line").expect("remapping");
+        assert_eq!(entries.len(), 1);
+        match &entries[0] {
+            FaceRemapEntry::RemapFace(value) => assert_eq!(*value, face_symbol_value("bold")),
+            other => panic!("expected face remap, got {other:?}"),
+        }
     }
 }
