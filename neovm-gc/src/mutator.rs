@@ -114,6 +114,10 @@ pub struct MutatorLocal {
     /// Current nursery generation observed while this
     /// mutator holds the safepoint read guard.
     nursery_generation: u64,
+    /// Whether a prepared full reclaim was already active
+    /// when this mutator acquired its current safepoint
+    /// read guard.
+    prepared_full_reclaim_active: bool,
 }
 
 impl Default for MutatorLocal {
@@ -127,6 +131,7 @@ impl Default for MutatorLocal {
             alloc_counter_local: crate::stats::AllocationCounterLocal::default(),
             collector_plans_refresh_epoch_seen: u64::MAX,
             nursery_generation: 0,
+            prepared_full_reclaim_active: false,
         }
     }
 }
@@ -168,6 +173,7 @@ impl MutatorLocal {
     fn refresh_safepoint_fast_path_state(&mut self, heap: &Heap) {
         let nursery_generation = heap.current_nursery_generation();
         self.set_nursery_generation(nursery_generation);
+        self.prepared_full_reclaim_active = heap.prepared_full_reclaim_active();
         self.publish_local.clear();
     }
 
@@ -184,6 +190,10 @@ impl MutatorLocal {
 
     fn nursery_generation(&self) -> u64 {
         self.nursery_generation
+    }
+
+    fn prepared_full_reclaim_active(&self) -> bool {
+        self.prepared_full_reclaim_active
     }
 
     pub(crate) fn publish_local_mut(&mut self) -> &mut crate::object_store::ObjectPublishLocal {
@@ -333,7 +343,7 @@ impl<'heap> Mutator<'heap> {
             self.local.refresh_safepoint_fast_path_state(self.heap);
         }
         let Self { heap, local, .. } = self;
-        if heap.prepared_full_reclaim_active() {
+        if local.prepared_full_reclaim_active() {
             return Err(AllocError::CollectionInProgress);
         }
         let config = heap.allocation_config();
@@ -835,7 +845,7 @@ impl<'heap> Mutator<'heap> {
         new_erased: Option<GcErased>,
     ) {
         assert!(
-            !self.heap.prepared_full_reclaim_active(),
+            !self.local.prepared_full_reclaim_active(),
             "cannot mutate heap edges while prepared full reclaim is active; finish the active full collection first"
         );
         let active_major_mark = self.heap.has_active_major_mark();
@@ -886,7 +896,11 @@ impl<'heap> Mutator<'heap> {
         old_erased: Option<GcErased>,
         new_erased: Option<GcErased>,
     ) {
+        let had_safepoint = self.handle_scope_state.has_safepoint();
         self.handle_scope_state.ensure_safepoint();
+        if !had_safepoint {
+            self.local.refresh_safepoint_fast_path_state(self.heap);
+        }
         let _safepoint =
             (!self.handle_scope_state.has_safepoint()).then(|| self.heap.read_safepoint());
         self.post_write_barrier_erased_with_safepoint(owner_erased, slot, old_erased, new_erased);
