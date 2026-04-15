@@ -400,14 +400,6 @@ pub struct TaggedHeap {
     /// Gray worklist for mark phase.
     gray_queue: Vec<TaggedValue>,
 
-    /// Stack bottom for conservative stack scanning.
-    stack_bottom: *const u8,
-
-    /// Cached HashSet of non-cons object addresses for O(1) lookup
-    /// during conservative stack scanning.  Built lazily before each
-    /// scan and cleared after.
-    non_cons_object_set: Option<FxHashSet<usize>>,
-
     /// Reclaimed cons cells threaded through the dead cells themselves,
     /// matching GNU alloc.c's `cons_free_list`.
     cons_free_list: *mut ConsCell,
@@ -454,8 +446,6 @@ impl TaggedHeap {
             bytes_since_gc: 0,
             live_bytes: 0,
             gray_queue: Vec::new(),
-            stack_bottom: std::ptr::null(),
-            non_cons_object_set: None,
             cons_free_list: std::ptr::null_mut(),
             cons_live_count: 0,
             marker_ptrs: Vec::new(),
@@ -473,7 +463,7 @@ impl TaggedHeap {
     }
 
     pub fn set_stack_bottom(&mut self, bottom: *const u8) {
-        self.stack_bottom = bottom;
+        let _ = bottom;
     }
 
     pub fn set_root_scan_mode(&mut self, mode: RootScanMode) {
@@ -1198,11 +1188,6 @@ impl TaggedHeap {
     pub(crate) fn complete_collection(&mut self, mode: RootScanMode) {
         let _ = mode;
 
-        // (Debug root verification removed — with conservative scanning,
-        // the HashSet is cleared before this point so the fallback O(N)
-        // walk could disagree with the HashSet-backed check.  The type
-        // validation in is_valid_heap_pointer is the authoritative check.)
-
         // -- Mark phase: drain gray queue --
         self.mark_all();
 
@@ -1215,9 +1200,6 @@ impl TaggedHeap {
         let object_live_bytes = self.sweep_objects();
         self.live_bytes = cons_live_bytes.saturating_add(object_live_bytes);
         self.bytes_since_gc = 0;
-
-        // Clear the conservative scan HashSet after sweep
-        self.non_cons_object_set = None;
 
         // A full-heap collection subsumes any remembered-set bookkeeping.
         self.clear_dirty_owners();
@@ -1233,22 +1215,6 @@ impl TaggedHeap {
 
     /// Mark a single tagged value and push its children onto the gray queue.
     fn mark_value(&mut self, val: TaggedValue) {
-        // Guard: for non-cons heap objects, verify ownership before
-        // dereferencing.  Conservative scanning can produce values that
-        // passed the initial check but point to stale/corrupt memory.
-        // Conservative stack scanning can enqueue false positives. Re-validate
-        // those values before dereferencing them, but keep the exact-root path
-        // on the fast O(1) object traversal it is supposed to use.
-        if self.non_cons_object_set.is_some() {
-            match val.tag() {
-                0b011 | 0b100 | 0b110 => {
-                    if !self.is_valid_heap_pointer(val) {
-                        return; // Skip invalid pointer
-                    }
-                }
-                _ => {}
-            }
-        }
         match val.tag() {
             0b010 => {
                 // Cons
@@ -1516,161 +1482,10 @@ impl TaggedHeap {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Conservative stack scanning
-    // -----------------------------------------------------------------------
-
-    /// Scan the Rust call stack for tagged pointer values and add them as roots.
-    unsafe fn conservative_stack_scan(&mut self) {
-        if self.stack_bottom.is_null() {
-            return;
-        }
-
-        // Flush registers to stack
-        #[cfg(target_arch = "x86_64")]
-        {
-            let mut regs: [u64; 6] = [0; 6];
-            unsafe {
-                std::arch::asm!(
-                    "mov [{buf}], rbx",
-                    "mov [{buf} + 8], rbp",
-                    "mov [{buf} + 16], r12",
-                    "mov [{buf} + 24], r13",
-                    "mov [{buf} + 32], r14",
-                    "mov [{buf} + 40], r15",
-                    buf = in(reg) regs.as_mut_ptr(),
-                    options(nostack, preserves_flags),
-                );
-            }
-            std::hint::black_box(&regs);
-        }
-        #[cfg(target_arch = "aarch64")]
-        {
-            let mut regs: [u64; 12] = [0; 12];
-            unsafe {
-                std::arch::asm!(
-                    "stp x19, x20, [{buf}]",
-                    "stp x21, x22, [{buf}, #16]",
-                    "stp x23, x24, [{buf}, #32]",
-                    "stp x25, x26, [{buf}, #48]",
-                    "stp x27, x28, [{buf}, #64]",
-                    "stp x29, x30, [{buf}, #80]",
-                    buf = in(reg) regs.as_mut_ptr(),
-                    options(nostack, preserves_flags),
-                );
-            }
-            std::hint::black_box(&regs);
-        }
-
-        // Get current stack pointer
-        let stack_top: *const u8;
-        #[cfg(target_arch = "x86_64")]
-        {
-            unsafe {
-                std::arch::asm!("mov {}, rsp", out(reg) stack_top, options(nomem, nostack));
-            }
-        }
-        #[cfg(target_arch = "aarch64")]
-        {
-            unsafe {
-                std::arch::asm!("mov {}, sp", out(reg) stack_top, options(nomem, nostack));
-            }
-        }
-        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-        {
-            let marker: usize = 0;
-            stack_top = &marker as *const usize as *const u8;
-        }
-
-        // Scan only the stack segment containing rsp.  With stacker,
-        // the call stack may span multiple mmap segments.  We find the
-        // mapped region containing rsp by reading /proc/self/maps.
-        let rsp = stack_top as usize;
-        let (seg_lo, seg_hi) = match find_stack_segment_containing(rsp) {
-            Some(range) => range,
-            None => {
-                // Fallback: scan from stack_bottom if it's close
-                let lo = std::cmp::min(self.stack_bottom as usize, rsp);
-                let hi = std::cmp::max(self.stack_bottom as usize, rsp);
-                if hi - lo > 8 * 1024 * 1024 {
-                    return;
-                }
-                (lo, hi)
-            }
-        };
-        let lo = seg_lo as *const u8;
-        let hi = seg_hi as *const u8;
-        let span = seg_hi - seg_lo;
-
-        // Scan 8-byte aligned positions for tagged pointer values
-        let mut ptr = lo as usize;
-        let end = hi as usize;
-        ptr = (ptr + 7) & !7; // Align to 8 bytes
-
-        while ptr + 8 <= end {
-            let word = unsafe { *(ptr as *const usize) };
-            // Check if this looks like a tagged heap pointer
-            let tag = word & 0b111;
-            match tag {
-                0b010 | 0b011 | 0b100 | 0b110 => {
-                    // Potential heap pointer — validate it points to our heap
-                    let candidate = TaggedValue(word);
-                    if self.is_valid_heap_pointer(candidate) {
-                        self.gray_queue.push(candidate);
-                    }
-                }
-                _ => {} // Not a heap pointer tag
-            }
-            ptr += 8;
-        }
-    }
-
-    /// Check if a tagged value points to a valid heap object we own,
-    /// AND that the object's header.kind matches the tag.  This prevents
-    /// conservative scanning false positives where a stack word has
-    /// (e.g.) string tag bits but points to a VecLike object.
-    fn is_valid_heap_pointer(&self, val: TaggedValue) -> bool {
-        match val.tag() {
-            0b010 => self.owns_cons_ptr(val.xcons_ptr()),
-            0b011 | 0b100 | 0b110 => {
-                let ptr = val.heap_ptr().unwrap();
-                if !self.owns_non_cons_object(ptr) {
-                    return false;
-                }
-                // Verify the object type matches the tag.
-                // Without this, conservative scanning false positives
-                // (e.g. string-tagged pointer to a VecLike) cause SIGSEGV
-                // in mark_value when it misinterprets the object layout.
-                let header = unsafe { &*(ptr as *const GcHeader) };
-                let expected_kind = match val.tag() {
-                    0b100 => HeapObjectKind::String,
-                    0b110 => HeapObjectKind::Float,
-                    0b011 => HeapObjectKind::VecLike,
-                    _ => unreachable!(),
-                };
-                if header.kind != expected_kind {
-                    return false;
-                }
-                // Also verify the pointer alignment is valid for the type
-                let addr = ptr as usize;
-                if addr % std::mem::align_of::<GcHeader>() != 0 {
-                    return false;
-                }
-                true
-            }
-            _ => false,
-        }
-    }
-
     fn owns_non_cons_object(&self, ptr: *const u8) -> bool {
         if ptr.is_null() {
             return false;
         }
-        // Use the cached object set if available (built for conservative scan)
-        if let Some(ref set) = self.non_cons_object_set {
-            return set.contains(&(ptr as usize));
-        }
-        // Fallback: O(N) walk
         let mut current = self.all_objects;
         while !current.is_null() {
             if std::ptr::eq(current as *const u8, ptr) {
@@ -1757,30 +1572,6 @@ impl Drop for TaggedHeap {
         }
         // ConsBlocks are dropped automatically (they implement Drop)
     }
-}
-
-/// Read the thread's stack upper bound from `/proc/self/maps` (Linux only).
-/// Returns the highest address of the `[stack]` mapping.
-/// Find the mapped memory segment containing `addr` by reading /proc/self/maps.
-/// Returns (start, end) of the segment, or None if not found.
-#[cfg(target_os = "linux")]
-fn find_stack_segment_containing(addr: usize) -> Option<(usize, usize)> {
-    let maps = std::fs::read_to_string("/proc/self/maps").ok()?;
-    for line in maps.lines() {
-        let dash = line.find('-')?;
-        let space = line.find(' ')?;
-        let start = usize::from_str_radix(&line[..dash], 16).ok()?;
-        let end = usize::from_str_radix(&line[dash + 1..space], 16).ok()?;
-        if addr >= start && addr < end {
-            return Some((start, end));
-        }
-    }
-    None
-}
-
-#[cfg(not(target_os = "linux"))]
-fn find_stack_segment_containing(_addr: usize) -> Option<(usize, usize)> {
-    None
 }
 
 pub fn read_stack_end_from_proc() -> Option<usize> {

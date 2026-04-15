@@ -8350,6 +8350,10 @@ fn gc_collect_exact_ignores_context_root_scan_mode() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ConservativeStack);
+    assert_eq!(
+        ev.gc_root_scan_mode(),
+        crate::tagged::gc::RootScanMode::ExactOnly
+    );
     let marker = 0u8;
     ev.tagged_heap.set_stack_bottom(&marker as *const u8);
 
@@ -8631,6 +8635,10 @@ fn gc_safe_point_exact_ignores_context_root_scan_mode() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ConservativeStack);
+    assert_eq!(
+        ev.gc_root_scan_mode(),
+        crate::tagged::gc::RootScanMode::ExactOnly
+    );
     ev.tagged_heap.set_gc_threshold(1);
     let marker = 0u8;
     ev.tagged_heap.set_stack_bottom(&marker as *const u8);
