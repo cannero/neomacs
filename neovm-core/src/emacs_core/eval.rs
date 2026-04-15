@@ -6651,13 +6651,12 @@ impl Context {
         if forms.is_empty() {
             return Ok(Value::NIL);
         }
-        // Root every parsed form: each `eval_sub` call may trigger
-        // GC and the un-iterated forms still inside the Vec
-        // (heap memory) are otherwise invisible to the conservative
-        // stack scanner.
-        let saved_len = self.temp_roots.len();
+        // Root every parsed form: each `eval_sub` call may trigger GC, and
+        // the un-iterated forms still sitting in the heap-allocated Vec are
+        // otherwise invisible to the exact root walk.
+        let eval_root_scope = self.save_eval_roots();
         for form in &forms {
-            self.temp_roots.push(*form);
+            self.push_eval_root(*form);
         }
         let mut result = Value::NIL;
         let mut error = None;
@@ -6670,7 +6669,7 @@ impl Context {
                 }
             }
         }
-        self.temp_roots.truncate(saved_len);
+        self.restore_eval_roots(eval_root_scope);
         match error {
             Some(e) => Err(e),
             None => Ok(result),
@@ -6950,23 +6949,22 @@ impl Context {
                 })];
             }
         };
-        // Root every parsed form upfront. The previous version only
-        // rooted successful results; un-iterated parsed forms still
-        // sitting in the heap-allocated `forms` Vec were unrooted
-        // and could be reclaimed by an `eval_sub`-triggered GC.
-        let saved_len = self.temp_roots.len();
+        // Root every parsed form upfront. The previous version only rooted
+        // successful results; un-iterated parsed forms still sitting in the
+        // heap-allocated Vec were otherwise invisible to exact GC.
+        let eval_root_scope = self.save_eval_roots();
         for form in &forms {
-            self.temp_roots.push(*form);
+            self.push_eval_root(*form);
         }
         let mut results = Vec::with_capacity(forms.len());
         for form in &forms {
             let result = self.eval_sub(*form).map_err(map_flow);
             if let Ok(ref val) = result {
-                self.temp_roots.push(*val);
+                self.push_eval_root(*val);
             }
             results.push(result);
         }
-        self.temp_roots.truncate(saved_len);
+        self.restore_eval_roots(eval_root_scope);
         results
     }
 
@@ -9026,7 +9024,8 @@ impl Context {
                 ) {
                     return cached;
                 }
-                self.push_temp_root(closure_hook);
+                let eval_root_scope = self.save_eval_roots();
+                self.push_eval_root(closure_hook);
                 let result = self.apply(
                     closure_hook,
                     vec![
@@ -9037,7 +9036,7 @@ impl Context {
                         iform_value,
                     ],
                 );
-                self.temp_roots.pop();
+                self.restore_eval_roots(eval_root_scope);
                 if let Ok(value) = &result {
                     self.maybe_cache_interpreted_closure_filter_result(
                         closure_hook,
@@ -9084,7 +9083,8 @@ impl Context {
                 ) {
                     return cached;
                 }
-                self.push_temp_root(closure_hook);
+                let eval_root_scope = self.save_eval_roots();
+                self.push_eval_root(closure_hook);
                 let result = self.apply(
                     closure_hook,
                     vec![
@@ -9095,7 +9095,7 @@ impl Context {
                         iform_value,
                     ],
                 );
-                self.temp_roots.pop();
+                self.restore_eval_roots(eval_root_scope);
                 if let Ok(value) = &result {
                     self.maybe_cache_value_interpreted_closure_filter_result(
                         closure_hook,
@@ -9431,8 +9431,8 @@ impl Context {
             _ => return Err(signal("invalid-function", vec![function])),
         };
 
-        let scope = self.open_gc_scope();
-        self.push_temp_root(function);
+        let eval_root_scope = self.save_eval_roots();
+        self.push_eval_root(function);
 
         let docstring_value = if items.get(body_start).is_some_and(|v| v.is_string())
             && items.get(body_start + 1).is_some()
@@ -9486,11 +9486,11 @@ impl Context {
             docstring_value
         };
 
-        self.push_temp_root(params_value);
-        self.push_temp_root(body_value);
-        self.push_temp_root(env_value);
-        self.push_temp_root(closure_doc_value);
-        self.push_temp_root(iform_value);
+        self.push_eval_root(params_value);
+        self.push_eval_root(body_value);
+        self.push_eval_root(env_value);
+        self.push_eval_root(closure_doc_value);
+        self.push_eval_root(iform_value);
 
         let result = if head_name == "lambda" {
             self.make_interpreted_closure_with_value_runtime_hook(
@@ -9510,7 +9510,7 @@ impl Context {
                 Some(&iform_value),
             )
         };
-        scope.close(self);
+        self.restore_eval_roots(eval_root_scope);
         result
     }
 
