@@ -6795,8 +6795,11 @@ fn run_window_configuration_change_hook_uses_window_buffer_context() {
         "names={names:?}"
     );
     assert_eq!(
-        ev.buffers.current_buffer().expect("current buffer").name,
-        "wcch-a"
+        ev.buffers
+            .current_buffer()
+            .expect("current buffer")
+            .name_value(),
+        Value::string("wcch-a")
     );
 }
 

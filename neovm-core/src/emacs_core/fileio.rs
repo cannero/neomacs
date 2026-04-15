@@ -3316,7 +3316,7 @@ fn make_auto_save_file_name_for_buffer(obarray: &Obarray, buf: &crate::buffer::B
                     .and_then(|v| v.as_runtime_string_owned())
             })
             .unwrap_or_else(|| "/tmp/".to_string());
-        let safe_name = buf.name.replace('/', "!");
+        let safe_name = buf.name_runtime_string_owned().replace('/', "!");
         format!("{dir}#*{safe_name}*#")
     }
 }
@@ -3389,7 +3389,7 @@ pub(crate) fn builtin_do_auto_save(
             };
 
             // Skip internal buffers (name starts with space)
-            if buf.name.starts_with(' ') {
+            if buf.name_starts_with_space() {
                 continue;
             }
 

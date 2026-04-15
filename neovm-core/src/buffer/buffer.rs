@@ -1364,8 +1364,8 @@ pub struct OutermostRestrictionResetState {
 pub struct Buffer {
     /// Unique identifier.
     pub id: BufferId,
-    /// Buffer name (e.g. `"*scratch*"`).
-    pub name: String,
+    /// Buffer name (e.g. `"*scratch*"`). Mirrors GNU `struct buffer.name_`.
+    pub name: Value,
     /// Base buffer when this is an indirect buffer.
     pub base_buffer: Option<BufferId>,
     /// The underlying text storage.
@@ -1455,7 +1455,7 @@ impl Buffer {
     pub fn new(id: BufferId, name: String) -> Self {
         Self {
             id,
-            name,
+            name: Value::string(name),
             base_buffer: None,
             text: BufferText::new(),
             pt: 0,
@@ -1492,6 +1492,33 @@ impl Buffer {
             syntax_table: SyntaxTable::new_standard(),
             undo_state: SharedUndoState::new(),
         }
+    }
+
+    pub fn name_value(&self) -> Value {
+        self.name
+    }
+
+    pub fn name_runtime_string_owned(&self) -> String {
+        self.name
+            .as_runtime_string_owned()
+            .expect("buffer name must be a Lisp string")
+    }
+
+    pub fn has_name(&self, name: &str) -> bool {
+        self.name_runtime_string_owned() == name
+    }
+
+    pub fn name_starts_with_space(&self) -> bool {
+        self.name_runtime_string_owned().starts_with(' ')
+    }
+
+    pub fn set_name_value(&mut self, name: Value) {
+        assert!(name.is_string(), "buffer name must be a Lisp string");
+        self.name = name;
+    }
+
+    pub fn set_name_runtime_string(&mut self, name: impl Into<String>) {
+        self.name = Value::string(name.into());
     }
 
     // -- Phase 10D: per-slot local-flag bitmap accessors. Conditional
@@ -2573,7 +2600,7 @@ pub struct BufferManager {
     next_id: u64,
     next_marker_id: u64,
     labeled_restrictions: HashMap<BufferId, Vec<LabeledRestriction>>,
-    dead_buffer_last_names: HashMap<BufferId, String>,
+    dead_buffer_last_names: HashMap<BufferId, Value>,
     /// Global default values for `BUFFER_OBJFWD` slots. Mirrors GNU's
     /// `buffer_defaults` (`buffer.c:84-90`), which is itself a
     /// sentinel `struct buffer` whose fields hold the global default
@@ -2695,7 +2722,7 @@ impl BufferManager {
         let mut indirect = if clone {
             let mut cloned = root.clone();
             cloned.id = id;
-            cloned.name = name.to_string();
+            cloned.set_name_runtime_string(name);
             cloned
         } else {
             let mut fresh = Buffer::new(id, name.to_string());
@@ -2846,14 +2873,19 @@ impl BufferManager {
 
     /// Find a buffer by name, returning its id if it exists.
     pub fn find_buffer_by_name(&self, name: &str) -> Option<BufferId> {
-        self.buffers.values().find(|b| b.name == name).map(|b| b.id)
+        self.buffers
+            .values()
+            .find(|b| b.has_name(name))
+            .map(|b| b.id)
     }
 
     /// Find a killed buffer by its last known name.
     pub fn find_dead_buffer_by_name(&self, name: &str) -> Option<BufferId> {
         self.dead_buffer_last_names
             .iter()
-            .find_map(|(id, last_name)| (last_name == name).then_some(*id))
+            .find_map(|(id, last_name)| {
+                (last_name.as_runtime_string_owned().as_deref() == Some(name)).then_some(*id)
+            })
     }
 
     /// Remove a buffer.  Returns `true` if the buffer existed.
@@ -2884,7 +2916,8 @@ impl BufferManager {
 
         for killed_id in &killed_ids {
             let buf = self.buffers.remove(killed_id)?;
-            self.dead_buffer_last_names.insert(*killed_id, buf.name);
+            self.dead_buffer_last_names
+                .insert(*killed_id, buf.name_value());
         }
 
         if self
@@ -2898,8 +2931,13 @@ impl BufferManager {
     }
 
     /// Return the last known name for a dead buffer id, if available.
-    pub fn dead_buffer_last_name(&self, id: BufferId) -> Option<&str> {
-        self.dead_buffer_last_names.get(&id).map(|s| s.as_str())
+    pub fn dead_buffer_last_name_value(&self, id: BufferId) -> Option<Value> {
+        self.dead_buffer_last_names.get(&id).copied()
+    }
+
+    pub fn dead_buffer_last_name_owned(&self, id: BufferId) -> Option<String> {
+        self.dead_buffer_last_name_value(id)
+            .and_then(Value::as_runtime_string_owned)
     }
 
     /// List all live buffer ids in stable creation order.
@@ -3364,7 +3402,7 @@ impl BufferManager {
     }
 
     pub fn set_buffer_name(&mut self, id: BufferId, name: String) -> Option<()> {
-        self.buffers.get_mut(&id)?.name = name;
+        self.buffers.get_mut(&id)?.set_name_runtime_string(name);
         Some(())
     }
 
@@ -3981,7 +4019,7 @@ mod tests {
     fn new_buffer_is_empty() {
         crate::test_utils::init_test_tracing();
         let buf = Buffer::new(BufferId(1), "*scratch*".into());
-        assert_eq!(buf.name, "*scratch*");
+        assert_eq!(buf.name_value(), Value::string("*scratch*"));
         assert_eq!(buf.point(), 0);
         assert_eq!(buf.point_min(), 0);
         assert_eq!(buf.point_max(), 0);
@@ -4803,7 +4841,10 @@ mod tests {
         let scratch = mgr.find_buffer_by_name("*scratch*");
         assert!(scratch.is_some());
         assert!(mgr.current_buffer().is_some());
-        assert_eq!(mgr.current_buffer().unwrap().name, "*scratch*");
+        assert_eq!(
+            mgr.current_buffer().unwrap().name_value(),
+            Value::string("*scratch*")
+        );
     }
 
     #[test]
@@ -4812,7 +4853,7 @@ mod tests {
         let mut mgr = BufferManager::new();
         let id = mgr.create_buffer("foo.el");
         assert!(mgr.get(id).is_some());
-        assert_eq!(mgr.get(id).unwrap().name, "foo.el");
+        assert_eq!(mgr.get(id).unwrap().name_value(), Value::string("foo.el"));
         assert_eq!(mgr.find_buffer_by_name("foo.el"), Some(id));
         assert_eq!(mgr.find_buffer_by_name("bar.el"), None);
     }
@@ -4824,9 +4865,15 @@ mod tests {
         let a = mgr.create_buffer("a");
         let b = mgr.create_buffer("b");
         mgr.set_current(a);
-        assert_eq!(mgr.current_buffer().unwrap().name, "a");
+        assert_eq!(
+            mgr.current_buffer().unwrap().name_value(),
+            Value::string("a")
+        );
         mgr.set_current(b);
-        assert_eq!(mgr.current_buffer().unwrap().name, "b");
+        assert_eq!(
+            mgr.current_buffer().unwrap().name_value(),
+            Value::string("b")
+        );
     }
 
     #[test]

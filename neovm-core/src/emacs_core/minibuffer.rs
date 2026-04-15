@@ -104,7 +104,7 @@ fn normalize_buffer_reader_default(buffers: &BufferManager, default: Value) -> V
         ValueKind::Veclike(VecLikeType::Buffer) => first
             .as_buffer_id()
             .and_then(|id| buffers.get(id))
-            .map(|buffer| Value::string(&buffer.name))
+            .map(|buffer| buffer.name_value())
             .unwrap_or(first),
         _ => first,
     }
@@ -805,7 +805,7 @@ pub(crate) fn read_buffer_completing_args(buffers: &BufferManager, args: &[Value
     let buffer_names: Vec<Value> = buf_ids
         .iter()
         .filter_map(|id| buffers.get(*id))
-        .map(|b| Value::string(&b.name))
+        .map(|b| b.name_value())
         .collect();
     let collection = Value::list(buffer_names);
 
@@ -1072,7 +1072,7 @@ pub(crate) fn builtin_minibufferp_ctx(
         || eval
             .buffers
             .get(buffer_id)
-            .is_some_and(|buffer| is_minibuffer_buffer_name(&buffer.name));
+            .is_some_and(|buffer| is_minibuffer_buffer_name(&buffer.name_runtime_string_owned()));
     Ok(Value::bool_val(if live_only {
         is_live
     } else {

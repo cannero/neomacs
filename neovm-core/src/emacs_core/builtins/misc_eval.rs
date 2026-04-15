@@ -1275,9 +1275,9 @@ pub(crate) fn print_value_princ_in_state(
         ValueKind::Veclike(VecLikeType::Buffer) => {
             let id = value.as_buffer_id().unwrap();
             if let Some(buf) = ctx.buffers.get(id) {
-                return buf.name.clone();
+                return buf.name_runtime_string_owned();
             }
-            if ctx.buffers.dead_buffer_last_name(id).is_some() {
+            if ctx.buffers.dead_buffer_last_name_value(id).is_some() {
                 return "#<killed buffer>".to_string();
             }
             super::error::print_value_in_state(ctx, value)

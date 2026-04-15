@@ -303,10 +303,7 @@ fn delete_horizontal_space_at_point(
     }
 
     if buffer_read_only_active(eval, buf) {
-        return Err(signal(
-            "buffer-read-only",
-            vec![Value::string(buf.name.clone())],
-        ));
+        return Err(signal("buffer-read-only", vec![buf.name_value()]));
     }
 
     let current_id = eval
@@ -394,7 +391,7 @@ pub(crate) fn builtin_move_to_column(
     let pt = buf.pt_byte.clamp(buf.begv_byte, buf.zv_byte);
     let (bol, eol) = line_bounds(buf, pt);
     let line = buf.buffer_substring_lisp_string(bol, eol);
-    let buffer_name = buf.name.clone();
+    let buffer_name = buf.name_value();
 
     if target == 0 {
         let _ = ctx.buffers.goto_buffer_byte(current_id, bol);
@@ -433,10 +430,7 @@ pub(crate) fn builtin_move_to_column(
 
     if let Some((tab_byte, col_before_tab)) = tab_split {
         if read_only {
-            return Err(signal(
-                "buffer-read-only",
-                vec![Value::string(buffer_name.clone())],
-            ));
+            return Err(signal("buffer-read-only", vec![buffer_name]));
         }
         let _ = ctx.buffers.goto_buffer_byte(current_id, tab_byte);
         let pad = padding_to_column(col_before_tab, target, tabw);
@@ -452,7 +446,7 @@ pub(crate) fn builtin_move_to_column(
 
     if force && reached < target {
         if read_only {
-            return Err(signal("buffer-read-only", vec![Value::string(buffer_name)]));
+            return Err(signal("buffer-read-only", vec![buffer_name]));
         }
         let pad = padding_to_column(reached, target, tabw);
         let insert_pos = ctx.buffers.get(current_id).map(|b| b.pt_byte).unwrap_or(0);
@@ -505,10 +499,7 @@ pub(crate) fn builtin_indent_to(
     }
 
     if buffer_read_only_active_in_state(&ctx.obarray, &[], buf) {
-        return Err(signal(
-            "buffer-read-only",
-            vec![Value::string(buf.name.clone())],
-        ));
+        return Err(signal("buffer-read-only", vec![buf.name_value()]));
     }
 
     let use_tabs = indent_tabs_mode_in_state(&ctx.obarray, &[], Some(buf));

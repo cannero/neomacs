@@ -93,8 +93,8 @@ fn test_format_mode_line_eval_optional_designators() {
     let buf_name = eval
         .buffers
         .current_buffer()
-        .map(|b| b.name.as_str())
-        .unwrap_or("");
+        .map(|b| b.name_runtime_string_owned())
+        .unwrap_or_default();
     assert_eq!(ok, Value::string(buf_name));
 
     let err = builtin_format_mode_line_ctx(

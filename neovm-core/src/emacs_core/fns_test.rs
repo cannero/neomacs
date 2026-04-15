@@ -914,9 +914,8 @@ fn buffer_hash_eval_by_name_sha1() {
         .buffers
         .current_buffer()
         .expect("current buffer")
-        .name
-        .clone();
-    let r = builtin_buffer_hash(&mut eval, vec![Value::string(name)]).unwrap();
+        .name_value();
+    let r = builtin_buffer_hash(&mut eval, vec![name]).unwrap();
     assert_eq!(r.as_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
 }
 

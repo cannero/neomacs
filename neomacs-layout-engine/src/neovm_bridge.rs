@@ -57,7 +57,7 @@ pub(crate) struct LayoutBufferSnapshot {
 impl LayoutBufferSnapshot {
     pub fn from_buffer(buffer: &Buffer) -> Self {
         Self {
-            name: buffer.name.clone(),
+            name: buffer.name_runtime_string_owned(),
             text: buffer.text.clone(),
             begv: buffer.begv,
             zv: buffer.zv,

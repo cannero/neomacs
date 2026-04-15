@@ -1598,17 +1598,17 @@ fn resolve_buffer_name_for_process_lookup_in_state(
             .and_then(|frame| frame.selected_window())
             .and_then(|window| window.buffer_id())
             .and_then(|id| buffers.get(id))
-            .map(|buf| buf.name.clone())),
+            .map(|buf| buf.name_runtime_string_owned())),
         ValueKind::String => {
             let name_str = super::builtins::lisp_string_to_runtime_string(*value);
             Ok(buffers
                 .find_buffer_by_name(&name_str)
                 .and_then(|id| buffers.get(id))
-                .map(|buf| buf.name.clone()))
+                .map(|buf| buf.name_runtime_string_owned()))
         }
         ValueKind::Veclike(VecLikeType::Buffer) => {
             let bid = value.as_buffer_id().unwrap();
-            Ok(buffers.get(bid).map(|buf| buf.name.clone()))
+            Ok(buffers.get(bid).map(|buf| buf.name_runtime_string_owned()))
         }
         _ => Err(signal_wrong_type_string(*value)),
     }
@@ -1698,7 +1698,7 @@ fn resolve_optional_process_or_current_buffer_in_state(
 
     let current_buffer_name = buffers
         .current_buffer()
-        .map(|buffer| buffer.name.clone())
+        .map(|buffer| buffer.name_runtime_string_owned())
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
     processes
@@ -2244,7 +2244,7 @@ fn parse_make_process_buffer_in_state(
             let bid = value.as_buffer_id().unwrap();
             buffers
                 .get(bid)
-                .map(|buf| Some(buf.name.clone()))
+                .map(|buf| Some(buf.name_runtime_string_owned()))
                 .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))
         }
         _ => Err(signal_wrong_type_string(*value)),
@@ -4986,8 +4986,7 @@ pub(crate) fn builtin_set_process_buffer_impl(
                     .ok_or_else(|| {
                         signal("error", vec![Value::string("Selecting deleted buffer")])
                     })?
-                    .name
-                    .clone(),
+                    .name_runtime_string_owned(),
             )
         }
         _ => return Err(signal_wrong_type_bufferp(args[1])),
@@ -5182,7 +5181,7 @@ pub(crate) fn builtin_process_menu_delete_process(
     let current_buffer_name = eval
         .buffers
         .current_buffer()
-        .map(|buffer| buffer.name.clone())
+        .map(|buffer| buffer.name_runtime_string_owned())
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     if eval
         .processes

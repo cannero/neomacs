@@ -4516,7 +4516,10 @@ fn pure_dispatch_buffer_placeholder_mutators_match_compat_contracts() {
             .expect("builtin rename-buffer should resolve")
             .expect("builtin rename-buffer should evaluate");
         assert_eq!(renamed, Value::string("new-name"));
-        assert_eq!(eval.buffers.get(buf_id).unwrap().name, "new-name");
+        assert_eq!(
+            eval.buffers.get(buf_id).unwrap().name_value(),
+            Value::string("new-name")
+        );
     }
 
     let major_mode = dispatch_builtin_pure(

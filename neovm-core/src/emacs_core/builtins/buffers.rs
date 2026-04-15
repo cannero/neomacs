@@ -554,7 +554,7 @@ pub(crate) fn builtin_buffer_name(eval: &mut super::eval::Context, args: Vec<Val
         expect_buffer_id(&args[0])?
     };
     match buffers.get(id) {
-        Some(buf) => Ok(Value::string(&buf.name)),
+        Some(buf) => Ok(buf.name_value()),
         None => Ok(Value::NIL),
     }
 }
@@ -617,13 +617,13 @@ pub(crate) fn builtin_buffer_last_name(
     };
 
     if let Some(buf) = buffers.get(target) {
-        if buf.name == "*scratch*" {
+        if buf.has_name("*scratch*") {
             return Ok(Value::NIL);
         }
-        return Ok(Value::string(&buf.name));
+        return Ok(buf.name_value());
     }
-    if let Some(name) = buffers.dead_buffer_last_name(target) {
-        return Ok(Value::string(name));
+    if let Some(name) = buffers.dead_buffer_last_name_value(target) {
+        return Ok(name);
     }
     Ok(Value::NIL)
 }
@@ -1221,13 +1221,13 @@ pub(crate) fn builtin_replace_buffer_contents(
 
     let read_only_buffer_name = eval.buffers.current_buffer().and_then(|buf| {
         if buffer_read_only_active(eval, buf) {
-            Some(buf.name.clone())
+            Some(buf.name_value())
         } else {
             None
         }
     });
     if let Some(name) = read_only_buffer_name {
-        return Err(signal("buffer-read-only", vec![Value::string(name)]));
+        return Err(signal("buffer-read-only", vec![name]));
     }
 
     let current_id = eval
@@ -1285,13 +1285,13 @@ pub(crate) fn builtin_replace_region_contents(
 
     let read_only_buffer_name = eval.buffers.current_buffer().and_then(|buf| {
         if super::editfns::buffer_read_only_active_in_state(&eval.obarray, &[], buf) {
-            Some(buf.name.clone())
+            Some(buf.name_value())
         } else {
             None
         }
     });
     if let Some(name) = read_only_buffer_name {
-        return Err(signal("buffer-read-only", vec![Value::string(name)]));
+        return Err(signal("buffer-read-only", vec![name]));
     }
 
     let (lo, hi) = {
@@ -3584,7 +3584,7 @@ fn other_buffer_designator(
 fn is_hidden_buffer(buffers: &crate::buffer::BufferManager, id: crate::buffer::BufferId) -> bool {
     buffers
         .get(id)
-        .map(|buf| buf.name.starts_with(' '))
+        .map(|buf| buf.name_starts_with_space())
         .unwrap_or(true)
 }
 

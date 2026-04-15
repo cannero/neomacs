@@ -79,8 +79,7 @@ fn make_auto_save_file_name_accepts_raw_unibyte_prefix_directory() {
         .buffers
         .current_buffer()
         .expect("current buffer")
-        .name
-        .clone();
+        .name_runtime_string_owned();
     let safe_name = buffer_name.replace('/', "!");
     let expected_dir = crate::emacs_core::builtins::lisp_string_to_runtime_string(raw);
     let expected = format!("{expected_dir}#*{safe_name}*#");

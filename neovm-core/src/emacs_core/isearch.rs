@@ -1482,7 +1482,7 @@ fn replace_string_eval_impl(
             source_text,
             source,
             buffer_read_only_active(eval, buf),
-            buf.name.clone(),
+            buf.name_value(),
         )
     };
     let source_multibyte = source_text.is_multibyte();
@@ -1492,7 +1492,7 @@ fn replace_string_eval_impl(
             return Ok(Value::NIL);
         }
         if read_only {
-            return Err(signal("buffer-read-only", vec![Value::string(buffer_name)]));
+            return Err(signal("buffer-read-only", vec![buffer_name]));
         }
         let units = crate::emacs_core::string_escape::scan_storage_units(&source);
         let mut out = String::with_capacity(source.len() + to.len() * units.len());
@@ -1623,7 +1623,7 @@ fn replace_string_eval_impl(
         return Ok(Value::NIL);
     }
     if read_only {
-        return Err(signal("buffer-read-only", vec![Value::string(buffer_name)]));
+        return Err(signal("buffer-read-only", vec![buffer_name]));
     }
 
     let current_id = eval
@@ -1722,7 +1722,7 @@ fn replace_regexp_eval_impl(
             source_text,
             source,
             buffer_read_only_active(eval, buf),
-            buf.name.clone(),
+            buf.name_value(),
         )
     };
     let source_multibyte = source_text.is_multibyte();
@@ -1799,7 +1799,7 @@ fn replace_regexp_eval_impl(
         return Ok(Value::NIL);
     }
     if read_only {
-        return Err(signal("buffer-read-only", vec![Value::string(buffer_name)]));
+        return Err(signal("buffer-read-only", vec![buffer_name]));
     }
 
     let current_id = eval

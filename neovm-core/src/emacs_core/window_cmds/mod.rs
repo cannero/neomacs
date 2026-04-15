@@ -864,7 +864,7 @@ fn should_record_window_history_buffer(
     }
     buffers
         .get(buffer_id)
-        .is_some_and(|buffer| !buffer.name.starts_with(' '))
+        .is_some_and(|buffer| !buffer.name_starts_with_space())
 }
 
 fn window_body_height_lines(frames: &FrameManager, fid: FrameId, wid: WindowId, w: &Window) -> i64 {
@@ -3884,7 +3884,7 @@ pub(crate) fn builtin_set_window_buffer(
             if dedicated && old_buffer_id != buf_id {
                 let old_buffer_name = buffers
                     .get(old_buffer_id)
-                    .map(|buffer| buffer.name.clone())
+                    .map(|buffer| buffer.name_runtime_string_owned())
                     .unwrap_or_else(|| "*deleted*".to_string());
                 return Err(signal(
                     "error",

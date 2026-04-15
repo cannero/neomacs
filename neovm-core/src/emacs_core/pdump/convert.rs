@@ -1060,7 +1060,7 @@ fn dump_buffer(encoder: &mut DumpEncoder, buf: &Buffer) -> DumpBuffer {
     let is_shared_text_owner = buf.base_buffer.is_none();
     DumpBuffer {
         id: DumpBufferId(buf.id.0),
-        name: buf.name.clone(),
+        name: buf.name_runtime_string_owned(),
         base_buffer: buf.base_buffer.map(|id| DumpBufferId(id.0)),
         text: DumpGapBuffer {
             text: buf.text.dump_text(),
@@ -2479,7 +2479,7 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
 
     Buffer {
         id: BufferId(db.id.0),
-        name: db.name.clone(),
+        name: Value::string(db.name.clone()),
         base_buffer: db.base_buffer.map(|id| BufferId(id.0)),
         text,
         pt: pt_char,

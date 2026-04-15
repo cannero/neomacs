@@ -333,7 +333,7 @@ pub(crate) fn builtin_point_to_register(
     let buffer_name = eval
         .buffers
         .current_buffer()
-        .map(|b| b.name.clone())
+        .map(|b| b.name_runtime_string_owned())
         .unwrap_or_else(|| "*scratch*".to_string());
     let point = eval
         .buffers

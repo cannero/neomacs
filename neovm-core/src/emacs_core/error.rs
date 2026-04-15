@@ -217,7 +217,10 @@ fn format_opaque_handle_in_state(
                 && let Some(buffer) = buffers.get(buffer_id)
                 && let Some(pos) = marker.position
             {
-                out.push_str(&format!("at {pos} in {}", buffer.name));
+                out.push_str(&format!(
+                    "at {pos} in {}",
+                    buffer.name_runtime_string_owned()
+                ));
             } else {
                 out.push_str("in no buffer");
             }
@@ -233,7 +236,7 @@ fn format_opaque_handle_in_state(
                 "#<overlay from {} to {} in {}>",
                 buffer.text.emacs_byte_to_char(overlay.start) + 1,
                 buffer.text.emacs_byte_to_char(overlay.end) + 1,
-                buffer.name
+                buffer.name_runtime_string_owned()
             ));
         }
         return Some("#<overlay in no buffer>".to_string());
@@ -252,9 +255,9 @@ fn format_opaque_handle_in_state(
     }
     if let Some(buf_id) = value.as_buffer_id() {
         if let Some(buf) = buffers.get(buf_id) {
-            return Some(format!("#<buffer {}>", buf.name));
+            return Some(format!("#<buffer {}>", buf.name_runtime_string_owned()));
         }
-        if buffers.dead_buffer_last_name(buf_id).is_some() {
+        if buffers.dead_buffer_last_name_value(buf_id).is_some() {
             return Some("#<killed buffer>".to_string());
         }
     }
@@ -272,7 +275,7 @@ fn format_window_handle_in_state(
             if let Some(window) = frame.find_window(window_id) {
                 if let Some(buffer_id) = window.buffer_id() {
                     if let Some(buffer) = buffers.get(buffer_id) {
-                        return format!("#<window {id} on {}>", buffer.name);
+                        return format!("#<window {id} on {}>", buffer.name_runtime_string_owned());
                     }
                 }
                 return format!("#<window {id} on {}>", frame.name);

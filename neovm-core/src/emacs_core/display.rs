@@ -178,7 +178,11 @@ fn format_get_device_terminal_arg_eval(eval: &super::eval::Context, value: &Valu
                 if let Some(window) = frame.find_window(window_id) {
                     if let Some(buffer_id) = window.buffer_id() {
                         if let Some(buffer) = eval.buffers.get(buffer_id) {
-                            return format!("#<window {} on {}>", window_id.0, buffer.name);
+                            return format!(
+                                "#<window {} on {}>",
+                                window_id.0,
+                                buffer.name_runtime_string_owned()
+                            );
                         }
                     }
                     return format!("#<window {} on {}>", window_id.0, frame.name);

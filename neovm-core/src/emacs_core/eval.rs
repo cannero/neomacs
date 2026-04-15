@@ -4799,14 +4799,14 @@ impl Context {
         let current_buffer = self
             .buffers
             .current_buffer()
-            .map(|buffer| buffer.name.clone())
+            .map(|buffer| buffer.name_runtime_string_owned())
             .unwrap_or_else(|| "<none>".to_string());
         let selected_frame = self.frames.selected_frame().map(|frame| {
             let selected_window_buffer = frame
                 .selected_window()
                 .and_then(|window| window.buffer_id())
                 .and_then(|buffer_id| self.buffers.get(buffer_id))
-                .map(|buffer| buffer.name.clone())
+                .map(|buffer| buffer.name_runtime_string_owned())
                 .unwrap_or_else(|| "<missing>".to_string());
             format!(
                 "id=0x{:x} size={}x{} selected-window=0x{:x} selected-window-buffer={}",

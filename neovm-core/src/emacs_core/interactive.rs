@@ -1894,7 +1894,7 @@ fn interactive_require_writable_current_buffer_in_state(
         return Ok(());
     }
     if interactive_buffer_read_only_active_in_state(obarray, dynamic, buf) {
-        return Err(signal("buffer-read-only", vec![Value::string(&buf.name)]));
+        return Err(signal("buffer-read-only", vec![buf.name_value()]));
     }
     Ok(())
 }

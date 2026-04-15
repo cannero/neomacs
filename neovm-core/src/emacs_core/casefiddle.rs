@@ -517,10 +517,7 @@ fn casify_region_in_state(
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         if super::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf) {
-            return Err(signal(
-                "buffer-read-only",
-                vec![Value::string(buf.name.clone())],
-            ));
+            return Err(signal("buffer-read-only", vec![buf.name_value()]));
         }
         let (beg, end) = resolve_case_region_in_buffers(buffers, beg_val, end_val, args.get(2))?;
         let text = buf.buffer_substring_lisp_string(beg, end);
@@ -563,7 +560,7 @@ fn casify_word_in_state(
             beg,
             end,
             text,
-            buf.name.clone(),
+            buf.name_value(),
             super::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf),
         )
     };
@@ -573,7 +570,7 @@ fn casify_word_in_state(
         return Ok(Value::NIL);
     }
     if read_only {
-        return Err(signal("buffer-read-only", vec![Value::string(buffer_name)]));
+        return Err(signal("buffer-read-only", vec![buffer_name]));
     }
 
     replace_current_buffer_region_in_buffers(buffers, beg, end, &replacement, false)

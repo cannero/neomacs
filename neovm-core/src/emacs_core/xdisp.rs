@@ -490,10 +490,13 @@ fn mode_line_process_status_in_state(
     buffers: &crate::buffer::BufferManager,
     processes: &crate::emacs_core::process::ProcessManager,
 ) -> &'static str {
-    let Some(buffer_name) = buffers.current_buffer().map(|buffer| buffer.name.as_str()) else {
+    let Some(buffer_name) = buffers
+        .current_buffer()
+        .map(|buffer| buffer.name_runtime_string_owned())
+    else {
         return "no process";
     };
-    let Some(process_id) = processes.find_by_buffer_name(buffer_name) else {
+    let Some(process_id) = processes.find_by_buffer_name(&buffer_name) else {
         return "no process";
     };
     let Some(process) = processes.get_any(process_id) else {
@@ -1783,7 +1786,9 @@ fn expand_mode_line_percent_in_state(
     };
     let fmt_str = fmt_storage.as_str();
     let buf = buffers.current_buffer();
-    let buf_name = buf.map(|b| b.name.as_str()).unwrap_or("*scratch*");
+    let buf_name = buf
+        .map(|b| b.name_runtime_string_owned())
+        .unwrap_or_else(|| "*scratch*".to_string());
     let file_name_storage = buf.and_then(|b| b.file_name_owned());
     let file_name = file_name_storage.as_deref().unwrap_or("");
     let modified = buf.map(|b| b.is_modified()).unwrap_or(false);
@@ -1838,7 +1843,7 @@ fn expand_mode_line_percent_in_state(
 
         match chars.get(index).copied() {
             Some('b') => {
-                append_spec(buf_name);
+                append_spec(&buf_name);
                 index += 1;
             }
             Some('f') => {

@@ -703,7 +703,7 @@ fn format_marker_handle(
     let buffer_name = marker
         .buffer
         .and_then(|buffer_id| buffers.and_then(|manager| manager.get(buffer_id)))
-        .map(|buffer| buffer.name.clone());
+        .map(|buffer| buffer.name_runtime_string_owned());
 
     let mut out = String::from("#<marker ");
     if marker.insertion_type {
@@ -750,7 +750,7 @@ fn format_overlay_handle(
         "#<overlay from {} to {} in {}>",
         buffer.text.emacs_byte_to_char(overlay.start) + 1,
         buffer.text.emacs_byte_to_char(overlay.end) + 1,
-        buffer.name
+        buffer.name_runtime_string_owned()
     ))
 }
 
@@ -832,9 +832,9 @@ pub fn print_value_with_buffers_and_options(
         ValueKind::Veclike(VecLikeType::Buffer) => {
             let bid = value.as_buffer_id().unwrap();
             if let Some(buf) = buffers.get(bid) {
-                return format!("#<buffer {}>", buf.name);
+                return format!("#<buffer {}>", buf.name_runtime_string_owned());
             }
-            if buffers.dead_buffer_last_name(bid).is_some() {
+            if buffers.dead_buffer_last_name_value(bid).is_some() {
                 return "#<killed buffer>".to_string();
             }
             format!("#<buffer {}>", bid.0)
