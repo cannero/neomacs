@@ -107,6 +107,9 @@ pub struct MutatorLocal {
     /// Mutator-owned allocation counter slot plus cached
     /// running totals mirrored into the shared heap stats.
     alloc_counter_local: crate::stats::AllocationCounterLocal,
+    /// Mutator-owned barrier counter slot plus cached
+    /// running totals mirrored into the shared barrier stats.
+    barrier_stats_local: crate::stats::BarrierStatsLocal,
     /// Most recent collector-plan refresh epoch this
     /// mutator has observed while dirtying the shared
     /// cached-plan snapshot.
@@ -132,6 +135,7 @@ impl Default for MutatorLocal {
             alloc_profile_cache: None,
             publish_local: crate::object_store::ObjectPublishLocal::default(),
             alloc_counter_local: crate::stats::AllocationCounterLocal::default(),
+            barrier_stats_local: crate::stats::BarrierStatsLocal::default(),
             collector_plans_refresh_epoch_seen: u64::MAX,
             nursery_generation: 0,
             nursery_tlab_bytes: 0,
@@ -226,6 +230,14 @@ impl MutatorLocal {
         &mut self.alloc_counter_local
     }
 
+    pub(crate) fn set_barrier_stats_local(&mut self, local: crate::stats::BarrierStatsLocal) {
+        self.barrier_stats_local = local;
+    }
+
+    pub(crate) fn barrier_stats_local_mut(&mut self) -> &mut crate::stats::BarrierStatsLocal {
+        &mut self.barrier_stats_local
+    }
+
     pub(crate) fn collector_plans_refresh_epoch_seen_mut(&mut self) -> &mut u64 {
         &mut self.collector_plans_refresh_epoch_seen
     }
@@ -233,6 +245,11 @@ impl MutatorLocal {
     #[cfg(test)]
     pub(crate) fn has_alloc_counter_local(&self) -> bool {
         self.alloc_counter_local.is_registered()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn has_barrier_stats_local(&self) -> bool {
+        self.barrier_stats_local.is_registered()
     }
 }
 
@@ -288,6 +305,7 @@ impl<'heap> Mutator<'heap> {
     pub(crate) fn new(heap: &'heap Heap) -> Self {
         let mut local = MutatorLocal::default();
         local.set_alloc_counter_local(heap.allocation_counter_local());
+        local.set_barrier_stats_local(heap.barrier_stats_local());
         local.set_nursery_generation(heap.current_nursery_generation());
         local.nursery_tlab_bytes = heap.nursery_tlab_bytes();
         Self {
@@ -860,8 +878,9 @@ impl<'heap> Mutator<'heap> {
         );
         let active_major_mark = self.heap.has_active_major_mark();
         let record_satb = old_erased.is_some() && active_major_mark;
+        let heap = self.heap;
 
-        self.heap.bump_barrier_stats(BarrierKind::PostWrite);
+        heap.bump_barrier_stats(BarrierKind::PostWrite, self.local.barrier_stats_local_mut());
         self.local.push_barrier_event(
             BarrierKind::PostWrite,
             owner_erased,
@@ -870,7 +889,10 @@ impl<'heap> Mutator<'heap> {
             new_erased,
         );
         if record_satb {
-            self.heap.bump_barrier_stats(BarrierKind::SatbPreWrite);
+            heap.bump_barrier_stats(
+                BarrierKind::SatbPreWrite,
+                self.local.barrier_stats_local_mut(),
+            );
             self.local.push_barrier_event(
                 BarrierKind::SatbPreWrite,
                 owner_erased,
@@ -962,6 +984,8 @@ impl<'heap> Mutator<'heap> {
 
 impl Drop for Mutator<'_> {
     fn drop(&mut self) {
+        self.heap
+            .release_barrier_stats_local(self.local.barrier_stats_local_mut());
         self.heap
             .release_allocation_counter_local(self.local.alloc_counter_local_mut());
     }

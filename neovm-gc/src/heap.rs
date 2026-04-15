@@ -111,9 +111,10 @@ pub(crate) struct HeapCore {
     /// actually moves at least one record.
     compaction_stats: crate::stats::CompactionStats,
     /// Cumulative write-barrier traffic counters. The
-    /// backing store is atomic so the barrier hot path can
-    /// bump the counters with a relaxed fetch-add, avoiding
-    /// the heap write lock entirely. Observers read a
+    /// backing store uses mutator-owned slots so the barrier
+    /// hot path can publish relaxed stores without taking
+    /// the heap write lock or contending on one shared
+    /// atomic. Observers read a
     /// [`crate::stats::BarrierStats`] snapshot via
     /// [`crate::stats::AtomicBarrierStats::snapshot`].
     barrier_stats: std::sync::Arc<crate::stats::AtomicBarrierStats>,
@@ -491,6 +492,14 @@ impl Heap {
         self.state.alloc_counters.release_local(local);
     }
 
+    pub(crate) fn barrier_stats_local(&self) -> crate::stats::BarrierStatsLocal {
+        self.state.barrier_stats.register_local()
+    }
+
+    pub(crate) fn release_barrier_stats_local(&self, local: &mut crate::stats::BarrierStatsLocal) {
+        self.state.barrier_stats.release_local(local);
+    }
+
     /// Create a collector-side runtime guard bound to this
     /// heap. The returned guard holds the safepoint write
     /// lock plus the heap-core write lock for its entire
@@ -798,10 +807,14 @@ impl Heap {
         self.state.collector.has_prepared_full_reclaim()
     }
 
-    pub(crate) fn bump_barrier_stats(&self, kind: BarrierKind) {
+    pub(crate) fn bump_barrier_stats(
+        &self,
+        kind: BarrierKind,
+        local: &mut crate::stats::BarrierStatsLocal,
+    ) {
         match kind {
-            BarrierKind::PostWrite => self.state.barrier_stats.bump_post_write(),
-            BarrierKind::SatbPreWrite => self.state.barrier_stats.bump_satb_pre_write(),
+            BarrierKind::PostWrite => self.state.barrier_stats.bump_post_write(local),
+            BarrierKind::SatbPreWrite => self.state.barrier_stats.bump_satb_pre_write(local),
         }
     }
 
@@ -884,6 +897,9 @@ impl Heap {
         if !local.has_alloc_counter_local() {
             local.set_alloc_counter_local(self.state.alloc_counters.register_local());
         }
+        if !local.has_barrier_stats_local() {
+            local.set_barrier_stats_local(self.state.barrier_stats.register_local());
+        }
         let safepoint = self.write_safepoint();
         let refresh_plans = self.take_collector_plans_dirty();
         let guard = {
@@ -937,6 +953,7 @@ impl<'a> HeapCollectorRuntime<'a> {
     ) -> Self {
         let mut local = crate::mutator::MutatorLocal::default();
         local.set_alloc_counter_local(guard.alloc_counters.register_local());
+        local.set_barrier_stats_local(guard.barrier_stats.register_local());
         Self {
             _safepoint: safepoint,
             guard,
@@ -1100,6 +1117,9 @@ impl<'a> HeapCollectorRuntime<'a> {
 
 impl Drop for HeapCollectorRuntime<'_> {
     fn drop(&mut self) {
+        self.guard
+            .barrier_stats
+            .release_local(self.local.barrier_stats_local_mut());
         self.guard
             .alloc_counters
             .release_local(self.local.alloc_counter_local_mut());
@@ -2100,26 +2120,32 @@ impl HeapCore {
     /// Reset cumulative barrier traffic counters back to zero.
     /// Recent diagnostic events retained in the bounded ring
     /// buffer are left untouched. Takes `&self` because the
-    /// atomic counters can be reset without exclusive access.
+    /// shared counter slots can be reset without exclusive
+    /// access to the heap.
     pub fn clear_barrier_stats(&self) {
         self.barrier_stats.clear();
     }
 
-    /// Increment the heap-wide cumulative barrier counters
-    /// for `kind`. Takes `&self` because
-    /// [`crate::stats::AtomicBarrierStats`] uses relaxed
-    /// atomic fetch-adds — the barrier hot path never needs
-    /// exclusive access to the heap for this bookkeeping.
+    /// Increment the heap-wide cumulative barrier counters for
+    /// `kind`. Takes `&self` because
+    /// [`crate::stats::AtomicBarrierStats`] uses mutator-owned
+    /// counter slots with relaxed stores, so the barrier hot
+    /// path never needs exclusive access to the heap for this
+    /// bookkeeping.
     /// The per-mutator diagnostic ring lives on
     /// [`crate::mutator::MutatorLocal`]; the collector
     /// pushes events there via
     /// [`crate::mutator::MutatorLocal::push_barrier_event`]
     /// during the same barrier hook that bumps the stats
     /// here.
-    pub(crate) fn bump_barrier_stats(&self, kind: BarrierKind) {
+    pub(crate) fn bump_barrier_stats(
+        &self,
+        kind: BarrierKind,
+        local: &mut crate::stats::BarrierStatsLocal,
+    ) {
         match kind {
-            BarrierKind::PostWrite => self.barrier_stats.bump_post_write(),
-            BarrierKind::SatbPreWrite => self.barrier_stats.bump_satb_pre_write(),
+            BarrierKind::PostWrite => self.barrier_stats.bump_post_write(local),
+            BarrierKind::SatbPreWrite => self.barrier_stats.bump_satb_pre_write(local),
         }
     }
 

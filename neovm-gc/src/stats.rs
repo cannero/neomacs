@@ -1,6 +1,6 @@
 use std::sync::{
     Arc,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicU64, AtomicUsize, Ordering},
 };
 
 use parking_lot::Mutex;
@@ -231,50 +231,172 @@ pub struct BarrierStats {
 
 /// Atomic counterpart of [`BarrierStats`] held inside the
 /// crate-internal heap core. The barrier hook bumps these
-/// counters with plain `Relaxed` atomic adds, avoiding the
-/// heap write lock entirely on the barrier hot path.
+/// counters through mutator-owned counter slots, avoiding the
+/// heap write lock and shared RMWs on the barrier hot path.
 /// Observers read a [`BarrierStats`] snapshot via
 /// [`AtomicBarrierStats::snapshot`].
 #[derive(Debug, Default)]
+#[repr(align(64))]
+struct BarrierCounterShard {
+    post_write: AtomicU64,
+    satb_pre_write: AtomicU64,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct BarrierStatsLocal {
+    slot_index: usize,
+    slot: Option<Arc<BarrierCounterShard>>,
+    generation: usize,
+    post_write: u64,
+    satb_pre_write: u64,
+}
+
+impl BarrierStatsLocal {
+    #[cfg(test)]
+    pub(crate) fn is_registered(&self) -> bool {
+        self.slot.is_some()
+    }
+
+    fn refresh_from_slot(&mut self, generation: usize) {
+        let Some(slot) = self.slot.as_ref() else {
+            return;
+        };
+        self.generation = generation;
+        self.post_write = slot.post_write.load(Ordering::Relaxed);
+        self.satb_pre_write = slot.satb_pre_write.load(Ordering::Relaxed);
+    }
+}
+
+/// Shared heap-wide barrier counter registry. Each mutator
+/// owns one slot and publishes its cumulative barrier totals
+/// with relaxed stores; snapshots sum every live slot.
+#[derive(Debug)]
 pub struct AtomicBarrierStats {
-    post_write: std::sync::atomic::AtomicU64,
-    satb_pre_write: std::sync::atomic::AtomicU64,
+    slots: Mutex<Vec<Arc<BarrierCounterShard>>>,
+    free_slots: Mutex<Vec<usize>>,
+    generation: AtomicUsize,
+}
+
+impl Default for AtomicBarrierStats {
+    fn default() -> Self {
+        Self {
+            slots: Mutex::new(Vec::new()),
+            free_slots: Mutex::new(Vec::new()),
+            generation: AtomicUsize::new(0),
+        }
+    }
 }
 
 impl AtomicBarrierStats {
+    #[inline]
+    fn generation(&self) -> usize {
+        self.generation.load(Ordering::Acquire)
+    }
+
     /// Construct a fresh set of counters at zero.
     pub fn new() -> Self {
         Self::default()
     }
 
+    pub(crate) fn register_local(&self) -> BarrierStatsLocal {
+        if let Some(slot_index) = self.free_slots.lock().pop() {
+            let slot = {
+                let slots = self.slots.lock();
+                Arc::clone(
+                    slots
+                        .get(slot_index)
+                        .expect("released barrier stats slot should exist"),
+                )
+            };
+            let mut local = BarrierStatsLocal {
+                slot_index,
+                slot: Some(slot),
+                ..BarrierStatsLocal::default()
+            };
+            local.refresh_from_slot(self.generation());
+            return local;
+        }
+
+        let slot = Arc::new(BarrierCounterShard::default());
+        let slot_index = {
+            let mut slots = self.slots.lock();
+            let slot_index = slots.len();
+            slots.push(Arc::clone(&slot));
+            slot_index
+        };
+        let mut local = BarrierStatsLocal {
+            slot_index,
+            slot: Some(slot),
+            ..BarrierStatsLocal::default()
+        };
+        local.refresh_from_slot(self.generation());
+        local
+    }
+
+    pub(crate) fn release_local(&self, local: &mut BarrierStatsLocal) {
+        if local.slot.take().is_some() {
+            self.free_slots.lock().push(local.slot_index);
+            local.generation = 0;
+        }
+    }
+
     /// Bump the post-write counter by one.
-    pub fn bump_post_write(&self) {
-        self.post_write
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    #[inline(always)]
+    pub(crate) fn bump_post_write(&self, local: &mut BarrierStatsLocal) {
+        self.refresh_local(local);
+        local.post_write = local.post_write.saturating_add(1);
+        local
+            .slot
+            .as_deref()
+            .expect("barrier stats local should be registered")
+            .post_write
+            .store(local.post_write, Ordering::Relaxed);
     }
 
     /// Bump the SATB pre-write counter by one.
-    pub fn bump_satb_pre_write(&self) {
-        self.satb_pre_write
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    #[inline(always)]
+    pub(crate) fn bump_satb_pre_write(&self, local: &mut BarrierStatsLocal) {
+        self.refresh_local(local);
+        local.satb_pre_write = local.satb_pre_write.saturating_add(1);
+        local
+            .slot
+            .as_deref()
+            .expect("barrier stats local should be registered")
+            .satb_pre_write
+            .store(local.satb_pre_write, Ordering::Relaxed);
     }
 
     /// Return a consistent snapshot of the current counter values.
     pub fn snapshot(&self) -> BarrierStats {
+        let slots = self.slots.lock();
         BarrierStats {
-            post_write: self.post_write.load(std::sync::atomic::Ordering::Relaxed),
-            satb_pre_write: self
-                .satb_pre_write
-                .load(std::sync::atomic::Ordering::Relaxed),
+            post_write: slots
+                .iter()
+                .map(|slot| slot.post_write.load(Ordering::Relaxed))
+                .sum(),
+            satb_pre_write: slots
+                .iter()
+                .map(|slot| slot.satb_pre_write.load(Ordering::Relaxed))
+                .sum(),
         }
     }
 
     /// Reset every counter to zero.
     pub fn clear(&self) {
-        self.post_write
-            .store(0, std::sync::atomic::Ordering::Relaxed);
-        self.satb_pre_write
-            .store(0, std::sync::atomic::Ordering::Relaxed);
+        let slots = self.slots.lock();
+        for slot in slots.iter() {
+            slot.post_write.store(0, Ordering::Relaxed);
+            slot.satb_pre_write.store(0, Ordering::Relaxed);
+        }
+        self.generation.fetch_add(1, Ordering::AcqRel);
+    }
+
+    #[inline(always)]
+    fn refresh_local(&self, local: &mut BarrierStatsLocal) {
+        let generation = self.generation();
+        if local.generation != generation {
+            local.refresh_from_slot(generation);
+        }
     }
 }
 
