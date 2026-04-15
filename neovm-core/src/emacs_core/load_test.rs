@@ -2812,6 +2812,8 @@ fn runtime_interpreted_closure_filter_requires_explicit_runtime_binding() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     eval.set_lexical_binding(true);
+    eval.eval_str("(setq neovm--hook-count 0)")
+        .expect("initialize hook count");
     sync_runtime_interpreted_closure_filter(&mut eval);
     let rendered = eval_rendered(
         &mut eval,

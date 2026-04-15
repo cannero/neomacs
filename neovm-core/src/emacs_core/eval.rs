@@ -8861,8 +8861,6 @@ impl Context {
                 ) {
                     return cached;
                 }
-                let eval_root_scope = self.save_eval_roots();
-                self.push_eval_root(closure_hook);
                 let result = self.apply(
                     closure_hook,
                     vec![
@@ -8873,7 +8871,6 @@ impl Context {
                         iform_value,
                     ],
                 );
-                self.restore_eval_roots(eval_root_scope);
                 if let Ok(value) = &result {
                     self.maybe_cache_interpreted_closure_filter_result(
                         closure_hook,
@@ -8920,8 +8917,6 @@ impl Context {
                 ) {
                     return cached;
                 }
-                let eval_root_scope = self.save_eval_roots();
-                self.push_eval_root(closure_hook);
                 let result = self.apply(
                     closure_hook,
                     vec![
@@ -8932,7 +8927,6 @@ impl Context {
                         iform_value,
                     ],
                 );
-                self.restore_eval_roots(eval_root_scope);
                 if let Ok(value) = &result {
                     self.maybe_cache_value_interpreted_closure_filter_result(
                         closure_hook,
