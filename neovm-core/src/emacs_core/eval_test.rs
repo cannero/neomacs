@@ -8442,30 +8442,25 @@ fn active_call_frame_extra_roots_are_traced_across_exact_gc() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
 
+    let payload = Value::vector(vec![Value::fixnum(17)]);
     ev.push_active_call_frame(
         Value::symbol("active-call-root"),
         Some(Value::symbol("identity")),
         &[],
     );
-    let saved_len = ev
-        .save_active_call_extra_roots()
-        .expect("active call frame should be present");
-    let payload = Value::vector(vec![Value::fixnum(17)]);
-    assert!(ev.push_active_call_extra_root(payload));
+    ev.with_extra_gc_roots(&[payload], |eval| {
+        eval.gc_collect_exact();
 
-    ev.gc_collect_exact();
-
-    let rooted = ev
-        .active_call_roots
-        .last()
-        .expect("active call frame should remain present")
-        .extra_roots[0];
-    assert_eq!(
-        rooted.as_vector_data().unwrap().as_slice(),
-        &[Value::fixnum(17)]
-    );
-
-    assert!(ev.restore_active_call_extra_roots(saved_len));
+        let rooted = eval
+            .active_call_roots
+            .last()
+            .expect("active call frame should remain present")
+            .extra_roots[0];
+        assert_eq!(
+            rooted.as_vector_data().unwrap().as_slice(),
+            &[Value::fixnum(17)]
+        );
+    });
     ev.pop_active_call_frame();
 }
 

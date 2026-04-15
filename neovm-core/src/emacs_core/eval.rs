@@ -9145,13 +9145,13 @@ impl Context {
         }
     }
 
-    pub(crate) fn save_active_call_extra_roots(&self) -> Option<usize> {
+    fn save_active_call_extra_roots(&self) -> Option<usize> {
         self.active_call_roots
             .last()
             .map(|frame| frame.extra_roots.len())
     }
 
-    pub(crate) fn push_active_call_extra_root(&mut self, value: Value) -> bool {
+    fn push_active_call_extra_root(&mut self, value: Value) -> bool {
         if let Some(frame) = self.active_call_roots.last_mut() {
             frame.extra_roots.push(value);
             true
@@ -9160,7 +9160,7 @@ impl Context {
         }
     }
 
-    pub(crate) fn restore_active_call_extra_roots(&mut self, saved_len: usize) -> bool {
+    fn restore_active_call_extra_roots(&mut self, saved_len: usize) -> bool {
         if let Some(frame) = self.active_call_roots.last_mut() {
             frame.extra_roots.truncate(saved_len);
             true
