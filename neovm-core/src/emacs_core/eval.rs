@@ -9030,30 +9030,6 @@ impl Context {
         }
     }
 
-    fn save_active_call_extra_roots(&self) -> Option<usize> {
-        self.active_call_roots
-            .last()
-            .map(|frame| frame.extra_roots.len())
-    }
-
-    fn push_active_call_extra_root(&mut self, value: Value) -> bool {
-        if let Some(frame) = self.active_call_roots.last_mut() {
-            frame.extra_roots.push(value);
-            true
-        } else {
-            false
-        }
-    }
-
-    fn restore_active_call_extra_roots(&mut self, saved_len: usize) -> bool {
-        if let Some(frame) = self.active_call_roots.last_mut() {
-            frame.extra_roots.truncate(saved_len);
-            true
-        } else {
-            false
-        }
-    }
-
     pub(crate) fn save_eval_roots(&mut self) -> EvalRootScopeState {
         let pushed_eval_root_frame =
             self.active_call_roots.is_empty() && self.eval_root_frames.is_empty();
@@ -9062,13 +9038,18 @@ impl Context {
         }
         EvalRootScopeState {
             pushed_eval_root_frame,
-            saved_active_call_extra_roots_len: self.save_active_call_extra_roots(),
+            saved_active_call_extra_roots_len: self
+                .active_call_roots
+                .last()
+                .map(|frame| frame.extra_roots.len()),
             saved_eval_root_frame_len: self.eval_root_frames.last().map(|frame| frame.roots.len()),
         }
     }
 
     pub(crate) fn push_eval_root(&mut self, value: Value) {
-        if !self.push_active_call_extra_root(value) {
+        if let Some(frame) = self.active_call_roots.last_mut() {
+            frame.extra_roots.push(value);
+        } else {
             self.eval_root_frames
                 .last_mut()
                 .expect("push_eval_root requires an active call frame or eval root frame")
@@ -9079,7 +9060,9 @@ impl Context {
 
     pub(crate) fn restore_eval_roots(&mut self, scope: EvalRootScopeState) {
         if let Some(saved_len) = scope.saved_active_call_extra_roots_len {
-            let _ = self.restore_active_call_extra_roots(saved_len);
+            if let Some(frame) = self.active_call_roots.last_mut() {
+                frame.extra_roots.truncate(saved_len);
+            }
         }
         if let Some(saved_len) = scope.saved_eval_root_frame_len
             && let Some(frame) = self.eval_root_frames.last_mut()
