@@ -130,6 +130,30 @@ fn face_table_pdump_preserves_lisp_owned_attrs() {
 }
 
 #[test]
+fn face_table_pdump_keeps_inherit_as_symbols() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::Context::new();
+    let mut face = Face::new("pdump-inherit-face");
+    face.inherit = vec![
+        Value::symbol("font-lock-keyword-face"),
+        Value::symbol("warning"),
+    ];
+    eval.face_table.define("pdump-inherit-face", face);
+
+    let dump = crate::emacs_core::pdump::convert::dump_evaluator(&eval);
+    let dumped = dump
+        .face_table
+        .face_ids
+        .iter()
+        .find(|(sym_id, _)| sym_id.0 == crate::emacs_core::intern::intern("pdump-inherit-face").0)
+        .map(|(_, face)| face)
+        .expect("dumped pdump-inherit-face");
+
+    assert_eq!(dumped.inherit.len(), 0);
+    assert_eq!(dumped.inherit_syms.len(), 2);
+}
+
+#[test]
 fn default_face_does_not_seed_font_family_or_height() {
     crate::test_utils::init_test_tracing();
     let table = FaceTable::new();

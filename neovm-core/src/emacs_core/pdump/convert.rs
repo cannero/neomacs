@@ -1714,11 +1714,7 @@ fn dump_face(encoder: &mut DumpEncoder, f: &Face) -> DumpFace {
             .iter()
             .filter_map(|value| value.as_symbol_id().map(dump_sym_id))
             .collect(),
-        inherit: f
-            .inherit
-            .iter()
-            .filter_map(|value| value.as_symbol_name().map(str::to_string))
-            .collect(),
+        inherit: Vec::new(),
         overstrike: f.overstrike,
         doc_value: f.doc.as_ref().map(|value| encoder.dump_value(value)),
         doc: None,
