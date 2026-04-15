@@ -430,6 +430,34 @@ fn read_from_string_out_of_range_uses_character_count() {
     );
 }
 
+#[test]
+fn read_from_string_unibyte_indices_are_character_based() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let input = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b' ', b'4', b'2',
+    ]));
+    let result = builtin_read_from_string(&mut ev, vec![input, Value::fixnum(2)]).unwrap();
+    let pair_car = result.cons_car();
+    let pair_cdr = result.cons_cdr();
+    assert_eq!(pair_car.as_fixnum(), Some(42));
+    assert_eq!(pair_cdr.as_fixnum(), Some(4));
+}
+
+#[test]
+fn read_from_string_unibyte_out_of_range_uses_character_count() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let input = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b' ', b'4', b'2',
+    ]));
+    let result = builtin_read_from_string(&mut ev, vec![input, Value::fixnum(5)]);
+    assert!(
+        result.is_err(),
+        "char index 5 must be out of range for a 4-char unibyte string"
+    );
+}
+
 // ===================================================================
 // read tests
 // ===================================================================

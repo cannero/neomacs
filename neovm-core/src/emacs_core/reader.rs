@@ -56,6 +56,19 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
     }
 }
 
+fn expect_lisp_string(value: &Value) -> Result<crate::heap_types::LispString, Flow> {
+    match value.kind() {
+        ValueKind::String => Ok(value
+            .as_lisp_string()
+            .expect("ValueKind::String must carry LispString payload")
+            .clone()),
+        other => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), *value],
+        )),
+    }
+}
+
 fn expect_number(value: &Value) -> Result<(), Flow> {
     if value.is_number() {
         return Ok(());
@@ -304,7 +317,8 @@ pub(crate) fn read_from_string_impl(
         ));
     }
 
-    let full_string = expect_string(&args[0])?;
+    let full_string = expect_lisp_string(&args[0])?;
+    let full_storage = super::builtins::runtime_string_from_lisp_string(&full_string);
 
     // GNU Emacs `Fread_from_string` (`src/lread.c:2514`) treats START and
     // END as character indices into STRING (validated via
@@ -315,7 +329,7 @@ pub(crate) fn read_from_string_impl(
     // would either panic on multibyte input (slicing mid-codepoint) or
     // return a byte offset where elisp expected a character count.
     let full_string_bytes = full_string.as_bytes();
-    let char_count = crate::emacs_core::emacs_char::chars_in_multibyte(full_string_bytes);
+    let char_count = full_string.schars();
 
     let start_arg = args.get(1).cloned().unwrap_or(Value::NIL);
     let end_arg = args.get(2).cloned().unwrap_or(Value::NIL);
@@ -356,10 +370,27 @@ pub(crate) fn read_from_string_impl(
         ));
     }
 
-    let start_byte = crate::emacs_core::emacs_char::char_to_byte_pos(full_string_bytes, start_char);
-    let end_byte = crate::emacs_core::emacs_char::char_to_byte_pos(full_string_bytes, end_char);
+    let start_byte = if full_string.is_multibyte() {
+        crate::emacs_core::emacs_char::char_to_byte_pos(full_string_bytes, start_char)
+    } else {
+        start_char
+    };
+    let end_byte = if full_string.is_multibyte() {
+        crate::emacs_core::emacs_char::char_to_byte_pos(full_string_bytes, end_char)
+    } else {
+        end_char
+    };
 
-    let substring = &full_string[start_byte..end_byte];
+    let start_storage = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+        &full_storage,
+        start_byte,
+    );
+    let end_storage = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
+        &full_storage,
+        end_byte,
+    );
+
+    let substring = &full_storage[start_storage..end_storage];
     if starts_with_hash_skip_dispatch(substring) {
         return Err(signal(
             "end-of-file",
@@ -409,9 +440,13 @@ pub(crate) fn read_from_string_impl(
     // `read_one` returns a byte offset into `substring`. Convert it back
     // into a character index in the original STRING so the returned
     // FINAL-STRING-INDEX matches GNU's contract.
-    let absolute_end_byte = start_byte + end_pos;
-    let absolute_end_char =
-        crate::emacs_core::emacs_char::byte_to_char_pos(full_string_bytes, absolute_end_byte);
+    let absolute_end_byte = start_byte
+        + crate::emacs_core::string_escape::storage_byte_to_logical_byte(substring, end_pos);
+    let absolute_end_char = if full_string.is_multibyte() {
+        crate::emacs_core::emacs_char::byte_to_char_pos(full_string_bytes, absolute_end_byte)
+    } else {
+        absolute_end_byte
+    };
 
     Ok(Value::cons(value, Value::fixnum(absolute_end_char as i64)))
 }
