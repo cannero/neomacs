@@ -70,7 +70,7 @@ fn case_fixed() {
     let mut mgr = AbbrevManager::new();
     mgr.define_abbrev("global-abbrev-table", "btw", "by the way");
     mgr.tables
-        .get_mut("global-abbrev-table")
+        .get_mut(&abbrev_table_sym("global-abbrev-table"))
         .unwrap()
         .case_fixed = true;
 

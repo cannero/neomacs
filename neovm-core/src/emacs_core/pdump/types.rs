@@ -676,7 +676,12 @@ pub struct DumpAbbrevTable {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpAbbrevManager {
+    #[serde(default)]
+    pub tables_syms: Vec<(DumpSymId, DumpAbbrevTable)>,
+    #[serde(default)]
     pub tables: Vec<(String, DumpAbbrevTable)>,
+    #[serde(default)]
+    pub global_table_sym: Option<DumpSymId>,
     pub global_table_name: DumpLispString,
     pub abbrev_mode: bool,
 }

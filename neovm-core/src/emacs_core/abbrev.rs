@@ -58,8 +58,8 @@ impl AbbrevTable {
 /// The tables HashMap is kept for pdump compatibility but no longer used by builtins.
 #[derive(Clone, Debug)]
 pub struct AbbrevManager {
-    tables: HashMap<String, AbbrevTable>,
-    global_table_name: LispString,
+    tables: HashMap<SymId, AbbrevTable>,
+    global_table_sym: SymId,
     abbrev_mode: bool,
 }
 
@@ -72,22 +72,24 @@ impl Default for AbbrevManager {
 impl AbbrevManager {
     pub fn new() -> Self {
         let global_name = runtime_string_to_abbrev_string("global-abbrev-table");
+        let global_sym = abbrev_table_sym(&abbrev_string_to_runtime(&global_name));
         let mut tables = HashMap::new();
         tables.insert(
-            abbrev_lookup_key(&global_name),
+            global_sym,
             AbbrevTable::new(&abbrev_string_to_runtime(&global_name)),
         );
         Self {
             tables,
-            global_table_name: global_name,
+            global_table_sym: global_sym,
             abbrev_mode: false,
         }
     }
 
     pub fn define_abbrev(&mut self, table: &str, abbrev: &str, expansion: &str) {
+        let table_sym = abbrev_table_sym(table);
         let tbl = self
             .tables
-            .entry(table.to_string())
+            .entry(table_sym)
             .or_insert_with(|| AbbrevTable::new(table));
         let key = abbrev.to_lowercase();
         tbl.abbrevs.insert(
@@ -109,9 +111,10 @@ impl AbbrevManager {
         hook: Option<LispString>,
         system: bool,
     ) {
+        let table_sym = abbrev_table_sym(table);
         let tbl = self
             .tables
-            .entry(table.to_string())
+            .entry(table_sym)
             .or_insert_with(|| AbbrevTable::new(table));
         let key = abbrev.to_lowercase();
         tbl.abbrevs.insert(
@@ -126,8 +129,12 @@ impl AbbrevManager {
     }
 
     pub fn expand_abbrev(&mut self, table: &str, word: &str) -> Option<String> {
+        self.expand_abbrev_by_sym(abbrev_table_sym(table), word)
+    }
+
+    fn expand_abbrev_by_sym(&mut self, table_sym: SymId, word: &str) -> Option<String> {
         let key = word.to_lowercase();
-        if let Some(tbl) = self.tables.get_mut(table) {
+        if let Some(tbl) = self.tables.get_mut(&table_sym) {
             if let Some(ab) = tbl.abbrevs.get_mut(&key) {
                 ab.count += 1;
                 let expansion = apply_case(
@@ -138,29 +145,29 @@ impl AbbrevManager {
                 return Some(expansion);
             }
         }
-        let parent = self.tables.get(table).and_then(|t| t.parent.clone());
+        let parent = self.tables.get(&table_sym).and_then(|t| t.parent.clone());
         if let Some(parent_name) = parent {
-            return self.expand_abbrev(&abbrev_string_to_runtime(&parent_name), word);
+            return self.expand_abbrev_by_sym(abbrev_table_sym_from_lisp(&parent_name), word);
         }
-        if table != abbrev_lookup_key(&self.global_table_name) {
-            let global = abbrev_lookup_key(&self.global_table_name);
-            return self.expand_abbrev(&global, word);
+        if table_sym != self.global_table_sym {
+            return self.expand_abbrev_by_sym(self.global_table_sym, word);
         }
         None
     }
 
     pub fn create_table(&mut self, name: &str) -> &mut AbbrevTable {
+        let table_sym = abbrev_table_sym(name);
         self.tables
-            .entry(name.to_string())
+            .entry(table_sym)
             .or_insert_with(|| AbbrevTable::new(name))
     }
 
     pub fn get_table(&self, name: &str) -> Option<&AbbrevTable> {
-        self.tables.get(name)
+        self.tables.get(&abbrev_table_sym(name))
     }
 
     pub fn list_abbrevs(&self, table: &str) -> Vec<(String, String)> {
-        match self.tables.get(table) {
+        match self.tables.get(&abbrev_table_sym(table)) {
             Some(tbl) => {
                 let mut entries: Vec<(String, String)> = tbl
                     .abbrevs
@@ -175,7 +182,7 @@ impl AbbrevManager {
     }
 
     pub fn clear_table(&mut self, table: &str) {
-        if let Some(tbl) = self.tables.get_mut(table) {
+        if let Some(tbl) = self.tables.get_mut(&abbrev_table_sym(table)) {
             tbl.abbrevs.clear();
         }
     }
@@ -188,8 +195,8 @@ impl AbbrevManager {
         self.abbrev_mode = enabled;
     }
 
-    pub fn global_table_name(&self) -> &LispString {
-        &self.global_table_name
+    pub fn global_table_name(&self) -> LispString {
+        runtime_string_to_abbrev_string(resolve_sym(self.global_table_sym))
     }
 
     pub fn all_table_names(&self) -> Vec<LispString> {
@@ -203,23 +210,23 @@ impl AbbrevManager {
     }
 
     // pdump accessors
-    pub(crate) fn dump_tables(&self) -> &HashMap<String, AbbrevTable> {
+    pub(crate) fn dump_tables(&self) -> &HashMap<SymId, AbbrevTable> {
         &self.tables
     }
-    pub(crate) fn dump_global_table_name(&self) -> &LispString {
-        &self.global_table_name
+    pub(crate) fn dump_global_table_sym(&self) -> SymId {
+        self.global_table_sym
     }
     pub(crate) fn dump_abbrev_mode(&self) -> bool {
         self.abbrev_mode
     }
     pub(crate) fn from_dump(
-        tables: HashMap<String, AbbrevTable>,
-        global_table_name: LispString,
+        tables: HashMap<SymId, AbbrevTable>,
+        global_table_sym: SymId,
         abbrev_mode: bool,
     ) -> Self {
         Self {
             tables,
-            global_table_name,
+            global_table_sym,
             abbrev_mode,
         }
     }
@@ -229,8 +236,12 @@ fn runtime_string_to_abbrev_string(text: &str) -> LispString {
     super::builtins::runtime_string_to_lisp_string(text, true)
 }
 
-fn abbrev_lookup_key(text: &LispString) -> String {
-    abbrev_string_to_runtime(text)
+fn abbrev_table_sym(text: &str) -> SymId {
+    intern(text)
+}
+
+fn abbrev_table_sym_from_lisp(text: &LispString) -> SymId {
+    abbrev_table_sym(&abbrev_string_to_runtime(text))
 }
 
 fn abbrev_string_to_runtime(text: &LispString) -> String {

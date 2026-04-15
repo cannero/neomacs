@@ -1796,12 +1796,12 @@ pub(crate) fn dump_bookmark_manager(bm: &BookmarkManager) -> DumpBookmarkManager
 
 pub(crate) fn dump_abbrev_manager(am: &AbbrevManager) -> DumpAbbrevManager {
     DumpAbbrevManager {
-        tables: am
+        tables_syms: am
             .dump_tables()
             .iter()
-            .map(|(k, t)| {
+            .map(|(sym, t)| {
                 (
-                    k.clone(),
+                    dump_sym_id(*sym),
                     DumpAbbrevTable {
                         name: dump_lisp_string(&t.name),
                         abbrevs: t
@@ -1826,7 +1826,9 @@ pub(crate) fn dump_abbrev_manager(am: &AbbrevManager) -> DumpAbbrevManager {
                 )
             })
             .collect(),
-        global_table_name: dump_lisp_string(am.dump_global_table_name()),
+        tables: Vec::new(),
+        global_table_sym: Some(dump_sym_id(am.dump_global_table_sym())),
+        global_table_name: dump_lisp_string(&am.global_table_name()),
         abbrev_mode: am.dump_abbrev_mode(),
     }
 }
@@ -3533,41 +3535,78 @@ pub(crate) fn load_bookmark_manager(dbm: &DumpBookmarkManager) -> BookmarkManage
 }
 
 pub(crate) fn load_abbrev_manager(dam: &DumpAbbrevManager) -> AbbrevManager {
-    let tables: HashMap<String, AbbrevTable> = dam
-        .tables
-        .iter()
-        .map(|(k, t)| {
-            (
-                k.clone(),
-                AbbrevTable {
-                    name: load_lisp_string(&t.name),
-                    abbrevs: t
-                        .abbrevs
-                        .iter()
-                        .map(|(k, a)| {
-                            (
-                                k.clone(),
-                                Abbrev {
-                                    expansion: load_lisp_string(&a.expansion),
-                                    hook: a.hook.as_ref().map(load_lisp_string),
-                                    count: a.count,
-                                    system: a.system,
-                                },
-                            )
-                        })
-                        .collect(),
-                    parent: t.parent.as_ref().map(load_lisp_string),
-                    case_fixed: t.case_fixed,
-                    enable_quoting: t.enable_quoting,
-                },
+    let tables: HashMap<SymId, AbbrevTable> = if !dam.tables_syms.is_empty() {
+        dam.tables_syms
+            .iter()
+            .map(|(sym, t)| {
+                (
+                    load_sym_id(sym),
+                    AbbrevTable {
+                        name: load_lisp_string(&t.name),
+                        abbrevs: t
+                            .abbrevs
+                            .iter()
+                            .map(|(k, a)| {
+                                (
+                                    k.clone(),
+                                    Abbrev {
+                                        expansion: load_lisp_string(&a.expansion),
+                                        hook: a.hook.as_ref().map(load_lisp_string),
+                                        count: a.count,
+                                        system: a.system,
+                                    },
+                                )
+                            })
+                            .collect(),
+                        parent: t.parent.as_ref().map(load_lisp_string),
+                        case_fixed: t.case_fixed,
+                        enable_quoting: t.enable_quoting,
+                    },
+                )
+            })
+            .collect()
+    } else {
+        dam.tables
+            .iter()
+            .map(|(k, t)| {
+                (
+                    intern::intern(k),
+                    AbbrevTable {
+                        name: load_lisp_string(&t.name),
+                        abbrevs: t
+                            .abbrevs
+                            .iter()
+                            .map(|(k, a)| {
+                                (
+                                    k.clone(),
+                                    Abbrev {
+                                        expansion: load_lisp_string(&a.expansion),
+                                        hook: a.hook.as_ref().map(load_lisp_string),
+                                        count: a.count,
+                                        system: a.system,
+                                    },
+                                )
+                            })
+                            .collect(),
+                        parent: t.parent.as_ref().map(load_lisp_string),
+                        case_fixed: t.case_fixed,
+                        enable_quoting: t.enable_quoting,
+                    },
+                )
+            })
+            .collect()
+    };
+    let global_table_sym = dam
+        .global_table_sym
+        .map(|sym| load_sym_id(&sym))
+        .unwrap_or_else(|| {
+            intern::intern(
+                &crate::emacs_core::builtins::runtime_string_from_lisp_string(&load_lisp_string(
+                    &dam.global_table_name,
+                )),
             )
-        })
-        .collect();
-    AbbrevManager::from_dump(
-        tables,
-        load_lisp_string(&dam.global_table_name),
-        dam.abbrev_mode,
-    )
+        });
+    AbbrevManager::from_dump(tables, global_table_sym, dam.abbrev_mode)
 }
 
 pub(crate) fn load_interactive_registry(
