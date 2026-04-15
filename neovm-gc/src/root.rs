@@ -1,9 +1,9 @@
 use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicPtr, Ordering};
 
 use crate::descriptor::{GcErased, Relocator};
+use crate::heap::Heap;
 use crate::object::ObjectHeader;
 
 /// Unrooted managed pointer.
@@ -86,10 +86,54 @@ impl<'scope, T: ?Sized> Root<'scope, T> {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct HandleScopeState<'heap> {
+    heap: &'heap Heap,
+    depth: usize,
+    safepoint: Option<std::sync::RwLockReadGuard<'heap, ()>>,
+}
+
+impl<'heap> HandleScopeState<'heap> {
+    pub(crate) fn new(heap: &'heap Heap) -> Self {
+        Self {
+            heap,
+            depth: 0,
+            safepoint: None,
+        }
+    }
+
+    pub(crate) fn begin_scope(&mut self) {
+        self.depth = self.depth.saturating_add(1);
+        self.ensure_safepoint();
+    }
+
+    pub(crate) fn ensure_safepoint(&mut self) {
+        if self.depth > 0 && self.safepoint.is_none() {
+            self.safepoint = Some(self.heap.read_safepoint());
+        }
+    }
+
+    pub(crate) fn has_safepoint(&self) -> bool {
+        self.safepoint.is_some()
+    }
+
+    pub(crate) fn release_safepoint(&mut self) {
+        self.safepoint = None;
+    }
+
+    fn end_scope(&mut self) {
+        self.depth = self.depth.saturating_sub(1);
+        if self.depth == 0 {
+            self.safepoint = None;
+        }
+    }
+}
+
 /// Scope that owns a transient stack of roots.
 #[derive(Debug)]
 pub struct HandleScope<'scope, 'heap> {
     root_stack: NonNull<RootStack>,
+    scope_state: Option<NonNull<HandleScopeState<'heap>>>,
     start: usize,
     _marker: PhantomData<&'scope mut &'heap mut RootStack>,
 }
@@ -99,6 +143,20 @@ impl<'scope, 'heap> HandleScope<'scope, 'heap> {
         let start = unsafe { root_stack.as_ref().len() };
         Self {
             root_stack,
+            scope_state: None,
+            start,
+            _marker: PhantomData,
+        }
+    }
+
+    pub(crate) fn new_with_state(
+        root_stack: NonNull<RootStack>,
+        scope_state: NonNull<HandleScopeState<'heap>>,
+    ) -> Self {
+        let start = unsafe { root_stack.as_ref().len() };
+        Self {
+            root_stack,
+            scope_state: Some(scope_state),
             start,
             _marker: PhantomData,
         }
@@ -119,6 +177,9 @@ impl<'scope, 'heap> Drop for HandleScope<'scope, 'heap> {
     fn drop(&mut self) {
         unsafe {
             self.root_stack.as_mut().truncate(self.start);
+        }
+        if let Some(mut scope_state) = self.scope_state {
+            unsafe { scope_state.as_mut().end_scope() };
         }
     }
 }
@@ -152,7 +213,7 @@ impl RootStack {
     }
 
     pub(crate) fn relocate_all(&mut self, relocator: &mut dyn Relocator) {
-        for slot in &self.slots {
+        for slot in &mut self.slots {
             if let Some(object) = slot.get() {
                 let relocated = relocator.relocate_erased(object);
                 slot.set(Some(relocated));
@@ -163,32 +224,20 @@ impl RootStack {
 
 #[derive(Debug)]
 struct RootSlot {
-    object: AtomicPtr<ObjectHeader>,
+    object: Option<GcErased>,
 }
 
 impl RootSlot {
     fn new(object: Option<GcErased>) -> Self {
-        Self {
-            object: AtomicPtr::new(match object {
-                Some(object) => object.as_raw(),
-                None => core::ptr::null_mut(),
-            }),
-        }
+        Self { object }
     }
 
     pub(crate) fn get(&self) -> Option<GcErased> {
-        let raw = self.object.load(Ordering::Acquire);
-        unsafe { GcErased::from_raw(raw) }
+        self.object
     }
 
-    pub(crate) fn set(&self, object: Option<GcErased>) {
-        self.object.store(
-            match object {
-                Some(object) => object.as_raw(),
-                None => core::ptr::null_mut(),
-            },
-            Ordering::Release,
-        );
+    pub(crate) fn set(&mut self, object: Option<GcErased>) {
+        self.object = object;
     }
 }
 

@@ -43,10 +43,16 @@ pub struct CollectionPlan {
     pub worker_count: usize,
     /// Maximum number of objects to drain from one mark slice.
     pub mark_slice_budget: usize,
-    /// Number of old regions implicated by this plan.
+    /// Number of old-gen blocks implicated by this plan.
     pub target_old_regions: usize,
-    /// Exact old-region indices selected for compaction or evacuation by this plan.
-    pub selected_old_regions: Vec<usize>,
+    /// Exact old-block indices the planner selected for
+    /// physical compaction.
+    ///
+    /// The runtime feeds this list directly to
+    /// `Heap::compact_old_gen_blocks` to physically evacuate
+    /// the named blocks. An empty vec means the planner found
+    /// no fragmented blocks worth compacting this cycle.
+    pub selected_old_blocks: Vec<usize>,
     /// Estimated live bytes that would be moved by the selected old-region compaction set.
     pub estimated_compaction_bytes: usize,
     /// Estimated bytes the plan may reclaim or compact.
@@ -60,6 +66,8 @@ pub struct MajorMarkProgress {
     pub completed: bool,
     /// Number of objects drained in the most recent externally advanced step or round.
     pub drained_objects: usize,
+    /// Elapsed time for this active major-mark session in nanoseconds.
+    pub elapsed_nanos: u64,
     /// Total mark slices executed for this session so far.
     pub mark_steps: u64,
     /// Total worker rounds executed for this session so far.
@@ -82,6 +90,28 @@ pub enum BackgroundCollectionStatus {
     Finished(CollectionStats),
 }
 
+/// Runtime-visible work that remains outside GC commit itself.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuntimeWorkStatus {
+    /// No runtime-side follow-up work is pending.
+    Idle,
+    /// Queued finalizers are waiting to be drained at a runtime boundary.
+    PendingFinalizers {
+        /// Number of queued finalizers waiting to run.
+        count: usize,
+    },
+}
+
+impl RuntimeWorkStatus {
+    pub(crate) const fn from_pending_finalizers(count: usize) -> Self {
+        if count == 0 {
+            Self::Idle
+        } else {
+            Self::PendingFinalizers { count }
+        }
+    }
+}
+
 impl Default for CollectionPlan {
     fn default() -> Self {
         Self {
@@ -92,7 +122,7 @@ impl Default for CollectionPlan {
             worker_count: 1,
             mark_slice_budget: 0,
             target_old_regions: 0,
-            selected_old_regions: Vec::new(),
+            selected_old_blocks: Vec::new(),
             estimated_compaction_bytes: 0,
             estimated_reclaim_bytes: 0,
         }

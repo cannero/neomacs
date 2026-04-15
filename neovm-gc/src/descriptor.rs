@@ -54,6 +54,11 @@ impl ObjectKey {
     pub(crate) fn from_header(header: NonNull<ObjectHeader>) -> Self {
         Self(header.as_ptr() as usize)
     }
+
+    #[inline]
+    pub(crate) fn as_usize(self) -> usize {
+        self.0
+    }
 }
 
 /// Policy describing whether and how objects may move across collections.
@@ -131,6 +136,8 @@ pub struct TypeDesc {
     pub size: SizeFn,
     /// Drop callback for object teardown.
     pub drop_in_place: DropFn,
+    /// Whether the payload actually needs drop glue.
+    pub needs_drop: bool,
     /// Finalization callback for objects that require it.
     pub finalize: FinalizeFn,
     /// Strong-edge relocation callback.
@@ -278,6 +285,7 @@ pub(crate) fn fixed_type_desc<T: Trace + 'static>() -> TypeDesc {
         trace: trace_impl::<T>,
         size: size_impl::<T>,
         drop_in_place: drop_impl::<T>,
+        needs_drop: core::mem::needs_drop::<T>(),
         finalize: finalize_impl::<T>,
         relocate: relocate_impl::<T>,
         process_weak: process_weak_impl::<T>,
@@ -287,3 +295,7 @@ pub(crate) fn fixed_type_desc<T: Trace + 'static>() -> TypeDesc {
         flags: T::type_flags(),
     }
 }
+
+#[cfg(test)]
+#[path = "descriptor_test.rs"]
+mod tests;

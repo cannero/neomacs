@@ -1,9 +1,15 @@
-use crate::collector_state::CollectorSharedSnapshot;
+use crate::collector_state::{CollectorSharedSnapshot, CollectorState, CollectorStateHandle};
 use crate::heap::{AllocError, Heap};
 use crate::mutator::Mutator;
-use crate::plan::{BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress};
-use crate::runtime::CollectorRuntime;
-use crate::stats::{CollectionStats, HeapStats};
+use crate::pacer::{Pacer, PacerConfig, PacerStats};
+use crate::pause_stats::PauseHistogram;
+use crate::plan::{
+    BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress,
+    RuntimeWorkStatus,
+};
+use crate::runtime::{CollectorRuntime, SharedCollectorRuntime};
+use crate::runtime_state::{RuntimeState, RuntimeStateHandle};
+use crate::stats::{BarrierStats, CollectionStats, CompactionStats, HeapStats};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{
@@ -28,6 +34,12 @@ pub trait BackgroundCollectionRuntime {
     fn poll_background_mark_round(
         &mut self,
     ) -> Result<Option<crate::plan::MajorMarkProgress>, AllocError>;
+
+    /// Prepare reclaim for the active major collection once mark work is fully drained.
+    fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError>;
+
+    /// Commit the active major collection once reclaim has already been prepared.
+    fn commit_active_reclaim_if_ready(&mut self) -> Result<Option<CollectionStats>, AllocError>;
 
     /// Finish the active major collection if its mark work is fully drained.
     fn finish_active_major_collection_if_ready(
@@ -74,10 +86,13 @@ pub struct BackgroundCollectorStats {
 #[derive(Clone, Debug)]
 pub struct SharedHeap {
     inner: Arc<RwLock<Heap>>,
-    snapshot: Arc<RwLock<SharedHeapSnapshot>>,
-    collector_snapshot: Arc<RwLock<CollectorSharedSnapshot>>,
-    signal: Arc<SharedHeapSignal>,
-    background_signal: Arc<SharedHeapSignal>,
+    runtime: SharedRuntimeHandle,
+    collector: SharedCollectorHandle,
+    /// Cached `Pacer` handle. Cloning a `Pacer` is cheap (it just
+    /// bumps the inner `Arc<Mutex<PacerState>>` refcount), and the
+    /// cached handle lets `SharedHeap` callers read or update the
+    /// pacer's config without taking the main heap `RwLock`.
+    pacer: Pacer,
 }
 
 /// Public snapshot of shared heap state that can be read without taking the main heap mutex.
@@ -85,6 +100,21 @@ pub struct SharedHeap {
 pub struct SharedHeapStatus {
     /// Current heap statistics.
     pub stats: HeapStats,
+    /// Adaptive pacer statistics (allocation rate, mark rate, next
+    /// trigger threshold, observed cycles, and overshoot count) as
+    /// captured in the latest shared snapshot.
+    pub pacer: PacerStats,
+    /// Rolling pause-time histogram (P50/P95/P99 nanoseconds over a
+    /// bounded window) as captured in the latest shared snapshot.
+    pub pauses: PauseHistogram,
+    /// Cumulative physical compaction counters as captured in
+    /// the latest shared snapshot.
+    pub compaction: CompactionStats,
+    /// Cumulative write-barrier traffic counters as captured in
+    /// the latest shared snapshot.
+    pub barriers: BarrierStats,
+    /// Runtime-side follow-up work that remains outside GC commit.
+    pub runtime_work: RuntimeWorkStatus,
     /// Scheduler-visible recommended collection plan from the latest shared snapshot.
     pub recommended_plan: CollectionPlan,
     /// Background collector recommendation from the latest shared snapshot.
@@ -115,6 +145,10 @@ pub struct SharedBackgroundStatus {
     pub active_major_mark_plan: Option<CollectionPlan>,
     /// Active major-mark progress, if any.
     pub major_mark_progress: Option<MajorMarkProgress>,
+    /// Runtime-side follow-up work that remains outside GC commit.
+    pub runtime_work: RuntimeWorkStatus,
+    /// Number of queued finalizers waiting to run.
+    pub pending_finalizers: usize,
 }
 
 /// One consistent observation of background epoch and background-visible shared heap state.
@@ -154,7 +188,12 @@ pub enum SharedHeapAccessError {
     /// Shared heap state was poisoned by another panic.
     LockPoisoned,
     /// Shared heap state is currently locked by another thread.
-    WouldBlock(SharedHeapStatus),
+    /// The captured snapshot is boxed to keep the `Result`'s
+    /// `Err` discriminant small (otherwise the variant would
+    /// pull the entire `SharedHeapStatus` payload — ~800 bytes
+    /// at this writing — into every `Result<_, SharedHeapAccessError>`
+    /// return slot, which clippy flags as `result_large_err`).
+    WouldBlock(Box<SharedHeapStatus>),
 }
 
 /// Shared background service failure modes.
@@ -171,6 +210,32 @@ pub enum SharedBackgroundError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct SharedHeapSnapshot {
     stats: HeapStats,
+    pacer: PacerStats,
+    pauses: PauseHistogram,
+    compaction: CompactionStats,
+    barriers: BarrierStats,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SharedRuntimeSnapshot {
+    finalizers_run: u64,
+    pending_finalizers: usize,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SharedCollectorHandle {
+    state: CollectorStateHandle,
+    snapshot: Arc<RwLock<CollectorSharedSnapshot>>,
+    signal: Arc<SharedHeapSignal>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SharedRuntimeHandle {
+    state: RuntimeStateHandle,
+    snapshot: Arc<RwLock<SharedRuntimeSnapshot>>,
+    heap_snapshot: Arc<RwLock<SharedHeapSnapshot>>,
+    heap_signal: Arc<SharedHeapSignal>,
+    collector: SharedCollectorHandle,
 }
 
 #[derive(Debug, Default)]
@@ -221,18 +286,573 @@ impl SharedHeapSignal {
 impl SharedHeapSnapshot {
     fn capture(heap: &Heap) -> Self {
         Self {
-            stats: heap.stats(),
+            stats: heap.storage_stats(),
+            pacer: heap.pacer_stats(),
+            pauses: heap.pause_histogram(),
+            compaction: heap.compaction_stats(),
+            barriers: heap.barrier_stats(),
         }
     }
 }
 
-impl From<&CollectorSharedSnapshot> for SharedBackgroundStatus {
-    fn from(snapshot: &CollectorSharedSnapshot) -> Self {
+impl SharedRuntimeSnapshot {
+    fn capture(heap: &Heap) -> Self {
+        let (finalizers_run, pending_finalizers) = heap.runtime_finalizer_stats();
         Self {
-            recommended_background_plan: snapshot.recommended_background_plan.clone(),
-            active_major_mark_plan: snapshot.active_major_mark_plan.clone(),
-            major_mark_progress: snapshot.major_mark_progress,
+            finalizers_run,
+            pending_finalizers,
         }
+    }
+}
+
+impl SharedCollectorHandle {
+    fn new(
+        state: CollectorStateHandle,
+        snapshot: CollectorSharedSnapshot,
+        signal: Arc<SharedHeapSignal>,
+    ) -> Self {
+        Self {
+            state,
+            snapshot: Arc::new(RwLock::new(snapshot)),
+            signal,
+        }
+    }
+
+    pub(crate) fn with_state<R>(
+        &self,
+        f: impl FnOnce(&mut CollectorState) -> R,
+    ) -> Result<R, SharedHeapError> {
+        Ok(self.state.with_state(f))
+    }
+
+    pub(crate) fn try_with_state<R>(
+        &self,
+        f: impl FnOnce(&mut CollectorState) -> R,
+    ) -> Result<R, SharedHeapError> {
+        self.state.try_with_state(f).map_err(|error| match error {
+            TryLockError::Poisoned(_) => SharedHeapError::LockPoisoned,
+            TryLockError::WouldBlock => SharedHeapError::WouldBlock,
+        })
+    }
+
+    pub(crate) fn read_snapshot<R>(
+        &self,
+        f: impl FnOnce(&CollectorSharedSnapshot) -> R,
+    ) -> Result<R, SharedHeapError> {
+        let snapshot = self
+            .snapshot
+            .read()
+            .map_err(|_| SharedHeapError::LockPoisoned)?;
+        Ok(f(&snapshot))
+    }
+
+    pub(crate) fn snapshot(&self) -> Result<CollectorSharedSnapshot, SharedHeapError> {
+        self.read_snapshot(Clone::clone)
+    }
+
+    pub(crate) fn state_snapshot(&self) -> CollectorSharedSnapshot {
+        self.state.shared_snapshot()
+    }
+
+    pub(crate) fn active_reclaim_prep_request(
+        &self,
+    ) -> Option<crate::collector_session::ActiveReclaimPrepRequest> {
+        self.state.active_reclaim_prep_request()
+    }
+
+    pub(crate) fn prepare_active_collection_reclaim_with_request_and_refresh(
+        &self,
+        request: crate::collector_session::ActiveReclaimPrepRequest,
+        objects: crate::object_store::ObjectReadRaw<'_>,
+        trace_ephemerons: impl FnOnce(
+            &mut crate::collector_exec::MarkTracer<'_>,
+            &crate::plan::CollectionPlan,
+        ) -> (u64, u64),
+        prepare_reclaim: impl FnOnce(
+            &crate::plan::CollectionPlan,
+        )
+            -> Result<crate::reclaim::PreparedReclaim, crate::heap::AllocError>,
+        stats: &crate::stats::HeapStats,
+        old_gen: &crate::spaces::OldGenState,
+        old_config: &crate::spaces::OldGenConfig,
+        plan_for: impl FnMut(crate::plan::CollectionKind) -> crate::plan::CollectionPlan,
+    ) -> Result<bool, crate::heap::AllocError> {
+        self.state
+            .prepare_active_collection_reclaim_with_request_and_refresh(
+                request,
+                objects,
+                trace_ephemerons,
+                prepare_reclaim,
+                stats,
+                old_gen,
+                old_config,
+                plan_for,
+            )
+    }
+
+    fn publish_snapshot(
+        &self,
+        next_collector: CollectorSharedSnapshot,
+        heap_snapshot: &SharedHeapSnapshot,
+        runtime_snapshot: &SharedRuntimeSnapshot,
+    ) -> Result<(), SharedHeapError> {
+        let background_changed = {
+            let mut collector_snapshot = self
+                .snapshot
+                .write()
+                .map_err(|_| SharedHeapError::LockPoisoned)?;
+            let changed = shared_background_status_from_parts(
+                heap_snapshot,
+                runtime_snapshot,
+                &collector_snapshot,
+            ) != shared_background_status_from_parts(
+                heap_snapshot,
+                runtime_snapshot,
+                &next_collector,
+            );
+            *collector_snapshot = next_collector;
+            changed
+        };
+        if background_changed {
+            self.signal.notify();
+        }
+        Ok(())
+    }
+
+    fn store_snapshot(
+        &self,
+        next_collector: CollectorSharedSnapshot,
+    ) -> Result<(), SharedHeapError> {
+        let mut collector_snapshot = self
+            .snapshot
+            .write()
+            .map_err(|_| SharedHeapError::LockPoisoned)?;
+        *collector_snapshot = next_collector;
+        Ok(())
+    }
+
+    pub(crate) fn epoch(&self) -> Result<u64, SharedHeapError> {
+        self.signal.current_epoch()
+    }
+
+    pub(crate) fn wait_for_change(
+        &self,
+        observed_epoch: u64,
+        timeout: Duration,
+    ) -> Result<(u64, bool), SharedHeapError> {
+        self.signal.wait_for_change(observed_epoch, timeout)
+    }
+
+    pub(crate) fn notify(&self) {
+        self.signal.notify();
+    }
+}
+
+impl SharedRuntimeHandle {
+    fn new(
+        state: RuntimeStateHandle,
+        snapshot: SharedRuntimeSnapshot,
+        heap_snapshot: Arc<RwLock<SharedHeapSnapshot>>,
+        heap_signal: Arc<SharedHeapSignal>,
+        collector: SharedCollectorHandle,
+    ) -> Self {
+        Self {
+            state,
+            snapshot: Arc::new(RwLock::new(snapshot)),
+            heap_snapshot,
+            heap_signal,
+            collector,
+        }
+    }
+
+    fn with_state<R>(&self, f: impl FnOnce(&mut RuntimeState) -> R) -> R {
+        self.state.with_state(f)
+    }
+
+    fn try_with_state<R>(
+        &self,
+        f: impl FnOnce(&mut RuntimeState) -> R,
+    ) -> Result<R, SharedHeapError> {
+        self.state.try_with_state(f).map_err(|error| match error {
+            TryLockError::Poisoned(_) => SharedHeapError::LockPoisoned,
+            TryLockError::WouldBlock => SharedHeapError::WouldBlock,
+        })
+    }
+
+    fn read_snapshot<R>(
+        &self,
+        f: impl FnOnce(&SharedRuntimeSnapshot) -> R,
+    ) -> Result<R, SharedHeapError> {
+        let snapshot = self
+            .snapshot
+            .read()
+            .map_err(|_| SharedHeapError::LockPoisoned)?;
+        Ok(f(&snapshot))
+    }
+
+    fn read_heap_snapshot<R>(
+        &self,
+        f: impl FnOnce(&SharedHeapSnapshot) -> R,
+    ) -> Result<R, SharedHeapError> {
+        let snapshot = self
+            .heap_snapshot
+            .read()
+            .map_err(|_| SharedHeapError::LockPoisoned)?;
+        Ok(f(&snapshot))
+    }
+
+    fn replace_heap_snapshot(
+        &self,
+        next_heap_snapshot: SharedHeapSnapshot,
+    ) -> Result<SharedHeapSnapshot, SharedHeapError> {
+        let mut snapshot = self
+            .heap_snapshot
+            .write()
+            .map_err(|_| SharedHeapError::LockPoisoned)?;
+        let previous = snapshot.clone();
+        *snapshot = next_heap_snapshot;
+        Ok(previous)
+    }
+
+    fn replace_snapshot(
+        &self,
+        next_runtime_snapshot: SharedRuntimeSnapshot,
+    ) -> Result<SharedRuntimeSnapshot, SharedHeapError> {
+        let mut snapshot = self
+            .snapshot
+            .write()
+            .map_err(|_| SharedHeapError::LockPoisoned)?;
+        let previous = *snapshot;
+        *snapshot = next_runtime_snapshot;
+        Ok(previous)
+    }
+
+    fn publish_snapshot(
+        &self,
+        next_runtime_snapshot: SharedRuntimeSnapshot,
+    ) -> Result<(), SharedHeapError> {
+        let previous_runtime_snapshot = self.replace_snapshot(next_runtime_snapshot)?;
+        let runtime_changed = previous_runtime_snapshot != next_runtime_snapshot;
+        let background_changed = {
+            let heap_snapshot = self
+                .heap_snapshot
+                .read()
+                .map_err(|_| SharedHeapError::LockPoisoned)?;
+            let collector_snapshot = self.collector.snapshot()?;
+            shared_background_status_from_parts(
+                &heap_snapshot,
+                &previous_runtime_snapshot,
+                &collector_snapshot,
+            ) != shared_background_status_from_parts(
+                &heap_snapshot,
+                &next_runtime_snapshot,
+                &collector_snapshot,
+            )
+        };
+        if runtime_changed {
+            self.heap_signal.notify();
+        }
+        if background_changed {
+            self.collector.notify();
+        }
+        Ok(())
+    }
+
+    pub(crate) fn publish_collector_snapshot(
+        &self,
+        next_collector: CollectorSharedSnapshot,
+    ) -> Result<(), SharedHeapError> {
+        let heap_snapshot = self.read_heap_snapshot(Clone::clone)?;
+        let runtime_snapshot = self.read_snapshot(|snapshot| *snapshot)?;
+        self.collector
+            .publish_snapshot(next_collector, &heap_snapshot, &runtime_snapshot)
+    }
+
+    pub(crate) fn heap_epoch(&self) -> Result<u64, SharedHeapError> {
+        self.heap_signal.current_epoch()
+    }
+
+    pub(crate) fn wait_for_heap_change(
+        &self,
+        observed_epoch: u64,
+        timeout: Duration,
+    ) -> Result<(u64, bool), SharedHeapError> {
+        self.heap_signal.wait_for_change(observed_epoch, timeout)
+    }
+
+    pub(crate) fn notify_heap(&self) {
+        self.heap_signal.notify();
+    }
+
+    pub(crate) fn pending_finalizer_count(&self) -> Result<usize, SharedHeapError> {
+        self.read_snapshot(|snapshot| snapshot.pending_finalizers)
+    }
+
+    pub(crate) fn runtime_work_status(&self) -> Result<RuntimeWorkStatus, SharedHeapError> {
+        self.read_snapshot(|snapshot| {
+            RuntimeWorkStatus::from_pending_finalizers(snapshot.pending_finalizers)
+        })
+    }
+
+    pub(crate) fn observe_heap_status(&self) -> Result<SharedHeapStatus, SharedHeapError> {
+        loop {
+            let before_epoch = self.heap_epoch()?;
+            let heap_snapshot = self.read_heap_snapshot(Clone::clone)?;
+            let runtime_snapshot = self.read_snapshot(|snapshot| *snapshot)?;
+            let collector = self.collector.snapshot()?;
+            let after_epoch = self.heap_epoch()?;
+            if before_epoch == after_epoch {
+                return Ok(shared_heap_status_from_parts(
+                    &heap_snapshot,
+                    &runtime_snapshot,
+                    &collector,
+                ));
+            }
+        }
+    }
+
+    pub(crate) fn observe_background_status(
+        &self,
+    ) -> Result<SharedBackgroundStatus, SharedHeapError> {
+        self.observe_background_status_with_epoch()
+            .map(|(_, status)| status)
+    }
+
+    pub(crate) fn observe_background_status_with_epoch(
+        &self,
+    ) -> Result<(u64, SharedBackgroundStatus), SharedHeapError> {
+        loop {
+            let before_epoch = self.collector.epoch()?;
+            let heap_snapshot = self.read_heap_snapshot(Clone::clone)?;
+            let runtime_snapshot = self.read_snapshot(|snapshot| *snapshot)?;
+            let collector_snapshot = self.collector.snapshot()?;
+            let status = shared_background_status_from_parts(
+                &heap_snapshot,
+                &runtime_snapshot,
+                &collector_snapshot,
+            );
+            let after_epoch = self.collector.epoch()?;
+            if before_epoch == after_epoch {
+                return Ok((after_epoch, status));
+            }
+        }
+    }
+
+    pub(crate) fn wait_for_background_change(
+        &self,
+        observed_epoch: &mut u64,
+        observed_status: &mut SharedBackgroundStatus,
+        timeout: Duration,
+        stop: Option<&AtomicBool>,
+    ) -> Result<SharedBackgroundWaitResult, SharedHeapError> {
+        if timeout.is_zero() {
+            return Ok(SharedBackgroundWaitResult {
+                next_epoch: *observed_epoch,
+                signal_changed: false,
+                background_changed: false,
+                status: observed_status.clone(),
+            });
+        }
+
+        let started_at = std::time::Instant::now();
+        let mut remaining = timeout;
+        let mut signal_changed = false;
+        loop {
+            let (next_epoch, changed) =
+                self.collector.wait_for_change(*observed_epoch, remaining)?;
+            *observed_epoch = next_epoch;
+            signal_changed |= changed;
+
+            if stop.is_some_and(|stop| stop.load(Ordering::Acquire)) {
+                return Ok(SharedBackgroundWaitResult {
+                    next_epoch,
+                    signal_changed,
+                    background_changed: false,
+                    status: observed_status.clone(),
+                });
+            }
+
+            let next_status = self.observe_background_status()?;
+            if next_status != *observed_status {
+                *observed_status = next_status.clone();
+                return Ok(SharedBackgroundWaitResult {
+                    next_epoch,
+                    signal_changed,
+                    background_changed: true,
+                    status: next_status,
+                });
+            }
+
+            let elapsed = started_at.elapsed();
+            if elapsed >= timeout {
+                return Ok(SharedBackgroundWaitResult {
+                    next_epoch,
+                    signal_changed,
+                    background_changed: false,
+                    status: next_status,
+                });
+            }
+            remaining = timeout.saturating_sub(elapsed);
+        }
+    }
+
+    pub(crate) fn drain_pending_finalizers(&self) -> Result<u64, SharedHeapError> {
+        let (ran, next_runtime_snapshot) = self.with_state(|runtime_state| {
+            let ran = runtime_state.drain_pending_finalizers();
+            let (finalizers_run, pending_finalizers) = runtime_state.snapshot();
+            (
+                ran,
+                SharedRuntimeSnapshot {
+                    finalizers_run,
+                    pending_finalizers,
+                },
+            )
+        });
+        self.publish_snapshot(next_runtime_snapshot)?;
+        Ok(ran)
+    }
+
+    pub(crate) fn drain_pending_finalizers_bounded(
+        &self,
+        max: usize,
+    ) -> Result<u64, SharedHeapError> {
+        let (ran, next_runtime_snapshot) = self.with_state(|runtime_state| {
+            let ran = runtime_state.drain_pending_finalizers_bounded(max);
+            let (finalizers_run, pending_finalizers) = runtime_state.snapshot();
+            (
+                ran,
+                SharedRuntimeSnapshot {
+                    finalizers_run,
+                    pending_finalizers,
+                },
+            )
+        });
+        self.publish_snapshot(next_runtime_snapshot)?;
+        Ok(ran)
+    }
+
+    pub(crate) fn try_drain_pending_finalizers(&self) -> Result<u64, SharedHeapError> {
+        let (ran, next_runtime_snapshot) = self.try_with_state(|runtime_state| {
+            let ran = runtime_state.drain_pending_finalizers();
+            let (finalizers_run, pending_finalizers) = runtime_state.snapshot();
+            (
+                ran,
+                SharedRuntimeSnapshot {
+                    finalizers_run,
+                    pending_finalizers,
+                },
+            )
+        })?;
+        self.publish_snapshot(next_runtime_snapshot)?;
+        Ok(ran)
+    }
+
+    pub(crate) fn try_drain_pending_finalizers_bounded(
+        &self,
+        max: usize,
+    ) -> Result<u64, SharedHeapError> {
+        let (ran, next_runtime_snapshot) = self.try_with_state(|runtime_state| {
+            let ran = runtime_state.drain_pending_finalizers_bounded(max);
+            let (finalizers_run, pending_finalizers) = runtime_state.snapshot();
+            (
+                ran,
+                SharedRuntimeSnapshot {
+                    finalizers_run,
+                    pending_finalizers,
+                },
+            )
+        })?;
+        self.publish_snapshot(next_runtime_snapshot)?;
+        Ok(ran)
+    }
+
+    fn publish_heap_change(
+        &self,
+        next_heap_snapshot: SharedHeapSnapshot,
+        next_runtime_snapshot: SharedRuntimeSnapshot,
+    ) -> Result<(), SharedHeapError> {
+        let next_collector = self
+            .collector
+            .with_state(|collector| collector.shared_snapshot())?;
+        let previous_collector = self
+            .collector
+            .snapshot()
+            .unwrap_or_else(|_| next_collector.clone());
+        let previous_heap_snapshot = self.replace_heap_snapshot(next_heap_snapshot.clone())?;
+        let previous_runtime_snapshot = self.replace_snapshot(next_runtime_snapshot)?;
+        self.collector.store_snapshot(next_collector.clone())?;
+
+        let heap_changed = previous_heap_snapshot != next_heap_snapshot;
+        let runtime_changed = previous_runtime_snapshot != next_runtime_snapshot;
+        let background_changed = shared_background_status_from_parts(
+            &previous_heap_snapshot,
+            &previous_runtime_snapshot,
+            &previous_collector,
+        ) != shared_background_status_from_parts(
+            &next_heap_snapshot,
+            &next_runtime_snapshot,
+            &next_collector,
+        );
+
+        if heap_changed {
+            self.notify_heap();
+        }
+        if runtime_changed {
+            self.notify_heap();
+        }
+        if background_changed {
+            self.collector.notify();
+        }
+        Ok(())
+    }
+}
+
+fn shared_heap_stats_from_parts(
+    heap_snapshot: &SharedHeapSnapshot,
+    runtime_snapshot: &SharedRuntimeSnapshot,
+) -> HeapStats {
+    let mut stats = heap_snapshot.stats;
+    stats.finalizers_run = runtime_snapshot.finalizers_run;
+    stats.pending_finalizers = runtime_snapshot.pending_finalizers;
+    stats
+}
+
+fn shared_heap_status_from_parts(
+    heap_snapshot: &SharedHeapSnapshot,
+    runtime_snapshot: &SharedRuntimeSnapshot,
+    collector_snapshot: &CollectorSharedSnapshot,
+) -> SharedHeapStatus {
+    let stats = shared_heap_stats_from_parts(heap_snapshot, runtime_snapshot);
+    SharedHeapStatus {
+        stats,
+        pacer: heap_snapshot.pacer,
+        pauses: heap_snapshot.pauses,
+        compaction: heap_snapshot.compaction,
+        barriers: heap_snapshot.barriers,
+        runtime_work: RuntimeWorkStatus::from_pending_finalizers(
+            runtime_snapshot.pending_finalizers,
+        ),
+        recommended_plan: collector_snapshot.recommended_plan.clone(),
+        recommended_background_plan: collector_snapshot.recommended_background_plan.clone(),
+        last_completed_plan: collector_snapshot.last_completed_plan.clone(),
+        active_major_mark_plan: collector_snapshot.active_major_mark_plan.clone(),
+        major_mark_progress: collector_snapshot.major_mark_progress,
+    }
+}
+
+fn shared_background_status_from_parts(
+    _heap_snapshot: &SharedHeapSnapshot,
+    runtime_snapshot: &SharedRuntimeSnapshot,
+    collector_snapshot: &CollectorSharedSnapshot,
+) -> SharedBackgroundStatus {
+    SharedBackgroundStatus {
+        recommended_background_plan: collector_snapshot.recommended_background_plan.clone(),
+        active_major_mark_plan: collector_snapshot.active_major_mark_plan.clone(),
+        major_mark_progress: collector_snapshot.major_mark_progress,
+        runtime_work: RuntimeWorkStatus::from_pending_finalizers(
+            runtime_snapshot.pending_finalizers,
+        ),
+        pending_finalizers: runtime_snapshot.pending_finalizers,
     }
 }
 
@@ -240,11 +860,8 @@ impl From<&CollectorSharedSnapshot> for SharedBackgroundStatus {
 #[derive(Debug)]
 pub struct SharedHeapGuard<'a> {
     guard: Option<RwLockWriteGuard<'a, Heap>>,
-    snapshot: &'a RwLock<SharedHeapSnapshot>,
-    collector_snapshot: &'a RwLock<CollectorSharedSnapshot>,
-    signal: &'a SharedHeapSignal,
-    background_signal: &'a SharedHeapSignal,
-    dirty: bool,
+    runtime: &'a SharedRuntimeHandle,
+    dirty: std::cell::Cell<bool>,
 }
 
 /// Guard returned by `SharedHeap::read()` and `SharedHeap::try_read()`.
@@ -254,20 +871,11 @@ pub struct SharedHeapReadGuard<'a> {
 }
 
 impl<'a> SharedHeapGuard<'a> {
-    fn new(
-        guard: RwLockWriteGuard<'a, Heap>,
-        snapshot: &'a RwLock<SharedHeapSnapshot>,
-        collector_snapshot: &'a RwLock<CollectorSharedSnapshot>,
-        signal: &'a SharedHeapSignal,
-        background_signal: &'a SharedHeapSignal,
-    ) -> Self {
+    fn new(guard: RwLockWriteGuard<'a, Heap>, runtime: &'a SharedRuntimeHandle) -> Self {
         Self {
             guard: Some(guard),
-            snapshot,
-            collector_snapshot,
-            signal,
-            background_signal,
-            dirty: false,
+            runtime,
+            dirty: std::cell::Cell::new(false),
         }
     }
 }
@@ -284,6 +892,16 @@ impl Deref for SharedHeapGuard<'_> {
     type Target = Heap;
 
     fn deref(&self) -> &Self::Target {
+        // The Heap interior is now wrapped in
+        // `Arc<RwLock<HeapCore>>`, so any access through
+        // `&Heap` may mutate the heap (via the inner write
+        // lock). Set the dirty bit on every deref so the
+        // drop hook captures and publishes a fresh snapshot
+        // even when callers never went through `deref_mut`.
+        // This is the cost of moving from
+        // `Heap::mutator(&mut self)` to
+        // `Heap::mutator(&self)`.
+        self.dirty.set(true);
         self.guard
             .as_deref()
             .expect("shared heap guard should hold heap lock")
@@ -292,7 +910,7 @@ impl Deref for SharedHeapGuard<'_> {
 
 impl DerefMut for SharedHeapGuard<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.dirty = true;
+        self.dirty.set(true);
         self.guard
             .as_deref_mut()
             .expect("shared heap guard should hold heap lock")
@@ -301,39 +919,26 @@ impl DerefMut for SharedHeapGuard<'_> {
 
 impl Drop for SharedHeapGuard<'_> {
     fn drop(&mut self) {
-        if !self.dirty {
+        if !self.dirty.get() {
             return;
         }
-        let (next_snapshot, next_collector) = {
+        let (next_snapshot, next_runtime_snapshot) = {
             let heap = self
                 .guard
                 .as_deref()
                 .expect("shared heap guard should hold heap lock");
+            heap.ensure_collector_plans_current();
             (
                 SharedHeapSnapshot::capture(heap),
-                heap.collector_shared_snapshot(),
+                SharedRuntimeSnapshot::capture(heap),
             )
         };
         // Release the heap mutex before touching shared snapshot locks so readers do not extend
         // the main heap lock window.
         self.guard.take();
-        let mut heap_changed = false;
-        let mut background_changed = false;
-        if let Ok(mut snapshot) = self.snapshot.write() {
-            heap_changed = *snapshot != next_snapshot;
-            *snapshot = next_snapshot.clone();
-        }
-        if let Ok(mut collector_snapshot) = self.collector_snapshot.write() {
-            background_changed = SharedBackgroundStatus::from(&*collector_snapshot)
-                != SharedBackgroundStatus::from(&next_collector);
-            *collector_snapshot = next_collector;
-        }
-        if heap_changed {
-            self.signal.notify();
-        }
-        if background_changed {
-            self.background_signal.notify();
-        }
+        let _ = self
+            .runtime
+            .publish_heap_change(next_snapshot, next_runtime_snapshot);
     }
 }
 
@@ -346,32 +951,38 @@ impl SharedHeap {
     /// Wrap one heap for shared synchronized access.
     pub fn from_heap(heap: Heap) -> Self {
         let snapshot = SharedHeapSnapshot::capture(&heap);
+        let runtime_snapshot = SharedRuntimeSnapshot::capture(&heap);
         let collector_snapshot = heap.collector_shared_snapshot();
+        let runtime_state = heap.runtime_state_handle();
+        let collector_state = heap.collector_handle();
+        let pacer = heap.pacer();
+        let background_signal = Arc::new(SharedHeapSignal::default());
+        let heap_signal = Arc::new(SharedHeapSignal::default());
+        let snapshot = Arc::new(RwLock::new(snapshot));
+        let collector =
+            SharedCollectorHandle::new(collector_state, collector_snapshot, background_signal);
+        let runtime = SharedRuntimeHandle::new(
+            runtime_state,
+            runtime_snapshot,
+            snapshot.clone(),
+            heap_signal.clone(),
+            collector.clone(),
+        );
         Self {
             inner: Arc::new(RwLock::new(heap)),
-            snapshot: Arc::new(RwLock::new(snapshot)),
-            collector_snapshot: Arc::new(RwLock::new(collector_snapshot)),
-            signal: Arc::new(SharedHeapSignal::default()),
-            background_signal: Arc::new(SharedHeapSignal::default()),
+            runtime,
+            collector,
+            pacer,
         }
     }
 
     /// Lock the underlying heap.
     pub fn lock(&self) -> LockResult<SharedHeapGuard<'_>> {
         match self.inner.write() {
-            Ok(guard) => Ok(SharedHeapGuard::new(
-                guard,
-                &self.snapshot,
-                &self.collector_snapshot,
-                &self.signal,
-                &self.background_signal,
-            )),
+            Ok(guard) => Ok(SharedHeapGuard::new(guard, &self.runtime)),
             Err(error) => Err(std::sync::PoisonError::new(SharedHeapGuard::new(
                 error.into_inner(),
-                &self.snapshot,
-                &self.collector_snapshot,
-                &self.signal,
-                &self.background_signal,
+                &self.runtime,
             ))),
         }
     }
@@ -379,22 +990,12 @@ impl SharedHeap {
     /// Try to lock the underlying heap without blocking.
     pub fn try_lock(&self) -> TryLockResult<SharedHeapGuard<'_>> {
         match self.inner.try_write() {
-            Ok(guard) => Ok(SharedHeapGuard::new(
-                guard,
-                &self.snapshot,
-                &self.collector_snapshot,
-                &self.signal,
-                &self.background_signal,
-            )),
-            Err(TryLockError::Poisoned(error)) => Err(TryLockError::Poisoned(
-                std::sync::PoisonError::new(SharedHeapGuard::new(
-                    error.into_inner(),
-                    &self.snapshot,
-                    &self.collector_snapshot,
-                    &self.signal,
-                    &self.background_signal,
-                )),
-            )),
+            Ok(guard) => Ok(SharedHeapGuard::new(guard, &self.runtime)),
+            Err(TryLockError::Poisoned(error)) => {
+                Err(TryLockError::Poisoned(std::sync::PoisonError::new(
+                    SharedHeapGuard::new(error.into_inner(), &self.runtime),
+                )))
+            }
             Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
         }
     }
@@ -467,158 +1068,35 @@ impl SharedHeap {
         match self.try_lock() {
             Ok(mut heap) => Ok(f(&mut heap)),
             Err(TryLockError::Poisoned(_)) => Err(SharedHeapAccessError::LockPoisoned),
-            Err(TryLockError::WouldBlock) => Err(SharedHeapAccessError::WouldBlock(
+            Err(TryLockError::WouldBlock) => Err(SharedHeapAccessError::WouldBlock(Box::new(
                 self.status()
                     .map_err(|_| SharedHeapAccessError::LockPoisoned)?,
-            )),
+            ))),
         }
     }
 
-    fn read_snapshot<R>(
-        &self,
-        f: impl FnOnce(&SharedHeapSnapshot) -> R,
-    ) -> Result<R, SharedHeapError> {
-        let snapshot = self
-            .snapshot
-            .read()
-            .map_err(|_| SharedHeapError::LockPoisoned)?;
-        Ok(f(&snapshot))
+    pub(crate) fn collector_handle(&self) -> SharedCollectorHandle {
+        self.collector.clone()
     }
 
-    fn observe_status(&self) -> Result<SharedHeapStatus, SharedHeapError> {
-        loop {
-            let before_epoch = self.signal.current_epoch()?;
-            let stats = self.read_snapshot(|snapshot| snapshot.stats)?;
-            let collector = self.collector_snapshot()?;
-            let after_epoch = self.signal.current_epoch()?;
-            if before_epoch == after_epoch {
-                return Ok(SharedHeapStatus {
-                    stats,
-                    recommended_plan: collector.recommended_plan,
-                    recommended_background_plan: collector.recommended_background_plan,
-                    last_completed_plan: collector.last_completed_plan,
-                    active_major_mark_plan: collector.active_major_mark_plan,
-                    major_mark_progress: collector.major_mark_progress,
-                });
-            }
-        }
-    }
-
-    fn read_collector_snapshot<R>(
-        &self,
-        f: impl FnOnce(&CollectorSharedSnapshot) -> R,
-    ) -> Result<R, SharedHeapError> {
-        let snapshot = self
-            .collector_snapshot
-            .read()
-            .map_err(|_| SharedHeapError::LockPoisoned)?;
-        Ok(f(&snapshot))
-    }
-
-    fn collector_snapshot(&self) -> Result<CollectorSharedSnapshot, SharedHeapError> {
-        self.read_collector_snapshot(Clone::clone)
-    }
-
-    fn publish_collector_snapshot(
-        &self,
-        next_collector: CollectorSharedSnapshot,
-    ) -> Result<(), SharedHeapError> {
-        let background_changed = {
-            let mut collector_snapshot = self
-                .collector_snapshot
-                .write()
-                .map_err(|_| SharedHeapError::LockPoisoned)?;
-            let changed = SharedBackgroundStatus::from(&*collector_snapshot)
-                != SharedBackgroundStatus::from(&next_collector);
-            *collector_snapshot = next_collector;
-            changed
-        };
-        if background_changed {
-            self.background_signal.notify();
-        }
-        Ok(())
-    }
-
-    fn observe_collector_snapshot(
-        &self,
-    ) -> Result<(u64, CollectorSharedSnapshot), SharedHeapError> {
-        loop {
-            let before_epoch = self.background_signal.current_epoch()?;
-            let snapshot = self.collector_snapshot()?;
-            let after_epoch = self.background_signal.current_epoch()?;
-            if before_epoch == after_epoch {
-                return Ok((after_epoch, snapshot));
-            }
-        }
-    }
-
-    fn wait_for_background_change_internal(
-        &self,
-        observed_epoch: &mut u64,
-        observed_status: &mut SharedBackgroundStatus,
-        timeout: Duration,
-        stop: Option<&AtomicBool>,
-    ) -> Result<SharedBackgroundWaitResult, SharedHeapError> {
-        if timeout.is_zero() {
-            return Ok(SharedBackgroundWaitResult {
-                next_epoch: *observed_epoch,
-                signal_changed: false,
-                background_changed: false,
-                status: observed_status.clone(),
-            });
-        }
-
-        let started_at = std::time::Instant::now();
-        let mut remaining = timeout;
-        let mut signal_changed = false;
-        loop {
-            let (next_epoch, changed) = self
-                .background_signal
-                .wait_for_change(*observed_epoch, remaining)?;
-            *observed_epoch = next_epoch;
-            signal_changed |= changed;
-
-            if stop.is_some_and(|stop| stop.load(Ordering::Acquire)) {
-                return Ok(SharedBackgroundWaitResult {
-                    next_epoch,
-                    signal_changed,
-                    background_changed: false,
-                    status: observed_status.clone(),
-                });
-            }
-
-            let next_status = self.background_status()?;
-            if next_status != *observed_status {
-                *observed_status = next_status.clone();
-                return Ok(SharedBackgroundWaitResult {
-                    next_epoch,
-                    signal_changed,
-                    background_changed: true,
-                    status: next_status,
-                });
-            }
-
-            let elapsed = started_at.elapsed();
-            if elapsed >= timeout {
-                return Ok(SharedBackgroundWaitResult {
-                    next_epoch,
-                    signal_changed,
-                    background_changed: false,
-                    status: next_status,
-                });
-            }
-            remaining = timeout.saturating_sub(elapsed);
-        }
+    pub(crate) fn runtime_handle(&self) -> SharedRuntimeHandle {
+        self.runtime.clone()
     }
 
     /// Return the current shared-heap change epoch used by signal-backed waiters.
     pub fn epoch(&self) -> Result<u64, SharedHeapError> {
-        self.signal.current_epoch()
+        self.runtime.heap_epoch()
     }
 
     /// Return the current background-state change epoch used by background waiters.
     pub fn background_epoch(&self) -> Result<u64, SharedHeapError> {
-        self.background_signal.current_epoch()
+        self.collector_runtime()
+            .background_epoch()
+            .map_err(|error| match error {
+                SharedBackgroundError::LockPoisoned => SharedHeapError::LockPoisoned,
+                SharedBackgroundError::WouldBlock => SharedHeapError::WouldBlock,
+                SharedBackgroundError::Collection(_) => SharedHeapError::LockPoisoned,
+            })
     }
 
     /// Wait for the shared-heap change epoch to advance or for `timeout` to elapse.
@@ -630,7 +1108,7 @@ impl SharedHeap {
         observed_epoch: u64,
         timeout: Duration,
     ) -> Result<(u64, bool), SharedHeapError> {
-        self.signal.wait_for_change(observed_epoch, timeout)
+        self.runtime.wait_for_heap_change(observed_epoch, timeout)
     }
 
     /// Wait for one background-collector-visible shared heap state change or for `timeout` to
@@ -643,7 +1121,7 @@ impl SharedHeap {
     ) -> Result<SharedBackgroundWaitResult, SharedHeapError> {
         let mut observed_epoch = observed_epoch;
         let mut observed_status = observed_status.clone();
-        self.wait_for_background_change_internal(
+        self.runtime.wait_for_background_change(
             &mut observed_epoch,
             &mut observed_status,
             timeout,
@@ -692,7 +1170,8 @@ impl SharedHeap {
         f: impl for<'heap> FnOnce(&mut CollectorRuntime<'heap>) -> R,
     ) -> Result<R, SharedHeapError> {
         self.with_heap(|heap| {
-            let mut runtime = heap.collector_runtime();
+            let mut guard = heap.collector_runtime();
+            let mut runtime = guard.runtime();
             f(&mut runtime)
         })
     }
@@ -704,7 +1183,8 @@ impl SharedHeap {
         f: impl for<'heap> FnOnce(&mut CollectorRuntime<'heap>) -> R,
     ) -> Result<R, SharedHeapError> {
         self.try_with_heap(|heap| {
-            let mut runtime = heap.collector_runtime();
+            let mut guard = heap.collector_runtime();
+            let mut runtime = guard.runtime();
             f(&mut runtime)
         })
     }
@@ -716,85 +1196,408 @@ impl SharedHeap {
         f: impl for<'heap> FnOnce(&mut CollectorRuntime<'heap>) -> R,
     ) -> Result<R, SharedHeapAccessError> {
         self.try_with_heap_status(|heap| {
-            let mut runtime = heap.collector_runtime();
+            let mut guard = heap.collector_runtime();
+            let mut runtime = guard.runtime();
             f(&mut runtime)
         })
     }
 
+    /// Create a shared collector-side runtime bound to this heap.
+    pub fn collector_runtime(&self) -> SharedCollectorRuntime {
+        SharedCollectorRuntime::new(self.clone())
+    }
+
     /// Return current heap statistics.
     pub fn stats(&self) -> Result<HeapStats, SharedHeapError> {
-        self.read_snapshot(|snapshot| snapshot.stats)
+        self.runtime
+            .observe_heap_status()
+            .map(|status| status.stats)
+    }
+
+    /// Return the adaptive pacer's current model snapshot.
+    ///
+    /// Reads from the same lock-free shared snapshot as
+    /// [`SharedHeap::stats`], so this never blocks on the heap
+    /// mutex even while a mutator or background worker holds it.
+    pub fn pacer_stats(&self) -> Result<PacerStats, SharedHeapError> {
+        self.runtime
+            .observe_heap_status()
+            .map(|status| status.pacer)
+    }
+
+    /// Return the rolling pause-time histogram (P50/P95/P99 over a
+    /// bounded window) from the latest shared snapshot.
+    ///
+    /// Reads from the same lock-free shared snapshot as
+    /// [`SharedHeap::stats`], so this never blocks on the heap
+    /// mutex.
+    pub fn pause_histogram(&self) -> Result<PauseHistogram, SharedHeapError> {
+        self.runtime
+            .observe_heap_status()
+            .map(|status| status.pauses)
+    }
+
+    /// Return the cumulative physical compaction counters from
+    /// the latest shared snapshot.
+    ///
+    /// Reads from the same lock-free shared snapshot as
+    /// [`SharedHeap::stats`], so this never blocks on the heap
+    /// mutex. Observers can diff two snapshots to attribute
+    /// compaction work to a specific interval.
+    pub fn compaction_stats(&self) -> Result<CompactionStats, SharedHeapError> {
+        self.runtime
+            .observe_heap_status()
+            .map(|status| status.compaction)
+    }
+
+    /// Return the cumulative write-barrier traffic counters from
+    /// the latest shared snapshot.
+    ///
+    /// Reads from the same lock-free shared snapshot as
+    /// [`SharedHeap::stats`], so this never blocks on the heap
+    /// mutex. Observers can diff two snapshots to attribute
+    /// barrier traffic to a specific interval.
+    pub fn barrier_stats(&self) -> Result<BarrierStats, SharedHeapError> {
+        self.runtime
+            .observe_heap_status()
+            .map(|status| status.barriers)
+    }
+
+    /// Return the current nursery fill ratio (a float in
+    /// `[0.0, 1.0]`).
+    ///
+    /// Reads from the same lock-free shared snapshot as
+    /// [`SharedHeap::stats`], so this never blocks on the heap
+    /// mutex. The ratio is reconstructed from the cached
+    /// `stats.nursery` integers (live_bytes / reserved_bytes)
+    /// rather than walking the live heap.
+    pub fn nursery_fill_ratio(&self) -> Result<f64, SharedHeapError> {
+        let stats = self.stats()?;
+        let reserved = stats.nursery.reserved_bytes;
+        if reserved == 0 {
+            return Ok(0.0);
+        }
+        // The nursery is a semispace: reserved_bytes is 2 *
+        // semispace_bytes, so the capacity of the one active
+        // half (which live_bytes is measured against) is half
+        // of reserved_bytes.
+        let semispace = reserved / 2;
+        if semispace == 0 {
+            return Ok(0.0);
+        }
+        Ok((stats.nursery.live_bytes as f64) / (semispace as f64))
+    }
+
+    /// Return the current old-gen fragmentation ratio (a float
+    /// in `[0.0, 1.0]`) computed from the block-side counters.
+    ///
+    /// Reads from the same lock-free shared snapshot as
+    /// [`SharedHeap::stats`], so this never blocks on the heap
+    /// mutex even while a mutator or background worker holds it.
+    /// The ratio is reconstructed from the cached
+    /// `stats.old_gen_used_bytes` and `stats.old.live_bytes`
+    /// integers rather than walking the block pool.
+    pub fn old_gen_fragmentation_ratio(&self) -> Result<f64, SharedHeapError> {
+        let stats = self.stats()?;
+        let used = stats.old_gen_used_bytes;
+        if used == 0 {
+            return Ok(0.0);
+        }
+        let live = stats.old.live_bytes;
+        let holes = used.saturating_sub(live);
+        Ok((holes as f64) / (used as f64))
+    }
+
+    /// Opportunistic compaction trigger via the shared heap.
+    ///
+    /// Performs a lock-free precheck through the cached
+    /// snapshot via [`SharedHeap::old_gen_fragmentation_ratio`]
+    /// first. If the current fragmentation is below
+    /// `fragmentation_threshold` the call returns immediately
+    /// with `(frag, 0)` without ever taking the heap write lock,
+    /// matching the no-op semantics of
+    /// [`Heap::compact_old_gen_if_fragmented`]. Only when the
+    /// snapshot says compaction would be productive does the
+    /// call grab the write lock and dispatch to the inner heap
+    /// method, which re-runs the same check under the lock so
+    /// concurrent mutators that re-pack the pool first see a
+    /// consistent decision.
+    ///
+    /// This means the common "scheduler polls but no compaction
+    /// is needed" case is now contention-free with running
+    /// mutators and background workers.
+    pub fn compact_old_gen_if_fragmented(
+        &self,
+        fragmentation_threshold: f64,
+    ) -> Result<(f64, usize), SharedHeapError> {
+        let frag = self.old_gen_fragmentation_ratio()?;
+        if frag < fragmentation_threshold {
+            return Ok((frag, 0));
+        }
+        let heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
+        Ok(heap.compact_old_gen_if_fragmented(fragmentation_threshold))
+    }
+
+    /// Aggressive multi-pass compaction via the shared heap.
+    ///
+    /// Performs a lock-free precheck through the cached
+    /// snapshot. The call returns `0` immediately without ever
+    /// taking the heap write lock when:
+    ///   * `max_passes == 0` (the inner method also short-circuits
+    ///     this case but we filter it before locking), or
+    ///   * the snapshot reports no reserved old-gen bytes
+    ///     (`stats.old.reserved_bytes == 0`), meaning the block
+    ///     pool is empty and there is nothing to compact.
+    ///
+    /// Otherwise the call grabs the write lock and dispatches
+    /// to [`Heap::compact_old_gen_aggressive`].
+    pub fn compact_old_gen_aggressive(
+        &self,
+        density_threshold: f64,
+        max_passes: usize,
+    ) -> Result<usize, SharedHeapError> {
+        if max_passes == 0 {
+            return Ok(0);
+        }
+        let stats = self.stats()?;
+        if stats.old.reserved_bytes == 0 {
+            return Ok(0);
+        }
+        let heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
+        Ok(heap.compact_old_gen_aggressive(density_threshold, max_passes))
+    }
+
+    /// Read-only predicate for whether physical compaction
+    /// would currently be productive.
+    ///
+    /// Reads from the same lock-free shared snapshot as
+    /// [`SharedHeap::stats`] and
+    /// [`SharedHeap::old_gen_fragmentation_ratio`], so this
+    /// never blocks on the heap mutex even while a mutator or
+    /// background worker holds it. Returns `true` when at least
+    /// one block has been reserved AND the reconstructed
+    /// fragmentation ratio meets `fragmentation_threshold`.
+    /// Mirrors [`Heap::should_compact_old_gen`].
+    pub fn should_compact_old_gen(
+        &self,
+        fragmentation_threshold: f64,
+    ) -> Result<bool, SharedHeapError> {
+        let stats = self.stats()?;
+        if stats.old.reserved_bytes == 0 {
+            return Ok(false);
+        }
+        let used = stats.old_gen_used_bytes;
+        if used == 0 {
+            return Ok(0.0 >= fragmentation_threshold);
+        }
+        let live = stats.old.live_bytes;
+        let holes = used.saturating_sub(live);
+        let frag = (holes as f64) / (used as f64);
+        Ok(frag >= fragmentation_threshold)
+    }
+
+    /// Clear the cumulative compaction counters via the shared
+    /// heap. Takes the heap WRITE lock briefly. See
+    /// [`Heap::clear_compaction_stats`].
+    pub fn clear_compaction_stats(&self) -> Result<(), SharedHeapError> {
+        let heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
+        heap.clear_compaction_stats();
+        Ok(())
+    }
+
+    /// Clear the cumulative barrier traffic counters via the
+    /// shared heap. Takes the heap WRITE lock briefly. See
+    /// [`Heap::clear_barrier_stats`].
+    pub fn clear_barrier_stats(&self) -> Result<(), SharedHeapError> {
+        let heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
+        heap.clear_barrier_stats();
+        Ok(())
+    }
+
+    /// Return the adaptive pacer's current configuration.
+    ///
+    /// Reads through the cached `Pacer` handle that
+    /// [`SharedHeap::from_heap`] captured at construction. The pacer
+    /// state lives behind its own `Arc<Mutex<...>>`, so this call
+    /// never touches the main heap `RwLock` and never contends with
+    /// mutators or background workers that hold it.
+    pub fn pacer_config(&self) -> PacerConfig {
+        self.pacer.config()
+    }
+
+    /// Replace the adaptive pacer's configuration in place. Preserves
+    /// all accumulated pacer runtime state (EWMA estimates, observed
+    /// cycles, next-trigger threshold).
+    ///
+    /// Lock-free with respect to the main heap `RwLock`: the call
+    /// only takes the pacer's own internal mutex, so callers can
+    /// retune the pacer mid-flight even while a mutator or background
+    /// worker holds the heap write lock.
+    pub fn update_pacer_config(&self, config: PacerConfig) {
+        self.pacer.update_config(config);
+    }
+
+    /// Run physical old-gen compaction under the heap write lock.
+    ///
+    /// Takes the heap write lock, calls
+    /// [`Heap::compact_old_gen_physical`], and returns the number
+    /// of records physically evacuated. Physical compaction
+    /// mutates the objects vec and the root stack, so the actual
+    /// compaction pass requires exclusive access.
+    ///
+    /// As an optimization, this method performs a lock-free
+    /// precheck through the cached snapshot first: when the
+    /// snapshot reports `stats.old.reserved_bytes == 0` (the
+    /// block pool is empty), the call returns `0` immediately
+    /// without ever taking the heap write lock. The common
+    /// "scheduler polled but no compaction is possible" case is
+    /// therefore contention-free.
+    ///
+    /// The density threshold applies the same semantics as the
+    /// inner heap method: blocks with live-byte density at or
+    /// below `density_threshold` are candidates for evacuation.
+    pub fn compact_old_gen_physical(
+        &self,
+        density_threshold: f64,
+    ) -> Result<usize, SharedHeapError> {
+        let stats = self.stats()?;
+        if stats.old.reserved_bytes == 0 {
+            return Ok(0);
+        }
+        let heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
+        Ok(heap.compact_old_gen_physical(density_threshold))
+    }
+
+    /// Return the number of queued finalizers waiting to run.
+    pub fn pending_finalizer_count(&self) -> Result<usize, SharedHeapError> {
+        self.runtime.pending_finalizer_count()
+    }
+
+    /// Return runtime-side follow-up work that remains outside GC commit.
+    pub fn runtime_work_status(&self) -> Result<RuntimeWorkStatus, SharedHeapError> {
+        self.runtime.runtime_work_status()
+    }
+
+    /// Run and drain queued finalizers.
+    pub fn drain_pending_finalizers(&self) -> Result<u64, SharedHeapError> {
+        self.runtime.drain_pending_finalizers()
+    }
+
+    /// Run at most `max` queued finalizers and return the number
+    /// that actually ran. See [`Heap::drain_pending_finalizers_bounded`].
+    pub fn drain_pending_finalizers_bounded(&self, max: usize) -> Result<u64, SharedHeapError> {
+        self.runtime.drain_pending_finalizers_bounded(max)
+    }
+
+    /// Run and drain queued finalizers without blocking on heap contention.
+    pub fn try_drain_pending_finalizers(&self) -> Result<u64, SharedHeapError> {
+        self.runtime.try_drain_pending_finalizers()
+    }
+
+    /// Run at most `max` queued finalizers without blocking on
+    /// heap contention. Returns
+    /// [`SharedHeapError::WouldBlock`] when the runtime state
+    /// mutex is currently held by another caller.
+    pub fn try_drain_pending_finalizers_bounded(&self, max: usize) -> Result<u64, SharedHeapError> {
+        self.runtime.try_drain_pending_finalizers_bounded(max)
     }
 
     /// Return one consistent shared snapshot of heap and background-collector state.
     pub fn status(&self) -> Result<SharedHeapStatus, SharedHeapError> {
-        self.observe_status()
+        self.runtime.observe_heap_status()
     }
 
     /// Recommend the next collection plan from current heap pressure.
     pub fn recommended_plan(&self) -> Result<crate::plan::CollectionPlan, SharedHeapError> {
-        self.read_collector_snapshot(|snapshot| snapshot.recommended_plan.clone())
+        self.collector_runtime()
+            .recommended_plan()
+            .map_err(|error| match error {
+                SharedBackgroundError::LockPoisoned => SharedHeapError::LockPoisoned,
+                SharedBackgroundError::WouldBlock => SharedHeapError::WouldBlock,
+                SharedBackgroundError::Collection(_) => SharedHeapError::LockPoisoned,
+            })
     }
 
     /// Recommend the next background concurrent collection plan, if any.
     pub fn recommended_background_plan(
         &self,
     ) -> Result<Option<crate::plan::CollectionPlan>, SharedHeapError> {
-        self.read_collector_snapshot(|snapshot| snapshot.recommended_background_plan.clone())
+        self.collector_runtime()
+            .recommended_background_plan()
+            .map_err(|error| match error {
+                SharedBackgroundError::LockPoisoned => SharedHeapError::LockPoisoned,
+                SharedBackgroundError::WouldBlock => SharedHeapError::WouldBlock,
+                SharedBackgroundError::Collection(_) => SharedHeapError::LockPoisoned,
+            })
     }
 
     /// Return background-collector-visible shared heap state from the latest shared snapshot.
     pub fn background_status(&self) -> Result<SharedBackgroundStatus, SharedHeapError> {
-        self.read_collector_snapshot(|snapshot| SharedBackgroundStatus::from(snapshot))
+        self.runtime.observe_background_status()
     }
 
     /// Return one consistent observation of background epoch and background-visible shared heap
     /// state.
     pub fn background_observation(&self) -> Result<SharedBackgroundObservation, SharedHeapError> {
-        let (epoch, snapshot) = self.observe_collector_snapshot()?;
-        Ok(SharedBackgroundObservation {
-            epoch,
-            status: SharedBackgroundStatus::from(&snapshot),
-        })
+        let (epoch, status) = self.runtime.observe_background_status_with_epoch()?;
+        Ok(SharedBackgroundObservation { epoch, status })
     }
 
     /// Return the last completed plan, if any.
     pub fn last_completed_plan(
         &self,
     ) -> Result<Option<crate::plan::CollectionPlan>, SharedHeapError> {
-        self.read_collector_snapshot(|snapshot| snapshot.last_completed_plan.clone())
+        self.collector_runtime()
+            .last_completed_plan()
+            .map_err(|error| match error {
+                SharedBackgroundError::LockPoisoned => SharedHeapError::LockPoisoned,
+                SharedBackgroundError::WouldBlock => SharedHeapError::WouldBlock,
+                SharedBackgroundError::Collection(_) => SharedHeapError::LockPoisoned,
+            })
     }
 
     /// Return the active major-mark plan, if any.
     pub fn active_major_mark_plan(
         &self,
     ) -> Result<Option<crate::plan::CollectionPlan>, SharedHeapError> {
-        self.read_collector_snapshot(|snapshot| snapshot.active_major_mark_plan.clone())
+        self.collector_runtime()
+            .active_major_mark_plan()
+            .map_err(|error| match error {
+                SharedBackgroundError::LockPoisoned => SharedHeapError::LockPoisoned,
+                SharedBackgroundError::WouldBlock => SharedHeapError::WouldBlock,
+                SharedBackgroundError::Collection(_) => SharedHeapError::LockPoisoned,
+            })
     }
 
     /// Return progress for the active major-mark session, if any.
     pub fn major_mark_progress(&self) -> Result<Option<MajorMarkProgress>, SharedHeapError> {
-        self.read_collector_snapshot(|snapshot| snapshot.major_mark_progress)
+        self.collector_runtime()
+            .major_mark_progress()
+            .map_err(|error| match error {
+                SharedBackgroundError::LockPoisoned => SharedHeapError::LockPoisoned,
+                SharedBackgroundError::WouldBlock => SharedHeapError::WouldBlock,
+                SharedBackgroundError::Collection(_) => SharedHeapError::LockPoisoned,
+            })
     }
 
     /// Spawn a worker-owned background collector thread for this heap.
     pub fn spawn_background_worker(&self, config: BackgroundWorkerConfig) -> BackgroundWorker {
-        BackgroundWorker::spawn(self.clone(), config)
+        self.collector_runtime().spawn_background_worker(config)
     }
 
     /// Create a shared background service loop for this heap.
     pub fn background_service(&self, config: BackgroundCollectorConfig) -> SharedBackgroundService {
-        SharedBackgroundService::new(self.clone(), config)
+        self.collector_runtime().background_service(config)
     }
 
     /// Wake waiters blocked on `wait_for_change`.
     pub fn notify_waiters(&self) {
-        self.signal.notify();
+        self.runtime.notify_heap();
     }
 
     /// Wake waiters blocked on background-state changes.
     pub fn notify_background_waiters(&self) {
-        self.background_signal.notify();
+        self.collector.notify();
     }
 }
 
@@ -870,17 +1673,23 @@ pub struct BackgroundCollector {
 }
 
 /// Collector-owned background service loop bound to one heap.
+///
+/// Holds an exclusive write guard on the heap core for its
+/// entire lifetime via [`crate::heap::HeapCollectorRuntime`].
+/// Each `tick()` builds a fresh `CollectorRuntime` against
+/// the held guard plus a scratch `MutatorLocal` and runs
+/// the coordinator round through it.
 #[derive(Debug)]
 pub struct BackgroundService<'heap> {
     collector: BackgroundCollector,
-    runtime: CollectorRuntime<'heap>,
+    guard: crate::heap::HeapCollectorRuntime<'heap>,
 }
 
 /// Shared background service loop backed by `SharedHeap`.
 #[derive(Debug)]
 pub struct SharedBackgroundService {
     collector: BackgroundCollector,
-    heap: SharedHeap,
+    runtime: SharedCollectorRuntime,
 }
 
 /// Join handle and control surface for one autonomous background collector thread.
@@ -888,7 +1697,7 @@ pub struct SharedBackgroundService {
 pub struct BackgroundWorker {
     stop: Arc<AtomicBool>,
     stats: Arc<BackgroundWorkerCounters>,
-    shared: SharedHeap,
+    runtime: SharedCollectorRuntime,
     handle: Option<JoinHandle<Result<(), BackgroundWorkerError>>>,
 }
 
@@ -1011,13 +1820,13 @@ impl BackgroundCollector {
         &mut self,
         runtime: &mut R,
     ) -> Result<bool, AllocError> {
-        if runtime.active_major_mark_plan().is_none() && self.config.auto_start_concurrent {
-            if let Some(plan) = runtime.recommended_background_plan()
-                && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full)
-            {
-                runtime.begin_major_mark(plan)?;
-                self.stats.sessions_started = self.stats.sessions_started.saturating_add(1);
-            }
+        if runtime.active_major_mark_plan().is_none()
+            && self.config.auto_start_concurrent
+            && let Some(plan) = runtime.recommended_background_plan()
+            && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full)
+        {
+            runtime.begin_major_mark(plan)?;
+            self.stats.sessions_started = self.stats.sessions_started.saturating_add(1);
         }
 
         Ok(runtime.active_major_mark_plan().is_some())
@@ -1037,11 +1846,14 @@ impl BackgroundCollector {
         };
 
         if progress.completed {
-            if self.config.auto_finish_when_ready
-                && let Some(cycle) = runtime.finish_active_major_collection_if_ready()?
-            {
-                self.stats.sessions_finished = self.stats.sessions_finished.saturating_add(1);
-                return Ok(BackgroundCollectionStatus::Finished(cycle));
+            if self.config.auto_finish_when_ready {
+                if runtime.prepare_active_reclaim_if_needed()? {
+                    return Ok(BackgroundCollectionStatus::ReadyToFinish(progress));
+                }
+                if let Some(cycle) = runtime.commit_active_reclaim_if_ready()? {
+                    self.stats.sessions_finished = self.stats.sessions_finished.saturating_add(1);
+                    return Ok(BackgroundCollectionStatus::Finished(cycle));
+                }
             }
             return Ok(BackgroundCollectionStatus::ReadyToFinish(progress));
         }
@@ -1057,6 +1869,7 @@ impl BackgroundCollector {
         crate::plan::MajorMarkProgress {
             completed: progress.completed,
             drained_objects: *total_drained_objects,
+            elapsed_nanos: progress.elapsed_nanos,
             mark_steps: progress.mark_steps,
             mark_rounds: progress.mark_rounds,
             remaining_work: progress.remaining_work,
@@ -1161,9 +1974,7 @@ impl BackgroundCollector {
         snapshot: &CollectorSharedSnapshot,
     ) -> Option<BackgroundCollectionStatus> {
         let progress = snapshot.major_mark_progress?;
-        if snapshot.active_major_mark_plan.is_none() {
-            return None;
-        }
+        snapshot.active_major_mark_plan.as_ref()?;
         if progress.completed {
             Some(BackgroundCollectionStatus::ReadyToFinish(progress))
         } else {
@@ -1171,135 +1982,76 @@ impl BackgroundCollector {
         }
     }
 
-    fn map_shared_heap_error(error: SharedHeapError) -> SharedBackgroundError {
-        match error {
-            SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-            SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-        }
-    }
-
     fn ensure_active_shared_session(
         &mut self,
-        heap: &SharedHeap,
+        runtime: &SharedCollectorRuntime,
         nonblocking: bool,
     ) -> Result<bool, SharedBackgroundError> {
-        if heap
-            .active_major_mark_plan()
-            .map_err(Self::map_shared_heap_error)?
-            .is_none()
+        if runtime.active_major_mark_plan()?.is_none()
             && self.config.auto_start_concurrent
+            && let Some(plan) = runtime.recommended_background_plan()?
+            && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full)
         {
-            if let Some(plan) = heap
-                .recommended_background_plan()
-                .map_err(Self::map_shared_heap_error)?
-                && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full)
-            {
-                let collector_snapshot = if nonblocking {
-                    heap.try_with_heap_read(|heap| {
-                        heap.begin_major_mark_in_place_with_snapshot(plan)
-                    })
-                } else {
-                    heap.with_heap_read(|heap| heap.begin_major_mark_in_place_with_snapshot(plan))
-                }
-                .map_err(Self::map_shared_heap_error)?;
-                let collector_snapshot =
-                    collector_snapshot.map_err(SharedBackgroundError::Collection)?;
-                heap.publish_collector_snapshot(collector_snapshot)
-                    .map_err(Self::map_shared_heap_error)?;
-                self.stats.sessions_started = self.stats.sessions_started.saturating_add(1);
+            if nonblocking {
+                runtime.try_begin_major_mark(plan)?;
+            } else {
+                runtime.begin_major_mark(plan)?;
             }
+            self.stats.sessions_started = self.stats.sessions_started.saturating_add(1);
         }
 
-        heap.active_major_mark_plan()
-            .map_err(Self::map_shared_heap_error)
-            .map(|plan| plan.is_some())
-    }
-
-    fn poll_shared_mark_round(
-        &mut self,
-        heap: &SharedHeap,
-        nonblocking: bool,
-    ) -> Result<Option<MajorMarkProgress>, SharedBackgroundError> {
-        let poll_result = if nonblocking {
-            heap.try_with_heap_read(|heap| heap.poll_active_major_mark_with_snapshot())
-        } else {
-            heap.with_heap_read(|heap| heap.poll_active_major_mark_with_snapshot())
-        }
-        .map_err(Self::map_shared_heap_error)?;
-        let (progress, collector_snapshot) =
-            poll_result.map_err(SharedBackgroundError::Collection)?;
-        heap.publish_collector_snapshot(collector_snapshot)
-            .map_err(Self::map_shared_heap_error)?;
-        Ok(progress)
-    }
-
-    fn try_finish_shared_major_collection_if_ready(
-        &mut self,
-        heap: &SharedHeap,
-    ) -> Result<Option<CollectionStats>, SharedBackgroundError> {
-        heap.try_with_runtime(|runtime| runtime.finish_active_major_collection_if_ready())
-            .map_err(Self::map_shared_heap_error)?
-            .map_err(SharedBackgroundError::Collection)
+        runtime.active_major_mark_plan().map(|plan| plan.is_some())
     }
 
     fn tick_shared_round(
         &mut self,
-        heap: &SharedHeap,
+        runtime: &SharedCollectorRuntime,
         nonblocking: bool,
     ) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
-        if !self.ensure_active_shared_session(heap, nonblocking)? {
+        if !self.ensure_active_shared_session(runtime, nonblocking)? {
             return Ok(BackgroundCollectionStatus::Idle);
         }
 
         self.stats.rounds = self.stats.rounds.saturating_add(1);
-        let Some(progress) = self.poll_shared_mark_round(heap, nonblocking)? else {
-            return Ok(BackgroundCollectionStatus::Idle);
+        let status = if nonblocking {
+            runtime.try_service_background_collection_round()?
+        } else {
+            runtime.service_background_collection_round()?
         };
-
-        if progress.completed {
-            if self.config.auto_finish_when_ready
-                && let Some(cycle) = self.try_finish_shared_major_collection_if_ready(heap)?
-            {
-                self.stats.sessions_finished = self.stats.sessions_finished.saturating_add(1);
-                return Ok(BackgroundCollectionStatus::Finished(cycle));
-            }
-            return Ok(BackgroundCollectionStatus::ReadyToFinish(progress));
+        if matches!(status, BackgroundCollectionStatus::Finished(_)) {
+            self.stats.sessions_finished = self.stats.sessions_finished.saturating_add(1);
         }
-
-        Ok(BackgroundCollectionStatus::Progress(progress))
+        Ok(status)
     }
 
     fn tick_shared_after_snapshot(
         &mut self,
-        heap: &SharedHeap,
+        runtime: &SharedCollectorRuntime,
     ) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
-        self.tick_with_rounds(|collector| collector.tick_shared_round(heap, false))
+        self.tick_with_rounds(|collector| collector.tick_shared_round(runtime, false))
     }
 
     fn try_tick_shared_after_snapshot(
         &mut self,
-        heap: &SharedHeap,
+        runtime: &SharedCollectorRuntime,
     ) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
-        self.try_tick_with_rounds(|collector| collector.tick_shared_round(heap, true))
+        self.try_tick_with_rounds(|collector| collector.tick_shared_round(runtime, true))
     }
 
     fn tick_shared(
         &mut self,
-        heap: &SharedHeap,
+        runtime: &SharedCollectorRuntime,
     ) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
-        let snapshot = heap.collector_snapshot().map_err(|error| match error {
-            SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-            SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-        })?;
+        let snapshot = runtime.collector_snapshot()?;
         if let Some(status) = self.snapshot_tick(&snapshot) {
             return Ok(status);
         }
-        match self.try_tick_shared_after_snapshot(heap) {
+        match self.try_tick_shared_after_snapshot(runtime) {
             Err(SharedBackgroundError::WouldBlock) => {
                 if let Some(status) = self.blocked_status_from_snapshot(&snapshot) {
                     Ok(status)
                 } else {
-                    self.tick_shared_after_snapshot(heap)
+                    self.tick_shared_after_snapshot(runtime)
                 }
             }
             other => other,
@@ -1308,16 +2060,13 @@ impl BackgroundCollector {
 
     fn try_tick_shared(
         &mut self,
-        heap: &SharedHeap,
+        runtime: &SharedCollectorRuntime,
     ) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
-        let snapshot = heap.collector_snapshot().map_err(|error| match error {
-            SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-            SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-        })?;
+        let snapshot = runtime.collector_snapshot()?;
         if let Some(status) = self.snapshot_tick(&snapshot) {
             return Ok(status);
         }
-        match self.try_tick_shared_after_snapshot(heap) {
+        match self.try_tick_shared_after_snapshot(runtime) {
             Err(SharedBackgroundError::WouldBlock) => self
                 .blocked_status_from_snapshot(&snapshot)
                 .ok_or(SharedBackgroundError::WouldBlock),
@@ -1343,12 +2092,12 @@ impl BackgroundCollector {
                 BackgroundCollectionStatus::Idle => return Ok(None),
                 BackgroundCollectionStatus::Progress(_) => {}
                 BackgroundCollectionStatus::ReadyToFinish(progress) => {
-                    if progress.completed {
-                        if let Some(cycle) = runtime.finish_active_major_collection_if_ready()? {
-                            self.stats.sessions_finished =
-                                self.stats.sessions_finished.saturating_add(1);
-                            return Ok(Some(cycle));
-                        }
+                    if progress.completed
+                        && let Some(cycle) = runtime.finish_active_major_collection_if_ready()?
+                    {
+                        self.stats.sessions_finished =
+                            self.stats.sessions_finished.saturating_add(1);
+                        return Ok(Some(cycle));
                     }
                 }
                 BackgroundCollectionStatus::Finished(cycle) => return Ok(Some(cycle)),
@@ -1358,11 +2107,15 @@ impl BackgroundCollector {
 }
 
 impl<'heap> BackgroundService<'heap> {
-    /// Create a new background service loop bound to `heap`.
-    pub(crate) fn new(heap: &'heap mut Heap, config: BackgroundCollectorConfig) -> Self {
+    /// Create a new background service loop from a
+    /// write-locked collector runtime guard.
+    pub(crate) fn from_runtime_guard(
+        guard: crate::heap::HeapCollectorRuntime<'heap>,
+        config: BackgroundCollectorConfig,
+    ) -> Self {
         Self {
             collector: BackgroundCollector::new(config),
-            runtime: CollectorRuntime::new(heap),
+            guard,
         }
     }
 
@@ -1376,45 +2129,92 @@ impl<'heap> BackgroundService<'heap> {
         self.collector.stats()
     }
 
-    /// Return a shared view of the underlying heap.
-    pub fn heap(&self) -> &Heap {
-        self.runtime.heap()
-    }
-
     /// Return the active major-mark plan, if one is in progress.
     pub fn active_major_mark_plan(&self) -> Option<crate::plan::CollectionPlan> {
-        self.runtime.active_major_mark_plan()
+        self.guard.active_major_mark_plan()
     }
 
     /// Return progress for the active major-mark session, if any.
     pub fn major_mark_progress(&self) -> Option<crate::plan::MajorMarkProgress> {
-        self.runtime.major_mark_progress()
+        self.guard.major_mark_progress()
     }
 
     /// Run one background-collection coordinator tick.
     pub fn tick(&mut self) -> Result<BackgroundCollectionStatus, AllocError> {
-        self.collector.tick(&mut self.runtime)
+        let mut runtime = self.guard.runtime();
+        self.collector.tick(&mut runtime)
     }
 
     /// Service background collection until no active session remains or one collection finishes.
     pub fn run_until_idle(&mut self) -> Result<Option<CollectionStats>, AllocError> {
-        self.collector.run_until_idle(&mut self.runtime)
+        let mut runtime = self.guard.runtime();
+        self.collector.run_until_idle(&mut runtime)
+    }
+
+    /// Prepare reclaim for the active major collection once mark work is fully drained.
+    pub fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
+        self.guard.prepare_active_reclaim_if_needed()
+    }
+
+    /// Commit the active major collection once reclaim has already been prepared.
+    pub fn commit_active_reclaim_if_ready(
+        &mut self,
+    ) -> Result<Option<CollectionStats>, AllocError> {
+        self.guard.commit_active_reclaim_if_ready()
+    }
+
+    /// Return the number of queued finalizers waiting to run.
+    pub fn pending_finalizer_count(&self) -> usize {
+        self.guard.pending_finalizer_count()
+    }
+
+    /// Run and drain queued finalizers.
+    pub fn drain_pending_finalizers(&mut self) -> u64 {
+        self.guard.drain_pending_finalizers()
+    }
+
+    /// Run at most `max` queued finalizers and return the number
+    /// that actually ran. See [`Heap::drain_pending_finalizers_bounded`].
+    pub fn drain_pending_finalizers_bounded(&mut self, max: usize) -> u64 {
+        self.guard.drain_pending_finalizers_bounded(max)
+    }
+
+    /// Return runtime-side follow-up work that remains outside GC commit.
+    pub fn runtime_work_status(&self) -> RuntimeWorkStatus {
+        self.guard.runtime_work_status()
     }
 
     /// Finish the active major collection if its mark work is fully drained.
     pub fn finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
-        self.runtime.finish_active_major_collection_if_ready()
+        self.guard.finish_active_major_collection_if_ready()
+    }
+
+    /// Last completed collection plan, if any.
+    pub fn last_completed_plan(&self) -> Option<crate::plan::CollectionPlan> {
+        self.guard.last_completed_plan()
+    }
+
+    /// Snapshot of heap statistics.
+    pub fn heap_stats(&self) -> HeapStats {
+        self.guard.stats()
     }
 }
 
 impl SharedBackgroundService {
     /// Create a new shared background service loop bound to one `SharedHeap`.
     pub fn new(heap: SharedHeap, config: BackgroundCollectorConfig) -> Self {
+        Self::from_runtime(heap.collector_runtime(), config)
+    }
+
+    pub(crate) fn from_runtime(
+        runtime: SharedCollectorRuntime,
+        config: BackgroundCollectorConfig,
+    ) -> Self {
         Self {
             collector: BackgroundCollector::new(config),
-            heap,
+            runtime,
         }
     }
 
@@ -1432,16 +2232,13 @@ impl SharedBackgroundService {
     pub fn status(&self) -> Result<SharedBackgroundServiceStatus, SharedBackgroundError> {
         Ok(SharedBackgroundServiceStatus {
             collector: self.collector.stats(),
-            heap: self.heap.status().map_err(|error| match error {
-                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-            })?,
+            heap: self.runtime.status()?,
         })
     }
 
     /// Return the shared heap backing this service.
     pub fn heap(&self) -> &SharedHeap {
-        &self.heap
+        self.runtime.heap()
     }
 
     /// Wait for one shared-heap change visible to this service.
@@ -1450,28 +2247,17 @@ impl SharedBackgroundService {
         observed_epoch: u64,
         timeout: Duration,
     ) -> Result<(u64, bool), SharedBackgroundError> {
-        self.heap
-            .wait_for_change(observed_epoch, timeout)
-            .map_err(|error| match error {
-                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-            })
+        self.runtime.wait_for_change(observed_epoch, timeout)
     }
 
     /// Return the current background-state change epoch for this service.
     pub fn background_epoch(&self) -> Result<u64, SharedBackgroundError> {
-        self.heap.background_epoch().map_err(|error| match error {
-            SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-            SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-        })
+        self.runtime.background_epoch()
     }
 
     /// Return background-collector-visible shared heap state for this service.
     pub fn background_status(&self) -> Result<SharedBackgroundStatus, SharedBackgroundError> {
-        self.heap.background_status().map_err(|error| match error {
-            SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-            SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-        })
+        self.runtime.background_status()
     }
 
     /// Return one consistent observation of background epoch and background-visible shared heap
@@ -1479,12 +2265,7 @@ impl SharedBackgroundService {
     pub fn background_observation(
         &self,
     ) -> Result<SharedBackgroundObservation, SharedBackgroundError> {
-        self.heap
-            .background_observation()
-            .map_err(|error| match error {
-                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-            })
+        self.runtime.background_observation()
     }
 
     /// Wait for one background-collector-visible shared heap state change for this service.
@@ -1494,36 +2275,50 @@ impl SharedBackgroundService {
         observed_status: &SharedBackgroundStatus,
         timeout: Duration,
     ) -> Result<SharedBackgroundWaitResult, SharedBackgroundError> {
-        self.heap
+        self.runtime
             .wait_for_background_change(observed_epoch, observed_status, timeout)
-            .map_err(|error| match error {
-                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-            })
     }
 
     /// Return the active major-mark plan, if one is in progress.
     pub fn active_major_mark_plan(
         &self,
     ) -> Result<Option<crate::plan::CollectionPlan>, SharedHeapError> {
-        self.heap.active_major_mark_plan()
+        self.runtime
+            .active_major_mark_plan()
+            .map_err(|error| match error {
+                SharedBackgroundError::LockPoisoned => SharedHeapError::LockPoisoned,
+                SharedBackgroundError::WouldBlock => SharedHeapError::WouldBlock,
+                SharedBackgroundError::Collection(AllocError::CollectionInProgress) => {
+                    SharedHeapError::WouldBlock
+                }
+                SharedBackgroundError::Collection(_) => SharedHeapError::LockPoisoned,
+            })
     }
 
     /// Return progress for the active major-mark session, if any.
     pub fn major_mark_progress(
         &self,
     ) -> Result<Option<crate::plan::MajorMarkProgress>, SharedHeapError> {
-        self.heap.major_mark_progress()
+        self.runtime
+            .major_mark_progress()
+            .map_err(|error| match error {
+                SharedBackgroundError::LockPoisoned => SharedHeapError::LockPoisoned,
+                SharedBackgroundError::WouldBlock => SharedHeapError::WouldBlock,
+                SharedBackgroundError::Collection(AllocError::CollectionInProgress) => {
+                    SharedHeapError::WouldBlock
+                }
+                SharedBackgroundError::Collection(_) => SharedHeapError::LockPoisoned,
+            })
     }
 
     /// Run one background-collection coordinator tick.
     pub fn tick(&mut self) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
-        self.collector.tick_shared(&self.heap)
+        self.collector.tick_shared(&self.runtime)
     }
 
     /// Run one background-collection coordinator tick without blocking on heap lock contention.
     pub fn try_tick(&mut self) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
-        self.collector.try_tick_shared(&self.heap)
+        self.collector.try_tick_shared(&self.runtime)
     }
 
     /// Service background collection until no active session remains or one collection finishes.
@@ -1548,33 +2343,83 @@ impl SharedBackgroundService {
         }
     }
 
+    /// Prepare reclaim for the active major collection once mark work is fully drained.
+    pub fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, SharedBackgroundError> {
+        self.runtime.prepare_active_reclaim_if_needed()
+    }
+
+    /// Prepare reclaim for the active major collection once mark work is fully drained, without
+    /// blocking on heap lock contention.
+    pub fn try_prepare_active_reclaim_if_needed(&mut self) -> Result<bool, SharedBackgroundError> {
+        self.runtime.try_prepare_active_reclaim_if_needed()
+    }
+
+    /// Commit the active major collection once reclaim has already been prepared.
+    pub fn commit_active_reclaim_if_ready(
+        &mut self,
+    ) -> Result<Option<CollectionStats>, SharedBackgroundError> {
+        match self.runtime.try_commit_active_reclaim_if_ready() {
+            Ok(result) => Ok(result),
+            Err(SharedBackgroundError::WouldBlock) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Return the number of queued finalizers waiting to run.
+    pub fn pending_finalizer_count(&self) -> Result<usize, SharedBackgroundError> {
+        self.runtime.pending_finalizer_count()
+    }
+
+    /// Run and drain queued finalizers.
+    pub fn drain_pending_finalizers(&mut self) -> Result<u64, SharedBackgroundError> {
+        self.runtime.drain_pending_finalizers()
+    }
+
+    /// Run at most `max` queued finalizers and return the number
+    /// that actually ran. See [`Heap::drain_pending_finalizers_bounded`].
+    pub fn drain_pending_finalizers_bounded(
+        &mut self,
+        max: usize,
+    ) -> Result<u64, SharedBackgroundError> {
+        self.runtime.drain_pending_finalizers_bounded(max)
+    }
+
+    /// Return runtime-side follow-up work that remains outside GC commit.
+    pub fn runtime_work_status(&self) -> Result<RuntimeWorkStatus, SharedBackgroundError> {
+        self.runtime.runtime_work_status()
+    }
+
+    /// Run and drain queued finalizers without blocking on heap contention.
+    pub fn try_drain_pending_finalizers(&mut self) -> Result<u64, SharedBackgroundError> {
+        self.runtime.try_drain_pending_finalizers()
+    }
+
+    /// Run at most `max` queued finalizers without blocking on
+    /// heap contention. See
+    /// [`Heap::drain_pending_finalizers_bounded`] for semantics.
+    pub fn try_drain_pending_finalizers_bounded(
+        &mut self,
+        max: usize,
+    ) -> Result<u64, SharedBackgroundError> {
+        self.runtime.try_drain_pending_finalizers_bounded(max)
+    }
+
+    /// Commit the active major collection once reclaim has already been prepared, without
+    /// blocking on heap lock contention.
+    pub fn try_commit_active_reclaim_if_ready(
+        &mut self,
+    ) -> Result<Option<CollectionStats>, SharedBackgroundError> {
+        self.runtime.try_commit_active_reclaim_if_ready()
+    }
+
     /// Finish the active major collection if its mark work is fully drained.
     pub fn finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, SharedBackgroundError> {
-        let snapshot = self
-            .heap
-            .collector_snapshot()
-            .map_err(|error| match error {
-                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-            })?;
-        if snapshot.active_major_mark_plan.is_none() {
-            return Ok(None);
-        }
-        if snapshot
-            .major_mark_progress
-            .is_some_and(|progress| !progress.completed)
-        {
-            return Ok(None);
-        }
-        match self
-            .heap
-            .try_with_runtime(|runtime| runtime.finish_active_major_collection_if_ready())
-        {
-            Ok(result) => result.map_err(SharedBackgroundError::Collection),
-            Err(SharedHeapError::LockPoisoned) => Err(SharedBackgroundError::LockPoisoned),
-            Err(SharedHeapError::WouldBlock) => Ok(None),
+        match self.runtime.try_finish_active_major_collection_if_ready() {
+            Ok(result) => Ok(result),
+            Err(SharedBackgroundError::WouldBlock) => Ok(None),
+            Err(error) => Err(error),
         }
     }
 
@@ -1583,29 +2428,7 @@ impl SharedBackgroundService {
     pub fn try_finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, SharedBackgroundError> {
-        let snapshot = self
-            .heap
-            .collector_snapshot()
-            .map_err(|error| match error {
-                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-            })?;
-        if snapshot.active_major_mark_plan.is_none() {
-            return Ok(None);
-        }
-        if snapshot
-            .major_mark_progress
-            .is_some_and(|progress| !progress.completed)
-        {
-            return Ok(None);
-        }
-        self.heap
-            .try_with_runtime(|runtime| runtime.finish_active_major_collection_if_ready())
-            .map_err(|error| match error {
-                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-            })?
-            .map_err(SharedBackgroundError::Collection)
+        self.runtime.try_finish_active_major_collection_if_ready()
     }
 
     /// Service background collection until no active session remains or one collection finishes,
@@ -1630,18 +2453,18 @@ impl SharedBackgroundService {
 }
 
 impl BackgroundWorker {
-    fn spawn(shared: SharedHeap, config: BackgroundWorkerConfig) -> Self {
+    pub(crate) fn spawn(runtime: SharedCollectorRuntime, config: BackgroundWorkerConfig) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let stats = Arc::new(BackgroundWorkerCounters::default());
         let worker_stop = Arc::clone(&stop);
         let worker_stats = Arc::clone(&stats);
-        let worker_shared = shared.clone();
+        let worker_runtime = runtime.clone();
         let handle =
-            thread::spawn(move || worker_loop(worker_shared, config, worker_stop, worker_stats));
+            thread::spawn(move || worker_loop(worker_runtime, config, worker_stop, worker_stats));
         Self {
             stop,
             stats,
-            shared,
+            runtime,
             handle: Some(handle),
         }
     }
@@ -1649,8 +2472,8 @@ impl BackgroundWorker {
     /// Request that the worker stop after its current loop iteration.
     pub fn request_stop(&self) {
         self.stop.store(true, Ordering::Release);
-        self.shared.notify_waiters();
-        self.shared.notify_background_waiters();
+        self.runtime.notify_waiters();
+        self.runtime.notify_background_waiters();
     }
 
     /// Return whether the worker thread has already finished.
@@ -1670,7 +2493,7 @@ impl BackgroundWorker {
         Ok(BackgroundWorkerStatus {
             worker: self.stats()?,
             heap: self
-                .shared
+                .runtime
                 .status()
                 .map_err(|_| BackgroundWorkerError::LockPoisoned)?,
         })
@@ -1704,30 +2527,15 @@ fn background_wait_duration(
 }
 
 fn worker_loop(
-    shared: SharedHeap,
+    runtime: SharedCollectorRuntime,
     config: BackgroundWorkerConfig,
     stop: Arc<AtomicBool>,
     stats: Arc<BackgroundWorkerCounters>,
 ) -> Result<(), BackgroundWorkerError> {
     let mut collector = BackgroundCollector::new(config.collector);
-    let (mut observed_signal_epoch, mut observed_background) = shared
-        .observe_collector_snapshot()
-        .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-
-    let sync_observed_background = |shared: &SharedHeap,
-                                    observed_signal_epoch: &mut u64,
-                                    observed_background: &mut CollectorSharedSnapshot|
-     -> Result<(), BackgroundWorkerError> {
-        let (epoch, snapshot) = shared
-            .observe_collector_snapshot()
-            .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-        *observed_signal_epoch = epoch;
-        *observed_background = snapshot;
-        Ok(())
-    };
 
     let wait_for_signal = |stats: &Arc<BackgroundWorkerCounters>,
-                           shared: &SharedHeap,
+                           runtime: &SharedCollectorRuntime,
                            stop: &Arc<AtomicBool>,
                            observed_signal_epoch: &mut u64,
                            observed_background: &mut CollectorSharedSnapshot,
@@ -1739,45 +2547,29 @@ fn worker_loop(
 
         stats.add_wait_loops(1);
 
-        let started_at = std::time::Instant::now();
-        let mut remaining = timeout;
-        loop {
-            let (next_epoch, changed) = shared
-                .background_signal
-                .wait_for_change(*observed_signal_epoch, remaining)
-                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-            *observed_signal_epoch = next_epoch;
+        let (signal_changed, collector_changed) = runtime
+            .wait_for_collector_change(
+                observed_signal_epoch,
+                observed_background,
+                timeout,
+                Some(stop),
+            )
+            .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
 
-            if changed {
-                stats.add_signal_wakeups(1);
-            }
-
-            if stop.load(Ordering::Acquire) {
-                return Ok(());
-            }
-
-            let next_background = shared
-                .collector_snapshot()
-                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-            if next_background != *observed_background {
-                stats.add_background_change_wakeups(1);
-                *observed_background = next_background;
-                return Ok(());
-            }
-            if changed {
-                stats.add_ignored_signal_wakeups(1);
-            }
-
-            let elapsed = started_at.elapsed();
-            if elapsed >= timeout {
-                return Ok(());
-            }
-            remaining = timeout.saturating_sub(elapsed);
+        if signal_changed {
+            stats.add_signal_wakeups(1);
         }
+        if collector_changed {
+            stats.add_background_change_wakeups(1);
+        } else if signal_changed && !stop.load(Ordering::Acquire) {
+            stats.add_ignored_signal_wakeups(1);
+        }
+
+        Ok(())
     };
 
     while !stop.load(Ordering::Acquire) {
-        let snapshot = shared
+        let snapshot = runtime
             .collector_snapshot()
             .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
         if let Some(status) = collector.snapshot_tick(&snapshot) {
@@ -1787,11 +2579,9 @@ fn worker_loop(
                 stats.add_snapshot_idle_loops(1);
             }
             stats.store_collector(collector.stats());
-            sync_observed_background(
-                &shared,
-                &mut observed_signal_epoch,
-                &mut observed_background,
-            )?;
+            let (mut observed_signal_epoch, mut observed_background) = runtime
+                .collector_observation()
+                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
             let wait_for = match status {
                 BackgroundCollectionStatus::Idle => config.idle_sleep,
                 BackgroundCollectionStatus::ReadyToFinish(_)
@@ -1800,7 +2590,7 @@ fn worker_loop(
             };
             wait_for_signal(
                 &stats,
-                &shared,
+                &runtime,
                 &stop,
                 &mut observed_signal_epoch,
                 &mut observed_background,
@@ -1809,7 +2599,7 @@ fn worker_loop(
             continue;
         }
 
-        let status = match collector.try_tick_shared_after_snapshot(&shared) {
+        let status = match collector.try_tick_shared_after_snapshot(&runtime) {
             Ok(status) => status,
             Err(SharedBackgroundError::Collection(error)) => {
                 return Err(BackgroundWorkerError::Collection(error));
@@ -1825,18 +2615,16 @@ fn worker_loop(
                     stats.add_idle_loops(1);
                 }
                 stats.store_collector(collector.stats());
-                sync_observed_background(
-                    &shared,
-                    &mut observed_signal_epoch,
-                    &mut observed_background,
-                )?;
+                let (mut observed_signal_epoch, mut observed_background) = runtime
+                    .collector_observation()
+                    .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
                 let wait_for = blocked_status
                     .as_ref()
                     .map(|status| background_wait_duration(status, &config))
                     .unwrap_or(config.idle_sleep);
                 wait_for_signal(
                     &stats,
-                    &shared,
+                    &runtime,
                     &stop,
                     &mut observed_signal_epoch,
                     &mut observed_background,
@@ -1846,11 +2634,9 @@ fn worker_loop(
             }
         };
 
-        sync_observed_background(
-            &shared,
-            &mut observed_signal_epoch,
-            &mut observed_background,
-        )?;
+        let (mut observed_signal_epoch, mut observed_background) = runtime
+            .collector_observation()
+            .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
 
         stats.add_loops(1);
         if matches!(status, BackgroundCollectionStatus::Idle) {
@@ -1861,7 +2647,7 @@ fn worker_loop(
         let sleep_for = background_wait_duration(&status, &config);
         wait_for_signal(
             &stats,
-            &shared,
+            &runtime,
             &stop,
             &mut observed_signal_epoch,
             &mut observed_background,

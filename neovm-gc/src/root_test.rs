@@ -33,7 +33,7 @@ fn root_slot_round_trips_objects() {
     let desc = Box::leak(Box::new(fixed_type_desc::<RootLeaf>()));
     let record =
         ObjectRecord::allocate(desc, SpaceKind::Old, RootLeaf).expect("allocate root leaf");
-    let slot = RootSlot::new(Some(record.erased()));
+    let mut slot = RootSlot::new(Some(record.erased()));
 
     assert_eq!(slot.get(), Some(record.erased()));
     slot.set(None);
