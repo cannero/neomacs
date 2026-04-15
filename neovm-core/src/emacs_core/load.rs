@@ -36,6 +36,10 @@ fn canonical_load_lisp_string(path: &Path) -> LispString {
     load_path_lisp_string(&canonical)
 }
 
+fn load_path_buf(value: &LispString) -> PathBuf {
+    PathBuf::from(load_runtime_string(value))
+}
+
 fn load_path_value(path: &Path) -> Value {
     Value::heap_string(load_path_lisp_string(path))
 }
@@ -460,6 +464,7 @@ pub fn find_file_in_load_path_with_flags(
 ) -> Option<PathBuf> {
     let name = LispString::from_utf8(name);
     find_lisp_file_in_load_path_with_flags(&name, load_path, no_suffix, must_suffix, prefer_newer)
+        .map(|found| load_path_buf(&found))
 }
 
 fn find_lisp_file_in_load_path_with_flags(
@@ -468,12 +473,13 @@ fn find_lisp_file_in_load_path_with_flags(
     no_suffix: bool,
     must_suffix: bool,
     prefer_newer: bool,
-) -> Option<PathBuf> {
+) -> Option<LispString> {
     let name_runtime = load_runtime_string(name);
     let expanded = expand_tilde(&name_runtime);
     let path = Path::new(&expanded);
     if path.is_absolute() {
-        return find_for_base(path, &name_runtime, no_suffix, must_suffix, prefer_newer);
+        return find_for_base(path, &name_runtime, no_suffix, must_suffix, prefer_newer)
+            .map(|found| load_path_lisp_string(&found));
     }
 
     // GNU keeps `ldefs-boot.el` as the curated bootstrap autoload surface and
@@ -491,7 +497,7 @@ fn find_lisp_file_in_load_path_with_flags(
             let dir_runtime = load_runtime_string(dir);
             let bootstrap = Path::new(&dir_runtime).join("ldefs-boot.el");
             if bootstrap.is_file() {
-                return Some(bootstrap);
+                return Some(load_path_lisp_string(&bootstrap));
             }
         }
     }
@@ -504,7 +510,7 @@ fn find_lisp_file_in_load_path_with_flags(
         if let Some(found) =
             find_for_base(&full, &name_runtime, no_suffix, must_suffix, prefer_newer)
         {
-            return Some(found);
+            return Some(load_path_lisp_string(&found));
         }
     }
 
@@ -538,7 +544,7 @@ pub fn get_load_path(obarray: &super::symbol::Obarray) -> Vec<LispString> {
 
 pub(crate) enum LoadPlan {
     Return(Value),
-    Load { path: PathBuf },
+    Load { found: LispString },
 }
 
 pub(crate) fn plan_load_in_state(
@@ -572,7 +578,7 @@ pub(crate) fn plan_load_in_state(
         must_suffix,
         prefer_newer,
     ) {
-        Some(path) => Ok(LoadPlan::Load { path }),
+        Some(found) => Ok(LoadPlan::Load { found }),
         None => {
             if noerror {
                 Ok(LoadPlan::Return(Value::NIL))
@@ -609,26 +615,29 @@ pub(crate) fn builtin_load_in_vm_runtime(
         args.get(4).copied(),
     )? {
         LoadPlan::Return(value) => Ok(value),
-        LoadPlan::Load { path } => {
+        LoadPlan::Load { found } => {
             let extra_roots = args.to_vec();
             let noerror = args.get(1).is_some_and(|v| v.is_truthy());
             let nomessage = args.get(2).is_some_and(|v| v.is_truthy());
+            let path = load_path_buf(&found);
             shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, move |eval| {
-                load_file_with_flags(eval, &path, noerror, nomessage).map_err(|e| match e {
-                    EvalError::Signal {
-                        symbol,
-                        data,
-                        raw_data,
-                    } => Flow::Signal(crate::emacs_core::error::SignalData {
-                        symbol,
-                        data,
-                        raw_data,
-                        suppress_signal_hook: false,
-                        selected_resume: None,
-                        search_complete: false,
-                    }),
-                    EvalError::UncaughtThrow { tag, value } => {
-                        crate::emacs_core::error::signal("no-catch", vec![tag, value])
+                load_file_with_found_flags(eval, &path, &found, noerror, nomessage).map_err(|e| {
+                    match e {
+                        EvalError::Signal {
+                            symbol,
+                            data,
+                            raw_data,
+                        } => Flow::Signal(crate::emacs_core::error::SignalData {
+                            symbol,
+                            data,
+                            raw_data,
+                            suppress_signal_hook: false,
+                            selected_resume: None,
+                            search_complete: false,
+                        }),
+                        EvalError::UncaughtThrow { tag, value } => {
+                            crate::emacs_core::error::signal("no-catch", vec![tag, value])
+                        }
                     }
                 })
             })
@@ -996,7 +1005,7 @@ pub(crate) fn eager_expand_eval(
 /// after context restoration.
 fn with_load_context<F>(
     eval: &mut super::eval::Context,
-    path: &Path,
+    found: &LispString,
     lexical_binding: bool,
     body: F,
 ) -> Result<Value, EvalError>
@@ -1030,7 +1039,7 @@ where
             ctx.lexenv = Value::list(vec![Value::T]);
         }
 
-        let load_file_value = load_path_value(path);
+        let load_file_value = Value::heap_string(found.clone());
         ctx.root(load_file_value);
         let load_true_file_value = load_file_value;
         let current_load_list = Value::cons(load_file_value, Value::NIL);
@@ -1079,6 +1088,7 @@ where
 fn streaming_readevalloop(
     eval: &mut super::eval::Context,
     path: &Path,
+    hist_file_name: &LispString,
     content: &str,
     source_multibyte: bool,
     macroexpand_fn: Option<Value>,
@@ -1218,7 +1228,7 @@ fn streaming_readevalloop(
         form_idx += 1;
     }
 
-    record_load_history(eval, path);
+    record_load_history(eval, hist_file_name);
     Ok(Value::T)
 }
 
@@ -1320,7 +1330,17 @@ pub fn load_file_with_flags(
     // Expand tilde in case the path comes from Elisp with ~ prefix
     let expanded = expand_tilde(&path.to_string_lossy());
     let path = std::path::Path::new(&expanded);
+    let found = load_path_lisp_string(path);
+    load_file_with_found_flags(eval, path, &found, noerror, nomessage)
+}
 
+pub(crate) fn load_file_with_found_flags(
+    eval: &mut super::eval::Context,
+    path: &Path,
+    found: &LispString,
+    noerror: bool,
+    nomessage: bool,
+) -> Result<Value, EvalError> {
     if is_unsupported_compiled_path(path) {
         return Err(EvalError::Signal {
             symbol: intern("error"),
@@ -1372,7 +1392,7 @@ pub fn load_file_with_flags(
     eval.set_variable("load-in-progress", Value::T);
 
     let result = stacker::maybe_grow(128 * 1024, 2 * 1024 * 1024, || {
-        load_file_body(eval, path, noerror, nomessage)
+        load_file_body(eval, path, found, noerror, nomessage)
     });
 
     eval.set_variable("load-in-progress", old_load_in_progress);
@@ -1383,6 +1403,7 @@ pub fn load_file_with_flags(
 fn load_file_body(
     eval: &mut super::eval::Context,
     path: &Path,
+    found: &LispString,
     noerror: bool,
     nomessage: bool,
 ) -> Result<Value, EvalError> {
@@ -1393,7 +1414,7 @@ fn load_file_body(
             eval.visible_variable_value_or_nil("load-source-file-function")
         && !load_source_file_function.is_nil()
     {
-        let full_name = load_path_value(path);
+        let full_name = Value::heap_string(found.clone());
         let hist_file_name = full_name;
         return eval
             .apply(
@@ -1444,11 +1465,11 @@ fn load_file_body(
     let lexical_binding = if is_elc {
         elc_has_lexical_binding(&raw_bytes)
     } else {
-        source_lexical_binding_for_load(eval, &content, Some(load_path_value(path)))?
+        source_lexical_binding_for_load(eval, &content, Some(Value::heap_string(found.clone())))?
     };
 
     // --- Shared context setup via with_load_context ---
-    with_load_context(eval, path, lexical_binding, |eval| {
+    with_load_context(eval, found, lexical_binding, |eval| {
         // Both .el and .elc use the streaming Value reader.
         // .el files get eager macro expansion; .elc files are already compiled
         // so no expansion is needed (macroexpand_fn = None).  The reader
@@ -1459,7 +1480,14 @@ fn load_file_body(
             get_eager_macroexpand_fn(eval)
         };
 
-        streaming_readevalloop(eval, path, &content, source_multibyte, macroexpand_fn)
+        streaming_readevalloop(
+            eval,
+            path,
+            found,
+            &content,
+            source_multibyte,
+            macroexpand_fn,
+        )
     })
 }
 
@@ -1471,7 +1499,15 @@ pub(crate) fn eval_decoded_source_file_in_context(
 ) -> Result<Value, EvalError> {
     // Use the streaming Value-reader path (no Expr intermediate).
     let macroexpand_fn = get_eager_macroexpand_fn(eval);
-    streaming_readevalloop(eval, path, content, source_multibyte, macroexpand_fn)
+    let found = load_path_lisp_string(path);
+    streaming_readevalloop(
+        eval,
+        path,
+        &found,
+        content,
+        source_multibyte,
+        macroexpand_fn,
+    )
 }
 
 /// Skip the `;ELC` magic header in a byte-compiled Elisp file.
@@ -1536,9 +1572,8 @@ fn elc_has_lexical_binding(raw_bytes: &[u8]) -> bool {
     preview.contains("lexical-binding: t")
 }
 
-fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
-    let path_str = path.to_string_lossy().to_string();
-    let path_lisp = load_path_lisp_string(path);
+fn record_load_history(eval: &mut super::eval::Context, path_lisp: &LispString) {
+    let path_str = load_runtime_string(path_lisp);
     tracing::debug!("record_load_history: {}", path_str);
     eval.with_gc_scope(|eval| {
         // GNU protects the same post-load temporaries with GCPRO/specpdl roots
@@ -1559,7 +1594,7 @@ fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
                         existing
                             .cons_car()
                             .as_lisp_string()
-                            .is_none_or(|loaded| loaded != &path_lisp)
+                            .is_none_or(|loaded| loaded != path_lisp)
                     } else {
                         true
                     }
@@ -1577,7 +1612,7 @@ fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
             .symbol_function_id(dale_id)
             .is_some_and(|f| !f.is_nil());
         if is_fboundp {
-            let abs_path = eval.root(Value::heap_string(path_lisp));
+            let abs_path = eval.root(Value::heap_string(path_lisp.clone()));
             if let Err(e) = eval.apply(Value::symbol(dale_id), vec![abs_path]) {
                 let err_msg = match &e {
                     super::error::Flow::Signal(sig) => {
