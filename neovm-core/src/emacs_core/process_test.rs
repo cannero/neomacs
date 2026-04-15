@@ -539,6 +539,93 @@ fn builtin_process_tty_name_uses_value_slot() {
 }
 
 #[test]
+fn make_process_stores_pipe_stderr_process_value() {
+    crate::test_utils::init_test_tracing();
+    let mut buffers = crate::buffer::BufferManager::new();
+    let mut pm = ProcessManager::new();
+    let threads = crate::emacs_core::threads::ThreadManager::new();
+    let process = builtin_make_process_impl(
+        &mut pm,
+        &mut buffers,
+        &threads,
+        vec![
+            Value::keyword(":name"),
+            Value::string("proc-stderr-owner"),
+            Value::keyword(":command"),
+            Value::list(vec![Value::string("cat")]),
+            Value::keyword(":stderr"),
+            Value::string("*proc-stderr-buffer*"),
+        ],
+        true,
+    )
+    .expect("make-process");
+    let id = match process.kind() {
+        ValueKind::Fixnum(id) => id as u64,
+        other => panic!("expected process id fixnum, got {other:?}"),
+    };
+
+    let stderrproc = pm.get(id).expect("main process").stderrproc;
+    let stderr_id = match stderrproc.kind() {
+        ValueKind::Fixnum(id) => id as u64,
+        other => panic!("expected stderr pipe id fixnum, got {other:?}"),
+    };
+    let stderr_pipe = pm.get(stderr_id).expect("stderr pipe process");
+    assert_eq!(stderr_pipe.kind, ProcessKind::Pipe);
+    assert!(stderr_pipe.buffer.as_buffer_id().is_some());
+
+    let stderr_tty =
+        builtin_process_tty_name_impl(&pm, vec![Value::fixnum(id as i64), Value::symbol("stderr")])
+            .expect("process-tty-name stderr");
+    assert_eq!(stderr_tty, Value::NIL);
+
+    let stdout_tty =
+        builtin_process_tty_name_impl(&pm, vec![Value::fixnum(id as i64), Value::symbol("stdout")])
+            .expect("process-tty-name stdout");
+    assert!(stdout_tty.as_lisp_string().is_some());
+}
+
+#[test]
+fn make_process_accepts_existing_pipe_process_for_stderr() {
+    crate::test_utils::init_test_tracing();
+    let mut buffers = crate::buffer::BufferManager::new();
+    let mut pm = ProcessManager::new();
+    let threads = crate::emacs_core::threads::ThreadManager::new();
+    let stderrproc = builtin_make_pipe_process_impl(
+        &mut pm,
+        &mut buffers,
+        &threads,
+        vec![
+            Value::keyword(":name"),
+            Value::string("proc-existing-stderr"),
+            Value::keyword(":buffer"),
+            Value::string("*proc-existing-stderr-buffer*"),
+        ],
+    )
+    .expect("make-pipe-process");
+    let process = builtin_make_process_impl(
+        &mut pm,
+        &mut buffers,
+        &threads,
+        vec![
+            Value::keyword(":name"),
+            Value::string("proc-uses-existing-stderr"),
+            Value::keyword(":command"),
+            Value::list(vec![Value::string("cat")]),
+            Value::keyword(":stderr"),
+            stderrproc,
+        ],
+        true,
+    )
+    .expect("make-process");
+    let id = match process.kind() {
+        ValueKind::Fixnum(id) => id as u64,
+        other => panic!("expected process id fixnum, got {other:?}"),
+    };
+
+    assert_eq!(pm.get(id).expect("main process").stderrproc, stderrproc);
+}
+
+#[test]
 fn builtin_process_command_uses_value_slot() {
     crate::test_utils::init_test_tracing();
     let mut pm = ProcessManager::new();

@@ -85,6 +85,8 @@ pub struct Process {
     pub log: Value,
     /// Process plist state.
     pub plist: Value,
+    /// Pipe process attached to standard error.
+    pub stderrproc: Value,
     /// Current decoding coding-system.
     pub coding_decode: Value,
     /// Current encoding coding-system.
@@ -351,6 +353,7 @@ impl ProcessManager {
             sentinel: Value::symbol(DEFAULT_PROCESS_SENTINEL_SYMBOL),
             log: Value::NIL,
             plist: Value::NIL,
+            stderrproc: Value::NIL,
             coding_decode: Value::symbol("utf-8-unix"),
             coding_encode: Value::symbol("utf-8-unix"),
             inherit_coding_system_flag: false,
@@ -4749,12 +4752,19 @@ pub(crate) fn builtin_make_process(
     args: Vec<Value>,
 ) -> EvalResult {
     let use_pty = process_connection_type_is_pty(&eval.obarray);
-    builtin_make_process_impl(&mut eval.processes, &mut eval.buffers, args, use_pty)
+    builtin_make_process_impl(
+        &mut eval.processes,
+        &mut eval.buffers,
+        &eval.threads,
+        args,
+        use_pty,
+    )
 }
 
 pub(crate) fn builtin_make_process_impl(
     processes: &mut ProcessManager,
     buffers: &mut BufferManager,
+    threads: &ThreadManager,
     args: Vec<Value>,
     default_use_pty: bool,
 ) -> EvalResult {
@@ -4768,6 +4778,7 @@ pub(crate) fn builtin_make_process_impl(
     let mut filter = Value::NIL;
     let mut sentinel = Value::NIL;
     let mut connection_type: Option<Value> = None;
+    let mut stderr_target = Value::NIL;
 
     let mut i = 0usize;
     while i < args.len() {
@@ -4792,7 +4803,8 @@ pub(crate) fn builtin_make_process_impl(
             Some(":filter") => filter = value,
             Some(":sentinel") => sentinel = value,
             Some(":connection-type") => connection_type = Some(value),
-            _ => {} // :coding, :noquery, :stop, :stderr — ignored for now
+            Some(":stderr") => stderr_target = value,
+            _ => {} // :coding, :noquery, :stop — ignored for now
         }
         i += 2;
     }
@@ -4820,6 +4832,34 @@ pub(crate) fn builtin_make_process_impl(
     } else {
         (command[0].clone(), command[1..].to_vec())
     };
+    let stderrproc = match stderr_target.kind() {
+        ValueKind::Nil => Value::NIL,
+        ValueKind::Fixnum(_) => {
+            let stderr_id =
+                resolve_process_or_wrong_type_any_in_manager(processes, &stderr_target)?;
+            let stderr_proc = processes
+                .get_any(stderr_id)
+                .ok_or_else(|| signal_wrong_type_processp(stderr_target))?;
+            if stderr_proc.kind != ProcessKind::Pipe {
+                return Err(signal(
+                    "error",
+                    vec![Value::string("Process is not a pipe process")],
+                ));
+            }
+            Value::fixnum(stderr_id as i64)
+        }
+        _ => builtin_make_pipe_process_impl(
+            processes,
+            buffers,
+            threads,
+            vec![
+                Value::keyword(":name"),
+                Value::string(format!("{name} stderr")),
+                Value::keyword(":buffer"),
+                stderr_target,
+            ],
+        )?,
+    };
     let id = processes.create_process(name, buffer.unwrap_or(Value::NIL), program, argv);
     processes.sync_process_mark(buffers, id)?;
 
@@ -4832,6 +4872,11 @@ pub(crate) fn builtin_make_process_impl(
     if !sentinel.is_nil() {
         if let Some(proc) = processes.get_mut(id) {
             proc.sentinel = sentinel;
+        }
+    }
+    if !stderrproc.is_nil() {
+        if let Some(proc) = processes.get_mut(id) {
+            proc.stderrproc = stderrproc;
         }
     }
 
@@ -5474,7 +5519,7 @@ pub(crate) fn builtin_process_tty_name_impl(
             }
         }
         ValueKind::Symbol(sym) if resolve_sym(sym) == "stderr" => {
-            if proc.tty_stderr {
+            if proc.tty_stderr && proc.stderrproc.is_nil() {
                 Ok(tty_value())
             } else {
                 Ok(Value::NIL)
@@ -6351,6 +6396,7 @@ impl GcTrace for ProcessManager {
             roots.push(process.sentinel);
             roots.push(process.log);
             roots.push(process.plist);
+            roots.push(process.stderrproc);
             roots.push(process.coding_decode);
             roots.push(process.coding_encode);
             roots.push(process.thread);
