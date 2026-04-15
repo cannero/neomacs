@@ -29,8 +29,8 @@ use super::value::{Value, ValueKind, VecLikeType};
 /// A single stack frame in a backtrace.
 #[derive(Clone, Debug)]
 pub struct BacktraceFrame {
-    /// Name of the function being called.
-    pub function: String,
+    /// Lisp function object for this frame, matching GNU backtrace entries.
+    pub function: Value,
     /// Arguments passed to the function.
     pub args: Vec<Value>,
     /// Source file (if known).
@@ -102,6 +102,7 @@ impl Backtrace {
         // Print newest frame first (like Emacs *Backtrace* buffer)
         for (i, frame) in self.frames.iter().rev().enumerate() {
             let kind = if frame.is_special_form { "  " } else { "  " };
+            let function = print_value(&frame.function);
             let args_str = frame
                 .args
                 .iter()
@@ -119,7 +120,7 @@ impl Backtrace {
                 kind,
                 marker,
                 if marker.is_empty() { "" } else { " " },
-                frame.function,
+                function,
                 if args_str.is_empty() {
                     String::new()
                 } else {

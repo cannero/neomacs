@@ -14,7 +14,7 @@ fn backtrace_push_pop() {
     assert_eq!(bt.depth(), 0);
 
     bt.push(BacktraceFrame {
-        function: "foo".to_string(),
+        function: Value::symbol("foo"),
         args: vec![Value::fixnum(1)],
         file: None,
         line: None,
@@ -23,7 +23,7 @@ fn backtrace_push_pop() {
     assert_eq!(bt.depth(), 1);
 
     bt.push(BacktraceFrame {
-        function: "bar".to_string(),
+        function: Value::symbol("bar"),
         args: vec![Value::fixnum(2), Value::fixnum(3)],
         file: Some("test.el".to_string()),
         line: Some(42),
@@ -32,11 +32,11 @@ fn backtrace_push_pop() {
     assert_eq!(bt.depth(), 2);
 
     let top = bt.pop().unwrap();
-    assert_eq!(top.function, "bar");
+    assert_eq!(top.function, Value::symbol("bar"));
     assert_eq!(bt.depth(), 1);
 
     let bottom = bt.pop().unwrap();
-    assert_eq!(bottom.function, "foo");
+    assert_eq!(bottom.function, Value::symbol("foo"));
     assert_eq!(bt.depth(), 0);
 
     assert!(bt.pop().is_none());
@@ -48,7 +48,7 @@ fn backtrace_max_depth() {
     let mut bt = Backtrace::with_max_depth(3);
     for i in 0..10 {
         bt.push(BacktraceFrame {
-            function: format!("fn{}", i),
+            function: Value::symbol(format!("fn{}", i)),
             args: vec![],
             file: None,
             line: None,
@@ -63,14 +63,14 @@ fn backtrace_format_nonempty() {
     crate::test_utils::init_test_tracing();
     let mut bt = Backtrace::new();
     bt.push(BacktraceFrame {
-        function: "+".to_string(),
+        function: Value::symbol("+"),
         args: vec![Value::fixnum(1), Value::fixnum(2)],
         file: None,
         line: None,
         is_special_form: false,
     });
     bt.push(BacktraceFrame {
-        function: "my-add".to_string(),
+        function: Value::symbol("my-add"),
         args: vec![Value::fixnum(1), Value::fixnum(2)],
         file: Some("test.el".to_string()),
         line: Some(10),
@@ -95,7 +95,7 @@ fn backtrace_format_special_form() {
     crate::test_utils::init_test_tracing();
     let mut bt = Backtrace::new();
     bt.push(BacktraceFrame {
-        function: "if".to_string(),
+        function: Value::symbol("if"),
         args: vec![Value::T],
         file: None,
         line: None,
@@ -111,7 +111,7 @@ fn backtrace_clear() {
     crate::test_utils::init_test_tracing();
     let mut bt = Backtrace::new();
     bt.push(BacktraceFrame {
-        function: "foo".to_string(),
+        function: Value::symbol("foo"),
         args: vec![],
         file: None,
         line: None,
@@ -517,7 +517,7 @@ fn debug_state_full_workflow() {
 
     // Use the backtrace
     ds.current_backtrace.push(BacktraceFrame {
-        function: "my-fn".to_string(),
+        function: Value::symbol("my-fn"),
         args: vec![Value::fixnum(1)],
         file: None,
         line: None,
