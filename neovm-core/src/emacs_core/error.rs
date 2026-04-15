@@ -278,7 +278,7 @@ fn format_window_handle_in_state(
                         return format!("#<window {id} on {}>", buffer.name_runtime_string_owned());
                     }
                 }
-                return format!("#<window {id} on {}>", frame.name);
+                return format!("#<window {id} on {}>", frame.name_runtime_string_owned());
             }
         }
     }

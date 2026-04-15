@@ -1215,13 +1215,7 @@ impl DisplayHost for PrimaryWindowDisplayHost {
 fn frame_host_title(eval: &mut Context, frame_id: FrameId) -> String {
     let Some((selected_window_id, buffer_id, fallback_title, target_cols)) =
         eval.frame_manager().get(frame_id).map(|frame| {
-            let fallback_title = if !frame.title.is_empty() {
-                frame.title.clone()
-            } else if !frame.name.is_empty() {
-                frame.name.clone()
-            } else {
-                "Neomacs".to_string()
-            };
+            let fallback_title = frame.host_title_runtime_string_owned();
             let buffer_id = match frame.selected_window() {
                 Some(Window::Leaf { buffer_id, .. }) => Some(*buffer_id),
                 _ => None,
@@ -1257,7 +1251,9 @@ fn frame_host_title(eval: &mut Context, frame_id: FrameId) -> String {
         eval,
         format,
         Value::make_window(selected_window_id.0),
-        buffer_id.map(Value::make_buffer).unwrap_or(Value::NIL),
+        buffer_id
+            .map(|buffer_id| Value::make_buffer(buffer_id))
+            .unwrap_or(Value::NIL),
         target_cols,
     );
     rendered.as_str().unwrap_or(&fallback_title).to_owned()

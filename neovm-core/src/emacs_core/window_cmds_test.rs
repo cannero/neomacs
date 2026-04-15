@@ -3184,7 +3184,7 @@ fn x_create_frame_creates_live_frame_and_preserves_char_geometry_params() {
     assert_ne!(created_id, fid);
     let frame = ev.frames.get(created_id).expect("created frame");
     assert_eq!(ev.frames.frame_list().len(), 2);
-    assert_eq!(frame.name, "GUI");
+    assert_eq!(frame.name_runtime_string_owned(), "GUI");
     assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(80)));
     assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(25)));
     assert!(!frame.visible);

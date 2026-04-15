@@ -3029,8 +3029,8 @@ impl<'a> Vm<'a> {
             .get(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         match param_name.as_str() {
-            "name" => Ok(Value::string(frame.name.clone())),
-            "title" => Ok(Value::string(frame.title.clone())),
+            "name" => Ok(frame.name_value()),
+            "title" => Ok(frame.title_value()),
             "width" => Ok(frame
                 .parameters
                 .get("width")

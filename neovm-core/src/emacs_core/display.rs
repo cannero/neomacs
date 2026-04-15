@@ -189,7 +189,11 @@ fn format_get_device_terminal_arg_eval(eval: &super::eval::Context, value: &Valu
                             );
                         }
                     }
-                    return format!("#<window {} on {}>", window_id.0, frame.name);
+                    return format!(
+                        "#<window {} on {}>",
+                        window_id.0,
+                        frame.name_runtime_string_owned()
+                    );
                 }
             }
         }

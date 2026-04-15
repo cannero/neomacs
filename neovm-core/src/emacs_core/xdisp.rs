@@ -598,13 +598,7 @@ fn build_mode_line_percent_context(
 
     // --- Frame name (GNU: f->title, f->name, "Emacs") ---
     if let Some(frame) = frames.selected_frame() {
-        ctx.frame_name = if !frame.title.is_empty() {
-            frame.title.clone()
-        } else if !frame.name.is_empty() {
-            frame.name.clone()
-        } else {
-            "Neomacs".to_string()
-        };
+        ctx.frame_name = frame.host_title_runtime_string_owned();
     } else {
         ctx.frame_name = "Neomacs".to_string();
     }

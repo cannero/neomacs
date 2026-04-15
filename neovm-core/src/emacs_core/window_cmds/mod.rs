@@ -4447,11 +4447,7 @@ fn resize_live_gui_frame(
         let text_lines = ((text_height_px as f32) / char_height).floor().max(1.0) as i64;
         let non_text_width = frame_non_text_width_pixels_in_state(frames, fid);
         let non_text_height = frame_non_text_height_pixels(frame);
-        let title = if frame.title.is_empty() {
-            frame.name.clone()
-        } else {
-            frame.title.clone()
-        };
+        let title = frame.host_title_runtime_string_owned();
         (
             text_width_px.saturating_add(non_text_width).max(1),
             text_height_px.saturating_add(non_text_height).max(1),
@@ -4529,11 +4525,7 @@ fn request_live_gui_frame_resize(
         let text_lines = ((text_height_px as f32) / char_height).floor().max(1.0) as i64;
         let non_text_width = frame_non_text_width_pixels_in_state(frames, fid);
         let non_text_height = frame_non_text_height_pixels(frame);
-        let title = if frame.title.is_empty() {
-            frame.name.clone()
-        } else {
-            frame.title.clone()
-        };
+        let title = frame.host_title_runtime_string_owned();
         (
             text_width_px.saturating_add(non_text_width).max(1),
             text_height_px.saturating_add(non_text_height).max(1),
@@ -5694,6 +5686,18 @@ fn stringish_value(value: &Value) -> Option<String> {
         .or_else(|| value.as_symbol_name().map(ToOwned::to_owned))
 }
 
+fn frame_name_parameter_value(value: &Value) -> Option<Value> {
+    stringish_value(value).map(Value::string)
+}
+
+fn frame_title_parameter_value(value: &Value) -> Option<Value> {
+    if value.is_nil() {
+        Some(Value::NIL)
+    } else {
+        stringish_value(value).map(Value::string)
+    }
+}
+
 fn parse_gui_frame_params(value: Option<&Value>) -> ParsedGuiFrameParams {
     let mut parsed = ParsedGuiFrameParams::default();
     let Some(value) = value else {
@@ -5851,12 +5855,12 @@ pub(crate) fn x_create_frame_impl(
         width_px,
         height_px
     );
-    let title = parsed
-        .title
+    let explicit_title = parsed.title.clone();
+    let host_title = explicit_title
         .clone()
         .or_else(|| parsed.name.clone())
         .unwrap_or_else(|| "Neomacs".to_string());
-    let name = parsed.name.clone().unwrap_or_else(|| title.clone());
+    let name = parsed.name.clone().unwrap_or_else(|| host_title.clone());
     let current_buffer_id = buffers
         .current_buffer()
         .map(|buffer| buffer.id)
@@ -5867,8 +5871,12 @@ pub(crate) fn x_create_frame_impl(
         let frame = frames
             .get_mut(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-        frame.name = name.clone();
-        frame.title = title.clone();
+        frame.set_name_runtime_string(name.clone());
+        if let Some(title) = explicit_title {
+            frame.set_title_runtime_string(title);
+        } else {
+            frame.clear_title();
+        }
         frame.width = width_px;
         frame.height = height_px;
         frame.visible = parsed.visibility.unwrap_or(frame.visible);
@@ -5914,7 +5922,7 @@ pub(crate) fn x_create_frame_impl(
             frame_id: fid,
             width: width_px,
             height: height_px,
-            title,
+            title: host_title,
             geometry_hints,
         })
         .map_err(|message| signal("error", vec![Value::string(message)]))?;
@@ -6115,8 +6123,8 @@ pub(crate) fn builtin_frame_parameter(
 
     // Check built-in properties first.
     match param_name.as_str() {
-        "name" => return Ok(Value::string(frame.name.clone())),
-        "title" => return Ok(Value::string(frame.title.clone())),
+        "name" => return Ok(frame.name_value()),
+        "title" => return Ok(frame.title_value()),
         // In Emacs, frame parameter width/height are text columns/lines.
         // For the bootstrap batch frame, explicit parameter overrides preserve
         // the 80x25 report shape.
@@ -6159,14 +6167,8 @@ pub(crate) fn builtin_frame_parameters(
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     let mut pairs: Vec<Value> = Vec::new();
     // Built-in parameters.
-    pairs.push(Value::cons(
-        Value::symbol("name"),
-        Value::string(frame.name.clone()),
-    ));
-    pairs.push(Value::cons(
-        Value::symbol("title"),
-        Value::string(frame.title.clone()),
-    ));
+    pairs.push(Value::cons(Value::symbol("name"), frame.name_value()));
+    pairs.push(Value::cons(Value::symbol("title"), frame.title_value()));
     let width = frame
         .parameters
         .get("width")
@@ -6219,16 +6221,16 @@ pub(crate) fn builtin_modify_frame_parameters(
                 let key_name = resolve_sym(key).to_owned();
                 match key_name.as_str() {
                     "name" => {
-                        if let Some(s) = pair_cdr.as_str() {
+                        if let Some(name) = frame_name_parameter_value(&pair_cdr) {
                             if let Some(frame) = eval.frames.get_mut(fid) {
-                                frame.name = s.to_string();
+                                frame.name = name;
                             }
                         }
                     }
                     "title" => {
-                        if let Some(s) = pair_cdr.as_str() {
+                        if let Some(title) = frame_title_parameter_value(&pair_cdr) {
                             if let Some(frame) = eval.frames.get_mut(fid) {
-                                frame.title = s.to_string();
+                                frame.title = title;
                             }
                         }
                     }

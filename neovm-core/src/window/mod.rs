@@ -1211,7 +1211,9 @@ pub struct GuiFrameGeometryHints {
 /// A frame (top-level window/screen).
 pub struct Frame {
     pub id: FrameId,
-    pub name: String,
+    /// GNU `struct frame.name`: a Lisp string used for resources and default
+    /// title fallback.
+    pub name: Value,
     /// Terminal owner id for GNU `frame-terminal` / terminal lifecycle.
     pub terminal_id: u64,
     /// Root of the window tree.
@@ -1256,8 +1258,8 @@ pub struct Frame {
     pub parameters: HashMap<String, Value>,
     /// Whether the frame is visible.
     pub visible: bool,
-    /// Frame title.
-    pub title: String,
+    /// GNU `struct frame.title`: explicit title override, or nil.
+    pub title: Value,
     /// Menu bar height in pixels.
     pub menu_bar_height: u32,
     /// Tool bar height in pixels.
@@ -1304,7 +1306,7 @@ pub struct Frame {
 impl Frame {
     pub fn new(
         id: FrameId,
-        name: String,
+        name: Value,
         terminal_id: u64,
         width: u32,
         height: u32,
@@ -1365,7 +1367,7 @@ impl Frame {
                 params
             },
             visible: true,
-            title: String::new(),
+            title: Value::NIL,
             menu_bar_height: 0,
             tool_bar_height: 0,
             tab_bar_height: 0,
@@ -1380,6 +1382,44 @@ impl Frame {
             face_hash_table: Value::hash_table(HashTableTest::Eq),
             realized_faces: HashMap::new(),
         }
+    }
+
+    pub fn name_value(&self) -> Value {
+        self.name
+    }
+
+    pub fn title_value(&self) -> Value {
+        self.title
+    }
+
+    pub fn name_runtime_string_owned(&self) -> String {
+        self.name.as_runtime_string_owned().unwrap_or_default()
+    }
+
+    pub fn title_runtime_string_owned(&self) -> Option<String> {
+        self.title.as_runtime_string_owned()
+    }
+
+    pub fn host_title_runtime_string_owned(&self) -> String {
+        self.title_runtime_string_owned()
+            .filter(|title| !title.is_empty())
+            .or_else(|| {
+                let name = self.name_runtime_string_owned();
+                (!name.is_empty()).then_some(name)
+            })
+            .unwrap_or_else(|| "Neomacs".to_string())
+    }
+
+    pub fn set_name_runtime_string(&mut self, name: impl Into<String>) {
+        self.name = Value::string(name.into());
+    }
+
+    pub fn set_title_runtime_string(&mut self, title: impl Into<String>) {
+        self.title = Value::string(title.into());
+    }
+
+    pub fn clear_title(&mut self) {
+        self.title = Value::NIL;
     }
 
     /// Recalculate minibuffer bounds based on the root window's current bounds.
@@ -1925,7 +1965,14 @@ impl FrameManager {
         let bounds = Rect::new(0.0, 0.0, width as f32, height as f32);
         let root = Window::new_leaf(window_id, buffer_id, bounds);
 
-        let frame = Frame::new(frame_id, name.to_string(), terminal_id, width, height, root);
+        let frame = Frame::new(
+            frame_id,
+            Value::string(name),
+            terminal_id,
+            width,
+            height,
+            root,
+        );
         let selected_wid = frame.selected_window;
         self.frames.insert(frame_id, frame);
         self.note_window_selected(selected_wid);
