@@ -128,6 +128,47 @@ fn test_restore_active_runtime_after_clone_reinstalls_live_charset_registry() {
 }
 
 #[test]
+fn test_dump_buffers_use_symbol_ids_for_buffer_local_bindings() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let current = eval.buffers.current_buffer_id().expect("current buffer");
+    eval.buffers
+        .get_mut(current)
+        .expect("current buffer mut")
+        .set_buffer_local("fill-column", Value::fixnum(80));
+
+    let dump = crate::emacs_core::pdump::convert::dump_evaluator(&eval);
+    let dumped = dump
+        .buffers
+        .buffers
+        .iter()
+        .find(|(id, _)| id.0 == current.0)
+        .map(|(_, buffer)| buffer)
+        .expect("dumped current buffer");
+
+    assert!(
+        dumped
+            .properties_syms
+            .iter()
+            .any(|(sym_id, _)| sym_id.0 == intern("fill-column").0)
+    );
+    assert!(
+        dumped
+            .local_binding_syms
+            .iter()
+            .any(|sym_id| sym_id.0 == intern("fill-column").0)
+    );
+    assert!(
+        dumped.properties.is_empty(),
+        "fresh dumps should not flatten buffer-local names to strings"
+    );
+    assert!(
+        dumped.local_binding_names.is_empty(),
+        "fresh dumps should not record buffer-local ordering via legacy string names"
+    );
+}
+
+#[test]
 fn test_file_load_records_pdumper_stats_without_running_after_pdump_load_hook() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();

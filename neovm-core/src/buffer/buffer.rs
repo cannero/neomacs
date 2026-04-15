@@ -2470,7 +2470,7 @@ impl Buffer {
         }
     }
 
-    pub fn ordered_buffer_local_bindings(&self) -> Vec<(String, RuntimeBindingValue)> {
+    pub fn ordered_buffer_local_bindings(&self) -> Vec<(SymId, RuntimeBindingValue)> {
         // Returns entries in REVERSED GNU order so the caller can
         // `.rev()' to get GNU's prepend-based final order.
         //
@@ -2510,7 +2510,7 @@ impl Buffer {
         // set). Internal-only slots (`install_as_forwarder: false')
         // are omitted because GNU skips slots with no Lisp variable
         // name (syntax_table_ etc.).
-        let mut out: Vec<(String, RuntimeBindingValue)> = Vec::new();
+        let mut out: Vec<(SymId, RuntimeBindingValue)> = Vec::new();
 
         // Step 1: alist entries, walked forward, used UNREVERSED so
         // that `.rev()' in the caller flips them to match GNU's
@@ -2522,14 +2522,14 @@ impl Buffer {
             if !entry.is_cons() {
                 continue;
             }
-            if let Some(name) = entry.cons_car().as_symbol_name() {
+            if let Some(sym_id) = entry.cons_car().as_symbol_id() {
                 let cdr = entry.cons_cdr();
                 let binding = if cdr.is_unbound() {
                     RuntimeBindingValue::Void
                 } else {
                     RuntimeBindingValue::Bound(cdr)
                 };
-                out.push((name.to_string(), binding));
+                out.push((sym_id, binding));
             }
         }
 
@@ -2548,7 +2548,7 @@ impl Buffer {
                 continue;
             }
             out.push((
-                info.name.to_string(),
+                intern(info.name),
                 RuntimeBindingValue::Bound(self.slots[info.offset]),
             ));
         }
@@ -2557,17 +2557,17 @@ impl Buffer {
         // puts it FIRST in the final list, matching GNU's special
         // tail-prepend at `buffer.c:1496-1499'.
         out.push((
-            "buffer-undo-list".to_string(),
+            buffer_undo_list_sym(),
             RuntimeBindingValue::Bound(self.get_undo_list()),
         ));
 
         out
     }
 
-    pub fn ordered_buffer_local_names(&self) -> Vec<String> {
+    pub fn ordered_buffer_local_names(&self) -> Vec<SymId> {
         self.ordered_buffer_local_bindings()
             .into_iter()
-            .map(|(name, _)| name)
+            .map(|(sym_id, _)| sym_id)
             .collect()
     }
 

@@ -358,9 +358,9 @@ pub(crate) fn builtin_buffer_local_variables(
     let entries: Vec<Value> = ordered
         .into_iter()
         .rev()
-        .map(|(name, value)| match value.as_value() {
-            Some(value) => Value::cons(Value::symbol(name), value),
-            None => Value::symbol(name),
+        .map(|(sym_id, value)| match value.as_value() {
+            Some(value) => Value::cons(Value::from_sym_id(sym_id), value),
+            None => Value::from_sym_id(sym_id),
         })
         .collect();
     Ok(Value::list(entries))

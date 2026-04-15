@@ -1114,12 +1114,23 @@ fn dump_buffer(encoder: &mut DumpEncoder, buf: &Buffer) -> DumpBuffer {
         state_pt_marker: buf.state_markers.map(|markers| markers.pt_marker),
         state_begv_marker: buf.state_markers.map(|markers| markers.begv_marker),
         state_zv_marker: buf.state_markers.map(|markers| markers.zv_marker),
-        properties: buf
+        properties_syms: buf
             .ordered_buffer_local_bindings()
             .into_iter()
-            .map(|(k, v)| (k, dump_runtime_binding_value(encoder, &v)))
+            .map(|(sym_id, value)| {
+                (
+                    dump_sym_id(sym_id),
+                    dump_runtime_binding_value(encoder, &value),
+                )
+            })
             .collect(),
-        local_binding_names: buf.ordered_buffer_local_names(),
+        properties: Vec::new(),
+        local_binding_syms: buf
+            .ordered_buffer_local_names()
+            .into_iter()
+            .map(dump_sym_id)
+            .collect(),
+        local_binding_names: Vec::new(),
         local_map: encoder.dump_value(&buf.local_map()),
         text_props: if is_shared_text_owner {
             dump_text_property_table(encoder, &buf.text.text_props_snapshot())
@@ -2537,16 +2548,35 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
     //   * Slot-backed names (BUFFER_OBJFWD) → already restored via
     //     the `slots: ...` round-trip below; skip here.
     //   * Everything else → `local_var_alist`, walked in the
-    //     original `local_binding_names` order so the dumped
+    //     original `local_binding_syms` order so the dumped
     //     ordering is preserved.
     let loaded_keymap = decoder.load_value(&db.local_map);
-    let mut loaded_properties: std::collections::HashMap<String, RuntimeBindingValue> = db
-        .properties
-        .iter()
-        .map(|(k, v)| (k.clone(), load_runtime_binding_value(decoder, v)))
-        .collect();
+    let mut loaded_properties: std::collections::HashMap<SymId, RuntimeBindingValue> =
+        if db.properties_syms.is_empty() {
+            db.properties
+                .iter()
+                .map(|(name, value)| {
+                    (
+                        intern::intern(name),
+                        load_runtime_binding_value(decoder, value),
+                    )
+                })
+                .collect()
+        } else {
+            db.properties_syms
+                .iter()
+                .map(|(sym_id, value)| {
+                    (
+                        load_sym_id(sym_id),
+                        load_runtime_binding_value(decoder, value),
+                    )
+                })
+                .collect()
+        };
     let mut loaded_undo_list = Value::NIL;
-    if let Some(RuntimeBindingValue::Bound(value)) = loaded_properties.remove("buffer-undo-list") {
+    if let Some(RuntimeBindingValue::Bound(value)) =
+        loaded_properties.remove(&intern::intern("buffer-undo-list"))
+    {
         loaded_undo_list = value;
     }
     // Reconstruct the alist in the ordered sequence the dump recorded,
@@ -2554,37 +2584,45 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
     // the ordered list. Skip entries that map to BUFFER_OBJFWD slots
     // (they live in the slot table).
     let mut loaded_local_var_alist = Value::NIL;
-    let prepend_alist_entry = |alist: &mut Value, name: &str, binding: RuntimeBindingValue| {
-        if crate::buffer::buffer::lookup_buffer_slot(name).is_some() {
+    let prepend_alist_entry = |alist: &mut Value, sym_id: SymId, binding: RuntimeBindingValue| {
+        if crate::buffer::buffer::lookup_buffer_slot(intern::resolve_sym(sym_id)).is_some() {
             return;
         }
         let RuntimeBindingValue::Bound(value) = binding else {
             return;
         };
-        let key = Value::from_sym_id(crate::emacs_core::intern::intern(name));
+        let key = Value::from_sym_id(sym_id);
         let cell = Value::cons(key, value);
         *alist = Value::cons(cell, *alist);
     };
     // Walk ordered names first (preserves relative ordering).
     // Because we prepend, iterate in reverse to restore the
     // original head-first order.
-    for name in db.local_binding_names.iter().rev() {
-        if name == "buffer-undo-list" {
+    let ordered_local_bindings: Vec<SymId> = if db.local_binding_syms.is_empty() {
+        db.local_binding_names
+            .iter()
+            .map(|name| intern::intern(name))
+            .collect()
+    } else {
+        db.local_binding_syms.iter().map(load_sym_id).collect()
+    };
+    for sym_id in ordered_local_bindings.into_iter().rev() {
+        if sym_id == intern::intern("buffer-undo-list") {
             continue;
         }
-        if let Some(binding) = loaded_properties.remove(name) {
-            prepend_alist_entry(&mut loaded_local_var_alist, name, binding);
+        if let Some(binding) = loaded_properties.remove(&sym_id) {
+            prepend_alist_entry(&mut loaded_local_var_alist, sym_id, binding);
         }
     }
     // Any remaining unordered properties (older dumps that didn't
-    // carry `local_binding_names`) get appended in sorted order.
+    // carry `local_binding_syms`) get appended in sorted order.
     let mut remaining: Vec<_> = loaded_properties.into_iter().collect();
-    remaining.sort_by(|left, right| left.0.cmp(&right.0));
-    for (name, binding) in remaining.into_iter().rev() {
-        if name == "buffer-undo-list" {
+    remaining.sort_by(|left, right| intern::resolve_sym(left.0).cmp(intern::resolve_sym(right.0)));
+    for (sym_id, binding) in remaining.into_iter().rev() {
+        if sym_id == intern::intern("buffer-undo-list") {
             continue;
         }
-        prepend_alist_entry(&mut loaded_local_var_alist, &name, binding);
+        prepend_alist_entry(&mut loaded_local_var_alist, sym_id, binding);
     }
     let undo_list = loaded_undo_list;
 

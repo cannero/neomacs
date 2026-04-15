@@ -719,6 +719,31 @@ fn buffer_local_defaults_include_builtin_per_buffer_vars() {
 }
 
 #[test]
+fn ordered_buffer_local_bindings_use_symbol_ids() {
+    crate::test_utils::init_test_tracing();
+    let mut buf = Buffer::new(BufferId(1), Value::string("test"));
+    buf.set_buffer_local("fill-column", Value::fixnum(80));
+    buf.set_buffer_local("major-mode", Value::symbol("text-mode"));
+
+    let ordered = buf.ordered_buffer_local_bindings();
+    assert!(
+        ordered
+            .iter()
+            .any(|(sym_id, _)| *sym_id == crate::emacs_core::intern::intern("fill-column"))
+    );
+    assert!(
+        ordered
+            .iter()
+            .any(|(sym_id, _)| *sym_id == crate::emacs_core::intern::intern("major-mode"))
+    );
+    assert!(
+        ordered
+            .iter()
+            .any(|(sym_id, _)| *sym_id == crate::emacs_core::intern::intern("buffer-undo-list"))
+    );
+}
+
+#[test]
 fn buffer_file_name_variable_tracks_slot_backed_state() {
     crate::test_utils::init_test_tracing();
     let mut buf = Buffer::new(BufferId(1), Value::string("test"));
