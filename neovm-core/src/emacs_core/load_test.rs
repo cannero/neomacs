@@ -7707,7 +7707,7 @@ fn eager_expand_toplevel_forms_keeps_recursive_progn_forms_alive_under_exact_gc(
                 &form,
                 &ctx.buffers,
             ));
-            ctx.gc_collect_exact_with_extra_roots(&[form]);
+            ctx.with_extra_gc_roots(&[form], |ctx| ctx.gc_collect_exact());
             ctx.eval_value(&form).map_err(map_flow)
         },
     )

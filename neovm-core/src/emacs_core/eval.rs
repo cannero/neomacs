@@ -5804,11 +5804,6 @@ impl Context {
         self.gc_collect_from_current_roots();
     }
 
-    /// Convenience wrapper for a single additional root slice.
-    pub(crate) fn gc_collect_exact_with_extra_roots(&mut self, extra_roots: &[Value]) {
-        self.with_extra_gc_roots(extra_roots, |eval| eval.gc_collect_exact());
-    }
-
     fn gc_collect_from_current_roots(&mut self) {
         let start = std::time::Instant::now();
         *self.lexenv_assq_cache.borrow_mut() = LexenvAssqCache::default();
@@ -5848,11 +5843,6 @@ impl Context {
     /// GC safe point used at evaluator boundaries.
     pub fn gc_safe_point(&mut self) {
         self.gc_safe_point_exact();
-    }
-
-    /// Convenience wrapper for a single extra-root slice at an exact safe point.
-    pub(crate) fn gc_safe_point_exact_with_extra_roots(&mut self, extra_roots: &[Value]) {
-        self.with_extra_gc_roots(extra_roots, |eval| eval.gc_safe_point_exact());
     }
 
     /// Trigger a safe-point collection using only explicit evaluator roots.

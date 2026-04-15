@@ -8364,14 +8364,14 @@ fn gc_collect_exact_frees_stack_only_values() {
 }
 
 #[test]
-fn gc_collect_exact_with_extra_roots_retains_explicit_slice() {
+fn gc_collect_exact_inside_extra_root_scope_retains_explicit_slice() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let rooted = Value::cons(Value::fixnum(11), Value::fixnum(22));
     let _unreachable = Value::cons(Value::fixnum(1), Value::fixnum(2));
     let before = ev.tagged_heap.allocated_count();
 
-    ev.gc_collect_exact_with_extra_roots(&[rooted]);
+    ev.with_extra_gc_roots(&[rooted], |eval| eval.gc_collect_exact());
 
     let after = ev.tagged_heap.allocated_count();
     assert_eq!(rooted.cons_car(), Value::fixnum(11));
@@ -8693,7 +8693,7 @@ fn gc_safe_point_uses_exact_root_tracing() {
 }
 
 #[test]
-fn gc_safe_point_exact_with_extra_roots_retains_explicit_slice() {
+fn gc_safe_point_exact_inside_extra_root_scope_retains_explicit_slice() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.tagged_heap.set_gc_threshold(2);
@@ -8702,7 +8702,7 @@ fn gc_safe_point_exact_with_extra_roots_retains_explicit_slice() {
     let before = ev.tagged_heap.allocated_count();
 
     while ev.gc_count == 0 {
-        ev.gc_safe_point_exact_with_extra_roots(&[rooted]);
+        ev.with_extra_gc_roots(&[rooted], |eval| eval.gc_safe_point_exact());
     }
 
     let after = ev.tagged_heap.allocated_count();
