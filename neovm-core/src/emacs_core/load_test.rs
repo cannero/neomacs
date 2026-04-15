@@ -3765,6 +3765,49 @@ fn builtin_load_resolves_raw_unibyte_load_path_entries() {
     let _ = fs::remove_dir_all(&root);
 }
 
+#[cfg(unix)]
+#[test]
+fn builtin_load_substitutes_environment_variables_before_search() {
+    crate::test_utils::init_test_tracing();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("neovm-load-env-{unique}"));
+    fs::create_dir_all(&root).expect("create temp root");
+
+    let mut dir_bytes = root.as_os_str().as_bytes().to_vec();
+    dir_bytes.extend_from_slice(b"/env-");
+    dir_bytes.push(0xFF);
+    let raw_dir = PathBuf::from(std::ffi::OsString::from_vec(dir_bytes.clone()));
+    fs::create_dir_all(&raw_dir).expect("create raw dir");
+
+    let file = raw_dir.join("probe.el");
+    fs::write(&file, "(setq vm-load-env-ran t)\n").expect("write fixture");
+
+    let env_name = "NEOVM_LOAD_ENV_RAW";
+    unsafe {
+        std::env::set_var(env_name, std::ffi::OsString::from_vec(dir_bytes.clone()));
+    }
+
+    let mut eval = super::super::eval::Context::new();
+    let loaded = crate::emacs_core::builtins::builtin_load(
+        &mut eval,
+        vec![Value::string(format!("${env_name}/probe"))],
+    )
+    .expect("load should substitute environment variables before search");
+    assert_eq!(loaded, Value::T);
+    assert_eq!(
+        eval.obarray().symbol_value("vm-load-env-ran").copied(),
+        Some(Value::T)
+    );
+
+    unsafe {
+        std::env::remove_var(env_name);
+    }
+    let _ = fs::remove_dir_all(&root);
+}
+
 #[test]
 fn find_file_with_suffix_flags() {
     crate::test_utils::init_test_tracing();

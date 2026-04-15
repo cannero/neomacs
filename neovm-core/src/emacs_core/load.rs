@@ -631,6 +631,7 @@ pub(crate) fn plan_load_in_state(
             ));
         }
     };
+    let file = super::fileio::substitute_in_file_name_lisp(&file);
     let noerror = noerror.is_some_and(|v| v.is_truthy());
     let nosuffix = nosuffix.is_some_and(|v| v.is_truthy());
     let must_suffix = must_suffix.is_some_and(|v| v.is_truthy());

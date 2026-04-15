@@ -305,6 +305,27 @@ fn trim_embedded_absfilename(path: String) -> String {
     }
 }
 
+#[cfg(unix)]
+fn trim_embedded_absfilename_bytes(path: Vec<u8>) -> Vec<u8> {
+    let mut current = path;
+    loop {
+        let mut cut_at = None;
+        let mut i = 1usize;
+        while i < current.len() {
+            if current[i - 1] == b'/' && (current[i] == b'/' || current[i] == b'~') {
+                cut_at = Some(i);
+                break;
+            }
+            i += 1;
+        }
+        if let Some(idx) = cut_at {
+            current = current[idx..].to_vec();
+        } else {
+            return current;
+        }
+    }
+}
+
 /// Substitute environment variables in FILENAME.
 /// Mirrors Emacs `substitute-in-file-name` behavior for local path forms.
 pub fn substitute_in_file_name(filename: &str) -> String {
@@ -372,6 +393,83 @@ pub fn substitute_in_file_name(filename: &str) -> String {
     }
 
     trim_embedded_absfilename(out)
+}
+
+pub(crate) fn substitute_in_file_name_lisp(
+    filename: &crate::heap_types::LispString,
+) -> crate::heap_types::LispString {
+    #[cfg(unix)]
+    {
+        let bytes = filename.as_bytes();
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut i = 0usize;
+
+        while i < bytes.len() {
+            if bytes[i] != b'$' {
+                out.push(bytes[i]);
+                i += 1;
+                continue;
+            }
+
+            if i + 1 >= bytes.len() {
+                out.push(b'$');
+                i += 1;
+                continue;
+            }
+
+            match bytes[i + 1] {
+                b'$' => {
+                    out.push(b'$');
+                    i += 2;
+                }
+                b'{' => {
+                    if let Some(rel_end) = bytes[i + 2..].iter().position(|&b| b == b'}') {
+                        let end = i + 2 + rel_end;
+                        let var = String::from_utf8_lossy(&bytes[i + 2..end]);
+                        if let Some(value) = std::env::var_os(var.as_ref()) {
+                            out.extend_from_slice(value.as_bytes());
+                        } else {
+                            out.extend_from_slice(&bytes[i..=end]);
+                        }
+                        i = end + 1;
+                    } else {
+                        out.push(b'$');
+                        i += 1;
+                    }
+                }
+                next if env_name_char(next) => {
+                    let mut end = i + 1;
+                    while end < bytes.len() && env_name_char(bytes[end]) {
+                        end += 1;
+                    }
+                    let var = String::from_utf8_lossy(&bytes[i + 1..end]);
+                    if let Some(value) = std::env::var_os(var.as_ref()) {
+                        out.extend_from_slice(value.as_bytes());
+                    } else {
+                        out.extend_from_slice(&bytes[i..end]);
+                    }
+                    i = end;
+                }
+                _ => {
+                    out.push(b'$');
+                    i += 1;
+                }
+            }
+        }
+
+        crate::heap_types::LispString::from_unibyte(trim_embedded_absfilename_bytes(out))
+    }
+
+    #[cfg(not(unix))]
+    {
+        let substituted = substitute_in_file_name(
+            &crate::emacs_core::builtins::runtime_string_from_lisp_string(filename),
+        );
+        crate::emacs_core::builtins::runtime_string_to_lisp_string(
+            &substituted,
+            !substituted.is_ascii(),
+        )
+    }
 }
 
 // ===========================================================================
@@ -1435,8 +1533,17 @@ pub(crate) fn builtin_substitute_in_file_name(eval: &mut Context, args: Vec<Valu
         return Ok(result);
     }
     expect_args("substitute-in-file-name", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    Ok(Value::string(substitute_in_file_name(&filename)))
+    match args[0].kind() {
+        ValueKind::String => Ok(Value::heap_string(substitute_in_file_name_lisp(
+            args[0]
+                .as_lisp_string()
+                .expect("ValueKind::String must carry LispString payload"),
+        ))),
+        _ => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[0]],
+        )),
+    }
 }
 
 pub(crate) fn default_directory_in_state(
