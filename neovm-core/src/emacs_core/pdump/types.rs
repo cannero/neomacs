@@ -722,7 +722,8 @@ pub struct DumpFontLockKeyword {
     pub pattern: Option<String>,
     #[serde(default)]
     pub face_sym: Option<DumpSymId>,
-    pub face: String,
+    #[serde(default)]
+    pub face: Option<String>,
     pub group: usize,
     pub override_: bool,
     pub laxmatch: bool,

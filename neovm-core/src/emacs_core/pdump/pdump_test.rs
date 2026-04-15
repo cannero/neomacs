@@ -1,10 +1,12 @@
 use super::*;
 use crate::emacs_core::intern::intern;
+use crate::emacs_core::mode::{FontLockDefaults, FontLockKeyword, MajorMode};
 use crate::emacs_core::pdump::types::{
     DumpByteCodeFunction, DumpHeapObject, DumpLambdaParams, DumpOp, DumpSymId, DumpSymbolData,
     DumpSymbolValue, DumpValue,
 };
 use crate::emacs_core::value::Value;
+use crate::heap_types::LispString;
 
 #[test]
 fn test_pdump_round_trip_basic() {
@@ -165,6 +167,58 @@ fn test_dump_buffers_use_symbol_ids_for_buffer_local_bindings() {
     assert!(
         dumped.local_binding_names.is_empty(),
         "fresh dumps should not record buffer-local ordering via legacy string names"
+    );
+}
+
+#[test]
+fn test_dump_modes_use_symbol_ids_for_font_lock_faces() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    eval.modes.register_major_mode(
+        "compat-font-lock-mode",
+        MajorMode {
+            pretty_name: LispString::from_utf8("Compat Font Lock"),
+            parent: None,
+            mode_hook: Value::symbol("compat-font-lock-mode-hook"),
+            keymap_name: None,
+            syntax_table_name: None,
+            abbrev_table_name: None,
+            font_lock: Some(FontLockDefaults {
+                keywords: vec![FontLockKeyword {
+                    pattern: LispString::from_utf8("\\_<compat\\_>"),
+                    face: intern("font-lock-keyword-face"),
+                    group: 0,
+                    override_: false,
+                    laxmatch: false,
+                }],
+                case_fold: false,
+                syntax_table: None,
+            }),
+            body: None,
+        },
+    );
+
+    let dump = crate::emacs_core::pdump::convert::dump_evaluator(&eval);
+    let dumped = dump
+        .modes
+        .major_modes
+        .iter()
+        .find(|(sym_id, _)| sym_id.0 == intern("compat-font-lock-mode").0)
+        .map(|(_, mode)| mode)
+        .expect("dumped compat-font-lock-mode");
+    let keyword = dumped
+        .font_lock
+        .as_ref()
+        .and_then(|font_lock| font_lock.keywords.first())
+        .expect("dumped font-lock keyword");
+
+    assert_eq!(
+        keyword.face_sym,
+        Some(DumpSymId(intern("font-lock-keyword-face").0))
+    );
+    assert!(
+        keyword.face.is_none(),
+        "fresh dumps should not flatten font-lock faces to strings"
     );
 }
 
