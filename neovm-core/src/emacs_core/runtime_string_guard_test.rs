@@ -2,6 +2,8 @@
 fn migrated_string_subsystems_do_not_call_generic_runtime_string_adapter_directly() {
     let forbidden = concat!("lisp_string", "_to_runtime_string(");
     for (path, source) in [
+        ("abbrev.rs", include_str!("abbrev.rs")),
+        ("autoload.rs", include_str!("autoload.rs")),
         ("callproc/mod.rs", include_str!("callproc/mod.rs")),
         ("charset.rs", include_str!("charset.rs")),
         ("coding.rs", include_str!("coding.rs")),
@@ -15,6 +17,7 @@ fn migrated_string_subsystems_do_not_call_generic_runtime_string_adapter_directl
         ("font.rs", include_str!("font.rs")),
         ("fontset.rs", include_str!("fontset.rs")),
         ("format.rs", include_str!("format.rs")),
+        ("interactive.rs", include_str!("interactive.rs")),
         ("isearch.rs", include_str!("isearch.rs")),
         ("load.rs", include_str!("load.rs")),
         ("lread.rs", include_str!("lread.rs")),
@@ -24,6 +27,8 @@ fn migrated_string_subsystems_do_not_call_generic_runtime_string_adapter_directl
         ("process.rs", include_str!("process.rs")),
         ("reader.rs", include_str!("reader.rs")),
         ("syntax.rs", include_str!("syntax.rs")),
+        ("textprop.rs", include_str!("textprop.rs")),
+        ("timer.rs", include_str!("timer.rs")),
         ("value_reader.rs", include_str!("value_reader.rs")),
         ("window_cmds/mod.rs", include_str!("window_cmds/mod.rs")),
         ("xdisp.rs", include_str!("xdisp.rs")),

@@ -411,7 +411,9 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
+        ValueKind::String => Ok(value
+            .as_runtime_string_owned()
+            .expect("ValueKind::String must carry LispString payload")),
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         ValueKind::Nil => Ok("nil".to_string()),
         ValueKind::T => Ok("t".to_string()),
@@ -987,7 +989,9 @@ pub(crate) fn builtin_insert_abbrev_table_description(
                 continue;
             }
             let exp_str = match expansion.kind() {
-                ValueKind::String => super::builtins::lisp_string_to_runtime_string(expansion),
+                ValueKind::String => expansion
+                    .as_runtime_string_owned()
+                    .expect("ValueKind::String must carry LispString payload"),
                 _ => continue,
             };
             let count = eval

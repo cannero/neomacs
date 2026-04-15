@@ -156,7 +156,9 @@ pub(crate) fn expect_symbol_name(value: &Value) -> Result<String, Flow> {
     match value.as_symbol_name() {
         Some(s) => Ok(s.to_string()),
         None => match value.kind() {
-            ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
+            ValueKind::String => Ok(value
+                .as_runtime_string_owned()
+                .expect("ValueKind::String must carry LispString payload")),
             ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
             _ => Err(signal(
                 "wrong-type-argument",

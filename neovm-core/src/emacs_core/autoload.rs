@@ -277,7 +277,9 @@ pub(crate) fn plan_autoload_do_load_in_state(
     // items[0] = 'autoload, items[1] = file, ...
     let file = if items.len() > 1 {
         match items[1].kind() {
-            ValueKind::String => super::builtins::lisp_string_to_runtime_string(items[1]),
+            ValueKind::String => items[1]
+                .as_runtime_string_owned()
+                .expect("ValueKind::String must carry LispString payload"),
             _ => return Ok(AutoloadDoLoadPlan::Return(*fundef)),
         }
     } else {
