@@ -525,6 +525,22 @@ pub(crate) fn dump_name_id(id: NameId) -> DumpNameId {
     DumpNameId(id.0)
 }
 
+fn dump_lisp_string(string: &LispString) -> DumpLispString {
+    DumpLispString {
+        data: string.as_bytes().to_vec(),
+        size: string.schars(),
+        size_byte: if string.is_multibyte() {
+            string.sbytes() as i64
+        } else {
+            -1
+        },
+    }
+}
+
+fn load_lisp_string(dump: &DumpLispString) -> LispString {
+    LispString::from_dump(dump.data.clone(), dump.size, dump.size_byte)
+}
+
 // --- Op ---
 
 pub(crate) fn dump_op(op: &Op) -> DumpOp {
@@ -1171,8 +1187,8 @@ pub(crate) fn dump_autoload_manager(
                     k.clone(),
                     DumpAutoloadEntry {
                         name: v.name.clone(),
-                        file: v.file.clone(),
-                        docstring: v.docstring.clone(),
+                        file: dump_lisp_string(&v.file),
+                        docstring: v.docstring.as_ref().map(dump_lisp_string),
                         interactive: v.interactive,
                         autoload_type: match v.autoload_type {
                             AutoloadType::Function => DumpAutoloadType::Function,
@@ -2629,8 +2645,8 @@ pub(crate) fn load_autoload_manager(
                 k.clone(),
                 AutoloadEntry {
                     name: e.name.clone(),
-                    file: e.file.clone(),
-                    docstring: e.docstring.clone(),
+                    file: load_lisp_string(&e.file),
+                    docstring: e.docstring.as_ref().map(load_lisp_string),
                     interactive: e.interactive,
                     autoload_type: match e.autoload_type {
                         DumpAutoloadType::Function => AutoloadType::Function,

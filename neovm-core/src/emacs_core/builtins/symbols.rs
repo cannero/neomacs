@@ -2877,7 +2877,7 @@ fn compare_buffer_ids_for_value_lt(
     let left_name = eval.buffers.get(lhs).map(|buffer| buffer.name.as_str());
     let right_name = eval.buffers.get(rhs).map(|buffer| buffer.name.as_str());
     match (left_name, right_name) {
-        (Some(left), Some(right)) => left.cmp(right),
+        (Some(left), Some(right)) => left.cmp(&right),
         (None, Some(_)) => Ordering::Less,
         (Some(_), None) => Ordering::Greater,
         (None, None) => Ordering::Equal,
