@@ -6,9 +6,14 @@ fn migrated_string_subsystems_do_not_call_generic_runtime_string_adapter_directl
         ("autoload.rs", include_str!("autoload.rs")),
         ("builtins/buffers.rs", include_str!("builtins/buffers.rs")),
         (
+            "builtins/misc_eval.rs",
+            include_str!("builtins/misc_eval.rs"),
+        ),
+        (
             "builtins/misc_pure.rs",
             include_str!("builtins/misc_pure.rs"),
         ),
+        ("builtins/symbols.rs", include_str!("builtins/symbols.rs")),
         ("builtins/stubs.rs", include_str!("builtins/stubs.rs")),
         ("builtins_extra.rs", include_str!("builtins_extra.rs")),
         ("callproc/mod.rs", include_str!("callproc/mod.rs")),
@@ -26,6 +31,7 @@ fn migrated_string_subsystems_do_not_call_generic_runtime_string_adapter_directl
         ("font.rs", include_str!("font.rs")),
         ("fontset.rs", include_str!("fontset.rs")),
         ("format.rs", include_str!("format.rs")),
+        ("eval.rs", include_str!("eval.rs")),
         ("interactive.rs", include_str!("interactive.rs")),
         ("isearch.rs", include_str!("isearch.rs")),
         ("keyboard/pure.rs", include_str!("keyboard/pure.rs")),

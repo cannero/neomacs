@@ -4340,7 +4340,13 @@ pub(crate) fn make_byte_code_from_parts(
     // GNU byte-code objects use this slot for either a docstring or an
     // arbitrary documentation form, notably the oclosure type symbol.
     let (doc, doc_form) = match docstring.copied() {
-        Some(v) if v.is_string() => (Some(super::lisp_string_to_runtime_string(v)), None),
+        Some(v) if v.is_string() => (
+            Some(
+                v.as_runtime_string_owned()
+                    .expect("ValueKind::String must carry LispString payload"),
+            ),
+            None,
+        ),
         Some(v) if !v.is_nil() => (None, Some(v)),
         _ => (None, None),
     };

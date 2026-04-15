@@ -1502,7 +1502,7 @@ pub(crate) fn plan_require_in_state(
 
     let filename = match filename {
         Some(v) if v.is_nil() => name.clone(),
-        Some(v) if v.is_string() => super::builtins::lisp_string_to_runtime_string(v),
+        Some(v) if v.is_string() => runtime_string_value(v),
         Some(other) => {
             return Err(signal(
                 "wrong-type-argument",
@@ -7662,7 +7662,7 @@ impl Context {
             if name == "default-directory" && value.is_string() && value.string_is_multibyte() {
                 tracing::debug!(
                     "SETQ default-directory to MULTIBYTE string: {:?}",
-                    super::builtins::lisp_string_to_runtime_string(value),
+                    runtime_string_value(value),
                 );
             }
             if resolved != name {
@@ -8317,11 +8317,7 @@ impl Context {
         let load_file_name = if trace_toplevel_bytecode {
             self.obarray()
                 .symbol_value("load-file-name")
-                .and_then(|value| {
-                    value
-                        .is_string()
-                        .then(|| super::builtins::lisp_string_to_runtime_string(*value))
-                })
+                .and_then(|value| value.as_runtime_string_owned())
                 .unwrap_or_else(|| "<unknown>".to_string())
         } else {
             String::new()
@@ -8504,10 +8500,7 @@ impl Context {
             ValueKind::Symbol(sid) => Some(resolve_sym(sid).to_string()),
             _ => None,
         };
-        let filename_str = filename.as_ref().and_then(|v| {
-            v.is_string()
-                .then(|| super::builtins::lisp_string_to_runtime_string(*v))
-        });
+        let filename_str = filename.as_ref().and_then(|v| v.as_runtime_string_owned());
         match plan_require_in_state(
             &self.obarray,
             &mut self.features,
@@ -11215,3 +11208,8 @@ fn value_list_to_values(list: &Value) -> Vec<Value> {
 #[cfg(test)]
 #[path = "eval_test.rs"]
 mod tests;
+fn runtime_string_value(value: Value) -> String {
+    value
+        .as_runtime_string_owned()
+        .expect("ValueKind::String must carry LispString payload")
+}

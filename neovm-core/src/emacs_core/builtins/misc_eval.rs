@@ -1,6 +1,12 @@
 use super::*;
 use crate::emacs_core::symbol::Obarray;
 
+fn runtime_string_value(value: Value) -> String {
+    value
+        .as_runtime_string_owned()
+        .expect("ValueKind::String must carry LispString payload")
+}
+
 pub(crate) fn builtin_get_pos_property(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -1011,7 +1017,7 @@ fn write_print_output_to_target(
             Ok(())
         }
         ValueKind::String => {
-            let name = super::lisp_string_to_runtime_string(target);
+            let name = runtime_string_value(target);
             let Some(id) = buffers.find_buffer_by_name(&name) else {
                 return Err(signal(
                     "error",
@@ -1149,7 +1155,7 @@ fn write_terpri_output(eval: &mut super::eval::Context, target: Value) -> Result
             Ok(())
         }
         ValueKind::String => {
-            let name = super::lisp_string_to_runtime_string(target);
+            let name = runtime_string_value(target);
             let Some(id) = eval.buffers.find_buffer_by_name(&name) else {
                 return Err(signal(
                     "error",
@@ -1207,7 +1213,7 @@ fn print_value_princ_list_shorthand(
 
 pub(super) fn print_value_princ(value: &Value) -> String {
     match value.kind() {
-        ValueKind::String => super::lisp_string_to_runtime_string(*value),
+        ValueKind::String => runtime_string_value(*value),
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         ValueKind::Cons => {
             if let Some(shorthand) = print_value_princ_list_shorthand(value, &print_value_princ) {
@@ -1270,7 +1276,7 @@ pub(crate) fn print_value_princ_in_state(
         return super::error::print_value_in_state(ctx, value);
     }
     match value.kind() {
-        ValueKind::String => super::lisp_string_to_runtime_string(*value),
+        ValueKind::String => runtime_string_value(*value),
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         ValueKind::Veclike(VecLikeType::Buffer) => {
             let id = value.as_buffer_id().unwrap();
@@ -1573,7 +1579,7 @@ pub(crate) fn finish_write_char_in_eval(
         }
         ValueKind::String => {
             if let Some(text) = write_char_rendered_text(char_code) {
-                let name = super::lisp_string_to_runtime_string(target);
+                let name = runtime_string_value(target);
                 let Some(id) = eval.buffers.find_buffer_by_name(&name) else {
                     return Err(signal(
                         "error",
@@ -1628,10 +1634,7 @@ pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
     expect_min_args("propertize", &args, 1)?;
 
     let (s, multibyte) = match args[0].kind() {
-        ValueKind::String => (
-            super::lisp_string_to_runtime_string(args[0]),
-            args[0].string_is_multibyte(),
-        ),
+        ValueKind::String => (runtime_string_value(args[0]), args[0].string_is_multibyte()),
         other => {
             return Err(signal(
                 "wrong-type-argument",
