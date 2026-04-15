@@ -8,6 +8,14 @@ fn mode_symbol_opt(name: Option<&str>) -> Option<Value> {
     name.map(mode_symbol)
 }
 
+fn mode_display(text: &str) -> crate::heap_types::LispString {
+    crate::heap_types::LispString::from_utf8(text)
+}
+
+fn mode_display_opt(text: Option<&str>) -> Option<crate::heap_types::LispString> {
+    text.map(mode_display)
+}
+
 // -------------------------------------------------------------------
 // ModeRegistry basics
 // -------------------------------------------------------------------
@@ -37,7 +45,7 @@ fn register_and_set_major_mode() {
     reg.register_major_mode(
         "rust-mode",
         MajorMode {
-            pretty_name: "Rust".to_string(),
+            pretty_name: mode_display("Rust"),
             parent: mode_symbol_opt(Some("prog-mode")),
             mode_hook: mode_symbol("rust-mode-hook"),
             keymap_name: mode_symbol_opt(Some("rust-mode-map")),
@@ -67,7 +75,7 @@ fn set_major_mode_replaces_previous() {
     reg.register_major_mode(
         "text-mode",
         MajorMode {
-            pretty_name: "Text".to_string(),
+            pretty_name: mode_display("Text"),
             parent: None,
             mode_hook: mode_symbol("text-mode-hook"),
             keymap_name: None,
@@ -80,7 +88,7 @@ fn set_major_mode_replaces_previous() {
     reg.register_major_mode(
         "org-mode",
         MajorMode {
-            pretty_name: "Org".to_string(),
+            pretty_name: mode_display("Org"),
             parent: mode_symbol_opt(Some("text-mode")),
             mode_hook: mode_symbol("org-mode-hook"),
             keymap_name: None,
@@ -109,7 +117,7 @@ fn register_and_enable_minor_mode() {
     reg.register_minor_mode(
         "auto-fill-mode",
         MinorMode {
-            lighter: Some(" Fill".to_string()),
+            lighter: mode_display_opt(Some(" Fill")),
             keymap_name: None,
             global: false,
             body: None,
@@ -135,7 +143,7 @@ fn disable_minor_mode() {
     reg.register_minor_mode(
         "flycheck-mode",
         MinorMode {
-            lighter: Some(" FlyC".to_string()),
+            lighter: mode_display_opt(Some(" FlyC")),
             keymap_name: None,
             global: false,
             body: None,
@@ -156,7 +164,7 @@ fn toggle_minor_mode() {
     reg.register_minor_mode(
         "linum-mode",
         MinorMode {
-            lighter: Some(" Ln".to_string()),
+            lighter: mode_display_opt(Some(" Ln")),
             keymap_name: None,
             global: false,
             body: None,
@@ -189,7 +197,7 @@ fn active_minor_modes_lists_all() {
     reg.register_minor_mode(
         "mode-a",
         MinorMode {
-            lighter: Some(" A".to_string()),
+            lighter: mode_display_opt(Some(" A")),
             keymap_name: None,
             global: false,
             body: None,
@@ -198,7 +206,7 @@ fn active_minor_modes_lists_all() {
     reg.register_minor_mode(
         "mode-b",
         MinorMode {
-            lighter: Some(" B".to_string()),
+            lighter: mode_display_opt(Some(" B")),
             keymap_name: None,
             global: false,
             body: None,
@@ -246,7 +254,7 @@ fn global_minor_mode_active_in_all_buffers() {
     reg.register_minor_mode(
         "global-hl-line-mode",
         MinorMode {
-            lighter: Some(" HL".to_string()),
+            lighter: mode_display_opt(Some(" HL")),
             keymap_name: None,
             global: true,
             body: None,
@@ -288,7 +296,7 @@ fn global_and_buffer_local_no_duplicates() {
     reg.register_minor_mode(
         "shared-mode",
         MinorMode {
-            lighter: Some(" S".to_string()),
+            lighter: mode_display_opt(Some(" S")),
             keymap_name: None,
             global: false,
             body: None,
@@ -314,7 +322,7 @@ fn auto_mode_alist_suffix_match() {
     reg.register_major_mode(
         "rust-mode",
         MajorMode {
-            pretty_name: "Rust".to_string(),
+            pretty_name: mode_display("Rust"),
             parent: None,
             mode_hook: mode_symbol("rust-mode-hook"),
             keymap_name: None,
@@ -338,7 +346,7 @@ fn auto_mode_alist_first_match_wins() {
     reg.register_major_mode(
         "mode-a",
         MajorMode {
-            pretty_name: "A".to_string(),
+            pretty_name: mode_display("A"),
             parent: None,
             mode_hook: mode_symbol("mode-a-hook"),
             keymap_name: None,
@@ -351,7 +359,7 @@ fn auto_mode_alist_first_match_wins() {
     reg.register_major_mode(
         "mode-b",
         MajorMode {
-            pretty_name: "B".to_string(),
+            pretty_name: mode_display("B"),
             parent: None,
             mode_hook: mode_symbol("mode-b-hook"),
             keymap_name: None,
@@ -386,7 +394,7 @@ fn mode_line_string_with_minor_modes() {
     reg.register_minor_mode(
         "auto-fill-mode",
         MinorMode {
-            lighter: Some(" Fill".to_string()),
+            lighter: mode_display_opt(Some(" Fill")),
             keymap_name: None,
             global: false,
             body: None,
@@ -437,7 +445,7 @@ fn font_lock_keywords_basic() {
     reg.register_major_mode(
         "lisp-mode",
         MajorMode {
-            pretty_name: "Lisp".to_string(),
+            pretty_name: mode_display("Lisp"),
             parent: None,
             mode_hook: mode_symbol("lisp-mode-hook"),
             keymap_name: None,
@@ -472,7 +480,7 @@ fn font_lock_keywords_inherit_from_parent() {
     reg.register_major_mode(
         "prog-mode",
         MajorMode {
-            pretty_name: "Prog".to_string(),
+            pretty_name: mode_display("Prog"),
             parent: None,
             mode_hook: mode_symbol("prog-mode-hook"),
             keymap_name: None,
@@ -497,7 +505,7 @@ fn font_lock_keywords_inherit_from_parent() {
     reg.register_major_mode(
         "rust-mode",
         MajorMode {
-            pretty_name: "Rust".to_string(),
+            pretty_name: mode_display("Rust"),
             parent: mode_symbol_opt(Some("prog-mode")),
             mode_hook: mode_symbol("rust-mode-hook"),
             keymap_name: None,
@@ -586,7 +594,7 @@ fn derived_mode_p_self() {
     reg.register_major_mode(
         "text-mode",
         MajorMode {
-            pretty_name: "Text".to_string(),
+            pretty_name: mode_display("Text"),
             parent: None,
             mode_hook: mode_symbol("text-mode-hook"),
             keymap_name: None,
@@ -607,7 +615,7 @@ fn derived_mode_p_parent_chain() {
     reg.register_major_mode(
         "text-mode",
         MajorMode {
-            pretty_name: "Text".to_string(),
+            pretty_name: mode_display("Text"),
             parent: None,
             mode_hook: mode_symbol("text-mode-hook"),
             keymap_name: None,
@@ -620,7 +628,7 @@ fn derived_mode_p_parent_chain() {
     reg.register_major_mode(
         "org-mode",
         MajorMode {
-            pretty_name: "Org".to_string(),
+            pretty_name: mode_display("Org"),
             parent: mode_symbol_opt(Some("text-mode")),
             mode_hook: mode_symbol("org-mode-hook"),
             keymap_name: None,
@@ -633,7 +641,7 @@ fn derived_mode_p_parent_chain() {
     reg.register_major_mode(
         "org-journal-mode",
         MajorMode {
-            pretty_name: "Org-Journal".to_string(),
+            pretty_name: mode_display("Org-Journal"),
             parent: mode_symbol_opt(Some("org-mode")),
             mode_hook: mode_symbol("org-journal-mode-hook"),
             keymap_name: None,
@@ -657,7 +665,7 @@ fn derived_mode_p_unrelated() {
     reg.register_major_mode(
         "text-mode",
         MajorMode {
-            pretty_name: "Text".to_string(),
+            pretty_name: mode_display("Text"),
             parent: None,
             mode_hook: mode_symbol("text-mode-hook"),
             keymap_name: None,
@@ -670,7 +678,7 @@ fn derived_mode_p_unrelated() {
     reg.register_major_mode(
         "prog-mode",
         MajorMode {
-            pretty_name: "Prog".to_string(),
+            pretty_name: mode_display("Prog"),
             parent: None,
             mode_hook: mode_symbol("prog-mode-hook"),
             keymap_name: None,

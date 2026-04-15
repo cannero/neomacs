@@ -12,6 +12,7 @@ use std::collections::HashMap;
 
 use super::value::Value;
 use crate::gc_trace::GcTrace;
+use crate::heap_types::LispString;
 
 // ---------------------------------------------------------------------------
 // Font-lock
@@ -62,7 +63,7 @@ pub struct FontLockDefaults {
 /// A major mode definition.
 pub struct MajorMode {
     /// Human-readable name, e.g. "Emacs-Lisp".
-    pub pretty_name: String,
+    pub pretty_name: LispString,
     /// Parent mode this mode derives from (if any).
     pub parent: Option<Value>,
     /// Hook variable symbol, e.g. `emacs-lisp-mode-hook`.
@@ -86,7 +87,7 @@ pub struct MajorMode {
 /// A minor mode definition.
 pub struct MinorMode {
     /// Mode-line lighter string, e.g. " Fill".
-    pub lighter: Option<String>,
+    pub lighter: Option<LispString>,
     /// Symbol naming the keymap associated with this minor mode.
     pub keymap_name: Option<Value>,
     /// Whether this is a global minor mode.
@@ -168,6 +169,13 @@ fn mode_symbol_name(value: Value) -> &'static str {
         .expect("mode identity should be stored as a symbol")
 }
 
+fn mode_display_text(value: &LispString) -> String {
+    crate::emacs_core::string_escape::emacs_bytes_to_storage_string(
+        value.as_bytes(),
+        value.is_multibyte(),
+    )
+}
+
 /// Individual element in a mode-line format.
 pub enum ModeLineElement {
     /// Literal text.
@@ -235,7 +243,7 @@ impl ModeLineFormat {
                 ModeLineElement::ModeName => {
                     let mode_name = registry.get_major_mode(buffer_id);
                     if let Some(mode) = registry.major_modes.get(mode_name) {
-                        out.push_str(&mode.pretty_name);
+                        out.push_str(&mode_display_text(&mode.pretty_name));
                     } else {
                         out.push_str(mode_name);
                     }
@@ -244,7 +252,7 @@ impl ModeLineFormat {
                     for minor_name in registry.active_minor_modes(buffer_id) {
                         if let Some(mode) = registry.minor_modes.get(minor_name) {
                             if let Some(ref lighter) = mode.lighter {
-                                out.push_str(lighter);
+                                out.push_str(&mode_display_text(lighter));
                             }
                         }
                     }
@@ -572,15 +580,15 @@ impl ModeRegistry {
         let pretty = self
             .major_modes
             .get(major)
-            .map(|m| m.pretty_name.as_str())
-            .unwrap_or(major);
+            .map(|m| mode_display_text(&m.pretty_name))
+            .unwrap_or_else(|| major.to_string());
 
-        let mut parts = vec![pretty.to_string()];
+        let mut parts = vec![pretty];
 
         for minor_name in self.active_minor_modes(buffer_id) {
             if let Some(mode) = self.minor_modes.get(minor_name) {
                 if let Some(ref lighter) = mode.lighter {
-                    parts.push(lighter.clone());
+                    parts.push(mode_display_text(lighter));
                 }
             }
         }
@@ -606,7 +614,7 @@ impl ModeRegistry {
     /// Pre-register the fundamental mode.
     fn register_fundamental_mode(&mut self) {
         let mode = MajorMode {
-            pretty_name: "Fundamental".to_string(),
+            pretty_name: LispString::from_utf8("Fundamental"),
             parent: None,
             mode_hook: mode_symbol("fundamental-mode-hook"),
             keymap_name: None,

@@ -1295,7 +1295,7 @@ pub(crate) fn dump_mode_registry(encoder: &mut DumpEncoder, mr: &ModeRegistry) -
                 (
                     k.clone(),
                     DumpMajorMode {
-                        pretty_name: m.pretty_name.clone(),
+                        pretty_name: dump_lisp_string(&m.pretty_name),
                         parent: encoder.dump_opt_value(&m.parent),
                         mode_hook: encoder.dump_value(&m.mode_hook),
                         keymap_name: encoder.dump_opt_value(&m.keymap_name),
@@ -1314,7 +1314,7 @@ pub(crate) fn dump_mode_registry(encoder: &mut DumpEncoder, mr: &ModeRegistry) -
                 (
                     k.clone(),
                     DumpMinorMode {
-                        lighter: m.lighter.clone(),
+                        lighter: m.lighter.as_ref().map(dump_lisp_string),
                         keymap_name: encoder.dump_opt_value(&m.keymap_name),
                         global: m.global,
                         body: encoder.dump_opt_value(&m.body),
@@ -2769,7 +2769,7 @@ pub(crate) fn load_mode_registry(
             (
                 k.clone(),
                 MajorMode {
-                    pretty_name: m.pretty_name.clone(),
+                    pretty_name: load_lisp_string(&m.pretty_name),
                     parent: decoder.load_opt_value(&m.parent),
                     mode_hook: decoder.load_value(&m.mode_hook),
                     keymap_name: decoder.load_opt_value(&m.keymap_name),
@@ -2802,7 +2802,7 @@ pub(crate) fn load_mode_registry(
             (
                 k.clone(),
                 MinorMode {
-                    lighter: m.lighter.clone(),
+                    lighter: m.lighter.as_ref().map(load_lisp_string),
                     keymap_name: decoder.load_opt_value(&m.keymap_name),
                     global: m.global,
                     body: decoder.load_opt_value(&m.body),
