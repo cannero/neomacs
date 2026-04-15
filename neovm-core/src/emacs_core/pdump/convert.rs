@@ -2957,7 +2957,7 @@ pub(crate) fn load_charset_registry(decoder: &mut LoadDecoder, dcr: &DumpCharset
                         CharsetMethodSnapshot::Map(map_name.clone())
                     }
                     DumpCharsetMethod::Subset(subset) => CharsetMethodSnapshot::Subset(
-                        crate::emacs_core::charset::CharsetSubsetSpec {
+                        crate::emacs_core::charset::CharsetSubsetSpecSnapshot {
                             parent: subset.parent.clone(),
                             parent_min_code: subset.parent_min_code,
                             parent_max_code: subset.parent_max_code,

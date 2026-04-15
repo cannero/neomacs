@@ -1,5 +1,6 @@
 use super::*;
 use crate::emacs_core::eval::Context;
+use crate::emacs_core::intern::{intern, resolve_sym};
 use crate::emacs_core::pdump::dump_to_file;
 use crate::emacs_core::value::ValueKind;
 
@@ -37,14 +38,14 @@ fn registry_priority_list() {
     let prio = reg.priority_list();
     assert!(!prio.is_empty());
     // unicode should be the highest priority.
-    assert_eq!(prio[0], "unicode");
+    assert_eq!(resolve_sym(prio[0]), "unicode");
 }
 
 #[test]
 fn registry_plist_returns_empty_for_standard() {
     crate::test_utils::init_test_tracing();
     let reg = CharsetRegistry::new();
-    let plist = reg.plist("ascii").unwrap();
+    let plist = reg.plist(intern("ascii")).unwrap();
     assert!(plist.is_empty());
 }
 
@@ -52,7 +53,7 @@ fn registry_plist_returns_empty_for_standard() {
 fn registry_plist_none_for_unknown() {
     crate::test_utils::init_test_tracing();
     let reg = CharsetRegistry::new();
-    assert!(reg.plist("nonexistent").is_none());
+    assert!(reg.plist(intern("nonexistent")).is_none());
 }
 
 // -----------------------------------------------------------------------
@@ -149,13 +150,9 @@ fn charset_priority_list_highestp_nil() {
 fn registry_set_priority_reorders_and_dedups() {
     crate::test_utils::init_test_tracing();
     let mut reg = CharsetRegistry::new();
-    reg.set_priority(&[
-        "ascii".to_string(),
-        "unicode".to_string(),
-        "ascii".to_string(),
-    ]);
-    assert_eq!(reg.priority[0], "ascii");
-    assert_eq!(reg.priority[1], "unicode");
+    reg.set_priority(&[intern("ascii"), intern("unicode"), intern("ascii")]);
+    assert_eq!(resolve_sym(reg.priority[0]), "ascii");
+    assert_eq!(resolve_sym(reg.priority[1]), "unicode");
 }
 
 #[test]
@@ -457,22 +454,11 @@ fn charset_superset_supports_offsets_membership_and_ranges() {
     let thai_ko_kai = 'ก' as i64;
     CHARSET_REGISTRY.with(|slot| {
         let reg = slot.borrow();
-        assert_eq!(
-            reg.decode_char("thai-ascii-superset-test", 65),
-            Some('A' as i64)
-        );
-        assert_eq!(
-            reg.decode_char("thai-ascii-superset-test", 129),
-            Some(thai_ko_kai)
-        );
-        assert_eq!(
-            reg.encode_char("thai-ascii-superset-test", 'A' as i64),
-            Some(65)
-        );
-        assert_eq!(
-            reg.encode_char("thai-ascii-superset-test", thai_ko_kai),
-            Some(129)
-        );
+        let superset = intern("thai-ascii-superset-test");
+        assert_eq!(reg.decode_char(superset, 65), Some('A' as i64));
+        assert_eq!(reg.decode_char(superset, 129), Some(thai_ko_kai));
+        assert_eq!(reg.encode_char(superset, 'A' as i64), Some(65));
+        assert_eq!(reg.encode_char(superset, thai_ko_kai), Some(129));
     });
 
     assert_eq!(

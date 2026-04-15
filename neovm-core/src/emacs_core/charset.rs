@@ -9,7 +9,7 @@
 //! unicode-bmp, latin-iso8859-1, emacs, and eight-bit.
 
 use super::error::{EvalResult, Flow, signal};
-use super::intern::resolve_sym;
+use super::intern::{SymId, intern, lookup_interned, resolve_sym};
 use super::value::*;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -102,14 +102,14 @@ enum CharsetMethod {
     /// Subset of another charset
     Subset(CharsetSubsetSpec),
     /// Superset of other charsets
-    Superset(Vec<(String, i64)>),
+    Superset(Vec<(SymId, i64)>),
 }
 
 #[derive(Clone, Debug)]
 pub(crate) enum CharsetMethodSnapshot {
     Offset(i64),
     Map(String),
-    Subset(CharsetSubsetSpec),
+    Subset(CharsetSubsetSpecSnapshot),
     Superset(Vec<(String, i64)>),
 }
 
@@ -121,6 +121,14 @@ struct CharsetMapData {
 
 #[derive(Clone, Debug)]
 pub(crate) struct CharsetSubsetSpec {
+    pub parent: SymId,
+    pub parent_min_code: i64,
+    pub parent_max_code: i64,
+    pub offset: i64,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct CharsetSubsetSpecSnapshot {
     pub parent: String,
     pub parent_min_code: i64,
     pub parent_max_code: i64,
@@ -157,7 +165,7 @@ pub(crate) struct CharsetRegistrySnapshot {
 #[derive(Clone, Debug)]
 struct CharsetInfo {
     id: i64,
-    name: String,
+    name: SymId,
     dimension: i64,
     code_space: [i64; 8],
     min_code: i64,
@@ -175,9 +183,9 @@ struct CharsetInfo {
 
 /// Registry of known charsets, keyed by name.
 pub(crate) struct CharsetRegistry {
-    charsets: HashMap<String, CharsetInfo>,
+    charsets: HashMap<SymId, CharsetInfo>,
     /// Priority-ordered list of charset names.
-    priority: Vec<String>,
+    priority: Vec<SymId>,
     /// Next auto-assigned charset ID.
     next_id: i64,
 }
@@ -197,7 +205,7 @@ impl CharsetRegistry {
     fn make_default(id: i64, name: &str) -> CharsetInfo {
         CharsetInfo {
             id,
-            name: name.to_string(),
+            name: intern(name),
             dimension: 1,
             code_space: [0, 127, 0, 0, 0, 0, 0, 0],
             min_code: 0,
@@ -264,21 +272,21 @@ impl CharsetRegistry {
         iso_8859_1.method = CharsetMethod::Offset(0);
         self.register(iso_8859_1);
 
-        self.define_alias("ucs", "unicode");
+        self.define_alias(intern("ucs"), intern("unicode"));
 
         // Default priority order.
         self.priority = vec![
-            "unicode".to_string(),
-            "emacs".to_string(),
-            "ascii".to_string(),
-            "unicode-bmp".to_string(),
-            "latin-iso8859-1".to_string(),
-            "eight-bit".to_string(),
+            intern("unicode"),
+            intern("emacs"),
+            intern("ascii"),
+            intern("unicode-bmp"),
+            intern("latin-iso8859-1"),
+            intern("eight-bit"),
         ];
     }
 
     fn register(&mut self, info: CharsetInfo) {
-        self.charsets.insert(info.name.clone(), info);
+        self.charsets.insert(info.name, info);
     }
 
     /// Allocate the next auto-incrementing charset ID.
@@ -290,35 +298,42 @@ impl CharsetRegistry {
 
     /// Return true if a charset with the given name exists.
     pub fn contains(&self, name: &str) -> bool {
-        self.charsets.contains_key(name)
+        lookup_interned(name).is_some_and(|id| self.charsets.contains_key(&id))
+    }
+
+    pub fn contains_symbol(&self, name: SymId) -> bool {
+        self.charsets.contains_key(&name)
     }
 
     /// Return the list of all charset names (unordered).
     #[cfg(test)]
     pub fn names(&self) -> Vec<String> {
-        self.charsets.keys().cloned().collect()
+        self.charsets
+            .keys()
+            .map(|name| resolve_sym(*name).to_string())
+            .collect()
     }
 
     /// Return the priority-ordered list of charset names.
-    pub fn priority_list(&self) -> &[String] {
+    pub fn priority_list(&self) -> &[SymId] {
         &self.priority
     }
 
     /// Move the requested charset names to the front of the priority list
     /// (deduplicated, preserving relative order for remaining entries).
-    pub fn set_priority(&mut self, requested: &[String]) {
+    pub fn set_priority(&mut self, requested: &[SymId]) {
         let mut seen = HashSet::with_capacity(self.priority.len() + requested.len());
         let mut reordered = Vec::with_capacity(self.priority.len() + requested.len());
 
-        for name in requested {
-            if seen.insert(name.clone()) {
-                reordered.push(name.clone());
+        for &name in requested {
+            if seen.insert(name) {
+                reordered.push(name);
             }
         }
 
-        for name in &self.priority {
-            if seen.insert(name.clone()) {
-                reordered.push(name.clone());
+        for &name in &self.priority {
+            if seen.insert(name) {
+                reordered.push(name);
             }
         }
 
@@ -326,23 +341,23 @@ impl CharsetRegistry {
     }
 
     /// Return the plist for a charset, or None if not found.
-    pub fn plist(&self, name: &str) -> Option<&[(String, Value)]> {
-        self.charsets.get(name).map(|info| info.plist.as_slice())
+    pub fn plist(&self, name: SymId) -> Option<&[(String, Value)]> {
+        self.charsets.get(&name).map(|info| info.plist.as_slice())
     }
 
     /// Return the internal ID for a charset, if known.
-    pub fn id(&self, name: &str) -> Option<i64> {
-        self.charsets.get(name).map(|info| info.id)
+    pub fn id(&self, name: SymId) -> Option<i64> {
+        self.charsets.get(&name).map(|info| info.id)
     }
 
     /// Register ALIAS as another name for TARGET.
-    pub fn define_alias(&mut self, alias: &str, target: &str) {
-        let Some(target_info) = self.charsets.get(target) else {
+    pub fn define_alias(&mut self, alias: SymId, target: SymId) {
+        let Some(target_info) = self.charsets.get(&target) else {
             return;
         };
         let mut aliased = target_info.clone();
-        aliased.name = alias.to_string();
-        self.charsets.insert(alias.to_string(), aliased);
+        aliased.name = alias;
+        self.charsets.insert(alias, aliased);
     }
 
     fn snapshot(&self) -> CharsetRegistrySnapshot {
@@ -352,7 +367,7 @@ impl CharsetRegistry {
             .cloned()
             .map(|info| CharsetInfoSnapshot {
                 id: info.id,
-                name: info.name,
+                name: resolve_sym(info.name).to_string(),
                 dimension: info.dimension,
                 code_space: info.code_space,
                 min_code: info.min_code,
@@ -370,11 +385,19 @@ impl CharsetRegistry {
                         CharsetMethodSnapshot::Map(map_name.clone())
                     }
                     CharsetMethod::Subset(ref subset) => {
-                        CharsetMethodSnapshot::Subset(subset.clone())
+                        CharsetMethodSnapshot::Subset(CharsetSubsetSpecSnapshot {
+                            parent: resolve_sym(subset.parent).to_string(),
+                            parent_min_code: subset.parent_min_code,
+                            parent_max_code: subset.parent_max_code,
+                            offset: subset.offset,
+                        })
                     }
-                    CharsetMethod::Superset(ref members) => {
-                        CharsetMethodSnapshot::Superset(members.clone())
-                    }
+                    CharsetMethod::Superset(ref members) => CharsetMethodSnapshot::Superset(
+                        members
+                            .iter()
+                            .map(|(name, offset)| (resolve_sym(*name).to_string(), *offset))
+                            .collect(),
+                    ),
                 },
                 plist: info.plist,
             })
@@ -383,7 +406,11 @@ impl CharsetRegistry {
 
         CharsetRegistrySnapshot {
             charsets,
-            priority: self.priority.clone(),
+            priority: self
+                .priority
+                .iter()
+                .map(|name| resolve_sym(*name).to_string())
+                .collect(),
             next_id: self.next_id,
         }
     }
@@ -391,11 +418,12 @@ impl CharsetRegistry {
     fn restore(snapshot: CharsetRegistrySnapshot) -> Self {
         let mut charsets = HashMap::with_capacity(snapshot.charsets.len());
         for info in snapshot.charsets {
+            let name = intern(&info.name);
             charsets.insert(
-                info.name.clone(),
+                name,
                 CharsetInfo {
                     id: info.id,
-                    name: info.name,
+                    name,
                     dimension: info.dimension,
                     code_space: info.code_space,
                     min_code: info.min_code,
@@ -410,10 +438,20 @@ impl CharsetRegistry {
                     method: match info.method {
                         CharsetMethodSnapshot::Offset(offset) => CharsetMethod::Offset(offset),
                         CharsetMethodSnapshot::Map(map_name) => CharsetMethod::Map(map_name),
-                        CharsetMethodSnapshot::Subset(subset) => CharsetMethod::Subset(subset),
-                        CharsetMethodSnapshot::Superset(members) => {
-                            CharsetMethod::Superset(members)
+                        CharsetMethodSnapshot::Subset(subset) => {
+                            CharsetMethod::Subset(CharsetSubsetSpec {
+                                parent: intern(&subset.parent),
+                                parent_min_code: subset.parent_min_code,
+                                parent_max_code: subset.parent_max_code,
+                                offset: subset.offset,
+                            })
                         }
+                        CharsetMethodSnapshot::Superset(members) => CharsetMethod::Superset(
+                            members
+                                .into_iter()
+                                .map(|(name, offset)| (intern(&name), offset))
+                                .collect(),
+                        ),
                     },
                     plist: info.plist,
                 },
@@ -422,19 +460,23 @@ impl CharsetRegistry {
 
         Self {
             charsets,
-            priority: snapshot.priority,
+            priority: snapshot
+                .priority
+                .into_iter()
+                .map(|name| intern(&name))
+                .collect(),
             next_id: snapshot.next_id,
         }
     }
 
     /// Replace the plist for a charset.
-    pub fn set_plist(&mut self, name: &str, plist: Vec<(String, Value)>) {
-        if let Some(info) = self.charsets.get_mut(name) {
+    pub fn set_plist(&mut self, name: SymId, plist: Vec<(String, Value)>) {
+        if let Some(info) = self.charsets.get_mut(&name) {
             info.plist = plist;
         }
     }
 
-    fn superset_members(info: &CharsetInfo) -> Vec<(String, i64)> {
+    fn superset_members(info: &CharsetInfo) -> Vec<(SymId, i64)> {
         match &info.method {
             CharsetMethod::Superset(members) => members.clone(),
             _ => Vec::new(),
@@ -444,8 +486,8 @@ impl CharsetRegistry {
     /// Decode a code-point in the given charset to an Emacs internal
     /// character code.  Returns `None` when the code-point is outside
     /// the charset's valid range or the charset method cannot handle it.
-    pub fn decode_char(&self, name: &str, code_point: i64) -> Option<i64> {
-        let info = self.charsets.get(name)?;
+    pub fn decode_char(&self, name: SymId, code_point: i64) -> Option<i64> {
+        let info = self.charsets.get(&name)?;
         // Check code-point is within charset's valid range.
         if code_point < info.min_code || code_point > info.max_code {
             return None;
@@ -465,14 +507,14 @@ impl CharsetRegistry {
                 if parent_code < subset.parent_min_code || parent_code > subset.parent_max_code {
                     None
                 } else {
-                    self.decode_char(&subset.parent, parent_code)
+                    self.decode_char(subset.parent, parent_code)
                 }
             }
             CharsetMethod::Superset(_) => {
                 Self::superset_members(info)
                     .into_iter()
                     .find_map(|(parent_name, code_offset)| {
-                        self.decode_char(&parent_name, code_point - code_offset)
+                        self.decode_char(parent_name, code_point - code_offset)
                     })
             }
         }
@@ -481,8 +523,8 @@ impl CharsetRegistry {
     /// Encode an Emacs internal character code back to a code-point in
     /// the given charset.  Returns `None` when the character cannot be
     /// represented in the charset.
-    pub fn encode_char(&self, name: &str, ch: i64) -> Option<i64> {
-        let info = self.charsets.get(name)?;
+    pub fn encode_char(&self, name: SymId, ch: i64) -> Option<i64> {
+        let info = self.charsets.get(&name)?;
         if let Some(unify_map) = info.unify_map.as_deref()
             && let Some(encoded) =
                 load_charset_map(unify_map).and_then(|map| map.char_to_code.get(&ch).copied())
@@ -502,7 +544,7 @@ impl CharsetRegistry {
                 load_charset_map(map_name).and_then(|map| map.char_to_code.get(&ch).copied())
             }
             CharsetMethod::Subset(subset) => {
-                let parent_code = self.encode_char(&subset.parent, ch)?;
+                let parent_code = self.encode_char(subset.parent, ch)?;
                 if parent_code < subset.parent_min_code || parent_code > subset.parent_max_code {
                     None
                 } else {
@@ -513,7 +555,7 @@ impl CharsetRegistry {
                 Self::superset_members(info)
                     .into_iter()
                     .find_map(|(parent_name, code_offset)| {
-                        self.encode_char(&parent_name, ch)
+                        self.encode_char(parent_name, ch)
                             .map(|code| code + code_offset)
                     })
             }
@@ -566,13 +608,16 @@ pub(crate) fn restore_charset_registry(snapshot: CharsetRegistrySnapshot) {
 
 /// Set the plist for a charset (used by `set-charset-plist` builtin).
 pub(crate) fn set_charset_plist_registry(name: &str, plist: Vec<(String, Value)>) {
-    CHARSET_REGISTRY.with(|slot| slot.borrow_mut().set_plist(name, plist));
+    if let Some(name) = lookup_interned(name) {
+        CHARSET_REGISTRY.with(|slot| slot.borrow_mut().set_plist(name, plist));
+    }
 }
 
 pub(crate) fn charset_target_ranges(name: &str) -> Option<Vec<(u32, u32)>> {
     CHARSET_REGISTRY.with(|slot| {
         let reg = slot.borrow();
-        let info = reg.charsets.get(name)?;
+        let name = lookup_interned(name)?;
+        let info = reg.charsets.get(&name)?;
         match info.method {
             CharsetMethod::Offset(offset) => {
                 let from = info.min_code.checked_add(offset)?;
@@ -591,7 +636,7 @@ pub(crate) fn charset_target_ranges(name: &str) -> Option<Vec<(u32, u32)>> {
             }
             CharsetMethod::Subset(ref subset) => {
                 let values = (subset.parent_min_code..=subset.parent_max_code)
-                    .filter_map(|parent_code| reg.decode_char(&subset.parent, parent_code))
+                    .filter_map(|parent_code| reg.decode_char(subset.parent, parent_code))
                     .filter_map(|ch| u32::try_from(ch).ok())
                     .collect();
                 coalesce_u32_ranges(values)
@@ -599,7 +644,7 @@ pub(crate) fn charset_target_ranges(name: &str) -> Option<Vec<(u32, u32)>> {
             CharsetMethod::Superset(_) => {
                 let mut values = Vec::new();
                 for (parent_name, _) in CharsetRegistry::superset_members(info) {
-                    let ranges = charset_target_ranges(&parent_name)?;
+                    let ranges = charset_target_ranges(resolve_sym(parent_name))?;
                     for (from, to) in ranges {
                         values.extend(from..=to);
                     }
@@ -617,7 +662,8 @@ pub(crate) fn charset_exists(name: &str) -> bool {
 pub(crate) fn charset_contains_char(name: &str, ch: u32) -> Option<bool> {
     CHARSET_REGISTRY.with(|slot| {
         let reg = slot.borrow();
-        reg.charsets.get(name)?;
+        let name = lookup_interned(name)?;
+        reg.charsets.get(&name)?;
         Some(reg.encode_char(name, i64::from(ch)).is_some())
     })
 }
@@ -669,9 +715,9 @@ fn expect_int_or_marker(value: &Value) -> Result<i64, Flow> {
     }
 }
 
-fn require_known_charset(value: &Value) -> Result<String, Flow> {
+fn require_known_charset(value: &Value) -> Result<SymId, Flow> {
     let name = match value.kind() {
-        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
+        ValueKind::Symbol(id) => id,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -679,13 +725,13 @@ fn require_known_charset(value: &Value) -> Result<String, Flow> {
             ));
         }
     };
-    let known = CHARSET_REGISTRY.with(|slot| slot.borrow().contains(&name));
+    let known = CHARSET_REGISTRY.with(|slot| slot.borrow().contains_symbol(name));
     if known {
         Ok(name)
     } else {
         Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("charsetp"), Value::symbol(name)],
+            vec![Value::symbol("charsetp"), Value::from_sym_id(name)],
         ))
     }
 }
@@ -763,23 +809,23 @@ fn parse_subset_spec(value: &Value) -> Option<CharsetSubsetSpec> {
         return None;
     }
     Some(CharsetSubsetSpec {
-        parent: charset_value_text(&items[0])?,
+        parent: items[0].as_symbol_id()?,
         parent_min_code: decode_code_arg(&items[1]),
         parent_max_code: decode_code_arg(&items[2]),
         offset: int_or_zero(&items[3]),
     })
 }
 
-fn parse_superset_spec(value: &Value) -> Option<Vec<(String, i64)>> {
+fn parse_superset_spec(value: &Value) -> Option<Vec<(SymId, i64)>> {
     let items = list_to_vec(value)?;
     let members = items
         .into_iter()
         .map(|item| match item.kind() {
-            ValueKind::Symbol(id) => Some((resolve_sym(id).to_string(), 0)),
+            ValueKind::Symbol(id) => Some((id, 0)),
             ValueKind::Cons => {
                 let car = item.cons_car();
                 let cdr = item.cons_cdr();
-                let name = car.as_symbol_name()?.to_string();
+                let name = car.as_symbol_id()?;
                 Some((name, int_or_zero(&cdr)))
             }
             _ => None,
@@ -797,10 +843,10 @@ fn parse_superset_spec(value: &Value) -> Option<Vec<(String, i64)>> {
 pub(crate) fn builtin_charsetp(args: Vec<Value>) -> EvalResult {
     expect_args("charsetp", &args, 1)?;
     let name = match args[0].kind() {
-        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
+        ValueKind::Symbol(id) => id,
         _ => return Ok(Value::NIL),
     };
-    let found = CHARSET_REGISTRY.with(|slot| slot.borrow().contains(&name));
+    let found = CHARSET_REGISTRY.with(|slot| slot.borrow().contains_symbol(name));
     Ok(Value::bool_val(found))
 }
 
@@ -812,7 +858,7 @@ pub(crate) fn builtin_charset_list(args: Vec<Value>) -> EvalResult {
         slot.borrow()
             .priority_list()
             .iter()
-            .map(|name| Value::symbol(name.clone()))
+            .map(|name| Value::from_sym_id(*name))
             .collect()
     });
     Ok(Value::list(names))
@@ -836,12 +882,12 @@ pub(crate) fn builtin_charset_priority_list(args: Vec<Value>) -> EvalResult {
         let priority = reg.priority_list();
         if highestp {
             if let Some(first) = priority.first() {
-                Ok(Value::list(vec![Value::symbol(first.clone())]))
+                Ok(Value::list(vec![Value::from_sym_id(*first)]))
             } else {
                 Ok(Value::NIL)
             }
         } else {
-            let syms: Vec<Value> = priority.iter().map(|s| Value::symbol(s.clone())).collect();
+            let syms: Vec<Value> = priority.iter().map(|s| Value::from_sym_id(*s)).collect();
             Ok(Value::list(syms))
         }
     })
@@ -854,7 +900,7 @@ pub(crate) fn builtin_set_charset_priority(args: Vec<Value>) -> EvalResult {
     let mut requested = Vec::with_capacity(args.len());
     for arg in &args {
         let name = match arg.kind() {
-            ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
+            ValueKind::Symbol(id) => id,
             _ => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -862,7 +908,7 @@ pub(crate) fn builtin_set_charset_priority(args: Vec<Value>) -> EvalResult {
                 ));
             }
         };
-        let known = CHARSET_REGISTRY.with(|slot| slot.borrow().contains(&name));
+        let known = CHARSET_REGISTRY.with(|slot| slot.borrow().contains_symbol(name));
         if !known {
             return Err(signal(
                 "wrong-type-argument",
@@ -900,7 +946,7 @@ pub(crate) fn builtin_charset_plist(args: Vec<Value>) -> EvalResult {
     let name = require_known_charset(&args[0])?;
     CHARSET_REGISTRY.with(|slot| {
         let reg = slot.borrow();
-        if let Some(pairs) = reg.plist(&name) {
+        if let Some(pairs) = reg.plist(name) {
             let mut elems = Vec::with_capacity(pairs.len() * 2);
             for (key, val) in pairs {
                 elems.push(Value::symbol(key.clone()));
@@ -910,7 +956,7 @@ pub(crate) fn builtin_charset_plist(args: Vec<Value>) -> EvalResult {
         } else {
             Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("charsetp"), Value::symbol(name)],
+                vec![Value::symbol("charsetp"), Value::from_sym_id(name)],
             ))
         }
     })
@@ -921,7 +967,7 @@ pub(crate) fn builtin_charset_id_internal(args: Vec<Value>) -> EvalResult {
     expect_max_args("charset-id-internal", &args, 1)?;
     let arg = args.first().cloned().unwrap_or(Value::NIL);
     let name = match arg.kind() {
-        ValueKind::Symbol(id) => resolve_sym(id),
+        ValueKind::Symbol(id) => id,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -937,7 +983,7 @@ pub(crate) fn builtin_charset_id_internal(args: Vec<Value>) -> EvalResult {
         } else {
             Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("charsetp"), Value::symbol(name)],
+                vec![Value::symbol("charsetp"), Value::from_sym_id(name)],
             ))
         }
     })
@@ -1028,7 +1074,7 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
 
     // arg[0]: name (symbol)
     let name = match args[0].kind() {
-        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
+        ValueKind::Symbol(id) => id,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1166,7 +1212,7 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
 
         let info = CharsetInfo {
             id,
-            name: name.clone(),
+            name,
             dimension,
             code_space,
             min_code,
@@ -1331,8 +1377,7 @@ pub(crate) fn builtin_define_charset_alias(args: Vec<Value>) -> EvalResult {
     expect_args("define-charset-alias", &args, 2)?;
     let target = require_known_charset(&args[1])?;
     if let Some(id) = args[0].as_symbol_id() {
-        let alias = resolve_sym(id);
-        CHARSET_REGISTRY.with(|slot| slot.borrow_mut().define_alias(alias, &target));
+        CHARSET_REGISTRY.with(|slot| slot.borrow_mut().define_alias(id, target));
     }
     Ok(Value::NIL)
 }
@@ -1374,7 +1419,7 @@ pub(crate) fn builtin_decode_char(args: Vec<Value>) -> EvalResult {
     let name = require_known_charset(&args[0])?;
     let code_point = decode_char_codepoint_arg(&args[1])?;
 
-    let decoded = CHARSET_REGISTRY.with(|slot| slot.borrow().decode_char(&name, code_point));
+    let decoded = CHARSET_REGISTRY.with(|slot| slot.borrow().decode_char(name, code_point));
 
     Ok(decoded.map_or(Value::NIL, Value::fixnum))
 }
@@ -1388,7 +1433,7 @@ pub(crate) fn builtin_encode_char(args: Vec<Value>) -> EvalResult {
     let ch = encode_char_input(&args[0])?;
     let name = require_known_charset(&args[1])?;
 
-    let encoded = CHARSET_REGISTRY.with(|slot| slot.borrow().encode_char(&name, ch));
+    let encoded = CHARSET_REGISTRY.with(|slot| slot.borrow().encode_char(name, ch));
 
     Ok(encoded.map_or(Value::NIL, Value::fixnum))
 }
