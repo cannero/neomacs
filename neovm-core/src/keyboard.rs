@@ -2554,7 +2554,7 @@ impl crate::emacs_core::eval::Context {
                         frame.width,
                         frame.height,
                         frame.effective_window_system(),
-                        frame.parameters.get("window-system").copied()
+                        frame.parameter("window-system")
                     );
                 }
             }
@@ -2579,7 +2579,7 @@ impl crate::emacs_core::eval::Context {
                         frame.width,
                         frame.height,
                         frame.effective_window_system(),
-                        frame.parameters.get("window-system").copied()
+                        frame.parameter("window-system")
                     );
                 }
             }

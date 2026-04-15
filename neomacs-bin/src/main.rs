@@ -1367,12 +1367,12 @@ fn sync_selected_gui_chrome_state(eval: &mut Context) {
         if frame.effective_window_system().is_none() {
             return;
         }
-        frame.parameters.insert(
-            "menu-bar-lines".to_string(),
+        frame.set_parameter(
+            "menu-bar-lines",
             Value::fixnum(if menu_items.is_empty() { 0 } else { 1 }),
         );
-        frame.parameters.insert(
-            "tool-bar-lines".to_string(),
+        frame.set_parameter(
+            "tool-bar-lines",
             Value::fixnum(if tool_items.is_empty() { 0 } else { 1 }),
         );
         frame.sync_menu_bar_height_from_parameters();
@@ -2174,20 +2174,10 @@ fn bootstrap_buffers(
         } else {
             frame.set_window_system(None);
         }
-        frame.parameters.insert(
-            "display-type".to_string(),
-            Value::symbol(display.display_type_symbol()),
-        );
-        frame.parameters.insert(
-            "background-mode".to_string(),
-            Value::symbol(display.background_mode),
-        );
-        frame
-            .parameters
-            .insert("font".to_string(), default_font_name);
-        frame
-            .parameters
-            .insert("font-parameter".to_string(), default_font);
+        frame.set_parameter("display-type", Value::symbol(display.display_type_symbol()));
+        frame.set_parameter("background-mode", Value::symbol(display.background_mode));
+        frame.set_parameter("font", default_font_name);
+        frame.set_parameter("font-parameter", default_font);
         // GNU frame.c: initial frame title is NULL (unset). The %F
         // mode-line construct falls through to frame->name ("F1") when
         // title is unset. Don't set a title here — let %F show the
@@ -2219,10 +2209,7 @@ fn bootstrap_buffers(
         // `neomacs-display-runtime`) and never goes through this code,
         // so we only need to set the parameter for `FrontendKind::Tty`.
         if display.frontend == FrontendKind::Tty {
-            frame.parameters.insert(
-                "menu-bar-lines".to_string(),
-                neovm_core::emacs_core::Value::fixnum(1),
-            );
+            frame.set_parameter("menu-bar-lines", neovm_core::emacs_core::Value::fixnum(1));
         }
         frame.sync_menu_bar_height_from_parameters();
         frame.sync_tool_bar_height_from_parameters();
@@ -2408,7 +2395,7 @@ fn ensure_gnu_startup_terminal_frame(eval: &mut Context, opening_frame_id: Frame
             (
                 frame.width.max(1),
                 frame.height.max(1),
-                frame.parameters.get("environment").copied(),
+                frame.parameter("environment"),
             )
         })
         .unwrap_or((80, 25, None));
@@ -2418,12 +2405,10 @@ fn ensure_gnu_startup_terminal_frame(eval: &mut Context, opening_frame_id: Frame
     if let Some(frame) = eval.frame_manager_mut().get_mut(terminal_frame_id) {
         frame.visible = false;
         frame.set_window_system(None);
-        frame.parameters.remove("display-type");
-        frame.parameters.remove("background-mode");
+        frame.remove_parameter("display-type");
+        frame.remove_parameter("background-mode");
         if let Some(environment) = environment {
-            frame
-                .parameters
-                .insert("environment".to_string(), environment);
+            frame.set_parameter("environment", environment);
         }
     }
     terminal_frame_id

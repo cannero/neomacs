@@ -1904,9 +1904,7 @@ fn vm_frame_native_metrics_sync_pending_resize_events() {
             let frame = eval.frames.get_mut(fid).expect("frame should exist");
             frame.width = 960;
             frame.height = 640;
-            frame
-                .parameters
-                .insert("window-system".to_string(), Value::symbol("x"));
+            frame.set_parameter("window-system", Value::symbol("x"));
 
             let (tx, rx) = crossbeam_channel::unbounded();
             eval.input_rx = Some(rx);
@@ -2091,9 +2089,7 @@ fn vm_x_create_frame_syncs_pending_resize_before_adopting_opening_gui_frame() {
             let fid = eval.frames.create_frame("bootstrap", 960, 640, scratch);
             {
                 let frame = eval.frames.get_mut(fid).expect("bootstrap frame");
-                frame
-                    .parameters
-                    .insert("window-system".to_string(), Value::symbol("x"));
+                frame.set_parameter("window-system", Value::symbol("x"));
                 frame.char_width = 10.0;
                 frame.char_height = 20.0;
                 if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
@@ -2176,9 +2172,7 @@ fn vm_x_create_frame_prefers_display_host_primary_window_size_when_available() {
             let fid = eval.frames.create_frame("bootstrap", 960, 640, scratch);
             {
                 let frame = eval.frames.get_mut(fid).expect("bootstrap frame");
-                frame
-                    .parameters
-                    .insert("window-system".to_string(), Value::symbol("x"));
+                frame.set_parameter("window-system", Value::symbol("x"));
                 frame.char_width = 10.0;
                 frame.char_height = 20.0;
                 if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {

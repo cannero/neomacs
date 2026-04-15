@@ -189,8 +189,7 @@ fn effective_buffer_value(buffer: &Buffer, obarray: &Obarray, name: &str) -> Opt
 
 fn frame_parameter_int(frame: &Frame, name: &str, default: i64) -> i64 {
     frame
-        .parameters
-        .get(name)
+        .parameter(name)
         .and_then(|v| v.as_int())
         .unwrap_or(default)
 }
@@ -268,8 +267,7 @@ fn global_bool(obarray: &Obarray, name: &str) -> bool {
 
 fn frame_total_cols(frame: &Frame) -> i64 {
     frame
-        .parameters
-        .get("width")
+        .parameter("width")
         .and_then(|value| value.as_int())
         .unwrap_or(frame.columns() as i64)
 }
@@ -468,9 +466,8 @@ fn parse_cursor_spec(value: &Value) -> Option<CursorSpec> {
 fn frame_cursor_spec(frame: &Frame) -> CursorSpec {
     use neomacs_display_protocol::frame_glyphs::CursorKind;
     frame
-        .parameters
-        .get("cursor-type")
-        .and_then(parse_cursor_spec)
+        .parameter("cursor-type")
+        .and_then(|value| parse_cursor_spec(&value))
         .unwrap_or(CursorSpec {
             cursor_kind: CursorKind::FilledBox,
             bar_width: 1,
@@ -488,9 +485,8 @@ fn default_cursor_color_pixel(face_table: &FaceTable) -> u32 {
 
 fn frame_cursor_color_pixel(frame: &Frame, face_table: &FaceTable) -> u32 {
     frame
-        .parameters
-        .get("cursor-color")
-        .and_then(parse_color_pixel)
+        .parameter("cursor-color")
+        .and_then(|value| parse_color_pixel(&value))
         .unwrap_or_else(|| default_cursor_color_pixel(face_table))
 }
 

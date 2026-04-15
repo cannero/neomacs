@@ -1195,10 +1195,8 @@ fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_defa
             .get_mut(frame_id)
             .expect("selected frame");
         frame.window_system = Some(Value::symbol("neo"));
-        frame.parameters.insert("font".to_string(), font_name);
-        frame
-            .parameters
-            .insert("font-parameter".to_string(), font_object);
+        frame.set_parameter("font", font_name);
+        frame.set_parameter("font-parameter", font_object);
     }
 
     builtin_internal_set_lisp_face_attribute(
@@ -1345,16 +1343,11 @@ fn internal_set_lisp_face_attribute_eval_realizes_string_font_requests_for_live_
         .get(frame_id)
         .expect("selected frame after font change");
     assert_eq!(
-        frame
-            .parameters
-            .get("font")
-            .and_then(|value| value.as_str()),
+        frame.parameter("font").and_then(|value| value.as_str()),
         Some("Noto Sans Mono-16")
     );
     let font_parameter = frame
-        .parameters
-        .get("font-parameter")
-        .copied()
+        .parameter("font-parameter")
         .expect("font-parameter should be set");
     assert!(
         builtin_fontp(vec![font_parameter, Value::symbol("font-object")])

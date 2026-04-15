@@ -2852,7 +2852,7 @@ fn frame_query_builtins_use_internal_window_system_state() {
     {
         let frame = ev.frames.get_mut(fid).expect("gui frame");
         frame.set_window_system(Some(Value::symbol("x")));
-        frame.parameters.remove("window-system");
+        frame.remove_parameter("window-system");
     }
 
     assert_eq!(
@@ -3165,8 +3165,7 @@ fn x_create_frame_creates_live_frame_and_preserves_char_geometry_params() {
     ev.frames
         .get_mut(fid)
         .expect("bootstrap frame")
-        .parameters
-        .insert("window-system".to_string(), Value::symbol("x"));
+        .set_parameter("window-system", Value::symbol("x"));
 
     let params = Value::list(vec![
         Value::cons(Value::symbol("name"), Value::string("GUI")),
@@ -3185,8 +3184,8 @@ fn x_create_frame_creates_live_frame_and_preserves_char_geometry_params() {
     let frame = ev.frames.get(created_id).expect("created frame");
     assert_eq!(ev.frames.frame_list().len(), 2);
     assert_eq!(frame.name_runtime_string_owned(), "GUI");
-    assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(80)));
-    assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(25)));
+    assert_eq!(frame.parameter("width"), Some(Value::fixnum(80)));
+    assert_eq!(frame.parameter("height"), Some(Value::fixnum(25)));
     assert!(!frame.visible);
     assert_eq!(frame.char_width, 8.0);
     assert_eq!(frame.char_height, 16.0);
@@ -3200,9 +3199,7 @@ fn x_create_frame_creates_opening_frame_and_notifies_host() {
     let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
     {
         let frame = ev.frames.get_mut(fid).expect("bootstrap frame");
-        frame
-            .parameters
-            .insert("window-system".to_string(), Value::symbol("x"));
+        frame.set_parameter("window-system", Value::symbol("x"));
         if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
             mini_leaf.set_bounds(crate::window::Rect::new(0.0, 608.0, 960.0, 32.0));
         }
@@ -3228,8 +3225,8 @@ fn x_create_frame_creates_opening_frame_and_notifies_host() {
     assert_ne!(created_id, fid);
     assert_eq!(ev.frames.frame_list().len(), 2);
     let frame = ev.frames.get(created_id).expect("created opening frame");
-    assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(80)));
-    assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(25)));
+    assert_eq!(frame.parameter("width"), Some(Value::fixnum(80)));
+    assert_eq!(frame.parameter("height"), Some(Value::fixnum(25)));
     let requests = requests.borrow();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].frame_id, created_id);
@@ -3251,8 +3248,7 @@ fn x_create_frame_reserves_tab_bar_space_above_root_window() {
     ev.frames
         .get_mut(fid)
         .expect("bootstrap frame")
-        .parameters
-        .insert("window-system".to_string(), Value::symbol("x"));
+        .set_parameter("window-system", Value::symbol("x"));
 
     let params = Value::list(vec![
         Value::cons(Value::symbol("name"), Value::string("GUI")),
@@ -3337,9 +3333,7 @@ fn x_create_frame_syncs_pending_resize_before_adopting_opening_gui_frame() {
     let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
     {
         let frame = ev.frames.get_mut(fid).expect("bootstrap frame");
-        frame
-            .parameters
-            .insert("window-system".to_string(), Value::symbol("x"));
+        frame.set_parameter("window-system", Value::symbol("x"));
         frame.char_width = 10.0;
         frame.char_height = 20.0;
         if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
@@ -3396,9 +3390,7 @@ fn x_create_frame_prefers_display_host_primary_window_size_without_explicit_geom
     let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
     {
         let frame = ev.frames.get_mut(fid).expect("bootstrap frame");
-        frame
-            .parameters
-            .insert("window-system".to_string(), Value::symbol("x"));
+        frame.set_parameter("window-system", Value::symbol("x"));
         frame.char_width = 10.0;
         frame.char_height = 20.0;
         if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
@@ -3521,8 +3513,7 @@ fn framep_returns_window_system_symbol_for_gui_frames() {
     ev.frames
         .get_mut(frame_id)
         .expect("selected frame")
-        .parameters
-        .insert("window-system".to_string(), Value::symbol("x"));
+        .set_parameter("window-system", Value::symbol("x"));
 
     let result = super::builtin_framep(&mut ev, vec![Value::make_frame(frame_id.0)]).unwrap();
     assert_eq!(result, Value::symbol("x"));
@@ -3692,8 +3683,8 @@ fn modify_frame_parameters_width_height_preserve_pixel_dimensions() {
     let frame = ev.frames.get(fid).expect("frame should exist");
     assert_eq!(frame.width, 800);
     assert_eq!(frame.height, 600);
-    assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(80)));
-    assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(25)));
+    assert_eq!(frame.parameter("width"), Some(Value::fixnum(80)));
+    assert_eq!(frame.parameter("height"), Some(Value::fixnum(25)));
 }
 
 #[test]
@@ -3737,8 +3728,8 @@ fn modify_frame_parameters_width_height_resizes_live_gui_frame() {
     let frame = ev.frames.get(fid).expect("frame should exist");
     assert_eq!(frame.width, 664);
     assert_eq!(frame.height, 400);
-    assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(80)));
-    assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(25)));
+    assert_eq!(frame.parameter("width"), Some(Value::fixnum(80)));
+    assert_eq!(frame.parameter("height"), Some(Value::fixnum(25)));
 }
 
 #[test]
@@ -3796,8 +3787,8 @@ fn modify_frame_parameters_after_live_font_change_defers_gui_resize_until_geomet
         let frame = ev.frames.get(fid).expect("frame should exist");
         assert_eq!(frame.width, 800);
         assert_eq!(frame.height, 600);
-        assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(80)));
-        assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(25)));
+        assert_eq!(frame.parameter("width"), Some(Value::fixnum(80)));
+        assert_eq!(frame.parameter("height"), Some(Value::fixnum(25)));
         assert_eq!(frame.char_width, 13.0);
         assert_eq!(frame.char_height, 31.0);
         80 * 13 + frame.horizontal_non_text_width()
@@ -4014,11 +4005,11 @@ fn set_frame_size_builtins_preserve_pixel_dimensions() {
     let frame = ev.frames.get(fid).expect("frame should exist");
     assert_eq!(frame.width, 800);
     assert_eq!(frame.height, 600);
-    assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(100)));
-    assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(36)));
+    assert_eq!(frame.parameter("width"), Some(Value::fixnum(100)));
+    assert_eq!(frame.parameter("height"), Some(Value::fixnum(36)));
     assert_eq!(
-        frame.parameters.get("neovm--frame-text-lines"),
-        Some(&Value::fixnum(35))
+        frame.parameter("neovm--frame-text-lines"),
+        Some(Value::fixnum(35))
     );
 }
 
@@ -4030,9 +4021,7 @@ fn set_frame_size_builtins_resize_live_gui_frames_and_notify_host() {
     let fid = ev.frames.create_frame("F1", 800, 600, buf);
     {
         let frame = ev.frames.get_mut(fid).expect("frame should exist");
-        frame
-            .parameters
-            .insert("window-system".to_string(), Value::symbol("x"));
+        frame.set_parameter("window-system", Value::symbol("x"));
     }
     let host = RecordingDisplayHost::new();
     let resized = host.resized.clone();
@@ -4048,9 +4037,9 @@ fn set_frame_size_builtins_resize_live_gui_frames_and_notify_host() {
     let frame = ev.frames.get(fid).expect("frame should exist");
     assert_eq!(frame.width, 800);
     assert_eq!(frame.height, 600);
-    assert_eq!(frame.parameters.get("width"), None);
-    assert_eq!(frame.parameters.get("height"), None);
-    assert_eq!(frame.parameters.get("neovm--frame-text-lines"), None);
+    assert_eq!(frame.parameter("width"), None);
+    assert_eq!(frame.parameter("height"), None);
+    assert_eq!(frame.parameter("neovm--frame-text-lines"), None);
 
     let requests = resized.borrow();
     assert_eq!(requests.len(), 1);
@@ -4076,11 +4065,11 @@ fn set_frame_size_builtins_resize_live_gui_frames_and_notify_host() {
         .expect("frame should exist after host ack");
     assert_eq!(frame.width, 824);
     assert_eq!(frame.height, 560);
-    assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(100)));
-    assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(35)));
+    assert_eq!(frame.parameter("width"), Some(Value::fixnum(100)));
+    assert_eq!(frame.parameter("height"), Some(Value::fixnum(35)));
     assert_eq!(
-        frame.parameters.get("neovm--frame-text-lines"),
-        Some(&Value::fixnum(34))
+        frame.parameter("neovm--frame-text-lines"),
+        Some(Value::fixnum(34))
     );
 }
 
@@ -4093,20 +4082,12 @@ fn set_frame_size_syncs_resize_event_before_followup_frame_width_queries() {
     let fid = ev.frames.create_frame("F1", 1300, 1188, buf);
     {
         let frame = ev.frames.get_mut(fid).expect("frame should exist");
-        frame
-            .parameters
-            .insert("window-system".to_string(), Value::symbol("x"));
+        frame.set_parameter("window-system", Value::symbol("x"));
         frame.char_width = 16.0;
         frame.char_height = 33.0;
-        frame
-            .parameters
-            .insert("width".to_string(), Value::fixnum(79));
-        frame
-            .parameters
-            .insert("height".to_string(), Value::fixnum(36));
-        frame
-            .parameters
-            .insert("neovm--frame-text-lines".to_string(), Value::fixnum(35));
+        frame.set_parameter("width", Value::fixnum(79));
+        frame.set_parameter("height", Value::fixnum(36));
+        frame.set_parameter("neovm--frame-text-lines", Value::fixnum(35));
     }
 
     let host = RecordingDisplayHost::new();
@@ -4155,20 +4136,12 @@ fn set_frame_size_keeps_resize_pending_until_geometry_queries_force_sync() {
     let fid = ev.frames.create_frame("F1", 1300, 1188, buf);
     {
         let frame = ev.frames.get_mut(fid).expect("frame should exist");
-        frame
-            .parameters
-            .insert("window-system".to_string(), Value::symbol("x"));
+        frame.set_parameter("window-system", Value::symbol("x"));
         frame.char_width = 16.0;
         frame.char_height = 33.0;
-        frame
-            .parameters
-            .insert("width".to_string(), Value::fixnum(79));
-        frame
-            .parameters
-            .insert("height".to_string(), Value::fixnum(36));
-        frame
-            .parameters
-            .insert("neovm--frame-text-lines".to_string(), Value::fixnum(35));
+        frame.set_parameter("width", Value::fixnum(79));
+        frame.set_parameter("height", Value::fixnum(36));
+        frame.set_parameter("neovm--frame-text-lines", Value::fixnum(35));
     }
 
     let host = RecordingDisplayHost::new();

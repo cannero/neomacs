@@ -724,12 +724,8 @@ fn ensure_selected_frame_id_in_state_with_policy(
         frame.char_width = 1.0;
         frame.char_height = 1.0;
         frame.font_pixel_size = 1.0;
-        frame
-            .parameters
-            .insert("width".to_string(), Value::fixnum(80));
-        frame
-            .parameters
-            .insert("height".to_string(), Value::fixnum(25));
+        frame.set_parameter("width", Value::fixnum(80));
+        frame.set_parameter("height", Value::fixnum(25));
         // The root window covers the 24-line text area (not the minibuffer).
         frame
             .root_window
@@ -4296,8 +4292,7 @@ fn sync_live_gui_resize_for_geometry_queries(
 
 fn frame_total_cols(frame: &crate::window::Frame) -> i64 {
     frame
-        .parameters
-        .get("width")
+        .parameter("width")
         .and_then(|v| v.as_int())
         .unwrap_or(frame.columns() as i64)
 }
@@ -4372,16 +4367,14 @@ fn check_frame_pixels(value: &Value, pixelwise: bool, item_size: f32) -> Result<
 
 fn frame_total_lines(frame: &crate::window::Frame) -> i64 {
     frame
-        .parameters
-        .get("height")
+        .parameter("height")
         .and_then(|v| v.as_int())
         .unwrap_or(frame.lines() as i64)
 }
 
 fn frame_text_lines(frame: &crate::window::Frame) -> i64 {
     frame
-        .parameters
-        .get(FRAME_TEXT_LINES_PARAM)
+        .parameter(FRAME_TEXT_LINES_PARAM)
         .and_then(|v| v.as_int())
         .unwrap_or_else(|| frame_total_lines(frame))
 }
@@ -4395,16 +4388,9 @@ fn set_frame_text_size(frame: &mut crate::window::Frame, cols: i64, text_lines: 
     let text_lines = clamp_frame_dimension(text_lines, MIN_FRAME_TEXT_LINES);
     let total_lines = text_lines.saturating_add(1).min(u32::MAX as i64);
 
-    frame
-        .parameters
-        .insert("width".to_string(), Value::fixnum(cols));
-    frame
-        .parameters
-        .insert("height".to_string(), Value::fixnum(total_lines));
-    frame.parameters.insert(
-        FRAME_TEXT_LINES_PARAM.to_string(),
-        Value::fixnum(text_lines),
-    );
+    frame.set_parameter("width", Value::fixnum(cols));
+    frame.set_parameter("height", Value::fixnum(total_lines));
+    frame.set_parameter(FRAME_TEXT_LINES_PARAM, Value::fixnum(text_lines));
 }
 
 fn live_gui_resize_pixels_from_logical_size(
@@ -4475,10 +4461,7 @@ fn resize_live_gui_frame(
             set_frame_text_size(frame, cols, text_lines);
         } else {
             frame.resize_pixelwise(total_width_px, total_height_px);
-            frame.parameters.insert(
-                FRAME_TEXT_LINES_PARAM.to_string(),
-                Value::fixnum(text_lines),
-            );
+            frame.set_parameter(FRAME_TEXT_LINES_PARAM, Value::fixnum(text_lines));
         }
     }
 
@@ -4579,10 +4562,7 @@ fn request_live_gui_frame_resize(
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     frame.resize_pixelwise(total_width_px, total_height_px);
-    frame.parameters.insert(
-        FRAME_TEXT_LINES_PARAM.to_string(),
-        Value::fixnum(text_lines),
-    );
+    frame.set_parameter(FRAME_TEXT_LINES_PARAM, Value::fixnum(text_lines));
     Ok(())
 }
 
@@ -5170,7 +5150,7 @@ pub(crate) fn builtin_frame_native_width(
             frame.height,
             uses_window_system_pixels,
             frame.effective_window_system(),
-            frame.parameters.get("window-system").copied()
+            frame.parameter("window-system")
         );
     }
     Ok(Value::fixnum(if uses_window_system_pixels {
@@ -5886,14 +5866,10 @@ pub(crate) fn x_create_frame_impl(
         frame.set_window_system(Some(Value::symbol(
             crate::emacs_core::display::gui_window_system_symbol(),
         )));
-        frame
-            .parameters
-            .insert("display-type".to_string(), Value::symbol("color"));
-        frame
-            .parameters
-            .insert("background-mode".to_string(), Value::symbol("dark"));
+        frame.set_parameter("display-type", Value::symbol("color"));
+        frame.set_parameter("background-mode", Value::symbol("dark"));
         for (key, value) in parsed.all {
-            frame.parameters.insert(key, value);
+            frame.set_parameter(key, value);
         }
         if let Window::Leaf { buffer_id, .. } = &mut frame.root_window {
             *buffer_id = current_buffer_id;
@@ -6130,16 +6106,12 @@ pub(crate) fn builtin_frame_parameter(
         // the 80x25 report shape.
         "width" => {
             return Ok(frame
-                .parameters
-                .get("width")
-                .cloned()
+                .parameter("width")
                 .unwrap_or(Value::fixnum(frame.columns() as i64)));
         }
         "height" => {
             return Ok(frame
-                .parameters
-                .get("height")
-                .cloned()
+                .parameter("height")
                 .unwrap_or(Value::fixnum(frame.lines() as i64)));
         }
         "visibility" => {
@@ -6148,11 +6120,7 @@ pub(crate) fn builtin_frame_parameter(
         _ => {}
     }
     // User-set parameters.
-    Ok(frame
-        .parameters
-        .get(&param_name)
-        .cloned()
-        .unwrap_or(Value::NIL))
+    Ok(frame.parameter(&param_name).unwrap_or(Value::NIL))
 }
 /// `(frame-parameters &optional FRAME)` -> alist.
 pub(crate) fn builtin_frame_parameters(
@@ -6170,14 +6138,10 @@ pub(crate) fn builtin_frame_parameters(
     pairs.push(Value::cons(Value::symbol("name"), frame.name_value()));
     pairs.push(Value::cons(Value::symbol("title"), frame.title_value()));
     let width = frame
-        .parameters
-        .get("width")
-        .cloned()
+        .parameter("width")
         .unwrap_or(Value::fixnum(frame.columns() as i64));
     let height = frame
-        .parameters
-        .get("height")
-        .cloned()
+        .parameter("height")
         .unwrap_or(Value::fixnum(frame.lines() as i64));
     pairs.push(Value::cons(Value::symbol("width"), width));
     pairs.push(Value::cons(Value::symbol("height"), height));
@@ -6187,7 +6151,7 @@ pub(crate) fn builtin_frame_parameters(
     ));
     // User parameters.
     for (k, v) in &frame.parameters {
-        pairs.push(Value::cons(Value::symbol(k.clone()), *v));
+        pairs.push(Value::cons(*k, *v));
     }
     Ok(Value::list(pairs))
 }
@@ -6237,9 +6201,7 @@ pub(crate) fn builtin_modify_frame_parameters(
                     "width" => {
                         if let Some(n) = pair_cdr.as_int() {
                             if let Some(frame) = eval.frames.get_mut(fid) {
-                                frame
-                                    .parameters
-                                    .insert("width".to_string(), Value::fixnum(n));
+                                frame.set_parameter("width", Value::fixnum(n));
                             }
                             requested_width_cols = Some(n);
                         }
@@ -6247,9 +6209,7 @@ pub(crate) fn builtin_modify_frame_parameters(
                     "height" => {
                         if let Some(n) = pair_cdr.as_int() {
                             if let Some(frame) = eval.frames.get_mut(fid) {
-                                frame
-                                    .parameters
-                                    .insert("height".to_string(), Value::fixnum(n));
+                                frame.set_parameter("height", Value::fixnum(n));
                             }
                             requested_total_lines = Some(n);
                         }
@@ -6261,7 +6221,7 @@ pub(crate) fn builtin_modify_frame_parameters(
                     }
                     _ => {
                         if let Some(frame) = eval.frames.get_mut(fid) {
-                            frame.parameters.insert(key_name.clone(), pair_cdr);
+                            frame.set_parameter_value(pair_car, pair_cdr);
                         }
                         if matches!(key_name.as_str(), "foreground-color" | "background-color") {
                             super::font::update_face_from_frame_parameter(
@@ -6363,11 +6323,7 @@ pub(crate) fn builtin_framep(eval: &mut super::eval::Context, args: Vec<Value>) 
     let Some(frame) = eval.frames.get(FrameId(id)) else {
         return Ok(Value::NIL);
     };
-    Ok(frame
-        .parameters
-        .get("window-system")
-        .copied()
-        .unwrap_or(Value::T))
+    Ok(frame.parameter("window-system").unwrap_or(Value::T))
 }
 /// `(frame-live-p OBJ)` -> t if OBJ is a live frame object or frame id.
 pub(crate) fn builtin_frame_live_p(

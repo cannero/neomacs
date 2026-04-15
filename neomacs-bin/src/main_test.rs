@@ -976,11 +976,11 @@ fn configure_gnu_startup_state_marks_bootstrap_gui_frame_as_initial_frame() {
         "hidden startup terminal frame must stay non-GUI"
     );
     assert!(
-        !terminal_frame.parameters.contains_key("display-type"),
+        terminal_frame.parameter("display-type").is_none(),
         "hidden startup terminal frame must not inherit GUI face parameters"
     );
     assert!(
-        !terminal_frame.parameters.contains_key("background-mode"),
+        terminal_frame.parameter("background-mode").is_none(),
         "hidden startup terminal frame must not inherit GUI face parameters"
     );
     assert_eq!(
@@ -1181,8 +1181,7 @@ fn bootstrap_buffers_seed_frame_with_renderer_metrics() {
     assert_eq!(frame.char_height, metrics.char_height);
     assert_eq!(frame.font_pixel_size, metrics.font_pixel_size);
     let font_param = frame
-        .parameters
-        .get("font")
+        .parameter("font")
         .expect("bootstrap GUI frame should seed a font frame parameter");
     assert!(font_param.is_string());
     let minibuffer_height = frame
@@ -2238,9 +2237,7 @@ fn frame_set_background_mode_keep_face_specs_completes_after_dark_background_cha
             .frame_manager_mut()
             .get_mut(frame_id)
             .expect("live frame");
-        frame
-            .parameters
-            .insert("background-color".to_string(), Value::string("#000000"));
+        frame.set_parameter("background-color", Value::string("#000000"));
     }
 
     let result = eval
@@ -2269,9 +2266,7 @@ fn seed_selected_frame_background_color(eval: &mut Context, color: &str) {
         .frame_manager_mut()
         .get_mut(frame_id)
         .expect("live frame");
-    frame
-        .parameters
-        .insert("background-color".to_string(), Value::string(color));
+    frame.set_parameter("background-color", Value::string(color));
 }
 
 #[test]

@@ -3009,11 +3009,7 @@ impl<'a> Vm<'a> {
         let Some(frame) = self.ctx.frames.get(FrameId(id)) else {
             return Ok(Value::NIL);
         };
-        Ok(frame
-            .parameters
-            .get("window-system")
-            .copied()
-            .unwrap_or(Value::T))
+        Ok(frame.parameter("window-system").unwrap_or(Value::T))
     }
 
     fn builtin_frame_parameter_fast(&mut self, args: &[Value]) -> EvalResult {
@@ -3032,21 +3028,13 @@ impl<'a> Vm<'a> {
             "name" => Ok(frame.name_value()),
             "title" => Ok(frame.title_value()),
             "width" => Ok(frame
-                .parameters
-                .get("width")
-                .cloned()
+                .parameter("width")
                 .unwrap_or(Value::fixnum(frame.columns() as i64))),
             "height" => Ok(frame
-                .parameters
-                .get("height")
-                .cloned()
+                .parameter("height")
                 .unwrap_or(Value::fixnum(frame.lines() as i64))),
             "visibility" => Ok(if frame.visible { Value::T } else { Value::NIL }),
-            _ => Ok(frame
-                .parameters
-                .get(&param_name)
-                .cloned()
-                .unwrap_or(Value::NIL)),
+            _ => Ok(frame.parameter(&param_name).unwrap_or(Value::NIL)),
         }
     }
 

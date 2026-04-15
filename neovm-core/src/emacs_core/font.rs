@@ -265,7 +265,7 @@ fn resolve_live_frame_font_request(
 
     if let Some(frame) = eval.frames.get(frame_id)
         && font_value_matches_frame_font_parameter(frame, requested)
-        && let Some(font_value) = frame.parameters.get("font-parameter").copied()
+        && let Some(font_value) = frame.parameter("font-parameter")
         && is_font(&font_value)
     {
         return LiveFrameFontResolution {
@@ -316,12 +316,8 @@ fn sync_live_frame_font_state(
         font_name_value(&resolution.font_value).unwrap_or(*requested)
     };
 
-    frame
-        .parameters
-        .insert("font".to_string(), public_font_name);
-    frame
-        .parameters
-        .insert("font-parameter".to_string(), resolution.font_value);
+    frame.set_parameter("font", public_font_name);
+    frame.set_parameter("font-parameter", resolution.font_value);
 
     let mut geometry_hints = None;
     if let Some(realized) = &resolution.realized {
@@ -476,7 +472,7 @@ pub fn seed_live_frame_default_face_from_font_parameter(
     let Some(font_value) = eval
         .frames
         .get(frame_id)
-        .and_then(|frame| frame.parameters.get("font-parameter").copied())
+        .and_then(|frame| frame.parameter("font-parameter"))
     else {
         return;
     };
@@ -1523,7 +1519,7 @@ fn font_value_matches_frame_font_parameter(
     frame: &crate::window::Frame,
     requested: &Value,
 ) -> bool {
-    let Some(frame_font) = frame.parameters.get("font") else {
+    let Some(frame_font) = frame.parameter("font") else {
         return false;
     };
     match (frame_font.kind(), requested.kind()) {
@@ -1579,7 +1575,7 @@ fn live_frame_font_attribute_fallback(
     attr_name: &str,
 ) -> Option<Value> {
     let frame = eval.frames.get(frame_id)?;
-    let font_value = frame.parameters.get("font-parameter").copied()?;
+    let font_value = frame.parameter("font-parameter")?;
     if !is_font(&font_value) {
         return None;
     }

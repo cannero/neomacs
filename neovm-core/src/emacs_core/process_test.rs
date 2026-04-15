@@ -2188,8 +2188,7 @@ fn accept_process_output_services_pending_resize_from_shared_wait_path() {
     ev.frames
         .get_mut(fid)
         .expect("frame should exist")
-        .parameters
-        .insert("window-system".to_string(), Value::symbol("x"));
+        .set_parameter("window-system", Value::symbol("x"));
 
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
@@ -2229,8 +2228,7 @@ fn accept_process_output_services_resize_arriving_during_wait() {
     ev.frames
         .get_mut(fid)
         .expect("frame should exist")
-        .parameters
-        .insert("window-system".to_string(), Value::symbol("x"));
+        .set_parameter("window-system", Value::symbol("x"));
 
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);

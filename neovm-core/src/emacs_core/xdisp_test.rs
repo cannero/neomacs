@@ -1914,9 +1914,7 @@ fn test_tool_bar_height_eval_frame_validation() {
             .get_mut(frame_id)
             .expect("xdisp test frame should exist");
         frame.char_height = 17.0;
-        frame
-            .parameters
-            .insert("tool-bar-lines".to_string(), Value::fixnum(2));
+        frame.set_parameter("tool-bar-lines", Value::fixnum(2));
         frame.sync_tool_bar_height_from_parameters();
     }
 

@@ -1255,7 +1255,7 @@ pub struct Frame {
     /// updates the parameter alist but does not always reach the
     /// active display backend. Wiring the dispatch is tracked as
     /// audit Phase 6.
-    pub parameters: HashMap<String, Value>,
+    pub parameters: HashMap<Value, Value>,
     /// Whether the frame is visible.
     pub visible: bool,
     /// GNU `struct frame.title`: explicit title override, or nil.
@@ -1361,9 +1361,9 @@ impl Frame {
             // parameter alist is never missing them.
             parameters: {
                 let mut params = HashMap::new();
-                params.insert("foreground-color".to_string(), Value::string("black"));
-                params.insert("background-color".to_string(), Value::string("white"));
-                params.insert("cursor-color".to_string(), Value::string("black"));
+                params.insert(Value::symbol("foreground-color"), Value::string("black"));
+                params.insert(Value::symbol("background-color"), Value::string("white"));
+                params.insert(Value::symbol("cursor-color"), Value::string("black"));
                 params
             },
             visible: true,
@@ -1454,7 +1454,7 @@ impl Frame {
     /// Return the effective window-system symbol for this frame.
     pub fn effective_window_system(&self) -> Option<Value> {
         self.window_system
-            .or_else(|| self.parameters.get("window-system").copied())
+            .or_else(|| self.parameter("window-system"))
     }
 
     /// Update the frame's internal window-system kind and keep the Lisp-visible
@@ -1463,16 +1463,32 @@ impl Frame {
         self.window_system = window_system;
         match window_system {
             Some(value) => {
-                self.parameters.insert("window-system".to_string(), value);
+                self.set_parameter("window-system", value);
             }
             None => {
-                self.parameters.remove("window-system");
+                self.remove_parameter("window-system");
             }
         }
     }
 
     pub fn frame_parameter_int(&self, key: &str) -> Option<i64> {
-        self.parameters.get(key).and_then(|v| v.as_int())
+        self.parameter(key).and_then(|v| v.as_int())
+    }
+
+    pub fn parameter(&self, key: &str) -> Option<Value> {
+        self.parameters.get(&Value::symbol(key)).copied()
+    }
+
+    pub fn set_parameter(&mut self, key: impl Into<String>, value: Value) -> Option<Value> {
+        self.parameters.insert(Value::symbol(key.into()), value)
+    }
+
+    pub fn set_parameter_value(&mut self, key: Value, value: Value) -> Option<Value> {
+        self.parameters.insert(key, value)
+    }
+
+    pub fn remove_parameter(&mut self, key: &str) -> Option<Value> {
+        self.parameters.remove(&Value::symbol(key))
     }
 
     pub fn realized_face(&self, name: &str) -> Option<&RuntimeFace> {
@@ -1550,33 +1566,27 @@ impl Frame {
     }
 
     fn default_left_fringe_width(&self) -> i64 {
-        self.parameters
-            .get("left-fringe")
+        self.parameter("left-fringe")
             .and_then(|v| v.as_int())
             .unwrap_or(8)
             .max(0)
     }
 
     fn default_right_fringe_width(&self) -> i64 {
-        self.parameters
-            .get("right-fringe")
+        self.parameter("right-fringe")
             .and_then(|v| v.as_int())
             .unwrap_or(8)
             .max(0)
     }
 
     fn default_vertical_scroll_bar_side(&self) -> Option<&'static str> {
-        let raw = self
-            .parameters
-            .get("vertical-scroll-bars")
-            .copied()
-            .unwrap_or_else(|| {
-                if self.effective_window_system().is_some() {
-                    Value::symbol("right")
-                } else {
-                    Value::NIL
-                }
-            });
+        let raw = self.parameter("vertical-scroll-bars").unwrap_or_else(|| {
+            if self.effective_window_system().is_some() {
+                Value::symbol("right")
+            } else {
+                Value::NIL
+            }
+        });
         match raw.as_symbol_name() {
             Some("left") => Some("left"),
             Some("right") => Some("right"),
@@ -1587,8 +1597,7 @@ impl Frame {
     }
 
     fn default_vertical_scroll_bar_width(&self) -> i64 {
-        self.parameters
-            .get("scroll-bar-width")
+        self.parameter("scroll-bar-width")
             .and_then(|v| v.as_int())
             .filter(|value| *value > 0)
             .unwrap_or_else(|| self.char_width.max(1.0).round() as i64)
@@ -1840,14 +1849,9 @@ impl Frame {
         let cols = (text_width / char_width).floor().max(1.0) as i64;
         let text_lines = (root_height / char_height).floor().max(1.0) as i64;
         let total_lines = text_lines.saturating_add(1);
-        self.parameters
-            .insert("width".to_string(), Value::fixnum(cols));
-        self.parameters
-            .insert("height".to_string(), Value::fixnum(total_lines));
-        self.parameters.insert(
-            "neovm--frame-text-lines".to_string(),
-            Value::fixnum(text_lines),
-        );
+        self.set_parameter("width", Value::fixnum(cols));
+        self.set_parameter("height", Value::fixnum(total_lines));
+        self.set_parameter("neovm--frame-text-lines", Value::fixnum(text_lines));
     }
 
     /// Grow the minibuffer window by `delta_rows` character-cell rows.
@@ -2881,6 +2885,7 @@ impl GcTrace for FrameManager {
         for frame in self.frames.values() {
             roots.push(frame.name);
             roots.push(frame.title);
+            roots.extend(frame.parameters.keys().copied());
             for v in frame.parameters.values() {
                 roots.push(*v);
             }
@@ -3446,8 +3451,8 @@ mod tests {
                 .and_then(|display| display.phys_cursor.as_ref())
                 .is_none()
         );
-        assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(40)));
-        assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(13)));
+        assert_eq!(frame.parameter("width"), Some(Value::fixnum(40)));
+        assert_eq!(frame.parameter("height"), Some(Value::fixnum(13)));
 
         let root_bounds = *frame.root_window.bounds();
         assert_eq!(root_bounds, Rect::new(0.0, 0.0, 400.0, 244.0));
@@ -4301,9 +4306,7 @@ mod tests {
         let frame = mgr.get_mut(fid).unwrap();
         frame.char_width = 10.0;
         frame.char_height = 20.0;
-        frame
-            .parameters
-            .insert("tab-bar-lines".to_string(), Value::fixnum(1));
+        frame.set_parameter("tab-bar-lines", Value::fixnum(1));
 
         frame.sync_tab_bar_height_from_parameters();
         frame.resize_pixelwise(400, 260);
@@ -4317,7 +4320,7 @@ mod tests {
             *frame.minibuffer_leaf.as_ref().unwrap().bounds(),
             Rect::new(0.0, 244.0, 400.0, 16.0)
         );
-        assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(12)));
+        assert_eq!(frame.parameter("height"), Some(Value::fixnum(12)));
     }
 
     #[test]

@@ -28,8 +28,7 @@ fn canon_y_from_pixel_y(frame: &Frame, y: i64) -> Value {
 
 fn frame_default_left_fringe_width(frame: &Frame) -> i32 {
     frame
-        .parameters
-        .get("left-fringe")
+        .parameter("left-fringe")
         .and_then(|v| v.as_int())
         .and_then(|value| i32::try_from(value).ok())
         .unwrap_or(8)
@@ -37,25 +36,20 @@ fn frame_default_left_fringe_width(frame: &Frame) -> i32 {
 
 fn frame_default_right_fringe_width(frame: &Frame) -> i32 {
     frame
-        .parameters
-        .get("right-fringe")
+        .parameter("right-fringe")
         .and_then(|v| v.as_int())
         .and_then(|value| i32::try_from(value).ok())
         .unwrap_or(8)
 }
 
 fn frame_vertical_scroll_bar_side(frame: &Frame) -> Option<Value> {
-    let raw = frame
-        .parameters
-        .get("vertical-scroll-bars")
-        .copied()
-        .unwrap_or_else(|| {
-            if frame.effective_window_system().is_some() {
-                Value::symbol("right")
-            } else {
-                Value::NIL
-            }
-        });
+    let raw = frame.parameter("vertical-scroll-bars").unwrap_or_else(|| {
+        if frame.effective_window_system().is_some() {
+            Value::symbol("right")
+        } else {
+            Value::NIL
+        }
+    });
     match symbol_name(&raw) {
         Some("left") => Some(Value::symbol("left")),
         Some("right") => Some(Value::symbol("right")),
@@ -67,17 +61,14 @@ fn frame_vertical_scroll_bar_side(frame: &Frame) -> Option<Value> {
 
 fn frame_has_horizontal_scroll_bar(frame: &Frame) -> bool {
     let raw = frame
-        .parameters
-        .get("horizontal-scroll-bars")
-        .copied()
+        .parameter("horizontal-scroll-bars")
         .unwrap_or(Value::NIL);
     matches!(symbol_name(&raw), Some("bottom")) || raw.is_truthy()
 }
 
 fn frame_config_scroll_bar_width(frame: &Frame) -> i32 {
     frame
-        .parameters
-        .get("scroll-bar-width")
+        .parameter("scroll-bar-width")
         .and_then(|v| v.as_int())
         .and_then(|value| i32::try_from(value).ok())
         .filter(|value| *value > 0)
@@ -86,8 +77,7 @@ fn frame_config_scroll_bar_width(frame: &Frame) -> i32 {
 
 fn frame_config_scroll_bar_height(frame: &Frame) -> i32 {
     frame
-        .parameters
-        .get("scroll-bar-height")
+        .parameter("scroll-bar-height")
         .and_then(|v| v.as_int())
         .and_then(|value| i32::try_from(value).ok())
         .filter(|value| *value > 0)
