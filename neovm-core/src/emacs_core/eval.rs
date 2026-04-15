@@ -1431,10 +1431,6 @@ pub struct Context {
     next_resume_id: u64,
     /// GNU `pending_funcalls` equivalent for internal no-Lisp teardown paths.
     pub(crate) pending_safe_funcalls: Vec<PendingSafeFuncall>,
-    /// Saved lexical environments stack — when apply_lambda replaces
-    /// self.lexenv with a closure's captured env, the old lexenv is pushed
-    /// here so GC can still scan it.  Popped when apply_lambda restores.
-    saved_lexenvs: Vec<Value>,
     /// Hot cache for named callable resolution in `funcall`/`apply`.
     /// Keyed by symbol id; entries are validated against the obarray's
     /// `function_epoch` so that any `defalias` / `fset` / autoload
@@ -1788,7 +1784,6 @@ fn begin_lambda_call_in_state(
     obarray: &mut Obarray,
     specpdl: &mut Vec<SpecBinding>,
     lexenv: &mut Value,
-    _saved_lexenvs: &mut Vec<Value>,
     active_call_roots: &mut Vec<ActiveCallFrame>,
     eval_root_frames: &mut Vec<EvalRootFrame>,
     params: &LambdaParams,
@@ -2025,7 +2020,6 @@ fn finish_lambda_call_in_state(
     obarray: &mut Obarray,
     specpdl: &mut Vec<SpecBinding>,
     lexenv: &mut Value,
-    _saved_lexenvs: &mut Vec<Value>,
     active_call_roots: &mut Vec<ActiveCallFrame>,
     eval_root_frames: &mut Vec<EvalRootFrame>,
     state: ActiveLambdaCallState,
@@ -2351,7 +2345,6 @@ impl Context {
         ev.gc_stress = false;
         ev.condition_stack.clear();
         ev.next_resume_id = 1;
-        ev.saved_lexenvs.clear();
         ev.named_call_cache.clear();
 
         ev.runtime_macro_expansion_cache.clear();
@@ -4231,7 +4224,6 @@ impl Context {
             condition_stack: Vec::new(),
             next_resume_id: 1,
             pending_safe_funcalls: Vec::new(),
-            saved_lexenvs: Vec::new(),
             named_call_cache: HashMap::with_capacity(NAMED_CALL_CACHE_CAPACITY),
             lexenv_assq_cache: RefCell::new(LexenvAssqCache::default()),
             lexenv_special_cache: RefCell::new(LexenvSpecialCache::default()),
@@ -4367,7 +4359,6 @@ impl Context {
             condition_stack: Vec::new(),
             next_resume_id: 1,
             pending_safe_funcalls: Vec::new(),
-            saved_lexenvs: Vec::new(),
             named_call_cache: HashMap::with_capacity(NAMED_CALL_CACHE_CAPACITY),
             lexenv_assq_cache: RefCell::new(LexenvAssqCache::default()),
             lexenv_special_cache: RefCell::new(LexenvSpecialCache::default()),
@@ -4461,9 +4452,6 @@ impl Context {
             }
         }
         visit(self.lexenv);
-        for saved_env in &self.saved_lexenvs {
-            visit(*saved_env);
-        }
         for entry in self.runtime_macro_expansion_cache.values() {
             visit(entry.expanded);
         }
@@ -6211,9 +6199,6 @@ impl Context {
     /// evaluator is reused.
     pub(crate) fn clear_top_level_eval_state(&mut self) {
         self.unbind_to(0);
-        while let Some(saved) = self.saved_lexenvs.pop() {
-            self.lexenv = saved;
-        }
         self.lexenv = if lexical_binding_in_obarray(&self.obarray) {
             top_level_lexenv_sentinel()
         } else {
@@ -6234,7 +6219,6 @@ impl Context {
             || (self.lexical_binding() && is_top_level_lexenv_sentinel(self.lexenv));
         self.specpdl.is_empty()
             && clean_lexenv
-            && self.saved_lexenvs.is_empty()
             && self.active_call_roots.is_empty()
             && self.vm_root_frames.is_empty()
             && self.condition_stack.is_empty()
@@ -6324,7 +6308,6 @@ impl Context {
             &mut self.obarray,
             &mut self.specpdl,
             &mut self.lexenv,
-            &mut self.saved_lexenvs,
             &mut self.active_call_roots,
             &mut self.eval_root_frames,
             params,
@@ -6338,7 +6321,6 @@ impl Context {
             &mut self.obarray,
             &mut self.specpdl,
             &mut self.lexenv,
-            &mut self.saved_lexenvs,
             &mut self.active_call_roots,
             &mut self.eval_root_frames,
             state,

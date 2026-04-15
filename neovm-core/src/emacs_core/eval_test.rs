@@ -581,7 +581,6 @@ fn clear_top_level_eval_state_restores_top_level_lexenv_mode() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
-    ev.saved_lexenvs.push(Value::NIL);
     ev.lexenv = Value::list(vec![Value::symbol("vm-temp"), Value::T]);
 
     ev.clear_top_level_eval_state();
