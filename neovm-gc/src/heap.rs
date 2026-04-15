@@ -626,9 +626,13 @@ impl Heap {
                 .old_gen()
                 .record_block_object_accounting_for_placement_shared(placement);
         }
-        self.state
-            .alloc_counters
-            .record_allocation(space, total_size, old_reserved_bytes);
+        let local_marker = publish_local as *mut ObjectPublishLocal as usize;
+        self.state.alloc_counters.record_allocation(
+            space,
+            total_size,
+            old_reserved_bytes,
+            local_marker,
+        );
         let recorded = if self.state.collector.has_active_major_mark() {
             let read = self.state.objects.read();
             self.state.collector.record_active_major_reachable_object(
@@ -1621,8 +1625,9 @@ impl HeapCore {
             self.old_gen
                 .record_block_object_accounting_for_placement_shared(placement);
         }
+        let local_marker = publish_local as *mut ObjectPublishLocal as usize;
         self.alloc_counters
-            .record_allocation(space, total_size, old_reserved_bytes);
+            .record_allocation(space, total_size, old_reserved_bytes, local_marker);
         let recorded = if self.collector.has_active_major_mark() {
             let read = self.objects.read();
             self.collector.record_active_major_reachable_object(

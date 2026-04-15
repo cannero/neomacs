@@ -289,18 +289,53 @@ impl AtomicBarrierStats {
 /// also update these atomics via [`Self::sync_from`] so
 /// the hot-path readers see the post-cycle values.
 #[derive(Debug, Default)]
-pub(crate) struct AtomicAllocationCounters {
+#[repr(align(64))]
+struct AllocationCounterShard {
     nursery_live_bytes: AtomicUsize,
     old_live_bytes: AtomicUsize,
-    old_reserved_bytes: AtomicUsize,
     pinned_live_bytes: AtomicUsize,
     large_live_bytes: AtomicUsize,
-    large_reserved_bytes: AtomicUsize,
     immortal_live_bytes: AtomicUsize,
+}
+
+const ALLOCATION_COUNTER_SHARDS: usize = 32;
+
+#[derive(Debug)]
+pub(crate) struct AtomicAllocationCounters {
+    shards: Box<[AllocationCounterShard]>,
+    old_reserved_bytes: AtomicUsize,
+    large_reserved_bytes: AtomicUsize,
     immortal_reserved_bytes: AtomicUsize,
 }
 
+impl Default for AtomicAllocationCounters {
+    fn default() -> Self {
+        let mut shards = Vec::with_capacity(ALLOCATION_COUNTER_SHARDS);
+        for _ in 0..ALLOCATION_COUNTER_SHARDS {
+            shards.push(AllocationCounterShard::default());
+        }
+        Self {
+            shards: shards.into_boxed_slice(),
+            old_reserved_bytes: AtomicUsize::new(0),
+            large_reserved_bytes: AtomicUsize::new(0),
+            immortal_reserved_bytes: AtomicUsize::new(0),
+        }
+    }
+}
+
 impl AtomicAllocationCounters {
+    #[inline]
+    fn shard_for_marker(local_marker: usize) -> usize {
+        let shard_count = ALLOCATION_COUNTER_SHARDS;
+        debug_assert!(shard_count > 0);
+        let seed = local_marker >> 6;
+        if shard_count.is_power_of_two() {
+            seed & (shard_count - 1)
+        } else {
+            seed % shard_count
+        }
+    }
+
     /// Record one allocation. Mirrors the logic of
     /// [`HeapStats::record_allocation`] but uses atomic
     /// fetch_add / store so the caller only needs `&self`.
@@ -309,26 +344,30 @@ impl AtomicAllocationCounters {
         space: SpaceKind,
         bytes: usize,
         old_reserved_bytes: usize,
+        local_marker: usize,
     ) {
+        let shard = &self.shards[Self::shard_for_marker(local_marker)];
         match space {
             SpaceKind::Nursery => {
-                self.nursery_live_bytes.fetch_add(bytes, Ordering::Relaxed);
+                shard.nursery_live_bytes.fetch_add(bytes, Ordering::Relaxed);
             }
             SpaceKind::Old => {
-                self.old_live_bytes.fetch_add(bytes, Ordering::Relaxed);
+                shard.old_live_bytes.fetch_add(bytes, Ordering::Relaxed);
                 self.old_reserved_bytes
                     .store(old_reserved_bytes, Ordering::Relaxed);
             }
             SpaceKind::Pinned => {
-                self.pinned_live_bytes.fetch_add(bytes, Ordering::Relaxed);
+                shard.pinned_live_bytes.fetch_add(bytes, Ordering::Relaxed);
             }
             SpaceKind::Large => {
-                self.large_live_bytes.fetch_add(bytes, Ordering::Relaxed);
+                shard.large_live_bytes.fetch_add(bytes, Ordering::Relaxed);
                 self.large_reserved_bytes
                     .fetch_add(bytes, Ordering::Relaxed);
             }
             SpaceKind::Immortal => {
-                self.immortal_live_bytes.fetch_add(bytes, Ordering::Relaxed);
+                shard
+                    .immortal_live_bytes
+                    .fetch_add(bytes, Ordering::Relaxed);
                 self.immortal_reserved_bytes
                     .fetch_add(bytes, Ordering::Relaxed);
             }
@@ -341,13 +380,33 @@ impl AtomicAllocationCounters {
     /// observers see the latest allocation counters without
     /// needing exclusive access.
     pub(crate) fn apply_to(&self, stats: &mut HeapStats) {
-        stats.nursery.live_bytes = self.nursery_live_bytes.load(Ordering::Relaxed);
-        stats.old.live_bytes = self.old_live_bytes.load(Ordering::Relaxed);
+        stats.nursery.live_bytes = self
+            .shards
+            .iter()
+            .map(|shard| shard.nursery_live_bytes.load(Ordering::Relaxed))
+            .sum();
+        stats.old.live_bytes = self
+            .shards
+            .iter()
+            .map(|shard| shard.old_live_bytes.load(Ordering::Relaxed))
+            .sum();
         stats.old.reserved_bytes = self.old_reserved_bytes.load(Ordering::Relaxed);
-        stats.pinned.live_bytes = self.pinned_live_bytes.load(Ordering::Relaxed);
-        stats.large.live_bytes = self.large_live_bytes.load(Ordering::Relaxed);
+        stats.pinned.live_bytes = self
+            .shards
+            .iter()
+            .map(|shard| shard.pinned_live_bytes.load(Ordering::Relaxed))
+            .sum();
+        stats.large.live_bytes = self
+            .shards
+            .iter()
+            .map(|shard| shard.large_live_bytes.load(Ordering::Relaxed))
+            .sum();
         stats.large.reserved_bytes = self.large_reserved_bytes.load(Ordering::Relaxed);
-        stats.immortal.live_bytes = self.immortal_live_bytes.load(Ordering::Relaxed);
+        stats.immortal.live_bytes = self
+            .shards
+            .iter()
+            .map(|shard| shard.immortal_live_bytes.load(Ordering::Relaxed))
+            .sum();
         stats.immortal.reserved_bytes = self.immortal_reserved_bytes.load(Ordering::Relaxed);
     }
 
@@ -357,19 +416,32 @@ impl AtomicAllocationCounters {
     /// hot-path atomic view stays in sync with the
     /// post-cycle ground truth.
     pub(crate) fn sync_from(&self, stats: &HeapStats) {
-        self.nursery_live_bytes
+        for shard in self.shards.iter() {
+            shard.nursery_live_bytes.store(0, Ordering::Relaxed);
+            shard.old_live_bytes.store(0, Ordering::Relaxed);
+            shard.pinned_live_bytes.store(0, Ordering::Relaxed);
+            shard.large_live_bytes.store(0, Ordering::Relaxed);
+            shard.immortal_live_bytes.store(0, Ordering::Relaxed);
+        }
+        let shard0 = &self.shards[0];
+        shard0
+            .nursery_live_bytes
             .store(stats.nursery.live_bytes, Ordering::Relaxed);
-        self.old_live_bytes
+        shard0
+            .old_live_bytes
             .store(stats.old.live_bytes, Ordering::Relaxed);
         self.old_reserved_bytes
             .store(stats.old.reserved_bytes, Ordering::Relaxed);
-        self.pinned_live_bytes
+        shard0
+            .pinned_live_bytes
             .store(stats.pinned.live_bytes, Ordering::Relaxed);
-        self.large_live_bytes
+        shard0
+            .large_live_bytes
             .store(stats.large.live_bytes, Ordering::Relaxed);
         self.large_reserved_bytes
             .store(stats.large.reserved_bytes, Ordering::Relaxed);
-        self.immortal_live_bytes
+        shard0
+            .immortal_live_bytes
             .store(stats.immortal.live_bytes, Ordering::Relaxed);
         self.immortal_reserved_bytes
             .store(stats.immortal.reserved_bytes, Ordering::Relaxed);
