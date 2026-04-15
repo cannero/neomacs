@@ -4,6 +4,7 @@ use super::error::{Flow, signal};
 use super::intern::resolve_sym;
 use super::value::*;
 use crate::face::{FontSlant, FontWeight, FontWidth};
+use crate::heap_types::LispString;
 use regex::Regex;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -15,6 +16,14 @@ pub const DEFAULT_FONTSET_ALIAS: &str = "fontset-default";
 
 fn fontset_string_text(value: &Value) -> Option<String> {
     value.as_runtime_string_owned()
+}
+
+fn fontset_name_lisp_string(name: &str) -> LispString {
+    LispString::from_utf8(name)
+}
+
+fn fontset_name_runtime(name: &LispString) -> String {
+    super::builtins::runtime_string_from_lisp_string(name)
 }
 
 thread_local! {
@@ -108,45 +117,49 @@ pub(crate) struct FontsetRegistrySnapshot {
 
 #[derive(Clone, Debug)]
 struct FontsetRegistry {
-    ordered_names: Vec<String>,
-    alias_to_name: HashMap<String, String>,
-    fontsets: HashMap<String, FontsetData>,
+    ordered_names: Vec<LispString>,
+    alias_to_name: HashMap<LispString, LispString>,
+    fontsets: HashMap<LispString, FontsetData>,
     generation: u64,
 }
 
 impl FontsetRegistry {
     fn with_defaults() -> Self {
         let mut alias_to_name = HashMap::new();
-        alias_to_name.insert(
-            DEFAULT_FONTSET_ALIAS.to_string(),
-            DEFAULT_FONTSET_NAME.to_string(),
-        );
+        let default_alias = fontset_name_lisp_string(DEFAULT_FONTSET_ALIAS);
+        let default_name = fontset_name_lisp_string(DEFAULT_FONTSET_NAME);
+        alias_to_name.insert(default_alias, default_name.clone());
         let mut fontsets = HashMap::new();
-        fontsets.insert(DEFAULT_FONTSET_NAME.to_string(), FontsetData::default());
+        fontsets.insert(default_name.clone(), FontsetData::default());
         Self {
-            ordered_names: vec![DEFAULT_FONTSET_NAME.to_string()],
+            ordered_names: vec![default_name],
             alias_to_name,
             fontsets,
             generation: 1,
         }
     }
 
-    fn resolve_literal(&self, name: &str) -> Option<String> {
-        if self.ordered_names.iter().any(|candidate| candidate == name) {
-            Some(name.to_string())
+    fn resolve_literal(&self, name: &str) -> Option<LispString> {
+        let wanted = fontset_name_lisp_string(name);
+        if self
+            .ordered_names
+            .iter()
+            .any(|candidate| candidate == &wanted)
+        {
+            Some(wanted)
         } else {
-            self.alias_to_name.get(name).cloned()
+            self.alias_to_name.get(&wanted).cloned()
         }
     }
 
-    fn ensure_fontset(&mut self, name: &str) {
-        self.fontsets.entry(name.to_string()).or_default();
+    fn ensure_fontset(&mut self, name: &LispString) {
+        self.fontsets.entry(name.clone()).or_default();
         if !self.ordered_names.iter().any(|candidate| candidate == name) {
-            self.ordered_names.push(name.to_string());
+            self.ordered_names.push(name.clone());
         }
     }
 
-    fn register_fontset(&mut self, name: String, alias: Option<String>) -> String {
+    fn register_fontset(&mut self, name: LispString, alias: Option<LispString>) -> LispString {
         self.ensure_fontset(&name);
         if let Some(alias_name) = alias {
             self.alias_to_name.insert(alias_name, name.clone());
@@ -154,7 +167,11 @@ impl FontsetRegistry {
         name
     }
 
-    fn replace_rules(&mut self, name: &str, rules: Vec<(FontsetTarget, Vec<FontSpecEntry>)>) {
+    fn replace_rules(
+        &mut self,
+        name: &LispString,
+        rules: Vec<(FontsetTarget, Vec<FontSpecEntry>)>,
+    ) {
         self.ensure_fontset(name);
         let mut data = FontsetData::default();
         for (target, entries) in rules {
@@ -162,19 +179,19 @@ impl FontsetRegistry {
                 data.update_target(target.clone(), entry, FontsetAddMode::Append);
             }
         }
-        self.fontsets.insert(name.to_string(), data);
+        self.fontsets.insert(name.clone(), data);
         self.generation = self.generation.wrapping_add(1);
     }
 
     fn update_target(
         &mut self,
-        name: &str,
+        name: &LispString,
         target: FontsetTarget,
         entry: FontSpecEntry,
         add: FontsetAddMode,
     ) {
         self.ensure_fontset(name);
-        let data = self.fontsets.entry(name.to_string()).or_default();
+        let data = self.fontsets.entry(name.clone()).or_default();
         data.update_target(target, entry, add);
         self.generation = self.generation.wrapping_add(1);
     }
@@ -184,7 +201,7 @@ impl FontsetRegistry {
             self.ordered_names
                 .iter()
                 .cloned()
-                .map(Value::string)
+                .map(Value::heap_string)
                 .collect(),
         )
     }
@@ -195,8 +212,8 @@ impl FontsetRegistry {
             for (alias, canonical) in &self.alias_to_name {
                 if canonical == name {
                     entries.push(Value::cons(
-                        Value::string(name.clone()),
-                        Value::string(alias),
+                        Value::heap_string(name.clone()),
+                        Value::heap_string(alias.clone()),
                     ));
                 }
             }
@@ -204,15 +221,18 @@ impl FontsetRegistry {
         Value::list(entries)
     }
 
-    fn matching_entries_for_char(&self, name: &str, ch: char) -> Vec<FontSpecEntry> {
+    fn matching_entries_for_char(&self, name: &LispString, ch: char) -> Vec<FontSpecEntry> {
         let code = ch as u32;
         let Some(data) = self.fontsets.get(name) else {
             return Vec::new();
         };
 
         let mut entries = data.matching_entries_for_char(code);
-        if entries.is_empty() && name != DEFAULT_FONTSET_NAME {
-            if let Some(default) = self.fontsets.get(DEFAULT_FONTSET_NAME) {
+        if entries.is_empty() && *name != fontset_name_lisp_string(DEFAULT_FONTSET_NAME) {
+            if let Some(default) = self
+                .fontsets
+                .get(&fontset_name_lisp_string(DEFAULT_FONTSET_NAME))
+            {
                 entries = default.matching_entries_for_char(code);
             }
         }
@@ -458,7 +478,7 @@ pub(crate) fn snapshot_fontset_registry() -> FontsetRegistrySnapshot {
             let mut alias_to_name: Vec<_> = slot
                 .alias_to_name
                 .iter()
-                .map(|(alias, name)| (alias.clone(), name.clone()))
+                .map(|(alias, name)| (fontset_name_runtime(alias), fontset_name_runtime(name)))
                 .collect();
             alias_to_name.sort();
 
@@ -467,7 +487,7 @@ pub(crate) fn snapshot_fontset_registry() -> FontsetRegistrySnapshot {
                 .iter()
                 .map(|(name, data)| {
                     (
-                        name.clone(),
+                        fontset_name_runtime(name),
                         FontsetDataSnapshot {
                             ranges: data
                                 .ranges
@@ -486,7 +506,11 @@ pub(crate) fn snapshot_fontset_registry() -> FontsetRegistrySnapshot {
             fontsets.sort_by(|left, right| left.0.cmp(&right.0));
 
             FontsetRegistrySnapshot {
-                ordered_names: slot.ordered_names.clone(),
+                ordered_names: slot
+                    .ordered_names
+                    .iter()
+                    .map(fontset_name_runtime)
+                    .collect(),
                 alias_to_name,
                 fontsets,
                 generation: slot.generation,
@@ -507,13 +531,22 @@ pub(crate) fn snapshot_fontset_registry() -> FontsetRegistrySnapshot {
 }
 
 pub(crate) fn restore_fontset_registry(snapshot: FontsetRegistrySnapshot) {
-    let alias_to_name = snapshot.alias_to_name.into_iter().collect();
+    let alias_to_name = snapshot
+        .alias_to_name
+        .into_iter()
+        .map(|(alias, name)| {
+            (
+                fontset_name_lisp_string(&alias),
+                fontset_name_lisp_string(&name),
+            )
+        })
+        .collect();
     let fontsets = snapshot
         .fontsets
         .into_iter()
         .map(|(name, data)| {
             (
-                name,
+                fontset_name_lisp_string(&name),
                 FontsetData {
                     ranges: data
                         .ranges
@@ -530,7 +563,11 @@ pub(crate) fn restore_fontset_registry(snapshot: FontsetRegistrySnapshot) {
         })
         .collect();
     let restored = FontsetRegistry {
-        ordered_names: snapshot.ordered_names,
+        ordered_names: snapshot
+            .ordered_names
+            .into_iter()
+            .map(|name| fontset_name_lisp_string(&name))
+            .collect(),
         alias_to_name,
         fontsets,
         generation: snapshot.generation.max(1),
@@ -598,31 +635,37 @@ pub(crate) fn query_fontset_registry(pattern: &str, regexpp: bool) -> Option<Str
                 Regex::new(&pattern).ok()
             })?;
             for name in &registry.ordered_names {
-                if regex.is_match(name) {
-                    return Some(name.clone());
+                let rendered = fontset_name_runtime(name);
+                if regex.is_match(&rendered) {
+                    return Some(rendered);
                 }
             }
             for (alias, name) in &registry.alias_to_name {
-                if regex.is_match(alias) {
-                    return Some(name.clone());
+                let rendered_alias = fontset_name_runtime(alias);
+                if regex.is_match(&rendered_alias) {
+                    return Some(fontset_name_runtime(name));
                 }
             }
             return None;
         }
 
         if !pattern.contains('*') && !pattern.contains('?') {
-            return registry.resolve_literal(&pattern);
+            return registry
+                .resolve_literal(&pattern)
+                .map(|name| fontset_name_runtime(&name));
         }
 
         let regex = wildcard_fontset_pattern_to_regex(&pattern)?;
         for name in &registry.ordered_names {
-            if regex.is_match(name) {
-                return Some(name.clone());
+            let rendered = fontset_name_runtime(name);
+            if regex.is_match(&rendered) {
+                return Some(rendered);
             }
         }
         for (alias, name) in &registry.alias_to_name {
-            if regex.is_match(alias) {
-                return Some(name.clone());
+            let rendered_alias = fontset_name_runtime(alias);
+            if regex.is_match(&rendered_alias) {
+                return Some(fontset_name_runtime(name));
             }
         }
         None
@@ -653,9 +696,10 @@ pub fn matching_entries_for_char(ch: char) -> Vec<FontSpecEntry> {
 }
 
 pub fn matching_entries_for_fontset(name: &str, ch: char) -> Vec<FontSpecEntry> {
+    let name = fontset_name_lisp_string(name);
     registry()
         .read()
-        .map(|slot| slot.matching_entries_for_char(name, ch))
+        .map(|slot| slot.matching_entries_for_char(&name, ch))
         .unwrap_or_default()
 }
 
@@ -731,9 +775,12 @@ pub(crate) fn new_fontset(
             vec![Value::string("Fontset registry lock poisoned")],
         )
     })?;
-    let registered = slot.register_fontset(canonical_name.clone(), alias);
+    let registered = slot.register_fontset(
+        fontset_name_lisp_string(&canonical_name),
+        alias.as_deref().map(fontset_name_lisp_string),
+    );
     slot.replace_rules(&registered, rules);
-    Ok(registered)
+    Ok(fontset_name_runtime(&registered))
 }
 
 pub(crate) fn set_fontset_font(
@@ -762,7 +809,7 @@ pub(crate) fn set_fontset_font(
             vec![Value::string("Fontset registry lock poisoned")],
         )
     })?;
-    let canonical = slot.register_fontset(fontset_name, None);
+    let canonical = slot.register_fontset(fontset_name_lisp_string(&fontset_name), None);
     for target in targets {
         slot.update_target(&canonical, target, entry.clone(), add_mode);
     }
@@ -1390,5 +1437,33 @@ mod tests {
             }
             FontSpecEntry::ExplicitNone => panic!("expected font entry"),
         }
+    }
+
+    #[test]
+    fn registry_storage_uses_lisp_strings_for_names_and_aliases() {
+        crate::test_utils::init_test_tracing();
+        let mut registry = FontsetRegistry::with_defaults();
+        let name = fontset_name_lisp_string("-*-fixed-medium-r-normal-*-16-*-*-*-*-*-fontset-unit");
+        let alias = fontset_name_lisp_string("fontset-unit");
+        let registered = registry.register_fontset(name.clone(), Some(alias.clone()));
+
+        assert!(registry.fontsets.contains_key(&name));
+        assert_eq!(registry.alias_to_name.get(&alias), Some(&name));
+        assert!(
+            registry
+                .ordered_names
+                .iter()
+                .any(|candidate| candidate == &name)
+        );
+        assert_eq!(registered, name);
+
+        let listed = list_to_vec(&registry.list_value());
+        assert!(listed.contains(&Value::heap_string(name.clone())));
+
+        let alias_alist = list_to_vec(&registry.alias_alist_value());
+        assert!(alias_alist.contains(&Value::cons(
+            Value::heap_string(name),
+            Value::heap_string(alias)
+        )));
     }
 }
