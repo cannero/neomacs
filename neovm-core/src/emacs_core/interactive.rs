@@ -1832,13 +1832,11 @@ fn interactive_read_expression_arg_in_vm_runtime(
 
 fn interactive_eval_expression_arg_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
+    _vm_gc_roots: &[Value],
     prompt: crate::heap_types::LispString,
 ) -> Result<Value, Flow> {
-    shared.with_extra_gc_roots(&[], move |eval| {
-        let expr_value = interactive_read_expression_arg(eval, prompt)?;
-        eval.eval_value(&expr_value)
-    })
+    let expr_value = interactive_read_expression_arg(shared, prompt)?;
+    shared.eval_value(&expr_value)
 }
 
 fn interactive_read_coding_system_optional_arg(
@@ -1853,12 +1851,10 @@ fn interactive_read_coding_system_optional_arg(
 
 fn interactive_use_region_p_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
+    _vm_gc_roots: &[Value],
 ) -> Result<bool, Flow> {
     shared
-        .with_extra_gc_roots(&[], |eval| {
-            eval.apply(Value::symbol("use-region-p"), vec![])
-        })
+        .apply(Value::symbol("use-region-p"), vec![])
         .map(|value| value.is_truthy())
 }
 
@@ -2553,11 +2549,14 @@ fn resolve_interactive_invocation_args(
 
 fn eval_interactive_form_value_in_vm_runtime(
     shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
+    _vm_gc_roots: &[Value],
     form: Value,
 ) -> Result<Vec<Value>, Flow> {
-    let value = shared.with_extra_gc_roots(&[form], move |eval| eval.eval_value(&form))?;
-    interactive_form_value_to_args(value)
+    shared.with_gc_scope_result(|eval| {
+        eval.push_eval_root(form);
+        let value = eval.eval_value(&form)?;
+        interactive_form_value_to_args(value)
+    })
 }
 
 pub(crate) fn callable_form_needs_instantiation(value: &Value) -> bool {
