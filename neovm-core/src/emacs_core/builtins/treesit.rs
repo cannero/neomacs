@@ -11,6 +11,7 @@ use tree_sitter_language::LanguageFn;
 use crate::buffer::{Buffer, BufferId};
 use crate::emacs_core::builtins::buffers::expect_buffer_id;
 use crate::emacs_core::emacs_char::byte_to_char_pos;
+use crate::emacs_core::intern::{SymId, resolve_sym};
 use crate::emacs_core::treesit::{
     self as runtime, NODE_SLOT_PARSER, PARSER_SLOT_BUFFER, PARSER_SLOT_EMBED_LEVEL,
     PARSER_SLOT_LANGUAGE, PARSER_SLOT_NOTIFIERS, PARSER_SLOT_TAG, ParserTagFilter,
@@ -56,8 +57,8 @@ fn posix_versioned_candidates(base: &str, suffix: &str) -> Vec<String> {
     }
 }
 
-fn parse_symbol_arg(name: &str, value: &Value) -> Result<String, Flow> {
-    value.as_symbol_name().map(str::to_owned).ok_or_else(|| {
+fn parse_symbol_arg(name: &str, value: &Value) -> Result<SymId, Flow> {
+    value.as_symbol_id().ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *value, Value::symbol(name)],
@@ -159,11 +160,11 @@ fn list_value_to_strings(value: Option<Value>) -> Vec<String> {
         .collect()
 }
 
-fn list_assoc_symbol_key(value: Option<Value>, key: &str) -> Option<Vec<Value>> {
+fn list_assoc_symbol_key(value: Option<Value>, key: SymId) -> Option<Vec<Value>> {
     let list = crate::emacs_core::value::list_to_vec(&value?)?;
     for entry in list {
         let items = crate::emacs_core::value::list_to_vec(&entry)?;
-        let Some(lang) = items.first().and_then(|v| v.as_symbol_name()) else {
+        let Some(lang) = items.first().and_then(|v| v.as_symbol_id()) else {
             continue;
         };
         if lang == key {
@@ -173,20 +174,19 @@ fn list_assoc_symbol_key(value: Option<Value>, key: &str) -> Option<Vec<Value>> 
     None
 }
 
-fn maybe_remap_language(eval: &super::eval::Context, language: &str) -> String {
+fn maybe_remap_language(eval: &super::eval::Context, language: SymId) -> SymId {
     let remapped =
         super::misc_eval::dynamic_or_global_symbol_value(eval, "treesit-language-remap-alist");
     let Some(items) = list_assoc_symbol_key(remapped, language) else {
-        return language.to_owned();
+        return language;
     };
     items
         .get(1)
-        .and_then(|v| v.as_symbol_name())
+        .and_then(|v| v.as_symbol_id())
         .unwrap_or(language)
-        .to_owned()
 }
 
-fn language_requires_linecol_tracking(eval: &super::eval::Context, language: &str) -> bool {
+fn language_requires_linecol_tracking(eval: &super::eval::Context, language: SymId) -> bool {
     let remapped = maybe_remap_language(eval, language);
     let Some(languages) = super::misc_eval::dynamic_or_global_symbol_value(
         eval,
@@ -197,10 +197,13 @@ fn language_requires_linecol_tracking(eval: &super::eval::Context, language: &st
     crate::emacs_core::value::list_to_vec(&languages)
         .unwrap_or_default()
         .into_iter()
-        .any(|value| value.as_symbol_name().is_some_and(|name| name == remapped))
+        .any(|value| value.as_symbol_id().is_some_and(|name| name == remapped))
 }
 
-fn treesit_override_names(eval: &super::eval::Context, language: &str) -> Option<(String, String)> {
+fn treesit_override_names(
+    eval: &super::eval::Context,
+    language: SymId,
+) -> Option<(String, String)> {
     let overrides =
         super::misc_eval::dynamic_or_global_symbol_value(eval, "treesit-load-name-override-list");
     let items = list_assoc_symbol_key(overrides, language)?;
@@ -214,11 +217,12 @@ fn treesit_user_emacs_dir(eval: &super::eval::Context) -> Option<String> {
         .and_then(|value| value.as_str_owned())
 }
 
-fn treesit_candidate_paths(eval: &super::eval::Context, language: &str) -> Vec<String> {
+fn treesit_candidate_paths(eval: &super::eval::Context, language: SymId) -> Vec<String> {
     let remapped_language = maybe_remap_language(eval, language);
-    let default_lib_base = format!("libtree-sitter-{remapped_language}");
-    let default_c_symbol = format!("tree_sitter_{}", remapped_language.replace('-', "_"));
-    let (lib_base_name, _c_symbol) = treesit_override_names(eval, &remapped_language)
+    let remapped_name = resolve_sym(remapped_language);
+    let default_lib_base = format!("libtree-sitter-{remapped_name}");
+    let default_c_symbol = format!("tree_sitter_{}", remapped_name.replace('-', "_"));
+    let (lib_base_name, _c_symbol) = treesit_override_names(eval, remapped_language)
         .unwrap_or((default_lib_base, default_c_symbol));
 
     let mut candidates = Vec::new();
@@ -278,16 +282,17 @@ fn load_language_from_path(path: &str, c_symbol: &str) -> Result<runtime::Loaded
 
 fn load_language(
     eval: &mut super::eval::Context,
-    language: &str,
+    language: SymId,
 ) -> Result<(Language, Option<String>), Value> {
     let remapped_language = maybe_remap_language(eval, language);
-    if let Some((loaded, filename)) = eval.treesit.loaded_language(&remapped_language) {
+    if let Some((loaded, filename)) = eval.treesit.loaded_language(remapped_language) {
         return Ok((loaded, filename));
     }
 
-    let default_lib_base = format!("libtree-sitter-{remapped_language}");
-    let default_c_symbol = format!("tree_sitter_{}", remapped_language.replace('-', "_"));
-    let (_lib_base_name, c_symbol) = treesit_override_names(eval, &remapped_language)
+    let remapped_name = resolve_sym(remapped_language);
+    let default_lib_base = format!("libtree-sitter-{remapped_name}");
+    let default_c_symbol = format!("tree_sitter_{}", remapped_name.replace('-', "_"));
+    let (_lib_base_name, c_symbol) = treesit_override_names(eval, remapped_language)
         .unwrap_or((default_lib_base, default_c_symbol));
 
     let candidates = treesit_candidate_paths(eval, language);
@@ -297,7 +302,7 @@ fn load_language(
             Ok(loaded) => {
                 let result = (loaded.language.clone(), loaded.filename.clone());
                 eval.treesit
-                    .cache_loaded_language(remapped_language.clone(), loaded);
+                    .cache_loaded_language(remapped_language, loaded);
                 return Ok(result);
             }
             Err(err) => errors.push(err),
@@ -513,13 +518,14 @@ fn ensure_query_compiled(eval: &mut super::eval::Context, query: Value) -> Resul
     }
 
     let language = query_record_slot(query, QUERY_SLOT_LANGUAGE)?;
-    let language_name = parse_symbol_arg("treesit-query-compile", &language)?;
+    let language_sym = parse_symbol_arg("treesit-query-compile", &language)?;
     let source = query_record_slot(query, QUERY_SLOT_SOURCE)?;
     let source_string = expand_query_value("treesit-query-compile", source)?;
 
-    let (lang, _) = load_language(eval, &language_name).map_err(|_| {
+    let (lang, _) = load_language(eval, language_sym).map_err(|_| {
         treesit_query_error(format!(
-            "Failed to load tree-sitter language `{language_name}`"
+            "Failed to load tree-sitter language `{}`",
+            resolve_sym(language_sym)
         ))
     })?;
     let compiled = Query::new(&lang, &source_string).map_err(treesit_query_error_from_query)?;
@@ -768,7 +774,7 @@ fn resolve_compiled_query_value(
     query: Value,
     caller: &str,
 ) -> Result<Value, Flow> {
-    let language_name = parse_symbol_arg(caller, &language_symbol)?;
+    let language_sym = parse_symbol_arg(caller, &language_symbol)?;
     let compiled_query = if runtime::is_compiled_query(query) {
         query
     } else {
@@ -777,7 +783,8 @@ fn resolve_compiled_query_value(
     let query_language = query_record_slot(compiled_query, QUERY_SLOT_LANGUAGE)?;
     if query_language != language_symbol {
         return Err(treesit_query_error(format!(
-            "Query language mismatch: expected `{language_name}`"
+            "Query language mismatch: expected `{}`",
+            resolve_sym(language_sym)
         )));
     }
     ensure_query_compiled(eval, compiled_query)?;
@@ -1326,7 +1333,7 @@ pub(crate) fn builtin_treesit_language_abi_version(
         return Ok(Value::NIL);
     }
     let language = parse_symbol_arg("treesit-language-abi-version", language_arg)?;
-    match load_language(eval, &language) {
+    match load_language(eval, language) {
         Ok((loaded, _)) => Ok(Value::fixnum(loaded.abi_version() as i64)),
         Err(_) => Ok(Value::NIL),
     }
@@ -1346,7 +1353,7 @@ pub(crate) fn builtin_treesit_language_available_p(
     expect_range_args("treesit-language-available-p", &args, 1, 2)?;
     let language = parse_symbol_arg("treesit-language-available-p", &args[0])?;
     let detail = args.get(1).is_some_and(|value| !value.is_nil());
-    match load_language(eval, &language) {
+    match load_language(eval, language) {
         Ok(_) if detail => Ok(Value::cons(Value::T, Value::NIL)),
         Ok(_) => Ok(Value::T),
         Err(data) if detail => Ok(Value::cons(Value::NIL, data)),
@@ -1830,17 +1837,20 @@ pub(crate) fn builtin_treesit_parser_create(
     if args.get(2).is_none_or(|value| value.is_nil()) {
         if let Some(existing) = eval
             .treesit
-            .find_reusable_parser(orig_buffer_id, &language, tag)
+            .find_reusable_parser(orig_buffer_id, language, tag)
         {
             return Ok(existing);
         }
     }
 
-    let (loaded_language, _) = load_language(eval, &language).map_err(|detail| {
+    let (loaded_language, _) = load_language(eval, language).map_err(|detail| {
         signal(
             "error",
             vec![
-                Value::string(format!("Failed to load tree-sitter language `{language}`")),
+                Value::string(format!(
+                    "Failed to load tree-sitter language `{}`",
+                    resolve_sym(language)
+                )),
                 detail,
             ],
         )
@@ -1851,7 +1861,7 @@ pub(crate) fn builtin_treesit_parser_create(
         .map_err(|err| signal("error", vec![Value::string(format!("ABI mismatch: {err}"))]))?;
 
     let tracking_linecol = eval.treesit.linecol_cache(orig_buffer_id).is_some()
-        || language_requires_linecol_tracking(eval, &language);
+        || language_requires_linecol_tracking(eval, language);
     if tracking_linecol {
         eval.treesit.enable_linecol_tracking(orig_buffer_id);
     }
@@ -1860,12 +1870,12 @@ pub(crate) fn builtin_treesit_parser_create(
         placeholder,
         orig_buffer_id,
         root_buffer_id,
-        language.clone(),
+        language,
         tag,
         parser,
         tracking_linecol,
     );
-    let value = runtime::make_parser_value(id, Value::symbol(&language), buffer_value, tag);
+    let value = runtime::make_parser_value(id, Value::symbol(language), buffer_value, tag);
     let entry = eval.treesit.parser_mut(id).ok_or_else(|| {
         signal(
             "error",
@@ -1931,12 +1941,9 @@ pub(crate) fn builtin_treesit_parser_list(
         expect_symbol_or_nil("treesit-parser-list", tag)?;
         ParserTagFilter::Exact(tag)
     };
-    let items = eval.treesit.parser_values_for(
-        root_buffer_id,
-        orig_buffer_id,
-        language.as_deref(),
-        tag_filter,
-    );
+    let items =
+        eval.treesit
+            .parser_values_for(root_buffer_id, orig_buffer_id, language, tag_filter);
     Ok(Value::list(items))
 }
 
@@ -2276,7 +2283,7 @@ pub(crate) fn builtin_treesit_query_compile(
     if language.is_nil() {
         return Err(query_type_error("treesit-query-compile", language));
     }
-    let language_name = parse_symbol_arg("treesit-query-compile", &language)?;
+    let language_sym = parse_symbol_arg("treesit-query-compile", &language)?;
     let query = args[1];
     let eager = args.get(2).is_some_and(|value| !value.is_nil());
 
@@ -2291,7 +2298,7 @@ pub(crate) fn builtin_treesit_query_compile(
         return Err(query_type_error("treesit-query-compile", query));
     }
 
-    let id = eval.treesit.insert_query(language_name);
+    let id = eval.treesit.insert_query(language_sym);
     let value = runtime::make_query_value(id, language, query);
     if eager {
         ensure_query_compiled(eval, value)?;
@@ -2437,7 +2444,7 @@ pub(crate) fn builtin_treesit_grammar_location(
 ) -> EvalResult {
     expect_args("treesit-grammar-location", &args, 1)?;
     let language = parse_symbol_arg("treesit-grammar-location", &args[0])?;
-    match load_language(eval, &language) {
+    match load_language(eval, language) {
         Ok((_, filename)) => Ok(filename.map_or(Value::NIL, Value::string)),
         Err(_) => Ok(Value::NIL),
     }

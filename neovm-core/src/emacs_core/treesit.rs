@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use libloading::Library;
 use tree_sitter::{InputEdit, Language, Parser, Point, Query, Tree};
 
+use super::intern::SymId;
 use super::value::Value;
 use crate::buffer::BufferId;
 
@@ -45,7 +46,7 @@ pub(crate) struct ParserEntry {
     pub(crate) value: Value,
     pub(crate) orig_buffer_id: BufferId,
     pub(crate) root_buffer_id: BufferId,
-    pub(crate) language_name: String,
+    pub(crate) language: SymId,
     pub(crate) tag: Value,
     pub(crate) parser: Parser,
     pub(crate) tree: Option<Tree>,
@@ -64,7 +65,7 @@ pub(crate) struct NodeEntry {
 }
 
 pub(crate) struct QueryEntry {
-    pub(crate) language_name: String,
+    pub(crate) language: SymId,
     pub(crate) compiled: Option<Query>,
 }
 
@@ -81,7 +82,7 @@ pub(crate) struct TreeSitterManager {
     next_parser_id: u64,
     next_node_id: u64,
     next_query_id: u64,
-    loaded_languages: BTreeMap<String, LoadedLanguage>,
+    loaded_languages: HashMap<SymId, LoadedLanguage>,
     parsers: BTreeMap<u64, ParserEntry>,
     nodes: BTreeMap<u64, NodeEntry>,
     queries: BTreeMap<u64, QueryEntry>,
@@ -95,7 +96,7 @@ impl TreeSitterManager {
             next_parser_id: 1,
             next_node_id: 1,
             next_query_id: 1,
-            loaded_languages: BTreeMap::new(),
+            loaded_languages: HashMap::new(),
             parsers: BTreeMap::new(),
             nodes: BTreeMap::new(),
             queries: BTreeMap::new(),
@@ -108,20 +109,20 @@ impl TreeSitterManager {
         self.parsers.values().map(|entry| entry.value).collect()
     }
 
-    pub(crate) fn loaded_language(&self, key: &str) -> Option<(Language, Option<String>)> {
+    pub(crate) fn loaded_language(&self, key: SymId) -> Option<(Language, Option<String>)> {
         self.loaded_languages
-            .get(key)
+            .get(&key)
             .map(|loaded| (loaded.language.clone(), loaded.filename.clone()))
     }
 
-    pub(crate) fn cache_loaded_language(&mut self, key: String, loaded: LoadedLanguage) {
+    pub(crate) fn cache_loaded_language(&mut self, key: SymId, loaded: LoadedLanguage) {
         self.loaded_languages.entry(key).or_insert(loaded);
     }
 
     pub(crate) fn find_reusable_parser(
         &self,
         orig_buffer_id: BufferId,
-        language_name: &str,
+        language: SymId,
         tag: Value,
     ) -> Option<Value> {
         self.parsers
@@ -129,7 +130,7 @@ impl TreeSitterManager {
             .find(|entry| {
                 !entry.deleted
                     && entry.orig_buffer_id == orig_buffer_id
-                    && entry.language_name == language_name
+                    && entry.language == language
                     && entry.tag == tag
             })
             .map(|entry| entry.value)
@@ -140,7 +141,7 @@ impl TreeSitterManager {
         value: Value,
         orig_buffer_id: BufferId,
         root_buffer_id: BufferId,
-        language_name: String,
+        language: SymId,
         tag: Value,
         parser: Parser,
         tracking_linecol: bool,
@@ -153,7 +154,7 @@ impl TreeSitterManager {
                 value,
                 orig_buffer_id,
                 root_buffer_id,
-                language_name,
+                language,
                 tag,
                 parser,
                 tree: None,
@@ -180,7 +181,7 @@ impl TreeSitterManager {
         &self,
         root_buffer_id: BufferId,
         orig_buffer_id: BufferId,
-        language_name: Option<&str>,
+        language: Option<SymId>,
         tag_filter: ParserTagFilter,
     ) -> Vec<Value> {
         let mut items = self
@@ -195,8 +196,8 @@ impl TreeSitterManager {
                 if entry.deleted {
                     return None;
                 }
-                if let Some(language_name) = language_name {
-                    if entry.language_name != language_name {
+                if let Some(language) = language {
+                    if entry.language != language {
                         return None;
                     }
                 }
@@ -245,13 +246,13 @@ impl TreeSitterManager {
         self.nodes.retain(|_, entry| entry.parser_id != parser_id);
     }
 
-    pub(crate) fn insert_query(&mut self, language_name: String) -> u64 {
+    pub(crate) fn insert_query(&mut self, language: SymId) -> u64 {
         let id = self.next_query_id;
         self.next_query_id += 1;
         self.queries.insert(
             id,
             QueryEntry {
-                language_name,
+                language,
                 compiled: None,
             },
         );

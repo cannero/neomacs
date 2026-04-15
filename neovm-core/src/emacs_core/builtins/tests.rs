@@ -88,7 +88,7 @@ fn create_unique_test_buffer(eval: &mut crate::emacs_core::eval::Context, name: 
 
 fn install_test_treesit_json_language(eval: &mut Context) {
     eval.treesit.cache_loaded_language(
-        "json".to_string(),
+        crate::emacs_core::intern::intern("json"),
         runtime_treesit::LoadedLanguage {
             language: Language::new(tree_sitter_json::LANGUAGE),
             filename: Some("test:json".to_string()),
