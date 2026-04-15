@@ -18,7 +18,7 @@
 
 use super::error::{EvalResult, Flow, signal};
 use super::eval::Context;
-use super::intern::resolve_sym;
+use super::intern::{SymId, intern, lookup_interned, resolve_sym};
 use super::value::*;
 use std::collections::{HashMap, HashSet};
 
@@ -200,7 +200,7 @@ impl EolType {
 #[derive(Clone, Debug)]
 pub struct CodingSystemInfo {
     /// Canonical name of the coding system (e.g. "utf-8").
-    pub name: String,
+    pub name: SymId,
     /// Type category (e.g. "utf-8", "charset", "raw-text", "undecided").
     pub coding_type: String,
     /// Mnemonic character shown in the mode line.
@@ -228,7 +228,7 @@ pub struct CodingSystemInfo {
 impl CodingSystemInfo {
     fn new(name: &str, coding_type: &str, mnemonic: char, eol_type: EolType) -> Self {
         Self {
-            name: name.to_string(),
+            name: intern(name),
             coding_type: coding_type.to_string(),
             mnemonic,
             eol_type,
@@ -245,13 +245,14 @@ impl CodingSystemInfo {
 
     /// Return the base name (strip -unix/-dos/-mac suffix).
     #[cfg(test)]
-    fn base_name(&self) -> &str {
+    fn base_name(&self) -> String {
+        let name = resolve_sym(self.name);
         for suffix in &["-unix", "-dos", "-mac"] {
-            if self.name.ends_with(suffix) {
-                return &self.name[..self.name.len() - suffix.len()];
+            if name.ends_with(suffix) {
+                return name[..name.len() - suffix.len()].to_string();
             }
         }
-        &self.name
+        name.to_string()
     }
 }
 
@@ -262,15 +263,15 @@ impl CodingSystemInfo {
 /// Central registry for all coding systems and their aliases.
 pub struct CodingSystemManager {
     /// Registered coding systems, keyed by canonical name.
-    pub systems: HashMap<String, CodingSystemInfo>,
+    pub systems: HashMap<SymId, CodingSystemInfo>,
     /// Alias -> canonical name mapping.
-    pub aliases: HashMap<String, String>,
+    pub aliases: HashMap<SymId, SymId>,
     /// Detection priority list (ordered list of system names).
-    pub priority: Vec<String>,
+    pub priority: Vec<SymId>,
     /// Current keyboard coding system.
-    keyboard_coding: String,
+    keyboard_coding: SymId,
     /// Current terminal coding system.
-    terminal_coding: String,
+    terminal_coding: SymId,
 }
 
 impl CodingSystemManager {
@@ -280,8 +281,8 @@ impl CodingSystemManager {
             systems: HashMap::new(),
             aliases: HashMap::new(),
             priority: Vec::new(),
-            keyboard_coding: "utf-8-unix".to_string(),
-            terminal_coding: "utf-8-unix".to_string(),
+            keyboard_coding: intern("utf-8-unix"),
+            terminal_coding: intern("utf-8-unix"),
         };
 
         // Register standard coding systems
@@ -491,39 +492,28 @@ impl CodingSystemManager {
         ));
 
         // Common aliases
-        mgr.aliases
-            .insert("mule-utf-8".to_string(), "utf-8".to_string());
-        mgr.aliases
-            .insert("cp65001".to_string(), "utf-8".to_string());
-        mgr.aliases
-            .insert("iso-8859-1".to_string(), "iso-latin-1".to_string());
-        mgr.aliases
-            .insert("latin-1".to_string(), "iso-latin-1".to_string());
-        mgr.aliases
-            .insert("iso-8859-9".to_string(), "iso-latin-5".to_string());
-        mgr.aliases
-            .insert("latin-5".to_string(), "iso-latin-5".to_string());
-        mgr.aliases
-            .insert("iso-8859-15".to_string(), "iso-latin-9".to_string());
-        mgr.aliases
-            .insert("latin-9".to_string(), "iso-latin-9".to_string());
-        mgr.aliases
-            .insert("latin-0".to_string(), "iso-latin-9".to_string());
-        mgr.aliases
-            .insert("ascii".to_string(), "us-ascii".to_string());
-        mgr.aliases
-            .insert("iso-safe".to_string(), "us-ascii".to_string());
+        mgr.add_alias("mule-utf-8", "utf-8");
+        mgr.add_alias("cp65001", "utf-8");
+        mgr.add_alias("iso-8859-1", "iso-latin-1");
+        mgr.add_alias("latin-1", "iso-latin-1");
+        mgr.add_alias("iso-8859-9", "iso-latin-5");
+        mgr.add_alias("latin-5", "iso-latin-5");
+        mgr.add_alias("iso-8859-15", "iso-latin-9");
+        mgr.add_alias("latin-9", "iso-latin-9");
+        mgr.add_alias("latin-0", "iso-latin-9");
+        mgr.add_alias("ascii", "us-ascii");
+        mgr.add_alias("iso-safe", "us-ascii");
 
         // Default priority list
         mgr.priority = vec![
-            "utf-8".to_string(),
-            "utf-8-unix".to_string(),
-            "undecided".to_string(),
-            "iso-latin-1".to_string(),
-            "us-ascii".to_string(),
-            "raw-text".to_string(),
-            "binary".to_string(),
-            "no-conversion".to_string(),
+            intern("utf-8"),
+            intern("utf-8-unix"),
+            intern("undecided"),
+            intern("iso-latin-1"),
+            intern("us-ascii"),
+            intern("raw-text"),
+            intern("binary"),
+            intern("no-conversion"),
         ];
 
         mgr
@@ -531,42 +521,33 @@ impl CodingSystemManager {
 
     /// Register a coding system.
     fn register(&mut self, info: CodingSystemInfo) {
-        self.systems.insert(info.name.clone(), info);
+        self.systems.insert(info.name, info);
     }
 
     /// Resolve a name through the alias table to a canonical name.
     /// Returns either the input name (if it's a direct system) or the
     /// canonical name from the alias table.
-    pub fn resolve<'a>(&'a self, name: &'a str) -> Option<&'a str> {
-        if self.systems.contains_key(name) {
+    pub fn resolve(&self, name: &str) -> Option<SymId> {
+        let name = lookup_interned(name)?;
+        if self.systems.contains_key(&name) {
             Some(name)
-        } else if let Some(canonical) = self.aliases.get(name) {
-            if self.systems.contains_key(canonical.as_str()) {
-                Some(canonical.as_str())
-            } else {
-                None
-            }
         } else {
-            None
+            self.aliases
+                .get(&name)
+                .copied()
+                .filter(|canonical| self.systems.contains_key(canonical))
         }
     }
 
     /// Look up a coding system by name (resolving aliases).
     pub fn get(&self, name: &str) -> Option<&CodingSystemInfo> {
         let canonical = self.resolve(name)?;
-        self.systems.get(canonical)
+        self.systems.get(&canonical)
     }
 
     /// Look up a coding system mutably by name (resolving aliases).
     pub fn get_mut(&mut self, name: &str) -> Option<&mut CodingSystemInfo> {
-        // Need to resolve first, then borrow mutably.
-        let canonical = if self.systems.contains_key(name) {
-            name.to_string()
-        } else if let Some(c) = self.aliases.get(name) {
-            c.clone()
-        } else {
-            return None;
-        };
+        let canonical = self.resolve(name)?;
         self.systems.get_mut(&canonical)
     }
 
@@ -577,46 +558,45 @@ impl CodingSystemManager {
 
     /// Add an alias mapping.
     pub fn add_alias(&mut self, alias: &str, target: &str) {
-        self.aliases.insert(alias.to_string(), target.to_string());
+        self.aliases.insert(intern(alias), intern(target));
     }
 
     /// Get all aliases that point to a given canonical name.
     pub fn aliases_for(&self, canonical: &str) -> Vec<String> {
-        // Resolve in case the caller passed an alias
-        let target = if self.systems.contains_key(canonical) {
-            canonical
-        } else if let Some(c) = self.aliases.get(canonical) {
-            c.as_str()
-        } else {
+        let Some(target) = self.resolve(canonical) else {
             return Vec::new();
         };
 
         self.aliases
             .iter()
-            .filter(|(_, v)| v.as_str() == target)
-            .map(|(k, _)| k.clone())
+            .filter(|(_, v)| **v == target)
+            .map(|(k, _)| resolve_sym(*k).to_string())
             .collect()
     }
 
     /// List all registered coding system names (canonical only).
     pub fn list_all(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.systems.keys().cloned().collect();
+        let mut names: Vec<String> = self
+            .systems
+            .keys()
+            .map(|id| resolve_sym(*id).to_string())
+            .collect();
         names.sort();
         names
     }
 
     // pdump accessors
     pub(crate) fn keyboard_coding_name(&self) -> &str {
-        &self.keyboard_coding
+        resolve_sym(self.keyboard_coding)
     }
     pub(crate) fn terminal_coding_name(&self) -> &str {
-        &self.terminal_coding
+        resolve_sym(self.terminal_coding)
     }
     pub(crate) fn dump_keyboard_coding(&self) -> &str {
-        &self.keyboard_coding
+        resolve_sym(self.keyboard_coding)
     }
     pub(crate) fn dump_terminal_coding(&self) -> &str {
-        &self.terminal_coding
+        resolve_sym(self.terminal_coding)
     }
     pub(crate) fn from_dump(
         systems: HashMap<String, CodingSystemInfo>,
@@ -626,11 +606,17 @@ impl CodingSystemManager {
         terminal_coding: String,
     ) -> Self {
         Self {
-            systems,
-            aliases,
-            priority,
-            keyboard_coding,
-            terminal_coding,
+            systems: systems
+                .into_iter()
+                .map(|(name, info)| (intern(&name), info))
+                .collect(),
+            aliases: aliases
+                .into_iter()
+                .map(|(alias, target)| (intern(&alias), intern(&target)))
+                .collect(),
+            priority: priority.into_iter().map(|name| intern(&name)).collect(),
+            keyboard_coding: intern(&keyboard_coding),
+            terminal_coding: intern(&terminal_coding),
         }
     }
 
@@ -1516,9 +1502,8 @@ pub(crate) fn builtin_define_coding_system_alias(
 
     let canonical = mgr
         .resolve(&target)
-        .ok_or_else(|| signal("coding-system-error", vec![Value::symbol(&target)]))?
-        .to_string();
-    mgr.add_alias(&alias, &canonical);
+        .ok_or_else(|| signal("coding-system-error", vec![Value::symbol(&target)]))?;
+    mgr.add_alias(&alias, resolve_sym(canonical));
     Ok(Value::NIL)
 }
 
@@ -1549,24 +1534,30 @@ pub(crate) fn builtin_set_coding_system_priority(
         };
         let resolved = resolve_runtime_name(mgr, &name)
             .ok_or_else(|| signal("coding-system-error", vec![*arg]))?;
-        let canonical = mgr.resolve(&resolved).unwrap_or(&resolved).to_string();
+        let canonical = mgr
+            .resolve(&resolved)
+            .map(|id| resolve_sym(id).to_string())
+            .unwrap_or(resolved.clone());
         requested.push((name, canonical));
     }
 
-    let mut seen_canonicals: HashSet<String> =
+    let mut seen_canonicals: HashSet<SymId> =
         HashSet::with_capacity(mgr.priority.len() + requested.len());
-    let mut reordered: Vec<String> = Vec::with_capacity(mgr.priority.len() + requested.len());
+    let mut reordered: Vec<SymId> = Vec::with_capacity(mgr.priority.len() + requested.len());
 
     for (display, canonical) in requested {
-        if seen_canonicals.insert(canonical) {
-            reordered.push(display);
+        if let Some(display_id) = lookup_interned(&display)
+            && let Some(canonical_id) = lookup_interned(&canonical)
+            && seen_canonicals.insert(canonical_id)
+        {
+            reordered.push(display_id);
         }
     }
 
-    for name in &mgr.priority {
-        let canonical = mgr.resolve(name).unwrap_or(name.as_str()).to_string();
+    for &name in &mgr.priority {
+        let canonical = mgr.resolve(resolve_sym(name)).unwrap_or(name);
         if seen_canonicals.insert(canonical) {
-            reordered.push(name.clone());
+            reordered.push(name);
         }
     }
 
@@ -1625,7 +1616,7 @@ pub(crate) fn builtin_keyboard_coding_system(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("keyboard-coding-system", &args, 1)?;
-    Ok(Value::symbol(&mgr.keyboard_coding))
+    Ok(Value::symbol(mgr.keyboard_coding))
 }
 
 /// `(terminal-coding-system &optional TERMINAL)` -- return the current
@@ -1635,7 +1626,7 @@ pub(crate) fn builtin_terminal_coding_system(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("terminal-coding-system", &args, 1)?;
-    Ok(Value::symbol(&mgr.terminal_coding))
+    Ok(Value::symbol(mgr.terminal_coding))
 }
 
 /// `(set-keyboard-coding-system CODING-SYSTEM &optional TERMINAL)` -- set the
@@ -1647,7 +1638,7 @@ pub(crate) fn builtin_set_keyboard_coding_system(
     expect_min_args("set-keyboard-coding-system", &args, 1)?;
     expect_max_args("set-keyboard-coding-system", &args, 2)?;
     if args[0].is_nil() {
-        mgr.keyboard_coding = "no-conversion".to_string();
+        mgr.keyboard_coding = intern("no-conversion");
         return Ok(Value::NIL);
     }
     let Some(name) = args[0].as_symbol_name().map(|s| s.to_string()) else {
@@ -1683,8 +1674,8 @@ pub(crate) fn builtin_set_keyboard_coding_system(
         ));
     }
     let normalized = normalize_keyboard_coding_system(&normalization_input);
-    mgr.keyboard_coding = normalized.clone();
-    Ok(Value::symbol(normalized))
+    mgr.keyboard_coding = intern(&normalized);
+    Ok(Value::symbol(mgr.keyboard_coding))
 }
 
 /// `(set-terminal-coding-system CODING-SYSTEM &optional TERMINAL)` -- set the
@@ -1696,7 +1687,7 @@ pub(crate) fn builtin_set_terminal_coding_system(
     expect_min_args("set-terminal-coding-system", &args, 1)?;
     expect_max_args("set-terminal-coding-system", &args, 3)?;
     if args[0].is_nil() {
-        mgr.terminal_coding = "nil".to_string();
+        mgr.terminal_coding = intern("nil");
         return Ok(Value::NIL);
     }
     let Some(name) = args[0].as_symbol_name().map(|s| s.to_string()) else {
@@ -1708,7 +1699,7 @@ pub(crate) fn builtin_set_terminal_coding_system(
     if !is_known_or_derived_coding_system(mgr, &name) {
         return Err(signal("coding-system-error", vec![args[0]]));
     }
-    mgr.terminal_coding = name;
+    mgr.terminal_coding = intern(&name);
     Ok(Value::NIL)
 }
 
@@ -1806,12 +1797,12 @@ pub(crate) fn builtin_coding_system_priority_list(
     let highest_only = args.first().is_some_and(|v| v.is_truthy());
     if highest_only {
         if let Some(first) = mgr.priority.first() {
-            Ok(Value::list(vec![Value::symbol(first)]))
+            Ok(Value::list(vec![Value::symbol(*first)]))
         } else {
             Ok(Value::NIL)
         }
     } else {
-        let items: Vec<Value> = mgr.priority.iter().map(Value::symbol).collect();
+        let items: Vec<Value> = mgr.priority.iter().map(|id| Value::symbol(*id)).collect();
         Ok(Value::list(items))
     }
 }
@@ -1982,7 +1973,7 @@ fn resolve_runtime_name(mgr: &CodingSystemManager, name: &str) -> Option<String>
         return None;
     }
     let canonical_base = mgr.resolve(base)?;
-    derive_coding_for_eol(canonical_base, eol.to_int()).map(|_| normalized.to_string())
+    derive_coding_for_eol(resolve_sym(canonical_base), eol.to_int()).map(|_| normalized.to_string())
 }
 
 fn canonical_runtime_name(mgr: &CodingSystemManager, name: &str) -> Option<String> {
@@ -1990,16 +1981,20 @@ fn canonical_runtime_name(mgr: &CodingSystemManager, name: &str) -> Option<Strin
     if let Some(eol) = EolType::from_suffix(normalized) {
         let base = strip_eol_suffix(normalized);
         let canonical_base = mgr.resolve(base)?;
-        return derive_coding_for_eol(canonical_base, eol.to_int());
+        return derive_coding_for_eol(resolve_sym(canonical_base), eol.to_int());
     }
 
-    mgr.resolve(normalized).map(str::to_string)
+    mgr.resolve(normalized)
+        .map(|id| resolve_sym(id).to_string())
 }
 
 fn runtime_bucket_name(mgr: &CodingSystemManager, resolved_name: &str) -> Option<String> {
     let base = strip_eol_suffix(resolved_name);
     let bucket_base = properties_bucket_base(base);
-    let bucket_name = mgr.resolve(bucket_base).unwrap_or(bucket_base).to_string();
+    let bucket_name = mgr
+        .resolve(bucket_base)
+        .map(|id| resolve_sym(id).to_string())
+        .unwrap_or_else(|| bucket_base.to_string());
     if mgr.is_known(bucket_name.as_str()) {
         Some(bucket_name)
     } else {
@@ -2050,7 +2045,7 @@ fn raw_coding_candidates(mgr: &CodingSystemManager, exclude: Option<&[Value]>) -
         .systems
         .values()
         .filter(|info| info.eol_type == EolType::Undecided)
-        .map(|info| display_base_name(strip_eol_suffix(&info.name)).to_string())
+        .map(|info| display_base_name(strip_eol_suffix(resolve_sym(info.name))).to_string())
         .filter(|name| {
             !matches!(
                 name.as_str(),

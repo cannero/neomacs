@@ -1406,9 +1406,9 @@ pub(crate) fn dump_coding_system_manager(
             .iter()
             .map(|(k, v)| {
                 (
-                    k.clone(),
+                    crate::emacs_core::intern::resolve_sym(*k).to_string(),
                     DumpCodingSystemInfo {
-                        name: v.name.clone(),
+                        name: crate::emacs_core::intern::resolve_sym(v.name).to_string(),
                         coding_type: v.coding_type.clone(),
                         mnemonic: v.mnemonic,
                         eol_type: dump_eol_type(&v.eol_type),
@@ -1435,9 +1435,18 @@ pub(crate) fn dump_coding_system_manager(
         aliases: csm
             .aliases
             .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .map(|(k, v)| {
+                (
+                    crate::emacs_core::intern::resolve_sym(*k).to_string(),
+                    crate::emacs_core::intern::resolve_sym(*v).to_string(),
+                )
+            })
             .collect(),
-        priority: csm.priority.clone(),
+        priority: csm
+            .priority
+            .iter()
+            .map(|id| crate::emacs_core::intern::resolve_sym(*id).to_string())
+            .collect(),
         keyboard_coding: csm.dump_keyboard_coding().to_owned(),
         terminal_coding: csm.dump_terminal_coding().to_owned(),
     }
@@ -2891,7 +2900,7 @@ pub(crate) fn load_coding_system_manager(
             (
                 k.clone(),
                 CodingSystemInfo {
-                    name: v.name.clone(),
+                    name: crate::emacs_core::intern::intern(&v.name),
                     coding_type: v.coding_type.clone(),
                     mnemonic: v.mnemonic,
                     eol_type: match v.eol_type {

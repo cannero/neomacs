@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::intern::resolve_sym;
 use crate::emacs_core::value::ValueKind;
 
 fn mgr() -> CodingSystemManager {
@@ -89,10 +90,19 @@ fn aliases_resolve() {
     assert!(m.is_known("iso-8859-15")); // alias for latin-9
     assert!(m.is_known("us-ascii")); // alias for ascii
     assert!(m.is_known("mule-utf-8")); // alias for utf-8
-    assert_eq!(m.resolve("iso-8859-1"), Some("iso-latin-1"));
-    assert_eq!(m.resolve("iso-8859-9"), Some("iso-latin-5"));
-    assert_eq!(m.resolve("iso-8859-15"), Some("iso-latin-9"));
-    assert_eq!(m.resolve("ascii"), Some("us-ascii"));
+    assert_eq!(
+        m.resolve("iso-8859-1").map(resolve_sym),
+        Some("iso-latin-1")
+    );
+    assert_eq!(
+        m.resolve("iso-8859-9").map(resolve_sym),
+        Some("iso-latin-5")
+    );
+    assert_eq!(
+        m.resolve("iso-8859-15").map(resolve_sym),
+        Some("iso-latin-9")
+    );
+    assert_eq!(m.resolve("ascii").map(resolve_sym), Some("us-ascii"));
 }
 
 #[test]
@@ -109,7 +119,7 @@ fn add_alias_works() {
     let mut m = mgr();
     m.add_alias("my-utf8", "utf-8");
     assert!(m.is_known("my-utf8"));
-    assert_eq!(m.resolve("my-utf8"), Some("utf-8"));
+    assert_eq!(m.resolve("my-utf8").map(resolve_sym), Some("utf-8"));
 }
 
 // ----- CodingSystemInfo -----
