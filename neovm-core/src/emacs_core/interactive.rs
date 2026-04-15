@@ -630,7 +630,7 @@ pub(crate) fn builtin_command_remapping_impl(
         match keymap_arg.kind() {
             ValueKind::Cons => {
                 if let Some(target) =
-                    command_remapping_lookup_in_lisp_keymap(keymap_arg, &command_name)
+                    command_remapping_lookup_in_lisp_keymap(keymap_arg, command_name)
                 {
                     return Ok(command_remapping_normalize_target(target));
                 }
@@ -640,7 +640,7 @@ pub(crate) fn builtin_command_remapping_impl(
                 let active_maps =
                     current_active_maps_for_position_read_only(ctx, true, args.get(1))?;
                 return Ok(
-                    command_remapping_lookup_in_keymaps(&active_maps, &command_name)
+                    command_remapping_lookup_in_keymaps(&active_maps, command_name)
                         .unwrap_or(Value::NIL),
                 );
             }
@@ -651,7 +651,7 @@ pub(crate) fn builtin_command_remapping_impl(
         }
     }
     let active_maps = current_active_maps_for_position_read_only(ctx, true, args.get(1))?;
-    Ok(command_remapping_lookup_in_keymaps(&active_maps, &command_name).unwrap_or(Value::NIL))
+    Ok(command_remapping_lookup_in_keymaps(&active_maps, command_name).unwrap_or(Value::NIL))
 }
 
 fn builtin_command_name(name: &str) -> bool {
@@ -3342,15 +3342,15 @@ fn command_remapping_keymap_arg_valid(value: &Value) -> bool {
     value.is_cons() || is_list_keymap(value)
 }
 
-fn command_remapping_lookup_in_keymaps(keymaps: &[Value], command_name: &str) -> Option<Value> {
+fn command_remapping_lookup_in_keymaps(keymaps: &[Value], command_name: SymId) -> Option<Value> {
     keymap_command_remapping_lookup_in_keymaps(keymaps, command_name)
 }
 
-fn command_remapping_command_name(command: &Value) -> Option<String> {
+fn command_remapping_command_name(command: &Value) -> Option<SymId> {
     keymap_command_remapping_command_name(command)
 }
 
-fn command_remapping_lookup_in_lisp_keymap(keymap: &Value, command_name: &str) -> Option<Value> {
+fn command_remapping_lookup_in_lisp_keymap(keymap: &Value, command_name: SymId) -> Option<Value> {
     keymap_command_remapping_lookup_in_lisp_keymap(keymap, command_name)
 }
 

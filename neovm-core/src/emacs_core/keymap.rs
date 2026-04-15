@@ -1245,6 +1245,14 @@ fn dynamic_or_global_symbol_value_in_state(
     obarray.symbol_value(name).cloned()
 }
 
+fn dynamic_or_global_symbol_value_by_sym_id_in_state(
+    obarray: &Obarray,
+    _dynamic: &[OrderedRuntimeBindingMap],
+    sym_id: SymId,
+) -> Option<Value> {
+    obarray.symbol_value_id(sym_id).copied()
+}
+
 fn dynamic_buffer_or_global_symbol_value_in_state(
     obarray: &Obarray,
     _dynamic: &[OrderedRuntimeBindingMap],
@@ -1261,7 +1269,23 @@ fn dynamic_buffer_or_global_symbol_value_in_state(
     obarray.symbol_value(name).cloned()
 }
 
-pub(crate) fn minor_mode_map_entry(entry: &Value) -> Option<(String, Value)> {
+fn dynamic_buffer_or_global_symbol_value_by_sym_id_in_state(
+    obarray: &Obarray,
+    _dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    buffer_id: Option<crate::buffer::BufferId>,
+    sym_id: SymId,
+) -> Option<Value> {
+    if let Some(buffer_id) = buffer_id
+        && let Some(buf) = buffers.get(buffer_id)
+        && let Some(value) = buf.get_buffer_local_by_sym_id(sym_id)
+    {
+        return Some(value);
+    }
+    obarray.symbol_value_id(sym_id).copied()
+}
+
+pub(crate) fn minor_mode_map_entry(entry: &Value) -> Option<(SymId, Value)> {
     if !entry.is_cons() {
         return None;
     };
@@ -1271,7 +1295,7 @@ pub(crate) fn minor_mode_map_entry(entry: &Value) -> Option<(String, Value)> {
         let pair_cdr = entry.cons_cdr();
         (pair_car, pair_cdr)
     };
-    let mode_name = mode.as_symbol_name()?.to_string();
+    let mode_name = mode.as_symbol_id()?;
     if cdr == Value::NIL {
         return None;
     }
@@ -1802,7 +1826,7 @@ fn lookup_minor_mode_binding_in_alist_in_obarray(
     buffer_id: Option<crate::buffer::BufferId>,
     events: &[Value],
     alist_value: &Value,
-) -> Result<Option<(String, Value)>, Flow> {
+) -> Result<Option<(SymId, Value)>, Flow> {
     let Some(entries) = list_to_vec(alist_value) else {
         return Ok(None);
     };
@@ -1811,8 +1835,8 @@ fn lookup_minor_mode_binding_in_alist_in_obarray(
         let Some((mode_name, map_value)) = minor_mode_map_entry(&entry) else {
             continue;
         };
-        if !dynamic_buffer_or_global_symbol_value_in_state(
-            obarray, dynamic, buffers, buffer_id, &mode_name,
+        if !dynamic_buffer_or_global_symbol_value_by_sym_id_in_state(
+            obarray, dynamic, buffers, buffer_id, mode_name,
         )
         .is_some_and(|v| v.is_truthy())
         {
@@ -1869,13 +1893,13 @@ pub(crate) fn minor_mode_key_binding_in_context(
     ) && let Some(emulation_entries) = list_to_vec(&emulation_raw)
     {
         for emulation_entry in emulation_entries {
-            let alist_value = match emulation_entry.as_symbol_name() {
-                Some(name) => dynamic_buffer_or_global_symbol_value_in_state(
+            let alist_value = match emulation_entry.as_symbol_id() {
+                Some(sym_id) => dynamic_buffer_or_global_symbol_value_by_sym_id_in_state(
                     &ctx.obarray,
                     &[],
                     &ctx.buffers,
                     current_buffer_id,
-                    name,
+                    sym_id,
                 )
                 .unwrap_or(Value::NIL),
                 None => emulation_entry,
@@ -1889,7 +1913,7 @@ pub(crate) fn minor_mode_key_binding_in_context(
                 &alist_value,
             )? {
                 return Ok(Value::list(vec![Value::cons(
-                    Value::symbol(mode_name),
+                    Value::from_sym_id(mode_name),
                     binding,
                 )]));
             }
@@ -1915,7 +1939,7 @@ pub(crate) fn minor_mode_key_binding_in_context(
             &alist_value,
         )? {
             return Ok(Value::list(vec![Value::cons(
-                Value::symbol(mode_name),
+                Value::from_sym_id(mode_name),
                 binding,
             )]));
         }
@@ -1998,10 +2022,7 @@ fn command_remapping_nth_list_element(value: &Value, index: usize) -> Option<Val
     }
 }
 
-fn command_remapping_lookup_in_lisp_remap_entry(
-    entry: &Value,
-    command_name: &str,
-) -> Option<Value> {
+fn command_remapping_lookup_in_lisp_remap_entry(entry: &Value, command: SymId) -> Option<Value> {
     if command_remapping_nth_list_element(entry, 0)?.as_symbol_name() != Some("remap") {
         return None;
     }
@@ -2022,7 +2043,7 @@ fn command_remapping_lookup_in_lisp_remap_entry(
                 let pair_cdr = binding_entry.cons_cdr();
                 (pair_car, pair_cdr)
             };
-            if binding_key.as_symbol_name() == Some(command_name) {
+            if binding_key.as_symbol_id() == Some(command) {
                 return Some(binding_target);
             }
         }
@@ -2033,7 +2054,7 @@ fn command_remapping_lookup_in_lisp_remap_entry(
 
 pub(crate) fn command_remapping_lookup_in_lisp_keymap(
     keymap: &Value,
-    command_name: &str,
+    command: SymId,
 ) -> Option<Value> {
     if !is_list_keymap(keymap) {
         return None;
@@ -2047,7 +2068,7 @@ pub(crate) fn command_remapping_lookup_in_lisp_keymap(
 
     while cursor.is_cons() {
         if is_list_keymap(&cursor) {
-            if let Some(parent) = command_remapping_lookup_in_lisp_keymap(&cursor, command_name) {
+            if let Some(parent) = command_remapping_lookup_in_lisp_keymap(&cursor, command) {
                 return Some(parent);
             }
             break;
@@ -2055,7 +2076,7 @@ pub(crate) fn command_remapping_lookup_in_lisp_keymap(
 
         let car = cursor.cons_car();
         let cdr = cursor.cons_cdr();
-        if let Some(remap) = command_remapping_lookup_in_lisp_remap_entry(&car, command_name) {
+        if let Some(remap) = command_remapping_lookup_in_lisp_remap_entry(&car, command) {
             return Some(remap);
         }
         cursor = cdr;
@@ -2096,36 +2117,27 @@ pub(crate) fn command_remapping_normalize_target(raw: Value) -> Value {
     raw
 }
 
-fn command_remapping_lookup_in_keymap_value(keymap: &Value, command_name: &str) -> Option<Value> {
-    command_remapping_lookup_in_lisp_keymap(keymap, command_name)
-        .map(command_remapping_normalize_target)
+fn command_remapping_lookup_in_keymap_value(keymap: &Value, command: SymId) -> Option<Value> {
+    command_remapping_lookup_in_lisp_keymap(keymap, command).map(command_remapping_normalize_target)
 }
 
 pub(crate) fn command_remapping_lookup_in_keymaps(
     keymaps: &[Value],
-    command_name: &str,
+    command: SymId,
 ) -> Option<Value> {
     for keymap in keymaps {
         if !is_list_keymap(keymap) {
             continue;
         }
-        if let Some(value) = command_remapping_lookup_in_keymap_value(keymap, command_name) {
+        if let Some(value) = command_remapping_lookup_in_keymap_value(keymap, command) {
             return Some(value);
         }
     }
     None
 }
 
-pub(crate) fn command_remapping_command_name(command: &Value) -> Option<String> {
-    if command.is_nil() {
-        Some("nil".to_string())
-    } else if *command == Value::T {
-        Some("t".to_string())
-    } else if let Some(name) = command.as_symbol_name() {
-        Some(name.to_owned())
-    } else {
-        None
-    }
+pub(crate) fn command_remapping_command_name(command: &Value) -> Option<SymId> {
+    command.as_symbol_id()
 }
 
 pub(crate) fn key_binding_apply_remap_in_active_maps(
@@ -2136,10 +2148,10 @@ pub(crate) fn key_binding_apply_remap_in_active_maps(
     if no_remap {
         return binding;
     }
-    let Some(command_name) = binding.as_symbol_name().map(ToString::to_string) else {
+    let Some(command_name) = binding.as_symbol_id() else {
         return binding;
     };
-    match command_remapping_lookup_in_keymaps(active_maps, &command_name) {
+    match command_remapping_lookup_in_keymaps(active_maps, command_name) {
         Some(remapped) if !remapped.is_nil() => remapped,
         _ => binding,
     }
