@@ -625,6 +625,12 @@ impl CodingSystemManager {
     }
 }
 
+impl crate::gc_trace::GcTrace for CodingSystemManager {
+    fn trace_roots(&self, roots: &mut Vec<Value>) {
+        CodingSystemManager::trace_roots(self, roots);
+    }
+}
+
 fn property_lookup(info: &CodingSystemInfo, prop: SymId) -> Option<Value> {
     if let Some(value) = info.properties.get(&prop) {
         return Some(*value);

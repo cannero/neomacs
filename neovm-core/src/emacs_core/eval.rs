@@ -4213,155 +4213,150 @@ impl Context {
     // -----------------------------------------------------------------------
 
     /// Enumerate every live `Value` reference in the evaluator and all
-    /// sub-managers.  This is the root set for mark-and-sweep collection.
-    fn collect_roots(&self) -> Vec<Value> {
-        let mut roots = Vec::new();
-
-        // Direct Context fields
-        roots.extend(self.temp_roots.iter().cloned());
-        roots.extend(self.vm_gc_roots.iter().cloned());
-        roots.extend(self.treesit.roots());
-        // Scan bytecode stack buffer — all live stack values across all frames
-        roots.extend(self.bc_buf.iter().copied());
-        // Root function objects from active bytecode frames
+    /// sub-managers without materializing a single temporary root vector.
+    fn trace_roots_with_extra_root_slices(
+        &self,
+        extra_root_slices: &[&[Value]],
+        visit: &mut dyn FnMut(Value),
+    ) {
+        for root in self.temp_roots.iter().copied() {
+            visit(root);
+        }
+        for root in self.vm_gc_roots.iter().copied() {
+            visit(root);
+        }
+        for root in self.treesit.roots() {
+            visit(root);
+        }
+        for root in self.bc_buf.iter().copied() {
+            visit(root);
+        }
         for frame in &self.bc_frames {
             if frame.fun.is_heap_object() {
-                roots.push(frame.fun);
+                visit(frame.fun);
             }
         }
         for frame in &self.condition_stack {
             match frame {
-                ConditionFrame::Catch { tag, .. } => roots.push(*tag),
-                ConditionFrame::ConditionCase { conditions, .. } => roots.push(*conditions),
+                ConditionFrame::Catch { tag, .. } => visit(*tag),
+                ConditionFrame::ConditionCase { conditions, .. } => visit(*conditions),
                 ConditionFrame::HandlerBind {
                     conditions,
                     handler,
                     ..
                 } => {
-                    roots.push(*conditions);
-                    roots.push(*handler);
+                    visit(*conditions);
+                    visit(*handler);
                 }
                 ConditionFrame::SkipConditions { .. } => {}
             }
         }
-        // Root old_value entries on the specpdl so GC doesn't collect them.
         for entry in &self.specpdl {
             match entry {
                 SpecBinding::Let {
                     old_value: Some(val),
                     ..
-                } => roots.push(*val),
-                SpecBinding::LetLocal { old_value, .. } => roots.push(*old_value),
+                } => visit(*val),
+                SpecBinding::LetLocal { old_value, .. } => visit(*old_value),
                 SpecBinding::LetDefault {
                     old_value: Some(val),
                     ..
-                } => roots.push(*val),
-                SpecBinding::LexicalEnv { old_lexenv } => roots.push(*old_lexenv),
+                } => visit(*val),
+                SpecBinding::LexicalEnv { old_lexenv } => visit(*old_lexenv),
                 _ => {}
             }
         }
-        roots.push(self.lexenv);
-        // Scan saved lexenvs (from apply_lambda's lexenv replacement)
+        visit(self.lexenv);
         for saved_env in &self.saved_lexenvs {
-            roots.push(*saved_env);
+            visit(*saved_env);
         }
-
-        roots.extend(
-            self.runtime_macro_expansion_cache
-                .values()
-                .map(|entry| entry.expanded),
-        );
+        for entry in self.runtime_macro_expansion_cache.values() {
+            visit(entry.expanded);
+        }
         for bucket in self.interpreted_closure_trim_cache.values() {
             for entry in bucket {
-                roots.push(entry.params_value);
-                roots.push(entry.body_value);
-                roots.push(entry.iform_value);
-                roots.push(entry.trimmed_params_value);
-                roots.push(entry.trimmed_body_value);
+                visit(entry.params_value);
+                visit(entry.body_value);
+                visit(entry.iform_value);
+                visit(entry.trimmed_params_value);
+                visit(entry.trimmed_body_value);
             }
         }
         for bucket in self.interpreted_closure_value_cache.values() {
             for entry in bucket {
-                roots.push(entry.source_function);
-                roots.push(entry.trimmed_params_value);
-                roots.push(entry.trimmed_body_value);
+                visit(entry.source_function);
+                visit(entry.trimmed_params_value);
+                visit(entry.trimmed_body_value);
             }
         }
-
         if let Some(filter_fn) = self.interpreted_closure_filter_fn {
-            roots.push(filter_fn);
+            visit(filter_fn);
         }
-
-        // Named call cache — holds a Value when target is Obarray(val)
         for entry in self.named_call_cache.values() {
             if let NamedCallTarget::Obarray(val) = &entry.target {
-                roots.push(*val);
+                visit(*val);
             }
         }
         for frame in &self.active_call_roots {
-            roots.push(frame.frame_function);
+            visit(frame.frame_function);
             if let Some(callable) = frame.callable {
-                roots.push(callable);
+                visit(callable);
             }
-            roots.extend(frame.args.iter().copied());
+            for arg in frame.args.iter().copied() {
+                visit(arg);
+            }
         }
         for frame in &self.runtime_backtrace {
-            roots.push(frame.function);
-            roots.extend(frame.args().iter().copied());
-        }
-        for funcall in &self.pending_safe_funcalls {
-            roots.push(funcall.function);
-            roots.extend(funcall.args.iter().copied());
-        }
-        // Thread-local statics holding Values
-        collect_thread_local_gc_roots(&mut roots);
-
-        // Direct Value fields on Context that hold heap objects
-        if !self.current_local_map.is_nil() {
-            roots.push(self.current_local_map);
-        }
-        if self.standard_syntax_table.is_heap_object() {
-            roots.push(self.standard_syntax_table);
-        }
-        if self.standard_category_table.is_heap_object() {
-            roots.push(self.standard_category_table);
-        }
-
-        // Sub-managers
-        self.obarray.trace_roots(&mut roots);
-        self.processes.trace_roots(&mut roots);
-        self.timers.trace_roots(&mut roots);
-        self.watchers.trace_roots(&mut roots);
-        self.registers.trace_roots(&mut roots);
-        self.custom.trace_roots(&mut roots);
-        self.autoloads.trace_roots(&mut roots);
-        self.buffers.trace_roots(&mut roots);
-        self.face_table.trace_roots(&mut roots);
-        self.threads.trace_roots(&mut roots);
-        self.kmacro.trace_roots(&mut roots);
-        crate::gc_trace::GcTrace::trace_roots(&self.command_loop, &mut roots);
-        self.modes.trace_roots(&mut roots);
-        self.frames.trace_roots(&mut roots);
-        self.coding_systems.trace_roots(&mut roots);
-
-        // Match data — SearchedString::Heap holds a live string Value
-        if let Some(ref md) = self.match_data {
-            if let Some(crate::emacs_core::regex::SearchedString::Heap(val)) = &md.searched_string {
-                roots.push(*val);
+            visit(frame.function);
+            for arg in frame.args().iter().copied() {
+                visit(arg);
             }
         }
-
-        roots
-    }
-
-    fn collect_roots_with_extra_root_slices(&self, extra_root_slices: &[&[Value]]) -> Vec<Value> {
-        let extra_len: usize = extra_root_slices.iter().map(|roots| roots.len()).sum();
-        let mut roots = self.collect_roots();
-        roots.reserve(extra_len);
-        for extra_roots in extra_root_slices {
-            roots.extend_from_slice(extra_roots);
+        for funcall in &self.pending_safe_funcalls {
+            visit(funcall.function);
+            for arg in funcall.args.iter().copied() {
+                visit(arg);
+            }
         }
-        roots
+        let mut thread_local_roots = Vec::new();
+        collect_thread_local_gc_roots(&mut thread_local_roots);
+        for root in thread_local_roots {
+            visit(root);
+        }
+        if !self.current_local_map.is_nil() {
+            visit(self.current_local_map);
+        }
+        if self.standard_syntax_table.is_heap_object() {
+            visit(self.standard_syntax_table);
+        }
+        if self.standard_category_table.is_heap_object() {
+            visit(self.standard_category_table);
+        }
+        self.obarray.trace_roots_with(visit);
+        self.processes.trace_roots_with(visit);
+        self.timers.trace_roots_with(visit);
+        self.watchers.trace_roots_with(visit);
+        self.registers.trace_roots_with(visit);
+        self.custom.trace_roots_with(visit);
+        self.autoloads.trace_roots_with(visit);
+        self.buffers.trace_roots_with(visit);
+        self.face_table.trace_roots_with(visit);
+        self.threads.trace_roots_with(visit);
+        self.kmacro.trace_roots_with(visit);
+        crate::gc_trace::GcTrace::trace_roots_with(&self.command_loop, visit);
+        self.modes.trace_roots_with(visit);
+        self.frames.trace_roots_with(visit);
+        self.coding_systems.trace_roots_with(visit);
+        if let Some(ref md) = self.match_data
+            && let Some(crate::emacs_core::regex::SearchedString::Heap(val)) = &md.searched_string
+        {
+            visit(*val);
+        }
+        for extra_roots in extra_root_slices {
+            for root in extra_roots.iter().copied() {
+                visit(root);
+            }
+        }
     }
 
     /// Get the current GC threshold.
@@ -4458,31 +4453,27 @@ impl Context {
         );
     }
 
-    /// Get the current tagged-heap root scan mode.
+    /// Return the active GC root scan mode.
+    ///
+    /// The runtime now uses exact tracing only; this remains as a compatibility
+    /// shim while callers are migrated off the old scan-mode API.
     pub fn gc_root_scan_mode(&self) -> crate::tagged::gc::RootScanMode {
         self.tagged_heap.root_scan_mode()
     }
 
-    /// Set how the tagged heap discovers roots during full collections.
+    /// Compatibility shim for the retired scan-mode toggle.
     pub fn set_gc_root_scan_mode(&mut self, mode: crate::tagged::gc::RootScanMode) {
         self.tagged_heap.set_root_scan_mode(mode);
     }
 
-    /// Run a closure with a temporary tagged-heap root scan mode.
-    ///
-    /// This is useful when a call path can prove its live roots explicitly and
-    /// wants to avoid conservative stack scanning without changing the
-    /// evaluator-wide default policy.
+    /// Compatibility shim for temporarily overriding GC root scan mode.
     pub(crate) fn with_gc_root_scan_mode<T>(
         &mut self,
         mode: crate::tagged::gc::RootScanMode,
         f: impl FnOnce(&mut Self) -> T,
     ) -> T {
-        let old_mode = self.tagged_heap.root_scan_mode();
-        self.tagged_heap.set_root_scan_mode(mode);
-        let result = f(self);
-        self.tagged_heap.set_root_scan_mode(old_mode);
-        result
+        let _ = mode;
+        f(self)
     }
 
     /// Set the GC threshold. Use usize::MAX to effectively disable GC.
@@ -5552,7 +5543,7 @@ impl Context {
     /// Perform a full mark-and-sweep garbage collection.
     #[tracing::instrument(level = "debug", skip(self))]
     pub fn gc_collect(&mut self) {
-        self.gc_collect_with_mode(self.tagged_heap.root_scan_mode());
+        self.gc_collect_exact();
     }
 
     /// Perform a full mark-and-sweep garbage collection using only explicit roots.
@@ -5578,7 +5569,8 @@ impl Context {
     }
 
     fn gc_collect_with_mode(&mut self, mode: crate::tagged::gc::RootScanMode) {
-        self.gc_collect_with_mode_and_extra_root_slices(mode, &[]);
+        let _ = mode;
+        self.gc_collect_with_mode_and_extra_root_slices(crate::tagged::gc::RootScanMode::ExactOnly, &[]);
     }
 
     fn gc_collect_with_mode_and_extra_root_slices(
@@ -5589,14 +5581,16 @@ impl Context {
         let start = std::time::Instant::now();
         *self.lexenv_assq_cache.borrow_mut() = LexenvAssqCache::default();
         *self.lexenv_special_cache.borrow_mut() = LexenvSpecialCache::default();
-        let roots = self.collect_roots_with_extra_root_slices(extra_root_slices);
-        match mode {
-            crate::tagged::gc::RootScanMode::ExactOnly => {
-                self.tagged_heap.collect_exact(roots.into_iter());
-            }
-            crate::tagged::gc::RootScanMode::ConservativeStack => {
-                self.tagged_heap.collect(roots.into_iter());
-            }
+        let heap_ptr: *mut crate::tagged::gc::TaggedHeap = &mut *self.tagged_heap;
+        // Safety: GC is stop-the-world with exclusive `&mut self`. Root
+        // enumeration only reads Context state while seeding the collector via
+        // the raw heap pointer.
+        unsafe {
+            (*heap_ptr).begin_collection();
+            self.trace_roots_with_extra_root_slices(extra_root_slices, &mut |root| {
+                (*heap_ptr).seed_root(root);
+            });
+            (*heap_ptr).complete_collection(mode);
         }
         self.gc_pending = false;
         self.gc_count += 1;
@@ -5630,7 +5624,7 @@ impl Context {
     ///   Idle → (threshold?) → begin_marking → Marking
     ///   Marking → mark_some(LIMIT) → (done?) → sweep → Idle
     pub fn gc_safe_point(&mut self) {
-        self.gc_safe_point_with_mode_and_extra_root_slices(self.tagged_heap.root_scan_mode(), &[]);
+        self.gc_safe_point_exact();
     }
 
     /// Trigger a safe-point collection using the configured root scan mode
@@ -5663,12 +5657,14 @@ impl Context {
         if self.gc_inhibit_depth > 0 {
             return;
         }
-        // For now safe points still perform full STW collections. The only
-        // variable is whether root discovery uses the configured exact-root
-        // mode or conservative stack scanning.
+        // Safe points use the exact collector path only.
         self.sync_gc_threshold_from_runtime_settings();
         if self.gc_stress || self.gc_pending || self.tagged_heap.should_collect() {
-            self.gc_collect_with_mode_and_extra_root_slices(mode, extra_root_slices);
+            let _ = mode;
+            self.gc_collect_with_mode_and_extra_root_slices(
+                crate::tagged::gc::RootScanMode::ExactOnly,
+                extra_root_slices,
+            );
         }
     }
 
@@ -10850,14 +10846,14 @@ impl Context {
     /// trigger garbage collection.
     pub(crate) fn with_extra_gc_roots<T>(
         &mut self,
-        vm_gc_roots: &[Value],
+        _vm_gc_roots: &[Value],
         extra_roots: &[Value],
         f: impl FnOnce(&mut Context) -> T,
     ) -> T {
         self.with_gc_scope(|ctx| {
-            for root in vm_gc_roots {
-                ctx.push_temp_root(*root);
-            }
+            // VM roots already live in `Context.vm_gc_roots`, which the exact
+            // collector traces directly. Only caller-owned transient extras
+            // need to be mirrored into `temp_roots` here.
             for root in extra_roots {
                 ctx.push_temp_root(*root);
             }

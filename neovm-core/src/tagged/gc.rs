@@ -28,12 +28,16 @@ use std::alloc::{self, Layout};
 use std::cell::Cell;
 use std::mem::size_of;
 
-/// How GC should discover roots beyond the explicit iterator passed to collect.
+/// Compatibility enum for historical GC root scan policies.
+///
+/// The runtime now uses exact root tracing internally; this enum remains only
+/// to keep transitional call sites and tests building while the old API surface
+/// is retired.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RootScanMode {
-    /// Only use the explicit roots supplied by the caller.
+    /// Exact root tracing only.
     ExactOnly,
-    /// Also conservatively scan the native stack for tagged values.
+    /// Compatibility shim; conservative stack scanning is no longer used.
     ConservativeStack,
 }
 
@@ -399,9 +403,6 @@ pub struct TaggedHeap {
     /// Stack bottom for conservative stack scanning.
     stack_bottom: *const u8,
 
-    /// Root discovery policy for full-heap collections.
-    root_scan_mode: RootScanMode,
-
     /// Cached HashSet of non-cons object addresses for O(1) lookup
     /// during conservative stack scanning.  Built lazily before each
     /// scan and cleared after.
@@ -454,7 +455,6 @@ impl TaggedHeap {
             live_bytes: 0,
             gray_queue: Vec::new(),
             stack_bottom: std::ptr::null(),
-            root_scan_mode: RootScanMode::ConservativeStack,
             non_cons_object_set: None,
             cons_free_list: std::ptr::null_mut(),
             cons_live_count: 0,
@@ -477,11 +477,11 @@ impl TaggedHeap {
     }
 
     pub fn set_root_scan_mode(&mut self, mode: RootScanMode) {
-        self.root_scan_mode = mode;
+        let _ = mode;
     }
 
     pub fn root_scan_mode(&self) -> RootScanMode {
-        self.root_scan_mode
+        RootScanMode::ExactOnly
     }
 
     pub fn set_write_tracking_mode(&mut self, mode: WriteTrackingMode) {
@@ -1123,8 +1123,7 @@ impl TaggedHeap {
     ///
     /// `roots` must yield every reachable `TaggedValue`.
     pub fn collect(&mut self, roots: impl Iterator<Item = TaggedValue>) {
-        let mode = self.root_scan_mode;
-        self.collect_with_scan_mode(roots, mode);
+        self.collect_exact(roots);
     }
 
     /// Run a full mark-sweep collection using only the explicit roots provided.
@@ -1132,11 +1131,15 @@ impl TaggedHeap {
         self.collect_with_scan_mode(roots, RootScanMode::ExactOnly);
     }
 
-    fn collect_with_scan_mode(
-        &mut self,
-        roots: impl Iterator<Item = TaggedValue>,
-        mode: RootScanMode,
-    ) {
+    fn collect_with_scan_mode(&mut self, roots: impl Iterator<Item = TaggedValue>, mode: RootScanMode) {
+        self.begin_collection();
+        for root in roots {
+            self.seed_root(root);
+        }
+        self.complete_collection(mode);
+    }
+
+    pub(crate) fn begin_collection(&mut self) {
         // (Pre-mark verification removed — unmarked objects may have stale data
         //  that will be swept. Only post-mark verification is meaningful.)
 
@@ -1155,11 +1158,16 @@ impl TaggedHeap {
 
         // -- Seed gray queue from roots --
         self.gray_queue.clear();
-        for root in roots {
-            if root.is_heap_object() {
-                self.gray_queue.push(root);
-            }
+        self.seed_internal_runtime_roots();
+    }
+
+    pub(crate) fn seed_root(&mut self, root: TaggedValue) {
+        if root.is_heap_object() {
+            self.gray_queue.push(root);
         }
+    }
+
+    fn seed_internal_runtime_roots(&mut self) {
         for subr in self.subr_registry.iter().flatten() {
             if subr.is_heap_object() {
                 self.gray_queue.push(*subr);
@@ -1185,29 +1193,10 @@ impl TaggedHeap {
                 self.gray_queue.push(*value);
             }
         }
+    }
 
-        if matches!(mode, RootScanMode::ConservativeStack) {
-            // Build O(1) lookup set for non-cons objects before scanning.
-            // Validate each entry — the all_objects list can become corrupt
-            // if a GcHeader.next pointer is stale, causing traversal into
-            // unmapped or stacker memory.
-            let mut set = FxHashSet::default();
-            let mut obj = self.all_objects;
-            let mut count = 0usize;
-            while !obj.is_null() {
-                set.insert(obj as usize);
-                count += 1;
-                if count > 10_000_000 {
-                    // Safety bail: list is too long, probably corrupt
-                    break;
-                }
-                obj = unsafe { (*obj).next };
-            }
-            self.non_cons_object_set = Some(set);
-            unsafe { self.conservative_stack_scan() };
-            // Keep the HashSet alive through mark phase for O(1) ownership
-            // checks in is_valid_heap_pointer.  Clear after sweep.
-        }
+    pub(crate) fn complete_collection(&mut self, mode: RootScanMode) {
+        let _ = mode;
 
         // (Debug root verification removed — with conservative scanning,
         // the HashSet is cleared before this point so the fallback O(N)
