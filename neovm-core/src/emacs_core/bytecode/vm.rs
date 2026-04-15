@@ -764,16 +764,13 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "+",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "+", call_args,
-                        ))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, specpdl, "+", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -783,16 +780,13 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "-",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "-", call_args,
-                        ))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, specpdl, "-", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -802,16 +796,13 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "*",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "*", call_args,
-                        ))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, specpdl, "*", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -821,16 +812,13 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "/",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "/", call_args,
-                        ))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, specpdl, "/", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -840,16 +828,13 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "%",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "%", call_args,
-                        ))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, specpdl, "%", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -858,16 +843,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "1+",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "1+", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "1+", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -876,16 +860,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "1-",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "1-", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "1-", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -894,16 +877,13 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "-",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "-", call_args,
-                        ))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, specpdl, "-", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -915,16 +895,13 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "=",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "=", call_args,
-                        ))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, specpdl, "=", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -934,16 +911,13 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         ">",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, ">", call_args,
-                        ))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, specpdl, ">", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -953,16 +927,13 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "<",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "<", call_args,
-                        ))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, specpdl, "<", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -972,16 +943,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "<=",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "<=", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "<=", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -991,16 +961,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         ">=",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, ">=", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, ">=", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -1010,16 +979,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "max",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "max", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "max", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -1029,16 +997,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "min",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "min", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "min", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -1049,16 +1016,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "car",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "car", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "car", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -1067,53 +1033,52 @@ impl<'a> Vm<'a> {
                     let call_args = vec![val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "cdr",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "cdr", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "cdr", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
                 Op::CarSafe => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        handlers,
-                        specpdl,
-                        "car-safe",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "car-safe", call_args,
-                        ))
-                    };
+                    let result =
+                        if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                            func,
+                            specpdl,
+                            "car-safe",
+                            call_args.clone(),
+                        )) {
+                            result
+                        } else {
+                            vm_try!(self.dispatch_vm_builtin_with_frame(
+                                func, specpdl, "car-safe", call_args,
+                            ))
+                        };
                     stk_push!(result);
                 }
                 Op::CdrSafe => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        handlers,
-                        specpdl,
-                        "cdr-safe",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "cdr-safe", call_args,
-                        ))
-                    };
+                    let result =
+                        if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                            func,
+                            specpdl,
+                            "cdr-safe",
+                            call_args.clone(),
+                        )) {
+                            result
+                        } else {
+                            vm_try!(self.dispatch_vm_builtin_with_frame(
+                                func, specpdl, "cdr-safe", call_args,
+                            ))
+                        };
                     stk_push!(result);
                 }
                 Op::Cons => {
@@ -1122,16 +1087,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![car_val, cdr_val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "cons",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "cons", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "cons", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -1139,20 +1103,16 @@ impl<'a> Vm<'a> {
                     let n = *n as usize;
                     let start = stk!().len().saturating_sub(n);
                     let items: Vec<Value> = stk!().drain(start..).collect();
-                    let result =
-                        if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                            func,
-                            handlers,
-                            specpdl,
-                            "list",
-                            items.clone(),
-                        )) {
-                            result
-                        } else {
-                            vm_try!(self.dispatch_vm_builtin_with_frame(
-                                func, handlers, specpdl, "list", items,
-                            ))
-                        };
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                        func,
+                        specpdl,
+                        "list",
+                        items.clone(),
+                    )) {
+                        result
+                    } else {
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, specpdl, "list", items,))
+                    };
                     stk_push!(result);
                 }
                 Op::Length => {
@@ -1160,7 +1120,6 @@ impl<'a> Vm<'a> {
                     let call_args = vec![val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "length",
                         call_args.clone(),
@@ -1168,7 +1127,7 @@ impl<'a> Vm<'a> {
                         result
                     } else {
                         vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "length", call_args,
+                            func, specpdl, "length", call_args,
                         ))
                     };
                     stk_push!(result);
@@ -1179,16 +1138,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![n, list];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "nth",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "nth", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "nth", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -1198,7 +1156,6 @@ impl<'a> Vm<'a> {
                     let call_args = vec![n, list];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "nthcdr",
                         call_args.clone(),
@@ -1206,7 +1163,7 @@ impl<'a> Vm<'a> {
                         result
                     } else {
                         vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "nthcdr", call_args,
+                            func, specpdl, "nthcdr", call_args,
                         ))
                     };
                     stk_push!(result);
@@ -1217,16 +1174,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![seq, idx];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "elt",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "elt", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "elt", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -1236,7 +1192,6 @@ impl<'a> Vm<'a> {
                     let call_args = vec![cell, newcar];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "setcar",
                         call_args.clone(),
@@ -1244,7 +1199,7 @@ impl<'a> Vm<'a> {
                         result
                     } else {
                         vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "setcar", call_args,
+                            func, specpdl, "setcar", call_args,
                         ))
                     };
                     stk_push!(result);
@@ -1255,7 +1210,6 @@ impl<'a> Vm<'a> {
                     let call_args = vec![cell, newcdr];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "setcdr",
                         call_args.clone(),
@@ -1263,7 +1217,7 @@ impl<'a> Vm<'a> {
                         result
                     } else {
                         vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "setcdr", call_args,
+                            func, specpdl, "setcdr", call_args,
                         ))
                     };
                     stk_push!(result);
@@ -1274,35 +1228,34 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "nconc",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "nconc", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "nconc", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
                 Op::Nreverse => {
                     let list = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![list];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        handlers,
-                        specpdl,
-                        "nreverse",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "nreverse", call_args,
-                        ))
-                    };
+                    let result =
+                        if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                            func,
+                            specpdl,
+                            "nreverse",
+                            call_args.clone(),
+                        )) {
+                            result
+                        } else {
+                            vm_try!(self.dispatch_vm_builtin_with_frame(
+                                func, specpdl, "nreverse", call_args,
+                            ))
+                        };
                     stk_push!(result);
                 }
                 Op::Member => {
@@ -1311,7 +1264,6 @@ impl<'a> Vm<'a> {
                     let call_args = vec![elt, list];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "member",
                         call_args.clone(),
@@ -1319,7 +1271,7 @@ impl<'a> Vm<'a> {
                         result
                     } else {
                         vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "member", call_args,
+                            func, specpdl, "member", call_args,
                         ))
                     };
                     stk_push!(result);
@@ -1330,16 +1282,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![elt, list];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "memq",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "memq", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "memq", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -1349,16 +1300,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![key, alist];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "assq",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "assq", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "assq", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -1367,19 +1317,19 @@ impl<'a> Vm<'a> {
                 Op::Symbolp => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        handlers,
-                        specpdl,
-                        "symbolp",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "symbolp", call_args,
-                        ))
-                    };
+                    let result =
+                        if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                            func,
+                            specpdl,
+                            "symbolp",
+                            call_args.clone(),
+                        )) {
+                            result
+                        } else {
+                            vm_try!(self.dispatch_vm_builtin_with_frame(
+                                func, specpdl, "symbolp", call_args,
+                            ))
+                        };
                     stk_push!(result);
                 }
                 Op::Consp => {
@@ -1387,35 +1337,34 @@ impl<'a> Vm<'a> {
                     let call_args = vec![val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "consp",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "consp", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "consp", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
                 Op::Stringp => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        handlers,
-                        specpdl,
-                        "stringp",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "stringp", call_args,
-                        ))
-                    };
+                    let result =
+                        if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                            func,
+                            specpdl,
+                            "stringp",
+                            call_args.clone(),
+                        )) {
+                            result
+                        } else {
+                            vm_try!(self.dispatch_vm_builtin_with_frame(
+                                func, specpdl, "stringp", call_args,
+                            ))
+                        };
                     stk_push!(result);
                 }
                 Op::Listp => {
@@ -1423,53 +1372,52 @@ impl<'a> Vm<'a> {
                     let call_args = vec![val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "listp",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "listp", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "listp", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
                 Op::Integerp => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        handlers,
-                        specpdl,
-                        "integerp",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "integerp", call_args,
-                        ))
-                    };
+                    let result =
+                        if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                            func,
+                            specpdl,
+                            "integerp",
+                            call_args.clone(),
+                        )) {
+                            result
+                        } else {
+                            vm_try!(self.dispatch_vm_builtin_with_frame(
+                                func, specpdl, "integerp", call_args,
+                            ))
+                        };
                     stk_push!(result);
                 }
                 Op::Numberp => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![val];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        handlers,
-                        specpdl,
-                        "numberp",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "numberp", call_args,
-                        ))
-                    };
+                    let result =
+                        if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                            func,
+                            specpdl,
+                            "numberp",
+                            call_args.clone(),
+                        )) {
+                            result
+                        } else {
+                            vm_try!(self.dispatch_vm_builtin_with_frame(
+                                func, specpdl, "numberp", call_args,
+                            ))
+                        };
                     stk_push!(result);
                 }
                 Op::Null | Op::Not => {
@@ -1482,16 +1430,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         opname,
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, opname, call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, opname, call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -1501,16 +1448,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "eq",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "eq", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "eq", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -1520,16 +1466,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "equal",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "equal", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "equal", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -1541,16 +1486,15 @@ impl<'a> Vm<'a> {
                     let parts: Vec<Value> = stk!().drain(start..).collect();
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "concat",
                         parts.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "concat", parts,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "concat", parts,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -1561,7 +1505,6 @@ impl<'a> Vm<'a> {
                     let call_args = vec![array, from, to];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "substring",
                         call_args.clone(),
@@ -1570,7 +1513,6 @@ impl<'a> Vm<'a> {
                     } else {
                         vm_try!(self.dispatch_vm_builtin_with_frame(
                             func,
-                            handlers,
                             specpdl,
                             "substring",
                             call_args,
@@ -1582,19 +1524,19 @@ impl<'a> Vm<'a> {
                     let b = stk!().pop().unwrap_or(Value::NIL);
                     let a = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![a, b];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        handlers,
-                        specpdl,
-                        "string=",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "string=", call_args,
-                        ))
-                    };
+                    let result =
+                        if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                            func,
+                            specpdl,
+                            "string=",
+                            call_args.clone(),
+                        )) {
+                            result
+                        } else {
+                            vm_try!(self.dispatch_vm_builtin_with_frame(
+                                func, specpdl, "string=", call_args,
+                            ))
+                        };
                     stk_push!(result);
                 }
                 Op::StringLessp => {
@@ -1603,7 +1545,6 @@ impl<'a> Vm<'a> {
                     let call_args = vec![a, b];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "string-lessp",
                         call_args.clone(),
@@ -1612,7 +1553,6 @@ impl<'a> Vm<'a> {
                     } else {
                         vm_try!(self.dispatch_vm_builtin_with_frame(
                             func,
-                            handlers,
                             specpdl,
                             "string-lessp",
                             call_args,
@@ -1628,7 +1568,6 @@ impl<'a> Vm<'a> {
                     let call_args = vec![vec_val, idx_val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "aref",
                         call_args.clone(),
@@ -1646,7 +1585,6 @@ impl<'a> Vm<'a> {
                     let call_args = vec![vec_val, idx_val, val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "aset",
                         call_args.clone(),
@@ -1665,7 +1603,6 @@ impl<'a> Vm<'a> {
                     let call_args = vec![sym];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "symbol-value",
                         call_args.clone(),
@@ -1674,7 +1611,6 @@ impl<'a> Vm<'a> {
                     } else {
                         vm_try!(self.dispatch_vm_builtin_with_frame(
                             func,
-                            handlers,
                             specpdl,
                             "symbol-value",
                             call_args,
@@ -1687,7 +1623,6 @@ impl<'a> Vm<'a> {
                     let call_args = vec![sym];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "symbol-function",
                         call_args.clone(),
@@ -1696,7 +1631,6 @@ impl<'a> Vm<'a> {
                     } else {
                         vm_try!(self.dispatch_vm_builtin_with_frame(
                             func,
-                            handlers,
                             specpdl,
                             "symbol-function",
                             call_args,
@@ -1710,16 +1644,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![sym, val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "set",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "set", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "set", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -1729,16 +1662,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![sym, val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "fset",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "fset", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "fset", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -1748,16 +1680,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![sym, prop];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "get",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "get", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "get", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -1768,16 +1699,15 @@ impl<'a> Vm<'a> {
                     let call_args = vec![sym, prop, val];
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                        handlers,
                         specpdl,
                         "put",
                         call_args.clone(),
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func, handlers, specpdl, "put", call_args,
-                        ))
+                        vm_try!(
+                            self.dispatch_vm_builtin_with_frame(func, specpdl, "put", call_args,)
+                        )
                     };
                     stk_push!(result);
                 }
@@ -1874,20 +1804,16 @@ impl<'a> Vm<'a> {
                     let args_start = stk!().len().saturating_sub(n);
                     let args: Vec<Value> = stk!().drain(args_start..).collect();
                     let writeback_args = args.clone();
-                    let result =
-                        if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                            func,
-                            handlers,
-                            specpdl,
-                            &name,
-                            args.clone(),
-                        )) {
-                            result
-                        } else {
-                            vm_try!(self.dispatch_vm_builtin_with_frame(
-                                func, handlers, specpdl, &name, args,
-                            ))
-                        };
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                        func,
+                        specpdl,
+                        &name,
+                        args.clone(),
+                    )) {
+                        result
+                    } else {
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, specpdl, &name, args,))
+                    };
                     self.maybe_writeback_mutating_first_arg(&name, None, &writeback_args, &result);
                     stk_push!(result);
                 }
@@ -1947,7 +1873,6 @@ impl<'a> Vm<'a> {
     fn maybe_call_named_function_cell(
         &mut self,
         func: &ByteCodeFunction,
-        handlers: &[Handler],
         specpdl: &[VmUnwindEntry],
         name: &str,
         args: Vec<Value>,
@@ -3872,7 +3797,6 @@ impl<'a> Vm<'a> {
     fn dispatch_vm_builtin_with_frame(
         &mut self,
         func: &ByteCodeFunction,
-        handlers: &[Handler],
         specpdl: &[VmUnwindEntry],
         name: &str,
         args: Vec<Value>,
