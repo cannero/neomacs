@@ -13,6 +13,7 @@ use crate::object::ObjectRecord;
 
 pub(crate) const OBJECT_STORE_SHARDS: usize = 32;
 const OBJECT_STORE_CHUNK_CAPACITY: usize = 512;
+const OBJECT_STORE_SHARD_MASK: usize = OBJECT_STORE_SHARDS - 1;
 
 #[derive(Debug)]
 struct ObjectChunk {
@@ -337,8 +338,13 @@ impl Default for ObjectPublishLocal {
 }
 
 impl ObjectPublishLocal {
-    fn reservation_mut(&mut self, shard: usize) -> &mut Option<ObjectPublishReservation> {
-        &mut self.reservations[shard]
+    #[inline(always)]
+    unsafe fn reservation_mut_unchecked(
+        &mut self,
+        shard: usize,
+    ) -> &mut Option<ObjectPublishReservation> {
+        debug_assert!(shard < OBJECT_STORE_SHARDS);
+        unsafe { self.reservations.get_unchecked_mut(shard) }
     }
 
     pub(crate) fn clear(&mut self) {
@@ -409,7 +415,8 @@ impl ObjectStore {
     fn reserve_publish_chunk(&self, shard_index: usize) -> ObjectPublishReservation {
         let generation = self.generation();
         let chunk = Arc::new(ObjectChunk::new());
-        let mut chunks = self.shards[shard_index].chunks.write();
+        debug_assert_eq!(self.shards.len(), OBJECT_STORE_SHARDS);
+        let mut chunks = unsafe { self.shards.get_unchecked(shard_index) }.chunks.write();
         let chunk_index = chunks.len();
         chunks.push(Arc::clone(&chunk));
         ObjectPublishReservation {
@@ -518,8 +525,8 @@ impl ObjectStore {
         publish_local: &mut ObjectPublishLocal,
     ) -> ObjectLocator {
         let object_key = record.object_key();
-        let shard_index = shard_index_for_key(object_key, self.shards.len());
-        let reservation = publish_local.reservation_mut(shard_index);
+        let shard_index = shard_index_for_key(object_key);
+        let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
         let generation = self.generation();
         let needs_reservation = reservation.as_ref().is_none_or(|reservation| {
             reservation.generation != generation
@@ -541,8 +548,8 @@ impl ObjectStore {
         publish_local: &mut ObjectPublishLocal,
     ) -> ObjectLocator {
         let object_key = record.object_key();
-        let shard_index = shard_index_for_key(object_key, self.shards.len());
-        let reservation = publish_local.reservation_mut(shard_index);
+        let shard_index = shard_index_for_key(object_key);
+        let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
         if reservation
             .as_ref()
             .is_none_or(|reservation| reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY)
@@ -587,21 +594,19 @@ impl ObjectStore {
         }
         for object in flat.objects.drain(..) {
             let object_key = object.object_key();
-            let shard_index = shard_index_for_key(object_key, self.shards.len());
-            self.shards[shard_index].publish_owned_mut(object);
+            let shard_index = shard_index_for_key(object_key);
+            debug_assert_eq!(self.shards.len(), OBJECT_STORE_SHARDS);
+            unsafe { self.shards.get_unchecked_mut(shard_index) }.publish_owned_mut(object);
         }
         self.bump_generation();
     }
 }
 
-fn shard_index_for_key(key: ObjectKey, shard_count: usize) -> usize {
-    debug_assert!(shard_count > 0);
+#[inline(always)]
+fn shard_index_for_key(key: ObjectKey) -> usize {
+    debug_assert!(OBJECT_STORE_SHARDS.is_power_of_two());
     let addr = key.as_usize() >> 4;
     let mixed =
         addr ^ addr.rotate_right(13) ^ addr.wrapping_mul(0x9e37_79b9_7f4a_7c15_u64 as usize);
-    if shard_count.is_power_of_two() {
-        mixed & (shard_count - 1)
-    } else {
-        mixed % shard_count
-    }
+    mixed & OBJECT_STORE_SHARD_MASK
 }
