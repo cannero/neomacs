@@ -1682,11 +1682,8 @@ pub(crate) fn dump_register_manager(
                             },
                         },
                         RegisterContent::Number(n) => DumpRegisterContent::Number(*n),
-                        RegisterContent::Position { buffer, point } => {
-                            DumpRegisterContent::Position {
-                                buffer: buffer.clone(),
-                                point: *point,
-                            }
+                        RegisterContent::Marker(v) => {
+                            DumpRegisterContent::Marker(encoder.dump_value(v))
                         }
                         RegisterContent::Rectangle(lines) => {
                             DumpRegisterContent::Rectangle(lines.clone())
@@ -3140,10 +3137,9 @@ pub(crate) fn load_register_manager(
                         *size_byte,
                     )),
                     DumpRegisterContent::Number(n) => RegisterContent::Number(*n),
-                    DumpRegisterContent::Position { buffer, point } => RegisterContent::Position {
-                        buffer: buffer.clone(),
-                        point: *point,
-                    },
+                    DumpRegisterContent::Marker(v) => {
+                        RegisterContent::Marker(decoder.load_value(v))
+                    }
                     DumpRegisterContent::Rectangle(lines) => {
                         RegisterContent::Rectangle(lines.clone())
                     }

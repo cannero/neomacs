@@ -1014,10 +1014,7 @@ pub enum DumpRegisterContent {
         size_byte: i64,
     },
     Number(i64),
-    Position {
-        buffer: String,
-        point: usize,
-    },
+    Marker(DumpValue),
     Rectangle(Vec<String>),
     FrameConfig(DumpValue),
     File(String),

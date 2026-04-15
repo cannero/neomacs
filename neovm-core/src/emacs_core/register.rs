@@ -17,6 +17,7 @@ use super::intern::resolve_sym;
 use super::value::{Value, ValueKind, next_float_id};
 use crate::gc_trace::GcTrace;
 use crate::heap_types::LispString;
+use crate::tagged::header::VecLikeType;
 
 // ---------------------------------------------------------------------------
 // Register content types
@@ -29,8 +30,8 @@ pub enum RegisterContent {
     Text(LispString),
     /// An integer value.
     Number(i64),
-    /// A saved buffer position: (buffer name, point offset).
-    Position { buffer: String, point: usize },
+    /// A saved point location as a live marker, matching GNU register.el.
+    Marker(Value),
     /// A rectangle (list of strings, one per line).
     Rectangle(Vec<String>),
     /// A saved window/frame configuration (opaque Lisp value).
@@ -47,7 +48,7 @@ impl RegisterContent {
         match self {
             RegisterContent::Text(_) => "text",
             RegisterContent::Number(_) => "number",
-            RegisterContent::Position { .. } => "position",
+            RegisterContent::Marker(_) => "marker",
             RegisterContent::Rectangle(_) => "rectangle",
             RegisterContent::FrameConfig(_) => "frame-config",
             RegisterContent::File(_) => "file",
@@ -155,7 +156,7 @@ impl GcTrace for RegisterManager {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         for content in self.registers.values() {
             match content {
-                RegisterContent::FrameConfig(v) => {
+                RegisterContent::Marker(v) | RegisterContent::FrameConfig(v) => {
                     roots.push(*v);
                 }
                 RegisterContent::KbdMacro(keys) => {
@@ -330,23 +331,20 @@ pub(crate) fn builtin_point_to_register(
 ) -> EvalResult {
     expect_args("point-to-register", &args, 1)?;
     let reg = expect_register(&args[0])?;
-    let buffer_name = eval
+    let marker = match eval
         .buffers
         .current_buffer()
-        .map(|b| b.name_runtime_string_owned())
-        .unwrap_or_else(|| "*scratch*".to_string());
-    let point = eval
-        .buffers
-        .current_buffer()
-        .map(|b| b.point())
-        .unwrap_or(1);
-    eval.registers.set(
-        reg,
-        RegisterContent::Position {
-            buffer: buffer_name,
-            point,
-        },
-    );
+        .map(|buffer| (buffer.id, buffer.point()))
+    {
+        Some((buffer_id, point)) => super::marker::make_registered_buffer_marker(
+            &mut eval.buffers,
+            buffer_id,
+            point as i64,
+            false,
+        ),
+        None => super::marker::make_marker_value(None, None, false),
+    };
+    eval.registers.set(reg, RegisterContent::Marker(marker));
     Ok(Value::NIL)
 }
 
@@ -423,10 +421,22 @@ pub(crate) fn builtin_view_register(
             "Register {} contains the number {}",
             reg, n
         ))),
-        Some(RegisterContent::Position { buffer, point }) => Ok(Value::string(format!(
-            "Register {} contains a position: buffer={} point={}",
-            reg, buffer, point
-        ))),
+        Some(RegisterContent::Marker(marker)) => {
+            let (buffer_id, _, _) =
+                super::marker::marker_logical_fields(marker).expect("register marker");
+            let buffer_desc = buffer_id
+                .and_then(|id| eval.buffers.get(id))
+                .map(|buffer| buffer.name_runtime_string_owned())
+                .unwrap_or_else(|| "no buffer".to_string());
+            let point = super::marker::marker_position_as_int_with_buffers(&eval.buffers, marker)
+                .ok()
+                .map(|pos| pos.to_string())
+                .unwrap_or_else(|| "nowhere".to_string());
+            Ok(Value::string(format!(
+                "Register {} contains a marker: buffer={} point={}",
+                reg, buffer_desc, point
+            )))
+        }
         Some(RegisterContent::Rectangle(lines)) => Ok(Value::string(format!(
             "Register {} contains a rectangle ({} lines)",
             reg,
@@ -452,7 +462,7 @@ pub(crate) fn builtin_view_register(
 /// (get-register REGISTER) -> value or nil
 ///
 /// Return the content of a register as a Lisp value.
-/// Text -> string, Number -> integer, Position -> list, otherwise nil.
+/// Text -> string, Number -> integer, Marker -> marker, otherwise nil.
 pub(crate) fn builtin_get_register(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
@@ -462,10 +472,7 @@ pub(crate) fn builtin_get_register(
     match eval.registers.get(reg) {
         Some(RegisterContent::Text(s)) => Ok(Value::heap_string(s.clone())),
         Some(RegisterContent::Number(n)) => Ok(Value::fixnum(*n)),
-        Some(RegisterContent::Position { buffer, point }) => Ok(Value::cons(
-            Value::string(buffer.clone()),
-            Value::fixnum(*point as i64),
-        )),
+        Some(RegisterContent::Marker(marker)) => Ok(*marker),
         Some(RegisterContent::Rectangle(lines)) => {
             let vals: Vec<Value> = lines.iter().map(|l| Value::string(l.clone())).collect();
             Ok(Value::list(vals))
@@ -508,6 +515,7 @@ pub(crate) fn builtin_set_register(
         ValueKind::String => {
             RegisterContent::Text(args[1].as_lisp_string().expect("string").clone())
         }
+        ValueKind::Veclike(VecLikeType::Marker) => RegisterContent::Marker(args[1]),
         ValueKind::Fixnum(n) => RegisterContent::Number(n),
         ValueKind::Nil => {
             eval.registers.clear(reg);

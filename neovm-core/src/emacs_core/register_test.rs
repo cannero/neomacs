@@ -81,22 +81,21 @@ fn append_to_non_text_replaces() {
 }
 
 #[test]
-fn position_storage() {
+fn marker_storage() {
     crate::test_utils::init_test_tracing();
     let mut mgr = RegisterManager::new();
-    mgr.set(
-        'p',
-        RegisterContent::Position {
-            buffer: "*scratch*".to_string(),
-            point: 42,
-        },
-    );
+    let buffer_id = crate::buffer::BufferId(7);
+    let marker = crate::emacs_core::marker::make_marker_value(Some(buffer_id), Some(42), false);
+    mgr.set('p', RegisterContent::Marker(marker));
     match mgr.get('p') {
-        Some(RegisterContent::Position { buffer, point }) => {
-            assert_eq!(buffer, "*scratch*");
-            assert_eq!(*point, 42);
+        Some(RegisterContent::Marker(stored)) => {
+            let (buffer_id, point, insertion_type) =
+                crate::emacs_core::marker::marker_logical_fields(stored).expect("marker");
+            assert_eq!(buffer_id, Some(crate::buffer::BufferId(7)));
+            assert_eq!(point, Some(42));
+            assert!(!insertion_type);
         }
-        other => panic!("Expected Position, got {:?}", other),
+        other => panic!("Expected Marker, got {:?}", other),
     }
 }
 
@@ -298,6 +297,30 @@ fn test_builtin_view_register() {
     assert!(result.is_ok());
     let desc = result.unwrap();
     assert!(desc.as_str().unwrap().contains("99"));
+}
+
+#[test]
+fn test_builtin_point_to_register_stores_marker() {
+    crate::test_utils::init_test_tracing();
+    use super::super::eval::Context;
+
+    let mut eval = Context::new();
+    let current_buffer_id = eval.buffers.current_buffer().expect("current buffer").id;
+
+    builtin_point_to_register(&mut eval, vec![Value::char('p')]).expect("point-to-register");
+
+    let stored = builtin_get_register(&mut eval, vec![Value::char('p')]).expect("get-register");
+    assert!(stored.is_marker());
+    assert_eq!(
+        crate::emacs_core::marker::builtin_marker_buffer_in_buffers(&eval.buffers, vec![stored],)
+            .expect("marker-buffer"),
+        Value::make_buffer(current_buffer_id)
+    );
+    assert_eq!(
+        crate::emacs_core::marker::builtin_marker_position_in_buffers(&eval.buffers, vec![stored],)
+            .expect("marker-position"),
+        Value::fixnum(1)
+    );
 }
 
 #[test]
