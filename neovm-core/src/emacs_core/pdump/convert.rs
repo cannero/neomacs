@@ -1201,16 +1201,17 @@ pub(crate) fn dump_autoload_manager(
                 )
             })
             .collect(),
-        after_load: am
+        after_load_lisp: am
             .dump_after_load()
             .iter()
             .map(|(k, v)| {
                 (
-                    k.clone(),
+                    dump_lisp_string(k.as_lisp_string()),
                     v.iter().map(|value| encoder.dump_value(value)).collect(),
                 )
             })
             .collect(),
+        after_load: Vec::new(),
         loaded_files: am
             .dump_loaded_files()
             .iter()
@@ -2745,16 +2746,30 @@ pub(crate) fn load_autoload_manager(
             )
         })
         .collect();
-    let after_load: HashMap<String, Vec<Value>> = dam
-        .after_load
-        .iter()
-        .map(|(k, v)| {
-            (
-                k.clone(),
-                v.iter().map(|value| decoder.load_value(value)).collect(),
-            )
-        })
-        .collect();
+    let after_load: HashMap<crate::emacs_core::autoload::AfterLoadKey, Vec<Value>> =
+        if !dam.after_load_lisp.is_empty() {
+            dam.after_load_lisp
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        crate::emacs_core::autoload::AfterLoadKey::from_lisp_string(
+                            &load_lisp_string(k),
+                        ),
+                        v.iter().map(|value| decoder.load_value(value)).collect(),
+                    )
+                })
+                .collect()
+        } else {
+            dam.after_load
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        crate::emacs_core::autoload::AfterLoadKey::from_runtime(k),
+                        v.iter().map(|value| decoder.load_value(value)).collect(),
+                    )
+                })
+                .collect()
+        };
     AutoloadManager::from_dump(
         entries,
         after_load,

@@ -21,6 +21,25 @@ use crate::heap_types::LispString;
 
 type ObsoleteInfo = (LispString, LispString);
 
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub(crate) struct AfterLoadKey(LispString);
+
+impl AfterLoadKey {
+    pub(crate) fn from_runtime(text: &str) -> Self {
+        Self(runtime_string_to_autoload_string(text))
+    }
+
+    pub(crate) fn from_lisp_string(text: &LispString) -> Self {
+        Self(runtime_string_to_autoload_string(
+            &autoload_string_to_runtime_string(text),
+        ))
+    }
+
+    pub(crate) fn as_lisp_string(&self) -> &LispString {
+        &self.0
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Autoload types
 // ---------------------------------------------------------------------------
@@ -81,7 +100,7 @@ pub struct AutoloadManager {
     /// Map from function name to autoload entry.
     entries: HashMap<SymId, AutoloadEntry>,
     /// Map from file/feature name to list of forms to evaluate after loading.
-    after_load: HashMap<String, Vec<Value>>,
+    after_load: HashMap<AfterLoadKey, Vec<Value>>,
     /// Set of files that have already been loaded (for after-load tracking).
     loaded_files: Vec<LispString>,
     /// Obsolete function warnings: old-name -> (new-name, when).
@@ -155,14 +174,19 @@ impl AutoloadManager {
 
     /// Register a form to evaluate after a given file/feature is loaded.
     pub fn add_after_load(&mut self, file: &str, form: Value) {
-        self.after_load
-            .entry(file.to_string())
-            .or_default()
-            .push(form);
+        self.add_after_load_key(AfterLoadKey::from_runtime(file), form);
+    }
+
+    pub(crate) fn add_after_load_key(&mut self, file: AfterLoadKey, form: Value) {
+        self.after_load.entry(file).or_default().push(form);
     }
 
     /// Get the after-load forms for a file (if any).
     pub fn take_after_load_forms(&mut self, file: &str) -> Vec<Value> {
+        self.take_after_load_forms_key(&AfterLoadKey::from_runtime(file))
+    }
+
+    pub(crate) fn take_after_load_forms_key(&mut self, file: &AfterLoadKey) -> Vec<Value> {
         self.after_load.remove(file).unwrap_or_default()
     }
 
@@ -269,7 +293,7 @@ impl AutoloadManager {
             .map(|(name, entry)| (resolve_sym(*name).to_string(), entry.clone()))
             .collect()
     }
-    pub(crate) fn dump_after_load(&self) -> &HashMap<String, Vec<Value>> {
+    pub(crate) fn dump_after_load(&self) -> &HashMap<AfterLoadKey, Vec<Value>> {
         &self.after_load
     }
     pub(crate) fn dump_loaded_files(&self) -> &[LispString] {
@@ -305,7 +329,7 @@ impl AutoloadManager {
     }
     pub(crate) fn from_dump(
         entries: HashMap<String, AutoloadEntry>,
-        after_load: HashMap<String, Vec<Value>>,
+        after_load: HashMap<AfterLoadKey, Vec<Value>>,
         loaded_files: Vec<LispString>,
         obsolete_functions: HashMap<String, (String, String)>,
         obsolete_variables: HashMap<String, (String, String)>,

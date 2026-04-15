@@ -644,6 +644,9 @@ pub struct DumpAutoloadEntry {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpAutoloadManager {
     pub entries: Vec<(String, DumpAutoloadEntry)>,
+    #[serde(default)]
+    pub after_load_lisp: Vec<(DumpLispString, Vec<DumpValue>)>,
+    #[serde(default)]
     pub after_load: Vec<(String, Vec<DumpValue>)>,
     pub loaded_files: Vec<DumpLispString>,
     pub obsolete_functions: Vec<(String, (String, String))>,

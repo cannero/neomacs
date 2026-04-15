@@ -287,6 +287,20 @@ fn after_load_add_and_take() {
 }
 
 #[test]
+fn after_load_keys_canonicalize_ascii_storage_variants() {
+    crate::test_utils::init_test_tracing();
+    let mut mgr = AutoloadManager::new();
+    mgr.add_after_load_key(
+        AfterLoadKey::from_lisp_string(
+            &crate::emacs_core::builtins::runtime_string_to_lisp_string("same-file", false),
+        ),
+        Value::fixnum(7),
+    );
+    let forms = mgr.take_after_load_forms("same-file");
+    assert_eq!(forms, vec![Value::fixnum(7)]);
+}
+
+#[test]
 fn loaded_files_tracking() {
     crate::test_utils::init_test_tracing();
     let mut mgr = AutoloadManager::new();
