@@ -565,41 +565,37 @@ fn eval_forms_from_source_in_vm_runtime_streaming(
         return Ok(Value::NIL);
     }
 
-    let read_source = super::value_reader::LispReadSource::new(source);
-    let mut pos = start_pos;
-    loop {
-        let read_result = read_source.read_one(pos).map_err(|e| {
-            signal(
-                "invalid-read-syntax",
-                vec![Value::string(format!("Read error: {}", e.message))],
-            )
-        })?;
-        let Some((form, next_pos)) = read_result else {
-            break;
-        };
-        pos = next_pos;
+    shared.with_gc_scope_result(|eval| {
+        for root in vm_gc_roots {
+            eval.push_eval_root(*root);
+        }
+        for root in args {
+            eval.push_eval_root(*root);
+        }
 
-        shared.with_gc_scope_result(|eval| {
-            for root in args {
-                eval.push_eval_root(*root);
-            }
+        let read_source = super::value_reader::LispReadSource::new(source);
+        let mut pos = start_pos;
+        loop {
+            let read_result = read_source.read_one(pos).map_err(|e| {
+                signal(
+                    "invalid-read-syntax",
+                    vec![Value::string(format!("Read error: {}", e.message))],
+                )
+            })?;
+            let Some((form, next_pos)) = read_result else {
+                break;
+            };
+            pos = next_pos;
+
             eval.with_gc_scope_result(|eval| {
                 eval.push_eval_root(form);
                 eval.eval_sub(form)
-            })
-        })?;
-        shared.with_gc_scope(|eval| {
-            for root in vm_gc_roots {
-                eval.push_eval_root(*root);
-            }
-            for root in args {
-                eval.push_eval_root(*root);
-            }
-            eval.gc_safe_point_exact()
-        });
-    }
+            })?;
+            eval.with_gc_scope(|eval| eval.gc_safe_point_exact());
+        }
 
-    Ok(Value::NIL)
+        Ok(Value::NIL)
+    })
 }
 
 fn event_to_int(event: &Value) -> Option<i64> {
