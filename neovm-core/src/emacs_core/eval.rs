@@ -6580,11 +6580,13 @@ impl Context {
         }
 
         let result = self.maybe_grow_eval_stack(|ctx| {
-            ctx.with_gc_scope_result(|ctx| {
-                ctx.root(form);
-                ctx.maybe_gc_and_quit()?;
-                ctx.eval_sub_cons(form)
-            })
+            let eval_root_scope = ctx.save_eval_roots();
+            ctx.push_eval_root(form);
+            let result = ctx
+                .maybe_gc_and_quit()
+                .and_then(|()| ctx.eval_sub_cons(form));
+            ctx.restore_eval_roots(eval_root_scope);
+            result
         });
         self.depth -= 1;
         result
@@ -10127,31 +10129,31 @@ impl Context {
         }
         let args_for_cache = args.clone();
         let expand_start = std::time::Instant::now();
-        let result = self.with_gc_scope_result(|ctx| {
-            let eval_root_scope = ctx.save_eval_roots();
-            ctx.push_eval_root(form);
-            ctx.push_eval_root(definition);
-            if let Some(environment) = environment {
-                ctx.push_eval_root(environment);
-            }
-            for arg in &args {
-                ctx.push_eval_root(*arg);
-            }
+        let eval_root_scope = self.save_eval_roots();
+        self.push_eval_root(form);
+        self.push_eval_root(definition);
+        if let Some(environment) = environment {
+            self.push_eval_root(environment);
+        }
+        for arg in &args {
+            self.push_eval_root(*arg);
+        }
 
+        let result = (|| {
             let expanded = if definition.is_macro() {
-                ctx.apply_macro_callable_with_dynamic_scope(definition, args)?
+                self.apply_macro_callable_with_dynamic_scope(definition, args)?
             } else if cons_head_symbol_id(&definition) == Some(macro_symbol()) {
-                ctx.apply_macro_callable_with_dynamic_scope(definition.cons_cdr(), args)?
-            } else if ctx.function_value_is_callable(&definition) {
+                self.apply_macro_callable_with_dynamic_scope(definition.cons_cdr(), args)?
+            } else if self.function_value_is_callable(&definition) {
                 // GNU `macroexpand` ENVIRONMENT entries store the macro
                 // expander itself, not the full `(macro . fn)` function cell.
-                ctx.apply_macro_callable_with_dynamic_scope(definition, args)?
+                self.apply_macro_callable_with_dynamic_scope(definition, args)?
             } else {
                 return Err(signal("invalid-function", vec![definition]));
             };
 
             let expand_elapsed = expand_start.elapsed();
-            ctx.store_runtime_macro_expansion(
+            self.store_runtime_macro_expansion(
                 form,
                 definition,
                 &args_for_cache,
@@ -10159,9 +10161,9 @@ impl Context {
                 expand_elapsed,
                 environment,
             );
-            ctx.restore_eval_roots(eval_root_scope);
             Ok(expanded)
-        });
+        })();
+        self.restore_eval_roots(eval_root_scope);
         if let Some(start) = perf_start {
             self.macro_perf_stats
                 .expand_macro
