@@ -1611,7 +1611,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 "error",
             )?),
             'R' => {
-                if interactive_use_region_p_in_vm_runtime(shared, vm_gc_roots)? {
+                if interactive_use_region_p_in_vm_runtime(shared)? {
                     args.extend(interactive_region_args_in_buffers(
                         &shared.buffers,
                         "error",
@@ -1667,11 +1667,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 vm_gc_roots,
                 prompt,
             )?),
-            'X' => args.push(interactive_eval_expression_arg_in_vm_runtime(
-                shared,
-                vm_gc_roots,
-                prompt,
-            )?),
+            'X' => args.push(interactive_eval_expression_arg_in_vm_runtime(shared, prompt)?),
             'U' => args.push(interactive_u_arg(context)),
             'v' => {
                 let letter_args = [Value::heap_string(prompt.clone())];
@@ -1832,7 +1828,6 @@ fn interactive_read_expression_arg_in_vm_runtime(
 
 fn interactive_eval_expression_arg_in_vm_runtime(
     shared: &mut super::eval::Context,
-    _vm_gc_roots: &[Value],
     prompt: crate::heap_types::LispString,
 ) -> Result<Value, Flow> {
     let expr_value = interactive_read_expression_arg(shared, prompt)?;
@@ -1851,7 +1846,6 @@ fn interactive_read_coding_system_optional_arg(
 
 fn interactive_use_region_p_in_vm_runtime(
     shared: &mut super::eval::Context,
-    _vm_gc_roots: &[Value],
 ) -> Result<bool, Flow> {
     shared
         .apply(Value::symbol("use-region-p"), vec![])
@@ -2549,7 +2543,6 @@ fn resolve_interactive_invocation_args(
 
 fn eval_interactive_form_value_in_vm_runtime(
     shared: &mut super::eval::Context,
-    _vm_gc_roots: &[Value],
     form: Value,
 ) -> Result<Vec<Value>, Flow> {
     shared.with_gc_scope_result(|eval| {
@@ -2864,7 +2857,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
                 .map(|maybe_args| maybe_args.map(|args| (func, args)))
             }
             ParsedInteractiveSpec::Form(_) => {
-                eval_interactive_form_value_in_vm_runtime(shared, vm_gc_roots, iform_val)
+                eval_interactive_form_value_in_vm_runtime(shared, iform_val)
                     .map(|args| Some((func, args)))
             }
         };
@@ -2888,7 +2881,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
                 .map(|maybe_args| maybe_args.map(|args| (func, args)))
             }
             ParsedInteractiveSpec::Form(form) => {
-                eval_interactive_form_value_in_vm_runtime(shared, vm_gc_roots, form)
+                eval_interactive_form_value_in_vm_runtime(shared, form)
                     .map(|args| Some((func, args)))
             }
         };
@@ -2925,7 +2918,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
             }
             return Ok(None);
         }
-        return eval_interactive_form_value_in_vm_runtime(shared, vm_gc_roots, spec_val)
+        return eval_interactive_form_value_in_vm_runtime(shared, spec_val)
             .map(|args| Some((func, args)));
     }
 

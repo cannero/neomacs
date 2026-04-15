@@ -4002,7 +4002,6 @@ impl<'a> Vm<'a> {
     fn builtin_documentation_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::doc::builtin_documentation_in_vm_runtime(
             &mut self.ctx,
-            &[],
             args.to_vec(),
         )
     }
@@ -4010,7 +4009,6 @@ impl<'a> Vm<'a> {
     fn builtin_documentation_property_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::doc::builtin_documentation_property_in_vm_runtime(
             &mut self.ctx,
-            &[],
             args.to_vec(),
         )
     }

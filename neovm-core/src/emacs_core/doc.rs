@@ -150,7 +150,6 @@ fn documentation_plan(
 
 pub(crate) fn builtin_documentation_in_vm_runtime(
     shared: &mut super::eval::Context,
-    _vm_gc_roots: &[Value],
     args: Vec<Value>,
 ) -> EvalResult {
     let raw = args.get(1).is_some_and(|v| v.is_truthy());
@@ -8006,7 +8005,6 @@ fn documentation_property_plan(
 
 pub(crate) fn builtin_documentation_property_in_vm_runtime(
     shared: &mut super::eval::Context,
-    _vm_gc_roots: &[Value],
     args: Vec<Value>,
 ) -> EvalResult {
     let raw = args.get(2).is_some_and(|v| v.is_truthy());
