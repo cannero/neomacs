@@ -965,7 +965,6 @@ pub enum DumpFaceHeight {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpFace {
-    pub name: String,
     pub foreground: Option<DumpColor>,
     pub background: Option<DumpColor>,
     pub family: Option<String>,

@@ -285,12 +285,13 @@ pub enum FaceAttrValue {
 // Face
 // ---------------------------------------------------------------------------
 
-/// A face definition.  Fields are `Option` to support partial specification
+/// A face definition. Fields are `Option` to support partial specification
 /// (inheriting unset attributes from the default face).
+///
+/// The face name is owned by the surrounding registry key, matching GNU
+/// Emacs's frame-local face hash table design.
 #[derive(Clone, Debug, Default)]
 pub struct Face {
-    /// Face name.
-    pub name: String,
     /// Foreground color.
     pub foreground: Option<Color>,
     /// Background color.
@@ -365,18 +366,16 @@ fn merge_face_height(
 }
 
 impl Face {
-    pub fn new(name: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            ..Default::default()
-        }
+    /// Compatibility constructor for existing call sites. The name is owned
+    /// by `FaceTable`, not by `Face` itself.
+    pub fn new(_name: &str) -> Self {
+        Self::default()
     }
 
     /// Merge `overlay` on top of `self`.  Non-None fields in `overlay`
     /// override those in `self`.
     pub fn merge(&self, overlay: &Face) -> Face {
         Face {
-            name: self.name.clone(),
             foreground: overlay.foreground.or(self.foreground),
             background: overlay.background.or(self.background),
             family: overlay.family.clone().or_else(|| self.family.clone()),
@@ -899,26 +898,26 @@ impl FaceTable {
         default.background = Some(Color::rgb(255, 255, 255));
         default.weight = Some(FontWeight::NORMAL);
         default.slant = Some(FontSlant::Normal);
-        self.define(default);
+        self.define("default", default);
 
         // bold
         let mut bold = Face::new("bold");
         bold.weight = Some(FontWeight::BOLD);
         bold.inherit = vec!["default".into()];
-        self.define(bold);
+        self.define("bold", bold);
 
         // italic
         let mut italic = Face::new("italic");
         italic.slant = Some(FontSlant::Italic);
         italic.inherit = vec!["default".into()];
-        self.define(italic);
+        self.define("italic", italic);
 
         // bold-italic
         let mut bold_italic = Face::new("bold-italic");
         bold_italic.weight = Some(FontWeight::BOLD);
         bold_italic.slant = Some(FontSlant::Italic);
         bold_italic.inherit = vec!["default".into()];
-        self.define(bold_italic);
+        self.define("bold-italic", bold_italic);
 
         // underline
         let mut underline = Face::new("underline");
@@ -928,17 +927,17 @@ impl FaceTable {
             position: None,
         });
         underline.inherit = vec!["default".into()];
-        self.define(underline);
+        self.define("underline", underline);
 
         // fixed-pitch
         let mut fixed_pitch = Face::new("fixed-pitch");
         fixed_pitch.inherit = vec!["default".into()];
-        self.define(fixed_pitch);
+        self.define("fixed-pitch", fixed_pitch);
 
         // variable-pitch
         let mut variable_pitch = Face::new("variable-pitch");
         variable_pitch.inherit = vec!["default".into()];
-        self.define(variable_pitch);
+        self.define("variable-pitch", variable_pitch);
 
         // mode-line
         let mut mode_line = Face::new("mode-line");
@@ -950,14 +949,14 @@ impl FaceTable {
             width: 1,
             style: BoxStyle::Raised,
         });
-        self.define(mode_line);
+        self.define("mode-line", mode_line);
 
         // mode-line-inactive
         let mut mode_line_inactive = Face::new("mode-line-inactive");
         mode_line_inactive.foreground = Some(Color::rgb(64, 64, 64));
         mode_line_inactive.background = Some(Color::rgb(224, 224, 224));
         mode_line_inactive.weight = Some(FontWeight::NORMAL);
-        self.define(mode_line_inactive);
+        self.define("mode-line-inactive", mode_line_inactive);
 
         // mode-line-highlight
         let mut mode_line_highlight = Face::new("mode-line-highlight");
@@ -967,102 +966,102 @@ impl FaceTable {
             style: BoxStyle::Raised,
         });
         mode_line_highlight.inherit = vec!["highlight".into()];
-        self.define(mode_line_highlight);
+        self.define("mode-line-highlight", mode_line_highlight);
 
         // mode-line-emphasis
         let mut mode_line_emphasis = Face::new("mode-line-emphasis");
         mode_line_emphasis.weight = Some(FontWeight::BOLD);
-        self.define(mode_line_emphasis);
+        self.define("mode-line-emphasis", mode_line_emphasis);
 
         // mode-line-buffer-id
         let mut mode_line_buffer_id = Face::new("mode-line-buffer-id");
         mode_line_buffer_id.weight = Some(FontWeight::BOLD);
-        self.define(mode_line_buffer_id);
+        self.define("mode-line-buffer-id", mode_line_buffer_id);
 
         // header-line
         let mut header = Face::new("header-line");
         header.inherit = vec!["mode-line".into()];
-        self.define(header);
+        self.define("header-line", header);
 
         // header-line-highlight
         let mut header_line_highlight = Face::new("header-line-highlight");
         header_line_highlight.inherit = vec!["mode-line-highlight".into()];
-        self.define(header_line_highlight);
+        self.define("header-line-highlight", header_line_highlight);
 
         // header-line-active
         let mut header_line_active = Face::new("header-line-active");
         header_line_active.inherit = vec!["header-line".into()];
-        self.define(header_line_active);
+        self.define("header-line-active", header_line_active);
 
         // header-line-inactive
         let mut header_line_inactive = Face::new("header-line-inactive");
         header_line_inactive.inherit = vec!["header-line".into()];
-        self.define(header_line_inactive);
+        self.define("header-line-inactive", header_line_inactive);
 
         // highlight
         let mut highlight = Face::new("highlight");
         highlight.background = Some(Color::rgb(180, 210, 240));
-        self.define(highlight);
+        self.define("highlight", highlight);
 
         // region
         let mut region = Face::new("region");
         region.background = Some(Color::rgb(100, 149, 237));
         region.extend = Some(true);
-        self.define(region);
+        self.define("region", region);
 
         // minibuffer-prompt
         let mut prompt = Face::new("minibuffer-prompt");
         prompt.foreground = Some(Color::rgb(0, 0, 128));
         prompt.weight = Some(FontWeight::BOLD);
-        self.define(prompt);
+        self.define("minibuffer-prompt", prompt);
 
         // cursor
         let mut cursor = Face::new("cursor");
         cursor.background = Some(Color::rgb(0, 0, 0));
-        self.define(cursor);
+        self.define("cursor", cursor);
 
         // fringe
         let mut fringe = Face::new("fringe");
         fringe.background = Some(Color::rgb(240, 240, 240));
-        self.define(fringe);
+        self.define("fringe", fringe);
 
         // vertical-border
         let mut vertical_border = Face::new("vertical-border");
         vertical_border.inherit = vec!["mode-line-inactive".into()];
-        self.define(vertical_border);
+        self.define("vertical-border", vertical_border);
 
         // scroll-bar
-        self.define(Face::new("scroll-bar"));
+        self.define("scroll-bar", Face::new("scroll-bar"));
 
         // border
-        self.define(Face::new("border"));
+        self.define("border", Face::new("border"));
 
         // internal-border
-        self.define(Face::new("internal-border"));
+        self.define("internal-border", Face::new("internal-border"));
 
         // child-frame-border
-        self.define(Face::new("child-frame-border"));
+        self.define("child-frame-border", Face::new("child-frame-border"));
 
         // line-number
         let mut line_num = Face::new("line-number");
         line_num.foreground = Some(Color::rgb(160, 160, 160));
         line_num.inherit = vec!["default".into()];
-        self.define(line_num);
+        self.define("line-number", line_num);
 
         // line-number-current-line
         let mut line_num_cur = Face::new("line-number-current-line");
         line_num_cur.foreground = Some(Color::rgb(0, 0, 0));
         line_num_cur.weight = Some(FontWeight::BOLD);
         line_num_cur.inherit = vec!["line-number".into()];
-        self.define(line_num_cur);
+        self.define("line-number-current-line", line_num_cur);
 
         // shadow
         let mut shadow = Face::new("shadow");
         shadow.foreground = Some(Color::rgb(128, 128, 128));
-        self.define(shadow);
+        self.define("shadow", shadow);
 
         // mouse
-        self.define(Face::new("mouse"));
+        self.define("mouse", Face::new("mouse"));
 
         // tool-bar
         let mut tool_bar = Face::new("tool-bar");
@@ -1073,39 +1072,39 @@ impl FaceTable {
             width: 1,
             style: BoxStyle::Raised,
         });
-        self.define(tool_bar);
+        self.define("tool-bar", tool_bar);
 
         // tab-bar
         let mut tab_bar = Face::new("tab-bar");
         tab_bar.foreground = Some(Color::rgb(0, 0, 0));
         tab_bar.background = Some(Color::rgb(217, 217, 217));
         tab_bar.inherit = vec!["variable-pitch".into()];
-        self.define(tab_bar);
+        self.define("tab-bar", tab_bar);
 
         // tab-line
         let mut tab_line = Face::new("tab-line");
         tab_line.foreground = Some(Color::rgb(0, 0, 0));
         tab_line.background = Some(Color::rgb(217, 217, 217));
         tab_line.inherit = vec!["variable-pitch".into()];
-        self.define(tab_line);
+        self.define("tab-line", tab_line);
 
         // error
         let mut error = Face::new("error");
         error.foreground = Some(Color::rgb(255, 0, 0));
         error.weight = Some(FontWeight::BOLD);
-        self.define(error);
+        self.define("error", error);
 
         // warning
         let mut warning = Face::new("warning");
         warning.foreground = Some(Color::rgb(255, 165, 0));
         warning.weight = Some(FontWeight::BOLD);
-        self.define(warning);
+        self.define("warning", warning);
 
         // success
         let mut success = Face::new("success");
         success.foreground = Some(Color::rgb(0, 128, 0));
         success.weight = Some(FontWeight::BOLD);
-        self.define(success);
+        self.define("success", success);
 
         // font-lock faces
         self.define_font_lock(
@@ -1137,46 +1136,46 @@ impl FaceTable {
         let mut isearch = Face::new("isearch");
         isearch.foreground = Some(Color::rgb(255, 255, 255));
         isearch.background = Some(Color::rgb(205, 92, 92));
-        self.define(isearch);
+        self.define("isearch", isearch);
 
         // lazy-highlight
         let mut lazy = Face::new("lazy-highlight");
         lazy.background = Some(Color::rgb(175, 238, 238));
-        self.define(lazy);
+        self.define("lazy-highlight", lazy);
 
         // trailing-whitespace
         let mut tw = Face::new("trailing-whitespace");
         tw.background = Some(Color::rgb(255, 0, 0));
-        self.define(tw);
+        self.define("trailing-whitespace", tw);
 
         // region (active selection)
         let mut region = Face::new("region");
         region.background = Some(Color::rgb(60, 100, 180));
         region.foreground = Some(Color::rgb(255, 255, 255));
-        self.define(region);
+        self.define("region", region);
 
         // isearch (current search match)
         let mut isearch = Face::new("isearch");
         isearch.background = Some(Color::rgb(255, 200, 50));
         isearch.foreground = Some(Color::rgb(0, 0, 0));
-        self.define(isearch);
+        self.define("isearch", isearch);
 
         // lazy-highlight (other search matches)
         let mut lazy = Face::new("lazy-highlight");
         lazy.background = Some(Color::rgb(150, 180, 220));
-        self.define(lazy);
+        self.define("lazy-highlight", lazy);
 
         // show-paren-match
         let mut spm = Face::new("show-paren-match");
         spm.background = Some(Color::rgb(180, 210, 255));
         spm.weight = Some(FontWeight::BOLD);
-        self.define(spm);
+        self.define("show-paren-match", spm);
 
         // show-paren-mismatch
         let mut spmm = Face::new("show-paren-mismatch");
         spmm.foreground = Some(Color::rgb(255, 255, 255));
         spmm.background = Some(Color::rgb(160, 0, 0));
-        self.define(spmm);
+        self.define("show-paren-mismatch", spmm);
 
         // link
         let mut link = Face::new("link");
@@ -1186,7 +1185,7 @@ impl FaceTable {
             color: None,
             position: None,
         });
-        self.define(link);
+        self.define("link", link);
     }
 
     fn define_font_lock(&mut self, name: &str, fg: Color, slant: Option<FontSlant>) {
@@ -1196,12 +1195,12 @@ impl FaceTable {
             face.slant = Some(s);
         }
         face.inherit = vec!["default".into()];
-        self.define(face);
+        self.define(name, face);
     }
 
     /// Define or update a face.
-    pub fn define(&mut self, face: Face) {
-        self.faces.insert(face.name.clone(), face);
+    pub fn define(&mut self, name: &str, face: Face) {
+        self.faces.insert(name.to_string(), face);
     }
 
     /// Ensure a face exists (create empty if not present).
@@ -1514,13 +1513,11 @@ mod tests {
     fn face_merge() {
         crate::test_utils::init_test_tracing();
         let base = Face {
-            name: "base".into(),
             foreground: Some(Color::rgb(0, 0, 0)),
             background: Some(Color::rgb(255, 255, 255)),
             ..Default::default()
         };
         let overlay = Face {
-            name: "overlay".into(),
             foreground: Some(Color::rgb(255, 0, 0)),
             ..Default::default()
         };
@@ -1534,7 +1531,6 @@ mod tests {
     fn face_inverse_video() {
         crate::test_utils::init_test_tracing();
         let face = Face {
-            name: "test".into(),
             foreground: Some(Color::rgb(255, 255, 255)),
             background: Some(Color::rgb(0, 0, 0)),
             inverse_video: Some(true),
@@ -1674,7 +1670,7 @@ mod tests {
         let mut custom = Face::new("my-face");
         custom.foreground = Some(Color::rgb(100, 200, 50));
         custom.inherit = vec!["bold".into()];
-        table.define(custom);
+        table.define("my-face", custom);
 
         let resolved = table.resolve("my-face");
         assert_eq!(resolved.foreground, Some(Color::rgb(100, 200, 50)));
@@ -1823,7 +1819,6 @@ mod tests {
     fn face_merge_underline_and_box() {
         crate::test_utils::init_test_tracing();
         let base = Face {
-            name: "base".into(),
             underline: Some(Underline {
                 style: UnderlineStyle::Line,
                 color: None,
@@ -1832,7 +1827,6 @@ mod tests {
             ..Default::default()
         };
         let overlay = Face {
-            name: "over".into(),
             box_border: Some(BoxBorder {
                 color: Some(Color::rgb(255, 0, 0)),
                 width: 2,
@@ -1891,19 +1885,19 @@ mod tests {
         let mut gp = Face::new("grandparent");
         gp.foreground = Some(Color::rgb(100, 100, 100));
         gp.slant = Some(FontSlant::Italic);
-        table.define(gp);
+        table.define("grandparent", gp);
 
         // parent: inherits grandparent, sets weight
         let mut parent = Face::new("parent");
         parent.weight = Some(FontWeight::BOLD);
         parent.inherit = vec!["grandparent".into()];
-        table.define(parent);
+        table.define("parent", parent);
 
         // child: inherits parent, sets background
         let mut child = Face::new("child");
         child.background = Some(Color::rgb(200, 200, 200));
         child.inherit = vec!["parent".into()];
-        table.define(child);
+        table.define("child", child);
 
         let resolved = table.resolve("child");
         assert_eq!(resolved.background, Some(Color::rgb(200, 200, 200))); // own
@@ -1962,7 +1956,6 @@ mod tests {
         crate::test_utils::init_test_tracing();
         let table = FaceTable::new();
         let resolved = table.resolve("nonexistent");
-        assert_eq!(resolved.name, "nonexistent");
         assert!(resolved.foreground.is_none());
     }
 

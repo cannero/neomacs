@@ -1595,7 +1595,6 @@ fn dump_face_height(h: &FaceHeight) -> DumpFaceHeight {
 
 fn dump_face(f: &Face) -> DumpFace {
     DumpFace {
-        name: f.name.clone(),
         foreground: f.foreground.map(|c| dump_color(&c)),
         background: f.background.map(|c| dump_color(&c)),
         family: f.family.clone(),
@@ -3032,7 +3031,6 @@ fn load_font_slant(s: &DumpFontSlant) -> FontSlant {
 
 fn load_face(df: &DumpFace) -> Face {
     Face {
-        name: df.name.clone(),
         foreground: df.foreground.map(|c| load_color(&c)),
         background: df.background.map(|c| load_color(&c)),
         family: df.family.clone(),

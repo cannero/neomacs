@@ -2778,9 +2778,7 @@ pub(crate) fn builtin_internal_copy_lisp_face(
         .get(&from_name)
         .cloned()
         .unwrap_or_else(|| eval.face_table.resolve(&from_name));
-    let mut copied = copied;
-    copied.name = to_name.clone();
-    eval.face_table.define(copied);
+    eval.face_table.define(&to_name, copied);
     eval.face_change_count += 1;
 
     Ok(result)
