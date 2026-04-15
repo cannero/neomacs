@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use super::error::{EvalResult, Flow, signal};
 use super::intern::{SymId, intern, intern_uninterned, resolve_sym};
 use super::value::{Value, ValueKind, VecLikeType, list_to_vec};
+use crate::heap_types::LispString;
 
 // ---------------------------------------------------------------------------
 // AbbrevManager -- kept for backward compat (eval.rs, pdump)
@@ -25,8 +26,8 @@ use super::value::{Value, ValueKind, VecLikeType, list_to_vec};
 /// A single abbreviation entry (kept for pdump compatibility).
 #[derive(Clone, Debug)]
 pub struct Abbrev {
-    pub expansion: String,
-    pub hook: Option<String>,
+    pub expansion: LispString,
+    pub hook: Option<LispString>,
     pub count: usize,
     pub system: bool,
 }
@@ -34,7 +35,6 @@ pub struct Abbrev {
 /// A named table of abbreviations (kept for pdump compatibility).
 #[derive(Clone, Debug)]
 pub struct AbbrevTable {
-    pub name: String,
     pub abbrevs: HashMap<String, Abbrev>,
     pub parent: Option<String>,
     pub case_fixed: bool,
@@ -42,9 +42,8 @@ pub struct AbbrevTable {
 }
 
 impl AbbrevTable {
-    fn new(name: &str) -> Self {
+    fn new(_name: &str) -> Self {
         Self {
-            name: name.to_string(),
             abbrevs: HashMap::new(),
             parent: None,
             case_fixed: false,
@@ -89,7 +88,7 @@ impl AbbrevManager {
         tbl.abbrevs.insert(
             key,
             Abbrev {
-                expansion: expansion.to_string(),
+                expansion: runtime_string_to_abbrev_string(expansion),
                 hook: None,
                 count: 0,
                 system: false,
@@ -102,7 +101,7 @@ impl AbbrevManager {
         table: &str,
         abbrev: &str,
         expansion: &str,
-        hook: Option<String>,
+        hook: Option<LispString>,
         system: bool,
     ) {
         let tbl = self
@@ -113,7 +112,7 @@ impl AbbrevManager {
         tbl.abbrevs.insert(
             key,
             Abbrev {
-                expansion: expansion.to_string(),
+                expansion: runtime_string_to_abbrev_string(expansion),
                 hook,
                 count: 0,
                 system,
@@ -126,7 +125,11 @@ impl AbbrevManager {
         if let Some(tbl) = self.tables.get_mut(table) {
             if let Some(ab) = tbl.abbrevs.get_mut(&key) {
                 ab.count += 1;
-                let expansion = apply_case(&ab.expansion, word, tbl.case_fixed);
+                let expansion = apply_case(
+                    &abbrev_string_to_runtime(&ab.expansion),
+                    word,
+                    tbl.case_fixed,
+                );
                 return Some(expansion);
             }
         }
@@ -151,15 +154,15 @@ impl AbbrevManager {
         self.tables.get(name)
     }
 
-    pub fn list_abbrevs(&self, table: &str) -> Vec<(&str, &str)> {
+    pub fn list_abbrevs(&self, table: &str) -> Vec<(String, String)> {
         match self.tables.get(table) {
             Some(tbl) => {
-                let mut entries: Vec<(&str, &str)> = tbl
+                let mut entries: Vec<(String, String)> = tbl
                     .abbrevs
                     .iter()
-                    .map(|(k, v)| (k.as_str(), v.expansion.as_str()))
+                    .map(|(k, v)| (k.clone(), abbrev_string_to_runtime(&v.expansion)))
                     .collect();
-                entries.sort_by_key(|(k, _)| *k);
+                entries.sort_by(|left, right| left.0.cmp(&right.0));
                 entries
             }
             None => Vec::new(),
@@ -211,6 +214,14 @@ impl AbbrevManager {
             abbrev_mode,
         }
     }
+}
+
+fn runtime_string_to_abbrev_string(text: &str) -> LispString {
+    super::builtins::runtime_string_to_lisp_string(text, true)
+}
+
+fn abbrev_string_to_runtime(text: &LispString) -> String {
+    super::builtins::runtime_string_from_lisp_string(text)
 }
 
 // ---------------------------------------------------------------------------

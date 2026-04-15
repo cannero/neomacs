@@ -5,6 +5,10 @@ use crate::heap_types::LispString;
 // AbbrevManager unit tests (legacy -- kept for pdump compatibility)
 // -----------------------------------------------------------------------
 
+fn abbrev_runtime(text: &LispString) -> String {
+    super::abbrev_string_to_runtime(text)
+}
+
 #[test]
 fn define_and_expand() {
     crate::test_utils::init_test_tracing();
@@ -121,9 +125,9 @@ fn list_abbrevs_sorted() {
 
     let list = mgr.list_abbrevs("global-abbrev-table");
     assert_eq!(list.len(), 3);
-    assert_eq!(list[0], ("aa", "alpha"));
-    assert_eq!(list[1], ("mm", "middle"));
-    assert_eq!(list[2], ("zz", "sleep"));
+    assert_eq!(list[0], ("aa".to_string(), "alpha".to_string()));
+    assert_eq!(list[1], ("mm".to_string(), "middle".to_string()));
+    assert_eq!(list[2], ("zz".to_string(), "sleep".to_string()));
 }
 
 #[test]
@@ -167,14 +171,17 @@ fn define_abbrev_full_with_hook_and_system() {
         "global-abbrev-table",
         "hw",
         "hello world",
-        Some("my-hook".to_string()),
+        Some(LispString::from_utf8("my-hook")),
         true,
     );
 
     let tbl = mgr.get_table("global-abbrev-table").unwrap();
     let ab = tbl.abbrevs.get("hw").unwrap();
-    assert_eq!(ab.expansion, "hello world");
-    assert_eq!(ab.hook.as_deref(), Some("my-hook"));
+    assert_eq!(abbrev_runtime(&ab.expansion), "hello world");
+    assert_eq!(
+        ab.hook.as_ref().map(abbrev_runtime).as_deref(),
+        Some("my-hook")
+    );
     assert!(ab.system);
     assert_eq!(ab.count, 0);
 }

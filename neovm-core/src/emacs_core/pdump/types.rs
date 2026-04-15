@@ -651,15 +651,14 @@ pub struct DumpCustomManager {
 // Abbrev
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpAbbrev {
-    pub expansion: String,
-    pub hook: Option<String>,
+    pub expansion: DumpLispString,
+    pub hook: Option<DumpLispString>,
     pub count: usize,
     pub system: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpAbbrevTable {
-    pub name: String,
     pub abbrevs: Vec<(String, DumpAbbrev)>,
     pub parent: Option<String>,
     pub case_fixed: bool,

@@ -1753,7 +1753,6 @@ pub(crate) fn dump_abbrev_manager(am: &AbbrevManager) -> DumpAbbrevManager {
                 (
                     k.clone(),
                     DumpAbbrevTable {
-                        name: t.name.clone(),
                         abbrevs: t
                             .abbrevs
                             .iter()
@@ -1761,8 +1760,8 @@ pub(crate) fn dump_abbrev_manager(am: &AbbrevManager) -> DumpAbbrevManager {
                                 (
                                     k.clone(),
                                     DumpAbbrev {
-                                        expansion: a.expansion.clone(),
-                                        hook: a.hook.clone(),
+                                        expansion: dump_lisp_string(&a.expansion),
+                                        hook: a.hook.as_ref().map(dump_lisp_string),
                                         count: a.count,
                                         system: a.system,
                                     },
@@ -3196,7 +3195,6 @@ pub(crate) fn load_abbrev_manager(dam: &DumpAbbrevManager) -> AbbrevManager {
             (
                 k.clone(),
                 AbbrevTable {
-                    name: t.name.clone(),
                     abbrevs: t
                         .abbrevs
                         .iter()
@@ -3204,8 +3202,8 @@ pub(crate) fn load_abbrev_manager(dam: &DumpAbbrevManager) -> AbbrevManager {
                             (
                                 k.clone(),
                                 Abbrev {
-                                    expansion: a.expansion.clone(),
-                                    hook: a.hook.clone(),
+                                    expansion: load_lisp_string(&a.expansion),
+                                    hook: a.hook.as_ref().map(load_lisp_string),
                                     count: a.count,
                                     system: a.system,
                                 },
