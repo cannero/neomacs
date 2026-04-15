@@ -6534,12 +6534,12 @@ impl Context {
         }
 
         let result = self.maybe_grow_eval_stack(|ctx| {
-            let eval_root_scope = ctx.save_eval_roots();
-            ctx.push_eval_root(form);
+            let specpdl_root_scope = ctx.save_specpdl_roots();
+            ctx.push_specpdl_root(form);
             let result = ctx
                 .maybe_gc_and_quit()
                 .and_then(|()| ctx.eval_sub_cons(form));
-            ctx.restore_eval_roots(eval_root_scope);
+            ctx.restore_specpdl_roots(specpdl_root_scope);
             result
         });
         self.depth -= 1;
