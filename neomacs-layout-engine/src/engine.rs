@@ -7077,7 +7077,8 @@ mod tests {
             if pos == 0 {
                 return None;
             }
-            buffer.buffer_string().chars().nth(pos - 1)
+            let byte_pos = buffer.char_to_byte_clamped(pos - 1);
+            buffer.char_after(byte_pos)
         }
 
         let mut eval = Context::new();
@@ -7295,7 +7296,8 @@ mod tests {
             if pos == 0 {
                 return None;
             }
-            buffer.buffer_string().chars().nth(pos - 1)
+            let byte_pos = buffer.char_to_byte_clamped(pos - 1);
+            buffer.char_after(byte_pos)
         }
 
         let mut eval = Context::new();
@@ -7545,7 +7547,8 @@ mod tests {
             if pos == 0 {
                 return None;
             }
-            buffer.buffer_string().chars().nth(pos - 1)
+            let byte_pos = buffer.char_to_byte_clamped(pos - 1);
+            buffer.char_after(byte_pos)
         }
 
         let mut eval = Context::new();
@@ -8140,7 +8143,8 @@ mod tests {
             if pos == 0 {
                 return None;
             }
-            buffer.buffer_string().chars().nth(pos - 1)
+            let byte_pos = buffer.char_to_byte_clamped(pos - 1);
+            buffer.char_after(byte_pos)
         }
 
         let mut eval = Context::new();

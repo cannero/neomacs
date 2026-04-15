@@ -629,8 +629,8 @@ fn test_rust_buffer_access_copy_text() {
     // Insert some text
     if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
         buf.text.insert_str(0, "Hello, world!");
-        buf.zv = buf.text.len();
-        buf.zv_char = buf.text.char_count();
+        buf.zv_byte = buf.text.len();
+        buf.zv = buf.text.char_count();
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -650,8 +650,8 @@ fn test_rust_buffer_access_charpos_to_bytepos() {
     let buf_id = evaluator.buffer_manager_mut().create_buffer("*test-pos*");
     if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
         buf.text.insert_str(0, "abc");
-        buf.zv = buf.text.len();
-        buf.zv_char = buf.text.char_count();
+        buf.zv_byte = buf.text.len();
+        buf.zv = buf.text.char_count();
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -672,8 +672,8 @@ fn test_rust_buffer_access_lisp_charpos_to_bytepos() {
         .create_buffer("*test-lisp-pos*");
     if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
         buf.text.insert_str(0, "abc");
-        buf.zv = buf.text.len();
-        buf.zv_char = buf.text.char_count();
+        buf.zv_byte = buf.text.len();
+        buf.zv = buf.text.char_count();
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -692,8 +692,8 @@ fn test_rust_buffer_access_count_lines() {
     let buf_id = evaluator.buffer_manager_mut().create_buffer("*test-lines*");
     if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
         buf.text.insert_str(0, "line1\nline2\nline3");
-        buf.zv = buf.text.len();
-        buf.zv_char = buf.text.char_count();
+        buf.zv_byte = buf.text.len();
+        buf.zv = buf.text.char_count();
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -714,8 +714,8 @@ fn test_text_prop_check_invisible() {
     let buf_id = evaluator.buffer_manager_mut().create_buffer("*invis*");
     if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
         buf.text.insert_str(0, "visible hidden visible");
-        buf.zv = buf.text.len();
-        buf.zv_char = buf.text.char_count();
+        buf.zv_byte = buf.text.len();
+        buf.zv = buf.text.char_count();
         // Mark "hidden" (positions 8..14) as invisible
         buf.text
             .text_props_put_property(8, 14, "invisible", Value::T);
@@ -743,8 +743,8 @@ fn test_text_prop_check_display() {
     let buf_id = evaluator.buffer_manager_mut().create_buffer("*display*");
     if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
         buf.text.insert_str(0, "abcdef");
-        buf.zv = buf.text.len();
-        buf.zv_char = buf.text.char_count();
+        buf.zv_byte = buf.text.len();
+        buf.zv = buf.text.char_count();
         // Set a display property on positions 2..4
         buf.text
             .text_props_put_property(2, 4, "display", Value::fixnum(42));
@@ -769,8 +769,8 @@ fn test_text_prop_line_spacing() {
     let buf_id = evaluator.buffer_manager_mut().create_buffer("*spacing*");
     if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
         buf.text.insert_str(0, "line1\nline2");
-        buf.zv = buf.text.len();
-        buf.zv_char = buf.text.char_count();
+        buf.zv_byte = buf.text.len();
+        buf.zv = buf.text.char_count();
         // Set line-spacing on "line2" area
         buf.text
             .text_props_put_property(6, 11, "line-spacing", Value::fixnum(4));
@@ -792,8 +792,8 @@ fn test_text_prop_next_change() {
     let buf_id = evaluator.buffer_manager_mut().create_buffer("*next*");
     if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
         buf.text.insert_str(0, "aabbcc");
-        buf.zv = buf.text.len();
-        buf.zv_char = buf.text.char_count();
+        buf.zv_byte = buf.text.len();
+        buf.zv = buf.text.char_count();
         buf.text.text_props_put_property(2, 4, "face", Value::T);
     }
 
@@ -815,8 +815,8 @@ fn test_text_prop_get_property() {
     let buf_id = evaluator.buffer_manager_mut().create_buffer("*prop*");
     if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
         buf.text.insert_str(0, "test");
-        buf.zv = buf.text.len();
-        buf.zv_char = buf.text.char_count();
+        buf.zv_byte = buf.text.len();
+        buf.zv = buf.text.char_count();
         buf.text
             .text_props_put_property(0, 4, "face", Value::fixnum(5));
     }
@@ -837,8 +837,8 @@ fn test_text_prop_access_multibyte_positions_use_byte_offsets() {
     let buf_id = evaluator.buffer_manager_mut().create_buffer("*utf8-prop*");
     if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
         buf.text.insert_str(0, "a好b");
-        buf.zv = buf.text.len();
-        buf.zv_char = buf.text.char_count();
+        buf.zv_byte = buf.text.len();
+        buf.zv = buf.text.char_count();
         buf.text
             .text_props_put_property(4, 5, "face", Value::fixnum(9));
     }
@@ -901,8 +901,8 @@ fn test_face_resolver_with_text_property() {
     let mut buf =
         neovm_core::buffer::Buffer::new(neovm_core::buffer::BufferId(1), "*test*".to_string());
     buf.text.insert_str(0, "hello world");
-    buf.zv = buf.text.len();
-    buf.zv_char = buf.text.char_count();
+    buf.zv_byte = buf.text.len();
+    buf.zv = buf.text.char_count();
     // Set "face" to the symbol "bold" on positions 0..5.
     buf.text
         .text_props_put_property(0, 5, "face", Value::symbol("bold"));
@@ -930,8 +930,8 @@ fn test_face_resolver_with_font_lock_face() {
     let mut buf =
         neovm_core::buffer::Buffer::new(neovm_core::buffer::BufferId(2), "*fontlock*".to_string());
     buf.text.insert_str(0, "defun myfunction");
-    buf.zv = buf.text.len();
-    buf.zv_char = buf.text.char_count();
+    buf.zv_byte = buf.text.len();
+    buf.zv = buf.text.char_count();
     // Set "font-lock-face" to "font-lock-keyword-face" on "defun".
     buf.text.text_props_put_property(
         0,
@@ -957,8 +957,8 @@ fn test_face_resolver_next_check() {
     let mut buf =
         neovm_core::buffer::Buffer::new(neovm_core::buffer::BufferId(3), "*nextcheck*".to_string());
     buf.text.insert_str(0, "aabbccdd");
-    buf.zv = buf.text.len();
-    buf.zv_char = buf.text.char_count();
+    buf.zv_byte = buf.text.len();
+    buf.zv = buf.text.char_count();
     // Face property on [2, 4)
     buf.text
         .text_props_put_property(2, 4, "face", Value::symbol("bold"));
@@ -1077,8 +1077,8 @@ fn test_face_resolver_face_ref_list_respects_gnu_precedence() {
         "*face-ref-list*".to_string(),
     );
     buf.text.insert_str(0, "x");
-    buf.zv = buf.text.len();
-    buf.zv_char = buf.text.char_count();
+    buf.zv_byte = buf.text.len();
+    buf.zv = buf.text.char_count();
     buf.text.text_props_put_property(
         0,
         1,
@@ -1102,8 +1102,8 @@ fn test_face_resolver_buffer_local_default_remap_applies_to_plain_text() {
         "*default-remap*".to_string(),
     );
     buf.text.insert_str(0, "plain");
-    buf.zv = buf.text.len();
-    buf.zv_char = buf.text.char_count();
+    buf.zv_byte = buf.text.len();
+    buf.zv = buf.text.char_count();
     buf.set_buffer_local(
         "face-remapping-alist",
         Value::list(vec![Value::list(vec![
@@ -1129,8 +1129,8 @@ fn test_face_resolver_buffer_local_named_face_remap_applies_to_face_prop() {
         "*named-remap*".to_string(),
     );
     buf.text.insert_str(0, "bold");
-    buf.zv = buf.text.len();
-    buf.zv_char = buf.text.char_count();
+    buf.zv_byte = buf.text.len();
+    buf.zv = buf.text.char_count();
     buf.set_buffer_local(
         "face-remapping-alist",
         Value::list(vec![Value::list(vec![
@@ -1164,8 +1164,8 @@ fn test_face_resolver_inverse_video() {
     let mut buf =
         neovm_core::buffer::Buffer::new(neovm_core::buffer::BufferId(6), "*inverse*".to_string());
     buf.text.insert_str(0, "inverted");
-    buf.zv = buf.text.len();
-    buf.zv_char = buf.text.char_count();
+    buf.zv_byte = buf.text.len();
+    buf.zv = buf.text.char_count();
     buf.text
         .text_props_put_property(0, 8, "face", Value::symbol("inverse-test"));
 
@@ -1186,8 +1186,8 @@ fn test_face_resolver_multibyte_text_property_uses_byte_offsets() {
     let mut buf =
         neovm_core::buffer::Buffer::new(neovm_core::buffer::BufferId(7), "*utf8*".to_string());
     buf.text.insert_str(0, "a好b");
-    buf.zv = buf.text.len();
-    buf.zv_char = buf.text.char_count();
+    buf.zv_byte = buf.text.len();
+    buf.zv = buf.text.char_count();
     buf.text
         .text_props_put_property(4, 5, "face", Value::symbol("bold"));
 
