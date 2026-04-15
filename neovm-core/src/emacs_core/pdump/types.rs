@@ -705,11 +705,11 @@ pub struct DumpFontLockDefaults {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpMajorMode {
     pub pretty_name: String,
-    pub parent: Option<String>,
-    pub mode_hook: String,
-    pub keymap_name: Option<String>,
-    pub syntax_table_name: Option<String>,
-    pub abbrev_table_name: Option<String>,
+    pub parent: Option<DumpValue>,
+    pub mode_hook: DumpValue,
+    pub keymap_name: Option<DumpValue>,
+    pub syntax_table_name: Option<DumpValue>,
+    pub abbrev_table_name: Option<DumpValue>,
     pub font_lock: Option<DumpFontLockDefaults>,
     pub body: Option<DumpValue>,
 }
@@ -717,7 +717,7 @@ pub struct DumpMajorMode {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpMinorMode {
     pub lighter: Option<String>,
-    pub keymap_name: Option<String>,
+    pub keymap_name: Option<DumpValue>,
     pub global: bool,
     pub body: Option<DumpValue>,
 }
@@ -767,13 +767,13 @@ pub struct DumpModeCustomGroup {
 pub struct DumpModeRegistry {
     pub major_modes: Vec<(String, DumpMajorMode)>,
     pub minor_modes: Vec<(String, DumpMinorMode)>,
-    pub buffer_major_modes: Vec<(u64, String)>,
-    pub buffer_minor_modes: Vec<(u64, Vec<String>)>,
-    pub global_minor_modes: Vec<String>,
-    pub auto_mode_alist: Vec<(String, String)>,
+    pub buffer_major_modes: Vec<(u64, DumpValue)>,
+    pub buffer_minor_modes: Vec<(u64, Vec<DumpValue>)>,
+    pub global_minor_modes: Vec<DumpValue>,
+    pub auto_mode_alist: Vec<(String, DumpValue)>,
     pub custom_variables: Vec<(String, DumpModeCustomVariable)>,
     pub custom_groups: Vec<(String, DumpModeCustomGroup)>,
-    pub fundamental_mode: String,
+    pub fundamental_mode: DumpValue,
 }
 
 // Coding

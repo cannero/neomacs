@@ -1,5 +1,13 @@
 use super::*;
 
+fn mode_symbol(name: &str) -> Value {
+    Value::symbol(name)
+}
+
+fn mode_symbol_opt(name: Option<&str>) -> Option<Value> {
+    name.map(mode_symbol)
+}
+
 // -------------------------------------------------------------------
 // ModeRegistry basics
 // -------------------------------------------------------------------
@@ -30,9 +38,9 @@ fn register_and_set_major_mode() {
         "rust-mode",
         MajorMode {
             pretty_name: "Rust".to_string(),
-            parent: Some("prog-mode".to_string()),
-            mode_hook: "rust-mode-hook".to_string(),
-            keymap_name: Some("rust-mode-map".to_string()),
+            parent: mode_symbol_opt(Some("prog-mode")),
+            mode_hook: mode_symbol("rust-mode-hook"),
+            keymap_name: mode_symbol_opt(Some("rust-mode-map")),
             syntax_table_name: None,
             abbrev_table_name: None,
             font_lock: None,
@@ -61,7 +69,7 @@ fn set_major_mode_replaces_previous() {
         MajorMode {
             pretty_name: "Text".to_string(),
             parent: None,
-            mode_hook: "text-mode-hook".to_string(),
+            mode_hook: mode_symbol("text-mode-hook"),
             keymap_name: None,
             syntax_table_name: None,
             abbrev_table_name: None,
@@ -73,8 +81,8 @@ fn set_major_mode_replaces_previous() {
         "org-mode",
         MajorMode {
             pretty_name: "Org".to_string(),
-            parent: Some("text-mode".to_string()),
-            mode_hook: "org-mode-hook".to_string(),
+            parent: mode_symbol_opt(Some("text-mode")),
+            mode_hook: mode_symbol("org-mode-hook"),
             keymap_name: None,
             syntax_table_name: None,
             abbrev_table_name: None,
@@ -308,7 +316,7 @@ fn auto_mode_alist_suffix_match() {
         MajorMode {
             pretty_name: "Rust".to_string(),
             parent: None,
-            mode_hook: "rust-mode-hook".to_string(),
+            mode_hook: mode_symbol("rust-mode-hook"),
             keymap_name: None,
             syntax_table_name: None,
             abbrev_table_name: None,
@@ -332,7 +340,7 @@ fn auto_mode_alist_first_match_wins() {
         MajorMode {
             pretty_name: "A".to_string(),
             parent: None,
-            mode_hook: "mode-a-hook".to_string(),
+            mode_hook: mode_symbol("mode-a-hook"),
             keymap_name: None,
             syntax_table_name: None,
             abbrev_table_name: None,
@@ -345,7 +353,7 @@ fn auto_mode_alist_first_match_wins() {
         MajorMode {
             pretty_name: "B".to_string(),
             parent: None,
-            mode_hook: "mode-b-hook".to_string(),
+            mode_hook: mode_symbol("mode-b-hook"),
             keymap_name: None,
             syntax_table_name: None,
             abbrev_table_name: None,
@@ -431,7 +439,7 @@ fn font_lock_keywords_basic() {
         MajorMode {
             pretty_name: "Lisp".to_string(),
             parent: None,
-            mode_hook: "lisp-mode-hook".to_string(),
+            mode_hook: mode_symbol("lisp-mode-hook"),
             keymap_name: None,
             syntax_table_name: None,
             abbrev_table_name: None,
@@ -466,7 +474,7 @@ fn font_lock_keywords_inherit_from_parent() {
         MajorMode {
             pretty_name: "Prog".to_string(),
             parent: None,
-            mode_hook: "prog-mode-hook".to_string(),
+            mode_hook: mode_symbol("prog-mode-hook"),
             keymap_name: None,
             syntax_table_name: None,
             abbrev_table_name: None,
@@ -490,8 +498,8 @@ fn font_lock_keywords_inherit_from_parent() {
         "rust-mode",
         MajorMode {
             pretty_name: "Rust".to_string(),
-            parent: Some("prog-mode".to_string()),
-            mode_hook: "rust-mode-hook".to_string(),
+            parent: mode_symbol_opt(Some("prog-mode")),
+            mode_hook: mode_symbol("rust-mode-hook"),
             keymap_name: None,
             syntax_table_name: None,
             abbrev_table_name: None,
@@ -580,7 +588,7 @@ fn derived_mode_p_self() {
         MajorMode {
             pretty_name: "Text".to_string(),
             parent: None,
-            mode_hook: "text-mode-hook".to_string(),
+            mode_hook: mode_symbol("text-mode-hook"),
             keymap_name: None,
             syntax_table_name: None,
             abbrev_table_name: None,
@@ -601,7 +609,7 @@ fn derived_mode_p_parent_chain() {
         MajorMode {
             pretty_name: "Text".to_string(),
             parent: None,
-            mode_hook: "text-mode-hook".to_string(),
+            mode_hook: mode_symbol("text-mode-hook"),
             keymap_name: None,
             syntax_table_name: None,
             abbrev_table_name: None,
@@ -613,8 +621,8 @@ fn derived_mode_p_parent_chain() {
         "org-mode",
         MajorMode {
             pretty_name: "Org".to_string(),
-            parent: Some("text-mode".to_string()),
-            mode_hook: "org-mode-hook".to_string(),
+            parent: mode_symbol_opt(Some("text-mode")),
+            mode_hook: mode_symbol("org-mode-hook"),
             keymap_name: None,
             syntax_table_name: None,
             abbrev_table_name: None,
@@ -626,8 +634,8 @@ fn derived_mode_p_parent_chain() {
         "org-journal-mode",
         MajorMode {
             pretty_name: "Org-Journal".to_string(),
-            parent: Some("org-mode".to_string()),
-            mode_hook: "org-journal-mode-hook".to_string(),
+            parent: mode_symbol_opt(Some("org-mode")),
+            mode_hook: mode_symbol("org-journal-mode-hook"),
             keymap_name: None,
             syntax_table_name: None,
             abbrev_table_name: None,
@@ -651,7 +659,7 @@ fn derived_mode_p_unrelated() {
         MajorMode {
             pretty_name: "Text".to_string(),
             parent: None,
-            mode_hook: "text-mode-hook".to_string(),
+            mode_hook: mode_symbol("text-mode-hook"),
             keymap_name: None,
             syntax_table_name: None,
             abbrev_table_name: None,
@@ -664,7 +672,7 @@ fn derived_mode_p_unrelated() {
         MajorMode {
             pretty_name: "Prog".to_string(),
             parent: None,
-            mode_hook: "prog-mode-hook".to_string(),
+            mode_hook: mode_symbol("prog-mode-hook"),
             keymap_name: None,
             syntax_table_name: None,
             abbrev_table_name: None,
@@ -707,7 +715,7 @@ fn remove_buffer_cleans_up() {
             || reg
                 .active_minor_modes(1)
                 .iter()
-                .all(|m| { reg.global_minor_modes.contains(&m.to_string()) })
+                .all(|m| reg.global_minor_modes.contains(&mode_symbol(m)))
     );
 }
 

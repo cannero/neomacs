@@ -1296,11 +1296,11 @@ pub(crate) fn dump_mode_registry(encoder: &mut DumpEncoder, mr: &ModeRegistry) -
                     k.clone(),
                     DumpMajorMode {
                         pretty_name: m.pretty_name.clone(),
-                        parent: m.parent.clone(),
-                        mode_hook: m.mode_hook.clone(),
-                        keymap_name: m.keymap_name.clone(),
-                        syntax_table_name: m.syntax_table_name.clone(),
-                        abbrev_table_name: m.abbrev_table_name.clone(),
+                        parent: encoder.dump_opt_value(&m.parent),
+                        mode_hook: encoder.dump_value(&m.mode_hook),
+                        keymap_name: encoder.dump_opt_value(&m.keymap_name),
+                        syntax_table_name: encoder.dump_opt_value(&m.syntax_table_name),
+                        abbrev_table_name: encoder.dump_opt_value(&m.abbrev_table_name),
                         font_lock: m.font_lock.as_ref().map(dump_font_lock_defaults),
                         body: encoder.dump_opt_value(&m.body),
                     },
@@ -1315,7 +1315,7 @@ pub(crate) fn dump_mode_registry(encoder: &mut DumpEncoder, mr: &ModeRegistry) -
                     k.clone(),
                     DumpMinorMode {
                         lighter: m.lighter.clone(),
-                        keymap_name: m.keymap_name.clone(),
+                        keymap_name: encoder.dump_opt_value(&m.keymap_name),
                         global: m.global,
                         body: encoder.dump_opt_value(&m.body),
                     },
@@ -1325,15 +1325,28 @@ pub(crate) fn dump_mode_registry(encoder: &mut DumpEncoder, mr: &ModeRegistry) -
         buffer_major_modes: mr
             .dump_buffer_major_modes()
             .iter()
-            .map(|(k, v)| (*k, v.clone()))
+            .map(|(k, v)| (*k, encoder.dump_value(v)))
             .collect(),
         buffer_minor_modes: mr
             .dump_buffer_minor_modes()
             .iter()
-            .map(|(k, v)| (*k, v.clone()))
+            .map(|(k, v)| {
+                (
+                    *k,
+                    v.iter().map(|value| encoder.dump_value(value)).collect(),
+                )
+            })
             .collect(),
-        global_minor_modes: mr.dump_global_minor_modes().to_vec(),
-        auto_mode_alist: mr.dump_auto_mode_alist().to_vec(),
+        global_minor_modes: mr
+            .dump_global_minor_modes()
+            .iter()
+            .map(|value| encoder.dump_value(value))
+            .collect(),
+        auto_mode_alist: mr
+            .dump_auto_mode_alist()
+            .iter()
+            .map(|(pattern, value)| (pattern.clone(), encoder.dump_value(value)))
+            .collect(),
         custom_variables: mr
             .dump_custom_variables()
             .iter()
@@ -1366,7 +1379,7 @@ pub(crate) fn dump_mode_registry(encoder: &mut DumpEncoder, mr: &ModeRegistry) -
                 )
             })
             .collect(),
-        fundamental_mode: mr.dump_fundamental_mode().to_owned(),
+        fundamental_mode: encoder.dump_value(&mr.dump_fundamental_mode()),
     }
 }
 
@@ -2757,11 +2770,11 @@ pub(crate) fn load_mode_registry(
                 k.clone(),
                 MajorMode {
                     pretty_name: m.pretty_name.clone(),
-                    parent: m.parent.clone(),
-                    mode_hook: m.mode_hook.clone(),
-                    keymap_name: m.keymap_name.clone(),
-                    syntax_table_name: m.syntax_table_name.clone(),
-                    abbrev_table_name: m.abbrev_table_name.clone(),
+                    parent: decoder.load_opt_value(&m.parent),
+                    mode_hook: decoder.load_value(&m.mode_hook),
+                    keymap_name: decoder.load_opt_value(&m.keymap_name),
+                    syntax_table_name: decoder.load_opt_value(&m.syntax_table_name),
+                    abbrev_table_name: decoder.load_opt_value(&m.abbrev_table_name),
                     font_lock: m.font_lock.as_ref().map(|fl| FontLockDefaults {
                         keywords: fl
                             .keywords
@@ -2790,7 +2803,7 @@ pub(crate) fn load_mode_registry(
                 k.clone(),
                 MinorMode {
                     lighter: m.lighter.clone(),
-                    keymap_name: m.keymap_name.clone(),
+                    keymap_name: decoder.load_opt_value(&m.keymap_name),
                     global: m.global,
                     body: decoder.load_opt_value(&m.body),
                 },
@@ -2834,17 +2847,28 @@ pub(crate) fn load_mode_registry(
         minor_modes,
         dmr.buffer_major_modes
             .iter()
-            .map(|(k, v)| (*k, v.clone()))
+            .map(|(k, v)| (*k, decoder.load_value(v)))
             .collect(),
         dmr.buffer_minor_modes
             .iter()
-            .map(|(k, v)| (*k, v.clone()))
+            .map(|(k, v)| {
+                (
+                    *k,
+                    v.iter().map(|value| decoder.load_value(value)).collect(),
+                )
+            })
             .collect(),
-        dmr.global_minor_modes.clone(),
-        dmr.auto_mode_alist.clone(),
+        dmr.global_minor_modes
+            .iter()
+            .map(|value| decoder.load_value(value))
+            .collect(),
+        dmr.auto_mode_alist
+            .iter()
+            .map(|(pattern, value)| (pattern.clone(), decoder.load_value(value)))
+            .collect(),
         custom_variables,
         custom_groups,
-        dmr.fundamental_mode.clone(),
+        decoder.load_value(&dmr.fundamental_mode),
     )
 }
 
