@@ -1497,10 +1497,6 @@ pub struct CommandLoop {
     pub keyboard: KeyboardRuntime,
     /// Current prefix argument.
     pub prefix_arg: PrefixArg,
-    /// The last command executed (symbol name).
-    pub last_command: Option<String>,
-    /// The current command being executed.
-    pub this_command: Option<String>,
     /// Whether we are in a recursive edit.
     pub recursive_depth: usize,
     /// Whether the command loop is running.
@@ -1531,8 +1527,6 @@ impl CommandLoop {
         Self {
             keyboard: KeyboardRuntime::new(),
             prefix_arg: PrefixArg::None,
-            last_command: None,
-            this_command: None,
             recursive_depth: 0,
             running: false,
             quit_flag: false,
