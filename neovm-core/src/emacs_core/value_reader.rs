@@ -1064,13 +1064,8 @@ impl<'a> Reader<'a> {
                             crate::emacs_core::error::Flow::Signal(sig) => sig
                                 .data
                                 .first()
-                                .and_then(|v| {
-                                    v.is_string().then(|| {
-                                        crate::emacs_core::builtins::lisp_string_to_runtime_string(
-                                            *v,
-                                        )
-                                    })
-                                })
+                                .and_then(|v| v.is_string().then(|| v.as_runtime_string_owned()))
+                                .flatten()
                                 .unwrap_or_else(|| format!("{:?}", sig.data)),
                             other => format!("{:?}", other),
                         };

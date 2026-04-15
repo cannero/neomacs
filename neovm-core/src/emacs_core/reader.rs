@@ -46,9 +46,13 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     }
 }
 
+fn reader_string_text(value: &Value) -> Option<String> {
+    value.as_runtime_string_owned()
+}
+
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
+        ValueKind::String => Ok(reader_string_text(value).expect("checked string")),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -706,7 +710,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     let prompt = expect_string(&args[0])?;
     // Extract optional arguments
     let initial_input = args.get(1).and_then(|v| match v.kind() {
-        ValueKind::String => Some(super::builtins::lisp_string_to_runtime_string(*v)),
+        ValueKind::String => reader_string_text(v),
         _ => None,
     });
     let keymap_arg = args.get(2).copied().unwrap_or(Value::NIL);
@@ -1215,7 +1219,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
 
     let prompt = expect_string(&args[0])?;
     let initial_input = args.get(1).and_then(|v| match v.kind() {
-        ValueKind::String => Some(super::builtins::lisp_string_to_runtime_string(*v)),
+        ValueKind::String => reader_string_text(v),
         _ => None,
     });
     let keymap_arg = args.get(2).copied().unwrap_or(Value::NIL);
@@ -1972,7 +1976,7 @@ pub(crate) fn builtin_y_or_n_p(eval: &mut super::eval::Context, args: Vec<Value>
     if eval.input_rx.is_some() {
         // Display prompt in echo area (message)
         if args[0].is_string() {
-            let prompt_str = super::builtins::lisp_string_to_runtime_string(args[0]);
+            let prompt_str = reader_string_text(&args[0]).expect("checked string");
             let msg = format!("{} (y or n) ", prompt_str);
             eval.assign("minibuffer-message", Value::string(&msg));
         }
@@ -2023,7 +2027,7 @@ pub(crate) fn finish_yes_or_no_p_with_minibuffer(
     mut read_from_minibuffer: impl FnMut(&[Value]) -> EvalResult,
 ) -> EvalResult {
     let prompt_str = if args[0].is_string() {
-        super::builtins::lisp_string_to_runtime_string(args[0])
+        reader_string_text(&args[0]).expect("checked string")
     } else {
         String::new()
     };
@@ -2031,7 +2035,7 @@ pub(crate) fn finish_yes_or_no_p_with_minibuffer(
         let full_prompt = format!("{} (yes or no) ", prompt_str);
         let result = read_from_minibuffer(&[Value::string(&full_prompt)])?;
         if result.is_string() {
-            let answer = super::builtins::lisp_string_to_runtime_string(result);
+            let answer = reader_string_text(&result).expect("checked string");
             match answer.trim() {
                 "yes" => return Ok(Value::T),
                 "no" => return Ok(Value::NIL),

@@ -18,6 +18,10 @@ thread_local! {
     static BOOTSTRAP_PREFER_LDEFS_BOOT: Cell<bool> = const { Cell::new(false) };
 }
 
+fn load_string_text(value: &Value) -> Option<String> {
+    value.as_runtime_string_owned()
+}
+
 struct BootstrapLdefsBootPreferenceGuard {
     previous: bool,
 }
@@ -172,7 +176,7 @@ pub(crate) fn decode_emacs_utf8(bytes: &[u8]) -> String {
 fn format_value_for_error(v: &Value) -> String {
     match v.kind() {
         ValueKind::Symbol(sid) => super::intern::resolve_sym(sid).to_string(),
-        ValueKind::String => format!("\"{}\"", super::builtins::lisp_string_to_runtime_string(*v)),
+        ValueKind::String => format!("\"{}\"", load_string_text(v).expect("checked string")),
         ValueKind::Fixnum(n) => format!("{}", n),
         ValueKind::Nil => "nil".to_string(),
         ValueKind::T => "t".to_string(),
@@ -479,7 +483,7 @@ pub fn get_load_path(obarray: &super::symbol::Obarray) -> Vec<String> {
         .symbol_value("default-directory")
         .and_then(|v| {
             v.is_string()
-                .then(|| super::builtins::lisp_string_to_runtime_string(*v))
+                .then(|| load_string_text(v).expect("checked string"))
         })
         .unwrap_or_else(|| ".".to_string());
 
@@ -492,7 +496,7 @@ pub fn get_load_path(obarray: &super::symbol::Obarray) -> Vec<String> {
         .into_iter()
         .filter_map(|v| match v {
             v if v.is_nil() => Some(default_directory.clone()),
-            _ if v.is_string() => Some(super::builtins::lisp_string_to_runtime_string(v)),
+            _ if v.is_string() => load_string_text(&v),
             _ => None,
         })
         .collect()
@@ -511,7 +515,7 @@ pub(crate) fn plan_load_in_state(
     must_suffix: Option<Value>,
 ) -> Result<LoadPlan, Flow> {
     let file = match file.kind() {
-        ValueKind::String => super::builtins::lisp_string_to_runtime_string(file),
+        ValueKind::String => load_string_text(&file).expect("checked string"),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -2171,7 +2175,7 @@ fn collect_loaddefs_autoload_args(
     let ValueKind::String = file_value.kind() else {
         return;
     };
-    let file = super::builtins::lisp_string_to_runtime_string(file_value);
+    let file = load_string_text(&file_value).expect("checked string");
     if let Some(files) = allowed_files
         && !files.contains(&file)
     {
@@ -2302,7 +2306,7 @@ fn loaded_source_paths(eval: &mut super::eval::Context) -> Vec<PathBuf> {
             let Some(path) = entry
                 .cons_car()
                 .is_string()
-                .then(|| super::builtins::lisp_string_to_runtime_string(entry.cons_car()))
+                .then(|| load_string_text(&entry.cons_car()).expect("checked string"))
             else {
                 continue;
             };
@@ -2777,7 +2781,7 @@ pub(crate) fn runtime_bootstrap_load_path() -> Vec<String> {
         .filter_map(|value| {
             value
                 .is_string()
-                .then(|| super::builtins::lisp_string_to_runtime_string(value))
+                .then(|| load_string_text(&value).expect("checked string"))
         })
         .collect()
 }

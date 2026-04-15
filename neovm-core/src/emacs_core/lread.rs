@@ -44,9 +44,13 @@ fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
     }
 }
 
+fn lread_string_text(value: &Value) -> Option<String> {
+    value.as_runtime_string_owned()
+}
+
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(super::builtins::lisp_string_to_runtime_string(*value)),
+        ValueKind::String => Ok(lread_string_text(value).expect("checked string")),
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         ValueKind::Nil => Ok("nil".to_string()),
         ValueKind::T => Ok("t".to_string()),
@@ -283,7 +287,7 @@ fn resolve_eval_buffer_id_in_state(
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?),
         Some(v) if v.is_buffer() => Ok(v.as_buffer_id().unwrap()),
         Some(v) if v.is_string() => Ok({
-            let name = super::builtins::lisp_string_to_runtime_string(*v);
+            let name = lread_string_text(v).expect("checked string");
             buffers
                 .find_buffer_by_name(&name)
                 .ok_or_else(|| signal("error", vec![Value::string("No such buffer")]))?
@@ -856,7 +860,7 @@ fn parse_path_argument(value: &Value) -> Result<Vec<String>, Flow> {
     for entry in expect_list(value)? {
         match entry.kind() {
             ValueKind::Nil => path.push(".".to_string()),
-            ValueKind::String => path.push(super::builtins::lisp_string_to_runtime_string(entry)),
+            ValueKind::String => path.push(lread_string_text(&entry).expect("checked string")),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -873,9 +877,7 @@ fn parse_suffixes_argument(value: &Value) -> Result<Vec<String>, Flow> {
     for entry in expect_list(value)? {
         match entry.kind() {
             ValueKind::Nil => suffixes.push(String::new()),
-            ValueKind::String => {
-                suffixes.push(super::builtins::lisp_string_to_runtime_string(entry))
-            }
+            ValueKind::String => suffixes.push(lread_string_text(&entry).expect("checked string")),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
