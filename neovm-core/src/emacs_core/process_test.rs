@@ -151,10 +151,7 @@ fn process_manager_create_and_query() {
     );
     assert!(id > 0);
     assert!(pm.get(id).is_some());
-    assert_eq!(
-        super::super::builtins::runtime_string_from_lisp_string(&pm.get(id).unwrap().name),
-        "test"
-    );
+    assert_eq!(pm.get(id).unwrap().name, Value::string("test"));
     assert_eq!(
         pm.get(id).unwrap().command,
         Value::list(vec![Value::string("/bin/echo"), Value::string("hello")])
@@ -207,7 +204,7 @@ fn process_manager_find_by_name() {
 }
 
 #[test]
-fn builtin_process_name_uses_lisp_string_storage() {
+fn builtin_process_name_uses_lisp_value_storage() {
     crate::test_utils::init_test_tracing();
     let mut pm = ProcessManager::new();
     let id = pm.create_process("my-proc".into(), Value::NIL, "prog".into(), vec![]);

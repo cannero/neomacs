@@ -37,11 +37,10 @@ use super::error::{EvalResult, Flow, signal};
 use super::intern::{intern, resolve_sym};
 use super::threads::ThreadManager;
 use super::value::{
-    StringTextPropertyRun, Value, ValueKind, VecLikeType, list_to_vec, next_float_id,
+    StringTextPropertyRun, Value, ValueKind, VecLikeType, equal_value, list_to_vec, next_float_id,
 };
 use crate::buffer::BufferManager;
 use crate::gc_trace::GcTrace;
-use crate::heap_types::LispString;
 use crate::window::FrameManager;
 
 // ---------------------------------------------------------------------------
@@ -63,7 +62,7 @@ pub enum ProcessKind {
 /// A tracked process record.
 pub struct Process {
     pub id: ProcessId,
-    pub name: LispString,
+    pub name: Value,
     pub command: Value,
     pub kind: ProcessKind,
     pub status: Value,
@@ -135,7 +134,7 @@ impl std::fmt::Debug for Process {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Process")
             .field("id", &self.id)
-            .field("name", &process_name_runtime(&self.name))
+            .field("name", &process_name_runtime(self.name))
             .field("command", &self.command)
             .field("kind", &self.kind)
             .field("status", &self.status)
@@ -177,12 +176,13 @@ impl Default for ProcessManager {
     }
 }
 
-fn process_name_lisp_string(name: &str) -> LispString {
-    super::builtins::runtime_string_to_lisp_string(name, true)
+fn process_name_value(name: &str) -> Value {
+    Value::heap_string(super::builtins::runtime_string_to_lisp_string(name, true))
 }
 
-fn process_name_runtime(name: &LispString) -> String {
-    super::builtins::runtime_string_from_lisp_string(name)
+fn process_name_runtime(name: Value) -> String {
+    name.as_runtime_string_owned()
+        .unwrap_or_else(|| "<invalid-process-name>".to_string())
 }
 
 fn make_process_command_value(kind: &ProcessKind, program: &str, args: &[String]) -> Value {
@@ -298,7 +298,7 @@ impl ProcessManager {
         };
         let proc = Process {
             id,
-            name: process_name_lisp_string(&name),
+            name: process_name_value(&name),
             command: make_process_command_value(&kind, &command, &args),
             kind,
             status: process_status_run_value(),
@@ -797,10 +797,10 @@ impl ProcessManager {
 
     /// Find a process by name.
     pub fn find_by_name(&self, name: &str) -> Option<ProcessId> {
-        let wanted = process_name_lisp_string(name);
+        let wanted = process_name_value(name);
         self.processes
             .values()
-            .find(|p| p.name == wanted)
+            .find(|p| equal_value(&p.name, &wanted, 0))
             .map(|p| p.id)
     }
 
@@ -1507,7 +1507,7 @@ fn signal_process_not_active(eval: &super::eval::Context, id: ProcessId) -> Flow
 fn signal_process_not_active_in_manager(processes: &ProcessManager, id: ProcessId) -> Flow {
     let name = processes
         .get_any(id)
-        .map(|proc| process_name_runtime(&proc.name))
+        .map(|proc| process_name_runtime(proc.name))
         .unwrap_or_else(|| id.to_string());
     signal(
         "error",
@@ -1536,7 +1536,7 @@ fn signal_process_not_running_in_manager(processes: &ProcessManager, id: Process
         .get_any(id)
         .map(|proc| {
             (
-                process_name_runtime(&proc.name),
+                process_name_runtime(proc.name),
                 stale_process_not_running_reason(&proc.status),
             )
         })
@@ -4977,7 +4977,7 @@ pub(crate) fn builtin_process_name_impl(
     expect_args("process-name", &args, 1)?;
     let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
     match processes.get_any(id) {
-        Some(proc) => Ok(Value::heap_string(proc.name.clone())),
+        Some(proc) => Ok(proc.name),
         None => Err(signal_wrong_type_processp(args[0])),
     }
 }
@@ -5862,7 +5862,7 @@ pub(crate) fn builtin_process_contact_impl(
             } else if key == Value::T {
                 Ok(Value::list(vec![
                     Value::keyword(":name"),
-                    Value::heap_string(proc.name.clone()),
+                    proc.name,
                     Value::keyword(":server"),
                     Value::T,
                     Value::keyword(":service"),
@@ -5872,9 +5872,7 @@ pub(crate) fn builtin_process_contact_impl(
                 ]))
             } else {
                 match key.kind() {
-                    ValueKind::Symbol(k) if resolve_sym(k) == ":name" => {
-                        Ok(Value::heap_string(proc.name.clone()))
-                    }
+                    ValueKind::Symbol(k) if resolve_sym(k) == ":name" => Ok(proc.name),
                     ValueKind::Symbol(k) if resolve_sym(k) == ":server" => Ok(Value::T),
                     ValueKind::Symbol(k) if resolve_sym(k) == ":service" => Ok(Value::fixnum(port)),
                     ValueKind::Symbol(k) if resolve_sym(k) == ":local" => Ok(local),
@@ -5886,15 +5884,10 @@ pub(crate) fn builtin_process_contact_impl(
             if key.is_nil() {
                 Ok(Value::T)
             } else if key == Value::T {
-                Ok(Value::list(vec![
-                    Value::keyword(":name"),
-                    Value::heap_string(proc.name.clone()),
-                ]))
+                Ok(Value::list(vec![Value::keyword(":name"), proc.name]))
             } else {
                 match key.kind() {
-                    ValueKind::Symbol(k) if resolve_sym(k) == ":name" => {
-                        Ok(Value::heap_string(proc.name.clone()))
-                    }
+                    ValueKind::Symbol(k) if resolve_sym(k) == ":name" => Ok(proc.name),
                     _ => Ok(Value::NIL),
                 }
             }
@@ -6248,6 +6241,7 @@ impl GcTrace for ProcessManager {
             .values()
             .chain(self.deleted_processes.values())
         {
+            roots.push(process.name);
             roots.push(process.buffer);
             roots.push(process.mark);
             roots.push(process.command);
