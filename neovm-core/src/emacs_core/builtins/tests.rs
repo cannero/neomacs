@@ -6552,6 +6552,38 @@ fn string_match_handles_raw_unibyte_pattern_without_panicking() {
 }
 
 #[test]
+fn substring_preserves_raw_unibyte_string_content() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b'A',
+    ]));
+
+    let result = builtin_substring(vec![raw, Value::fixnum(0), Value::fixnum(1)])
+        .expect("substring should handle raw unibyte strings");
+    let text = result
+        .as_lisp_string()
+        .expect("substring result should be a string");
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[0xFF]);
+}
+
+#[test]
+fn substring_no_properties_preserves_raw_unibyte_string_content() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b'A',
+    ]));
+
+    let result = builtin_substring_no_properties(vec![raw, Value::fixnum(0), Value::fixnum(1)])
+        .expect("substring-no-properties should handle raw unibyte strings");
+    let text = result
+        .as_lisp_string()
+        .expect("substring result should be a string");
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[0xFF]);
+}
+
+#[test]
 fn search_match_runtime_arity_edges_match_oracle_contracts() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
