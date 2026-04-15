@@ -7566,7 +7566,7 @@ fn vm_builtin_wrong_arity_uses_symbol_payload_for_direct_calls() {
     // `(condition-case err (car) (error err))` →
     // `(wrong-number-of-arguments car 0)`. The funcall path
     // (`(funcall #'car)`) instead reports the subr value -- those
-    // semantics live in the apply_subr_object_by_id rewrite.
+    // semantics live in direct subr-object dispatch.
     crate::test_utils::init_test_tracing();
     with_vm_eval("(car)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {

@@ -549,13 +549,6 @@ impl TaggedHeap {
         Some(unsafe { &*ptr })
     }
 
-    pub fn subr_slot_by_sym(
-        &self,
-        id: crate::emacs_core::intern::SymId,
-    ) -> Option<&'static SubrObj> {
-        self.subr_slot(crate::emacs_core::intern::symbol_name_id(id))
-    }
-
     pub fn subr_slot_mut(
         &mut self,
         id: crate::emacs_core::intern::NameId,

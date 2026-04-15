@@ -10766,8 +10766,8 @@ impl Context {
         self.dispatch_subr_value_internal(function, args, wrong_arity_callee)
     }
 
-    /// Look up a builtin in the canonical subr registry and call it directly
-    /// via function pointer. Returns None if the name is not registered.
+    /// Resolve a symbol identity to its canonical subr object and call it.
+    /// Returns None if the symbol's canonical name has no registered subr.
     pub fn dispatch_subr_id(&mut self, sym_id: SymId, args: Vec<Value>) -> Option<EvalResult> {
         let function = self.subr_value(symbol_name_id(sym_id))?;
         self.dispatch_subr_value(function, args)
