@@ -1024,12 +1024,10 @@ pub(crate) fn builtin_widget_apply(
             }
         }
         ValueKind::Veclike(VecLikeType::Subr) => {
-            let id = function.as_subr_id().unwrap();
-            let name = resolve_sym(id);
-            if let Some(result) = eval.dispatch_subr(name, call_args) {
+            if let Some(result) = eval.dispatch_subr_value(function, call_args) {
                 result
             } else {
-                Err(signal("void-function", vec![Value::symbol(name)]))
+                Err(signal("void-function", vec![function]))
             }
         }
         _ => Err(signal("invalid-function", vec![function])),

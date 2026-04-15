@@ -642,7 +642,7 @@ pub(crate) fn dispatch_builtin_by_id(
     sym_id: SymId,
     args: Vec<Value>,
 ) -> Option<EvalResult> {
-    eval.dispatch_subr_id(sym_id, args)
+    eval.dispatch_subr_value(Value::subr(sym_id), args)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

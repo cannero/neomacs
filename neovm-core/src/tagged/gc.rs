@@ -423,7 +423,6 @@ pub struct TaggedHeap {
     /// survive function-cell rebinding, matching GNU's permanent subr objects.
     subr_registry: Vec<Option<TaggedValue>>,
     subr_slot_registry: Vec<Option<*mut SubrObj>>,
-    subr_slot_registry_by_sym: Vec<Option<*mut SubrObj>>,
 
     /// Canonical runtime handle wrappers keyed by their underlying object id.
     buffer_registry: FxHashMap<crate::buffer::BufferId, TaggedValue>,
@@ -462,7 +461,6 @@ impl TaggedHeap {
             marker_ptrs: Vec::new(),
             subr_registry: Vec::new(),
             subr_slot_registry: Vec::new(),
-            subr_slot_registry_by_sym: Vec::new(),
             buffer_registry: FxHashMap::default(),
             window_registry: FxHashMap::default(),
             frame_registry: FxHashMap::default(),
@@ -555,12 +553,7 @@ impl TaggedHeap {
         &self,
         id: crate::emacs_core::intern::SymId,
     ) -> Option<&'static SubrObj> {
-        let ptr = self
-            .subr_slot_registry_by_sym
-            .get(id.0 as usize)
-            .copied()
-            .flatten()?;
-        Some(unsafe { &*ptr })
+        self.subr_slot(crate::emacs_core::intern::symbol_name_id(id))
     }
 
     pub fn subr_slot_mut(
@@ -595,26 +588,9 @@ impl TaggedHeap {
         );
     }
 
-    pub fn register_subr_slot_for_sym(
-        &mut self,
-        id: crate::emacs_core::intern::SymId,
-        value: TaggedValue,
-    ) {
-        let index = id.0 as usize;
-        if self.subr_slot_registry_by_sym.len() <= index {
-            self.subr_slot_registry_by_sym.resize(index + 1, None);
-        }
-        self.subr_slot_registry_by_sym[index] = Some(
-            value
-                .as_veclike_ptr()
-                .expect("subr registry points to non-subr value") as *mut SubrObj,
-        );
-    }
-
     pub fn clear_subr_registry(&mut self) {
         self.subr_registry.clear();
         self.subr_slot_registry.clear();
-        self.subr_slot_registry_by_sym.clear();
     }
 
     pub fn buffer_value(&self, id: crate::buffer::BufferId) -> Option<TaggedValue> {

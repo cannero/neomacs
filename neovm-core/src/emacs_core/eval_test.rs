@@ -5273,6 +5273,19 @@ fn canonical_subr_survives_rebinding_and_gc() {
 }
 
 #[test]
+fn dispatch_subr_id_uses_name_identity_not_symbol_slot_identity() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let namesake = crate::emacs_core::intern::intern_uninterned("car");
+    let args = vec![Value::list(vec![Value::fixnum(1), Value::fixnum(2)])];
+    let result = ev
+        .dispatch_subr_id(namesake, args)
+        .expect("canonical subr should be found by shared name atom")
+        .expect("subr call should succeed");
+    assert_eq!(result, Value::fixnum(1));
+}
+
+#[test]
 fn funcall_subr_object_ignores_symbol_function_rebinding() {
     crate::test_utils::init_test_tracing();
     // GNU Emacs tree-walking evaluator respects fset: after (fset 'car shadow),

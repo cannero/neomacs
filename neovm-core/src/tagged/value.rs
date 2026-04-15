@@ -476,6 +476,26 @@ impl TaggedValue {
         }
     }
 
+    #[inline]
+    pub(crate) fn as_subr_name_id(self) -> Option<NameId> {
+        if self.is_subr() {
+            let ptr = self.as_veclike_ptr().unwrap() as *const super::header::SubrObj;
+            Some(unsafe { (*ptr).name })
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub(crate) fn as_subr_ref(self) -> Option<&'static super::header::SubrObj> {
+        if self.is_subr() {
+            let ptr = self.as_veclike_ptr().unwrap() as *const super::header::SubrObj;
+            Some(unsafe { &*ptr })
+        } else {
+            None
+        }
+    }
+
     // -- Heap pointer extractors --
 
     /// Extract raw cons cell pointer. Returns None if not a cons.
