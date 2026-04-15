@@ -987,6 +987,9 @@ pub struct DumpFace {
     pub inverse_video: Option<bool>,
     pub stipple: Option<String>,
     pub extend: Option<bool>,
+    #[serde(default)]
+    pub inherit_syms: Vec<DumpSymId>,
+    #[serde(default)]
     pub inherit: Vec<String>,
     pub overstrike: bool,
     pub doc: Option<String>,
@@ -994,6 +997,9 @@ pub struct DumpFace {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpFaceTable {
+    #[serde(default)]
+    pub face_ids: Vec<(DumpSymId, DumpFace)>,
+    #[serde(default)]
     pub faces: Vec<(String, DumpFace)>,
 }
 

@@ -10,7 +10,7 @@
 //! - `FaceTable` — global registry mapping names to face definitions
 //! - Face merging (overlay face on top of base face)
 
-use crate::emacs_core::intern::resolve_sym;
+use crate::emacs_core::intern::{SymId, resolve_sym};
 use crate::emacs_core::value::{Value, ValueKind, next_float_id};
 use crate::gc_trace::GcTrace;
 use std::collections::{HashMap, HashSet};
@@ -1519,11 +1519,28 @@ impl FaceTable {
             })
             .collect()
     }
+
+    pub(crate) fn dump_faces_by_sym_id(&self) -> Vec<(SymId, Face)> {
+        self.faces
+            .iter()
+            .filter_map(|(name, face)| name.as_symbol_id().map(|id| (id, face.clone())))
+            .collect()
+    }
+
     pub(crate) fn from_dump(faces: HashMap<String, Face>) -> Self {
         Self {
             faces: faces
                 .into_iter()
                 .map(|(name, face)| (face_symbol_value(&name), face))
+                .collect(),
+        }
+    }
+
+    pub(crate) fn from_dump_sym_ids(faces: Vec<(SymId, Face)>) -> Self {
+        Self {
+            faces: faces
+                .into_iter()
+                .map(|(name, face)| (Value::from_sym_id(name), face))
                 .collect(),
         }
     }

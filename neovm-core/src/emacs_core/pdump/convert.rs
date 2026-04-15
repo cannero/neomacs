@@ -1656,6 +1656,11 @@ fn dump_face(f: &Face) -> DumpFace {
         inverse_video: f.inverse_video,
         stipple: f.stipple.and_then(|value| value.as_runtime_string_owned()),
         extend: f.extend,
+        inherit_syms: f
+            .inherit
+            .iter()
+            .filter_map(|value| value.as_symbol_id().map(dump_sym_id))
+            .collect(),
         inherit: f
             .inherit
             .iter()
@@ -1668,6 +1673,11 @@ fn dump_face(f: &Face) -> DumpFace {
 
 pub(crate) fn dump_face_table(ft: &FaceTable) -> DumpFaceTable {
     DumpFaceTable {
+        face_ids: ft
+            .dump_faces_by_sym_id()
+            .into_iter()
+            .map(|(id, f)| (dump_sym_id(id), dump_face(&f)))
+            .collect(),
         faces: ft
             .dump_faces()
             .iter()
@@ -3155,11 +3165,17 @@ fn load_face(df: &DumpFace) -> Face {
         inverse_video: df.inverse_video,
         stipple: df.stipple.as_ref().map(Value::string),
         extend: df.extend,
-        inherit: df
-            .inherit
-            .iter()
-            .map(|name| Value::symbol(name.as_str()))
-            .collect(),
+        inherit: if !df.inherit_syms.is_empty() {
+            df.inherit_syms
+                .iter()
+                .map(|name| Value::from_sym_id(load_sym_id(name)))
+                .collect()
+        } else {
+            df.inherit
+                .iter()
+                .map(|name| Value::symbol(name.as_str()))
+                .collect()
+        },
         overstrike: df.overstrike,
         doc: df.doc.as_ref().map(Value::string),
         overline_color: None,
@@ -3171,12 +3187,21 @@ fn load_face(df: &DumpFace) -> Face {
 }
 
 pub(crate) fn load_face_table(dft: &DumpFaceTable) -> FaceTable {
-    FaceTable::from_dump(
-        dft.faces
-            .iter()
-            .map(|(k, f)| (k.clone(), load_face(f)))
-            .collect(),
-    )
+    if !dft.face_ids.is_empty() {
+        FaceTable::from_dump_sym_ids(
+            dft.face_ids
+                .iter()
+                .map(|(k, f)| (load_sym_id(k), load_face(f)))
+                .collect(),
+        )
+    } else {
+        FaceTable::from_dump(
+            dft.faces
+                .iter()
+                .map(|(k, f)| (k.clone(), load_face(f)))
+                .collect(),
+        )
+    }
 }
 
 pub(crate) fn load_rectangle(dr: &DumpRectangleState) -> RectangleState {
