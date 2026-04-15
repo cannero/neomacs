@@ -151,10 +151,11 @@ pub(crate) fn mirror_runtime_face_into_frame(
     face_name: &str,
     face: &RuntimeFace,
 ) {
-    frame.set_realized_face(face_name.to_string(), face.clone());
+    let face_symbol = Value::symbol(face_name);
+    frame.set_realized_face(face_symbol, face.clone());
     upsert_frame_face_hash_entry(
         frame.face_hash_table(),
-        Value::symbol(face_name),
+        face_symbol,
         crate::emacs_core::font::runtime_face_to_lisp_vector(face),
     );
 }
@@ -283,6 +284,20 @@ mod tests {
         let second = builtin_frame_face_hash_table(&mut eval, vec![Value::NIL])
             .expect("second face hash table");
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn mirror_runtime_face_into_frame_uses_symbol_keys() {
+        crate::test_utils::init_test_tracing();
+        let mut eval = crate::emacs_core::eval::Context::new();
+        let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+        let face = eval.face_table().resolve("default");
+
+        let frame = eval.frames.get_mut(frame_id).expect("selected frame");
+        mirror_runtime_face_into_frame(frame, "default", &face);
+
+        assert!(frame.realized_faces.contains_key(&Value::symbol("default")));
+        assert!(frame.realized_face("default").is_some());
     }
 
     #[test]

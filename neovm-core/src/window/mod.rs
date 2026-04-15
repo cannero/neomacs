@@ -1300,7 +1300,7 @@ pub struct Frame {
     pub face_hash_table: Value,
     /// Per-frame realized Lisp faces, mirroring GNU's `frame->face_hash_table`
     /// runtime surface for renderer-facing consumers.
-    pub realized_faces: HashMap<String, RuntimeFace>,
+    pub realized_faces: HashMap<Value, RuntimeFace>,
 }
 
 impl Frame {
@@ -1476,14 +1476,14 @@ impl Frame {
     }
 
     pub fn realized_face(&self, name: &str) -> Option<&RuntimeFace> {
-        self.realized_faces.get(name)
+        self.realized_faces.get(&Value::symbol(name))
     }
 
     pub fn face_hash_table(&self) -> Value {
         self.face_hash_table
     }
 
-    pub fn set_realized_face(&mut self, name: String, face: RuntimeFace) {
+    pub fn set_realized_face(&mut self, name: Value, face: RuntimeFace) {
         self.realized_faces.insert(name, face);
     }
 
@@ -2885,6 +2885,7 @@ impl GcTrace for FrameManager {
                 roots.push(*v);
             }
             roots.push(frame.face_hash_table);
+            roots.extend(frame.realized_faces.keys().copied());
             trace_window(&frame.root_window, roots);
             if let Some(mb) = &frame.minibuffer_leaf {
                 trace_window(mb, roots);
