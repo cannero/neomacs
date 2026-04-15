@@ -92,8 +92,8 @@ pub fn init_syntax_vars(
     // freshly-set LOCALIZED redirect back to PLAINVAL and
     // orphans the BLV.
     for name in ["syntax-propertize--done", "comment-end-can-be-escaped"] {
-        custom.make_variable_buffer_local(name);
         let id = crate::emacs_core::intern::intern(name);
+        custom.make_variable_buffer_local_symbol(id);
         let default = obarray
             .find_symbol_value(id)
             .unwrap_or(crate::emacs_core::value::Value::NIL);

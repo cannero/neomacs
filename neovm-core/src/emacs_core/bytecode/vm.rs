@@ -2206,7 +2206,7 @@ impl<'a> Vm<'a> {
         // `is_buffer_local_id` so the String allocation + HashMap
         // lookup only fires for marked buffer-local variables.
         let is_local = self.ctx.obarray.is_buffer_local_id(resolved)
-            || self.ctx.custom.is_auto_buffer_local(resolve_sym(resolved));
+            || self.ctx.custom.is_auto_buffer_local_symbol(resolved);
         if is_local
             && crate::emacs_core::builtins::is_canonical_symbol_id(resolved)
             && let Some(buf) = self.ctx.buffers.current_buffer()
@@ -2378,7 +2378,7 @@ impl<'a> Vm<'a> {
         // Phase 2: only consult buffer-local storage if the symbol is
         // actually marked as buffer-local.
         let is_local = self.ctx.obarray.is_buffer_local_id(resolved)
-            || self.ctx.custom.is_auto_buffer_local(resolved_name);
+            || self.ctx.custom.is_auto_buffer_local_symbol(resolved);
         if is_local
             && crate::emacs_core::builtins::is_canonical_symbol_id(resolved)
             && let Some(buf) = self.ctx.buffers.current_buffer()
@@ -2615,7 +2615,7 @@ impl<'a> Vm<'a> {
         // GNU PLAINVAL path: for non-buffer-local variables, `set-default`
         // behaves like `set` -- writes to dynamic frame if let-bound.
         let is_buffer_local = self.ctx.obarray.is_buffer_local(resolved_name)
-            || self.ctx.custom.is_auto_buffer_local(resolved_name);
+            || self.ctx.custom.is_auto_buffer_local_symbol(resolved);
         if !is_buffer_local {
             crate::emacs_core::eval::set_runtime_binding_in_state(&mut *self.ctx, resolved, value);
         } else {

@@ -10181,7 +10181,7 @@ impl Context {
         // before their redirect was flipped). Mirrors the previous
         // lisp_bindings detour and is dead code once Phase 10E
         // routes everything through the LOCALIZED arm above.
-        if self.obarray.is_buffer_local(name) || self.custom.is_auto_buffer_local(name) {
+        if self.obarray.is_buffer_local(name) || self.custom.is_auto_buffer_local_symbol(resolved) {
             if let Some(buf_id) = self.buffers.current_buffer_id() {
                 if let Some(buf) = self.buffers.get(buf_id) {
                     if let Some(binding) = buf.get_buffer_local_binding_by_sym_id(resolved) {
@@ -10597,7 +10597,7 @@ pub(crate) fn set_runtime_binding(
     // CustomManager auto_buffer_local catches symbols tagged via
     // `(make-variable-buffer-local)` whose redirect hasn't been
     // flipped yet (transitional fallback for the legacy enum path).
-    if symbol_is_canonical && custom.is_auto_buffer_local(name) {
+    if symbol_is_canonical && custom.is_auto_buffer_local_symbol(sym_id) {
         let let_shadows = specpdl.iter().rev().any(
             |entry| matches!(entry, SpecBinding::LetDefault { sym_id: s, .. } if *s == sym_id),
         );
@@ -10639,7 +10639,7 @@ pub(crate) fn makunbound_runtime_binding_in_state(
         .blv(sym_id)
         .map(|blv| blv.local_if_set)
         .unwrap_or(false)
-        || custom.is_auto_buffer_local(name);
+        || custom.is_auto_buffer_local_symbol(sym_id);
     if symbol_is_canonical && local_if_set {
         if let Some(current_id) = buffers.current_buffer_id() {
             let _ = buffers.set_buffer_local_void_property_by_sym_id(current_id, sym_id);

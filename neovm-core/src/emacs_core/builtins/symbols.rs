@@ -3501,7 +3501,7 @@ pub(crate) fn builtin_local_variable_if_set_p(
         SymbolRedirect::Plainval => Ok(Value::NIL),
         SymbolRedirect::Localized => {
             // GNU `if (blv->local_if_set) return Qt;` short circuit.
-            if ctx.custom.is_auto_buffer_local(&resolved) {
+            if ctx.custom.is_auto_buffer_local_symbol(resolved_id) {
                 return Ok(Value::T);
             }
             // Otherwise defer to local-variable-p with BUFFER

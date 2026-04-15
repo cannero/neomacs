@@ -1228,7 +1228,11 @@ pub(crate) fn dump_autoload_manager(
 
 pub(crate) fn dump_custom_manager(cm: &CustomManager) -> DumpCustomManager {
     DumpCustomManager {
-        auto_buffer_local: cm.auto_buffer_local.iter().cloned().collect(),
+        auto_buffer_local: cm
+            .auto_buffer_local
+            .iter()
+            .map(|sym_id| crate::emacs_core::intern::resolve_sym(*sym_id).to_string())
+            .collect(),
     }
 }
 
@@ -2744,7 +2748,11 @@ pub(crate) fn load_autoload_manager(
 
 pub(crate) fn load_custom_manager(dcm: &DumpCustomManager) -> CustomManager {
     CustomManager {
-        auto_buffer_local: dcm.auto_buffer_local.iter().cloned().collect(),
+        auto_buffer_local: dcm
+            .auto_buffer_local
+            .iter()
+            .map(|name| crate::emacs_core::intern::intern(name))
+            .collect(),
     }
 }
 

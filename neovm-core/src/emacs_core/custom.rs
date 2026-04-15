@@ -5,15 +5,15 @@
 //! machinery that the evaluator still needs directly.
 
 use super::error::{EvalResult, Flow, signal};
-use super::intern::{SymId, intern, resolve_sym};
+use super::intern::{SymId, intern, lookup_interned, resolve_sym};
 use super::value::*;
 use crate::gc_trace::GcTrace;
 
 /// Rust-side registry for automatic buffer-local declarations.
 #[derive(Clone, Debug, Default)]
 pub struct CustomManager {
-    /// Set of variable names marked as automatically buffer-local.
-    pub auto_buffer_local: std::collections::HashSet<String>,
+    /// Set of symbol ids marked as automatically buffer-local.
+    pub auto_buffer_local: std::collections::HashSet<SymId>,
 }
 
 impl CustomManager {
@@ -25,12 +25,20 @@ impl CustomManager {
 
     /// Mark a variable as automatically buffer-local.
     pub fn make_variable_buffer_local(&mut self, name: &str) {
-        self.auto_buffer_local.insert(name.to_string());
+        self.make_variable_buffer_local_symbol(intern(name));
+    }
+
+    pub fn make_variable_buffer_local_symbol(&mut self, symbol: SymId) {
+        self.auto_buffer_local.insert(symbol);
     }
 
     /// Check if a variable is automatically buffer-local.
     pub fn is_auto_buffer_local(&self, name: &str) -> bool {
-        self.auto_buffer_local.contains(name)
+        lookup_interned(name).is_some_and(|symbol| self.is_auto_buffer_local_symbol(symbol))
+    }
+
+    pub fn is_auto_buffer_local_symbol(&self, symbol: SymId) -> bool {
+        self.auto_buffer_local.contains(&symbol)
     }
 }
 
@@ -120,7 +128,7 @@ pub(crate) fn builtin_make_variable_buffer_local_with_state(
     obarray.make_symbol_localized(resolved_id, default_value);
     obarray.set_blv_local_if_set(resolved_id, true);
     obarray.make_buffer_local(&resolved, true);
-    custom.make_variable_buffer_local(&resolved);
+    custom.make_variable_buffer_local_symbol(resolved_id);
     Ok(args[0])
 }
 

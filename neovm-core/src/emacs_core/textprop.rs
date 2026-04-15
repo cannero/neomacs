@@ -46,8 +46,8 @@ pub(crate) fn init_textprop_vars(
             .unwrap_or(crate::emacs_core::value::Value::NIL);
         obarray.make_symbol_localized(id, default);
         obarray.set_blv_local_if_set(id, true);
+        custom.make_variable_buffer_local_symbol(id);
     }
-    custom.make_variable_buffer_local("text-property-default-nonsticky");
 }
 
 // ---------------------------------------------------------------------------
