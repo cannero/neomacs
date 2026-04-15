@@ -541,7 +541,7 @@ fn mode_line_conditional_branch(cdr: Value, branch_is_then: bool) -> Option<Valu
 ///
 /// Corresponds to the `struct window *w` and `struct frame *f` parameters
 /// in GNU's `decode_mode_spec` (xdisp.c:29083).
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct ModeLinePercentContext {
     /// Window start position (character offset of first visible character).
     /// Corresponds to `marker_position(w->start)` in GNU.
@@ -550,7 +550,7 @@ struct ModeLinePercentContext {
     /// In GNU this is `BUF_Z(b) - w->window_end_pos`.
     window_end: usize,
     /// Frame name for `%F`.  GNU: `f->title` then `f->name` then "Emacs".
-    frame_name: String,
+    frame_name: Option<Value>,
     /// Coding system mnemonic character for `%z`/`%Z`.
     /// GNU: `CODING_ATTR_MNEMONIC` from the coding system spec.
     coding_mnemonic: char,
@@ -562,7 +562,7 @@ struct ModeLinePercentContext {
     /// True when the selected frame is a TTY (no window-system).
     is_tty_frame: bool,
     /// EOL type string for `%Z` (`:`, `\`, `/`, or undecided).
-    eol_indicator: String,
+    eol_indicator: Option<Value>,
     /// When `Some(n)`, the walker is running in GNU's
     /// `MODE_LINE_DISPLAY` mode with a target column width of `n`.
     /// In that mode, the `%-` percent construct expands to enough
@@ -579,6 +579,22 @@ struct ModeLinePercentContext {
     target_width: Option<usize>,
 }
 
+impl Default for ModeLinePercentContext {
+    fn default() -> Self {
+        Self {
+            window_start: 0,
+            window_end: 0,
+            frame_name: None,
+            coding_mnemonic: '-',
+            terminal_coding_mnemonic: '\0',
+            keyboard_coding_mnemonic: '\0',
+            is_tty_frame: false,
+            eol_indicator: None,
+            target_width: None,
+        }
+    }
+}
+
 /// Build a `ModeLinePercentContext` from frame/window/buffer state.
 fn build_mode_line_percent_context(
     frames: &crate::window::FrameManager,
@@ -589,15 +605,20 @@ fn build_mode_line_percent_context(
 ) -> ModeLinePercentContext {
     let mut ctx = ModeLinePercentContext {
         coding_mnemonic: '-',
-        eol_indicator: ":".to_string(),
         ..Default::default()
     };
 
     // --- Frame name (GNU: f->title, f->name, "Emacs") ---
     if let Some(frame) = frames.selected_frame() {
-        ctx.frame_name = frame.host_title_runtime_string_owned();
-    } else {
-        ctx.frame_name = "Neomacs".to_string();
+        let title = frame.title_value();
+        if title.is_string() {
+            ctx.frame_name = Some(title);
+        } else {
+            let name = frame.name_value();
+            if name.is_string() {
+                ctx.frame_name = Some(name);
+            }
+        }
     }
 
     // --- Window start/end (GNU: w->start, BUF_Z(b) - w->window_end_pos) ---
@@ -642,7 +663,7 @@ fn build_mode_line_percent_context(
         .and_then(|v| v.as_symbol_name().map(|s| s.to_string()));
     if let Some(ref name) = cs_name {
         ctx.coding_mnemonic = coding_system_mnemonic_char(name);
-        ctx.eol_indicator = coding_system_eol_indicator(obarray, name);
+        ctx.eol_indicator = coding_system_eol_indicator_value(obarray, name);
     }
 
     // --- Terminal and keyboard coding mnemonics (TTY only) ---
@@ -740,10 +761,10 @@ fn coding_system_mnemonic_char(cs_name: &str) -> char {
 
 /// Derive EOL type indicator from coding system name, using the
 /// `eol-mnemonic-*` variables from the obarray (matches GNU semantics).
-fn coding_system_eol_indicator(
+fn coding_system_eol_indicator_value(
     obarray: &crate::emacs_core::symbol::Obarray,
     cs_name: &str,
-) -> String {
+) -> Option<Value> {
     let var_name = if cs_name.ends_with("-dos") {
         "eol-mnemonic-dos"
     } else if cs_name.ends_with("-mac") {
@@ -755,8 +776,8 @@ fn coding_system_eol_indicator(
     };
     obarray
         .symbol_value(var_name)
-        .and_then(mode_line_runtime_string)
-        .unwrap_or_else(|| ":".to_string())
+        .copied()
+        .filter(|value| value.is_string() || value.as_char().is_some())
 }
 
 /// Check if a directory path looks like a Tramp remote path.
@@ -830,6 +851,14 @@ impl ModeLineRendered {
                 };
                 self.text.push_str(text);
             }
+        }
+    }
+
+    fn append_string_or_char_value_preserving_props(&mut self, value: &Value) {
+        if value.is_string() {
+            self.append_string_value_preserving_props(value);
+        } else if let Some(ch) = value.as_char() {
+            self.text.push(ch);
         }
     }
 
@@ -1023,6 +1052,29 @@ fn append_mode_line_rendered_segment(
         segment.pad_plain_spaces((field_width - rendered_len) as usize);
     }
     result.append_rendered(&segment);
+}
+
+fn append_mode_line_percent_string_spec(
+    result: &mut ModeLineRendered,
+    spec: &str,
+    props_at_percent: &std::collections::HashMap<String, Value>,
+    field_width: i64,
+) {
+    let mut segment = ModeLineRendered::plain(spec);
+    segment.overlay_property_map(props_at_percent.clone());
+    append_mode_line_rendered_segment(result, &segment, field_width, 0);
+}
+
+fn append_mode_line_percent_lisp_text_spec(
+    result: &mut ModeLineRendered,
+    value: &Value,
+    props_at_percent: &std::collections::HashMap<String, Value>,
+    field_width: i64,
+) {
+    let mut segment = ModeLineRendered::default();
+    segment.append_string_or_char_value_preserving_props(value);
+    segment.overlay_property_map(props_at_percent.clone());
+    append_mode_line_rendered_segment(result, &segment, field_width, 0);
 }
 
 fn append_mode_line_string_in_state(
@@ -1824,62 +1876,105 @@ fn expand_mode_line_percent_in_state(
             Default::default()
         };
 
-        let mut append_spec = |spec: &str| {
-            let mut segment = ModeLineRendered::plain(spec);
-            segment.overlay_property_map(props_at_percent.clone());
-            append_mode_line_rendered_segment(result, &segment, field_width, 0);
-        };
-
         match chars.get(index).copied() {
             Some('b') => {
-                append_spec(&buf_name);
+                append_mode_line_percent_string_spec(
+                    result,
+                    &buf_name,
+                    &props_at_percent,
+                    field_width,
+                );
                 index += 1;
             }
             Some('f') => {
-                append_spec(file_name);
+                append_mode_line_percent_string_spec(
+                    result,
+                    file_name,
+                    &props_at_percent,
+                    field_width,
+                );
                 index += 1;
             }
             Some('i') => {
                 let size = buf
                     .map(|buffer| buffer.zv_byte.saturating_sub(buffer.begv_byte))
                     .unwrap_or(0);
-                append_spec(&size.to_string());
+                append_mode_line_percent_string_spec(
+                    result,
+                    &size.to_string(),
+                    &props_at_percent,
+                    field_width,
+                );
                 index += 1;
             }
             Some('I') => {
                 let size = buf
                     .map(|buffer| buffer.zv_byte.saturating_sub(buffer.begv_byte))
                     .unwrap_or(0);
-                append_spec(&mode_line_human_readable_size(size));
+                append_mode_line_percent_string_spec(
+                    result,
+                    &mode_line_human_readable_size(size),
+                    &props_at_percent,
+                    field_width,
+                );
                 index += 1;
             }
             Some('F') => {
                 // GNU xdisp.c:29208 — f->title, f->name, or "Emacs".
-                append_spec(&pctx.frame_name);
+                if let Some(frame_name) = pctx.frame_name {
+                    append_mode_line_percent_lisp_text_spec(
+                        result,
+                        &frame_name,
+                        &props_at_percent,
+                        field_width,
+                    );
+                } else {
+                    append_mode_line_percent_string_spec(
+                        result,
+                        "Emacs",
+                        &props_at_percent,
+                        field_width,
+                    );
+                }
                 index += 1;
             }
             Some('*') => {
-                append_spec(if read_only {
-                    "%"
-                } else if modified {
-                    "*"
-                } else {
-                    "-"
-                });
+                append_mode_line_percent_string_spec(
+                    result,
+                    if read_only {
+                        "%"
+                    } else if modified {
+                        "*"
+                    } else {
+                        "-"
+                    },
+                    &props_at_percent,
+                    field_width,
+                );
                 index += 1;
             }
             Some('+') => {
-                append_spec(if modified {
-                    "*"
-                } else if read_only {
-                    "%"
-                } else {
-                    "-"
-                });
+                append_mode_line_percent_string_spec(
+                    result,
+                    if modified {
+                        "*"
+                    } else if read_only {
+                        "%"
+                    } else {
+                        "-"
+                    },
+                    &props_at_percent,
+                    field_width,
+                );
                 index += 1;
             }
             Some('&') => {
-                append_spec(if modified { "*" } else { "-" });
+                append_mode_line_percent_string_spec(
+                    result,
+                    if modified { "*" } else { "-" },
+                    &props_at_percent,
+                    field_width,
+                );
                 index += 1;
             }
             Some('-') => {
@@ -1923,37 +2018,75 @@ fn expand_mode_line_percent_in_state(
                 index += 1;
             }
             Some('%') => {
-                append_spec("%");
+                append_mode_line_percent_string_spec(result, "%", &props_at_percent, field_width);
                 index += 1;
             }
             Some('n') => {
-                append_spec(if narrowed { " Narrow" } else { "" });
+                append_mode_line_percent_string_spec(
+                    result,
+                    if narrowed { " Narrow" } else { "" },
+                    &props_at_percent,
+                    field_width,
+                );
                 index += 1;
             }
             Some('s') => {
-                append_spec(mode_line_process_status_in_state(buffers, processes));
+                append_mode_line_percent_string_spec(
+                    result,
+                    mode_line_process_status_in_state(buffers, processes),
+                    &props_at_percent,
+                    field_width,
+                );
                 index += 1;
             }
             Some('l') => {
-                append_spec(&line_num.to_string());
+                append_mode_line_percent_string_spec(
+                    result,
+                    &line_num.to_string(),
+                    &props_at_percent,
+                    field_width,
+                );
                 index += 1;
             }
             Some('c') => {
-                append_spec(&col_num.to_string());
+                append_mode_line_percent_string_spec(
+                    result,
+                    &col_num.to_string(),
+                    &props_at_percent,
+                    field_width,
+                );
                 index += 1;
             }
             Some('C') => {
                 // GNU: 1-indexed column number at point.
-                append_spec(&(col_num + 1).to_string());
+                append_mode_line_percent_string_spec(
+                    result,
+                    &(col_num + 1).to_string(),
+                    &props_at_percent,
+                    field_width,
+                );
                 index += 1;
             }
             Some('m') => {
                 // GNU: major mode name from buffer-local `mode-name`.
-                let mode_name =
+                if let Some(mode_name) =
                     mode_line_symbol_value_in_state(obarray, dynamic, buffers, "mode-name")
-                        .and_then(|v| mode_line_runtime_string(&v))
-                        .unwrap_or_default();
-                append_spec(&mode_name);
+                        .filter(|value| value.is_string())
+                {
+                    append_mode_line_percent_lisp_text_spec(
+                        result,
+                        &mode_name,
+                        &props_at_percent,
+                        field_width,
+                    );
+                } else {
+                    append_mode_line_percent_string_spec(
+                        result,
+                        "",
+                        &props_at_percent,
+                        field_width,
+                    );
+                }
                 index += 1;
             }
             Some('p') => {
@@ -1978,7 +2111,7 @@ fn expand_mode_line_percent_in_state(
                 } else {
                     String::new()
                 };
-                append_spec(&text);
+                append_mode_line_percent_string_spec(result, &text, &props_at_percent, field_width);
                 index += 1;
             }
             Some('P') => {
@@ -2005,7 +2138,7 @@ fn expand_mode_line_percent_in_state(
                 } else {
                     String::new()
                 };
-                append_spec(&text);
+                append_mode_line_percent_string_spec(result, &text, &props_at_percent, field_width);
                 index += 1;
             }
             Some('o') => {
@@ -2031,7 +2164,7 @@ fn expand_mode_line_percent_in_state(
                 } else {
                     String::new()
                 };
-                append_spec(&text);
+                append_mode_line_percent_string_spec(result, &text, &props_at_percent, field_width);
                 index += 1;
             }
             Some('q') => {
@@ -2064,23 +2197,32 @@ fn expand_mode_line_percent_in_state(
                 } else {
                     String::new()
                 };
-                append_spec(&text);
+                append_mode_line_percent_string_spec(result, &text, &props_at_percent, field_width);
                 index += 1;
             }
             Some('z') => {
                 // GNU xdisp.c:29494 — coding system mnemonic without EOL indicator.
-                // In MODE_LINE_DISPLAY on TTY: 3 chars (terminal + keyboard + buffer).
-                // In MODE_LINE_STRING, including Lisp `format-mode-line`, GNU keeps the
-                // single buffer-coding mnemonic.
-                if pctx.is_tty_frame && pctx.target_width.is_some() {
-                    append_spec(&format!(
-                        "{}{}{}",
-                        pctx.terminal_coding_mnemonic,
-                        pctx.keyboard_coding_mnemonic,
-                        pctx.coding_mnemonic,
-                    ));
+                // On TTY frames GNU includes terminal + keyboard + buffer coding
+                // mnemonics, regardless of MODE_LINE_STRING vs MODE_LINE_DISPLAY.
+                if pctx.is_tty_frame {
+                    append_mode_line_percent_string_spec(
+                        result,
+                        &format!(
+                            "{}{}{}",
+                            pctx.terminal_coding_mnemonic,
+                            pctx.keyboard_coding_mnemonic,
+                            pctx.coding_mnemonic,
+                        ),
+                        &props_at_percent,
+                        field_width,
+                    );
                 } else {
-                    append_spec(&pctx.coding_mnemonic.to_string());
+                    append_mode_line_percent_string_spec(
+                        result,
+                        &pctx.coding_mnemonic.to_string(),
+                        &props_at_percent,
+                        field_width,
+                    );
                 }
                 index += 1;
             }
@@ -2091,12 +2233,33 @@ fn expand_mode_line_percent_in_state(
                         .and_then(|v| mode_line_runtime_string(&v))
                         .map(|dir| is_remote_directory(&dir))
                         .unwrap_or(false);
-                append_spec(if remote { "@" } else { "-" });
+                append_mode_line_percent_string_spec(
+                    result,
+                    if remote { "@" } else { "-" },
+                    &props_at_percent,
+                    field_width,
+                );
                 index += 1;
             }
             Some('Z') => {
                 // GNU xdisp.c:29496 — coding system mnemonic WITH EOL indicator.
-                append_spec(&format!("{}{}", pctx.coding_mnemonic, pctx.eol_indicator));
+                let mut segment = if pctx.is_tty_frame {
+                    ModeLineRendered::plain(format!(
+                        "{}{}{}",
+                        pctx.terminal_coding_mnemonic,
+                        pctx.keyboard_coding_mnemonic,
+                        pctx.coding_mnemonic,
+                    ))
+                } else {
+                    ModeLineRendered::plain(pctx.coding_mnemonic.to_string())
+                };
+                if let Some(eol_indicator) = pctx.eol_indicator {
+                    segment.append_string_or_char_value_preserving_props(&eol_indicator);
+                } else {
+                    segment.push_plain_char(':');
+                }
+                segment.overlay_property_map(props_at_percent.clone());
+                append_mode_line_rendered_segment(result, &segment, field_width, 0);
                 index += 1;
             }
             Some(c @ ('[' | ']')) => {
@@ -2105,24 +2268,36 @@ fn expand_mode_line_percent_in_state(
                     (']', depth) if depth > 5 => " ...]]]".to_string(),
                     (bracket, depth) => std::iter::repeat_n(bracket, depth).collect(),
                 };
-                append_spec(&repeated);
+                append_mode_line_percent_string_spec(
+                    result,
+                    &repeated,
+                    &props_at_percent,
+                    field_width,
+                );
                 index += 1;
             }
             Some('e') => {
-                append_spec("");
+                append_mode_line_percent_string_spec(result, "", &props_at_percent, field_width);
                 index += 1;
             }
             Some(' ') => {
-                append_spec(" ");
+                append_mode_line_percent_string_spec(result, " ", &props_at_percent, field_width);
                 index += 1;
             }
             Some(c) => {
                 let mut unknown = String::from("%");
                 unknown.push(c);
-                append_spec(&unknown);
+                append_mode_line_percent_string_spec(
+                    result,
+                    &unknown,
+                    &props_at_percent,
+                    field_width,
+                );
                 index += 1;
             }
-            None => append_spec("%"),
+            None => {
+                append_mode_line_percent_string_spec(result, "%", &props_at_percent, field_width)
+            }
         }
 
         literal_start = index;

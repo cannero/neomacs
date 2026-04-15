@@ -807,6 +807,40 @@ fn test_format_mode_line_major_mode_name_preserves_raw_unibyte_value() {
 }
 
 #[test]
+fn test_format_mode_line_frame_name_f_spec_prefers_title_and_preserves_raw_unibyte_value() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    let buffer_id = eval.buffers.create_buffer("frame-title-test");
+    eval.buffers.set_current(buffer_id);
+
+    let frame_id = eval.frames.create_frame("frame-name", 80, 24, buffer_id);
+    let raw_title = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xFF, b'-', b'F',
+    ]));
+    {
+        let frame = eval.frames.get_mut(frame_id).expect("frame");
+        frame.title = raw_title;
+    }
+
+    let rendered =
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%F")]).expect("frame title");
+    let text = rendered
+        .as_lisp_string()
+        .expect("format-mode-line should return a LispString");
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[0xFF, b'-', b'F']);
+}
+
+#[test]
+fn test_format_mode_line_frame_name_f_spec_defaults_to_emacs_without_frame() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    let rendered =
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%F")]).expect("frame name");
+    assert_eq!(rendered, Value::string("Emacs"));
+}
+
+#[test]
 fn test_format_mode_line_remote_at_spec_matches_gnu() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
@@ -888,6 +922,34 @@ fn test_format_mode_line_coding_system_z_and_big_z_specs_match_gnu() {
 }
 
 #[test]
+fn test_format_mode_line_big_z_preserves_raw_unibyte_eol_indicator() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    let buffer_id = eval.buffers.create_buffer("coding-raw-eol-test");
+    eval.buffers.set_current(buffer_id);
+
+    eval.buffers
+        .set_buffer_local_property(
+            buffer_id,
+            "buffer-file-coding-system",
+            Value::symbol("undecided-dos"),
+        )
+        .expect("set coding");
+    eval.obarray.set_symbol_value(
+        "eol-mnemonic-dos",
+        Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xFF])),
+    );
+
+    let rendered =
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%Z")]).expect("coding Z");
+    let text = rendered
+        .as_lisp_string()
+        .expect("format-mode-line should return a LispString");
+    assert!(!text.is_multibyte());
+    assert_eq!(text.as_bytes(), &[b'-', 0xFF]);
+}
+
+#[test]
 fn test_format_mode_line_tty_z_uses_live_coding_manager_state() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
@@ -911,6 +973,32 @@ fn test_format_mode_line_tty_z_uses_live_coding_manager_state() {
     let rendered =
         builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%z")]).expect("tty coding z");
     assert_eq!(rendered, Value::string("UUU"));
+}
+
+#[test]
+fn test_format_mode_line_tty_big_z_uses_live_coding_manager_state_and_eol_indicator() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    let buffer_id = eval.buffers.create_buffer("tty-coding-big-z-test");
+    eval.buffers.set_current(buffer_id);
+    eval.frames
+        .create_frame("tty-coding-frame", 80, 24, buffer_id);
+
+    eval.buffers
+        .set_buffer_local_property(
+            buffer_id,
+            "buffer-file-coding-system",
+            Value::symbol("utf-8-unix"),
+        )
+        .expect("set coding");
+    eval.obarray
+        .set_symbol_value("terminal-coding-system", Value::NIL);
+    eval.obarray
+        .set_symbol_value("keyboard-coding-system", Value::NIL);
+
+    let rendered =
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%Z")]).expect("tty coding Z");
+    assert_eq!(rendered, Value::string("UUU:"));
 }
 
 #[test]
