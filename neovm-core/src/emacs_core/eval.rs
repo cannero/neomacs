@@ -1717,7 +1717,7 @@ pub(crate) struct ActiveMacroExpansionScopeState {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct EvalRootScopeState {
-    saved_temp_roots_len: usize,
+    pushed_eval_root_frame: bool,
     saved_active_call_extra_roots_len: Option<usize>,
     saved_eval_root_frame_len: Option<usize>,
 }
@@ -6042,17 +6042,9 @@ impl Context {
     /// are automatically unrooted when `f` returns (even on error/early-return).
     #[inline]
     pub(crate) fn with_gc_scope<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
-        let needs_eval_root_frame =
-            self.active_call_roots.is_empty() && self.eval_root_frames.is_empty();
-        if needs_eval_root_frame {
-            self.push_eval_root_frame();
-        }
         let scope = self.save_eval_roots();
         let result = f(self);
         self.restore_eval_roots(scope);
-        if needs_eval_root_frame {
-            self.pop_eval_root_frame();
-        }
         result
     }
 
@@ -6062,17 +6054,9 @@ impl Context {
         &mut self,
         f: impl FnOnce(&mut Self) -> Result<T, Flow>,
     ) -> Result<T, Flow> {
-        let needs_eval_root_frame =
-            self.active_call_roots.is_empty() && self.eval_root_frames.is_empty();
-        if needs_eval_root_frame {
-            self.push_eval_root_frame();
-        }
         let scope = self.save_eval_roots();
         let result = f(self);
         self.restore_eval_roots(scope);
-        if needs_eval_root_frame {
-            self.pop_eval_root_frame();
-        }
         result
     }
 
@@ -9093,9 +9077,14 @@ impl Context {
         }
     }
 
-    pub(crate) fn save_eval_roots(&self) -> EvalRootScopeState {
+    pub(crate) fn save_eval_roots(&mut self) -> EvalRootScopeState {
+        let pushed_eval_root_frame =
+            self.active_call_roots.is_empty() && self.eval_root_frames.is_empty();
+        if pushed_eval_root_frame {
+            self.push_eval_root_frame();
+        }
         EvalRootScopeState {
-            saved_temp_roots_len: self.temp_roots.len(),
+            pushed_eval_root_frame,
             saved_active_call_extra_roots_len: self.save_active_call_extra_roots(),
             saved_eval_root_frame_len: self.eval_root_frames.last().map(|frame| frame.roots.len()),
         }
@@ -9120,7 +9109,9 @@ impl Context {
         {
             frame.roots.truncate(saved_len);
         }
-        self.temp_roots.truncate(scope.saved_temp_roots_len);
+        if scope.pushed_eval_root_frame {
+            self.pop_eval_root_frame();
+        }
     }
 
     pub(crate) fn push_eval_root_frame(&mut self) {
