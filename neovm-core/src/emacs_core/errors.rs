@@ -19,10 +19,11 @@
 use super::error::{
     EvalResult, Flow, signal, signal_suppressed, signal_with_data, signal_with_data_suppressed,
 };
-use super::intern::resolve_sym;
+use super::intern::{SymId, intern, resolve_sym};
 use super::symbol::Obarray;
 use super::value::*;
 use crate::emacs_core::value::ValueKind;
+use std::collections::{HashMap, HashSet};
 
 // ---------------------------------------------------------------------------
 // Obarray-based error hierarchy helpers
@@ -682,7 +683,7 @@ fn runtime_string_result(text: impl Into<String>) -> Value {
 /// obarray-based functions above.
 pub struct ErrorRegistry {
     /// Map from error symbol name to its parent error symbol names.
-    parents: std::collections::HashMap<String, Vec<String>>,
+    parents: HashMap<SymId, Vec<SymId>>,
 }
 
 impl ErrorRegistry {
@@ -690,62 +691,72 @@ impl ErrorRegistry {
     /// hierarchy.
     pub fn new() -> Self {
         let mut reg = Self {
-            parents: std::collections::HashMap::new(),
+            parents: HashMap::new(),
         };
         reg.init_standard_hierarchy();
         reg
     }
 
+    /// Register a new error type using symbol identity.
+    pub fn define_error_sym(&mut self, name: SymId, _message: &str, parents: &[SymId]) {
+        let parent_list = if parents.is_empty() {
+            vec![intern("error")]
+        } else {
+            parents.to_vec()
+        };
+        self.parents.insert(name, parent_list);
+    }
+
     /// Register a new error type.
     pub fn define_error(&mut self, name: &str, _message: &str, parents: &[&str]) {
-        let parent_list = if parents.is_empty() {
-            vec!["error".to_string()]
-        } else {
-            parents.iter().map(|s| s.to_string()).collect()
-        };
-        self.parents.insert(name.to_string(), parent_list);
+        let name = intern(name);
+        let parents: Vec<SymId> = parents.iter().map(|s| intern(s)).collect();
+        self.define_error_sym(name, _message, &parents);
     }
 
     /// Check whether `signal` inherits from `condition` (directly or
     /// transitively).
-    pub fn signal_matches_condition(&self, signal_sym: &str, condition: &str) -> bool {
-        if condition == "t" {
+    pub fn signal_matches_condition_sym(&self, signal_sym: SymId, condition: SymId) -> bool {
+        if condition == intern("t") {
             return true;
         }
         if signal_sym == condition {
             return true;
         }
-        // BFS/DFS through parents.
-        let mut visited = std::collections::HashSet::new();
-        let mut stack = vec![signal_sym.to_string()];
+        let mut visited = HashSet::new();
+        let mut stack = vec![signal_sym];
         while let Some(current) = stack.pop() {
-            if !visited.insert(current.clone()) {
+            if !visited.insert(current) {
                 continue;
             }
             if let Some(parents) = self.parents.get(&current) {
-                for parent in parents {
+                for &parent in parents {
                     if parent == condition {
                         return true;
                     }
-                    stack.push(parent.clone());
+                    stack.push(parent);
                 }
             }
         }
         false
     }
 
+    pub fn signal_matches_condition(&self, signal_sym: &str, condition: &str) -> bool {
+        self.signal_matches_condition_sym(intern(signal_sym), intern(condition))
+    }
+
     /// Collect the full condition list for a signal (self + all ancestors).
-    pub fn conditions_for(&self, signal_sym: &str) -> Vec<String> {
-        let mut result = vec![signal_sym.to_string()];
-        let mut visited = std::collections::HashSet::new();
-        visited.insert(signal_sym.to_string());
-        let mut stack = vec![signal_sym.to_string()];
+    pub fn conditions_for_sym(&self, signal_sym: SymId) -> Vec<SymId> {
+        let mut result = vec![signal_sym];
+        let mut visited = HashSet::new();
+        visited.insert(signal_sym);
+        let mut stack = vec![signal_sym];
         while let Some(current) = stack.pop() {
             if let Some(parents) = self.parents.get(&current) {
-                for parent in parents {
-                    if visited.insert(parent.clone()) {
-                        result.push(parent.clone());
-                        stack.push(parent.clone());
+                for &parent in parents {
+                    if visited.insert(parent) {
+                        result.push(parent);
+                        stack.push(parent);
                     }
                 }
             }
@@ -753,9 +764,16 @@ impl ErrorRegistry {
         result
     }
 
+    pub fn conditions_for(&self, signal_sym: &str) -> Vec<String> {
+        self.conditions_for_sym(intern(signal_sym))
+            .into_iter()
+            .map(|sym| resolve_sym(sym).to_owned())
+            .collect()
+    }
+
     fn init_standard_hierarchy(&mut self) {
         // Root.
-        self.parents.insert("error".to_string(), vec![]);
+        self.parents.insert(intern("error"), vec![]);
 
         let simple_children_of_error = [
             "quit",
@@ -783,13 +801,12 @@ impl ErrorRegistry {
             "recursion-error",
         ];
         for name in &simple_children_of_error {
-            self.parents
-                .insert(name.to_string(), vec!["error".to_string()]);
+            self.parents.insert(intern(name), vec![intern("error")]);
         }
 
         // arith-error family.
         self.parents
-            .insert("arith-error".to_string(), vec!["error".to_string()]);
+            .insert(intern("arith-error"), vec![intern("error")]);
         for name in &[
             "overflow-error",
             "range-error",
@@ -797,12 +814,12 @@ impl ErrorRegistry {
             "underflow-error",
         ] {
             self.parents
-                .insert(name.to_string(), vec!["arith-error".to_string()]);
+                .insert(intern(name), vec![intern("arith-error")]);
         }
 
         // file-error family.
         self.parents
-            .insert("file-error".to_string(), vec!["error".to_string()]);
+            .insert(intern("file-error"), vec![intern("error")]);
         for name in &[
             "file-already-exists",
             "file-date-error",
@@ -811,24 +828,22 @@ impl ErrorRegistry {
             "file-notify-error",
         ] {
             self.parents
-                .insert(name.to_string(), vec!["file-error".to_string()]);
+                .insert(intern(name), vec![intern("file-error")]);
         }
         self.parents
-            .insert("dbus-error".to_string(), vec!["error".to_string()]);
+            .insert(intern("dbus-error"), vec![intern("error")]);
 
         // json-error family.
         self.parents
-            .insert("json-error".to_string(), vec!["error".to_string()]);
+            .insert(intern("json-error"), vec![intern("error")]);
         for name in &["json-parse-error", "json-serialize-error"] {
             self.parents
-                .insert(name.to_string(), vec!["json-error".to_string()]);
+                .insert(intern(name), vec![intern("json-error")]);
         }
 
         // remote-file-error is a child of file-error.
-        self.parents.insert(
-            "remote-file-error".to_string(),
-            vec!["file-error".to_string()],
-        );
+        self.parents
+            .insert(intern("remote-file-error"), vec![intern("file-error")]);
     }
 }
 

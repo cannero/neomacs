@@ -19,16 +19,17 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
 fn registry_new_has_standard_errors() {
     crate::test_utils::init_test_tracing();
     let reg = ErrorRegistry::new();
-    assert!(reg.parents.contains_key("error"));
-    assert!(reg.parents.contains_key("void-variable"));
-    assert!(reg.parents.contains_key("file-missing"));
-    assert!(reg.parents.contains_key("overflow-error"));
+    assert!(reg.parents.contains_key(&intern("error")));
+    assert!(reg.parents.contains_key(&intern("void-variable")));
+    assert!(reg.parents.contains_key(&intern("file-missing")));
+    assert!(reg.parents.contains_key(&intern("overflow-error")));
 }
 
 #[test]
 fn registry_direct_match() {
     crate::test_utils::init_test_tracing();
     let reg = ErrorRegistry::new();
+    assert!(reg.signal_matches_condition_sym(intern("void-variable"), intern("void-variable")));
     assert!(reg.signal_matches_condition("void-variable", "void-variable"));
 }
 
@@ -89,6 +90,10 @@ fn registry_define_error_multiple_parents() {
 fn registry_conditions_for() {
     crate::test_utils::init_test_tracing();
     let reg = ErrorRegistry::new();
+    let cond_syms = reg.conditions_for_sym(intern("file-missing"));
+    assert!(cond_syms.contains(&intern("file-missing")));
+    assert!(cond_syms.contains(&intern("file-error")));
+    assert!(cond_syms.contains(&intern("error")));
     let conds = reg.conditions_for("file-missing");
     assert!(conds.contains(&"file-missing".to_string()));
     assert!(conds.contains(&"file-error".to_string()));
