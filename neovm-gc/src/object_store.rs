@@ -327,12 +327,14 @@ pub(crate) struct ObjectPublishReservation {
 #[derive(Debug)]
 pub(crate) struct ObjectPublishLocal {
     reservations: [ObjectPublishReservation; OBJECT_STORE_SHARDS],
+    touched_shards: u32,
 }
 
 impl Default for ObjectPublishLocal {
     fn default() -> Self {
         Self {
             reservations: std::array::from_fn(|_| ObjectPublishReservation::default()),
+            touched_shards: 0,
         }
     }
 }
@@ -344,10 +346,20 @@ impl ObjectPublishLocal {
         unsafe { self.reservations.get_unchecked_mut(shard) }
     }
 
+    #[inline(always)]
+    fn mark_touched(&mut self, shard: usize) {
+        debug_assert!(shard < OBJECT_STORE_SHARDS);
+        self.touched_shards |= 1_u32 << shard;
+    }
+
     pub(crate) fn clear(&mut self) {
-        for reservation in self.reservations.iter_mut() {
-            *reservation = ObjectPublishReservation::default();
+        let mut touched = self.touched_shards;
+        while touched != 0 {
+            let shard = touched.trailing_zeros() as usize;
+            self.reservations[shard] = ObjectPublishReservation::default();
+            touched &= touched - 1;
         }
+        self.touched_shards = 0;
     }
 }
 
@@ -564,14 +576,18 @@ impl ObjectStore {
     ) -> ObjectLocator {
         let object_key = record.object_key();
         let shard_index = shard_index_for_key(object_key);
-        let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
         let generation = self.generation();
-        if reservation.generation != generation
-            || reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY
-        {
+        let needs_reservation = {
+            let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
+            reservation.generation != generation
+                || reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY
+        };
+        if needs_reservation {
+            publish_local.mark_touched(shard_index);
+            let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
             *reservation = self.reserve_publish_chunk(shard_index);
         }
-
+        let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
         Self::publish_reserved(reservation, shard_index, record)
     }
 
@@ -582,11 +598,16 @@ impl ObjectStore {
     ) -> ObjectLocator {
         let object_key = record.object_key();
         let shard_index = shard_index_for_key(object_key);
-        let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
-        if reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY {
+        let needs_reservation = {
+            let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
+            reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY
+        };
+        if needs_reservation {
+            publish_local.mark_touched(shard_index);
+            let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
             *reservation = self.reserve_publish_chunk(shard_index);
         }
-
+        let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
         Self::publish_reserved(reservation, shard_index, record)
     }
 
@@ -599,11 +620,16 @@ impl ObjectStore {
     ) -> ObjectLocator {
         let object_key = ObjectKey::from_header(header);
         let shard_index = shard_index_for_key(object_key);
-        let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
-        if reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY {
+        let needs_reservation = {
+            let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
+            reservation.next_offset >= OBJECT_STORE_CHUNK_CAPACITY
+        };
+        if needs_reservation {
+            publish_local.mark_touched(shard_index);
+            let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
             *reservation = self.reserve_publish_chunk(shard_index);
         }
-
+        let reservation = unsafe { publish_local.reservation_mut_unchecked(shard_index) };
         Self::publish_reserved_without_old_block(
             reservation,
             shard_index,
