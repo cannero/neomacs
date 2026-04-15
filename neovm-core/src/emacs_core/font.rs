@@ -316,8 +316,8 @@ fn sync_live_frame_font_state(
         font_name_value(&resolution.font_value).unwrap_or(*requested)
     };
 
-    frame.set_parameter("font", public_font_name);
-    frame.set_parameter("font-parameter", resolution.font_value);
+    frame.set_parameter(Value::symbol("font"), public_font_name);
+    frame.set_parameter(Value::symbol("font-parameter"), resolution.font_value);
 
     let mut geometry_hints = None;
     if let Some(realized) = &resolution.realized {

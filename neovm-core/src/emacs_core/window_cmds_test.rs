@@ -2852,7 +2852,7 @@ fn frame_query_builtins_use_internal_window_system_state() {
     {
         let frame = ev.frames.get_mut(fid).expect("gui frame");
         frame.set_window_system(Some(Value::symbol("x")));
-        frame.remove_parameter("window-system");
+        frame.remove_parameter(Value::symbol("window-system"));
     }
 
     assert_eq!(
@@ -3165,7 +3165,7 @@ fn x_create_frame_creates_live_frame_and_preserves_char_geometry_params() {
     ev.frames
         .get_mut(fid)
         .expect("bootstrap frame")
-        .set_parameter("window-system", Value::symbol("x"));
+        .set_parameter(Value::symbol("window-system"), Value::symbol("x"));
 
     let params = Value::list(vec![
         Value::cons(Value::symbol("name"), Value::string("GUI")),
@@ -3199,7 +3199,7 @@ fn x_create_frame_creates_opening_frame_and_notifies_host() {
     let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
     {
         let frame = ev.frames.get_mut(fid).expect("bootstrap frame");
-        frame.set_parameter("window-system", Value::symbol("x"));
+        frame.set_parameter(Value::symbol("window-system"), Value::symbol("x"));
         if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
             mini_leaf.set_bounds(crate::window::Rect::new(0.0, 608.0, 960.0, 32.0));
         }
@@ -3248,7 +3248,7 @@ fn x_create_frame_reserves_tab_bar_space_above_root_window() {
     ev.frames
         .get_mut(fid)
         .expect("bootstrap frame")
-        .set_parameter("window-system", Value::symbol("x"));
+        .set_parameter(Value::symbol("window-system"), Value::symbol("x"));
 
     let params = Value::list(vec![
         Value::cons(Value::symbol("name"), Value::string("GUI")),
@@ -3333,7 +3333,7 @@ fn x_create_frame_syncs_pending_resize_before_adopting_opening_gui_frame() {
     let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
     {
         let frame = ev.frames.get_mut(fid).expect("bootstrap frame");
-        frame.set_parameter("window-system", Value::symbol("x"));
+        frame.set_parameter(Value::symbol("window-system"), Value::symbol("x"));
         frame.char_width = 10.0;
         frame.char_height = 20.0;
         if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
@@ -3390,7 +3390,7 @@ fn x_create_frame_prefers_display_host_primary_window_size_without_explicit_geom
     let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
     {
         let frame = ev.frames.get_mut(fid).expect("bootstrap frame");
-        frame.set_parameter("window-system", Value::symbol("x"));
+        frame.set_parameter(Value::symbol("window-system"), Value::symbol("x"));
         frame.char_width = 10.0;
         frame.char_height = 20.0;
         if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
@@ -3513,7 +3513,7 @@ fn framep_returns_window_system_symbol_for_gui_frames() {
     ev.frames
         .get_mut(frame_id)
         .expect("selected frame")
-        .set_parameter("window-system", Value::symbol("x"));
+        .set_parameter(Value::symbol("window-system"), Value::symbol("x"));
 
     let result = super::builtin_framep(&mut ev, vec![Value::make_frame(frame_id.0)]).unwrap();
     assert_eq!(result, Value::symbol("x"));
@@ -4116,7 +4116,7 @@ fn set_frame_size_builtins_resize_live_gui_frames_and_notify_host() {
     let fid = ev.frames.create_frame("F1", 800, 600, buf);
     {
         let frame = ev.frames.get_mut(fid).expect("frame should exist");
-        frame.set_parameter("window-system", Value::symbol("x"));
+        frame.set_parameter(Value::symbol("window-system"), Value::symbol("x"));
     }
     let host = RecordingDisplayHost::new();
     let resized = host.resized.clone();
@@ -4177,12 +4177,12 @@ fn set_frame_size_syncs_resize_event_before_followup_frame_width_queries() {
     let fid = ev.frames.create_frame("F1", 1300, 1188, buf);
     {
         let frame = ev.frames.get_mut(fid).expect("frame should exist");
-        frame.set_parameter("window-system", Value::symbol("x"));
+        frame.set_parameter(Value::symbol("window-system"), Value::symbol("x"));
         frame.char_width = 16.0;
         frame.char_height = 33.0;
-        frame.set_parameter("width", Value::fixnum(79));
-        frame.set_parameter("height", Value::fixnum(36));
-        frame.set_parameter("neovm--frame-text-lines", Value::fixnum(35));
+        frame.set_parameter(Value::symbol("width"), Value::fixnum(79));
+        frame.set_parameter(Value::symbol("height"), Value::fixnum(36));
+        frame.set_parameter(Value::symbol("neovm--frame-text-lines"), Value::fixnum(35));
     }
 
     let host = RecordingDisplayHost::new();
@@ -4231,12 +4231,12 @@ fn set_frame_size_keeps_resize_pending_until_geometry_queries_force_sync() {
     let fid = ev.frames.create_frame("F1", 1300, 1188, buf);
     {
         let frame = ev.frames.get_mut(fid).expect("frame should exist");
-        frame.set_parameter("window-system", Value::symbol("x"));
+        frame.set_parameter(Value::symbol("window-system"), Value::symbol("x"));
         frame.char_width = 16.0;
         frame.char_height = 33.0;
-        frame.set_parameter("width", Value::fixnum(79));
-        frame.set_parameter("height", Value::fixnum(36));
-        frame.set_parameter("neovm--frame-text-lines", Value::fixnum(35));
+        frame.set_parameter(Value::symbol("width"), Value::fixnum(79));
+        frame.set_parameter(Value::symbol("height"), Value::fixnum(36));
+        frame.set_parameter(Value::symbol("neovm--frame-text-lines"), Value::fixnum(35));
     }
 
     let host = RecordingDisplayHost::new();

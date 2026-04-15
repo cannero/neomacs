@@ -2642,10 +2642,10 @@ fn restore_cached_runtime_window_system_surface(eval: &mut super::eval::Context)
     {
         frame.set_window_system(Some(window_system));
         if frame.parameter("display-type").is_none() {
-            frame.set_parameter("display-type", Value::symbol("color"));
+            frame.set_parameter(Value::symbol("display-type"), Value::symbol("color"));
         }
         if frame.parameter("background-mode").is_none() {
-            frame.set_parameter("background-mode", Value::symbol("light"));
+            frame.set_parameter(Value::symbol("background-mode"), Value::symbol("light"));
         }
     }
 

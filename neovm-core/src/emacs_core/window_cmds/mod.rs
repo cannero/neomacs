@@ -724,8 +724,8 @@ fn ensure_selected_frame_id_in_state_with_policy(
         frame.char_width = 1.0;
         frame.char_height = 1.0;
         frame.font_pixel_size = 1.0;
-        frame.set_parameter("width", Value::fixnum(80));
-        frame.set_parameter("height", Value::fixnum(25));
+        frame.set_parameter(Value::symbol("width"), Value::fixnum(80));
+        frame.set_parameter(Value::symbol("height"), Value::fixnum(25));
         // The root window covers the 24-line text area (not the minibuffer).
         frame
             .root_window
@@ -4431,9 +4431,12 @@ fn set_frame_text_size(frame: &mut crate::window::Frame, cols: i64, text_lines: 
     let text_lines = clamp_frame_dimension(text_lines, MIN_FRAME_TEXT_LINES);
     let total_lines = text_lines.saturating_add(1).min(u32::MAX as i64);
 
-    frame.set_parameter("width", Value::fixnum(cols));
-    frame.set_parameter("height", Value::fixnum(total_lines));
-    frame.set_parameter(FRAME_TEXT_LINES_PARAM, Value::fixnum(text_lines));
+    frame.set_parameter(Value::symbol("width"), Value::fixnum(cols));
+    frame.set_parameter(Value::symbol("height"), Value::fixnum(total_lines));
+    frame.set_parameter(
+        Value::symbol(FRAME_TEXT_LINES_PARAM),
+        Value::fixnum(text_lines),
+    );
 }
 
 fn live_gui_resize_pixels_from_logical_size(
@@ -4504,7 +4507,10 @@ fn resize_live_gui_frame(
             set_frame_text_size(frame, cols, text_lines);
         } else {
             frame.resize_pixelwise(total_width_px, total_height_px);
-            frame.set_parameter(FRAME_TEXT_LINES_PARAM, Value::fixnum(text_lines));
+            frame.set_parameter(
+                Value::symbol(FRAME_TEXT_LINES_PARAM),
+                Value::fixnum(text_lines),
+            );
         }
     }
 
@@ -4605,7 +4611,10 @@ fn request_live_gui_frame_resize(
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     frame.resize_pixelwise(total_width_px, total_height_px);
-    frame.set_parameter(FRAME_TEXT_LINES_PARAM, Value::fixnum(text_lines));
+    frame.set_parameter(
+        Value::symbol(FRAME_TEXT_LINES_PARAM),
+        Value::fixnum(text_lines),
+    );
     Ok(())
 }
 
@@ -5921,10 +5930,10 @@ pub(crate) fn x_create_frame_impl(
         frame.set_window_system(Some(Value::symbol(
             crate::emacs_core::display::gui_window_system_symbol(),
         )));
-        frame.set_parameter("display-type", Value::symbol("color"));
-        frame.set_parameter("background-mode", Value::symbol("dark"));
+        frame.set_parameter(Value::symbol("display-type"), Value::symbol("color"));
+        frame.set_parameter(Value::symbol("background-mode"), Value::symbol("dark"));
         for (key, value) in parsed.all {
-            frame.set_parameter(key, value);
+            frame.set_parameter(Value::symbol(&key), value);
         }
         if let Window::Leaf { buffer_id, .. } = &mut frame.root_window {
             *buffer_id = current_buffer_id;
@@ -6273,7 +6282,7 @@ pub(crate) fn builtin_modify_frame_parameters(
                     "width" => {
                         if let Some(n) = pair_cdr.as_int() {
                             if let Some(frame) = eval.frames.get_mut(fid) {
-                                frame.set_parameter("width", Value::fixnum(n));
+                                frame.set_parameter(Value::symbol("width"), Value::fixnum(n));
                             }
                             requested_width_cols = Some(n);
                         }
@@ -6281,7 +6290,7 @@ pub(crate) fn builtin_modify_frame_parameters(
                     "height" => {
                         if let Some(n) = pair_cdr.as_int() {
                             if let Some(frame) = eval.frames.get_mut(fid) {
-                                frame.set_parameter("height", Value::fixnum(n));
+                                frame.set_parameter(Value::symbol("height"), Value::fixnum(n));
                             }
                             requested_total_lines = Some(n);
                         }
@@ -6293,7 +6302,7 @@ pub(crate) fn builtin_modify_frame_parameters(
                     }
                     _ => {
                         if let Some(frame) = eval.frames.get_mut(fid) {
-                            frame.set_parameter_value(pair_car, pair_cdr);
+                            frame.set_parameter(pair_car, pair_cdr);
                         }
                         if matches!(key_name.as_str(), "foreground-color" | "background-color") {
                             super::font::update_face_from_frame_parameter(

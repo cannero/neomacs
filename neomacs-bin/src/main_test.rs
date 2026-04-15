@@ -2237,7 +2237,7 @@ fn frame_set_background_mode_keep_face_specs_completes_after_dark_background_cha
             .frame_manager_mut()
             .get_mut(frame_id)
             .expect("live frame");
-        frame.set_parameter("background-color", Value::string("#000000"));
+        frame.set_parameter(Value::symbol("background-color"), Value::string("#000000"));
     }
 
     let result = eval
@@ -2266,7 +2266,7 @@ fn seed_selected_frame_background_color(eval: &mut Context, color: &str) {
         .frame_manager_mut()
         .get_mut(frame_id)
         .expect("live frame");
-    frame.set_parameter("background-color", Value::string(color));
+    frame.set_parameter(Value::symbol("background-color"), Value::string(color));
 }
 
 #[test]

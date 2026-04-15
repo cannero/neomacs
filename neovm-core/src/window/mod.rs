@@ -1511,10 +1511,10 @@ impl Frame {
         self.window_system = window_system;
         match window_system {
             Some(value) => {
-                self.set_parameter("window-system", value);
+                self.set_parameter(Value::symbol("window-system"), value);
             }
             None => {
-                self.remove_parameter("window-system");
+                self.remove_parameter(Value::symbol("window-system"));
             }
         }
     }
@@ -1527,16 +1527,12 @@ impl Frame {
         self.parameters.get(&Value::symbol(key)).copied()
     }
 
-    pub fn set_parameter(&mut self, key: impl Into<String>, value: Value) -> Option<Value> {
-        self.parameters.insert(Value::symbol(key.into()), value)
-    }
-
-    pub fn set_parameter_value(&mut self, key: Value, value: Value) -> Option<Value> {
+    pub fn set_parameter(&mut self, key: Value, value: Value) -> Option<Value> {
         self.parameters.insert(key, value)
     }
 
-    pub fn remove_parameter(&mut self, key: &str) -> Option<Value> {
-        self.parameters.remove(&Value::symbol(key))
+    pub fn remove_parameter(&mut self, key: Value) -> Option<Value> {
+        self.parameters.remove(&key)
     }
 
     pub fn realized_face(&self, name: &str) -> Option<&RuntimeFace> {
@@ -1897,9 +1893,12 @@ impl Frame {
         let cols = (text_width / char_width).floor().max(1.0) as i64;
         let text_lines = (root_height / char_height).floor().max(1.0) as i64;
         let total_lines = text_lines.saturating_add(1);
-        self.set_parameter("width", Value::fixnum(cols));
-        self.set_parameter("height", Value::fixnum(total_lines));
-        self.set_parameter("neovm--frame-text-lines", Value::fixnum(text_lines));
+        self.set_parameter(Value::symbol("width"), Value::fixnum(cols));
+        self.set_parameter(Value::symbol("height"), Value::fixnum(total_lines));
+        self.set_parameter(
+            Value::symbol("neovm--frame-text-lines"),
+            Value::fixnum(text_lines),
+        );
     }
 
     /// Grow the minibuffer window by `delta_rows` character-cell rows.
@@ -4392,7 +4391,7 @@ mod tests {
         let frame = mgr.get_mut(fid).unwrap();
         frame.char_width = 10.0;
         frame.char_height = 20.0;
-        frame.set_parameter("tab-bar-lines", Value::fixnum(1));
+        frame.set_parameter(Value::symbol("tab-bar-lines"), Value::fixnum(1));
 
         frame.sync_tab_bar_height_from_parameters();
         frame.resize_pixelwise(400, 260);

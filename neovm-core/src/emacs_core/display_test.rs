@@ -2882,7 +2882,7 @@ fn window_system_prefers_selected_frame_then_global_fallback() {
     eval.frames
         .get_mut(frame_id)
         .expect("selected frame")
-        .set_parameter("window-system", Value::symbol("x"));
+        .set_parameter(Value::symbol("window-system"), Value::symbol("x"));
 
     assert_eq!(
         builtin_window_system(&mut eval, vec![]).unwrap(),

@@ -1385,7 +1385,7 @@ fn frame_native_width_syncs_pending_resize_without_read_char() {
     ev.frames
         .get_mut(fid)
         .expect("frame should exist")
-        .set_parameter("window-system", Value::symbol("x"));
+        .set_parameter(Value::symbol("window-system"), Value::symbol("x"));
 
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
@@ -1415,7 +1415,7 @@ fn frame_native_width_syncs_pending_resize_behind_focus_event() {
     ev.frames
         .get_mut(fid)
         .expect("frame should exist")
-        .set_parameter("window-system", Value::symbol("x"));
+        .set_parameter(Value::symbol("window-system"), Value::symbol("x"));
 
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);

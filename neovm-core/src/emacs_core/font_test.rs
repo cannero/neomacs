@@ -1195,8 +1195,8 @@ fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_defa
             .get_mut(frame_id)
             .expect("selected frame");
         frame.window_system = Some(Value::symbol("neo"));
-        frame.set_parameter("font", font_name);
-        frame.set_parameter("font-parameter", font_object);
+        frame.set_parameter(Value::symbol("font"), font_name);
+        frame.set_parameter(Value::symbol("font-parameter"), font_object);
     }
 
     builtin_internal_set_lisp_face_attribute(
