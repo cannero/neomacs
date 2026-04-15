@@ -1659,12 +1659,14 @@ fn dump_face_height(h: &FaceHeight) -> DumpFaceHeight {
     }
 }
 
-fn dump_face(f: &Face) -> DumpFace {
+fn dump_face(encoder: &mut DumpEncoder, f: &Face) -> DumpFace {
     DumpFace {
         foreground: f.foreground.map(|c| dump_color(&c)),
         background: f.background.map(|c| dump_color(&c)),
-        family: f.family_runtime_string_owned(),
-        foundry: f.foundry_runtime_string_owned(),
+        family_value: f.family.as_ref().map(|value| encoder.dump_value(value)),
+        family: None,
+        foundry_value: f.foundry.as_ref().map(|value| encoder.dump_value(value)),
+        foundry: None,
         height: f.height.as_ref().map(dump_face_height),
         weight: f.weight.map(|w| w.0),
         slant: f.slant.as_ref().map(dump_font_slant),
@@ -1681,7 +1683,8 @@ fn dump_face(f: &Face) -> DumpFace {
             style: dump_box_style(&b.style),
         }),
         inverse_video: f.inverse_video,
-        stipple: f.stipple.and_then(|value| value.as_runtime_string_owned()),
+        stipple_value: f.stipple.as_ref().map(|value| encoder.dump_value(value)),
+        stipple: None,
         extend: f.extend,
         inherit_syms: f
             .inherit
@@ -1694,16 +1697,17 @@ fn dump_face(f: &Face) -> DumpFace {
             .filter_map(|value| value.as_symbol_name().map(str::to_string))
             .collect(),
         overstrike: f.overstrike,
-        doc: f.doc.and_then(|value| value.as_runtime_string_owned()),
+        doc_value: f.doc.as_ref().map(|value| encoder.dump_value(value)),
+        doc: None,
     }
 }
 
-pub(crate) fn dump_face_table(ft: &FaceTable) -> DumpFaceTable {
+pub(crate) fn dump_face_table(encoder: &mut DumpEncoder, ft: &FaceTable) -> DumpFaceTable {
     DumpFaceTable {
         face_ids: ft
             .dump_faces_by_sym_id()
             .into_iter()
-            .map(|(id, f)| (dump_sym_id(id), dump_face(&f)))
+            .map(|(id, f)| (dump_sym_id(id), dump_face(encoder, &f)))
             .collect(),
         faces: Vec::new(),
     }
@@ -1963,7 +1967,7 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
         coding_systems: dump_coding_system_manager(&mut encoder, &eval.coding_systems),
         charset_registry: dump_charset_registry(&mut encoder),
         fontset_registry: dump_fontset_registry(),
-        face_table: dump_face_table(&eval.face_table),
+        face_table: dump_face_table(&mut encoder, &eval.face_table),
         abbrevs: dump_abbrev_manager(&eval.abbrevs),
         interactive: dump_interactive_registry(&mut encoder, &eval.interactive),
         rectangle: dump_rectangle(&eval.rectangle),
@@ -3429,11 +3433,15 @@ fn load_font_slant(s: &DumpFontSlant) -> FontSlant {
     }
 }
 
-fn load_face(df: &DumpFace) -> Face {
+fn load_face(decoder: &mut LoadDecoder, df: &DumpFace) -> Face {
     Face {
         foreground: df.foreground.map(|c| load_color(&c)),
         background: df.background.map(|c| load_color(&c)),
-        family: df.family.as_ref().map(Value::string),
+        family: df
+            .family_value
+            .as_ref()
+            .map(|value| decoder.load_value(value))
+            .or_else(|| df.family.as_ref().map(Value::string)),
         height: df.height.as_ref().map(|h| match h {
             DumpFaceHeight::Absolute(n) => FaceHeight::Absolute(*n),
             DumpFaceHeight::Relative(f) => FaceHeight::Relative(*f),
@@ -3463,7 +3471,11 @@ fn load_face(df: &DumpFace) -> Face {
             },
         }),
         inverse_video: df.inverse_video,
-        stipple: df.stipple.as_ref().map(Value::string),
+        stipple: df
+            .stipple_value
+            .as_ref()
+            .map(|value| decoder.load_value(value))
+            .or_else(|| df.stipple.as_ref().map(Value::string)),
         extend: df.extend,
         inherit: if !df.inherit_syms.is_empty() {
             df.inherit_syms
@@ -3477,28 +3489,36 @@ fn load_face(df: &DumpFace) -> Face {
                 .collect()
         },
         overstrike: df.overstrike,
-        doc: df.doc.as_ref().map(Value::string),
+        doc: df
+            .doc_value
+            .as_ref()
+            .map(|value| decoder.load_value(value))
+            .or_else(|| df.doc.as_ref().map(Value::string)),
         overline_color: None,
         strike_through_color: None,
         distant_foreground: None,
-        foundry: df.foundry.as_ref().map(Value::string),
+        foundry: df
+            .foundry_value
+            .as_ref()
+            .map(|value| decoder.load_value(value))
+            .or_else(|| df.foundry.as_ref().map(Value::string)),
         width: None,
     }
 }
 
-pub(crate) fn load_face_table(dft: &DumpFaceTable) -> FaceTable {
+pub(crate) fn load_face_table(decoder: &mut LoadDecoder, dft: &DumpFaceTable) -> FaceTable {
     if !dft.face_ids.is_empty() {
         FaceTable::from_dump_sym_ids(
             dft.face_ids
                 .iter()
-                .map(|(k, f)| (load_sym_id(k), load_face(f)))
+                .map(|(k, f)| (load_sym_id(k), load_face(decoder, f)))
                 .collect(),
         )
     } else {
         FaceTable::from_dump(
             dft.faces
                 .iter()
-                .map(|(k, f)| (k.clone(), load_face(f)))
+                .map(|(k, f)| (k.clone(), load_face(decoder, f)))
                 .collect(),
         )
     }

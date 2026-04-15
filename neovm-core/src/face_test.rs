@@ -73,10 +73,60 @@ fn face_table_standard_faces() {
 #[test]
 fn face_table_pdump_uses_symbol_identity() {
     crate::test_utils::init_test_tracing();
-    let table = FaceTable::new();
-    let dump = crate::emacs_core::pdump::convert::dump_face_table(&table);
-    assert!(dump.faces.is_empty());
-    assert!(!dump.face_ids.is_empty());
+    let eval = crate::emacs_core::Context::new();
+    let dump = crate::emacs_core::pdump::convert::dump_evaluator(&eval);
+    assert!(dump.face_table.faces.is_empty());
+    assert!(!dump.face_table.face_ids.is_empty());
+}
+
+#[test]
+fn face_table_pdump_preserves_lisp_owned_attrs() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::Context::new();
+    let mut face = Face::new("pdump-face");
+    face.family = Some(Value::symbol("unspecified"));
+    face.foundry = Some(Value::string("OpenAI"));
+    face.stipple = Some(Value::symbol("unspecified"));
+    face.doc = Some(Value::string("Face doc"));
+    eval.face_table.define("pdump-face", face);
+
+    let dump = crate::emacs_core::pdump::convert::dump_evaluator(&eval);
+    assert!(dump.face_table.faces.is_empty());
+
+    let mut decoder = crate::emacs_core::pdump::convert::LoadDecoder::new(&dump.tagged_heap);
+    crate::emacs_core::pdump::convert::load_symbol_table(&dump.symbol_table).expect("remap");
+    let restored =
+        crate::emacs_core::pdump::convert::load_face_table(&mut decoder, &dump.face_table);
+    crate::emacs_core::pdump::convert::finish_load_interner();
+    let restored_face = restored.get("pdump-face").expect("restored face");
+    assert!(
+        restored_face
+            .family
+            .as_ref()
+            .is_some_and(|value| value.is_symbol_named("unspecified"))
+    );
+    assert_eq!(
+        restored_face
+            .foundry
+            .as_ref()
+            .and_then(|value| value.as_runtime_string_owned())
+            .as_deref(),
+        Some("OpenAI")
+    );
+    assert!(
+        restored_face
+            .stipple
+            .as_ref()
+            .is_some_and(|value| value.is_symbol_named("unspecified"))
+    );
+    assert_eq!(
+        restored_face
+            .doc
+            .as_ref()
+            .and_then(|value| value.as_runtime_string_owned())
+            .as_deref(),
+        Some("Face doc")
+    );
 }
 
 #[test]

@@ -1049,7 +1049,11 @@ pub enum DumpFaceHeight {
 pub struct DumpFace {
     pub foreground: Option<DumpColor>,
     pub background: Option<DumpColor>,
+    #[serde(default)]
+    pub family_value: Option<DumpValue>,
     pub family: Option<String>,
+    #[serde(default)]
+    pub foundry_value: Option<DumpValue>,
     pub foundry: Option<String>,
     pub height: Option<DumpFaceHeight>,
     pub weight: Option<u16>,
@@ -1059,6 +1063,8 @@ pub struct DumpFace {
     pub strike_through: Option<bool>,
     pub box_border: Option<DumpBoxBorder>,
     pub inverse_video: Option<bool>,
+    #[serde(default)]
+    pub stipple_value: Option<DumpValue>,
     pub stipple: Option<String>,
     pub extend: Option<bool>,
     #[serde(default)]
@@ -1066,6 +1072,8 @@ pub struct DumpFace {
     #[serde(default)]
     pub inherit: Vec<String>,
     pub overstrike: bool,
+    #[serde(default)]
+    pub doc_value: Option<DumpValue>,
     pub doc: Option<String>,
 }
 

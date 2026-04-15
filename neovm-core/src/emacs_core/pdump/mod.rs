@@ -329,7 +329,7 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
         load_custom_manager(&state.custom),
         load_mode_registry(&mut decoder, &state.modes),
         load_coding_system_manager(&mut decoder, &state.coding_systems),
-        load_face_table(&state.face_table),
+        load_face_table(&mut decoder, &state.face_table),
         load_abbrev_manager(&state.abbrevs),
         load_interactive_registry(&mut decoder, &state.interactive),
         load_rectangle(&state.rectangle),
@@ -393,7 +393,6 @@ pub(crate) fn take_after_pdump_load_hook_pending(eval: &mut Context) -> bool {
         .set_symbol_value(AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL, value::Value::NIL);
     pending
 }
-
 
 #[cfg(test)]
 #[path = "pdump_test.rs"]
