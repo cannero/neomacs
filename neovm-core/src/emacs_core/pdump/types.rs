@@ -956,6 +956,7 @@ pub enum DumpFontWidth {
 pub enum DumpFontRepertory {
     Charset(String),
     CharTableRanges(Vec<(u32, u32)>),
+    CharsetSym(DumpSymId),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

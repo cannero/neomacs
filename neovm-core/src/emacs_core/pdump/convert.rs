@@ -1566,7 +1566,7 @@ fn dump_font_width(width: &FontWidth) -> DumpFontWidth {
 
 fn dump_font_repertory(repertory: FontRepertory) -> DumpFontRepertory {
     match repertory {
-        FontRepertory::Charset(name) => DumpFontRepertory::Charset(name),
+        FontRepertory::Charset(name) => DumpFontRepertory::CharsetSym(dump_sym_id(name)),
         FontRepertory::CharTableRanges(ranges) => DumpFontRepertory::CharTableRanges(ranges),
     }
 }
@@ -3407,7 +3407,10 @@ fn load_font_width(width: &DumpFontWidth) -> FontWidth {
 
 fn load_font_repertory(repertory: &DumpFontRepertory) -> FontRepertory {
     match repertory {
-        DumpFontRepertory::Charset(name) => FontRepertory::Charset(name.clone()),
+        DumpFontRepertory::Charset(name) => {
+            FontRepertory::Charset(crate::emacs_core::intern::intern(name))
+        }
+        DumpFontRepertory::CharsetSym(name) => FontRepertory::Charset(load_sym_id(name)),
         DumpFontRepertory::CharTableRanges(ranges) => {
             FontRepertory::CharTableRanges(ranges.clone())
         }

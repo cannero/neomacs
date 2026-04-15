@@ -1,5 +1,6 @@
 use super::*;
 use crate::emacs_core::charset::{builtin_define_charset_internal, reset_charset_registry};
+use crate::emacs_core::intern::intern;
 
 fn registry_spec(name: &str) -> FontSpecEntry {
     FontSpecEntry::Font(StoredFontSpec {
@@ -97,7 +98,7 @@ fn repertory_charset_filters_non_matching_entries() {
             weight: None,
             slant: None,
             width: None,
-            repertory: Some(FontRepertory::Charset("iso-8859-1".to_string())),
+            repertory: Some(FontRepertory::Charset(intern("iso-8859-1"))),
         }),
         FontsetAddMode::Append,
     );
@@ -110,7 +111,7 @@ fn repertory_charset_filters_non_matching_entries() {
             weight: None,
             slant: None,
             width: None,
-            repertory: Some(FontRepertory::Charset("unicode-bmp".to_string())),
+            repertory: Some(FontRepertory::Charset(intern("unicode-bmp"))),
         }),
         FontsetAddMode::Append,
     );
@@ -162,7 +163,7 @@ fn repertory_subset_charset_filters_non_matching_entries() {
             weight: None,
             slant: None,
             width: None,
-            repertory: Some(FontRepertory::Charset("iso-8859-2-test".to_string())),
+            repertory: Some(FontRepertory::Charset(intern("iso-8859-2-test"))),
         }),
         FontsetAddMode::Append,
     );
@@ -175,7 +176,7 @@ fn repertory_subset_charset_filters_non_matching_entries() {
             weight: None,
             slant: None,
             width: None,
-            repertory: Some(FontRepertory::Charset("unicode-bmp".to_string())),
+            repertory: Some(FontRepertory::Charset(intern("unicode-bmp"))),
         }),
         FontsetAddMode::Append,
     );
@@ -217,8 +218,8 @@ fn repertory_target_ranges_support_subset_charsets() {
     ]);
     builtin_define_charset_internal(subset_args).unwrap();
 
-    let ranges = repertory_target_ranges(&FontRepertory::Charset("iso-8859-2-test".into()))
-        .expect("subset repertory ranges");
+    let ranges = crate::emacs_core::charset::charset_target_ranges("iso-8859-2-test")
+        .expect("subset charset ranges");
     assert!(
         ranges
             .iter()
@@ -228,6 +229,18 @@ fn repertory_target_ranges_support_subset_charsets() {
         ranges
             .iter()
             .any(|(from, to)| *from <= 0x017D && 0x017D <= *to)
+    );
+}
+
+#[test]
+fn repertory_target_ranges_support_symbol_backed_charsets() {
+    crate::test_utils::init_test_tracing();
+    let ranges = repertory_target_ranges(&FontRepertory::Charset(intern("unicode-bmp")))
+        .expect("symbol-backed repertory ranges");
+    assert!(
+        ranges
+            .iter()
+            .any(|(from, to)| *from <= ('好' as u32) && ('好' as u32) <= *to)
     );
 }
 
@@ -420,4 +433,60 @@ fn fontset_registry_pdump_uses_lisp_string_names_and_loads_legacy_strings() {
             .iter()
             .any(|(name, _)| name == &legacy_name_lisp)
     );
+}
+
+#[test]
+fn fontset_registry_pdump_uses_symbol_identity_for_charset_repertories() {
+    crate::test_utils::init_test_tracing();
+    reset_fontset_registry();
+
+    let repertory_sym = intern("unicode-bmp");
+    restore_fontset_registry(FontsetRegistrySnapshot {
+        ordered_names: vec![fontset_name_lisp_string(DEFAULT_FONTSET_NAME)],
+        alias_to_name: vec![(
+            fontset_name_lisp_string(DEFAULT_FONTSET_ALIAS),
+            fontset_name_lisp_string(DEFAULT_FONTSET_NAME),
+        )],
+        fontsets: vec![(
+            fontset_name_lisp_string(DEFAULT_FONTSET_NAME),
+            FontsetDataSnapshot {
+                ranges: vec![FontsetRangeEntrySnapshot {
+                    from: 0x80,
+                    to: 0x10FFFF,
+                    entries: vec![FontSpecEntry::Font(StoredFontSpec {
+                        family: None,
+                        registry: Some("iso10646-1".to_string()),
+                        lang: None,
+                        weight: None,
+                        slant: None,
+                        width: None,
+                        repertory: Some(FontRepertory::Charset(repertory_sym)),
+                    })],
+                }],
+                fallback: None,
+            },
+        )],
+        generation: 13,
+    });
+
+    let dumped = crate::emacs_core::pdump::convert::dump_fontset_registry();
+    let repertory = dumped
+        .fontsets_lisp
+        .iter()
+        .find(|(name, _)| name.data == DEFAULT_FONTSET_NAME.as_bytes())
+        .and_then(|(_, data)| data.ranges.first())
+        .and_then(|range| range.entries.first())
+        .and_then(|entry| match entry {
+            crate::emacs_core::pdump::types::DumpFontSpecEntry::Font(spec) => {
+                spec.repertory.as_ref()
+            }
+            crate::emacs_core::pdump::types::DumpFontSpecEntry::ExplicitNone => None,
+        })
+        .expect("dumped repertory");
+
+    assert!(matches!(
+        repertory,
+        crate::emacs_core::pdump::types::DumpFontRepertory::CharsetSym(sym)
+            if sym.0 == repertory_sym.0
+    ));
 }

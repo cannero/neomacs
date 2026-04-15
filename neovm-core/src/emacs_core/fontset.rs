@@ -1,7 +1,7 @@
 use super::charset::{charset_contains_char, charset_exists, charset_target_ranges};
 use super::chartable::{for_each_non_nil_char_table_run, is_char_table};
 use super::error::{Flow, signal};
-use super::intern::resolve_sym;
+use super::intern::{SymId, resolve_sym};
 use super::value::*;
 use crate::face::{FontSlant, FontWeight, FontWidth};
 use crate::heap_types::LispString;
@@ -71,7 +71,7 @@ pub enum FontSpecEntry {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FontRepertory {
-    Charset(String),
+    Charset(SymId),
     CharTableRanges(Vec<(u32, u32)>),
 }
 
@@ -384,7 +384,7 @@ impl FontRepertory {
             // engine cannot yet answer membership for map/subset/superset
             // charsets, keep the candidate instead of producing a false
             // negative and dropping a valid font.
-            Self::Charset(name) => charset_contains_char(name, code).unwrap_or(true),
+            Self::Charset(name) => charset_contains_char(resolve_sym(*name), code).unwrap_or(true),
             Self::CharTableRanges(ranges) => {
                 ranges.iter().any(|(from, to)| code >= *from && code <= *to)
             }
@@ -394,7 +394,7 @@ impl FontRepertory {
 
 pub fn repertory_target_ranges(repertory: &FontRepertory) -> Option<Vec<(u32, u32)>> {
     match repertory {
-        FontRepertory::Charset(name) => charset_target_ranges(name),
+        FontRepertory::Charset(name) => charset_target_ranges(resolve_sym(*name)),
         FontRepertory::CharTableRanges(ranges) => Some(ranges.clone()),
     }
 }
@@ -971,7 +971,7 @@ fn font_encoding_repertory(value: &Value) -> Option<FontRepertory> {
     match value.kind() {
         ValueKind::Symbol(id) => {
             let name = resolve_sym(id);
-            charset_exists(name).then(|| FontRepertory::Charset(name.to_string()))
+            charset_exists(name).then(|| FontRepertory::Charset(id))
         }
         ValueKind::Cons => {
             let pair_car = value.cons_car();
@@ -1033,7 +1033,7 @@ fn expand_target(
             let symbol_name = resolve_sym(id).to_string();
             let targets = expand_script_symbol(&symbol_name, char_script_table)
                 .or_else(|| {
-                    charset_target_ranges(&symbol_name).map(|ranges| {
+                    charset_target_ranges(resolve_sym(id)).map(|ranges| {
                         ranges
                             .into_iter()
                             .map(|(from, to)| FontsetTarget::Range(from, to))
