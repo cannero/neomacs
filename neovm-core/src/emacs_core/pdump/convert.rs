@@ -1213,16 +1213,8 @@ pub(crate) fn dump_autoload_manager(
             .iter()
             .map(dump_lisp_string)
             .collect(),
-        obsolete_functions: am
-            .dump_obsolete_functions()
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect(),
-        obsolete_variables: am
-            .dump_obsolete_variables()
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect(),
+        obsolete_functions: am.dump_obsolete_functions(),
+        obsolete_variables: am.dump_obsolete_variables(),
     }
 }
 

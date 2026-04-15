@@ -19,6 +19,8 @@ use crate::emacs_core::value::ValueKind;
 use crate::gc_trace::GcTrace;
 use crate::heap_types::LispString;
 
+type ObsoleteInfo = (LispString, LispString);
+
 // ---------------------------------------------------------------------------
 // Autoload types
 // ---------------------------------------------------------------------------
@@ -83,9 +85,9 @@ pub struct AutoloadManager {
     /// Set of files that have already been loaded (for after-load tracking).
     loaded_files: Vec<LispString>,
     /// Obsolete function warnings: old-name -> (new-name, when).
-    obsolete_functions: HashMap<String, (String, String)>,
+    obsolete_functions: HashMap<SymId, ObsoleteInfo>,
     /// Obsolete variable warnings: old-name -> (new-name, when).
-    obsolete_variables: HashMap<String, (String, String)>,
+    obsolete_variables: HashMap<SymId, ObsoleteInfo>,
 }
 
 impl Default for AutoloadManager {
@@ -180,38 +182,84 @@ impl AutoloadManager {
 
     /// Mark a function as obsolete.
     pub fn make_obsolete(&mut self, old_name: &str, new_name: &str, when: &str) {
-        self.obsolete_functions.insert(
-            old_name.to_string(),
-            (new_name.to_string(), when.to_string()),
+        self.make_obsolete_symbol(
+            intern(old_name),
+            runtime_string_to_autoload_string(new_name),
+            runtime_string_to_autoload_string(when),
         );
+    }
+
+    pub fn make_obsolete_symbol(
+        &mut self,
+        old_name: SymId,
+        new_name: LispString,
+        when: LispString,
+    ) {
+        self.obsolete_functions.insert(old_name, (new_name, when));
     }
 
     /// Check if a function is marked obsolete.
     pub fn is_function_obsolete(&self, name: &str) -> bool {
-        self.obsolete_functions.contains_key(name)
+        self.is_function_obsolete_symbol(intern(name))
+    }
+
+    pub fn is_function_obsolete_symbol(&self, name: SymId) -> bool {
+        self.obsolete_functions.contains_key(&name)
     }
 
     /// Get obsolete function info: (new-name, when).
-    pub fn get_obsolete_function(&self, name: &str) -> Option<&(String, String)> {
-        self.obsolete_functions.get(name)
+    pub fn get_obsolete_function(&self, name: &str) -> Option<(String, String)> {
+        self.get_obsolete_function_symbol(intern(name))
+    }
+
+    pub fn get_obsolete_function_symbol(&self, name: SymId) -> Option<(String, String)> {
+        self.obsolete_functions.get(&name).map(|(new_name, when)| {
+            (
+                autoload_string_to_runtime_string(new_name),
+                autoload_string_to_runtime_string(when),
+            )
+        })
     }
 
     /// Mark a variable as obsolete.
     pub fn make_variable_obsolete(&mut self, old_name: &str, new_name: &str, when: &str) {
-        self.obsolete_variables.insert(
-            old_name.to_string(),
-            (new_name.to_string(), when.to_string()),
+        self.make_variable_obsolete_symbol(
+            intern(old_name),
+            runtime_string_to_autoload_string(new_name),
+            runtime_string_to_autoload_string(when),
         );
+    }
+
+    pub fn make_variable_obsolete_symbol(
+        &mut self,
+        old_name: SymId,
+        new_name: LispString,
+        when: LispString,
+    ) {
+        self.obsolete_variables.insert(old_name, (new_name, when));
     }
 
     /// Check if a variable is marked obsolete.
     pub fn is_variable_obsolete(&self, name: &str) -> bool {
-        self.obsolete_variables.contains_key(name)
+        self.is_variable_obsolete_symbol(intern(name))
+    }
+
+    pub fn is_variable_obsolete_symbol(&self, name: SymId) -> bool {
+        self.obsolete_variables.contains_key(&name)
     }
 
     /// Get obsolete variable info: (new-name, when).
-    pub fn get_obsolete_variable(&self, name: &str) -> Option<&(String, String)> {
-        self.obsolete_variables.get(name)
+    pub fn get_obsolete_variable(&self, name: &str) -> Option<(String, String)> {
+        self.get_obsolete_variable_symbol(intern(name))
+    }
+
+    pub fn get_obsolete_variable_symbol(&self, name: SymId) -> Option<(String, String)> {
+        self.obsolete_variables.get(&name).map(|(new_name, when)| {
+            (
+                autoload_string_to_runtime_string(new_name),
+                autoload_string_to_runtime_string(when),
+            )
+        })
     }
 
     // pdump accessors
@@ -227,11 +275,33 @@ impl AutoloadManager {
     pub(crate) fn dump_loaded_files(&self) -> &[LispString] {
         &self.loaded_files
     }
-    pub(crate) fn dump_obsolete_functions(&self) -> &HashMap<String, (String, String)> {
-        &self.obsolete_functions
+    pub(crate) fn dump_obsolete_functions(&self) -> Vec<(String, (String, String))> {
+        self.obsolete_functions
+            .iter()
+            .map(|(name, (new_name, when))| {
+                (
+                    resolve_sym(*name).to_string(),
+                    (
+                        autoload_string_to_runtime_string(new_name),
+                        autoload_string_to_runtime_string(when),
+                    ),
+                )
+            })
+            .collect()
     }
-    pub(crate) fn dump_obsolete_variables(&self) -> &HashMap<String, (String, String)> {
-        &self.obsolete_variables
+    pub(crate) fn dump_obsolete_variables(&self) -> Vec<(String, (String, String))> {
+        self.obsolete_variables
+            .iter()
+            .map(|(name, (new_name, when))| {
+                (
+                    resolve_sym(*name).to_string(),
+                    (
+                        autoload_string_to_runtime_string(new_name),
+                        autoload_string_to_runtime_string(when),
+                    ),
+                )
+            })
+            .collect()
     }
     pub(crate) fn from_dump(
         entries: HashMap<String, AutoloadEntry>,
@@ -247,14 +317,43 @@ impl AutoloadManager {
                 .collect(),
             after_load,
             loaded_files,
-            obsolete_functions,
-            obsolete_variables,
+            obsolete_functions: obsolete_functions
+                .into_iter()
+                .map(|(name, (new_name, when))| {
+                    (
+                        intern(&name),
+                        (
+                            runtime_string_to_autoload_string(&new_name),
+                            runtime_string_to_autoload_string(&when),
+                        ),
+                    )
+                })
+                .collect(),
+            obsolete_variables: obsolete_variables
+                .into_iter()
+                .map(|(name, (new_name, when))| {
+                    (
+                        intern(&name),
+                        (
+                            runtime_string_to_autoload_string(&new_name),
+                            runtime_string_to_autoload_string(&when),
+                        ),
+                    )
+                })
+                .collect(),
         }
     }
 }
 
 fn runtime_string_to_autoload_string(text: &str) -> LispString {
     super::builtins::runtime_string_to_lisp_string(text, true)
+}
+
+fn autoload_string_to_runtime_string(text: &LispString) -> String {
+    crate::emacs_core::string_escape::emacs_bytes_to_storage_string(
+        text.as_bytes(),
+        text.is_multibyte(),
+    )
 }
 
 // ---------------------------------------------------------------------------
