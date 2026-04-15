@@ -1112,6 +1112,9 @@ pub struct DumpBookmark {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpBookmarkManager {
+    #[serde(default)]
+    pub bookmarks_lisp: Vec<(DumpLispString, DumpBookmark)>,
+    #[serde(default)]
     pub bookmarks: Vec<(String, DumpBookmark)>,
     pub recent: Vec<DumpLispString>,
 }

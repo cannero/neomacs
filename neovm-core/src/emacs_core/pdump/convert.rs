@@ -1756,12 +1756,12 @@ pub(crate) fn dump_register_manager(
 
 pub(crate) fn dump_bookmark_manager(bm: &BookmarkManager) -> DumpBookmarkManager {
     DumpBookmarkManager {
-        bookmarks: bm
+        bookmarks_lisp: bm
             .dump_bookmarks()
             .iter()
             .map(|(k, b)| {
                 (
-                    k.clone(),
+                    dump_lisp_string(k.as_lisp_string()),
                     DumpBookmark {
                         name: dump_lisp_string(&b.name),
                         filename: b
@@ -1789,6 +1789,7 @@ pub(crate) fn dump_bookmark_manager(bm: &BookmarkManager) -> DumpBookmarkManager
                 )
             })
             .collect(),
+        bookmarks: Vec::new(),
         recent: bm.dump_recent().iter().map(dump_lisp_string).collect(),
     }
 }
@@ -3466,34 +3467,68 @@ pub(crate) fn load_register_manager(
 }
 
 pub(crate) fn load_bookmark_manager(dbm: &DumpBookmarkManager) -> BookmarkManager {
-    let bookmarks: HashMap<String, Bookmark> = dbm
-        .bookmarks
-        .iter()
-        .map(|(k, b)| {
-            (
-                k.clone(),
-                Bookmark {
-                    name: load_lisp_string(&b.name),
-                    filename: b.filename.as_deref().map(|s| {
-                        crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
-                    }),
-                    position: b.position,
-                    front_context: b.front_context.as_deref().map(|s| {
-                        crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
-                    }),
-                    rear_context: b.rear_context.as_deref().map(|s| {
-                        crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
-                    }),
-                    annotation: b.annotation.as_deref().map(|s| {
-                        crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
-                    }),
-                    handler: b.handler.as_deref().map(|s| {
-                        crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
-                    }),
-                },
-            )
-        })
-        .collect();
+    let bookmarks: HashMap<crate::emacs_core::bookmark::BookmarkKey, Bookmark> =
+        if !dbm.bookmarks_lisp.is_empty() {
+            dbm.bookmarks_lisp
+                .iter()
+                .map(|(k, b)| {
+                    (
+                        crate::emacs_core::bookmark::BookmarkKey::from_lisp_string(
+                            &load_lisp_string(k),
+                        ),
+                        Bookmark {
+                            name: load_lisp_string(&b.name),
+                            filename: b.filename.as_deref().map(|s| {
+                                crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
+                            }),
+                            position: b.position,
+                            front_context: b.front_context.as_deref().map(|s| {
+                                crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
+                            }),
+                            rear_context: b.rear_context.as_deref().map(|s| {
+                                crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
+                            }),
+                            annotation: b.annotation.as_deref().map(|s| {
+                                crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
+                            }),
+                            handler: b.handler.as_deref().map(|s| {
+                                crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
+                            }),
+                        },
+                    )
+                })
+                .collect()
+        } else {
+            dbm.bookmarks
+                .iter()
+                .map(|(k, b)| {
+                    (
+                        crate::emacs_core::bookmark::BookmarkKey::from_lisp_string(
+                            &crate::emacs_core::builtins::runtime_string_to_lisp_string(k, true),
+                        ),
+                        Bookmark {
+                            name: load_lisp_string(&b.name),
+                            filename: b.filename.as_deref().map(|s| {
+                                crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
+                            }),
+                            position: b.position,
+                            front_context: b.front_context.as_deref().map(|s| {
+                                crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
+                            }),
+                            rear_context: b.rear_context.as_deref().map(|s| {
+                                crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
+                            }),
+                            annotation: b.annotation.as_deref().map(|s| {
+                                crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
+                            }),
+                            handler: b.handler.as_deref().map(|s| {
+                                crate::emacs_core::builtins::runtime_string_to_lisp_string(s, true)
+                            }),
+                        },
+                    )
+                })
+                .collect()
+        };
     BookmarkManager::from_dump(bookmarks, dbm.recent.iter().map(load_lisp_string).collect())
 }
 

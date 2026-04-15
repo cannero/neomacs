@@ -54,7 +54,7 @@ pub struct Bookmark {
 /// Central registry for all bookmarks.
 #[derive(Clone, Debug)]
 pub struct BookmarkManager {
-    bookmarks: HashMap<String, Bookmark>,
+    bookmarks: HashMap<BookmarkKey, Bookmark>,
     /// Most recently used bookmark names (most recent first).
     recent: Vec<LispString>,
     /// True if bookmarks have been modified since last save.
@@ -240,13 +240,16 @@ impl BookmarkManager {
     }
 
     // pdump accessors
-    pub(crate) fn dump_bookmarks(&self) -> &HashMap<String, Bookmark> {
+    pub(crate) fn dump_bookmarks(&self) -> &HashMap<BookmarkKey, Bookmark> {
         &self.bookmarks
     }
     pub(crate) fn dump_recent(&self) -> &[LispString] {
         &self.recent
     }
-    pub(crate) fn from_dump(bookmarks: HashMap<String, Bookmark>, recent: Vec<LispString>) -> Self {
+    pub(crate) fn from_dump(
+        bookmarks: HashMap<BookmarkKey, Bookmark>,
+        recent: Vec<LispString>,
+    ) -> Self {
         Self {
             bookmarks,
             recent,
@@ -259,8 +262,23 @@ fn runtime_string_to_bookmark_string(text: &str) -> LispString {
     super::builtins::runtime_string_to_lisp_string(text, true)
 }
 
-fn bookmark_lookup_key(text: &LispString) -> String {
-    bookmark_string_to_runtime(text)
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub(crate) struct BookmarkKey(LispString);
+
+impl BookmarkKey {
+    pub(crate) fn from_lisp_string(text: &LispString) -> Self {
+        Self(runtime_string_to_bookmark_string(
+            &bookmark_string_to_runtime(text),
+        ))
+    }
+
+    pub(crate) fn as_lisp_string(&self) -> &LispString {
+        &self.0
+    }
+}
+
+fn bookmark_lookup_key(text: &LispString) -> BookmarkKey {
+    BookmarkKey::from_lisp_string(text)
 }
 
 fn bookmark_string_to_runtime(text: &LispString) -> String {
