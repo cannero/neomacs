@@ -1842,7 +1842,7 @@ fn lexenv_binding_symbol_id(value: Value) -> Option<SymId> {
     }
 }
 
-fn lexenv_binding_symbol_value(sym_id: SymId) -> Value {
+pub(crate) fn lexenv_binding_symbol_value(sym_id: SymId) -> Value {
     TaggedValue::from_sym_id(sym_id)
 }
 

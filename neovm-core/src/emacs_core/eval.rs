@@ -1693,7 +1693,9 @@ fn bind_lexical_value_rooted_in_call_frame(
 ) {
     let saved_roots = frame.extra_roots.len();
     frame.extra_roots.push(value);
-    *lexenv = lexenv_prepend(*lexenv, sym, value);
+    let binding = Value::make_cons(lexenv_binding_symbol_value(sym), value);
+    frame.extra_roots.push(binding);
+    *lexenv = Value::make_cons(binding, *lexenv);
     frame.extra_roots.truncate(saved_roots);
 }
 
@@ -1704,10 +1706,28 @@ fn prepend_lexical_binding_in_call_frame_rooted_env(
     sym: SymId,
     value: Value,
 ) {
+    let saved_roots = frame.extra_roots.len();
     let current_env = frame.extra_roots[env_root_index];
-    let new_env = lexenv_prepend(current_env, sym, value);
+    let binding = Value::make_cons(lexenv_binding_symbol_value(sym), value);
+    frame.extra_roots.push(binding);
+    let new_env = Value::make_cons(binding, current_env);
     frame.extra_roots[env_root_index] = new_env;
     *lexenv = new_env;
+    frame.extra_roots.truncate(saved_roots);
+}
+
+fn bind_lexical_value_rooted_in_eval_root_frame(
+    lexenv: &mut Value,
+    frame: &mut EvalRootFrame,
+    sym: SymId,
+    value: Value,
+) {
+    let saved_roots = frame.roots.len();
+    frame.roots.push(value);
+    let binding = Value::make_cons(lexenv_binding_symbol_value(sym), value);
+    frame.roots.push(binding);
+    *lexenv = Value::make_cons(binding, *lexenv);
+    frame.roots.truncate(saved_roots);
 }
 
 fn prepend_lexical_binding_in_eval_root_frame_env(
@@ -1717,10 +1737,62 @@ fn prepend_lexical_binding_in_eval_root_frame_env(
     sym: SymId,
     value: Value,
 ) {
+    let saved_roots = frame.roots.len();
     let current_env = frame.roots[env_root_index];
-    let new_env = lexenv_prepend(current_env, sym, value);
+    let binding = Value::make_cons(lexenv_binding_symbol_value(sym), value);
+    frame.roots.push(binding);
+    let new_env = Value::make_cons(binding, current_env);
     frame.roots[env_root_index] = new_env;
     *lexenv = new_env;
+    frame.roots.truncate(saved_roots);
+}
+
+fn bind_lexical_value_rooted_in_specpdl(
+    lexenv: &mut Value,
+    specpdl: &mut Vec<SpecBinding>,
+    sym: SymId,
+    value: Value,
+) {
+    specpdl.push(SpecBinding::GcRoot { value });
+    let binding = Value::make_cons(lexenv_binding_symbol_value(sym), value);
+    match specpdl.last_mut() {
+        Some(SpecBinding::GcRoot { value }) => *value = binding,
+        other => panic!("expected temporary specpdl gc root entry, got {other:?}"),
+    }
+    *lexenv = Value::make_cons(binding, *lexenv);
+    match specpdl.pop() {
+        Some(SpecBinding::GcRoot { .. }) => {}
+        other => panic!("expected temporary specpdl gc root entry, got {other:?}"),
+    }
+}
+
+fn prepend_lexical_binding_in_specpdl_rooted_env(
+    lexenv: &mut Value,
+    specpdl: &mut Vec<SpecBinding>,
+    env_root_index: usize,
+    sym: SymId,
+    value: Value,
+) {
+    specpdl.push(SpecBinding::GcRoot { value });
+    let current_env = match specpdl.get(env_root_index) {
+        Some(SpecBinding::GcRoot { value }) => *value,
+        other => panic!("expected specpdl gc root entry for lexical env, got {other:?}"),
+    };
+    let binding = Value::make_cons(lexenv_binding_symbol_value(sym), value);
+    match specpdl.last_mut() {
+        Some(SpecBinding::GcRoot { value }) => *value = binding,
+        other => panic!("expected temporary specpdl gc root entry, got {other:?}"),
+    }
+    let new_env = Value::make_cons(binding, current_env);
+    match specpdl.get_mut(env_root_index) {
+        Some(SpecBinding::GcRoot { value }) => *value = new_env,
+        other => panic!("expected mutable specpdl gc root entry for lexical env, got {other:?}"),
+    }
+    *lexenv = new_env;
+    match specpdl.pop() {
+        Some(SpecBinding::GcRoot { .. }) => {}
+        other => panic!("expected temporary specpdl gc root entry, got {other:?}"),
+    }
 }
 
 /// Build a `(MIN . MAX)` cons cell representing the arity of a lambda/closure,
@@ -1772,10 +1844,7 @@ fn begin_lambda_call_in_state(
         .last()
         .map(|frame| frame.extra_roots.len());
     let saved_eval_root_frame_len = eval_root_frames.last().map(|frame| frame.roots.len());
-    let pushed_eval_root_frame = active_call_roots.is_empty() && eval_root_frames.is_empty();
-    if pushed_eval_root_frame {
-        eval_root_frames.push(EvalRootFrame::new());
-    }
+    let pushed_eval_root_frame = false;
     let specpdl_count = specpdl.len();
 
     let has_lexenv = env.is_some();
@@ -1886,17 +1955,14 @@ fn begin_lambda_call_in_state(
                 frame.roots.pop();
             }
         } else {
-            let frame = eval_root_frames
-                .last_mut()
-                .expect("eval root frame should exist for rooted lambda call");
-            let env_root_index = frame.roots.len();
-            frame.roots.push(env);
+            let env_root_index = specpdl.len();
+            specpdl.push(SpecBinding::GcRoot { value: env });
 
             let mut arg_idx = 0;
             for param in &params.required {
-                prepend_lexical_binding_in_eval_root_frame_env(
+                prepend_lexical_binding_in_specpdl_rooted_env(
                     lexenv,
-                    frame,
+                    specpdl,
                     env_root_index,
                     *param,
                     args[arg_idx],
@@ -1905,18 +1971,18 @@ fn begin_lambda_call_in_state(
             }
             for param in &params.optional {
                 if arg_idx < args.len() {
-                    prepend_lexical_binding_in_eval_root_frame_env(
+                    prepend_lexical_binding_in_specpdl_rooted_env(
                         lexenv,
-                        frame,
+                        specpdl,
                         env_root_index,
                         *param,
                         args[arg_idx],
                     );
                     arg_idx += 1;
                 } else {
-                    prepend_lexical_binding_in_eval_root_frame_env(
+                    prepend_lexical_binding_in_specpdl_rooted_env(
                         lexenv,
-                        frame,
+                        specpdl,
                         env_root_index,
                         *param,
                         Value::NIL,
@@ -1925,15 +1991,13 @@ fn begin_lambda_call_in_state(
             }
             if let Some(rest_name) = params.rest {
                 let rest_value = Value::list_from_slice(&args[arg_idx..]);
-                frame.roots.push(rest_value);
-                prepend_lexical_binding_in_eval_root_frame_env(
+                prepend_lexical_binding_in_specpdl_rooted_env(
                     lexenv,
-                    frame,
+                    specpdl,
                     env_root_index,
                     rest_name,
                     rest_value,
                 );
-                frame.roots.pop();
             }
         }
     } else {
@@ -7528,7 +7592,12 @@ impl Context {
             self.specpdl
                 .push(SpecBinding::LexicalEnv { old_lexenv: saved });
             for (sym_id, val) in &lexical_bindings {
-                self.lexenv = lexenv_prepend(self.lexenv, *sym_id, *val);
+                bind_lexical_value_rooted_in_specpdl(
+                    &mut self.lexenv,
+                    &mut self.specpdl,
+                    *sym_id,
+                    *val,
+                );
             }
         }
         for (sym_id, value) in &dynamic_sym_ids {
@@ -9813,20 +9882,38 @@ impl Context {
     }
 
     fn apply_lambda(&mut self, func_value: Value, args: Vec<Value>) -> EvalResult {
+        let pushed_active_call_frame = self.active_call_roots.is_empty();
+        if pushed_active_call_frame {
+            self.push_active_call_frame(func_value, Some(func_value), &args);
+        }
         let Some(params) = func_value.closure_params() else {
+            if pushed_active_call_frame {
+                self.pop_active_call_frame();
+            }
             return Err(signal("invalid-function", vec![func_value]));
         };
         let Some(body) = func_value.closure_body_value() else {
+            if pushed_active_call_frame {
+                self.pop_active_call_frame();
+            }
             return Err(signal("invalid-function", vec![func_value]));
         };
         let env = func_value.closure_env().unwrap_or(None);
 
         let call_state = match self.begin_lambda_call(params, env, &args) {
             Ok(state) => state,
-            Err(err) => return Err(err),
+            Err(err) => {
+                if pushed_active_call_frame {
+                    self.pop_active_call_frame();
+                }
+                return Err(err);
+            }
         };
         let result = self.eval_lambda_body_value(body);
         self.finish_lambda_call(call_state);
+        if pushed_active_call_frame {
+            self.pop_active_call_frame();
+        }
         result
     }
 
@@ -9835,15 +9922,9 @@ impl Context {
         if let Some(frame) = self.active_call_roots.last_mut() {
             bind_lexical_value_rooted_in_call_frame(&mut self.lexenv, frame, sym, value);
         } else if let Some(frame) = self.eval_root_frames.last_mut() {
-            let saved_roots = frame.roots.len();
-            frame.roots.push(value);
-            self.lexenv = lexenv_prepend(self.lexenv, sym, value);
-            frame.roots.truncate(saved_roots);
+            bind_lexical_value_rooted_in_eval_root_frame(&mut self.lexenv, frame, sym, value);
         } else {
-            let specpdl_root_scope = self.save_specpdl_roots();
-            self.push_specpdl_root(value);
-            self.lexenv = lexenv_prepend(self.lexenv, sym, value);
-            self.restore_specpdl_roots(specpdl_root_scope);
+            bind_lexical_value_rooted_in_specpdl(&mut self.lexenv, &mut self.specpdl, sym, value);
         }
     }
 

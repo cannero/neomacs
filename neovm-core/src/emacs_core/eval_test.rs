@@ -8659,6 +8659,51 @@ fn lexical_binding_fallback_uses_specpdl_when_no_frame_is_available() {
 }
 
 #[test]
+fn direct_closure_call_without_preexisting_frame_uses_active_call_roots() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_lexical_binding(true);
+    ev.gc_stress = true;
+
+    let callable = ev
+        .eval_str(
+            "(let ((captured (vector 71)))
+               (lambda (x &optional y &rest rest)
+                 (list (aref captured 0) x y rest)))",
+        )
+        .expect("closure should evaluate");
+
+    assert!(ev.active_call_roots.is_empty());
+
+    let result = match ev.funcall_general_untraced(
+        callable,
+        vec![
+            Value::fixnum(1),
+            Value::fixnum(2),
+            Value::fixnum(3),
+            Value::fixnum(4),
+        ],
+    ) {
+        Ok(value) => value,
+        Err(Flow::Signal(sig)) => panic!(
+            "direct closure call should succeed: {} {:?}",
+            sig.symbol_name(),
+            sig.data
+        ),
+        Err(other) => panic!("direct closure call should succeed: {other:?}"),
+    };
+
+    assert_eq!(
+        crate::emacs_core::print::print_value(&result),
+        "(71 1 2 (3 4))"
+    );
+    assert!(
+        ev.active_call_roots.is_empty(),
+        "direct closure call should release temporary active call roots"
+    );
+}
+
+#[test]
 fn gc_collect_frees_unreachable() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
