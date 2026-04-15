@@ -140,13 +140,15 @@ fn autoload_manager_register_and_lookup() {
     let mut mgr = AutoloadManager::new();
     assert!(!mgr.is_autoloaded("foo"));
 
-    mgr.register(AutoloadEntry {
-        name: "foo".into(),
-        file: LispString::from_utf8("foo-lib"),
-        docstring: Some(LispString::from_utf8("Do foo things.")),
-        interactive: false,
-        autoload_type: AutoloadType::Function,
-    });
+    mgr.register(
+        "foo",
+        AutoloadEntry {
+            file: LispString::from_utf8("foo-lib"),
+            docstring: Some(LispString::from_utf8("Do foo things.")),
+            interactive: false,
+            autoload_type: AutoloadType::Function,
+        },
+    );
 
     assert!(mgr.is_autoloaded("foo"));
     let entry = mgr.get_entry("foo").unwrap();
@@ -163,13 +165,15 @@ fn autoload_manager_register_and_lookup() {
 fn autoload_manager_remove() {
     crate::test_utils::init_test_tracing();
     let mut mgr = AutoloadManager::new();
-    mgr.register(AutoloadEntry {
-        name: "bar".into(),
-        file: LispString::from_utf8("bar-lib"),
-        docstring: None,
-        interactive: true,
-        autoload_type: AutoloadType::Macro,
-    });
+    mgr.register(
+        "bar",
+        AutoloadEntry {
+            file: LispString::from_utf8("bar-lib"),
+            docstring: None,
+            interactive: true,
+            autoload_type: AutoloadType::Macro,
+        },
+    );
     assert!(mgr.is_autoloaded("bar"));
     mgr.remove("bar");
     assert!(!mgr.is_autoloaded("bar"));
@@ -179,20 +183,24 @@ fn autoload_manager_remove() {
 fn autoload_manager_multiple_entries() {
     crate::test_utils::init_test_tracing();
     let mut mgr = AutoloadManager::new();
-    mgr.register(AutoloadEntry {
-        name: "a".into(),
-        file: LispString::from_utf8("file-a"),
-        docstring: None,
-        interactive: false,
-        autoload_type: AutoloadType::Function,
-    });
-    mgr.register(AutoloadEntry {
-        name: "b".into(),
-        file: LispString::from_utf8("file-b"),
-        docstring: None,
-        interactive: false,
-        autoload_type: AutoloadType::Keymap,
-    });
+    mgr.register(
+        "a",
+        AutoloadEntry {
+            file: LispString::from_utf8("file-a"),
+            docstring: None,
+            interactive: false,
+            autoload_type: AutoloadType::Function,
+        },
+    );
+    mgr.register(
+        "b",
+        AutoloadEntry {
+            file: LispString::from_utf8("file-b"),
+            docstring: None,
+            interactive: false,
+            autoload_type: AutoloadType::Keymap,
+        },
+    );
     assert!(mgr.is_autoloaded("a"));
     assert!(mgr.is_autoloaded("b"));
     assert!(!mgr.is_autoloaded("c"));
@@ -500,13 +508,15 @@ fn symbol_file_accepts_third_arg_but_not_fourth() {
 fn autoload_entry_interactive_flag() {
     crate::test_utils::init_test_tracing();
     let mut mgr = AutoloadManager::new();
-    mgr.register(AutoloadEntry {
-        name: "cmd".into(),
-        file: LispString::from_utf8("cmd-file"),
-        docstring: None,
-        interactive: true,
-        autoload_type: AutoloadType::Function,
-    });
+    mgr.register(
+        "cmd",
+        AutoloadEntry {
+            file: LispString::from_utf8("cmd-file"),
+            docstring: None,
+            interactive: true,
+            autoload_type: AutoloadType::Function,
+        },
+    );
     let entry = mgr.get_entry("cmd").unwrap();
     assert!(entry.interactive);
 }
@@ -515,13 +525,15 @@ fn autoload_entry_interactive_flag() {
 fn autoload_entry_keymap_type() {
     crate::test_utils::init_test_tracing();
     let mut mgr = AutoloadManager::new();
-    mgr.register(AutoloadEntry {
-        name: "my-map".into(),
-        file: LispString::from_utf8("map-file"),
-        docstring: None,
-        interactive: false,
-        autoload_type: AutoloadType::Keymap,
-    });
+    mgr.register(
+        "my-map",
+        AutoloadEntry {
+            file: LispString::from_utf8("map-file"),
+            docstring: None,
+            interactive: false,
+            autoload_type: AutoloadType::Keymap,
+        },
+    );
     let entry = mgr.get_entry("my-map").unwrap();
     assert_eq!(entry.autoload_type, AutoloadType::Keymap);
 }
@@ -530,20 +542,24 @@ fn autoload_entry_keymap_type() {
 fn autoload_overwrites_previous() {
     crate::test_utils::init_test_tracing();
     let mut mgr = AutoloadManager::new();
-    mgr.register(AutoloadEntry {
-        name: "f".into(),
-        file: LispString::from_utf8("old-file"),
-        docstring: None,
-        interactive: false,
-        autoload_type: AutoloadType::Function,
-    });
-    mgr.register(AutoloadEntry {
-        name: "f".into(),
-        file: LispString::from_utf8("new-file"),
-        docstring: None,
-        interactive: true,
-        autoload_type: AutoloadType::Macro,
-    });
+    mgr.register(
+        "f",
+        AutoloadEntry {
+            file: LispString::from_utf8("old-file"),
+            docstring: None,
+            interactive: false,
+            autoload_type: AutoloadType::Function,
+        },
+    );
+    mgr.register(
+        "f",
+        AutoloadEntry {
+            file: LispString::from_utf8("new-file"),
+            docstring: None,
+            interactive: true,
+            autoload_type: AutoloadType::Macro,
+        },
+    );
     let entry = mgr.get_entry("f").unwrap();
     assert_eq!(entry.file.as_str(), Some("new-file"));
     assert!(entry.interactive);

@@ -59,8 +59,6 @@ impl AutoloadType {
 /// An entry in the autoload table.
 #[derive(Clone, Debug)]
 pub struct AutoloadEntry {
-    /// The function name that is autoloaded.
-    pub name: String,
     /// The file to load when the function is first called.
     pub file: LispString,
     /// Optional documentation string.
@@ -82,7 +80,7 @@ pub struct AutoloadManager {
     /// Map from file/feature name to list of forms to evaluate after loading.
     after_load: HashMap<String, Vec<Value>>,
     /// Set of files that have already been loaded (for after-load tracking).
-    loaded_files: Vec<String>,
+    loaded_files: Vec<LispString>,
     /// Obsolete function warnings: old-name -> (new-name, when).
     obsolete_functions: HashMap<String, (String, String)>,
     /// Obsolete variable warnings: old-name -> (new-name, when).
@@ -107,8 +105,8 @@ impl AutoloadManager {
     }
 
     /// Register an autoload entry.
-    pub fn register(&mut self, entry: AutoloadEntry) {
-        self.entries.insert(entry.name.clone(), entry);
+    pub fn register(&mut self, name: &str, entry: AutoloadEntry) {
+        self.entries.insert(name.to_string(), entry);
     }
 
     /// Check whether a function name has an autoload entry.
@@ -123,8 +121,11 @@ impl AutoloadManager {
 
     /// Snapshot current autoload entries for callers that need to rebuild
     /// function cells from the registered autoload metadata.
-    pub fn entries_snapshot(&self) -> Vec<AutoloadEntry> {
-        self.entries.values().cloned().collect()
+    pub fn entries_snapshot(&self) -> Vec<(String, AutoloadEntry)> {
+        self.entries
+            .iter()
+            .map(|(name, entry)| (name.clone(), entry.clone()))
+            .collect()
     }
 
     /// Remove an autoload entry (used after the file has been loaded and the
@@ -148,14 +149,16 @@ impl AutoloadManager {
 
     /// Record that a file has been loaded.
     pub fn mark_loaded(&mut self, file: &str) {
-        if !self.loaded_files.contains(&file.to_string()) {
-            self.loaded_files.push(file.to_string());
+        let file = runtime_string_to_autoload_string(file);
+        if !self.loaded_files.contains(&file) {
+            self.loaded_files.push(file);
         }
     }
 
     /// Check if a file has already been loaded.
     pub fn is_loaded(&self, file: &str) -> bool {
-        self.loaded_files.contains(&file.to_string())
+        let file = runtime_string_to_autoload_string(file);
+        self.loaded_files.contains(&file)
     }
 
     /// Mark a function as obsolete.
@@ -201,7 +204,7 @@ impl AutoloadManager {
     pub(crate) fn dump_after_load(&self) -> &HashMap<String, Vec<Value>> {
         &self.after_load
     }
-    pub(crate) fn dump_loaded_files(&self) -> &[String] {
+    pub(crate) fn dump_loaded_files(&self) -> &[LispString] {
         &self.loaded_files
     }
     pub(crate) fn dump_obsolete_functions(&self) -> &HashMap<String, (String, String)> {
@@ -213,7 +216,7 @@ impl AutoloadManager {
     pub(crate) fn from_dump(
         entries: HashMap<String, AutoloadEntry>,
         after_load: HashMap<String, Vec<Value>>,
-        loaded_files: Vec<String>,
+        loaded_files: Vec<LispString>,
         obsolete_functions: HashMap<String, (String, String)>,
         obsolete_variables: HashMap<String, (String, String)>,
     ) -> Self {
@@ -225,6 +228,10 @@ impl AutoloadManager {
             obsolete_variables,
         }
     }
+}
+
+fn runtime_string_to_autoload_string(text: &str) -> LispString {
+    super::builtins::runtime_string_to_lisp_string(text, true)
 }
 
 // ---------------------------------------------------------------------------
@@ -490,13 +497,15 @@ pub(crate) fn register_autoload_in_state(
     ]);
 
     obarray.set_symbol_function(&name, autoload_form);
-    autoloads.register(AutoloadEntry {
-        name: name.clone(),
-        file: file.clone(),
-        docstring,
-        interactive,
-        autoload_type,
-    });
+    autoloads.register(
+        &name,
+        AutoloadEntry {
+            file: file.clone(),
+            docstring,
+            interactive,
+            autoload_type,
+        },
+    );
 
     Ok(Value::symbol(&name))
 }

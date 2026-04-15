@@ -1186,7 +1186,6 @@ pub(crate) fn dump_autoload_manager(
                 (
                     k.clone(),
                     DumpAutoloadEntry {
-                        name: v.name.clone(),
                         file: dump_lisp_string(&v.file),
                         docstring: v.docstring.as_ref().map(dump_lisp_string),
                         interactive: v.interactive,
@@ -1209,7 +1208,11 @@ pub(crate) fn dump_autoload_manager(
                 )
             })
             .collect(),
-        loaded_files: am.dump_loaded_files().to_vec(),
+        loaded_files: am
+            .dump_loaded_files()
+            .iter()
+            .map(dump_lisp_string)
+            .collect(),
         obsolete_functions: am
             .dump_obsolete_functions()
             .iter()
@@ -2659,7 +2662,6 @@ pub(crate) fn load_autoload_manager(
             (
                 k.clone(),
                 AutoloadEntry {
-                    name: e.name.clone(),
                     file: load_lisp_string(&e.file),
                     docstring: e.docstring.as_ref().map(load_lisp_string),
                     interactive: e.interactive,
@@ -2685,7 +2687,7 @@ pub(crate) fn load_autoload_manager(
     AutoloadManager::from_dump(
         entries,
         after_load,
-        dam.loaded_files.clone(),
+        dam.loaded_files.iter().map(load_lisp_string).collect(),
         dam.obsolete_functions
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))

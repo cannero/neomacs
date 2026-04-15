@@ -2545,13 +2545,13 @@ fn normalize_bootstrap_runtime_surface(
     }
 
     let autoload_entries = eval.autoloads.entries_snapshot();
-    for entry in &autoload_entries {
-        if strip_names.contains(&entry.name) {
-            eval.autoloads.remove(&entry.name);
+    for (name, _) in &autoload_entries {
+        if strip_names.contains(name) {
+            eval.autoloads.remove(name);
             let _ = super::builtins::builtin_put(
                 eval,
                 vec![
-                    Value::symbol(&entry.name),
+                    Value::symbol(name),
                     Value::symbol("autoload-macro"),
                     Value::NIL,
                 ],

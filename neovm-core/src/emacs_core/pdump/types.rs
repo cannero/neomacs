@@ -627,7 +627,6 @@ pub enum DumpAutoloadType {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpAutoloadEntry {
-    pub name: String,
     pub file: DumpLispString,
     pub docstring: Option<DumpLispString>,
     pub interactive: bool,
@@ -638,7 +637,7 @@ pub struct DumpAutoloadEntry {
 pub struct DumpAutoloadManager {
     pub entries: Vec<(String, DumpAutoloadEntry)>,
     pub after_load: Vec<(String, Vec<DumpValue>)>,
-    pub loaded_files: Vec<String>,
+    pub loaded_files: Vec<DumpLispString>,
     pub obsolete_functions: Vec<(String, (String, String))>,
     pub obsolete_variables: Vec<(String, (String, String))>,
 }
